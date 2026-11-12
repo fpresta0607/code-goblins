@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { callRuns, changeMessages, copyText, DEFAULT_MESSAGE_FONT, MAX_MESSAGE_FONT, messageFontFor, messagesQuery, MIN_MESSAGE_FONT, isPowerShellBlock, isWrittenReply, olderMessages, pageMessages, parseMessages, parsePage, parseSession, parseWaiting, replyParts, textParts, turnEnds, viewStanding, type SessionMessage, type SessionReport } from "./session-messages.ts";
+import { callRuns, changeMessages, conversationHead, copyText, DEFAULT_MESSAGE_FONT, MAX_MESSAGE_FONT, messageFontFor, messagesQuery, MIN_MESSAGE_FONT, isPowerShellBlock, isWrittenReply, olderMessages, pageMessages, parseMessages, parsePage, parseSession, parseWaiting, replyParts, textParts, turnEnds, viewStanding, type SessionMessage } from "./session-messages.ts";
 import type { Task } from "./types.ts";
 
 // A message as the supervisor serves it (internal/fleettree/messages.go).
@@ -123,21 +123,21 @@ test("a newest page clears abandoned usage while older pagination keeps current 
 
 const task = (fields: Partial<Task>) => ({ id: "cg-one", harness: "claude", backend: "native", generation: "s1", phase: "working", archived: false, ...fields }) as Task;
 
-test("supported native sessions have messages for the current goblin generation and CFO host", () => {
-  const cfo = { cfo_terminal: "t-7", cfo_harness: "claude" };
-  assert.equal(messagesQuery(cfo, task({})), "task=cg-one&generation=s1");
-  assert.equal(messagesQuery(cfo, task({ harness: "pi" })), "task=cg-one&generation=s1", "a pi goblin's conversation reads too");
-  assert.equal(messagesQuery(cfo, task({ phase: "paused" })), "task=cg-one&generation=s1", "a paused goblin's conversation still reads");
-  assert.equal(messagesQuery(cfo), "cfo=t-7");
-  assert.equal(messagesQuery({ ...cfo, cfo_terminal_since: "restart-2" }), "cfo=t-7&since=restart-2");
-  assert.equal(messagesQuery({ cfo_terminal: "t-7", cfo_harness: "pi" }), "cfo=t-7", "a pi CEO");
-  assert.equal(messagesQuery(cfo, task({ harness: "codex" })), "task=cg-one&generation=s1", "a Codex goblin reads its rollout without hooks");
+test("supported native sessions have messages for the current goblin generation and CEO host", () => {
+  const ceo = { ceo_terminal: "t-7", ceo_harness: "claude" };
+  assert.equal(messagesQuery(ceo, task({})), "task=cg-one&generation=s1");
+  assert.equal(messagesQuery(ceo, task({ harness: "pi" })), "task=cg-one&generation=s1", "a pi goblin's conversation reads too");
+  assert.equal(messagesQuery(ceo, task({ phase: "paused" })), "task=cg-one&generation=s1", "a paused goblin's conversation still reads");
+  assert.equal(messagesQuery(ceo), "ceo=t-7");
+  assert.equal(messagesQuery({ ...ceo, ceo_terminal_since: "restart-2" }), "ceo=t-7&since=restart-2");
+  assert.equal(messagesQuery({ ceo_terminal: "t-7", ceo_harness: "pi" }), "ceo=t-7", "a pi CEO");
+  assert.equal(messagesQuery(ceo, task({ harness: "codex" })), "task=cg-one&generation=s1", "a Codex goblin reads its rollout without hooks");
   for (const [why, other] of [["a goblin in Herdr", task({ backend: "herdr" })], ["a task not started", task({ generation: "" })], ["a stopped goblin", task({ phase: "stopped" })], ["a retired goblin", task({ archived: true })]] as const) {
-    assert.equal(messagesQuery(cfo, other), "", why);
+    assert.equal(messagesQuery(ceo, other), "", why);
   }
-  assert.equal(messagesQuery({ cfo_terminal: "", cfo_harness: "claude" }), "", "the CEO in Herdr");
-  assert.equal(messagesQuery({ cfo_terminal: "t-7", cfo_harness: "codex" }), "cfo=t-7", "a Codex CEO reads its rollout without hooks");
-  assert.equal(messagesQuery({ cfo_terminal: "t-7", cfo_harness: "" }), "", "a CEO that has not registered its harness");
+  assert.equal(messagesQuery({ ceo_terminal: "", ceo_harness: "claude" }), "", "the CEO in Herdr");
+  assert.equal(messagesQuery({ ceo_terminal: "t-7", ceo_harness: "codex" }), "ceo=t-7", "a Codex CEO reads its rollout without hooks");
+  assert.equal(messagesQuery({ ceo_terminal: "t-7", ceo_harness: "" }), "", "a CEO that has not registered its harness");
 });
 
 test("a reply's code blocks, headings and prose are drawn apart, a code block exactly as written with the language its fence names", () => {
@@ -255,51 +255,44 @@ test("a disjoint newest page replaces held history so older pagination can fill 
 // What the fleet's stream says of a session, as /api/messages sends it in a
 // session event: the newest turn, whether it runs, ended or was never
 // reported, and where the head of the stream is.
-const reported = (fields: Record<string, unknown> = {}) => ({ turn: "m0", state: "running", newest: 1, head: 3, ...fields });
+const reported = (fields: Record<string, unknown> = {}) => ({ conversation: "a", turn: "m0", state: "running", newest: 1, head: 3, ...fields });
+// He drew the prompt and its first reply of conversation a.
+const drawn = conversationHead({ conversation: "a", messages: held(0, 1) });
 
-test("a session that produced a newer turn than the view drew is behind, not working", () => {
-  // Arrange: he drew the prompt and its first reply; the stream holds a later
-  // message the view has not drawn.
-  const messages = held(0, 1);
+for (const { what, report, received, standing } of [
+  { what: "a turn the stream says runs, drawn to its end, is working", report: reported(), received: drawn, standing: { isBehind: false, isWorking: true } },
+  { what: "a drawn turn the stream says ended never draws a working indicator", report: reported({ state: "ended" }), received: drawn, standing: { isBehind: false, isWorking: false } },
+  { what: "a stream whose head is past what the view drew is behind, not working", report: reported({ newest: 4 }), received: drawn, standing: { isBehind: true, isWorking: false } },
+  { what: "a newer turn the view holds back while he reads up is behind before any session event names it", report: null, received: { conversation: "a", newest: 3 }, standing: { isBehind: true, isWorking: false } },
+  { what: "a newer turn the view holds back is behind, though the stream still says the drawn turn runs", report: reported(), received: { conversation: "a", newest: 3 }, standing: { isBehind: true, isWorking: false } },
+  { what: "a newer conversation is behind, though its seqs are lower than those drawn", report: reported({ conversation: "b", newest: 0 }), received: { conversation: "b", newest: 0 }, standing: { isBehind: true, isWorking: false } },
+  { what: "a turn no harness reported draws no indicator", report: reported({ state: "unknown", why: "no hooks" }), received: drawn, standing: { isBehind: false, isWorking: false } },
+  { what: "a session the board hears nothing of yet is neither behind nor working", report: null, received: drawn, standing: { isBehind: false, isWorking: false } },
+]) {
+  test(what, () => {
+    // Act
+    const actual = viewStanding(report && parseSession(report), drawn, received);
 
-  // Act
-  const standing = viewStanding(parseSession(reported({ newest: 4 })) as SessionReport, messages);
+    // Assert
+    assert.deepEqual(actual, standing);
+  });
+}
 
-  // Assert: behind is its own state, and no indicator is drawn on a turn the
-  // view has not caught up with.
-  assert.deepEqual(standing, { isBehind: true, isWorking: false });
+test("a session event carries the conversation it names, and why no harness reported its turn", () => {
+  const report = parseSession(reported({ state: "unknown", why: "no hooks" }));
+  assert.equal(report.conversation, "a");
+  assert.equal(report.why, "no hooks");
 });
 
-test("a drawn turn the stream says ended never draws a working indicator, whatever the snapshot says", () => {
-  // Arrange
-  const messages = held(0, 1);
-
-  // Act
-  const standing = viewStanding(parseSession(reported({ state: "ended", newest: 1 })) as SessionReport, messages);
-
-  // Assert
-  assert.deepEqual(standing, { isBehind: false, isWorking: false });
-});
-
-test("a turn the stream says runs is working once the view has drawn to its end", () => {
-  const standing = viewStanding(parseSession(reported({ newest: 1 })) as SessionReport, held(0, 1));
-  assert.deepEqual(standing, { isBehind: false, isWorking: true });
-});
-
-test("a turn no harness reported draws no indicator and says why", () => {
-  const report = parseSession(reported({ state: "unknown", why: "no hooks", newest: 1 }));
-  assert.deepEqual(viewStanding(report as SessionReport, held(0, 1)), { isBehind: false, isWorking: false });
-  assert.equal((report as SessionReport).why, "no hooks");
-});
-
-test("a session the board hears nothing of yet is neither behind nor working", () => {
-  assert.deepEqual(viewStanding(null, held(0, 1)), { isBehind: false, isWorking: false });
+test("a conversation's head is its newest message, and -1 while it holds none", () => {
+  assert.deepEqual(conversationHead({ conversation: "a", messages: held(2, 7) }), { conversation: "a", newest: 7 });
+  assert.deepEqual(conversationHead({ conversation: "a", messages: [] }), { conversation: "a", newest: -1 });
 });
 
 test("a session event carries why its record is stale or its stream cannot be kept, and says neither when it omits them", () => {
   // Arrange
   const cases = [
-    { what: "a stale record", value: reported({ stale: "The record names cfo-9." }), stale: "The record names cfo-9.", problem: "" },
+    { what: "a stale record", value: reported({ stale: "The record names ceo-9." }), stale: "The record names ceo-9.", problem: "" },
     { what: "a stream that cannot be kept", value: reported({ problem: "disk full" }), stale: "", problem: "disk full" },
     { what: "a current record", value: reported(), stale: "", problem: "" },
   ];

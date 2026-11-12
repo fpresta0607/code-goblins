@@ -8,8 +8,8 @@ import { expect, holdStream, openTaskList, type Page, test } from "./site";
 const REPO = "https://github.com/northwind/northwind-api";
 const since = new Date(Date.now() - 42 * 60_000).toISOString();
 const SNAPSHOT = {
-  healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [],
-  sessions: [{ id: "cfo-1", harness: "claude", role: "cfo", model: "claude-opus-5-5" }],
+  healthy: true, instance: "fixture", ceo_runs: true, ceo_harness: "claude", revision: 1, attention: [],
+  sessions: [{ id: "ceo-1", harness: "claude", role: "ceo", model: "claude-opus-5-5" }],
   tasks: [
     { id: "nw-sync", title: "Say why a billing sync fails", goblin_name: "Jerry", goblin_title: "Code Designer", project: "northwind-api", phase: "working", verified: false, generation: "nw-sync-1", harness: "claude", since },
     { id: "nw-export", title: "Export the audit trail", goblin_name: "Mabel", goblin_title: "Bug Hunter", project: "northwind-api", phase: "working", verified: false, generation: "nw-export-1", harness: "codex", pr: REPO + "/pull/55", since },
@@ -68,7 +68,7 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await expect(page.getByRole("tooltip")).toHaveText("Hear a long dictation in full");
     });
 
-    // The CFO's decision 1008011, 2026-10-17: a done row leads with the
+    // The CEO's decision 1008011, 2026-10-17: a done row leads with the
     // goblin's name like every other row, with the task in the name's tip.
     test("a completed card leads with its goblin's name, with what it delivered in its tip", async ({ page }) => {
       await open(page);

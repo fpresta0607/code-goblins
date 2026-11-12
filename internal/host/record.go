@@ -20,7 +20,7 @@ import (
 )
 
 // Record is how a running host is found again: by a supervisor started later,
-// or by a view opened after it. It lives in the CFO home's state directory,
+// or by a view opened after it. It lives in the CEO home's state directory,
 // which only this Windows user can read, because it holds the token.
 type Record struct {
 	ID       string `json:"id"`
@@ -257,8 +257,8 @@ func writeRecord(stateDir string, record Record) error {
 // ends and which outlasts the host's record until the terminal's next program
 // ends: the host that ran it, the program by pid and creation time, when it
 // ended, its exit code, and whether a viewer closed the terminal, as a restart
-// closes the CFO's, in which case the code is the close's and not the
-// program's own. It tells a CFO that ended unasked from one that was stopped,
+// closes the CEO's, in which case the code is the close's and not the
+// program's own. It tells a CEO that ended unasked from one that was stopped,
 // and a host that served from one that never did.
 type End struct {
 	ID         string    `json:"id"`

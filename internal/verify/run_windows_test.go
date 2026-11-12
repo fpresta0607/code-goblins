@@ -47,7 +47,7 @@ func TestTierFixture(t *testing.T) {
 
 // A tier's command is a test runner, and a test runner starts the tests. A
 // run cut off, at its limit or by its caller, ended the command alone:
-// `cfo verify` at a 90-second limit would have ended `cfo gate test` and left
+// `goblins verify` at a 90-second limit would have ended `goblins gate test` and left
 // the go vet and go test it had started running, with nothing left to end
 // them. The limit and the caller reach the command through the same context,
 // so the caller's cut stands in for the limit here: it can wait until the

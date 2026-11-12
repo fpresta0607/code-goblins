@@ -12,20 +12,21 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
-// HomeVariable is the variable that tells cfo where the fleet lives, and the
+// HomeVariable is the variable that tells goblins where the fleet lives, and the
 // one the installed hooks resolve the binary through.
-const HomeVariable = "CFO_HOME"
+const HomeVariable = "GOBLINS_HOME"
 
 // UserEnvFileVariable names a JSON file that stands in for the user-scope
-// environment, HKCU\Environment on Windows. With it set, cfo reads and writes
+// environment, HKCU\Environment on Windows. With it set, goblins reads and writes
 // that file in place of the user scope, so a test or a proof in a scratch
 // profile never writes the machine's own user environment.
-const UserEnvFileVariable = "CFO_USER_ENV_FILE"
+const UserEnvFileVariable = "GOBLINS_USER_ENV_FILE"
 
 // fileEnvStore keeps user-scope variables in a JSON object, comparing names
 // without case as Windows does. A missing file is an empty scope.
@@ -96,6 +97,19 @@ func (s fileEnvStore) Unset(name string) error {
 	return s.write(values)
 }
 
+func (s fileEnvStore) Names() ([]string, error) {
+	values, err := s.read()
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(values))
+	for name := range values {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
 // Broadcast has nothing to publish: no process reads this file on its own.
 func (fileEnvStore) Broadcast() error {
 	return nil
@@ -106,12 +120,13 @@ func (fileEnvStore) Broadcast() error {
 // Get returns the raw, unexpanded value: a user PATH routinely holds
 // `%USERPROFILE%\...` entries, and reading the expanded process value and
 // writing it back would bake today's expansion into the registry forever.
-// Broadcast publishes the changes so newly started processes see them
-// without a sign-out.
+// Names lists every variable the scope sets. Broadcast publishes the
+// changes so newly started processes see them without a sign-out.
 type EnvStore interface {
 	Get(name string) (value string, set bool, err error)
 	Set(name, value string) error
 	Unset(name string) error
+	Names() ([]string, error)
 	Broadcast() error
 }
 

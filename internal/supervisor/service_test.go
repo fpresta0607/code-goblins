@@ -18,6 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/pipeline/pipelinetest"
 	"github.com/fpresta0607/code-goblins/internal/readcache"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -116,12 +117,12 @@ func TestSnapshotNamesEachTasksTerminalBackend(t *testing.T) {
 // that reported moved to the end of the list, and a board was sent the id of
 // every session again, 512 of them, whenever one moved.
 func TestASessionThatReportsKeepsItsPlaceInTheSnapshot(t *testing.T) {
-	// Arrange: two CFO sessions, the first by id the older.
+	// Arrange: two CEO sessions, the first by id the older.
 	store, _ := testStore(t)
 	s := &Service{Store: store}
 	started := time.Now().UTC().Add(-time.Minute)
-	reportAsCFO(t, store, "SessionStart", "session-a", "", started)
-	reportAsCFO(t, store, "SessionStart", "session-b", "", started.Add(time.Second))
+	reportAsCEO(t, store, "SessionStart", "session-a", "", started)
+	reportAsCEO(t, store, "SessionStart", "session-b", "", started.Add(time.Second))
 	listed := func() []string {
 		t.Helper()
 		view, err := s.Snapshot()
@@ -137,7 +138,7 @@ func TestASessionThatReportsKeepsItsPlaceInTheSnapshot(t *testing.T) {
 	before := listed()
 
 	// Act: the first reports, so it is now the newest.
-	reportAsCFO(t, store, "UserPromptSubmit", "session-a", "turn-1", started.Add(10*time.Second))
+	reportAsCEO(t, store, "UserPromptSubmit", "session-a", "turn-1", started.Add(10*time.Second))
 
 	// Assert
 	if after := listed(); !slices.Equal(after, before) || !slices.Equal(after, []string{"session-a", "session-b"}) {
@@ -145,14 +146,14 @@ func TestASessionThatReportsKeepsItsPlaceInTheSnapshot(t *testing.T) {
 	}
 }
 
-// reportAsCFO has the store take a hook event from a Codex CFO session.
-func reportAsCFO(t *testing.T, store *Store, name, session, turn string, at time.Time) {
+// reportAsCEO has the store take a hook event from a Codex CEO session.
+func reportAsCEO(t *testing.T, store *Store, name, session, turn string, at time.Time) {
 	t.Helper()
 	payload, err := json.Marshal(map[string]string{"hook_event_name": name, "session_id": session, "turn_id": turn, "cwd": store.Home.Root})
 	if err != nil {
 		t.Fatal(err)
 	}
-	event, err := nativehook.Normalize(strings.NewReader(string(payload)), nativehook.Context{Harness: "codex", Role: "cfo", Now: at})
+	event, err := nativehook.Normalize(strings.NewReader(string(payload)), nativehook.Context{Harness: "codex", Role: "ceo", Now: at})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +225,7 @@ func TestSnapshotKeepsParkedBriefsOffTheBoard(t *testing.T) {
 	}{
 		"parked in place": {"## Queued\n- [ ] g7 - Parked in place (hold: set aside) (hold-kind: parked)\n", false},
 		"parked section":  {"## Queued\n\n## Parked\n- [ ] g7 - Set aside\n", false},
-		"CFO parked form": {"## Queued\n\n## Parked\n- parked **g7** - Set aside by the CFO\n", false},
+		"CEO parked form": {"## Queued\n\n## Parked\n- parked **g7** - Set aside by the CEO\n", false},
 		"ordinary queued": {"## Queued\n- [ ] g7 - Waiting its turn\n", true},
 		"no backlog row":  {"## Queued\n", true},
 	} {
@@ -454,7 +455,7 @@ func TestTerminalControlRespectsPipelineCustody(t *testing.T) {
 // A worktree on a detached HEAD, as a new task's starts, has no branch for a
 // gate's custody to be read on, so typing into its terminal stays held. The
 // board says so and names the commit, where it said Git's symbolic-ref
-// failure and woke the CFO each time (#1015).
+// failure and woke the CEO each time (#1015).
 func TestBoardTerminalOnADetachedHeadHoldsTypingAndSaysWhy(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
@@ -552,7 +553,7 @@ func TestADetachedWorktreeTakesTypingOnlyWhenTheGateProvesItFresh(t *testing.T) 
 			} else if out, err := exec.Command("sqlite3", database, runs).CombinedOutput(); err != nil {
 				t.Fatalf("disposable gate records: %v\n%s", err, out)
 			}
-			service := &Service{Store: store, Options: Options{Gate: pipeline.Reader{Root: root, Commands: execx.OSRunner{}}}}
+			service := &Service{Store: store, Options: Options{Gate: pipeline.Reader{Root: root, Commands: pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}}}}
 
 			// Act
 			typing := service.boardTerminalControl(t.Context(), meta)
@@ -893,14 +894,14 @@ func TestEvaluationNamesTheGateStep(t *testing.T) {
 // From policy version 7 a parked Test, Lint or CI failure is the goblin's to
 // fix, so the task reads as working on it, while a review decision, a test
 // command given no turn, a failure whose findings cannot be read, and any
-// failure under version 6, still wait on the CFO. Only an unreadable policy
+// failure under version 6, still wait on the CEO. Only an unreadable policy
 // is an error.
 func TestEvaluationLeavesAHandedBackFailureWithItsGoblin(t *testing.T) {
 	classes := pipeline.Classes{Ordinary: pipeline.Class{ReviewCycles: 2}, HighRisk: pipeline.Class{ReviewCycles: 3}, Mechanical: pipeline.Class{ReviewCycles: 2}}
 	versionSix := pipeline.Policy{Version: 6, AutoFix: pipeline.AutoFix{Test: 1, Lint: 1, Rebase: 1, CI: 1}, Classes: classes}
 	versionSeven := pipeline.Policy{Version: 7, AutoFix: pipeline.AutoFix{Rebase: 1}, Classes: classes}
 	const failure = `{"findings":[{"id":"step-failure","action":"auto-fix","severity":"error","description":"the command failed"}]}`
-	const noTurn = `{"findings":[{"id":"test-command-no-turn","action":"ask-user","severity":"error","description":"The wrapper reported: cfo gate turn: the command did not start: required test environment: .venv is missing. Respond with fix to run it again."}]}`
+	const noTurn = `{"findings":[{"id":"test-command-no-turn","action":"ask-user","severity":"error","description":"The wrapper reported: goblins gate turn: the command did not start: required test environment: .venv is missing. Respond with fix to run it again."}]}`
 	for _, c := range []struct {
 		name, step, findings string
 		policy               pipeline.Policy
@@ -962,29 +963,29 @@ func TestEvaluationLeavesAHandedBackFailureWithItsGoblin(t *testing.T) {
 			if err != nil || got.Phase != c.want || got.GateStep != c.step {
 				t.Fatalf("evaluation = %+v (%v), want phase %s at %s", got, err, c.want, c.step)
 			}
-			if c.want == "blocked" && got.Reason != "Pipeline decision required at "+c.step+"; use cfo pipeline respond" {
-				t.Fatalf("reason = %q, want the CFO's decision at %s", got.Reason, c.step)
+			if c.want == "blocked" && got.Reason != "Pipeline decision required at "+c.step+"; use goblins pipeline respond" {
+				t.Fatalf("reason = %q, want the CEO's decision at %s", got.Reason, c.step)
 			}
 		})
 	}
 }
 
 // #1611: the snapshot carried every session the store keeps, up to 512, though
-// the board draws only the CFO's and each task's own, so sub-agents' and
+// the board draws only the CEO's and each task's own, so sub-agents' and
 // retired goblins' sessions were 290 KB of every board's first snapshot.
 func TestTheSnapshotCarriesOnlyTheSessionsTheBoardDraws(t *testing.T) {
-	// Arrange: task-1's goblin in its generation g1 under a CFO, a sub-agent
+	// Arrange: task-1's goblin in its generation g1 under a CEO, a sub-agent
 	// of that goblin, the goblin of an earlier generation and one of a task
 	// gone from the board.
 	store, _ := testStore(t)
 	s := &Service{Store: store}
 	store.mu.Lock()
 	for _, node := range []Session{
-		{ID: "codex/cfo", Harness: "codex", Role: "cfo"},
-		{ID: "codex/goblin", Harness: "codex", Role: "goblin", TaskID: "task-1", Generation: "g1", Parent: "codex/cfo"},
+		{ID: "codex/ceo", Harness: "codex", Role: "ceo"},
+		{ID: "codex/goblin", Harness: "codex", Role: "goblin", TaskID: "task-1", Generation: "g1", Parent: "codex/ceo"},
 		{ID: "claude/sub-agent", Harness: "claude", Role: "subagent", TaskID: "task-1", Generation: "g1", Parent: "codex/goblin"},
-		{ID: "codex/earlier", Harness: "codex", Role: "goblin", TaskID: "task-1", Generation: "g0", Parent: "codex/cfo"},
-		{ID: "codex/retired", Harness: "codex", Role: "goblin", TaskID: "task-gone", Generation: "g1", Parent: "codex/cfo"},
+		{ID: "codex/earlier", Harness: "codex", Role: "goblin", TaskID: "task-1", Generation: "g0", Parent: "codex/ceo"},
+		{ID: "codex/retired", Harness: "codex", Role: "goblin", TaskID: "task-gone", Generation: "g1", Parent: "codex/ceo"},
 	} {
 		store.db.Sessions[node.ID] = node
 	}
@@ -1007,8 +1008,8 @@ func TestTheSnapshotCarriesOnlyTheSessionsTheBoardDraws(t *testing.T) {
 		carried = append(carried, node.ID)
 	}
 	slices.Sort(carried)
-	if !slices.Equal(carried, []string{"codex/cfo", "codex/goblin"}) {
-		t.Errorf("the snapshot carries the sessions %v, want the CFO's and task-1's goblin's alone", carried)
+	if !slices.Equal(carried, []string{"codex/ceo", "codex/goblin"}) {
+		t.Errorf("the snapshot carries the sessions %v, want the CEO's and task-1's goblin's alone", carried)
 	}
 }
 

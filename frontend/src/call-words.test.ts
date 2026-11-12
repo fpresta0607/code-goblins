@@ -14,6 +14,8 @@ test("a call reads with its tool's icon and verb, as it runs and once it has run
     ["Grep", false, { icon: "search", verb: "Searched" }],
     ["TodoWrite", false, { icon: "task", verb: "Updated the plan" }],
     ["update_plan", false, { icon: "task", verb: "Updated the plan" }],
+    ["TaskCreate", false, { icon: "task", verb: "Added a task" }],
+    ["TaskUpdate", true, { icon: "task", verb: "Updating a task" }],
     ["SomethingNew", false, { icon: "sparkle", verb: "SomethingNew" }],
   ];
   for (const [tool, isRunning, want] of cases) assert.deepEqual(callWords(tool, isRunning), want, tool + (isRunning ? " running" : ""));
@@ -69,6 +71,7 @@ test("a folded run of calls counts each kind with the verb its rows use, in the 
     [["Read", "mcp__claude_ai_Supabase__list_projects"], "Read 1 file, used Supabase 1 time"],
     [["ToolSearch", "ToolSearch", "mcp__docs__fetch"], "Loaded tools 2 times, used Docs 1 time"],
     [["SomethingNew", "TodoWrite"], "Used SomethingNew 1 time, updated the plan 1 time"],
+    [["TaskCreate", "TaskCreate", "TaskCreate", "TaskUpdate", "TaskUpdate"], "Added 3 tasks, updated tasks 2 times"],
   ];
   for (const [tools, want] of cases) assert.equal(callTally(tools), want, tools.join(" "));
 });

@@ -30,7 +30,7 @@ func TestLavishPollChild(t *testing.T) {
 // #915, 2026-10-14: lavish-axi's page server, which the first lavish-axi call
 // starts and which outlives it, ran in a goblin's worktree, where the goblin's
 // notify had run that call, and held the folder as its working directory, so
-// cfo cleanup could not remove it. Every call runs in the user's profile.
+// goblins cleanup could not remove it. Every call runs in the user's profile.
 func TestLavishRunsInTheProfileNotTheCallersFolder(t *testing.T) {
 	// Arrange
 	bin := t.TempDir()

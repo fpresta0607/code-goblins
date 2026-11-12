@@ -167,10 +167,10 @@ func TestAFailedResumeHeldByALifecycleOperationIsLeftToIt(t *testing.T) {
 
 // A failed resume finished as running types nothing more into its goblin's
 // terminal, and the instruction it typed carried only the board messages kept
-// before it began. So each board message kept for it goes to the CFO with its
+// before it began. So each board message kept for it goes to the CEO with its
 // words and the resume's start, as a message no goblin could take does, and a
 // note that holds no board message wakes nobody.
-func TestAFinishedResumeHandsTheMessagesKeptForItToTheCFO(t *testing.T) {
+func TestAFinishedResumeHandsTheMessagesKeptForItToTheCEO(t *testing.T) {
 	started := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
 	resumed := sessionAt(started.Add(30 * time.Second))
 	answer := "The Overlord answered your question: use the blue one"
@@ -218,11 +218,11 @@ func TestAFinishedResumeHandsTheMessagesKeptForItToTheCFO(t *testing.T) {
 				}
 			}
 			if len(told) != len(test.want) {
-				t.Fatalf("the CFO was told %q, want each of %q", told, test.want)
+				t.Fatalf("the CEO was told %q, want each of %q", told, test.want)
 			}
 			for index, words := range test.want {
 				if !strings.HasPrefix(told[index], "message not delivered: ") || !strings.Contains(told[index], started.Format(time.RFC3339)) || !strings.HasSuffix(told[index], "The Overlord wrote: "+words) {
-					t.Errorf("the CFO was told %q, want the message %q with the resume's start %s", told[index], words, started.Format(time.RFC3339))
+					t.Errorf("the CEO was told %q, want the message %q with the resume's start %s", told[index], words, started.Format(time.RFC3339))
 				}
 			}
 		})

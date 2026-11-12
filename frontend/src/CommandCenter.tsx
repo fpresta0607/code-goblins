@@ -11,8 +11,8 @@ import { answerMark, answerReason, answeredElsewhere, answeredHere, asItems, can
 import { publicationKey, publishedAt, type Sent } from "./item-state";
 import { RunCard } from "./RunCard";
 import { UpdateCard } from "./update-card";
-import { CfoUnwokenCard } from "./cfo-unwoken-card";
-import { CfoStoppedCard } from "./cfo-stopped-card";
+import { CeoUnwokenCard } from "./ceo-unwoken-card";
+import { CeoStoppedCard } from "./ceo-stopped-card";
 import { CredentialCard } from "./credential-card";
 import { credentialAsk, credentialFinish, onThisMachine } from "./credentials";
 import { BrowserSignInCard } from "./browser-signin-card";
@@ -137,7 +137,7 @@ export function CommandCenter({ snapshot, connected, presentations, now, focus, 
   // he answered elsewhere, such as on its page, finishes the same way,
   // whatever this card tried meanwhile, and so does one that closed while this
   // card sent nothing: answered on another board, or taken back by its asker
-  // or the CFO. A command finishes once it ends without trouble, by its exit
+  // or the CEO. A command finishes once it ends without trouble, by its exit
   // code whatever its output says, or is withdrawn; one that failed keeps its
   // card, with its output, and an update keeps its own card. A credential
   // request finishes once every value it asks for is stored, by its card or
@@ -288,7 +288,7 @@ export function CommandCenter({ snapshot, connected, presentations, now, focus, 
     const item = itemFor(snapshot, key);
     if (item) onSent?.(key, { kind: string(payload.kind), id: submission.id, text: string(payload.text), answer_kind: string(payload.answer_kind), created_at: publishedAt(item) });
     try {
-      const receipt = parseAction(await request("/api/actions", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify({ id: submission.id, ...payload }) }));
+      const receipt = parseAction(await request("/api/actions", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": snapshot.instance }, body: JSON.stringify({ id: submission.id, ...payload }) }));
       if (latestPublications.current.get(key) !== publication) return;
       update(key, { receipt, sending: false });
     } catch (error: unknown) {
@@ -317,7 +317,7 @@ export function CommandCenter({ snapshot, connected, presentations, now, focus, 
     activeSignInAttempts.current = { ...activeSignInAttempts.current, [signin.id]: attempt };
     setSignInAttempts((prior) => ({ ...prior, [signin.id]: attempt }));
     try {
-      await request("/api/browser-signins/open", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify({ id: signin.id, generation: signin.generation }) });
+      await request("/api/browser-signins/open", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": snapshot.instance }, body: JSON.stringify({ id: signin.id, generation: signin.generation }) });
     } catch (error: unknown) {
       setSignInAttempts((prior) => prior[signin.id] === attempt ? { ...prior, [signin.id]: { ...attempt, isPending: false, error: message(error) } } : prior);
     }
@@ -329,7 +329,7 @@ export function CommandCenter({ snapshot, connected, presentations, now, focus, 
     setReopenAttempt(attempt);
     showReopenFeedback("");
     try {
-      await request("/api/credentials/reopen", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify({ id: target.id, generation: target.generation }) });
+      await request("/api/credentials/reopen", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": snapshot.instance }, body: JSON.stringify({ id: target.id, generation: target.generation }) });
     } catch (error: unknown) {
       if (activeReopenAttempt.current === attempt) {
         setReopenAttempt({ ...attempt, isPending: false });
@@ -365,7 +365,7 @@ export function CommandCenter({ snapshot, connected, presentations, now, focus, 
     const submission = submissionFor(JSON.stringify(payload), draft.submission, () => crypto.randomUUID());
     update(key, { submission, sending: true, error: "", unsent: false, sentAt: submission === draft.submission ? draft.sentAt : new Date().toISOString() });
     try {
-      const receipt = parseAction(await request("/api/actions", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify({ id: submission.id, ...payload }) }));
+      const receipt = parseAction(await request("/api/actions", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": snapshot.instance }, body: JSON.stringify({ id: submission.id, ...payload }) }));
       update(key, { receipt, sending: false });
     } catch (error: unknown) {
       const isRefused = error instanceof Error && error.cause !== undefined;
@@ -391,7 +391,7 @@ export function CommandCenter({ snapshot, connected, presentations, now, focus, 
     return () => clearTimeout(timer);
   }, [connected, keptBackKey]);
   const taskOf = (candidate: Item) => candidate.kind === "browser-signin" ? candidate.signin.task : candidate.kind === "question" ? candidate.question.task : candidate.kind === "review" ? candidate.review.task : candidate.kind === "credential" ? candidate.request.task : candidate.run.task;
-  // An Update item is Code Goblins' own, not the CFO's or a goblin's.
+  // An Update item is Code Goblins' own, not the CEO's or a goblin's.
   const release = (candidate: Item) => candidate.kind === "run" ? candidate.run.update : null;
   const askerOf = (candidate: Item) => {
     const goblin = snapshot.tasks.find((task) => task.id === taskOf(candidate));
@@ -399,14 +399,14 @@ export function CommandCenter({ snapshot, connected, presentations, now, focus, 
   };
   const textOf = (candidate: Item) => candidate.kind === "browser-signin" ? signInHeading(candidate.signin) : candidate.kind === "question" ? plainMessage(candidate.question.text) : candidate.kind === "review" ? reviewLine(candidate.review) : candidate.kind === "credential" ? credentialAsk(candidate.request) : candidate.run.update ? "Update to " + candidate.run.update.to + " from " + candidate.run.update.from : candidate.run.title;
   const created = (candidate: Item) => candidate.kind === "browser-signin" ? candidate.signin.created_at : candidate.kind === "question" ? candidate.question.created_at : candidate.kind === "review" ? candidate.review.created_at : candidate.kind === "credential" ? candidate.request.created_at : candidate.run.created_at;
-  const iconOf = (candidate: Item) => candidate.kind === "browser-signin" ? "lock" : candidate.kind === "question" ? candidate.question.image_count ? "images" : "question" : candidate.kind === "review" ? candidate.review.document ? "file" : candidate.review.image_count ? "images" : "comment" : candidate.kind === "credential" ? "key" : candidate.run.update ? "download" : candidate.run.cfo_unwoken ? "refresh" : "play";
+  const iconOf = (candidate: Item) => candidate.kind === "browser-signin" ? "lock" : candidate.kind === "question" ? candidate.question.image_count ? "images" : "question" : candidate.kind === "review" ? candidate.review.document ? "file" : candidate.review.image_count ? "images" : "comment" : candidate.kind === "credential" ? "key" : candidate.run.update ? "download" : candidate.run.ceo_unwoken ? "refresh" : "play";
   const pageFor = (candidate: Question) => questionPage(presentations, candidate);
   const images = !item || item.kind === "run" || item.kind === "credential" || item.kind === "browser-signin" ? [] : item.kind === "question"
     ? questionChoices(item.question).filter((choice) => choice.image).map((choice) => ({ src: choice.image, value: choice.value, text: choice.text }))
     : reviewImages(item.review).map((src, n) => ({ src, value: "Image " + (n + 1), text: "Image " + (n + 1) }));
   const presenter = (event: BoardActivity) => {
     const goblin = snapshot.tasks.find((task) => task.id === event.task_id);
-    return event.cfo_identity ? "The CEO" : goblin ? goblinName(goblin) : event.task_id;
+    return event.ceo_identity ? "The CEO" : goblin ? goblinName(goblin) : event.task_id;
   };
   const settled = settledItems(shown).slice(0, 20);
   // An accepted click stays pending until the broker reports progress, even
@@ -437,19 +437,19 @@ export function CommandCenter({ snapshot, connected, presentations, now, focus, 
     <details ref={menu} className="command-center-menu" open={inbox} onToggle={(event) => setInbox(event.currentTarget.open)}>
       <CommandCenterButton needing={needing} />
       <div className="command-center-updates">
-        <h2><Avatar persona="cfo" small />Command Center</h2>
+        <h2><Avatar persona="ceo" small />Command Center</h2>
         <section aria-label={WAITING_ON_YOU}>
           <h3>{WAITING_ON_YOU} <span className="column-count">{needing}</span>{waiting.length > 1 && <button className="primary go-through" onClick={() => { setInbox(false); setOpen(true); show(waiting[0].key); }}>Go through them</button>}</h3>
           {/* The whole row opens its item in the Command Center, as its
               button does for the keyboard: a click on the button reaches the
               row. A page opens only from the item's card. */}
           {needing ? <ul className="inbox-list waiting">{waiting.map((candidate) => <li key={candidate.key} className={"opens-item" + (release(candidate) ? " release-row" : "")} onClick={() => { setInbox(false); setOpen(true); show(candidate.key); }}>
-            <Avatar persona={release(candidate) ? "releases" : taskOf(candidate) ? personaFor(snapshot.tasks.find((task) => task.id === taskOf(candidate))) : "cfo"} small />
+            <Avatar persona={release(candidate) ? "releases" : taskOf(candidate) ? personaFor(snapshot.tasks.find((task) => task.id === taskOf(candidate))) : "ceo"} small />
             <span className="inbox-text"><strong>{askerOf(candidate)}</strong><span className="inbox-summary">{textOf(candidate)}</span></span>
             <time>{rowAge(created(candidate), now)}</time>
             <button type="button" className="icon-button raised" aria-label={"Answer " + askerOf(candidate) + ": " + textOf(candidate)}><Icon name={iconOf(candidate)} /></button>
           </li>)}{watching.map((event) => <li key={"watch:" + event.id}>
-            <Avatar persona={event.cfo_identity ? "cfo" : personaFor(snapshot.tasks.find((task) => task.id === event.task_id))} small />
+            <Avatar persona={event.ceo_identity ? "ceo" : personaFor(snapshot.tasks.find((task) => task.id === event.task_id))} small />
             <span className="inbox-text"><strong>{presenter(event)}</strong><span className="inbox-summary">{event.watch}</span></span>
             <time>{rowAge(event.at, now)}</time>
             <a className="icon-button raised" href={event.url} target="_blank" rel="noreferrer" aria-label={"Watch: " + event.watch}><Icon name="watch" /></a>
@@ -462,7 +462,7 @@ export function CommandCenter({ snapshot, connected, presentations, now, focus, 
           <ul className="inbox-list">{settled.map((candidate) => {
             const mark = settledIcon(candidate, snapshot.actions);
             const who = candidate.kind === "question" ? answerMark(candidate.question) : "";
-            const label = who === "you" ? "You answered" : who === "cfo" ? "The CEO answered" : who === "away" ? "The CEO answered while you were away" : settledLabel(candidate, snapshot.actions);
+            const label = who === "you" ? "You answered" : who === "ceo" ? "The CEO answered" : who === "away" ? "The CEO answered while you were away" : settledLabel(candidate, snapshot.actions);
             const reason = candidate.kind === "question" ? answerReason(candidate.question) : "";
             const changeBlock = candidate.kind === "question" ? canChange(candidate.question) ? "" : "It has no answer to change"
               : candidate.kind === "credential" ? candidate.request.state === "saved" ? "Its values are stored"
@@ -486,7 +486,7 @@ export function CommandCenter({ snapshot, connected, presentations, now, focus, 
               return next;
             });
             return <li key={candidate.key} className={isUnfolded ? "unfolded" : undefined}>
-              <HistoryMark icon={who === "you" ? "crown" : who === "away" ? "moon" : who === "cfo" || candidate.kind === "credential" && candidate.request.state === "answered" ? "comment" : mark.icon} tone={mark.tone} label={label} />
+              <HistoryMark icon={who === "you" ? "crown" : who === "away" ? "moon" : who === "ceo" || candidate.kind === "credential" && candidate.request.state === "answered" ? "comment" : mark.icon} tone={mark.tone} label={label} />
               <span className="inbox-text">
                 <span className="history-head"><strong>{asker}</strong><span className="inbox-summary">{linkedText(textOf(candidate))}</span></span>
                 <span className="history-detail" id={detail} hidden={!isUnfolded}><small>{linkedText(settledLabel(candidate, snapshot.actions))}</small>{reason && <small className="answer-reason">{linkedText(reason)}</small>}{changeBlock && <small id={why} className="answer-reason">{changeBlock}</small>}
@@ -520,7 +520,7 @@ export function CommandCenter({ snapshot, connected, presentations, now, focus, 
       onClick={(event) => { if (pressedOutside.current && outsideDialog(event)) close(); }}>
       {(item || changeQuestion) && <>
         <header className="command-center-heading">
-          <Avatar persona="cfo" />
+          <Avatar persona="ceo" />
           <h2 id="command-center-heading">Supreme Overlord<span>Command Center</span></h2>
           <button type="button" className="icon-button question-close" aria-label="Close the Command Center" onClick={close}><Icon name="close" /></button>
         </header>
@@ -544,7 +544,7 @@ export function CommandCenter({ snapshot, connected, presentations, now, focus, 
               if (Math.abs(dx) > 70 && Math.abs(event.clientY - start.y) < 50) move(dx < 0 ? 1 : -1);
             }}>
             {allDone
-              ? <div className="done-card" role="status"><Avatar persona="cfo" /><h3>You're all done</h3><p>Nothing else is waiting on you.</p></div>
+              ? <div className="done-card" role="status"><Avatar persona="ceo" /><h3>You're all done</h3><p>Nothing else is waiting on you.</p></div>
               : revisited
               ? <ChangeCard key={"change:" + revisited.id} question={revisited} snapshot={snapshot} connected={connected} now={now} draft={changeDraft(revisited)}
                 onDraft={(changes) => update(changeKey(revisited), changes)} onChange={() => change(revisited)} onClose={close} pager={pager} />
@@ -566,10 +566,10 @@ export function CommandCenter({ snapshot, connected, presentations, now, focus, 
               ? <CredentialCard key={shownKey} request={item.request} snapshot={snapshot} connected={connected} now={now} pager={pager} />
               : item.kind === "browser-signin"
               ? <BrowserSignInCard key={shownKey} signin={item.signin} snapshot={snapshot} connected={connected} now={now} isOpening={!!signInAttempts[item.signin.id]?.isPending} error={signInAttempts[item.signin.id]?.error || ""} onOpen={() => void openSignIn(item.signin)} pager={pager} />
-              : item.kind === "run" && item.run.cfo_unwoken
-              ? <CfoUnwokenCard key={shownKey} run={item.run} snapshot={snapshot} now={now} pager={pager} />
-              : item.kind === "run" && item.run.cfo_stopped
-              ? <CfoStoppedCard key={shownKey} run={item.run} snapshot={snapshot} now={now} pager={pager} />
+              : item.kind === "run" && item.run.ceo_unwoken
+              ? <CeoUnwokenCard key={shownKey} run={item.run} snapshot={snapshot} now={now} pager={pager} />
+              : item.kind === "run" && item.run.ceo_stopped
+              ? <CeoStoppedCard key={shownKey} run={item.run} snapshot={snapshot} now={now} pager={pager} />
               : item.kind === "run" && item.run.update
               ? <UpdateCard key={shownKey} run={item.run} offer={item.run.update} connected={connected} now={now} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} onRetry={retryItem(item.run) ? () => { const again = retryItem(item.run); if (again) { show("run:" + again.id); run(again); } } : undefined} pager={pager} />
               : item.kind === "run"

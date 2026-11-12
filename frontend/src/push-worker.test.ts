@@ -25,7 +25,7 @@ function runWorker() {
 // app's icon, and takes the count off at none.
 for (const [name, push, want] of [
   ["an item", { title: "Gordy", body: "Gordy wants your review: The release notes", count: 2, tag: "review:r1@T" }, ["badge 2", "notify Gordy: Gordy wants your review: The release notes (review:r1@T)"]],
-  ["none waiting", { title: "CFO", body: "The CFO asks: Ship it?", count: 0, tag: "question:q1@T" }, ["badge cleared", "notify CFO: The CFO asks: Ship it? (question:q1@T)"]],
+  ["none waiting", { title: "CEO", body: "The CEO asks: Ship it?", count: 0, tag: "question:q1@T" }, ["badge cleared", "notify CEO: The CEO asks: Ship it? (question:q1@T)"]],
   ["no payload", null, ["badge cleared", "notify Code Goblins:  (undefined)"]],
 ] as const) {
   test(`the app's push worker on ${name}`, async () => {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { boardAlerts, outlived } from "./alertRules.ts";
-import { cfoSummary } from "./cfoSummary.ts";
+import { ceoSummary } from "./ceoSummary.ts";
 import { closedAt, isOpen, itemFor, nextOpenKey, openKeys, settledIcon, settledItems, settledLabel, waitingItems } from "./commandQueue.ts";
 import { holdClosed, remembered } from "./item-state.ts";
 import { parseSnapshot } from "./types.ts";
@@ -33,7 +33,7 @@ for (const state of ["ready", "opening", "open", "signed_in", "expired"]) {
     assert.equal(isOpen(item), isWaiting);
     assert.equal(waitingItems(snapshot).length, Number(isWaiting));
     assert.equal(openKeys(snapshot).size, Number(isWaiting));
-    assert.equal(cfoSummary(snapshot).waiting, Number(isWaiting));
+    assert.equal(ceoSummary(snapshot).waiting, Number(isWaiting));
     assert.equal(settledItems(snapshot).length, Number(!isWaiting));
     if (!isWaiting) {
       assert.equal(closedAt(item), "2026-10-12T11:00:00Z");

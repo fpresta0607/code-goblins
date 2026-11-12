@@ -2,7 +2,7 @@ import { expect, holdStream, test, type Page } from "./site";
 import { RUNS } from "./terminal-runs";
 
 // The Overlord, 2026-10-13 about 22:32Z, on Claude Code's permissions screen
-// in the CFO's terminal: "Have to navigate and turn navigate enter. It doesn't
+// in the CEO's terminal: "Have to navigate and turn navigate enter. It doesn't
 // actually work." A view whose relay closed it, as one that fell behind a busy
 // program's output is, reconnects by itself, and the keys he presses then and
 // after must either reach the program or be said not sent. The supervisor is
@@ -11,7 +11,7 @@ import { RUNS } from "./terminal-runs";
 // Terminal on each harness (tests/terminal-runs.ts).
 const SESSION = "claude/9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34";
 const snapshot = (harness: string) => ({
-  healthy: true, instance: "fixture", revision: 1, attention: [], cfo_runs: true, afk: { state: "off" },
+  healthy: true, instance: "fixture", revision: 1, attention: [], ceo_runs: true, afk: { state: "off" },
   tasks: [{ id: "nw-invoice-export", title: "Export invoices as CSV", project: "northwind-api", phase: "working", verified: false, generation: "nw-invoice-export-1", harness, model: "claude-opus-5-5", effort: "xhigh", backend: "native", session: SESSION }],
   sessions: [{ id: SESSION, native_id: "9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", host_id: "nw-invoice-export", role: "goblin", task_id: "nw-invoice-export", generation: "nw-invoice-export-1", harness, phase: "working" }],
 });
@@ -35,7 +35,7 @@ interface Connection {
 // run does, and clicks into it, as he does, once its first connection is
 // whole. A connection after the first is whole only once the test says so.
 async function open(page: Page, run: typeof RUNS[number]): Promise<Connection[]> {
-  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+  await page.addInitScript(() => localStorage.setItem("ceo-chat-style", "classic"));
   const connections: Connection[] = [];
   await holdStream(page, snapshot(run.harness));
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));

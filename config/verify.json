@@ -1,7 +1,7 @@
 {
   "version": 1,
   "slow_packages": [
-    "cmd/cfo",
+    "cmd/goblins",
     "internal/installscript",
     "internal/installtest",
     "internal/monitor",
@@ -64,7 +64,7 @@
     },
     {
       "paths": ["README.md"],
-      "packages": [".", "cmd/cfo"],
+      "packages": [".", "cmd/goblins"],
       "why": "a test reads the README's links to the contract, and one reads its command reference"
     },
     {
@@ -79,17 +79,17 @@
     },
     {
       "paths": ["config/pipeline.json", ".no-mistakes.yaml"],
-      "packages": ["internal/pipeline", "cmd/cfo", "internal/spawn"],
+      "packages": ["internal/pipeline", "cmd/goblins", "internal/spawn"],
       "why": "the pipeline tests read the committed gate policy"
     },
     {
       "paths": ["data/routing.json"],
-      "packages": ["internal/routing", "cmd/cfo"],
+      "packages": ["internal/routing", "cmd/goblins"],
       "why": "the lane tests read the shipped table"
     },
     {
-      "paths": ["cmd/cfo/winres.json"],
-      "packages": ["cmd/cfo"],
+      "paths": ["cmd/goblins/winres.json"],
+      "packages": ["cmd/goblins"],
       "why": "the Windows resource objects are built from it"
     },
     {
@@ -109,7 +109,7 @@
     },
     {
       "paths": ["tests/acceptance/plan3_windows.ps1"],
-      "packages": ["cmd/cfo"],
+      "packages": ["cmd/goblins"],
       "why": "a test runs the acceptance script's self-tests"
     },
     {
@@ -126,6 +126,11 @@
       "paths": ["tests/acceptance/install_left_out.ps1"],
       "packages": ["."],
       "why": "a test runs the acceptance script's self-tests"
+    },
+    {
+      "paths": ["tests/pre_rename_build.ps1"],
+      "packages": ["."],
+      "why": "the role-name guard lists it among the files that keep the old names, and fails when a listed file is gone"
     },
     {
       "paths": ["**/*.go"],

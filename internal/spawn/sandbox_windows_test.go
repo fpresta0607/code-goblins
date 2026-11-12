@@ -207,7 +207,7 @@ func TestContainEnvironmentTurnsOffWhatTheWorktreeCouldPlantForHostGit(t *testin
 			if got := hostGitConfiguration(func(name string) string { return env[name] }); !maps.Equal(got, wantHostGit(hooksOff)) {
 				t.Fatalf("host git runs with %v, want %v", got, wantHostGit(hooksOff))
 			}
-			for _, want := range []string{"cfo sandbox run -- <command>", "cfo pipeline run starts no gate for your task"} {
+			for _, want := range []string{"goblins sandbox run -- <command>", "goblins pipeline run starts no gate for your task"} {
 				if !strings.Contains(sandboxInstruction(meta), want) {
 					t.Fatalf("instruction %q, want %q in it", sandboxInstruction(meta), want)
 				}
@@ -266,8 +266,8 @@ func TestASandboxSpawnRecordsItsImageAndHoldsItsHostGit(t *testing.T) {
 	if got := hostGitConfiguration(func(name string) string { return value(env[name]) }); !maps.Equal(got, wantHostGit(hooksOff)) {
 		t.Fatalf("the goblin's git runs with %v, want %v", got, wantHostGit(hooksOff))
 	}
-	if _, written := typedBrief(t, f.fixture, f.request.ID); !strings.Contains(written, "cfo sandbox run -- <command>") {
-		t.Fatalf("instruction = %q, want cfo sandbox run named", written)
+	if _, written := typedBrief(t, f.fixture, f.request.ID); !strings.Contains(written, "goblins sandbox run -- <command>") {
+		t.Fatalf("instruction = %q, want goblins sandbox run named", written)
 	}
 }
 
@@ -293,7 +293,7 @@ func TestASandboxTasksRelaunchHoldsItsHostGit(t *testing.T) {
 	if got := hostGitConfiguration(func(name string) string { return value(env[name]) }); !maps.Equal(got, wantHostGit(hooksOff)) {
 		t.Fatalf("the new goblin's git runs with %v, want %v", got, wantHostGit(hooksOff))
 	}
-	if _, written := typedBrief(t, f.fixture, f.meta.ID); !strings.Contains(written, "cfo sandbox run -- <command>") {
-		t.Fatalf("instruction = %q, want cfo sandbox run named", written)
+	if _, written := typedBrief(t, f.fixture, f.meta.ID); !strings.Contains(written, "goblins sandbox run -- <command>") {
+		t.Fatalf("instruction = %q, want goblins sandbox run named", written)
 	}
 }

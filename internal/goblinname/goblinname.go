@@ -1,6 +1,6 @@
 // Package goblinname gives every goblin a fun first name and title, such as
-// Jerry the Code Designer, which the board, the merge train and the CFO call
-// it by. The task id stays the handle for cfo commands.
+// Jerry the Code Designer, which the board, the merge train and the CEO call
+// it by. The task id stays the handle for goblins commands.
 package goblinname
 
 import (
@@ -28,7 +28,7 @@ type Pair struct {
 	Title string `json:"title"`
 }
 
-// String is the pair as the board and the CFO read it: "Jerry - Code
+// String is the pair as the board and the CEO read it: "Jerry - Code
 // Designer".
 func (p Pair) String() string {
 	return p.Name + " - " + p.Title
@@ -60,7 +60,7 @@ const lockBudget = 10 * time.Second
 // re-enter.
 var picking sync.Mutex
 
-// Called is how the CFO's own views name a goblin: "Jerry (cg-x)", or the id
+// Called is how the CEO's own views name a goblin: "Jerry (cg-x)", or the id
 // alone for a goblin with no name.
 func Called(name, id string) string {
 	if name == "" {

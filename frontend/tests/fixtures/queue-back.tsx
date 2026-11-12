@@ -13,7 +13,7 @@ declare global {
 }
 
 // The Command Center as the Overlord goes through it at 12:00Z on 2026-10-12,
-// back from AFK mode: three questions of the CFO's that only he can answer.
+// back from AFK mode: three questions of the CEO's that only he can answer.
 const NOW = Date.parse("2026-10-12T12:00:00Z");
 const ask = (id: string, text: string, options: string[], minutes: number) => ({
   id, identity: "f".repeat(64), task: "", text, options, recommended: options[0], status: "pending", created_at: new Date(NOW - minutes * 60000).toISOString(),
@@ -34,7 +34,7 @@ function QueueBack() {
   window.answerLands = (actionID, questionID, answer) => {
     raw = {
       ...raw, revision: raw.revision + 1,
-      actions: [...raw.actions, { id: actionID, kind: "cfo_answer", status: "queued", question_id: questionID, text: answer, answer_kind: "option" }],
+      actions: [...raw.actions, { id: actionID, kind: "ceo_answer", status: "queued", question_id: questionID, text: answer, answer_kind: "option" }],
       questions: raw.questions.map((question) => question.id !== questionID ? question : { ...question, status: "queued", answer_id: actionID, answer, answer_kind: "option" }),
     };
     setSnapshot(parseSnapshot(raw));

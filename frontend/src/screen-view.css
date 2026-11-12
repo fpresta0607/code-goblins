@@ -1,0 +1,26 @@
+.screen-view { display: flex; flex-direction: column; gap: 8px; flex: 1; min-width: 0; min-height: 0; }
+.screen-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+.screen-page { display: flex; align-items: center; gap: 8px; min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.screen-page .icon { flex: none; width: 18px; height: 18px; }
+.screen-note { font-size: .9375rem; }
+.screen-hand-back { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
+.screen-hand-back label { display: grid; gap: 4px; flex: 1 1 14rem; min-width: 0; font-size: .9375rem; color: var(--muted); }
+.screen-hand-back input { min-width: 0; }
+.screen-status { margin: 0; color: var(--muted); font-size: .9375rem; }
+.screen-status:empty { display: none; }
+.screen-stage { position: relative; display: grid; place-items: center; flex: 1; min-height: 0; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--hero-surface); overflow: hidden; }
+/* Out of flow and centred, the canvas fits the stage whole, at the frame's
+   own shape, whatever the stage's size. */
+.screen-canvas { position: absolute; inset: 0; margin: auto; display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; }
+.screen-view.driving .screen-canvas { cursor: default; touch-action: none; outline: 2px solid var(--accent-green); outline-offset: -2px; }
+.screen-canvas:focus-visible { outline: var(--focus-ring); outline-offset: -3px; }
+.screen-waiting { margin: 24px; }
+.screen-view.full { height: 100%; }
+.goblin-panel > .panel-screen { order: 3; display: flex; flex: 1; min-height: 0; padding: 8px 12px 12px; }
+.screen-page-shell { display: flex; flex-direction: column; gap: 12px; height: 100dvh; padding: 12px 16px 16px; box-sizing: border-box; }
+.screen-page-shell > header { display: flex; align-items: center; gap: 12px; }
+.screen-page-shell > header h1 { margin: 0; font-size: 1.25rem; }
+.screen-page-shell > header .brand-mark { display: inline-flex; flex: none; }
+.screen-page-shell > header .brand-mark img { width: 32px; height: 32px; }
+.screen-page-shell > main { display: flex; flex: 1; min-height: 0; }
+.credential-card .screen-stage { flex: none; aspect-ratio: 16 / 10; }

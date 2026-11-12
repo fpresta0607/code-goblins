@@ -54,7 +54,7 @@ func TestHookRejectsMalformedAndPrematureEvents(t *testing.T) {
 		`{"session_id":"s","cwd":"C:\\project","hook_event_name":"agent_settled","pending_messages":true}`,
 		strings.Repeat("x", MaxInputBytes+1),
 	} {
-		if _, err := Normalize(strings.NewReader(input), Context{Harness: "pi", Role: "cfo", Now: time.Now()}); err == nil {
+		if _, err := Normalize(strings.NewReader(input), Context{Harness: "pi", Role: "ceo", Now: time.Now()}); err == nil {
 			t.Fatalf("accepted %q", input[:min(len(input), 100)])
 		}
 	}
@@ -122,7 +122,7 @@ func TestALargeToolResponseKeepsItsProtocolFields(t *testing.T) {
 
 func TestHookDoesNotPersistPromptOrToolCredentials(t *testing.T) {
 	input, _ := json.Marshal(map[string]string{"session_id": "s", "cwd": t.TempDir(), "hook_event_name": "PostToolUse", "tool_response": "secret", "last_assistant_message": "secret"})
-	e, err := Normalize(bytes.NewReader(input), Context{Harness: "codex", Role: "cfo", Now: time.Now()})
+	e, err := Normalize(bytes.NewReader(input), Context{Harness: "codex", Role: "ceo", Now: time.Now()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestHookDoesNotPersistPromptOrToolCredentials(t *testing.T) {
 
 func TestStopInvocationsHaveIndependentIdentityWithinOneTurn(t *testing.T) {
 	input, _ := json.Marshal(map[string]string{"session_id": "s", "cwd": t.TempDir(), "hook_event_name": "Stop", "turn_id": "turn-1"})
-	c := Context{Harness: "codex", Role: "cfo", Now: time.Now()}
+	c := Context{Harness: "codex", Role: "ceo", Now: time.Now()}
 	a, err := Normalize(bytes.NewReader(input), c)
 	if err != nil {
 		t.Fatal(err)
@@ -181,7 +181,7 @@ func TestAPromptTakenForATurnIsMarked(t *testing.T) {
 // into that terminal can be proven by the harness's own hook; a harness in no
 // native terminal records none.
 func TestAnEventRecordsTheNativeTerminalItRunsIn(t *testing.T) {
-	for _, hostID := range []string{"cfo", ""} {
+	for _, hostID := range []string{"ceo", ""} {
 		input, _ := json.Marshal(map[string]string{"session_id": "session-1", "cwd": t.TempDir(), "hook_event_name": "UserPromptSubmit"})
 
 		e, err := Normalize(bytes.NewReader(input), Context{Harness: "claude", HostID: hostID, Now: time.Now()})

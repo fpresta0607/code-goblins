@@ -58,6 +58,18 @@ func claudeReport(ctx context.Context, output io.Reader, input io.Writer) ([]Ent
 	if err := call("initialize", &initialized); err != nil {
 		return nil, err
 	}
+	// last is the latest report, kept so the check's time limit ends it with
+	// what it saw: a server that connected or failed keeps that verdict, and
+	// only one still starting reads unverified.
+	var last []Entry
+	ended := func() []Entry {
+		for index := range last {
+			if last[index].Status == "checking" {
+				last[index].Status, last[index].Detail = "unverified", "Still starting when the check ended."
+			}
+		}
+		return last
+	}
 	for {
 		var report struct {
 			Servers []struct {
@@ -72,6 +84,9 @@ func claudeReport(ctx context.Context, output io.Reader, input io.Writer) ([]Ent
 			} `json:"mcpServers"`
 		}
 		if err := call("mcp_status", &report); err != nil {
+			if last != nil && ctx.Err() != nil {
+				return ended(), nil
+			}
 			return nil, err
 		}
 		entries := []Entry{}
@@ -94,9 +109,10 @@ func claudeReport(ctx context.Context, output io.Reader, input io.Writer) ([]Ent
 		if !isPending {
 			return entries, nil
 		}
+		last = entries
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return ended(), nil
 		case <-time.After(250 * time.Millisecond):
 		}
 	}

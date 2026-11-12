@@ -48,8 +48,8 @@ func TestRefusedGreenTrainKeepsItsProofAcrossPollsAndRestarts(t *testing.T) {
 			if !isOwnRun && !s.hasBranch(started.Branch) {
 				t.Fatal("the branch holding green proof was removed")
 			}
-			if len(s.cfo) != 2 || !strings.Contains(s.cfo[1], "hold") {
-				t.Fatalf("CFO told %q: want one start and one durable hold", s.cfo)
+			if len(s.ceo) != 2 || !strings.Contains(s.ceo[1], "hold") {
+				t.Fatalf("CEO told %q: want one start and one durable hold", s.ceo)
 			}
 		})
 	}
@@ -95,8 +95,8 @@ func TestHeldTrainConsumesOnlyOneAttemptPerPositiveReadinessTransition(t *testin
 			}
 
 			// Assert: the refused recovery attempt is spent across restarts.
-			if len(github.mergeCalls()) != 2 || held.Errors != 2 || held.History[0].MergeAttempts != 2 || len(held.History[0].MergeFailures) != failures+1 || !slices.Equal(proof, held.History[0].Passed) || len(s.cfo) != 2 {
-				t.Fatalf("train %+v, merges %v, notices %q: want one additional attempt with the original proof and failures", held, github.mergeCalls(), s.cfo)
+			if len(github.mergeCalls()) != 2 || held.Errors != 2 || held.History[0].MergeAttempts != 2 || len(held.History[0].MergeFailures) != failures+1 || !slices.Equal(proof, held.History[0].Passed) || len(s.ceo) != 2 {
+				t.Fatalf("train %+v, merges %v, notices %q: want one additional attempt with the original proof and failures", held, github.mergeCalls(), s.ceo)
 			}
 
 			// Act: another positive transition can land the existing proof.
@@ -160,8 +160,8 @@ func TestRedTrainRechecksRidersBeforeSplitting(t *testing.T) {
 		t.Fatalf("abandoned red run lost its observed failure: %+v", run)
 	}
 	landed := s.step(s.engine(github), started.ID)
-	if landed.State != StateLanded || landed.Cars[0].State != CarLanded || landed.Cars[1].State != CarReturned || strings.Contains(s.cfo[len(s.cfo)-1], "passed on the second try") {
-		t.Fatalf("train %+v, notices %q: want only the eligible rider landed and no invented retry success", landed, s.cfo)
+	if landed.State != StateLanded || landed.Cars[0].State != CarLanded || landed.Cars[1].State != CarReturned || strings.Contains(s.ceo[len(s.ceo)-1], "passed on the second try") {
+		t.Fatalf("train %+v, notices %q: want only the eligible rider landed and no invented retry success", landed, s.ceo)
 	}
 }
 
@@ -325,8 +325,8 @@ func TestHeldTrainNeverReusesChangedCheckOrMergeIdentity(t *testing.T) {
 				}
 
 				// Assert
-				if len(github.mergeCalls()) != 1 || len(github.rerunCalls()) != 0 || len(github.merged) != 0 || len(s.cfo) != 2 {
-					t.Fatalf("merges %v, retries %v, landed %v, notices %q: changed or unknown proof must hold", github.mergeCalls(), github.rerunCalls(), github.merged, s.cfo)
+				if len(github.mergeCalls()) != 1 || len(github.rerunCalls()) != 0 || len(github.merged) != 0 || len(s.ceo) != 2 {
+					t.Fatalf("merges %v, retries %v, landed %v, notices %q: changed or unknown proof must hold", github.mergeCalls(), github.rerunCalls(), github.merged, s.ceo)
 				}
 			})
 		}
@@ -441,7 +441,7 @@ func TestHeldTrainDeliversAHoldWhoseFirstNotificationFailed(t *testing.T) {
 	}
 	github.refuse[started.PR] = "the base branch policy prohibits the merge"
 	engine := s.engine(github)
-	engine.TellCFO = func(context.Context, string, string) error { return errors.New("wake queue unavailable") }
+	engine.TellCEO = func(context.Context, string, string) error { return errors.New("wake queue unavailable") }
 
 	// Act
 	_, notificationError := engine.Advance(context.Background(), started.ID)
@@ -454,8 +454,8 @@ func TestHeldTrainDeliversAHoldWhoseFirstNotificationFailed(t *testing.T) {
 	s.step(s.engine(github), started.ID)
 
 	// Assert
-	if notificationError == nil || len(s.cfo) != 2 || len(github.mergeCalls()) != 1 || held.Errors != 1 || !held.History[0].IsMergeNotified {
-		t.Fatalf("notices %q, merges %v: want the unacknowledged hold delivered once after recovery", s.cfo, github.mergeCalls())
+	if notificationError == nil || len(s.ceo) != 2 || len(github.mergeCalls()) != 1 || held.Errors != 1 || !held.History[0].IsMergeNotified {
+		t.Fatalf("notices %q, merges %v: want the unacknowledged hold delivered once after recovery", s.ceo, github.mergeCalls())
 	}
 }
 
@@ -477,7 +477,7 @@ func TestPendingMergeHoldIsDeliveredBeforeRunTransitions(t *testing.T) {
 				identity := fmt.Sprintf("train-merge-hold:%s:1", started.ID)
 				var identities, notices []string
 				engine := s.engine(github)
-				engine.TellCFO = func(_ context.Context, id, text string) error {
+				engine.TellCEO = func(_ context.Context, id, text string) error {
 					identities = append(identities, id)
 					notices = append(notices, text)
 					return errors.New("publication acknowledgement lost")
@@ -520,7 +520,7 @@ func TestPendingMergeHoldIsDeliveredBeforeRunTransitions(t *testing.T) {
 					}
 				}
 				engine = s.engine(github)
-				engine.TellCFO = func(_ context.Context, id, text string) error {
+				engine.TellCEO = func(_ context.Context, id, text string) error {
 					if id == "" {
 						return nil
 					}
@@ -553,7 +553,7 @@ func TestPendingMergeHoldRetainsItsIdentityAfterRunReplacement(t *testing.T) {
 	}
 	var identities []string
 	engine := s.engine(github)
-	engine.TellCFO = func(_ context.Context, identity, text string) error {
+	engine.TellCEO = func(_ context.Context, identity, text string) error {
 		if identity != "" {
 			identities = append(identities, identity)
 			if !strings.Contains(text, short(held.Head)) || !strings.Contains(text, short(held.BaseSHA)) {
@@ -666,15 +666,15 @@ func TestALandedRunWhoseBranchReadFailsIsNeverToldAsHoldingItsMerge(t *testing.T
 	cut, cutError := engine.Advance(context.Background(), started.ID)
 
 	// Assert: the landed run holds nothing and no hold is told.
-	if cutError == nil || cut.IsFinished() || runLog(cut)[0] != "1 #11 #12 landed" || cut.History[0].MergeHold != "" || slices.ContainsFunc(s.cfo, isHoldNotice) {
-		t.Fatalf("landed run read as holding after a failed branch read: %+v, %v, notices %q", cut, cutError, s.cfo)
+	if cutError == nil || cut.IsFinished() || runLog(cut)[0] != "1 #11 #12 landed" || cut.History[0].MergeHold != "" || slices.ContainsFunc(s.ceo, isHoldNotice) {
+		t.Fatalf("landed run read as holding after a failed branch read: %+v, %v, notices %q", cut, cutError, s.ceo)
 	}
 
 	// Act: the next poll reads the branch.
 	landed := s.step(engine, started.ID)
 
 	// Assert
-	if landed.State != StateLanded || !slices.Equal(github.merged, []int{11, 12}) || slices.ContainsFunc(s.cfo, isHoldNotice) {
-		t.Fatalf("train %s, merged %v, notices %q: want it landed with no hold told", landed.State, github.merged, s.cfo)
+	if landed.State != StateLanded || !slices.Equal(github.merged, []int{11, 12}) || slices.ContainsFunc(s.ceo, isHoldNotice) {
+		t.Fatalf("train %s, merged %v, notices %q: want it landed with no hold told", landed.State, github.merged, s.ceo)
 	}
 }

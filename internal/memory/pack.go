@@ -222,7 +222,7 @@ func (index *Index) BuildPack(input PackInput) (Pack, error) {
 		return Pack{}, err
 	}
 	header := fmt.Sprintf("# Context pack: %s, %s\n\nBuilt %s from the fleet's memory files and live state; every entry names its source, so open it for the whole text.\n", input.Project, input.Task, input.Now.UTC().Format(time.RFC3339))
-	footer := "\nNeed more? Run cfo memory recall \"<question>\" --project " + input.Project + "; recall and this pack are discovery, never a ruling's replacement.\n"
+	footer := "\nNeed more? Run goblins memory recall \"<question>\" --project " + input.Project + "; recall and this pack are discovery, never a ruling's replacement.\n"
 	// The reserve holds the one closing note a pack can add.
 	const reserve = 200
 	allowance := input.Budget*4 - len(header) - len(footer) - reserve

@@ -15,7 +15,7 @@ export interface Sent { kind: string; id: string; text: string; answer_kind: str
 // publishedAt names one publishing of an item. The supervisor takes an ID
 // again once it has dropped the record that used it, so an ID alone does not:
 // the same ID with another created_at is a new item. An item's identity is no
-// part of it, since it moves when the CFO registers again.
+// part of it, since it moves when the CEO registers again.
 export const publishedAt = (item: Item): string => (item.kind === "question" ? item.question : item.kind === "review" ? item.review : item.kind === "run" ? item.run : item.kind === "browser-signin" ? item.signin : item.request).created_at;
 
 // A reopened step card keeps its filing date but starts a fresh generation.
@@ -45,7 +45,7 @@ export function remembered(prior: ReadonlyMap<string, Item>, snapshot: Snapshot)
 // What an item becomes the moment the supervisor takes what he sent for it.
 // A command he runs stays open while it runs, so sending it closes nothing.
 function afterSending(item: Item, sent: Sent): Item | undefined {
-  if (item.kind === "question" && (sent.kind === "cfo_answer" || sent.kind === "goblin_answer")) return { ...item, question: { ...item.question, status: "queued", answer_id: sent.id, answer: sent.text, answer_kind: sent.answer_kind } };
+  if (item.kind === "question" && (sent.kind === "ceo_answer" || sent.kind === "goblin_answer")) return { ...item, question: { ...item.question, status: "queued", answer_id: sent.id, answer: sent.text, answer_kind: sent.answer_kind } };
   if (item.kind === "question" && sent.kind === "question_clear") return { ...item, question: { ...item.question, status: "cleared", message: "You dismissed it: answered elsewhere or no longer needed." } };
   if (item.kind === "review" && sent.kind === "review_answer") return { ...item, review: { ...item.review, state: "answered", answer: sent.text, answer_id: sent.id } };
   if (item.kind === "review" && sent.kind === "review_clear") return { ...item, review: { ...item.review, state: "cleared", reason: sent.text } };

@@ -1,6 +1,6 @@
 import { expect, test } from "./site";
 
-// The Overlord, 2026-10-11 about 00:55Z, of the card cfo deliver made for a
+// The Overlord, 2026-10-11 about 00:55Z, of the card goblins deliver made for a
 // picture: "the open downloaded golbin web p command didnt make snese it had
 // a download adn open button things like that should be scrawl". A delivered
 // file is its Scrawl page's review item, opened from the card, and no Open and

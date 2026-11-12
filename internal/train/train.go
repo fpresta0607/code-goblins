@@ -18,14 +18,14 @@ import (
 )
 
 // Schema names the shape of a train's record.
-const Schema = "cfo-merge-train.v1"
+const Schema = "ceo-merge-train.v1"
 
 // BranchPrefix starts the name of every train's branch. A pull request from
 // such a branch is a train's own and never rides another.
-const BranchPrefix = "cfo/train-"
+const BranchPrefix = "ceo/train-"
 
 // HoldLabel is the label that keeps a pull request off every train: one the
-// CFO must not merge on its own (recovery, security, money paths) or one the
+// CEO must not merge on its own (recovery, security, money paths) or one the
 // Overlord said to wait on.
 const HoldLabel = "hold"
 
@@ -50,7 +50,7 @@ const (
 	// breaks it, or had none left that merged cleanly; what passed landed.
 	StateStopped = "stopped"
 	// StateFailed is a train a step could not take: its note says what and
-	// what the CFO does next.
+	// what the CEO does next.
 	StateFailed = "failed"
 )
 

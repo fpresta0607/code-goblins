@@ -19,7 +19,7 @@ func RenderJSON(w io.Writer, report Report) error {
 	return encoder.Encode(report)
 }
 
-// RenderText writes the report for the CFO to read before a dispatch.
+// RenderText writes the report for the CEO to read before a dispatch.
 func RenderText(w io.Writer, report Report) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s, read %s\n", report.Repository, report.ReadAt.UTC().Format("2006-01-02 15:04Z"))

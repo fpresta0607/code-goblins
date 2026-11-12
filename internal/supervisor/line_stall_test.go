@@ -16,14 +16,14 @@ import (
 )
 
 // A heavy line that stands still, a turn free with runs waiting and memory
-// enough, wakes the CFO once it has stood still for five minutes of readings,
+// enough, wakes the CEO once it has stood still for five minutes of readings,
 // not before, once only while it stays still, and again after a reading finds
 // it moving and it stands still five minutes more. On 2026-11-11 it stood
 // still for over 40 minutes and nobody was told (#2377).
-func TestAHeavyLineStandingStillWakesTheCFOOnceAfterFiveMinutes(t *testing.T) {
+func TestAHeavyLineStandingStillWakesTheCEOOnceAfterFiveMinutes(t *testing.T) {
 	// Arrange
 	s, h := fleetService(t)
-	stall := "1 of 1 turns free and 9 in line, cfo gate test first, with 5.0 GB of memory and commit free against its 4.5 GB floor"
+	stall := "1 of 1 turns free and 9 in line, goblins gate test first, with 5.0 GB of memory and commit free against its 4.5 GB floor"
 	reading := stall
 	s.Options.Dispatch = &Dispatch{
 		Memory: func() (Memory, error) {
@@ -58,7 +58,7 @@ func TestAHeavyLineStandingStillWakesTheCFOOnceAfterFiveMinutes(t *testing.T) {
 		t.Fatalf("wakes: %d in the first five minutes, %d at five, %d while still, %d moving, %d after five more; want 0, 1, 0, 0, 1", beforeFive, atFive, stillStill, moving, again)
 	}
 	detail := lineStallWakes(t, h)[0].Detail
-	for _, want := range []string{"heavy_line_stalled: for 5m0s", stall, "cfo gate turns"} {
+	for _, want := range []string{"heavy_line_stalled: for 5m0s", stall, "goblins gate turns"} {
 		if !strings.Contains(detail, want) {
 			t.Errorf("wake %q lacks %q", detail, want)
 		}
@@ -66,7 +66,7 @@ func TestAHeavyLineStandingStillWakesTheCFOOnceAfterFiveMinutes(t *testing.T) {
 }
 
 // Readings with a gap between them longer than two passes are not readings
-// in a row: a line that stood still before the gap and after it wakes the CFO
+// in a row: a line that stood still before the gap and after it wakes the CEO
 // only once it has stood still five minutes after the gap, and says so.
 func TestAGapBetweenReadingsStartsTheLineStallsFiveMinutesAgain(t *testing.T) {
 	// Arrange
@@ -115,7 +115,7 @@ func TestMachineLineStallReadsAFreeTurnWithARunWaitingAndMemoryEnough(t *testing
 		isStuck   bool
 		want      []string
 	}{
-		{name: "the lock held long", available: 16 * gigabyte, isStuck: true, want: []string{"1 of 1 turns free and 1 in line, cfo gate test of a goblin closer to done first", "the line's lock (custody-mutation) has been held by pid"}},
+		{name: "the lock held long", available: 16 * gigabyte, isStuck: true, want: []string{"1 of 1 turns free and 1 in line, goblins gate test of a goblin closer to done first", "the line's lock (custody-mutation) has been held by pid"}},
 		{name: "no lock held", available: 16 * gigabyte, want: []string{"1 of 1 turns free and 1 in line"}},
 		{name: "memory short of the floor", available: gigabyte, isStuck: true},
 	} {

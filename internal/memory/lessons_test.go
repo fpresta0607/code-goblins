@@ -362,7 +362,7 @@ func TestAcceptLessonWaitsForTheLessonsLockAnotherProcessHolds(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Another live process, this test's parent, holds the lock as a decision
-	// another cfo makes at the same moment does.
+	// another goblins makes at the same moment does.
 	record := filepath.Join(stateDir, lessonLockName)
 	if _, err := lock.AcquireNamedOwner(stateDir, lessonLockName, os.Getppid(), ""); err != nil {
 		t.Fatal(err)

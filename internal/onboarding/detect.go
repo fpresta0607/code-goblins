@@ -1,5 +1,5 @@
 // Package onboarding is the quick start's own logic: which agents this
-// machine can run the CFO on, the steps that make the chosen one ready, and
+// machine can run the CEO on, the steps that make the chosen one ready, and
 // the menu each step is shown with. It installs nothing and signs nobody in
 // itself: its callers hand it what does.
 package onboarding
@@ -17,7 +17,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
-// Agents are the agents a CFO can run on, in the order the quick start shows
+// Agents are the agents a CEO can run on, in the order the quick start shows
 // them. Claude Code is first and the one it recommends.
 var Agents = []string{"claude", "codex", "pi"}
 
@@ -30,7 +30,7 @@ func Name(id string) string {
 	return agentNames[id]
 }
 
-// State is how ready an agent is to run the CFO.
+// State is how ready an agent is to run the CEO.
 type State int
 
 const (
@@ -90,7 +90,7 @@ type Detector struct {
 func (d Detector) Detect(ctx context.Context, id string) Agent {
 	agent := Agent{ID: id, Name: agentNames[id], State: Missing, Reason: "Not installed"}
 	if !slices.Contains(Agents, id) {
-		agent.Name, agent.Reason = id, "Not an agent the CFO runs on"
+		agent.Name, agent.Reason = id, "Not an agent the CEO runs on"
 		return agent
 	}
 	path, err := d.LookPath(id)

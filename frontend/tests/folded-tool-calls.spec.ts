@@ -1,4 +1,4 @@
-import { CFO_DOOR, expect, test, type Page } from "./site";
+import { CEO_DOOR, expect, test, type Page } from "./site";
 import { open, snapshot } from "./session-board";
 import { COMMANDS, CONVERSATION, conversationOf, JOINS_LEFT, JOINS_RIGHT, JOINS_RIGHT_WITHOUT_IDS } from "./folded-calls-fixture";
 
@@ -6,7 +6,7 @@ for (const width of [390, 1440]) {
   test(`a reply's five finished commands fold into one Ran 5 commands row at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 1100 });
     await open(page, snapshot(), undefined, CONVERSATION);
-    await page.getByRole("button", { name: CFO_DOOR }).first().click();
+    await page.getByRole("button", { name: CEO_DOOR }).first().click();
     const messages = page.getByRole("log", { name: "Messages of CEO" });
     await expect(messages.getByText("One test fails.")).toBeVisible();
 
@@ -40,7 +40,7 @@ for (const width of [390, 1440]) {
 test("a folded run stays open as the running call beside it finishes and joins it", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1100 });
   await open(page, snapshot(), undefined, CONVERSATION);
-  await page.getByRole("button", { name: CFO_DOOR }).first().click();
+  await page.getByRole("button", { name: CEO_DOOR }).first().click();
   const messages = page.getByRole("log", { name: "Messages of CEO" });
   const fold = messages.locator("details.message-call-group").filter({ hasText: "Read 2 files" });
   await fold.locator("> summary").click();
@@ -65,7 +65,7 @@ const finish = (page: Page, reply: { blocks: { state?: string }[] }) => page.eva
 async function openReply(page: Page, reply: object) {
   await page.setViewportSize({ width: 1440, height: 1100 });
   await open(page, snapshot(), undefined, conversationOf(reply));
-  await page.getByRole("button", { name: CFO_DOOR }).first().click();
+  await page.getByRole("button", { name: CEO_DOOR }).first().click();
   return page.getByRole("log", { name: "Messages of CEO" });
 }
 

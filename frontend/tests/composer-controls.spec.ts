@@ -17,7 +17,7 @@ for (const who of ["CEO", "goblin"] as const) {
     test(`Codex ${who} box adds a file and opens Speech history, and its header ${width === 390 ? "offers no terminal window" : "opens a terminal window"} and changes style at ${width}px`, async ({ page }) => {
       // Arrange
       await page.setViewportSize({ width, height: 900 });
-      const relay = await open(page, snapshot({ cfo_harness: "codex" }, { harness: "codex" }));
+      const relay = await open(page, snapshot({ ceo_harness: "codex" }, { harness: "codex" }));
       const name = who === "CEO" ? "CEO" : NAME;
       const kept = "C:/session-files/example.txt";
       const uploads: { task: string; name: string; text: string }[] = [];
@@ -84,7 +84,7 @@ for (const who of ["CEO", "goblin"] as const) {
       if (isPhone) await expect(page.locator(".context-pane .panel-top").getByRole("button", { name: "Open in Windows Terminal", exact: true })).toHaveCount(0);
       else {
         await pressRow(page, "Open in Windows Terminal", "Open in terminal");
-        await expect.poll(() => windows).toEqual([who === "CEO" ? { native: "cfo=cfo-term" } : { native: `task=${GOBLIN.id}&generation=${GOBLIN.generation}` }]);
+        await expect.poll(() => windows).toEqual([who === "CEO" ? { native: "ceo=ceo-term" } : { native: `task=${GOBLIN.id}&generation=${GOBLIN.generation}` }]);
       }
       await expect(attached).toContainText("example.txt");
 
@@ -93,10 +93,10 @@ for (const who of ["CEO", "goblin"] as const) {
       await pickStyle(page, "Terminal");
       await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
       await expect(composer).toBeHidden();
-      expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style"))).toBe("classic");
+      expect(await page.evaluate(() => localStorage.getItem("ceo-chat-style"))).toBe("classic");
       await pickStyle(page, "Modern chat");
       await expect(field(page, name)).toBeVisible();
-      expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style")), "Modern chat chose Modern").toBe("modern");
+      expect(await page.evaluate(() => localStorage.getItem("ceo-chat-style")), "Modern chat chose Modern").toBe("modern");
 
       // Assert: changing views types nothing; Send submits the file once.
       await expect(attached).toContainText("example.txt");
@@ -123,10 +123,10 @@ for (const who of ["CEO", "goblin"] as const) {
 const USAGE = { context_tokens: 593_000, context_window: 1_000_000 };
 const WEEK = { provider: "claude", status: "available", percent_remaining: 12, read_at: "2026-10-28T09:00:00Z", resets_at: "2026-11-02T09:00:00Z", source: "oauth", floor_percent: 5 };
 
-// The Overlord, 2026-11-03, of the CFO's box: "in the chat input for the
+// The Overlord, 2026-11-03, of the CEO's box: "in the chat input for the
 // usage. Whenever I start the dictation, it gets clipped." While he
 // dictates, the microphone is its red dot and level bars, wider than the
-// microphone, and the row still lies inside the box's border, the CFO's and
+// microphone, and the row still lies inside the box's border, the CEO's and
 // a goblin's, on a phone, a narrow desktop and a wide one: the usage pies,
 // the recording control and every button whole, where the model's name, and
 // on the smallest phone its effort after it, may give way with an ellipsis
@@ -234,7 +234,7 @@ test.describe("while he dictates", () => {
 // outside it, its own control pressed again and Escape where there is a
 // keyboard, closes it with nothing changed: the draft and the chat style stay
 // as they were, nothing is typed into the terminal, nothing is sent and no
-// file chooser opens, for the CFO and a goblin, on a phone and on the desktop.
+// file chooser opens, for the CEO and a goblin, on a phone and on the desktop.
 type Way = "its close" | "a press outside" | "its control again" | "Escape";
 const POPOVERS = [
   { what: "Speech history", control: "Speech history", shown: (page: Page, name: string) => box(page, name).getByRole("dialog", { name: "Speech history" }), ways: ["its close", "a press outside", "Escape"] as Way[], isTouchOnly: false },
@@ -271,7 +271,7 @@ for (const who of ["CEO", "goblin"] as const) {
             await openConnected(page, relay, who);
             relay.say({ type: "screen", asking: false, open: false, working: false, submission: "" });
             await field(page, name).fill(DRAFT);
-            const before = { typed: typed(relay), style: await page.evaluate(() => localStorage.getItem("cfo-chat-style")), sent: sent.length };
+            const before = { typed: typed(relay), style: await page.evaluate(() => localStorage.getItem("ceo-chat-style")), sent: sent.length };
             const press = (target: Locator) => isTouch ? target.tap() : target.click();
             const control = popover.control === "Chat style" ? page.locator(".context-pane .panel-header").getByRole("button", { name: "Chat style", exact: true }) : box(page, name).getByRole("button", { name: popover.control, exact: true });
             await press(control);
@@ -289,7 +289,7 @@ for (const who of ["CEO", "goblin"] as const) {
             await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
             await page.waitForTimeout(300);
             expect(typed(relay), "nothing is typed into the terminal").toBe(before.typed);
-            expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style")), "the chat style stays").toBe(before.style);
+            expect(await page.evaluate(() => localStorage.getItem("ceo-chat-style")), "the chat style stays").toBe(before.style);
             expect(sent.slice(before.sent), "nothing is sent").toEqual([]);
             expect(isChooserOpened, "no file chooser opens").toBe(false);
           });

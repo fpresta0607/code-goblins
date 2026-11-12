@@ -1,7 +1,7 @@
 import { expect, holdStream, type Locator, openTaskList, type Page, test } from "./site";
 
 // The Overlord, 2026-10-09 about 13:55Z, with a screenshot of Restart the
-// CFO?: "spacing between description and box has no clean padding". Its
+// CEO?: "spacing between description and box has no clean padding". Its
 // description sat right against the "Its conversation is kept." note, while
 // the note, the buttons and the line under them each kept their space from
 // the next. Stop this task? and Remove this task? are drawn by the same class
@@ -9,7 +9,7 @@ import { expect, holdStream, type Locator, openTaskList, type Page, test } from 
 const since = "2026-10-09T09:00:00Z";
 const SNAPSHOT = {
   healthy: true, instance: "fixture", revision: 1, attention: [], afk: { state: "off" },
-  cfo_runs: true, cfo_harness: "claude", cfo_terminal: "cfo", cfo_terminal_since: since, sessions: [{ id: "cfo-1", harness: "claude", role: "cfo", model: "claude-opus-5-5" }],
+  ceo_runs: true, ceo_harness: "claude", ceo_terminal: "ceo", ceo_terminal_since: since, sessions: [{ id: "ceo-1", harness: "claude", role: "ceo", model: "claude-opus-5-5" }],
   tasks: [
     { id: "working-one", title: "working-one", project: "code-goblins", phase: "working", verified: false, generation: "working-one-1", since },
     { id: "queued-one", title: "queued-one", project: "code-goblins", phase: "queued", verified: false, generation: "", brief: true, queue_revision: "q1", since },

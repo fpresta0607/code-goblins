@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/pipeline/pipelinetest"
 )
 
 // no-mistakes records approve, skip and abort alike as a user_declined
@@ -41,7 +42,7 @@ INSERT INTO step_rounds VALUES
 	if out, err := exec.Command(sqlite, filepath.Join(dir, "state.sqlite"), sql).CombinedOutput(); err != nil {
 		t.Fatalf("fixture: %s %v", out, err)
 	}
-	reader := Reader{Root: dir, Commands: fixtureCommands{execx.OSRunner{}}}
+	reader := Reader{Root: dir, Commands: pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}}
 
 	// Act
 	summaries, err := reader.ApprovedGateSummaries(context.Background())

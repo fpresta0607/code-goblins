@@ -41,7 +41,7 @@ func takenInRecordAt(t *testing.T, home, harness, session, dir, text string, at 
 		folder := regexp.MustCompile(`[^A-Za-z0-9]`).ReplaceAllString(dir, "-")
 		name := "conversation"
 		if session != "" {
-			folder, name = "C--cfo-home", session
+			folder, name = "C--ceo-home", session
 		}
 		path = filepath.Join(home, ".claude", "projects", folder, name+".jsonl")
 		entries = []map[string]any{{"type": "attachment", "timestamp": now, "attachment": map[string]any{"type": "queued_command", "prompt": text}}}

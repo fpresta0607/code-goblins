@@ -98,7 +98,7 @@ func TestNoBoardEndpointButTheCredentialSaveTakesASecretValue(t *testing.T) {
 		request := httptest.NewRequest("POST", "http://"+credentialBoardHost+route, strings.NewReader(body))
 		request.RemoteAddr = "127.0.0.1:50000"
 		request.Header.Set("Origin", "http://"+credentialBoardHost)
-		request.Header.Set("X-CFO-Token", "test-instance")
+		request.Header.Set("X-CEO-Token", "test-instance")
 		request.Header.Set("Content-Type", "application/json")
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)

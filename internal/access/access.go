@@ -1,6 +1,6 @@
 // Package access keeps the fleet's folders to the accounts their work needs:
 // the person the fleet runs as, SYSTEM and Administrators. A folder made
-// under a drive's root, as a home that CFO_HOME puts there or a Dev Drive
+// under a drive's root, as a home that GOBLINS_HOME puts there or a Dev Drive
 // folder is, takes Authenticated Users Modify from it, so any second account
 // on the machine could read and write it.
 package access
@@ -14,7 +14,7 @@ import (
 // access writes in the folder it narrowed, naming what it left, so the next
 // look at the folder reads it as not narrowed and narrows it again. A
 // narrowing that changes everything removes it.
-const UnfinishedMarker = ".cfo-narrowing-unfinished"
+const UnfinishedMarker = ".ceo-narrowing-unfinished"
 
 // Unchanged is Narrow's error when it narrowed a folder but some of what the
 // folder holds kept the access it had.

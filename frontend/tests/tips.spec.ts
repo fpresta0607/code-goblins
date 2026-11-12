@@ -2,7 +2,7 @@ import { expect, holdStream, type Locator, openItem, openTaskList, type Page, te
 
 // Every tip on the board touches its own part, holds its whole text on a
 // solid surface, stays inside the window and is cut off by nothing, wherever
-// its part is: a card, the CFO's bar or the Orchestration canvas, on a wide
+// its part is: a card, the CEO's bar or the Orchestration canvas, on a wide
 // window and on a phone. Nothing outside those views shows a tip.
 const GB = 2 ** 30;
 const since = "2026-10-02T09:00:00Z";
@@ -25,7 +25,7 @@ const QUESTION = { id: "q1", identity: "q1", text: "Which layout should the boar
 // A question waiting on the Overlord counts on the board's bar and badge, so
 // only the Command Center's own walk has one.
 async function open(page: Page, tasks: Record<string, unknown>[] = TASKS, questions: Record<string, unknown>[] = [], subscriptions: Record<string, unknown>[] = []) {
-  const snapshot = { healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [], memory, tasks, questions, subscriptions };
+  const snapshot = { healthy: true, instance: "fixture", ceo_runs: true, ceo_harness: "claude", revision: 1, attention: [], memory, tasks, questions, subscriptions };
   // The walks point at one part after another, so the board must hold still.
   await holdStream(page, snapshot);
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
@@ -155,7 +155,7 @@ for (const [size, viewport] of [["wide", { width: 1440, height: 900 }], ["phone"
   test.describe(`on a ${size} window`, () => {
     test.use({ viewport });
 
-    test("every tip on the board and the CFO's bar is whole, solid and inside the window", async ({ page }) => {
+    test("every tip on the board and the CEO's bar is whole, solid and inside the window", async ({ page }) => {
       test.slow();
       await open(page);
       const { shown, faults } = await walk(page.locator(".canvas-region"));

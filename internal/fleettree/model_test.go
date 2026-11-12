@@ -20,7 +20,7 @@ func TestChildModelComesFromItsOwnHarnessRecord(t *testing.T) {
 			if kind == "claude" {
 				var session string
 				goblin, session = claudeGoblin(t, home,
-					call("call1", "Agent", object{"subagent_type": "cfo-search", "model": "requested-model"}, at),
+					call("call1", "Agent", object{"subagent_type": "ceo-search", "model": "requested-model"}, at),
 					result("call1", "Started", object{"isAsync": true, "agentId": "a1"}, at))
 				writeLines(t, filepath.Join(session, "subagents", "agent-a1.jsonl"), at,
 					object{"type": "assistant", "timestamp": at, "message": object{"model": "recorded-model", "content": []object{{"type": "text", "text": "OK"}}}})

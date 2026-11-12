@@ -43,18 +43,18 @@ type Question struct {
 	Status      string    `json:"status"`
 	Message     string    `json:"message,omitempty"`
 	// Task and Generation name the goblin that asked, and Seq the blocked
-	// notify that told the CFO; all three are empty for the CFO's own
+	// notify that told the CEO; all three are empty for the CEO's own
 	// question.
 	Task       string `json:"task,omitempty"`
 	Generation string `json:"generation,omitempty"`
 	Seq        int    `json:"seq,omitempty"`
 	// Images are a goblin's review images as absolute paths, one for each
-	// choice in order. cfo notify checks them before publishing and the board
+	// choice in order. goblins notify checks them before publishing and the board
 	// checks them again whenever it serves one, and only ever sees ImageCount.
 	Images     []string `json:"images,omitempty"`
 	ImageCount int      `json:"image_count,omitempty"`
 	// AnsweredOption, AnsweredBy and AnsweredAt record which choice closed
-	// the question (empty for a written answer), who gave it (cfo or
+	// the question (empty for a written answer), who gave it (ceo or
 	// overlord) and when, so a closed question shows its answer.
 	AnsweredOption string     `json:"answered_option,omitempty"`
 	AnsweredBy     string     `json:"answered_by,omitempty"`
@@ -63,16 +63,16 @@ type Question struct {
 	// came from, such as page for the Overlord's answer on the review page
 	// that carries it.
 	AnsweredIn string `json:"answered_in,omitempty"`
-	// AnsweredAway marks an answer the CFO gave while AFK mode was on, so the
+	// AnsweredAway marks an answer the CEO gave while AFK mode was on, so the
 	// board tells it from one the Overlord could have seen.
 	AnsweredAway bool `json:"answered_away,omitempty"`
-	// ChangeID is the Overlord's board action changing the CFO's answer to
-	// his own, and ReplacedAnswer the CFO's choice it replaced once the
+	// ChangeID is the Overlord's board action changing the CEO's answer to
+	// his own, and ReplacedAnswer the CEO's choice it replaced once the
 	// goblin has his.
 	ChangeID       string `json:"change_id,omitempty"`
 	ReplacedAnswer string `json:"replaced_answer,omitempty"`
 	// AsksPage is the link of the goblin's Scrawl page that AFK mode asked of
-	// the CFO as this question, so an answer to it is the answer to that page.
+	// the CEO as this question, so an answer to it is the answer to that page.
 	// It is empty for every other question, whatever its text says.
 	AsksPage string `json:"asks_page,omitempty"`
 	// AsksPageFile is that page's HTML file, which the supervisor polls until
@@ -80,7 +80,7 @@ type Question struct {
 	// answers the question at once.
 	AsksPageFile string     `json:"asks_page_file,omitempty"`
 	PageSettled  *time.Time `json:"page_settled,omitempty"`
-	// ForTask names the goblin whose decision the CFO's own question puts
+	// ForTask names the goblin whose decision the CEO's own question puts
 	// to the Overlord: while the question is open, a wait on him that goblin
 	// raises declares whether it follows it (Review.Follows). It is empty for
 	// a goblin's question, whose Task names it.
@@ -92,7 +92,7 @@ type Question struct {
 
 func validQuestion(q Question) error {
 	if len(q.ID) < 8 || len(q.ID) > 128 || strings.ContainsAny(q.ID, "\x00\r\n") || len(q.Identity) != 64 || strings.TrimSpace(q.Text) == "" || len(q.Text) > 4000 || len(q.Options) > 8 || q.CreatedAt.IsZero() || q.CreatedAt.After(time.Now().Add(5*time.Minute)) {
-		return errors.New("question requires an ID, registered CFO identity, timestamp, bounded text and at most eight choices")
+		return errors.New("question requires an ID, registered CEO identity, timestamp, bounded text and at most eight choices")
 	}
 	if q.AsksPageFile != "" {
 		extension := strings.ToLower(filepath.Ext(q.AsksPageFile))
@@ -114,7 +114,7 @@ func validQuestion(q Question) error {
 		return errors.New("a goblin's question names its task, generation and blocked notify")
 	}
 	if q.ForTask != "" && (q.Task != "" || state.ValidTaskID(q.ForTask) != nil) {
-		return errors.New("only the CFO's own question names a goblin it decides for, by its task ID")
+		return errors.New("only the CEO's own question names a goblin it decides for, by its task ID")
 	}
 	if len(q.Images) > 0 && (q.Task == "" || len(q.Images) != len(q.Options)) {
 		return errors.New("only a goblin's question takes images, one for each choice it offers")
@@ -140,7 +140,7 @@ func goblinIdentity(meta state.TaskMeta) string {
 }
 
 // goblinAsker proves the calling process runs under the task's own terminal,
-// the same proof registration uses for the CFO: the program in its native
+// the same proof registration uses for the CEO: the program in its native
 // terminal. No other process can ask in a goblin's name.
 func goblinAsker(stateDir, taskID string) (state.TaskMeta, error) {
 	meta, err := state.ReadTaskMeta(stateDir, taskID)
@@ -190,16 +190,16 @@ func goblinPipeCaller(stateDir, taskID string, pid int, connected time.Time) err
 	return terminalAnswers(stateDir, taskID)
 }
 
-// SurfaceNotify records a goblin's blocking notify with choices for the CFO
+// SurfaceNotify records a goblin's blocking notify with choices for the CEO
 // to answer, labelled with the goblin. A notify without choices and a failed
-// notify stay prose in the CFO's wake queue, except a goblin's Scrawl page,
-// which AFK mode made the CFO's question: it is the question whether or not
+// notify stay prose in the CEO's wake queue, except a goblin's Scrawl page,
+// which AFK mode made the CEO's question: it is the question whether or not
 // the page declares choices.
 // images, one for each choice in order, must already have passed
 // ReviewImages: SurfaceNotify records them without checking the files.
 // detail is the notify as the goblin wrote it: the queue holds record's
 // one-line form, and the question keeps its own line breaks. page is the link
-// of the goblin's page AFK mode asks of the CFO as this question, and empty
+// of the goblin's page AFK mode asks of the CEO as this question, and empty
 // for any other question, and pageFile is its HTML file, which the supervisor
 // polls for his answer on it, or empty when lavish-axi named none. mail is a
 // message the question gives him to send, or nil.
@@ -244,14 +244,14 @@ func questionChoices(options []string) ([]string, string) {
 // asked, so a restarted task never receives an answer meant for its
 // predecessor. A notice is nobody's own input, so it clears the terminal's
 // mark of his.
-func (c *CFOConnection) SendGoblin(ctx context.Context, taskID, identity, text string) (Evaluation, error) {
+func (c *CEOConnection) SendGoblin(ctx context.Context, taskID, identity, text string) (Evaluation, error) {
 	return c.sendGoblin(ctx, taskID, identity, text, false, false, false)
 }
 
 // SendGoblinHis delivers the Overlord's own board message or answer to the
 // goblin a task names, so a screen its harness draws from it is his to
 // answer.
-func (c *CFOConnection) SendGoblinHis(ctx context.Context, taskID, identity, text string) (Evaluation, error) {
+func (c *CEOConnection) SendGoblinHis(ctx context.Context, taskID, identity, text string) (Evaluation, error) {
 	return c.sendGoblin(ctx, taskID, identity, text, false, false, true)
 }
 
@@ -260,7 +260,7 @@ func (c *CFOConnection) SendGoblinHis(ctx context.Context, taskID, identity, tex
 // has the goblin's harness take it at once in a turn, where it has a key for
 // that. One from him keeps his mark on the terminal the harness's next screen
 // is bound to.
-func (c *CFOConnection) sendGoblin(ctx context.Context, taskID, identity, text string, holds, sendsNow, his bool) (Evaluation, error) {
+func (c *CEOConnection) sendGoblin(ctx context.Context, taskID, identity, text string, holds, sendsNow, his bool) (Evaluation, error) {
 	meta, err := state.ReadTaskMeta(c.State, taskID)
 	if err != nil || goblinIdentity(meta) != identity {
 		return Evaluation{}, fmt.Errorf("%w: the goblin's task restarted or ended; nothing was sent", ErrRejected)
@@ -279,7 +279,7 @@ func goblinLine(text string) string {
 	return fleet.Stamp(oneLine(text))
 }
 
-// readAnswerRecipient reads the task metadata a CFO answer is submitted to
+// readAnswerRecipient reads the task metadata a CEO answer is submitted to
 // and tracked against, before anything is typed. It is a variable so a test
 // can prove what an answer does when that evidence is not there.
 var readAnswerRecipient = state.ReadTaskMeta
@@ -309,9 +309,9 @@ func tellingSubmitted(ctx context.Context, told func()) context.Context {
 
 // answerGoblin returns the Overlord's board answer to the goblin that asked.
 // The goblin's blocked notify then reads answered, so neither the monitor
-// nor the CFO asks it again; retiring it is still the CFO's ordinary ack.
+// nor the CEO asks it again; retiring it is still the CEO's ordinary ack.
 func (s *Service) answerGoblin(ctx context.Context, a Action) (Evaluation, error) {
-	if s.Options.CFO == nil {
+	if s.Options.CEO == nil {
 		return Evaluation{}, fmt.Errorf("%w: message transport is unavailable", ErrRejected)
 	}
 	i := slices.IndexFunc(s.Store.Snapshot().Questions, func(q Question) bool {
@@ -323,7 +323,7 @@ func (s *Service) answerGoblin(ctx context.Context, a Action) (Evaluation, error
 	q := s.Store.Snapshot().Questions[i]
 	unlock, err := answerLock(s.Store.Home.State, q.Seq)
 	if err != nil {
-		return Evaluation{}, fmt.Errorf("%w: the CFO is answering this question with cfo answer (%v); nothing was sent", ErrRejected, err)
+		return Evaluation{}, fmt.Errorf("%w: the CEO is answering this question with goblins answer (%v); nothing was sent", ErrRejected, err)
 	}
 	defer unlock()
 	pending, err := wake.Pending(s.Store.Home.State)
@@ -331,7 +331,7 @@ func (s *Service) answerGoblin(ctx context.Context, a Action) (Evaluation, error
 		return Evaluation{}, fmt.Errorf("%w: read the wake queue: %v; nothing was sent", ErrRejected, err)
 	}
 	if !slices.ContainsFunc(pending, func(r wake.Record) bool { return r.Seq == q.Seq && r.Answered == "" }) {
-		return Evaluation{}, fmt.Errorf("%w: the CFO already handled this question; nothing was sent", ErrRejected)
+		return Evaluation{}, fmt.Errorf("%w: the CEO already handled this question; nothing was sent", ErrRejected)
 	}
 	text := fmt.Sprintf("The Overlord answered your question on the board. Question: %s %s: %s", q.Text, answerLabel(a), a.Text)
 	result, err := s.deliverAnswer(ctx, q, text)
@@ -339,18 +339,18 @@ func (s *Service) answerGoblin(ctx context.Context, a Action) (Evaluation, error
 		return result, err
 	}
 	if err := wake.MarkAnswered(s.Store.Home.State, q.Seq, wake.AnsweredByOverlord, a.Text); err != nil {
-		result.Reason += " The CFO's notify still reads unanswered: " + err.Error()
+		result.Reason += " The CEO's notify still reads unanswered: " + err.Error()
 	}
 	return result, nil
 }
 
 // changeAnswer delivers his change of an answer to whoever acts on it: the
-// goblin that asked, or the CFO for its own question and for a goblin that
+// goblin that asked, or the CEO for its own question and for a goblin that
 // restarted, ended or cannot be reached. It runs only once every earlier
 // answer to the question has been handed over (nextQueued), so whoever acts
 // on it has them in the order he gave them.
 func (s *Service) changeAnswer(ctx context.Context, a Action) (Evaluation, error) {
-	if s.Options.CFO == nil {
+	if s.Options.CEO == nil {
 		return Evaluation{}, fmt.Errorf("%w: message transport is unavailable", ErrRejected)
 	}
 	i := slices.IndexFunc(s.Store.Snapshot().Questions, func(q Question) bool { return q.ID == a.QuestionID })
@@ -363,11 +363,11 @@ func (s *Service) changeAnswer(ctx context.Context, a Action) (Evaluation, error
 		change = fmt.Sprintf("Question: %s Was: %s. Now, in his own words: %s. Act on the new answer: undo or redo what the first answer started.", q.Text, a.Replaces, a.Text)
 	}
 	if q.Task == "" {
-		return s.sendToCFO(ctx, fmt.Sprintf("The Overlord changed the answer to your question %s on the board. %s", q.ID, change), true)
+		return s.sendToCEO(ctx, fmt.Sprintf("The Overlord changed the answer to your question %s on the board. %s", q.ID, change), true)
 	}
 	unlock, err := answerLock(s.Store.Home.State, q.Seq)
 	if err != nil {
-		return Evaluation{}, fmt.Errorf("%w: the CFO is answering this question with cfo answer (%v); nothing was sent", ErrDeferred, err)
+		return Evaluation{}, fmt.Errorf("%w: the CEO is answering this question with goblins answer (%v); nothing was sent", ErrDeferred, err)
 	}
 	defer unlock()
 	if isAsker(s.Store.Home.State, q) {
@@ -376,7 +376,7 @@ func (s *Service) changeAnswer(ctx context.Context, a Action) (Evaluation, error
 			return result, err
 		}
 	}
-	return s.sendToCFO(ctx, fmt.Sprintf("The Overlord changed the answer to %s's question %s on the board. %s restarted, ended or cannot be reached, so act on it yourself. %s", q.Task, q.ID, q.Task, change), true)
+	return s.sendToCEO(ctx, fmt.Sprintf("The Overlord changed the answer to %s's question %s on the board. %s restarted, ended or cannot be reached, so act on it yourself. %s", q.Task, q.ID, q.Task, change), true)
 }
 
 // isAsker reports whether goblin question q's task still runs the session
@@ -386,12 +386,12 @@ func isAsker(stateDir string, q Question) bool {
 	return err == nil && goblinIdentity(meta) == q.Identity
 }
 
-// answerToCFO is the Overlord's answer a to the CFO's own question q, as the
-// CFO reads it.
-func answerToCFO(q Question, a Action) string {
-	text := fmt.Sprintf("User answer to CFO question %s. Question: %s Answer: %s", q.ID, q.Text, a.Text)
+// answerToCEO is the Overlord's answer a to the CEO's own question q, as the
+// CEO reads it.
+func answerToCEO(q Question, a Action) string {
+	text := fmt.Sprintf("User answer to CEO question %s. Question: %s Answer: %s", q.ID, q.Text, a.Text)
 	if a.AnswerKind == "other" {
-		text = fmt.Sprintf("User answer to CFO question %s. Question: %s Answer (Other): %s", q.ID, q.Text, a.Text)
+		text = fmt.Sprintf("User answer to CEO question %s. Question: %s Answer (Other): %s", q.ID, q.Text, a.Text)
 	}
 	return text
 }
@@ -415,7 +415,7 @@ func (s *Service) deliverAnswer(ctx context.Context, q Question, text string) (E
 	}
 	result := Evaluation{Reason: "Answer saved for the goblin's Resume."}
 	if !isSaved {
-		result, err = s.Options.CFO.SendGoblinHis(ctx, q.Task, q.Identity, text)
+		result, err = s.Options.CEO.SendGoblinHis(ctx, q.Task, q.Identity, text)
 	}
 	if errors.Is(err, fleet.ErrQueuedForToolCall) {
 		result, err = s.behindGoblinsTurn(q.Task, sent, text, "Submitted to the goblin while it was working; it takes the answer at its next tool call, or as its current turn ends."), nil
@@ -423,7 +423,7 @@ func (s *Service) deliverAnswer(ctx context.Context, q Question, text string) (E
 	return result, err
 }
 
-// answersInbox is where cfo answer once spooled its answers. They now reach
+// answersInbox is where goblins answer once spooled its answers. They now reach
 // the supervisor only over its pipe, so ingest refuses any file found here.
 const answersInbox = "answers-inbox"
 
@@ -432,17 +432,17 @@ const answersInbox = "answers-inbox"
 // never reached the board.
 var questionArrival = 30 * time.Second
 
-// cfoAnswer is one answer the CFO gave with cfo answer.
-type cfoAnswer struct {
+// ceoAnswer is one answer the CEO gave with goblins answer.
+type ceoAnswer struct {
 	QuestionID string `json:"question_id"`
 	// Option is the choice that answers the question, and empty for the
-	// CFO's own words to a goblin's page that declared no choices.
+	// CEO's own words to a goblin's page that declared no choices.
 	Option string `json:"option"`
 	Answer string `json:"answer"`
-	// In names where the Overlord gave the answer the CFO records, such as
-	// chat; it is empty for the CFO's own answer.
+	// In names where the Overlord gave the answer the CEO records, such as
+	// chat; it is empty for the CEO's own answer.
 	In string `json:"in,omitempty"`
-	// Away is set by the supervisor when it receives the CFO's own answer
+	// Away is set by the supervisor when it receives the CEO's own answer
 	// while AFK mode is on; whatever a sender puts here is replaced.
 	Away bool      `json:"away,omitempty"`
 	At   time.Time `json:"at"`
@@ -455,18 +455,18 @@ type cfoAnswer struct {
 	Awaiting *Awaiting `json:"awaiting,omitempty"`
 }
 
-// AnswerGoblin answers a goblin's blocked question as the CFO, the structured
-// counterpart of cfo send: ref is the question's ID or its notify's wake
+// AnswerGoblin answers a goblin's blocked question as the CEO, the structured
+// counterpart of goblins send: ref is the question's ID or its notify's wake
 // sequence, and option names one of its choices in full or by its first word
 // (the a | b labels goblins give their options). The goblin receives the
-// choice the way cfo send types, its notify reads answered so cfo drain
+// choice the way goblins send types, its notify reads answered so goblins drain
 // retires it without --ack-blocking, and the supervisor records which choice
-// closed the question, that the CFO gave it, and when. Only the registered
-// primary CFO may answer. It returns the accepted choice and whether it waits
+// closed the question, that the CEO gave it, and when. Only the registered
+// primary CEO may answer. It returns the accepted choice and whether it waits
 // for the goblin's resume or its harness's next tool call. A paused answer
 // uses the board's resume-note owner; only a submission to a working terminal
 // needs a delivery record, so neither path sends a second decision.
-func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note string) (chosen string, queued bool, err error) {
+func (c *CEOConnection) AnswerGoblin(ctx context.Context, ref, option, note string) (chosen string, queued bool, err error) {
 	_, release, err := c.CallerIdentity()
 	if err != nil {
 		return "", false, err
@@ -487,7 +487,7 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 	}
 	i := slices.IndexFunc(pending, func(r wake.Record) bool { return r.Seq == seq })
 	if i < 0 {
-		return "", false, fmt.Errorf("notify %d is not waiting: it was never raised or the CFO already handled it", seq)
+		return "", false, fmt.Errorf("notify %d is not waiting: it was never raised or the CEO already handled it", seq)
 	}
 	record := pending[i]
 	if record.Answered != "" {
@@ -495,7 +495,7 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 	}
 	asked, options, ok := wake.Question(record)
 	if !ok || len(options) == 0 && wake.Page(asked) == "" {
-		return "", false, fmt.Errorf("notify %d asks no multiple-choice question; answer it with cfo send", seq)
+		return "", false, fmt.Errorf("notify %d asks no multiple-choice question; answer it with goblins send", seq)
 	}
 	choices, _ := questionChoices(options)
 	if chosen, err = pickAnswer(asked, choices, option); err != nil {
@@ -560,7 +560,7 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 		awaiting = awaitingGoblinDelivery(meta, sent, text)
 	}
 	var unrecorded []error
-	if err := wake.MarkAnswered(c.State, seq, wake.AnsweredByCFO, answer); err != nil {
+	if err := wake.MarkAnswered(c.State, seq, wake.AnsweredByCEO, answer); err != nil {
 		unrecorded = append(unrecorded, fmt.Errorf("notify %d still reads unanswered: %w", seq, err))
 	}
 	if onBoard {
@@ -593,24 +593,24 @@ func askerOf(stateDir string, record wake.Record) (Question, error) {
 	return Question{Task: meta.ID, Identity: goblinIdentity(meta)}, nil
 }
 
-// answerPlace is where the Overlord gave an answer the CFO records, in a few
+// answerPlace is where the Overlord gave an answer the CEO records, in a few
 // plain words, such as chat.
 var answerPlace = regexp.MustCompile(`^[A-Za-z][A-Za-z ]{0,39}$`)
 
 // RecordAnswer closes a question on the board with a choice already given
-// some other way, and sends nobody anything. Only the registered primary CFO
+// some other way, and sends nobody anything. Only the registered primary CEO
 // may do it. in names where the Overlord gave the choice, such as chat, and
-// the card then reads as his answer there, recorded by the CFO; without it,
-// the choice is the CFO's own, which only a goblin's question takes, such as
-// a cfo answer whose delivery was left unconfirmed. The CFO's own question
+// the card then reads as his answer there, recorded by the CEO; without it,
+// the choice is the CEO's own, which only a goblin's question takes, such as
+// a goblins answer whose delivery was left unconfirmed. The CEO's own question
 // only the Overlord answers, so recording its answer names where.
-// A goblin's question is recorded only once the CFO has handled its notify:
+// A goblin's question is recorded only once the CEO has handled its notify:
 // it was acknowledged, or it reads answered. A notify still waiting
-// unanswered is refused, since cfo answer is how that one is answered, and so
+// unanswered is refused, since goblins answer is how that one is answered, and so
 // is a question the Overlord is answering on the board. id is the question's
 // ID, notify-<task>-<sequence> for a goblin's. It returns the choice it
 // recorded.
-func (c *CFOConnection) RecordAnswer(id, option, note, in string) (string, error) {
+func (c *CEOConnection) RecordAnswer(id, option, note, in string) (string, error) {
 	_, release, err := c.CallerIdentity()
 	if err != nil {
 		return "", err
@@ -642,7 +642,7 @@ func (c *CFOConnection) RecordAnswer(id, option, note, in string) (string, error
 			return "", fmt.Errorf("read the wake queue: %w", err)
 		}
 		if i := slices.IndexFunc(pending, func(r wake.Record) bool { return r.Seq == seq }); i >= 0 && pending[i].Answered == "" {
-			return "", fmt.Errorf("notify %d is still waiting unanswered; answer it with cfo answer, which delivers it, or acknowledge it first if it was answered another way", seq)
+			return "", fmt.Errorf("notify %d is still waiting unanswered; answer it with goblins answer, which delivers it, or acknowledge it first if it was answered another way", seq)
 		} else if i < 0 {
 			acked, err := wake.Acked(c.State, seq)
 			if err != nil {
@@ -653,7 +653,7 @@ func (c *CFOConnection) RecordAnswer(id, option, note, in string) (string, error
 			}
 		}
 	} else if in == "" {
-		return "", fmt.Errorf("%s is the CFO's own question, which only the Overlord answers: name where he answered it with --in, such as --in chat", id)
+		return "", fmt.Errorf("%s is the CEO's own question, which only the Overlord answers: name where he answered it with --in, such as --in chat", id)
 	}
 	q, err := readQuestion(c.State, id)
 	if err != nil {
@@ -698,7 +698,7 @@ func overlordAway(stateDir string) error {
 	return nil
 }
 
-// logAFKAnswer logs the CFO's choice chosen, given a goblin's question q as
+// logAFKAnswer logs the CEO's choice chosen, given a goblin's question q as
 // answer, while AFK mode is on, as a decision made under its authority, with
 // the question and the answer as its evidence, and the page an answer to a
 // goblin's page answered as its link. It logs nothing while AFK mode is off.
@@ -716,15 +716,15 @@ func logAFKAnswer(stateDir string, q Question, answer string) error {
 
 // recordAnswer tells the board which choice closed a goblin's question. It
 // closes that question and only the waits the goblin declared to follow it
-// (cfo notify --follows): its other waits on the Overlord, such as a sign-in
+// (goblins notify --follows): its other waits on the Overlord, such as a sign-in
 // only he can clear, stay his.
-func (c *CFOConnection) recordAnswer(q Question, id, chosen, answer, in string, awaiting *Awaiting) error {
-	// A goblin's page that declares no choices takes the CFO's own words.
+func (c *CEOConnection) recordAnswer(q Question, id, chosen, answer, in string, awaiting *Awaiting) error {
+	// A goblin's page that declares no choices takes the CEO's own words.
 	option := chosen
 	if !slices.Contains(q.Options, chosen) {
 		option = ""
 	}
-	if err := sendPipeRequest(c.State, runPipeRequest{Kind: "answer", Answer: &cfoAnswer{QuestionID: id, Option: option, Answer: answer, In: in, Awaiting: awaiting, At: time.Now().UTC()}}); err != nil {
+	if err := sendPipeRequest(c.State, runPipeRequest{Kind: "answer", Answer: &ceoAnswer{QuestionID: id, Option: option, Answer: answer, In: in, Awaiting: awaiting, At: time.Now().UTC()}}); err != nil {
 		return fmt.Errorf("the board could not record it: %w", err)
 	}
 	return nil
@@ -751,7 +751,7 @@ func withNote(chosen, note string) string {
 	return chosen
 }
 
-// answerLock serializes the two ways one goblin question is answered, cfo
+// answerLock serializes the two ways one goblin question is answered, goblins
 // answer and the board, so whichever comes second sees the other's answer;
 // it waits briefly for the other one. The lock is the question's own, named
 // by its notify's wake sequence, so answers to different goblins never wait
@@ -791,9 +791,9 @@ func pickChoice(choices []string, option string) (string, error) {
 	return chosen, nil
 }
 
-// pickAnswer is the CFO's answer to question: one of its choices, matched as
+// pickAnswer is the CEO's answer to question: one of its choices, matched as
 // pickChoice matches it, or, for a goblin's Scrawl page that declares no
-// choices, the CFO's own words.
+// choices, the CEO's own words.
 func pickAnswer(question string, choices []string, option string) (string, error) {
 	if len(choices) > 0 || wake.Page(question) == "" {
 		return pickChoice(choices, option)
@@ -860,7 +860,7 @@ func DecisionAnswer(stateDir string, meta state.TaskMeta, seq int) (string, erro
 }
 
 // OpenDecisions lists the decisions open for goblin task: its own pending
-// question with choices and the CFO's pending questions for it (cfo question
+// question with choices and the CEO's pending questions for it (goblins question
 // --for), on the board's record or waiting in the inbox for the board to take
 // them. It only reads, as readQuestion does. The inbox is read first, as
 // reportedReview reads it, since the board records a question before it
@@ -917,7 +917,7 @@ func OpenDecisions(stateDir, task string) ([]Question, error) {
 }
 
 // ingestAnswers refuses every answer file in the old answer inbox, since the
-// CFO's answers reach the board only over the supervisor's pipe and a file
+// CEO's answers reach the board only over the supervisor's pipe and a file
 // there was written by some other process of this user, and records each
 // answer the pipe took whose question can take it now.
 func (s *Store) ingestAnswers() error {
@@ -931,7 +931,7 @@ func (s *Store) ingestAnswers() error {
 			continue
 		}
 		s.mu.Lock()
-		s.issue("CFO answer rejected: " + errFromInbox.Error())
+		s.issue("CEO answer rejected: " + errFromInbox.Error())
 		err := s.save()
 		s.mu.Unlock()
 		if err != nil {
@@ -943,34 +943,34 @@ func (s *Store) ingestAnswers() error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(s.db.CFOAnswers) == 0 {
+	if len(s.db.CEOAnswers) == 0 {
 		return nil
 	}
-	var waiting []cfoAnswer
-	for _, a := range s.db.CFOAnswers {
-		switch err := s.applyCFOAnswer(a); {
+	var waiting []ceoAnswer
+	for _, a := range s.db.CEOAnswers {
+		switch err := s.applyCEOAnswer(a); {
 		case errors.Is(err, errAnswerWaits):
 			waiting = append(waiting, a)
 		case err != nil:
-			s.issue("CFO answer rejected: " + err.Error())
+			s.issue("CEO answer rejected: " + err.Error())
 		}
 	}
-	if len(waiting) == len(s.db.CFOAnswers) {
+	if len(waiting) == len(s.db.CEOAnswers) {
 		return nil
 	}
-	s.db.CFOAnswers = waiting
+	s.db.CEOAnswers = waiting
 	return s.save()
 }
 
-// recordCFOAnswer records an answer the CFO gave with cfo answer, or keeps it
+// recordCEOAnswer records an answer the CEO gave with goblins answer, or keeps it
 // for a later pass when its question cannot take it yet.
-func (s *Store) recordCFOAnswer(a cfoAnswer) error {
+func (s *Store) recordCEOAnswer(a ceoAnswer) error {
 	switched, err := afk.Read(s.Home.State)
 	if err != nil {
 		return err
 	}
 	// An answer that reads as the Overlord's is refused while he is away,
-	// whatever command or process sent it, and the CFO's own answer then is
+	// whatever command or process sent it, and the CEO's own answer then is
 	// marked as given while he was away, whatever its sender said.
 	if a.In != "" && switched.On {
 		return errOverlordAway
@@ -978,11 +978,11 @@ func (s *Store) recordCFOAnswer(a cfoAnswer) error {
 	a.Away = switched.On
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.applyCFOAnswer(a); errors.Is(err, errAnswerWaits) {
-		if len(s.db.CFOAnswers) >= maxQuestions {
-			return errors.New("the board already holds the most CFO answers it keeps waiting")
+	if err := s.applyCEOAnswer(a); errors.Is(err, errAnswerWaits) {
+		if len(s.db.CEOAnswers) >= maxQuestions {
+			return errors.New("the board already holds the most CEO answers it keeps waiting")
 		}
-		s.db.CFOAnswers = append(s.db.CFOAnswers, a)
+		s.db.CEOAnswers = append(s.db.CEOAnswers, a)
 	} else if err != nil {
 		return err
 	}
@@ -993,20 +993,20 @@ func (s *Store) recordCFOAnswer(a cfoAnswer) error {
 // still waits in its inbox, or the Overlord's board answer is on its way.
 var errAnswerWaits = errors.New("its question cannot take an answer yet")
 
-// answeredByAck reports whether q closed because the CFO acked its notify,
-// which the CFO does once it answered the goblin, such as with cfo send: the
-// board knows the CFO answered it but not which choice, which the CFO may
+// answeredByAck reports whether q closed because the CEO acked its notify,
+// which the CEO does once it answered the goblin, such as with goblins send: the
+// board knows the CEO answered it but not which choice, which the CEO may
 // still record.
 func answeredByAck(q Question) bool {
-	return q.Status == "succeeded" && q.AnsweredBy == "cfo" && q.Answer == ""
+	return q.Status == "succeeded" && q.AnsweredBy == "ceo" && q.Answer == ""
 }
 
-// applyCFOAnswer closes a question with the CFO's answer: which choice closed
-// it, that the CFO gave it, and when. A question still pending takes it, and
-// so does one closed by the CFO's ack before its choice was recorded, one
-// superseded, or one whose board answer was refused because the CFO had just
+// applyCEOAnswer closes a question with the CEO's answer: which choice closed
+// it, that the CEO gave it, and when. A question still pending takes it, and
+// so does one closed by the CEO's ack before its choice was recorded, one
+// superseded, or one whose board answer was refused because the CEO had just
 // answered.
-func (s *Store) applyCFOAnswer(a cfoAnswer) error {
+func (s *Store) applyCEOAnswer(a ceoAnswer) error {
 	i := slices.IndexFunc(s.db.Questions, func(q Question) bool { return q.ID == a.QuestionID })
 	if i < 0 {
 		sum := sha256.Sum256([]byte(a.QuestionID))
@@ -1043,13 +1043,13 @@ func (s *Store) applyCFOAnswer(a cfoAnswer) error {
 		if waiting.QuietSince.IsZero() {
 			waiting.QuietSince = waiting.Since
 		}
-		awaiting, delivery = &waiting, "cfo-answer-"+q.ID
+		awaiting, delivery = &waiting, "ceo-answer-"+q.ID
 	}
 	q.Answer, q.AnswerKind = a.Answer, "option"
 	if a.Option == "" {
 		q.AnswerKind = "other"
 	}
-	q.AnsweredOption, q.AnsweredBy, q.AnsweredAt, q.AnsweredAway = a.Option, "cfo", &at, a.Away
+	q.AnsweredOption, q.AnsweredBy, q.AnsweredAt, q.AnsweredAway = a.Option, "ceo", &at, a.Away
 	if awaiting != nil {
 		// Typed and submitted into the goblin's terminal while it was in a
 		// turn: the question stays open on its way, watched by the same
@@ -1063,13 +1063,13 @@ func (s *Store) applyCFOAnswer(a cfoAnswer) error {
 			Message: sentToGoblin, Awaiting: awaiting, CreatedAt: at, UpdatedAt: at,
 		})
 	} else {
-		q.Status, q.Message, q.AnswerID = "succeeded", "Answered by the CFO.", ""
+		q.Status, q.Message, q.AnswerID = "succeeded", "Answered by the CEO.", ""
 	}
 	if a.In != "" {
-		q.Message, q.AnsweredBy, q.AnsweredIn = "You answered in "+a.In+"; the CFO recorded it.", "overlord", a.In
+		q.Message, q.AnsweredBy, q.AnsweredIn = "You answered in "+a.In+"; the CEO recorded it.", "overlord", a.In
 		s.closePageQuestionAsks(*q, "overlord", "You answered its question in "+a.In+": "+a.Answer)
 	} else {
-		s.closePageQuestionAsks(*q, "cfo", "The CFO answered its question: "+a.Answer)
+		s.closePageQuestionAsks(*q, "ceo", "The CEO answered its question: "+a.Answer)
 	}
 	s.closeFollowUps(*q, q.AnsweredBy, at)
 	return nil
@@ -1084,17 +1084,17 @@ func (s *Store) issue(text string) {
 }
 
 // CallerIdentity proves this process descends from the registered primary
-// CFO, including its creation time, and that its native identity is live, and
+// CEO, including its creation time, and that its native identity is live, and
 // returns that identity. The registration stays open, so it cannot change,
 // until release is called.
-func (c *CFOConnection) CallerIdentity() (string, func(), error) {
+func (c *CEOConnection) CallerIdentity() (string, func(), error) {
 	return c.identityOf(os.Getpid(), time.Now())
 }
 
 // identityOf is CallerIdentity for any process that was running at connected,
 // such as a client of the supervisor's run request pipe: a process that
 // started later took the PID of the one that connected, and proves nothing.
-func (c *CFOConnection) identityOf(pid int, connected time.Time) (string, func(), error) {
+func (c *CEOConnection) identityOf(pid int, connected time.Time) (string, func(), error) {
 	file, err := openPrimary(filepath.Join(c.State, "primary.json"))
 	if err != nil {
 		return "", nil, errNotRegistered
@@ -1113,7 +1113,7 @@ func (c *CFOConnection) identityOf(pid int, connected time.Time) (string, func()
 	proven := descendsFrom(entries, p.Process)
 	if !proven && p.Host != "" && len(entries) > 0 {
 		// A chain of parents that stops short, as a Cygwin or MSYS exec leaves
-		// it, is proven by the proof value of the CFO's native terminal.
+		// it, is proven by the proof value of the CEO's native terminal.
 		if record, err := host.ReadRecord(c.State, p.Host); err == nil {
 			if env, err := proc.Environment(pid); err == nil {
 				program, err := terminalProgram(record, env)
@@ -1123,7 +1123,7 @@ func (c *CFOConnection) identityOf(pid int, connected time.Time) (string, func()
 	}
 	if !proven || entries[0].Start.After(connected) {
 		release()
-		return "", nil, errors.New("this process does not run under the registered CFO")
+		return "", nil, errors.New("this process does not run under the registered CEO")
 	}
 	if err := c.verify(p); err != nil {
 		release()
@@ -1133,28 +1133,28 @@ func (c *CFOConnection) identityOf(pid int, connected time.Time) (string, func()
 }
 
 // descendsFrom reports whether an ancestry, the process itself first, reaches
-// the registered CFO process, each ancestor created no later than its child:
+// the registered CEO process, each ancestor created no later than its child:
 // Windows reuses PIDs, so a parent created after its child is another process
 // that took a dead parent's PID, and the chain ends there.
-func descendsFrom(entries []proc.Entry, cfo lock.Info) bool {
+func descendsFrom(entries []proc.Entry, ceo lock.Info) bool {
 	for i, entry := range entries {
 		if i > 0 && entry.Start.After(entries[i-1].Start) {
 			return false
 		}
-		if entry.PID == cfo.PID && entry.Start.Equal(cfo.Start) {
+		if entry.PID == ceo.PID && entry.Start.Equal(ceo.Start) {
 			return true
 		}
 	}
 	return false
 }
 
-// PublishQuestion is deliberately a local CFO operation, not a browser or
+// PublishQuestion is deliberately a local CEO operation, not a browser or
 // worker-alert endpoint. The caller must descend from the registered primary
 // process, including its creation time, and its native identity must be live.
 // forTask, when set, is the goblin task whose decision the question puts to
 // the Overlord, which the fleet must know. mail is a message the question
 // gives him to send, or nil.
-func (c *CFOConnection) PublishQuestion(id, text string, options []string, recommended, forTask string, mail *Mail) error {
+func (c *CEOConnection) PublishQuestion(id, text string, options []string, recommended, forTask string, mail *Mail) error {
 	identity, release, err := c.CallerIdentity()
 	if err != nil {
 		return err
@@ -1254,7 +1254,7 @@ func (s *Store) acceptQuestion(q Question) error {
 }
 
 // settleQuestion admits q with its answer, straight into History: a decision
-// the CFO answered itself while AFK mode was on, settled once it turned off.
+// the CEO answered itself while AFK mode was on, settled once it turned off.
 // The supervisor admits it once, itself, so the floor that keeps a replayed
 // publication out does not apply to it.
 func (s *Store) settleQuestion(q Question) error {
@@ -1420,8 +1420,8 @@ func (s *Store) ingestQuestions() error {
 }
 
 // supersedeQuestions closes the goblins' questions that no longer apply. The
-// CFO's own questions are never superseded: they follow the home's CFO across
-// a restart (followCFO).
+// CEO's own questions are never superseded: they follow the home's CEO across
+// a restart (followCEO).
 func (s *Store) supersedeQuestions() error {
 	// Missing evidence cannot establish replacement: an unreadable queue
 	// leaves the goblins' questions alone, and an unreadable AFK state leaves
@@ -1444,16 +1444,16 @@ func (s *Store) supersedeQuestions() error {
 		case errors.Is(err, os.ErrNotExist) || err == nil && goblinIdentity(meta) != q.Identity:
 			q.Status, q.Message = "superseded", "The goblin's task restarted or ended, so its question no longer applies."
 			changed = true
-		case pendingErr == nil && afkErr == nil && !slices.ContainsFunc(pending, func(r wake.Record) bool { return r.Seq == q.Seq }) && !slices.ContainsFunc(s.db.CFOAnswers, func(a cfoAnswer) bool { return a.QuestionID == q.ID && a.Awaiting != nil }):
+		case pendingErr == nil && afkErr == nil && !slices.ContainsFunc(pending, func(r wake.Record) bool { return r.Seq == q.Seq }) && !slices.ContainsFunc(s.db.CEOAnswers, func(a ceoAnswer) bool { return a.QuestionID == q.ID && a.Awaiting != nil }):
 			// An answer whose queued delivery has no record of its own yet is
 			// not closed by the ack: it is recorded and watched once room
 			// frees, and only then may it read answered.
-			// The CFO acks a goblin's question once it answered it, so it
-			// closes as answered by the CFO, with the check of any answer.
+			// The CEO acks a goblin's question once it answered it, so it
+			// closes as answered by the CEO, with the check of any answer.
 			at := time.Now().UTC()
-			q.Status, q.Message, q.AnsweredBy, q.AnsweredAt, q.AnsweredAway = "succeeded", "Answered by the CFO.", "cfo", &at, switched.On
-			s.closePageQuestionAsks(*q, "cfo", "The CFO answered its question.")
-			s.closeFollowUps(*q, "cfo", at)
+			q.Status, q.Message, q.AnsweredBy, q.AnsweredAt, q.AnsweredAway = "succeeded", "Answered by the CEO.", "ceo", &at, switched.On
+			s.closePageQuestionAsks(*q, "ceo", "The CEO answered its question.")
+			s.closeFollowUps(*q, "ceo", at)
 			changed = true
 		}
 	}
@@ -1477,7 +1477,7 @@ func (s *Store) questionAnswer(a Action) error {
 			}
 		}
 		if q.Identity != a.Generation {
-			return errors.New("this question belongs to a previous CFO session")
+			return errors.New("this question belongs to a previous CEO session")
 		}
 		if q.AnswerID != "" || q.Status != "pending" {
 			return errors.New("an answer is already recorded for this question; inspect its outcome")
@@ -1486,7 +1486,7 @@ func (s *Store) questionAnswer(a Action) error {
 			return errors.New("answer kind must be option or other")
 		}
 		if a.AnswerKind != "other" && (len(q.Options) > 0 || a.AnswerKind == "option") && !slices.Contains(q.Options, a.Text) {
-			return errors.New("select one of the CFO's supplied choices")
+			return errors.New("select one of the CEO's supplied choices")
 		}
 		return nil
 	}
@@ -1518,12 +1518,12 @@ func (s *Store) questionChange(a Action) (string, bool, error) {
 	if (a.AnswerKind == "other") == (q.AnswerKind == "other") && a.Text == standing {
 		return "", true, nil
 	}
-	// The CFO's ack closes a goblin's question without the board learning
+	// The CEO's ack closes a goblin's question without the board learning
 	// which choice it gave.
-	return cmp.Or(standing, "the CFO's answer"), false, nil
+	return cmp.Or(standing, "the CEO's answer"), false, nil
 }
 
-// isAnswered reports whether q has an answer: one the CFO gave or recorded,
+// isAnswered reports whether q has an answer: one the CEO gave or recorded,
 // or one he gave on the board, on its way or delivered. An answer that failed
 // to arrive is none.
 func isAnswered(q Question) bool {
@@ -1539,7 +1539,7 @@ func isAnswered(q Question) bool {
 // clearQuestion closes question i, which the Overlord cleared from the
 // Command Center: one that closed without an answer, or one still waiting on
 // him that he answered elsewhere or no longer needs, which he dismissed. It
-// returns the dismissed question's ID, which the CFO must hear of, and nothing
+// returns the dismissed question's ID, which the CEO must hear of, and nothing
 // otherwise. The caller holds the store lock and has checked that the
 // question may be cleared.
 func (s *Store) clearQuestion(i int) []string {

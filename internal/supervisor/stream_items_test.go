@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// The Overlord, 2026-10-02: an item the CFO answers "hangs around for a stale
+// The Overlord, 2026-10-02: an item the CEO answers "hangs around for a stale
 // second or two". Measured that day: the live board took 3 to 13 seconds to
 // build one snapshot, which reads the fleet from several hundred files, and
 // the Command Center's items reached the board only inside it. They live in

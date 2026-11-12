@@ -10,15 +10,15 @@ import (
 )
 
 // A failure only the board sees, such as a read that failed, a stream it
-// could not parse or a card it could not draw, goes to the CFO rather than
+// could not parse or a card it could not draw, goes to the CEO rather than
 // onto the board, as the Overlord ruled on 2026-10-08: "again everything error
 // wise goes to cfo and cfo decides what to tell me in command center". The
-// board reports it through POST /api/cfo/report; the supervisor's own errors
-// reach the CFO from the supervisor. Each wake is a notify keyed board, and
-// the same failure wakes the CFO at most once an hour.
+// board reports it through POST /api/ceo/report; the supervisor's own errors
+// reach the CEO from the supervisor. Each wake is a notify keyed board, and
+// the same failure wakes the CEO at most once an hour.
 const boardErrorQuiet = time.Hour
 
-// boardErrors remembers when each error last woke the CFO.
+// boardErrors remembers when each error last woke the CEO.
 type boardErrors struct {
 	mu   sync.Mutex
 	seen map[string]time.Time
@@ -41,8 +41,8 @@ func (b *boardErrors) report(stateDir, where, text string, now time.Time) error 
 	return err
 }
 
-// reportBoardError serves POST /api/cfo/report: a failure only the board
-// saw, which it gives the CFO rather than showing him.
+// reportBoardError serves POST /api/ceo/report: a failure only the board
+// saw, which it gives the CEO rather than showing him.
 func (h *HTTP) reportBoardError(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Where string `json:"where"`

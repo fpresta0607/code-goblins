@@ -1,13 +1,13 @@
 import { expect, test, type Page } from "./site";
 
-// The Overlord, 2026-10-02, after the board's first-run page started his CFO
+// The Overlord, 2026-10-02, after the board's first-run page started his CEO
 // in a project: "the default repo should always be code goblins; it should
 // not be a random project repo, so that shouldn't even be an option on the
 // start selection", "shouldn't it adopt the answers from the CLI", and
 // "shouldn't it be a tab or a drop-down switch or icon selection for the
 // harness?" The page asks for no project, shows as done what the quick start
 // already knows, and offers the agents as one row of icon tabs.
-const missing = "Install pi to start the CFO";
+const missing = "Install pi to start the CEO";
 const setup = (changes: Record<string, unknown> = {}) => ({
   home: "C:\\Users\\franco\\AppData\\Local\\CodeGoblins",
   agent: "claude",
@@ -18,7 +18,7 @@ const setup = (changes: Record<string, unknown> = {}) => ({
     { id: "codex", name: "Codex", recommended: false, note: "woken by a typed line; no digest or guards", installed: true, sign_in: "signed_in" },
     { id: "pi", name: "pi", recommended: false, note: "woken by a typed line; no digest or guards", installed: false, sign_in: "unknown", reason: missing },
   ],
-  cfo_runs: false,
+  ceo_runs: false,
   ...changes,
 });
 
@@ -47,7 +47,7 @@ test("the folder picker uses the typed path and fills and checks the selected fo
   const requests: unknown[] = [];
   await page.route("**/api/setup/folder", async (route) => {
     requests.push(route.request().postDataJSON());
-    expect(route.request().headers()["x-cfo-token"]).toBe("fixture");
+    expect(route.request().headers()["x-ceo-token"]).toBe("fixture");
     await route.fulfill({ json: { root: selected } });
   });
   await page.getByLabel("Projects folder").fill("C:\\Typed projects");
@@ -98,7 +98,7 @@ test("the folder picker disables another selection until the open dialog closes"
   await expect(page.getByLabel("Projects folder")).toBeEnabled();
 });
 
-test("the page asks for no project, shows what the quick start knows as done, and starts the CFO in its home", async ({ page }, testInfo) => {
+test("the page asks for no project, shows what the quick start knows as done, and starts the CEO in its home", async ({ page }, testInfo) => {
   // Arrange
   const starts = await open(page, setup());
   const done = page.getByRole("list", { name: "Already set up" });
@@ -121,9 +121,9 @@ test("the page asks for no project, shows what the quick start knows as done, an
 });
 
 // The page says each installed agent's sign-in as the agent's own status
-// command says it, in the environment the CFO's terminal starts with, and
+// command says it, in the environment the CEO's terminal starts with, and
 // nothing of a sign-in for one not installed. Found 2026-10-06 in a scratch
-// profile: the page said Not signed in while the CFO's terminal started
+// profile: the page said Not signed in while the CEO's terminal started
 // Claude Code signed in with the PC user's own account.
 for (const [signIn, says] of [["signed_in", "Signed in"], ["signed_out", "Not signed in"], ["unknown", "Sign-in unknown"]] as const) {
   test(`an agent whose status command says ${signIn} reads ${says}`, async ({ page }) => {
@@ -174,7 +174,7 @@ test("the agents are one row of icon tabs moved with Left and Right", async ({ p
   await claude.focus();
   await page.keyboard.press("ArrowRight");
 
-  // Assert: the mark and the focus move, the page says what a Codex CFO
+  // Assert: the mark and the focus move, the page says what a Codex CEO
   // gets, and Codex starts like any agent the fleet can wake.
   await expect(codex).toHaveAttribute("aria-selected", "true");
   await expect(codex).toBeFocused();
@@ -304,7 +304,7 @@ test.describe("at the desktop window's size", () => {
     await page.screenshot({ path: testInfo.outputPath("first-run-window.png") });
   });
 
-  test("a Codex CFO chosen there shows what it gets and can start, with nothing cut off", async ({ page }, testInfo) => {
+  test("a Codex CEO chosen there shows what it gets and can start, with nothing cut off", async ({ page }, testInfo) => {
     // Arrange
     await open(page, setup({ agent: "codex" }));
 

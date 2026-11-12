@@ -93,7 +93,7 @@ func TestTheSchedulerStartsARowOnceWhatItWaitsForClears(t *testing.T) {
 
 // A row whose wait the scheduler cannot read keeps waiting, never starts,
 // and says why in plain words: on its card, and as work that waits, which
-// the CFO hears of. A task the home has never heard of is one, as the
+// the CEO hears of. A task the home has never heard of is one, as the
 // quiet-night and fleet-slots rows were, which sat while memory was free.
 func TestARowWhoseWaitCannotBeReadKeepsWaitingAndSaysWhy(t *testing.T) {
 	cases := []struct{ name, blocker, why string }{
@@ -160,7 +160,7 @@ func TestAWaitingCardCarriesWhatItStillWaitsFor(t *testing.T) {
 
 // A pull request a row waits on whose state cannot be read keeps that row
 // waiting, and nothing else: the scheduler still says why other work waits,
-// and the CFO is still woken for it.
+// and the CEO is still woken for it.
 func TestAPullRequestThatCannotBeReadHoldsOnlyItsOwnRow(t *testing.T) {
 	// Arrange
 	spawner := &spawnRecorder{}
@@ -199,7 +199,7 @@ func TestARowWhoseWaitCanNeverClearSaysWhy(t *testing.T) {
 		arrange            func(t *testing.T, h home.Home, service *Service)
 	}{
 		{"a task that stopped", "other-task", "other-task stopped without delivering", func(t *testing.T, h home.Home, _ *Service) {
-			if err := state.WriteOutcome(h.State, state.Outcome{ID: "other-task", Generation: "generation-other-task", Phase: "stopped", Reason: "stopped by the CFO", At: time.Now().UTC()}); err != nil {
+			if err := state.WriteOutcome(h.State, state.Outcome{ID: "other-task", Generation: "generation-other-task", Phase: "stopped", Reason: "stopped by the CEO", At: time.Now().UTC()}); err != nil {
 				t.Fatal(err)
 			}
 		}},

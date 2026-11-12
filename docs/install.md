@@ -39,7 +39,7 @@ The install never stops to ask you to run anything first; it decides by what it 
 | Nothing yet | Installs into `%LOCALAPPDATA%\CodeGoblins`. |
 | An earlier install | Updates it in place and keeps your settings, policy and fleet. |
 | The command line only | Updates it and adds the app, with the shortcuts described below. |
-| `CFO_HOME` naming another folder that holds a fleet, such as a clone an older build made the home | Keeps using that folder and says so in one line: the programs go into its `bin`, those at its root are brought up to date too, and in a clone the files git tracks are left as they are, while the clone gets the `.cfo-home` marker, which git ignores, that makes it the home in use. Moving it to the standard folder is [`cfo home move`](#where-your-data-lives), whenever you choose. |
+| `GOBLINS_HOME` naming another folder that holds a fleet, such as a clone an older build made the home | Keeps using that folder and says so in one line: the programs go into its `bin`, those at its root are brought up to date too, and in a clone the files git tracks are left as they are, while the clone gets the `.ceo-home` marker, which git ignores, that makes it the home in use. Moving it to the standard folder is [`goblins home move`](#where-your-data-lives), whenever you choose. |
 | The board, the CEO or goblins running | Restarts only the board on the new build, on the address it served; no goblin's or the CEO's terminal is touched, and a build that does not start gives the board back to the one before. |
 | An install that stopped part way | Finishes it: every step is safe to run again. |
 
@@ -49,21 +49,21 @@ Either way the steps are the script's.
 In order, it:
 
 1. Stops before changing anything when git or gh is missing and winget, which installs them, is missing too; the fix is App Installer from the Microsoft Store.
-2. Downloads `cfo.exe`, and the desktop window `goblins-window.exe` and the hook program `cfo-hook.exe` when the release lists them, from the release this `install.ps1` was published with, so the script and the programs are always one release's, and refuses each unless it matches the release's `SHA256SUMS`.
-3. Sets up the CEO home it picked, as [the table above](#which-home-it-installs) says, normally `%LOCALAPPDATA%\CodeGoblins`: the CEO's contract, the default policy, the program as `bin\cfo.exe` and `bin\goblins.exe`, and the desktop window beside them as `goblins-window.exe` and the hook program as `cfo-hook.exe` where the release ships them, with the `state`, `data`, `worktrees`, `scratch` and `caches` folders beside `bin`.
+2. Downloads `goblins.exe`, and the desktop window `goblins-window.exe` and the hook program `goblins-hook.exe` when the release lists them, from the release this `install.ps1` was published with, so the script and the programs are always one release's, and refuses each unless it matches the release's `SHA256SUMS`.
+3. Sets up the CEO home it picked, as [the table above](#which-home-it-installs) says, normally `%LOCALAPPDATA%\CodeGoblins`: the CEO's contract, the default policy, the program as `bin\goblins.exe`, and the desktop window beside them as `goblins-window.exe` and the hook program as `goblins-hook.exe` where the release ships them, with the `state`, `data`, `worktrees`, `scratch` and `caches` folders beside `bin`.
    The skills Code Goblins ships go once into `~\.agents\skills`, which Codex and Pi read, with a junction to each from Claude Code's skills folder, and `state\harnesses.json` records where each harness keeps its configuration; nothing in a harness folder that Code Goblins did not put there is changed.
-   `CFO_HOME` and the home's `bin` on your PATH are set for your user.
-   The CEO's hooks go into no settings file of yours: [the CEO's own session](contract/supervision.md#the-ceos-own-session), the one `goblins` starts in native terminal `cfo`, starts with them, so a Claude Code session you open yourself, in the desktop app or a terminal, runs none of them and never holds the fleet.
+   `GOBLINS_HOME` and the home's `bin` on your PATH are set for your user.
+   The CEO's hooks go into no settings file of yours: [the CEO's own session](contract/supervision.md#the-ceos-own-session), the one `goblins` starts in native terminal `ceo`, starts with them, so a Claude Code session you open yourself, in the desktop app or a terminal, runs none of them and never holds the fleet.
    Where an older build merged them into your `~/.claude/settings.json`, the install takes them out, backing the file up first and keeping your own hooks.
-   The same write adds allow rules for the commands that only put an item in front of you in the Command Center (`cfo question`, `cfo run-request`, `cfo review`, `cfo present`, `cfo deliver` and `cfo auth request`), so Claude Code's auto mode approves them without its classifier unless `autoMode.classifyAllShell` is on ([Safety model](../README.md#safety-model) says why these and no others); `settings.json.cfo-install.rules` beside the file records which ones it added, for the uninstall.
-   Windows then starts Code Goblins at login, in the tray, which brings back what a restart ended, unless Start at login was turned off: the setup's box, `-NoStartAtLogin` given to `install.ps1` run as a file, or `cfo install --start-at-login off`; `-StartAtLogin` and `--start-at-login on` turn it back on.
+   The same write adds allow rules for the commands that only put an item in front of you in the Command Center (`goblins question`, `goblins run-request`, `goblins review`, `goblins present`, `goblins deliver` and `goblins auth request`), so Claude Code's auto mode approves them without its classifier unless `autoMode.classifyAllShell` is on ([Safety model](../README.md#safety-model) says why these and no others); `settings.json.ceo-install.rules` beside the file records which ones it added, for the uninstall.
+   Windows then starts Code Goblins at login, in the tray, which brings back what a restart ended, unless Start at login was turned off: the setup's box, `-NoStartAtLogin` given to `install.ps1` run as a file, or `goblins install --start-at-login off`; `-StartAtLogin` and `--start-at-login on` turn it back on.
    The home keeps the choice in `state\start-at-login`, so an update keeps it, and the board's switch and the tray's item change the same setting.
-   The same `cfo install` then sets up the [crawler connector](crawler.md) every goblin carries, as [`cfo crawler setup`](commands/crawler/setup.md) does: it writes the build's connector into the home's `caches\crawler` and installs the packages its lockfile pins with `npm ci`, which needs Node.js, leaving one the build already installed as it is.
-   A failure never fails the install and leaves goblins without `goblin-crawl` and nothing else: a note says so, `cfo doctor` says how to set it up, and on a machine without Node.js the closing note names `crawler`.
+   The same `goblins install` then sets up the [crawler connector](crawler.md) every goblin carries, as [`goblins crawler setup`](commands/crawler/setup.md) does: it writes the build's connector into the home's `caches\crawler` and installs the packages its lockfile pins with `npm ci`, which needs Node.js, leaving one the build already installed as it is.
+   A failure never fails the install and leaves goblins without `goblin-crawl` and nothing else: a note says so, `goblins doctor` says how to set it up, and on a machine without Node.js the closing note names `crawler`.
 4. Installs each missing tool the fleet drives: git and gh with winget, for you alone, so neither asks for administrator rights, Claude Code with its own installer, no-mistakes from the release the install script came with, and Codex, pi and the axi tools with npm, which needs Node.js.
    Each npm package is installed at the exact version `install.ps1` pins, so a new release upstream reaches an install only once it is pinned there.
    chrome-devtools-axi and lavish-axi come from a release file of the Code Goblins fork of each, which the install downloads and hands to npm only when it matches the SHA-256 `install.ps1` pins beside it.
-   A build of either that is already there is kept only when it is that release's build or a later one of the fork's, the builds `cfo doctor` passes; the upstream package, an older build and one that reports no version or does not run are replaced with the release, and a replacement adds nothing to the install's record, so the uninstall can remove the command only when an earlier install fetched it.
+   A build of either that is already there is kept only when it is that release's build or a later one of the fork's, the builds `goblins doctor` passes; the upstream package, an older build and one that reports no version or does not run are replaced with the release, and a replacement adds nothing to the install's record, so the uninstall can remove the command only when an earlier install fetched it.
    npm replaces only the copy in its own folder, so a copy in a folder ahead of it on PATH goes on answering: the install then names that folder in its log and lists the tool among those it could not install.
    no-mistakes is the gate every goblin's work passes, so every machine runs the one build `install.ps1` pins: a commit of the fork whose `axi run` takes a gate's intent from a file and the launch selection every gate gives it ([What v6 needs](pipeline.md#what-v6-needs)).
    Each release builds that commit with `tools\build-no-mistakes.ps1`, signs it as it signs its own programs, and publishes it as `no-mistakes.exe`, with the licences of what it compiles in as `no-mistakes-NOTICES`, so the install downloads no unsigned program for it, and never asks GitHub's API, whose limit for anonymous callers failed installs on shared machines.
@@ -77,7 +77,7 @@ In order, it:
    A skill whose install fails is tried once more; one that fails again is named in the closing note, and the rest of the install goes on.
 6. Installs pi's native lifecycle hooks, its extension, when pi is installed.
    The fleet's Claude Code and Codex sessions carry theirs in their own launches, so the install writes none into the settings every Claude Code or Codex session on the machine loads.
-7. Sets up dictation, saying "Setting up dictation": the home's own build, with `cfo dictation setup`, downloads the speech engine and model it pins in `config\voice.json`, 483 MB, keeps each only when it matches its pinned SHA-256 and no program in it links a networking library, and puts them in the home's `caches\voice`, where the board's dictation looks, so the first dictation works at once.
+7. Sets up dictation, saying "Setting up dictation": the home's own build, with `goblins dictation setup`, downloads the speech engine and model it pins in `config\voice.json`, 483 MB, keeps each only when it matches its pinned SHA-256 and no program in it links a networking library, and puts them in the home's `caches\voice`, where the board's dictation looks, so the first dictation works at once.
    The model is Parakeet TDT 0.6B v2 by NVIDIA ([nvidia/parakeet-tdt-0.6b-v2](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2)), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), converted to ONNX and quantized to int8 by the [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) project, whose release the install downloads unchanged.
    One already there is not downloaded again, and one an earlier build pinned is removed once the new one is in place, so a machine never keeps two models.
    It needs none of the tools, so it runs out of sight from the start of step 4, beside them, and the install waits for it once they are in: on a GitHub runner it took 76 s of a fresh install's 298.
@@ -95,7 +95,7 @@ In order, it:
    If the window is not a Windows program or the desktop shell cannot open it, the install logs why and tries starting it directly; if it cannot open, the existing note points you to Code Goblins in the Start menu.
 
 Rerun it to update: it brings the home's contract, skills and program up to date, and keeps your projects folder and any policy you tuned.
-A running program cannot be replaced, only renamed, so the previous build moves aside and the new one takes its name; a supervisor that runs is then restarted on the new build, as `cfo update` restarts it.
+A running program cannot be replaced, only renamed, so the previous build moves aside and the new one takes its name; a supervisor that runs is then restarted on the new build, as `goblins update` restarts it.
 A desktop window in the tray moves onto the new one by itself, and one you have open stays as it is until you close it.
 
 An install that delivers its desktop window into the home takes the place of a copy that was installed on its own, in `%LOCALAPPDATA%\CodeGoblinsWindow` with **Code Goblins Window** in the Start menu.
@@ -134,7 +134,7 @@ The tick and each agent's mark are drawn in Unicode where the console says it ca
 4. When nobody is signed in, Enter opens the agent's own sign-in in the same window (`claude auth login`, `codex login`, or pi itself, where `/login` signs in and `/model` picks the provider), and the quick start checks again when it ends.
    You sign in there yourself; nothing is typed for you.
    An installer and a sign-in run on the console's other screen, under a line that says what is running, so what they print leaves with them; one that fails keeps that screen until you have read why.
-5. It remembers the agent and starts the CEO in the CEO home, in a native terminal of its own, and says so in one line: `CFO started as Claude Code in` the home, or `CFO already running` and where.
+5. It remembers the agent and starts the CEO in the CEO home, in a native terminal of its own, and says so in one line: `CEO started as Claude Code in` the home, or `CEO already running` and where.
    In a native terminal it answers the CEO's startup dialogs whose answers are known and safe, as a goblin's spawn does: Claude Code's trust in the home, Codex's directory or folder trust and update prompt, and Codex's hook review without trusting the hooks, which stay your decision.
    Codex's optional Daybreak security setup offer is no startup dialog: it is drawn above the composer, and the first wake or board message typed into the CEO dismisses a live one with Escape and never chooses it, so account security setup stays your decision.
    It reads a dialog's focus by the mark the agent draws, Claude Code's `❯` or the plain `>` it draws in a console that does not announce Unicode.
@@ -143,10 +143,10 @@ The tick and each agent's mark are drawn in Unicode where the console says it ca
 6. It ends on one screen with the home and the board's link, which Ctrl+click opens: **Open the CEO terminal**, which Enter takes, or **Open the board**, which B takes, in the desktop window where `goblins-window.exe` sits beside `goblins` and in the browser otherwise.
    Esc there leaves both running and exits.
 
-A CEO that ran in a native terminal and was closed comes back in it on its conversation, and the line reads `CFO back as Claude Code on its conversation`, its id and the terminal; the README's [Everyday commands](../README.md#everyday-commands) say when it starts a new conversation instead.
+A CEO that ran in a native terminal and was closed comes back in it on its conversation, and the line reads `CEO back as Claude Code on its conversation`, its id and the terminal; the README's [Everyday commands](../README.md#everyday-commands) say when it starts a new conversation instead.
 Later runs skip what is already set up: with the remembered agent ready they go straight to the last screen, and with a CEO running they start nothing.
 `goblins setup` shows the choice of agent again, and `goblins --harness codex|claude|pi` names it instead of asking.
-`goblins resume` restarts a running CEO in its native terminal on its conversation, for a screen that froze, and with none running there does what `goblins` does; then, as after a reboot, it brings back every goblin whose terminal ended, except one paused or stopped on purpose or whose latest report is `done` with a pull request, or with the issue it closed in place of one, and that took no prompt since, which waits on its merge or on nothing, and lists which came back and which need a hand.
+`goblins resume` restarts a running CEO in its native terminal on its conversation, for a screen that froze, and with none running there does what `goblins` does; then, as after a reboot, it brings back every goblin whose terminal ended, except one paused or stopped on purpose or whose latest report is `done` with a pull request, or with the issue it closed or the report it kept in place of one, and that took no prompt since, which waits on its merge or on nothing, and lists which came back and which need a hand.
 A screen nobody can answer, as in a script or the install's own CI run, accepts nothing and says to run `goblins` in a terminal.
 
 A no-mistakes that cannot gate as the pinned build does is replaced with it the same way: one older than the build `install.ps1` pins, and one whose `axi run` has no `--intent-file` or no `--launch-assertion`, as no upstream release has.
@@ -168,13 +168,13 @@ Only you press it, from a board of your own; `"check_for_updates": false` in the
 [Update Code Goblins](native-board.md#update-code-goblins) says all it does.
 
 `goblins update`, run in a terminal of your own, does the same: it updates the home to the newest published release without touching your goblins or the CEO.
-It runs only as the home's own `goblins` or `cfo`, and it says four steps as it goes:
+It runs only as the home's own `goblins`, and it says four steps as it goes:
 
-1. `[1/4] Download Code Goblins <version>`: it reads the newest release from GitHub's `/releases/latest`, refuses a pre-release or a draft, and downloads its `cfo.exe`, its desktop window `goblins-window.exe` and its hook program `cfo-hook.exe` where the release ships them, its `SHA256SUMS` and its `install.ps1` into the home's `state\update`.
+1. `[1/4] Download Code Goblins <version>`: it reads the newest release from GitHub's `/releases/latest`, refuses a pre-release or a draft, and downloads its `goblins.exe`, its desktop window `goblins-window.exe` and its hook program `goblins-hook.exe` where the release ships them, its `SHA256SUMS` and its `install.ps1` into the home's `state\update`.
 2. `[2/4] Check the download`: it keeps a program only when it matches the release's `SHA256SUMS`, and, for a release whose `install.ps1` names a publisher, only when Windows reports it validly signed by that publisher, the same checks the one-line install makes.
    It names each program's SHA-256, and says when the release is unsigned, which every release is until Code Goblins has a signing identity.
    A program that fails a check is never run, and nothing in the home changes.
-3. `[3/4] Install Code Goblins <version>`: the downloaded build installs itself with its own [`update`](../README.md#core-commands), which swaps `cfo.exe` and `goblins.exe` where the home keeps them, in `bin` or, in a home a build before `bin` set up, at its root, restarts only the board on the address it served, and puts the previous build back when the new one does not serve.
+3. `[3/4] Install Code Goblins <version>`: the downloaded build installs itself with its own [`update`](../README.md#core-commands), which swaps `goblins.exe` where the home keeps it, in `bin` or, in a home a build before `bin` set up, at its root, restarts only the board on the address it served, and puts the previous build back when the new one does not serve.
    It first waits up to 15 seconds for a goblin's start, pause, resume or clean-up in flight, and refuses a new one while it installs, with one sentence.
    It holds the supervisor's lock from the supervisor it stopped to the one it starts, so opening Code Goblins meanwhile waits for the board instead of starting a second supervisor.
    It is bounded: past a minute with the board away it is stopped where it is and the previous build put back, and past a minute before it changed anything it is stopped with nothing changed.
@@ -186,7 +186,7 @@ A new build that pins a different speech model than the one the home holds downl
 It ends on one line, a plain sentence: `Updated:`, `Rolled back:` when the new build was not installed and the previous one serves again, or `Failed:` when nothing was changed or the board did not come back.
 The lines above it say why, and how long each step took.
 Whatever an update left unfinished, the next one puts right first, and opening Code Goblins again starts the board when an update left it down, so there is nothing to paste.
-To recover by hand, when nothing else can, run the copy the update kept, with the home and its state named: set `CFO_HOME` to the home and `CFO_STATE_OVERRIDE` to its `state` folder, then run `state\update\candidate.exe update --recover` from any folder.
+To recover by hand, when nothing else can, run the copy the update kept, with the home and its state named: set `GOBLINS_HOME` to the home and `GOBLINS_STATE_OVERRIDE` to its `state` folder, then run `state\update\candidate.exe update --recover` from any folder.
 When the new build serves but its install cannot refresh the home, or the machine's installed home cannot be read, it keeps that build, ends on `Updated:` saying what remains to do, and exits 6; run `goblins install` to finish.
 Updating another home deliberately skips that refresh and exits 0.
 The download is removed afterwards.
@@ -196,14 +196,28 @@ A build made from a clone has no release version, so it says to run `git pull` a
 The update is yours alone: it refuses to run under the CEO, in a goblin's or a gate's terminal, under an agent harness, and where its parents cannot be followed to the desktop, as in Git Bash; run it in PowerShell or cmd.
 Rerunning the install still updates the tools it pins, such as no-mistakes, which an update leaves as they are.
 
+### Updating from a release before the rename
+
+Code Goblins v0.5.18 and earlier named its command differently and began its settings with another prefix.
+Its **Update** item, and the one-line install or `CodeGoblinsSetup.exe` run over such a home, update it to `goblins` with nothing to do by hand.
+Each release ships copies of `goblins.exe` and `goblins-hook.exe` under the names those releases download, the same build, listed in `SHA256SUMS` and signed like the rest.
+Within the update's own window, the new build moves the home to goblins' names, as [`goblins cutover`](commands/cutover.md) does, and keeps everything its undo needs in `state\backups\cutover-<time>`: your settings, projects, credentials, skills, hooks, scheduled job and the goblins' work stay as they were, under the new names.
+An update that does not serve puts the move back with the previous build.
+The board then says once what changed, which terminals restart under the new names, and the way back.
+A goblin's terminal and the CEO's that started before the update hold the old settings, so each restarts on its own conversation, harness, model and effort, but only once it is idle with nothing typed on its prompt line, and never on the board's first look, so the notice comes first.
+A terminal you opened yourself before the update needs opening again.
+The copies under the old names are removed once no terminal from before the update runs and nothing runs them.
+The GitHub labels of the goblins' tickets take the new names once the updated board starts, as part of the same undo.
+The way back is the command the board and the update name, `goblins cutover --undo '<folder>'`, run with the fleet paused.
+
 ### What an update keeps
 
-An update replaces the programs and brings the home's contract, skills and hooks up to date, and keeps everything else as it was:
+An update replaces the programs and brings the home's contract, skills and hooks up to date, and keeps everything else as it was, apart from the move of a home from a release before the rename, [above](#updating-from-a-release-before-the-rename):
 
-- Your home, `%LOCALAPPDATA%\CodeGoblins` or the folder `CFO_HOME` names, with its state, data and worktrees, which it never moves, deletes or rewrites.
+- Your home, `%LOCALAPPDATA%\CodeGoblins` or the folder `GOBLINS_HOME` names, with its state, data and worktrees, which it never moves, deletes or rewrites.
 - Your settings: the policy files in the home's `config` folder stay as you tuned them, and Start at login stays as you set it.
   The one exception is a setting this build no longer reads, such as `max_live_goblins` in `config\fleet.json`, which it takes out and says so.
-- Your projects folder, `CFO_PROJECTS_ROOT`.
+- Your projects folder, `GOBLINS_PROJECTS_ROOT`.
 - The dictation model, unless the new build pins a different one, which then replaces it.
 - Your running goblins and the CEO: only the board restarts, and no goblin's or the CEO's terminal is touched.
 
@@ -222,7 +236,7 @@ Windows knows an unsigned program only as an unknown program from an unknown pub
 Each program's file properties (right-click, Properties, Details) name the product Code Goblins and its version, and none asks for administrator rights.
 The setup's say its product version is "the newest release", since it carries nothing of the release that built it.
 
-- **The one-line install** runs nothing unless the downloaded `cfo.exe` matches the release's `SHA256SUMS`.
+- **The one-line install** runs nothing unless the downloaded `goblins.exe` matches the release's `SHA256SUMS`.
   Windows PowerShell does not mark that download as coming from the internet, so SmartScreen does not prompt.
 - **`CodeGoblinsSetup.exe`** is saved with a browser, which marks it.
   A signed setup names SIQstack LLC as its publisher, but Windows still judges a program few people have run yet by its reputation, which builds over weeks of downloads: until then the browser can say it "isn't commonly downloaded", and SmartScreen can stop it once with "Windows protected your PC", as it does an unsigned one with an Unknown publisher.
@@ -233,8 +247,8 @@ The setup's say its product version is "the newest release", since it carries no
   Check it first: `(Get-FileHash .\CodeGoblinsSetup.exe -Algorithm SHA256).Hash` must equal the first field of the `CodeGoblinsSetup.exe` line in the `SHA256SUMS` of the release you downloaded the setup from, in any letter case.
   Then **More info**, **Run anyway** runs it.
   The install script checks the programs it installs against the newest release's `SHA256SUMS`.
-- **A `cfo.exe` saved from a browser** is marked, and SmartScreen stops it with "Windows protected your PC" and an Unknown publisher.
-  Check it first: `(Get-FileHash .\cfo.exe -Algorithm SHA256).Hash` must equal the first field of the release's `SHA256SUMS` line for `cfo.exe`, in any letter case.
+- **A `goblins.exe` saved from a browser** is marked, and SmartScreen stops it with "Windows protected your PC" and an Unknown publisher.
+  Check it first: `(Get-FileHash .\goblins.exe -Algorithm SHA256).Hash` must equal the first field of the release's `SHA256SUMS` line for `goblins.exe`, in any letter case.
   Then **More info**, **Run anyway** runs it.
 - **Smart App Control**, where it is on (Windows Security, App & browser control), blocks unsigned programs that Microsoft does not already know, with no way to run them; a signed release is the fix.
 - **Microsoft Defender** can send a new build to Microsoft for cloud analysis, which is on by default, and a machine-learning false positive then quarantines it hours after it installed cleanly; `Trojan:Script/Wacatac.C!ml` is the one seen so far.
@@ -250,21 +264,21 @@ cd code-goblins
 ```
 
 It needs Go and Node.js: `winget install -e --id GoLang.Go` and `winget install -e --id OpenJS.NodeJS.LTS`.
-A source build runs `npm ci` and `npm run build` in `frontend` before `go build`, because `cfo.exe` embeds the board they build, and `-Dev` does both for you.
+A source build runs `npm ci` and `npm run build` in `frontend` before `go build`, because `goblins.exe` embeds the board they build, and `-Dev` does both for you.
 `install.cmd` runs `install.ps1` with PowerShell's execution policy bypassed, so it works whatever execution policy is set locally.
 An execution policy set by Group Policy still applies, and can refuse it.
 Type it in full: in PowerShell, `.\install -Dev` runs `install.ps1` itself, which the default execution policy refuses.
 
 `-Dev` does everything the one-line install does, with the clone in place of the download:
 
-- It builds the board in the clone, then `cfo.exe`, the hook program `cfo-hook.exe` and the desktop window, `goblins-window.exe`, into a temporary folder of its own, runs that build's `cfo install`, which picks the home as the one-line install does, and removes the folder.
+- It builds the board in the clone, then `goblins.exe`, the hook program `goblins-hook.exe` and the desktop window, `goblins-window.exe`, into a temporary folder of its own, runs that build's `goblins install`, which picks the home as the one-line install does, and removes the folder.
   Its steps are `[1/3] Build Code Goblins from this clone`, then installing and opening as the one-line install's.
-  The clone keeps only what git ignores: the board, which `cfo.exe` embeds from there, and the frontend's `node_modules`.
-  A copy in the home still running, such as a supervisor, a terminal's host or an open window, cannot be overwritten, so it moves aside to a `cfo.exe.<id>.old`, `goblins.exe.<id>.old`, `cfo-hook.exe.<id>.old` or `goblins-window.exe.<id>.old` of its own and is removed once nothing runs it, on this run or a later one.
+  The clone keeps only what git ignores: the board, which `goblins.exe` embeds from there, and the frontend's `node_modules`.
+  A copy in the home still running, such as a supervisor, a terminal's host or an open window, cannot be overwritten, so it moves aside to a `goblins.exe.<id>.old`, `goblins-hook.exe.<id>.old` or `goblins-window.exe.<id>.old` of its own and is removed once nothing runs it, on this run or a later one.
 - It says that the three programs are unsigned: they were built on this PC, and Windows runs a program built here without asking.
   A copy taken to another PC is unsigned there too, and [On a fresh PC](#on-a-fresh-pc) says what Windows shows for one.
 - The home's `bin` goes on your PATH; open a new terminal to use it, since `install.cmd` runs in a PowerShell of its own.
-  While `CFO_HOME` names another folder that holds a fleet's state, such as a clone an older build made its home, it keeps that home, as [the table above](#which-home-it-installs) says; `cfo home move` brings that fleet into the per-user home whenever you choose.
+  While `GOBLINS_HOME` names another folder that holds a fleet's state, such as a clone an older build made its home, it keeps that home, as [the table above](#which-home-it-installs) says; `goblins home move` brings that fleet into the per-user home whenever you choose.
 - It installs this repository's skills the same way, once in `~\.agents\skills` with a junction from Claude Code's skills folder; [load-map.md](load-map.md) shows where each harness looks for skills.
 
 Rerun it after you pull, to rebuild.
@@ -273,7 +287,7 @@ Rerun it after you pull, to rebuild.
 
 The [data overview](../README.md#your-data) describes where the fleet keeps its files for release and source builds.
 [The CEO home](contract/home.md#the-ceo-home) describes each folder and the janitor's cleanup rules.
-The board and `cfo runtime` show what it holds.
+The board and `goblins runtime` show what it holds.
 It all stays on your machine: Code Goblins needs no backup repository, account or service for it.
 Backing the home up, for example its `data` folder to a private git repository, is only your own choice.
 `goblins uninstall`, or Uninstall on Code Goblins in Windows' Installed apps, which both installs add it to, removes everything Code Goblins made and leaves your PC as the install found it.
@@ -285,7 +299,7 @@ It leaves the tools the install fetched, which the install records in the home's
 ## Your projects folder
 
 The app's first-run page offers the folder that holds your checkouts, wherever you keep them; the install itself asks nothing.
-It is recorded on your machine as `CFO_PROJECTS_ROOT`, beside `CFO_HOME`, and never in this repository, so every adopter's layout stays their own.
+It is recorded on your machine as `GOBLINS_PROJECTS_ROOT`, beside `GOBLINS_HOME`, and never in this repository, so every adopter's layout stays their own.
 With it set, `--project` takes a bare name as well as a path: `--project my-project` is `<dir>\my-project`, matched without regard to case, and the fleet works in that one checkout instead of cloning a second copy.
 It is optional: without it every command still takes a path, and `goblins doctor` tells you it is unset.
 To record or change it from a terminal, run `goblins install --projects-root <dir>`; a rerun of either install keeps the folder already recorded.

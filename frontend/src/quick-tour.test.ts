@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { cardPlace, type Side } from "./quick-tour.ts";
 
-// The desktop window at 1707 by 960 CSS pixels, with the CFO's panel beside
+// The desktop window at 1707 by 960 CSS pixels, with the CEO's panel beside
 // the board as the first open arranges it, and a 460 by 190 card.
 const VIEW = { width: 1707, height: 960 };
 const CARD = { width: 460, height: 190 };

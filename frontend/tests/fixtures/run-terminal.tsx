@@ -6,7 +6,7 @@ import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
 // A goblin's sign-in, as fly-signin-precisiondocs-20261007 reached the
-// Overlord on 2026-10-08, beside the CFO's question. window.cardStep is the
+// Overlord on 2026-10-08, beside the CEO's question. window.cardStep is the
 // supervisor's next snapshot: "running" once he pressed Run and its terminal
 // runs on the card, "elevating" for an administrator's command Windows has
 // not started yet, then how it ended: "complete" with exit 0, "failed" with
@@ -14,7 +14,7 @@ import "../../src/styles.css";
 const goblin = { id: "fly-signin", title: "fly-signin", project: "precisiondocs", phase: "waiting", report: "waiting", waiting_on: "overlord", activity: "waiting on overlord: Sign in to Fly so I can deploy", generation: "s1", verified: false };
 const run = { id: "run-fly-signin-3", identity: "g".repeat(64), task: goblin.id, title: "Sign in to Fly so I can deploy", shell: "powershell", command: "fly auth login", cwd: "C:\\dev\\code-goblins\\worktrees\\precisiondocs\\fly-signin", state: "ready", created_at: "2026-10-08T00:00:00Z", expires_at: "2026-10-09T00:00:00Z" };
 const question = { id: "merge-train-20261008", identity: "c".repeat(64), task: "", status: "pending", created_at: "2026-10-08T00:01:00Z", text: "May I merge the release train now?", options: ["Merge it", "Hold it"], recommended: "Merge it" };
-const base = { healthy: true, instance: "fixture", cfo_runs: true, tasks: [goblin], questions: [question] };
+const base = { healthy: true, instance: "fixture", ceo_runs: true, tasks: [goblin], questions: [question] };
 const running = { ...run, state: "running", ran_at: "2026-10-08T00:02:00Z", terminal: true };
 const ended = (fields: Record<string, unknown>) => ({ ...running, terminal: false, finished_at: "2026-10-08T00:03:00Z", ...fields });
 const snapshots = {

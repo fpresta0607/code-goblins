@@ -112,7 +112,7 @@ test("a goblin paused until its pull request merges is on the bench: Paused, in 
 
 // The Overlord, 2026-10-08: "paused is completely stopped terminals for
 // memory reasons". Paused holds a goblin stopped for memory, by the floor or
-// by the CFO, or by his own Pause, and nothing else.
+// by the CEO, or by his own Pause, and nothing else.
 test("a pause for memory reads as paused, in the Paused section, with no line under its status", () => {
   for (const [name, pause] of [
     ["the memory floor in the middle of work", { reason: "memory", until: "" }],
@@ -201,7 +201,7 @@ test("a goblin at work, blocked or asking after its pull request rode says so, a
   for (const [name, goblin, status] of [
     ["working on its next change", sid({ phase: "working", report: "working" }), "Working"],
     ["blocked", sid({ phase: "blocked", report: "blocked", reason: "Needs a key" }), "Waiting on the CEO"],
-    ["asking the CEO", sid({ phase: "blocked", reason: "Waiting on the CFO: which key?" }), "Waiting on the CEO"],
+    ["asking the CEO", sid({ phase: "blocked", reason: "Waiting on the CEO: which key?" }), "Waiting on the CEO"],
     ["waiting on another goblin", sid({ phase: "waiting", report: "waiting", waiting_on: "cg-other" }), "Waiting on cg-other"],
   ] as const) {
     const read = surfaces(board(goblin, [riding]));

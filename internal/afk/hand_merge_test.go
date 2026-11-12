@@ -8,7 +8,7 @@ import (
 )
 
 // The 13:18Z report of 2026-10-14 listed eight pull requests that landed by
-// train under Not merged, each "No merge was recorded": the CFO logged each
+// train under Not merged, each "No merge was recorded": the CEO logged each
 // by hand with a link and no outcome, and the report files a merge line
 // without the outcome merged as not merged. GitHub's own word on the pull
 // request is what the outcome comes from.
@@ -37,7 +37,7 @@ func TestAHandLoggedMergeOfAMergedPullRequestReadsAsMerged(t *testing.T) {
 	}
 	merge := sections[0].Entries[0]
 	if merge.What != handPull || merge.Outcome != OutcomeMerged || merge.Noted != "button that grants or takes back the service." || merge.Evidence != handProved {
-		t.Errorf("the merge = %+v, want the pull request itself with the CFO's words and its evidence", merge)
+		t.Errorf("the merge = %+v, want the pull request itself with the CEO's words and its evidence", merge)
 	}
 	if text := rendered(t, report); strings.Contains(text, "No merge was recorded") || strings.Contains(text, "Not merged") {
 		t.Errorf("the report still says the merge did not land:\n%s", text)
@@ -94,7 +94,7 @@ func TestOnlyAMergeLineWithNoOutcomeThatNamesAPullRequestIsReadFromGitHub(t *tes
 }
 
 // A hand line for a landing the merge train logged too is one merge: the
-// train's line carries the CFO's words, and the pull request is told once.
+// train's line carries the CEO's words, and the pull request is told once.
 func TestAHandLoggedMergeFoldsIntoTheTrainLineOfTheSamePullRequest(t *testing.T) {
 	// Arrange
 	train := Entry{At: night, Kind: KindMerge, What: handPull, Link: handPull, Evidence: "merge train acme-1: CI passed on https://github.com/acme/api/pull/900 at abc1234, built on main at 1234567", Outcome: OutcomeMerged}
@@ -111,7 +111,7 @@ func TestAHandLoggedMergeFoldsIntoTheTrainLineOfTheSamePullRequest(t *testing.T)
 	}
 	merge := sections[0].Entries[0]
 	if merge.What != handPull || merge.Noted != "PR 784 landed on merge train 900. "+handProved+"." {
-		t.Errorf("the merge = %+v, want the train's line with the CFO's words on it", merge)
+		t.Errorf("the merge = %+v, want the train's line with the CEO's words on it", merge)
 	}
 }
 
@@ -161,6 +161,6 @@ func TestTwoHandLoggedLinesForOneMergedPullRequestAreOneMergeWithBothSetsOfWords
 		t.Fatalf("headings = %q, want one merge:\n%s", got, rendered(t, report))
 	}
 	if got, want := sections[0].Entries[0].Noted, handWords+" And again. Deployed nothing."; got != want {
-		t.Errorf("the CFO's words = %q, want %q", got, want)
+		t.Errorf("the CEO's words = %q, want %q", got, want)
 	}
 }

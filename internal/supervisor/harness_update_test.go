@@ -48,7 +48,7 @@ func TestAHarnessUpdateIsSeenOnItsScreenOrByAnInstallSinceItStarted(t *testing.T
 }
 
 // A harness is at a stopping point when its turn has ended: its Stop hook
-// waits on the queue, which a Claude Code CFO's does after every turn while
+// waits on the queue, which a Claude Code CEO's does after every turn while
 // goblins work, however its screen draws that, or no turn, tool or background
 // work runs and its composer is empty. A dialog, a turn, a background shell
 // or text left unsent is not one.

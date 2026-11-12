@@ -14,6 +14,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/pipeline/pipelinetest"
 )
 
 func TestHandbackReadsTheExactPersistedPublicationAndReceipt(t *testing.T) {
@@ -40,8 +41,8 @@ func TestHandbackReadsTheExactPersistedPublicationAndReceipt(t *testing.T) {
 				t.Setenv(name, profile)
 			}
 			t.Setenv("NM_HOME", root)
-			t.Setenv("CFO_HOME", profile)
-			t.Setenv("CFO_STATE_OVERRIDE", filepath.Join(profile, "state"))
+			t.Setenv("GOBLINS_HOME", profile)
+			t.Setenv("GOBLINS_STATE_OVERRIDE", filepath.Join(profile, "state"))
 			if effective, err := os.UserHomeDir(); err != nil || effective != profile {
 				t.Fatalf("effective user home = %q, %v", effective, err)
 			}
@@ -85,7 +86,7 @@ INSERT INTO ci_handbacks VALUES('native-receipt','original-run','%s','%s',7);`, 
 			calls := 0
 			reader := Reader{Root: root, Commands: runnerFunc(func(ctx context.Context, request execx.Request) (execx.Result, error) {
 				if request.Name != "no-mistakes" {
-					return fixtureCommands{commands}.Run(ctx, request)
+					return pipelinetest.FixtureCommands{Runner: commands}.Run(ctx, request)
 				}
 				calls++
 				if len(request.Args) < 4 || strings.Join(request.Args[:3], " ") != "axi handback --expect" {

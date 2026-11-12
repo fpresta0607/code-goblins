@@ -62,7 +62,7 @@ const watchWheels = (page: Page) => page.evaluate(() => {
   window.addEventListener("wheel", (event) => { if (event.ctrlKey && event.shiftKey) setTimeout(() => wheels.push(event.defaultPrevented)); }, true);
 });
 const wheels = (page: Page) => page.evaluate(() => (window as unknown as { wheels: boolean[] }).wheels);
-const keptSize = (page: Page) => page.evaluate(() => localStorage.getItem("cfo-terminal-font-size"));
+const keptSize = (page: Page) => page.evaluate(() => localStorage.getItem("ceo-terminal-font-size"));
 const screenOf = (page: Page, label: string) => page.getByRole("region", { name: label }).locator(".terminal-view > .xterm .xterm-screen");
 
 async function zoomWithRightButton(page: Page, label: string, notches: number) {

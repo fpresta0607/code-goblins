@@ -342,10 +342,10 @@ func TestActionsSpendEndpointRejectsInvalidOrUnauthenticatedRequests(t *testing.
 		}
 	}
 	for _, test := range []struct{ header, value string }{
-		{"X-CFO-Token", ""}, {"X-CFO-Token", "old-instance"}, {"Origin", "http://other.local"}, {"Sec-Fetch-Site", "cross-site"},
+		{"X-CEO-Token", ""}, {"X-CEO-Token", "old-instance"}, {"Origin", "http://other.local"}, {"Sec-Fetch-Site", "cross-site"},
 	} {
 		request := httptest.NewRequest("GET", "http://board.local/api/actions-spend?month="+time.Now().UTC().Format("2006-01"), nil)
-		request.Header.Set("X-CFO-Token", "instance-1")
+		request.Header.Set("X-CEO-Token", "instance-1")
 		request.Header.Set(test.header, test.value)
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)

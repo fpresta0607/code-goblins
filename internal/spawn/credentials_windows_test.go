@@ -145,7 +145,7 @@ func TestASpawnGivesATaskOnlyTheServiceItsBriefNames(t *testing.T) {
 	if !result.Meta.HasCredentials || !slices.Equal(result.Meta.Credentials, []string{"database"}) {
 		t.Errorf("the record names %v, want database alone", result.Meta.Credentials)
 	}
-	for _, want := range []string{"payments", "source", "cfo auth grant task-7 <service>", standInStray} {
+	for _, want := range []string{"payments", "source", "goblins auth grant task-7 <service>", standInStray} {
 		if !strings.Contains(result.Output, want) {
 			t.Errorf("output = %q, want %q on the line that says what was withheld", result.Output, want)
 		}
@@ -304,7 +304,7 @@ func TestASwitchAndAResumeKeepTheServicesTheTaskWasSpawnedWith(t *testing.T) {
 // given what a brief that names no service is given, the manifest's default
 // services, and its record names them from then on. Its brief is not read: it
 // was written before a brief could name a service, and its goblin can write
-// to it, so a credentials line in it by now is no word of the CFO's.
+// to it, so a credentials line in it by now is no word of the CEO's.
 func TestAResumeOfATaskAnOlderBuildSpawnedCarriesTheDefaultServices(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -350,7 +350,7 @@ func TestAResumeOfATaskAnOlderBuildSpawnedCarriesTheDefaultServices(t *testing.T
 			if err != nil || !after.HasCredentials || !slices.Equal(after.Credentials, []string{"source"}) {
 				t.Errorf("after the resume the record names %v (recorded %v), %v, want the default service", after.Credentials, after.HasCredentials, err)
 			}
-			for _, want := range []string{"started by a build that gave it every credential stored for primary", "carry only source", "withheld 2 of primary's services (database, payments)", "cfo auth grant task-7 <service>"} {
+			for _, want := range []string{"started by a build that gave it every credential stored for primary", "carry only source", "withheld 2 of primary's services (database, payments)", "goblins auth grant task-7 <service>"} {
 				if !strings.Contains(result.Output, want) {
 					t.Errorf("output = %q, want %q: the resume says what became of the task and how to grant a service", result.Output, want)
 				}
@@ -801,7 +801,7 @@ func TestAGrantAddsOneServiceAndNothingElse(t *testing.T) {
 	}
 	log, err := state.TailStatus(f.stateDir, meta.ID, 10)
 	if err != nil || !slices.ContainsFunc(log, func(line string) bool {
-		return strings.Contains(line, "credentials: the CFO granted payments, so the task carries database, payments")
+		return strings.Contains(line, "credentials: the CEO granted payments, so the task carries database, payments")
 	}) {
 		t.Errorf("status log = %q, %v, want the grant recorded by service name", log, err)
 	}
@@ -895,7 +895,7 @@ func TestARevokeTakesOneServiceOutAndNothingElse(t *testing.T) {
 	}
 	log, err := state.TailStatus(f.stateDir, meta.ID, 10)
 	if err != nil || !slices.ContainsFunc(log, func(line string) bool {
-		return strings.Contains(line, "credentials: the CFO revoked payments, so the task's later terminals carry database, source")
+		return strings.Contains(line, "credentials: the CEO revoked payments, so the task's later terminals carry database, source")
 	}) {
 		t.Errorf("status log = %q, %v, want the revoke recorded by service name", log, err)
 	}
@@ -1099,7 +1099,7 @@ func TestAServiceChangeWhoseScriptCannotBeRewrittenSaysTheRecordChanged(t *testi
 			if err == nil {
 				t.Fatal("the change succeeded, want the script's failure said")
 			}
-			for _, want := range []string{"the record of names-one changed as asked", "its auth.ps1 was not rewritten", "run cfo auth refresh names-one"} {
+			for _, want := range []string{"the record of names-one changed as asked", "its auth.ps1 was not rewritten", "run goblins auth refresh names-one"} {
 				if !strings.Contains(err.Error(), want) {
 					t.Errorf("change = %v, want %q", err, want)
 				}
@@ -1108,7 +1108,7 @@ func TestAServiceChangeWhoseScriptCannotBeRewrittenSaysTheRecordChanged(t *testi
 			if readErr != nil || !slices.Equal(after.Credentials, tc.want) {
 				t.Errorf("after the change the record names %v, %v, want %v", after.Credentials, readErr, tc.want)
 			}
-			if log, _ := state.TailStatus(f.stateDir, meta.ID, 10); len(log) != 1 || !strings.Contains(log[0], "credentials: the CFO") {
+			if log, _ := state.TailStatus(f.stateDir, meta.ID, 10); len(log) != 1 || !strings.Contains(log[0], "credentials: the CEO") {
 				t.Errorf("status log = %q, want the change recorded though the script was not rewritten", log)
 			}
 			holdsNoStandInValue(t, "the failure", err.Error())
@@ -1229,7 +1229,7 @@ func TestASpawnWithholdsAnMCPServerWhoseEntryHoldsAValueItsBriefDoesNotName(t *t
 		t.Errorf("the goblin's servers = %v, want %v", servers, want)
 	}
 	holdsNoStandInMCPValue(t, "the goblin's MCP configuration", text)
-	for _, want := range []string{"mcp: withheld 2 servers whose entry holds a value (literal-env, literal-header)", "cfo auth grant task-7 --mcp <server>"} {
+	for _, want := range []string{"mcp: withheld 2 servers whose entry holds a value (literal-env, literal-header)", "goblins auth grant task-7 --mcp <server>"} {
 		if !strings.Contains(result.Output, want) {
 			t.Errorf("output = %q, want %q", result.Output, want)
 		}
@@ -1332,7 +1332,7 @@ func TestARelaunchWithholdsAnMCPServerItsLastTerminalWasGiven(t *testing.T) {
 	if len(specs) != 1 || specs[0].MCPConfig != last {
 		t.Errorf("the new harness was built %d time(s) with %+v, want it handed %s", len(specs), specs, last)
 	}
-	for _, want := range []string{"mcp: withheld 2 servers whose entry holds a value (literal-env, literal-header)", "cfo auth grant task-7 --mcp <server>"} {
+	for _, want := range []string{"mcp: withheld 2 servers whose entry holds a value (literal-env, literal-header)", "goblins auth grant task-7 --mcp <server>"} {
 		if !strings.Contains(result.Output, want) {
 			t.Errorf("output = %q, want %q", result.Output, want)
 		}
@@ -1391,7 +1391,7 @@ func TestARelaunchGivesATaskAnMCPServerGrantedSinceItsSpawn(t *testing.T) {
 	}
 	log, err := state.TailStatus(f.stateDir, f.meta.ID, 10)
 	if err != nil || !slices.ContainsFunc(log, func(line string) bool {
-		return strings.Contains(line, "credentials: the CFO granted the MCP servers literal-env")
+		return strings.Contains(line, "credentials: the CEO granted the MCP servers literal-env")
 	}) {
 		t.Errorf("status log = %q, %v, want a record of the grant", log, err)
 	}
@@ -1446,7 +1446,7 @@ func TestARelaunchCarriesNothingOfAServiceOrServerRevokedSinceItsSpawn(t *testin
 		t.Errorf("after the relaunch the record names %v and the MCP servers %v, %v, want database and literal-header", after.Credentials, after.MCPServers, err)
 	}
 	log, err := state.TailStatus(f.stateDir, f.meta.ID, 10)
-	for _, want := range []string{"credentials: the CFO revoked payments, source, so the task's later terminals carry database", "credentials: the CFO revoked the MCP servers literal-env, so the task's next terminal is given literal-header"} {
+	for _, want := range []string{"credentials: the CEO revoked payments, source, so the task's later terminals carry database", "credentials: the CEO revoked the MCP servers literal-env, so the task's next terminal is given literal-header"} {
 		if err != nil || !slices.ContainsFunc(log, func(line string) bool { return strings.Contains(line, want) }) {
 			t.Errorf("status log = %q, %v, want %q", log, err, want)
 		}

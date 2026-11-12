@@ -31,6 +31,8 @@ const TOOLS: Record<string, { icon: IconName; running: string; done: string; cou
   web_search: { icon: "search", running: "Searching the web", done: "Searched the web" },
   todowrite: { icon: "task", running: "Updating the plan", done: "Updated the plan" },
   update_plan: { icon: "task", running: "Updating the plan", done: "Updated the plan" },
+  taskcreate: { icon: "task", running: "Adding a task", done: "Added a task", counted: ["task", "tasks"], tally: "Added" },
+  taskupdate: { icon: "task", running: "Updating a task", done: "Updated a task", tally: "Updated tasks" },
   exitplanmode: { icon: "task", running: "Planning", done: "Planned" },
   skill: { icon: "sparkle", running: "Using a skill", done: "Used a skill" },
   toolsearch: { icon: "wrench", running: "Searching tools", done: "Searched tools", tally: "Loaded tools" },

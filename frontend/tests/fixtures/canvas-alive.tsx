@@ -9,7 +9,7 @@ import { RESTING_AFK_TOGGLE } from "./resting-afk-toggle";
 // The canvas coming alive on stand-in goblins: Pip and Mabel work, with baby
 // goblins under them, and Woody waits. Each step is one real change a snapshot
 // can carry: a goblin starts a baby goblin, a baby goblin reports or
-// finishes, or a goblin reports to the CFO. window.canvasStep plays a step,
+// finishes, or a goblin reports to the CEO. window.canvasStep plays a step,
 // and ?demo plays them one after another, as a busy fleet would.
 type Child = Record<string, unknown> & { id: string; state: string };
 type Step = "birth" | "report" | "finish" | "goblin";
@@ -36,7 +36,7 @@ const families: Record<string, Child[]> = {
 const activity: Record<string, number> = { "cg-tests": 0, "pd-email": 0 };
 let born = 0, reports = 0;
 const task = (id: string, fields: Record<string, unknown>) => ({ id, project: "code-goblins", harness: "claude", model: "claude-opus-5-5", effort: "xhigh", verified: false, since: minutes(48), at: minutes(48), generation: "g-" + id, ...fields });
-const snapshot = () => parseSnapshot({ healthy: true, instance: "canvas-alive", cfo_runs: true, afk: { state: "off" }, cfo_harness: "claude", tasks: [
+const snapshot = () => parseSnapshot({ healthy: true, instance: "canvas-alive", ceo_runs: true, afk: { state: "off" }, ceo_harness: "claude", tasks: [
   task("cg-tests", { title: "Make the flaky tests steady", goblin_name: "Pip", goblin_title: "Test Tamer", phase: "working", activity: "working: report " + activity["cg-tests"],
     tree: { task_id: "cg-tests", generation: "g-cg-tests", harness: "claude", memory: 0, own_memory: 0, children: families["cg-tests"], source_updated_at: minutes(0), fetched_at: minutes(0) } }),
   task("pd-email", { title: "Send the tenant emails", goblin_name: "Mabel", goblin_title: "Email Elf", project: "PrecisionDocs-AI", phase: "working", activity: "working: report " + activity["pd-email"],
@@ -64,7 +64,7 @@ function Fixture() {
   const [shown, setShown] = useState(snapshot);
   (window as Window & { canvasStep?: (name: Step, goblin: string) => void }).canvasStep = (name, goblin) => { step(name, goblin); setShown(snapshot()); };
   return <main style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
-    <Orchestration afkToggle={RESTING_AFK_TOGGLE} snapshot={shown} selected="" connected effects={[]} presentations={[]} now={Date.now()} freshNow={Date.now()} onSelect={() => {}} onChild={() => {}} onOpenCfo={() => {}} />
+    <Orchestration afkToggle={RESTING_AFK_TOGGLE} snapshot={shown} selected="" connected effects={[]} presentations={[]} now={Date.now()} freshNow={Date.now()} onSelect={() => {}} onChild={() => {}} onOpenCeo={() => {}} />
   </main>;
 }
 watchTips();

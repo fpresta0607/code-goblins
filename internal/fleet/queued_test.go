@@ -181,6 +181,55 @@ func TestAnArchivedBriefIsNotAnUndispatchedTask(t *testing.T) {
 	}
 }
 
+// tasks-axi moves the oldest Done rows out of the backlog into the done
+// archive. A brief closed without a dispatch, as one folded into a group,
+// has only that row to close it, so a row in the archive still does, and a
+// brief the archive does not list, even by a note under another row, stays
+// queued.
+func TestADoneRowMovedToTheDoneArchiveStillClosesItsBrief(t *testing.T) {
+	cases := []struct {
+		name       string
+		archive    string
+		wantQueued bool
+	}{
+		{"a checkbox row", "## Archived 2026-11-12\n- [x] task - Folded into a group (repo: project) (done 2026-11-01)\n", false},
+		{"a bold row", "## Archived 2026-11-12\n- **task** - Delivered by another task (repo: project)\n", false},
+		{"another task's row naming it in a note", "## Archived 2026-11-12\n- [x] other - Other work (repo: project)\n  lesson: task is next\n", true},
+		{"no archive", "", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			h := home.Home{Data: t.TempDir(), State: t.TempDir()}
+			if err := os.Mkdir(filepath.Join(h.Data, "task"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(h.Data, "task", "brief.md"), []byte("## Project\nproject\n## Task\nClosed without a dispatch\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte("## Queued\n## Done\n- [x] recent - Recent work (repo: project)\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if c.archive != "" {
+				if err := os.WriteFile(filepath.Join(h.Data, "done-archive.md"), []byte(c.archive), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Act
+			queued, err := ReadQueuedTask(h, "task")
+
+			// Assert
+			if c.wantQueued && (err != nil || !queued.IsBriefOnly) {
+				t.Fatalf("queued = %+v, %v; want the brief queued", queued, err)
+			}
+			if !c.wantQueued && err != ErrNotQueued {
+				t.Fatalf("queued = %+v, %v; want the archived row to close the brief", queued, err)
+			}
+		})
+	}
+}
+
 func TestCompletedOutcomeRefusesAQueuedRow(t *testing.T) {
 	for _, row := range []string{"- **delivered** - Delivered", "- [ ] delivered - Delivered"} {
 		t.Run(row, func(t *testing.T) {
@@ -253,7 +302,7 @@ func TestUnreadableCompletionEvidenceRefusesQueuedDispatch(t *testing.T) {
 // A brief written from a queued row, as the board's Start writes one, carries
 // no change assessment, so its task starts strict whatever mode the row asks
 // for: its Verification section gives the checks to the pipeline alone and
-// starts no cfo verify beside it.
+// starts no goblins verify beside it.
 func TestAQueuedBriefGivesItsChecksToThePipelineWhateverModeItsRowAsks(t *testing.T) {
 	for _, mode := range []string{"direct-PR", "local-only"} {
 		t.Run(mode, func(t *testing.T) {
@@ -279,7 +328,7 @@ func TestAQueuedBriefGivesItsChecksToThePipelineWhateverModeItsRowAsks(t *testin
 			}
 			_, verification, _ := strings.Cut(string(body), "## Verification\n\n")
 			verification, _, _ = strings.Cut(verification, "\n\n## Authentication")
-			if !strings.Contains(verification, "Drive `cfo pipeline run nw-sync --intent-file <file>`") || !strings.Contains(verification, "Do not start a separate cfo verify") || strings.Contains(verification, "Before each push run") {
+			if !strings.Contains(verification, "Drive `goblins pipeline run nw-sync --intent-file <file>`") || !strings.Contains(verification, "Do not start a separate goblins verify") || strings.Contains(verification, "Before each push run") {
 				t.Errorf("the queued brief's Verification section = %q, want the pipeline as its one check owner", verification)
 			}
 		})
@@ -289,7 +338,7 @@ func TestAQueuedBriefGivesItsChecksToThePipelineWhateverModeItsRowAsks(t *testin
 // The Overlord on 2026-10-11 asked that what goblins start to run or check
 // tests finishes and is cleaned up, and that nothing is forgotten or runs in
 // loops. A brief written from a queued row says so in its Constraints, as a
-// brief cfo brief writes does.
+// brief goblins brief writes does.
 func TestAQueuedBriefSaysWhatItsGoblinStartsIsItsOwnToEnd(t *testing.T) {
 	// Arrange
 	h := home.Home{State: t.TempDir(), Data: t.TempDir()}
@@ -326,7 +375,7 @@ func TestAQueuedBriefSaysWhatItsGoblinStartsIsItsOwnToEnd(t *testing.T) {
 	// A heavy run started by a process start of the goblin's own shows a
 	// window on the Overlord's desktop: the brief names the one way to start
 	// it hidden.
-	if want := "A heavy run starts in the background as cfo gate turn --detach <log-file> -- <command>"; !strings.Contains(BriefProcesses(), want) {
+	if want := "A heavy run starts in the background as goblins gate turn --detach <log-file> -- <command>"; !strings.Contains(BriefProcesses(), want) {
 		t.Errorf("BriefProcesses() = %q; want it to say %q", BriefProcesses(), want)
 	}
 }

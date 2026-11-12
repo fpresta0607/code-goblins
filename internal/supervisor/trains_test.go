@@ -289,7 +289,7 @@ func TestTheSupervisorStartsATrainWhenTwoGoblinsFinishedPullRequestsWaitGreen(t 
 	}
 }
 
-// The supervisor's own train and cfo pr train are one engine, and leave the
+// The supervisor's own train and goblins pr train are one engine, and leave the
 // same on GitHub: the poll after a green run merges the train's own pull
 // request at the head CI tested, the pull requests that rode read merged by
 // it, nothing is closed without merging, and the train's branch is removed.
@@ -564,10 +564,10 @@ func TestATrainsMergesReachAFKModesLogOnlyWhileItIsOn(t *testing.T) {
 	}
 }
 
-// The report finds the merge a line the CFO wrote for a landing names by the
+// The report finds the merge a line the CEO wrote for a landing names by the
 // train's own pull request, which the train's line holds as train.Evidence
 // writes it.
-func TestALineTheCFOWritesForATrainsLandingIsWithTheMergeTheTrainLogged(t *testing.T) {
+func TestALineTheCEOWritesForATrainsLandingIsWithTheMergeTheTrainLogged(t *testing.T) {
 	// Arrange
 	service, h := fleetService(t)
 	engine := service.trainEngine(execx.OSRunner{}, nil, "o/r")
@@ -576,7 +576,7 @@ func TestALineTheCFOWritesForATrainsLandingIsWithTheMergeTheTrainLogged(t *testi
 		t.Fatal(err)
 	}
 	engine.Landed(context.Background(), landed, train.Car{Number: 11, URL: "https://github.com/o/r/pull/11"})
-	// stall-accepted: the time written on the CFO's line, a second after the train's, which no wait compares with the clock.
+	// stall-accepted: the time written on the CEO's line, a second after the train's, which no wait compares with the clock.
 	if _, err := afk.Log(h.State, afk.Entry{Kind: afk.KindMerge, What: "PR 11 landed on merge train 900", Link: landed.PR, Evidence: "One CI run, all checks passed."}, time.Now().Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
@@ -670,7 +670,7 @@ func TestPRHealthLeavesTrainsAndThePullRequestsTheyCarryAlone(t *testing.T) {
 	behind := func(number int, branch, head string) string {
 		return fmt.Sprintf(`{"number":%d,"url":"https://github.com/o/r/pull/%d","headRefName":%q,"headRefOid":%q,"baseRefName":"main","mergeable":"MERGEABLE","author":{"login":"teammate"},"statusCheckRollup":[]}`, number, number, branch, head)
 	}
-	forge.pulls = "[" + behind(209, "feat/wakes", "head-one") + "," + behind(900, "cfo/train-20261002-115000", "head-two") + "," + behind(210, "feat/other", "head-three") + "]"
+	forge.pulls = "[" + behind(209, "feat/wakes", "head-one") + "," + behind(900, "ceo/train-20261002-115000", "head-two") + "," + behind(210, "feat/other", "head-three") + "]"
 	forge.comparisons = `{"data":{"repository":{"ref":{` +
 		`"pr209":{"behindBy":2,"headTarget":{"oid":"head-one"},"baseTarget":{"oid":"base-head"}},` +
 		`"pr900":{"behindBy":3,"headTarget":{"oid":"head-two"},"baseTarget":{"oid":"base-head"}},` +
@@ -758,7 +758,7 @@ func runningTrain(t *testing.T, h home.Home, checkout string) train.Train {
 
 // A train's CI read that times out under the fleet's load is read again on
 // the next poll, as the train's own count of failed steps allows, and reaches
-// the CFO only once the step failed on three polls in a row.
+// the CEO only once the step failed on three polls in a row.
 func TestATrainsCIReadThatTimesOutIsReportedOnlyOnTheThirdFailingPollInARow(t *testing.T) {
 	// Arrange
 	t.Setenv("GH_CONFIG_DIR", t.TempDir())
@@ -944,7 +944,7 @@ func TestTheBoardKeepsABatchByItsLastTrain(t *testing.T) {
 
 // On 2026-10-10 at 17:15Z the daily snapshot stalled drive C, the merge
 // train's read of a checkout's origin ran out of time once, and that one
-// timeout woke the CFO: "supervisor_error: merge train: read the origin of
+// timeout woke the CEO: "supervisor_error: merge train: read the origin of
 // C:\dev\PrecisionDocs-AI: context deadline exceeded" (wake 1000685). The
 // next poll makes the read again. The read of the repository a train runs
 // on, its origin and its default branch, is returned only once it failed on

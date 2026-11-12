@@ -25,8 +25,8 @@ func main() {
 func run() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	store := os.Getenv("CFO_VERIFY_DIR")
-	if os.Getenv("CFO_CONSUMER_PHASE") == "orphan" {
+	store := os.Getenv("GOBLINS_VERIFY_DIR")
+	if os.Getenv("GOBLINS_CONSUMER_PHASE") == "orphan" {
 		if err := fsx.AtomicWriteFile(filepath.Join(store, "ready"), nil); err != nil {
 			return err
 		}

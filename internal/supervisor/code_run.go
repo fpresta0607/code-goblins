@@ -26,7 +26,7 @@ import (
 type codeRunRequest struct {
 	Task       string `json:"task"`
 	Generation string `json:"generation"`
-	CFO        string `json:"cfo"`
+	CEO        string `json:"ceo"`
 	Message    string `json:"message"`
 	Block      int    `json:"block"`
 	Fence      int    `json:"fence"`
@@ -54,9 +54,9 @@ func (h *HTTP) codeRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := url.Values{}
-	source := "cfo"
-	if request.CFO != "" {
-		query.Set("cfo", request.CFO)
+	source := "ceo"
+	if request.CEO != "" {
+		query.Set("ceo", request.CEO)
 	} else {
 		query.Set("task", request.Task)
 		query.Set("generation", request.Generation)
@@ -79,8 +79,8 @@ func (h *HTTP) codeRun(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusConflict, err.Error())
 		return
 	}
-	who := "the CFO"
-	if request.CFO == "" {
+	who := "the CEO"
+	if request.CEO == "" {
 		who = request.Task
 	}
 	source += fmt.Sprintf(" reply %s block %d fence %d", request.Message, request.Block, request.Fence)

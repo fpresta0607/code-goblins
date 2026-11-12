@@ -454,26 +454,26 @@ func holdMetadata(t *testing.T, stateDir, id string) func() {
 	}
 }
 
-// engineCFO is a Claude Code CFO registered in native terminal cfo, whose
+// engineCEO is a Claude Code CEO registered in native terminal ceo, whose
 // terminal started an hour ago, with the board that reads its conversation
 // and where Claude Code keeps that conversation.
-func engineCFO(t *testing.T) (*Service, home.Home, string) {
+func engineCEO(t *testing.T) (*Service, home.Home, string) {
 	t.Helper()
 	store, h := testStore(t)
 	userHome := t.TempDir()
-	primary := primaryRegistration{Host: NativeCFOTerminal, Agent: "claude", Process: thisProcess(t)}
-	primary.Process.Session = "cfo-conversation"
+	primary := primaryRegistration{Host: NativeCEOTerminal, Agent: "claude", Process: thisProcess(t)}
+	primary.Process.Session = "ceo-conversation"
 	registration, err := json.Marshal(primary)
 	if err != nil {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(h.State, "primary.json"), string(registration))
-	record, err := json.Marshal(host.Record{ID: NativeCFOTerminal, Pipe: `\\.\pipe\code-goblins-host-engine-cfo`, Token: "token", Version: host.Version, HostPID: os.Getpid(), ChildPID: primary.Process.PID, ChildStart: primary.Process.Start, Started: time.Now().Add(-time.Hour).UTC()})
+	record, err := json.Marshal(host.Record{ID: NativeCEOTerminal, Pipe: `\\.\pipe\code-goblins-host-engine-ceo`, Token: "token", Version: host.Version, HostPID: os.Getpid(), ChildPID: primary.Process.PID, ChildStart: primary.Process.Start, Started: time.Now().Add(-time.Hour).UTC()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(h.State, "hosts", NativeCFOTerminal+".json"), string(record))
-	conversation := filepath.Join(cfoConversationFile(userHome, h.Root), "cfo-conversation.jsonl")
+	writeFile(t, filepath.Join(h.State, "hosts", NativeCEOTerminal+".json"), string(record))
+	conversation := filepath.Join(ceoConversationFile(userHome, h.Root), "ceo-conversation.jsonl")
 	writeFile(t, conversation, "")
 	return &Service{Store: store, Instance: "engine", Options: Options{Tree: &fleettree.Reader{Home: userHome}}}, h, conversation
 }
@@ -491,63 +491,63 @@ func written(t *testing.T, path string, entries ...string) {
 	}
 }
 
-// The CFO's one record of its model and effort is its engine file, which a
+// The CEO's one record of its model and effort is its engine file, which a
 // change made by hand in its terminal reaches as a goblin's reaches its task
-// record: the file follows what the CFO's harness says it runs, and its next
+// record: the file follows what the CEO's harness says it runs, and its next
 // start uses it. A selection that waits to be applied, or one a problem holds
-// for the CFO's next start, is the Overlord's own choice and is left as saved.
-func TestAnEngineChangedInTheCFOsTerminalBecomesItsEngineRecord(t *testing.T) {
+// for the CEO's next start, is the Overlord's own choice and is left as saved.
+func TestAnEngineChangedInTheCEOsTerminalBecomesItsEngineRecord(t *testing.T) {
 	now := time.Now()
 	for name, testCase := range map[string]struct {
 		saved   string
 		entries []string
 		catalog string
-		want    CFOEngine
+		want    CEOEngine
 		isKept  bool
 	}{
-		"a CFO with no engine saved": {
+		"a CEO with no engine saved": {
 			entries: []string{answeredOn(t, now, "claude-opus-5-5", "high")},
-			want:    CFOEngine{Harness: "claude", Model: "claude-opus-5-5", Effort: "high"},
+			want:    CEOEngine{Harness: "claude", Model: "claude-opus-5-5", Effort: "high"},
 		},
-		"a CFO whose answers name no effort": {
+		"a CEO whose answers name no effort": {
 			entries: []string{answeredOn(t, now, "claude-opus-5-5", "")},
-			want:    CFOEngine{Harness: "claude", Model: "claude-opus-5-5", Effort: "default"},
+			want:    CEOEngine{Harness: "claude", Model: "claude-opus-5-5", Effort: "default"},
 		},
 		"a model typed over an applied selection": {
 			saved:   `{"harness":"claude","model":"claude-opus-5-5","effort":"high"}`,
 			entries: typedCommand(t, now, "/model", "claude-fable-5-2", "Set model to `claude-fable-5-2`"),
-			want:    CFOEngine{Harness: "claude", Model: "claude-fable-5-2", Effort: "high"},
+			want:    CEOEngine{Harness: "claude", Model: "claude-fable-5-2", Effort: "high"},
 		},
 		"an effort typed over an applied selection": {
 			saved:   `{"harness":"claude","model":"claude-opus-5-5","effort":"high"}`,
 			entries: typedCommand(t, now, "/effort", "max", "Set effort level to max"),
-			want:    CFOEngine{Harness: "claude", Model: "claude-opus-5-5", Effort: "max"},
+			want:    CEOEngine{Harness: "claude", Model: "claude-opus-5-5", Effort: "max"},
 		},
 		"a model typed over an applied selection, recorded as system entries": {
 			saved:   `{"harness":"claude","model":"claude-opus-5-5","effort":"high"}`,
 			entries: ranCommand(t, now, "/model", "claude-fable-5-2", "Set model to `claude-fable-5-2`"),
-			want:    CFOEngine{Harness: "claude", Model: "claude-fable-5-2", Effort: "high"},
+			want:    CEOEngine{Harness: "claude", Model: "claude-fable-5-2", Effort: "high"},
 		},
 		"a model picked by its name over an applied selection, recorded as system entries": {
 			saved:   `{"harness":"claude","model":"claude-opus-5-5","effort":"high"}`,
 			entries: ranCommand(t, now, "/model", "", "Kept model as `Fable 5.2`"),
 			catalog: `{"additionalModelOptionsCache":[{"value":"claude-fable-5-2","label":"Fable 5.2"}]}`,
-			want:    CFOEngine{Harness: "claude", Model: "claude-fable-5-2", Effort: "high"},
+			want:    CEOEngine{Harness: "claude", Model: "claude-fable-5-2", Effort: "high"},
 		},
 		"an effort typed over an applied selection, recorded as system entries": {
 			saved:   `{"harness":"claude","model":"claude-opus-5-5","effort":"high"}`,
 			entries: ranCommand(t, now, "/effort", "max", "Set effort level to max"),
-			want:    CFOEngine{Harness: "claude", Model: "claude-opus-5-5", Effort: "max"},
+			want:    CEOEngine{Harness: "claude", Model: "claude-opus-5-5", Effort: "max"},
 		},
 		"a model typed over an applied selection, recorded as a user message with what it printed as a system entry": {
 			saved:   `{"harness":"claude","model":"claude-opus-5-5","effort":"high"}`,
 			entries: []string{typedCommand(t, now, "/model", "claude-fable-5-2", "")[0], ranCommand(t, now, "/model", "claude-fable-5-2", "Set model to `claude-fable-5-2`")[1]},
-			want:    CFOEngine{Harness: "claude", Model: "claude-fable-5-2", Effort: "high"},
+			want:    CEOEngine{Harness: "claude", Model: "claude-fable-5-2", Effort: "high"},
 		},
-		"a CFO started as another harness than its selection, once it names its engine": {
-			saved:   `{"harness":"codex","model":"gpt-6-astra","effort":"high","problem":"The CFO started as claude","overridden":"claude"}`,
+		"a CEO started as another harness than its selection, once it names its engine": {
+			saved:   `{"harness":"codex","model":"gpt-6-astra","effort":"high","problem":"The CEO started as claude","overridden":"claude"}`,
 			entries: []string{answeredOn(t, now, "claude-fable-5-2", "xhigh")},
-			want:    CFOEngine{Harness: "claude", Model: "claude-fable-5-2", Effort: "xhigh"},
+			want:    CEOEngine{Harness: "claude", Model: "claude-fable-5-2", Effort: "xhigh"},
 		},
 		"a selection for another harness that a problem holds for the next start": {
 			saved:   `{"harness":"codex","model":"gpt-6-astra","effort":"high","problem":"The selection could not be applied"}`,
@@ -582,20 +582,20 @@ func TestAnEngineChangedInTheCFOsTerminalBecomesItsEngineRecord(t *testing.T) {
 		"an alias and its window typed, with the answer on its model": {
 			saved:   `{"harness":"claude","model":"claude-opus-5-5","effort":"high"}`,
 			entries: append(typedCommand(t, now, "/model", "opus[1m]", "Set model to `Opus 5.5 (1M context)`"), answeredOn(t, now, "claude-opus-5-5", "high")),
-			want:    CFOEngine{Harness: "claude", Model: "opus[1m]", Effort: "high"},
+			want:    CEOEngine{Harness: "claude", Model: "opus[1m]", Effort: "high"},
 		},
 		"an id and its window typed over a saved alias of that model": {
 			saved:   `{"harness":"claude","model":"sonnet","effort":"high"}`,
 			entries: append(typedCommand(t, now, "/model", "claude-sonnet-5-5[1m]", "Set model to `Sonnet 5.5 (1M context)`"), answeredOn(t, now, "claude-sonnet-5-5", "high")),
-			want:    CFOEngine{Harness: "claude", Model: "claude-sonnet-5-5[1m]", Effort: "high"},
+			want:    CEOEngine{Harness: "claude", Model: "claude-sonnet-5-5[1m]", Effort: "high"},
 		},
-		"a CFO with no engine saved, restarted on a conversation that answered on its model before": {
+		"a CEO with no engine saved, restarted on a conversation that answered on its model before": {
 			entries: []string{answeredOn(t, now.Add(-2*time.Hour), "claude-opus-5-5", "low"), answeredOn(t, now, "claude-opus-5-5", "high")},
-			want:    CFOEngine{Harness: "claude", Model: "claude-opus-5-5", Effort: "high"},
+			want:    CEOEngine{Harness: "claude", Model: "claude-opus-5-5", Effort: "high"},
 		},
-		"a CFO with no engine saved, restarted on a conversation that was told its model before": {
+		"a CEO with no engine saved, restarted on a conversation that was told its model before": {
 			entries: append(typedCommand(t, now.Add(-2*time.Hour), "/model", "opus[1m]", "Set model to `Opus 5.5 (1M context)`"), answeredOn(t, now, "claude-opus-5-5", "high")),
-			want:    CFOEngine{Harness: "claude", Model: "claude-opus-5-5", Effort: "high"},
+			want:    CEOEngine{Harness: "claude", Model: "claude-opus-5-5", Effort: "high"},
 		},
 		"a saved alias while the answers name its model": {
 			saved:   `{"harness":"claude","model":"sonnet","effort":"high"}`,
@@ -605,13 +605,13 @@ func TestAnEngineChangedInTheCFOsTerminalBecomesItsEngineRecord(t *testing.T) {
 		"a saved alias once an answer names another model": {
 			saved:   `{"harness":"claude","model":"sonnet","effort":"high"}`,
 			entries: []string{answeredOn(t, now, "claude-sonnet-5-5", "high"), answeredOn(t, now, "claude-opus-5-5", "high")},
-			want:    CFOEngine{Harness: "claude", Model: "claude-opus-5-5", Effort: "high"},
+			want:    CEOEngine{Harness: "claude", Model: "claude-opus-5-5", Effort: "high"},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			service, h, conversation := engineCFO(t)
-			path := filepath.Join(h.State, "cfo-engine.json")
+			service, h, conversation := engineCEO(t)
+			path := filepath.Join(h.State, "ceo-engine.json")
 			if testCase.saved != "" {
 				writeFile(t, path, testCase.saved)
 			}
@@ -630,17 +630,17 @@ func TestAnEngineChangedInTheCFOsTerminalBecomesItsEngineRecord(t *testing.T) {
 				if err != nil || string(kept) != testCase.saved || service.revision != sent {
 					t.Fatalf("engine record = %s err=%v, want it left as saved: %s", kept, err, testCase.saved)
 				}
-				if _, err := ReadCFOEngine(h.State); err != nil {
+				if _, err := ReadCEOEngine(h.State); err != nil {
 					t.Fatalf("the engine record names nothing the fleet can start: %v", err)
 				}
 				return
 			}
-			recorded, err := ReadCFOEngine(h.State)
+			recorded, err := ReadCEOEngine(h.State)
 			if err != nil || recorded != testCase.want {
 				t.Fatalf("engine record = %+v err=%v, want %+v", recorded, err, testCase.want)
 			}
 			if service.revision == sent {
-				t.Fatal("the boards were sent no fresh snapshot of the CFO's engine")
+				t.Fatal("the boards were sent no fresh snapshot of the CEO's engine")
 			}
 		})
 	}
@@ -682,12 +682,12 @@ func TestAnOpenChatViewKeepsAGoblinsRecordAsItsConversationSpeaks(t *testing.T) 
 	}
 }
 
-// The CFO's record keeps an alias and its window typed in its terminal as a
+// The CEO's record keeps an alias and its window typed in its terminal as a
 // goblin's does, when the answer on that model is read after the command.
-func TestTheCFOsRecordedAliasOutlivesALaterReadOfAnAnswerOnItsModel(t *testing.T) {
+func TestTheCEOsRecordedAliasOutlivesALaterReadOfAnAnswerOnItsModel(t *testing.T) {
 	// Arrange
-	service, h, conversation := engineCFO(t)
-	writeFile(t, filepath.Join(h.State, "cfo-engine.json"), `{"harness":"claude","model":"claude-opus-5-5","effort":"high"}`)
+	service, h, conversation := engineCEO(t)
+	writeFile(t, filepath.Join(h.State, "ceo-engine.json"), `{"harness":"claude","model":"claude-opus-5-5","effort":"high"}`)
 	written(t, conversation, typedCommand(t, time.Now(), "/model", "opus[1m]", "Set model to `Opus 5.5 (1M context)`")...)
 	service.readTrees(context.Background())
 
@@ -696,20 +696,20 @@ func TestTheCFOsRecordedAliasOutlivesALaterReadOfAnAnswerOnItsModel(t *testing.T
 	service.readTrees(context.Background())
 
 	// Assert
-	want := CFOEngine{Harness: "claude", Model: "opus[1m]", Effort: "high"}
-	if recorded, err := ReadCFOEngine(h.State); err != nil || recorded != want {
+	want := CEOEngine{Harness: "claude", Model: "opus[1m]", Effort: "high"}
+	if recorded, err := ReadCEOEngine(h.State); err != nil || recorded != want {
 		t.Fatalf("engine record = %+v err=%v, want %+v", recorded, err, want)
 	}
 }
 
-// The CFO's open chat view does the same for its engine record, on the
+// The CEO's open chat view does the same for its engine record, on the
 // stream the board reads its messages from.
-func TestTheCFOsOpenChatViewKeepsItsEngineRecordAsItsConversationSpeaks(t *testing.T) {
+func TestTheCEOsOpenChatViewKeepsItsEngineRecordAsItsConversationSpeaks(t *testing.T) {
 	// Arrange
-	service, h, conversation := engineCFO(t)
+	service, h, conversation := engineCEO(t)
 	service.Instance = "board-token"
 	written(t, conversation, answeredOn(t, time.Now(), "claude-opus-5-5", "high"))
-	next := cfoMessageStream(t, service)
+	next := ceoMessageStream(t, service)
 	next("page")
 
 	// Act
@@ -717,11 +717,11 @@ func TestTheCFOsOpenChatViewKeepsItsEngineRecordAsItsConversationSpeaks(t *testi
 	next("messages")
 
 	// Assert: the record follows the read that sent those messages.
-	want := CFOEngine{Harness: "claude", Model: "claude-fable-5-2", Effort: "max"}
-	var recorded CFOEngine
+	want := CEOEngine{Harness: "claude", Model: "claude-fable-5-2", Effort: "max"}
+	var recorded CEOEngine
 	var err error
 	for range 50 {
-		if recorded, err = ReadCFOEngine(h.State); err == nil && recorded == want {
+		if recorded, err = ReadCEOEngine(h.State); err == nil && recorded == want {
 			return
 		}
 		time.Sleep(100 * time.Millisecond)

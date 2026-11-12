@@ -3,9 +3,10 @@ import { CommandCenterMenu } from "../../src/command-center-menu";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
-// The Overlord's card of 2026-10-17: the CFO asks him to roll a token and
+// The Overlord's card of 2026-10-17: the CEO asks him to roll a token and
 // gives its page as a value to copy, with another address in its words, and
-// History holds a goblin's wait that named its page.
+// History holds a goblin's wait that named its page and a review that named
+// its pull request with a Markdown link.
 const NOW = Date.parse("2026-10-17T18:20:00Z");
 const minutesAgo = (minutes: number) => new Date(NOW - minutes * 60000).toISOString();
 const question = {
@@ -19,10 +20,11 @@ const review = {
 const scrawlURL = "http://127.0.0.1:4387/session/private-review?mode=notes#answer";
 const privateQuestion = { ...question, id: "private-scrawl", identity: "d".repeat(64), text: "Review the private Scrawl page\n- Page: " + scrawlURL + "\n- Address: `" + scrawlURL + "`" };
 const privateReview = { ...review, id: "private-scrawl-history", identity: "f".repeat(64), title: "Private Scrawl feedback on " + scrawlURL };
+const releaseReview = { ...review, id: "release-pr-history", identity: "a".repeat(64), title: "Merge [the release PR](https://github.com/acme/site/pull/12) once CI is green" };
 const snapshot = parseSnapshot({
   healthy: true, instance: "fixture", revision: 1, actions: [],
   tasks: [{ id: "cg-store-picker", title: "cg-store-picker", goblin_name: "Pearl", goblin_title: "Shelf Arranger", phase: "working", generation: "s1", verified: false, reported_at: minutesAgo(3), merged: false }],
-  questions: [question, privateQuestion], reviews: [review, privateReview],
+  questions: [question, privateQuestion], reviews: [review, privateReview, releaseReview],
 });
 
 createRoot(document.getElementById("root")!).render(<main><CommandCenterMenu snapshot={snapshot} connected presentations={[]} now={Date.now()} focus={null} onUnsent={() => {}} /></main>);

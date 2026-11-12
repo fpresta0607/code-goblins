@@ -26,7 +26,7 @@ export function RunTerminal({ run, instance, connected }: { run: Run; instance: 
     setStopping(true);
     showFeedback("");
     try {
-      await request("/api/actions", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ id: crypto.randomUUID(), kind: "run_stop", run_id: run.id, generation: run.identity }) });
+      await request("/api/actions", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance }, body: JSON.stringify({ id: crypto.randomUUID(), kind: "run_stop", run_id: run.id, generation: run.identity }) });
     } catch (failure: unknown) {
       showFeedback(message(failure));
       setStopping(false);

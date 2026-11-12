@@ -11,7 +11,7 @@ import { TreeCount } from "./TreeCount";
 import { TreeChild } from "./TreeChild";
 import { cardFacts, TaskCard } from "./TaskCard";
 import { OrchestrationCard } from "./orchestration-card";
-import { CfoCardFacts } from "./cfo-card-facts";
+import { CeoCardFacts } from "./ceo-card-facts";
 import { ConnectorEffect } from "./connector-effect";
 import { withDepartures } from "./tree-traffic";
 import { travel, useGlide, useTreeMotion, type Point as Place } from "./use-tree-motion";
@@ -29,7 +29,7 @@ interface CardHandlers {
 const WORKING = new Set(["working", "busy", "active", "started"]);
 
 // v1 saved every card's place at each drag, which pinned the whole canvas.
-const layoutKey = "cfo-orchestration-layout-v2";
+const layoutKey = "ceo-orchestration-layout-v2";
 
 // Under a folded goblin's card: the gap to its count, clear of the card's
 // chevron, and the count's height.
@@ -61,14 +61,14 @@ function readLayout(): { positions: Record<string, Point> } {
   } catch { return { positions: {} }; }
 }
 
-export function Orchestration({ snapshot, selected, connected, effects, onSelect, onChild, onOpenCfo, afkToggle, presentations, now, freshNow }: {
+export function Orchestration({ snapshot, selected, connected, effects, onSelect, onChild, onOpenCeo, afkToggle, presentations, now, freshNow }: {
   presentations:BoardActivity[];
   snapshot: Snapshot; selected: string; connected: boolean; effects: ActivityEffect[]; now: number; freshNow: number;
   onSelect: (node: WorkflowNode, source: HTMLElement) => void;
   // onChild opens a goblin's baby goblin.
   onChild: (task: Task, child: TreeNode, source: HTMLElement) => void;
-  // onOpenCfo opens the CFO's terminal, from its card's button.
-  onOpenCfo: (source: HTMLElement) => void;
+  // onOpenCeo opens the CEO's terminal, from its card's button.
+  onOpenCeo: (source: HTMLElement) => void;
   afkToggle: AfkToggleState;
 }) {
   const nodes = useMemo(() => workflowNodes(snapshot), [snapshot]);
@@ -269,7 +269,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
   });
   const toggle = (id: string) => setCollapsed((prior) => { const next = new Set(prior); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   // Each connector from a card's parent down to the card, and what plays on
-  // it: the CFO's pulses on what it hears and a goblin's birth.
+  // it: the CEO's pulses on what it hears and a goblin's birth.
   const connectors = visible.flatMap((node) => {
     if (!node.parent || !visible.some((other) => other.id === node.parent)) return [];
     const from = point(node.parent), to = point(node.id);
@@ -426,7 +426,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
           const p = point(node.id), owner = ownsTaskSession(node.session, node.task);
           const { text: status, phase } = owner && node.task ? taskStatus(node.task, snapshot) : { text: nodeStatus(node, false, snapshot.tasks, snapshot.merge_trains), phase: node.session?.runtime?.state || node.session?.phase };
           const children = nodes.some((child) => child.parent === node.id) || !!trees[node.id];
-          const hasCfoFacts = (!!node.cfo || node.session?.role === "cfo") && snapshot.cfo_runs && !snapshot.cfo_closed;
+          const hasCeoFacts = (!!node.ceo || node.session?.role === "ceo") && snapshot.ceo_runs && !snapshot.ceo_closed;
           const handlers = cardHandlers(node.id);
           return <article key={node.id} className={"flow-node" + (owner && node.task ? " has-task" : "") + (WORKING.has(phase || "") ? " is-working" : "") + (activity.created ? " node-enter" : "") + (selected === node.id ? " selected" : "")} style={{ left: p.x, top: p.y, width: NODE_WIDTH, height: NODE_HEIGHT }} {...lights(node.id)}>
             {effect && <span key={effect.id} ref={playFrom(effect.expires - EFFECT_MS)} className="activity-glow" aria-hidden="true" />}
@@ -436,11 +436,11 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
             </> : <button className="flow-node-main" {...handlers.buttonProps}
               onClick={(event) => handlers.onSelect(event.currentTarget)} aria-pressed={selected === node.id}
               aria-label={node.title + ". " + status + ". " + (parent ? "Parent: " + parent.title : node.relation)}>
-              <OrchestrationCard title={node.title} status={status} phase={phase} persona={node.cfo ? "cfo" : personaFor(node.task, node.session)}
-                project={node.task?.project || ""} relation={!node.parent && node.session?.role !== "cfo" && !node.cfo ? node.relation : ""}
+              <OrchestrationCard title={node.title} status={status} phase={phase} persona={node.ceo ? "ceo" : personaFor(node.task, node.session)}
+                project={node.task?.project || ""} relation={!node.parent && node.session?.role !== "ceo" && !node.ceo ? node.relation : ""}
                 isPresenting={presentations.some((presentation) => presentationShownOn(presentation, node.session, node.task))} />
             </button>}
-            {hasCfoFacts && <div className="flow-node-foot"><CfoCardFacts snapshot={snapshot} now={freshNow} afkToggle={afkToggle} onOpenCfo={onOpenCfo} /></div>}
+            {hasCeoFacts && <div className="flow-node-foot"><CeoCardFacts snapshot={snapshot} now={freshNow} afkToggle={afkToggle} onOpenCeo={onOpenCeo} /></div>}
             {children && <button className="node-disclosure" aria-label={(collapsed.has(node.id) ? "Expand" : "Collapse") + " descendants of " + node.title} aria-expanded={!collapsed.has(node.id)} onClick={() => toggle(node.id)}><Chevron collapsed={collapsed.has(node.id)} /></button>}
           </article>;
         })}

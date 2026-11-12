@@ -146,7 +146,7 @@ func TestBrowserSignInDeduplicatesByLoginInsteadOfProviderLabel(t *testing.T) {
 	}
 }
 
-// What waits on him, as AFK mode holds it and the CFO's open items list it,
+// What waits on him, as AFK mode holds it and the CEO's open items list it,
 // agrees with his board: a goblin's wait that follows a decision still open
 // waits on that decision, which stands for it, and any other open wait is
 // held, one whose decision has closed included.

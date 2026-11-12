@@ -30,13 +30,13 @@ const USUAL = [{ repository: "o/r", kind: "ci", seconds: 13 * 60 }];
 async function open(page: Page, memory: object, tasks: object[]) {
   // The board reads the clock the fixture's times count back from.
   await page.clock.setFixedTime(now);
-  await holdStream(page, { healthy: true, instance: "fixture", cfo_runs: true, revision: 1, attention: [], memory, ci_usual: USUAL, tasks });
+  await holdStream(page, { healthy: true, instance: "fixture", ceo_runs: true, revision: 1, attention: [], memory, ci_usual: USUAL, tasks });
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
   await page.goto("/");
   await expect(page.locator(".board-column").first()).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
 }
-// The board only: the CFO's Task tab shows the queue and its meter too.
+// The board only: the CEO's Task tab shows the queue and its meter too.
 const board = (page: Page) => page.locator(".task-board");
 const card = (page: Page, id: string) => board(page).locator(".task-card-shell").filter({ has: page.locator(".card-title").getByText(id, { exact: true }) });
 const panel = (page: Page) => page.locator(".goblin-panel");
@@ -118,7 +118,7 @@ test.describe("on the wide board", () => {
   // goblins live" while 9 GB was free: no count of goblins holds one back.
   // Start and Resume are in the task's panel, never on its card.
   test("with eight goblins live and 9 GB free, Start and Resume are not held back", async ({ page }) => {
-    await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
+    await page.addInitScript(() => localStorage.setItem("ceo-first-open", "shown"));
     await open(page, machine(9), [task("queued-one", "queued", { generation: "", brief: true }), ...PAUSED]);
     for (const [id, name] of [["queued-one", "Start queued-one"], ["paused-pull", "Resume paused-pull"]]) {
       await select(page, id);
@@ -138,7 +138,7 @@ test.describe("on the wide board", () => {
     const awaited = task("cg-merge", "working", { goblin_name: "Bernie", goblin_title: "Merge Maestro" });
     const benched = paused("paused-on-task", "dependency", "task:cg-merge", 15);
     const standing = task("waiting-on-task", "waiting", { waiting_on: "cg-merge" });
-    await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
+    await page.addInitScript(() => localStorage.setItem("ceo-first-open", "shown"));
     await open(page, machine(9), [awaited, standing, benched]);
     const section = board(page).getByRole("region", { name: "Paused", exact: true });
     const progress = board(page).getByRole("region", { name: "In progress", exact: true });
@@ -162,7 +162,7 @@ test.describe("on the wide board", () => {
   });
 
   // The Overlord, 2026-10-08: "everything error wise goes to cfo". A goblin
-  // without progress is the CFO's to hear, not a warning on its card.
+  // without progress is the CEO's to hear, not a warning on its card.
   test("a live goblin past 20 minutes without progress has no warning on its card", async ({ page }) => {
     await open(page, machine(9), [...WORKING, ...PAUSED]);
     await expect(card(page, "working-stalled")).toBeVisible();

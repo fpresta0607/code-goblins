@@ -4,7 +4,7 @@ import { diskMarks, diskScale, diskState, freeGigabytes } from "./start";
 interface DiskDriveMeterProps { drive: string; isDevDrive: boolean; free: number; total: number; floor: number; wake: number; error: string }
 
 // One drive the fleet writes to, named by its letter and, for the Dev Drive,
-// as the Dev Drive, on a bar marked with the mark under which the CFO is woken
+// as the Dev Drive, on a bar marked with the mark under which the CEO is woken
 // and the floor under which no goblin or gate test run starts (see diskScale),
 // whose tip says what each mark means. A drive that cannot be read says so on
 // its line and draws no bar, so it never reads as room. Its props are its

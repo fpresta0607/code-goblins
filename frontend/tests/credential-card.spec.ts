@@ -34,7 +34,7 @@ async function answer(page: Page, answers: { status: number; json: unknown }[] =
   await page.route("**/api/credentials/**", async (route: Route) => {
     const request = route.request();
     const body = request.postDataJSON();
-    sent.push({ path: new URL(request.url()).pathname, token: await request.headerValue("X-CFO-Token"), body });
+    sent.push({ path: new URL(request.url()).pathname, token: await request.headerValue("X-CEO-Token"), body });
     await route.fulfill(answers.shift() || { status: 200, json: { id: STRIPE, state: "open", saved: Object.keys(body?.values || {}), replaced: [] } });
   });
   return sent;
@@ -54,12 +54,12 @@ for (const action of ["Grant", "Deny"] as const) {
     const sent: Sent[] = [];
     await page.route("**/api/connections/grant", async (route) => {
       const request = route.request();
-      sent.push({ path: new URL(request.url()).pathname, token: await request.headerValue("X-CFO-Token"), body: request.postDataJSON() });
+      sent.push({ path: new URL(request.url()).pathname, token: await request.headerValue("X-CEO-Token"), body: request.postDataJSON() });
       await route.fulfill({ status: 200, json: {} });
     });
     await page.route("**/api/credentials/close", async (route) => {
       const request = route.request();
-      sent.push({ path: new URL(request.url()).pathname, token: await request.headerValue("X-CFO-Token"), body: request.postDataJSON() });
+      sent.push({ path: new URL(request.url()).pathname, token: await request.headerValue("X-CEO-Token"), body: request.postDataJSON() });
       await route.fulfill({ status: 200, json: {} });
     });
     const card = await openCard(page);
@@ -105,7 +105,7 @@ for (const hasRefreshFailure of [false, true]) {
     const sent = await answer(page);
     await page.route("**/api/connections/grant", (route) => route.fulfill({ status: 200, json: {} }));
     const card = await openCard(page);
-    const reason = hasRefreshFailure ? "spawn: the record of add-billing changed as asked, but its auth.ps1 was not rewritten, so run cfo auth refresh add-billing: task cleanup is in progress" : "";
+    const reason = hasRefreshFailure ? "spawn: the record of add-billing changed as asked, but its auth.ps1 was not rewritten, so run goblins auth refresh add-billing: task cleanup is in progress" : "";
     await page.evaluate((id) => window.board?.request(id, { names: [], existing: [], link: "", steps: [], grant_service: "stripe", task_generation: "g1", expires_at: new Date(Date.now() + 86400000).toISOString() }), STRIPE);
     await recordDoneCards(page);
     await card.screenshot({ path: testInfo.outputPath("grant-card.png") });
@@ -407,7 +407,7 @@ test("a pasted value its format hint warns about waits for his Enter instead of 
   await expect.poll(() => sent.length).toBe(1);
 });
 
-// CFO decision 3624: Run and the card behave the same.
+// CEO decision 3624: Run and the card behave the same.
 test("Run opens a terminal on this PC for the names the scope does not hold, and asks before one that types a stored name", async ({ page }) => {
   // Arrange
   const sent = await answer(page);
@@ -422,7 +422,7 @@ test("Run opens a terminal on this PC for the names the scope does not hold, and
   await page.getByRole("dialog", { name: "Replace a stored credential?" }).getByRole("button", { name: "Replace and run" }).click();
 
   // Assert
-  expect(lines).toEqual(["cfo auth store --project precisiondocs STRIPE_SECRET_KEY"]);
+  expect(lines).toEqual(["goblins auth store --project precisiondocs STRIPE_SECRET_KEY"]);
   await expect.poll(() => sent.length).toBe(2);
   expect(sent.map((request) => [request.path, request.body])).toEqual([
     ["/api/credentials/terminal", { id: STRIPE, generation: STRIPE_GENERATION, replace: [] }],

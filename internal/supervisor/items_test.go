@@ -165,7 +165,7 @@ func TestHistoryReadsTheNewestTwentyClosedItemsOfEveryKind(t *testing.T) {
 }
 
 func TestAChangeAnswerReadsTheQuestionItNamesHoweverLongAgoItClosed(t *testing.T) {
-	// Arrange: the question the CFO answered while the Overlord was away, a
+	// Arrange: the question the CEO answered while the Overlord was away, a
 	// day ago, with 25 answered since.
 	now := time.Now().UTC()
 	away := now.Add(-24 * time.Hour)
