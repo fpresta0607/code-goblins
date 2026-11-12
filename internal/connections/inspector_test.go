@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -687,34 +688,67 @@ func TestAnAccountsVariablesNameTheServiceThatDeclaresThemWithoutAWarningEach(t 
 
 // Services can share a variable, so a variable names every service that
 // declares it, each of which lists it among its own, whether the goblin's
-// terminal could be read or not.
+// terminal could be read or not. The names travel as the snapshot's JSON,
+// in each entry's accounts key, which is what the board reads
+// (frontend/src/connections.ts); a variable no service declares has no such
+// key, which the board reads as none.
 func TestAVariableTwoServicesDeclareNamesBoth(t *testing.T) {
 	for _, test := range []struct {
 		name       string
 		runtimeErr error
+		want       map[string][]string
 	}{
-		{"its terminal was read", nil},
-		{"its terminal could not be read", errors.New("Goblin runtime unavailable.")},
+		{"its terminal was read", nil, map[string][]string{"credential:FIXTURE_SECRET": {"repo", "other"}, "credential:FIXTURE_MISSING_TOKEN": {"repo"}, "credential:FIXTURE_LOOSE_TOKEN": nil}},
+		{"its terminal could not be read", errors.New("Goblin runtime unavailable."), map[string][]string{"credential:FIXTURE_SECRET": {"repo", "other"}, "credential:FIXTURE_MISSING_TOKEN": {"repo"}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			inspector, meta := inspectorFixture(t)
 			writeConnectionFixture(t, auth.ManifestPath(inspector.DataDir, meta.Project), `{"project":"project","services":[{"name":"repo","method":"env","env":["FIXTURE_SECRET","FIXTURE_MISSING_TOKEN"]},{"name":"other","method":"env","env":["FIXTURE_SECRET"]}]}`)
-			if test.runtimeErr != nil {
-				inspector.Runtime = func(context.Context, string, state.TaskMeta) (RuntimeObservation, error) {
+			readRuntime := inspector.Runtime
+			inspector.Runtime = func(ctx context.Context, directory string, task state.TaskMeta) (RuntimeObservation, error) {
+				if test.runtimeErr != nil {
 					return RuntimeObservation{}, test.runtimeErr
 				}
+				observed, err := readRuntime(ctx, directory, task)
+				observed.Env = append(observed.Env, "FIXTURE_LOOSE_TOKEN=synthetic-value")
+				return observed, err
 			}
 
 			// Act
 			result := inspector.Check(context.Background(), meta)
+			data, err := json.Marshal(result)
 
 			// Assert
-			for id, want := range map[string][]string{"credential:FIXTURE_SECRET": {"repo", "other"}, "credential:FIXTURE_MISSING_TOKEN": {"repo"}} {
-				index := slices.IndexFunc(result.Entries, func(entry Entry) bool { return entry.ID == id })
-				if index < 0 || !slices.Equal(result.Entries[index].Accounts, want) {
-					t.Errorf("%s is not declared by %v: %+v", id, want, result.Entries)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			var wire struct {
+				Entries []map[string]json.RawMessage `json:"entries"`
+			}
+			if err := json.Unmarshal(data, &wire); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			for id, want := range test.want {
+				index := slices.IndexFunc(wire.Entries, func(entry map[string]json.RawMessage) bool { return string(entry["id"]) == strconv.Quote(id) })
+				if index < 0 {
+					t.Errorf("%s is not in the snapshot: %s", id, data)
+					continue
 				}
+				raw, hasAccounts := wire.Entries[index]["accounts"]
+				var accounts []string
+				if hasAccounts {
+					if err := json.Unmarshal(raw, &accounts); err != nil {
+						t.Errorf("%s accounts = %s, want a list of names: %v", id, raw, err)
+						continue
+					}
+				}
+				if hasAccounts != (want != nil) || !slices.Equal(accounts, want) {
+					t.Errorf("%s accounts = %s (present %t), want %v", id, raw, hasAccounts, want)
+				}
+			}
+			if strings.Contains(string(data), "synthetic-value") {
+				t.Fatal("snapshot exposed a credential value")
 			}
 		})
 	}
