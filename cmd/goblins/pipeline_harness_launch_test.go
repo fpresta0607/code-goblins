@@ -67,7 +67,7 @@ func TestEachLaunchWritesItsOwnSelectionFile(t *testing.T) {
 	if len(runner.native) != 2 {
 		t.Fatalf("native launches=%+v, want two", runner.native)
 	}
-	first, second := runner.native[0].Args[9], runner.native[1].Args[9]
+	first, second := runner.native[0].Args[10], runner.native[1].Args[10]
 	if first == second {
 		t.Fatalf("both launches named %s", first)
 	}

@@ -429,8 +429,8 @@ func supersedesQuestion(report string) bool {
 }
 
 // reportedProgress is what a goblin last said it is doing: working on
-// something, or waiting on another task, the Overlord, CI, a deploy or memory. A wait
-// on another task clears itself once that task reports done, and a wait on the
+// something, or waiting on another task, the Overlord, CI, a deploy, memory,
+// the gate daemon or Docker. A wait on another task clears itself once that task reports done, and a wait on the
 // Overlord once the Command Center item it raised closed, answered, cleared or
 // handed to the CEO; any other wait lasts until the goblin reports again.
 func reportedProgress(tail func(id string) ([]string, error), id string, reviews []Review, reportedAt time.Time, report string) (phase, reason, waitingOn string, ok bool) {
@@ -443,7 +443,7 @@ func reportedProgress(tail func(id string) ([]string, error), id string, reviews
 		return "", "", "", false
 	}
 	switch target {
-	case "ci", "deploy", "memory":
+	case "ci", "deploy", "memory", SharedGateDaemon, SharedDocker:
 	case "overlord":
 		// Its item is published after the report. An answer typed on the item
 		// counts once it reached the goblin; until then it is still on its way.
@@ -704,6 +704,8 @@ func finishedTasks(h home.Home, reads *keptReads, now time.Time) []Task {
 			phase, reason = "done", "Delivered pull request; task cleaned up"
 		} else if issue := state.DoneClosed(report); issue != "" {
 			phase, reason = "done", "Closed "+issue+"; task cleaned up"
+		} else if kept := state.DoneReport(report); kept != "" {
+			phase, reason = "done", "Reported "+kept+"; task cleaned up"
 		}
 		title, project := id, ""
 		if row, isListed := backlogRows[id]; isListed {

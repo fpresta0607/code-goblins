@@ -180,6 +180,11 @@ func TestCleanupDeliversALocalOnlyTaskWhoseDoneLineNamesItsReport(t *testing.T) 
 			isDelivered: true,
 		},
 		{
+			name: "names its report as goblins notify --report records it", mode: "local-only", report: "Nineteen strays, each proven.",
+			done:        func(data string) string { return "done: report " + filepath.Join(data, "g1", "report.md") },
+			isDelivered: true,
+		},
+		{
 			name: "names its report by its path in the home", mode: "local-only", report: "Nineteen strays, each proven.",
 			done:        func(string) string { return "done: PR none. Report: data/g1/report.md" },
 			isDelivered: true,

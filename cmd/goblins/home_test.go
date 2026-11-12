@@ -240,6 +240,62 @@ func TestHomeMigrateApplyRefusesWithoutAPlanFromADryRun(t *testing.T) {
 	}
 }
 
+func TestHomeMigrateImportsClaudeCodesMemoryOnlyIntoDataNotLaidOutYet(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		isLaidOut     bool
+		isNamed       bool
+		wantsImported bool
+	}{
+		{"data not laid out imports it", false, false, true},
+		{"laid-out data whose memory was kept since does not import it again", true, false, false},
+		{"laid-out data imports a folder --memory-from names", true, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := migrationHome(t)
+			profile := t.TempDir()
+			t.Setenv("USERPROFILE", profile)
+			t.Setenv("HOME", profile)
+			memory := layout.ClaudeMemoryFolder(h.Root)
+			files := map[string]string{
+				filepath.Join(memory, "MEMORY.md"):              "# Memory index\n\n- [An old fact](old-fact.md)\n",
+				filepath.Join(memory, "old-fact.md"):            "an old fact\n",
+				filepath.Join(h.Data, "memory", "MEMORY.md"):    "# Memory index\n\n- [A kept fact](kept-fact.md)\n",
+				filepath.Join(h.Data, "memory", "kept-fact.md"): "a kept fact\n",
+			}
+			if tc.isLaidOut {
+				files[filepath.Join(h.Data, layout.Marker)] = "laid out\n"
+			}
+			for path, content := range files {
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			args := []string{"home", "migrate"}
+			if tc.isNamed {
+				args = append(args, "--memory-from", memory)
+			}
+
+			var stdout, stderr bytes.Buffer
+			exit := run(args, &stdout, &stderr)
+
+			if exit != 0 {
+				t.Fatalf("exit = %d, stderr %s", exit, stderr.String())
+			}
+			out := stdout.String()
+			if isImported := strings.Contains(out, "create data/memory/old-fact.md"); isImported != tc.wantsImported {
+				t.Errorf("imported the old fact = %t, want %t:\n%s", isImported, tc.wantsImported, out)
+			}
+			if !tc.wantsImported && !strings.Contains(out, "memory: imports nothing") {
+				t.Errorf("the dry run does not say it imports nothing:\n%s", out)
+			}
+		})
+	}
+}
+
 func TestHomeMigrateRefusesAMemoryFolderThatIsNotThere(t *testing.T) {
 	migrationHome(t)
 

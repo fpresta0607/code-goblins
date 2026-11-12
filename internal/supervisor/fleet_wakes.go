@@ -175,6 +175,14 @@ type fleetWakes struct {
 	// origin, a goblin's progress, a paused goblin's condition, and the pull
 	// request a queued row waits on.
 	Failing map[string]int `json:"failing,omitempty"`
+	// SharedRaised holds, by shared service, the next step (wait or ask) its
+	// outage last woke the CEO with for the goblins waiting on it, SharedTold
+	// the goblins the CEO was asked to tell, once, that a service they wait
+	// on is usable again, and SharedNext the next step each service's last
+	// reading gave.
+	SharedRaised map[string]string   `json:"shared_raised,omitempty"`
+	SharedTold   map[string][]string `json:"shared_told,omitempty"`
+	SharedNext   map[string]string   `json:"shared_next,omitempty"`
 	// SameArea holds, by task, the teammates' open work each live goblin's
 	// area meets, for its card.
 	SameArea map[string]sameArea `json:"same_area,omitempty"`
@@ -305,7 +313,7 @@ func (s *Service) keepFleetWakes(ctx context.Context, every time.Duration) {
 // reading met once, however many readings met it, and each repository whose
 // CI cannot be read at every cycle until a poll reads it again.
 func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
-	if (s.Options.Dispatch == nil || s.Options.Dispatch.Memory == nil) && s.Options.CI == nil && s.Options.Progress == nil && s.Options.Defender == nil {
+	if (s.Options.Dispatch == nil || s.Options.Dispatch.Memory == nil) && s.Options.CI == nil && s.Options.Progress == nil && s.Options.Defender == nil && s.Options.Shared == nil {
 		return nil
 	}
 	readingStarted := time.Now()
@@ -314,7 +322,7 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 	w, readErr := readFleetWakes(stateDir)
 	err := errors.Join(readErr, s.pauseAtAllowanceFloor(ctx, &w, now), s.pollCI(ctx, &w, now, currentTime))
 	err = errors.Join(err, s.reconcilePreparedWaits(ctx, &w, now))
-	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkDisk(&w, now), s.checkProgress(ctx, &w, now), s.checkDefender(ctx, &w, now), s.checkCEOWaits(&w, now))
+	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkDisk(&w, now), s.checkProgress(ctx, &w, now), s.checkDefender(ctx, &w, now), s.checkCEOWaits(&w, now), s.checkSharedServices(ctx, &w, now))
 	w.RootReadings = s.currentRootReadings()
 	if s.Options.Progress != nil {
 		w.ProgressPassAt = currentTime()
@@ -532,15 +540,50 @@ func (s *Service) checkDisk(w *fleetWakes, now time.Time) error {
 }
 
 // diskLowDetail is the disk wake's text: the free space against the floor and
-// the mark, what the home holds, and what the janitor last did.
+// the mark, what the home and the gate's home hold, the largest bucket, and
+// what the janitor last did.
 func diskLowDetail(h home.Home, reading Disk, now time.Time) string {
 	detail := fmt.Sprintf("disk_low: free disk on %s is %.1f GB, under the %.0f GB mark; no goblin or gate test run starts under the %.0f GB floor.", reading.Drive, disk.GB(reading.Free), disk.GB(reading.Wake), disk.GB(reading.Floor))
 	if record, err := janitor.ReadRecord(h.State); err == nil {
 		b := record.Buckets
 		detail += fmt.Sprintf(" The home holds %.1f GB: worktrees %.1f, scratch %.1f, caches %.1f, state %.1f, data %.1f, bin %.1f; the janitor last swept %s ago and freed %.1f GB.",
 			disk.GB(uint64(b.Total())), disk.GB(uint64(janitor.Sum(b.Worktrees))), disk.GB(uint64(janitor.Sum(b.Scratch))), disk.GB(uint64(janitor.Sum(b.Caches))), disk.GB(uint64(b.State)), disk.GB(uint64(b.Data)), disk.GB(uint64(b.Bin)), now.Sub(record.Time).Round(time.Minute), disk.GB(uint64(record.Freed())))
+		if record.Gate != nil {
+			detail += fmt.Sprintf(" The gate's home at %s holds %.1f GB.", strings.Join(record.Gate.Folders, " and "), disk.GB(uint64(record.Gate.Bytes)))
+		}
+		if name, bytes := largestBucket(record); bytes > 0 {
+			detail += fmt.Sprintf(" The largest bucket is %s, at %.1f GB.", name, disk.GB(uint64(bytes)))
+		}
 	}
 	return detail + " Next: goblins runtime names every bucket and Docker's share; clean up finished goblins with goblins cleanup, and put the caches and Docker beyond the home to the Overlord, whose they are."
+}
+
+// largestBucket is the bucket the sweep measured that holds the most, the
+// verification store and the gate's home among them, named as goblins
+// runtime's table names it.
+func largestBucket(record janitor.Record) (name string, bytes int64) {
+	consider := func(candidate string, size int64) {
+		if size > bytes {
+			name, bytes = candidate, size
+		}
+	}
+	b := record.Buckets
+	for _, group := range []struct {
+		prefix, suffix string
+		sizes          map[string]int64
+	}{{"task ", " worktrees", b.Worktrees}, {"task ", " scratch", b.Scratch}, {`caches\`, "", b.Caches}} {
+		for _, key := range slices.Sorted(maps.Keys(group.sizes)) {
+			consider(group.prefix+key+group.suffix, group.sizes[key])
+		}
+	}
+	consider("bin", b.Bin)
+	consider("state", b.State)
+	consider("data", b.Data)
+	consider("the verification store", b.Verification)
+	if record.Gate != nil {
+		consider("the gate's home", record.Gate.Bytes)
+	}
+	return name, bytes
 }
 
 // memoryWork is the work waiting on memory: the queued tasks a Start could
@@ -550,34 +593,34 @@ func diskLowDetail(h home.Home, reading Disk, now time.Time) string {
 func memoryWork(h home.Home, finished *finishedWork, reading rowReading) (queued, waiting []string) {
 	queued = startableQueued(h, finished, reading)
 	for _, meta := range liveTasks(h.State) {
-		if record, err := state.ReadLifecycle(h.State, meta.ID); err == nil && record.Generation == meta.SpawnGen {
-			switch record.Phase {
-			case "paused":
-				// The pause in force says what holds the task now. Memory is
-				// work a free reading can release; any other condition ends by
-				// itself, so freeing memory cannot end it, and an older report
-				// of a memory wait must not name the task as work it releases.
-				if record.Pause != nil {
-					if record.Pause.Reason == "memory" {
-						waiting = append(waiting, meta.ID)
-					}
-					continue
-				}
-			case "pausing", "resuming", "stopping", "stopped", "done", "failed":
-				// A task being changed or already over is not work memory can
-				// release, whatever an older report said.
-				continue
-			}
-		}
-		// No record of this generation, or one that names no condition: an
-		// older report is the only evidence there is, and missing evidence
-		// never drops a real waiter.
-		lines, _ := state.TailStatus(h.State, meta.ID, 200)
-		if _, report := latestReport(lines, spawnTime(meta.SpawnGen)); strings.HasPrefix(report, "waiting on memory: ") {
+		if waitsOn(h.State, meta, "memory") {
 			waiting = append(waiting, meta.ID)
 		}
 	}
 	return queued, waiting
+}
+
+// waitsOn reports whether the task meta names waits on target now. Its
+// lifecycle record of its current generation says so first, whatever an older
+// report said: a paused task waits on what its pause in force names, and a
+// task being changed or already over waits on nothing. No record of this
+// generation, or a paused one that names no condition, says nothing, so the
+// task's latest report is the only evidence there is, and missing evidence
+// never drops a real waiter.
+func waitsOn(stateDir string, meta state.TaskMeta, target string) bool {
+	if record, err := state.ReadLifecycle(stateDir, meta.ID); err == nil && record.Generation == meta.SpawnGen {
+		switch record.Phase {
+		case "paused":
+			if record.Pause != nil {
+				return record.Pause.Reason == target
+			}
+		case "pausing", "resuming", "stopping", "stopped", "done", "failed":
+			return false
+		}
+	}
+	lines, _ := state.TailStatus(stateDir, meta.ID, 200)
+	_, report := latestReport(lines, spawnTime(meta.SpawnGen))
+	return strings.HasPrefix(report, "waiting on "+target+": ")
 }
 
 // queuedCandidates names the queued work in queue order: each structured row

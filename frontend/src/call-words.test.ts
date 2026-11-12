@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { callTally, callWords, commandLanguage } from "./call-words.ts";
+import { callTally, callWords, commandLanguage, isBrowserCommand } from "./call-words.ts";
 
 test("a call reads with its tool's icon and verb, as it runs and once it has run, for every harness's tools", () => {
   const cases: [string, boolean, ReturnType<typeof callWords>][] = [
@@ -14,6 +14,8 @@ test("a call reads with its tool's icon and verb, as it runs and once it has run
     ["Grep", false, { icon: "search", verb: "Searched" }],
     ["TodoWrite", false, { icon: "task", verb: "Updated the plan" }],
     ["update_plan", false, { icon: "task", verb: "Updated the plan" }],
+    ["TaskCreate", false, { icon: "task", verb: "Added a task" }],
+    ["TaskUpdate", true, { icon: "task", verb: "Updating a task" }],
     ["SomethingNew", false, { icon: "sparkle", verb: "SomethingNew" }],
   ];
   for (const [tool, isRunning, want] of cases) assert.deepEqual(callWords(tool, isRunning), want, tool + (isRunning ? " running" : ""));
@@ -57,6 +59,18 @@ test("a call that ran a command names the command's language, and any other call
   for (const [tool, want] of cases) assert.equal(commandLanguage(tool), want, tool);
 });
 
+test("a command drives the goblin's own browser only when it runs chrome-devtools-axi", () => {
+  const cases: [string, boolean][] = [
+    ["chrome-devtools-axi screenshot --output shot.png", true],
+    ["npx -y chrome-devtools-axi open https://shop.example.com/sign-in", true],
+    ["cd frontend && chrome-devtools-axi snapshot", true],
+    ["npm test", false],
+    ["git log --grep chrome", false],
+    ["", false],
+  ];
+  for (const [command, want] of cases) assert.equal(isBrowserCommand(command), want, command);
+});
+
 test("a folded run of calls counts each kind with the verb its rows use, in the order the kinds first ran", () => {
   const cases: [string[], string][] = [
     [["Bash", "Bash", "Bash", "Bash", "Bash"], "Ran 5 commands"],
@@ -69,6 +83,7 @@ test("a folded run of calls counts each kind with the verb its rows use, in the 
     [["Read", "mcp__claude_ai_Supabase__list_projects"], "Read 1 file, used Supabase 1 time"],
     [["ToolSearch", "ToolSearch", "mcp__docs__fetch"], "Loaded tools 2 times, used Docs 1 time"],
     [["SomethingNew", "TodoWrite"], "Used SomethingNew 1 time, updated the plan 1 time"],
+    [["TaskCreate", "TaskCreate", "TaskCreate", "TaskUpdate", "TaskUpdate"], "Added 3 tasks, updated tasks 2 times"],
   ];
   for (const [tools, want] of cases) assert.equal(callTally(tools), want, tools.join(" "));
 });

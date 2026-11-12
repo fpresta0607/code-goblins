@@ -305,7 +305,7 @@ export function nodeStatus(node: WorkflowNode, isWaitingOnYou = false, tasks: Ta
       return "Waiting on " + (WAITS[target] || (awaited ? named(awaited) : GATE_RUN.test(target) ? "its gate" : target));
     }
     if (phase === "review" && Object.hasOwn(GATE_STEPS, node.task.gate_step)) return "In review gate: " + GATE_STEPS[node.task.gate_step];
-    if (phase === "done" && !verified) return parent ? "Done, awaiting parent" : node.task.merged ? statusText("merged") : node.task.pr ? landingStatus(pullRequestTest(node.task, trains)) : node.task.closed_issue ? "Done" : "Done, verifying";
+    if (phase === "done" && !verified) return parent ? "Done, awaiting parent" : node.task.merged ? statusText("merged") : node.task.pr ? landingStatus(pullRequestTest(node.task, trains)) : node.task.closed_issue || node.task.kept_report ? "Done" : "Done, verifying";
     return statusText(phase);
   }
   return nativeStatus(node.session?.runtime?.state || node.session?.phase || "");

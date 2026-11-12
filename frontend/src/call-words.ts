@@ -31,6 +31,8 @@ const TOOLS: Record<string, { icon: IconName; running: string; done: string; cou
   web_search: { icon: "search", running: "Searching the web", done: "Searched the web" },
   todowrite: { icon: "task", running: "Updating the plan", done: "Updated the plan" },
   update_plan: { icon: "task", running: "Updating the plan", done: "Updated the plan" },
+  taskcreate: { icon: "task", running: "Adding a task", done: "Added a task", counted: ["task", "tasks"], tally: "Added" },
+  taskupdate: { icon: "task", running: "Updating a task", done: "Updated a task", tally: "Updated tasks" },
   exitplanmode: { icon: "task", running: "Planning", done: "Planned" },
   skill: { icon: "sparkle", running: "Using a skill", done: "Used a skill" },
   toolsearch: { icon: "wrench", running: "Searching tools", done: "Searched tools", tally: "Loaded tools" },
@@ -103,3 +105,9 @@ export function callTally(tools: string[]): string {
 const COMMAND_LANGUAGES: Record<string, string> = { bash: "bash", powershell: "powershell", exec: "javascript", exec_command: "shell", shell: "shell" };
 
 export const commandLanguage = (tool: string): string => COMMAND_LANGUAGES[tool.toLowerCase()] ?? "";
+
+// A goblin drives its own browser, the one its Screen view shows, through
+// chrome-devtools-axi, so a command that runs it is a browser row (#2362).
+const BROWSER_COMMAND = /\bchrome-devtools-axi\b/;
+
+export const isBrowserCommand = (command: string): boolean => BROWSER_COMMAND.test(command);

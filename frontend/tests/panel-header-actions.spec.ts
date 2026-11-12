@@ -56,7 +56,7 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
   test.describe(`at ${size} width`, () => {
     test.use({ viewport });
 
-    test("the CEO task view opens with its harness alone, with no finished strip or empty Dev Drive reserving space", async ({ page }, testInfo) => {
+    test("the CEO task view opens on its Workspace, with no harness line, no finished strip or empty Dev Drive reserving space", async ({ page }, testInfo) => {
       // Arrange
       await open(page, snapshot({
         ceo_session: "ceo-1",
@@ -77,16 +77,15 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
 
       // Assert
       await expect.soft(details.locator(".panel-status")).toHaveCount(0, { timeout: 1000 });
-      // Its details hold only its harness, which the header's mark named until
-      // #1987, and Workspace follows them with no room between.
-      await expect.soft(details).toHaveText("Claude Code", { timeout: 1000 });
+      // With no AFK report to open its details hold nothing, since its Harness
+      // section names its harness (#2438), so Workspace starts the Task view
+      // with no empty band over it.
+      await expect.soft(details).toBeHidden({ timeout: 1000 });
       const taskBox = await box(panel.locator("section.panel-task"));
-      const detailsBox = await box(details);
       const workspaceBox = await box(workspace);
-      const workspaceGap = workspaceBox.y - (detailsBox.y + detailsBox.height);
-      await testInfo.attach(`ceo-task-layout-${size}`, { body: JSON.stringify({ detailsTopGap: detailsBox.y - taskBox.y, workspaceGap, workspaceHeight: workspaceBox.height, statusRows: await details.locator(".panel-status").count(), devDriveRows: await workspace.locator(".dev-drive-setting").count() }), contentType: "application/json" });
-      expect.soft(detailsBox.y - taskBox.y).toBeLessThanOrEqual(1);
-      expect.soft(workspaceGap).toBeLessThanOrEqual(1);
+      const workspaceTopGap = workspaceBox.y - taskBox.y;
+      await testInfo.attach(`ceo-task-layout-${size}`, { body: JSON.stringify({ workspaceTopGap, workspaceHeight: workspaceBox.height, statusRows: await details.locator(".panel-status").count(), devDriveRows: await workspace.locator(".dev-drive-setting").count() }), contentType: "application/json" });
+      expect.soft(workspaceTopGap).toBeLessThanOrEqual(1);
       await expect.soft(workspace.getByText("Dev Drive", { exact: true })).toHaveCount(0, { timeout: 1000 });
       await expect.soft(workspace.locator(".dev-drive-setting")).toHaveCount(0, { timeout: 1000 });
       await expect.soft(workspace.locator(".disclosure-content > :last-child")).toHaveClass("chat-style-setting", { timeout: 1000 });

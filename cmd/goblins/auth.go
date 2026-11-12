@@ -438,7 +438,7 @@ func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRunt
 	})
 	messageFile := flags.String("message-file", "", messageFileUsage)
 	envFile := flags.String("env-file", "", "a gitignored env file at the root of the project's checkout, such as .env.docker.local, where each value is also set")
-	isWindow := flags.Bool("window", false, "the step happens in your own browser session: the card's button shows its window to him, at --link")
+	isWindow := flags.Bool("window", false, "the step happens in your own browser: the card's Take control opens it at --link on the board's screen, where he drives it until he hands it back")
 	isWait := flags.Bool("wait", false, "wait on the card and print what came of it the moment it closes")
 	waitOn := flags.String("wait-on", "", "wait on a card you filed before")
 	done := flags.String("done", "", "close a card you filed once you see the step done")
@@ -466,7 +466,7 @@ func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRunt
 			return 1
 		}
 		if *waitOn != "" {
-			return waitForCard(context.Background(), h, *waitOn, *task, runtime, stdout, stderr)
+			return waitForCard(context.Background(), h, *waitOn, stdout, stderr)
 		}
 		step := supervisor.CredentialStep{ID: card, Task: *task, Action: "done"}
 		switch {
@@ -491,13 +491,18 @@ func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return 2
 	}
 	if *isWindow && !*isWait {
-		fmt.Fprintln(stderr, "goblins auth request: --window needs --wait, since your wait shows the window when he asks for it")
+		fmt.Fprintln(stderr, "goblins auth request: --window needs --wait, since you go on once he hands your browser back")
 		return 2
 	}
-	// The window is this terminal's own browser session, which spawn names
-	// after its task.
+	// The browser shown is this terminal's own, which spawn names after its
+	// task and points at the browser the supervisor runs for it, the one the
+	// board shows.
 	if session := os.Getenv(spawn.BrowserSessionVariable); *isWindow && (*task == "" || session != *task) {
-		fmt.Fprintf(stderr, "goblins auth request: --window shows your own browser session, and this terminal's is %q, not that of --task %q\n", session, *task)
+		fmt.Fprintf(stderr, "goblins auth request: --window shows your own browser, and this terminal's session is %q, not that of --task %q\n", session, *task)
+		return 2
+	}
+	if *isWindow && !strings.Contains(os.Getenv(spawn.BrowserURLVariable), "/api/browser/devtools?") {
+		fmt.Fprintln(stderr, "goblins auth request: --window shows your own browser on the board, and this terminal's browser session is not the one the board runs for you, so he could not see it")
 		return 2
 	}
 	card := supervisor.CredentialRequest{Task: *task, GrantService: *grantService, Names: names, Plain: plain, Why: *why, Link: *link, Steps: steps, EnvFile: *envFile, Window: *isWindow}
@@ -551,7 +556,7 @@ func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRunt
 		fmt.Fprintf(stdout, "his terminal fallback on this machine: %s\n", auth.StoreCommand(scope, name))
 	}
 	if *isWait {
-		return waitForCard(context.Background(), h, filed.ID, *task, runtime, stdout, stderr)
+		return waitForCard(context.Background(), h, filed.ID, stdout, stderr)
 	}
 	return 0
 }

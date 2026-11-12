@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/janitor"
+	"github.com/fpresta0607/code-goblins/internal/layout"
 	"github.com/fpresta0607/code-goblins/internal/services"
 )
 
@@ -69,6 +70,9 @@ type Inventory struct {
 	Storage janitor.Buckets
 	// Janitor is the janitor's last sweep, absent before the first.
 	Janitor *janitor.Record
+	// Filing is the last pass that filed the home's data, absent before the
+	// first.
+	Filing *layout.Record
 	// Services are the local services stacks goblins services started or shares
 	// for tasks, with who holds each, and whether goblins started the engine.
 	Services services.Record

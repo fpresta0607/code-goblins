@@ -118,46 +118,6 @@ func TestACardHeClosedComesBackOnReopen(t *testing.T) {
 	}
 }
 
-// A card that brings the goblin's own browser window to him goes from
-// requested to open when the goblin's wait shows the window, and back to
-// offered, saying why, when it could not.
-func TestTheGoblinReportsItsWindowOverThePipe(t *testing.T) {
-	// Arrange
-	store, h := testStore(t)
-	t.Setenv(auth.StoreDirEnv, t.TempDir())
-	service := &Service{Store: store, Options: Options{Credentials: auth.OpenStore}}
-	runPipe(t, service)
-	meta, _, _, _ := goblinFixture(t, store)
-	filed, err := FileCredentialRequest(h, CredentialRequest{Task: meta.ID, Project: "throwaway", Why: "Sign in to the shop", Link: "https://example.com/login", Window: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := service.ingestCredentialRequests(); err != nil {
-		t.Fatal(err)
-	}
-	request, _ := store.credential(filed.ID)
-	if err := service.requestCredentialWindow(request.ID, request.Generation); err != nil {
-		t.Fatal(err)
-	}
-
-	// Act
-	openErr := StepCredential(h, CredentialStep{ID: filed.ID, Task: meta.ID, Action: "window-open"})
-	opened, _ := store.credential(filed.ID)
-	failedErr := StepCredential(h, CredentialStep{ID: filed.ID, Task: meta.ID, Action: "window-failed", Reason: "Chrome did not start"})
-	failed, _ := store.credential(filed.ID)
-
-	// Assert
-	if openErr != nil || failedErr != nil {
-		t.Fatalf("open = %v, failed = %v", openErr, failedErr)
-	}
-	if opened.WindowState != "open" {
-		t.Fatalf("after the window opened = %q, want open", opened.WindowState)
-	}
-	if failed.WindowState != "" || failed.Reason != "Chrome did not start" || failed.State != "open" {
-		t.Fatalf("after it failed = %+v, want the button offered again with the reason", failed)
-	}
-}
-
 // End to end: a goblin in a scratch home drives a real headless Chrome to a
 // sign-up page that asks to prove a human is there, which only the Overlord
 // may do. It files a card whose link is that exact page, waits on it, and

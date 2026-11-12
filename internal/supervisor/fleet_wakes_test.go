@@ -20,6 +20,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/githubtest"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/janitor"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -73,6 +74,52 @@ func readMemory(t *testing.T, s *Service, h home.Home, meter *memoryReadings, no
 		}
 	}
 	return len(fleetWakeRecords(t, h, "memory")) - before
+}
+
+// The disk wake names the largest bucket, the gate's home among them, so the
+// CEO goes to what holds the most: on one machine the gate's home held 55 GB
+// while the wake listed the home's buckets alone.
+func TestDiskWakeNamesTheLargestBucketTheGatesHomeAmongThem(t *testing.T) {
+	cases := []struct {
+		name   string
+		record janitor.Record
+		want   []string
+	}{
+		{
+			name: "the gate's home is largest",
+			record: janitor.Record{
+				Buckets: janitor.Buckets{Caches: map[string]int64{"go-build": 3 * gigabyte, "uv": gigabyte}, State: gigabyte},
+				Gate:    &janitor.GateHome{Folders: []string{"G1", "G2"}, Bytes: 55 * gigabyte},
+			},
+			want: []string{"The gate's home at G1 and G2 holds 55.0 GB.", "The largest bucket is the gate's home, at 55.0 GB."},
+		},
+		{
+			name:   "a cache is largest",
+			record: janitor.Record{Buckets: janitor.Buckets{Caches: map[string]int64{"go-build": 52 * gigabyte, "uv": gigabyte}, Worktrees: map[string]int64{"g1": 2 * gigabyte}}},
+			want:   []string{"The largest bucket is caches\\go-build, at 52.0 GB."},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			h := home.Home{State: t.TempDir()}
+			now := time.Date(2026, 11, 12, 6, 0, 0, 0, time.UTC)
+			c.record.Time = now.Add(-time.Hour)
+			if err := janitor.WriteRecord(h.State, c.record); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			detail := diskLowDetail(h, diskWithFree(9*gigabyte), now)
+
+			// Assert
+			for _, want := range c.want {
+				if !strings.Contains(detail, want) {
+					t.Errorf("disk wake %q lacks %q", detail, want)
+				}
+			}
+		})
+	}
 }
 
 // disk_low wakes the CEO once when free disk falls under the mark, and again

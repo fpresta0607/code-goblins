@@ -4,6 +4,7 @@ import { effortsInOrder, effortTone, MODES, type EngineSetting } from "./engine-
 import { HarnessMark } from "./harness-mark";
 import { Icon } from "./Icon";
 import { shortModel } from "./model-name";
+import { linkedText } from "./messageText";
 import "./engine-pane.css";
 
 // EnginePane is Modern Chat's one pane for a session's settings, opened from
@@ -104,7 +105,7 @@ export function EnginePane({ setting, harness, model, effort, mode, control, onP
       <p className="engine-pane-title"><HarnessMark harness={harness} />Model</p>
       {catalogError ? <button type="button" className="labelled-button engine-pane-retry" onClick={reload}><Icon name="refresh" />Retry</button>
         : !catalog ? <p className="engine-pane-note" role="status">Reading the session's models…</p>
-        : offered?.reason ? <p className="engine-pane-note" role="status">{offered.reason}</p>
+        : offered?.reason ? <p className="engine-pane-note" role="status">{linkedText(offered.reason)}</p>
         : !listed.length ? <p className="engine-pane-note" role="status">This harness lists no models.</p>
         : listed.map((each) => {
           const hasEfforts = each.efforts.length > 0;

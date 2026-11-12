@@ -365,6 +365,8 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 				detail = fmt.Sprintf("native terminal %s is gone after it reported its pull request done; a restart leaves it down to wait on the merge unless a prompt reached it since, and goblins switch %s --harness %s brings it back if it has more work", meta.ID, meta.ID, meta.Harness)
 			case verb == "done" && meta.Backend == "native" && state.DoneClosed("done: "+reported) != "" && !sample.IsComingBack:
 				detail = fmt.Sprintf("native terminal %s is gone after it reported its issue closed; a restart leaves it down unless a prompt reached it since, and goblins switch %s --harness %s brings it back if it has more work", meta.ID, meta.ID, meta.Harness)
+			case verb == "done" && meta.Backend == "native" && state.DoneReport("done: "+reported) != "" && !sample.IsComingBack:
+				detail = fmt.Sprintf("native terminal %s is gone after it reported done with its report; a restart leaves it down unless a prompt reached it since, and goblins switch %s --harness %s brings it back if it has more work", meta.ID, meta.ID, meta.Harness)
 			}
 		}
 		return unknownObservation(observation, EndpointMissing, detail, now), sample

@@ -964,6 +964,10 @@ func TestAGoblinIsToldToPutAHeavyRunBehindTheLine(t *testing.T) {
 				"never with a process start of your own, such as Win32_Process Create, Start-Process or start, which opens a window on the Overlord's desktop",
 				"A test you run by name needs no turn.",
 				"A WSL or Docker run, and a load or stress run, still need the CEO's word first, since no turn covers them.",
+				"Before you wait on or retry the gate daemon, the heavy-run line or the Docker engine, read their state with " + exe + " shared, the same under every harness",
+				"says busy, never stopped, for a live daemon that missed a reply",
+				"report it with --waiting-on gate-daemon, memory or docker and do not poll: you are told once when it is usable.",
+				"Never start, stop or restart a shared service.",
 			} {
 				if !strings.Contains(instruction, want) {
 					t.Errorf("instruction = %q, want %q", instruction, want)
@@ -1016,7 +1020,7 @@ func TestNotifyInstructionTeachesWorkingAndWaitingReports(t *testing.T) {
 	for _, want := range []string{
 		exe + " notify task-7 --done --closed <issue-url> --decision <sequence>",
 		exe + " notify task-7 --working \"<what>\"",
-		exe + " notify task-7 --waiting-on <task-id|run-id|overlord|ci|deploy|memory> \"<why>\"",
+		exe + " notify task-7 --waiting-on <task-id|run-id|overlord|ci|deploy|memory|gate-daemon|docker> \"<why>\"",
 		exe + " notify task-7 --waiting-on overlord \"<why>\" --lavish <html-file>",
 		exe + " notify task-7 --waiting-on overlord \"<why>\" --run <command.ps1>",
 		"runs it with one click in a terminal on his card, where he types into it",
@@ -1600,6 +1604,61 @@ func TestNotifyInstructionTellsAGoblinNeverToPushWhileItsPullRequestsCIRuns(t *t
 			isTold := strings.Contains(instruction, "only once") && strings.Contains(instruction, "CI has ended, since a push while it runs cancels it after it billed its minutes")
 			if isTold != test.isTold {
 				t.Errorf("told never to push while its CI runs = %v, want %v:\n%s", isTold, test.isTold, instruction)
+			}
+		})
+	}
+}
+
+// A top-level local-only task opens no pull request, so its first
+// instruction asks for neither a pipeline run nor a pull request: it reports
+// done with its report. An operations task with no commit was told to drive
+// goblins pipeline run and report --done --pr, which could not hold (#1675). A
+// gated task and a helper keep their own done.
+func TestSpawnInstructionTellsALocalOnlyTaskToReportDoneWithItsReport(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskTmp := filepath.Join(`C:\home\state`, "tasktmp", "task-7")
+	for _, test := range []struct {
+		name     string
+		meta     state.TaskMeta
+		wanted   []string
+		unwanted []string
+	}{
+		{
+			name:     "a local-only task",
+			meta:     state.TaskMeta{ID: "task-7", Kind: "ship", Mode: "local-only", DeliveryHash: "h", TaskTmp: taskTmp},
+			wanted:   []string{exe + " notify task-7 --done --report <file>", "data/task-7/report.md"},
+			unwanted: []string{"--pr <url>", "pipeline run", "opens the pull request", "on completion with a PR"},
+		},
+		{
+			name:     "a gated task",
+			meta:     state.TaskMeta{ID: "task-7", Kind: "ship", Mode: "no-mistakes", DeliveryHash: "h", TaskTmp: taskTmp},
+			wanted:   []string{"on completion with a PR run: " + exe + " notify task-7 --done --pr <url>", "goblins pipeline run task-7", "you stay the one who opens the pull request"},
+			unwanted: []string{"--report"},
+		},
+		{
+			name:     "a local-only helper",
+			meta:     state.TaskMeta{ID: "task-7-h1", Kind: "ship", Mode: "local-only", Parent: "task-7", DeliveryHash: "h", TaskTmp: taskTmp},
+			wanted:   []string{exe + " notify task-7-h1 --done."},
+			unwanted: []string{"--report", "--pr <url>"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			instruction := spawnInstruction(`C:\home\data\task-7\brief.md`, test.meta, nil, "")
+
+			// Assert
+			for _, want := range test.wanted {
+				if !strings.Contains(instruction, want) {
+					t.Errorf("instruction lacks %q:\n%s", want, instruction)
+				}
+			}
+			for _, unwanted := range test.unwanted {
+				if strings.Contains(instruction, unwanted) {
+					t.Errorf("instruction says %q:\n%s", unwanted, instruction)
+				}
 			}
 		})
 	}

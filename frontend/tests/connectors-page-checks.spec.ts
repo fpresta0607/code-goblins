@@ -1,5 +1,5 @@
 import { CHECKED_AT, play, supervisorWith, type Supervisor } from "./connectors-supervisor";
-import { expect, test, type Page } from "./site";
+import { expect, test, type Locator, type Page } from "./site";
 
 // What the Connectors page asks the supervisor and when, and every repair
 // the panel it replaced offered (#2303): it reads two goblins at a time,
@@ -93,6 +93,49 @@ test("a failing connector's repair opens its Command Center card, and the goblin
   expect(supervisor.reads).toEqual({ [PROOF]: 2 });
   expect(errors).toEqual([]);
 });
+
+// The Overlord, 2026-11-11: only a failed check is amber, with no warning
+// mark, and only a sign-in the board can start is its green Sign in. A check
+// that found a sign-in expired, and a sign-in only a stored variable repairs,
+// each keep their word in amber in the list and beside the goblin, with the
+// check's reason and the repair it offers.
+for (const { name, entry, shown, word, reason, repair } of [
+  { name: "a check that found its sign-in expired", entry: { id: "mcp:linear", name: "Linear", kind: "mcp", status: "expired", detail: "Sign-in expired.", checked_at: CHECKED_AT }, shown: "Linear", word: "Expired", reason: "Sign-in expired.", repair: "" },
+  { name: "a sign-in only a stored variable repairs", entry: { id: "service:docs", name: "docs", kind: "service", status: "unauthorized", detail: "Sign-in required.", checked_at: CHECKED_AT, actions: ["store:DOCS_TOKEN"], grant: "revoke" }, shown: "Docs", word: "Sign in", reason: "Sign-in required.", repair: "Store DOCS_TOKEN from clipboard" },
+]) {
+  test(`${name} reads its word in amber with no warning mark, in the list and beside the goblin with its reason`, async ({ page }) => {
+    // Arrange
+    await open(page, supervisorWith({ [PROOF]: [GITHUB, entry] }));
+    const colour = (locator: Locator) => locator.evaluate((element) => getComputedStyle(element).color);
+    const amber = await page.evaluate(() => {
+      const probe = document.body.appendChild(document.createElement("span"));
+      probe.style.color = "var(--amber)";
+      const found = getComputedStyle(probe).color;
+      probe.remove();
+      return found;
+    });
+    const row = page.locator(".connector-row").filter({ has: page.getByRole("button", { name: shown, exact: true }) });
+
+    // Assert: the list says its word in amber, as no type is, and offers no Sign in.
+    await expect(row.locator(".connector-state.is-trouble")).toHaveText(word);
+    await expect(row.locator(".connector-status .icon")).toHaveCount(0);
+    await expect(row.locator(".connector-status button")).toHaveCount(0);
+    expect(await colour(row.locator(".connector-state"))).toBe(amber);
+    expect(await colour(row.locator(".connector-type"))).not.toBe(amber);
+
+    // Act
+    const detail = await openConnector(page, shown);
+
+    // Assert: beside the goblin, its word in amber with its reason, and only the repair it offers.
+    const goblin = detail.getByRole("listitem").filter({ hasText: NAME });
+    await expect(goblin.locator(".connector-use")).toHaveText(word + ". " + reason);
+    await expect(goblin.locator(".connector-use .icon")).toHaveCount(0);
+    expect(await colour(goblin.locator(".connector-word"))).toBe(amber);
+    await expect(goblin.getByRole("button", { name: "Sign in to " + shown + " for " + NAME, exact: true })).toHaveCount(0);
+    if (repair) await expect(goblin.getByRole("button", { name: repair + " for " + NAME, exact: true })).toBeVisible();
+    else await expect(goblin.locator(".connector-goblin-actions button")).toHaveCount(0);
+  });
+}
 
 // #2358: on a phone, Checking connectors... ran into the heading beside it,
 // which kept its place but not its words. Each says what the page is doing

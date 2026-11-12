@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { askKey, checkEvidence, cliVariables, goblinKey, listConnectors, matchesConnector, toolGroups, usageState } from "./connector-list.ts";
+import { askKey, checkEvidence, cliVariables, declaredBy, goblinKey, listConnectors, matchesConnector, toolGroups, usageState } from "./connector-list.ts";
 import { parseConnections } from "./connections.ts";
 
 const entries = (...list: object[]) => parseConnections({ entries: list }).entries;
@@ -53,6 +53,7 @@ test("a row's state is one word, Verified only when every goblin's check confirm
     ["every goblin's check confirmed it", [[docs("connected")], [docs("probe_succeeded")]], "verified", "Verified"],
     ["one goblin's needs a sign-in he can start, a button", [[docs("connected")], [docs("unauthorized", { detail: "Sign-in required.", actions: ["login"] })]], "sign-in", "Sign in"],
     ["one goblin's needs a sign-in the board cannot start", [[docs("connected")], [docs("unauthorized", { detail: "Sign-in required." })]], "trouble", "Sign in"],
+    ["one goblin's needs a sign-in only a stored variable repairs, which keeps its word", [[docs("connected")], [docs("unauthorized", { detail: "Sign-in required.", actions: ["store:DOCS_TOKEN"] })]], "trouble", "Sign in"],
     ["one goblin's has expired, which keeps reading so though he can sign in", [[docs("expired", { actions: ["login"] })]], "trouble", "Expired"],
     ["one goblin's has expired", [[docs("expired")]], "trouble", "Expired"],
     ["a check ran and did not confirm it", [[docs("unverified")]], "trouble", "Unverified"],
@@ -78,7 +79,7 @@ test("a row's state is one word, Verified only when every goblin's check confirm
 
 test("a row waits for a goblin's next terminal when any goblin's change does, carried or not", () => {
   // Arrange
-  const waiting = { id: "service:docs", name: "docs", kind: "service", status: "withheld", grant: "grant", restart_required: true, restart_reason: "Disconnected. Its variables leave this goblin at its next terminal; the one running still has them." };
+  const waiting = { id: "service:docs", name: "docs", kind: "service", status: "withheld", grant: "grant", restart_required: true, restart_reason: "Disconnected. Its variables leave this goblin at its next terminal. The one running still has them." };
   const settled = { id: "service:docs", name: "docs", kind: "service", status: "connected", grant: "revoke" };
 
   // Act
@@ -134,6 +135,7 @@ test("what a goblin's use says: not connected, or its state in a word with its r
     [{ id: "mcp:a", name: "a", kind: "mcp", status: "checking" }, { tone: "quiet", word: "Checking", reason: "" }],
     [{ id: "mcp:a", name: "a", kind: "mcp", status: "unauthorized", detail: "Sign-in required.", actions: ["login"] }, { tone: "trouble", word: "", reason: "Sign-in required." }],
     [{ id: "mcp:a", name: "a", kind: "mcp", status: "unauthorized", detail: "Sign-in required." }, { tone: "trouble", word: "Sign in", reason: "Sign-in required." }],
+    [{ id: "service:a", name: "a", kind: "service", status: "unauthorized", detail: "Sign-in required.", actions: ["store:A_TOKEN"] }, { tone: "trouble", word: "Sign in", reason: "Sign-in required." }],
     [{ id: "mcp:a", name: "a", kind: "mcp", status: "probe_succeeded", scope: "separate_probe" }, { tone: "verified", word: "Verified", reason: "" }],
     [{ id: "credential:A", name: "A", kind: "credential", status: "provided", scope: "launch_environment" }, { tone: "quiet", word: "Set", reason: "" }],
     [{ id: "service:a", name: "a", kind: "service", status: "provided", detail: "Credentials resolved. This account declares no connection check." }, { tone: "quiet", word: "Set", reason: "Credentials resolved. This account declares no connection check." }],
@@ -158,8 +160,8 @@ test("a service's CLI variables are those its manifest declares, by name, with w
   // Arrange
   const service = { id: "service:repo", name: "repo", kind: "service", status: "provided", grant: "revoke" };
   const readings = [
-    { goblin: "Zeke", entries: entries(service, { id: "credential:REPO_URL", name: "REPO_URL", kind: "credential", status: "provided", account: "repo" }, { id: "credential:REPO_TOKEN", name: "REPO_TOKEN", kind: "credential", status: "missing", account: "repo" }, { id: "credential:OTHER_TOKEN", name: "OTHER_TOKEN", kind: "credential", status: "provided", account: "other" }) },
-    { goblin: "Ivy", entries: entries({ ...service, status: "withheld", grant: "grant" }, { id: "credential:REPO_URL", name: "REPO_URL", kind: "credential", status: "withheld", account: "repo" }) },
+    { goblin: "Zeke", entries: entries(service, { id: "credential:REPO_URL", name: "REPO_URL", kind: "credential", status: "provided", accounts: ["repo"] }, { id: "credential:REPO_TOKEN", name: "REPO_TOKEN", kind: "credential", status: "missing", accounts: ["repo"] }, { id: "credential:OTHER_TOKEN", name: "OTHER_TOKEN", kind: "credential", status: "provided", accounts: ["other"] }) },
+    { goblin: "Ivy", entries: entries({ ...service, status: "withheld", grant: "grant" }, { id: "credential:REPO_URL", name: "REPO_URL", kind: "credential", status: "withheld", accounts: ["repo"] }) },
   ];
   const [connector] = listConnectors(readings).filter((found) => found.kind === "service");
 
@@ -173,6 +175,27 @@ test("a service's CLI variables are those its manifest declares, by name, with w
   ]);
   const [server] = listConnectors([{ goblin: "Zeke", entries: entries({ id: "mcp:repo", name: "repo", kind: "mcp", status: "connected" }) }]);
   assert.deepEqual(cliVariables(server, readings), []);
+});
+
+test("a variable two services declare is among each one's CLI variables, and its own page names both", () => {
+  // Arrange
+  const readings = [{ goblin: "Zeke", entries: entries(
+    { id: "service:repo", name: "repo", kind: "service", status: "provided", grant: "revoke" },
+    { id: "service:github", name: "github", kind: "service", status: "provided", grant: "revoke" },
+    { id: "credential:SHARED_TOKEN", name: "SHARED_TOKEN", kind: "credential", status: "provided", accounts: ["repo", "github"] },
+    { id: "credential:REPO_URL", name: "REPO_URL", kind: "credential", status: "missing", accounts: ["repo"] },
+  ) }];
+  const connectors = listConnectors(readings);
+  const named = (name: string) => connectors.find((connector) => connector.name === name)!;
+
+  // Act
+  const names = ["Repo", "GitHub"].map((service) => cliVariables(named(service), readings).map((variable) => variable.name));
+
+  // Assert
+  assert.deepEqual(names, [["REPO_URL", "SHARED_TOKEN"], ["SHARED_TOKEN"]]);
+  assert.equal(declaredBy(named("SHARED_TOKEN")), "Declared by the Repo and GitHub repository services.");
+  assert.equal(declaredBy(named("REPO_URL")), "Declared by the Repo repository service.");
+  assert.equal(declaredBy(listConnectors([{ goblin: "Zeke", entries: entries({ id: "credential:LOOSE_TOKEN", name: "LOOSE_TOKEN", kind: "credential", status: "provided" }) }])[0]), "No repository service declares it.");
 });
 
 test("a connector's tools are grouped as its harness marks them, in words, each once", () => {

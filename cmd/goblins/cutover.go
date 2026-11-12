@@ -69,18 +69,22 @@ func runCutover(args []string, stdout, stderr io.Writer, newMachine func() (cuto
 		fmt.Fprintf(stderr, "goblins cutover: %v\n", err)
 		return 1
 	}
+	// This cutover may run from the home's bin, as the undo of a crossing
+	// does: a program it writes or removes there is set aside first, which
+	// Windows allows while it runs.
+	others := 0
 	for _, program := range running {
+		if program.PID == os.Getpid() {
+			continue
+		}
 		where := program.Image
 		if rel, err := filepath.Rel(machine.Root, program.Image); err == nil {
 			where = rel
 		}
-		if program.PID == os.Getpid() {
-			fmt.Fprintf(stderr, "goblins cutover: %s (pid %d) is this cutover, which runs from this home; run this build from the folder it was built or downloaded in\n", where, program.PID)
-			continue
-		}
 		fmt.Fprintf(stderr, "goblins cutover: %s (pid %d) runs from this home; close it first\n", where, program.PID)
+		others++
 	}
-	if len(running) > 0 {
+	if others > 0 {
 		return 1
 	}
 	if *undo != "" {
@@ -140,7 +144,6 @@ func supervisorServing(state string) string {
 // a terminal opened before a cutover set them does not hold, and only then
 // the home this build resolves.
 func cutoverMachine(env installbase.EnvStore) (cutover.Machine, error) {
-	commands := execx.OSRunner{}
 	root, projects, err := cutover.OldSettings(env)
 	if err != nil {
 		return cutover.Machine{}, err
@@ -162,11 +165,34 @@ func cutoverMachine(env installbase.EnvStore) (cutover.Machine, error) {
 			return cutover.Machine{}, err
 		}
 	}
-	userHome, err := os.UserHomeDir()
+	program, err := os.Executable()
 	if err != nil {
 		return cutover.Machine{}, err
 	}
-	program, err := os.Executable()
+	return machineAt(env, root, projects, program)
+}
+
+// crossingMachine is this machine as the crossing of the home h reads it, by
+// the build at program, and the projects root the user's settings name, the
+// old build's or this build's.
+func crossingMachine(env installbase.EnvStore, h home.Home, program string) (cutover.Machine, error) {
+	_, projects, err := cutover.OldSettings(env)
+	if err != nil {
+		return cutover.Machine{}, err
+	}
+	if projects == "" {
+		if projects, _, err = env.Get(install.ProjectsRootVariable); err != nil {
+			return cutover.Machine{}, err
+		}
+	}
+	return machineAt(env, h.Root, projects, program)
+}
+
+// machineAt is this machine around the home at root, moved by the build at
+// program.
+func machineAt(env installbase.EnvStore, root, projects, program string) (cutover.Machine, error) {
+	commands := execx.OSRunner{}
+	userHome, err := os.UserHomeDir()
 	if err != nil {
 		return cutover.Machine{}, err
 	}

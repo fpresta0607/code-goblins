@@ -20,7 +20,7 @@ export function parseConnections(value: unknown) {
         const tool = object(value);
         return { name: string(tool.name), isReadOnly: tool.read_only === true };
       });
-      return { id: string(entry.id), name: string(entry.name), kind: string(entry.kind), status: string(entry.status), detail: string(entry.detail), source: string(entry.source), actions: strings(entry.actions), grant: grant === "grant" || grant === "revoke" ? grant : "", scope: string(entry.scope), account: string(entry.account), liveStatus: string(entry.live_status) || "unknown", accountIdentity: string(entry.account_identity) || "unknown", targetIdentity: string(entry.target_identity) || "unknown", checkedAt: string(entry.checked_at), isRestartRequired: entry.restart_required === true, restartReason: string(entry.restart_reason), tools };
+      return { id: string(entry.id), name: string(entry.name), kind: string(entry.kind), status: string(entry.status), detail: string(entry.detail), source: string(entry.source), actions: strings(entry.actions), grant: grant === "grant" || grant === "revoke" ? grant : "", scope: string(entry.scope), accounts: strings(entry.accounts), liveStatus: string(entry.live_status) || "unknown", accountIdentity: string(entry.account_identity) || "unknown", targetIdentity: string(entry.target_identity) || "unknown", checkedAt: string(entry.checked_at), isRestartRequired: entry.restart_required === true, restartReason: string(entry.restart_reason), tools };
     }),
     browserLogins: parseBrowserLogins(result.browser_logins),
   };

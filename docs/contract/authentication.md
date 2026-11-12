@@ -144,7 +144,8 @@ Any other value, or a second line, refuses the brief at `goblins brief ready` an
 The project names the container's image in its devcontainer, `.devcontainer/devcontainer.json` or `.devcontainer.json`, as an `image` field.
 A devcontainer that builds its image, with `build`, `dockerFile` or `dockerComposeFile`, is refused, since the build would run the untrusted Dockerfile on the engine outside the line; the project names a built image instead.
 A spawn is refused before anything starts when `docker` is not on PATH or the project names no image, and a helper of a sandbox task is a sandbox task too.
-The task keeps its worktree, branch and delivery, and the task's record keeps the image and the worktree's `.git` link (`sandbox_image` and `sandbox_git` in `state/<id>.meta`).
+A spawn in mode no-mistakes is refused too, naming direct-PR and local-only, since a gate would run the task's code on the host, as below.
+The task keeps its worktree and branch, and the task's record keeps the image and the worktree's `.git` link (`sandbox_image` and `sandbox_git` in `state/<id>.meta`).
 Its goblin's harness runs on the host, where its shell runs only `goblins`, `git` and `gh`, from its worktree, by name or by an absolute path outside the worktree and scratch folder.
 A host command is simple commands joined by `&&`, each of plain words and quoted text, so Bash and PowerShell read it alike.
 A plain word holds letters, digits, `.`, `_`, `/`, `:`, `=`, `@`, `%`, `+`, `-` and `~`, so a path is written with `/`.
@@ -155,7 +156,7 @@ Host git runs only `status`, `diff`, `log`, `show`, `add`, `commit`, `push`, `fe
 It is refused `rebase -x`, and `--exec`, `--upload-pack`, `--receive-pack`, `--recurse-submodules` and `--recursive` or any start of them, each of which starts a program or reaches a submodule.
 Host gh is refused `alias` and `extension`, which run a command or program of their own, and those options too.
 `goblins gate test`, `goblins verify`, `goblins security`, `goblins deploy` and `goblins services` are refused there, and the goblin runs what they run in the container with [`goblins sandbox run`](../commands/sandbox.md), in the machine's heavy line.
-Its gate's Test step runs its command in the same image, with the gate's checkout alone mounted.
+A gate's Test step of the task runs its command in the same image, with the gate's checkout alone mounted.
 A run that cannot start Docker runs nowhere, never on the host instead.
 Code in the container can write the worktree, so the task's host git reads hooks from an empty folder, runs with its fsmonitor off, takes no folder it finds for a bare repository, and reads attributes from the empty tree, so no filter, diff or merge driver the worktree names runs.
 A sandbox task's project cannot use submodules: every host command is refused while the worktree holds a `.gitmodules`, whose `ignore` lines would have host git recurse into a submodule the container made, or the worktree's index names a gitlink or a sparse directory, which could hold one.
@@ -165,7 +166,8 @@ Every host command but `goblins sandbox run` and `goblins notify` waits while a 
 The refusal names the `.git` it found and how to remove it in the container.
 `goblins` walks the whole worktree for it before each such command, which took 2.2 to 2.9 seconds on a warm worktree of 77,160 entries with its `node_modules`, and 27 seconds on the first, cold walk.
 Those commands wait too while a container of the task may run, from the moment `goblins sandbox run` records it until it removed it, since the container could make a repository between the walk and the command.
-The gate's prepare, lint and format commands and its agents' own shells still run on the host.
+A gate runs only its Test step's command in the container: the agents of its Review, Test, Document and Lint steps run their own shells on the host, as do the prepare, lint and format commands a gate file names.
+So a sandbox task is delivered in mode direct-PR or local-only, and `goblins pipeline run`, `respond`, `handback`, `validate-authored` and `validate-terminal` drive no gate of a sandbox task: each names those steps and runs nothing.
 
 ### The credential store
 
@@ -244,8 +246,8 @@ The card is `goblins auth request --project <p> --task <its id> --why "<what it 
   A card that asks for nothing has a Done button.
 - A message he sends himself, such as an email, goes in a file named with `--message-file`, never as a step that points at the file.
   His card shows its body with Copy, and Copy subject when it has a subject.
-- When the step must happen inside the goblin's own browser session, such as a sign-in the session keeps, `--window` puts a button on the card that shows the session's window at the link on his screen, on a profile in the task's folder.
-  Once the card closes the session runs headless again on that profile, so it keeps what he did there.
+- When the step must happen inside the goblin's own browser, such as a sign-in its session keeps, `--window` gives the card Take control, which opens the link in that browser and shows its screen on the card, where he takes the step and hands the browser back with a few words, which the wait prints.
+  The browser runs on a profile in the task's folder, so it keeps what he did there.
 
 The goblin runs the command in the background, so it goes on the moment the card closes: when every input is in, when he presses Done, or when the goblin sees the step done itself and runs `goblins auth request --done <card> --task <its id>`.
 Exit 3 means he skipped the card, and the goblin goes on without it.

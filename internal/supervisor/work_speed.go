@@ -27,9 +27,15 @@ const (
 // board's reading of its family tree, may be and still count as a reading.
 const evidenceFresh = 2 * time.Minute
 
+// selfEndingWaits are the --waiting-on targets that end and report by
+// themselves, none of them another task or a gate run: CI, a deploy, the
+// Overlord, memory, and the gate daemon and the Docker engine, whose return
+// the shared check tells the CEO.
+var selfEndingWaits = []string{"ci", "deploy", "overlord", "memory", SharedGateDaemon, SharedDocker}
+
 // waitsOnWhatEndsItself reports whether a goblin's latest report is a wait that
 // ends and reports by itself, so nothing of the goblin's own is expected
-// meanwhile: CI, a deploy, the Overlord or memory. A run is not read from here
+// meanwhile: one of selfEndingWaits. A run is not read from here
 // at all. A goblin waiting on one is paused with a record that names the run,
 // and pollAwaitedRuns watches that record, while a pause already keeps the
 // stall check off. No status line is therefore read as a run identifier, and a
@@ -43,11 +49,7 @@ func waitsOnWhatEndsItself(report string) bool {
 	if !ok {
 		return false
 	}
-	switch strings.TrimSpace(target) {
-	case "ci", "deploy", "overlord", "memory":
-		return true
-	}
-	return false
+	return slices.Contains(selfEndingWaits, strings.TrimSpace(target))
 }
 
 type WorkProgress struct {
@@ -387,15 +389,15 @@ func ownReport(lines []string, born time.Time) (time.Time, string) {
 
 // awaited is what the goblin's latest report says it waits on, which the
 // family tree reads as its gate run when it names one: empty when it reports
-// no wait, or a wait on CI, a deploy, the Overlord or memory, none of which
-// is a run. A status log that cannot be read names no wait here, and the
+// no wait, or a wait on one of selfEndingWaits, none of which is a run. A
+// status log that cannot be read names no wait here, and the
 // stall check, which reads the same log, reports it.
 func (s *Service) awaited(meta state.TaskMeta) string {
 	lines, _ := s.statusTail(meta.ID)
 	_, report := ownReport(lines, spawnTime(meta.SpawnGen))
 	rest, isWaiting := strings.CutPrefix(report, "waiting on ")
 	target, _, _ := strings.Cut(rest, ": ")
-	if !isWaiting || slices.Contains([]string{"ci", "deploy", "overlord", "memory"}, target) {
+	if !isWaiting || slices.Contains(selfEndingWaits, target) {
 		return ""
 	}
 	return target

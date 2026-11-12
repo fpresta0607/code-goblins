@@ -43,7 +43,8 @@ const wakeLockName = ".wake-queue.lock"
 // read, and a pull request conflicts or falls behind, and the `disk` kind it
 // appends when free disk falls under the mark the CEO is woken at, the
 // `allowance` kind it appends when a subscription window nears its end or
-// renews after it was used up, and no others.
+// renews after it was used up, the `shared` kind it appends when goblins wait on a
+// shared service that is down and once it is usable again, and no others.
 var kinds = map[string]bool{
 	"signal":    true,
 	"stale":     true,
@@ -58,6 +59,7 @@ var kinds = map[string]bool{
 	"disk":      true,
 	"idle":      true,
 	"allowance": true,
+	"shared":    true,
 }
 
 // Record is one durable wake. Seq starts at 1 and is never reused; the ack

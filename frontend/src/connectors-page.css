@@ -45,7 +45,8 @@
 .connector-state .icon { flex: none; width: 20px; height: 20px; }
 .connector-state.is-verified { color: var(--accent-green); }
 .connector-state.is-trouble { color: var(--amber); font-weight: 700; }
-.connector-waiting { grid-column: 2 / -1; margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+.connector-waiting { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+.connector-row > .connector-waiting { grid-column: 2 / -1; }
 .connector-connect { position: relative; z-index: 1; padding: 6px 16px; border-color: var(--glass-border-hover); border-radius: 999px; font-weight: 700; }
 .connector-connect:hover { background: var(--field-bg); border-color: var(--accent-green); }
 .connector-connect.primary { border-color: var(--accent-green); }
@@ -126,7 +127,7 @@
   .connector-open { grid-area: name; }
   .connector-type { grid-area: type; }
   .connector-status { grid-area: status; justify-content: flex-end; }
-  .connector-waiting { grid-area: waiting; }
+  .connector-row > .connector-waiting { grid-area: waiting; }
   .connectors-search { flex: 1 1 100%; }
   .connector-tools > .disclosure > .disclosure-content { padding-left: 14px; }
 }

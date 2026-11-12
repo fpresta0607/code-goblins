@@ -769,33 +769,33 @@ func TestHistoryReopenRequiresTheCardGeneration(t *testing.T) {
 	}
 }
 
-// The window button asks the goblin's own browser session to show itself,
-// only from the board on this PC, and only on a card that offers it.
-func TestStepCardAsksForTheGoblinsWindowOnlyFromThisPC(t *testing.T) {
-	windowBody := func(b *credentialBoard) string {
-		data, _ := json.Marshal(struct {
-			ID         string `json:"id"`
-			Generation string `json:"generation"`
-		}{b.request.ID, b.request.Generation})
-		return string(data)
+// windowBody is his Take control on the board's card.
+func (b *credentialBoard) windowBody() string {
+	b.t.Helper()
+	data, err := json.Marshal(struct {
+		ID         string `json:"id"`
+		Generation string `json:"generation"`
+	}{b.request.ID, b.request.Generation})
+	if err != nil {
+		b.t.Fatal(err)
 	}
-	t.Run("from this PC", func(t *testing.T) {
-		b := stepCard(t, func(r *CredentialRequest) { r.Window = true })
-		response := b.send(b.handler, "/api/credentials/window", windowBody(b), nil)
-		if response.Code != http.StatusOK || b.stored().WindowState != "requested" {
-			t.Fatalf("window = %d %s, state %q; want it requested", response.Code, response.Body, b.stored().WindowState)
-		}
-	})
+	return string(data)
+}
+
+// Take control on a card is refused from another machine, and on a card
+// that offers none; TestStepCardTakeControlOpensItsLinkAndHandBackClosesItWithHisWords
+// takes it from this PC.
+func TestStepCardTakeControlOnlyFromThisPC(t *testing.T) {
 	t.Run("from another machine", func(t *testing.T) {
 		b := stepCard(t, func(r *CredentialRequest) { r.Window = true })
-		response := b.send(b.handler, "/api/credentials/window", windowBody(b), func(r *http.Request) { r.RemoteAddr = "100.64.0.7:50000" })
+		response := b.send(b.handler, "/api/credentials/window", b.windowBody(), func(r *http.Request) { r.RemoteAddr = "100.64.0.7:50000" })
 		if response.Code != http.StatusForbidden || b.stored().WindowState != "" {
 			t.Fatalf("window = %d, state %q; want it refused", response.Code, b.stored().WindowState)
 		}
 	})
 	t.Run("on a card without a window", func(t *testing.T) {
 		b := stepCard(t, nil)
-		response := b.send(b.handler, "/api/credentials/window", windowBody(b), nil)
+		response := b.send(b.handler, "/api/credentials/window", b.windowBody(), nil)
 		if response.Code != http.StatusConflict || b.stored().WindowState != "" {
 			t.Fatalf("window = %d, state %q; want it refused", response.Code, b.stored().WindowState)
 		}

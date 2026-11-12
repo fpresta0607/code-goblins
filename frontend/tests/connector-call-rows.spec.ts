@@ -11,12 +11,16 @@ import { at, open, snapshot } from "./session-board";
 const SELECT = "select:mcp__claude_ai_Supabase__list_projects,mcp__claude_ai_Supabase__list_branches,mcp__claude_ai_Acme_Billing__create_invoice,mcp__chrome-devtools__take_snapshot";
 const call = (id: string, tool: string, subject = "", state = "done") => ({ kind: "call", call_id: id, tool, subject, state, result: state === "running" ? "" : "ok" });
 const text = (words: string) => ({ kind: "text", text: words });
+// What the invoice call was called with: an address, a link once its row is
+// open (#2360), and a javascript: string that stays words.
+const CUSTOMER = "https://billing.example.com/customers/42";
+const INVOICE = `{"customer":"${CUSTOMER}","memo":"javascript:alert(1)"}`;
 const CONVERSATION = { conversation: "fixture-conversation", more: false, messages: [
   { id: "prompt-0", seq: 0, at, kind: "prompt", source: "overlord", text: "Which projects does Supabase hold?" },
   { id: "reply-1", seq: 1, at, kind: "reply", blocks: [
     text("Loading the tools first."), call("search-0", "ToolSearch", SELECT),
     text("Listing the projects."), call("known-0", "mcp__claude_ai_Supabase__list_projects"),
-    text("Billing next."), call("unknown-0", "mcp__claude_ai_Acme_Billing__create_invoice"),
+    text("Billing next."), { ...call("unknown-0", "mcp__claude_ai_Acme_Billing__create_invoice"), input: INVOICE },
     text("A look at the page."), call("server-0", "mcp__chrome-devtools__take_snapshot"),
     text("Counting the rows."), call("sql-0", "mcp__claude_ai_Supabase__execute_sql", "select count(*) from projects", "running"),
   ] },
@@ -89,6 +93,19 @@ for (const width of [390, 1440]) {
     await expect(fold).toHaveCount(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath(`connector-rows-${width}.png`) });
+
+    // Act: open the invoice call, before the tool search's list also names it.
+    await unknown.locator("summary").click();
+
+    // Assert: what it was called with reads as written, its address a link
+    // and its javascript: string words.
+    const invoice = unknown.locator(".disclosure-content p.call-full:not(.call-raw)");
+    await expect(invoice).toHaveText(INVOICE);
+    const customer = invoice.getByRole("link");
+    await expect(customer).toHaveText(CUSTOMER);
+    await expect(customer).toHaveAttribute("href", CUSTOMER);
+    await expect(customer).toHaveAttribute("target", "_blank");
+    await expect(invoice.locator('a[href^="javascript:"]')).toHaveCount(0);
 
     // Act: the raw call stays one click away.
     await known.locator("summary").click();

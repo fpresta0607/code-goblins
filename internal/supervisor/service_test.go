@@ -18,6 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/pipeline/pipelinetest"
 	"github.com/fpresta0607/code-goblins/internal/readcache"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -552,7 +553,7 @@ func TestADetachedWorktreeTakesTypingOnlyWhenTheGateProvesItFresh(t *testing.T) 
 			} else if out, err := exec.Command("sqlite3", database, runs).CombinedOutput(); err != nil {
 				t.Fatalf("disposable gate records: %v\n%s", err, out)
 			}
-			service := &Service{Store: store, Options: Options{Gate: pipeline.Reader{Root: root, Commands: execx.OSRunner{}}}}
+			service := &Service{Store: store, Options: Options{Gate: pipeline.Reader{Root: root, Commands: pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}}}}
 
 			// Act
 			typing := service.boardTerminalControl(t.Context(), meta)

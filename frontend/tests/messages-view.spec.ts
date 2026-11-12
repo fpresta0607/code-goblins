@@ -47,6 +47,10 @@ const exchange = (seq: number) => seq % 2
   ? reply(seq, { kind: "text", text: `Answer ${seq}\n\nIt runs over a few lines\nso the page has height to read up in.` })
   : message(seq, { source: "overlord", text: "Question " + seq });
 const range = (from: number, to: number) => Array.from({ length: to - from }, (_, at) => exchange(from + at));
+// The same message, several lines longer than it was.
+const grown = (seq: number) => seq % 2
+  ? reply(seq, { kind: "text", text: `Answer ${seq}\n\nnow\nmuch\nlonger\nthan\nit\nwas` })
+  : message(seq, { source: "overlord", text: `Question ${seq}\nnow\nmuch\nlonger\nthan\nit\nwas` });
 const NEWEST = { messages: range(50, 100), conversation: "fixture-conversation", more: true };
 const OLDER = { messages: range(0, 50), conversation: "fixture-conversation", more: false };
 
@@ -82,13 +86,14 @@ async function open(page: Page, resizeLatency = 0, unsentHistory = 0): Promise<B
     // message stream says alive every five seconds, as the supervisor's does
     // while it has nothing to send, until a test makes the streams fall
     // silent (fixtureSilent); a CEO stream opened after a test set
-    // fixtureCeoPage begins with that page.
+    // fixtureCeoPage begins with that page, and one opened while a test holds
+    // the streams back (fixtureHeld) begins with nothing until the test sends it.
     const streams: { url: URL; source: EventTarget & { readyState: number } }[] = [];
-    const fixture = window as unknown as { fixtureSilent?: boolean; fixtureCeoPage?: unknown };
-    Object.assign(window, { messageStreams: streams });
+    const fixture = window as unknown as { fixtureSilent?: boolean; fixtureCeoPage?: unknown; fixtureHeld?: boolean };
     // The board's own stream is separate, so a test can send it a snapshot
     // without counting it among the message streams.
-    const boards: (EventTarget & { readyState: number })[] = [];
+    const boards: (EventTarget & { readyState: number; onerror: (() => void) | null })[] = [];
+    Object.assign(window, { messageStreams: streams, boardStreams: boards });
     class Stream extends EventTarget {
       static CONNECTING = 0; static OPEN = 1; static CLOSED = 2;
       onerror: (() => void) | null = null;
@@ -124,8 +129,10 @@ async function open(page: Page, resizeLatency = 0, unsentHistory = 0): Promise<B
           const page = url.searchParams.get("ceo") ? fixture.fixtureCeoPage ?? pages.ceo : pages.goblin;
           this.held = page as { conversation?: string };
           this.newest = ((page as { messages?: { seq?: number }[] }).messages ?? []).reduce((newest, message) => Math.max(newest, message.seq ?? 0), 0);
-          send("page", page);
-          setTimeout(this.saySession);
+          if (!fixture.fixtureHeld) {
+            send("page", page);
+            setTimeout(this.saySession);
+          }
           this.alive = setInterval(() => { if (!fixture.fixtureSilent) this.dispatchEvent(new MessageEvent("alive", { data: "{}" })); }, 5000);
         } else if (url.pathname.endsWith("/agent")) send("output", { entries: [{ kind: "prompt", text: "Find the touch handlers" }, { kind: "reply", text: "Found them in terminal-touch.ts" }] });
         else { boards.push(this); send("snapshot", withKept); }
@@ -187,6 +194,12 @@ async function open(page: Page, resizeLatency = 0, unsentHistory = 0): Promise<B
 
 const pill = (page: Page) => page.locator(".context-pane .panel-pill");
 const list = (page: Page, name: string) => page.getByRole("log", { name: "Messages of " + name });
+// What keeps the view from being the session's own now is said in the
+// panel's header, never over the conversation (#2438): why its record is
+// stale on a line under the header's row, and Reconnecting by a dot on its
+// picture, with the word for a screen reader.
+const chatState = (page: Page) => page.locator(".goblin-panel > .panel-chat-state");
+const reconnecting = (page: Page) => page.locator(".goblin-panel > .panel-header .panel-reconnecting");
 const send = (page: Page, type: string, data: unknown) => page.evaluate((detail) => window.dispatchEvent(new CustomEvent("fixture-stream", { detail })), { type, data });
 const sendMessages = (page: Page, messages: unknown) => send(page, "messages", { conversation: "fixture-conversation", messages });
 const clipboard = async (page: Page) => (await page.evaluate(() => navigator.clipboard.readText())).replaceAll("\r\n", "\n");
@@ -234,6 +247,12 @@ async function settled(board: Board, before: number): Promise<number> {
 const moved = async (box: Locator, id: string, was: number) => Math.abs(await offset(box, id) - was);
 const offset = (box: Locator, id: string) => box.evaluate((element, id) => element.querySelector(`[data-message="${id}"]`)!.getBoundingClientRect().top - element.getBoundingClientRect().top, id);
 const scroll = (box: Locator) => box.evaluate((element) => ({ top: element.scrollTop, end: element.scrollHeight - element.clientHeight }));
+// How far the list reaches below where he reads, which only what is drawn
+// below him changes. The list's end alone also moves once his scroll comes to
+// rest, as the room above the rows drawn gives what it lent them back to the
+// scroll position, which moves the end and the scroll top together and none
+// of the rows (#1667).
+const below = async (box: Locator) => { const { top, end } = await scroll(box); return end - top; };
 const scrollTo = (box: Locator, top: number) => box.evaluate((element, top) => new Promise<void>((done) => {
   element.addEventListener("scroll", () => done(), { once: true });
   element.scrollTop = top;
@@ -350,12 +369,19 @@ test("reading up, new and changed messages move nothing, and Jump to latest retu
   const { end } = await scroll(talk);
   await scrollTo(talk, Math.round(end / 2));
   const { read, before } = await readingAt(talk);
-  const { end: was } = await scroll(talk);
+  const was = await below(talk);
+  // His scroll comes to rest between the two reads of the room below him, as
+  // it did on a loaded runner (#1667).
+  await page.waitForTimeout(400);
 
-  // One message above where he reads grows, and two arrive below it.
-  await sendMessages(page, [{ ...exchange(51), blocks: [{ kind: "text", text: "Answer 51\n\nnow\nmuch\nlonger\nthan\nit\nwas" }] }, exchange(100), exchange(101)]);
+  // A message above the rows drawn grows, and one drawn just above where he
+  // reads, and two arrive below it.
+  const drawnAbove = Number(read.slice(1)) - 2;
+  await expect(talk.locator('[data-message="m51"]')).toHaveCount(0);
+  await expect(talk.locator(`[data-message="m${drawnAbove}"]`)).toHaveCount(1);
+  await sendMessages(page, [grown(51), grown(drawnAbove), exchange(100), exchange(101)]);
 
-  expect((await scroll(talk)).end, "pending messages leave the displayed history's room unchanged").toBe(was);
+  expect(Math.abs(await below(talk) - was), "pending messages leave the displayed history's room unchanged").toBeLessThan(2);
   await expect.poll(() => moved(talk, read, before)).toBeLessThan(2);
   await page.getByRole("button", { name: "Jump to latest" }).click();
   await expect(talk.locator("[data-message]").last()).toContainText("Answer 101");
@@ -374,10 +400,10 @@ test("Jump to latest lands at the end of a reply taller than its estimate that a
   await scrollTo(talk, Math.round((await scroll(talk)).end / 2));
   const jump = page.getByRole("button", { name: "Jump to latest" });
   await expect(jump).toBeVisible();
-  const { end: was } = await scroll(talk);
+  const was = await below(talk);
   const findings = Array.from({ length: 30 }, (_, at) => `Finding ${at + 1} of the review`);
   await sendMessages(page, [reply(100, { kind: "text", text: ["Answer 100", ...findings].join("\n\n") })]);
-  expect((await scroll(talk)).end).toBe(was);
+  expect(Math.abs(await below(talk) - was)).toBeLessThan(2);
 
   // Act
   await jump.click();
@@ -942,14 +968,44 @@ test("a stream the supervisor ends says why, and Reconnect reads the messages ag
   expect(await streams(page)).toBe(2);
 });
 
+// A view that has read nothing yet, Reconnected after the supervisor refused
+// its stream, is connecting for the first time, never reconnecting.
+test("a stream refused before its first page says Connecting, never Reconnecting, after Reconnect", async ({ page }) => {
+  // Arrange: the CEO's stream begins with nothing, and the supervisor refuses it.
+  await open(page);
+  await page.evaluate(() => Object.assign(window, { fixtureHeld: true }));
+  await openCeo(page);
+  await expect.poll(() => streams(page)).toBe(1);
+  const view = page.locator(".messages-view:not([hidden])");
+  await send(page, "unavailable", "The CEO runs in another terminal now. Open the CEO again.");
+  const closed = view.locator(".terminal-foot.box");
+  await expect(closed).toContainText("The CEO runs in another terminal now. Open the CEO again.");
+
+  // Act
+  await closed.getByRole("button", { name: "Reconnect" }).click();
+  await expect.poll(() => streams(page)).toBe(2);
+
+  // Assert
+  await expect(view.getByText("Connecting to the messages")).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Reconnecting" })).toHaveCount(0);
+
+  // Act: the new stream's first page arrives.
+  await send(page, "page", NEWEST);
+
+  // Assert
+  await expect(list(page, "CEO")).toContainText("Answer 99");
+  await expect(page.getByRole("status").filter({ hasText: "Reconnecting" })).toHaveCount(0);
+});
+
 // The Overlord, 2026-10-29: "why is the modern chat lagging ... it seems like
 // it stopped". His CEO's chat showed a call Running at least 76 s after its
 // result was written. The board no longer infers staleness from how long the
 // stream was quiet: the fleet's stream says what the session's turn is and
 // where its head is, and a view that has drawn less than the head says it is
 // behind, a state of its own that is neither disconnected nor ended, until it
-// catches up.
-test("a view the stream has run past says it is behind and draws no indicator for the turn it has not drawn", async ({ page }) => {
+// catches up. Nothing says so over the conversation (#2438, the Overlord on
+// 2026-11-12: "I hate all these alerts remove them!!"): Jump to latest says it.
+test("a view the stream has run past says nothing over the conversation and draws no indicator for the turn it has not drawn", async ({ page }) => {
   // Arrange: the CEO's chat reads Answer 99, and the stream's head has moved
   // on with a turn that runs.
   await open(page);
@@ -961,30 +1017,221 @@ test("a view the stream has run past says it is behind and draws no indicator fo
   // the view holds.
   await send(page, "session", { conversation: "fixture-conversation", turn: "q102", state: "running", newest: 104, head: 104 });
 
-  // Assert: behind is said, and no indicator is drawn for a turn the view has
-  // not caught up with.
-  await expect(page.getByText("Behind the session. Jump to latest catches up.")).toBeVisible();
+  // Assert: nothing is said over the conversation or in the panel's header,
+  // and no indicator is drawn for a turn the view has not caught up with.
+  await expect(talk.locator("[data-message]").last()).toContainText("Answer 99");
+  await expect(page.getByText("Behind the session", { exact: false })).toHaveCount(0);
+  await expect(page.locator(".messages-view .terminal-corner")).toHaveCount(0);
+  await expect(chatState(page)).toHaveCount(0);
   await expect(talk.locator(".reply-working")).toHaveCount(0);
 
   // Act: the messages arrive and the view draws to the stream's head.
   await send(page, "messages", { conversation: "fixture-conversation", messages: range(52, 106) });
   await send(page, "session", { conversation: "fixture-conversation", turn: "q102", state: "running", newest: 105, head: 105 });
 
-  // Assert: behind is gone, and the running turn draws its indicator.
-  await expect(page.getByText("Behind the session. Jump to latest catches up.")).toHaveCount(0);
+  // Assert: the running turn draws its indicator.
   await expect(talk.locator(".reply-working")).toHaveCount(1);
+  await expect(page.locator(".messages-view .terminal-corner")).toHaveCount(0);
+});
+
+// say sends every message stream an event as the supervisor does, a session
+// event naming the head after each page and messages event.
+const say = (page: Page, type: string, data: unknown) => page.evaluate((detail) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail })), { type, data });
+
+// The Overlord, 2026-11-07, with a picture: his CEO's chat drew a reply
+// written hours before as the newest message, with the working indicator
+// under it. A turn's end is the session's word, and it reaches the view
+// whether he reads the end, reads up a little, or has not drawn the reply that
+// ended the turn yet: in each the indicator goes.
+for (const when of ["while he reads the end", "while he reads up a little", "before the reply that ends it is drawn"] as const) {
+  test(`a turn that ended never draws a working indicator, its end arriving ${when}`, async ({ page }) => {
+    // Arrange: the CEO's newest turn runs, and its indicator is drawn.
+    await open(page);
+    await openCeo(page);
+    const talk = list(page, "CEO");
+    await expect(talk).toContainText("Answer 99");
+    await send(page, "session", { conversation: "fixture-conversation", turn: "m98", state: "running", newest: 99, head: 99 });
+    await expect(talk.locator(".reply-working:visible")).toHaveCount(1);
+    if (when === "while he reads up a little") {
+      const { end } = await scroll(talk);
+      await scrollTo(talk, end - 150);
+      await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
+    }
+
+    // Act: the turn ends, with its last reply already drawn, or in a message
+    // that comes after the word that it ended.
+    if (when === "before the reply that ends it is drawn") {
+      await send(page, "session", { conversation: "fixture-conversation", turn: "m98", state: "ended", newest: 101, head: 101 });
+      await expect(talk.locator(".reply-working:visible")).toHaveCount(0);
+      await send(page, "messages", { conversation: "fixture-conversation", messages: [exchange(100), exchange(101)] });
+      await expect(talk).toContainText("Answer 101");
+    } else await send(page, "session", { conversation: "fixture-conversation", turn: "m98", state: "ended", newest: 99, head: 99 });
+
+    // Assert: no indicator, and a view he reads up in keeps the row's room,
+    // so the rows he reads stay put.
+    await expect(talk.locator(".reply-working:visible")).toHaveCount(0);
+    await expect(talk.getByRole("status", { name: /./ })).toHaveCount(0);
+    await expect(talk.locator(".reply-working.held")).toHaveCount(when === "while he reads up a little" ? 1 : 0);
+    await expect(chatState(page)).toHaveCount(0);
+  });
+}
+
+// A view he has taken up from the end holds what arrives below until he
+// reads down to it, so it knows it draws less than it has: a newer turn of
+// the same conversation whose session event has not come, or a newer
+// conversation, as /clear or the CEO's restart begins. Either draws no
+// indicator for a turn it has not drawn and nothing over the conversation but
+// Jump to latest (#2438), which catches up to every message of it without a
+// reload.
+for (const newer of ["turn", "conversation"] as const) {
+  test(`a view reading up when the session has a newer ${newer} says nothing over it, and Jump to latest draws all of it`, async ({ page }) => {
+    // Arrange
+    await open(page);
+    await openCeo(page);
+    const talk = list(page, "CEO");
+    await expect(talk).toContainText("Answer 99");
+    const { end } = await scroll(talk);
+    await scrollTo(talk, Math.round(end / 2));
+    await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
+
+    // Act
+    if (newer === "turn") await send(page, "messages", { conversation: "fixture-conversation", messages: [exchange(100), reply(101, { kind: "text", text: "The newer turn's reply" })] });
+    else {
+      await send(page, "page", { conversation: "fixture-cleared", more: false, messages: [message(0, { source: "overlord", text: "The question after clear" }), reply(1, { kind: "text", text: "The newer turn's reply" })] });
+      await send(page, "session", { conversation: "fixture-cleared", turn: "m0", state: "running", newest: 1, head: 1 });
+    }
+
+    // Assert: the view draws what it drew, no indicator, and says nothing
+    // over the conversation or in the panel's header.
+    await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
+    await expect(page.locator(".messages-view .terminal-corner")).toHaveCount(0);
+    await expect(chatState(page)).toHaveCount(0);
+    await expect(talk).not.toContainText("The newer turn's reply");
+    await expect(talk.locator(".reply-working:visible")).toHaveCount(0);
+
+    // Act: he catches up.
+    await page.getByRole("button", { name: "Jump to latest" }).click();
+
+    // Assert: every message of the newer turn is drawn, and the stream was
+    // never opened again.
+    await expect(talk.locator("[data-message]").last()).toContainText("The newer turn's reply");
+    await expect(talk.locator(newer === "turn" ? '[data-message="m100"]' : '[data-message="m0"]')).toHaveCount(1);
+    await expect(page.getByRole("button", { name: "Jump to latest" })).toHaveCount(0);
+    await expect(talk.locator(".reply-working:visible")).toHaveCount(newer === "turn" ? 0 : 1);
+    expect(await streams(page)).toBe(1);
+  });
+}
+
+test("a view that follows the end says nothing of its stream as a turn streams in and ends", async ({ page }) => {
+  // Arrange: a record of every notice over the conversation and every state
+  // the panel's header says.
+  await open(page);
+  await openCeo(page);
+  const talk = list(page, "CEO");
+  await expect(talk).toContainText("Answer 99");
+  await page.evaluate(() => {
+    const said: string[] = [];
+    Object.assign(window, { cornerSaid: said });
+    new MutationObserver(() => { for (const notice of document.querySelectorAll(".messages-view .terminal-corner, .goblin-panel > .panel-chat-state, .goblin-panel > .panel-header .panel-reconnecting")) said.push(notice.textContent ?? ""); }).observe(document.body, { subtree: true, childList: true, characterData: true });
+  });
+
+  // Act: a turn begins, streams two messages and ends, each as the
+  // supervisor sends it.
+  await say(page, "messages", { conversation: "fixture-conversation", messages: [exchange(100)] });
+  await send(page, "session", { conversation: "fixture-conversation", turn: "m100", state: "running", newest: 100, head: 100 });
+  await expect(talk.locator(".reply-working:visible")).toHaveCount(1);
+  await say(page, "messages", { conversation: "fixture-conversation", messages: [exchange(101)] });
+  await send(page, "session", { conversation: "fixture-conversation", turn: "m100", state: "ended", newest: 101, head: 101 });
+
+  // Assert
+  await expect(talk.locator("[data-message]").last()).toContainText("Answer 101");
+  await expect(talk.locator(".reply-working:visible")).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as { cornerSaid: string[] }).cornerSaid)).toEqual([]);
+});
+
+// A stream that drops says nothing of the turn until it is back: the turn may
+// end while it is gone, so a view that says Reconnecting draws no indicator,
+// and the indicator comes back once the stream says the turn still runs.
+test("a stream that drops draws no working indicator while it says Reconnecting, and the turn's word comes back with it", async ({ page }) => {
+  // Arrange
+  await open(page);
+  await openCeo(page);
+  const talk = list(page, "CEO");
+  await expect(talk).toContainText("Answer 99");
+  await send(page, "session", { conversation: "fixture-conversation", turn: "m98", state: "running", newest: 99, head: 99 });
+  await expect(talk.locator(".reply-working:visible")).toHaveCount(1);
+  const stop = messageBox(page, "CEO").getByRole("button", { name: "Stop", exact: true });
+  await expect(stop).toHaveCount(1);
+
+  // Act: the stream drops, and the browser opens it again.
+  await page.evaluate(() => {
+    for (const { source } of (window as unknown as { messageStreams: { source: { readyState: number; onerror: (() => void) | null } }[] }).messageStreams) {
+      source.readyState = 0;
+      source.onerror?.();
+    }
+  });
+
+  // Assert: the drop says nothing of the turn, so it keeps its row's room,
+  // its Stop and no end, and only its indicator waits for the stream. The
+  // panel's header says Reconnecting, and nothing covers the conversation.
+  await expect(reconnecting(page)).toHaveText("Reconnecting");
+  await expect(page.locator(".messages-view .terminal-corner")).toHaveCount(0);
+  await expect(talk.locator(".reply-working:visible")).toHaveCount(0);
+  await expect(talk.locator(".reply-working.held")).toHaveCount(1);
+  await expect(stop).toHaveCount(1);
+  await expect(boxSend(page, "CEO")).toHaveCount(0);
+  await expect(talk.locator('[data-message="m99"] time')).toHaveCount(0);
+
+  // Act: it is back, with its newest page and the turn that still runs.
+  await page.evaluate(() => { for (const { source } of (window as unknown as { messageStreams: { source: { readyState: number } }[] }).messageStreams) source.readyState = 1; });
+  await send(page, "page", NEWEST);
+  await send(page, "session", { conversation: "fixture-conversation", turn: "m98", state: "running", newest: 99, head: 99 });
+
+  // Assert
+  await expect(reconnecting(page)).toHaveCount(0);
+  await expect(talk.locator(".reply-working:visible")).toHaveCount(1);
+});
+
+// A view hidden while its turn ran may be shown again after the turn ended,
+// so it draws no working indicator until its new stream speaks.
+test("a view shown again draws no working indicator until its new stream says the turn runs", async ({ page }) => {
+  // Arrange
+  await open(page);
+  await openCeo(page);
+  const talk = list(page, "CEO");
+  await expect(talk).toContainText("Answer 99");
+  await send(page, "session", { conversation: "fixture-conversation", turn: "m98", state: "running", newest: 99, head: 99 });
+  await expect(talk.locator(".reply-working:visible")).toHaveCount(1);
+  const opened = await streams(page);
+  await page.evaluate(() => Object.assign(window, { fixtureHeld: true }));
+
+  // Act: the board's own stream drops, which hides the view, and comes back,
+  // which opens the view's stream again.
+  await page.evaluate(() => { for (const source of (window as unknown as { boardStreams: { onerror: (() => void) | null }[] }).boardStreams) source.onerror?.(); });
+  await expect.poll(() => streams(page)).toBe(opened + 1);
+
+  // Assert
+  await expect(reconnecting(page)).toHaveText("Reconnecting");
+  await expect(talk.locator(".reply-working:visible")).toHaveCount(0);
+
+  // Act: the new stream speaks, and the turn still runs.
+  await send(page, "page", NEWEST);
+  await send(page, "session", { conversation: "fixture-conversation", turn: "m98", state: "running", newest: 99, head: 99 });
+
+  // Assert
+  await expect(talk.locator(".reply-working:visible")).toHaveCount(1);
 });
 
 // #2172: the CEO's chat drew a conversation the CEO had left. The fleet's
 // stream says why the record the board reads is stale, or that the stream
-// itself cannot be kept, and the view says it in its one corner notice, over
-// the Behind it would otherwise say there.
-test("a CEO whose stream says its record is stale says why in its one corner notice", async ({ page }) => {
+// itself cannot be kept, and the panel's header says it, never a notice over
+// the conversation (#2438).
+test("a CEO whose stream says its record is stale says why in its panel's header", async ({ page }) => {
   // Arrange
   await open(page);
   await openCeo(page);
   await expect(list(page, "CEO")).toContainText("Answer 99");
-  const corner = page.locator(".messages-view:not([hidden]) .terminal-corner");
+  const said = chatState(page);
   const stale = "The CEO's record names conversation ceo-9, which its folder does not hold.";
   const problem = "The board cannot write or read this session's conversation stream, so it draws the session's own record: disk full";
 
@@ -992,22 +1239,146 @@ test("a CEO whose stream says its record is stale says why in its one corner not
   await send(page, "session", { conversation: "fixture-conversation", turn: "q102", state: "ended", newest: 104, head: 104, stale });
 
   // Assert
-  await expect(corner).toHaveText(stale);
-  await expect(corner).toHaveCount(1);
+  await expect(said).toHaveText(stale);
+  await expect(said).toHaveCount(1);
+  await expect(page.locator(".messages-view .terminal-corner")).toHaveCount(0);
 
   // Act: the stream cannot be kept.
   await send(page, "session", { conversation: "fixture-conversation", turn: "q102", state: "ended", newest: 104, head: 104, problem });
 
   // Assert
-  await expect(corner).toHaveText(problem);
-  await expect(corner).toHaveCount(1);
+  await expect(said).toHaveText(problem);
+  await expect(said).toHaveCount(1);
 
   // Act: the record is current again.
   await send(page, "session", { conversation: "fixture-conversation", turn: "q102", state: "ended", newest: 104, head: 104 });
 
-  // Assert: the corner says the view is behind, once nothing more pressing does.
-  await expect(corner).toHaveText("Behind the session. Jump to latest catches up.");
+  // Assert: the header says nothing more, and nothing says the view is
+  // behind.
+  await expect(said).toHaveCount(0);
+  await expect(page.getByText("Behind the session", { exact: false })).toHaveCount(0);
 });
+
+// The line under the header speaks for the Chat view alone (#2438): the Task
+// view never carries it, though the conversation stays open behind it, and a
+// panel with no chat carries none left from the one shown before.
+test("a stale record is said under the header only while the Chat view shows, and a panel with no chat says none", async ({ page }) => {
+  // Arrange: the board also holds a queued task, which has no chat, and the
+  // CEO's stream says its record is stale.
+  await open(page);
+  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, tasks: [...SNAPSHOT.tasks, { id: "cg-queued", title: "A queued task", project: "code-goblins", phase: "queued", verified: false, generation: "", brief: true, queue_revision: "q1", since: at }] });
+  await openCeo(page);
+  await expect(list(page, "CEO")).toContainText("Answer 99");
+  const stale = "The CEO's record names conversation ceo-9, which its folder does not hold.";
+  await send(page, "session", { conversation: "fixture-conversation", turn: "q102", state: "ended", newest: 104, head: 104, stale });
+  await expect(chatState(page)).toHaveText(stale);
+  const views = page.locator(".panel-view-switch");
+
+  // Act: he opens the CEO's Task view.
+  await views.getByRole("button", { name: "Task", exact: true }).click();
+
+  // Assert
+  await expect(views.getByRole("button", { name: "Task", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(chatState(page)).toHaveCount(0);
+
+  // Act: he goes back to the Chat view.
+  await views.getByRole("button", { name: "Chat", exact: true }).click();
+
+  // Assert
+  await expect(chatState(page)).toHaveText(stale);
+
+  // Act: he opens the queued task, which is headed by its id while no goblin
+  // is named for it.
+  await page.locator(".task-board .task-card-shell").filter({ hasText: "A queued task" }).locator(".task-card").click();
+
+  // Assert
+  await expect(page.locator("#panel-title")).toHaveText("cg-queued");
+  await expect(page.locator(".messages-view")).toHaveCount(0);
+  await expect(chatState(page)).toHaveCount(0);
+});
+
+// #2438, the Overlord on 2026-11-12, of the notices drawn over the first
+// messages of his chat: "I hate all these alerts remove them!!", then "The
+// ones at top of chat". At a phone's width and a desktop's, in the CEO's panel
+// and a goblin's, a view the stream has run past says nothing, a dropped
+// stream is a dot on the header's picture that moves nothing, and why its
+// record is stale is one quiet line under the panel's header, above the
+// conversation rather than over it.
+// What a view draws over the top half of its conversation: every part of its
+// frame, other than the conversation itself, that lies there.
+const overTop = (page: Page) => page.evaluate(() => {
+  const frame = document.querySelector(".messages-view:not([hidden]) .conversation-frame");
+  const conversation = frame?.querySelector(":scope > .conversation")?.getBoundingClientRect();
+  if (!frame || !conversation) throw new Error("no conversation shown");
+  return [...frame.children].filter((part) => {
+    const drawn = part.getBoundingClientRect();
+    return !part.classList.contains("conversation") && drawn.height > 0 && drawn.top < conversation.top + conversation.height / 2 && drawn.bottom > conversation.top;
+  }).map((part) => part.textContent ?? "");
+});
+for (const width of [390, 1440]) {
+  for (const who of ["CEO", "Zeke - Touch Wrangler"]) {
+    const whose = who === "CEO" ? "the CEO's" : "a goblin's";
+    const picture = (state: string) => `chat-${state}-${who === "CEO" ? "ceo" : "goblin"}-390.png`;
+    test(`at ${width}px ${whose} chat draws nothing over its top, marks a drop on its picture and says a stale record under the panel's header`, async ({ page }, testInfo) => {
+      // Arrange
+      await page.setViewportSize({ width, height: 844 });
+      await open(page);
+      if (who === "CEO") await openCeo(page);
+      else await openGoblin(page, who);
+      const talk = list(page, who);
+      await expect(talk.locator("[data-message]").first()).toBeVisible();
+      const stale = "The session's record names a conversation its folder does not hold.";
+
+      // Act: the stream's head runs past what the view drew.
+      await send(page, "session", { conversation: "fixture-conversation", turn: "q300", state: "ended", newest: 304, head: 304 });
+
+      // Assert: nothing is said of it, once the view has drawn what the
+      // event changed.
+      await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+      await page.evaluate(() => document.fonts.ready);
+      if (width === 390) await page.screenshot({ path: testInfo.outputPath(picture("behind")) });
+      expect.soft(await overTop(page)).toEqual([]);
+      await expect.soft(chatState(page)).toHaveCount(0);
+      const frame = await box(talk);
+
+      // Act: the stream drops, and the browser opens it again.
+      await page.evaluate(() => {
+        for (const { source } of (window as unknown as { messageStreams: { source: { readyState: number; onerror: (() => void) | null } }[] }).messageStreams) {
+          source.readyState = 0;
+          source.onerror?.();
+        }
+      });
+
+      // Assert: the header's picture says it reconnects, nothing lies over
+      // the conversation's top, and the conversation keeps its place.
+      await expect(page.getByRole("status").filter({ hasText: "Reconnecting" })).toHaveCount(1);
+      if (width === 390) await page.screenshot({ path: testInfo.outputPath(picture("reconnecting")) });
+      await expect(reconnecting(page)).toHaveText("Reconnecting");
+      expect(await overTop(page)).toEqual([]);
+      await expect(chatState(page)).toHaveCount(0);
+      expect(await box(talk)).toEqual(frame);
+
+      // Act: it is back.
+      await page.evaluate(() => { for (const { source } of (window as unknown as { messageStreams: { source: { readyState: number } }[] }).messageStreams) source.readyState = 1; });
+      await send(page, "page", NEWEST);
+      await send(page, "session", { conversation: "fixture-conversation", turn: "q300", state: "ended", newest: 304, head: 304 });
+
+      // Assert
+      await expect(reconnecting(page)).toHaveCount(0);
+
+      // Act: the stream says the record is stale.
+      await send(page, "session", { conversation: "fixture-conversation", turn: "q300", state: "ended", newest: 304, head: 304, stale });
+
+      // Assert: the panel's header says why, above the conversation, and
+      // nothing lies over the conversation's top.
+      await expect(page.getByRole("status").filter({ hasText: stale })).toBeVisible();
+      if (width === 390) await page.screenshot({ path: testInfo.outputPath(picture("stale")) });
+      expect(await overTop(page)).toEqual([]);
+      await expect(chatState(page)).toHaveText(stale);
+      expect((await box(chatState(page))).bottom, "the state ends above the conversation").toBeLessThanOrEqual((await box(talk)).top + 1);
+    });
+  }
+}
 
 test("a message stream that says it is alive stays open while nothing happens", async ({ page }) => {
   // Arrange
@@ -1289,11 +1660,11 @@ test("Modern: a held chat opens at the bottom, stays where he reads, and keeps i
   // Act: he reads up, and a reply arrives below.
   await scrollTo(talk, Math.round((await scroll(talk)).end / 2));
   const { read, before } = await readingAt(talk);
-  const { end: was } = await scroll(talk);
+  const was = await below(talk);
   await sendMessages(page, [reply(200, { kind: "text", text: "More arrived." })]);
 
   // Assert: his place is kept rather than snapped to the end.
-  expect((await scroll(talk)).end, "the pending reply changes no displayed room").toBe(was);
+  expect(Math.abs(await below(talk) - was), "the pending reply changes no displayed room").toBeLessThan(2);
   await expect.poll(() => moved(talk, read, before)).toBeLessThan(2);
 
   // Act and Assert: the input stays reachable through a maximize and a phone.

@@ -29,13 +29,13 @@ const fleet = () => supervisorWith({
     { id: "mcp:context7", name: "context7", kind: "mcp", status: "unauthorized", detail: "Sign-in required.", actions: ["login"], checked_at: CHECKED_AT },
     { id: "mcp:chrome-devtools", name: "chrome-devtools", kind: "mcp", status: "probe_succeeded", scope: "separate_probe", source: "Claude", checked_at: CHECKED_AT },
     { id: "mcp:acme-internal", name: "acme-internal", kind: "mcp", status: "connected", checked_at: CHECKED_AT },
-    { ...carried("github"), restart_required: true, restart_reason: "Connected. Its missing variables reach this goblin at its next terminal; the one running started without them." },
+    { ...carried("github"), restart_required: true, restart_reason: "Connected. Its missing variables reach this goblin at its next terminal. The one running started without them." },
     withheld("sentry"), CRAWLER,
-    { id: "credential:GITHUB_TOKEN", name: "GITHUB_TOKEN", kind: "credential", status: "provided", scope: "launch_environment", account: "github", actions: ["replace:GITHUB_TOKEN"], checked_at: CHECKED_AT },
-    { id: "credential:SENTRY_AUTH_TOKEN", name: "SENTRY_AUTH_TOKEN", kind: "credential", status: "withheld", detail: "This task does not carry it.", account: "sentry", checked_at: CHECKED_AT },
+    { id: "credential:GITHUB_TOKEN", name: "GITHUB_TOKEN", kind: "credential", status: "provided", scope: "launch_environment", accounts: ["github"], actions: ["replace:GITHUB_TOKEN"], checked_at: CHECKED_AT },
+    { id: "credential:SENTRY_AUTH_TOKEN", name: "SENTRY_AUTH_TOKEN", kind: "credential", status: "withheld", detail: "This task does not carry it.", accounts: ["sentry"], checked_at: CHECKED_AT },
   ],
-  "cg-other": [SUPABASE, withheld("github"), withheld("sentry"), CRAWLER,
-    { id: "credential:GITHUB_TOKEN", name: "GITHUB_TOKEN", kind: "credential", status: "withheld", detail: "This task does not carry it.", account: "github", checked_at: CHECKED_AT }],
+  "cg-other": [SUPABASE, { ...withheld("github"), restart_required: true, restart_reason: "Disconnected. Its variables leave this goblin at its next terminal. The one running still has them." }, withheld("sentry"), CRAWLER,
+    { id: "credential:GITHUB_TOKEN", name: "GITHUB_TOKEN", kind: "credential", status: "withheld", detail: "This task does not carry it.", accounts: ["github"], checked_at: CHECKED_AT }],
 });
 
 // The board, with the Connectors page chosen from its top bar.
@@ -214,54 +214,72 @@ for (const width of [1440, 390]) {
   });
 }
 
-test("a probe that succeeded says what it proves and when, a restart a goblin needs says so, and a connector with no tools lists none", async ({ page }, testInfo) => {
-  // Arrange
-  const main = await open(page, fleet(), 1440);
+for (const width of [1440, 390]) {
+  test(`a probe that succeeded says what it proves and when, a change waiting for a goblin's next terminal says why under its name, and a connector with no tools lists none, at ${width}px`, async ({ page }, testInfo) => {
+    // Arrange
+    const main = await open(page, fleet(), width);
 
-  // Act
-  await row(main, "Chrome DevTools").getByRole("button", { name: "Chrome DevTools", exact: true }).click();
+    // Act
+    await row(main, "Chrome DevTools").getByRole("button", { name: "Chrome DevTools", exact: true }).click();
 
-  // Assert: Verified alone beside the goblin, and in the check details what
-  // its probe proved and did not and when it ran.
-  const probed = main.getByRole("article", { name: "Chrome DevTools" });
-  await expect(goblinRow(probed, ZEKE).locator(".connector-use")).toHaveText("Verified");
-  await probed.locator("details.connector-checks > summary").click();
-  await expect(probed.locator("details.connector-checks")).toContainText(ZEKE + " A separate check with its credentials succeeded. Not checked: whether the goblin's own session can use it, or which account and project it reaches. Checked " + CHECKED_AT + ".");
-  await expect(probed.locator("details.connector-checks time")).toHaveAttribute("datetime", CHECKED_AT);
-  await expect(probed.getByRole("listitem")).toHaveCount(1);
-  await expect(probed.getByRole("region", { name: "MCP server" })).toBeVisible();
-  await expect(probed.locator("details.connector-tool-group")).toHaveCount(0);
+    // Assert: Verified alone beside the goblin, and in the check details what
+    // its probe proved and did not and when it ran.
+    const probed = main.getByRole("article", { name: "Chrome DevTools" });
+    await expect(goblinRow(probed, ZEKE).locator(".connector-use")).toHaveText("Verified");
+    await probed.locator("details.connector-checks > summary").click();
+    await expect(probed.locator("details.connector-checks")).toContainText(ZEKE + " A separate check with its credentials succeeded. Not checked: whether the goblin's own session can use it, or which account and project it reaches. Checked " + CHECKED_AT + ".");
+    await expect(probed.locator("details.connector-checks time")).toHaveAttribute("datetime", CHECKED_AT);
+    await expect(probed.getByRole("listitem")).toHaveCount(1);
+    await expect(probed.getByRole("region", { name: "MCP server" })).toBeVisible();
+    await expect(probed.locator("details.connector-tool-group")).toHaveCount(0);
 
-  // Act
-  await main.getByRole("button", { name: "Connectors", exact: true }).click();
-  await row(main, "GitHub").getByRole("button", { name: "GitHub", exact: true }).click();
+    // Act
+    await main.getByRole("button", { name: "Connectors", exact: true }).click();
+    await row(main, "GitHub").getByRole("button", { name: "GitHub", exact: true }).click();
 
-  // Assert: the change waiting for Zeke's next terminal says why, quietly.
-  const github = main.getByRole("article", { name: "GitHub" });
-  await expect(goblinRow(github, ZEKE).locator(".connector-waiting")).toHaveText("Connected. Its missing variables reach this goblin at its next terminal; the one running started without them.");
-  await expect(goblinRow(github, ZEKE).getByRole("button", { name: "Disconnect GitHub from " + ZEKE, exact: true })).toBeVisible();
-  await expect(goblinRow(github, IVY)).toContainText("Not connected");
-  await expect(goblinRow(github, IVY).getByRole("button", { name: "Connect GitHub to " + IVY, exact: true })).toBeVisible();
+    // Assert: the change waiting for each goblin's next terminal says why,
+    // quietly, the Disconnect of one that no longer carries it as much as the
+    // Connect of one that does.
+    const github = main.getByRole("article", { name: "GitHub" });
+    await expect(goblinRow(github, ZEKE).locator(".connector-waiting")).toHaveText("Connected. Its missing variables reach this goblin at its next terminal. The one running started without them.");
+    await expect(goblinRow(github, ZEKE).getByRole("button", { name: "Disconnect GitHub from " + ZEKE, exact: true })).toBeVisible();
+    await expect(goblinRow(github, IVY)).toContainText("Not connected");
+    await expect(goblinRow(github, IVY).locator(".connector-waiting")).toHaveText("Disconnected. Its variables leave this goblin at its next terminal. The one running still has them.");
+    await expect(goblinRow(github, IVY).getByRole("button", { name: "Connect GitHub to " + IVY, exact: true })).toBeVisible();
+    // Assert: each goblin's name, its state and why its change waits are lines
+    // one under another, at every width.
+    for (const name of [ZEKE, IVY]) {
+      const lines = await goblinRow(github, name).locator(".connector-goblin-copy > *").evaluateAll((parts) => parts.map((part) => {
+        const box = part.getBoundingClientRect();
+        return { left: box.left, top: box.top, bottom: box.bottom };
+      }));
+      expect(lines, name + " has a name, a state and a reason").toHaveLength(3);
+      for (const [at, line] of lines.slice(1).entries()) {
+        expect(line.left, name + "'s line " + (at + 2) + " starts under its name").toBeCloseTo(lines[0].left, 0);
+        expect(line.top, name + "'s line " + (at + 2) + " is below the one before it").toBeGreaterThanOrEqual(lines[at].bottom - 0.5);
+      }
+    }
 
-  // Assert: it brings its CLI variables, each by name with what each goblin's
-  // terminal holds of it, never a value, and no MCP server.
-  const variables = github.getByRole("region", { name: "CLI variables" });
-  await expect(variables.locator(".connector-part-note")).toHaveText("Command line tools in the goblin's terminal read them. Names only, never values.");
-  await expect(variables.getByRole("listitem")).toHaveText(["GITHUB_TOKEN" + ZEKE + ": Set; " + IVY + ": Not given"]);
-  await expect(github.getByRole("region", { name: "MCP server" })).toHaveCount(0);
-  await page.screenshot({ path: testInfo.outputPath("connector-github-1440.png"), fullPage: true });
+    // Assert: it brings its CLI variables, each by name with what each goblin's
+    // terminal holds of it, never a value, and no MCP server.
+    const variables = github.getByRole("region", { name: "CLI variables" });
+    await expect(variables.locator(".connector-part-note")).toHaveText("Command line tools in the goblin's terminal read them. Names only, never values.");
+    await expect(variables.getByRole("listitem")).toHaveText(["GITHUB_TOKEN" + ZEKE + ": Set, " + IVY + ": Not given"]);
+    await expect(github.getByRole("region", { name: "MCP server" })).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath(`connector-github-${width}.png`), fullPage: true });
 
-  // Act
-  await main.getByRole("button", { name: "Connectors", exact: true }).click();
-  await row(main, "GITHUB_TOKEN").getByRole("button", { name: "GITHUB_TOKEN", exact: true }).click();
+    // Act
+    await main.getByRole("button", { name: "Connectors", exact: true }).click();
+    await row(main, "GITHUB_TOKEN").getByRole("button", { name: "GITHUB_TOKEN", exact: true }).click();
 
-  // Assert: a variable is Set, never Verified, and names the service it is from.
-  const token = main.getByRole("article", { name: "GITHUB_TOKEN" });
-  await expect(goblinRow(token, ZEKE).locator(".connector-use")).toHaveText("Set");
-  await token.locator("details.connector-checks > summary").click();
-  await expect(token.locator("details.connector-checks")).toContainText(ZEKE + " The goblin's environment has it. Not checked: whether the goblin's own session can use it, or which account and project it reaches. Checked " + CHECKED_AT + ".");
-  await expect(token.getByRole("region", { name: "CLI variables" }).locator(".connector-part-note")).toHaveText(["Command line tools in the goblin's terminal read them. Names only, never values.", "Declared by the GitHub repository service.", REPLACE_NOTE]);
-});
+    // Assert: a variable is Set, never Verified, and names the service it is from.
+    const token = main.getByRole("article", { name: "GITHUB_TOKEN" });
+    await expect(goblinRow(token, ZEKE).locator(".connector-use")).toHaveText("Set");
+    await token.locator("details.connector-checks > summary").click();
+    await expect(token.locator("details.connector-checks")).toContainText(ZEKE + " The goblin's environment has it. Not checked: whether the goblin's own session can use it, or which account and project it reaches. Checked " + CHECKED_AT + ".");
+    await expect(token.getByRole("region", { name: "CLI variables" }).locator(".connector-part-note")).toHaveText(["Command line tools in the goblin's terminal read them. Names only, never values.", "Declared by the GitHub repository service.", REPLACE_NOTE]);
+  });
+}
 
 // The Overlord, 2026-11-11, on the cleaned page: change or reset a variable
 // without peeking at it (#2389). A set variable offers Replace from clipboard

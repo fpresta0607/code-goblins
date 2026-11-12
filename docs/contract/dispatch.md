@@ -22,6 +22,7 @@ A goblin started before this keeps the `TMP` it was started with until it is res
   A pi goblin starts with `--approve` where its pi advertises it, trusting the folder's project files for that run only, so it never asks.
 - Every goblin's terminal names a browser session of its own, `CHROME_DEVTOOLS_AXI_SESSION` set to its task id, and the CEO's is `goblins`. chrome-devtools-axi keeps one bridge and one browser for each session name, so a bridge belongs to one owner and is never the tool's unnamed session, which every program of the user shares.
   The bridge carries its terminal's mark and ends with its goblin at a pause, a stop or the janitor's sweep.
+  On a supervisor with a board, `CHROME_DEVTOOLS_AXI_BROWSER_URL` points the bridge at the goblin's own browser, which the supervisor runs so the board can show it.
 - Every goblin's first instruction, a helper's and a takeover's too, says that what it starts is its own to end: browsers headless and programs hidden in tests unless a picture needs a window, every start tracked by its pid and ended by that pid, never by its name, and no retry or polling loop without a cap.
   `goblins brief` and the board's Start write the same into a brief's Constraints, and the supervisor tells you what it sees of it ([Supervision](supervision.md#supervision)).
 - `--class` is `ordinary` (default), `high-risk`, or `mechanical`; it freezes the task's review repair budget at spawn - two cycles for ordinary and mechanical, three for high-risk - and a running task's snapshot never changes ([docs/pipeline.md](../pipeline.md)).
@@ -89,7 +90,7 @@ Its spawn checks the helper contract instead of brief readiness: a nonempty brie
 It reports to its parent, not to you: its `goblins notify <helper> --done`, which needs no pull request, its `--blocked` and its `--failed` are typed into the parent's terminal, and wake you only when that terminal cannot take them.
 You are told once when each helper starts or fails to start, and `goblins fleet-view` names each helper's parent.
 The parent answers its helper with `goblins send <helper> "<answer>"`, reports `goblins notify <parent> --waiting-on <helper> "<why>"` while it only waits, which makes the helper's progress count as its own, and once the helper reports done runs `goblins helper merge <parent>`: a merge commit of the helper's branch in the parent's own worktree, then the helper retired through Stop.
-A conflict is left for the parent to resolve and commit, and asked again the command only retires the helper; the parent stays the one who opens the pull request.
+A conflict is left for the parent to resolve and commit, and asked again the command only retires the helper; a parent that opens a pull request stays the one who opens it.
 A helper its parent no longer needs is stopped with `goblins kill <helper> --reason "<why>"`, which keeps its unmerged work.
 
 ### Goblin names
@@ -153,6 +154,7 @@ The product does this by itself in every home, with no setting, and wakes you fo
 - **The queue cleans itself.** When `goblins cleanup` (with or without `--force-archive`, and through `goblins reap --apply`) retires a task, its row moves from `## Queued` to `## Done` with its detail lines, in one write that keeps every other line as it was, whatever the task last reported, so nothing starts it again from its row.
   The row closes as `done` when the task delivered and as `retired` when it did not, and the supervisor moves any row a delivered task left behind.
   A local-only task opens no pull request, so it is delivered when a done line of its current run names its report, `data/<task>/report.md`, by its full path or its path in the home, and that report is there.
+  [goblins notify --report](../commands/notify.md) keeps the report there and records that line.
   A task ruled finished with no pull request is delivered when a done line of its current run names the issue it closed, which [goblins notify --closed](../commands/notify.md) records from its answered decision.
 - **Work that cannot start wakes you again.** A start that failed is not retried by itself, and its card says why.
   A brief changed during admission instead produces `start deferred: ...` and is reconsidered on the next scan with its final choices.

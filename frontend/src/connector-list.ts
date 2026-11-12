@@ -1,5 +1,6 @@
 import { connectionEvidence, connectionStatus, connectionTrouble, type ConnectionEntry } from "./connections.ts";
 import { connectorName, toolWords } from "./connector-names.ts";
+import { listNames } from "./credentials.ts";
 
 // The Connectors page lists each connector once, whichever goblins report
 // it (#2303): the supervisor reads connections one goblin at a time, and
@@ -81,8 +82,9 @@ const rank = (entry: ConnectionEntry): number => {
   return tone === "trouble" ? -1 : tone === "verified" ? QUIET.length : QUIET.indexOf(entry.status);
 };
 
-// Whether a goblin's check asks for a sign-in he can start from the board.
-const isSignIn = (entry: ConnectionEntry): boolean => entry.status === "unauthorized" && entry.actions.length > 0;
+// Whether a goblin's check asks for a sign-in he can start from the board. A
+// repair that stores a variable from the clipboard is no sign-in.
+const isSignIn = (entry: ConnectionEntry): boolean => entry.status === "unauthorized" && entry.actions.some((action) => !action.startsWith("store:"));
 
 // Whether the goblin carries the connector: what he last asked, else what
 // the check found. A connector with nothing to give or take back is carried
@@ -156,20 +158,29 @@ function variableWord(entry: ConnectionEntry): string {
 export interface CliVariable { name: string; states: { goblin: string; word: string }[] }
 
 // cliVariables are the CLI variables a service brings, the ones the auth
-// manifest declares for it, each by name with what every goblin's terminal
-// holds of it, in the order of their names. Never a value.
+// manifest declares for it, shared with another service or not, each by name
+// with what every goblin's terminal holds of it, in the order of their
+// names. Never a value.
 export function cliVariables(connector: Connector, readings: GoblinReading[]): CliVariable[] {
   if (connector.kind !== "service") return [];
   const found = new Map<string, CliVariable>();
   for (const { goblin, entries } of readings) {
     for (const entry of entries) {
-      if (entry.kind !== "credential" || entry.account !== connector.reported) continue;
+      if (entry.kind !== "credential" || !entry.accounts.includes(connector.reported)) continue;
       const variable = found.get(entry.name) ?? { name: entry.name, states: [] };
       variable.states.push({ goblin, word: variableWord(entry) });
       found.set(entry.name, variable);
     }
   }
   return [...found.values()].sort((first, second) => first.name.localeCompare(second.name));
+}
+
+// declaredBy is what a CLI variable's page says of where it is from: each
+// repository service that declares it, by name, or that none does.
+export function declaredBy(connector: Connector): string {
+  const services = [...new Set(connector.uses.flatMap((use) => use.entry.accounts))].map(connectorName);
+  if (!services.length) return "No repository service declares it.";
+  return "Declared by the " + listNames(services) + (services.length > 1 ? " repository services." : " repository service.");
 }
 
 // A connector's tools in two groups, as its harness marks them: those that
