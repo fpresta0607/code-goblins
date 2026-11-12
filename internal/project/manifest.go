@@ -54,6 +54,22 @@ type TestEnvironment struct {
 	PythonVersion string `json:"python_version"`
 }
 
+// LightTest declares the project's gate Test step light: a command expected
+// to use at most MemoryMiB of memory, which is ended once it has run
+// LimitMinutes. A light Test takes its turn beside the machine's heavy line
+// when free memory covers its estimate, rather than waiting behind long
+// suites for a slot.
+type LightTest struct {
+	MemoryMiB    int `json:"memory_mib"`
+	LimitMinutes int `json:"limit_minutes"`
+}
+
+// HostedCIEvidence is the test_evidence of a project whose pull request's
+// hosted CI run is its test evidence: the gate's Test step runs only the
+// quick checks and the tests the change added or edited, and CI runs every
+// test before the merge.
+const HostedCIEvidence = "hosted-ci"
+
 // Reuse declares what a tier's checks read besides the files git sees, so
 // that a pass of the tier on the same source with the same of these is taken
 // again instead of run (verify.ReadReuseKey). A tier with none declared runs
@@ -139,6 +155,8 @@ type Manifest struct {
 	Verification    Verification      `json:"verification,omitempty"`
 	Delivery        DeliveryPolicy    `json:"delivery,omitzero"`
 	TestEnvironment *TestEnvironment  `json:"test_environment,omitempty"`
+	LightTest       *LightTest        `json:"light_test,omitempty"`
+	TestEvidence    string            `json:"test_evidence,omitempty"`
 	Security        Security          `json:"security,omitempty"`
 	Hygiene         Hygiene           `json:"hygiene,omitempty"`
 	Trains          Trains            `json:"trains,omitzero"`
@@ -186,6 +204,15 @@ func (m Manifest) Validate() error {
 	}
 	if m.TestEnvironment != nil && !exactPythonVersion.MatchString(m.TestEnvironment.PythonVersion) {
 		return errors.New("project manifest: test_environment.python_version must be an exact Python 3 version, such as 3.12.10")
+	}
+	if m.LightTest != nil && (m.LightTest.MemoryMiB <= 0 || m.LightTest.LimitMinutes <= 0) {
+		return errors.New("project manifest: light_test needs memory_mib and limit_minutes over zero: the memory its Test is expected to use and how long it may run")
+	}
+	switch {
+	case m.TestEvidence != "" && m.TestEvidence != HostedCIEvidence:
+		return fmt.Errorf("project manifest: test_evidence %q is not %s", m.TestEvidence, HostedCIEvidence)
+	case m.TestEvidence == HostedCIEvidence && m.LightTest == nil:
+		return errors.New("project manifest: test_evidence hosted-ci needs light_test, the bound its gate Test runs under")
 	}
 	if m.IssueRepository != "" {
 		_, name, _ := strings.Cut(m.IssueRepository, "/")
