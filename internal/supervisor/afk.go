@@ -1162,6 +1162,10 @@ func doneBetween(stateDir string, since, ended time.Time) ([]afk.Finish, error) 
 				finished = append(finished, afk.Finish{Task: id, Closed: issue, At: at, Note: note})
 				continue
 			}
+			if kept := state.DoneReport(event); kept != "" {
+				finished = append(finished, afk.Finish{Task: id, Report: kept, At: at, Note: note})
+				continue
+			}
 			rest, done := strings.CutPrefix(event, "done: PR ")
 			if !done {
 				continue

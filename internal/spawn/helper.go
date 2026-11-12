@@ -66,9 +66,14 @@ func helperInstruction(exe string, meta state.TaskMeta) string {
 		" You cannot start helpers of your own."
 }
 
-// helperOffer tells a goblin it may ask the supervisor for one helper.
-func helperOffer(exe, id string) string {
+// helperOffer tells a goblin it may ask the supervisor for one helper, and a
+// goblin that opens a pull request that it stays the one who opens it.
+func helperOffer(exe, id, mode string) string {
+	opener := "; you stay the one who opens the pull request."
+	if mode == "local-only" {
+		opener = "."
+	}
 	return " When a separate piece of your task can run beside yours, you may ask the supervisor for one helper goblin: write its brief to a file and run: " + exe + " helper start " + id + " --brief <file> --title \"<short title>\". It starts only when memory allows, works on a branch cut from your last commit and reports to you here; the command says when to ask again if it is refused." +
 		" What it carries is its own brief's Authentication section, which may narrow yours but never widen it: write credentials: none and mcp: none for a helper that reads no credential, or name some of your own services and servers; a name you do not carry, or a line you write twice, refuses the start." +
-		" While you only wait on it, run: " + exe + " notify " + id + " --waiting-on <helper-id> \"<why>\". Answer its questions with: " + exe + " send <helper-id> \"<answer>\". When it reports done, merge its work into your branch with: " + exe + " helper merge " + id + ", which retires it; you stay the one who opens the pull request. Stop a helper you no longer need with: " + exe + " kill <helper-id> --reason \"<why>\"."
+		" While you only wait on it, run: " + exe + " notify " + id + " --waiting-on <helper-id> \"<why>\". Answer its questions with: " + exe + " send <helper-id> \"<answer>\". When it reports done, merge its work into your branch with: " + exe + " helper merge " + id + ", which retires it" + opener + " Stop a helper you no longer need with: " + exe + " kill <helper-id> --reason \"<why>\"."
 }
