@@ -256,14 +256,20 @@ func reach(record Record) (*Client, error) {
 	return client, err
 }
 
-// isServing reports whether the host record names answers.
-func isServing(record Record) bool {
+// Answer connects to the host record names, a terminal's or a stream
+// session's, and leaves, which proves the host answers, or says why it did
+// not.
+func Answer(record Record) error {
 	client, err := reach(record)
 	if err != nil {
-		return false
+		return err
 	}
-	_ = client.Close()
-	return true
+	return client.Close()
+}
+
+// isServing reports whether the host record names answers.
+func isServing(record Record) bool {
+	return Answer(record) == nil
 }
 
 // announce opens the host's pipe and records where to find it, with when the

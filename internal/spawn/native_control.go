@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/fpresta0607/code-goblins/internal/claudestream"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -20,7 +21,9 @@ import (
 // picker, open over it or not. Otherwise it is reported unconfirmed: /exit
 // ends the harness, and one typed into a turn waits in its queue.
 // Text nobody says is the Overlord's own, a wake line, a notice or a key,
-// clears the terminal's mark of his input.
+// clears the terminal's mark of his input. A stream session is written the
+// text, a command too, as one line, and proves it took it by its own report
+// (deliverStream).
 func (s Service) SendNative(ctx context.Context, meta state.TaskMeta, text string) error {
 	screens, ok := harness.NativeScreens(harness.Kind(meta.Harness))
 	if !ok {
@@ -29,6 +32,9 @@ func (s Service) SendNative(ctx context.Context, meta state.TaskMeta, text strin
 	record, err := host.ReadRecord(s.StateDir, meta.ID)
 	if err != nil {
 		return fmt.Errorf("send: native task %s has no running terminal: %w: %w", meta.ID, fleet.ErrNotTyped, err)
+	}
+	if record.Stream {
+		return s.deliverStream(ctx, record, text)
 	}
 	if !fleet.IsCommand(text) {
 		return s.deliverNativeInstruction(ctx, record, screens, meta, "", text, false)
@@ -77,7 +83,10 @@ func (s Service) tookCommand(ctx context.Context, record host.Record, screens ha
 // nativeKeys are the keys goblins send --key names, as a console reads them.
 var nativeKeys = map[string]string{"Enter": "\r", "Escape": "\x1b", "Ctrl+C": "\x03", "Ctrl+U": "\x15"}
 
-// SendNativeKey sends one named key to a native task's terminal.
+// SendNativeKey sends one named key to a native task's terminal. A stream
+// session has no terminal: Escape and Ctrl+C stop its turn, as either does in
+// Claude Code's terminal, and the keys that act on a composer it has not got
+// are refused.
 func (s Service) SendNativeKey(meta state.TaskMeta, key string) error {
 	name, err := fleet.NormalizeKey(key)
 	if err != nil {
@@ -86,6 +95,17 @@ func (s Service) SendNativeKey(meta state.TaskMeta, key string) error {
 	record, err := host.ReadRecord(s.StateDir, meta.ID)
 	if err != nil {
 		return fmt.Errorf("send: native task %s has no running terminal: %w", meta.ID, err)
+	}
+	if record.Stream {
+		if name != "Escape" && name != "Ctrl+C" {
+			return fmt.Errorf("send: native task %s runs on stream-json pipes, with no composer for %s to act on", meta.ID, name)
+		}
+		writer, err := host.DialStreamWriter(record)
+		if err != nil {
+			return fmt.Errorf("send: stream session %s does not answer: %w", meta.ID, err)
+		}
+		defer writer.Close()
+		return writer.Write(claudestream.RequestLine(lineID(), "interrupt", nil))
 	}
 	client, err := host.Dial(record)
 	if err != nil {

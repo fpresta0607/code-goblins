@@ -501,6 +501,10 @@ func (s *Service) lookAtTerminal(a Awaiting) terminalLook {
 	if err != nil || !host.Running(record) {
 		return terminalLook{Gone: true, Took: took}
 	}
+	if record.Stream {
+		session, err := host.ReadStreamState(record)
+		return terminalLook{Working: err == nil && session.IsWorking, Took: took}
+	}
 	screens, readable := harness.NativeScreens(harness.Kind(a.Harness))
 	if !readable {
 		return terminalLook{Took: took}

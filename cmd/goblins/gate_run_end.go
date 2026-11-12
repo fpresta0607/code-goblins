@@ -42,7 +42,7 @@ const runEndWhatReach = 200
 // What cannot be told is said on stderr and changes no exit code.
 func tellGoblinRunEnded(ctx context.Context, runtime commandRuntime, getenv func(string) string, name, dir, what string, isDetached bool, exit int, took time.Duration, stderr io.Writer) {
 	id, proof := getenv(host.IDVariable), getenv(host.ProofVariable)
-	if id == "" || proof == "" || state.ValidTaskID(id) != nil || runtime.resolveHome == nil || runtime.sendText == nil || runtime.screen == nil {
+	if id == "" || proof == "" || state.ValidTaskID(id) != nil || runtime.resolveHome == nil || runtime.sendText == nil || runtime.idle == nil {
 		return
 	}
 	h, err := runtime.resolveHome()
@@ -62,7 +62,7 @@ func tellGoblinRunEnded(ctx context.Context, runtime commandRuntime, getenv func
 	if !isReadable {
 		return
 	}
-	if screen, err := runtime.screen(h.State, id); err != nil || !screens.IsIdleAtEmptyComposer(screen) {
+	if isIdle, err := runtime.idle(h.State, id, screens); err != nil || !isIdle {
 		return
 	}
 	what = strings.Join(strings.Fields(what), " ")

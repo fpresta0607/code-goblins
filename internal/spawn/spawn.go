@@ -609,7 +609,8 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// Its release error, if any, is returned with the result once the brief
 	// is delivered: the goblin is running either way.
 	_ = endTurn()
-	if err := s.briefNativeHarness(ctx, req.ID, nativeHost, req.Harness, launch); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
+	nativeHost, err = s.briefNativeHarness(ctx, req.ID, nativeHost, req.Harness, launch, userEnv, preflight)
+	if err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
 		if host.Running(nativeHost) {
 			launchKept = true
 			return result, recordLaunchFailure(req.ID, fmt.Errorf("%w; the native terminal is still running and its task and worktree are kept; inspect it with goblins peek %s before recovering it", err, req.ID))

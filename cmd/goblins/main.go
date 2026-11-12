@@ -184,8 +184,9 @@ type commandRuntime struct {
 	sendKey       func(home.Home, string, string) error
 	authRefresher func(home.Home) spawn.AuthRefresher
 	peek          func(home.Home, string, int) (string, error)
-	// screen reads the rows a native terminal shows now.
-	screen        func(stateDir, id string) ([]string, error)
+	// idle reports whether the harness in a native terminal, whose screens
+	// are screens, or in a stream session waits for input now.
+	idle          func(stateDir, id string, screens harness.Screens) (bool, error)
 	snapshot      func(context.Context, home.Home) (fleet.Snapshot, error)
 	localRuntime  func(context.Context, home.Home) (runtime.Inventory, error)
 	cleanup       func(context.Context, home.Home, string, bool) (string, error)
@@ -477,12 +478,17 @@ func defaultCommandRuntime() commandRuntime {
 			}
 		},
 		peek: peekTerminal,
-		screen: func(stateDir, id string) ([]string, error) {
+		idle: func(stateDir, id string, screens harness.Screens) (bool, error) {
 			record, err := host.ReadRecord(stateDir, id)
 			if err != nil {
-				return nil, err
+				return false, err
 			}
-			return host.ReadScreen(record)
+			if record.Stream {
+				session, err := host.ReadStreamState(record)
+				return err == nil && session.IsIdle(), err
+			}
+			screen, err := host.ReadScreen(record)
+			return err == nil && screens.IsIdleAtEmptyComposer(screen), err
 		},
 		snapshot: func(ctx context.Context, h home.Home) (fleet.Snapshot, error) {
 			return fleet.BuildSnapshot(ctx, h, fleet.NewTerminalEndpoint(h.State, &herdr.Client{Commands: execx.OSRunner{}}))

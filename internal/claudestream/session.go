@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 )
 
 // Session is what a stream session's lines say while it runs: what runs it,
@@ -36,6 +37,45 @@ type Session struct {
 	// IsExited is set once Claude Code ended, with its ExitCode.
 	IsExited bool
 	ExitCode uint32
+}
+
+// IsIdle reports whether Claude Code waits for a line: it runs, no turn is
+// working, and no tool call waits for an answer.
+func (s Session) IsIdle() bool {
+	return !s.IsExited && !s.IsWorking && len(s.Asks) == 0
+}
+
+// Rows are what the session shows, a line a row, as a terminal shows its
+// harness: a row saying whether a turn is working, waits on an answer, or
+// how the last turn or Claude Code itself ended, then the reply being
+// written, or once a turn ended, its reply.
+func (s Session) Rows() []string {
+	var status, text string
+	switch {
+	case s.IsExited:
+		status = fmt.Sprintf("Claude Code ended with exit code %d", s.ExitCode)
+	case len(s.Asks) > 0:
+		status = fmt.Sprintf("working, with %d tool calls waiting for an answer", len(s.Asks))
+	case s.IsWorking:
+		status = "working"
+	case s.Result != nil && s.Result.IsError:
+		status = "idle; its last turn ended in " + s.Result.Subtype
+	default:
+		status = "idle"
+	}
+	if s.IsWorking {
+		for _, block := range s.Live {
+			if block.Kind == "text" {
+				text += block.Text
+			}
+		}
+	} else if s.Result != nil {
+		text = s.Result.Text
+	}
+	if text == "" {
+		return []string{status}
+	}
+	return append([]string{status}, strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")...)
 }
 
 // Exit says Claude Code ended with code: a turn it left, its words and its
