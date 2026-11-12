@@ -10,10 +10,14 @@ import { personaFor } from "./workflow";
 // it replaces.
 const isClipboard = (action: string): boolean => action.startsWith("store:") || action.startsWith("replace:");
 
-// What a repair's button says: the sign-in it opens, or the variable it
-// stores from the clipboard, named whole since it reads what he copied.
+// What a repair's button says: the sign-in it opens, the variable it stores
+// from the clipboard, named whole since it reads what he copied, or Replace
+// alone, which shows only on the variable's own page, whose title names it,
+// and whose note says it reads the clipboard (the Overlord, 2026-11-12: "i
+// hate this much text on a button").
 function repairWords(action: string, name: string): string {
-  if (isClipboard(action)) return connectionAction(action, name);
+  if (action.startsWith("replace:")) return "Replace";
+  if (action.startsWith("store:")) return connectionAction(action, name);
   return action === "cli" ? "CLI sign-in" : "Sign in";
 }
 

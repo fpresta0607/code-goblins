@@ -295,11 +295,13 @@ for (const width of [1440, 390]) {
     await row(main, "GITHUB_TOKEN").getByRole("button", { name: "GITHUB_TOKEN", exact: true }).click();
 
     // Assert: Replace beside the goblin that holds it, in Store from
-    // clipboard's look, none beside the one not given it, and the page says
-    // what it does.
+    // clipboard's look, its one word on the button and its whole name for a
+    // screen reader (the Overlord, 2026-11-12: "i hate this much text on a
+    // button"), none beside the one not given it, and the page says what it
+    // does.
     const token = main.getByRole("article", { name: "GITHUB_TOKEN" });
     const replace = goblinRow(token, ZEKE).getByRole("button", { name: "Replace GITHUB_TOKEN from clipboard for " + ZEKE, exact: true });
-    await expect(replace).toHaveText("Replace GITHUB_TOKEN from clipboard");
+    await expect(replace).toHaveText("Replace");
     await expect(replace).not.toHaveClass(/\bprimary\b/);
     await expect(goblinRow(token, ZEKE).locator(".connector-use")).toHaveText("Set");
     await expect(goblinRow(token, IVY).getByRole("button")).toHaveCount(0);
