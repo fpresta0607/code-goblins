@@ -169,9 +169,9 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) (result Snap
 		isGranted := slices.Contains(meta.Credentials, entry.Name)
 		switch {
 		case isGranted && hasLoadable:
-			entry.RestartRequired, entry.RestartReason = true, "Connected. Its missing variables reach this goblin at its next terminal; the one running started without them."
+			entry.RestartRequired, entry.RestartReason = true, "Connected. Its missing variables reach this goblin at its next terminal. The one running started without them."
 		case !isGranted && hasRevokedLoaded:
-			entry.RestartRequired, entry.RestartReason = true, "Disconnected. Its variables leave this goblin at its next terminal; the one running still has them."
+			entry.RestartRequired, entry.RestartReason = true, "Disconnected. Its variables leave this goblin at its next terminal. The one running still has them."
 		case !isGranted && isLoaded:
 			entry.RestartReason = "Disconnected, but its variables stay: another account this goblin has uses them too."
 		}

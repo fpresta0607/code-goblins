@@ -79,7 +79,7 @@ test("a row's state is one word, Verified only when every goblin's check confirm
 
 test("a row waits for a goblin's next terminal when any goblin's change does, carried or not", () => {
   // Arrange
-  const waiting = { id: "service:docs", name: "docs", kind: "service", status: "withheld", grant: "grant", restart_required: true, restart_reason: "Disconnected. Its variables leave this goblin at its next terminal; the one running still has them." };
+  const waiting = { id: "service:docs", name: "docs", kind: "service", status: "withheld", grant: "grant", restart_required: true, restart_reason: "Disconnected. Its variables leave this goblin at its next terminal. The one running still has them." };
   const settled = { id: "service:docs", name: "docs", kind: "service", status: "connected", grant: "revoke" };
 
   // Act

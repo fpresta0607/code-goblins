@@ -28,12 +28,12 @@ const fleet = () => supervisorWith({
     { id: "mcp:context7", name: "context7", kind: "mcp", status: "unauthorized", detail: "Sign-in required.", actions: ["login"], checked_at: CHECKED_AT },
     { id: "mcp:chrome-devtools", name: "chrome-devtools", kind: "mcp", status: "probe_succeeded", scope: "separate_probe", source: "Claude", checked_at: CHECKED_AT },
     { id: "mcp:acme-internal", name: "acme-internal", kind: "mcp", status: "connected", checked_at: CHECKED_AT },
-    { ...carried("github"), restart_required: true, restart_reason: "Connected. Its missing variables reach this goblin at its next terminal; the one running started without them." },
+    { ...carried("github"), restart_required: true, restart_reason: "Connected. Its missing variables reach this goblin at its next terminal. The one running started without them." },
     withheld("sentry"), CRAWLER,
     { id: "credential:GITHUB_TOKEN", name: "GITHUB_TOKEN", kind: "credential", status: "provided", scope: "launch_environment", accounts: ["github"], checked_at: CHECKED_AT },
     { id: "credential:SENTRY_AUTH_TOKEN", name: "SENTRY_AUTH_TOKEN", kind: "credential", status: "withheld", detail: "This task does not carry it.", accounts: ["sentry"], checked_at: CHECKED_AT },
   ],
-  "cg-other": [SUPABASE, { ...withheld("github"), restart_required: true, restart_reason: "Disconnected. Its variables leave this goblin at its next terminal; the one running still has them." }, withheld("sentry"), CRAWLER,
+  "cg-other": [SUPABASE, { ...withheld("github"), restart_required: true, restart_reason: "Disconnected. Its variables leave this goblin at its next terminal. The one running still has them." }, withheld("sentry"), CRAWLER,
     { id: "credential:GITHUB_TOKEN", name: "GITHUB_TOKEN", kind: "credential", status: "withheld", detail: "This task does not carry it.", accounts: ["github"], checked_at: CHECKED_AT }],
 });
 
@@ -240,10 +240,10 @@ for (const width of [1440, 390]) {
     // quietly, the Disconnect of one that no longer carries it as much as the
     // Connect of one that does.
     const github = main.getByRole("article", { name: "GitHub" });
-    await expect(goblinRow(github, ZEKE).locator(".connector-waiting")).toHaveText("Connected. Its missing variables reach this goblin at its next terminal; the one running started without them.");
+    await expect(goblinRow(github, ZEKE).locator(".connector-waiting")).toHaveText("Connected. Its missing variables reach this goblin at its next terminal. The one running started without them.");
     await expect(goblinRow(github, ZEKE).getByRole("button", { name: "Disconnect GitHub from " + ZEKE, exact: true })).toBeVisible();
     await expect(goblinRow(github, IVY)).toContainText("Not connected");
-    await expect(goblinRow(github, IVY).locator(".connector-waiting")).toHaveText("Disconnected. Its variables leave this goblin at its next terminal; the one running still has them.");
+    await expect(goblinRow(github, IVY).locator(".connector-waiting")).toHaveText("Disconnected. Its variables leave this goblin at its next terminal. The one running still has them.");
     await expect(goblinRow(github, IVY).getByRole("button", { name: "Connect GitHub to " + IVY, exact: true })).toBeVisible();
     // Assert: each goblin's name, its state and why its change waits are lines
     // one under another, at every width.
@@ -263,7 +263,7 @@ for (const width of [1440, 390]) {
     // terminal holds of it, never a value, and no MCP server.
     const variables = github.getByRole("region", { name: "CLI variables" });
     await expect(variables.locator(".connector-part-note")).toHaveText("Command line tools in the goblin's terminal read them. Names only, never values.");
-    await expect(variables.getByRole("listitem")).toHaveText(["GITHUB_TOKEN" + ZEKE + ": Set; " + IVY + ": Not given"]);
+    await expect(variables.getByRole("listitem")).toHaveText(["GITHUB_TOKEN" + ZEKE + ": Set, " + IVY + ": Not given"]);
     await expect(github.getByRole("region", { name: "MCP server" })).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath(`connector-github-${width}.png`), fullPage: true });
 
