@@ -196,7 +196,7 @@ var droppedSections = []string{"constraints", "verification", "authentication", 
 
 // Classify reads what a brief asks for and freezes it into a class and risk.
 //
-// The Delivery kind decides scout outright: the CFO already classified a
+// The Delivery kind decides scout outright: the CEO already classified a
 // scout when briefing it, and a ship never becomes a scout because its task
 // says "investigate". Otherwise only the ask is read: the sections that say
 // what not to do (Constraints) and the generated boilerplate (Verification,

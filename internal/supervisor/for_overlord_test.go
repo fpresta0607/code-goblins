@@ -6,15 +6,15 @@ import (
 	"time"
 )
 
-func TestOnlyAQuestionTheCFOAsksIsTheOverlordsToAnswer(t *testing.T) {
+func TestOnlyAQuestionTheCEOAsksIsTheOverlordsToAnswer(t *testing.T) {
 	for name, c := range map[string]struct {
 		question Question
 		want     bool
 	}{
-		"the CFO asks him":                     {Question{ID: "pick-a-store"}, true},
-		"the CFO passes a goblin's ask up":     {Question{ID: "from-billing", Text: "billing asks: which store?"}, true},
-		"a goblin asks the CFO":                {Question{ID: "notify-billing-7", Task: "billing", Generation: "g1", Seq: 7}, false},
-		"a goblin's question the CFO answered": {Question{ID: "notify-billing-6", Task: "billing", Status: "succeeded", AnsweredBy: "cfo"}, false},
+		"the CEO asks him":                     {Question{ID: "pick-a-store"}, true},
+		"the CEO passes a goblin's ask up":     {Question{ID: "from-billing", Text: "billing asks: which store?"}, true},
+		"a goblin asks the CEO":                {Question{ID: "notify-billing-7", Task: "billing", Generation: "g1", Seq: 7}, false},
+		"a goblin's question the CEO answered": {Question{ID: "notify-billing-6", Task: "billing", Status: "succeeded", AnsweredBy: "ceo"}, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			store, _ := testStore(t)
@@ -43,7 +43,7 @@ func TestOnlyAQuestionTheCFOAsksIsTheOverlordsToAnswer(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			// The native notification path selects CFO questions by this wire marker.
+			// The native notification path selects CEO questions by this wire marker.
 			if len(sent.Questions) != 1 || sent.Questions[0].ID != c.question.ID || (sent.Questions[0].Task == "") != c.want {
 				t.Errorf("snapshot question = %+v, want Overlord ownership %v", sent.Questions, c.want)
 			}

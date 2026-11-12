@@ -18,7 +18,7 @@ import (
 // so a separate message of the same words keeps its own row. A shell command
 // still waiting is named by the message that typed it, its words after its !.
 // task is the
-// goblin's task, or empty for the CFO, whose messages name no task.
+// goblin's task, or empty for the CEO, whose messages name no task.
 func (s *Store) namedWaiting(task string, waiting []fleettree.WaitingPrompt) []fleettree.WaitingPrompt {
 	if len(waiting) == 0 {
 		return waiting

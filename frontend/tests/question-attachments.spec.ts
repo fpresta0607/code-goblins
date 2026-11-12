@@ -120,7 +120,7 @@ for (const { label, viewport, isTouch } of [
       expect(sent[0]).toMatchObject({ kind: "goblin_answer", question_id: "layout", answer_kind: "other", text: "Like this screenshot\n" + KEPT + "pasted-1.png\n" + KEPT + "pasted-3.txt" });
     });
 
-    test("an answer to the CFO keeps its file in the CFO's folder and may be the file alone", async ({ page }) => {
+    test("an answer to the CEO keeps its file in the CEO's folder and may be the file alone", async ({ page }) => {
       // Arrange
       const sent = await recordAnswers(page);
       const kept = await keepFiles(page);
@@ -137,7 +137,7 @@ for (const { label, viewport, isTouch } of [
       expect(kept.uploads).toEqual([{ name: "history.txt", task: null }]);
       await send.click();
       await expect.poll(() => sent.length).toBe(1);
-      expect(sent[0]).toMatchObject({ kind: "cfo_answer", question_id: "written", answer_kind: "other", text: KEPT + "pasted-1.txt" });
+      expect(sent[0]).toMatchObject({ kind: "ceo_answer", question_id: "written", answer_kind: "other", text: KEPT + "pasted-1.txt" });
     });
 
     test("Send waits while a file is still being kept, and a file the board refuses says why and adds nothing", async ({ page }) => {

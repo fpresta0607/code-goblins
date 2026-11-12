@@ -14,7 +14,7 @@ import (
 // detached row that shows windows, leaves its command unrun or leaves a log
 // line that does not say how it ended, and the summary that holds every row.
 // The desktop proof itself runs only on the hosted runner of
-// .github/workflows/windows.yml, where CFO_WINDOW_PROOF names the default
+// .github/workflows/windows.yml, where GOBLINS_WINDOW_PROOF names the default
 // terminal. Every self-test asserts what its name says and throws otherwise,
 // so a case that prints its passed line exited zero having checked its rows.
 func TestNoVisibleWindowsScriptSelfTests(t *testing.T) {

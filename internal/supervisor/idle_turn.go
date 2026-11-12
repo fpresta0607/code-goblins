@@ -16,7 +16,7 @@ import (
 )
 
 // idleTurnFile holds the next work the last idle turn wake named, and when,
-// so the same next work wakes an idle CFO once per idleWakeAfter.
+// so the same next work wakes an idle CEO once per idleWakeAfter.
 const idleTurnFile = ".idle-turn.json"
 
 type idleTurn struct {
@@ -26,7 +26,7 @@ type idleTurn struct {
 
 // WorkWaits reports whether queued work waits, a task a Start could start or
 // a row waiting for what its blocked-by names, which starts by itself once
-// that clears or needs the CFO to fix it, so the CFO's Stop hook keeps
+// that clears or needs the CEO to fix it, so the CEO's Stop hook keeps
 // watching for the wakes it raises though no goblin is in flight.
 func WorkWaits(h home.Home) bool {
 	finished, reading := readFinishedWork(h, nil), rowReading{now: time.Now().UTC(), root: persistedRootStartReader(h)}
@@ -40,16 +40,16 @@ func WorkWaits(h home.Home) bool {
 	return false
 }
 
-// IdleTurnWake wakes a CFO whose turn ends with no goblin at work while work
+// IdleTurnWake wakes a CEO whose turn ends with no goblin at work while work
 // that could run waits and memory and commit are free, and returns the wake's
 // text, which names the next work: a paused goblin whose pause cleared, the
 // highest in the Overlord's In progress order first, then the top of the
 // queue. It returns "" when the turn may
 // end: a goblin works, memory is short, nothing could run, or this same next
-// work woke an idle turn less than idleWakeAfter ago. The CFO's turn end is
+// work woke an idle turn less than idleWakeAfter ago. The CEO's turn end is
 // the one moment the supervisor's scheduler cannot see, so what sees it calls
-// this: a Claude CFO's turn-end guard, and the supervisor itself as it ingests
-// the turn end a Codex or pi CFO's native hook spooled.
+// this: a Claude CEO's turn-end guard, and the supervisor itself as it ingests
+// the turn end a Codex or pi CEO's native hook spooled.
 func IdleTurnWake(h home.Home, memory Memory, now time.Time) (string, error) {
 	if memory.shortfall() != "" {
 		return "", nil
@@ -82,7 +82,7 @@ func IdleTurnWake(h home.Home, memory Memory, now time.Time) (string, error) {
 			continue
 		}
 		next = record.ID
-		steps = append(steps, "resume "+record.ID+" with cfo resume "+record.ID)
+		steps = append(steps, "resume "+record.ID+" with goblins resume "+record.ID)
 	}
 	for index, id := range queued {
 		if index > 0 {
@@ -96,7 +96,7 @@ func IdleTurnWake(h home.Home, memory Memory, now time.Time) (string, error) {
 		if next == "" {
 			next = id
 		}
-		steps = append(steps, "start "+id+" with cfo "+commandLine(plan.args()))
+		steps = append(steps, "start "+id+" with goblins "+commandLine(plan.args()))
 	}
 	if next == "" {
 		return "", nil
@@ -111,7 +111,7 @@ func IdleTurnWake(h home.Home, memory Memory, now time.Time) (string, error) {
 	if last.Next == next && !now.Before(last.At) && now.Sub(last.At) < idleWakeAfter {
 		return "", nil
 	}
-	detail := fmt.Sprintf("idle: the CFO's turn ended with no goblin at work while work waits and %.1f GB of memory and %.1f GB of commit are free; next: %s",
+	detail := fmt.Sprintf("idle: the CEO's turn ended with no goblin at work while work waits and %.1f GB of memory and %.1f GB of commit are free; next: %s",
 		gigabytes(memory.Available), gigabytes(memory.CommitAvailable), strings.Join(steps, ", then "))
 	if len(waiting) > 0 {
 		detail += "; also waiting: " + strings.Join(waiting[:min(len(waiting), 8)], ", ")
@@ -119,7 +119,7 @@ func IdleTurnWake(h home.Home, memory Memory, now time.Time) (string, error) {
 			detail += fmt.Sprintf(" and %d more", len(waiting)-8)
 		}
 	}
-	detail += ". The supervisor's scheduler starts them one at a time as memory allows: read cfo fleet-view first, start or resume what has not started, and park a row that must not start."
+	detail += ". The supervisor's scheduler starts them one at a time as memory allows: read goblins fleet-view first, start or resume what has not started, and park a row that must not start."
 	if err := raiseFleetWake(h.State, "idle", "turn", detail); err != nil {
 		return "", err
 	}
@@ -132,9 +132,9 @@ func IdleTurnWake(h home.Home, memory Memory, now time.Time) (string, error) {
 
 // startableQueued names the queued tasks a Start could start at reading, in
 // queue order, leaving out each whose queued lock a live process holds: the
-// supervisor holds it for a start's whole run, and cfo spawn writes the task
+// supervisor holds it for a start's whole run, and goblins spawn writes the task
 // record planStart reads only once the worktree exists, so the lock is what
-// the CFO's turn-end guard, which runs apart from cfo serve, can see of the
+// the CEO's turn-end guard, which runs apart from goblins serve, can see of the
 // start. A record that cannot be read yet, as while it is written, reads as
 // held.
 func startableQueued(h home.Home, finished *finishedWork, reading rowReading) []string {

@@ -8,7 +8,7 @@ import "slices"
 type Placed struct {
 	Process
 	// Owner is the task whose goblin started the process, or the terminal,
-	// such as the CFO's, whose harness did.
+	// such as the CEO's, whose harness did.
 	Owner string
 	// Command is its command line, empty when it could not be read.
 	Command string

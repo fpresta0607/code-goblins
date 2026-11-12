@@ -8,7 +8,7 @@ import (
 // terminals run on the system conhost.
 const consoleHostNotice = "conpty/console-host"
 
-// reportConsoleHostProblem tells the CFO, once for the home whose state is
+// reportConsoleHostProblem tells the CEO, once for the home whose state is
 // stateDir, that its terminals run on the system conhost and why, through
 // the wake queue the supervisor delivers from.
 func reportConsoleHostProblem(stateDir string, problem error) error {

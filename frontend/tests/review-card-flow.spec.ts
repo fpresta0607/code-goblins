@@ -9,7 +9,7 @@ import { type BrowserContext, doneCards, expect, openItem, openTaskList, type Pa
 // closed ... There does not need to be a text box in when there is a scroll
 // open review page involved." A Scrawl review card opens in the Command
 // Center, has no box for words, and his Send and End on its page closes it at
-// once, a goblin's review and the CFO's alike. These tests send every
+// once, a goblin's review and the CEO's alike. These tests send every
 // snapshot themselves, so nothing reloads the board.
 test.use({ timezoneId: "UTC", viewport: { width: 1440, height: 900 } });
 
@@ -18,23 +18,23 @@ const TITLE = "Before and after pictures of the Orchestration canvas, now showin
 const greta = { id: "cg-canvas-live-only", title: "Canvas shows only live goblins", goblin_name: "Greta", goblin_title: "Canvas Captain", project: "code-goblins", phase: "working", generation: "g1", verified: false };
 const wanda = { id: "pd-mcp-only", title: "Retire the web routes", goblin_name: "Wanda", goblin_title: "API Ace", project: "precisiondocs", phase: "waiting", generation: "g1", verified: false };
 const quiet = {
-  healthy: true, instance: "board-0m", cfo_runs: true, cfo_terminal: "cfo", cfo_harness: "claude", revision: 1, at: "2026-10-17T18:30:00Z",
+  healthy: true, instance: "board-0m", ceo_runs: true, ceo_terminal: "ceo", ceo_harness: "claude", revision: 1, at: "2026-10-17T18:30:00Z",
   tasks: [greta, wanda], questions: [] as object[], reviews: [] as object[], runs: [], credentials: [], actions: [],
 };
 const asking = (item: { questions?: object[]; reviews?: object[] }, revision: number) => ({ ...quiet, revision, questions: item.questions || [], reviews: item.reviews || [] });
-// A goblin's review he is asked to watch, as cfo present --watch publishes it:
+// A goblin's review he is asked to watch, as goblins present --watch publishes it:
 // its page is the one the supervisor polls.
 const gretaReview = { id: "cg-canvas-live-only-before-after", identity: "g".repeat(64), task: greta.id, title: TITLE, lavish: PAGE, lavish_page: "D:\\scratch\\cg-canvas-live-only\\review\\index.html", state: "open", created_at: "2026-10-17T18:09:52Z", updated_at: "2026-10-17T18:09:52Z" };
-// The CFO's own review, as cfo review --lavish without --task publishes it.
-const cfoReview = { ...gretaReview, id: "itascaunity-mockup-20261017", identity: "c".repeat(64), task: "", title: "Oona's mockup of the Russo and Presta one-page site, desktop and phone" };
+// The CEO's own review, as goblins review --lavish without --task publishes it.
+const ceoReview = { ...gretaReview, id: "itascaunity-mockup-20261017", identity: "c".repeat(64), task: "", title: "Oona's mockup of the Russo and Presta one-page site, desktop and phone" };
 // What the supervisor's poll of the page makes of his Send and End there.
-const answeredOnPage = (review: typeof gretaReview, words: string) => ({ ...review, state: "answered", answered_by: "overlord", answered_in: "page", reason: "You answered on its page; " + (review.task ? "the goblin" : "the CFO") + " has it.", answer: words, updated_at: "2026-10-17T18:14:31Z" });
+const answeredOnPage = (review: typeof gretaReview, words: string) => ({ ...review, state: "answered", answered_by: "overlord", answered_in: "page", reason: "You answered on its page; " + (review.task ? "the goblin" : "the CEO") + " has it.", answer: words, updated_at: "2026-10-17T18:14:31Z" });
 
 // Every board the test opens gets its snapshots from the test, through a
 // stand-in event stream, one event at a time.
 async function standInStream(context: BrowserContext) {
   await context.addInitScript(() => {
-    localStorage.setItem("cfo-notifications-asked", "true");
+    localStorage.setItem("ceo-notifications-asked", "true");
     class FixtureSource extends EventTarget {
       private publish = (event: Event) => {
         if (event instanceof CustomEvent) this.dispatchEvent(new MessageEvent(event.detail.type, { data: JSON.stringify(event.detail.data) }));
@@ -54,7 +54,7 @@ async function standInStream(context: BrowserContext) {
 const send = (page: Page, data: object) => page.evaluate((detail) => { window.dispatchEvent(new CustomEvent("fixture-stream", { detail })); }, { type: "snapshot", data });
 
 const badge = (page: Page) => page.locator(".command-center-menu > summary");
-const bar = (page: Page) => page.locator(".cfo-pin");
+const bar = (page: Page) => page.locator(".ceo-pin");
 const card = (page: Page) => page.locator("dialog.question-modal");
 const waitingList = (page: Page) => page.getByRole("region", { name: "Waiting on you" });
 
@@ -91,7 +91,7 @@ for (const way of [
   });
 }
 
-for (const who of [{ name: "a goblin's", review: gretaReview }, { name: "the CEO's", review: cfoReview }]) {
+for (const who of [{ name: "a goblin's", review: gretaReview }, { name: "the CEO's", review: ceoReview }]) {
   test(`Send and End on ${who.name} Scrawl page closes its open card at once and it moves to History with what he sent`, async ({ page, context }) => {
     // Arrange
     await standInStream(context);
@@ -124,18 +124,18 @@ for (const who of [{ name: "a goblin's", review: gretaReview }, { name: "the CEO
 // an ended page.
 for (const ended of [
   { name: "he ended", closed: { state: "cleared", reason: "You ended the review on its page." } },
-  { name: "an agent ended", closed: { state: "withdrawn", reason: "An agent ended the review on its page; the CFO was told." } },
+  { name: "an agent ended", closed: { state: "withdrawn", reason: "An agent ended the review on its page; the CEO was told." } },
 ]) {
   test(`a Scrawl card whose page ${ended.name} while it is open closes itself`, async ({ page, context }) => {
     // Arrange
     await standInStream(context);
-    await boardAsked(page, { reviews: [cfoReview] });
-    await openItem(page, cfoReview.title);
-    await expect(card(page).getByRole("heading", { name: cfoReview.title })).toBeVisible();
+    await boardAsked(page, { reviews: [ceoReview] });
+    await openItem(page, ceoReview.title);
+    await expect(card(page).getByRole("heading", { name: ceoReview.title })).toBeVisible();
     await recordDoneCards(page);
 
     // Act
-    await send(page, asking({ reviews: [{ ...cfoReview, ...ended.closed, updated_at: "2026-10-17T22:09:00Z" }] }, 3));
+    await send(page, asking({ reviews: [{ ...ceoReview, ...ended.closed, updated_at: "2026-10-17T22:09:00Z" }] }, 3));
 
     // Assert
     await expect.poll(() => doneCards(page)).toContainEqual(expect.stringMatching(/^Closed/));
@@ -147,7 +147,7 @@ for (const ended of [
 
 for (const shown of [
   { name: "a goblin's review its page answers", review: gretaReview, row: TITLE },
-  { name: "the CEO's review given only its Scrawl link", review: { ...cfoReview, lavish_page: "" }, row: cfoReview.title },
+  { name: "the CEO's review given only its Scrawl link", review: { ...ceoReview, lavish_page: "" }, row: ceoReview.title },
   { name: "a goblin's wait on a Scrawl page", review: { ...gretaReview, id: "waiting-cg-canvas-live-only-12", title: "Waiting on you: " + TITLE + " (page " + PAGE + ")" }, row: TITLE },
 ]) {
   test(`${shown.name} has no box for words, only Skip and the button that opens its page`, async ({ page, context }) => {
@@ -175,7 +175,7 @@ for (const shown of [
 // answering the decision clears both, whichever kind it is.
 const followUp = { id: "waiting-pd-mcp-only-1008309", identity: "w".repeat(64), task: wanda.id, title: "Waiting on you: Waiting for the Overlord's answer on the parity tool sizing. Both cuts are live, nothing is in flight, and I start nothing new meanwhile.", state: "open", created_at: "2026-10-17T18:16:11Z", updated_at: "2026-10-17T18:16:11Z" };
 for (const decision of [
-  { name: "the CEO's question for the goblin", kind: "cfo_answer", question: { id: "pd-connector-parity-20261017", identity: "c".repeat(64), task: "", for_task: wanda.id, status: "pending", created_at: "2026-10-17T18:16:04Z", text: "Build connector tools for the 63 parity routes?", options: ["Build all but the site plan editor", "Build all of them", "End her task here"], recommended: "Build all but the site plan editor" } },
+  { name: "the CEO's question for the goblin", kind: "ceo_answer", question: { id: "pd-connector-parity-20261017", identity: "c".repeat(64), task: "", for_task: wanda.id, status: "pending", created_at: "2026-10-17T18:16:04Z", text: "Build connector tools for the 63 parity routes?", options: ["Build all but the site plan editor", "Build all of them", "End her task here"], recommended: "Build all but the site plan editor" } },
   { name: "the goblin's own question the CEO left to him", kind: "goblin_answer", question: { id: "notify-pd-mcp-only-1008308", identity: "w".repeat(64), task: wanda.id, generation: "g1", status: "pending", created_at: "2026-10-17T18:15:30Z", text: "Do I build connector tools for the 63 parity routes now, or does the task end here?", options: ["Build all but the site plan editor", "Build all of them", "End the task here"], recommended: "Build all but the site plan editor" } },
 ]) {
   test(`a goblin's wait beside ${decision.name} shows only the decision, and answering it clears both`, async ({ page, context }) => {
@@ -234,11 +234,11 @@ test("a goblin's wait that follows no decision is its own card beside the decisi
   await expect(waitingList(page)).toContainText("Waiting for the Overlord's answer on the parity tool sizing");
 });
 
-// While the wait follows the CFO's question for the goblin, the decision is
+// While the wait follows the CEO's question for the goblin, the decision is
 // what she waits on: her panel finds the question by the goblin it decides
 // for, so its Answer stays and opens that decision. Answer sits in her Task
 // view, since her Terminal view heads with no buttons.
-test("a goblin's panel offers Answer on the CFO's question for her, and Answer opens it", async ({ page, context }) => {
+test("a goblin's panel offers Answer on the CEO's question for her, and Answer opens it", async ({ page, context }) => {
   // Arrange
   await standInStream(context);
   const question = { id: "pd-connector-parity-20261017", identity: "c".repeat(64), task: "", for_task: wanda.id, status: "pending", created_at: "2026-10-17T18:16:04Z", text: "Build connector tools for the 63 parity routes?", options: ["Build them", "End her task here"] };

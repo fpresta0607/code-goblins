@@ -100,7 +100,7 @@ func TestWrittenHandoffSaysWhereTheTaskStands(t *testing.T) {
 			// Arrange
 			stateDir := t.TempDir()
 			store := t.TempDir()
-			t.Setenv("CFO_VERIFY_DIR", store)
+			t.Setenv("GOBLINS_VERIFY_DIR", store)
 			meta := state.TaskMeta{ID: "task", Worktree: filepath.Join(stateDir, "worktree")}
 			if test.status != "" {
 				if err := state.AppendStatus(stateDir, meta.ID, test.status); err != nil {
@@ -175,7 +175,7 @@ func TestWrittenHandoffSaysWhereTheTaskStands(t *testing.T) {
 // empty one.
 func TestWrittenHandoffNamesAnUnreadHeavyLine(t *testing.T) {
 	// Arrange
-	t.Setenv("CFO_VERIFY_DIR", "")
+	t.Setenv("GOBLINS_VERIFY_DIR", "")
 	writer := lifecycle.HandoffWriter{StateDir: t.TempDir(), Commands: handoffCommands{branch: "HEAD"}, Owner: func(int) string { return "task" }}
 
 	// Act

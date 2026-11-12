@@ -12,10 +12,10 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// A CFO whose turn ends with no goblin at work while work that could run
+// A CEO whose turn ends with no goblin at work while work that could run
 // waits and memory is free is woken again, naming the next work: a paused
 // goblin whose pause cleared first, then the top of the queue. On 2026-10-07
-// the CFO retired its last goblin at 08:20Z with 30 rows queued and 13.6 GB
+// the CEO retired its last goblin at 08:20Z with 30 rows queued and 13.6 GB
 // free, and nothing reopened its turn for four hours.
 func TestAnIdleTurnIsWokenWithTheNextWork(t *testing.T) {
 	plenty := Memory{Available: 8 * gigabyte, CommitAvailable: 12 * gigabyte}
@@ -31,7 +31,7 @@ func TestAnIdleTurnIsWokenWithTheNextWork(t *testing.T) {
 			arrange: func(t *testing.T, h home.Home) {
 				queueBriefedTask(t, h, "- **next-task** - Ship it (repo: code-goblins)", plainBrief)
 			},
-			want: []string{"idle: ", "no goblin at work", "8.0 GB of memory", "next: start next-task", "cfo spawn next-task --project"},
+			want: []string{"idle: ", "no goblin at work", "8.0 GB of memory", "next: start next-task", "goblins spawn next-task --project"},
 		},
 		{
 			name:   "a goblin paused for memory comes back first",
@@ -40,7 +40,7 @@ func TestAnIdleTurnIsWokenWithTheNextWork(t *testing.T) {
 				queueBriefedTask(t, h, "- **next-task** - Ship it (repo: code-goblins)", plainBrief)
 				pausedGoblin(t, h, "paused-task", "memory", "", time.Now().UTC().Add(-time.Hour))
 			},
-			want: []string{"next: resume paused-task with cfo resume paused-task", "then start next-task"},
+			want: []string{"next: resume paused-task with goblins resume paused-task", "then start next-task"},
 		},
 		{
 			name:   "a pause whose date passed",
@@ -84,7 +84,7 @@ func TestAnIdleTurnIsWokenWithTheNextWork(t *testing.T) {
 			memory: plenty,
 			arrange: func(t *testing.T, h home.Home) {
 				queueBriefedTask(t, h, "- **next-task** - Ship it (repo: code-goblins)", plainBrief)
-				writeFile(t, filepath.Join(h.State, "archive", "next-task.status.20261006T120000Z"), "2026-10-06T11:59:00Z done: returned worktree C:\\w via cfo cleanup\n")
+				writeFile(t, filepath.Join(h.State, "archive", "next-task.status.20261006T120000Z"), "2026-10-06T11:59:00Z done: returned worktree C:\\w via goblins cleanup\n")
 			},
 		},
 		{
@@ -127,10 +127,10 @@ func TestAnIdleTurnIsWokenWithTheNextWork(t *testing.T) {
 	}
 }
 
-// A queued task the supervisor is starting could start no more, though cfo
+// A queued task the supervisor is starting could start no more, though goblins
 // spawn writes its task record only once its worktree exists, so an idle turn
-// names the work after it, or none. The CFO's turn-end guard runs apart from
-// cfo serve and cannot read the start the supervisor holds in memory, so on
+// names the work after it, or none. The CEO's turn-end guard runs apart from
+// goblins serve and cannot read the start the supervisor holds in memory, so on
 // 2026-10-21 it could name a start under way as work to dispatch (#1246).
 func TestAnIdleTurnLeavesOutTheTaskBeingStarted(t *testing.T) {
 	cases := []struct {
@@ -138,7 +138,7 @@ func TestAnIdleTurnLeavesOutTheTaskBeingStarted(t *testing.T) {
 		isSecondQueued bool
 		want           []string
 	}{
-		{name: "work queued after it", isSecondQueued: true, want: []string{"next: start second-task with cfo spawn second-task"}},
+		{name: "work queued after it", isSecondQueued: true, want: []string{"next: start second-task with goblins spawn second-task"}},
 		{name: "nothing queued after it"},
 	}
 	for _, testCase := range cases {
@@ -198,7 +198,7 @@ func TestAnIdleTurnLeavesOutTheTaskBeingStarted(t *testing.T) {
 	}
 }
 
-// The same next work wakes an idle turn once per idleWakeAfter, so a CFO that
+// The same next work wakes an idle turn once per idleWakeAfter, so a CEO that
 // cannot start it is not woken at every turn end; other next work wakes it
 // at once.
 func TestAnIdleTurnIsWokenOncePerNextWorkPerInterval(t *testing.T) {
@@ -221,18 +221,18 @@ func TestAnIdleTurnIsWokenOncePerNextWorkPerInterval(t *testing.T) {
 		t.Fatal("the first idle turn end raised nothing")
 	}
 	if raised(start.Add(time.Minute)) || raised(start.Add(29*time.Minute)) {
-		t.Fatal("the same next work woke the CFO again within the interval")
+		t.Fatal("the same next work woke the CEO again within the interval")
 	}
 	if !raised(start.Add(30 * time.Minute)) {
-		t.Fatal("the same next work did not wake the CFO again after the interval")
+		t.Fatal("the same next work did not wake the CEO again after the interval")
 	}
 	pausedGoblin(t, h, "paused-task", "memory", "", start)
 	if !raised(start.Add(31 * time.Minute)) {
-		t.Fatal("new next work did not wake the CFO at once")
+		t.Fatal("new next work did not wake the CEO at once")
 	}
 }
 
-// The CFO's Stop hook stays armed while queued work waits with no goblin in
+// The CEO's Stop hook stays armed while queued work waits with no goblin in
 // flight, so the wakes that work raises reach it.
 func TestWorkWaitsWhileAQueuedTaskCouldStart(t *testing.T) {
 	// Arrange
@@ -250,8 +250,8 @@ func TestWorkWaitsWhileAQueuedTaskCouldStart(t *testing.T) {
 }
 
 // A row that waits for what its blocked-by names is work too: the scheduler
-// starts it by itself once that clears, or it needs the CFO to fix a wait it
-// cannot read, so the CFO's Stop hook stays armed for the wakes either
+// starts it by itself once that clears, or it needs the CEO to fix a wait it
+// cannot read, so the CEO's Stop hook stays armed for the wakes either
 // raises. A row that already finished is not.
 func TestWorkWaitsWhileARowWaitsForWhatItsBlockedByNames(t *testing.T) {
 	cases := []struct {
@@ -269,7 +269,7 @@ func TestWorkWaitsWhileARowWaitsForWhatItsBlockedByNames(t *testing.T) {
 			h := bareHome(t)
 			queueBriefedTask(t, h, c.row, plainBrief)
 			if c.isFinished {
-				writeFile(t, filepath.Join(h.State, "archive", "next-task.status.20261006T120000Z"), "2026-10-06T11:59:00Z done: returned worktree C:\\w via cfo cleanup\n")
+				writeFile(t, filepath.Join(h.State, "archive", "next-task.status.20261006T120000Z"), "2026-10-06T11:59:00Z done: returned worktree C:\\w via goblins cleanup\n")
 			}
 
 			// Act

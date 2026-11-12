@@ -33,7 +33,7 @@ func isHarnessHeld(a Action) bool {
 // the start of one.
 func whoHolds(task string) (string, string) {
 	if task == "" {
-		return "the CFO", "The CFO"
+		return "the CEO", "The CEO"
 	}
 	return task, task
 }
@@ -82,7 +82,7 @@ func (s *Store) setAside(held []Action) bool {
 	if slices.ContainsFunc(s.db.Actions, func(a Action) bool {
 		isForSession := a.TaskID == task && a.Kind != "evaluate"
 		if task == "" {
-			isForSession = s.waitsForCFO(a)
+			isForSession = s.waitsForCEO(a)
 		}
 		return isForSession && slices.Contains(s.trying, a.ID)
 	}) {
@@ -173,9 +173,9 @@ func (s *Service) sendHeldNow(id, task string) (bool, error) {
 	case screens.SendNow == "":
 		return true, errors.New(subject + "'s harness has no send-now key. It takes the message at its next tool call, or as its turn ends.")
 	}
-	if waiting.Host != "" && s.Options.CFO != nil {
-		s.Options.CFO.typing.Lock()
-		defer s.Options.CFO.typing.Unlock()
+	if waiting.Host != "" && s.Options.CEO != nil {
+		s.Options.CEO.typing.Lock()
+		defer s.Options.CEO.typing.Unlock()
 	}
 	if s.lookAtTerminal(waiting).Took {
 		return true, nil
@@ -231,9 +231,9 @@ func (s *Service) takeBackHeld(withdraw Action) (Action, bool, error) {
 	case slices.ContainsFunc(held, func(a Action) bool { return a.Kind != "message" }):
 		return Action{}, true, errors.New(subject + "'s queue also holds an answer the board typed, so this message cannot be taken back alone. Send now has it taken at once.")
 	}
-	if first.Host != "" && s.Options.CFO != nil {
-		s.Options.CFO.typing.Lock()
-		defer s.Options.CFO.typing.Unlock()
+	if first.Host != "" && s.Options.CEO != nil {
+		s.Options.CEO.typing.Lock()
+		defer s.Options.CEO.typing.Unlock()
 	}
 	read := func() ([]string, error) { return host.ReadScreen(record) }
 	rows, err := read()

@@ -231,9 +231,9 @@ test("a size chosen in another page of the board on this device reaches the term
   followFontSize((size) => sizes.push(size));
 
   // Act
-  items.set("cfo-terminal-font-size", "26");
-  view.dispatchEvent(Object.assign(new Event("storage"), { key: "cfo-terminal-font-size" }));
-  view.dispatchEvent(Object.assign(new Event("storage"), { key: "cfo-panel-width" }));
+  items.set("ceo-terminal-font-size", "26");
+  view.dispatchEvent(Object.assign(new Event("storage"), { key: "ceo-terminal-font-size" }));
+  view.dispatchEvent(Object.assign(new Event("storage"), { key: "ceo-panel-width" }));
 
   // Assert
   assert.deepEqual(sizes, [26]);
@@ -256,7 +256,7 @@ test("a kept size outside 12 to 28 px, or none, draws at 20 px", (t) => {
   const cases: [string | null, number][] = [[null, 20], ["11", 20], ["29", 20], ["abc", 20], ["12", 12], ["28", 28], ["23", 23]];
   for (const [kept, size] of cases) {
     // Arrange
-    browser(t, new Map(kept === null ? [] : [["cfo-terminal-font-size", kept]]));
+    browser(t, new Map(kept === null ? [] : [["ceo-terminal-font-size", kept]]));
 
     // Act
     const drawn = storedFontSize();
@@ -270,7 +270,7 @@ test("on a phone a terminal with no size kept draws at 12 px, Ctrl+0 restores 12
   const cases: [string | null, number][] = [[null, PHONE_FONT_SIZE], ["11", PHONE_FONT_SIZE], ["abc", PHONE_FONT_SIZE], ["20", 20], ["16", 16]];
   for (const [kept, size] of cases) {
     // Arrange
-    browser(t, new Map(kept === null ? [] : [["cfo-terminal-font-size", kept]]), false, true);
+    browser(t, new Map(kept === null ? [] : [["ceo-terminal-font-size", kept]]), false, true);
 
     // Act
     const drawn = storedFontSize();

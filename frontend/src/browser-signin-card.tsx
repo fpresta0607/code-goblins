@@ -9,6 +9,7 @@ import { age } from "./presentation";
 import { goblinName } from "./task-words";
 import type { BrowserSignIn, Snapshot } from "./types";
 import { personaFor } from "./workflow";
+import { linkedText } from "./messageText";
 import "./credential-card.css";
 import "./browser-signin-card.css";
 
@@ -19,12 +20,12 @@ export function BrowserSignInCard({ signin, snapshot, connected, now, isOpening,
   const task = snapshot.tasks.find((candidate) => candidate.id === signin.task);
   const asker = signin.task ? task ? goblinName(task) : signin.task : "The CEO";
   if (signin.state === "expired") return <div className="done-card signin-closed" role="status">
-    <Icon name="clock" /><h3>Closed</h3><p>{signInOutcome(signin)}</p>
+    <Icon name="clock" /><h3>Closed</h3><p>{linkedText(signInOutcome(signin))}</p>
     {pager && <div className="card-actions">{pager}</div>}
   </div>;
   const isWaiting = isOpening || signin.state === "opening" || signin.state === "open";
   return <article className="question-card credential-card" data-browser-signin={signin.id} aria-labelledby={"signin-" + signin.id}>
-    <p className="asker"><Avatar persona={signin.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> asks · waiting {age(signin.created_at, now).replace(/ ago$/, "")}</span></p>
+    <p className="asker"><Avatar persona={signin.task ? personaFor(task) : "ceo"} small /><span><strong>{asker}</strong> asks · waiting {age(signin.created_at, now).replace(/ ago$/, "")}</span></p>
     <header className="credential-heading">
       <h3 id={"signin-" + signin.id} tabIndex={-1}>{signInHeading(signin)}</h3>
       <p className="credential-why">Fetching keys needs the {signin.account} signed in. The fleet keeps the session afterwards, never your password.</p>
@@ -41,7 +42,7 @@ export function BrowserSignInCard({ signin, snapshot, connected, now, isOpening,
     {isWaiting && <p className="signin-waiting" role="status"><span className="credential-ring storing" aria-hidden="true" />{signin.state === "open"
       ? "The " + signin.provider + " window is open on your screen. Sign in there and this card moves on by itself."
       : "Opening the " + signin.provider + " sign-in window on your PC."}</p>}
-    {signin.state === "ready" && !isOpening && signin.reason && <Notice tone="warning" icon="warning">{signin.reason}</Notice>}
+    {signin.state === "ready" && !isOpening && signin.reason && <Notice tone="warning" icon="warning">{linkedText(signin.reason)}</Notice>}
     {isLocal
       ? <button type="button" className="primary signin-open" disabled={!connected || isWaiting || signin.state !== "ready"} onClick={onOpen}><Icon name="external" />Open the sign-in window</button>
       : <p className="credential-remote"><Icon name="lock" />Open the sign-in window from the board on your PC.</p>}

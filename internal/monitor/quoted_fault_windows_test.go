@@ -53,8 +53,8 @@ func TestScanKeepsANativeCodexWorkerHealthyWhileQuotingReviewerQuota(t *testing.
 
 // Claude Code warns as a weekly or session limit nears, naming the limit and
 // its reset as a refusal does, and works on. On 2026-10-08 that warning woke
-// the CFO five times as a rate limit. A working Claude goblin showing it stays
-// healthy, and a refusal after it still wakes the CFO.
+// the CEO five times as a rate limit. A working Claude goblin showing it stays
+// healthy, and a refusal after it still wakes the CEO.
 func TestScanKeepsAClaudeGoblinHealthyThroughAUsageWarning(t *testing.T) {
 	// Arrange
 	stateDir := t.TempDir()

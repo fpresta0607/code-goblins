@@ -88,7 +88,7 @@ func TestBoardKeepsWindowsTeardownAfterResumeAndRestart(t *testing.T) {
 }
 
 func TestBoardTeardownProcessFixture(t *testing.T) {
-	if os.Getenv("CFO_TEARDOWN_PROJECTION_FIXTURE") != "1" {
+	if os.Getenv("GOBLINS_TEARDOWN_PROJECTION_FIXTURE") != "1" {
 		return
 	}
 	if _, err := io.Copy(io.Discard, os.Stdin); err != nil {
@@ -98,7 +98,7 @@ func TestBoardTeardownProcessFixture(t *testing.T) {
 
 func TestBoardDropsFinishedWindowsTeardownWithoutLifecycleWrite(t *testing.T) {
 	process := exec.Command(os.Args[0], "-test.run=^TestBoardTeardownProcessFixture$")
-	process.Env = append(os.Environ(), "CFO_TEARDOWN_PROJECTION_FIXTURE=1")
+	process.Env = append(os.Environ(), "GOBLINS_TEARDOWN_PROJECTION_FIXTURE=1")
 	input, err := process.StdinPipe()
 	if err != nil {
 		t.Fatal(err)

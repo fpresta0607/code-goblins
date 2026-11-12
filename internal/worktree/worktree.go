@@ -1,5 +1,5 @@
 // Package worktree acquires, provisions, and returns isolated Git worktrees
-// for goblin tasks. A worktree lives in the CFO home, at
+// for goblin tasks. A worktree lives in the CEO home, at
 // <home>\worktrees\<project folder>\<task id>, never inside the project:
 // the project's checkout gains no folder and no file, its tools never walk a
 // goblin's copy of the code, and a worktree inherits neither the project's
@@ -57,7 +57,7 @@ type Service struct {
 	// <Root>\<project folder>\<task id>, and an extra one beside it
 	// <task id>-<name>.
 	Root string
-	// DataDir is the CFO home's data directory, where per-project worktree
+	// DataDir is the CEO home's data directory, where per-project worktree
 	// manifests live under projects/<name>/worktree.json. Provisioning reads
 	// it; acquisition and return do not.
 	DataDir string

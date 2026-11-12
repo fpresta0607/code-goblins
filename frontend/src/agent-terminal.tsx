@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { Terminal } from "@xterm/xterm"
 import "@xterm/xterm/css/xterm.css"
-import { reportToCfo } from "./api"
+import { reportToCeo } from "./api"
 import { object, strings, type Task, type TreeNode } from "./types"
 import { babyName } from "./fleet-tree"
 import { Notice } from "./notice"
@@ -9,6 +9,7 @@ import { terminalDocument } from "./terminalDocument"
 import { FALLBACK_FONT, LINE_HEIGHT, PADDING, THEME } from "./terminalView"
 import { followFontSize, panelFit, storedFontSize } from "./terminalStream"
 import { drawOnGpu } from "./terminal-gpu"
+import { linkTerminalAddresses, openWebAddress } from "./terminal-links"
 import { type AgentEntry, elapsed, parseAgentEntries, redraw, SPINNER_STEP_MS, transcriptRows, workingRow } from "./claude-transcript"
 import "./agent-terminal.css"
 
@@ -32,13 +33,14 @@ export function AgentTerminal({ task, child, visible }: { task: Task; child: Tre
   useEffect(() => {
     const container = surface.current
     if (!visible || !container) return
-    const nonce = document.querySelector<HTMLMetaElement>('meta[name="cfo-style-nonce"]')?.content || ""
+    const nonce = document.querySelector<HTMLMetaElement>('meta[name="ceo-style-nonce"]')?.content || ""
     const terminal = new Terminal({
       documentOverride: terminalDocument(nonce), disableStdin: true, convertEol: true,
       fontFamily: FALLBACK_FONT, fontSize: storedFontSize(), lineHeight: LINE_HEIGHT,
       cursorBlink: false, scrollback: 5000, screenReaderMode: true, theme: THEME,
-      linkHandler: { activate: () => {} },
+      linkHandler: { activate: (_event, address) => openWebAddress(address) },
     })
+    linkTerminalAddresses(terminal)
     terminal.open(container)
     drawOnGpu(terminal)
     terminal.write("\x1b[?25l")
@@ -129,7 +131,7 @@ export function AgentTerminal({ task, child, visible }: { task: Task; child: Tre
         stream.close()
         setStatus("The child's output could not be read")
         setClosed(true)
-        reportToCfo("reading a child's terminal", "Invalid output stream")
+        reportToCeo("reading a child's terminal", "Invalid output stream")
       }
     })
     stream.addEventListener("unavailable", () => {

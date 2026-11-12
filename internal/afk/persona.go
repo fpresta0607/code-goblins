@@ -39,10 +39,10 @@ var (
 var stablePersonas = []string{"builder", "reviewer", "tester", "planner", "debugger", "security", "database", "designer", "documentation", "operations", "researcher", "performance", "integrations", "git", "accessibility", "releases"}
 
 // Persona is the face the board gives a live goblin of task with title, and
-// the CFO's for no task.
+// the CEO's for no task.
 func Persona(task, title string) string {
 	if task == "" {
-		return "cfo"
+		return "ceo"
 	}
 	meaning := strings.ToLower(title)
 	for _, specialist := range specialists {

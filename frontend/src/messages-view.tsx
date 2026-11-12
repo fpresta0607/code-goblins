@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { message as errorText, reportToCfo, request } from "./api";
+import { message as errorText, reportToCeo, request } from "./api";
 import { copyText } from "./clipboard";
 import { conversationPictures } from "./conversation-pictures";
 import { Icon } from "./Icon";
@@ -12,7 +12,7 @@ import { Notice } from "./notice";
 import { PictureOpener } from "./picture-opener";
 import { PictureViewer } from "./picture-viewer";
 import { ReplyWorking } from "./reply-working";
-import { changeMessages, isWrittenReply, messageFontFor, olderMessages, pageMessages, parseConversation, parseMessages, parsePage, parseSession, parseUsage, parseWaiting, storedMessageFont, storeMessageFont, turnEnds, viewStanding, type MessagePage, type SessionReport } from "./session-messages";
+import { changeMessages, conversationHead, isWrittenReply, messageFontFor, olderMessages, pageMessages, parseConversation, parseMessages, parsePage, parseSession, parseUsage, parseWaiting, storedMessageFont, storeMessageFont, turnEnds, viewStanding, type ConversationHead, type MessagePage, type SessionReport } from "./session-messages";
 import { attachZoomGesture } from "./terminal-zoom";
 import { object, parseAction, string, type Action, type KeySpend, type SubscriptionUsage, type Task, type TreeNode } from "./types";
 import { useTerminalLink } from "./terminal-link";
@@ -22,6 +22,7 @@ import { harnessInk } from "./harness-ink";
 import { QueuedMessage } from "./queued-message";
 import { isUndelivered, sameWords, withTakenCommands } from "./messages";
 import { usePendingSends, type PendingSend } from "./pending-sends";
+import { linkedText } from "./messageText";
 import "./messages-view.css";
 
 // A stream that keeps dropping stops retrying and says why.
@@ -63,7 +64,7 @@ type Composing = Pick<MessagePage, "usage"> & { history: string[] };
 // text, kept in this browser.
 // query names the session as /api/messages takes it (messagesQuery), name is
 // whose replies they are, task is the goblin whose baby goblins its calls
-// open, absent for the CFO, terminal is the key of the session's terminal,
+// open, absent for the CEO, terminal is the key of the session's terminal,
 // whose link reads what it is doing, sent is every message of his to the session the
 // board knows, pending those of them that still wait, and box is the message
 // box under the conversation, told whether the stream says a turn runs. onAskSlot takes the conversation's last row,
@@ -91,6 +92,9 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   // The stream keeps one latest version while the displayed history stays
   // where he reads. Returning to the end publishes it once, without replay.
   const latest = useRef(held);
+  // Where the latest version ends, so a view that holds it back knows it
+  // draws less than it has.
+  const [received, setReceived] = useState<ConversationHead>(() => conversationHead(held));
   // The box speaks for the session as it is now, however far up he reads, so
   // it follows the stream while the history he reads holds still.
   const [composing, setComposing] = useState<Composing>(() => composerOf({ history: [] }, held));
@@ -99,11 +103,16 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   // working indicator: never the board's snapshot of the terminal, which can
   // say a finished turn still works.
   const [report, setReport] = useState<SessionReport | null>(null);
-  // Behind and working are the stream's own words, and a compaction is the
-  // session's own state rather than a turn: both draw the one indicator, only
-  // once the view is live, and both are published with the messages so what
-  // he reads up keeps still.
-  const standing = viewStanding(report, held.messages);
+  // Behind and working are read from the stream's word and the view's own
+  // place: the conversation drawn against what the stream sent and what its
+  // head names. The working indicator is that word as it is now, never kept
+  // from when he left the end, so a turn that ended draws no indicator
+  // wherever he reads. What the rows he reads show of their turn, its end, a
+  // reply's Run and the working row's room, is published with the messages,
+  // so what he reads up keeps still. A compaction is the session's own state
+  // rather than a turn, and draws the one indicator too once the view is
+  // live.
+  const standing = viewStanding(report, conversationHead(held), received);
   const isAtWork = standing.isWorking || phase === "live" && isCompacting;
   // The box's Stop reads the same word of the stream, as the session is now
   // however far up he reads, so no Stop shows for a turn that ended, whatever
@@ -204,8 +213,8 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   const runCode = useCallback(async (message: string, block: number, fence: number) => {
     const session = new URLSearchParams(query);
     const answer = object(await request("/api/code-run", undefined, {
-      method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance },
-      body: JSON.stringify({ task: session.get("task") ?? "", generation: session.get("generation") ?? "", cfo: session.get("cfo") ?? "", message, block, fence }),
+      method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance },
+      body: JSON.stringify({ task: session.get("task") ?? "", generation: session.get("generation") ?? "", ceo: session.get("ceo") ?? "", message, block, fence }),
     }));
     openCommand.current?.("run:" + string(answer.run_id));
   }, [query, instance]);
@@ -275,10 +284,12 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
         olderWaiting.current = null;
       }
       reconcile.current();
+      const head = conversationHead(next);
       isTaking.current = true;
       try {
         flushSync(() => {
           if (following.current) setHeld(next);
+          setReceived((prior) => prior.conversation === head.conversation && prior.newest === head.newest ? prior : head);
           setComposing((prior) => composerOf(prior, next));
           setReconnecting(false);
           setPhase("live");
@@ -289,7 +300,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     };
     const invalid = () => {
       close(UNREAD);
-      reportToCfo(where, "Invalid messages stream");
+      reportToCeo(where, "Invalid messages stream");
     };
     stream.addEventListener("page", (event: MessageEvent<string>) => {
       try {
@@ -316,12 +327,18 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
       close(why || UNREAD);
     });
     // A stream the supervisor refused is closed for good; one that dropped,
-    // as each does after ten minutes, reconnects by itself.
+    // as each does after ten minutes, reconnects by itself. A drop says
+    // nothing of the turn, so the view keeps its last word through it and
+    // claims no turn end and no Send, but draws the working indicator only
+    // while its stream is live and connected, as the turn may end meanwhile.
+    // A view whose stream went away counts as reconnecting until its next
+    // stream speaks.
     stream.onerror = () => {
       if (stream.readyState === EventSource.CLOSED || ++failures >= MAX_RETRIES) close(UNREAD);
       else setReconnecting(true);
     };
     return () => {
+      if (stream.readyState !== EventSource.CLOSED) setReconnecting(true);
       stream.close();
     };
   }, [address, visible, attempt, where, pages, pageKey]);
@@ -464,7 +481,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
       if (readingOlder.current !== reading) return;
       readingOlder.current = null;
       olderFailures.current = { count: olderFailures.current.count + 1, at: Date.now() };
-      reportToCfo(where, errorText(error));
+      reportToCeo(where, errorText(error));
     });
   }, [address, where]);
 
@@ -796,7 +813,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   // them, its row is his message, and the board's copy goes, so it shows once
   // whichever of the two arrives first. Each row of his is one message, the
   // oldest the board took of the same words, settled or still waiting, so a
-  // second message of the same words waits for its own row; a row the CFO or
+  // second message of the same words waits for its own row; a row the CEO or
   // the fleet wrote is never his. One the board settled had its row before it
   // settled, as the board settles a message only once it has seen the harness
   // take it, so a later row is never an older message's whose own row is not
@@ -863,7 +880,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
               session's reading, the dither included (the Overlord,
               2026-10-28: "connecting screens don't need to display the dither
               or usage unavailable"). */}
-          {shown && held.isWorking && reachesEnd && <ReplyWorking said={held.said} ink={harnessInk(harness)} isCompacting={isCompacting} retry={link?.screen?.retry} />}
+          {shown && held.isWorking && reachesEnd && <ReplyWorking said={held.said} ink={harnessInk(harness)} isCompacting={isCompacting} isHeld={!isAtWork || phase !== "live" || isReconnecting || !visible} retry={link?.screen?.retry} />}
           {/* His messages not yet in the session's record, at the
               conversation's end in its one scroll (the Overlord, 2026-10-29:
               "the double scrolls and having its own little scroll for queued
@@ -876,7 +893,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
             return action
               ? <QueuedMessage key={"queued-" + action.id} action={action} harnessState={prompt.sending ? "Sending" : "Queued"} liveAction={pending.find((each) => each.id === action.id) ?? null} instance={instance} name={name} variant="pane" />
               : <div key={"waiting-" + prompt.id} className={"queued-message pane " + prompt.source} data-queued={prompt.id}>
-                <div className={"message-bubble queued-bubble" + (prompt.sending ? "" : " waiting")}>{prompt.text}</div>
+                <div className={"message-bubble queued-bubble" + (prompt.sending ? "" : " waiting")}>{linkedText(prompt.text)}</div>
                 <p className="queued-state">{prompt.sending ? "Sending" : "Queued"}</p>
               </div>;
           })}

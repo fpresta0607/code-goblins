@@ -1,4 +1,4 @@
-import { CFO_DOOR, expect, test, type Locator, type Page } from "./site";
+import { CEO_DOOR, expect, test, type Locator, type Page } from "./site";
 
 // A part of a card's text and the lines it takes: all its lines, those a clip
 // leaves at least some of, and those it leaves whole.
@@ -113,17 +113,17 @@ const measure = async (cards: Locator) => Promise.all((await cards.all()).map((o
 const describe = (seen: Fit) => seen.parts.map((part) => part.part + ": " + part.text);
 
 for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
-  test(`the CFO's subscription dials and spend never overlap at fit zoom at ${size.width}px`, async ({ page }, testInfo) => {
+  test(`the CEO's subscription dials and spend never overlap at fit zoom at ${size.width}px`, async ({ page }, testInfo) => {
     // Arrange
     await page.setViewportSize(size);
     const isPhone = size.width === 390;
     await page.goto("/tests/fixtures/orchestration-card-text.html?crowded&view=" + (isPhone ? "lineage" : "canvas"));
     await page.evaluate(() => document.fonts.ready);
-    const cfo = page.locator(isPhone ? ".workflow-node.role-cfo" : ".flow-node").filter({ has: page.locator("strong", { hasText: /^CEO$/ }) });
-    await expect(cfo.locator(".subscription-dial")).toHaveCount(3);
+    const ceo = page.locator(isPhone ? ".workflow-node.role-ceo" : ".flow-node").filter({ has: page.locator("strong", { hasText: /^CEO$/ }) });
+    await expect(ceo.locator(".subscription-dial")).toHaveCount(3);
 
     // Act
-    const overlaps = await cfo.evaluate((node) => {
+    const overlaps = await ceo.evaluate((node) => {
       const frame = node.getBoundingClientRect();
       const parts = [...node.querySelectorAll(".subscription-ring, .subscription-percent, .key-spend-spent, .key-spend-budget, .card-harness, .icon-button")]
         .filter((element) => element.getClientRects().length)
@@ -136,7 +136,7 @@ for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) 
 
     // Assert
     expect(overlaps).toEqual([]);
-    await page.screenshot({ path: testInfo.outputPath(`cfo-dials-${size.width}.png`) });
+    await page.screenshot({ path: testInfo.outputPath(`ceo-dials-${size.width}.png`) });
   });
 }
 
@@ -275,22 +275,22 @@ function facts(card: Element, selectors: Record<string, string>): Record<string,
   }));
 }
 
-// A goblin whose task names no session says beside its card whether its
-// native terminal is running, and never calls an unknown terminal running.
-for (const [view, width, line] of [["canvas", 1440, ".flow-session-details"], ["lineage", 390, ".node-relation"]] as const) {
-  for (const [state, text] of [["busy", "Native terminal running, session details unavailable"], ["parked", "Native terminal running, session details unavailable"], ["unknown", "Session details unavailable"]]) {
-    test(`${view} at ${width}px says a ${state} terminal's session details are unavailable`, async ({ page }) => {
-      // Arrange
-      await page.setViewportSize({ width, height: 900 });
+// A goblin whose task names no session says beside its card on the canvas
+// whether its native terminal is running, and never calls an unknown terminal
+// running. A phone's lineage list prints no words on its branches
+// (phone-branch-text.spec.ts).
+for (const [state, text] of [["busy", "Native terminal running, session details unavailable"], ["parked", "Native terminal running, session details unavailable"], ["unknown", "Session details unavailable"]]) {
+  test(`canvas at 1440px says a ${state} terminal's session details are unavailable`, async ({ page }) => {
+    // Arrange
+    await page.setViewportSize({ width: 1440, height: 900 });
 
-      // Act
-      await page.goto("/tests/fixtures/orchestration-card-text.html?terminal=" + state + (view === "canvas" ? "" : "&view=" + view));
+    // Act
+    await page.goto("/tests/fixtures/orchestration-card-text.html?terminal=" + state);
 
-      // Assert
-      const task = page.locator(view === "canvas" ? ".flow-node" : ".node-group").filter({ has: page.locator(".task-card", { hasText: "Olive - Billing Baron" }) });
-      await expect(task.locator(line)).toHaveText(text);
-    });
-  }
+    // Assert
+    const task = page.locator(".flow-node").filter({ has: page.locator(".task-card", { hasText: "Olive - Billing Baron" }) });
+    await expect(task.locator(".flow-session-details")).toHaveText(text);
+  });
 }
 
 for (const [view, width] of [["canvas", 1440], ["lineage", 320]] as const) {
@@ -335,26 +335,26 @@ for (const title of ["Olive - Billing Baron", "Woody - Tour Guide", "Bartholomew
   });
 }
 
-// The CFO's card on the canvas opens its terminal and shows the weekly
-// allowance of his account, as the board's CFO bar does.
+// The CEO's card on the canvas opens its terminal and shows the weekly
+// allowance of his account, as the board's CEO bar does.
 // The switch is reachable in Orchestration too, where the bar is not, right
-// beside the button that opens the CFO (the Overlord, 2026-11-05).
+// beside the button that opens the CEO (the Overlord, 2026-11-05).
 for (const view of ["canvas", "lineage"]) {
-  test(`the CFO's card on the ${view} keeps its AFK switch right beside the button that opens it`, async ({ page }) => {
+  test(`the CEO's card on the ${view} keeps its AFK switch right beside the button that opens it`, async ({ page }) => {
     // Act
     await open(page, view);
 
     // Assert
-    const end = page.locator(".cfo-pin-end");
+    const end = page.locator(".ceo-pin-end");
     const afk = (await end.getByRole("switch", { name: "AFK mode" }).boundingBox())!;
-    const opens = (await end.getByRole("button", { name: CFO_DOOR }).boundingBox())!;
+    const opens = (await end.getByRole("button", { name: CEO_DOOR }).boundingBox())!;
     expect(Math.abs(afk.y + afk.height / 2 - (opens.y + opens.height / 2))).toBeLessThanOrEqual(1);
     expect(afk.x + afk.width).toBeLessThanOrEqual(opens.x);
     expect(opens.x - (afk.x + afk.width)).toBeLessThanOrEqual(16);
   });
 }
 
-// A switch that cannot be read says so in words, whatever room the CFO's card
+// A switch that cannot be read says so in words, whatever room the CEO's card
 // has for them: its foot keeps them inside the border, wholly shown and clear
 // of everything else the card draws, with one dial and with all it can hold.
 for (const { view, width, height } of [
@@ -363,7 +363,7 @@ for (const { view, width, height } of [
   { view: "lineage", width: 320, height: 700 },
 ]) {
   for (const isCrowded of [false, true]) {
-    test(`the CFO's card on the ${view} at ${width}px${isCrowded ? ", crowded," : ""} holds an unreadable switch's words inside its border`, async ({ page }) => {
+    test(`the CEO's card on the ${view} at ${width}px${isCrowded ? ", crowded," : ""} holds an unreadable switch's words inside its border`, async ({ page }) => {
       // Arrange
       await page.setViewportSize({ width, height });
 
@@ -373,14 +373,14 @@ for (const { view, width, height } of [
       await page.mouse.move(2, 2);
 
       // Assert
-      const cfo = page.locator(view === "canvas" ? ".flow-node" : ".workflow-node.role-cfo").filter({ has: page.locator("strong", { hasText: /^CEO$/ }) });
-      const seen = await cfo.evaluate(fit, PARTS);
+      const ceo = page.locator(view === "canvas" ? ".flow-node" : ".workflow-node.role-ceo").filter({ has: page.locator("strong", { hasText: /^CEO$/ }) });
+      const seen = await ceo.evaluate(fit, PARTS);
       expect(seen.spills).toEqual([]);
       expect(seen.cut).toEqual([]);
       const words = seen.parts.find((part) => part.part === "AFK words");
       expect(words?.text).toBe("Unreadable: a press resets it");
       expect(words?.whole).toBe(words?.lines);
-      const overlaps = await cfo.evaluate((node) => {
+      const overlaps = await ceo.evaluate((node) => {
         const said = node.querySelector(".afk-header > .muted")!.getBoundingClientRect();
         return [...node.querySelectorAll("strong, .plain-status, .card-status-text, .subscription-dial, .afk-toggle, .icon-button, .card-harness")]
           .filter((part) => { const box = part.getBoundingClientRect(); return box.width > 0 && said.left < box.right - .5 && box.left < said.right - .5 && said.top < box.bottom - .5 && box.top < said.bottom - .5; })
@@ -391,16 +391,16 @@ for (const { view, width, height } of [
   }
 }
 
-test("the CFO's canvas card opens its terminal and shows the usage dial", async ({ page }) => {
+test("the CEO's canvas card opens its terminal and shows the usage dial", async ({ page }) => {
   // Arrange
   await open(page);
-  const cfo = card(page, "CEO");
+  const ceo = card(page, "CEO");
 
   // Act
-  await cfo.getByRole("button", { name: CFO_DOOR }).click();
+  await ceo.getByRole("button", { name: CEO_DOOR }).click();
 
   // Assert
-  await expect(cfo.getByRole("progressbar", { name: /Claude 62% weekly remaining/ })).toBeVisible();
-  await expect(cfo.getByRole("img", { name: "Claude Code" })).toBeVisible();
-  expect(await page.evaluate(() => (window as Window & { cfoOpened?: number }).cfoOpened)).toBe(1);
+  await expect(ceo.getByRole("progressbar", { name: /Claude 62% weekly remaining/ })).toBeVisible();
+  await expect(ceo.getByRole("img", { name: "Claude Code" })).toBeVisible();
+  expect(await page.evaluate(() => (window as Window & { ceoOpened?: number }).ceoOpened)).toBe(1);
 });

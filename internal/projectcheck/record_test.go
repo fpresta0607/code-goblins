@@ -6,7 +6,7 @@ import (
 )
 
 // A project with no record is the state all 14 projects of the home were in
-// when this check was written: `cfo project check` answered with the
+// when this check was written: `goblins project check` answered with the
 // operating system's "cannot find the file specified" and nothing said what
 // that costs or what to do.
 func TestAMissingProjectRecordIsReportedWithWhereItBelongs(t *testing.T) {
@@ -49,7 +49,7 @@ func TestAValidProjectRecordPasses(t *testing.T) {
 	}
 }
 
-// `cfo verify` refuses a tier that names no command, so a record with no
+// `goblins verify` refuses a tier that names no command, so a record with no
 // verification command fails every tier.
 func TestARecordWithNoVerificationCommandIsReported(t *testing.T) {
 	t.Parallel()
@@ -106,7 +106,7 @@ func TestARecordNamingAnotherProjectIsReported(t *testing.T) {
 }
 
 // A verification tier that names a program this machine does not have fails
-// every `cfo verify` at that tier.
+// every `goblins verify` at that tier.
 func TestAVerificationTierNamingAMissingProgramIsReported(t *testing.T) {
 	t.Parallel()
 	// Arrange

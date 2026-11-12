@@ -20,7 +20,7 @@ import (
 // afkNextRows bounds how many queued tasks the return page names as next.
 const afkNextRows = 5
 
-// taskNaming is a task's title, the CFO's one line for the work, and its
+// taskNaming is a task's title, the CEO's one line for the work, and its
 // goblin's name, from its live record, else what it left when it finished,
 // else its backlog row. A task none of them names is called by its ID.
 func (s *Service) taskNaming(id string) (title, goblin string) {

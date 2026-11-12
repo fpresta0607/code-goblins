@@ -75,7 +75,7 @@ func TestFailedOrAbandonedLifecycleStillMonitorsALiveHarness(t *testing.T) {
 // lock a moment to write into the task's folder, as an auth refresh does, and
 // a cleanup that ended without retiring the task leaves its lock record
 // behind: neither accounts for the terminal, so the goblin it ran is missing,
-// and the CFO is woken.
+// and the CEO is woken.
 func TestScanRaisesAMissingTerminalUnlessTheTasksCleanupHoldsIt(t *testing.T) {
 	holdCleanupLock := func(purpose string) func(*testing.T, string) {
 		return func(t *testing.T, directory string) {

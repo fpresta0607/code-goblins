@@ -271,7 +271,7 @@ func UndeclaredNames(store Store, project string, manifest Manifest) ([]string, 
 func WithheldLine(task, project string, result Result) string {
 	var parts []string
 	if len(result.Grant.Withheld) > 0 {
-		parts = append(parts, fmt.Sprintf("withheld %d of %s's services (%s), grant one with `cfo auth grant %s <service>`",
+		parts = append(parts, fmt.Sprintf("withheld %d of %s's services (%s), grant one with `goblins auth grant %s <service>`",
 			len(result.Grant.Withheld), ProjectName(project), strings.Join(result.Grant.Withheld, ", "), task))
 	}
 	if len(result.Undeclared) > 0 {

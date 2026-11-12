@@ -26,7 +26,7 @@ test("Arrange wraps a fleet with a nested goblin into rows", () => {
     const positions = arrange(nodes, { width: 836, height: 956 });
 
     // Assert
-    const siblings = nodes.filter(node => node.parent === "cfo:primary");
+    const siblings = nodes.filter(node => node.parent === "ceo:primary");
     assert.ok(siblings.length > 1);
     assert.ok(new Set(siblings.map(node => positions[node.id].y)).size > 1);
     assert.ok(positions["task:g17"].y > positions["task:g0"].y);
@@ -122,11 +122,11 @@ test("a silent child returns when it works and a gate awaiting a decision stays"
 })
 
 test("rows under a goblin whose children show move down to make room, and keep their rows", () => {
-  const positions = { cfo: { x: 400, y: 72 }, one: { x: 40, y: 72 + ROW }, two: { x: 376, y: 72 + ROW }, low: { x: 208, y: 72 + 2 * ROW } };
+  const positions = { ceo: { x: 400, y: 72 }, one: { x: 40, y: 72 + ROW }, two: { x: 376, y: 72 + ROW }, low: { x: 208, y: 72 + 2 * ROW } };
   assert.deepEqual(makeRoom(positions, {}), positions, "nothing open moves nothing");
   assert.deepEqual(makeRoom(positions, { one: 58 }), positions, "a count fits in the gap between rows");
   const room = makeRoom(positions, { one: 300 });
-  assert.equal(room.cfo.y, 72);
+  assert.equal(room.ceo.y, 72);
   assert.equal(room.one.y, 72 + ROW);
   assert.equal(room.two.y, 72 + ROW, "a row moves as one");
   assert.ok(room.low.y >= 72 + ROW + NODE_HEIGHT + 300, "the row under the open goblin starts below its children");
@@ -331,8 +331,8 @@ test("a connector to a later row of goblins runs down clear of every card and ba
       const point = positions[node.id], branches = layouts[node.id], card = { name: node.id, left: point.x, right: point.x + NODE_WIDTH, top: point.y, bottom: point.y + NODE_HEIGHT };
       return [card, ...(branches?.places || []).map((place, i) => ({ ...boxOf({ x: point.x + (NODE_WIDTH - branches.width) / 2 + place.x, y: point.y + NODE_HEIGHT + place.y }), name: node.id + " child " + i }))];
     });
-    const cfo = positions[nodes.find((node) => !node.parent)!.id], children = nodes.filter((node) => node.parent);
-    const y = cfo.y + NODE_HEIGHT, targets = children.map((node) => ({ x: positions[node.id].x + NODE_WIDTH / 2, y: positions[node.id].y }));
+    const ceo = positions[nodes.find((node) => !node.parent)!.id], children = nodes.filter((node) => node.parent);
+    const y = ceo.y + NODE_HEIGHT, targets = children.map((node) => ({ x: positions[node.id].x + NODE_WIDTH / 2, y: positions[node.id].y }));
     const ways = detours(y, targets, taken);
     const routes = targets.map((target, i) => {
       const way = ways[i], top = y + Math.min((target.y - y) / 2, 56) * 2;
@@ -392,18 +392,18 @@ test("a helper its parent's tree holds is a baby goblin under its parent, not a 
 // has paused or finished can still carry the last tree read, which lists its
 // helper. Only a goblin in progress has a card to draw that tree under, so
 // only its tree holds a helper: one still working for a paused or finished
-// goblin keeps its card, under the CFO.
-test("a working helper keeps its card under the CFO while its paused or finished parent's last tree still lists it", () => {
+// goblin keeps its card, under the CEO.
+test("a working helper keeps its card under the CEO while its paused or finished parent's last tree still lists it", () => {
   // Arrange
-  const cfo = { id: "cfo", native_id: "cfo", harness: "claude", role: "cfo", generation: "c1" };
-  const own = { id: "own", native_id: "own", harness: "claude", role: "goblin", task_id: "g", generation: "s1", parent: "cfo" };
+  const ceo = { id: "ceo", native_id: "ceo", harness: "claude", role: "ceo", generation: "c1" };
+  const own = { id: "own", native_id: "own", harness: "claude", role: "goblin", task_id: "g", generation: "s1", parent: "ceo" };
   const helperSession = { id: "helper", native_id: "helper", harness: "claude", role: "goblin", task_id: "g-h1", generation: "s2" };
   const lastTree = { task_id: "g", generation: "s1", harness: "claude", children: [{ id: "helper:g-h1", kind: "helper", state: "working" }] };
   const parent = { id: "g", session: "own", generation: "s1", verified: false, tree: lastTree };
   const helper = { id: "g-h1", parent: "g", phase: "working", verified: false, generation: "s2" };
   const reports = [
-    { sessions: [cfo, own, helperSession], helperTask: { ...helper, session: "helper" }, card: "session:helper", under: "session:cfo" },
-    { sessions: [], helperTask: helper, card: "task:g-h1", under: "cfo:primary" },
+    { sessions: [ceo, own, helperSession], helperTask: { ...helper, session: "helper" }, card: "session:helper", under: "session:ceo" },
+    { sessions: [], helperTask: helper, card: "task:g-h1", under: "ceo:primary" },
   ];
   for (const [name, fields, isHeld] of [
     ["working", { phase: "working" }, true],
@@ -423,27 +423,27 @@ test("a working helper keeps its card under the CFO while its paused or finished
 
 // A helper no family tree holds hangs under its parent's card while its
 // parent is in progress. A paused parent waits on the Paused bench, so the
-// helper it waits on, which keeps working, hangs under the CFO.
+// helper it waits on, which keeps working, hangs under the CEO.
 test("a helper no family tree holds hangs under its parent's card while its parent is in progress", () => {
-  const cfo = { id: "cfo", native_id: "cfo", harness: "claude", role: "cfo", generation: "c1" };
-  const own = { id: "own", native_id: "own", harness: "claude", role: "goblin", task_id: "g", generation: "s1", parent: "cfo" };
-  const helperSession = { id: "helper", native_id: "helper", harness: "claude", role: "goblin", task_id: "g-h1", generation: "s2", parent: "cfo" };
+  const ceo = { id: "ceo", native_id: "ceo", harness: "claude", role: "ceo", generation: "c1" };
+  const own = { id: "own", native_id: "own", harness: "claude", role: "goblin", task_id: "g", generation: "s1", parent: "ceo" };
+  const helperSession = { id: "helper", native_id: "helper", harness: "claude", role: "goblin", task_id: "g-h1", generation: "s2", parent: "ceo" };
   const parent = { id: "g", phase: "waiting", waiting_on: "g-h1", verified: false, generation: "s1" };
   const helper = { id: "g-h1", parent: "g", phase: "working", verified: false, generation: "s2" };
   const parentOf = (tasks: object[], sessions: object[]) => Object.fromEntries(workflowNodes(parseSnapshot({ healthy: true, tasks, sessions }))
     .map((node) => [node.id, [node.parent, node.relation]]));
   for (const [name, tasks, sessions, card, under] of [
     ["no session reported", [parent, helper], [], "task:g-h1", "task:g"],
-    ["both sessions reported", [{ ...parent, session: "own" }, { ...helper, session: "helper" }], [cfo, own, helperSession], "session:helper", "session:own"],
-    ["only the parent's reported", [{ ...parent, session: "own" }, helper], [cfo, own], "task:g-h1", "session:own"],
-    ["only the helper's reported", [parent, { ...helper, session: "helper" }], [cfo, helperSession], "session:helper", "task:g"],
+    ["both sessions reported", [{ ...parent, session: "own" }, { ...helper, session: "helper" }], [ceo, own, helperSession], "session:helper", "session:own"],
+    ["only the parent's reported", [{ ...parent, session: "own" }, helper], [ceo, own], "task:g-h1", "session:own"],
+    ["only the helper's reported", [parent, { ...helper, session: "helper" }], [ceo, helperSession], "session:helper", "task:g"],
   ] as [string, object[], object[], string, string][]) {
     assert.deepEqual(parentOf(tasks, sessions)[card], [under, "Helper goblin"], name);
   }
-  assert.deepEqual(parentOf([parent, helper], [])["task:g"], ["cfo:primary", "Dispatched by the CEO"], "its parent still hangs under the CEO");
-  const paused = parentOf([{ ...parent, phase: "paused", session: "own" }, { ...helper, session: "helper" }], [cfo, own, helperSession]);
-  assert.deepEqual([paused["session:own"], paused["session:helper"]?.[0]], [undefined, "session:cfo"], "a paused parent's helper hangs under the CEO");
-  assert.equal(parentOf([helper], [])["task:g-h1"][0], "cfo:primary", "a helper whose parent is gone hangs under the CEO");
+  assert.deepEqual(parentOf([parent, helper], [])["task:g"], ["ceo:primary", "Dispatched by the CEO"], "its parent still hangs under the CEO");
+  const paused = parentOf([{ ...parent, phase: "paused", session: "own" }, { ...helper, session: "helper" }], [ceo, own, helperSession]);
+  assert.deepEqual([paused["session:own"], paused["session:helper"]?.[0]], [undefined, "session:ceo"], "a paused parent's helper hangs under the CEO");
+  assert.equal(parentOf([helper], [])["task:g-h1"][0], "ceo:primary", "a helper whose parent is gone hangs under the CEO");
 });
 
 test("a goblin waiting on the helper hung under it draws no dashed line to it", () => {
@@ -487,7 +487,7 @@ test("a baby goblin says what it runs in plain words: the program its command st
     [{ kind: "process", group: "other", label: "node scripts/poll.mjs", task: "node scripts/poll.mjs" }, "Node running poll.mjs"],
     [{ kind: "process", group: "test", label: "Test run", task: "go test ./..." }, "Test run"],
     [{ kind: "process", group: "other", label: "sleep", task: "sleep 300" }, "sleep"],
-    [{ kind: "process", group: "other", label: "go run ./cmd/cfo serve --port 4310", task: "go run ./cmd/cfo serve --port 4310" }, "go"],
+    [{ kind: "process", group: "other", label: "go run ./cmd/goblins serve --port 4310", task: "go run ./cmd/goblins serve --port 4310" }, "go"],
     [{ kind: "shell", label: "terraform apply -auto-approve", task: "terraform apply -auto-approve" }, "terraform"],
     [{ kind: "shell", label: "Start the dev server", task: "npm run dev" }, "Start the dev server"],
     [{ kind: "shell", label: "bash scripts/listen.sh", task: "bash scripts/listen.sh" }, "Shell running listen.sh"],

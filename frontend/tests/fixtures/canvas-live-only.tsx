@@ -6,7 +6,7 @@ import "../../src/styles.css";
 import { RESTING_AFK_TOGGLE } from "./resting-afk-toggle";
 
 // The canvas the Overlord showed on 2026-10-17, in small. Wanda and Kip work
-// under the CFO, Kip's helper Pip works for him and Wendell waits on CI.
+// under the CEO, Kip's helper Pip works for him and Wendell waits on CI.
 // Beside them the board holds what read Turn finished, Working and Session
 // ended there: the sessions of goblins retired the day before, whose tasks the
 // board's history no longer names, an ended session, Wanda's earlier
@@ -16,12 +16,12 @@ import { RESTING_AFK_TOGGLE } from "./resting-afk-toggle";
 const session = (id: string, task: string, phase: string, generation = "g1") => ({ id: "claude/" + id, native_id: id, harness: "claude", role: "goblin", task_id: task, generation, phase });
 const goblin = (id: string, name: string, title: string, phase: string, more: object = {}) => ({ id, title: id, goblin_name: name, goblin_title: title, project: "code-goblins", phase, generation: "g1", verified: false, ...more });
 const snapshot = parseSnapshot({
-  healthy: true, instance: "fixture", cfo_runs: true, afk: { state: "off" }, cfo_session: "claude/cfo",
+  healthy: true, instance: "fixture", ceo_runs: true, afk: { state: "off" }, ceo_session: "claude/ceo",
   sessions: [
     session("model-routing", "cg-model-routing", "settled"),
     session("lavish-server-cwd", "lavish-server-cwd", "settled"),
     session("dictation-cold-start", "cg-dictation-cold-start", "active"),
-    session("goblins-under-cfo", "cg-goblins-under-cfo", "ended"),
+    session("goblins-under-ceo", "cg-goblins-under-ceo", "ended"),
     session("api-ace-earlier", "pd-mcp-only", "active", "g0"),
     session("api-ace", "pd-mcp-only", "active"),
     session("chart-captain", "ha-spend-tab", "active"),
@@ -45,6 +45,6 @@ const isList = new URLSearchParams(location.search).has("list");
 
 createRoot(document.getElementById("root")!).render(<main style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
   {isList
-    ? <Lineage afkToggle={RESTING_AFK_TOGGLE} onOpenCfo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} />
-    : <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenCfo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} />}
+    ? <Lineage afkToggle={RESTING_AFK_TOGGLE} onOpenCeo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} />
+    : <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenCeo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} />}
 </main>);

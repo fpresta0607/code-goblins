@@ -1,7 +1,7 @@
-// Package layout is where a CFO home keeps the operator's data: the backlog,
-// the CFO's memory, each project's manifests, one folder per task, and the
+// Package layout is where a CEO home keeps the operator's data: the backlog,
+// the CEO's memory, each project's manifests, one folder per task, and the
 // archive that finished and set-aside work is filed into. AGENTS.md describes the layout
-// under "The CFO home"; this package is what creates it.
+// under "The CEO home"; this package is what creates it.
 package layout
 
 import (
@@ -23,11 +23,11 @@ const Backlog = "backlog.md"
 // its owner has seen what that would move.
 const Marker = ".layout"
 
-const markerText = "This folder is a Code Goblins CFO home's data, laid out as AGENTS.md describes under \"The CFO home\".\r\n"
+const markerText = "This folder is a Code Goblins CEO home's data, laid out as AGENTS.md describes under \"The CEO home\".\r\n"
 
-// MemoryIndex is the CFO's memory index, slash-separated under the data
+// MemoryIndex is the CEO's memory index, slash-separated under the data
 // folder: one line per fact, each fact a file of its own beside it. It lives
-// in the home rather than in any harness, so a CFO in every harness reads and
+// in the home rather than in any harness, so a CEO in every harness reads and
 // writes the same memory.
 const MemoryIndex = "memory/MEMORY.md"
 

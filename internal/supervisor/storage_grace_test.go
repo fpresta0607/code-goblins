@@ -23,7 +23,7 @@ func failingStore(t *testing.T) (*Store, error) {
 }
 
 // The board showed the Overlord "supervisor persistence failed: rename
-// ...\.cfo-tmp-2713629804 ...\.supervisor.json: Access is denied" on
+// ...\.goblins-tmp-2713629804 ...\.supervisor.json: Access is denied" on
 // 2026-10-01 for a lock that was gone within the minute. A failed save
 // loses nothing: what it would have saved stays where it came from and the
 // next cycle, at most two seconds away, saves it. So one failure is not the

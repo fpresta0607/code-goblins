@@ -20,7 +20,7 @@ import (
 // snapshot built names it, so looks build no snapshot however much changes
 // between them (#1716).
 func TestTheWindowsLookAnswersWhatWaitsWithoutBuildingASnapshot(t *testing.T) {
-	// Arrange: the CFO's question and a goblin's question the CFO has left,
+	// Arrange: the CEO's question and a goblin's question the CEO has left,
 	// on a board whose snapshot builds are counted.
 	store, _ := testStore(t)
 	asked := time.Now().UTC().Add(-11 * time.Minute).Truncate(time.Second)
@@ -59,7 +59,7 @@ func TestTheWindowsLookAnswersWhatWaitsWithoutBuildingASnapshot(t *testing.T) {
 	// Assert
 	at := asked.Format(time.RFC3339)
 	want := []waiting.Item{
-		{ID: "question:pick-a-store@" + at, Asker: "CFO", Text: "The CFO asks: Which store?"},
+		{ID: "question:pick-a-store@" + at, Asker: "CEO", Text: "The CEO asks: Which store?"},
 		{ID: "question:notify-olive-1@" + at, Asker: "Olive", Text: "Olive asks: Which port?", IsQuiet: true},
 	}
 	if status != 200 || answer.Instance != "test-instance" || !slices.Equal(answer.Items, want) {

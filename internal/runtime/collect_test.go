@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/layout"
 	"github.com/fpresta0607/code-goblins/internal/services"
 )
 
@@ -40,7 +41,7 @@ func (s stubSystem) Machine(context.Context, string) (Machine, error) {
 	return s.machine, s.err
 }
 
-// collectorHome lays out a CFO home with one live task and one archived one.
+// collectorHome lays out a CEO home with one live task and one archived one.
 func collectorHome(t *testing.T) home.Home {
 	t.Helper()
 	root := t.TempDir()
@@ -236,7 +237,7 @@ func TestCollectChecksEveryWorkingDirectoryOnDisk(t *testing.T) {
 	}
 }
 
-// The stacks cfo services holds for tasks are read from the home's own
+// The stacks goblins services holds for tasks are read from the home's own
 // record, so the report names who holds each without asking Docker.
 func TestCollectReadsTheLocalServicesTheHomeHolds(t *testing.T) {
 	h := collectorHome(t)
@@ -269,5 +270,45 @@ func TestCollectNamesAServicesRecordItCouldNotRead(t *testing.T) {
 	joined := strings.Join(inv.Notes, "\n")
 	if !strings.Contains(joined, "LOCAL SERVICES UNREADABLE") || !strings.Contains(joined, " - ") {
 		t.Errorf("notes = %q, want one naming the services record with a remedy", joined)
+	}
+}
+
+// The home's last filing pass is read from its record, and a record that
+// cannot be read is named rather than shown as a home never filed.
+func TestCollectReadsTheHomesLastFilingPass(t *testing.T) {
+	cases := []struct {
+		name     string
+		record   string
+		isFiled  bool
+		wantNote string
+	}{
+		{name: "no record yet"},
+		{name: "a pass", record: `{"time":"2026-11-12T06:00:00Z","filed":100,"waiting":892}`, isFiled: true},
+		{name: "unreadable", record: "{not json", wantNote: "FILING RECORD UNREADABLE"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			h := collectorHome(t)
+			if c.record != "" {
+				if err := os.WriteFile(filepath.Join(h.State, layout.RecordName), []byte(c.record), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Act
+			inv, err := Collector{Home: h, Docker: stubDocker{}, System: stubSystem{}}.Collect(context.Background())
+
+			// Assert
+			if err != nil {
+				t.Fatalf("Collect: %v", err)
+			}
+			if c.isFiled != (inv.Filing != nil) || c.isFiled && (inv.Filing.Filed != 100 || inv.Filing.Waiting != 892) {
+				t.Errorf("filing = %+v, want filed %v", inv.Filing, c.isFiled)
+			}
+			if joined := strings.Join(inv.Notes, "\n"); c.wantNote != "" && !strings.Contains(joined, c.wantNote) || c.wantNote == "" && strings.Contains(joined, "FILING") {
+				t.Errorf("notes = %q, want %q", joined, c.wantNote)
+			}
+		})
 	}
 }

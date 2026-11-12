@@ -24,7 +24,7 @@ func keys(sequence ...Key) func() (Key, error) {
 // own letter accepts it at once, Escape goes back, and input that ends
 // accepts nothing.
 func TestAMenuAnswersToEnterTheArrowsALetterAndEscape(t *testing.T) {
-	choices := []Choice{{Label: "Open the CFO terminal"}, {Label: "Open the board", Key: 'b'}, {Label: "Leave"}}
+	choices := []Choice{{Label: "Open the CEO terminal"}, {Label: "Open the board", Key: 'b'}, {Label: "Leave"}}
 	for _, c := range []struct {
 		name string
 		keys []Key
@@ -45,7 +45,7 @@ func TestAMenuAnswersToEnterTheArrowsALetterAndEscape(t *testing.T) {
 			menu := Menu{Output: io.Discard, ReadKey: keys(c.keys...)}
 
 			// Act
-			got, err := menu.Ask(Step{Title: "Your CFO is running", Choices: choices})
+			got, err := menu.Ask(Step{Title: "Your CEO is running", Choices: choices})
 
 			// Assert
 			if got != c.want || !errors.Is(err, c.err) {
@@ -63,14 +63,14 @@ func TestAMenuShowsItsDefaultAndTheKeysThatAnswerIt(t *testing.T) {
 	menu := Menu{Output: &output, ReadKey: keys(KeyEnter)}
 
 	// Act
-	_, err := menu.Ask(Step{Title: "Your CFO is running", Detail: "Home  C:\\CodeGoblins", Choices: []Choice{{Label: "Open the CFO terminal"}, {Label: "Open the board", Key: 'b'}}})
+	_, err := menu.Ask(Step{Title: "Your CEO is running", Detail: "Home  C:\\CodeGoblins", Choices: []Choice{{Label: "Open the CEO terminal"}, {Label: "Open the board", Key: 'b'}}})
 
 	// Assert
 	if err != nil {
 		t.Fatal(err)
 	}
 	shown := output.String()
-	for _, want := range []string{"Your CFO is running", "Home  C:\\CodeGoblins", "  > Open the CFO terminal", "    Open the board", "Press Enter to continue   B: Open the board   Up/Down to choose   Esc to go back"} {
+	for _, want := range []string{"Your CEO is running", "Home  C:\\CodeGoblins", "  > Open the CEO terminal", "    Open the board", "Press Enter to continue   B: Open the board   Up/Down to choose   Esc to go back"} {
 		if !strings.Contains(shown, want) {
 			t.Errorf("the screen lacks %q:\n%q", want, shown)
 		}
@@ -197,9 +197,9 @@ func TestAStepCountsALinkedRowByTheColumnsItTakes(t *testing.T) {
 
 			// Act
 			_, err := menu.Ask(Step{
-				Title:   "Your CFO is running",
+				Title:   "Your CEO is running",
 				Detail:  "Home   C:\\CodeGoblins\nBoard  " + c.link + "  (Ctrl+click opens it)",
-				Choices: []Choice{{Label: "Open the CFO terminal"}, {Label: "Open the board", Key: 'b'}},
+				Choices: []Choice{{Label: "Open the CEO terminal"}, {Label: "Open the board", Key: 'b'}},
 			})
 
 			// Assert
@@ -281,7 +281,7 @@ func TestARowOfTabsMovesWithLeftAndRightAndShowsTheMarkedNote(t *testing.T) {
 			menu := Menu{Output: &output, ReadKey: keys(c.keys...)}
 
 			// Act
-			got, err := menu.Ask(Step{Title: "Choose the agent your CFO runs on", Choices: tabs, Tabs: true})
+			got, err := menu.Ask(Step{Title: "Choose the agent your CEO runs on", Choices: tabs, Tabs: true})
 
 			// Assert
 			if err != nil || got != c.want {
@@ -313,7 +313,7 @@ func TestARedrawOfTabsLeavesNothingOfATallerDrawBelowIt(t *testing.T) {
 	menu := Menu{Output: &output, ReadKey: keys(KeyRight, KeyLeft, KeyEnter), Width: func() int { return 70 }, NoColor: true}
 
 	// Act
-	_, err := menu.Ask(Step{Title: "Choose the agent your CFO runs on", Choices: tabs, Tabs: true})
+	_, err := menu.Ask(Step{Title: "Choose the agent your CEO runs on", Choices: tabs, Tabs: true})
 
 	// Assert
 	if err != nil {
@@ -323,7 +323,7 @@ func TestARedrawOfTabsLeavesNothingOfATallerDrawBelowIt(t *testing.T) {
 	tall, short := " [ Claude Code ]   Codex  \n   "+strings.Repeat("x", 80)+"\n", "   Claude Code   [ Codex ]\n   Ready\n"
 	// The blank line, the title and the blank line under it are three more
 	// rows above the five of the last draw.
-	want := "\r\x1b[2K\nChoose the agent your CFO runs on\n\n" +
+	want := "\r\x1b[2K\nChoose the agent your CEO runs on\n\n" +
 		tall + hint + "\x1b[5A\x1b[J" +
 		short + hint + "\x1b[4A\x1b[J" +
 		tall + hint + "\x1b[8A\r\x1b[J"
@@ -406,26 +406,26 @@ func TestTheChecklistWithoutColourStillReplacesAndTakesBackItsLines(t *testing.T
 // row open, and in plain output whose line was whole already, it prints
 // nothing.
 func TestTheChecklistEndsTheRowAWorkingLineLeftOpen(t *testing.T) {
-	const working = "  . CFO        starting as Claude Code"
+	const working = "  . CEO        starting as Claude Code"
 	for _, c := range []struct {
 		name  string
 		plain bool
 		act   func(list *Checklist)
 		want  string
 	}{
-		{"after a working line", false, func(list *Checklist) { list.Working("CFO", "starting as Claude Code"); list.End(); list.End() }, "\r\x1b[2K" + working + "\n"},
+		{"after a working line", false, func(list *Checklist) { list.Working("CEO", "starting as Claude Code"); list.End(); list.End() }, "\r\x1b[2K" + working + "\n"},
 		{"after a finished line", false, func(list *Checklist) {
-			list.Working("CFO", "starting as Claude Code")
-			list.Done("CFO", "started")
+			list.Working("CEO", "starting as Claude Code")
+			list.Done("CEO", "started")
 			list.End()
-		}, "\r\x1b[2K" + working + "\r\x1b[2K  v CFO        started\n"},
+		}, "\r\x1b[2K" + working + "\r\x1b[2K  v CEO        started\n"},
 		{"after a note", false, func(list *Checklist) {
-			list.Working("CFO", "starting as Claude Code")
+			list.Working("CEO", "starting as Claude Code")
 			list.Note("A note")
 			list.End()
 		}, "\r\x1b[2K" + working + "\r\x1b[2K               A note\n"},
 		{"with nothing under way", false, func(list *Checklist) { list.End() }, ""},
-		{"in plain output", true, func(list *Checklist) { list.Working("CFO", "starting as Claude Code"); list.End() }, working + "\n"},
+		{"in plain output", true, func(list *Checklist) { list.Working("CEO", "starting as Claude Code"); list.End() }, working + "\n"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange

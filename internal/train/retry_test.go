@@ -47,10 +47,10 @@ func TestARunRedOnceThenGreenLandsAndNamesTheCheckThatFailedOnce(t *testing.T) {
 	if got := runLog(landed); !slices.Equal(got, []string{"1 #11 #12 landed"}) || !slices.Equal(landed.History[0].FailedOnce, failedOnce) || len(landed.History[0].Failed) != 0 {
 		t.Fatalf("runs %q (%+v), want the one run landed, keeping the check that failed once", got, landed.History)
 	}
-	last := s.cfo[len(s.cfo)-1]
+	last := s.ceo[len(s.ceo)-1]
 	for _, want := range []string{"landed #11, #12", "failed once and passed on the second try", "test (" + failedOnce[0].Link + ")"} {
 		if !strings.Contains(last, want) {
-			t.Fatalf("CFO told %q, want %q", last, want)
+			t.Fatalf("CEO told %q, want %q", last, want)
 		}
 	}
 	if len(s.told) != 0 || !slices.Equal(gh.tries(), []int{2}) {
@@ -95,8 +95,8 @@ func TestALoneRiderIsNotMarkedTheCulpritOnOneRedRun(t *testing.T) {
 	if run.Result != RunFailed || run.Link != secondTry || !slices.Equal(run.FailedOnce, []FailedCheck{{Name: "test", Link: firstTry}}) || !slices.Equal(run.Failed, []FailedCheck{{Name: "test", Link: secondTry}}) {
 		t.Fatalf("run %+v, want it failed, with the check red on each try", run)
 	}
-	if last := s.cfo[len(s.cfo)-1]; strings.Contains(last, "passed on the second try") {
-		t.Fatalf("CFO told %q, want no check named as passing when it was red twice", last)
+	if last := s.ceo[len(s.ceo)-1]; strings.Contains(last, "passed on the second try") {
+		t.Fatalf("CEO told %q, want no check named as passing when it was red twice", last)
 	}
 	if !slices.Equal(gh.rerunCalls(), []string{"101"}) || !slices.Equal(gh.tries(), []int{2}) {
 		t.Fatalf("gh run rerun named %v, workflow runs tried %v times: want one second try and no third", gh.rerunCalls(), gh.tries())
@@ -312,8 +312,8 @@ func TestAbandonedRedRunKeepsFailuresBeforeRetryOrRebuild(t *testing.T) {
 			landed := s.step(s.engine(github), started.ID)
 
 			failure := []FailedCheck{{Name: "test", Link: "https://github.com/o/r/actions/runs/101/job/1011"}}
-			if rebuilt.History[0].Result != RunChanged || !slices.Equal(rebuilt.History[0].Failed, failure) || !slices.Equal(rebuilt.History[0].FailedOnce, failure) || landed.State != StateLanded || landed.Cars[1].State != CarReturned || len(github.rerunCalls()) != 1 || len(s.told) != 0 || strings.Contains(s.cfo[len(s.cfo)-1], "passed on the second try") {
-				t.Fatalf("abandoned red run invented success or lost failures: %+v, final %+v, notices %q", rebuilt.History[0], landed, s.cfo)
+			if rebuilt.History[0].Result != RunChanged || !slices.Equal(rebuilt.History[0].Failed, failure) || !slices.Equal(rebuilt.History[0].FailedOnce, failure) || landed.State != StateLanded || landed.Cars[1].State != CarReturned || len(github.rerunCalls()) != 1 || len(s.told) != 0 || strings.Contains(s.ceo[len(s.ceo)-1], "passed on the second try") {
+				t.Fatalf("abandoned red run invented success or lost failures: %+v, final %+v, notices %q", rebuilt.History[0], landed, s.ceo)
 			}
 		})
 	}
@@ -376,7 +376,7 @@ func TestAbandonedRedRetryReportsOnlyObservedSuccessfulChecks(t *testing.T) {
 	if err != nil || landed.State != StateLanded || len(kept.History[0].RetryChecks) != 2 || !slices.Equal(kept.History[0].Failed, []FailedCheck{{Name: "test", Link: "https://github.com/o/r/actions/runs/101/job/1012"}}) {
 		t.Fatalf("retry observations not preserved: %+v, %v", kept, err)
 	}
-	last := s.cfo[len(s.cfo)-1]
+	last := s.ceo[len(s.ceo)-1]
 	if !strings.Contains(last, "failed once and passed on the second try: recovered (https://github.com/o/r/actions/runs/101/job/1013) in run 1") || strings.Contains(last, "second try: test") || len(s.told) != 0 {
 		t.Fatalf("want only the observed successful retry reported, without blame: %q, %q", last, s.told)
 	}

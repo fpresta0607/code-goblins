@@ -15,7 +15,7 @@ import (
 // file. The file it guards is someone's personal Claude Code configuration,
 // and an adopter who loses their own hooks to our installer has been
 // betrayed, so the copy is taken before every write, not only the first.
-const backupSuffix = ".cfo-install.bak"
+const backupSuffix = ".ceo-install.bak"
 
 // settingsFile is one Claude Code settings document held as decoded JSON.
 // Every key is kept, known or not: this package only ever adds and removes
@@ -82,7 +82,7 @@ func (f *settingsFile) render() ([]byte, error) {
 
 // save backs the file up and writes it, and reports whether it wrote at all.
 // An unchanged document is left alone entirely, which is what makes a second
-// `cfo install` a genuine no-op rather than a rewrite that happens to land
+// `goblins install` a genuine no-op rather than a rewrite that happens to land
 // on the same bytes.
 func (f *settingsFile) save() (changed bool, backup string, err error) {
 	if !f.exists && len(f.values) == 0 {
@@ -131,10 +131,10 @@ func (f *settingsFile) hookEvents() (map[string]any, error) {
 	return events, nil
 }
 
-// pruneCFOHooks removes every hook entry this package wrote, and nothing
+// pruneCEOHooks removes every hook entry this package wrote, and nothing
 // else. Groups and events left empty by the removal are dropped so it leaves
 // no hollow scaffolding behind.
-func (f *settingsFile) pruneCFOHooks() error {
+func (f *settingsFile) pruneCEOHooks() error {
 	events, err := f.hookEvents()
 	if err != nil || events == nil {
 		return err
@@ -158,7 +158,7 @@ func (f *settingsFile) pruneCFOHooks() error {
 			}
 			keptEntries := make([]any, 0, len(entries))
 			for _, rawEntry := range entries {
-				if isCFOEntry(rawEntry) {
+				if isCEOEntry(rawEntry) {
 					continue
 				}
 				keptEntries = append(keptEntries, rawEntry)
@@ -234,7 +234,7 @@ func (f *settingsFile) foreignHookCount() int {
 				continue
 			}
 			for _, rawEntry := range entries {
-				if !isCFOEntry(rawEntry) {
+				if !isCEOEntry(rawEntry) {
 					count++
 				}
 			}
@@ -243,9 +243,9 @@ func (f *settingsFile) foreignHookCount() int {
 	return count
 }
 
-// isCFOEntry reports whether one hook entry is one this package wrote, in
+// isCEOEntry reports whether one hook entry is one this package wrote, in
 // either form (HookName).
-func isCFOEntry(raw any) bool {
+func isCEOEntry(raw any) bool {
 	entry, ok := raw.(map[string]any)
 	if !ok {
 		return false

@@ -42,7 +42,7 @@ function slotHold(memory: Memory): string {
   return memory.slot_hold && tighter(memory).free >= memory.next ? `Nothing starts by itself, keeping the test slots open: ${memory.slot_hold}.` : "";
 }
 
-// The memory bar spans twice the mark at which the CFO starts the next task,
+// The memory bar spans twice the mark at which the CEO starts the next task,
 // or the machine's memory (or commit limit) if that is less, so the floor and
 // the mark sit well apart and a full bar says the next task starts: the fill
 // and both marks as percents of the bar.
@@ -83,7 +83,7 @@ export function holdersLine(memory: Memory): string {
 export const kernelPools = (memory: Memory) => memory.paged_pool + memory.nonpaged_pool;
 
 // Whether the pools are past the line measured on this PC, past which free
-// memory can no longer hold the fleet and the CFO's panel offers Restart PC
+// memory can no longer hold the fleet and the CEO's panel offers Restart PC
 // (internal/supervisor/pc_restart.go). A snapshot that names no line is not.
 export function isPastPoolLine(memory: Memory | null): boolean {
   return !!memory && memory.pool_line > 0 && kernelPools(memory) >= memory.pool_line;
@@ -117,7 +117,7 @@ export function poolMarks(memory: Memory): string {
 export type DiskReading = Pick<Disk, "free" | "total" | "floor" | "wake">;
 
 // The disk meter under the memory meter: under the floor no goblin or gate
-// test run starts, and under the lower mark the CFO is woken.
+// test run starts, and under the lower mark the CEO is woken.
 export function diskState(disk: DiskReading): { tone: "ready" | "waiting" | "under"; text: string } {
   if (disk.free < disk.wake) return { tone: "under", text: `Under the ${gigabytes(disk.wake)} GB mark: the CEO is woken, and nothing starts until disk frees.` };
   if (disk.free < disk.floor) return { tone: "waiting", text: `Under the ${gigabytes(disk.floor)} GB floor: no goblin or gate test run starts until disk frees.` };
@@ -236,7 +236,7 @@ export function startOutcome(accepted: AcceptedStart, snapshot: Snapshot): "open
   return "wait";
 }
 
-// The chip on the top queued task, the one the CFO starts next.
+// The chip on the top queued task, the one the CEO starts next.
 export function nextChip(memory: Memory | null): string {
   return memory && memoryBlock(memory) ? `Next at ${gigabytes(memory.next)} GB` : "Next up";
 }

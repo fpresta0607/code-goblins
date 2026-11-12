@@ -35,8 +35,8 @@ func TestNativeResumeReceiptReadsOnlyTheSavedOldSession(t *testing.T) {
 	}
 }
 
-// sentAnswer queues the Overlord's answer to a CFO question and delivers it
-// as typed and submitted into the CFO's terminal at since, not yet taken.
+// sentAnswer queues the Overlord's answer to a CEO question and delivers it
+// as typed and submitted into the CEO's terminal at since, not yet taken.
 func sentAnswer(t *testing.T, store *Store, since time.Time) Action {
 	t.Helper()
 	_, identity, _, _ := primaryFixture(t, store)
@@ -44,12 +44,12 @@ func sentAnswer(t *testing.T, store *Store, since time.Time) Action {
 	if err := store.acceptQuestion(q); err != nil {
 		t.Fatal(err)
 	}
-	a := Action{ID: "answer-1", Kind: "cfo_answer", Generation: identity, QuestionID: q.ID, Text: "One"}
+	a := Action{ID: "answer-1", Kind: "ceo_answer", Generation: identity, QuestionID: q.ID, Text: "One"}
 	if _, err := store.Queue(a); err != nil {
 		t.Fatal(err)
 	}
 	deliver := func(context.Context, Action) (Evaluation, error) {
-		return Evaluation{Reason: sentToCFO, Awaiting: &Awaiting{Host: "cfo-host", Since: since}}, nil
+		return Evaluation{Reason: sentToCEO, Awaiting: &Awaiting{Host: "ceo-host", Since: since}}, nil
 	}
 	if err := store.ProcessOne(context.Background(), deliver); err != nil {
 		t.Fatal(err)
@@ -73,10 +73,10 @@ var (
 )
 
 // The Overlord, 2026-10-01, on answers that had all arrived: "Delivery
-// unconfirmed ... I get these command center blips and errors, fix". The CFO
+// unconfirmed ... I get these command center blips and errors, fix". The CEO
 // took each some seconds after the confirmation window. Such an answer reads
-// sent, then delivered once the CFO's record shows it taken, and never warns.
-func TestAnAnswerTheCFOTakesLateReadsSentThenDelivered(t *testing.T) {
+// sent, then delivered once the CEO's record shows it taken, and never warns.
+func TestAnAnswerTheCEOTakesLateReadsSentThenDelivered(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
 	since := time.Now().UTC().Add(-time.Minute)
@@ -93,7 +93,7 @@ func TestAnAnswerTheCFOTakesLateReadsSentThenDelivered(t *testing.T) {
 	if waiting != nil || settled != nil {
 		t.Fatal(waiting, settled)
 	}
-	if sent.Status != "running" || sent.Awaiting == nil || sent.Message != sentToCFO || asked.Status != "running" {
+	if sent.Status != "running" || sent.Awaiting == nil || sent.Message != sentToCEO || asked.Status != "running" {
 		t.Errorf("after the send: action %s %q, question %s; want it sent and on its way", sent.Status, sent.Message, asked.Status)
 	}
 	if still.Status != "running" {
@@ -254,7 +254,7 @@ func TestAGoblinsDeliveryInItsTurnAwaitsItsRecord(t *testing.T) {
 	gone := s.behindGoblinsTurn("task-9", since, "Use the grid.", "Submitted while it was working.")
 
 	// Assert
-	if sent.Awaiting == nil || sent.Awaiting.Task != "task-1" || sent.Awaiting.Generation != meta.SpawnGen || sent.Awaiting.Digest != monitor.TextDigest("CFO: Use the grid.") || !sent.Awaiting.IsHeld || sent.Reason != heldByGoblin {
+	if sent.Awaiting == nil || sent.Awaiting.Task != "task-1" || sent.Awaiting.Generation != meta.SpawnGen || sent.Awaiting.Digest != monitor.TextDigest("CEO: Use the grid.") || !sent.Awaiting.IsHeld || sent.Reason != heldByGoblin {
 		t.Errorf("a goblin's delivery = %+v, want it queued in the goblin's session and awaiting the goblin's record of the line typed", sent)
 	}
 	if gone.Awaiting != nil || gone.Reason != "Submitted while it was working." {
@@ -360,14 +360,14 @@ func TestAHookReportDoesNotDeliverAnAnswerQueuedInAGoblinsTurn(t *testing.T) {
 	}
 }
 
-// A CFO that clears or compacts its conversation moves to a new session,
+// A CEO that clears or compacts its conversation moves to a new session,
 // which it registers while primary.json keeps the first: an answer it takes
 // there is delivered all the same, found in the session it holds now.
-func TestAnAnswerTheCFOTakesInTheSessionItMovedToIsDelivered(t *testing.T) {
+func TestAnAnswerTheCEOTakesInTheSessionItMovedToIsDelivered(t *testing.T) {
 	// Arrange
 	records := useConversations(t)
 	store, h := testStore(t)
-	primary := primaryRegistration{Host: "cfo", Agent: "claude", Process: thisProcess(t)}
+	primary := primaryRegistration{Host: "ceo", Agent: "claude", Process: thisProcess(t)}
 	primary.Process.Session = "11111111-aaaa-4bbb-8ccc-000000000001"
 	data, err := json.Marshal(primary)
 	if err != nil {
@@ -377,7 +377,7 @@ func TestAnAnswerTheCFOTakesInTheSessionItMovedToIsDelivered(t *testing.T) {
 		t.Fatal(err)
 	}
 	moved := "22222222-aaaa-4bbb-8ccc-000000000002"
-	if err := recordCFOConversation(h.State, primary, moved); err != nil {
+	if err := recordCEOConversation(h.State, primary, moved); err != nil {
 		t.Fatal(err)
 	}
 	since := time.Now().UTC().Add(-time.Second)
@@ -385,29 +385,29 @@ func TestAnAnswerTheCFOTakesInTheSessionItMovedToIsDelivered(t *testing.T) {
 	takenInRecord(t, records, "claude", moved, "", typed)
 
 	// Act
-	look := (&Service{Store: store}).lookAtTerminal(Awaiting{Host: "cfo", Harness: "claude", Since: since, Digest: monitor.TextDigest(typed), Session: primary.Process.Session})
+	look := (&Service{Store: store}).lookAtTerminal(Awaiting{Host: "ceo", Harness: "claude", Since: since, Digest: monitor.TextDigest(typed), Session: primary.Process.Session})
 
 	// Assert
 	if !look.Took {
-		t.Errorf("look = %+v, want the answer found taken in the session the CFO moved to", look)
+		t.Errorf("look = %+v, want the answer found taken in the session the CEO moved to", look)
 	}
 }
 
-// A review answer awaited on the CFO's terminal delivers the item only when
-// the CFO is its reporter: a goblin's item handed to the CFO because the
+// A review answer awaited on the CEO's terminal delivers the item only when
+// the CEO is its reporter: a goblin's item handed to the CEO because the
 // goblin restarted or ended never reached the goblin, so it stays undelivered.
-func TestAReviewAnswerAwaitedOnTheCFOIsDeliveredOnlyToItsOwnReporter(t *testing.T) {
+func TestAReviewAnswerAwaitedOnTheCEOIsDeliveredOnlyToItsOwnReporter(t *testing.T) {
 	tests := []struct {
 		name      string
 		task      string
 		delivered bool
 	}{
-		{"a goblin's item handed to the CFO", "task-1", false},
-		{"the CFO's own item", "", true},
+		{"a goblin's item handed to the CEO", "task-1", false},
+		{"the CEO's own item", "", true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			// Arrange: the CFO runs, since a delivery to a closed one waits.
+			// Arrange: the CEO runs, since a delivery to a closed one waits.
 			store, _ := testStore(t)
 			writeRegistration(t, store.Home.State, thisProcess(t))
 			since := time.Now().UTC().Add(-time.Minute)
@@ -419,7 +419,7 @@ func TestAReviewAnswerAwaitedOnTheCFOIsDeliveredOnlyToItsOwnReporter(t *testing.
 				t.Fatal(err)
 			}
 			deliver := func(context.Context, Action) (Evaluation, error) {
-				return Evaluation{Reason: sentToCFO, Awaiting: &Awaiting{Host: "cfo-host", Since: since}}, nil
+				return Evaluation{Reason: sentToCEO, Awaiting: &Awaiting{Host: "ceo-host", Since: since}}, nil
 			}
 			if err := store.ProcessOne(context.Background(), deliver); err != nil {
 				t.Fatal(err)
@@ -434,10 +434,10 @@ func TestAReviewAnswerAwaitedOnTheCFOIsDeliveredOnlyToItsOwnReporter(t *testing.
 				t.Fatal(settled)
 			}
 			if snapshot.Actions[0].Status != "succeeded" {
-				t.Errorf("once the CFO took it: action %s, want it succeeded", snapshot.Actions[0].Status)
+				t.Errorf("once the CEO took it: action %s, want it succeeded", snapshot.Actions[0].Status)
 			}
 			if snapshot.Reviews[0].Delivered != test.delivered {
-				t.Errorf("once the CFO took it: delivered=%t, want %t", snapshot.Reviews[0].Delivered, test.delivered)
+				t.Errorf("once the CEO took it: delivered=%t, want %t", snapshot.Reviews[0].Delivered, test.delivered)
 			}
 		})
 	}

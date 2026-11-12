@@ -34,7 +34,7 @@ type Takeover struct {
 
 // SeizeOwner takes dir/.lock for ownerPID as AcquireOwner does, except that a
 // live holder that is another process loses it. Only a caller that has proven
-// ownerPID is the CFO's own session calls it: the session lock is that
+// ownerPID is the CEO's own session calls it: the session lock is that
 // session's, so whoever else holds it holds it wrongly. It returns the holder
 // it replaced, nil when it replaced none. See SeizeNamedOwner.
 func SeizeOwner(dir string, ownerPID int, session, why string) (*Info, *Info, error) {

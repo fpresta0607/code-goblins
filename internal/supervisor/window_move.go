@@ -176,7 +176,7 @@ func leftOnAnOldProgram(image, program string) bool {
 
 // relaunchWindow ends the window started, which runs image, waits for it to
 // go, and opens program in its place. What goes wrong is the supervisor's
-// error, which the board shows and the CFO is woken for.
+// error, which the board shows and the CEO is woken for.
 func (s *Service) relaunchWindow(machine windowSystem, started proc.Entry, image, program string) {
 	if err := machine.end(started.PID, started.Start, image); err != nil {
 		s.publish(fmt.Errorf("the desktop window (pid %d) could not be moved onto %s: %w", started.PID, program, err))

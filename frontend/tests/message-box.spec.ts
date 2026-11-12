@@ -22,7 +22,7 @@ const PAUSED_AT = "2026-10-09T06:11:00Z";
 // kept "i can message?", which the box does not list a second time.
 function bernie(keptMessages: string[]) {
   return {
-    healthy: true, instance: "message-box-proof", revision: 3 - keptMessages.length, cfo_runs: true,
+    healthy: true, instance: "message-box-proof", revision: 3 - keptMessages.length, ceo_runs: true,
     tasks: [{
       id: "bernie", title: "Land the merge train", goblin_name: "Bernie", goblin_title: "Merge Maestro", project: "code-goblins", backend: "native", harness: "claude",
       generation: "s1", session: "claude/bernie", phase: "paused", verified: false, at: PAUSED_AT, report: "working",
@@ -35,14 +35,14 @@ function bernie(keptMessages: string[]) {
   };
 }
 
-// No CFO runs: its terminal ended, as it does when he closes it and for a
+// No CEO runs: its terminal ended, as it does when he closes it and for a
 // moment while it restarts.
-const CLOSED_CFO = { healthy: true, instance: "message-box-proof", revision: 1, cfo_runs: false, cfo_closed: true, tasks: [], actions: [] };
+const CLOSED_CEO = { healthy: true, instance: "message-box-proof", revision: 1, ceo_runs: false, ceo_closed: true, tasks: [], actions: [] };
 
-// No CFO runs in a home that has had none, whose board he opened without one.
-const NO_CFO = { ...CLOSED_CFO, cfo_closed: false };
+// No CEO runs in a home that has had none, whose board he opened without one.
+const NO_CEO = { ...CLOSED_CEO, ceo_closed: false };
 // What its first-run page reads of the machine before it offers the board.
-const SETUP = { home: "C:\\Users\\franco\\AppData\\Local\\CodeGoblins", agent: "claude", projects_root: "", checkouts: [], agents: [{ id: "claude", name: "Claude Code", recommended: true, note: "the best experience", installed: true, sign_in: "signed_in" }], cfo_runs: false };
+const SETUP = { home: "C:\\Users\\franco\\AppData\\Local\\CodeGoblins", agent: "claude", projects_root: "", checkouts: [], agents: [{ id: "claude", name: "Claude Code", recommended: true, note: "the best experience", installed: true, sign_in: "signed_in" }], ceo_runs: false };
 
 // open serves the real board its snapshots through a stand-in event stream,
 // keeps each action the board posts and accepts it, and has the supervisor's
@@ -52,7 +52,7 @@ async function open(page: Page, first: object) {
   const posted: { token: string | null; body: Record<string, unknown> }[] = [];
   const heard: { token: string | null; type: string | null }[] = [];
   await page.addInitScript((snapshot) => {
-    localStorage.setItem("cfo-first-open", "shown");
+    localStorage.setItem("ceo-first-open", "shown");
     class SnapshotSource extends EventTarget {
       private publish = (event: Event) => {
         if (event instanceof CustomEvent) this.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify(event.detail) }));
@@ -80,13 +80,13 @@ async function open(page: Page, first: object) {
   await page.route("**/api/setup?root=*", (route) => route.fulfill({ json: SETUP }));
   await page.route("**/api/actions", async (route) => {
     const body = route.request().postDataJSON() as Record<string, unknown>;
-    posted.push({ token: await route.request().headerValue("X-CFO-Token"), body });
+    posted.push({ token: await route.request().headerValue("X-CEO-Token"), body });
     return route.fulfill({ status: 202, json: { ...body, status: body.kind === "message_withdraw" ? "succeeded" : "queued" } });
   });
   await page.route("**/api/dictation/warm", (route) => route.fulfill({ status: 202 }));
   await page.route("**/api/dictation", async (route) => {
     if (route.request().method() === "GET") return route.fulfill({ json: { engine: "test-model", state: "ready" } });
-    heard.push({ token: await route.request().headerValue("X-CFO-Token"), type: await route.request().headerValue("Content-Type") });
+    heard.push({ token: await route.request().headerValue("X-CEO-Token"), type: await route.request().headerValue("Content-Type") });
     return route.fulfill({ json: { text: "rebase onto main", engine: "test-model" } });
   });
   await page.goto("/");
@@ -268,7 +268,7 @@ for (const style of ["classic", "modern"]) {
   for (const hasHistory of [false, true]) {
     test(`${style}, history ${hasHistory}: a message his resume will carry has a delete button, which withdraws it, and one already delivered has none`, async ({ page }) => {
       // Arrange
-      await page.addInitScript((style) => localStorage.setItem("cfo-chat-style", style), style);
+      await page.addInitScript((style) => localStorage.setItem("ceo-chat-style", style), style);
       const first = bernie(["i can message?"]);
       if (!hasHistory) first.tasks[0].generation = "";
       const { box, posted, publish } = await openBernie(page, first);
@@ -300,7 +300,7 @@ for (const style of ["classic", "modern"]) {
 const waiting = (id: string, name: string) => ({
   id, title: "Wait for a turn to start", goblin_name: name, goblin_title: "Queue Keeper", project: "code-goblins", backend: "native", harness: "claude", phase: "queued", starting: true, verified: false, at: PAUSED_AT,
 });
-const BOTH_WAITING = { healthy: true, instance: "message-box-proof", revision: 1, cfo_runs: true, tasks: [waiting("ann", "Ann"), waiting("rex", "Rex")], actions: [] };
+const BOTH_WAITING = { healthy: true, instance: "message-box-proof", revision: 1, ceo_runs: true, tasks: [waiting("ann", "Ann"), waiting("rex", "Rex")], actions: [] };
 const waitingBox = (page: Page, name: string) => page.getByRole("region", { name: "Messages to " + name + " - Queue Keeper" });
 const waitingDraft = (page: Page, name: string) => waitingBox(page, name).getByRole("textbox", { name: "Message " + name + " - Queue Keeper" });
 
@@ -350,17 +350,17 @@ test("a message sent to a goblin waiting to start is not its draft again after a
 });
 
 // The Overlord, 2026-11-04: "The modern chat should. be its own trigger to
-// start any code session. Especially on a message sent." The CFO's slot says
+// start any code session. Especially on a message sent." The CEO's slot says
 // why it has no terminal, and its box takes a message that starts it, which
 // reads Starting until it goes in.
 for (const { state, first, says } of [
-  { state: "it is closed, as it is for a moment while it restarts", first: CLOSED_CFO, says: "The CEO is closed." },
-  { state: "none runs", first: NO_CFO, says: "No CEO is running." },
+  { state: "it is closed, as it is for a moment while it restarts", first: CLOSED_CEO, says: "The CEO is closed." },
+  { state: "none runs", first: NO_CEO, says: "No CEO is running." },
 ]) {
-  test(`his message to the CFO reads Starting until it goes in while ${state}`, async ({ page }) => {
-    // Arrange: Orchestration opens on the CFO's terminal.
+  test(`his message to the CEO reads Starting until it goes in while ${state}`, async ({ page }) => {
+    // Arrange: Orchestration opens on the CEO's terminal.
     const { posted, publish } = await open(page, first);
-    if (!first.cfo_closed) await page.getByRole("button", { name: "Open the board without a CEO" }).click();
+    if (!first.ceo_closed) await page.getByRole("button", { name: "Open the board without a CEO" }).click();
     await page.getByRole("button", { name: "Orchestration", exact: true }).click();
     const deck = page.locator(".terminal-deck");
     const box = deck.getByRole("region", { name: "Messages to CEO" });
@@ -371,7 +371,7 @@ for (const { state, first, says } of [
     await draft.fill("check the train");
     await box.getByRole("button", { name: "Send", exact: true }).click();
     await expect.poll(() => posted.length).toBe(1);
-    await publish({ ...first, revision: 5, actions: [{ id: posted[0].body.id, kind: "message", task_id: "", generation: "", status: "queued", message: "Starting the CFO. The message goes in once it runs.", text: "check the train", updated_at: "2026-11-04T16:00:00Z" }] });
+    await publish({ ...first, revision: 5, actions: [{ id: posted[0].body.id, kind: "message", task_id: "", generation: "", status: "queued", message: "Starting the CEO. The message goes in once it runs.", text: "check the train", updated_at: "2026-11-04T16:00:00Z" }] });
 
     // Assert
     expect(posted).toEqual([{ token: "message-box-proof", body: { id: expect.any(String), kind: "message", task_id: "", generation: "", text: "check the train" } }]);

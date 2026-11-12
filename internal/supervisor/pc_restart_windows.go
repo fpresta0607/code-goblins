@@ -69,7 +69,7 @@ func enableShutdownPrivilege() error {
 }
 
 // EndHeavyRuns ends every run in the machine's heavy line, each that holds a
-// turn and each that waits for one, and names each it ended. A run is a cfo
+// turn and each that waits for one, and names each it ended. A run is a ceo
 // or goblins process whose command runs as a tree in a job that ends with
 // it, so ending the process ends its command and gives its turn back.
 func EndHeavyRuns() ([]string, error) {
@@ -96,7 +96,7 @@ func EndHeavyRuns() ([]string, error) {
 			if len(arguments) == 0 {
 				return fmt.Errorf("process %d names no program", run.PID)
 			}
-			if program := strings.TrimSuffix(strings.ToLower(filepath.Base(arguments[0])), ".exe"); program != "cfo" && program != "goblins" {
+			if program := strings.TrimSuffix(strings.ToLower(filepath.Base(arguments[0])), ".exe"); program != "goblins" {
 				return fmt.Errorf("process %d runs %s, not a run of the heavy line", run.PID, arguments[0])
 			}
 			return nil

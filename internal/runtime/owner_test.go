@@ -237,7 +237,7 @@ func TestAttributionOfDoesNotCallAnUncheckedDirectoryAbandoned(t *testing.T) {
 }
 
 // A stack name that merely looks like a task id is not one. Inventing a task
-// for it would put a `cfo reap` pointer on something reap has never heard of.
+// for it would put a `goblins reap` pointer on something reap has never heard of.
 func TestAttributionOfIgnoresAStackNameWithNoTaskRecord(t *testing.T) {
 	owner := NewAttribution(machineFixture()).Of("", "gb-never-existed")
 	if owner.TaskID != "" || owner.Reap {

@@ -13,8 +13,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/lock"
 )
 
-// A command a turn was taken for may take turns itself, as cfo gate test
-// does behind cfo gate turn. Started with the turn's token in its
+// A command a turn was taken for may take turns itself, as goblins gate test
+// does behind goblins gate turn. Started with the turn's token in its
 // environment, such a run takes no second turn and does not wait for the one
 // it is inside, which it would wait on for good.
 func TestARunStartedInsideATurnDoesNotWaitForIt(t *testing.T) {
@@ -59,7 +59,7 @@ func TestARunInsideATurnLeavesItHeldWhenItEnds(t *testing.T) {
 	notYet(t, take(t, a), "a run outside the turn, after the inner run ended,")
 }
 
-// The holder of the turn is another process, as cfo gate turn is to the
+// The holder of the turn is another process, as goblins gate turn is to the
 // command it starts: its token is honoured from this process too.
 func TestARunStartedInsideAnotherProcessTurnDoesNotWaitForIt(t *testing.T) {
 	// Arrange
@@ -218,7 +218,7 @@ func TestARunWhoseTokenNamesADeadHoldersTurnTakesItsOwn(t *testing.T) {
 	}
 }
 
-// A run inside a turn says what it is doing beside that turn, where cfo gate
+// A run inside a turn says what it is doing beside that turn, where goblins gate
 // turns reads it, and who holds the turn and its budget stay as they were.
 // When it ends it takes back what it said and no more.
 func TestARunInsideATurnSaysWhatItIsDoingBesideIt(t *testing.T) {

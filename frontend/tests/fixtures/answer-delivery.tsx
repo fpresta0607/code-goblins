@@ -8,24 +8,24 @@ declare global {
   interface Window { settle?: (how: "busy" | "delivered" | "lost", answer: string) => void }
 }
 
-// The CFO asks the Overlord a question and he answers it on the board while
-// the CFO is inside a turn. settle is the supervisor's next snapshot: the
-// answer typed and submitted and waiting for the CFO's hook (busy), the hook
-// reporting it taken (delivered), or the CFO never picking it up (lost).
+// The CEO asks the Overlord a question and he answers it on the board while
+// the CEO is inside a turn. settle is the supervisor's next snapshot: the
+// answer typed and submitted and waiting for the CEO's hook (busy), the hook
+// reporting it taken (delivered), or the CEO never picking it up (lost).
 const identity = "c".repeat(64);
 const question = {
   id: "freeze-lift", identity, task: "", text: "Lift the merge freeze?", options: ["Lift it", "Keep it"], recommended: "Lift it",
   status: "pending", created_at: "2026-10-01T16:54:00Z",
 };
 const base = { healthy: true, instance: "fixture", revision: 1, tasks: [], questions: [question], actions: [] };
-const advice = "Your answer was typed for the CFO, which has not picked it up. Open its terminal and press Enter if your answer is waiting in its box; if it is not there, type it to the CFO.";
+const advice = "Your answer was typed for the CEO, which has not picked it up. Open its terminal and press Enter if your answer is waiting in its box; if it is not there, type it to the CEO.";
 const answered = (status: string, answer: string) => ({ ...question, status, answer_id: answer, answer: "Lift it", answer_kind: "option" });
-const action = (answer: string, fields: Record<string, unknown>) => ({ id: answer, kind: "cfo_answer", question_id: question.id, generation: identity, updated_at: "2026-10-01T16:55:01Z", ...fields });
+const action = (answer: string, fields: Record<string, unknown>) => ({ id: answer, kind: "ceo_answer", question_id: question.id, generation: identity, updated_at: "2026-10-01T16:55:01Z", ...fields });
 const snapshots = {
   busy: (answer: string) => ({ ...base, revision: 2, questions: [answered("running", answer)],
-    actions: [action(answer, { status: "running", message: "Sent. The CFO takes it at its next tool call, or as its current turn ends.", awaiting: { host: "cfo", since: "2026-10-01T16:54:54Z" } })] }),
+    actions: [action(answer, { status: "running", message: "Sent. The CEO takes it at its next tool call, or as its current turn ends.", awaiting: { host: "ceo", since: "2026-10-01T16:54:54Z" } })] }),
   delivered: (answer: string) => ({ ...base, revision: 3, questions: [{ ...answered("succeeded", answer), answered_option: "Lift it", answered_by: "overlord", answered_at: "2026-10-01T16:55:20Z" }],
-    actions: [action(answer, { status: "succeeded", message: "Taken by the CFO, as its own record of the conversation shows." })] }),
+    actions: [action(answer, { status: "succeeded", message: "Taken by the CEO, as its own record of the conversation shows." })] }),
   lost: (answer: string) => ({ ...base, revision: 3, questions: [answered("uncertain", answer)],
     actions: [action(answer, { status: "uncertain", message: advice, advice })] }),
 };

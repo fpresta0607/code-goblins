@@ -159,7 +159,7 @@ func TestAPromptClaudeCodeHoldsWaitsInThePageUntilItIsDelivered(t *testing.T) {
 
 func TestAWaitingPromptReadsAsItsMessageWill(t *testing.T) {
 	// Arrange
-	path := conversation(t, t.TempDir(), queued(`CFO: also run the specs <pasted_content id="07">now</pasted_content id="07">`, at))
+	path := conversation(t, t.TempDir(), queued(`CEO: also run the specs <pasted_content id="07">now</pasted_content id="07">`, at))
 
 	// Act
 	var reader Reader
@@ -173,7 +173,7 @@ func TestAWaitingPromptReadsAsItsMessageWill(t *testing.T) {
 		t.Fatalf("waiting = %+v; want one prompt", page.Waiting)
 	}
 	prompt := page.Waiting[0]
-	if prompt.ID == "" || !prompt.At.Equal(at) || prompt.Source != FromCFO || prompt.Text != "also run the specs now" {
+	if prompt.ID == "" || !prompt.At.Equal(at) || prompt.Source != FromCEO || prompt.Text != "also run the specs now" {
 		t.Fatalf("waiting prompt = %+v", prompt)
 	}
 }
@@ -222,13 +222,13 @@ func TestQueueMatchingPreservesPromptProvenance(t *testing.T) {
 		entries []any
 		sources []string
 	}{
-		{"named removal", []any{absorbed("CFO: continue"), prompted("u1", "CFO: continue")}, []string{FromOverlord, FromCFO}},
-		{"delivery without removal", []any{prompted("u1", "CFO: continue")}, []string{FromOverlord, FromCFO}},
-		{"handoff with different provenance", []any{dequeued(), prompted("u1", "CFO: continue")}, []string{FromOverlord, FromCFO}},
-		{"Overlord removal preserves CFO duplicates", []any{absorbed("continue"), prompted("u1", "continue")}, []string{FromCFO, FromCFO}},
+		{"named removal", []any{absorbed("CEO: continue"), prompted("u1", "CEO: continue")}, []string{FromOverlord, FromCEO}},
+		{"delivery without removal", []any{prompted("u1", "CEO: continue")}, []string{FromOverlord, FromCEO}},
+		{"handoff with different provenance", []any{dequeued(), prompted("u1", "CEO: continue")}, []string{FromOverlord, FromCEO}},
+		{"Overlord removal preserves CEO duplicates", []any{absorbed("continue"), prompted("u1", "continue")}, []string{FromCEO, FromCEO}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			entries := []any{queued("continue", at), queued("CFO: continue", at), queued("CFO: continue", at)}
+			entries := []any{queued("continue", at), queued("CEO: continue", at), queued("CEO: continue", at)}
 			path := conversation(t, t.TempDir(), append(entries, test.entries...)...)
 			var reader Reader
 			page, _, err := reader.MessagePage(path, -1)
@@ -478,16 +478,16 @@ func TestALineTakenBackToThePromptLineWaitsInNoQueue(t *testing.T) {
 }
 
 func TestSuccessiveQueueHandoffsKeepTheirOwnDelivery(t *testing.T) {
-	path := conversation(t, t.TempDir(), queued("continue", at), queued(WakePrefix+"look at the board", at), queued("CFO: continue", at), dequeued(), dequeued(), dequeued())
+	path := conversation(t, t.TempDir(), queued("continue", at), queued(WakePrefix+"look at the board", at), queued("CEO: continue", at), dequeued(), dequeued(), dequeued())
 	var reader Reader
 	page, cursor, err := reader.MessagePage(path, -1)
 	if err != nil || len(page.Waiting) != 2 || !page.Waiting[0].IsSending || !page.Waiting[1].IsSending {
 		t.Fatalf("handoffs: waiting %+v, error %v", page.Waiting, err)
 	}
-	appendLines(t, path, prompted("u1", "CFO: continue"))
+	appendLines(t, path, prompted("u1", "CEO: continue"))
 	changed, waiting, cursor, isAnew, err := reader.MessagesSince(path, cursor)
 	if err != nil || isAnew || len(changed) != 1 || len(waiting) != 1 || waiting[0].Source != FromOverlord || !waiting[0].IsSending {
-		t.Fatalf("CFO delivery: changed %+v, waiting %+v, anew %t, error %v", changed, waiting, isAnew, err)
+		t.Fatalf("CEO delivery: changed %+v, waiting %+v, anew %t, error %v", changed, waiting, isAnew, err)
 	}
 	appendLines(t, path, prompted("u2", "continue"))
 	changed, waiting, _, isAnew, err = reader.MessagesSince(path, cursor)

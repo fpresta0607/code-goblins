@@ -12,7 +12,7 @@ import { RESTING_AFK_TOGGLE } from "./resting-afk-toggle";
 // Oct 14, 4:05 AM", took two lines, as waiting on Jules does now.
 // Wilhelmina is the worst case: a goblin with a name that takes two lines,
 // her browser active, and a long status, waiting on Bartholomew. Her session
-// reported no parent, so she hangs under the CFO, and her card names no
+// reported no parent, so she hangs under the CEO, and her card names no
 // relation. Cornelius has his browser active beside a status of two lines,
 // waiting on Wilhelmina, and Bartholomew has a
 // project name no line can break, with baby goblins whose names and states
@@ -41,7 +41,7 @@ const REPOSITORY = "https://github.com/fpresta0607/code-goblins-infrastructure-o
 const sameArea = (login: string, pull: number) => ({ login, name: "", avatar_url: "", what: "PR #" + pull, url: REPOSITORY + "/pull/" + pull });
 const everyMark = params.has("marks") ? { ticket: { number: 2373, url: REPOSITORY + "/issues/2373", state: "open" },
   overlaps: [sameArea("ada", 12301), sameArea("grace", 12302), sameArea("edsger", 12303), sameArea("barbara", 12304)] } : {};
-const snapshot = parseSnapshot({ healthy: true, instance: "fixture", at, cfo_runs: true, afk: { state: params.has("unreadable") ? "unreadable" : "off" }, cfo_harness: "claude",
+const snapshot = parseSnapshot({ healthy: true, instance: "fixture", at, ceo_runs: true, afk: { state: params.has("unreadable") ? "unreadable" : "off" }, ceo_harness: "claude",
   subscriptions: [{ provider: "claude", status: "available", percent_remaining: 62, read_at: at, resets_at: "2026-10-16T22:27:42Z", source: "oauth", floor_percent: 5 },
     ...(isCrowded ? [{ provider: "codex", status: "available", percent_remaining: 8, read_at: at, source: "oauth", floor_percent: 5 }] : [])],
   key_spend: isCrowded ? [{ provider: "openrouter", status: "available", spent_usd: 12.5, limit_usd: 50, remaining_usd: 37.5, period: "daily", read_at: at, checked_at: at }] : [],
@@ -72,14 +72,14 @@ const snapshot = parseSnapshot({ healthy: true, instance: "fixture", at, cfo_run
   ] });
 const presentations = ["cg-plumbing", "cg-dispatch"].map((task) => ({ id: "p-" + task, kind: "browser", task_id: task, generation: "g-" + task.slice(3), source: "", target: "", state: "active", url: "", at: "", until: "" }));
 const now = Date.parse(at);
-// How often the CFO's card asked for its terminal, which the test reads.
-const opened = window as Window & { cfoOpened?: number };
+// How often the CEO's card asked for its terminal, which the test reads.
+const opened = window as Window & { ceoOpened?: number };
 
 function Fixture() {
-  if (view === "lineage") return <main className="canvas-region" style={{ width: "100%" }}><Lineage afkToggle={RESTING_AFK_TOGGLE} onOpenCfo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={presentations} now={now} freshNow={now} onSelect={() => {}} /></main>;
-  if (view === "board") return <Board afkToggle={RESTING_AFK_TOGGLE} snapshot={snapshot} layout="stacked" now={now} freshNow={now} presentations={presentations} onSelect={() => {}} onSelectTrain={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} />;
+  if (view === "lineage") return <main className="canvas-region" style={{ width: "100%" }}><Lineage afkToggle={RESTING_AFK_TOGGLE} onOpenCeo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={presentations} now={now} freshNow={now} onSelect={() => {}} /></main>;
+  if (view === "board") return <Board afkToggle={RESTING_AFK_TOGGLE} snapshot={snapshot} layout="stacked" now={now} freshNow={now} presentations={presentations} onSelect={() => {}} onSelectTrain={() => {}} onOpenCeo={() => {}} onOpenCommand={() => {}} onStartCeo={() => {}} />;
   return <main style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
-    <Orchestration afkToggle={RESTING_AFK_TOGGLE} snapshot={snapshot} selected="" connected effects={[]} presentations={presentations} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} onOpenCfo={() => { opened.cfoOpened = (opened.cfoOpened || 0) + 1; }} />
+    <Orchestration afkToggle={RESTING_AFK_TOGGLE} snapshot={snapshot} selected="" connected effects={[]} presentations={presentations} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} onOpenCeo={() => { opened.ceoOpened = (opened.ceoOpened || 0) + 1; }} />
   </main>;
 }
 createRoot(document.getElementById("root")!).render(<Fixture />);

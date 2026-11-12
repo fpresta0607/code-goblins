@@ -50,7 +50,7 @@ func (s *Service) engineCatalog(ctx context.Context, runner execx.Runner) (Engin
 		return EngineCatalog{}, err
 	}
 	catalog := EngineCatalog{Harnesses: []EngineHarness{}}
-	for _, capability := range CFOCapabilities() {
+	for _, capability := range CEOCapabilities() {
 		kind := harness.Kind(capability.Agent)
 		item := EngineHarness{ID: capability.Agent, Name: capability.Name, Models: []EngineModel{}}
 		path, pathErr := lookPath(item.ID)

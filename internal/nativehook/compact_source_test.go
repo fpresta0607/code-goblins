@@ -12,7 +12,7 @@ func TestNativeStartRetainsCompactSourceWithoutTakingAPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	event, err := Normalize(strings.NewReader(string(payload)), Context{Harness: "codex", Role: "cfo"})
+	event, err := Normalize(strings.NewReader(string(payload)), Context{Harness: "codex", Role: "ceo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestNativeStartSourceDoesNotTurnAStopIntoCompaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	event, err := Normalize(strings.NewReader(string(payload)), Context{Harness: "codex", Role: "cfo"})
+	event, err := Normalize(strings.NewReader(string(payload)), Context{Harness: "codex", Role: "ceo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestNativeStartRejectsMalformedSource(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := Normalize(strings.NewReader(string(payload)), Context{Harness: "codex", Role: "cfo"}); err == nil {
+		if _, err := Normalize(strings.NewReader(string(payload)), Context{Harness: "codex", Role: "ceo"}); err == nil {
 			t.Fatal("malformed start source was accepted")
 		}
 	}

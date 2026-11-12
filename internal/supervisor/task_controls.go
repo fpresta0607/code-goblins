@@ -171,7 +171,7 @@ func (s *Service) checkChange(input lifecycleRequest) (meta state.TaskMeta, prio
 // still applies and, for a Resume, once nothing else starts or resumes and
 // memory and disk allow; what it waits on is a passing taskRefusal. The
 // card shows the change from the moment it is taken, and a change the CLI
-// refuses or fails goes to the CFO unless the CLI's own lifecycle record
+// refuses or fails goes to the CEO unless the CLI's own lifecycle record
 // already told it.
 func (s *Service) changeTask(input lifecycleRequest) error {
 	s.starts.Lock()
@@ -256,7 +256,7 @@ func (s *Service) changeTask(input lifecycleRequest) error {
 			}
 		}
 		if err != nil && !isToldByItsRecord {
-			s.tellCFOOfFailure(input.Task, input.Action+" failed: "+failure.Message)
+			s.tellCEOOfFailure(input.Task, input.Action+" failed: "+failure.Message)
 		}
 		s.starts.Lock()
 		delete(s.changing, input.Task)

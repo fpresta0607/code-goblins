@@ -58,7 +58,7 @@ func newStandIn(t *testing.T) *standIn {
 	board.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		board.mu.Lock()
 		defer board.mu.Unlock()
-		if r.Method != http.MethodPost || r.URL.Path != "/api/announce" || r.Header.Get("Origin") != board.URL || r.Header.Get("X-CFO-Token") != standInInstance {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/announce" || r.Header.Get("Origin") != board.URL || r.Header.Get("X-CEO-Token") != standInInstance {
 			http.Error(w, "Refresh the board before submitting an action", http.StatusForbidden)
 			return
 		}
@@ -107,7 +107,7 @@ func notifierAt(at place, board *standIn) *raising {
 	return r
 }
 
-var fresh = []waiting.Item{{ID: "question:q1@2026-10-01T12:14:58Z", Asker: "CFO", Text: "The CFO asks: Which plan?"}, {ID: "run:u1@2026-10-01T12:20:00Z", Asker: "CFO", Text: "A command waits for you to run it: Install the tool"}}
+var fresh = []waiting.Item{{ID: "question:q1@2026-10-01T12:14:58Z", Asker: "CEO", Text: "The CEO asks: Which plan?"}, {ID: "run:u1@2026-10-01T12:20:00Z", Asker: "CEO", Text: "A command waits for you to run it: Install the tool"}}
 
 // noteFor is the notification the window raises for item.
 func noteFor(item waiting.Item) Note {
@@ -134,7 +134,7 @@ func TestANewItemIsNotifiedOnlyWhileTheWindowIsMinimizedOrInTheTray(t *testing.T
 			notifier := notifierAt(test.at, board)
 
 			notifier.FromBoard(board.URL, standInInstance, fresh[:1])
-			notifier.FromPage(Note{ID: "question:q1@2026-10-01T12:14:58Z", Title: "CFO", Body: "The CFO asks: Which plan?"})
+			notifier.FromPage(Note{ID: "question:q1@2026-10-01T12:14:58Z", Title: "CEO", Body: "The CEO asks: Which plan?"})
 
 			if len(notifier.sent) != test.wantNotes || len(board.asked) != test.wantAsks {
 				t.Errorf("raised %+v after asking the supervisor %v; want %d raised after %d requests", notifier.sent, board.asked, test.wantNotes, test.wantAsks)
@@ -144,20 +144,20 @@ func TestANewItemIsNotifiedOnlyWhileTheWindowIsMinimizedOrInTheTray(t *testing.T
 }
 
 // The Overlord, 2026-10-02: "The Command Center should only give me questions
-// that the CFO has for the Overlord, for me." A question the CFO asks him and
-// what the CFO passes up name no task, and a window in its tray notifies
-// them. A goblin's question is the CFO's to answer, beside its open page or
-// once the CFO answered it: the window claims nothing for it, so nothing is
+// that the CFO has for the Overlord, for me." A question the CEO asks him and
+// what the CEO passes up name no task, and a window in its tray notifies
+// them. A goblin's question is the CEO's to answer, beside its open page or
+// once the CEO answered it: the window claims nothing for it, so nothing is
 // raised.
-func TestOnlyAQuestionTheCFOAsksIsNotifiedFromTheTray(t *testing.T) {
+func TestOnlyAQuestionTheCEOAsksIsNotifiedFromTheTray(t *testing.T) {
 	for name, test := range map[string]struct {
 		question string
 		want     []Note
 	}{
-		"the CFO asks him":                     {`{"id":"pick-a-store","text":"Which **store**?","status":"pending","created_at":"2026-10-01T12:00:00Z"}`, []Note{{"question:pick-a-store@2026-10-01T12:00:00Z", "CFO", "The CFO asks: Which store?"}}},
-		"the CFO passes a goblin's ask up":     {`{"id":"from-billing","text":"billing asks: which store?","status":"pending","created_at":"2026-10-01T12:00:00Z"}`, []Note{{"question:from-billing@2026-10-01T12:00:00Z", "CFO", "The CFO asks: billing asks: which store?"}}},
-		"a goblin asks the CFO":                {`{"id":"notify-billing-7","text":"Which port?","status":"pending","task":"billing","generation":"g1","seq":7}`, nil},
-		"a goblin's question the CFO answered": {`{"id":"notify-billing-6","text":"Which port?","status":"succeeded","task":"billing","answered_by":"cfo"}`, nil},
+		"the CEO asks him":                     {`{"id":"pick-a-store","text":"Which **store**?","status":"pending","created_at":"2026-10-01T12:00:00Z"}`, []Note{{"question:pick-a-store@2026-10-01T12:00:00Z", "CEO", "The CEO asks: Which store?"}}},
+		"the CEO passes a goblin's ask up":     {`{"id":"from-billing","text":"billing asks: which store?","status":"pending","created_at":"2026-10-01T12:00:00Z"}`, []Note{{"question:from-billing@2026-10-01T12:00:00Z", "CEO", "The CEO asks: billing asks: which store?"}}},
+		"a goblin asks the CEO":                {`{"id":"notify-billing-7","text":"Which port?","status":"pending","task":"billing","generation":"g1","seq":7}`, nil},
+		"a goblin's question the CEO answered": {`{"id":"notify-billing-6","text":"Which port?","status":"succeeded","task":"billing","answered_by":"ceo"}`, nil},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var mu sync.Mutex

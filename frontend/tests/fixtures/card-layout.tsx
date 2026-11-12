@@ -10,7 +10,7 @@ import { RESTING_AFK_TOGGLE } from "./resting-afk-toggle";
 // The Overlord's crowded column: a goblin with a long title that waits on
 // another goblin and has a pull request, beside queued work with a long title,
 // a finished task with its pull request and a goblin with its browser active,
-// each running Codex, so every card carries its harness mark, under a CFO
+// each running Codex, so every card carries its harness mark, under a CEO
 // running Claude Code. Murray's paused card has a ticket, a pull request,
 // passed checks and a deploy, as the Overlord's crowded card had on
 // 2026-10-17.
@@ -18,7 +18,7 @@ const long = "The board's terminal: Ctrl+C copies a selection or interrupts, Ctr
 const now = Date.parse("2026-09-30T12:00:00Z");
 const task = (fields: Record<string, unknown>) => ({ project: "code-goblins", harness: "codex", model: "gpt-6-astra", effort: "xhigh", verified: false, generation: "g1", since: "2026-09-29T08:00:00Z", ...fields });
 const snapshot = parseSnapshot({
-  healthy: true, instance: "fixture", cfo_runs: true, afk: { state: "off" }, cfo_harness: "claude",
+  healthy: true, instance: "fixture", ceo_runs: true, afk: { state: "off" }, ceo_harness: "claude",
   memory: { available: 5.6e9, total: 32e9, floor: 4e9, next: 5e9 },
   tasks: [
     task({ id: "cg-board-kill-with-a-long-goblin-name", title: "cg-board-kill-with-a-long-goblin-name", phase: "working", activity: "working: gate review" }),
@@ -40,7 +40,7 @@ const snapshot = parseSnapshot({
 // Orchestration where its tips show (tips.ts). With ?board=<px> that region
 // is that wide, as it is beside an open panel, which leaves it at least
 // 280 px. With ?queue the queue
-// shows in the CFO's panel instead, stacked under the board as on a phone,
+// shows in the CEO's panel instead, stacked under the board as on a phone,
 // where the app's 8 px margin leaves the pane 16 px narrower than the screen.
 // The board is stacked, so each card spans the board's whole width. Escape
 // closes the selection and hands focus back to where it was chosen from, as
@@ -57,8 +57,8 @@ function Fixture() {
     document.addEventListener("keydown", close);
     return () => document.removeEventListener("keydown", close);
   }, []);
-  const board = <Board afkToggle={RESTING_AFK_TOGGLE} snapshot={snapshot} layout="stacked" selected={selected} now={now} freshNow={now} presentations={presentations} onSelect={select} onSelectTrain={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} />;
-  if (search.has("queue")) return <aside className="context-pane" style={{ width: "calc(100vw - 16px)" }}><div className="panel-content"><section className="cfo-queue" aria-label="Queued tasks">
+  const board = <Board afkToggle={RESTING_AFK_TOGGLE} snapshot={snapshot} layout="stacked" selected={selected} now={now} freshNow={now} presentations={presentations} onSelect={select} onSelectTrain={() => {}} onOpenCeo={() => {}} onOpenCommand={() => {}} onStartCeo={() => {}} />;
+  if (search.has("queue")) return <aside className="context-pane" style={{ width: "calc(100vw - 16px)" }}><div className="panel-content"><section className="ceo-queue" aria-label="Queued tasks">
     <QueuedTasks snapshot={snapshot} selected={selected} now={now} presentations={presentations} hasMeters onSelect={select} />
   </section></div></aside>;
   return <main className="canvas-region" style={width ? { width } : undefined}>{board}</main>;

@@ -16,7 +16,7 @@
 .baby-helper { background-position: 0 0; }
 
 /* A silent child is a plain state like an idle one, never yellow: what has
-   gone wrong is the CFO's to tell. */
+   gone wrong is the CEO's to tell. */
 .phase-idle .status-dot, .phase-done .status-dot, .phase-silent .status-dot { background: #7891ad; }
 .phase-idle.plain-status, .phase-done.plain-status { color: #a6b8c8; }
 
