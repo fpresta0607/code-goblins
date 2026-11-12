@@ -22,8 +22,8 @@ func (t *Tree) KillsOnCloseForTest() (bool, error) {
 
 // CountUnlistedForTest makes the next reads of a job's members, until the
 // test ends, count one process beyond the list, as Windows does while a
-// process exits.
-func CountUnlistedForTest(t testing.TB, reads int) {
+// process exits, and calls counted before each such read returns.
+func CountUnlistedForTest(t testing.TB, reads int, counted func()) {
 	original := jobProcessIDs
 	t.Cleanup(func() { jobProcessIDs = original })
 	jobProcessIDs = func(job syscall.Handle) ([]uint32, uint32, error) {
@@ -31,6 +31,7 @@ func CountUnlistedForTest(t testing.TB, reads int) {
 		if reads > 0 {
 			reads--
 			unlisted++
+			counted()
 		}
 		return ids, unlisted, err
 	}

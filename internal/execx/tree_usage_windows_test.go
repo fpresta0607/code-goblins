@@ -507,20 +507,27 @@ func TestTreeEndAndWaitWaitsUntilTheJobCountsNothingBeyondItsList(t *testing.T) 
 		// process beyond the list.
 		unlistedReads int
 		isConfirmed   bool
-		limit         time.Duration
 	}{
-		{name: "an exit that finishes within the end", unlistedReads: 3, isConfirmed: true, limit: time.Minute},
-		{name: "an exit that outlasts the end", unlistedReads: 1 << 30, limit: 2 * time.Second},
+		{name: "an exit that finishes within the end", unlistedReads: 3, isConfirmed: true},
+		{name: "an exit that outlasts the end", unlistedReads: 1 << 30},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			tree, _, pids, held := serviceTree(t, "")
 			// An end that confirms nothing leaves the job to the strict end.
 			t.Cleanup(func() { _, _ = tree.TerminateAndWait(context.Background()) })
-			execx.CountUnlistedForTest(t, test.unlistedReads)
-			// stall-accepted: the row whose exit finishes is given a minute, and the row whose exit outlasts the end means its two seconds to run out.
-			ctx, cancel := context.WithTimeout(context.Background(), test.limit)
+			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
+			counted := func() {}
+			if !test.isConfirmed {
+				// The caller's deadline runs out at the first read that counts
+				// a process beyond the list, so it runs out in that wait
+				// however long a loaded machine takes to end the worker first:
+				// a two-second deadline once ran out while the worker exited
+				// (issue 1760).
+				counted = cancel
+			}
+			execx.CountUnlistedForTest(t, test.unlistedReads, counted)
 
 			// Act
 			_, spared, err := tree.EndAndWait(ctx)
