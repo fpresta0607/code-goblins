@@ -276,10 +276,14 @@ func readDocker(ctx context.Context, probes *SharedProbes, stateDir string, now 
 }
 
 // sharedWaiting names the live goblins whose latest report is a wait on
-// target, in name order.
+// target, in name order, leaving out one its lifecycle says something else
+// holds, as no pause waits on a shared service.
 func sharedWaiting(h home.Home, target string) []string {
 	waiting := []string{}
 	for _, meta := range liveTasks(h.State) {
+		if _, isHeld := heldByLifecycle(h.State, meta); isHeld {
+			continue
+		}
 		lines, _ := state.TailStatus(h.State, meta.ID, 200)
 		if _, report := latestReport(lines, spawnTime(meta.SpawnGen)); strings.HasPrefix(report, "waiting on "+target+": ") {
 			waiting = append(waiting, meta.ID)

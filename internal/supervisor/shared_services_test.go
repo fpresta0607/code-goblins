@@ -497,6 +497,49 @@ func TestABusyServiceNobodyWaitsOnWakesNobody(t *testing.T) {
 	}
 }
 
+// A goblin the CEO stopped, or one being changed, failed or paused for
+// something else, waits on no shared service, whatever its last report said,
+// so it is not counted and wakes nobody; a lifecycle record of an older
+// generation says nothing about the goblin now, so its report still counts.
+func TestAGoblinItsLifecycleHoldsIsNoSharedWaiter(t *testing.T) {
+	pausedAt := time.Date(2026, 11, 11, 13, 0, 0, 0, time.UTC)
+	for _, c := range []struct {
+		name      string
+		record    state.Lifecycle
+		isWaiting bool
+	}{
+		{"stopped", state.Lifecycle{ID: "huey", Generation: "s1", Operation: "stop-1", Action: "stop", Phase: "stopped", Updated: pausedAt}, false},
+		{"stopping", state.Lifecycle{ID: "huey", Generation: "s1", Operation: "stop-1", Action: "stop", Phase: "stopping", Updated: pausedAt}, false},
+		{"failed", state.Lifecycle{ID: "huey", Generation: "s1", Operation: "stop-1", Action: "stop", Phase: "failed", Updated: pausedAt}, false},
+		{"paused by the Overlord", state.Lifecycle{ID: "huey", Generation: "s1", Operation: "pause-1", Action: "pause", Phase: "paused", Pause: &state.PauseCondition{Reason: "overlord", At: pausedAt}, Updated: pausedAt}, false},
+		{"stopped in an older generation", state.Lifecycle{ID: "huey", Generation: "s0", Operation: "stop-1", Action: "stop", Phase: "stopped", Updated: pausedAt}, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			s, h, _ := sharedService(t)
+			sharedWaiter(t, h, "huey", "gate-daemon")
+			if err := state.WriteLifecycle(h.State, c.record); err != nil {
+				t.Fatal(err)
+			}
+			now := time.Date(2026, 11, 11, 14, 0, 0, 0, time.UTC)
+
+			// Act
+			first, _ := checkShared(t, s, h, &now)
+			second, record := checkShared(t, s, h, &now)
+
+			// Assert
+			woke := append(first, second...)
+			waiting := sharedByName(t, record, SharedGateDaemon).Waiting
+			if c.isWaiting && (len(woke) != 1 || !slices.Equal(waiting, []string{"huey"})) {
+				t.Fatalf("wakes=%+v waiting=%v, want one shared_busy for huey", woke, waiting)
+			}
+			if !c.isWaiting && (len(woke) != 0 || len(waiting) != 0) {
+				t.Fatalf("wakes=%+v waiting=%v, want no wake and nobody waiting", woke, waiting)
+			}
+		})
+	}
+}
+
 // The heavy line reads full when every turn is held, short when memory is
 // under the next run's floor, and free otherwise, naming who holds and who
 // waits; a wait on it is a wait on memory, which memory_ready already tells,

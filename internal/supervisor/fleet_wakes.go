@@ -593,34 +593,43 @@ func largestBucket(record janitor.Record) (name string, bytes int64) {
 func memoryWork(h home.Home, finished *finishedWork, reading rowReading) (queued, waiting []string) {
 	queued = startableQueued(h, finished, reading)
 	for _, meta := range liveTasks(h.State) {
-		if record, err := state.ReadLifecycle(h.State, meta.ID); err == nil && record.Generation == meta.SpawnGen {
-			switch record.Phase {
-			case "paused":
-				// The pause in force says what holds the task now. Memory is
-				// work a free reading can release; any other condition ends by
-				// itself, so freeing memory cannot end it, and an older report
-				// of a memory wait must not name the task as work it releases.
-				if record.Pause != nil {
-					if record.Pause.Reason == "memory" {
-						waiting = append(waiting, meta.ID)
-					}
-					continue
-				}
-			case "pausing", "resuming", "stopping", "stopped", "done", "failed":
-				// A task being changed or already over is not work memory can
-				// release, whatever an older report said.
-				continue
+		if pause, isHeld := heldByLifecycle(h.State, meta); isHeld {
+			// Memory is work a free reading can release; any other condition
+			// ends by itself, so freeing memory cannot end it, and an older
+			// report of a memory wait must not name the task as work it
+			// releases.
+			if pause != nil && pause.Reason == "memory" {
+				waiting = append(waiting, meta.ID)
 			}
+			continue
 		}
-		// No record of this generation, or one that names no condition: an
-		// older report is the only evidence there is, and missing evidence
-		// never drops a real waiter.
 		lines, _ := state.TailStatus(h.State, meta.ID, 200)
 		if _, report := latestReport(lines, spawnTime(meta.SpawnGen)); strings.HasPrefix(report, "waiting on memory: ") {
 			waiting = append(waiting, meta.ID)
 		}
 	}
 	return queued, waiting
+}
+
+// heldByLifecycle reports whether meta's lifecycle record of its current
+// generation says what holds the task now, whatever an older report said,
+// and the pause in force when it is paused. A task being changed or already
+// over is held, with no pause, as it waits on nothing. No record of this
+// generation, or a paused one that names no condition, holds nothing: an
+// older report is the only evidence there is, and missing evidence never
+// drops a real waiter.
+func heldByLifecycle(stateDir string, meta state.TaskMeta) (pause *state.PauseCondition, isHeld bool) {
+	record, err := state.ReadLifecycle(stateDir, meta.ID)
+	if err != nil || record.Generation != meta.SpawnGen {
+		return nil, false
+	}
+	switch record.Phase {
+	case "paused":
+		return record.Pause, record.Pause != nil
+	case "pausing", "resuming", "stopping", "stopped", "done", "failed":
+		return nil, true
+	}
+	return nil, false
 }
 
 // queuedCandidates names the queued work in queue order: each structured row
