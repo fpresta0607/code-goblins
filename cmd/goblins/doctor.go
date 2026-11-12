@@ -389,6 +389,26 @@ func reportRouting(stdout io.Writer) {
 		lane := table.Lanes[name]
 		fmt.Fprintf(stdout, "  %-11s %-7s %-8s %-7s %s\n", name, lane.Harness, valueOr(lane.Model, "default"), valueOr(lane.Effort, "default"), lane.Note)
 	}
+	if len(table.Roles) == 0 {
+		fmt.Fprintln(stdout, "routing: no roles per lane, so each goblin leads, implements, reviews, verifies and fixes on its own lane")
+		return
+	}
+	fmt.Fprintf(stdout, "routing: roles for %d lane(s); a role a lane does not name is its lead's own\n", len(table.Roles))
+	leads := make([]string, 0, len(table.Roles))
+	for name := range table.Roles {
+		leads = append(leads, name)
+	}
+	sort.Strings(leads)
+	for _, name := range leads {
+		for _, role := range routing.Roles {
+			lanes := table.RoleLanes(role, table.Lanes[name])
+			line := fmt.Sprintf("  %-13s %-9s %-13s %-17s %s", name, role, lanes[0].Name, lanes[0].Model, valueOr(lanes[0].Effort, "default"))
+			for _, fallback := range lanes[1:] {
+				line += ", then " + fallback.Name
+			}
+			fmt.Fprintln(stdout, line)
+		}
+	}
 }
 
 // reportStaleWakes prints what the monitor counted: the task wakes it raised
