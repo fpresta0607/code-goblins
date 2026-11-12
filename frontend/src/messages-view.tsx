@@ -22,6 +22,7 @@ import { harnessInk } from "./harness-ink";
 import { QueuedMessage } from "./queued-message";
 import { isUndelivered, sameWords, withTakenCommands } from "./messages";
 import { usePendingSends, type PendingSend } from "./pending-sends";
+import { linkedText } from "./messageText";
 import "./messages-view.css";
 
 // A stream that keeps dropping stops retrying and says why.
@@ -876,7 +877,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
             return action
               ? <QueuedMessage key={"queued-" + action.id} action={action} harnessState={prompt.sending ? "Sending" : "Queued"} liveAction={pending.find((each) => each.id === action.id) ?? null} instance={instance} name={name} variant="pane" />
               : <div key={"waiting-" + prompt.id} className={"queued-message pane " + prompt.source} data-queued={prompt.id}>
-                <div className={"message-bubble queued-bubble" + (prompt.sending ? "" : " waiting")}>{prompt.text}</div>
+                <div className={"message-bubble queued-bubble" + (prompt.sending ? "" : " waiting")}>{linkedText(prompt.text)}</div>
                 <p className="queued-state">{prompt.sending ? "Sending" : "Queued"}</p>
               </div>;
           })}

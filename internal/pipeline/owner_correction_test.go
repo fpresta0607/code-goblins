@@ -12,6 +12,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/pipeline/pipelinetest"
 )
 
 const (
@@ -74,7 +75,7 @@ INSERT INTO runs VALUES('%[4]s','%[1]s','%[2]s','%[5]s','%[3]s','%[6]s',2);
 INSERT INTO step_results VALUES('%[4]s','review',1,'completed',NULL);
 INSERT INTO step_results VALUES('%[4]s','%[7]s',3,'%[8]s','%[9]s');`, handbackRepo, handbackBranch, handbackHead, handbackRun, runStatus, handbackShip, step, stepStatus, strings.ReplaceAll(findings, "'", "''"))
 	writeFixtureSQLite(t, filepath.Join(root, "state.sqlite"), schema)
-	return Reader{Root: root, Commands: fixtureCommands{execx.OSRunner{}}}
+	return Reader{Root: root, Commands: pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}}
 }
 
 const handbackFindings = `{"findings":[{"id":"test-failure","severity":"error","description":"go test ./internal/c failed"},{"id":"flaky-note","action":"no-op","severity":"info","description":"a note"}]}`

@@ -37,6 +37,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/host/hosttest"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/pipeline/pipelinetest"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -1987,7 +1988,7 @@ func TestTypingIntoANewTasksDetachedWorktreeReachesItsTerminalOnlyOnceProvedFres
 			} else if out, err := exec.Command("sqlite3", database, runs).CombinedOutput(); err != nil {
 				t.Fatalf("disposable gate records: %v\n%s", err, out)
 			}
-			h.Service.Options.Gate = pipeline.Reader{Root: root, Commands: execx.OSRunner{}}
+			h.Service.Options.Gate = pipeline.Reader{Root: root, Commands: pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}}
 			terminal := hostTask(t, h)
 			v := openNativeView(t, server, viewQuery)
 			v.waitFor(t, "program ready")

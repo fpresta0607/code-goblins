@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/pipeline/pipelinetest"
 )
 
 // A review fixer's unfinished repairs live in the gate run's worktree, and
@@ -152,7 +153,7 @@ type gateRecoveryRunner struct {
 
 func (runner *gateRecoveryRunner) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
 	if request.Name != "no-mistakes" {
-		return fixtureCommands{execx.OSRunner{}}.Run(ctx, request)
+		return pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}.Run(ctx, request)
 	}
 	switch command := strings.Join(request.Args, " "); command {
 	case "axi sync --check":
