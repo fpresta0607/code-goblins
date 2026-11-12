@@ -2,15 +2,20 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-// The app's push worker as its browser runs it, with what it does kept.
-function runWorker() {
+// The app's push worker as its browser runs it, with what it does kept, and
+// as many boards open as boards says.
+function runWorker(boards = 0) {
   const listeners: Record<string, (event: object) => void> = {};
   const done: string[] = [];
+  const board = (index: number) => ({
+    focus: async () => { done.push(`focus board ${index}`); },
+    postMessage: (message: unknown) => { done.push(`tell board ${index} ${JSON.stringify(message)}`); },
+  });
   const self = {
     addEventListener: (type: string, listener: (event: object) => void) => { listeners[type] = listener; },
     navigator: { setAppBadge: async (count: number) => { done.push("badge " + count); }, clearAppBadge: async () => { done.push("badge cleared"); } },
     registration: { showNotification: async (title: string, options: { body: string; tag?: string }) => { done.push(`notify ${title}: ${options.body} (${options.tag})`); } },
-    clients: { matchAll: async () => [], openWindow: async (url: string) => { done.push("open " + url); } },
+    clients: { matchAll: async () => Array.from({ length: boards }, (_, index) => board(index)), openWindow: async (url: string) => { done.push("open " + url); } },
   };
   new Function("self", readFileSync(new URL("../public/push-worker.js", import.meta.url), "utf8"))(self);
   const fire = async (type: string, event: object) => {
@@ -40,15 +45,30 @@ for (const [name, push, want] of [
   });
 }
 
-test("tapping a push's notification opens the board", async () => {
-  // Arrange
-  const worker = runWorker();
-  let closed = false;
+// Tapping a push's notification opens its item (#2363): in a board already
+// open, which it brings up and tells the item's address, so what he was
+// typing there stays, or else in a board it opens at that address. A push
+// that names no item, with no tag or a tag that is not an item's key and @
+// its publishing, opens the board as it is.
+for (const [name, tag, boards, want] of [
+  ["an item, with no board open", "review:r1@2026-11-12T17:00:00Z", 0, ["open /?item=review%3Ar1"]],
+  ["an item, with a board open", "question:q1@T", 1, ['tell board 0 {"open":"/?item=question%3Aq1"}', "focus board 0"]],
+  ["an item, with two boards open", "question:q1@T", 2, ['tell board 0 {"open":"/?item=question%3Aq1"}', "focus board 0"]],
+  ["no item, with no board open", "", 0, ["open /"]],
+  ["no item, with a board open", "", 1, ["focus board 0"]],
+  ["a tag with no publishing, with no board open", "question:q1", 0, ["open /"]],
+  ["a tag with no publishing, with a board open", "question:q1", 1, ["focus board 0"]],
+] as const) {
+  test(`tapping a push's notification for ${name}`, async () => {
+    // Arrange
+    const worker = runWorker(boards);
+    let closed = false;
 
-  // Act
-  await worker.fire("notificationclick", { notification: { close: () => { closed = true; } } });
+    // Act
+    await worker.fire("notificationclick", { notification: { tag, close: () => { closed = true; } } });
 
-  // Assert
-  assert.equal(closed, true);
-  assert.deepEqual(worker.done, ["open /"]);
-});
+    // Assert
+    assert.equal(closed, true);
+    assert.deepEqual(worker.done, want);
+  });
+}

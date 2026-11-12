@@ -1,4 +1,5 @@
-import { createElement, Fragment, type ReactNode } from "react";
+import { createElement, Fragment, type MouseEvent, type ReactNode } from "react";
+import { boardPlace, openBoardAddress } from "./board-address.ts";
 import { documentLinks, type DocumentLink } from "./document-links.ts";
 import { scrawlLink } from "./scrawl-link.ts";
 import type { SaidLink } from "./task-words.ts";
@@ -59,11 +60,16 @@ export function webLinkName(address: string): string {
 // his default browser, so the board is never navigated away. A phone
 // validates a Scrawl session's private route; the shown address stays as the
 // asker wrote it. An address the board knows reads as a chip with its short
-// name, and a link shown by a name holds the whole address in its tip.
+// name, and a link shown by a name holds the whole address in its tip. A board
+// address opens its place in this page instead, with no reload (#2363).
 export function webLink(address: string, key: number, label?: string): ReactNode {
   const name = label ?? webLinkName(address);
   const isChip = label === undefined && name !== address;
-  return createElement("a", { key, className: isChip ? "message-link message-chip" : "message-link", href: scrawlLink(address), target: "_blank", rel: "noreferrer", ...name !== address ? { title: address } : {} }, name);
+  const tip = name !== address ? { title: address } : {};
+  if (typeof location !== "undefined" && boardPlace(address, location.origin)) {
+    return createElement("a", { key, className: "message-link", href: address, onClick: (event: MouseEvent) => { event.preventDefault(); openBoardAddress(address); }, ...tip }, name);
+  }
+  return createElement("a", { key, className: isChip ? "message-link message-chip" : "message-link", href: scrawlLink(address), target: "_blank", rel: "noreferrer", ...tip }, name);
 }
 
 // A document link that starts inside a web address is part of the address.

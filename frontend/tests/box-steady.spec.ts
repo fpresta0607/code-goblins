@@ -6,13 +6,20 @@ import { box, open, openGoblin } from "./session-board";
 // just shifts everything off." A dropped connection moves nothing: the box
 // and the conversation keep their place and size while it reconnects and
 // after. Meanwhile the box queues what he sends with no words for it (2026-10-28: "this text not needed on working goblins
-// resumes are assumed").
+// resumes are assumed"). The panel's header says it reconnects with a dot on
+// its picture, which takes no room (#2438).
 
 // places reads where the box and the conversation are drawn.
 const places = (page: Page) => page.evaluate(() => [".composer-dock", ".conversation", ".composer-input"].map((selector) => {
   const shape = document.querySelector(selector)?.getBoundingClientRect();
   return shape ? [Math.round(shape.x), Math.round(shape.y), Math.round(shape.width), Math.round(shape.height)] : null;
 }));
+// dot reads the fill of the mark on the header's picture, or none.
+const dot = (page: Page) => page.locator(".goblin-panel > .panel-header .panel-identity .goblin-avatar").evaluate((picture) => {
+  const mark = getComputedStyle(picture, "::after");
+  return mark.content === "none" ? "none" : mark.backgroundColor;
+});
+const reconnecting = (page: Page) => page.locator(".goblin-panel > .panel-header .panel-reconnecting");
 
 for (const width of [393, 1280]) {
   test(`at ${width} px a dropped connection moves neither the box nor the conversation, while it reconnects and after`, async ({ page }) => {
@@ -29,8 +36,11 @@ for (const width of [393, 1280]) {
     relay.refuse();
     relay.drop();
 
-    // Assert: the box queues, and nothing moved.
+    // Assert: the box queues, the header's picture says it reconnects, and
+    // nothing moved.
     await expect(box(page)).toHaveAttribute("data-queues", "");
+    await expect(reconnecting(page)).toHaveText("Reconnecting");
+    expect(await dot(page), "the amber dot on the picture").toBe("rgb(243, 197, 120)");
     expect(await places(page)).toEqual(before);
     expect(await box(page).locator(".composer-banner").count()).toBe(0);
 
@@ -41,6 +51,8 @@ for (const width of [393, 1280]) {
     await expect(box(page)).not.toHaveAttribute("data-queues", "");
 
     // Assert
+    await expect(reconnecting(page)).toHaveCount(0);
+    expect(await dot(page)).toBe("none");
     expect(await places(page)).toEqual(before);
   });
 }

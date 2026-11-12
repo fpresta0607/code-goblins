@@ -14,6 +14,9 @@ import (
 // command line: several thousand characters of prose that name a shell.
 var longIntent = "  Ship the credential requests backend.\n" + strings.Repeat("Review the launcher change and run the install in Windows PowerShell before the gate passes.\n", 60)
 
+// currentHelp is no-mistakes help axi run as 1.86.0 and later print it.
+const currentHelp = "Flags:\n      --intent string        what the user set out to accomplish\n      --intent-file string   read intent from this file\n      --no-publish-intent    keep the generated Intent section out of the PR body for this run\n"
+
 // helpRunner answers no-mistakes help axi run with help, and records every
 // other request with the content of the intent file it names, read while the
 // command runs, as no-mistakes reads it.
@@ -43,7 +46,7 @@ func (runner *helpRunner) Run(_ context.Context, request execx.Request) (execx.R
 // Trojan:Win32/ClickFix.DQ!MTB on 2026-10-02, and Windows refused the start.
 func TestAGateStartHandsItsIntentOverInAFile(t *testing.T) {
 	// Arrange
-	runner := &helpRunner{help: "Flags:\n      --intent string        what the user set out to accomplish\n      --intent-file string   read intent from this file\n"}
+	runner := &helpRunner{help: currentHelp}
 
 	// Act
 	start, err := StartOf(context.Background(), runner, t.TempDir(), nil, longIntent)
@@ -57,8 +60,8 @@ func TestAGateStartHandsItsIntentOverInAFile(t *testing.T) {
 	start.Close()
 
 	// Assert
-	if len(args) != 6 || strings.Join(args[:3], " ") != "axi run --intent-file" || start.IsOnCommandLine {
-		t.Fatalf("the run starts as %q, want axi run --intent-file <file> and what the caller adds", args)
+	if len(args) != 7 || strings.Join(args[:3], " ") != "axi run --intent-file" || args[4] != "--no-publish-intent" || start.IsOnCommandLine {
+		t.Fatalf("the run starts as %q, want axi run --intent-file <file> --no-publish-intent and what the caller adds", args)
 	}
 	for _, argument := range args {
 		if strings.Contains(argument, "PowerShell") || strings.Contains(argument, "\n") {
@@ -73,28 +76,83 @@ func TestAGateStartHandsItsIntentOverInAFile(t *testing.T) {
 	}
 }
 
-// A no-mistakes older than 1.86.0 has no --intent-file, and would take
-// --intent - as an intent of one dash. For such a build alone the intent
+// A no-mistakes from 1.80.0 to before 1.86.0 has no --intent-file, and would
+// take --intent - as an intent of one dash. For such a build alone the intent
 // stays on the command line, and the start says so.
 func TestAGateStartOnANoMistakesWithoutIntentFileKeepsTheCommandLineAndSaysSo(t *testing.T) {
+	// Arrange
+	runner := &helpRunner{help: "Flags:\n      --intent string        what the user set out to accomplish\n      --no-publish-intent    keep the generated Intent section out of the PR body\n"}
+
+	// Act
+	start, err := StartOf(context.Background(), runner, t.TempDir(), nil, "ship safely")
+	defer start.Close()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(start.Args, []string{"axi", "run", "--intent", "ship safely", "--no-publish-intent"}) || !start.IsOnCommandLine {
+		t.Errorf("the run starts as %q with IsOnCommandLine %v, want the intent on the command line, kept out of the pull request, and said so", start.Args, start.IsOnCommandLine)
+	}
+}
+
+// Issue 1866: on 2026-10-30 the pull request a gate opened, #1865, carried
+// the task's whole intent as its Intent section: machine-local paths,
+// ownership decisions and routing the brief kept private. Every gate start
+// now keeps the intent out of the pull request, and no-mistakes keeps that on
+// the run for every later body refresh, while its steps still read the whole
+// intent.
+func TestAGateStartKeepsItsPrivateIntentOutOfThePullRequest(t *testing.T) {
+	// Arrange
+	intent := "Fix the private intent leak.\nPRIVATE-INTENT-SENTINEL-1866 C:\\dev\\code-goblins\\state\\tasktmp\\brief.md\n"
+	runner := &helpRunner{help: currentHelp}
+
+	// Act
+	start, err := StartOf(context.Background(), runner, t.TempDir(), nil, intent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.Run(context.Background(), execx.Request{Name: "no-mistakes", Args: start.Args}); err != nil {
+		t.Fatal(err)
+	}
+	start.Close()
+
+	// Assert
+	if !slices.Contains(start.Args, "--no-publish-intent") {
+		t.Fatalf("the run starts as %q, which publishes its intent in the pull request", start.Args)
+	}
+	if strings.Contains(strings.Join(start.Args, " "), "SENTINEL") {
+		t.Errorf("the run starts as %q, with its private intent on the command line", start.Args)
+	}
+	if len(runner.intents) != 1 || runner.intents[0] != intent {
+		t.Errorf("no-mistakes read %q, want the whole intent, sentinel included, for its steps", runner.intents)
+	}
+}
+
+// A no-mistakes that cannot keep the intent out of the pull request, or whose
+// help names nothing, starts no run and leaves no intent file behind.
+func TestAGateStartOnANoMistakesThatWouldPublishItsIntentStartsNothing(t *testing.T) {
 	for name, help := range map[string]string{
-		"help that names no intent file": "Flags:\n      --intent string   what the user set out to accomplish\n",
-		"no help at all":                 "",
+		"help that names no such flag": "Flags:\n      --intent string        what the user set out to accomplish\n      --intent-file string   read intent from this file\n",
+		"no help at all":               "",
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			runner := &helpRunner{help: help}
+			temp := t.TempDir()
+			t.Setenv("TMP", temp)
+			t.Setenv("TEMP", temp)
 
 			// Act
 			start, err := StartOf(context.Background(), runner, t.TempDir(), nil, "ship safely")
 			defer start.Close()
 
 			// Assert
-			if err != nil {
-				t.Fatal(err)
+			if err == nil || !strings.Contains(err.Error(), "no run starts") || !strings.Contains(err.Error(), "1.80.0") {
+				t.Fatalf("StartOf = %q, %v; want a refusal naming the no-mistakes to update to", start.Args, err)
 			}
-			if !slices.Equal(start.Args, []string{"axi", "run", "--intent", "ship safely"}) || !start.IsOnCommandLine {
-				t.Errorf("the run starts as %q with IsOnCommandLine %v, want the intent on the command line and said so", start.Args, start.IsOnCommandLine)
+			if left, _ := os.ReadDir(temp); len(left) != 0 {
+				t.Errorf("the refused start left %d files in the temporary folder", len(left))
 			}
 		})
 	}

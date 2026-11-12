@@ -510,12 +510,9 @@ func breakWaitCycles(tasks []Task) [][]string {
 }
 
 // tellWaitCycles tells the CEO, once for each, of a circle the goblins'
-// standing waits close. A newer report of any goblin in it is a new circle.
-func (s *Service) tellWaitCycles() error {
-	snapshot, err := s.Snapshot()
-	if err != nil {
-		return err
-	}
+// standing waits close in snapshot. A newer report of any goblin in it is a
+// new circle.
+func (s *Service) tellWaitCycles(snapshot Snapshot) error {
 	isTold := false
 	for _, cycle := range snapshot.waitCycles {
 		var names []string
@@ -535,9 +532,34 @@ func (s *Service) tellWaitCycles() error {
 		isTold = isTold || isNew
 	}
 	if isTold {
-		_, err = wake.PublishEpisode(s.Store.Home.State)
+		_, err := wake.PublishEpisode(s.Store.Home.State)
+		return err
 	}
-	return err
+	return nil
+}
+
+// tellParkedRuns tells the CEO, once for each, of a gate run that waits on a
+// decision since before its goblin's newest report in snapshot, which holds
+// no card. The run parking again, at another step or in a later round, is a
+// new one.
+func (s *Service) tellParkedRuns(snapshot Snapshot) error {
+	isTold := false
+	for _, task := range snapshot.Tasks {
+		for _, run := range task.parkedBeforeReport {
+			parkedAt := run.ParkedAt.UTC().Format(time.RFC3339)
+			detail := fmt.Sprintf("parked_run: %s (%s) has gate run %s on branch %s waiting on a decision at its %s step since %s, before the goblin's newest report, so it holds no card. Act on it with goblins pipeline respond %s --branch %s, or read it with no-mistakes axi status --run %s", cmp.Or(task.GoblinName, task.ID), task.ID, run.RunID, run.Branch, run.Step, parkedAt, task.ID, run.Branch, run.RunID)
+			_, isNew, err := wake.AppendFirst(s.Store.Home.State, "parked-run/"+task.ID+"/"+run.RunID+"/"+run.Step+"/"+parkedAt, "check", task.ID, detail)
+			if err != nil {
+				return err
+			}
+			isTold = isTold || isNew
+		}
+	}
+	if isTold {
+		_, err := wake.PublishEpisode(s.Store.Home.State)
+		return err
+	}
+	return nil
 }
 
 // statusActivity is a task's own latest status line, the one-line answer to

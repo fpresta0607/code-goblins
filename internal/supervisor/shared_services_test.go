@@ -480,6 +480,47 @@ func TestTheMachinesHeavyLineIsReadFromItsAdmissionStore(t *testing.T) {
 	}
 }
 
+// A light run beside the slots holds none of the heavy line's turns: with one
+// heavy run and one light run holding, a line of two reads the heavy run as
+// its only holder and one of its two turns free.
+func TestTheHeavyLineReadsOnlyTheSlotsHoldersAsItsHolders(t *testing.T) {
+	// Arrange
+	heavyLine(t, 2, 0)
+	store, err := verify.AdmissionDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	heavy := verify.Admission{Dir: store, Available: func() (uint64, error) { return 64 * gigabyte, nil }, Who: "a heavy run", Estimate: gigabyte, Budget: time.Hour, Limit: time.Minute, Poll: 10 * time.Millisecond}
+	slot, err := heavy.Wait(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer slot.Release()
+	light := heavy
+	light.IsLight, light.Who = true, "a light run"
+	beside, err := light.Wait(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer beside.Release()
+	now := time.Date(2026, 11, 11, 14, 0, 0, 0, time.UTC)
+
+	// Act
+	line, err := MachineSharedLine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	line.Memory = Memory{Available: 16 * gigabyte, CommitAvailable: 16 * gigabyte}
+	service := readHeavyLine(&SharedProbes{Line: func() (SharedLine, error) { return line, nil }}, now)
+
+	// Assert
+	if !slices.Equal(service.Holders, []string{"a heavy run"}) || service.State != "free" || !strings.HasPrefix(service.Detail, "1 of 2 turns are held") {
+		t.Fatalf("heavy line = %+v, want the heavy run its only holder and one of two turns free", service)
+	}
+}
+
 // Nobody waiting on a busy service wakes nobody: the record still says busy
 // for a goblin that reads it.
 func TestABusyServiceNobodyWaitsOnWakesNobody(t *testing.T) {

@@ -158,6 +158,7 @@ exist.
 
 Run goblins brief ready %s after requirements, credentials and launch settings are complete.
 Keep ready: false while editing so the supervisor and explicit spawn wait.
+Give the goblin its title on a line like goblin title: Estimate Elf, one to three words and at most 20 characters, or leave it out to fit the title to the task's own words.
 kind: %s
 mode: %s
 surface: %s

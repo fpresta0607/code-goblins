@@ -250,7 +250,7 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
    with its clock at the top right and its icons under it, ending with the
    mark of the harness its goblin runs, which names the harness, model and
    effort in its tip. Every part has its own place. */
-.task-card-shell { position: relative; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "card time" "repo icons"; align-items: start; column-gap: 12px; padding: 10px 12px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
+.task-card-shell { --card-text-edge: 56px; position: relative; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "card time" "repo icons"; align-items: start; column-gap: 12px; padding: 10px 12px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
 .task-card-shell > .task-card { grid-area: card; }
 .task-card-shell > .card-clock { grid-area: time; justify-self: end; white-space: nowrap; }
 .task-card-shell > .card-icons { grid-area: icons; justify-self: end; align-self: end; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px 10px; }
@@ -273,6 +273,19 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
   .task-card-shell { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "card card" "repo repo" "time icons"; align-items: center; }
   .task-card-shell > .card-clock { justify-self: start; margin-top: 6px; }
   .task-card-shell > .card-icons { margin-top: 6px; }
+  /* In Orchestration no card is numbered, so its clock has room at the
+     left edge its name, status and project share, right under them. */
+  .flow-node.has-task .card-clock, .workflow-node.has-task .card-clock { align-self: start; margin: 0 0 0 var(--card-text-edge); }
+  .flow-node.has-task .card-icons, .workflow-node.has-task .card-icons { margin-top: 0; }
+  /* A card of the phone's list is as wide as the phone leaves it, and
+     Browser active is one mark no line can break. So the card's parts wrap
+     there as words do: its marks end the clock's row while the widest of
+     them has room beside the clock, and take the row under it when it has
+     none, 6px under the clock, so no mark is ever drawn over the clock. */
+  .workflow-node.has-task .task-card-shell { display: flex; flex-wrap: wrap; align-items: start; }
+  .workflow-node.has-task .card-repo { width: calc(100% - var(--card-text-edge)); }
+  .workflow-node.has-task .card-clock { margin-bottom: 6px; }
+  .workflow-node.has-task .card-icons { flex: 1 1 auto; width: min-content; }
 }
 .card-pr { display: inline-flex; align-items: center; gap: 6px; font-size: 1rem; font-weight: 700; color: #6bf0cc; text-decoration: none; }
 .card-pr .icon { width: 18px; height: 18px; }
@@ -391,7 +404,10 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .flow-node.has-task, .workflow-node.has-task { border: 0; background: none; box-shadow: none; }
 .flow-node.has-task:hover, .workflow-node.has-task:hover { transform: none; }
 .flow-node.has-task { display: flex; flex-direction: column; container-type: inline-size; }
-.flow-node.has-task > .task-card-shell { flex: 1; }
+/* The canvas gives every card one size, more than most cards fill, so a
+   card's rows sit together in the middle of it, never spread over it with
+   empty bands between them. */
+.flow-node.has-task > .task-card-shell { flex: 1; align-content: safe center; }
 .flow-node.has-task .task-card { touch-action: none; cursor: grab; }
 .flow-session-details { margin: 6px 0 0; color: var(--muted); font-size: .9375rem; line-height: 1.3; }
 .workflow-node.has-task { container-type: inline-size; }
@@ -1232,8 +1248,8 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 /* A card's project sits under its status, past the portrait, and GitHub's
    mark beside it opens the repository; a press anywhere else on the line
    opens the card's panel. */
-.task-card-shell > .card-repo { grid-area: repo; align-self: center; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin: 2px 0 0 56px; color: var(--muted); font-size: 1rem; line-height: 1.4; }
-.numbered .ranked-item .task-card-shell > .card-repo { margin-left: 90px; }
+.task-card-shell > .card-repo { grid-area: repo; align-self: center; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin: 2px 0 0 var(--card-text-edge); color: var(--muted); font-size: 1rem; line-height: 1.4; }
+.numbered .ranked-item .task-card-shell { --card-text-edge: 90px; }
 .card-repo-link { position: relative; z-index: 1; display: inline-flex; flex: none; width: 18px; height: 18px; }
 .card-repo-link svg { width: 18px; height: 18px; fill: currentColor; }
 .card-repo-link:hover, .card-repo-link:focus-visible { color: var(--bone); }
@@ -1481,6 +1497,16 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .ceo-header-line { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: 0 8px; }
 .ceo-header-line:has(> :is(button, .muted)) { padding-block: 6px; }
 .fills-phone .ceo-header-line { margin-inline: 6px; }
+/* Why the conversation drawn is stale is one quiet line under the row, as the
+   CEO's rare states are, in muted words after a warning dot, never a notice
+   over the conversation (#2438). A dropped connection is a quiet warning dot
+   on the row's picture, where a messenger marks presence: it takes no room,
+   so nothing moves while it reconnects (2026-10-28). */
+.panel-chat-state { display: flex; align-items: flex-start; gap: 8px; margin: 0 8px; padding-block: 6px; color: var(--muted); font-size: .875rem; line-height: 1.45; overflow-wrap: anywhere; }
+.panel-chat-state::before { content: ""; flex: none; width: 8px; height: 8px; margin-top: calc(.725em - 4px); border-radius: 50%; background: var(--amber); }
+.fills-phone .panel-chat-state { margin-inline: 6px; }
+.panel-identity.is-reconnecting .goblin-avatar { position: relative; }
+.panel-identity.is-reconnecting .goblin-avatar::after { content: ""; position: absolute; right: 0; bottom: 0; width: 12px; height: 12px; border: 2px solid var(--body-bg); border-radius: 50%; background: var(--amber); }
 /* The goblin's whole name and task id, which the row may cut short, open its
    Task view. */
 .panel-whole-name { margin: 0; color: #c4d4df; font-size: 1.125rem; font-weight: 600; overflow-wrap: anywhere; }
@@ -1490,7 +1516,7 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
    as every control of a panel keeps from the next. */
 .panel-view-switch { display: flex; flex: none; align-self: center; gap: 8px; padding: 0; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--field-bg); }
 .goblin-panel > .panel-top { order: 0; }
-.goblin-panel > :is(.panel-header, .ceo-header-line) { order: 1; }
+.goblin-panel > :is(.panel-header, .ceo-header-line, .panel-chat-state) { order: 1; }
 .goblin-panel > .panel-task { order: 3; }
 .panel-view-switch > button { display: inline-grid; place-items: center; width: 44px; min-height: 44px; padding: 0; border-color: transparent; border-radius: 999px; background: transparent; color: var(--muted); }
 .panel-view-switch .icon { width: 17px; height: 17px; }
@@ -1512,6 +1538,9 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .panel-header-details { display: grid; gap: 10px; padding: 16px 28px 0; }
 .panel-header-details:empty { display: none; }
 .panel-header-details:empty + .panel-content > .workspace-details:first-child { border-top: 0; }
+/* What the CEO's details hold, its last AFK report, has as much room under it,
+   before Workspace's rule, as over it under the header's (#2438). */
+.panel-header-details:not(:empty) + .panel-content > .workspace-details:first-child { margin-top: 16px; }
 .panel-stage > .messages-view { position: absolute; inset: 0; z-index: 1; }
 .terminal-deck { display: flex; flex: 1; min-height: 0; background: #071015; }
 .terminal-deck.behind { visibility: hidden; }
