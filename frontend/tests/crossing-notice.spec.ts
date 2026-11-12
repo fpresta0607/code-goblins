@@ -1,5 +1,4 @@
-import type { Page } from "@playwright/test";
-import { expect, holdStream, test } from "./site";
+import { expect, holdStream, test, type Page } from "./site";
 
 // After an update or an install moved the home to goblins' names, the board
 // shows one notice from the supervisor's snapshot: what changed, which
