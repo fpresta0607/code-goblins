@@ -277,14 +277,15 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
      left edge its name, status and project share, right under them. */
   .flow-node.has-task .card-clock, .workflow-node.has-task .card-clock { align-self: start; margin: 0 0 0 var(--card-text-edge); }
   .flow-node.has-task .card-icons, .workflow-node.has-task .card-icons { margin-top: 0; }
-}
-/* Browser active is one mark no line can break. A card of the phone's list
-   under 309px wide has less room for it beside the longest clock of a goblin
-   in progress, "just started", than it is wide, so such a card gives its
-   marks the row under its clock. */
-@container (max-width: 308px) {
-  .workflow-node.has-task .task-card-shell { grid-template-areas: "card card" "repo repo" "time time" "icons icons"; }
-  .workflow-node.has-task .card-icons { margin-top: 6px; }
+  /* A card of the phone's list is as wide as the phone leaves it, and
+     Browser active is one mark no line can break. So the card's parts wrap
+     there as words do: its marks end the clock's row while the widest of
+     them has room beside the clock, and take the row under it when it has
+     none, 6px under the clock, so no mark is ever drawn over the clock. */
+  .workflow-node.has-task .task-card-shell { display: flex; flex-wrap: wrap; align-items: start; }
+  .workflow-node.has-task .card-repo { width: calc(100% - var(--card-text-edge)); }
+  .workflow-node.has-task .card-clock { margin-bottom: 6px; }
+  .workflow-node.has-task .card-icons { flex: 1 1 auto; width: min-content; }
 }
 .card-pr { display: inline-flex; align-items: center; gap: 6px; font-size: 1rem; font-weight: 700; color: #6bf0cc; text-decoration: none; }
 .card-pr .icon { width: 18px; height: 18px; }

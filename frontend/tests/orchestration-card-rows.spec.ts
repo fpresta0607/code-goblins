@@ -176,19 +176,20 @@ for (const { view, width, height } of [{ view: "canvas", width: 1440, height: 90
 // A card of the phone's list is as wide as the phone leaves it, and a card
 // under another is narrower still. Browser active is one mark no line can
 // break, so beside a clock that starts at the text's edge a narrow card had
-// less room for it than it is wide, and it was drawn over the clock. A card
-// no wider than NARROW gives its marks the row under its clock. One a pixel
-// wider keeps them beside it, with room even for the longest clock a goblin
-// in progress has, "just started". A phone 320px wide leaves his card 246px
-// and one 390px wide leaves it 316px.
-const NARROW = 308;
+// less room for it than it is wide, and it was drawn over the clock. A card's
+// marks end its clock's row while the widest of them has room beside the
+// clock, and take the row under it when it has none: what the card holds
+// decides, never its width alone. A card 304px wide holds Browser active
+// beside a clock that says 2h 15m and under the longest clock a goblin in
+// progress has, "just started". A phone 320px wide leaves his card 246px and
+// one 390px wide leaves it 316px.
 for (const { wide, clock, isUnderClock } of [
   { wide: 246, clock: "2h 15m", isUnderClock: true },
   { wide: 246, clock: "just started", isUnderClock: true },
-  { wide: NARROW, clock: "just started", isUnderClock: true },
-  { wide: NARROW + 1, clock: "just started", isUnderClock: false },
+  { wide: 304, clock: "2h 15m", isUnderClock: false },
+  { wide: 304, clock: "just started", isUnderClock: true },
   { wide: 316, clock: "2h 15m", isUnderClock: false },
-  { wide: 316, clock: "just started", isUnderClock: false },
+  { wide: 336, clock: "just started", isUnderClock: false },
 ]) {
   test(`no mark covers the clock of a list card ${wide}px wide that says ${clock}`, async ({ page }) => {
     // Arrange: a phone as wide as leaves his card the width of this case.
@@ -215,6 +216,29 @@ for (const { wide, clock, isUnderClock } of [
     expect(marks.isScrolling, "the card holds more than it shows").toBe(false);
   });
 }
+
+// The Overlord, 2026-11-12: a narrow card's marks move under its clock only
+// when they would overlap it. On a phone 320px wide every card is narrow, and
+// a card with a pull request and its harness mark, or its harness mark alone,
+// has room for them beside its clock, so it keeps the row it had.
+test("a narrow list card whose marks fit beside its clock keeps them on the clock's row", async ({ page }) => {
+  // Arrange
+  await page.setViewportSize({ width: 320, height: 844 });
+  await open(page, "lineage", "&marks&browser");
+  const others = page.locator(".workflow-node.has-task").filter({ hasNot: page.locator(".card-title", { hasText: "Bartholomew" }) });
+
+  // Act
+  const widths = await others.evaluateAll((nodes: HTMLElement[]) => nodes.map((node) => node.offsetWidth));
+  const marks = await Promise.all((await others.all()).map((card) => card.evaluate(marksOf)));
+  const goblins = await measureAll(others, GOBLIN);
+
+  // Assert: every other goblin was measured, each in a narrow card.
+  expect(marks).toHaveLength(6);
+  expect(Math.max(...widths), "the widest of the cards").toBeLessThanOrEqual(260);
+  expect(marks.map((one) => one.isUnderClock), "cards whose marks start under the clock").toEqual(marks.map(() => false));
+  expect(marks.flatMap((one) => one.overClock), "marks drawn over a clock").toEqual([]);
+  goblins.forEach((seen, i) => expectOneGroup(seen, "goblin card " + (i + 1), false));
+});
 
 // A baby goblin's name takes up to three lines and what it runs up to two,
 // each ending in an ellipsis past them. At the card's width Bartholomew II -
