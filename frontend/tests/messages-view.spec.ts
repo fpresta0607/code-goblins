@@ -1285,10 +1285,12 @@ test("a stale record is said under the header only while the Chat view shows, an
   // Assert
   await expect(chatState(page)).toHaveText(stale);
 
-  // Act: he opens the queued task.
-  await openGoblin(page, "A queued task");
+  // Act: he opens the queued task, which is headed by its id while no goblin
+  // is named for it.
+  await page.locator(".task-board .task-card-shell").filter({ hasText: "A queued task" }).locator(".task-card").click();
 
   // Assert
+  await expect(page.locator("#panel-title")).toHaveText("cg-queued");
   await expect(page.locator(".messages-view")).toHaveCount(0);
   await expect(chatState(page)).toHaveCount(0);
 });
