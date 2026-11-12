@@ -87,6 +87,11 @@ type Status struct {
 	// Optional mirrors the manifest, so a report can say why a red service
 	// is not blocking.
 	Optional bool
+	// Unchecked says why no check could run on this machine when that alone
+	// left State unverified: the program a probe or an identity check runs is
+	// not installed. It is empty when a check ran and did not confirm the
+	// credential.
+	Unchecked string
 }
 
 // Green reports whether this service was positively verified.
@@ -224,6 +229,9 @@ func (c Checker) evaluate(ctx context.Context, service Service) Status {
 		probeState = state
 		status.State = state
 		status.Detail = detail
+		if state == StateUnverified {
+			status.Unchecked = service.Probe[0] + " is not installed"
+		}
 		// A probe that established a failure has settled the service: there
 		// is nothing left to identify. A probe that could not run has settled
 		// nothing, and the identity check may need no tool at all - which is
@@ -250,7 +258,7 @@ func (c Checker) evaluate(ctx context.Context, service Service) Status {
 		status.Detail += "; liveness only, identity not verified"
 		return optionalize(status)
 	}
-	state, detail := c.runIdentity(ctx, *service.Identity, resolution)
+	state, detail, unchecked := c.runIdentity(ctx, *service.Identity, resolution)
 	status.Detail += "; " + detail
 	if state == StateGreen {
 		// The target is proven; the transport is only proven when the probe
@@ -260,6 +268,7 @@ func (c Checker) evaluate(ctx context.Context, service Service) Status {
 	} else {
 		status.State = state
 		status.WrongTarget = state == StateWrongTarget
+		status.Unchecked = unchecked
 	}
 	return optionalize(status)
 }
@@ -316,38 +325,40 @@ func (c Checker) runProbe(ctx context.Context, service Service, resolution Resol
 
 // runIdentity proves the credential points at this project's instance. The
 // var form needs no tool installed, which is why a connection string that
-// names a different host is caught even on a machine with no client.
-func (c Checker) runIdentity(ctx context.Context, identity Identity, resolution Resolution) (State, string) {
+// names a different host is caught even on a machine with no client. Its
+// third result says why the check could not run here, when that alone left
+// it unverified (Status.Unchecked).
+func (c Checker) runIdentity(ctx context.Context, identity Identity, resolution Resolution) (State, string, string) {
 	if identity.Var != "" {
 		resolved, ok := resolution.Values[identity.Var]
 		if !ok {
-			return StateUnverified, "identity unverified: " + identity.Var + " did not resolve"
+			return StateUnverified, "identity unverified: " + identity.Var + " did not resolve", ""
 		}
 		if !strings.Contains(strings.ToLower(resolved.Value), strings.ToLower(identity.Expect)) {
 			// The value itself is never printed; only the expectation it
 			// failed, which the manifest already states in plain text.
-			return StateWrongTarget, "wrong target: " + identity.Var + " does not name " + identity.Expect
+			return StateWrongTarget, "wrong target: " + identity.Var + " does not name " + identity.Expect, ""
 		}
-		return StateGreen, "identity confirmed: " + identity.Describe()
+		return StateGreen, "identity confirmed: " + identity.Describe(), ""
 	}
 
 	result, err := c.exec(ctx, identity.Command, resolution.Values)
 	switch {
 	case errors.Is(err, exec.ErrNotFound):
-		return StateUnverified, "identity unverified: " + identity.Command[0] + " is not installed"
+		return StateUnverified, "identity unverified: " + identity.Command[0] + " is not installed", identity.Command[0] + " is not installed"
 	case errors.Is(err, context.DeadlineExceeded):
-		return StateUnreachable, c.timedOut("identity check", result)
+		return StateUnreachable, c.timedOut("identity check", result), ""
 	case err != nil:
-		return StateUnverified, "identity unverified: check could not run: " + err.Error()
+		return StateUnverified, "identity unverified: check could not run: " + err.Error(), ""
 	case result.ExitCode != 0:
 		state := classifyFailure(result)
-		return state, fmt.Sprintf("identity check exited %d: %s", result.ExitCode, firstLine(result.Stderr, result.Stdout))
+		return state, fmt.Sprintf("identity check exited %d: %s", result.ExitCode, firstLine(result.Stderr, result.Stdout)), ""
 	}
 	output := strings.ToLower(string(result.Stdout) + "\n" + string(result.Stderr))
 	if !strings.Contains(output, strings.ToLower(identity.Expect)) {
-		return StateWrongTarget, "wrong target: " + identity.Command[0] + " does not report " + identity.Expect
+		return StateWrongTarget, "wrong target: " + identity.Command[0] + " does not report " + identity.Expect, ""
 	}
-	return StateGreen, "identity confirmed: " + identity.Describe()
+	return StateGreen, "identity confirmed: " + identity.Describe(), ""
 }
 
 // failureEvidence maps the words a tool actually prints onto the fact they

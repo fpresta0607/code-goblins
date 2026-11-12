@@ -28,12 +28,13 @@ const fleet = () => supervisorWith({
     { id: "mcp:context7", name: "context7", kind: "mcp", status: "unauthorized", detail: "Sign-in required.", actions: ["login"], checked_at: CHECKED_AT },
     { id: "mcp:chrome-devtools", name: "chrome-devtools", kind: "mcp", status: "probe_succeeded", scope: "separate_probe", source: "Claude", checked_at: CHECKED_AT },
     { id: "mcp:acme-internal", name: "acme-internal", kind: "mcp", status: "connected", checked_at: CHECKED_AT },
-    { ...carried("github"), restart_required: true, restart_reason: "Granted, but declared credentials are missing from the running process. Restart to load available credentials." },
+    { ...carried("github"), restart_required: true, restart_reason: "Connected. Its missing variables reach this goblin at its next terminal. The one running started without them." },
     withheld("sentry"), CRAWLER,
-    { id: "credential:GITHUB_TOKEN", name: "GITHUB_TOKEN", kind: "credential", status: "provided", checked_at: CHECKED_AT },
-    { id: "credential:SENTRY_AUTH_TOKEN", name: "SENTRY_AUTH_TOKEN", kind: "credential", status: "withheld", detail: "This task does not carry it.", checked_at: CHECKED_AT },
+    { id: "credential:GITHUB_TOKEN", name: "GITHUB_TOKEN", kind: "credential", status: "provided", scope: "launch_environment", accounts: ["github"], checked_at: CHECKED_AT },
+    { id: "credential:SENTRY_AUTH_TOKEN", name: "SENTRY_AUTH_TOKEN", kind: "credential", status: "withheld", detail: "This task does not carry it.", accounts: ["sentry"], checked_at: CHECKED_AT },
   ],
-  "cg-other": [SUPABASE, withheld("github"), withheld("sentry"), CRAWLER],
+  "cg-other": [SUPABASE, { ...withheld("github"), restart_required: true, restart_reason: "Disconnected. Its variables leave this goblin at its next terminal. The one running still has them." }, withheld("sentry"), CRAWLER,
+    { id: "credential:GITHUB_TOKEN", name: "GITHUB_TOKEN", kind: "credential", status: "withheld", detail: "This task does not carry it.", accounts: ["github"], checked_at: CHECKED_AT }],
 });
 
 // The board, with the Connectors page chosen from its top bar.
@@ -52,7 +53,7 @@ async function open(page: Page, supervisor: Supervisor, width: number): Promise<
 
 const row = (main: Locator, name: string) => main.locator(".connector-row").filter({ has: main.page().getByRole("button", { name, exact: true }) });
 const tab = (main: Locator, name: string) => main.getByRole("group", { name: "Connectors shown" }).getByRole("button", { name: new RegExp("^" + name) });
-const goblinRow = (detail: Locator, name: string) => detail.getByRole("listitem").filter({ hasText: name });
+const goblinRow = (detail: Locator, name: string) => detail.locator(".connector-goblin").filter({ hasText: name });
 
 // Nothing on the page is wider than its place, and none of its words is small.
 async function expectFits(page: Page, main: Locator) {
@@ -75,7 +76,7 @@ for (const width of [1440, 390]) {
     // Assert: what a goblin carries is Yours, each once, by its proper name.
     const yours = main.getByRole("list", { name: "Your connectors" });
     await expect(yours.locator(".connector-open")).toHaveText(["Acme Internal", "Chrome DevTools", "Context7", "Crawler", "GitHub", "GITHUB_TOKEN", "Supabase"]);
-    await expect(yours.locator(".connector-type")).toHaveText(["MCP server", "MCP server", "MCP server", "Built in", "Repository service", "Credential", "Claude connector"]);
+    await expect(yours.locator(".connector-type")).toHaveText(["MCP server", "MCP server", "MCP server", "Built in", "Repository service", "CLI variable", "Claude MCP connector"]);
     const logo = row(main, "Supabase").locator(".connector-logo img");
     await expect(logo).toHaveAttribute("src", "/assets/connectors/supabase.svg");
     await expect(logo).toHaveAttribute("loading", "lazy");
@@ -84,9 +85,26 @@ for (const width of [1440, 390]) {
     await expect(row(main, "Acme Internal").locator(".connector-initial")).toHaveText("A");
     await expect(row(main, "Acme Internal").locator("img")).toHaveCount(0);
 
-    // Assert: a check when it works, the word of its trouble when it fails.
-    await expect(row(main, "Supabase").locator(".connector-state.is-connected")).toHaveText("Connected");
-    await expect(row(main, "Context7").locator(".connector-state.is-trouble")).toHaveText("Sign in");
+    // Assert: each state in one word, Verified with a check only where a
+    // check confirmed it and Set for a variable no check can confirm, and a
+    // sign-in a goblin needs a button in the board's look, as Connect is,
+    // never coloured words (the Overlord, 2026-11-11).
+    await expect(yours.locator(".connector-status")).toHaveText(["Verified", "Verified", "Sign in", "Installed", "Verified", "Set", "Verified"]);
+    await expect(row(main, "Supabase").locator(".connector-state.is-verified .icon")).toHaveCount(1);
+    await expect(row(main, "Context7").locator(".connector-status button.connector-connect")).toHaveAccessibleName("Sign in to Context7");
+    await expect(row(main, "Context7").locator(".connector-status button"), "the board's green button").toHaveClass(/\bprimary\b/);
+    await expect(row(main, "Context7").locator(".connector-state, .connector-status .icon")).toHaveCount(0);
+    await expect(row(main, "GITHUB_TOKEN").locator(".connector-state.is-quiet")).toHaveText("Set");
+    // Assert: only Verified is green, and the rest, with a change waiting for
+    // a goblin's next terminal, is as quiet as a type.
+    const colour = (locator: Locator) => locator.evaluate((element) => getComputedStyle(element).color);
+    const quiet = await colour(row(main, "GitHub").locator(".connector-type"));
+    expect(await colour(row(main, "Supabase").locator(".connector-state")), "verified and quiet differ").not.toBe(quiet);
+    expect(await colour(row(main, "GITHUB_TOKEN").locator(".connector-state"))).toBe(quiet);
+    expect(await colour(row(main, "Crawler").locator(".connector-state"))).toBe(quiet);
+    await expect(row(main, "GitHub").locator(".connector-waiting")).toHaveText("Applies at its next terminal");
+    expect(await colour(row(main, "GitHub").locator(".connector-waiting"))).toBe(quiet);
+    await expect(main.locator(".connector-waiting")).toHaveCount(1);
     await expect(row(main, "Supabase").getByRole("button", { name: /^Connect / })).toHaveCount(0);
     await expect(main).not.toContainText("claude.ai");
     await expect(main).not.toContainText("SENTRY_AUTH_TOKEN");
@@ -137,7 +155,7 @@ for (const width of [1440, 390]) {
     const detail = main.getByRole("article", { name: "Supabase" });
     await expect(main.getByRole("button", { name: "Connectors", exact: true })).toBeFocused();
     await expect(detail.getByRole("heading", { name: "Supabase", exact: true })).toBeVisible();
-    await expect(detail.locator(".connector-head .connector-type")).toHaveText("Claude connector");
+    await expect(detail.locator(".connector-head .connector-type")).toHaveText("Claude MCP connector");
     await expect(detail.locator(".connector-head .connector-logo img")).toHaveAttribute("src", "/assets/connectors/supabase.svg");
     await expect(detail.locator(".connector-about")).toHaveText("Supabase database, auth and storage");
     await expect(main.getByRole("list", { name: "Your connectors" })).toBeHidden();
@@ -145,9 +163,16 @@ for (const width of [1440, 390]) {
     // Assert: the goblins that can use it.
     const goblins = detail.getByRole("list", { name: "Goblins that can use Supabase" });
     await expect(goblins.getByRole("listitem")).toHaveCount(2);
-    await expect(goblinRow(goblins, ZEKE)).toContainText("Connected");
-    await expect(goblinRow(goblins, IVY)).toContainText("Connected");
+    // Assert: Verified says nothing more beside it; how it was checked is in
+    // the check details at the bottom (the Overlord, 2026-11-11).
+    await expect(goblinRow(goblins, ZEKE).locator(".connector-use")).toHaveText("Verified");
+    await expect(goblinRow(goblins, IVY).locator(".connector-use .connector-word")).toHaveText("Verified");
     await expect(goblins.getByRole("button")).toHaveCount(0);
+
+    // Assert: it reaches a goblin as an MCP server, which its part says, and
+    // brings no CLI variables.
+    await expect(detail.getByRole("region", { name: "MCP server" }).locator(".connector-part-note")).toHaveText("The goblin's harness starts it and calls its tools.");
+    await expect(detail.getByRole("region", { name: "CLI variables" })).toHaveCount(0);
 
     // Assert: its tools wait closed, in two groups with their counts.
     const groups = detail.locator("details.connector-tool-group");
@@ -159,10 +184,11 @@ for (const width of [1440, 390]) {
     await groups.nth(1).locator("> summary").click();
     await detail.locator("details.connector-checks > summary").click();
 
-    // Assert: each tool in words, and what each goblin's check was run against.
+    // Assert: each tool in words, and for each goblin what its check proved
+    // and did not, when it ran, and what it was run against.
     await expect(detail.getByRole("list", { name: "Read-only tools" }).getByRole("listitem")).toHaveText(["Get project URL", "List projects", "List tables"]);
     await expect(detail.getByRole("list", { name: "Write tools" }).getByRole("listitem")).toHaveText(["Apply migration", "Execute SQL"]);
-    await expect(detail.locator("details.connector-checks")).toContainText(ZEKE + " Generation cg-touch-1. Verified process 42, started 2026-11-10T14:00:00Z, workspace C:/scratch/work.");
+    await expect(detail.locator("details.connector-checks")).toContainText(ZEKE + " How it was checked is unknown. Not checked: whether the goblin's own session can use it, or which account and project it reaches. Checked " + CHECKED_AT + ". Generation cg-touch-1. Verified process 42, started 2026-11-10T14:00:00Z, workspace C:/scratch/work.");
     await expectFits(page, main);
     await page.screenshot({ path: testInfo.outputPath(`connector-detail-${width}.png`), fullPage: true });
 
@@ -174,34 +200,85 @@ for (const width of [1440, 390]) {
     await expect(main.getByRole("heading", { name: "Connectors", exact: true })).toBeVisible();
     await expect(main.getByRole("searchbox", { name: "Search connectors" })).toHaveValue("s");
     await expect(row(main, "Supabase").getByRole("button", { name: "Supabase", exact: true })).toBeFocused();
+
+    // Act: the list's Sign in opens the connector a goblin must sign in to.
+    await row(main, "Context7").getByRole("button", { name: "Sign in to Context7", exact: true }).click();
+
+    // Assert: the goblin says why beside its own Sign in, with no amber word.
+    const context7 = main.getByRole("article", { name: "Context7" });
+    await expect(goblinRow(context7, ZEKE).locator(".connector-use")).toHaveText("Sign-in required.");
+    await expect(goblinRow(context7, ZEKE).getByRole("button", { name: "Sign in to Context7 for " + ZEKE, exact: true }), "the board's green button, as Connect is").toHaveClass(/\bprimary\b/);
+    await expectFits(page, main);
+    await page.screenshot({ path: testInfo.outputPath(`connector-context7-${width}.png`), fullPage: true });
   });
 }
 
-test("a probe that succeeded says what it proves and when, a restart a goblin needs says so, and a connector with no tools lists none", async ({ page }) => {
-  // Arrange
-  const main = await open(page, fleet(), 1440);
+for (const width of [1440, 390]) {
+  test(`a probe that succeeded says what it proves and when, a change waiting for a goblin's next terminal says why under its name, and a connector with no tools lists none, at ${width}px`, async ({ page }, testInfo) => {
+    // Arrange
+    const main = await open(page, fleet(), width);
 
-  // Act
-  await row(main, "Chrome DevTools").getByRole("button", { name: "Chrome DevTools", exact: true }).click();
+    // Act
+    await row(main, "Chrome DevTools").getByRole("button", { name: "Chrome DevTools", exact: true }).click();
 
-  // Assert
-  const probed = main.getByRole("article", { name: "Chrome DevTools" });
-  await expect(goblinRow(probed, ZEKE)).toContainText("Separate probe succeeded. Live session unknown. Account and target identity unknown. Observed " + CHECKED_AT + ".");
-  await expect(goblinRow(probed, ZEKE).locator("time")).toHaveAttribute("datetime", CHECKED_AT);
-  await expect(probed.getByRole("listitem")).toHaveCount(1);
-  await expect(probed.getByRole("heading", { name: "Tools", exact: true })).toHaveCount(0);
+    // Assert: Verified alone beside the goblin, and in the check details what
+    // its probe proved and did not and when it ran.
+    const probed = main.getByRole("article", { name: "Chrome DevTools" });
+    await expect(goblinRow(probed, ZEKE).locator(".connector-use")).toHaveText("Verified");
+    await probed.locator("details.connector-checks > summary").click();
+    await expect(probed.locator("details.connector-checks")).toContainText(ZEKE + " A separate check with its credentials succeeded. Not checked: whether the goblin's own session can use it, or which account and project it reaches. Checked " + CHECKED_AT + ".");
+    await expect(probed.locator("details.connector-checks time")).toHaveAttribute("datetime", CHECKED_AT);
+    await expect(probed.getByRole("listitem")).toHaveCount(1);
+    await expect(probed.getByRole("region", { name: "MCP server" })).toBeVisible();
+    await expect(probed.locator("details.connector-tool-group")).toHaveCount(0);
 
-  // Act
-  await main.getByRole("button", { name: "Connectors", exact: true }).click();
-  await row(main, "GitHub").getByRole("button", { name: "GitHub", exact: true }).click();
+    // Act
+    await main.getByRole("button", { name: "Connectors", exact: true }).click();
+    await row(main, "GitHub").getByRole("button", { name: "GitHub", exact: true }).click();
 
-  // Assert
-  const github = main.getByRole("article", { name: "GitHub" });
-  await expect(goblinRow(github, ZEKE)).toContainText("Restart required. Granted, but declared credentials are missing from the running process.");
-  await expect(goblinRow(github, ZEKE).getByRole("button", { name: "Disconnect GitHub from " + ZEKE, exact: true })).toBeVisible();
-  await expect(goblinRow(github, IVY)).toContainText("Not connected");
-  await expect(goblinRow(github, IVY).getByRole("button", { name: "Connect GitHub to " + IVY, exact: true })).toBeVisible();
-});
+    // Assert: the change waiting for each goblin's next terminal says why,
+    // quietly, the Disconnect of one that no longer carries it as much as the
+    // Connect of one that does.
+    const github = main.getByRole("article", { name: "GitHub" });
+    await expect(goblinRow(github, ZEKE).locator(".connector-waiting")).toHaveText("Connected. Its missing variables reach this goblin at its next terminal. The one running started without them.");
+    await expect(goblinRow(github, ZEKE).getByRole("button", { name: "Disconnect GitHub from " + ZEKE, exact: true })).toBeVisible();
+    await expect(goblinRow(github, IVY)).toContainText("Not connected");
+    await expect(goblinRow(github, IVY).locator(".connector-waiting")).toHaveText("Disconnected. Its variables leave this goblin at its next terminal. The one running still has them.");
+    await expect(goblinRow(github, IVY).getByRole("button", { name: "Connect GitHub to " + IVY, exact: true })).toBeVisible();
+    // Assert: each goblin's name, its state and why its change waits are lines
+    // one under another, at every width.
+    for (const name of [ZEKE, IVY]) {
+      const lines = await goblinRow(github, name).locator(".connector-goblin-copy > *").evaluateAll((parts) => parts.map((part) => {
+        const box = part.getBoundingClientRect();
+        return { left: box.left, top: box.top, bottom: box.bottom };
+      }));
+      expect(lines, name + " has a name, a state and a reason").toHaveLength(3);
+      for (const [at, line] of lines.slice(1).entries()) {
+        expect(line.left, name + "'s line " + (at + 2) + " starts under its name").toBeCloseTo(lines[0].left, 0);
+        expect(line.top, name + "'s line " + (at + 2) + " is below the one before it").toBeGreaterThanOrEqual(lines[at].bottom - 0.5);
+      }
+    }
+
+    // Assert: it brings its CLI variables, each by name with what each goblin's
+    // terminal holds of it, never a value, and no MCP server.
+    const variables = github.getByRole("region", { name: "CLI variables" });
+    await expect(variables.locator(".connector-part-note")).toHaveText("Command line tools in the goblin's terminal read them. Names only, never values.");
+    await expect(variables.getByRole("listitem")).toHaveText(["GITHUB_TOKEN" + ZEKE + ": Set, " + IVY + ": Not given"]);
+    await expect(github.getByRole("region", { name: "MCP server" })).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath(`connector-github-${width}.png`), fullPage: true });
+
+    // Act
+    await main.getByRole("button", { name: "Connectors", exact: true }).click();
+    await row(main, "GITHUB_TOKEN").getByRole("button", { name: "GITHUB_TOKEN", exact: true }).click();
+
+    // Assert: a variable is Set, never Verified, and names the service it is from.
+    const token = main.getByRole("article", { name: "GITHUB_TOKEN" });
+    await expect(goblinRow(token, ZEKE).locator(".connector-use")).toHaveText("Set");
+    await token.locator("details.connector-checks > summary").click();
+    await expect(token.locator("details.connector-checks")).toContainText(ZEKE + " The goblin's environment has it. Not checked: whether the goblin's own session can use it, or which account and project it reaches. Checked " + CHECKED_AT + ".");
+    await expect(token.getByRole("region", { name: "CLI variables" }).locator(".connector-part-note")).toHaveText(["Command line tools in the goblin's terminal read them. Names only, never values.", "Declared by the GitHub repository service."]);
+  });
+}
 
 for (const width of [1440, 390]) {
   test(`a connector no goblin carries offers Connect, which gives it to the goblin he picks at once, and Disconnect takes it back, at ${width}px`, async ({ page }, testInfo) => {
@@ -238,7 +315,7 @@ for (const width of [1440, 390]) {
     release();
 
     // Assert
-    await expect(goblinRow(detail, ZEKE)).toContainText("Connected");
+    await expect(goblinRow(detail, ZEKE).locator(".connector-word")).toHaveText("Verified");
     await expect(detail.getByRole("button", { name: "Disconnect Sentry from " + ZEKE, exact: true })).toBeEnabled();
     await expect(goblinRow(detail, IVY)).toContainText("Not connected");
 
@@ -248,7 +325,7 @@ for (const width of [1440, 390]) {
     // Assert
     await expect(tab(main, "Discover")).toHaveText("Discover0");
     await tab(main, "Yours").click();
-    await expect(row(main, "Sentry").locator(".connector-state.is-connected")).toHaveText("Connected");
+    await expect(row(main, "Sentry").locator(".connector-state.is-verified")).toHaveText("Verified");
 
     // Act: Disconnect takes it back.
     await row(main, "Sentry").getByRole("button", { name: "Sentry", exact: true }).click();
