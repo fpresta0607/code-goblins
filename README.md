@@ -131,7 +131,7 @@ Pick an answer and press **Send decision**.
 
 A browser step arrives as a card with the reason, the page and the steps only you can take.
 Open it to sign in, approve access or complete the requested check, then mark it done.
-For a step tied to the goblin's browser, the card opens that browser window on the PC.
+For a step tied to the goblin's browser, the card shows that browser's screen: take control there, and hand it back once the step is done.
 Credential fields store secrets in the vault rather than sending their values through the conversation.
 A command card shows the exact command before you press **Run** and records how it ended.
 

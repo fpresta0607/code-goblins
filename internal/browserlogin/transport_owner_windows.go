@@ -6,8 +6,21 @@ import (
 	"net/netip"
 	"time"
 
+	"golang.org/x/sys/windows"
+
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
+
+// OwnerOnly passes on only a request from a process of this process's own
+// Windows user on this machine, the proof a login's bridge asks of every
+// client before it reaches Chrome.
+func OwnerOnly(next http.Handler) http.Handler {
+	owner := ""
+	if user, err := windows.GetCurrentProcessToken().GetTokenUser(); err == nil {
+		owner = user.User.Sid.String()
+	}
+	return ownerOnlyDevTools(owner, next)
+}
 
 // ownerOnlyDevTools proves the client socket's Windows user before either
 // metadata or a WebSocket can reach Chrome. Loopback alone is not identity.

@@ -11,7 +11,6 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
-	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
@@ -40,7 +39,7 @@ func TestWaitingOnACardPrintsPlainValuesAndOnlyTheNamesOfSecrets(t *testing.T) {
 	var stdout, stderr strings.Builder
 
 	// Act
-	code := waitForCard(context.Background(), h, "cred-0123456789abcdef", "task-1", commandRuntime{}, &stdout, &stderr)
+	code := waitForCard(context.Background(), h, "cred-0123456789abcdef", &stdout, &stderr)
 
 	// Assert
 	if code != 0 {
@@ -76,7 +75,7 @@ func TestWaitingOnACardThatClosedWithoutTheStep(t *testing.T) {
 			var stdout, stderr strings.Builder
 
 			// Act
-			code := waitForCard(context.Background(), h, "cred-0123456789abcdef", "task-1", commandRuntime{}, &stdout, &stderr)
+			code := waitForCard(context.Background(), h, "cred-0123456789abcdef", &stdout, &stderr)
 
 			// Assert
 			if code != test.code || !strings.Contains(stdout.String(), test.want) {
@@ -93,7 +92,7 @@ func TestWaitingOnAGrantCardReportsTheServiceAndResourceNotice(t *testing.T) {
 	var stdout, stderr strings.Builder
 
 	// Act
-	code := waitForCard(context.Background(), h, "cred-0123456789abcdef", "task-1", commandRuntime{}, &stdout, &stderr)
+	code := waitForCard(context.Background(), h, "cred-0123456789abcdef", &stdout, &stderr)
 
 	// Assert
 	if code != 0 || !strings.Contains(stdout.String(), "granted sample to task-1; re-source your auth.ps1") {
@@ -109,7 +108,7 @@ func TestWaitingOnAGrantCardReportsRefreshFailureWithoutSourcingTheUnchangedScri
 	var stdout, stderr strings.Builder
 
 	// Act
-	code := waitForCard(context.Background(), h, "cred-0123456789abcdef", "task-1", commandRuntime{}, &stdout, &stderr)
+	code := waitForCard(context.Background(), h, "cred-0123456789abcdef", &stdout, &stderr)
 
 	// Assert
 	if code != 0 || !strings.Contains(stdout.String(), "granted sample to task-1") || !strings.Contains(stdout.String(), reason) || strings.Contains(stdout.String(), "re-source your auth.ps1") {
@@ -117,61 +116,28 @@ func TestWaitingOnAGrantCardReportsRefreshFailureWithoutSourcingTheUnchangedScri
 	}
 }
 
-// His press of the window button shows the goblin's own browser session at
-// the card's page, on a profile of its task's, and tells the board. Once the
-// card closes, the session runs headless again on that same profile, so it
-// keeps the sign-in he made there.
-func TestWaitingOnACardShowsTheWindowAtHisPressAndHidesItAfter(t *testing.T) {
+// A card whose step he took on the board's screen of the goblin's browser
+// closes once he hands the browser back, and the goblin's wait prints his
+// words with its Done, so the goblin goes on knowing what he did there.
+func TestWaitingOnACardHeHandedBackPrintsHisWords(t *testing.T) {
 	// Arrange
 	h := home.Home{State: t.TempDir()}
-	scratch := t.TempDir()
-	if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "task-1", TaskTmp: scratch}); err != nil {
-		t.Fatal(err)
-	}
-	card := supervisor.CredentialRequest{ID: "cred-0123456789abcdef", Task: "task-1", Project: "throwaway", State: "open", Window: true, WindowState: "requested", Link: "https://example.com/login"}
-	writeCards(t, h.State, card)
-	type shown struct {
-		profile, page string
-		isHeaded      bool
-	}
-	var shows []shown
-	var steps []supervisor.CredentialStep
-	runtime := commandRuntime{
-		showBrowser: func(_ context.Context, profile, page string, isHeaded bool) error {
-			shows = append(shows, shown{profile, page, isHeaded})
-			if isHeaded {
-				// He signs in there and presses Done.
-				card.State = "done"
-				time.Sleep(20 * time.Millisecond)
-				writeCards(t, h.State, card)
-			}
-			return nil
-		},
-		stepCard: func(_ home.Home, step supervisor.CredentialStep) error {
-			steps = append(steps, step)
-			return nil
-		},
-	}
+	writeCards(t, h.State, supervisor.CredentialRequest{ID: "cred-0123456789abcdef", Task: "task-1", Project: "throwaway", State: "done", Window: true, WindowState: "open", Link: "https://example.com/login", Reason: "Handed back from the board: signed in, the second factor is on"})
 	var stdout, stderr strings.Builder
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	// Act
-	code := waitForCard(ctx, h, card.ID, "task-1", runtime, &stdout, &stderr)
+	code := waitForCard(ctx, h, "cred-0123456789abcdef", &stdout, &stderr)
 
 	// Assert
 	if code != 0 {
 		t.Fatalf("exit = %d, stderr %s", code, stderr.String())
 	}
-	profile := filepath.Join(scratch, "browser-profile")
-	if len(shows) != 2 || shows[0] != (shown{profile, card.Link, true}) || shows[1] != (shown{profile, "", false}) {
-		t.Fatalf("shows = %+v, want the window at the card's page, then headless on the same profile", shows)
-	}
-	if len(steps) != 1 || steps[0] != (supervisor.CredentialStep{ID: card.ID, Task: "task-1", Action: "window-open"}) {
-		t.Fatalf("steps = %+v, want the board told the window is open", steps)
-	}
-	if !strings.Contains(stdout.String(), "keeps what he did there") {
-		t.Fatalf("stdout = %q, want it to say the session keeps his sign-in", stdout.String())
+	for _, want := range []string{"card cred-0123456789abcdef is done", "Handed back from the board: signed in, the second factor is on"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+		}
 	}
 }
 
@@ -211,9 +177,11 @@ func TestAuthRequestSendsTheAskersStepOnItsCard(t *testing.T) {
 // or sent.
 func TestAuthRequestRefusesCardFlagsOutOfShape(t *testing.T) {
 	t.Setenv(spawn.BrowserSessionVariable, "task-1")
+	t.Setenv(spawn.BrowserURLVariable, "")
 	for name, args := range map[string][]string{
 		"a window without a wait":         {"--project", "throwaway", "--task", "task-1", "--why", "Sign in", "--link", "https://example.com/login", "--window"},
 		"a window of another session":     {"--project", "throwaway", "--task", "task-2", "--why", "Sign in", "--link", "https://example.com/login", "--window", "--wait"},
+		"a window the board cannot show":  {"--project", "throwaway", "--task", "task-1", "--why", "Sign in", "--link", "https://example.com/login", "--window", "--wait"},
 		"a withdrawal without a reason":   {"--withdraw", "cred-0123456789abcdef", "--task", "task-1"},
 		"a reason without a withdrawal":   {"--done", "cred-0123456789abcdef", "--reason", "late"},
 		"done and withdraw at once":       {"--done", "cred-0123456789abcdef", "--withdraw", "cred-0123456789abcdef", "--reason", "late"},

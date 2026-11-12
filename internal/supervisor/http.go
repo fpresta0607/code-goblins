@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/browserlogin"
 	"github.com/fpresta0607/code-goblins/internal/clipboard"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -87,6 +88,11 @@ type HTTP struct {
 	// "@" list, and fileListingsMu lets one listing run at a time.
 	fileListingsMu sync.Mutex
 	fileListings   map[string]fileListing
+	// screenSlots bounds the Screen views open at once.
+	screenSlots chan struct{}
+	// devToolsGuard proves a goblin's browser session is a process of this
+	// PC's own user before it reaches the goblin's browser.
+	devToolsGuard func(http.Handler) http.Handler
 }
 
 func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
@@ -97,7 +103,7 @@ func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
 			build = hex.EncodeToString(sum[:8])
 		}
 	}
-	return &HTTP{build: build, Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 8), nativeSlots: make(chan struct{}, 32), messageSlots: make(chan struct{}, 32), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, relays: map[string]map[*nativeRelay]struct{}{}, terminalWindow: 1 << 20, terminalBacklog: 8 << 20, editor: execx.OSRunner{}, editorLookup: exec.LookPath, openWindow: windowsTerminal, putImage: clipboard.SetImage, dictationSlot: make(chan struct{}, 1), dictationPatience: dictationPatience, fileListings: map[string]fileListing{}}
+	return &HTTP{build: build, Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 8), nativeSlots: make(chan struct{}, 32), messageSlots: make(chan struct{}, 32), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, relays: map[string]map[*nativeRelay]struct{}{}, terminalWindow: 1 << 20, terminalBacklog: 8 << 20, editor: execx.OSRunner{}, editorLookup: exec.LookPath, openWindow: windowsTerminal, putImage: clipboard.SetImage, dictationSlot: make(chan struct{}, 1), dictationPatience: dictationPatience, fileListings: map[string]fileListing{}, screenSlots: make(chan struct{}, 16), devToolsGuard: browserlogin.OwnerOnly}
 }
 
 func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -183,6 +189,10 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.openTerminalWindow(w, r)
 	case r.URL.Path == "/api/terminal/native" && r.Method == "GET":
 		h.nativeTerminal(w, r)
+	case r.URL.Path == "/api/screen" && r.Method == "GET":
+		h.screen(w, r)
+	case r.URL.Path == "/api/browser/devtools" && r.Method == "GET":
+		h.taskDevTools(w, r)
 	case r.URL.Path == "/api/terminal/image" && r.Method == "POST":
 		h.pasteTerminalImage(w, r)
 	case r.URL.Path == "/api/messages" && r.Method == "GET":
