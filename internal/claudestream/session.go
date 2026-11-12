@@ -25,6 +25,10 @@ type Session struct {
 	Asks []Ask
 	// Result is how the last turn ended.
 	Result *Result
+	// Commands is, by the id a UserLine carries, the last state Claude Code
+	// reported for that line: queued once it holds it, started once it
+	// takes it, completed once its turn ended.
+	Commands map[string]string
 	// Unknown names, once each, the kinds of line Claude Code wrote that the
 	// reader does not know. A request among them waits for an answer the
 	// board cannot give.
@@ -116,6 +120,8 @@ type streamLine struct {
 	Response struct {
 		RequestID string `json:"request_id"`
 	} `json:"response"`
+	CommandID  string  `json:"command_uuid"`
+	State      string  `json:"state"`
 	IsError    bool    `json:"is_error"`
 	StopReason string  `json:"stop_reason"`
 	Text       string  `json:"result"`
@@ -167,6 +173,11 @@ func (s *Session) Apply(line json.RawMessage, isWritten bool) error {
 		s.Asks = append(s.Asks, Ask{RequestID: read.RequestID, Tool: read.Request.ToolName, ToolUseID: read.Request.ToolUseID, Description: read.Request.Description, Input: read.Request.Input})
 	case "control_cancel_request":
 		s.answered(read.RequestID)
+	case "command_lifecycle":
+		if s.Commands == nil {
+			s.Commands = map[string]string{}
+		}
+		s.Commands[read.CommandID] = read.State
 	case "result":
 		s.IsWorking, s.Live, s.Asks = false, nil, nil
 		s.Result = &Result{Subtype: read.Subtype, IsError: read.IsError, StopReason: read.StopReason, Text: read.Text, CostUSD: read.CostUSD, Usage: read.Usage}

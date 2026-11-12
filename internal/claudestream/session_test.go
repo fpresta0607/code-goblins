@@ -224,7 +224,7 @@ func TestALineTheBoardWroteAnswersItsAskAlone(t *testing.T) {
 	}
 
 	// Act
-	userErr := session.Apply(UserLine("go on"), true)
+	userErr := session.Apply(UserLine("c1", "go on"), true)
 	isWorkingAfterHisLine := session.IsWorking
 	answerErr := session.Apply(DenyLine("r1", "Not now."), true)
 
@@ -274,5 +274,35 @@ func TestApplyRefusesALineThatIsNotJSON(t *testing.T) {
 	// Assert
 	if err == nil || !strings.Contains(err.Error(), "claudestream: read a 8-byte line") {
 		t.Errorf("Apply = %v, want an error naming the line's size", err)
+	}
+}
+
+// Claude Code 2.1.322 reports each line it is given by the id the line
+// carries, in these lines, as a probe recorded on 2026-11-12: the session
+// keeps the last state of each.
+func TestASessionKeepsEachLinesLastLifecycleState(t *testing.T) {
+	// Arrange
+	var session Session
+	lines := []string{
+		`{"type":"command_lifecycle","command_uuid":"c1","state":"queued","uuid":"u1","session_id":"s1"}`,
+		`{"type":"command_lifecycle","command_uuid":"c2","state":"queued","uuid":"u2","session_id":"s1"}`,
+		`{"type":"user","message":{"role":"user","content":"go"},"parent_tool_use_id":null,"isReplay":true,"uuid":"c1"}`,
+		`{"type":"command_lifecycle","command_uuid":"c1","state":"started","uuid":"u3","session_id":"s1"}`,
+		`{"type":"command_lifecycle","command_uuid":"c1","state":"completed","uuid":"u4","session_id":"s1"}`,
+	}
+
+	// Act
+	for _, line := range lines {
+		if err := session.Apply(json.RawMessage(line), false); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Assert
+	if session.Commands["c1"] != "completed" || session.Commands["c2"] != "queued" || len(session.Commands) != 2 {
+		t.Errorf("Commands = %v, want c1 completed and c2 queued", session.Commands)
+	}
+	if len(session.Unknown) != 0 {
+		t.Errorf("the reader did not know %v", session.Unknown)
 	}
 }
