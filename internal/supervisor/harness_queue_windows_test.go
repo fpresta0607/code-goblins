@@ -3,6 +3,8 @@ package supervisor
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -173,6 +176,55 @@ func TestAPasteItsHarnessClearedOfWhatDrawsNothingIsDeliveredOnceItsTurnTakesIt(
 	}
 	if input := strings.Join(terminal.lines(t), "\n"); strings.Count(input, "queued Level") != 1 {
 		t.Errorf("terminal input = %q; want the message typed once", input)
+	}
+}
+
+// #1915: a build before that fix stored each delivery under a name made from
+// its text character for character, a word joiner included, and four of the
+// Overlord's messages stored so read Queued or Not confirmed on 2026-11-12
+// after the CEO's session had taken them. A delivery stored that way is found
+// once this build runs, by the words it stored as typed, read as a reader
+// sees them, so it reads Sent whichever of the two it read. One whose words
+// the record does not show stays as it was.
+func TestADeliveryStoredUnderItsTextCharacterForCharacterIsStillFoundTaken(t *testing.T) {
+	typed := "Level\terror: the search for project=f⁠a1 failed."
+	taken := strings.NewReplacer("\t", "    ", "⁠", "").Replace(typed)
+	sum := sha256.Sum256([]byte(strings.Join(strings.Fields(typed), " ")))
+	stored := hex.EncodeToString(sum[:])
+	if stored == monitor.TextDigest(typed) {
+		t.Fatal("the name stored is the one this build gives the text; want the one a build before it gave")
+	}
+	for _, test := range []struct {
+		name     string
+		status   string
+		recorded string
+		want     string
+	}{
+		{name: "one that read Queued", status: "running", recorded: taken, want: "succeeded"},
+		{name: "one that read Not confirmed", status: "uncertain", recorded: taken, want: "succeeded"},
+		{name: "one whose words the record does not show", status: "uncertain", recorded: strings.Replace(taken, "=fa1", "=fb1", 1), want: "uncertain"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			records := useConversations(t)
+			store, _ := testStore(t)
+			since := time.Now().UTC().Add(-time.Minute)
+			store.db.Actions = append(store.db.Actions, Action{ID: "m1", Kind: "message", Text: typed, Status: test.status, CreatedAt: since, UpdatedAt: since,
+				Awaiting: &Awaiting{Host: "ceo", Harness: "claude", Since: since, QuietSince: since, Digest: stored, Session: "session-1", Typed: typed, Pasted: true, IsHeld: true}})
+			if err := store.save(); err != nil {
+				t.Fatal(err)
+			}
+			takenInRecord(t, records, "claude", "session-1", "", test.recorded)
+
+			// Act
+			err := store.settleDeliveries(time.Now().UTC(), (&Service{Store: store}).lookAtTerminal)
+			after := actionOf(store, "m1")
+
+			// Assert
+			if err != nil || after.Status != test.want || (after.Awaiting == nil) != (test.want == "succeeded") {
+				t.Errorf("settle = %v, action = %+v; want it %s", err, after, test.want)
+			}
+		})
 	}
 }
 

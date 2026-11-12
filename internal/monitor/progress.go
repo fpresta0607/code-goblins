@@ -74,6 +74,9 @@ type HostProgress struct {
 	// session_meta names, by path, for the rollouts that still exist. A
 	// rollout never rewrites its first entry, so each is read once.
 	rolloutCwds map[string]string
+	// searched holds how far into its record each search for a text taken
+	// has read, so its next look reads only what the record gained.
+	searched map[recordSearch]int64
 }
 
 // tree is the reader the prober reads through.
