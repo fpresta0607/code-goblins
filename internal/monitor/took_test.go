@@ -84,6 +84,48 @@ func TestAGoblinHasASteerOnlyOnceItsHarnessHandedItToTheModel(t *testing.T) {
 	}
 }
 
+// The Overlord, 2026-11-12: "thes already sent in termianl but are shwoing
+// queued in mdoern caht fix root synch" (#1915). Two messages he pasted for
+// the CEO each held three tabs and a word joiner, U+2060, which draws
+// nothing. Claude Code 2.1.322 made each tab four spaces and left the word
+// joiner out as it took them, live, so its record never held the words the
+// board typed character for character, and both read Queued for good. What a
+// harness took is the words a reader sees: a character that draws nothing is
+// no part of them, and one a reader does see still is.
+func TestTextItsHarnessClearedOfWhatDrawsNothingIsStillTaken(t *testing.T) {
+	sent := time.Date(2026, 11, 12, 17, 44, 36, 0, time.UTC)
+	after := "2026-11-12T17:44:36.624Z"
+	recorded := "Level    error: the search for project=fa1 failed"
+	for _, tc := range []struct {
+		name  string
+		typed string
+		entry map[string]any
+		want  bool
+	}{
+		{name: "a word joiner, taken into the running turn", typed: "Level\terror: the search for project=f\u2060a1 failed", entry: claudeQueued(after, recorded), want: true},
+		{name: "a word joiner, taken as the next turn", typed: "Level\terror: the search for project=f\u2060a1 failed", entry: claudePrompt(after, recorded), want: true},
+		{name: "a zero-width space", typed: "Level\terror: the search for\u200b project=fa1 failed", entry: claudeQueued(after, recorded), want: true},
+		{name: "a byte order mark", typed: "\ufeffLevel\terror: the search for project=fa1 failed", entry: claudeQueued(after, recorded), want: true},
+		{name: "a character that draws nothing between two spaces", typed: "Level\terror: the search for \u2060 project=fa1 failed", entry: claudeQueued(after, recorded), want: true},
+		{name: "another letter", typed: "Level\terror: the search for project=f\u2060a1 failed", entry: claudeQueued(after, strings.Replace(recorded, "=fa1", "=fb1", 1)), want: false},
+		{name: "words run together", typed: "Level\terror: the search for project=f\u2060a1 failed", entry: claudeQueued(after, strings.Replace(recorded, "search for", "searchfor", 1)), want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			home, worktree := t.TempDir(), t.TempDir()
+			transcriptLines(t, filepath.Join(claudeProjectFolder(home, worktree), "conversation.jsonl"), time.Now(), tc.entry)
+
+			// Act
+			took := (&HostProgress{Home: home}).Took(context.Background(), Conversation{Harness: "claude", Dir: worktree}, TextDigest(tc.typed), sent)
+
+			// Assert
+			if took != tc.want {
+				t.Errorf("Took = %t, want %t", took, tc.want)
+			}
+		})
+	}
+}
+
 // Claude Code cuts a folder name past 200 characters and adds a hash of the
 // path: a goblin's worktree under a long scratch path was kept here, live on
 // 2026-10-06, and its record must be found there.

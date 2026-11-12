@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
 )
@@ -25,10 +26,20 @@ type Conversation struct {
 }
 
 // TextDigest names text typed into a harness, so its record can be searched
-// for the text without keeping it a second time: the SHA-256 of the text with
-// each run of whitespace made one space, as a harness may wrap or trim it.
+// for the text without keeping it a second time: the SHA-256 of the words a
+// reader sees in it, with each run of whitespace made one space, as a harness
+// may wrap or trim it, and every character that draws nothing left out, as a
+// harness may drop one. Claude Code 2.1.322 made each pasted tab four spaces
+// and dropped a word joiner, U+2060, from two messages it took live on
+// 2026-11-12, which then read Queued for good (#1915).
 func TextDigest(text string) string {
-	sum := sha256.Sum256([]byte(strings.Join(strings.Fields(text), " ")))
+	seen := strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) || unicode.IsGraphic(r) {
+			return r
+		}
+		return -1
+	}, text)
+	sum := sha256.Sum256([]byte(strings.Join(strings.Fields(seen), " ")))
 	return hex.EncodeToString(sum[:])
 }
 

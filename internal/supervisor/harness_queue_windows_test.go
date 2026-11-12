@@ -132,6 +132,101 @@ func TestHisMessageSubmittedIntoATurnReadsQueuedInItsSessionUntilTheTurnTakesIt(
 	}
 }
 
+// The Overlord, 2026-11-12: "thes already sent in termianl but are shwoing
+// queued in mdoern caht fix root synch" (#1915). Two messages he pasted for
+// the CEO in a turn held tabs and a word joiner, U+2060, which draws nothing.
+// Claude Code 2.1.322 took both into that turn and recorded them as it had
+// cleaned them, each tab four spaces and the word joiner gone, so the record
+// never held the words the board typed character for character: they read
+// Queued, then Not confirmed, and his Send again typed both a second time.
+// Such a message is delivered once the record shows its turn took the words
+// a reader sees, and the board types it once.
+func TestAPasteItsHarnessClearedOfWhatDrawsNothingIsDeliveredOnceItsTurnTakesIt(t *testing.T) {
+	// Arrange
+	records := useConversations(t)
+	store, home := testStore(t)
+	terminal := nativeCEOComposer(t, home.State, "claude-busy")
+	service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: home.State}}}
+	pasted := "Level\terror: the search for project=f\u2060a1 failed." + strings.Repeat(" The same alert came again.", 20)
+	if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: pasted}); err != nil {
+		t.Fatal(err)
+	}
+	pastUndoWindow(t, store)
+
+	// Act
+	err := store.ProcessOne(context.Background(), service.execute)
+	held := actionOf(store, "m1")
+	if err := os.WriteFile(terminal.typed+".accept", nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	terminal.waitForLines(t, 3)
+	takenInRecord(t, records, "claude", "session-1", "", strings.NewReplacer("\t", "    ", "\u2060", "").Replace(pasted))
+	settleErr := errors.Join(store.settleDeliveries(time.Now().UTC(), service.lookAtTerminal), service.submitHandedBack(context.Background()))
+	taken := actionOf(store, "m1")
+
+	// Assert
+	if err != nil || !isHarnessHeld(held) || !held.Awaiting.Pasted || held.Awaiting.Typed != pasted {
+		t.Fatalf("delivery = %v, action = %+v; want his words pasted into the CEO's turn as he wrote them", err, held)
+	}
+	if settleErr != nil || taken.Status != "succeeded" || taken.Awaiting != nil {
+		t.Errorf("settle = %v, action = %+v; want it delivered once the CEO's record shows the words taken", settleErr, taken)
+	}
+	if input := strings.Join(terminal.lines(t), "\n"); strings.Count(input, "queued Level") != 1 {
+		t.Errorf("terminal input = %q; want the message typed once", input)
+	}
+}
+
+// #1915, the CEO's done-when of 2026-11-12: "Cancel and Edit on a message the
+// session already took say so plainly and leave no stuck bubble." A message
+// its turn took is in no queue, and a press can land before the board's next
+// look at the session's record. The board looks then: he reads that it was
+// taken and the message reads delivered at once, rather than that its prompt
+// line offers no queue and to press again.
+func TestCancelOfAMessageItsSessionAlreadyTookSaysSoAndLeavesItDelivered(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		isGoblin bool
+	}{
+		{name: "the CEO's"},
+		{name: "a goblin's", isGoblin: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange: its turn took the message at his Send now, and its
+			// record shows that before the board's next look.
+			store, service, terminal, task, typed := heldQueue(t, test.isGoblin, "claude-busy", "stop and rebase")
+			promptLineEmpties(t, terminal)
+			if pressed := sendNow(service, task, "m1"); pressed.Code != 202 {
+				t.Fatalf("Send now = %d %s", pressed.Code, pressed.Body)
+			}
+			terminal.waitForLines(t, 3)
+			session, dir := "session-1", ""
+			if test.isGoblin {
+				meta, err := state.ReadTaskMeta(store.Home.State, task)
+				if err != nil {
+					t.Fatal(err)
+				}
+				session, dir = "", meta.Worktree
+			}
+			takenInRecord(t, os.Getenv("USERPROFILE"), "claude", session, dir, typed("stop and rebase"))
+
+			// Act
+			cancel := pressOnQueued(service, "message_withdraw", task, "m1", "stop and rebase")
+			after := actionOf(store, "m1")
+
+			// Assert
+			if cancel.Code != 409 || !strings.Contains(cancel.Body.String(), "already took it.") {
+				t.Errorf("Cancel = %d %s; want it to say the session already took the message", cancel.Code, cancel.Body)
+			}
+			if after.Status != "succeeded" || after.Awaiting != nil {
+				t.Errorf("after the press = %+v; want the message delivered, as the session's record shows", after)
+			}
+			if input := terminal.lines(t); slices.ContainsFunc(input, func(line string) bool { return strings.HasPrefix(line, "took back ") || line == "cleared" }) {
+				t.Errorf("terminal input = %q; want no key pressed in a session that already took it", input)
+			}
+		})
+	}
+}
+
 // #2332: "Send now must interrupt and deliver it". Send now on a message its
 // harness holds in its queue presses that harness's send-now key, once, and a
 // press that finds the queue given up already presses nothing, since the key
