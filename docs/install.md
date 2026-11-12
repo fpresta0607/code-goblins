@@ -187,6 +187,14 @@ It ends on one line, a plain sentence: `Updated:`, `Rolled back:` when the new b
 The lines above it say why, and how long each step took.
 Whatever an update left unfinished, the next one puts right first, and opening Code Goblins again starts the board when an update left it down, so there is nothing to paste.
 To recover by hand, when nothing else can, run the copy the update kept, with the home and its state named: set `GOBLINS_HOME` to the home and `GOBLINS_STATE_OVERRIDE` to its `state` folder, then run `state\update\candidate.exe update --recover` from any folder.
+When the new build serves but its install cannot refresh the home, or the machine's installed home cannot be read, it keeps that build, ends on `Updated:` saying what remains to do, and exits 6; run `goblins install` to finish.
+Updating another home deliberately skips that refresh and exits 0.
+The download is removed afterwards.
+`goblins update --check` says how your build stands against the newest release and what is new in it, and changes nothing.
+A build that already runs the newest release, or one newer than it, such as a pre-release, is told so, and neither command changes anything until a newer release is published.
+A build made from a clone has no release version, so it says to run `git pull` and then `.\install.cmd -Dev` in the clone instead.
+The update is yours alone: it refuses to run under the CEO, in a goblin's or a gate's terminal, under an agent harness, and where its parents cannot be followed to the desktop, as in Git Bash; run it in PowerShell or cmd.
+Rerunning the install still updates the tools it pins, such as no-mistakes, which an update leaves as they are.
 
 ### Updating from a release before the rename
 
@@ -201,18 +209,10 @@ A terminal you opened yourself before the update needs opening again.
 The copies under the old names are removed once no terminal from before the update runs and nothing runs them.
 The GitHub labels of the goblins' tickets take the new names once the updated board starts, as part of the same undo.
 The way back is the command the board and the update name, `goblins cutover --undo '<folder>'`, run with the fleet paused.
-When the new build serves but its install cannot refresh the home, or the machine's installed home cannot be read, it keeps that build, ends on `Updated:` saying what remains to do, and exits 6; run `goblins install` to finish.
-Updating another home deliberately skips that refresh and exits 0.
-The download is removed afterwards.
-`goblins update --check` says how your build stands against the newest release and what is new in it, and changes nothing.
-A build that already runs the newest release, or one newer than it, such as a pre-release, is told so, and neither command changes anything until a newer release is published.
-A build made from a clone has no release version, so it says to run `git pull` and then `.\install.cmd -Dev` in the clone instead.
-The update is yours alone: it refuses to run under the CEO, in a goblin's or a gate's terminal, under an agent harness, and where its parents cannot be followed to the desktop, as in Git Bash; run it in PowerShell or cmd.
-Rerunning the install still updates the tools it pins, such as no-mistakes, which an update leaves as they are.
 
 ### What an update keeps
 
-An update replaces the programs and brings the home's contract, skills and hooks up to date, and keeps everything else as it was:
+An update replaces the programs and brings the home's contract, skills and hooks up to date, and keeps everything else as it was, apart from the move of a home from a release before the rename, [above](#updating-from-a-release-before-the-rename):
 
 - Your home, `%LOCALAPPDATA%\CodeGoblins` or the folder `GOBLINS_HOME` names, with its state, data and worktrees, which it never moves, deletes or rewrites.
 - Your settings: the policy files in the home's `config` folder stay as you tuned them, and Start at login stays as you set it.
