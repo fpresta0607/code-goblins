@@ -89,9 +89,11 @@ The host's protocol (a token handshake, then typed frames) is the same on every 
   - Herdr's pipe, for a fleet that runs Herdr panes;
   - the desktop CI runner's pipe.
 - **Linux:** a Unix domain socket, with `SO_PEERCRED` giving each side the other's process id.
-  The sockets sit in a folder only the user can open (0700) under `$XDG_RUNTIME_DIR`, or under `/tmp` when that is unset, named by a short hash of the home.
+  The sockets sit in a folder only the user can open (0700), named by a short hash of the home, under `/run/user/<uid>` when that folder exists and is the user's own, or else under `/tmp`.
+  The folder is chosen by the user's id, not by `$XDG_RUNTIME_DIR`, so a command run from cron, `su -` or `sudo -iu`, which has no such variable, still finds the hosts the user unit started.
+  A host such a command launches is given `XDG_RUNTIME_DIR=/run/user/<uid>` for `systemd-run`, so it still gets a scope of its own.
   A folder under `/tmp` is used only once it is checked to be the user's own and 0700.
-  Install turns on lingering (`loginctl enable-linger`), so the user manager and `$XDG_RUNTIME_DIR`, and the sockets in it, outlive the user's last logout.
+  Install turns on lingering (`loginctl enable-linger`), so the user manager and `/run/user/<uid>`, and the sockets in it, outlive the user's last logout.
   A socket's path must fit `sun_path`, 108 bytes on Linux, which a path in a long home or a test's temporary folder can exceed, so the sockets are not in the home's `state` folder.
   The primary transport is an open file held with `flock`.
 - **Not needed:** Herdr's pipe.
@@ -125,9 +127,11 @@ The host's protocol (a token handshake, then typed frames) is the same on every 
 - **Linux:** `flock`, with the line of waiters kept in the lock's own file so the first-come order survives; `rename` followed by `fsync` of the file and its folder; an open file is never busy, since unlinking it succeeds.
 - **Must change, not only port:** code that builds on every system compares paths without regard to case, as Windows does.
   `fsx.SamePath` folds case for its 24 callers in program files, and about 50 more program files compare paths with `strings.EqualFold`, among them `internal/gatehome`, `internal/home`, `internal/harnessmap`, `internal/pipeline`, `internal/update`, `internal/uninstall`, `internal/codexguard`, `internal/fleettree`, `internal/pathguard` and `cmd/goblins`.
-  10 more lower a whole path with `strings.ToLower` to compare it or use it as a key: `cmd/goblins/gate_run_end.go`, `internal/lock/lock.go`, `internal/lifecycle/processes.go`, `internal/supervisor/pages.go`, `internal/janitor/worktrees.go`, `internal/watch/janitor.go`, `internal/gatetest/select.go` and `match.go`, `internal/cleanup/outcome.go` and `internal/doctor/fix.go`.
-  Some of the `strings.EqualFold` files do the same beside it, among them `internal/monitor/polls.go`, `internal/janitor/temp.go`, `internal/homemove/homemove.go` and `internal/supervisor/runs.go`.
-  None of these fails a Linux build, so the compiler does not find them; on Linux `internal/supervisor/pages.go`, for one, would make `Report.html` and `report.html` one page.
+  11 more lower a whole path with `strings.ToLower` to compare it or use it as a key: `cmd/goblins/gate_run_end.go`, `internal/lock/lock.go`, `internal/lifecycle/processes.go`, `internal/supervisor/pages.go`, `internal/janitor/worktrees.go`, `internal/watch/janitor.go`, `internal/gatetest/select.go` and `match.go`, `internal/cleanup/outcome.go`, `internal/doctor/fix.go` and `internal/runtime/owner.go`.
+  Some of the `strings.EqualFold` files do the same beside it, among them `internal/monitor/polls.go`, `internal/janitor/temp.go`, `internal/homemove/homemove.go` and `internal/supervisor/runs.go`, and `internal/supervisor/kept_reads.go` keys a folder's file names by their lowercase form.
+  Some of the same code also takes `\` as the path separator, which a Linux path never holds.
+  `internal/runtime/owner.go` rewrites `/` as `\` before it compares, `internal/doctor/fix.go` and `internal/homemove/homemove.go` end a folder prefix with `\`, and `internal/fleettree/reader.go` looks for `\` before a task's output file in a command line.
+  None of these fails a Linux build, so the compiler does not find them; on Linux `internal/supervisor/pages.go`, for one, would make `Report.html` and `report.html` one page, and `internal/runtime/owner.go` would match a worktree only by its exact folder, never a folder below it.
   On Linux two paths that differ only in case are two folders, so all of them compare exactly there.
   `internal/connections` folds case only in its Windows file, so its Linux file compares exactly from the start.
   About 80 program files spell a program as `name.exe`; each gets the system's own name.
@@ -274,7 +278,7 @@ A layer's Linux code sits beside the Windows code under a build tag.
    Windows-only tests take the `_windows_test.go` name, and the Linux job runs `go vet` and `go test` on every package.
 3. **Processes, trees, locks and files.**
    `internal/proc` on `/proc`, `internal/execx` and the gate's executor on process groups, the lock on `flock`, the file replacements, and the default home under `$XDG_DATA_HOME`, kept to the user with mode 0700.
-4. **Transport.** Unix sockets for the host, the run requests and the primary transport, in the user's 0700 folder under `$XDG_RUNTIME_DIR` (or `/tmp`) named by a short hash of the home so each path fits `sun_path`, exact path comparison in `fsx.SamePath`, the `strings.EqualFold` calls and the paths lowered with `strings.ToLower`, and the folders `internal/pathguard` guards.
+4. **Transport.** Unix sockets for the host, the run requests and the primary transport, in the user's 0700 folder under `/run/user/<uid>` (or `/tmp`), chosen by the user's id and named by a short hash of the home so each path fits `sun_path`, exact path comparison in `fsx.SamePath`, the `strings.EqualFold` calls and the paths lowered with `strings.ToLower`, the code that takes `\` as the separator, and the folders `internal/pathguard` guards.
    Until layer 8 turns lingering on, the socket folder lasts only while the user is signed in.
 5. **The native terminal.** `internal/host` on a pseudo terminal, each host and the supervisor the launcher starts in a transient user scope of its own, the terminal kept off the cores left to the Overlord's own apps with `sched_setaffinity` and the core kinds read from `/sys`, `attach` and the onboarding menu in raw mode, and `spawn` launching on Linux.
 6. **Watching and readings.** `inotify`, the memory and processor readings, priorities, the janitor's processes, the browser sign-in and the clipboard.
