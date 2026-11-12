@@ -9,6 +9,7 @@ import { safeGitHubLink } from "./people";
 import { PanelRow, type PanelControl } from "./panel-row";
 import { taskName } from "./task-words";
 import { personaFor, stablePersona } from "./workflow";
+import { linkedText } from "./messageText";
 import "./train-panel.css";
 
 const at = (when: string, parts: Intl.DateTimeFormatOptions) => new Date(when).toLocaleString(undefined, parts);
@@ -47,7 +48,7 @@ export function TrainPanel({ train, tasks, row }: { train: MergeTrain; tasks: Ta
     </header>
     <div className="panel-task">
       <div className="panel-content train-panel-content">
-        {train.note && <p className="train-panel-note">{train.note}</p>}
+        {train.note && <p className="train-panel-note">{linkedText(train.note)}</p>}
         <section className="train-panel-section" aria-label="Pull requests">
           <h3>Pull requests<span className="column-count">{cars.length}</span></h3>
           <ol className="train-panel-rows">
@@ -66,7 +67,7 @@ export function TrainPanel({ train, tasks, row }: { train: MergeTrain; tasks: Ta
                 {c.url ? <a className="train-panel-pull" href={c.url} target="_blank" rel="noreferrer">{content}</a> : <span className="train-panel-pull">{content}</span>}
                 {current?.url ? <a className={stateClass} href={current.url} target="_blank" rel="noreferrer">{state.text}</a> : <span className={stateClass}>{state.text}</span>}
                 {goblin && <p className="train-panel-task">{taskName(goblin)}</p>}
-                {c.tip && <p className="train-panel-car-note">{c.tip}</p>}
+                {c.tip && <p className="train-panel-car-note">{linkedText(c.tip)}</p>}
               </li>;
             })}
           </ol>
@@ -75,8 +76,8 @@ export function TrainPanel({ train, tasks, row }: { train: MergeTrain; tasks: Ta
           {attempts.map(({ record, runs: attemptRuns }, index) => <section key={record.id} className="train-panel-attempt">
             {train.earlier.length > 0 && <h4>{index < train.earlier.length ? `Earlier train ${index + 1}` : "Current train"}: <span className={"train-" + trainLook(record).tone}>{trainLook(record).text}</span></h4>}
             {index < train.earlier.length && <>
-              {record.note && <p className="train-panel-attempt-note">{record.note}</p>}
-              {record.cars.filter((car) => car.note).map((car) => <p key={car.url} className="train-panel-attempt-note">#{car.number}: {car.note}</p>)}
+              {record.note && <p className="train-panel-attempt-note">{linkedText(record.note)}</p>}
+              {record.cars.filter((car) => car.note).map((car) => <p key={car.url} className="train-panel-attempt-note">#{car.number}: {linkedText(car.note)}</p>)}
             </>}
             {attemptRuns.length === 0 && <p className="train-panel-attempt-note">No CI run</p>}
             <ol className="train-panel-rows">

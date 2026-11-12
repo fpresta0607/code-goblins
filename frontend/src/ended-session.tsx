@@ -4,6 +4,7 @@ import type { sessionEnd } from "./session-end";
 import "./ended-session.css";
 import { reportSaid } from "./task-words";
 import { RawDetails } from "./raw-details";
+import { linkedSentence } from "./messageText";
 
 export function EndedSession({ task, kind }: { task: Task; kind: NonNullable<ReturnType<typeof sessionEnd>> }) {
   const at = kind === "retired" ? task.retired_at || "" : task.at;
@@ -16,7 +17,7 @@ export function EndedSession({ task, kind }: { task: Task; kind: NonNullable<Ret
       <span className="ended-session-icon"><Icon name={kind === "retired" ? "terminal" : kind === "paused" ? "pause-circle" : "stop-circle"} /></span>
       <h2>{"Session " + kind}</h2>
       {hasTime && <p className="ended-session-time">{label} <time dateTime={at}>{date.toLocaleDateString(undefined, { month: "short", day: "numeric" })} at {date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false })}</time></p>}
-      {report.sentence && <div className="ended-session-report"><p><Icon name="task" />Last report</p><p>{report.sentence}</p><RawDetails lines={report.details} /></div>}
+      {report.sentence && <div className="ended-session-report"><p><Icon name="task" />Last report</p><p>{linkedSentence(report.sentence, report.links)}</p><RawDetails lines={report.details} links={report.links} /></div>}
       {task.handoff && <a className="ended-session-handoff" href={"/api/tasks/" + encodeURIComponent(task.id.replace(/^finished:/, "")) + "/handoff"} target="_blank" rel="noreferrer"><Icon name="file" />Open handoff</a>}
     </div>
   </section>;

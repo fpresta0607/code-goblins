@@ -11,7 +11,7 @@ import { ALREADY_FINISHED, ceoEngine, harnessName, harnessTip, liveCeoSession, n
 import { reviewLine, waitingItems, type Item } from "./commandQueue";
 import { credentialAsk } from "./credentials";
 import { signInHeading } from "./browser-signins";
-import { plainMessage } from "./messageText";
+import { linkedSentence, plainMessage } from "./messageText";
 import { OPEN_AFK_REPORT } from "./afk";
 import { PanelRow, type PanelControl } from "./panel-row";
 import { CeoUpdate } from "./ceo-update";
@@ -96,9 +96,9 @@ export function PanelHeader({ task, node, snapshot, isDetails = false, switcher,
   const projectLine = task?.project && <div className="project-line"><p className="project-label">{task.project}</p><PeopleRow snapshot={snapshot} task={task} /></div>;
   const helper = helps && <p className="muted">Helper of {helps}</p>;
   const partOf = !owner && node && task && <p className="muted">Part of {goblinName(task)}</p>;
-  const activity = said?.sentence && <p className="panel-activity">{said.sentence}</p>;
+  const activity = said?.sentence && <p className="panel-activity">{linkedSentence(said.sentence, said.links || [])}</p>;
   const detailsRow = said && (said.details.length > 0 || said.isFailure) && <div className="panel-details-row">
-      <RawDetails lines={said.details} isPlain={said.isPlain} />
+      <RawDetails lines={said.details} isPlain={said.isPlain} links={said.links} />
       {owner && said.isFailure && !task.archived && <button className="text-button" onClick={onOpenLog}>Open the log</button>}
     </div>;
   const actions = owner && (!!task.generation || task.ticket || pr || task.local_checks || task.deployment) && <div className="panel-actions">

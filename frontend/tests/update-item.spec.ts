@@ -10,6 +10,8 @@ declare global { interface Window { outputReads: number; setHidden: (isHidden: b
 // its own in the Command Center, with its own look, one Update button, and
 // its progress and result on the card; a slim banner points to it.
 
+const GUIDE = "https://docs.example.com/updates";
+
 async function openTheItem(page: Page) {
   await page.goto("/tests/fixtures/update-item.html");
   await page.getByLabel("Command Center, 1 waiting on you").click();
@@ -38,7 +40,12 @@ test("a new release is its own item: the versions, what is new, what the update 
   const card = dialog.locator(".update-card");
   await expect(card.getByRole("heading", { name: "Update Code Goblins" })).toBeVisible();
   await expect(card.locator(".update-versions")).toHaveAccessibleName("From v0.4.2 to v0.5.0");
-  await expect(card.locator(".update-notes li")).toHaveText(["The installer sorts out every machine by itself", "AFK mode holds questions for you", "Goblins that stall wake the CEO"]);
+  await expect(card.locator(".update-notes li")).toHaveText(["The installer sorts out every machine by itself", "AFK mode holds questions for you", "Goblins that stall wake the CEO", "The guide is on " + GUIDE + "; javascript:alert(1) stays words"]);
+  // A note's web address opens in a new tab (#2360); a javascript: one stays words.
+  const guide = card.locator(".update-notes").getByRole("link", { name: GUIDE, exact: true });
+  await expect(guide).toHaveAttribute("href", GUIDE);
+  await expect(guide).toHaveAttribute("target", "_blank");
+  await expect(card.locator('.update-notes a[href^="javascript:"]')).toHaveCount(0);
   await expect(card.getByRole("link", { name: "What's new" })).toHaveAttribute("href", "https://github.com/fpresta0607/code-goblins/releases/tag/v0.5.0");
   await expect(card.locator(".update-trust")).toContainText("Unsigned release. Update installs it only when each file matches the release's SHA-256, such as goblins.exe 3f9a6c0e…5bc21e.");
   await expect(card.locator(".run-command")).toHaveCount(0);
