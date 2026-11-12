@@ -6,7 +6,7 @@
 // worktrees folder or a project's .worktrees/ an older build used, that the
 // project does not register as a worktree at all.
 //
-// No single source sees all of it. cfo knows the tasks it started, Herdr knows
+// No single source sees all of it. goblins knows the tasks it started, Herdr knows
 // the panes that still exist, only the operating system knows what is still
 // running, and only a project's own git worktree list says which directories
 // under it are worktrees, so classification cross-references all five (state,
@@ -37,7 +37,7 @@ type Class string
 const (
 	// OrphanProcess is a harness process whose pane no longer exists. It is
 	// the dangerous one: unsupervised, invisible to herdr agent list and to
-	// every CFO surface, and still able to spend tokens.
+	// every CEO surface, and still able to spend tokens.
 	OrphanProcess Class = "orphan_process"
 	// StaleServer is a long-lived child (a next dev, a vite server) rooted in
 	// a worktree with no live evidence of its goblin: no pane holding an agent
@@ -116,7 +116,7 @@ type Finding struct {
 	// than by which process it is: the image it runs and the image name of
 	// the living process that started it. Such a harness is some other
 	// program's, started again and again and each time as a new process, so
-	// ReportKeys has the CFO told about its shape once. It is empty on every
+	// ReportKeys has the CEO told about its shape once. It is empty on every
 	// other finding.
 	Shape string `json:"shape,omitempty"`
 }
@@ -339,7 +339,7 @@ type Pane struct {
 	HasAgent      bool
 	// AgentCwd is the directory the registered agent is working in, empty when
 	// no agent holds the pane. It is what places a goblin in a worktree
-	// without going through any record CFO keeps.
+	// without going through any record CEO keeps.
 	AgentCwd string
 }
 
@@ -400,7 +400,7 @@ const (
 	SourceFleet = ""
 	// SourceCheckout is a worktree the project itself registers at a path the
 	// fleet's folders do not hold: one a harness's own tooling made, in a
-	// scratchpad or in the checkout it works in, rather than cfo.
+	// scratchpad or in the checkout it works in, rather than ceo.
 	SourceCheckout = "checkout"
 )
 
@@ -439,7 +439,7 @@ type Inventory struct {
 	// session is a test fixture some goblin or gate started, not the fleet.
 	Session string
 	// StateDir is this home's state directory. A native terminal host run
-	// with any other --state belongs to a scratch CFO home some goblin's test
+	// with any other --state belongs to a scratch CEO home some goblin's test
 	// or proof set up, not to the fleet.
 	StateDir string
 	// ScratchRoots are this home's scratch folders, where each goblin's
@@ -454,12 +454,12 @@ type Inventory struct {
 	Processes       []Process
 	Worktrees       []WorktreeDir
 	// FleetRootPIDs are the Herdr server processes. Every pane shell, and so
-	// every harness CFO ever started, descends from one of these. A harness
+	// every harness CEO ever started, descends from one of these. A harness
 	// process with no such ancestry is somebody else's (the Overlord's own
 	// editor session, most importantly) and is never killed without --force.
 	FleetRootPIDs []int
 	// SelfPIDs is this process and its ancestors. The sweep runs inside the
-	// CFO's own session, so without this it would report the session it is
+	// CEO's own session, so without this it would report the session it is
 	// running in as an orphan.
 	SelfPIDs []int
 	// UnreadableTasks are the ids whose state/<id>.meta could not be read.
@@ -493,7 +493,7 @@ type Inventory struct {
 	UnreadableHosts []string
 }
 
-// harnessSignatures are the distinctive command-line fragments a CFO-launched
+// harnessSignatures are the distinctive command-line fragments a CEO-launched
 // harness carries. They mirror internal/harness's adapters, and
 // TestHarnessSignaturesMatchAdapters asserts they still do, so a flag that
 // changes there cannot leave this sweep blind.
@@ -525,7 +525,7 @@ var harnessExecutables = []string{"claude", "codex", "kimi", "pi"}
 // his own application, runs from AppData\Local\SIQshift and starts the
 // codex.exe on the PATH, the one a Codex goblin runs, as an app server for
 // seconds at a time and each time as a new process: four in five minutes on
-// 2026-10-10, the day after the sweep woke the CFO about every 20 minutes for
+// 2026-10-10, the day after the sweep woke the CEO about every 20 minutes for
 // a short-lived codex.exe with no pane.
 var desktopAppMarkers = []string{`\windowsapps\claude_`, `\windowsapps\openai.codex_`, `\appdata\roaming\claude\claude-code\`, `\appdata\local\openai\codex\`, `\appdata\local\siqshift\`}
 
@@ -588,7 +588,7 @@ func Classify(inv Inventory) []Finding {
 // terminal host, and no process naming the folder on its command line. Each
 // is a worktree its project registers, or a folder its project answered
 // about and does not register. These are the janitor's to tidy; a worktree a
-// task still owns is that task's, left to cfo cleanup. A task whose record
+// task still owns is that task's, left to goblins cleanup. A task whose record
 // cannot be read owns what its name could name, so nothing is listed for it.
 func Unowned(inv Inventory) []WorktreeDir {
 	tasks := make(map[string]Task, len(inv.Tasks))
@@ -657,7 +657,7 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 		case isHarness(process):
 			if isNonFleetHarness(process, desktop, gates, own, browser) {
 				// Not a fleet process at all, so not this sweep's business:
-				// reporting it would wake the CFO for something no action of
+				// reporting it would wake the CEO for something no action of
 				// its own could ever be right about.
 				continue
 			}
@@ -684,7 +684,7 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 					continue
 				}
 				if fixture.ScratchHome && owner == "" {
-					// A scratch CFO home no goblin's worktree or scratchpad
+					// A scratch CEO home no goblin's worktree or scratchpad
 					// can be tied to is somebody's test or proof, never this
 					// fleet's orphan.
 					continue
@@ -713,7 +713,7 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 				}
 				runsUnder := fmt.Sprintf("Herdr server pid %d, of a session other than the fleet's", fixture.PID)
 				if fixture.ScratchHome {
-					runsUnder = fmt.Sprintf("native terminal host pid %d, of a CFO home other than this one", fixture.PID)
+					runsUnder = fmt.Sprintf("native terminal host pid %d, of a CEO home other than this one", fixture.PID)
 				}
 				if fixture.GoTestTask != "" {
 					runsUnder = fmt.Sprintf("%s pid %d, run from task %s's Go temporary directory", fixture.Name, fixture.PID, fixture.GoTestTask)
@@ -820,7 +820,7 @@ func classifyDetached(inv Inventory, hosts map[string]int) []Finding {
 		}
 		name := executableName(process.Name)
 		arguments := commandArgs(process.CommandLine)
-		if isHarness(process) || isServer(process) || name == "cfo" || name == "herdr" || proc.ServiceOf(process.Name, arguments) != proc.NoService {
+		if isHarness(process) || isServer(process) || name == "goblins" || name == "herdr" || proc.ServiceOf(process.Name, arguments) != proc.NoService {
 			continue
 		}
 		finding := Finding{
@@ -860,7 +860,7 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 			continue
 		}
 		detail := placementOutcome(inv, task, known, unreadable[worktree.TaskID]) + extraWorktreeNote(task, known, worktree)
-		action := "return the worktree through cfo cleanup"
+		action := "return the worktree through goblins cleanup"
 		if worktree.Source == SourceCheckout {
 			// Nothing of this home records it, and it is not in a folder the
 			// fleet puts its own in: it is a harness's or an older session's,
@@ -891,7 +891,7 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 }
 
 // ownerOf returns the task a fleet worktree belongs to. That is the task whose
-// record names it, as its worktree or as an extra one `cfo worktree add` made,
+// record names it, as its worktree or as an extra one `goblins worktree add` made,
 // else the task its name records, <id> in the home or gb-<id> where an older
 // build put it. A goblin also made extra worktrees for itself, <id>-<suffix>,
 // and one no record names belongs to the task it extends: the longest such
@@ -1190,7 +1190,7 @@ func fixtureServer(process Process, byPID map[int]Process, session, stateDir str
 }
 
 // nativeFixture reports whether process is where a fixture without a Herdr
-// session runs its stand-ins from: the native terminal host of another CFO
+// session runs its stand-ins from: the native terminal host of another CEO
 // home, or a program run from a goblin's Go temporary directory and from that
 // goblin's own worktree or scratch directory.
 func nativeFixture(process Process, stateDir string, scratchRoots []string, owns func(dir, task string) bool) (fixtureOrigin, bool) {
@@ -1231,7 +1231,7 @@ func runsForTask(dir, task string, inv Inventory, tasks map[string]Task, unreada
 }
 
 // fixtureOrigin is the process a test fixture's stand-ins run under: a Herdr
-// server of another session, the native terminal host of another CFO home, or
+// server of another session, the native terminal host of another CEO home, or
 // a program a goblin's Go test runs. Dirs are where it was started and, for a
 // host, the state and terminal directories it names; any of them can tie it
 // to the goblin whose test or proof it is. GoTestTask is the task whose Go
@@ -1247,7 +1247,7 @@ type fixtureOrigin struct {
 // goTestTask is the task whose Go temporary directory process's program runs
 // from: its scratch folder, <scratch root>\<task id> under any of the home's
 // scratch roots, or for a goblin an older build spawned
-// %LOCALAPPDATA%\cfo\gotmp\<fleet>\<task id> (state.GoTmpDir). A goblin's Go
+// %LOCALAPPDATA%\goblins\gotmp\<fleet>\<task id> (state.GoTmpDir). A goblin's Go
 // test builds its test binary there, and the stand-ins it starts run from the
 // test's own temporary directory under it, so the path names the goblin the
 // test may be; runsForTask decides whether it is.
@@ -1266,15 +1266,15 @@ func goTestTask(process Process, scratchRoots []string) (string, bool) {
 	}
 	parts := strings.FieldsFunc(args[0], func(r rune) bool { return r == '\\' || r == '/' })
 	for index := 1; index+3 < len(parts); index++ {
-		if strings.EqualFold(parts[index-1], "cfo") && strings.EqualFold(parts[index], "gotmp") {
+		if strings.EqualFold(parts[index-1], "goblins") && strings.EqualFold(parts[index], "gotmp") {
 			return parts[index+2], true
 		}
 	}
 	return "", false
 }
 
-// scratchHost reports whether process is a native terminal host run for a CFO
-// home other than this one, and the --state and --dir it names. cfo host is
+// scratchHost reports whether process is a native terminal host run for a CEO
+// home other than this one, and the --state and --dir it names. goblins host is
 // only ever run with the home's state directory, so a host with any other is
 // a scratch home some goblin's test or proof started.
 func scratchHost(process Process, stateDir string) ([]string, bool) {
@@ -1645,7 +1645,7 @@ const unidentifiedHold = "could not determine what this process belongs to: it h
 // ends a review round for a goblin that is working. So must his own sessions
 // in a terminal: on 2026-10-07 two of them were held as unidentified orphans
 // on every sweep for a day. So must the host of a browser's extension: on
-// 2026-10-27 the one the Claude extension starts woke the CFO as an orphan.
+// 2026-10-27 the one the Claude extension starts woke the CEO as an orphan.
 func isNonFleetHarness(process Process, desktopApp, gateAgents, overlords, browserHosts map[int]bool) bool {
 	switch {
 	case desktopApp[process.PID]:
@@ -1672,7 +1672,7 @@ var explorerShells = []string{"powershell", "pwsh", "cmd", "mintty"}
 
 // overlordsSessions are the processes the Overlord runs himself: everything a
 // Windows Terminal window or a shell he opened from Explorer started, except
-// the fleet's own cfo processes and everything under them. A harness there is
+// the fleet's own goblins processes and everything under them. A harness there is
 // his own Claude Code or Codex session, whatever its flags, while a host the
 // fleet launched from his terminal, and the harness it runs, stay the fleet's.
 func overlordsSessions(processes []Process) map[int]bool {
@@ -1688,7 +1688,7 @@ func overlordsSessions(processes []Process) map[int]bool {
 		parent, ok := byPID[process.ParentPID]
 		return ok && executableName(parent.Name) == "explorer" && !process.Start.Before(parent.Start) && slices.Contains(explorerShells, name)
 	}))
-	for pid := range descendants(processes, rootsMatching(processes, func(process Process) bool { return executableName(process.Name) == "cfo" })) {
+	for pid := range descendants(processes, rootsMatching(processes, func(process Process) bool { return executableName(process.Name) == "goblins" })) {
 		delete(sessions, pid)
 	}
 	return sessions
@@ -1826,7 +1826,7 @@ func verbText(verb string) string {
 }
 
 // IsTerminal reports whether a status verb ends a task. done and failed are
-// the two outcomes a goblin reports through cfo notify; every other verb
+// the two outcomes a goblin reports through goblins notify; every other verb
 // leaves the task somebody's problem.
 func IsTerminal(verb string) bool {
 	return verb == "done" || verb == "failed" || verb == "stopped"

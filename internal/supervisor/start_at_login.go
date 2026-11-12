@@ -3,7 +3,7 @@ package supervisor
 import "net/http"
 
 // StartAtLogin is whether Windows starts this home at login, which the board
-// shows in the CFO's panel and turns on or off; without it the board shows no
+// shows in the CEO's panel and turns on or off; without it the board shows no
 // such setting. It is the same setting as the desktop window's tray item and
 // the setup's box.
 type StartAtLogin struct {

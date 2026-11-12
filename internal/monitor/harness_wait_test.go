@@ -22,11 +22,11 @@ const waitingOnAgentPane = "- Evidence is in data/cg-home-isolation/scratch-proo
 
 // A goblin waiting on its own sub-agent, background shell or monitor is not
 // stale while its harness reports the wait, on its screen or in the
-// transcript its family tree is read from: wake 5967 woke the CFO about a
+// transcript its family tree is read from: wake 5967 woke the CEO about a
 // goblin waiting on its reviewer, and cg-ci-green's goblin_idle wakes on
 // 2026-10-07 came while it waited on its own CI monitor. The wait is bounded
 // as any other work is: with no sign of progress for the busy budget the
-// goblin wakes the CFO once.
+// goblin wakes the CEO once.
 func TestAGoblinWaitingOnWorkItsHarnessReportsIsNotStale(t *testing.T) {
 	for _, test := range []struct {
 		name  string

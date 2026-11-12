@@ -9,7 +9,7 @@ declare global {
   interface Window { closeWindow?: () => void }
 }
 
-// cg-board-polish waits on the Overlord with a review page and asks the CFO a
+// cg-board-polish waits on the Overlord with a review page and asks the CEO a
 // question while the page is open. The two are separate items, as the
 // supervisor sends them. Open opens the page, as its alert does; closeWindow is
 // the supervisor seeing the page's window close.

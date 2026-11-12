@@ -42,7 +42,7 @@ test("the meter waits and its tip says why while the heavy line keeps the memory
 // The Overlord, 2026-10-08: "below memory disk remove the text please not
 // needed", and 2026-10-09 on the scheduler's line: "dont display nothing
 // starts text too much text". The board reads nothing the scheduler says:
-// why nothing starts reaches the CFO as a wake.
+// why nothing starts reaches the CEO as a wake.
 test("the board keeps nothing of what the scheduler said", () => {
   // Arrange
   const snapshot = parseSnapshot({ healthy: true, scheduling: { at: "2026-10-09T16:05:00Z", text: "nothing starts: next-task: its last start failed: refused", waiting: [{ id: "next-task", why: "its last start failed: refused" }] } });
@@ -149,8 +149,8 @@ test("the next task names commit when it is the one short, and clears once both 
 });
 
 test("the meter names the apps holding the most commit only while commit is the tighter", () => {
-  const holders = [{ name: "ChatGPT", commit: 11.2 * GB }, { name: "claude", commit: 5.7 * GB }, { name: "cfo", commit: 4.3 * GB }];
-  assert.equal(holdersLine({ ...memory(3.4, 2.5), holders }), "Most commit: ChatGPT 11.2 GB, claude 5.7 GB, cfo 4.3 GB");
+  const holders = [{ name: "ChatGPT", commit: 11.2 * GB }, { name: "claude", commit: 5.7 * GB }, { name: "ceo", commit: 4.3 * GB }];
+  assert.equal(holdersLine({ ...memory(3.4, 2.5), holders }), "Most commit: ChatGPT 11.2 GB, claude 5.7 GB, ceo 4.3 GB");
   assert.equal(holdersLine({ ...memory(3.4, 20), holders }), "", "memory is the tighter");
   assert.equal(holdersLine(memory(3.4, 2.5)), "", "no holders read, no line");
 });
@@ -340,7 +340,7 @@ test("the Tasks column runs in start order: Next up first, then what can start, 
 // disk is a drive with free GB of 900 free, the fleet's 15 GB floor and 10 GB mark.
 const disk = (free: number): Disk => ({ drive: "C:", free: free * GB, total: 900 * GB, floor: 15 * GB, wake: 10 * GB, drives: [] });
 
-test("the disk meter says when no goblin starts and when the CFO is woken", () => {
+test("the disk meter says when no goblin starts and when the CEO is woken", () => {
   assert.equal(diskState(disk(48)).tone, "ready");
   assert.deepEqual(diskState(disk(14.9)), { tone: "waiting", text: "Under the 15 GB floor: no goblin or gate test run starts until disk frees." });
   assert.equal(diskState(disk(15)).tone, "ready");

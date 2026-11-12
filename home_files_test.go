@@ -48,7 +48,7 @@ func headingAnchors(data []byte) []string {
 	return anchors
 }
 
-// The CFO follows its contract's links, so every relative link in the
+// The CEO follows its contract's links, so every relative link in the
 // contract's entry points must reach a file the binary carries into a home
 // set up without a checkout.
 func TestTheContractCarriesEveryFileItLinksTo(t *testing.T) {

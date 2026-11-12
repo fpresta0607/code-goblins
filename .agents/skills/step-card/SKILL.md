@@ -12,7 +12,7 @@ You never send the step as a chat message, a notify or a Scrawl walkthrough eith
 ## Send the card
 
 ```
-cfo auth request --project <project> --task <your task id> --why "<what the step is for>" --link <the exact https page> [--step "<a click he makes>"]... [--plain NAME --label NAME="<a few words>"]... [SECRET_NAME]... --wait
+goblins auth request --project <project> --task <your task id> --why "<what the step is for>" --link <the exact https page> [--step "<a click he makes>"]... [--plain NAME --label NAME="<a few words>"]... [SECRET_NAME]... --wait
 ```
 
 - `--why` is the card's heading when it asks for nothing, so make it the step itself, such as "Create the shop's test account".
@@ -36,18 +36,18 @@ When it ends it prints what came of the card:
 ## A step inside your own browser session
 
 When the step must happen inside your own browser session, such as a sign-in the session must keep, add `--window`.
-The card then has a button that shows your session's window at the link on his screen.
-Your session restarts on a profile in your task's folder, so start the flow from that link.
-Once the card closes your session runs headless again on the same profile and keeps what he did there.
+It gives the card Take control, which opens the link in your own browser on the board's screen.
+He takes the step there and hands it back with a few words, which your wait prints.
+While he drives, your browser commands are refused, so wait for the card to close.
 
 ## When you see the step done yourself
 
 Keep checking the page while you wait, and when you see the step done, such as the signed-in dashboard, close the card:
 
 ```
-cfo auth request --done <card> --task <your task id>
+goblins auth request --done <card> --task <your task id>
 ```
 
-Take back a card you no longer need with `cfo auth request --withdraw <card> --task <your task id> --reason "<why>"`.
-Wait on a card again after your wait was cut short with `cfo auth request --wait-on <card> --task <your task id>`.
+Take back a card you no longer need with `goblins auth request --withdraw <card> --task <your task id> --reason "<why>"`.
+Wait on a card again after your wait was cut short with `goblins auth request --wait-on <card> --task <your task id>`.
 Your open cards are withdrawn for you once you report done or failed.

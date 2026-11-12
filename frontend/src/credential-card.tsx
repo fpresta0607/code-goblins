@@ -16,9 +16,10 @@ import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { goblinName } from "./task-words";
 import { SkipWithNote } from "./skip-with-note";
 import { CardMail } from "./card-mail";
-import { inlineElements } from "./messageText";
+import { inlineElements, linkedText } from "./messageText";
 import { copyValues } from "./CopyValue";
 import { pathLinks } from "./path-link";
+import { ScreenView } from "./screen-view";
 
 // The names the scope holds that the board wants him to confirm replacing,
 // from its refusal of a save or a Run. It names names only.
@@ -41,7 +42,8 @@ const wrappable = (text: string, separator: string) => text.split(separator).map
 interface Confirm { names: string[]; action: "save" | "run"; confirmed: string[] }
 
 // The card for a step only he can take: its header says how, as the page to
-// open, or the goblin's own browser window to bring to him, and the asker's
+// open, or the goblin's own browser, whose screen he takes control of here
+// and hands back once the step is taken, and the asker's
 // steps, numbered in order, each local path they name a link that opens it,
 // and a message he sends himself, with Copy. Its table has a row for
 // each input, by its label: a field to paste each secret into, with a check
@@ -51,7 +53,7 @@ interface Confirm { names: string[]; action: "save" | "run"; confirmed: string[]
 // has Dismiss, which tells its goblin to go on without it. A pasted secret is
 // stored at once, unless its format hint warns about it; a typed one when he
 // presses Enter or the row's lock. Where a value goes and how it was stored
-// are in the tips. Below the table the cfo auth store lines have Copy and Run
+// are in the tips. Below the table the goblins auth store lines have Copy and Run
 // to type them in a terminal on this PC instead. Values are typed only on the
 // board on this PC; a board opened from another machine shows the commands. A
 // plain value the board refuses as shaped like a key shows its refusal with a
@@ -83,7 +85,7 @@ export function CredentialCard({ request, snapshot, connected, now, pager }: { r
   const [isFetching, setIsFetching] = useState(false);
   // The plain values he types, by name, until each is sent.
   const [plainValues, setPlainValues] = useState<Record<string, string>>({});
-  // His click on Done, Skip, his note or the window button, until the board
+  // His click on Done, Skip, his note or Take control, until the board
   // answers.
   const [pressing, setPressing] = useState("");
   const commandBox = useRef<HTMLPreElement>(null);
@@ -99,7 +101,7 @@ export function CredentialCard({ request, snapshot, connected, now, pager }: { r
   const asker = request.task ? task ? goblinName(task) : request.task : "The CEO";
   const typeable = terminalNames(request, []).filter((name) => !answered.includes(name));
   const commands = (typeable.length ? typeable : needed).map((name) => storeCommand(request.project, name));
-  const headers = { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance };
+  const headers = { "Content-Type": "application/json", "X-CEO-Token": snapshot.instance };
   const empty = (name: string) => {
     setValues((prior) => { const rest = { ...prior }; delete rest[name]; return rest; });
     setRounds((prior) => ({ ...prior, [name]: (prior[name] || 0) + 1 }));
@@ -160,8 +162,8 @@ export function CredentialCard({ request, snapshot, connected, now, pager }: { r
       if (looksLikeKey(failure)) setKeyShaped((prior) => [...prior, name]);
     } finally { setStoring((prior) => prior.filter((candidate) => candidate !== name)); }
   };
-  // Done, Dismiss and the window button each post once and wait for the
-  // board, whose snapshot then closes the card or shows the window.
+  // Done, Dismiss and Take control each post once and wait for the board,
+  // whose snapshot then closes the card or shows the goblin's screen.
   const press = async (path: string, body: Record<string, string>, what: string) => {
     setPressing(what); showFeedback("");
     try { await call(path, undefined, { method: "POST", headers, body: JSON.stringify({ id: request.id, generation: request.generation, ...body }) }); }
@@ -188,8 +190,8 @@ export function CredentialCard({ request, snapshot, connected, now, pager }: { r
   const offer = open && local && request.fetch && request.fetch.names.some((name) => needed.includes(name)) ? request.fetch : null;
   const inputs = [...request.names, ...request.plain];
   const sent = (name: string) => request.received.includes(name) || answered.includes(name);
-  const windowNote = request.window_state === "open" ? "The browser window is open on your screen. Take the step there" + (canPressDone(request) ? ", then press Done." : ".")
-    : request.window_state === "requested" ? "Opening the browser window on your PC." : "";
+  const windowNote = request.window_state === "open" ? "Take the step on " + asker + "'s screen below, then press Hand back" + (canPressDone(request) ? " or Done." : ".")
+    : request.window_state === "requested" ? "Opening " + asker + "'s browser at the page." : "";
   // A page without the clipboard, such as a board opened over plain http,
   // selects the commands for Ctrl+C instead, and says so beside his click.
   const copy = () => {
@@ -204,7 +206,7 @@ export function CredentialCard({ request, snapshot, connected, now, pager }: { r
 
   const several = commands.length > 1;
   return <article className="question-card credential-card" data-credential-request={request.id} aria-labelledby={"credential-" + request.id}>
-    <p className="asker"><Avatar persona={request.task ? personaFor(task) : "cfo"} small />
+    <p className="asker"><Avatar persona={request.task ? personaFor(task) : "ceo"} small />
       <span><strong>{asker}</strong> {open ? "asks · waiting " + age(request.created_at, now).replace(/ ago$/, "") : "asked · closed " + age(request.closed_at || request.created_at, now)}</span></p>
     <header className="credential-heading">
       <h3 id={"credential-" + request.id} tabIndex={-1}>{inlineElements(credentialHeading(request), copyValues, paths)}</h3>
@@ -212,21 +214,22 @@ export function CredentialCard({ request, snapshot, connected, now, pager }: { r
       {request.grant_service && <p className="credential-why">Service access for {request.task} in {request.project}.</p>}
       {(request.link || request.steps.length > 0) && <ol className="credential-steps" aria-label={inputs.length ? "How to get them" : "What to do"}>
         {request.link && (request.window
-          ? <li>Press Open the browser window below</li>
+          ? <li>Press Take control below</li>
           : <li>Open <a href={request.link} target="_blank" rel="noreferrer"><span>{wrappable(linkLabel(request.link), "/")}</span><Icon name="external" /></a></li>)}
         {request.steps.map((step, index) => <li key={index}>{inlineElements(stepText(step), copyValues, paths)}</li>)}
       </ol>}
     </header>
     {request.mail && <CardMail mail={request.mail} />}
     {open && request.window && <div className="step-window">
-      {local
-        ? <button type="button" className="primary" disabled={!connected || !!pressing || request.window_state !== ""} onClick={() => void press("/api/credentials/window", {}, "window")}><Icon name="external" />Open the browser window</button>
-        : <p className="credential-remote"><Icon name="lock" />Open the browser window from the board on your PC.</p>}
-      {windowNote && <p className="signin-waiting" role="status"><span className="credential-ring storing" aria-hidden="true" />{windowNote}</p>}
-      {request.window_state === "" && request.reason && <Notice tone="warning" icon="warning">{request.reason}</Notice>}
+      {request.window_state !== "open" && (local
+        ? <button type="button" className="primary" disabled={!connected || !!pressing || request.window_state !== ""} onClick={() => void press("/api/credentials/window", {}, "window")}><Icon name="screen" />Take control</button>
+        : <p className="credential-remote"><Icon name="lock" />Take control from the board on your PC.</p>)}
+      {windowNote && <p className="signin-waiting" role="status">{request.window_state === "requested" && <span className="credential-ring storing" aria-hidden="true" />}{windowNote}</p>}
+      {request.window_state === "open" && <ScreenView key={request.task_generation} task={request.task} generation={request.task_generation} name={asker} instance={snapshot.instance} connected={connected} />}
+      {request.window_state === "" && request.reason && <Notice tone="warning" icon="warning">{linkedText(request.reason)}</Notice>}
     </div>}
     {open && !local && !request.grant_service && <p className="credential-remote"><Icon name="lock" />Values can only be typed on the board on your PC. Here, copy the terminal command instead.</p>}
-    {!open && <p className="credential-outcome"><Icon name={request.state === "done" ? "check" : "clock"} /><strong>{request.state === "done" ? "Done" : request.state === "dismissed" ? "Dismissed" : "Closed"}</strong>{request.reason && <span className="muted">{request.reason}</span>}</p>}
+    {!open && <p className="credential-outcome"><Icon name={request.state === "done" ? "check" : "clock"} /><strong>{request.state === "done" ? "Done" : request.state === "dismissed" ? "Dismissed" : "Closed"}</strong>{request.reason && <span className="muted">{linkedText(request.reason)}</span>}</p>}
     {open && terminalOpen && <p className="credential-terminal-open" role="status"><Icon name="terminal" />{!local ? "A terminal is open on the board on your PC: type each value there, where nothing you type is shown." : terminal ? "Type each value in the terminal below, where nothing you type is shown." : "A terminal is open on this PC: type each value there, where nothing you type is shown."}</p>}
     {open && terminal && <RunTerminal run={terminal} instance={snapshot.instance} connected={connected} />}
     {offer && <div className="credential-fetch">
@@ -234,7 +237,7 @@ export function CredentialCard({ request, snapshot, connected, now, pager }: { r
       {offer.state === "fetching"
         ? <p className="credential-fetching" role="status"><Icon name="refresh" />Fetching from {offer.provider}'s page</p>
         : <button type="button" className="primary" disabled={!connected || isFetching || terminalOpen} onClick={() => void fetchKeys()}><Icon name="download" />Fetch it for me</button>}
-      {offer.reason && offer.state !== "fetching" && <span className="credential-fetch-stopped"><Icon name="warning" />Fetch stopped<span className="muted">{offer.reason}</span></span>}
+      {offer.reason && offer.state !== "fetching" && <span className="credential-fetch-stopped"><Icon name="warning" />Fetch stopped<span className="muted">{linkedText(offer.reason)}</span></span>}
     </div>}
     {request.names.length > 0 && <p className="muted credential-where">{whereItGoes(request)}</p>}
     {inputs.length > 0 && <table className="credential-table">

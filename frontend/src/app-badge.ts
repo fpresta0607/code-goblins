@@ -12,7 +12,7 @@ export const isPushingApp = () => location.hostname !== "127.0.0.1" && location.
 const fromBase64Url = (value: string) => Uint8Array.from(atob(value.replace(/-/g, "+").replace(/_/g, "/")), (char) => char.charCodeAt(0));
 
 // postPush tells the supervisor of an app's badge turned on or off.
-export const postPush = (instance: string, body: unknown) => request("/api/push", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify(body) });
+export const postPush = (instance: string, body: unknown) => request("/api/push", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance }, body: JSON.stringify(body) });
 
 // subscribeApp subscribes the app to the supervisor's pushes with the board's
 // key and tells the supervisor, which keeps the subscription.

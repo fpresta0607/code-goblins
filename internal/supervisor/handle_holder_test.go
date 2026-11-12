@@ -50,8 +50,8 @@ func handleWakes(t *testing.T, readings ...HandleHolder) []wake.Record {
 	return raised
 }
 
-// A process past the handle line wakes the CFO once, however many readings
-// find it there, and another past it wakes the CFO for itself.
+// A process past the handle line wakes the CEO once, however many readings
+// find it there, and another past it wakes the CEO for itself.
 func TestAProcessOverTheHandleLineRaisesOneWake(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -76,7 +76,7 @@ func TestAProcessOverTheHandleLineRaisesOneWake(t *testing.T) {
 	}
 }
 
-// The wake names the process by its pid and its command, so the CFO can
+// The wake names the process by its pid and its command, so the CEO can
 // tell what it is and end it by its pid.
 func TestTheHandleWakeNamesTheProcessByItsPidAndCommand(t *testing.T) {
 	// Arrange and Act
@@ -86,7 +86,7 @@ func TestTheHandleWakeNamesTheProcessByItsPidAndCommand(t *testing.T) {
 	if len(raised) != 1 {
 		t.Fatalf("a process over the handle line raised %d wakes, want one", len(raised))
 	}
-	for _, want := range []string{"handles:", "grep.exe", "pid 4242", "6680532 handles", grepHolder.Command, "cfo reap --force 4242 --apply"} {
+	for _, want := range []string{"handles:", "grep.exe", "pid 4242", "6680532 handles", grepHolder.Command, "goblins reap --force 4242 --apply"} {
 		if !strings.Contains(raised[0].Detail, want) {
 			t.Errorf("handle wake %q does not name %q", raised[0].Detail, want)
 		}

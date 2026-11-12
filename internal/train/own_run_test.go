@@ -133,8 +133,8 @@ func TestALoneRiderWhoseOwnRunTestedTodaysMainLandsWithNoTrainRun(t *testing.T) 
 	if body := mergeBody(gh, pr.URL); body != evidence {
 		t.Fatalf("the merge was asked with body %q, want the evidence", body)
 	}
-	if len(s.cfo) != 2 || !strings.Contains(s.cfo[0], "lands #5 on its own CI run ("+ownRun+")") || !strings.Contains(s.cfo[1], "#5 landed on its own CI run ("+ownRun+")") {
-		t.Fatalf("CFO told %q, want the start and the landing on its own run", s.cfo)
+	if len(s.ceo) != 2 || !strings.Contains(s.ceo[0], "lands #5 on its own CI run ("+ownRun+")") || !strings.Contains(s.ceo[1], "#5 landed on its own CI run ("+ownRun+")") {
+		t.Fatalf("CEO told %q, want the start and the landing on its own run", s.ceo)
 	}
 }
 
@@ -270,8 +270,8 @@ func TestOwnRunCheckChangesHoldThroughBothEligibilityPaths(t *testing.T) {
 						t.Fatalf("changed own-run evidence withdrew the source or lost custody: %+v", kept)
 					}
 				}
-				if len(github.mergeCalls()) != 1 || len(github.rerunCalls()) != 0 || github.created != 0 || len(github.closed) != 0 || len(s.told) != 0 || len(s.cfo) != 2 {
-					t.Fatalf("changed evidence triggered compute, blame, or another notice: merges %v, reruns %v, notices %q", github.mergeCalls(), github.rerunCalls(), s.cfo)
+				if len(github.mergeCalls()) != 1 || len(github.rerunCalls()) != 0 || github.created != 0 || len(github.closed) != 0 || len(s.told) != 0 || len(s.ceo) != 2 {
+					t.Fatalf("changed evidence triggered compute, blame, or another notice: merges %v, reruns %v, notices %q", github.mergeCalls(), github.rerunCalls(), s.ceo)
 				}
 
 				own.status, own.conclusion = "", ""

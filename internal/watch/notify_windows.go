@@ -15,7 +15,7 @@ import (
 const (
 	// dirWaiterFailMaxDefault is EventCapFailMax's default: the number of
 	// CONSECUTIVE Wait failures that permanently degrades a waiter to
-	// timer-only waiting for the rest of its life. CFO_EVENT_CAP_FAIL_MAX
+	// timer-only waiting for the rest of its life. GOBLINS_EVENT_CAP_FAIL_MAX
 	// overrides it, clamped to [1, 10].
 	dirWaiterFailMaxDefault = 3
 
@@ -111,7 +111,7 @@ func NewDirWaiter(dir string) (*DirWaiter, error) {
 	return &DirWaiter{
 		dirHandle:   dirHandle,
 		eventHandle: eventHandle,
-		failMax:     claudehook.Int("CFO_EVENT_CAP_FAIL_MAX", dirWaiterFailMaxDefault, 1, 10),
+		failMax:     claudehook.Int("GOBLINS_EVENT_CAP_FAIL_MAX", dirWaiterFailMaxDefault, 1, 10),
 	}, nil
 }
 

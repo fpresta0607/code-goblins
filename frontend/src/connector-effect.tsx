@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { playFrom } from "./activity";
 import { isStill, type Point } from "./use-tree-motion";
 
-// The CFO's pulse is a dash 14 px long, 230 px from the next, travelling
+// The CEO's pulse is a dash 14 px long, 230 px from the next, travelling
 // 244 px each 2.5 s along its connector, as the dash pattern it was first
 // drawn with. A dash turns with its connector through a point every 6 px.
 const DASH = 14, DASH_GAP = 230, DASH_LOOP_MS = 2500, DASH_STEP = 6;
@@ -11,7 +11,7 @@ const DASH = 14, DASH_GAP = 230, DASH_LOOP_MS = 2500, DASH_STEP = 6;
 // a loop of its own behind the one before, through these frames.
 interface DashRoute { path: string; count: number; frames: Keyframe[] }
 
-// ConnectorEffect plays on a connector what the CFO's report or a goblin's
+// ConnectorEffect plays on a connector what the CEO's report or a goblin's
 // birth shows: the connector lit, and for a report its dashes travelling
 // down it. It lies over the canvas's connectors apart from them, so its fade
 // is opacity and its dashes move by transform, which the browser plays off

@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// handleLine is how many handles one process may hold before the CFO is woken
+// handleLine is how many handles one process may hold before the CEO is woken
 // for it. On a working machine the busiest process, Microsoft Defender, holds
 // about 9,000 and the whole machine about 190,000, while the system handle
 // table a pause reads is bounded near 6.7 million: a recursive search of the
@@ -25,7 +25,7 @@ type HandleHolder struct {
 	Command string    `json:"command,omitempty"`
 }
 
-// checkHandles wakes the CFO once for each process past handleLine, naming it
+// checkHandles wakes the CEO once for each process past handleLine, naming it
 // by its pid and command, so a leak is ended before it fills the handle table
 // and a pause can no longer read a goblin's job.
 func (s *Service) checkHandles(w *fleetWakes, now time.Time) error {
@@ -59,6 +59,6 @@ func handleHolderDetail(holder HandleHolder, now time.Time) string {
 	if command == "" {
 		command = "its command could not be read"
 	}
-	return fmt.Sprintf("handles: %s pid %d, started %s and running %s, holds %d handles, past the %d line: %s. The system handle table fills past about 6.7 million, and then no pause can read a goblin's job. Next: if it is the fleet's, cfo reap lists it and cfo reap --force %d --apply ends it by its pid; otherwise tell the Overlord.",
+	return fmt.Sprintf("handles: %s pid %d, started %s and running %s, holds %d handles, past the %d line: %s. The system handle table fills past about 6.7 million, and then no pause can read a goblin's job. Next: if it is the fleet's, goblins reap lists it and goblins reap --force %d --apply ends it by its pid; otherwise tell the Overlord.",
 		holder.Name, holder.PID, holder.Started.Format(time.RFC3339), now.Sub(holder.Started).Round(time.Second), holder.Handles, handleLine, command, holder.PID)
 }

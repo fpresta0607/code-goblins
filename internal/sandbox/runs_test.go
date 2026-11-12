@@ -25,14 +25,14 @@ func TestRunningContainerRefusalReadsTheTasksRecords(t *testing.T) {
 		}, ""},
 		{"a record being written", func(t *testing.T) string {
 			taskTmp := t.TempDir()
-			writeRecord(t, taskTmp, ".cfo-tmp-123", "")
+			writeRecord(t, taskTmp, ".goblins-tmp-123", "")
 			return taskTmp
 		}, ""},
 		{"a record that cannot be read", func(t *testing.T) string {
 			taskTmp := t.TempDir()
-			writeRecord(t, taskTmp, "cfo-sandbox-x-1", "{")
+			writeRecord(t, taskTmp, "goblins-sandbox-x-1", "{")
 			return taskTmp
-		}, "cfo-sandbox-x-1 of this task may still run, and its record"},
+		}, "goblins-sandbox-x-1 of this task may still run, and its record"},
 		{"no tasktmp folder", func(t *testing.T) string { return "" }, "names no tasktmp folder"},
 	} {
 		t.Run(test.name, func(t *testing.T) {

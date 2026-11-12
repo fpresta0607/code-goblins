@@ -71,7 +71,7 @@ func (choice EngineChoice) validate() error {
 	if err := ValidTaskID(choice.ID); err != nil {
 		return err
 	}
-	if choice.Generation == "" || choice.Harness == "" || choice.When != "resume" && choice.When != "turn-end" && choice.When != "update" {
+	if choice.Generation == "" || choice.Harness == "" || choice.When != "resume" && choice.When != "turn-end" && choice.When != "update" && choice.When != "renamed" {
 		return errors.New("engine choice requires a session, harness and switch timing")
 	}
 	return nil

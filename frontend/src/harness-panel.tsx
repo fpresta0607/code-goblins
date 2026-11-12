@@ -26,7 +26,7 @@ const PRESS_WAIT_MS = 3000;
 // keys for it, with the harness's focus marked; and one plain Cancel where the
 // harness offers a way out, or where it lists nothing to pick. Every other
 // key the terminal takes is the box's own (panel-keys.ts), never a row of
-// chips (the CFO's review, 2026-10-27), and a press on a choice or on Cancel
+// chips (the CEO's review, 2026-10-27), and a press on a choice or on Cancel
 // leaves the keyboard in the box. One press sends its keys once: the panel's
 // buttons wait until the harness has taken it, or for PRESS_WAIT_MS when the
 // screen stays as it was. onKeys sends keys to the terminal. Nothing in it

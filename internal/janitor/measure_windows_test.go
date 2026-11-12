@@ -42,7 +42,7 @@ func writeTen(t *testing.T, path string) {
 	}
 }
 
-// A bucket with an entry the sweep cannot read is named as cfo runtime's
+// A bucket with an entry the sweep cannot read is named as goblins runtime's
 // table names it, so its bytes read as what could be counted, not as all it
 // holds, and so is a caches folder that cannot be listed. A bucket read
 // whole, or one not there at all, as this home's bin, is not named. The

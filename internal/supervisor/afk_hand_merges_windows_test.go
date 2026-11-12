@@ -12,13 +12,13 @@ import (
 )
 
 // The 13:18Z report of 2026-10-14 listed eight pull requests that landed by
-// train under Not merged, each "No merge was recorded": the CFO had logged
-// each with cfo afk log --kind merge --link, which writes no outcome. GitHub's
+// train under Not merged, each "No merge was recorded": the CEO had logged
+// each with goblins afk log --kind merge --link, which writes no outcome. GitHub's
 // word on the pull request is where the outcome comes from.
 
 const repository = "https://github.com/acme/api/pull/"
 
-// handMerge is a merge the CFO logged by hand for pull request number.
+// handMerge is a merge the CEO logged by hand for pull request number.
 func handMerge(number, words string) afk.Entry {
 	return afk.Entry{Kind: afk.KindMerge, What: words, Link: repository + number, Evidence: "Train CI tested " + number + " on main 1b94182c9 in one run, 16 of 16 checks pass"}
 }
@@ -43,7 +43,7 @@ func (g *gitHubSays) read(_ context.Context, url string) (PullRequestInfo, error
 
 func TestTheReportShowsAHandLoggedMergeOfAMergedPullRequestAsMergedAndAsksGitHubOnce(t *testing.T) {
 	// Arrange
-	s, h, _ := asTheCFO(t)
+	s, h, _ := asTheCEO(t)
 	github := &gitHubSays{state: map[string]string{repository + "784": "MERGED", repository + "791": "MERGED", repository + "800": "OPEN"}}
 	s.Options.PullRequestState = github.read
 
@@ -79,7 +79,7 @@ func TestTheReportShowsAHandLoggedMergeOfAMergedPullRequestAsMergedAndAsksGitHub
 
 func TestTheReportAsksGitHubNothingWhenEveryMergeSaysHowItEnded(t *testing.T) {
 	// Arrange
-	s, h, _ := asTheCFO(t)
+	s, h, _ := asTheCEO(t)
 	github := &gitHubSays{state: map[string]string{}}
 	s.Options.PullRequestState = github.read
 	landed := handMerge("784", "the button")

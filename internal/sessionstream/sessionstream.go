@@ -184,7 +184,7 @@ func (id Identity) Check() error {
 // CEO's.
 func (id Identity) Owner() string {
 	if id.Task == "" {
-		return "cfo"
+		return "ceo"
 	}
 	return id.Task
 }

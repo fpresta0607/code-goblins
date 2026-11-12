@@ -18,7 +18,7 @@ const WORDS = "show me the open pull requests";
 async function openTerminal(page: Page, backend: "native" | "herdr", role = "goblin"): Promise<{ typed: () => string; sounds: () => number }> {
   const inputs: Buffer[] = [];
   let sounds = 0;
-  await page.addInitScript(() => localStorage.setItem("cfo-voice-hint-v1", "dismissed"));
+  await page.addInitScript(() => localStorage.setItem("ceo-voice-hint-v1", "dismissed"));
   await page.route("**/api/dictation/warm", (route) => route.fulfill({ status: 202 }));
   await page.route("**/api/dictation", (route) => {
     if (route.request().method() === "GET") return route.fulfill({ json: { engine: "test-model", state: "ready" } });
@@ -109,7 +109,7 @@ test("on a touch screen the screen is kept awake while a dictation listens, and 
   await expect.poll(locks).toEqual([{ type: "screen", isReleased: true }]);
 });
 
-for (const target of ["cfo", "goblin", "answer"] as const) {
+for (const target of ["ceo", "goblin", "answer"] as const) {
   test(`a minute of phone dictation reaches the ${target} box whole when browser recognition cannot restart`, async ({ page }, testInfo) => {
     // Arrange: the phone ends browser recognition after a pause and ignores
     // a restart. The recorder receives 65 seconds of non-sensitive audio,
@@ -117,7 +117,7 @@ for (const target of ["cfo", "goblin", "answer"] as const) {
     const startedAt = Date.parse("2026-10-13T14:30:00Z");
     await page.clock.setFixedTime(startedAt);
     await page.addInitScript(() => {
-      localStorage.setItem("cfo-dictation-browser-v1", "on");
+      localStorage.setItem("ceo-dictation-browser-v1", "on");
       const probe = { starts: 0, isRecording: false, say: () => {}, pause: () => {} };
       Object.assign(window, { phoneDictation: probe });
       class Recognition implements Recognizer {

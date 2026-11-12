@@ -7,16 +7,16 @@ import (
 
 // watcherTokenRe matches a watcher invocation against the normalized form of
 // a command (see normalizeToken). fm-watch is upstream's legacy script name,
-// kept during the transition; cfo(.exe)? watch is the Windows-native form.
-var watcherTokenRe = regexp.MustCompile(`(?i)\b(fm-watch|cfo(\.exe)?\s+watch)\b`)
+// kept during the transition; goblins(.exe)? watch is the Windows-native form.
+var watcherTokenRe = regexp.MustCompile(`(?i)\b(fm-watch|goblins(\.exe)?\s+watch)\b`)
 
 // normalizeToken prepares command for watcher-token detection only: structure
 // detection (separators, parens, redirections) uses the original string.
 // Backslashes become forward slashes rather than being deleted, because
 // deleting them would glue a Windows path into its neighbor and destroy the
-// word boundary the token regexp needs (C:\dev\repo\cfo.exe would collapse
-// into repocfo.exe). Quote characters are deleted so an ANSI-C quoted
-// invocation like $'cfo watch' still exposes the token.
+// word boundary the token regexp needs (C:\dev\repo\goblins.exe would collapse
+// into repogoblins.exe). Quote characters are deleted so an ANSI-C quoted
+// invocation like $'goblins watch' still exposes the token.
 func normalizeToken(command string) string {
 	s := strings.ToLower(command)
 	s = strings.ReplaceAll(s, `\`, "/")

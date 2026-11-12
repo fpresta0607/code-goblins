@@ -180,7 +180,7 @@ func TestRootStartKeepsActiveHeldAndRetiredPrecedence(t *testing.T) {
 		{name: "held", want: "waits for", arrange: func(t *testing.T, h home.Home) {
 			writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n- [ ] root-widgets-7 - Root (repo: widgets) blocked-by: until 2099-01-01T00:00Z\n")
 		}},
-		{name: "retired", want: "CFO retired", arrange: func(t *testing.T, h home.Home) {
+		{name: "retired", want: "CEO retired", arrange: func(t *testing.T, h home.Home) {
 			writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n- [ ] root-widgets-7 - Root (repo: widgets)\n")
 			writeOutcome(t, h, state.Outcome{ID: "root-widgets-7", Generation: "old", Phase: "stopped", At: time.Now().Add(time.Hour)})
 		}},
@@ -544,7 +544,7 @@ func persistedRootBoard(t *testing.T) (*Service, home.Home, *spawnRecorder, *ato
 func TestUnreadableFleetStateNeverProvesRootClosure(t *testing.T) {
 	// Arrange
 	_, h, _, _ := persistedRootBoard(t)
-	writeFile(t, fleetWakesPath(h.State), `{"schema":"cfo-fleet-wakes.v1","root_readings":[`)
+	writeFile(t, fleetWakesPath(h.State), `{"schema":"ceo-fleet-wakes.v1","root_readings":[`)
 
 	// Act
 	isWaiting := WorkWaits(h)
@@ -777,7 +777,7 @@ func TestEachDistinctLocalRootProblemIsToldOnce(t *testing.T) {
 			pass(3)
 			pass(4)
 
-			// Assert: each distinct problem reaches the CFO exactly once.
+			// Assert: each distinct problem reaches the CEO exactly once.
 			for _, want := range []string{test.first, "differs from the project's issue repository acme/other"} {
 				var notices []string
 				for _, record := range fleetWakeRecords(t, h, "notify") {

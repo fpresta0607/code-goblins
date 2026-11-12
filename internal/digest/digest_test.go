@@ -22,7 +22,7 @@ import (
 func TestPrimaryContextRoutesUserDecisionsThroughExplicitQuestions(t *testing.T) {
 	var out bytes.Buffer
 	writeSupervisionInstructions(`C:\home\data`, false, &werr{w: &out})
-	for _, want := range []string{"cfo question --id", "--recommend", "Claude", "Codex", "Pi", "native prompt", "same CEO"} {
+	for _, want := range []string{"goblins question --id", "--recommend", "Claude", "Codex", "Pi", "native prompt", "same CEO"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("primary context omitted %q", want)
 		}
@@ -49,7 +49,7 @@ func newDigestHome(t *testing.T) home.Home {
 
 // startLiveForeignProcess spawns a throwaway child that stays alive for the
 // test's duration, for fixtures that need a live foreign PID to pre-hold the
-// session lock. Mirrors the ping-child pattern cmd/cfo's own hook tests use.
+// session lock. Mirrors the ping-child pattern cmd/goblins's own hook tests use.
 func startLiveForeignProcess(t *testing.T) *exec.Cmd {
 	t.Helper()
 	cmd := exec.Command("ping", "-n", "30", "127.0.0.1")
@@ -132,7 +132,7 @@ func TestComposeSectionOrder(t *testing.T) {
 	out := buf.String()
 	assertHeaderOrder(t, out, sectionHeaders)
 
-	if !strings.Contains(out, "WAKE_ACK_REQUIRED: cfo drain --ack-through 2 --recovery-generation 1") {
+	if !strings.Contains(out, "WAKE_ACK_REQUIRED: goblins drain --ack-through 2 --recovery-generation 1") {
 		t.Errorf("output missing the expected WAKE_ACK_REQUIRED line (seq 2, generation 1):\n%s", out)
 	}
 }
@@ -184,16 +184,16 @@ func TestComposeBacklogCompact(t *testing.T) {
 
 // The digest lists what is queued, whatever form the row takes, and never
 // work that is set aside or finished: a parked row read as queued is work
-// the CFO would start that the Overlord deliberately stopped.
+// the CEO would start that the Overlord deliberately stopped.
 func TestComposeBacklogListsOnlyQueuedRows(t *testing.T) {
 	h := newDigestHome(t)
 	backlog := `# Backlog
 
-Priority note the CFO wrote above the rows.
+Priority note the CEO wrote above the rows.
 - [ ] q1 - A row outside any section (since 2026-09-26)
 ## Queued
 - [ ] q2 - A tasks-axi row (since 2026-09-26)
-- **q3** - A row in the CFO's own form (repo: code-goblins)
+- **q3** - A row in the CEO's own form (repo: code-goblins)
   detail: a continuation line under q3
 - [ ] q4 - Parked in place (hold: stale) (hold-kind: parked)
 
@@ -214,7 +214,7 @@ Priority note the CFO wrote above the rows.
 	out := buf.String()
 	fleet := out[strings.Index(out, "== FLEET STATE =="):strings.Index(out, "== ORPHANS ==")]
 
-	for _, want := range []string{"- [ ] q2 - A tasks-axi row", "- **q3** - A row in the CFO's own form"} {
+	for _, want := range []string{"- [ ] q2 - A tasks-axi row", "- **q3** - A row in the CEO's own form"} {
 		if !strings.Contains(fleet, want) {
 			t.Errorf("FLEET STATE omits queued row %q:\n%s", want, fleet)
 		}
@@ -226,7 +226,7 @@ Priority note the CFO wrote above the rows.
 	}
 }
 
-// The CFO's memory lives in the home, so a CFO in any harness sees the same
+// The CEO's memory lives in the home, so a CEO in any harness sees the same
 // facts: the digest prints the index in full and points at the folder, and a
 // fact's own file loads only when its index line makes it relevant.
 func TestComposePrintsTheHomeMemoryIndexAndPointsEveryHarnessAtIt(t *testing.T) {
@@ -235,7 +235,7 @@ func TestComposePrintsTheHomeMemoryIndexAndPointsEveryHarnessAtIt(t *testing.T) 
 	if err := os.MkdirAll(memory, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	index := "# Memory index\n\n- [Gate needs a scratch home](gate-needs-a-scratch-home.md) - unset CFO_HOME for fixtures\n"
+	index := "# Memory index\n\n- [Gate needs a scratch home](gate-needs-a-scratch-home.md) - unset GOBLINS_HOME for fixtures\n"
 	if err := os.WriteFile(filepath.Join(memory, "MEMORY.md"), []byte(index), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +254,7 @@ func TestComposePrintsTheHomeMemoryIndexAndPointsEveryHarnessAtIt(t *testing.T) 
 	context := out[strings.Index(out, "== CONTEXT =="):strings.Index(out, "== NEXT STEP ==")]
 	supervision := out[strings.Index(out, "== SUPERVISION OPERATING INSTRUCTIONS =="):strings.Index(out, "== READ-ONCE CONTRACT ==")]
 
-	for _, want := range []string{"a standing directive", "- [Gate needs a scratch home](gate-needs-a-scratch-home.md) - unset CFO_HOME for fixtures"} {
+	for _, want := range []string{"a standing directive", "- [Gate needs a scratch home](gate-needs-a-scratch-home.md) - unset GOBLINS_HOME for fixtures"} {
 		if !strings.Contains(context, want) {
 			t.Errorf("CONTEXT omits %q:\n%s", want, context)
 		}
@@ -264,7 +264,7 @@ func TestComposePrintsTheHomeMemoryIndexAndPointsEveryHarnessAtIt(t *testing.T) 
 	}
 	for _, want := range []string{memory, "MEMORY.md", "one file", "harness"} {
 		if !strings.Contains(supervision, want) {
-			t.Errorf("SUPERVISION does not point the CFO at its home memory (missing %q):\n%s", want, supervision)
+			t.Errorf("SUPERVISION does not point the CEO at its home memory (missing %q):\n%s", want, supervision)
 		}
 	}
 	// The contract names what was printed: the index and overlord.md, and
@@ -286,8 +286,8 @@ func TestComposeAbsentContext(t *testing.T) {
 	}
 }
 
-// Compose is called for the CFO's own session alone, whose lock it is: a live
-// process that holds it is no CFO, so the digest takes it over and says so.
+// Compose is called for the CEO's own session alone, whose lock it is: a live
+// process that holds it is no CEO, so the digest takes it over and says so.
 func TestComposeTakesTheLockOverFromALiveHolderAndSaysSo(t *testing.T) {
 	// Arrange
 	h := newDigestHome(t)
@@ -319,7 +319,7 @@ func TestComposeTakesTheLockOverFromALiveHolderAndSaysSo(t *testing.T) {
 	}
 }
 
-// A session that is not the CFO's own reads the digest and takes nothing,
+// A session that is not the CEO's own reads the digest and takes nothing,
 // whether another process holds the lock or nobody does.
 func TestComposeReadOnlyTakesNoLockAndSaysWhy(t *testing.T) {
 	for name, isHeld := range map[string]bool{"a lock nobody holds": false, "a lock a live process holds": true} {
@@ -453,7 +453,7 @@ func TestComposeStatusTailCap(t *testing.T) {
 		t.Fatalf("Compose: %v", err)
 	}
 	out2 := buf2.String()
-	if !strings.Contains(out2, "1 orphan status logs: cfo reap --json") {
+	if !strings.Contains(out2, "1 orphan status logs: goblins reap --json") {
 		t.Errorf("output omitted the bounded orphan count and retrieval route:\n%s", out2)
 	}
 	for i := 1; i <= 12; i++ {
@@ -479,7 +479,7 @@ func TestComposeSectionBodies(t *testing.T) {
 
 	supervisionFacts := []string{
 		"hosts the watcher in-process across every turn",
-		`Never run "cfo watch" from the agent shell`,
+		`Never run "goblins watch" from the agent shell`,
 		"Wakes arrive as rewake turns",
 		"Every drain presentation ends with a WAKE_ACK_REQUIRED command",
 		"The refusal is the protection working",
@@ -494,8 +494,8 @@ func TestComposeSectionBodies(t *testing.T) {
 	// backslash before a quote, so any occurrence is an escaping bug.
 	supervision := out[strings.Index(out, "== SUPERVISION OPERATING INSTRUCTIONS =="):]
 	supervision = supervision[:strings.Index(supervision, "\n== ")]
-	if !strings.Contains(supervision, `"cfo send <id> "...""`) {
-		t.Errorf("SUPERVISION section does not render the cfo send command cleanly:\n%s", supervision)
+	if !strings.Contains(supervision, `"goblins send <id> "...""`) {
+		t.Errorf("SUPERVISION section does not render the goblins send command cleanly:\n%s", supervision)
 	}
 	if strings.Contains(supervision, "\\\"") {
 		t.Errorf("SUPERVISION section emits a backslash before a quote (over-escaped Go literal):\n%s", supervision)
@@ -669,10 +669,10 @@ func TestComposeOrphansSectionReportsAFailedSweep(t *testing.T) {
 	}
 }
 
-// While AFK mode is on the digest tells the CFO so before the wake queue:
+// While AFK mode is on the digest tells the CEO so before the wake queue:
 // who turned it on, when and from where, what it decides itself under it, and
 // what stays the Overlord's alone.
-func TestComposeTellsTheCFOAFKModeIsOnBeforeTheWakeQueue(t *testing.T) {
+func TestComposeTellsTheCEOAFKModeIsOnBeforeTheWakeQueue(t *testing.T) {
 	// Arrange
 	h := newDigestHome(t)
 	if _, _, err := afk.TurnOn(h.State, "his own terminal (powershell.exe pid 4242)", nil, time.Date(2026, 10, 2, 2, 10, 0, 0, time.UTC)); err != nil {
@@ -689,7 +689,7 @@ func TestComposeTellsTheCFOAFKModeIsOnBeforeTheWakeQueue(t *testing.T) {
 	assertHeaderOrder(t, out.String(), []string{"== SESSION LOCK ==", "== AFK MODE ==", "== WAKE QUEUE =="})
 	for _, want := range []string{
 		"AFK MODE IS ON: the Supreme Overlord turned it on 2026-10-02 02:10 UTC from his own terminal (powershell.exe pid 4242)",
-		"cfo pr merge <url> --verified",
+		"goblins pr merge <url> --verified",
 		"only what a tool refuses or needs his own sign-in stays his",
 		"a migration or command that drops or deletes data",
 	} {

@@ -97,7 +97,7 @@ func TestOnlyADetachedProcessOfTheFleetIsListed(t *testing.T) {
 		}, false},
 		{"the fleet's own program", func() Inventory {
 			serve := strayGrep()
-			serve.Name, serve.CommandLine = "cfo.exe", "cfo serve --listen 127.0.0.1:4310"
+			serve.Name, serve.CommandLine = "goblins.exe", "goblins serve --listen 127.0.0.1:4310"
 			return strayInventory(serve)
 		}, false},
 		{"a harness", func() Inventory {
@@ -168,7 +168,7 @@ func TestADetachedProcessIsEndedOnlyByNamingItsPid(t *testing.T) {
 }
 
 // A detached process is one finding from one sweep to the next while what it
-// costs grows, so the CFO is told of it once.
+// costs grows, so the CEO is told of it once.
 func TestADetachedProcessKeepsItsIdentityAsItsCostsGrow(t *testing.T) {
 	// Arrange
 	earlier := strayInventory(strayGrep())

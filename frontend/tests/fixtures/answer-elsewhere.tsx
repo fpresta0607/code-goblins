@@ -8,8 +8,8 @@ declare global {
   interface Window { recordInChat?: () => void }
 }
 
-// The CFO's question herdr-strays-20260929 waits on the Overlord, with a
-// second one after it. recordInChat is the supervisor taking the CFO's
+// The CEO's question herdr-strays-20260929 waits on the Overlord, with a
+// second one after it. recordInChat is the supervisor taking the CEO's
 // record of the answer he gave in chat (2026-09-29).
 const at = "2026-09-29T02:00:00Z";
 const strays = {

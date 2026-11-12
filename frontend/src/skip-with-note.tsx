@@ -7,7 +7,7 @@ import { Icon } from "./Icon";
 // or a credential card. Skip tells the asker to go on without it. The pencil
 // opens a small window where he types, says or pastes his answer, which
 // reaches whoever asked as his word. task is the asking goblin's, empty for
-// the CFO: a pasted picture is kept where the asker can read it. A card that
+// the CEO: a pasted picture is kept where the asker can read it. A card that
 // posts his answer itself returns how the board took it: the window stays
 // open until then, and a refusal shows there in full with his words kept.
 export function SkipWithNote({ asker, task, instance, disabled, onSkip, onAnswer }: {

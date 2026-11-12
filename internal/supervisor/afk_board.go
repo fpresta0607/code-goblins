@@ -58,9 +58,9 @@ import (
 // the PC. What proves that board his is Tailscale's identity headers, and an
 // agent on this PC can forge them, sending them itself or through a Serve
 // route of its own it adds for a moment. A forged off ends his stretch early
-// and tells the CFO he is back; a forged on hands the CFO his authority. He
+// and tells the CEO he is back; a forged on hands the CEO his authority. He
 // chose it knowing both, so the switch is recorded as made from his private
-// board, by those headers, for him and the CFO to see.
+// board, by those headers, for him and the CEO to see.
 
 // hisBoard is a board proven the Overlord's own: the program he started that
 // shows it, the program the process that holds the connection runs, which is
@@ -72,7 +72,7 @@ type hisBoard struct {
 }
 
 // boardRefusal is the refusal of a board: found is what the supervisor found,
-// in its own words, for the CFO, and say the one short sentence the board
+// in its own words, for the CEO, and say the one short sentence the board
 // shows the Overlord.
 type boardRefusal struct{ found, say string }
 
@@ -246,9 +246,9 @@ func (s *Service) proveBoard(r *http.Request, board string, asked time.Time, who
 
 // refuse answers a board whose request the supervisor refused or could not
 // carry out: the board gets say, the one short sentence the Overlord reads,
-// and the CFO is told what happened in full through its wake queue, under
+// and the CEO is told what happened in full through its wake queue, under
 // key. No dialog shows him the supervisor's own words for it. The same refusal,
-// for the same reason whatever process ids it names, wakes the CFO at most
+// for the same reason whatever process ids it names, wakes the CEO at most
 // once a minute, since any program on the PC can send the request again and
 // again, and each answer still reaches the board.
 func (h *HTTP) refuse(w http.ResponseWriter, status int, key, what, say string, err error) {
@@ -276,12 +276,12 @@ func (h *HTTP) refuse(w http.ResponseWriter, status int, key, what, say string, 
 		_, told = wake.PublishEpisode(state)
 	}
 	if told != nil {
-		h.Service.publish(fmt.Errorf("the CFO's wake queue could not be told what a board was refused: %w", told))
+		h.Service.publish(fmt.Errorf("the CEO's wake queue could not be told what a board was refused: %w", told))
 	}
 	apiError(w, status, say)
 }
 
-// refusalWakeEvery is how often the same refused board press can wake the CFO.
+// refusalWakeEvery is how often the same refused board press can wake the CEO.
 const refusalWakeEvery = time.Minute
 
 // refusalNumbers are the process ids and other numbers a refusal names, which
@@ -289,7 +289,7 @@ const refusalWakeEvery = time.Minute
 var refusalNumbers = regexp.MustCompile(`[0-9]+`)
 
 // privateBoard is where a press on his private board is recorded as made,
-// with what proves it, for the CFO: his pages show only his private board. A
+// with what proves it, for the CEO: his pages show only his private board. A
 // press forged on this PC is recorded the same.
 const privateBoard = "his own private board (by Tailscale's headers, which a program on this PC can forge)"
 
@@ -326,7 +326,7 @@ func (h *HTTP) switchAFKFromBoard(w http.ResponseWriter, r *http.Request) {
 	h.Service.runRequests.Unlock()
 	// Off while it is already off asks for nothing new.
 	if err != nil && !errors.Is(err, afk.ErrNotOn) {
-		say := "AFK did not switch, and the CFO has been told why."
+		say := "AFK did not switch, and the CEO has been told why."
 		// His off resets a switch that cannot be read, and his on cannot.
 		if _, unreadable := afk.Read(h.Service.Store.Home.State); unreadable != nil {
 			say = "Turn AFK off to reset its switch, which cannot be read."

@@ -31,19 +31,20 @@ const queueFile = ".wake-queue"
 // serializing them across processes. Read-only paths (Pending, ReadEpisode)
 // take no lock and create nothing, keeping INERT MEANS INERT intact.
 // The lock is NOT reentrant. A caller that needs several acks done
-// together, such as cfo drain, must call them sequentially, one at a time,
+// together, such as goblins drain, must call them sequentially, one at a time,
 // never nested.
 const wakeLockName = ".wake-queue.lock"
 
 // kinds is the whitelist Append enforces: upstream's four documented wake
-// kinds, the `notify` kind cfo notify appends, the `orphan` kind the reaper's
+// kinds, the `notify` kind goblins notify appends, the `orphan` kind the reaper's
 // sweep appends, the `review` kind the supervisor appends when the Overlord
 // answers a goblin's item or page, the `memory`, `ci` and `pr` kinds it
 // appends when memory comes back for waiting work, CI finishes or cannot be
 // read, and a pull request conflicts or falls behind, and the `disk` kind it
-// appends when free disk falls under the mark the CFO is woken at, the
+// appends when free disk falls under the mark the CEO is woken at, the
 // `allowance` kind it appends when a subscription window nears its end or
-// renews after it was used up, and no others.
+// renews after it was used up, the `shared` kind it appends when goblins wait on a
+// shared service that is down and once it is usable again, and no others.
 var kinds = map[string]bool{
 	"signal":    true,
 	"stale":     true,
@@ -58,6 +59,7 @@ var kinds = map[string]bool{
 	"disk":      true,
 	"idle":      true,
 	"allowance": true,
+	"shared":    true,
 }
 
 // Record is one durable wake. Seq starts at 1 and is never reused; the ack
@@ -77,7 +79,7 @@ type Record struct {
 	Once   string    `json:"once,omitempty"`
 	// Answered is the answer this blocking notify received outside the
 	// queue, and AnsweredBy who gave it: AnsweredByOverlord on the board or
-	// AnsweredByCFO with cfo answer. Pending attaches both from their own
+	// AnsweredByCEO with goblins answer. Pending attaches both from their own
 	// marker; they are never written into the queue.
 	Answered   string `json:"answered,omitempty"`
 	AnsweredBy string `json:"answered_by,omitempty"`
@@ -201,7 +203,7 @@ func Append(dir, kind, key, detail string) (Record, error) {
 // same notify still waits unanswered in the queue: a goblin that sends its
 // question again, such as to correct how it showed (wake 1001094,
 // 2026-10-12), still asks one question, so that record is returned, with
-// false, and the CFO is not woken twice for it. Once it is answered, the
+// false, and the CEO is not woken twice for it. Once it is answered, the
 // same words are a new ask, and any other notify is its own record.
 func AppendDecision(dir, key, detail string) (Record, bool, error) {
 	var rec Record
@@ -350,14 +352,14 @@ type Acknowledged struct {
 }
 
 // Acknowledge retires the records and the recovery episode ack names in one
-// hold of the wake lock, and returns what it left. cfo drain took the lock
+// hold of the wake lock, and returns what it left. goblins drain took the lock
 // once for the records and again for the episode, and read the queue five
 // times on the way.
 //
-// A blocked or failed notify is a goblin waiting on a CFO decision. Retiring
+// A blocked or failed notify is a goblin waiting on a CEO decision. Retiring
 // it retires the only durable record of that question, so a drain whose
 // output was cut short can bury it and leave the goblin parked forever: such
-// a record refuses the acknowledgement unless ack says the CFO has read it,
+// a record refuses the acknowledgement unless ack says the CEO has read it,
 // or the Overlord already answered it on the board. The refusal reads the
 // records as they are queued, never a folded view: a later notify from the
 // same goblin is no evidence that its question was answered.
@@ -451,7 +453,7 @@ func Acknowledge(dir string, ack Ack) (Acknowledged, error) {
 }
 
 // unreadQuestions returns the questions among records that ack would retire
-// without the CFO having read them: none when it retires questions
+// without the CEO having read them: none when it retires questions
 // deliberately, else every blocking notify at or below its sequence that
 // nobody answered.
 func unreadQuestions(dir string, records []Record, ack Ack) ([]Record, error) {
@@ -539,7 +541,7 @@ func retireThrough(dir string, records []Record, seq int, noticed map[string]boo
 }
 
 // Render writes the wake queue's presentation for records (RAW, unfolded)
-// and ep to w: this is the shared renderer behind both `cfo drain` and the
+// and ep to w: this is the shared renderer behind both `goblins drain` and the
 // session-start digest's WAKE QUEUE section, so the two call sites can never
 // drift in format. Both callers simply hand it whatever Pending/ReadEpisode
 // returned.
@@ -549,7 +551,7 @@ func retireThrough(dir string, records []Record, seq int, noticed map[string]boo
 // a later notify from a task silently replace an earlier one - and because
 // the ack sequence was taken from the raw maximum, the ack line it printed
 // covered records it had just declined to show. Two escalations were retired
-// unread that way, one of them a correction whose loss left the CFO ruling on
+// unread that way, one of them a correction whose loss left the CEO ruling on
 // superseded facts with nothing anywhere to flag it. The queue is an
 // append-only log and this is its only display, so a record that is not
 // printed is a record nobody will ever read.
@@ -597,7 +599,7 @@ func RenderWithin(w io.Writer, records []Record, ep Episode, now time.Time, room
 		return false, err
 	}
 	withheld := func(left int) string {
-		return fmt.Sprintf("WAKE_ACK_WITHHELD: %d of the %d records are not listed above; run \"cfo drain\" to read every record and get the ack command, because acking from this listing would retire records nobody has read\n", left, len(records))
+		return fmt.Sprintf("WAKE_ACK_WITHHELD: %d of the %d records are not listed above; run \"goblins drain\" to read every record and get the ack command, because acking from this listing would retire records nobody has read\n", left, len(records))
 	}
 	used := len(header) + len(withheld(len(records)))
 	displayed := make([]Record, 0, len(records))
@@ -627,14 +629,14 @@ func RenderWithin(w io.Writer, records []Record, ep Episode, now time.Time, room
 	}
 
 	if !ep.Pending {
-		_, err := fmt.Fprintf(w, "WAKE_ACK_REQUIRED: cfo drain --ack-through %d\n", maxSeq)
+		_, err := fmt.Fprintf(w, "WAKE_ACK_REQUIRED: goblins drain --ack-through %d\n", maxSeq)
 		return true, err
 	}
 
 	if _, err := fmt.Fprintf(w, "RECOVERY EPISODE: pending, generation %d\n", ep.Gen); err != nil {
 		return false, err
 	}
-	_, err := fmt.Fprintf(w, "WAKE_ACK_REQUIRED: cfo drain --ack-through %d --recovery-generation %d\n", maxSeq, ep.Gen)
+	_, err := fmt.Fprintf(w, "WAKE_ACK_REQUIRED: goblins drain --ack-through %d --recovery-generation %d\n", maxSeq, ep.Gen)
 	return true, err
 }
 
@@ -653,14 +655,14 @@ func renderRecord(w io.Writer, rec Record, now time.Time) error {
 	return err
 }
 
-// BlockingNotify is one of the two arms of "a goblin is waiting on the CFO",
+// BlockingNotify is one of the two arms of "a goblin is waiting on the CEO",
 // and the only one the drain ack refusal consults: a goblin's own notify
-// whose detail reports it blocked or failed, carrying a question only the CFO
+// whose detail reports it blocked or failed, carrying a question only the CEO
 // can answer. It returns the verb that parked it. An informational notify - a
 // `done:` reporting a PR - matches neither arm and is not a decision.
 //
 // This is the single definition of that rule. Render prints exactly this set
-// as a DECISION block, and `cfo drain` refuses to ack exactly this set unread;
+// as a DECISION block, and `goblins drain` refuses to ack exactly this set unread;
 // --ack-blocking's promise that the operator has read the question holds only
 // while those two sets are the same one.
 func BlockingNotify(rec Record) (string, bool) {
@@ -683,8 +685,8 @@ func BlockingNotify(rec Record) (string, bool) {
 //
 // It reads the queue rather than the goblin's status file on purpose: a
 // status line is the last thing the goblin ever wrote and stays `done:`
-// forever, so a goblin steered back to work by `cfo send` would be silenced
-// by a verb it wrote hours ago. Acking the notify is what the CFO does before
+// forever, so a goblin steered back to work by `goblins send` would be silenced
+// by a verb it wrote hours ago. Acking the notify is what the CEO does before
 // steering it, so the pending record tracks the state the status line cannot.
 func InformationalNotify(rec Record, id string) bool {
 	return rec.Kind == "notify" && rec.Key == id && strings.HasPrefix(rec.Detail, "done:")
@@ -693,7 +695,7 @@ func InformationalNotify(rec Record, id string) bool {
 // DecisionSignal is the other arm: the watcher's own signal for a goblin,
 // keyed by the status file that produced it. The watcher appends one only for
 // a decision verb, so a needs-decision or checks-passed goblin - which never
-// files a notify of its own - is waiting on the CFO through this record
+// files a notify of its own - is waiting on the CEO through this record
 // alone. The monitor's re-ask predicate consults it; the ack refusal does not,
 // because the wake ack protocol retires questions the goblin itself asked.
 func DecisionSignal(rec Record, id string) bool {
@@ -729,8 +731,8 @@ func AwaitingAnswerStall(rec Record, id string) bool {
 }
 
 // ProseAsk is the question the monitor quoted for goblin id when its last
-// reply asked the CFO something in prose instead of with a notify: the board
-// shows that goblin waiting on the CFO with it, as it shows a blocked notify.
+// reply asked the CEO something in prose instead of with a notify: the board
+// shows that goblin waiting on the CEO with it, as it shows a blocked notify.
 func ProseAsk(rec Record, id string) (string, bool) {
 	if rec.Kind != "stale" || rec.Key != id || !strings.HasPrefix(rec.Detail, stallGoblinAsks) {
 		return "", false
@@ -740,12 +742,12 @@ func ProseAsk(rec Record, id string) (string, bool) {
 }
 
 // pageAtEnd is the Scrawl page a decision's question carries at its end, as
-// cfo notify writes a goblin's page: "(page <link>)".
+// goblins notify writes a goblin's page: "(page <link>)".
 var pageAtEnd = regexp.MustCompile(`\(page (\S+)\)$`)
 
 // Page is the link of the Scrawl page a decision's question carries at its
-// end, as cfo notify writes it, and empty for a question that carries none.
-// While AFK mode is on the CFO answers a goblin's page in the Overlord's
+// end, as goblins notify writes it, and empty for a question that carries none.
+// While AFK mode is on the CEO answers a goblin's page in the Overlord's
 // place, in its own words when the page declares no choices.
 func Page(question string) string {
 	if found := pageAtEnd.FindStringSubmatch(question); found != nil {
@@ -755,7 +757,7 @@ func Page(question string) string {
 }
 
 // Question is a blocked notify's question and the options it offered. A
-// failed notify is still a decision for the CFO, but it is not a question.
+// failed notify is still a decision for the CEO, but it is not a question.
 func Question(rec Record) (string, []string, bool) {
 	verb, question, options, ok := decision(rec)
 	return question, options, ok && verb == "blocked"
@@ -766,7 +768,7 @@ func Question(rec Record) (string, []string, bool) {
 //
 // The options convention is one literal "options:" marker in the question,
 // with the choices separated by "|", which is what
-// `cfo notify <id> --blocked "<question> options: <answer> | <answer>"` produces. A question
+// `goblins notify <id> --blocked "<question> options: <answer> | <answer>"` produces. A question
 // with no marker offered no options, and the rendering says so rather than
 // inventing choices the goblin never named. The choices end the question, so
 // they follow the last marker: one named earlier, such as in a detail line
@@ -869,18 +871,18 @@ func renderDecision(w io.Writer, rec Record, verb, question string, options []st
 	}
 	if rec.Answered != "" {
 		who := "the Overlord answered on the board"
-		if rec.AnsweredBy == AnsweredByCFO {
-			who = "the CFO answered with cfo answer"
+		if rec.AnsweredBy == AnsweredByCEO {
+			who = "the CEO answered with goblins answer"
 		}
 		_, err := fmt.Fprintf(w, "       answered: %s: %s; the goblin has it, so ack it normally\n", who, terminalText(rec.Answered))
 		return err
 	}
 	if len(options) == 0 && Page(question) != "" {
-		_, err := fmt.Fprintf(w, "       options:  none declared on its page; answer in your own words with `cfo answer %d --option \"<your answer>\"`\n", rec.Seq)
+		_, err := fmt.Fprintf(w, "       options:  none declared on its page; answer in your own words with `goblins answer %d --option \"<your answer>\"`\n", rec.Seq)
 		return err
 	}
 	if len(options) == 0 {
-		_, err := fmt.Fprintf(w, "       options:  none offered; answer with `cfo send %s \"...\"`\n", terminalText(rec.Key))
+		_, err := fmt.Fprintf(w, "       options:  none offered; answer with `goblins send %s \"...\"`\n", terminalText(rec.Key))
 		return err
 	}
 	for i, option := range options {

@@ -16,7 +16,7 @@ const (
 	errorRemembered = time.Hour
 )
 
-// wakeForNewErrors tells the CFO, as one check wake keyed supervisor, each
+// wakeForNewErrors tells the CEO, as one check wake keyed supervisor, each
 // line of err it was not told of within errorRemembered. The board is no
 // place for them: on 2026-10-07 a failure the page sweep met every ten
 // minutes filled it with a box the Overlord could do nothing about. A wake

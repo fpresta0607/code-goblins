@@ -1,0 +1,454 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/crewstate"
+	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/spawn"
+	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/tickets"
+)
+
+// overlapSpawn runs goblins spawn for task nw-sync against a faked repository
+// read, and reports whether the spawn itself ran.
+type overlapSpawn struct {
+	home     home.Home
+	checkout string
+	brief    string
+	activity tickets.Activity
+	readErr  error
+	// readHangs makes the repository read return only when its context ends.
+	readHangs bool
+	spawnErr  error
+	spawned   bool
+}
+
+func newOverlapSpawn(t *testing.T, task string) *overlapSpawn {
+	t.Helper()
+	fixture := &overlapSpawn{home: testHome(t), checkout: filepath.Join(t.TempDir(), "northwind-api"), activity: teammateRepository()}
+	if err := os.MkdirAll(fixture.checkout, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fixture.brief = filepath.Join(t.TempDir(), "brief.md")
+	if err := os.WriteFile(fixture.brief, []byte(strings.ReplaceAll(completedCommandBrief, "do the work", task)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return fixture
+}
+
+func (f *overlapSpawn) run(extra ...string) (int, string, string) {
+	deps := testCommandRuntimeForHome(f.home)
+	deps.repoActivity = func(ctx context.Context, _ string, _ time.Time) (tickets.Activity, error) {
+		if f.readHangs {
+			<-ctx.Done()
+			return tickets.Activity{}, ctx.Err()
+		}
+		return f.activity, f.readErr
+	}
+	if f.readHangs {
+		deps.overlapTimeout = time.Millisecond
+	}
+	deps.spawn = func(_ context.Context, _ home.Home, request spawn.Request) (spawn.Result, error) {
+		// The spawn asks its caller's last word before the terminal
+		// launches, as spawn.Service does.
+		if request.BeforeLaunch != nil {
+			if err := request.BeforeLaunch(); err != nil {
+				return spawn.Result{}, err
+			}
+		}
+		f.spawned = f.spawnErr == nil
+		return spawn.Result{Output: "spawned nw-sync"}, f.spawnErr
+	}
+	var stdout, stderr bytes.Buffer
+	args := append([]string{"spawn", "nw-sync", "--project", f.checkout, "--brief", f.brief, "--harness", "claude"}, extra...)
+	code := runWithRuntime(args, &stdout, &stderr, deps)
+	return code, stdout.String(), stderr.String()
+}
+
+func TestSpawnRefusesWhenATeammateHasWorkInTheBriefsArea(t *testing.T) {
+	cases := []struct {
+		name  string
+		extra []string
+	}{
+		{name: "no word from the CEO"},
+		{name: "a blank reason", extra: []string{"--overlap-ok", "  "}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			fixture := newOverlapSpawn(t, "Say why in tasks/billing_sync.py.")
+
+			// Act
+			code, _, stderr := fixture.run(tc.extra...)
+
+			// Assert
+			if code != 1 || fixture.spawned {
+				t.Fatalf("exit = %d, spawned = %v, want a refusal before anything starts; stderr=%s", code, fixture.spawned, stderr)
+			}
+			for _, want := range []string{"PR #412 by ana-teammate changes tasks/billing_sync.py", `--overlap-ok "<why>"`} {
+				if !strings.Contains(stderr, want) {
+					t.Fatalf("stderr lacks %q:\n%s", want, stderr)
+				}
+			}
+			if note, _ := tickets.ReadOverlapNote(fixture.home.State, "nw-sync"); note != "" {
+				t.Fatalf("an overlap was recorded as accepted for a refused spawn: %q", note)
+			}
+		})
+	}
+}
+
+func TestSpawnRefusesToTakeUpAnIssueSomeoneElseHas(t *testing.T) {
+	overlord := tickets.Actor{Login: "fpresta0607"}
+	cases := []struct {
+		name      string
+		issue     tickets.Issue
+		wantLine  string
+		isRefused bool
+	}{
+		{name: "assigned to someone else", issue: tickets.Issue{Assignees: []string{"nreid1609"}},
+			wantLine: "issue #415 by fpresta0607, which the brief names to take up, is not free: it is assigned to nreid1609: Parcel layer drops the ETJ", isRefused: true},
+		{name: "held by another account's fleet", issue: tickets.Issue{Labels: []string{"ceo: in progress", "goblin: codex"}},
+			wantLine: "is not free: another Code Goblins fleet holds it (ceo: in progress)", isRefused: true},
+		{name: "assigned to the account the fleet writes as", issue: tickets.Issue{Assignees: []string{"fpresta0607"}}},
+		{name: "free", issue: tickets.Issue{Labels: []string{"bug"}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange: the brief lists an issue the Overlord filed, which no
+			// teammate's work otherwise meets.
+			fixture := newOverlapSpawn(t, "Close one open issue:\n\n- #415 Parcel layer drops the ETJ")
+			fixture.activity.PullRequests = nil
+			tc.issue.Number, tc.issue.Title, tc.issue.Author, tc.issue.CreatedAt = 415, "Parcel layer drops the ETJ", overlord, time.Now().Add(-time.Hour)
+			fixture.activity.Issues = []tickets.Issue{tc.issue}
+
+			// Act
+			code, _, stderr := fixture.run()
+
+			// Assert
+			if tc.isRefused != (code == 1 && !fixture.spawned) {
+				t.Fatalf("exit = %d, spawned = %v, want refused %v; stderr=%s", code, fixture.spawned, tc.isRefused, stderr)
+			}
+			if tc.isRefused && !strings.Contains(stderr, tc.wantLine) {
+				t.Fatalf("stderr lacks %q:\n%s", tc.wantLine, stderr)
+			}
+		})
+	}
+}
+
+func TestSpawnStartsBesideAnIssueItAlreadyClaimed(t *testing.T) {
+	// Arrange: a respawn of a task whose ticket claimed the issue before
+	// claims assigned it, so only the fleet's label is on it.
+	fixture := newOverlapSpawn(t, "Close one open issue:\n\n- #415 Parcel layer drops the ETJ")
+	fixture.activity.PullRequests = nil
+	fixture.activity.Issues = []tickets.Issue{{Number: 415, Title: "Parcel layer drops the ETJ", Author: tickets.Actor{Login: "fpresta0607"}, Labels: []string{"ceo: in progress"}, CreatedAt: time.Now().Add(-time.Hour)}}
+	if err := tickets.WriteRecord(fixture.home.State, tickets.Record{TaskID: "nw-sync", Repository: "fpresta0607/northwind-api", Number: 415, IsClaimed: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	code, _, stderr := fixture.run()
+
+	// Assert
+	if code != 0 || !fixture.spawned || stderr != "" {
+		t.Fatalf("exit = %d, spawned = %v, stderr = %q, want the task's own claim never to stop it", code, fixture.spawned, stderr)
+	}
+}
+
+func TestSpawnStartsBesideATeammateWhenTheCEOSaysWhy(t *testing.T) {
+	// Arrange
+	fixture := newOverlapSpawn(t, "Say why in tasks/billing_sync.py.")
+	if err := os.MkdirAll(fixture.home.State, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.AppendStatus(fixture.home.State, "nw-sync", "working: started"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	code, _, stderr := fixture.run("--overlap-ok", "it only adds a log line")
+
+	// Assert
+	if code != 0 || !fixture.spawned {
+		t.Fatalf("exit = %d, spawned = %v, stderr = %s", code, fixture.spawned, stderr)
+	}
+	note, err := tickets.ReadOverlapNote(fixture.home.State, "nw-sync")
+	if err != nil || note != "PR #412: it only adds a log line" {
+		t.Fatalf("overlap note = %q, %v, want what it overlaps and why, for the ticket", note, err)
+	}
+	lines, err := state.TailStatus(fixture.home.State, "nw-sync", 10)
+	if err != nil || len(lines) != 2 || !strings.Contains(lines[1], "overlap-accepted: it only adds a log line (PR #412 by ana-teammate changes tasks/billing_sync.py)") {
+		t.Fatalf("status log = %q, %v, want the reason and the overlap it accepted", lines, err)
+	}
+	if !crewstate.IsCEOAudit(lines[1]) {
+		t.Fatalf("status line %q reads as the task's own report, want the CEO's record", lines[1])
+	}
+	if verb, ok := crewstate.LatestVerb(lines); !ok || verb != "working" {
+		t.Fatalf("latest verb = %q, %v, want the task's own working report, not the CEO's record", verb, ok)
+	}
+}
+
+// The read of who else works in the task's area took 6 to 8 seconds of
+// GitHub calls on 2026-10-08, before anything else of a start ran. It runs
+// beside the start now, and its answer is asked for only before the goblin's
+// terminal launches.
+func TestSpawnReadsTeammatesWorkBesideTheStart(t *testing.T) {
+	// Arrange
+	fixture := newOverlapSpawn(t, "Say why in tasks/billing_sync.py.")
+	release := make(chan struct{})
+	deps := testCommandRuntimeForHome(fixture.home)
+	deps.repoActivity = func(context.Context, string, time.Time) (tickets.Activity, error) {
+		<-release
+		return fixture.activity, nil
+	}
+	began := make(chan struct{})
+	deps.spawn = func(_ context.Context, _ home.Home, request spawn.Request) (spawn.Result, error) {
+		close(began)
+		if err := request.BeforeLaunch(); err != nil {
+			return spawn.Result{}, err
+		}
+		return spawn.Result{Output: "spawned nw-sync"}, nil
+	}
+	var stdout, stderr bytes.Buffer
+	exited := make(chan int, 1)
+
+	// Act
+	go func() {
+		exited <- runWithRuntime([]string{"spawn", "nw-sync", "--project", fixture.checkout, "--brief", fixture.brief, "--harness", "claude"}, &stdout, &stderr, deps)
+	}()
+	var isBesideTheRead bool
+	select {
+	case <-began:
+		isBesideTheRead = true
+	case <-time.After(time.Minute):
+	}
+	close(release)
+	code := <-exited
+
+	// Assert
+	if !isBesideTheRead {
+		t.Fatal("the start waited for the read of teammates' work before it began")
+	}
+	if code != 1 || !strings.Contains(stderr.String(), "PR #412 by ana-teammate changes tasks/billing_sync.py") {
+		t.Fatalf("exit = %d, stderr = %s, want the overlap still refused before the terminal launches", code, &stderr)
+	}
+}
+
+func TestSpawnRecordsNoAcceptedOverlapWhenTheSpawnFails(t *testing.T) {
+	// Arrange
+	fixture := newOverlapSpawn(t, "Say why in tasks/billing_sync.py.")
+	fixture.spawnErr = errors.New("no terminal could be opened")
+
+	// Act
+	code, _, _ := fixture.run("--overlap-ok", "it only adds a log line")
+
+	// Assert
+	if code != 1 {
+		t.Fatalf("exit = %d, want the spawn's own failure", code)
+	}
+	if note, _ := tickets.ReadOverlapNote(fixture.home.State, "nw-sync"); note != "" {
+		t.Fatalf("overlap note = %q for a task that never started", note)
+	}
+	if lines, _ := state.TailStatus(fixture.home.State, "nw-sync", 10); len(lines) != 0 {
+		t.Fatalf("status log = %q for a task that never started, which would hide it from the queue", lines)
+	}
+}
+
+func TestSpawnStartsWithoutAWordWhereNoTeammateOverlaps(t *testing.T) {
+	ana := tickets.Actor{Login: "ana-teammate"}
+	overlord := tickets.Actor{Login: "fpresta0607"}
+	recently := time.Now().Add(-2 * time.Hour)
+	cases := []struct {
+		name       string
+		task       string
+		change     func(*overlapSpawn)
+		wantStderr string
+	}{
+		{name: "the teammate's work is elsewhere", task: "Say why in services/invoice_service.py."},
+		{name: "nobody else has worked in the repository for 30 days, though a teammate's old pull request is still open", task: "Say why in tasks/billing_sync.py.", change: func(f *overlapSpawn) {
+			f.activity.Events = []tickets.Event{
+				{Kind: tickets.EventPullRequest, Number: 420, Author: overlord, At: recently},
+				{Kind: tickets.EventPullRequest, Number: 412, Author: ana, At: time.Now().Add(-60 * 24 * time.Hour)},
+			}
+		}},
+		{name: "a teammate works there but only the Overlord's own pull request overlaps", task: "Say why in tasks/billing_sync.py.", change: func(f *overlapSpawn) {
+			f.activity.PullRequests[0].Author = overlord
+		}},
+		{name: "a teammate works there but only a bot's pull request overlaps", task: "Say why in tasks/billing_sync.py.", change: func(f *overlapSpawn) {
+			f.activity.PullRequests[0].Author = tickets.Actor{Login: "dependabot[bot]"}
+		}},
+		{name: "the project has no GitHub repository", task: "Say why in tasks/billing_sync.py.", change: func(f *overlapSpawn) {
+			f.readErr = fmt.Errorf("origin https://git.northwind.example/api.git of %s is %w", f.checkout, tickets.ErrNotGitHub)
+		}},
+		{name: "the one overlap is the issue the brief says the task is for", task: "Resolve issue #415: say why the billing sync reports a mismatch.", change: func(f *overlapSpawn) {
+			f.activity.PullRequests = nil
+			f.activity.Issues = []tickets.Issue{{Number: 415, Title: "Billing sync reports a mismatch", Author: ana, CreatedAt: recently}}
+		}},
+		{name: "the one overlap is the issue the task already claimed", task: "Say why the billing sync reports a mismatch.", change: func(f *overlapSpawn) {
+			f.activity.PullRequests = nil
+			f.activity.Issues = []tickets.Issue{{Number: 415, Title: "Billing sync reports a mismatch", Author: ana, CreatedAt: recently}}
+			if err := tickets.WriteRecord(f.home.State, tickets.Record{TaskID: "nw-sync", Repository: "fpresta0607/northwind-api", Number: 415, IsClaimed: true}); err != nil {
+				panic(err)
+			}
+		}},
+		{name: "the overlaps are the issues the brief lists as bare #N lines", task: "Close two issues about the billing sync mismatch:\n\n- #415 Billing sync reports a mismatch\n- #416 Billing sync mismatch repeats", change: func(f *overlapSpawn) {
+			f.activity.PullRequests = nil
+			f.activity.Issues = []tickets.Issue{
+				{Number: 415, Title: "Billing sync reports a mismatch", Author: ana, CreatedAt: recently},
+				{Number: 416, Title: "Billing sync mismatch repeats", Author: ana, CreatedAt: recently},
+			}
+		}},
+		{name: "the one overlap is the second issue the task already claimed", task: "Say why the billing sync reports a mismatch.", change: func(f *overlapSpawn) {
+			f.activity.PullRequests = nil
+			f.activity.Issues = []tickets.Issue{{Number: 416, Title: "Billing sync reports a mismatch", Author: ana, CreatedAt: recently}}
+			first := tickets.Record{TaskID: "nw-sync", Repository: "fpresta0607/northwind-api", Number: 415, IsClaimed: true}
+			second := first
+			second.Number = 416
+			first.Issues = []tickets.Record{first, second}
+			if err := tickets.WriteRecord(f.home.State, first); err != nil {
+				panic(err)
+			}
+		}},
+		{name: "GitHub cannot be read", task: "Say why in tasks/billing_sync.py.", change: func(f *overlapSpawn) {
+			f.readErr = errors.New("gh api graphql exited 1: HTTP 502")
+		}, wantStderr: "HTTP 502"},
+		{name: "the GitHub read does not finish in time", task: "Say why in tasks/billing_sync.py.", change: func(f *overlapSpawn) {
+			f.readHangs = true
+		}, wantStderr: "deadline exceeded"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			fixture := newOverlapSpawn(t, tc.task)
+			if tc.change != nil {
+				tc.change(fixture)
+			}
+
+			// Act
+			code, _, stderr := fixture.run()
+
+			// Assert
+			if code != 0 || !fixture.spawned {
+				t.Fatalf("exit = %d, spawned = %v, want the task started; stderr=%s", code, fixture.spawned, stderr)
+			}
+			if tc.wantStderr == "" && stderr != "" {
+				t.Fatalf("stderr = %q, want nothing said", stderr)
+			}
+			if tc.wantStderr != "" && (!strings.Contains(stderr, tc.wantStderr) || !strings.Contains(stderr, "unchecked")) {
+				t.Fatalf("stderr = %q, want it to say the task starts unchecked and why", stderr)
+			}
+			if note, _ := tickets.ReadOverlapNote(fixture.home.State, "nw-sync"); note != "" {
+				t.Fatalf("overlap note = %q where nothing overlapped", note)
+			}
+		})
+	}
+}
+
+func TestSpawnSaysWhenTheCheckForTeammatesWorkWasIncomplete(t *testing.T) {
+	unread := []string{
+		"the changed files of branch fix/invoice-rounding: gh api exited 1: HTTP 502",
+		"the changed files of pull request 418 past the first 100: context deadline exceeded",
+		"open issues past the first 5 pages",
+		"the changed files of branch chore/retry-budget: context deadline exceeded",
+		"the changed files of 4 branches past the first 20",
+	}
+	wantLine := "goblins spawn: the check for teammates' work was incomplete, 5 things were not read: " + strings.Join(unread[:3], "; ") + "; and 2 more\n"
+	cases := []struct {
+		name        string
+		task        string
+		wantCode    int
+		wantSpawned bool
+		wantRefusal bool
+	}{
+		{name: "nothing read overlaps, so the task starts", task: "Say why in services/invoice_service.py.", wantSpawned: true},
+		{name: "a teammate's work that was read overlaps, so the spawn is still refused", task: "Say why in tasks/billing_sync.py.", wantCode: 1, wantRefusal: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			fixture := newOverlapSpawn(t, tc.task)
+			fixture.activity.Unread = unread
+
+			// Act
+			code, _, stderr := fixture.run()
+
+			// Assert
+			if code != tc.wantCode || fixture.spawned != tc.wantSpawned {
+				t.Fatalf("exit = %d, spawned = %v, want %d and %v; stderr=%s", code, fixture.spawned, tc.wantCode, tc.wantSpawned, stderr)
+			}
+			if strings.Count(stderr, wantLine) != 1 {
+				t.Fatalf("stderr = %q, want the one line %q", stderr, wantLine)
+			}
+			if got := strings.Contains(stderr, "PR #412 by ana-teammate changes tasks/billing_sync.py"); got != tc.wantRefusal {
+				t.Fatalf("stderr names the overlap = %v, want %v:\n%s", got, tc.wantRefusal, stderr)
+			}
+		})
+	}
+}
+
+func TestTheDefaultRuntimeChecksOverlapBeforeASpawn(t *testing.T) {
+	if defaultCommandRuntime().repoActivity == nil {
+		t.Fatal("the real goblins has no repository read, so goblins spawn would start every task unchecked")
+	}
+}
+
+// A helper works inside its parent's area by definition, so its spawn reads
+// no teammate's work, which its parent's own spawn already did, and names
+// its parent on the request.
+func TestSpawnOfAHelperReadsNoTeammatesWorkAndNamesItsParent(t *testing.T) {
+	// Arrange
+	fixture := newOverlapSpawn(t, "Say why in tasks/billing_sync.py.")
+	deps := testCommandRuntimeForHome(fixture.home)
+	isRead := false
+	deps.repoActivity = func(context.Context, string, time.Time) (tickets.Activity, error) {
+		isRead = true
+		return fixture.activity, nil
+	}
+	var got spawn.Request
+	deps.spawn = func(_ context.Context, _ home.Home, request spawn.Request) (spawn.Result, error) {
+		got = request
+		return spawn.Result{Output: "spawned nw-h1"}, nil
+	}
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	code := runWithRuntime([]string{"spawn", "nw-h1", "--project", fixture.checkout, "--brief", fixture.brief, "--harness", "claude", "--mode", "local-only", "--parent", "nw"}, &stdout, &stderr, deps)
+
+	// Assert
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, stderr.String())
+	}
+	if isRead {
+		t.Error("a helper's spawn read the repository for teammates' work")
+	}
+	if got.Parent != "nw" || got.Mode != "local-only" || got.ID != "nw-h1" {
+		t.Errorf("request = %+v, want a local-only helper of nw", got)
+	}
+}
+
+// A helper is local-only because the supervisor says so on every helper it
+// starts: one spawned with no mode is handed to the service with none, which
+// refuses it, never a mode the command chose for it.
+func TestSpawnOfAHelperWithNoModeChoosesNoneForIt(t *testing.T) {
+	// Arrange
+	fixture := newOverlapSpawn(t, "Say why in tasks/billing_sync.py.")
+	deps := testCommandRuntimeForHome(fixture.home)
+	got := captureSpawn(&deps, "spawned nw-h1")
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	runWithRuntime([]string{"spawn", "nw-h1", "--project", fixture.checkout, "--brief", fixture.brief, "--harness", "claude", "--parent", "nw"}, &stdout, &stderr, deps)
+
+	// Assert
+	if got.Parent != "nw" || got.Mode != "" || got.Delivery != nil {
+		t.Errorf("request = %+v, stderr=%s; want a helper with no mode or delivery chosen for it", got, &stderr)
+	}
+}

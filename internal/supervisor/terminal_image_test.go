@@ -31,7 +31,7 @@ func addPicture(board *HTTP, token, contentType string, body []byte) *httptest.R
 	request := httptest.NewRequest("POST", "http://"+board.Host+"/api/terminal/image", bytes.NewReader(body))
 	request.Host = board.Host
 	request.Header.Set("Origin", "http://"+board.Host)
-	request.Header.Set("X-CFO-Token", token)
+	request.Header.Set("X-CEO-Token", token)
 	request.Header.Set("Content-Type", contentType)
 	response := httptest.NewRecorder()
 	board.ServeHTTP(response, request)

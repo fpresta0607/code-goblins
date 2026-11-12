@@ -62,16 +62,16 @@ type Config struct {
 	HeartbeatMax time.Duration
 	Monitor      *monitor.Service
 	// Tree is the reader the monitor's progress evidence reads through, the
-	// board's family tree reader, which cfo serve shares with the board.
+	// board's family tree reader, which goblins serve shares with the board.
 	Tree *fleettree.Reader
 	// Routing is the standing answer to a harness that starts erroring. An
-	// empty policy simply means every fault wakes the CFO undecided.
+	// empty policy simply means every fault wakes the CEO undecided.
 	Routing routing.Policy
 	Sleep   func(context.Context, time.Duration)
 
 	// Reap is the orphan sweep. The watcher is the fleet's only existing
 	// timer, so the sweep rides it rather than becoming a second daemon: an
-	// orphaned harness must reach the CFO without a human asking, and a
+	// orphaned harness must reach the CEO without a human asking, and a
 	// process nobody is watching is exactly what nobody asks about.
 	Reap *reap.Service
 	// ReapEvery bounds how often the sweep actually runs. It costs a Herdr
@@ -131,37 +131,37 @@ func (cfg Config) reconcileBudget() time.Duration {
 
 // ConfigFromEnv fills Config from the timing env vars (internal/claudehook),
 // clamping every interval to at least 1s. claudehook.Seconds ships with no
-// clamp of its own: CFO_POLL=0 would spin the loop rewriting signatures and
-// touching the beat, and CFO_POLL=-5 converts to roughly 49 days of wait so
+// clamp of its own: GOBLINS_POLL=0 would spin the loop rewriting signatures and
+// touching the beat, and GOBLINS_POLL=-5 converts to roughly 49 days of wait so
 // the watcher never beats and supervise.WatcherHealthy reads it as stale
 // against a live process. The clamp belongs at this consumer; Task 2, which
 // shipped claudehook.Seconds, is not reopened for it. HeartbeatMax is
 // additionally floored at Heartbeat itself (after both are floored at 1s),
-// so a CFO_HEARTBEAT_MAX set below CFO_HEARTBEAT cannot pin the backoff
+// so a GOBLINS_HEARTBEAT_MAX set below GOBLINS_HEARTBEAT cannot pin the backoff
 // cadence to something shorter than its own base interval.
 func ConfigFromEnv(h home.Home) Config {
-	heartbeat := clampMin1s(claudehook.Seconds("CFO_HEARTBEAT", 600))
-	heartbeatMax := clampMin1s(claudehook.Seconds("CFO_HEARTBEAT_MAX", 7200))
+	heartbeat := clampMin1s(claudehook.Seconds("GOBLINS_HEARTBEAT", 600))
+	heartbeatMax := clampMin1s(claudehook.Seconds("GOBLINS_HEARTBEAT_MAX", 7200))
 	if heartbeatMax < heartbeat {
 		heartbeatMax = heartbeat
 	}
 	cfg := Config{
 		Home:         h,
-		Poll:         clampMin1s(claudehook.Seconds("CFO_POLL", 15)),
-		SignalGrace:  clampMin1s(claudehook.Seconds("CFO_SIGNAL_GRACE", 30)),
+		Poll:         clampMin1s(claudehook.Seconds("GOBLINS_POLL", 15)),
+		SignalGrace:  clampMin1s(claudehook.Seconds("GOBLINS_SIGNAL_GRACE", 30)),
 		Heartbeat:    heartbeat,
 		HeartbeatMax: heartbeatMax,
 		Sleep:        sleep,
 	}
 	// A missing or unreadable policy is not fatal: the fleet simply wakes the
-	// CFO undecided, which is what it did before there was a policy at all.
+	// CEO undecided, which is what it did before there was a policy at all.
 	if policy, err := routing.Load(h.Data); err == nil {
 		cfg.Routing = policy
 	}
 	// The production monitor prober is the read-only structural Herdr prober,
 	// resolved against the same session source spawn uses (HERDR_SESSION,
 	// default "default") so monitoring cannot drift to a different implicit
-	// session. Both watch entry paths (manual cfo watch and the Task 11
+	// session. Both watch entry paths (manual goblins watch and the Task 11
 	// stop-autoarm hook) build their Config here, so this one installation
 	// covers both.
 	session := os.Getenv("HERDR_SESSION")
@@ -176,9 +176,9 @@ func ConfigFromEnv(h home.Home) Config {
 	// herdr process each time.
 	sockets := herdr.NewSocketCache()
 	// The harnesses' transcripts tell both how a goblin's work moves and what
-	// it last said, read through the family tree reader. Alone, as cfo watch,
+	// it last said, read through the family tree reader. Alone, as goblins watch,
 	// it takes the conversation the board recorded from the board's file;
-	// cfo serve hands the same reader the board's record in memory.
+	// goblins serve hands the same reader the board's record in memory.
 	cfg.Tree = &fleettree.Reader{Home: userHome, Recorded: func(meta state.TaskMeta) string {
 		// A record that cannot be read proves no conversation, and the
 		// harness's own record of its process still can.
@@ -207,7 +207,7 @@ func ConfigFromEnv(h home.Home) Config {
 	// The sweep shares the monitor's Herdr client construction and its
 	// session, so orphan detection can never look at a different session than
 	// supervision does.
-	cfg.ReapEvery = clampMin1s(claudehook.Seconds("CFO_REAP_EVERY", 600))
+	cfg.ReapEvery = clampMin1s(claudehook.Seconds("GOBLINS_REAP_EVERY", 600))
 	cfg.FileEvery = 10 * time.Minute
 	cfg.JanitorEvery = time.Hour
 	cfg.CIRunnerEvery = 30 * time.Second
@@ -419,7 +419,6 @@ func Run(cfg Config) (string, error) {
 		}
 	}
 
-	var lastFiled time.Time
 	for {
 		var signalDetail string
 		changes, err := ScanSignals(cfg.Home.State)
@@ -463,7 +462,7 @@ func Run(cfg Config) (string, error) {
 				continue
 			}
 
-			// Only decision signals wake the CFO: a goblin writing its
+			// Only decision signals wake the CEO: a goblin writing its
 			// working/review/test status is doing its job, not asking for a
 			// decision. Non-decision changes are committed silently and the
 			// heartbeat carries the fleet summary instead.
@@ -513,7 +512,7 @@ func Run(cfg Config) (string, error) {
 		} else if err := monitor.TouchHeartbeat(cfg.Home.State, time.Now()); err != nil {
 			return "", err
 		}
-		fileData(ctx, cfg, &lastFiled)
+		fileData(ctx, cfg)
 		sweepCtx, cancelSweep := context.WithTimeout(ctx, cfg.reconcileBudget())
 		orphanDetail := sweepOrphans(sweepCtx, cfg)
 		cancelSweep()
@@ -561,35 +560,39 @@ func Run(cfg Config) (string, error) {
 	}
 }
 
-// fileData files the home's data when FileEvery has passed since this
-// watcher last did. Filing is routine and never wakes the CFO: every move is
-// in the data folder's filing log. A pass that fails is recorded there by
+// fileData files the home's data when FileEvery has passed since the home's
+// last filing pass, which layout.File keeps in the state folder, so a
+// supervisor that restarts or a pass that keeps no state of its own waits
+// from there. Filing is routine and never wakes the CEO: every move is in the
+// data folder's filing log. A pass that fails is recorded there by
 // layout.File and retried on the next pass, and it never stops the watcher,
 // because supervising the goblins matters more than tidying their folders.
-func fileData(ctx context.Context, cfg Config, last *time.Time) {
-	if cfg.FileEvery <= 0 || time.Since(*last) < cfg.FileEvery {
+func fileData(ctx context.Context, cfg Config) {
+	if cfg.FileEvery <= 0 {
 		return
 	}
-	*last = time.Now()
-	_, _ = layout.File(ctx, cfg.Home, *last)
+	if last, err := layout.ReadRecord(cfg.Home.State); err == nil && time.Since(last.Time) < cfg.FileEvery {
+		return
+	}
+	_, _ = layout.File(ctx, cfg.Home, time.Now())
 }
 
 // sweepOrphans runs the orphan audit when it is due, persists the result for
-// the session-start digest, and wakes the CFO when a running finding appears
+// the session-start digest, and wakes the CEO when a running finding appears
 // that it has not been told about.
 //
 // The wake fires on something new, never on a finding's mere existence nor on
 // the rest of the set moving around it: a leak that has already been reported
-// and consciously left alone must not re-wake the CFO when a retired task's
+// and consciously left alone must not re-wake the CEO when a retired task's
 // status log comes and goes beside it, while one new unsupervised harness must
-// wake it immediately. A worktree or a status log waits for cfo reap and the
+// wake it immediately. A worktree or a status log waits for goblins reap and the
 // session-start digest, as Actionable says. A sweep that fails is recorded as
 // a failure rather than swallowed, because "cannot see the fleet" and "the
 // fleet is clean" must never render the same, and it keeps what was reported,
 // because a sweep that saw nothing has not seen anything go away. A finding
 // that does go away stays reported for reap.ToldFor after the last sweep that
 // found it: on 2026-10-09 a short-lived codex.exe that came and went between
-// sweeps woke the CFO each time one came back. Nothing here is fatal to the
+// sweeps woke the CEO each time one came back. Nothing here is fatal to the
 // watcher: supervision of the goblins that DO have panes matters more than the
 // sweep.
 func sweepOrphans(ctx context.Context, cfg Config) string {
@@ -635,7 +638,7 @@ func sweepOrphans(ctx context.Context, cfg Config) string {
 	}
 	reason := ""
 	if isNew {
-		detail := reap.Summary(record.Findings) + "; still running: " + reap.Summary(actionable) + "; run cfo reap to see them, cfo reap --apply to retire everything else, and cfo reap --force <pid> --apply to end one of these, because a kill is authorised only by naming its pid"
+		detail := reap.Summary(record.Findings) + "; still running: " + reap.Summary(actionable) + "; run goblins reap to see them, goblins reap --apply to retire everything else, and goblins reap --force <pid> --apply to end one of these, because a kill is authorised only by naming its pid"
 		if _, err := wake.Append(cfg.Home.State, "orphan", "orphans", detail); err == nil {
 			for _, key := range running {
 				record.Told[key] = record.Time
@@ -653,14 +656,14 @@ func sweepOrphans(ctx context.Context, cfg Config) string {
 }
 
 // routeHarnessError answers a provider failure with the fleet's standing
-// policy, so the CFO reads the fix in the same breath as the fault instead of
+// policy, so the CEO reads the fix in the same breath as the fault instead of
 // diagnosing a rate limit from scratch every time.
 //
 // The watcher decides but does not switch. A switch stops a harness, waits
 // for it to exit, and relaunches it - seconds of interactive work - and this
 // loop holds the watch singleton while it runs. Stalling fleet triage behind
 // one goblin's relaunch would be worse than the churn it saves, so an `auto`
-// rule is delivered as an instruction the CFO carries out on wake, and a
+// rule is delivered as an instruction the CEO carries out on wake, and a
 // non-auto rule as a recommendation it can weigh.
 func routeHarnessError(cfg Config, event monitor.Event) string {
 	if event.TaskID == "" || !strings.HasPrefix(event.Detail, string(monitor.HarnessError)) {
@@ -680,7 +683,7 @@ func routeHarnessError(cfg Config, event monitor.Event) string {
 		case routing.ThirdParty:
 			// A git-platform outage is the platform's own problem, not the
 			// harness's: switching harnesses will not help. Wait and retry.
-			return event.Detail + " | third-party outage (git platform): wait and retry; `cfo switch` will not help"
+			return event.Detail + " | third-party outage (git platform): wait and retry; `goblins switch` will not help"
 		case routing.Provider:
 			// A model-provider 5xx is the provider's own side failing; a
 			// switch may help if it persists, but a retry is the first move.
@@ -688,7 +691,7 @@ func routeHarnessError(cfg Config, event monitor.Event) string {
 		case routing.Auth:
 			return event.Detail + " | credential failure: fix the credential, not the harness"
 		default:
-			return event.Detail + " | no standing rule; decide and use `cfo switch " + event.TaskID + " --harness <h>` if a switch is right"
+			return event.Detail + " | no standing rule; decide and use `goblins switch " + event.TaskID + " --harness <h>` if a switch is right"
 		}
 	}
 	prefix := " | RECOMMENDED: "
@@ -705,10 +708,10 @@ func routeHarnessError(cfg Config, event monitor.Event) string {
 	return detail
 }
 
-// decisionVerb reports whether a status verb needs the CFO's immediate
+// decisionVerb reports whether a status verb needs the CEO's immediate
 // attention: a gate question or a green gate awaiting merge. Blocked and
-// failed are deliberately absent: those outcomes are delivered by cfo notify's
-// own wake (or by a spawn/switch error surfaced to the CFO directly), so the
+// failed are deliberately absent: those outcomes are delivered by goblins notify's
+// own wake (or by a spawn/switch error surfaced to the CEO directly), so the
 // watcher must not re-wake on their status lines.
 func decisionVerb(verb string) bool {
 	switch verb {
@@ -720,7 +723,7 @@ func decisionVerb(verb string) bool {
 }
 
 // signalIsDecision reports whether a changed *.status file's latest verb is a
-// decision the CFO must see immediately. *.turn-ended markers and unparsable
+// decision the CEO must see immediately. *.turn-ended markers and unparsable
 // or non-decision verbs are treated as noise, never as a wake.
 func signalIsDecision(stateDir, name string) bool {
 	if !strings.HasSuffix(name, ".status") {

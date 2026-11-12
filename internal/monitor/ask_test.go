@@ -18,8 +18,8 @@ import (
 const editorSyncReply = "Understood: nothing for me on PR 369, since the go (rest) failures are internal/verify admission tests that cg-verify-fast is fixing.\n\n" +
 	"That leaves three items in my brief:\n" +
 	"- **Live proof** that a choice picked on a Scrawl page reaches the goblin as its exact option text. This needs a scratch home, a separate Lavish server and a browser, so I'll start it once free memory is back over 5 GB.\n" +
-	"- **History's three answer marks**: him, the CFO, and the CFO while he was away. The record shape was already agreed with cg-afk-mode.\n" +
-	"- **His replacement choice**: the card that lets him change an answer the CFO gave, including when their answers cross.\n\n" +
+	"- **History's three answer marks**: him, the CEO, and the CEO while he was away. The record shape was already agreed with cg-afk-mode.\n" +
+	"- **His replacement choice**: the card that lets him change an answer the CEO gave, including when their answers cross.\n\n" +
 	"I'll take the History marks next unless you want the live proof first."
 
 type fakeReplies struct {
@@ -44,8 +44,8 @@ func wakesWith(wakes []Event, reason Reason) []Event {
 	return slices.DeleteFunc(slices.Clone(wakes), func(event Event) bool { return !strings.HasPrefix(event.Detail, string(reason)+":") })
 }
 
-// The 2026-10-05 stall: a goblin that ended its turn offering the CFO a choice
-// in prose, and sat at its prompt, wakes the CFO once with its own words and
+// The 2026-10-05 stall: a goblin that ended its turn offering the CEO a choice
+// in prose, and sat at its prompt, wakes the CEO once with its own words and
 // what to do, never as a generic idle goblin.
 func TestAGoblinThatAsksInProseWakesWithItsQuestion(t *testing.T) {
 	// Arrange
@@ -59,7 +59,7 @@ func TestAGoblinThatAsksInProseWakesWithItsQuestion(t *testing.T) {
 	if len(wakes) != 1 || !strings.HasPrefix(wakes[0].Detail, string(GoblinAsks)+":") {
 		t.Fatalf("wakes = %+v, want exactly one goblin_asks wake", wakes)
 	}
-	for _, want := range []string{"g1 ", `It asked: "I'll take the History marks next unless you want the live proof first."`, `cfo send g1 "<your answer>"`} {
+	for _, want := range []string{"g1 ", `It asked: "I'll take the History marks next unless you want the live proof first."`, `goblins send g1 "<your answer>"`} {
 		if !strings.Contains(wakes[0].Detail, want) {
 			t.Errorf("wake detail %q lacks %q", wakes[0].Detail, want)
 		}
@@ -108,7 +108,7 @@ func TestAGoblinRunningItsOwnBackgroundWorkIsNotAskedAbout(t *testing.T) {
 
 			// Assert
 			if len(wakes) != 0 {
-				t.Fatalf("a goblin whose own work moves woke the CFO: %+v", wakes)
+				t.Fatalf("a goblin whose own work moves woke the CEO: %+v", wakes)
 			}
 		})
 	}
@@ -177,14 +177,11 @@ func TestAskedInRecognizesSupervisorRolePhrases(t *testing.T) {
 		{"CEO decision", "Waiting for the CEO's decision.", []string{"Waiting for the CEO's decision."}},
 		{"CEO word with curly apostrophe", "Waiting on the CEO’s word.", []string{"Waiting on the CEO’s word."}},
 		{"case insensitive CEO", "waiting for the ceo's approval.", []string{"waiting for the ceo's approval."}},
-		{"legacy CFO choice", "I'll continue unless the CFO wants another choice.", []string{"I'll continue unless the CFO wants another choice."}},
-		{"legacy CFO decision", "Waiting for the CFO's decision.", []string{"Waiting for the CFO's decision."}},
 		{"code choice excluded", "The example is `unless the CEO wants another choice`.", nil},
 		{"code decision excluded", "The example is `waiting for the CEO's decision`.", nil},
 		{"link excluded", "https://example.invalid/?unless=the%20CEO?", nil},
 		{"prose after code", "The example is `unless the CEO wants another choice`. Waiting on the CEO's word.", []string{"Waiting on the CEO's word."}},
-		{"wire prefix preserved", "CFO: Waiting for the CEO's decision.", []string{"CFO: Waiting for the CEO's decision."}},
-		{"legacy wire phrase preserved", "CFO: Waiting for the CFO's decision.", []string{"CFO: Waiting for the CFO's decision."}},
+		{"wire prefix preserved", "CEO: Waiting for the CEO's decision.", []string{"CEO: Waiting for the CEO's decision."}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -203,7 +200,7 @@ func TestAskedInRecognizesSupervisorRolePhrases(t *testing.T) {
 
 // What a reply asks is read from real turn endings of the fleet: the goblins'
 // own words at the end of a turn, with the reply's last two paragraphs, and
-// whether each asks the CFO something or offers it a choice. The PR that added
+// whether each asks the CEO something or offers it a choice. The PR that added
 // this check lists the same cases and what it decides for each.
 func TestWhatARealTurnEndingAsks(t *testing.T) {
 	for _, test := range []struct {
@@ -212,22 +209,22 @@ func TestWhatARealTurnEndingAsks(t *testing.T) {
 	}{
 		{"cg-review-editor-sync 2026-10-05 20:55 offers the next item", editorSyncReply,
 			[]string{"I'll take the History marks next unless you want the live proof first."}},
-		{"cg-panel-clarity 2026-10-06 00:02 waits on the CFO's answer",
+		{"cg-panel-clarity 2026-10-06 00:02 waits on the CEO's answer",
 			"The two text notes ask to drop the sentence under the status, which conflicts with approving as shown. The question I filed has three options:\n- **Hide it under every status, then merge (recommended):** the sentence stays one click away under Details.\n- **Hide it only for Working and Pause failed, then merge.**\n- **Merge as approved and change it later.**\n\nThe page is closed and I won't reopen it. I haven't changed anything since and haven't merged. Your answer decides whether I make one more push.",
 			[]string{"The question I filed has three options:", "Hide it under every status, then merge (recommended): the sentence stays one click away under Details.", "Your answer decides whether I make one more push."}},
-		{"cg-review-editor-sync 2026-10-05 18:03 waits for the CFO's choice",
-			"Main only checks for an empty composer before typed wakes, not before board answers, so PR 332 is still needed for the draft-line defect. Waiting for the CFO's choice before moving it.",
-			[]string{"Waiting for the CFO's choice before moving it."}},
+		{"cg-review-editor-sync 2026-10-05 18:03 waits for the CEO's choice",
+			"Main only checks for an empty composer before typed wakes, not before board answers, so PR 332 is still needed for the draft-line defect. Waiting for the CEO's choice before moving it.",
+			[]string{"Waiting for the CEO's choice before moving it."}},
 		{"cg-review-editor-sync 2026-10-05 19:52 says what it asked",
-			"I've asked the CFO whether to open the run-card PR now or wait for memory to test it locally; I'll continue on the answer.",
-			[]string{"I've asked the CFO whether to open the run-card PR now or wait for memory to test it locally; I'll continue on the answer."}},
+			"I've asked the CEO whether to open the run-card PR now or wait for memory to test it locally; I'll continue on the answer.",
+			[]string{"I've asked the CEO whether to open the run-card PR now or wait for memory to test it locally; I'll continue on the answer."}},
 		{"cg-verify-fast 2026-10-05 18:37 says what it asked",
 			"Most of the specification is still open. Not done yet:\n- measuring what PR 360 saves after a week;\n- why the two Lavish install tests take 2 to 4 minutes each;\n- frontend selection and warm environments;\n- milestones on the board;\n- adapters for managed projects.\n\nI've asked whether to take the install tests next or stop here.",
 			[]string{"I've asked whether to take the install tests next or stop here."}},
 		{"cg-verify-fast 2026-10-05 19:42 says what it asked",
-			"The only measurement that finished before Claude Code stopped the run for low memory: `internal/installscript` took 485.6 s for 19 tests with the fix, against 584.7 s for 18 tests on PR 359's head. The runs had different load, so treat the gap as indicative.\n\n`internal/installtest` still has to run on the fix and on PR 359's head before I push. I've asked the CFO whether to rerun now; free memory is 3.9 GB.",
-			[]string{"I've asked the CFO whether to rerun now; free memory is 3.9 GB."}},
-		{"cg-native-desktop-2 2026-10-05 18:46 waits on the CFO's answer",
+			"The only measurement that finished before Claude Code stopped the run for low memory: `internal/installscript` took 485.6 s for 19 tests with the fix, against 584.7 s for 18 tests on PR 359's head. The runs had different load, so treat the gap as indicative.\n\n`internal/installtest` still has to run on the fix and on PR 359's head before I push. I've asked the CEO whether to rerun now; free memory is 3.9 GB.",
+			[]string{"I've asked the CEO whether to rerun now; free memory is 3.9 GB."}},
+		{"cg-native-desktop-2 2026-10-05 18:46 waits on the CEO's answer",
 			"**Decision needed:** the release workflow runs from the tagged commit, so the tag has to point at a commit that includes #363. I asked you as a blocked question whether to move v0.4.0 to that main commit or cut v0.4.1. I recommend moving v0.4.0: nothing was ever downloadable from it, so deleting and re-pushing the tag affects no one.\n\nOnce you answer and #363 is merged with main's CI green, I'll tag that commit. Then I'll report the draft release address and the `CodeGoblinsSetup.exe` line from SHA256SUMS.",
 			[]string{"I asked you as a blocked question whether to move v0.4.0 to that main commit or cut v0.4.1.", "Once you answer and #363 is merged with main's CI green, I'll tag that commit."}},
 		{"cg-local-voice 2026-10-02 15:13 asks before starting its brief",
@@ -237,9 +234,9 @@ func TestWhatARealTurnEndingAsks(t *testing.T) {
 			"**Decision needed:** the Claude skill still names the old address. Decision 3027's 30-day zero-call clock only starts once the skill moves too, and changing it republishes the skill at precisiondocs.ai/skills. Should it move now?",
 			[]string{"Should it move now?"}},
 		{"cg-review-editor-sync 2026-10-06 01:25 reports a page wait on the Overlord",
-			"**Gaps the build will have to close,** found while he looks and now in the handoff:\n- The reason the CFO gives with `cfo answer --note` goes only to the goblin, so History has no reason to show yet.\n- Nothing records that the CFO answered while he was away.\n- A CFO answer marks its question succeeded at once, even before the goblin has taken it, so nothing yet says whether it can still be undone.\n- There is no way yet to swap a queued CFO answer for his.\n\nAny notify I send, such as done on 270, withdraws that page wait. After each one I'll file it again until he answers; this is in the handoff too.",
+			"**Gaps the build will have to close,** found while he looks and now in the handoff:\n- The reason the CEO gives with `goblins answer --note` goes only to the goblin, so History has no reason to show yet.\n- Nothing records that the CEO answered while he was away.\n- A CEO answer marks its question succeeded at once, even before the goblin has taken it, so nothing yet says whether it can still be undone.\n- There is no way yet to swap a queued CEO answer for his.\n\nAny notify I send, such as done on 270, withdraws that page wait. After each one I'll file it again until he answers; this is in the handoff too.",
 			nil},
-		{"cg-review-editor-sync 2026-10-06 03:27 leaves the merges to the CFO's queue",
+		{"cg-review-editor-sync 2026-10-06 03:27 leaves the merges to the CEO's queue",
 			"**Tests:**\n- The new Go tests failed before their code. Mutation checks showed they catch real breakage, such as a delivery that skips the recheck or a supervisor that trusts the sender's \"away\" flag.\n- The board's unit tests, lint and type check pass.\n- The PR body has screenshots of History and both card states.\n\nEvery brief item is now built. What's left is your calls on 366, 367, 369, 370 and 298 once 378 lands.",
 			nil},
 		{"cg-panel-clarity 2026-10-05 21:46 waits on the Overlord's page",
@@ -249,7 +246,7 @@ func TestWhatARealTurnEndingAsks(t *testing.T) {
 			"Still left:\n1. The full Go run (`go test ./... -p 4`).\n2. The frontend checks.\n3. Commit, PR and one CI run.\n\nI'll resume when you say so, or on my own once free memory reaches 6 GB, which gives the Go run room to stay above your 4 GB line.",
 			nil},
 		{"cg-verify-fast 2026-10-05 18:09 has a watch running",
-			"The `internal/gatetest` run has started, and a watch will tell me if free memory drops under 3 GB. The `cmd/cfo` plan tests follow once it passes.",
+			"The `internal/gatetest` run has started, and a watch will tell me if free memory drops under 3 GB. The `cmd/goblins` plan tests follow once it passes.",
 			nil},
 		{"cg-fleet-auto-resume 2026-10-05 16:30 reports PRs waiting for the merge",
 			"I wrote the pause handoff and it is in place, so the task can stop now. Nothing needed pushing: the worktree is clean and parked on main.\n\n- **PRs:** 331 is merged. 324 and 326 are pushed, green on all 10 checks and reported done, waiting for your merge.\n- **Resume:** ready for 2026-10-09 22:27 UTC, when Codex image generation is back.",
@@ -258,7 +255,7 @@ func TestWhatARealTurnEndingAsks(t *testing.T) {
 			"- **PRs 328 and 333** (hosted CI evidence reuse): parked per your decision, archive-tagged, with a backlog row naming what reuse needs.\n\nTwo problems on main, outside my PRs:\n- `TestAdmissionCapacityTwoNeverExceedsTwoConcurrentHolders` fails on main's own code on this workstation: it allows 5 seconds for six waiters. It passes in hosted CI.",
 			nil},
 		{"pd-ci-minutes 2026-10-05 20:46 waits on GitHub Actions",
-			"Claude Code stopped my background status poll because the machine ran low on memory, the same thing that happened to the CI waiter. I haven't restarted it and I'm not polling. I've asked the CFO to message me when Actions is back to operational.\n\nWhen that message comes I'll:\n1. Re-run once: only #1488's cancelled jobs (`changes` and `verify` already passed), then the cancelled jobs on the two probe PRs.\n2. Fill in #1488's before/after billed-minutes table and the checks list for each kind of pull request.\n3. Close the probe PRs, delete their branches, and send the done notice.",
+			"Claude Code stopped my background status poll because the machine ran low on memory, the same thing that happened to the CI waiter. I haven't restarted it and I'm not polling. I've asked the CEO to message me when Actions is back to operational.\n\nWhen that message comes I'll:\n1. Re-run once: only #1488's cancelled jobs (`changes` and `verify` already passed), then the cancelled jobs on the two probe PRs.\n2. Fill in #1488's before/after billed-minutes table and the checks list for each kind of pull request.\n3. Close the probe PRs, delete their branches, and send the done notice.",
 			nil},
 		{"cg-fleet-auto-resume 2026-10-05 16:22 names the options marker in code",
 			"The Command Center couldn't show the options on my mockup question, because I put the detail lines after `options:` and the parser read them as part of the last choice. Next time I'll put `options:` last.\n\nThe worktree is clean and parked on main. This task made no extra worktrees, so there's nothing to clean up.",
@@ -268,20 +265,20 @@ func TestWhatARealTurnEndingAsks(t *testing.T) {
 			nil},
 		{"cg-ci-green 2026-10-06 16:43 reports done", "PR 383 is green on every check. Reporting it done.", nil},
 		{"cg-tidy-home 2026-10-06 16:19 reports done",
-			"**Scratch:** I removed the build caches, so `state\\tasktmp\\cg-tidy-home` is now 6.3 MB.\n\nI've notified the CFO that the task is done.",
+			"**Scratch:** I removed the build caches, so `state\\tasktmp\\cg-tidy-home` is now 6.3 MB.\n\nI've notified the CEO that the task is done.",
 			nil},
 		{"cg-site-download-hero-2 2026-10-06 00:51 notes the standing rule",
 			"I've sent the done notice, and the handoff file now says the task is delivered.\n\nI've noted the new standing rule: I'll take the recommended option on reversible choices and only ask about the listed cases.",
 			nil},
-		{"cg-cfo-wakes-2 2026-10-05 15:44 plans to ask later",
-			"Still to do: run the affected tests for each branch (one at a time in the shared slot), push, open or update the PRs, and send the done notify listing which extra worktrees the CFO can remove. The live Codex/pi compaction proof needs a CFO decision, because Codex's weekly allowance is used up and pi would spend OpenRouter credit. I'll ask that once, with options, after the PRs are up.",
+		{"cg-ceo-wakes-2 2026-10-05 15:44 plans to ask later",
+			"Still to do: run the affected tests for each branch (one at a time in the shared slot), push, open or update the PRs, and send the done notify listing which extra worktrees the CEO can remove. The live Codex/pi compaction proof needs a CEO decision, because Codex's weekly allowance is used up and pi would spend OpenRouter credit. I'll ask that once, with options, after the PRs are up.",
 			nil},
 		{"cg-site-download-hero-2 (Codex) 2026-10-02 23:08 waits for a release",
-			"The preview remains protected, as documented in the PR. CFO notified and handoff updated. Waiting for v0.4.0 and merge approval.",
+			"The preview remains protected, as documented in the PR. CEO notified and handoff updated. Waiting for v0.4.0 and merge approval.",
 			nil},
 		{"cg-review-editor-sync 2026-10-05 17:13 waits on its tests", "Waiting on PR 298's Go tests before pushing it.", nil},
 		{"cg-board-polish-4 2026-10-05 15:17 reports a review page still owed an answer",
-			"- **PR 301** (choose a task's harness, model and effort in its panel): I merged current main into it. A fresh run of the Go tests is queued for the machine's one-at-a-time test slot. After that I'll push and run CI once.\n- **PR 301 still needs your answer:** your review page for it opened on Oct 3 but was withdrawn a few minutes later, so you never answered it. I've refreshed it and will reopen it as my last report. The brief says it merges only after your answer.\n- **Worktrees for the CFO to remove:** the voice-test one (PR 352 merged).\n\nItems 1 to 3, 4 to 4d, 4f and 5 of the brief were already merged before I took over (PRs 283, 284, 296).",
+			"- **PR 301** (choose a task's harness, model and effort in its panel): I merged current main into it. A fresh run of the Go tests is queued for the machine's one-at-a-time test slot. After that I'll push and run CI once.\n- **PR 301 still needs your answer:** your review page for it opened on Oct 3 but was withdrawn a few minutes later, so you never answered it. I've refreshed it and will reopen it as my last report. The brief says it merges only after your answer.\n- **Worktrees for the CEO to remove:** the voice-test one (PR 352 merged).\n\nItems 1 to 3, 4 to 4d, 4f and 5 of the brief were already merged before I took over (PRs 283, 284, 296).",
 			nil},
 	} {
 		t.Run(test.name, func(t *testing.T) {

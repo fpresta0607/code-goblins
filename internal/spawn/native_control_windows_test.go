@@ -16,7 +16,7 @@ import (
 
 // A native goblin takes a steer the way it took its instruction: typed,
 // submitted once its composer shows it, and delivered once it works on it. A
-// key reaches its terminal as the console reads it, and a key cfo send does
+// key reaches its terminal as the console reads it, and a key goblins send does
 // not name is refused before anything is sent.
 func TestANativeGoblinTakesTextAndKeysThroughItsTerminal(t *testing.T) {
 	f := newNativeFixture(t, harness.Codex, "turns")
@@ -29,7 +29,7 @@ func TestANativeGoblinTakesTextAndKeysThroughItsTerminal(t *testing.T) {
 	}
 	awaitComposer(t, f)
 
-	textErr := f.service.SendNative(context.Background(), meta, "CFO: run the tests")
+	textErr := f.service.SendNative(context.Background(), meta, "CEO: run the tests")
 	keyErr := f.service.SendNativeKey(meta, "Enter")
 	unknownErr := f.service.SendNativeKey(meta, "F5")
 
@@ -42,7 +42,7 @@ func TestANativeGoblinTakesTextAndKeysThroughItsTerminal(t *testing.T) {
 	if unknownErr == nil || !strings.Contains(unknownErr.Error(), "unsupported key") {
 		t.Errorf("SendNativeKey F5 = %v, want it refused", unknownErr)
 	}
-	want := []string{spawnPointer(t, f.fixture), "CFO: run the tests", ""}
+	want := []string{spawnPointer(t, f.fixture), "CEO: run the tests", ""}
 	var submitted []string
 	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		submitted = submitted[:0]
@@ -74,13 +74,13 @@ func TestASteerEndingInAMentionIsSubmittedToANativeCodexGoblin(t *testing.T) {
 	awaitComposer(t, f)
 
 	// Act
-	sendErr := f.service.SendNative(context.Background(), meta, "CFO: use $alpha-notes")
+	sendErr := f.service.SendNative(context.Background(), meta, "CEO: use $alpha-notes")
 
 	// Assert
 	if sendErr != nil {
 		t.Errorf("SendNative: %v", sendErr)
 	}
-	want := []string{spawnPointer(t, f.fixture), "CFO: use $alpha-notes "}
+	want := []string{spawnPointer(t, f.fixture), "CEO: use $alpha-notes "}
 	var submitted []string
 	for _, event := range named(f.events(t), "submitted") {
 		submitted = append(submitted, event.Text)
@@ -126,7 +126,7 @@ func TestANativeGoblinTakesASlashCommandOnceAndReportsItUnconfirmed(t *testing.T
 	err = f.service.SendNative(context.Background(), meta, "/exit")
 	took := time.Since(began)
 
-	if err == nil || !strings.Contains(err.Error(), "submitted once") || !strings.Contains(err.Error(), "cfo peek task-7") {
+	if err == nil || !strings.Contains(err.Error(), "submitted once") || !strings.Contains(err.Error(), "goblins peek task-7") {
 		t.Errorf("SendNative /exit = %v, want it reported submitted once but unconfirmed", err)
 	}
 	if !slices.ContainsFunc(slept, func(duration time.Duration) bool { return duration >= 1200*time.Millisecond }) {
@@ -188,7 +188,7 @@ func TestANativeTaskWithNoTerminalTakesNothing(t *testing.T) {
 	service := Service{StateDir: t.TempDir()}
 	meta := state.TaskMeta{ID: "task-7", Window: "native", Harness: string(harness.Codex), Backend: "native"}
 
-	textErr := service.SendNative(context.Background(), meta, "CFO: run the tests")
+	textErr := service.SendNative(context.Background(), meta, "CEO: run the tests")
 	keyErr := service.SendNativeKey(meta, "Enter")
 
 	for name, err := range map[string]error{"text": textErr, "key": keyErr} {
@@ -229,7 +229,7 @@ func TestNativeDeliveryDoesNotTypeIntoAnOpenCodexPicker(t *testing.T) {
 // 2026-10-28: "it's sending and appending messages together that were sent
 // previously").
 func TestADeliveryTypesNothingOntoAPromptLineHoldingWords(t *testing.T) {
-	for _, text := range []string{"CFO: run the tests", "/compact"} {
+	for _, text := range []string{"CEO: run the tests", "/compact"} {
 		t.Run(text, func(t *testing.T) {
 			// Arrange: Codex idle at its prompt, an unsent draft on the line.
 			f := newQuickFixture(t)
@@ -275,12 +275,12 @@ func TestASteerToANativeGoblinInATurnIsQueuedWithoutAHookReport(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = f.service.SendNative(context.Background(), meta, "CFO: run the tests")
+	err = f.service.SendNative(context.Background(), meta, "CEO: run the tests")
 
 	if !errors.Is(err, fleet.ErrQueuedForToolCall) {
 		t.Errorf("SendNative = %v, want it queued for the next tool call", err)
 	}
-	if submitted := submittedLines(t, f, 2); !slices.Equal(submitted, []string{spawnPointer(t, f.fixture), "CFO: run the tests"}) {
+	if submitted := submittedLines(t, f, 2); !slices.Equal(submitted, []string{spawnPointer(t, f.fixture), "CEO: run the tests"}) {
 		t.Errorf("submitted = %q, want the steer submitted once after the instruction", submitted)
 	}
 }
@@ -290,7 +290,7 @@ func TestASteerToANativeGoblinInATurnIsQueuedWithoutAHookReport(t *testing.T) {
 // once submitted the text into the turn and reported it queued for the next
 // tool call (#1468). A command he sends is refused the same way.
 func TestADeliveryThatRefusesATurnTypesNothingIntoOne(t *testing.T) {
-	for _, text := range []string{"cfo watcher wake: 1 queued wake", "/compact"} {
+	for _, text := range []string{"ceo watcher wake: 1 queued wake", "/compact"} {
 		t.Run(text, func(t *testing.T) {
 			f := newNativeFixture(t, harness.Codex, "")
 			if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
@@ -332,7 +332,7 @@ func TestASlashCommandTypedIntoATurnIsReportedUnconfirmed(t *testing.T) {
 	err = f.service.SendNative(context.Background(), meta, "/compact")
 
 	// Assert
-	if err == nil || !strings.Contains(err.Error(), "submitted once") || !strings.Contains(err.Error(), "cfo peek task-7") {
+	if err == nil || !strings.Contains(err.Error(), "submitted once") || !strings.Contains(err.Error(), "goblins peek task-7") {
 		t.Errorf("SendNative /compact = %v, want it reported submitted once but unconfirmed", err)
 	}
 	if submitted := submittedLines(t, f, 2); !slices.Equal(submitted, []string{spawnPointer(t, f.fixture), "/compact"}) {
@@ -524,7 +524,7 @@ func TestEachHarnessNamesTheKeyItsSendNowPresses(t *testing.T) {
 			screens, _ := harness.NativeScreens(test.kind)
 			recorder := &keyRecorder{}
 
-			// Act: the press a goblin's delivery and the CFO's delivery make.
+			// Act: the press a goblin's delivery and the CEO's delivery make.
 			err := PressKeys(recorder.Input, screens.SendNow)
 
 			// Assert
@@ -600,12 +600,12 @@ func TestAHookReportDoesNotProveASteerToANativeGoblinInATurn(t *testing.T) {
 	}
 	f.service.PromptSince = func(string, string, time.Time) (bool, error) { return true, nil }
 
-	err = f.service.SendNative(context.Background(), meta, "CFO: run the tests")
+	err = f.service.SendNative(context.Background(), meta, "CEO: run the tests")
 
 	if !errors.Is(err, fleet.ErrQueuedForToolCall) {
 		t.Errorf("SendNative = %v, want it queued for the goblin's next tool call despite the hook report", err)
 	}
-	if submitted := submittedLines(t, f, 2); !slices.Equal(submitted, []string{spawnPointer(t, f.fixture), "CFO: run the tests"}) {
+	if submitted := submittedLines(t, f, 2); !slices.Equal(submitted, []string{spawnPointer(t, f.fixture), "CEO: run the tests"}) {
 		t.Errorf("submitted = %q, want the steer submitted once after the instruction", submitted)
 	}
 }
@@ -637,16 +637,16 @@ func TestASteerToANativeGoblinInATurnIsProvenByItsRecord(t *testing.T) {
 		return len(named(f.events(t), "submitted")) == 2
 	}
 
-	err = f.service.SendNative(context.Background(), meta, "CFO: run the tests")
+	err = f.service.SendNative(context.Background(), meta, "CEO: run the tests")
 	after := time.Now()
 
 	if err != nil {
 		t.Errorf("SendNative = %v, want the record to prove it taken", err)
 	}
-	if len(asked) == 0 || asked[0].task != "task-7" || asked[0].worktree != meta.Worktree || asked[0].text != "CFO: run the tests" || asked[0].since.Before(before) || asked[0].since.After(after) {
+	if len(asked) == 0 || asked[0].task != "task-7" || asked[0].worktree != meta.Worktree || asked[0].text != "CEO: run the tests" || asked[0].since.Before(before) || asked[0].since.After(after) {
 		t.Errorf("the record was asked for %+v, want task-7's in %s holding the steer since the send", asked, meta.Worktree)
 	}
-	if submitted := submittedLines(t, f, 2); !slices.Equal(submitted, []string{spawnPointer(t, f.fixture), "CFO: run the tests"}) {
+	if submitted := submittedLines(t, f, 2); !slices.Equal(submitted, []string{spawnPointer(t, f.fixture), "CEO: run the tests"}) {
 		t.Errorf("submitted = %q, want the steer submitted once after the instruction", submitted)
 	}
 }

@@ -6,11 +6,11 @@ test.use({ locale: "en-US", timezoneId: "America/Chicago" });
 const memory = { total: 32 * 2 ** 30, available: 7.3 * 2 ** 30, commit_limit: 48 * 2 ** 30, commit_available: 20 * 2 ** 30, floor: 4 * 2 ** 30, next: 5 * 2 ** 30 };
 const usage = (provider: string, percent: number | null, status = "available", floor = 5) => ({ provider, status, percent_remaining: percent, read_at: NOW, resets_at: "2026-10-09T22:27:42Z", source: "oauth", floor_percent: floor });
 
-// The dials sit on the CFO's bar and nowhere else: the Overlord, 2026-10-07,
+// The dials sit on the CEO's bar and nowhere else: the Overlord, 2026-10-07,
 // "you should put calude usage at cfo header only..". open returns the bar.
 async function open(page: Page, subscriptions = [usage("claude", null, "auth_required"), usage("codex", 76)]) {
   await page.clock.install({ time: new Date(NOW) });
-  await holdStream(page, { instance: "usage-fixture", revision: 1, healthy: true, example: true, cfo_runs: true, cfo_harness: "claude", memory, subscriptions, tasks: [] });
+  await holdStream(page, { instance: "usage-fixture", revision: 1, healthy: true, example: true, ceo_runs: true, ceo_harness: "claude", memory, subscriptions, tasks: [] });
   await page.goto("/");
   await page.getByRole("button", { name: "Board", exact: true }).click();
   await expect(page.getByRole("region", { name: "Tasks", exact: true }).getByRole("group", { name: "Memory" })).toBeVisible();
@@ -20,7 +20,7 @@ async function open(page: Page, subscriptions = [usage("claude", null, "auth_req
 
 for (const width of [1440, 390, 320]) {
   for (const colorScheme of ["dark", "light"] as const) {
-    test(`weekly dials stay readable on the CFO's bar, and only there, at ${width}px with ${colorScheme} preference`, async ({ page }, testInfo) => {
+    test(`weekly dials stay readable on the CEO's bar, and only there, at ${width}px with ${colorScheme} preference`, async ({ page }, testInfo) => {
       await page.setViewportSize({ width, height: 1100 });
       await page.emulateMedia({ colorScheme });
       const bar = await open(page);
@@ -92,7 +92,7 @@ for (const percent of [1, 5.1]) {
 
 // The Overlord, 2026-11-02, on the bar's "Claude 100%" and "Codex 4%": each
 // provider's icon sits inside its ring in place of its name beside it. The
-// bar still wears no mark of the harness the CFO runs (goblin-alerts.spec.ts).
+// bar still wears no mark of the harness the CEO runs (goblin-alerts.spec.ts).
 // marks reads each dial's ring: the brand path drawn in it, whether that
 // mark lies wholly inside the ring, and any words beside the ring other than
 // its percentage.
@@ -111,7 +111,7 @@ async function marks(bar: ReturnType<Page["getByRole"]>) {
 }
 const CLAUDE_PATH = "m4.7144 15.9", OPENAI_PATH = "M22.2819 9.8";
 
-test("the CFO's bar draws each subscription's icon inside its ring, with no name beside it", async ({ page }) => {
+test("the CEO's bar draws each subscription's icon inside its ring, with no name beside it", async ({ page }) => {
   // Arrange and Act
   const bar = await open(page, [usage("claude", 40), usage("codex", 76)]);
 
@@ -151,7 +151,7 @@ for (const status of ["unavailable", "auth_required", "stale"]) {
   });
 }
 
-test("no active providers means no dials on the CFO's bar", async ({ page }) => {
+test("no active providers means no dials on the CEO's bar", async ({ page }) => {
   const bar = await open(page, []);
   await expect(bar.locator(".subscription-dial")).toHaveCount(0);
 });

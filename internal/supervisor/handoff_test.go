@@ -16,7 +16,7 @@ import (
 
 func TestFinishedTaskKeepsItsReportBeforeTheCleanupRecord(t *testing.T) {
 	_, home := testStore(t)
-	for _, report := range []string{"done: PR https://example.com/pull/218", "done: returned worktree C:/scratch/work via cfo cleanup"} {
+	for _, report := range []string{"done: PR https://example.com/pull/218", "done: returned worktree C:/scratch/work via goblins cleanup"} {
 		if err := state.AppendStatus(home.State, "retired-task", report); err != nil {
 			t.Fatal(err)
 		}
@@ -92,8 +92,8 @@ func TestTaskSessionSummaryDoesNotInventEvidence(t *testing.T) {
 		report  string
 	}{
 		{"missing report", nil, time.Time{}, ""},
-		{"unstamped cleanup", []string{"done: PR https://example.com/pull/218", "done: returned worktree C:/scratch via cfo cleanup"}, time.Time{}, "done: PR https://example.com/pull/218"},
-		{"a later live report", []string{"2026-09-30T09:00:00Z done: returned worktree C:/scratch via cfo cleanup", "2026-09-30T11:00:00Z working: resumed"}, time.Time{}, "working: resumed"},
+		{"unstamped cleanup", []string{"done: PR https://example.com/pull/218", "done: returned worktree C:/scratch via goblins cleanup"}, time.Time{}, "done: PR https://example.com/pull/218"},
+		{"a later live report", []string{"2026-09-30T09:00:00Z done: returned worktree C:/scratch via goblins cleanup", "2026-09-30T11:00:00Z working: resumed"}, time.Time{}, "working: resumed"},
 		{"old generation", []string{"2026-09-30T09:00:00Z done: PR https://example.com/pull/218"}, spawned, ""},
 		{"redacted report", []string{"working: password=fixture-secret"}, time.Time{}, "working: password=[redacted]"},
 	} {
@@ -255,7 +255,7 @@ func TestFinishedTaskKeepsItsSummaryThroughLifecycleHistory(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			_, home := testStore(t)
 			id := "retired-task"
-			for _, line := range []string{"working: final checks passed", "stopped: returned worktree C:/scratch/work via cfo cleanup"} {
+			for _, line := range []string{"working: final checks passed", "stopped: returned worktree C:/scratch/work via goblins cleanup"} {
 				if err := state.AppendStatus(home.State, id, line); err != nil {
 					t.Fatal(err)
 				}
@@ -282,7 +282,7 @@ func TestFinishedTaskDoesNotBorrowThePreviousGenerationsReport(t *testing.T) {
 	_, home := testStore(t)
 	now := time.Now().UTC()
 	id := "reused-task"
-	lines := now.Add(-2*time.Hour).Format(time.RFC3339) + " working: old run's report\n" + now.Format(time.RFC3339) + " stopped: returned worktree C:/scratch via cfo cleanup\n"
+	lines := now.Add(-2*time.Hour).Format(time.RFC3339) + " working: old run's report\n" + now.Format(time.RFC3339) + " stopped: returned worktree C:/scratch via goblins cleanup\n"
 	if err := os.WriteFile(filepath.Join(home.State, id+".status"), []byte(lines), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +307,7 @@ func TestTaskHandoffReusesOneArchiveListingPerSnapshot(t *testing.T) {
 		}
 	}
 	for _, id := range []string{"retired-a", "retired-b"} {
-		if err := state.AppendStatus(home.State, id, "done: returned worktree C:/scratch/"+id+" via cfo cleanup"); err != nil {
+		if err := state.AppendStatus(home.State, id, "done: returned worktree C:/scratch/"+id+" via goblins cleanup"); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -17,7 +17,7 @@ import (
 const keepingFile = "ticket-keeping.json"
 
 type keeping struct {
-	// Public are the public repositories the CFO allowed tickets in. An
+	// Public are the public repositories the CEO allowed tickets in. An
 	// issue in a public repository is public, so tickets are kept there only
 	// once he has allowed it, and he is asked once per repository.
 	Public []string `json:"public"`
@@ -43,7 +43,7 @@ func AllowPublic(directory, repository string) error {
 	return writeKeeping(directory, kept)
 }
 
-// IsPublicAllowed reports whether the CFO allowed tickets in a public
+// IsPublicAllowed reports whether the CEO allowed tickets in a public
 // repository. GitHub does not tell a repository's names apart by case.
 func IsPublicAllowed(directory, repository string) (bool, error) {
 	kept, err := readKeeping(directory)

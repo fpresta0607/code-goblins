@@ -7,8 +7,8 @@ test.use({ timezoneId: "UTC", viewport: { width: 1440, height: 900 } });
 // answers every other API request with a 404 unless a later route claims it.
 async function serveSnapshots(page: Page, initial: Snapshot): Promise<(next: Snapshot) => Promise<void>> {
   await page.addInitScript((first) => {
-    localStorage.setItem("cfo-first-open", "shown");
-    localStorage.setItem("cfo-chat-style", "classic");
+    localStorage.setItem("ceo-first-open", "shown");
+    localStorage.setItem("ceo-chat-style", "classic");
     class SnapshotSource extends EventTarget {
       private publish = (event: Event) => {
         if (event instanceof CustomEvent) this.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify(event.detail) }));
@@ -32,7 +32,7 @@ for (const workspace of ["Board", "Orchestration"]) {
   // A Codex goblin's Terminal view is its terminal, which a Claude Code
   // goblin's shows only stepped into its messages.
   test(`${workspace} keeps the selected terminal visible when its task moves into retired history`, async ({ page }) => {
-    const snapshot = parseSnapshot({ healthy: true, instance: "ended-board-proof", cfo_runs: true, revision: 1,
+    const snapshot = parseSnapshot({ healthy: true, instance: "ended-board-proof", ceo_runs: true, revision: 1,
       tasks: [{ id: "input-proof", title: "Terminal fixes and handoff", project: "code-goblins", backend: "native", harness: "codex", generation: "s1", session: "claude/9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", phase: "working", verified: false }],
       sessions: [{ id: "claude/9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", native_id: "9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", host_id: "input-proof", role: "goblin", task_id: "input-proof", generation: "s1", harness: "codex", phase: "working" }],
     });
@@ -319,7 +319,7 @@ test("a paused Herdr goblin resumed in the background takes no stream until it i
 for (const backend of ["native", "herdr"] as const) {
   test(`${backend}: a failed resume opens no transport and Resume from the Task view connects only the resumed generation`, async ({ page }) => {
     const lifecycle = { action: "resume", phase: "failed", at: "2026-09-30T09:58:00Z", kept: [], stopped: [], problems: [], handoff_saved: false, validation_kept: false };
-    const snapshot = parseSnapshot({ healthy: true, instance: "resume-proof", cfo_runs: true, revision: 1,
+    const snapshot = parseSnapshot({ healthy: true, instance: "resume-proof", ceo_runs: true, revision: 1,
       tasks: [{ id: "input-proof", title: "Terminal fixes and handoff", project: "code-goblins", backend, harness: "codex", generation: "s2-9d41", queue_revision: "q7", phase: "unavailable", verified: false,
         runtime: { state: "unavailable" }, lifecycle, action_error: "The resumed harness exited before it was ready." }],
       sessions: [],

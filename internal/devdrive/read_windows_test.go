@@ -13,7 +13,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
-// Read works without administrator rights, which `cfo doctor` and the board
+// Read works without administrator rights, which `goblins doctor` and the board
 // have: it names this Windows, the system drive and its file system, and never
 // takes a drive that is not ReFS for a Dev Drive.
 func TestReadReadsThisMachineWithoutAdministratorRights(t *testing.T) {

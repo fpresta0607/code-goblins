@@ -58,7 +58,7 @@ func TestTerminalCSPAllowsColorAttributesWithoutRelaxingScriptsOrStyleElements(t
 		if nonce == "" || !strings.Contains(response.Body.String(), `content="`+nonce+`"`) {
 			t.Fatal("style nonce does not match the document")
 		}
-		if seen[response.Body.String()] || !strings.Contains(response.Body.String(), "cfo-style-nonce") {
+		if seen[response.Body.String()] || !strings.Contains(response.Body.String(), "ceo-style-nonce") {
 			t.Fatal("style nonce missing or reused")
 		}
 		seen[response.Body.String()] = true
@@ -68,7 +68,7 @@ func TestTerminalCSPAllowsColorAttributesWithoutRelaxingScriptsOrStyleElements(t
 func TestRetiredTextCaptureEndpointsAreNotExposed(t *testing.T) {
 	store, _ := testStore(t)
 	handler := NewHTTP(&Service{Store: store}, "board.local", nil)
-	for _, path := range []string{"/api/cfo", "/api/tasks/task-1/terminal"} {
+	for _, path := range []string{"/api/ceo", "/api/tasks/task-1/terminal"} {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequest("GET", "http://board.local"+path, nil))
 		if response.Code != 404 {
@@ -97,7 +97,7 @@ func TestAPIOriginIdempotencySafePathsAndReconnect(t *testing.T) {
 		req, _ := http.NewRequest(method, server.URL+path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Origin", origin)
-		req.Header.Set("X-CFO-Token", token)
+		req.Header.Set("X-CEO-Token", token)
 		if host != "" {
 			req.Host = host
 		}
@@ -121,7 +121,7 @@ func TestAPIOriginIdempotencySafePathsAndReconnect(t *testing.T) {
 	}
 	for _, obsolete := range []string{
 		`{"id":"obsolete-feedback","task_id":"task-1","generation":"g1","kind":"feedback","text":"please inspect"}`,
-		`{"id":"obsolete-message","generation":"g1","kind":"cfo_message","text":"hello"}`,
+		`{"id":"obsolete-message","generation":"g1","kind":"ceo_message","text":"hello"}`,
 	} {
 		code, _ := request("POST", "/api/actions", obsolete, server.URL, s.Instance, "")
 		if code != 409 {
@@ -221,7 +221,7 @@ func TestTheBoardNamesItsBuildInThePageAndTheSnapshot(t *testing.T) {
 	}
 
 	// Assert
-	if snapshot.Build == "" || !strings.Contains(page, `<meta name="cfo-build" content="`+snapshot.Build+`">`) {
+	if snapshot.Build == "" || !strings.Contains(page, `<meta name="ceo-build" content="`+snapshot.Build+`">`) {
 		t.Fatalf("the page and the snapshot name different builds: snapshot %q, page %s", snapshot.Build, page)
 	}
 	if updated.Build == "" || updated.Build == snapshot.Build {

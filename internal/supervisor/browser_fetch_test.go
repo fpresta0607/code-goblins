@@ -100,7 +100,7 @@ func newFetchBoard(t *testing.T, names ...string) *fetchBoard {
 	if len(names) == 0 {
 		names = []string{"STRIPE_TEST_PUBLISHABLE_KEY", "STRIPE_TEST_SECRET_KEY"}
 	}
-	request, err := b.service.acceptCredentialRequest(CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "cfo", Task: "pd-keys", Project: "PrecisionDocs-AI", Names: names, Why: "Charge test cards in the checkout tests", Link: "https://dashboard.stripe.com/test/apikeys"})
+	request, err := b.service.acceptCredentialRequest(CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "ceo", Task: "pd-keys", Project: "PrecisionDocs-AI", Names: names, Why: "Charge test cards in the checkout tests", Link: "https://dashboard.stripe.com/test/apikeys"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func (b *fetchBoard) stored() CredentialRequest {
 }
 
 // leaked names every place outside the vault the page's keys reached: a
-// file of the home, the fetch's answer, or a notice to the CFO.
+// file of the home, the fetch's answer, or a notice to the CEO.
 func (b *fetchBoard) leaked(answers ...any) []string {
 	b.t.Helper()
 	var found []string
@@ -171,7 +171,7 @@ func (b *fetchBoard) leaked(answers ...any) []string {
 		}
 		for _, record := range pending {
 			if strings.Contains(record.Detail, value) {
-				found = append(found, "a notice to the CFO")
+				found = append(found, "a notice to the CEO")
 			}
 		}
 	}
@@ -492,7 +492,7 @@ func TestAFetchRefusesWhatItMustNotReadAndStoresNothing(t *testing.T) {
 // mustAccept files a second request like the board's, as change makes it.
 func mustAccept(b *fetchBoard, change func(*CredentialRequest)) CredentialRequest {
 	b.t.Helper()
-	request := CredentialRequest{ID: "cred-fedcba9876543210", Identity: strings.Repeat("d", 64), By: "cfo", Task: "pd-keys", Project: "PrecisionDocs-AI", Names: []string{"STRIPE_TEST_SECRET_KEY"}, Why: "Charge test cards in the checkout tests", Link: "https://dashboard.stripe.com/test/apikeys"}
+	request := CredentialRequest{ID: "cred-fedcba9876543210", Identity: strings.Repeat("d", 64), By: "ceo", Task: "pd-keys", Project: "PrecisionDocs-AI", Names: []string{"STRIPE_TEST_SECRET_KEY"}, Why: "Charge test cards in the checkout tests", Link: "https://dashboard.stripe.com/test/apikeys"}
 	change(&request)
 	accepted, err := b.service.acceptCredentialRequest(request)
 	if err != nil {

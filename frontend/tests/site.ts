@@ -22,8 +22,8 @@ export const ORIGIN = "http://127.0.0.1:1";
 // chose, where the test saved none of its own, unless chatStyle is null.
 export async function servePages(context: BrowserContext, origin = ORIGIN, hadTour = true, chatStyle: string | null = "modern"): Promise<void> {
   const site = process.env.BOARD_TEST_SITE!;
-  if (hadTour) await context.addInitScript(() => localStorage.setItem("cfo-tour", "seen"));
-  if (chatStyle) await context.addInitScript((style) => { if (location.protocol.startsWith("http") && localStorage.getItem("cfo-chat-style") === null) localStorage.setItem("cfo-chat-style", style); }, chatStyle);
+  if (hadTour) await context.addInitScript(() => localStorage.setItem("ceo-tour", "seen"));
+  if (chatStyle) await context.addInitScript((style) => { if (location.protocol.startsWith("http") && localStorage.getItem("ceo-chat-style") === null) localStorage.setItem("ceo-chat-style", style); }, chatStyle);
   // Chromium fetches an audio worklet's module past these routes, so the
   // capture worklet dictation records through, which the board serves from
   // its own address, is handed to the page from the build as a blob.
@@ -63,7 +63,7 @@ export async function holdStream(page: Page, snapshot: unknown): Promise<void> {
   }, JSON.stringify(snapshot));
 }
 
-// openBoardPastFirstRun opens the board of a home whose CFO never ran, which
+// openBoardPastFirstRun opens the board of a home whose CEO never ran, which
 // shows its first-run page once its first snapshot arrives, and goes on to the
 // board with Board, as the Overlord does. A click before that snapshot only
 // picks the view already shown, and the first-run page then takes the board's
@@ -114,6 +114,32 @@ export async function openItem(page: Page, text: string): Promise<void> {
   await menu.locator(".inbox-list li").filter({ hasText: text }).getByRole("button", { name: /^Answer / }).click();
 }
 
+// openTerminalAddress points at an address a terminal draws, found by its
+// text in the rows xterm's DOM renderer draws in the page, as a person does
+// before a click, clicks it, and returns the tab it opened.
+export async function openTerminalAddress(page: Page, rows: Locator, address: string): Promise<Page> {
+  const point = await rows.evaluate((element, wanted) => {
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const start = node.textContent!.indexOf(wanted);
+      if (start < 0) continue;
+      const range = document.createRange();
+      range.setStart(node, start + 10);
+      range.setEnd(node, start + 11);
+      const box = range.getBoundingClientRect();
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    }
+    return null;
+  }, address);
+  expect(point, "the terminal draws " + address).not.toBeNull();
+  await page.mouse.move(point!.x, point!.y + 60);
+  await page.mouse.move(point!.x, point!.y);
+  await expect(page.locator(".xterm-cursor-pointer")).toHaveCount(1);
+  const [opened] = await Promise.all([page.context().waitForEvent("page"), page.mouse.click(point!.x, point!.y)]);
+  await opened.waitForLoadState();
+  return opened;
+}
+
 // A card that finishes shows its check for three quarters of a second before
 // the Command Center moves on, which a loaded machine can let pass between two
 // looks, so a board's done cards are recorded as they pass, each as its
@@ -148,9 +174,9 @@ export async function roomForATest({ free, limit, pause, ci }: Room = MACHINE): 
 // opens another context serves that one itself. Modern Chat's specs predate
 // Classic as the board's default, so a test's browser chose Modern unless it
 // says otherwise.
-// The board's button to the CFO, named for what it opens in the saved chat
+// The board's button to the CEO, named for what it opens in the saved chat
 // style.
-export const CFO_DOOR = /^Open the CEO's (chat|terminal)$/;
+export const CEO_DOOR = /^Open the CEO's (chat|terminal)$/;
 
 export const test = base.extend<{ room: Room; paced: void; hadTour: boolean; chatStyle: string | null; isSteppedIn: boolean }>({
   room: [MACHINE, { option: true }],

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"html"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -50,7 +51,7 @@ func returnPage(t *testing.T, r Return) (page, words string) {
 // The Overlord, 2026-10-15: "simplify into more of a scrawl based overview
 // on return ... with walkthrough of what changed including what we currently
 // would have in report". The page reads top down: how long he was away and
-// whether anything needs him, what changed by project in the CFO's and the
+// whether anything needs him, what changed by project in the CEO's and the
 // goblins' words with each pull request small beside it, the decisions made
 // for him, what is under way and next, and what was spent.
 func TestTheReturnPageWalksHimThroughTheStretch(t *testing.T) {
@@ -101,7 +102,7 @@ func TestTheReturnPageWalksHimThroughTheStretch(t *testing.T) {
 }
 
 // The return page says where he switched AFK mode in his own words, without
-// what the supervisor names for the CFO: his board, his private board, which
+// what the supervisor names for the CEO: his board, his private board, which
 // turns it off, or his terminal.
 func TestTheReturnPageSaysWhereHeSwitchedItInHisWords(t *testing.T) {
 	for from, want := range map[string]string{
@@ -121,7 +122,7 @@ func TestTheReturnPageSaysWhereHeSwitchedItInHisWords(t *testing.T) {
 
 // Everything the report held is still on the page, a tap away: who switched
 // it, an item that waited on him and was settled, a goblin paused at a floor,
-// a step the CFO settled, a line it struck and what could not be read.
+// a step the CEO settled, a line it struck and what could not be read.
 func TestTheReturnPageKeepsEverythingTheReportHeld(t *testing.T) {
 	// Arrange
 	r := recordedReturn(t)
@@ -135,8 +136,8 @@ func TestTheReturnPageKeepsEverythingTheReportHeld(t *testing.T) {
 		"Turned off from your board",
 		"Which shop plan next month? Settled",
 		"weather-cache: at the memory floor Paused",
-		"Turn on two-factor sign-in for the shop account Settled by the CFO",
-		"Restarted the stuck queue worker Struck by the CFO",
+		"Turn on two-factor sign-in for the shop account Settled by the CEO",
+		"Restarted the stuck queue worker Struck by the CEO",
 		"GitHub did not say whether these pull requests merged",
 	} {
 		if !strings.Contains(words, want) {
@@ -187,7 +188,7 @@ func TestTheReturnPageLeadsWithWhatNeedsHim(t *testing.T) {
 	_, words := returnPage(t, r)
 
 	// Assert
-	for _, want := range []string{"Needs you 2", "The CFO Sign in to the shop once Only you can do this", "The CFO Pick the app's name"} {
+	for _, want := range []string{"Needs you 2", "The CEO Sign in to the shop once Only you can do this", "The CEO Pick the app's name"} {
 		if !strings.Contains(words, want) {
 			t.Errorf("the page reads %q, want it to say %q", words, want)
 		}
@@ -219,14 +220,14 @@ func TestEachItemThatNeedsHimIsTheCommandCentersWaitingRow(t *testing.T) {
 		`<ul class="inbox-list waiting" aria-label="Needs you">`,
 		`<li data-item="question:pick-a-name">`,
 		`<li data-item="run:restart-db">`,
-		`aria-label="Answer The CFO: Pick the app's name"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="` + icons["question"] + `"/>`,
+		`aria-label="Answer The CEO: Pick the app's name"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="` + icons["question"] + `"/>`,
 		`aria-label="Answer Ivy: Restart the dev database"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="` + icons["play"] + `"/>`,
 		`<li data-item="run:update-v1.4.0-0123456789abcdef"><span class="goblin-avatar persona-releases"></span>`,
 		`aria-label="Answer Code Goblins: Update Code Goblins from v1.3.0 to v1.4.0"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14"/>`,
-		// A run the CFO named update- itself is no release update, as the
+		// A run the CEO named update- itself is no release update, as the
 		// Command Center, which reads the run's update, names it too.
-		`<li data-item="run:update-node-1"><span class="goblin-avatar persona-cfo"></span>`,
-		`aria-label="Answer The CFO: Update Node.js to 22"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="` + icons["play"] + `"/>`,
+		`<li data-item="run:update-node-1"><span class="goblin-avatar persona-ceo"></span>`,
+		`aria-label="Answer The CEO: Update Node.js to 22"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="` + icons["play"] + `"/>`,
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the page lacks %q", want)
@@ -315,27 +316,42 @@ func TestTheReturnPageWrapsAndLinksToItsCommandCenterCards(t *testing.T) {
 	}
 }
 
-// A closed issue changed no code, so the return page's changes leave it out
-// while the report still lists it among the goblins that finished.
+// A closed issue, or the report a local-only task kept, changed no code, so
+// the return page's changes leave it out while the report still lists it
+// among the goblins that finished.
 func TestAClosedIssueIsAGoblinFinishedAndNoChangeOnTheReturnPage(t *testing.T) {
-	// Arrange
 	const issue = "https://github.com/example/garden-app/issues/44"
-	r := recordedReturn(t)
-	r.Report.Finished = append(r.Report.Finished, Finish{Task: "garden-issue", Closed: issue, Title: "The garden issue", At: r.Report.Ended})
-	var report bytes.Buffer
+	kept := filepath.Join(`C:\home`, "data", "garden-issue", "report.md")
+	for _, test := range []struct {
+		name   string
+		finish Finish
+		listed string
+	}{
+		{"a closed issue", Finish{Closed: issue}, "- garden-issue: closed " + issue},
+		{"a kept report", Finish{Report: kept}, "- garden-issue: report " + kept},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			r := recordedReturn(t)
+			finish := test.finish
+			finish.Task, finish.Title, finish.At = "garden-issue", "The garden issue", r.Report.Ended
+			r.Report.Finished = append(r.Report.Finished, finish)
+			var report bytes.Buffer
 
-	// Act
-	page, _ := returnPage(t, r)
-	err := Render(&report, r.Report)
+			// Act
+			page, _ := returnPage(t, r)
+			err := Render(&report, r.Report)
 
-	// Assert
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(page, "The garden issue") {
-		t.Errorf("the return page shows the closed issue as a change")
-	}
-	if !strings.Contains(report.String(), "- garden-issue: closed "+issue) {
-		t.Errorf("the report does not list the closed issue:\n%s", report.String())
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(page, "The garden issue") {
+				t.Errorf("the return page shows %s as a change", test.name)
+			}
+			if !strings.Contains(report.String(), test.listed) {
+				t.Errorf("the report does not list %s:\n%s", test.name, report.String())
+			}
+		})
 	}
 }

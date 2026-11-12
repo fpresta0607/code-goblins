@@ -24,9 +24,9 @@ import (
 
 // The Overlord's Home Screen app carries the count of what waits on him on
 // its icon while it is closed, from a push the supervisor sends it with each
-// item newly waiting (CFO decision 1008918: the badge count and his Command
+// item newly waiting (CEO decision 1008918: the badge count and his Command
 // Center items, nothing else). A count that falls is corrected when the app
-// opens (CFO decision 1008953).
+// opens (CEO decision 1008953).
 const (
 	// pushFile keeps the board's VAPID keys and each app that turned its
 	// badge on, in the state folder, readable by its owner alone.

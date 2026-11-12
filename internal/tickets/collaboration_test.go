@@ -115,7 +115,7 @@ func TestCollaborationNamesWhatItCouldNotRead(t *testing.T) {
 	}
 }
 
-func TestPublicTicketsAreAllowedOnlyForARepositoryTheCFOAllowed(t *testing.T) {
+func TestPublicTicketsAreAllowedOnlyForARepositoryTheCEOAllowed(t *testing.T) {
 	// Arrange
 	dir := t.TempDir()
 
@@ -137,11 +137,11 @@ func TestPublicTicketsAreAllowedOnlyForARepositoryTheCFOAllowed(t *testing.T) {
 }
 
 func TestRecordNamesTheHarnessItsLabelsCarry(t *testing.T) {
-	record := Record{Labels: []string{"cfo: pr open", "goblin: codex"}}
+	record := Record{Labels: []string{"ceo: pr open", "goblin: codex"}}
 	if got := record.Harness(); got != "codex" {
 		t.Fatalf("harness = %q, want codex", got)
 	}
-	if got := (Record{Labels: []string{"cfo: queued"}}).Harness(); got != "" {
+	if got := (Record{Labels: []string{"ceo: queued"}}).Harness(); got != "" {
 		t.Fatalf("harness = %q, want none for a ticket nobody worked", got)
 	}
 }
@@ -154,7 +154,7 @@ func TestShouldBackOffReadsGitHubsRefusals(t *testing.T) {
 	for _, tc := range cases {
 		issue := "repos/" + northwind + "/issues/501"
 		gh := &issueGitHub{failures: map[string]int{"PATCH " + issue: tc.status, "GET repos/" + northwind: tc.status}}
-		_, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, openedRecord(InProgress, "cfo: in progress", "goblin: claude"), Ticket{TaskID: "nw-sync", State: Paused, Harness: "claude"}, nil)
+		_, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, openedRecord(InProgress, "ceo: in progress", "goblin: claude"), Ticket{TaskID: "nw-sync", State: Paused, Harness: "claude"}, nil)
 		if got := ShouldBackOff(err); got != tc.want {
 			t.Fatalf("status %d: back off = %v (err %v), want %v", tc.status, got, err, tc.want)
 		}

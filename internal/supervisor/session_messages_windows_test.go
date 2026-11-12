@@ -34,7 +34,7 @@ func appendEntries(t *testing.T, path string, entries ...string) {
 }
 
 // The board reads a Claude Code session as messages, a task's goblin of the
-// generation it names or the CFO in the terminal it names, only with the
+// generation it names or the CEO in the terminal it names, only with the
 // board's token: a page at a time, a picture a message holds, and a stream
 // that follows the conversation as Claude Code writes it and ends once the
 // task restarted.
@@ -50,10 +50,10 @@ func TestMessagesServeASessionsConversation(t *testing.T) {
 		`{"type":"user","uuid":"u1","timestamp":"`+stamp+`","message":{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"`+picture+`"}},{"type":"text","text":"Why is the card red?"}]}}`,
 		`{"type":"assistant","uuid":"a1","timestamp":"`+stamp+`","message":{"id":"msg_1","model":"claude-opus-5-5","role":"assistant","content":[{"type":"text","text":"Its gate failed."}]}}`)
 	quiet := treeGoblin(t, h.State, userHome, "quiet", false)
-	registerNativeCFO(t, h.State, "claude", "cfo-conversation")
-	writeFile(t, filepath.Join(cfoConversationFile(userHome, h.Root), "cfo-conversation.jsonl"),
-		`{"type":"user","uuid":"c1","timestamp":"`+stamp+`","message":{"role":"user","content":"User answer to CFO question q-1. Question: Ship it? Answer: Yes"}}`+"\n")
-	writeFile(t, filepath.Join(cfoConversationFile(userHome, h.Root), "cfo-cleared.jsonl"),
+	registerNativeCEO(t, h.State, "claude", "ceo-conversation")
+	writeFile(t, filepath.Join(ceoConversationFile(userHome, h.Root), "ceo-conversation.jsonl"),
+		`{"type":"user","uuid":"c1","timestamp":"`+stamp+`","message":{"role":"user","content":"User answer to CEO question q-1. Question: Ship it? Answer: Yes"}}`+"\n")
+	writeFile(t, filepath.Join(ceoConversationFile(userHome, h.Root), "ceo-cleared.jsonl"),
 		`{"type":"user","uuid":"c2","timestamp":"`+stamp+`","message":{"role":"user","content":"Start over on the board"}}`+"\n")
 	service := &Service{Store: store, Instance: "board-token", Options: Options{Tree: &fleettree.Reader{Home: userHome}}}
 	// The board's read of the goblin's tree keeps the conversation its
@@ -80,7 +80,7 @@ func TestMessagesServeASessionsConversation(t *testing.T) {
 	}{
 		{"a task's newest page", task, []string{"@0", "u1", "msg_1"}, false},
 		{"the page before a message", task + "&before=1&conversation=" + url.QueryEscape(initial.Conversation), []string{"@0"}, false},
-		{"the CFO's newest page", "cfo=cfo&token=board-token", []string{"c1"}, false},
+		{"the CEO's newest page", "ceo=ceo&token=board-token", []string{"c1"}, false},
 		{"a session that has written nothing yet", "task=" + quiet.ID + "&generation=" + quiet.SpawnGen + "&token=board-token", nil, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -135,7 +135,7 @@ func TestMessagesServeASessionsConversation(t *testing.T) {
 		{"no session named", "token=board-token", 400},
 		{"an invalid task", "task=" + url.QueryEscape(`..\x`) + "&generation=g1&token=board-token", 400},
 		{"a Codex task", "task=task-1&generation=g1&token=board-token", 404},
-		{"the CFO in another terminal", "cfo=elsewhere&token=board-token", 409},
+		{"the CEO in another terminal", "ceo=elsewhere&token=board-token", 409},
 		{"a page before no message", task + "&before=first", 400},
 		{"a picture no message holds", task + "&picture=9&conversation=" + url.QueryEscape(initial.Conversation), 404},
 	} {
@@ -196,20 +196,20 @@ func TestMessagesServeASessionsConversation(t *testing.T) {
 			t.Fatalf("stream sent no %s event with %q: %v", event, want, scanner.Err())
 		}
 	}
-	t.Run("the CFO's stream follows it to another conversation", func(t *testing.T) {
-		read := stream(t, "cfo=cfo&token=board-token")
+	t.Run("the CEO's stream follows it to another conversation", func(t *testing.T) {
+		read := stream(t, "ceo=ceo&token=board-token")
 
 		// Act and Assert
 		read("page", `"id":"c1"`)
-		cleared, err := json.Marshal(CFOConversation{Harness: "claude", Session: "cfo-cleared", Host: NativeCFOTerminal, PID: os.Getpid(), Updated: time.Now().UTC()})
+		cleared, err := json.Marshal(CEOConversation{Harness: "claude", Session: "ceo-cleared", Host: NativeCEOTerminal, PID: os.Getpid(), Updated: time.Now().UTC()})
 		if err != nil {
 			t.Fatal(err)
 		}
-		writeFile(t, cfoConversationPath(h.State), string(cleared))
+		writeFile(t, ceoConversationPath(h.State), string(cleared))
 		read("page", `"id":"c2"`)
 	})
 	t.Run("a stream with nothing new says it is still there", func(t *testing.T) {
-		read := stream(t, "cfo=cfo&token=board-token")
+		read := stream(t, "ceo=ceo&token=board-token")
 
 		// Act and Assert: a board that hears nothing for longer knows the
 		// stream stalled.

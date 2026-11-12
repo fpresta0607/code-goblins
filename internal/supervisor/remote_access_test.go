@@ -72,7 +72,7 @@ func TestRemoteBoardPreservesTokenAndPCOnlySettingsChecks(t *testing.T) {
 		r.Header.Set("Origin", "https://pc.example.ts.net:4311")
 		r.Header.Set("Tailscale-User-Login", "owner@example.com")
 		r.Header.Set("Content-Type", "application/json")
-		r.Header.Set("X-CFO-Token", tc.token)
+		r.Header.Set("X-CEO-Token", tc.token)
 		w := httptest.NewRecorder()
 		gate.ServeHTTP(w, r)
 		if w.Code != tc.want {
@@ -98,7 +98,7 @@ func TestRemoteOffFinishesProxyCleanupAfterItsRequestIsRevoked(t *testing.T) {
 	r.Header.Set("Origin", "https://pc.example.ts.net:4311")
 	r.Header.Set("Tailscale-User-Login", "owner@example.com")
 	r.Header.Set("Content-Type", "application/json")
-	r.Header.Set("X-CFO-Token", "instance")
+	r.Header.Set("X-CEO-Token", "instance")
 	w := httptest.NewRecorder()
 	gate.ServeHTTP(w, r)
 	if w.Code != 200 || commands.config != "{}" {
@@ -134,7 +134,7 @@ func TestScrawlSwitchTurnsOffFromAPhoneAndOnOnlyOnThisPC(t *testing.T) {
 		r.Header.Set("Origin", "https://pc.example.ts.net:4311")
 		r.Header.Set("Tailscale-User-Login", "owner@example.com")
 		r.Header.Set("Content-Type", "application/json")
-		r.Header.Set("X-CFO-Token", "instance")
+		r.Header.Set("X-CEO-Token", "instance")
 		w := httptest.NewRecorder()
 
 		// Act
@@ -172,7 +172,7 @@ func TestScrawlOffFromAPhoneFinishesAfterItsRequestIsRevoked(t *testing.T) {
 	r.Header.Set("Origin", "https://pc.example.ts.net:4311")
 	r.Header.Set("Tailscale-User-Login", "owner@example.com")
 	r.Header.Set("Content-Type", "application/json")
-	r.Header.Set("X-CFO-Token", "instance")
+	r.Header.Set("X-CEO-Token", "instance")
 	w := httptest.NewRecorder()
 
 	// Act
@@ -244,7 +244,7 @@ func TestPrivateBoardDictatesOnThisPCsEngine(t *testing.T) {
 			r.Header.Set("Origin", "https://pc.example.ts.net:4311")
 			r.Header.Set("Tailscale-User-Login", tc.login)
 			r.Header.Set("Content-Type", "audio/wav")
-			r.Header.Set("X-CFO-Token", "instance")
+			r.Header.Set("X-CEO-Token", "instance")
 			w := httptest.NewRecorder()
 
 			// Act

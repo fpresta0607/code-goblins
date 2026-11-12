@@ -6,9 +6,9 @@ import { parseSnapshot, type Afk, type AfkHeld } from "./types.ts";
 const NOW = Date.parse("2026-10-02T12:31:00Z");
 const held = (changes: Partial<AfkHeld> = {}): AfkHeld => ({ item: "question:drop-legacy-invoices", task: "", what: "Migration 0042 drops legacy_invoices. Apply it?", at: "2026-10-02T03:05:00Z", waiting: true, now: "still waiting on you", meanwhile: "", recommendation: "", settled: "", ...changes });
 const afk = (changes: Partial<Afk> = {}): Afk => ({ state: "on", since: "2026-10-02T02:10:00Z", from: "his own board (goblins-window.exe pid 4242)", asked: "", decided: 0, held: [], page: "", ...changes });
-// AFK mode as the CFO turned it on at his ask.
+// AFK mode as the CEO turned it on at his ask.
 const ASKED = "I'm stepping away, turn AFK on";
-const BY_THE_CFO = { from: "the CFO at his ask (claude pid 4242)", asked: ASKED };
+const BY_THE_CEO = { from: "the CEO at his ask (claude pid 4242)", asked: ASKED };
 const snapshot = (value: Record<string, unknown> = {}) => parseSnapshot({ healthy: true, instance: "fixture", ...value });
 
 test("a supervisor from before AFK mode reached the board reads as off, and one that sends it is read whole", () => {
@@ -18,7 +18,7 @@ test("a supervisor from before AFK mode reached the board reads as off, and one 
       { item: "run:restart-db", task: "", what: "Restart the dev database", at: "2026-10-02T04:00:00Z", waiting: false, now: "succeeded", meanwhile: "", recommendation: "", settled: "" },
       { item: "question:drop-legacy-invoices", task: "", what: "Apply it?", at: "2026-10-02T04:01:00Z", waiting: true, now: "still waiting on you", meanwhile: "", recommendation: "Keep it held", settled: "" },
     ], page: "" });
-  assert.equal(snapshot({ afk: { state: "on", since: "2026-10-02T02:10:00Z", ...BY_THE_CFO } }).afk.asked, ASKED);
+  assert.equal(snapshot({ afk: { state: "on", since: "2026-10-02T02:10:00Z", ...BY_THE_CEO } }).afk.asked, ASKED);
   assert.equal(snapshot({ afk: { state: "off", page: "http://127.0.0.1:4387/session/afk" } }).afk.page, "http://127.0.0.1:4387/session/afk");
 });
 
@@ -27,11 +27,11 @@ test("a state the board does not know stops the board rather than read as off", 
   assert.throws(() => snapshot({ afk: { state: "on", held: [{ item: "question:q", waiting: "yes" }] } }), /Invalid response boolean/);
 });
 
-test("the bar says since when AFK mode is on, who turned it on and how much the CFO decided, and nothing of what is held, since nothing is held for him", () => {
+test("the bar says since when AFK mode is on, who turned it on and how much the CEO decided, and nothing of what is held, since nothing is held for him", () => {
   const cases: [string, Afk, string][] = [
     ["off says nothing", afk({ state: "off", since: "" }), ""],
     ["on with nothing yet", afk(), "AFK since 2:10 AM, from your board. 0 decided."],
-    ["on by the CEO at his ask, without his words, which the offer and his page of the stretch quote", afk({ ...BY_THE_CFO, decided: 1 }), "AFK since 2:10 AM, turned on by the CEO at your ask. 1 decided."],
+    ["on by the CEO at his ask, without his words, which the offer and his page of the stretch quote", afk({ ...BY_THE_CEO, decided: 1 }), "AFK since 2:10 AM, turned on by the CEO at your ask. 1 decided."],
     ["on from his terminal, whatever waits", afk({ from: "his own terminal (powershell.exe pid 5151)", decided: 4, held: [held(), held({ item: "run:restart-db", waiting: false, now: "succeeded" }), held({ item: "review:waiting-task-1-7", task: "task-1" })] }), "AFK since 2:10 AM, from your terminal. 4 decided."],
     ["on with no word of where", afk({ from: "" }), "AFK since 2:10 AM. 0 decided."],
     ["a switch that cannot be read is not taken for on", afk({ state: "unreadable", since: "" }), ""],
@@ -62,24 +62,24 @@ test("a click or key is the Overlord coming back only after the board saw none f
   for (const [name, value, lastTouch, now, want] of cases) assert.equal(offerFor(value, lastTouch, now), want, name);
 });
 
-test("his first click or key after the CFO turned AFK mode on at his ask offers the switch back at once, and the next waits as usual", () => {
+test("his first click or key after the CEO turned AFK mode on at his ask offers the switch back at once, and the next waits as usual", () => {
   const on = Date.parse("2026-10-02T02:10:00Z");
   const cases: [string, Afk, number, number, Occasion][] = [
-    ["his first click a moment after the CEO's switch", afk(BY_THE_CFO), 0, on + 20_000, "asked"],
-    ["his first since the switch, after one of his from before it", afk(BY_THE_CFO), on - 60_000, on + 20_000, "asked"],
-    ["his next click, a moment after his first", afk(BY_THE_CFO), on + 20_000, on + 60_000, ""],
-    ["his first click hours after the CEO's switch is his coming back", afk(BY_THE_CFO), 0, NOW, "back"],
+    ["his first click a moment after the CEO's switch", afk(BY_THE_CEO), 0, on + 20_000, "asked"],
+    ["his first since the switch, after one of his from before it", afk(BY_THE_CEO), on - 60_000, on + 20_000, "asked"],
+    ["his next click, a moment after his first", afk(BY_THE_CEO), on + 20_000, on + 60_000, ""],
+    ["his first click hours after the CEO's switch is his coming back", afk(BY_THE_CEO), 0, NOW, "back"],
     ["a switch he made himself waits as usual", afk(), 0, on + 20_000, ""],
-    ["off", afk({ ...BY_THE_CFO, state: "off", since: "" }), 0, on + 20_000, ""],
+    ["off", afk({ ...BY_THE_CEO, state: "off", since: "" }), 0, on + 20_000, ""],
   ];
   for (const [name, value, lastTouch, now, want] of cases) assert.equal(offerFor(value, lastTouch, now), want, name);
 });
 
-test("who made a switch is said to the Overlord: his own board, private board or terminal without what the supervisor names for the CFO, or the CFO at his ask with his words", () => {
+test("who made a switch is said to the Overlord: his own board, private board or terminal without what the supervisor names for the CEO, or the CEO at his ask with his words", () => {
   assert.equal(switchedBy("his own board (goblins-window.exe pid 4242)", ""), "from your board");
   assert.equal(switchedBy("his own private board (by Tailscale's headers, which a program on this PC can forge)", ""), "from your private board");
   assert.equal(switchedBy("his own terminal (powershell.exe pid 5151)", ""), "from your terminal");
   assert.equal(switchedBy("the board", ""), "from the board");
   assert.equal(switchedBy("", ""), "");
-  assert.equal(switchedBy(BY_THE_CFO.from, ASKED), "by the CEO at your ask: “I'm stepping away, turn AFK on”");
+  assert.equal(switchedBy(BY_THE_CEO.from, ASKED), "by the CEO at your ask: “I'm stepping away, turn AFK on”");
 });

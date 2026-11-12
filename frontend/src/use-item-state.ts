@@ -5,7 +5,7 @@ import { object, string, type Snapshot } from "./types";
 
 // The channel on which the boards open in one browser tell each other what
 // the Overlord sent, so each closes the item in the same frame.
-const CHANNEL = "cfo-command-center-sent";
+const CHANNEL = "ceo-command-center-sent";
 // How many sends a board remembers, newest last.
 const SENT_LIMIT = 200;
 

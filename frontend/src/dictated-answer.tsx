@@ -12,7 +12,7 @@ import "./dictated-answer.css";
 
 // The files a written answer carries: the paths the board kept them at, how
 // many it is still keeping, which Send waits for, and the task whose goblin
-// reads them, none for the CFO. Each change goes through a function of what
+// reads them, none for the CEO. Each change goes through a function of what
 // the answer holds by then, since a file is kept after its upload ends.
 export interface AnswerFiles {
   paths: string[]; adding: number; task?: string;

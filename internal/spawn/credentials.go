@@ -158,7 +158,7 @@ func mcpHeldLine(task string, held []string) string {
 	if len(held) == 1 {
 		servers = "server"
 	}
-	return fmt.Sprintf("mcp: withheld %d %s whose entry holds a value (%s), grant one with `cfo auth grant %s --mcp <server>`", len(held), servers, strings.Join(held, ", "), task)
+	return fmt.Sprintf("mcp: withheld %d %s whose entry holds a value (%s), grant one with `goblins auth grant %s --mcp <server>`", len(held), servers, strings.Join(held, ", "), task)
 }
 
 // mcpTakenLine says what a relaunch took from a task: MCP servers its last
@@ -207,5 +207,5 @@ func credentialsInstruction(project string, grant auth.Grant) string {
 		carried = "the credentials of these services of " + auth.ProjectName(project) + ": " + strings.Join(grant.Services, ", ")
 	}
 	return " Your terminal carries " + carried + ", and of no other." +
-		" When your task needs another declared service, file cfo auth request --project <project> --task <your-task-id> --grant <service> --why \"<why you need it>\" --wait: the Overlord grants or denies it on its Command Center card. Never grant it yourself, and never ask for a value. Once granted, re-source your auth.ps1."
+		" When your task needs another declared service, file goblins auth request --project <project> --task <your-task-id> --grant <service> --why \"<why you need it>\" --wait: the Overlord grants or denies it on its Command Center card. Never grant it yourself, and never ask for a value. Once granted, re-source your auth.ps1."
 }

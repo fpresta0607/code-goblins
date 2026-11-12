@@ -70,7 +70,7 @@ func renderContainers(out *writer, report Report) {
 		out.line("")
 		out.line("Evidence: " + text(stack.Owner.Evidence))
 		if stack.Owner.Reap {
-			out.line("Retire with: `cfo reap` (it already refuses to kill what is still working)")
+			out.line("Retire with: `goblins reap` (it already refuses to kill what is still working)")
 		}
 		out.line("")
 		out.line("| Container | Image | State | Since | Restarts | Ports |")
@@ -98,8 +98,8 @@ func renderContainers(out *writer, report Report) {
 	renderLooseVolumes(out, report.LooseVolumes)
 }
 
-// renderServices is each stack cfo services holds for tasks: who holds it,
-// what cfo started of it, which a release stops, and the memory it was
+// renderServices is each stack goblins services holds for tasks: who holds it,
+// what goblins started of it, which a release stops, and the memory it was
 // measured to take.
 func renderServices(out *writer, report Report) {
 	out.line("")
@@ -107,10 +107,10 @@ func renderServices(out *writer, report Report) {
 	out.line("")
 	stacks := report.Services.Sorted()
 	if len(stacks) == 0 {
-		out.line("No local services are held. `cfo services up <project> --task <id>` starts a project's for a task.")
+		out.line("No local services are held. `goblins services up <project> --task <id>` starts a project's for a task.")
 		return
 	}
-	out.line("| Project | State | Held by | cfo started | Memory |")
+	out.line("| Project | State | Held by | goblins started | Memory |")
 	out.line("| --- | --- | --- | --- | --- |")
 	for _, stack := range stacks {
 		state, holders, started := "down", "nobody", "-"
@@ -132,9 +132,9 @@ func renderServices(out *writer, report Report) {
 		}
 		out.row(stack.Project, state, holders, started, memory)
 	}
-	if engine := report.Services.Engine; engine.StartedByCFO {
+	if engine := report.Services.Engine; engine.StartedByCEO {
 		out.line("")
-		out.line("cfo started the Docker engine at " + stamp(engine.Since) + " for these stacks, and stops it once none of them runs.")
+		out.line("goblins started the Docker engine at " + stamp(engine.Since) + " for these stacks, and stops it once none of them runs.")
 	}
 }
 
@@ -186,7 +186,7 @@ func renderServers(out *writer, report Report) {
 	}
 	if safe := countSafe(report.Servers); safe > 0 {
 		out.line("")
-		out.line(fmt.Sprintf("%d server(s) are safe to stop. `cfo reap` owns retiring them; this command only reports.", safe))
+		out.line(fmt.Sprintf("%d server(s) are safe to stop. `goblins reap` owns retiring them; this command only reports.", safe))
 	}
 	renderFolded(out, report.Folded)
 }
@@ -390,7 +390,7 @@ func dash(value string) string {
 	return value
 }
 
-// renderStorage is what the CFO home holds on disk, by bucket, beside
+// renderStorage is what the CEO home holds on disk, by bucket, beside
 // Docker's share, and what the janitor last did.
 func renderStorage(out *writer, report Report) {
 	storage := report.Storage
@@ -419,6 +419,14 @@ func renderStorage(out *writer, report Report) {
 	} else {
 		out.row("the verification store at "+storage.VerificationStore, Bytes(storage.Verification))
 	}
+	// The gate's home is outside the home too, and walking it takes minutes,
+	// so it is what the janitor's last sweep measured.
+	sweep := report.Janitor
+	if sweep == nil || sweep.Gate == nil {
+		out.row("the gate's home", "not measured yet; the janitor's hourly sweep measures it")
+	} else {
+		out.row("the gate's home at "+strings.Join(sweep.Gate.Folders, " and ")+", as the janitor measured it at "+stamp(sweep.Time), Bytes(sweep.Gate.Bytes))
+	}
 	out.row("Docker's share", Bytes(report.Headroom.DockerTotal()))
 	out.line("")
 	var partial []string
@@ -437,6 +445,19 @@ func renderStorage(out *writer, report Report) {
 	if isStorePartial {
 		out.line("Some of the verification store could not be read, so it holds at least the size shown.")
 		out.line("")
+	}
+	if sweep != nil && sweep.Gate != nil && sweep.Gate.IsIncomplete {
+		out.line("Some of the gate's home could not be read, so it holds at least the size shown.")
+		out.line("")
+	}
+	if filing := report.Filing; filing == nil {
+		out.line("The home's data has not been filed yet; the supervisor files a laid-out home's data every ten minutes.")
+	} else {
+		out.line(fmt.Sprintf("The home's data was last filed at %s: %d folder(s) filed, %d finished or stale folder(s) wait for a later pass.",
+			filing.Time.Format(time.RFC3339), filing.Filed, filing.Waiting))
+		if filing.Error != "" {
+			out.line("- could not file: " + text(filing.Error))
+		}
 	}
 	if report.Janitor == nil {
 		out.line("The janitor has not swept this home yet; the watcher's sweep runs it every hour.")

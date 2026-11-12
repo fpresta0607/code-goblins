@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { CHAT_STYLE_KEY, cfoDoor, chatStyle, saveChatStyle, storedChatStyle } from "./chat-style.ts";
+import { CHAT_STYLE_KEY, ceoDoor, chatStyle, saveChatStyle, storedChatStyle } from "./chat-style.ts";
 
 // A store standing in for the browser's, so the preference can be read and
 // written without one.
@@ -18,10 +18,10 @@ test("a saved chat style reads as Modern only when it says Modern", () => {
   assert.equal(chatStyle("anything else"), "classic");
 });
 
-test("the button to the CFO says and shows what it opens", () => {
-  assert.deepEqual(cfoDoor("modern", true), { label: "Open the CEO's chat", icon: "comment" });
+test("the button to the CEO says and shows what it opens", () => {
+  assert.deepEqual(ceoDoor("modern", true), { label: "Open the CEO's chat", icon: "comment" });
   for (const [style, hasMessages] of [["modern", false], ["classic", true], ["classic", false]] as const) {
-    assert.deepEqual(cfoDoor(style, hasMessages), { label: "Open the CEO's terminal", icon: "terminal" });
+    assert.deepEqual(ceoDoor(style, hasMessages), { label: "Open the CEO's terminal", icon: "terminal" });
   }
 });
 

@@ -42,8 +42,8 @@ func configureSubagents(launch Launch, kind Kind, spec LaunchSpec) (Launch, erro
 			launch.SubagentInstruction += fmt.Sprintf(" For %s work use spawn_agent with model %s, reasoning_effort %s and fork_turns none.", job, lane.Model, lane.Effort)
 			continue
 		}
-		path := filepath.Join(directory, ".claude", "agents", "cfo-"+role+".md")
-		content := fmt.Sprintf("---\nname: cfo-%s\ndescription: %s\nmodel: %s\neffort: %s\n---\n%s\n", role, strconv.Quote(description), strconv.Quote(lane.Model), strconv.Quote(lane.Effort), description)
+		path := filepath.Join(directory, ".claude", "agents", "ceo-"+role+".md")
+		content := fmt.Sprintf("---\nname: ceo-%s\ndescription: %s\nmodel: %s\neffort: %s\n---\n%s\n", role, strconv.Quote(description), strconv.Quote(lane.Model), strconv.Quote(lane.Effort), description)
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			return Launch{}, err
 		}
@@ -53,7 +53,7 @@ func configureSubagents(launch Launch, kind Kind, spec LaunchSpec) (Launch, erro
 	}
 	if kind == Claude {
 		launch.Args = append(launch.Args, "--add-dir", directory)
-		launch.SubagentInstruction = " Use cfo-search for search, reading and summaries, cfo-review for review, and cfo-verify for verification. Keep their configured models."
+		launch.SubagentInstruction = " Use ceo-search for search, reading and summaries, ceo-review for review, and ceo-verify for verification. Keep their configured models."
 	} else {
 		search := spec.Subagents["search"]
 		launch.Args = append(launch.Args, "-c", "agents.default_subagent_model="+search.Model, "-c", "agents.default_subagent_reasoning_effort="+search.Effort)

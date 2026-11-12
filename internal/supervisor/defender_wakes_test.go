@@ -25,11 +25,11 @@ func (records *defenderRecords) read(_ context.Context, since time.Time) (defend
 }
 
 // A detection or an upload Defender records under the fleet's folders reaches
-// the CFO as one wake, naming the file and the test and task that made it,
+// the CEO as one wake, naming the file and the test and task that made it,
 // and never the Overlord as a notice of his own to read alone. What Defender
 // recorded before the supervisor first looked raises nothing, and nothing is
 // told twice, however often it is read.
-func TestEachNewDefenderRecordWakesTheCFOOnce(t *testing.T) {
+func TestEachNewDefenderRecordWakesTheCEOOnce(t *testing.T) {
 	// Arrange
 	s, h := fleetService(t)
 	records := &defenderRecords{}
@@ -38,7 +38,7 @@ func TestEachNewDefenderRecordWakesTheCFOOnce(t *testing.T) {
 	// The detected file is in a test's temporary folder on another drive,
 	// so what its path says of who made it does not depend on where this
 	// test runs. The uploaded one is in the home.
-	made := `X:\CodeGoblins\scratch\cg-auth-probe-hang\TestOneLineInstallKeepsANoMistakesAtThePin67573441\003\cfo.exe.download`
+	made := `X:\CodeGoblins\scratch\cg-auth-probe-hang\TestOneLineInstallKeepsANoMistakesAtThePin67573441\003\goblins.exe.download`
 	script := filepath.Join(h.Root, "candidates", "cand-v0.5.14", "install.ps1")
 	check := func(after time.Duration) int {
 		t.Helper()
@@ -74,7 +74,7 @@ func TestEachNewDefenderRecordWakesTheCFOOnce(t *testing.T) {
 	}
 	wakes := fleetWakeRecords(t, h, "check")
 	detected, sent := wakes[len(wakes)-2].Detail, wakes[len(wakes)-1].Detail
-	for _, want := range []string{"defender_detection:", "Trojan:Win32/Bearfoos.B!ml", made, "test TestOneLineInstallKeepsANoMistakesAtThePin of task cg-auth-probe-hang", "cfo defender --since"} {
+	for _, want := range []string{"defender_detection:", "Trojan:Win32/Bearfoos.B!ml", made, "test TestOneLineInstallKeepsANoMistakesAtThePin of task cg-auth-probe-hang", "goblins defender --since"} {
 		if !strings.Contains(detected, want) {
 			t.Errorf("the detection's wake lacks %q:\n%s", want, detected)
 		}

@@ -105,7 +105,7 @@ func TestStopQueuedKeepsTheTaskBrief(t *testing.T) {
 		want                     []string
 	}{
 		{name: "missing brief", want: []string{"## Project\n\nexample", "Fix login", "First detail line.\nSecond detail line."}},
-		{name: "existing brief", existing: "# Brief task\n\nThe CFO's own brief.\n", want: []string{"# Brief task\n\nThe CFO's own brief.\n"}},
+		{name: "existing brief", existing: "# Brief task\n\nThe CEO's own brief.\n", want: []string{"# Brief task\n\nThe CEO's own brief.\n"}},
 		{name: "existing brief with malformed manifest", existing: "# Brief task\r\n\r\n## Authentication\r\ncredentials: github\r\nmcp: none\r\n## Delivery\r\nmode: local-only\r\nharness: codex\r\nmodel: chosen-model\r\neffort: high\r\nclass: high-risk\r\nready: false\r\n", manifest: "{invalid"},
 	} {
 		t.Run(test.name, func(t *testing.T) {

@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from "react";
-import { message, reportToCfo, request } from "./api";
+import { message, reportToCeo, request } from "./api";
 import { array, object, string, strings } from "./types";
 
 export interface EngineSelection { harness: string; model: string; effort: string }
@@ -21,7 +21,7 @@ export function parseEngineCatalog(value: unknown): EngineHarness[] {
 // with what it lists: the server reads the catalog from each harness's own
 // files and programs, which takes a second or two (the Overlord, 2026-10-28:
 // "open model modal with effort takes a second or two to load"). A catalog
-// that could not be read goes to the CFO, as the board's errors do, and is
+// that could not be read goes to the CEO, as the board's errors do, and is
 // read again by the next box shown or pane opened, or by Retry.
 let catalog: { data?: EngineHarness[]; error?: string } = {};
 let isReading = false;
@@ -43,7 +43,7 @@ const readCatalog = () => {
     settle({ data });
   }, (error: unknown) => {
     isReading = false;
-    reportToCfo("the harnesses' models", message(error));
+    reportToCeo("the harnesses' models", message(error));
     settle({ error: message(error) });
   });
 };

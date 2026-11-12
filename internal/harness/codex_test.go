@@ -81,7 +81,7 @@ func TestCodexBuildsStructuredLaunchWithoutBashNotify(t *testing.T) {
 	}
 	assertLaunch(t, defaults, Launch{
 		Args:       []string{"--no-daemon", "--dangerously-bypass-approvals-and-sandbox", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false", "-c", "tui.copy_on_select=always"},
-		Env:        map[string]string{"CFO_ROLE": RoleGoblin, "GOTMPDIR": `C:\gotmp\task`, "TEMP": `C:\gotmp\task`, "TMP": `C:\gotmp\.tmp`, "TMPDIR": `C:\gotmp\task`},
+		Env:        map[string]string{"GOBLINS_ROLE": RoleGoblin, "GOTMPDIR": `C:\gotmp\task`, "TEMP": `C:\gotmp\task`, "TMP": `C:\gotmp\.tmp`, "TMPDIR": `C:\gotmp\task`},
 		PromptFile: `C:\briefs\task.md`,
 		Executable: "codex",
 	})
@@ -176,11 +176,11 @@ func TestCodexStartsWithItsAnimationsOff(t *testing.T) {
 
 // A Codex CLI that joins the shared background app-server runs the commands
 // its model asks for under that detached process, so a goblin's tools and a
-// CFO's cfo commands are children of it instead of the terminal the fleet
+// CEO's goblins commands are children of it instead of the terminal the fleet
 // started. Custody is proved by a process's ancestry under the terminal's own
 // program, or by the terminal's proof value, and a process under the shared
-// server has neither: on 2026-10-16 a CFO's registration was refused for
-// hours while every cfo command it ran descended from a shared app-server an
+// server has neither: on 2026-10-16 a CEO's registration was refused for
+// hours while every goblins command it ran descended from a shared app-server an
 // earlier session had left running. Codex CLI 0.160.0 lists --no-daemon in
 // its help, which runs it without the shared background server even while
 // one is already running, so each launch keeps its own server under its own
@@ -224,7 +224,7 @@ func TestCodexStartsWithoutTheSharedBackgroundServer(t *testing.T) {
 	}
 }
 
-// The CFO's Codex is asked the same help as a goblin's, so it starts without
+// The CEO's Codex is asked the same help as a goblin's, so it starts without
 // the shared background server exactly where a goblin's would.
 func TestCodexNoDaemonArgsFollowTheHelpOfTheCodexOnPath(t *testing.T) {
 	for _, test := range []struct {
@@ -255,7 +255,7 @@ func TestCodexNoDaemonArgsFollowTheHelpOfTheCodexOnPath(t *testing.T) {
 }
 
 // A codex that does not answer its help is not started with arguments guessed
-// for it: the CFO's start reports why instead.
+// for it: the CEO's start reports why instead.
 func TestCodexNoDaemonArgsRefuseACodexThatDoesNotAnswerItsHelp(t *testing.T) {
 	// Arrange
 	runner := &fakeRunner{run: func(execx.Request) (execx.Result, error) {
@@ -276,7 +276,7 @@ func TestCodexNoDaemonArgsRefuseACodexThatDoesNotAnswerItsHelp(t *testing.T) {
 // conversation drew its input line at the top. Inline, Codex's footer is
 // output that scrolls away with the history, and its composer sits under the
 // last line it drew, at the top of a screen it just cleared. In its own full
-// screen, as Claude Code's for the CFO, Codex keeps its composer and footer
+// screen, as Claude Code's for the CEO, Codex keeps its composer and footer
 // on the bottom rows and scrolls its transcript above them itself.
 func TestCodexDrawsItsOwnFullScreenSoItsInputLineAndFooterStayAtTheBottom(t *testing.T) {
 	adapter, err := DefaultRegistry().Get(Codex)
@@ -338,7 +338,7 @@ func TestCodexStartsNoneOfTheOperatorsMCPServers(t *testing.T) {
 // overrides that turn the operator's MCP servers off.
 func TestCodexCarriesItsNativeSessionHooks(t *testing.T) {
 	adapter, _ := DefaultRegistry().Get(Codex)
-	hooks := []string{"--enable", "hooks", "-c", "hooks.Stop=[{hooks=[{type='command',command='C:/cfo.exe native-hook codex',timeout=3}]}]"}
+	hooks := []string{"--enable", "hooks", "-c", "hooks.Stop=[{hooks=[{type='command',command='C:/goblins.exe native-hook codex',timeout=3}]}]"}
 
 	launch, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`, CodexMCPServers: []string{"qdrant"}, CodexHooks: hooks})
 
@@ -467,7 +467,7 @@ func TestCodexHooksListsTheCommandHooksASessionLoads(t *testing.T) {
 	home, project, worktree := t.TempDir(), t.TempDir(), t.TempDir()
 	t.Setenv("CODEX_HOME", home)
 	operator := `{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"herdr-state session"}]},{"hooks":[{"type":"command","command":"siqshift --event session-start"}]}],"SessionEnd":[{"hooks":[{"type":"command","command":"siqshift --event session-end"}]}]}}`
-	main := `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"cfo hook stop"},{"type":"prompt","command":"not a command"}]}]}}`
+	main := `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"goblins hook stop"},{"type":"prompt","command":"not a command"}]}]}}`
 	edited := `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"goblin hook stop"}]}]}}`
 	operatorHooks := []string{"SessionEnd: siqshift --event session-end", "SessionStart: herdr-state session", "SessionStart: siqshift --event session-start"}
 	for name, test := range map[string]struct {
@@ -476,10 +476,10 @@ func TestCodexHooksListsTheCommandHooksASessionLoads(t *testing.T) {
 	}{
 		"none":                  {"", "", "", nil},
 		"operator only":         {operator, "", "", operatorHooks},
-		"main checkout":         {operator, main, "", append(slices.Clone(operatorHooks), "Stop: cfo hook stop")},
-		"worktree as main":      {operator, main, main, append(slices.Clone(operatorHooks), "Stop: cfo hook stop")},
-		"worktree differs":      {operator, main, edited, append(slices.Clone(operatorHooks), "Stop: cfo hook stop", "Stop: goblin hook stop")},
-		"worktree without main": {"", "", main, []string{"Stop: cfo hook stop"}},
+		"main checkout":         {operator, main, "", append(slices.Clone(operatorHooks), "Stop: goblins hook stop")},
+		"worktree as main":      {operator, main, main, append(slices.Clone(operatorHooks), "Stop: goblins hook stop")},
+		"worktree differs":      {operator, main, edited, append(slices.Clone(operatorHooks), "Stop: goblins hook stop", "Stop: goblin hook stop")},
+		"worktree without main": {"", "", main, []string{"Stop: goblins hook stop"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			writeHooks(t, filepath.Join(home, "hooks.json"), test.operator)
@@ -502,11 +502,11 @@ func TestCodexHooksListsTheOthersWhenOneFileCannotBeParsed(t *testing.T) {
 	t.Setenv("CODEX_HOME", home)
 	broken := filepath.Join(home, "hooks.json")
 	writeHooks(t, broken, `{"hooks":{"SessionStart":{"type":"command"}}}`)
-	writeHooks(t, filepath.Join(project, ".codex", "hooks.json"), `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"cfo hook stop"}]}]}}`)
+	writeHooks(t, filepath.Join(project, ".codex", "hooks.json"), `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"goblins hook stop"}]}]}}`)
 
 	hooks, err := CodexHooks(project, worktree)
 
-	if !slices.Equal(hooks, []string{"Stop: cfo hook stop"}) {
+	if !slices.Equal(hooks, []string{"Stop: goblins hook stop"}) {
 		t.Errorf("CodexHooks = %q, want the project's hook still listed", hooks)
 	}
 	if err == nil || !strings.Contains(err.Error(), broken) {

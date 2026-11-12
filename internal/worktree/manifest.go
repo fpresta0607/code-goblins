@@ -14,7 +14,7 @@ import (
 )
 
 // ManifestFileName is one project's worktree provisioning declaration under
-// the CFO home's data directory, beside its auth manifest.
+// the CEO home's data directory, beside its auth manifest.
 const ManifestFileName = "worktree.json"
 
 // Dependency strategies a project can declare.
@@ -82,7 +82,7 @@ type Manifest struct {
 	Dependencies Dependencies `json:"dependencies,omitempty"`
 	// Env carries environment redirects for large read-only caches with no
 	// baked absolute paths (PLAYWRIGHT_BROWSERS_PATH and friends) into both
-	// the goblin's pane and the dependency install, and wins over the CFO's
+	// the goblin's pane and the dependency install, and wins over the CEO's
 	// shared cache root for this project in both.
 	Env map[string]string `json:"env,omitempty"`
 	// Local is how this project's stack is run and torn down on this machine.
@@ -95,7 +95,7 @@ type Manifest struct {
 const mcpFileName = ".mcp.json"
 
 // ManifestPath returns the worktree manifest location for a project directory
-// under a CFO home's data directory.
+// under a CEO home's data directory.
 func ManifestPath(dataDir, project string) string {
 	return filepath.Join(dataDir, "projects", auth.ProjectName(project), ManifestFileName)
 }
@@ -155,7 +155,7 @@ func (m Manifest) Validate() error {
 	}
 	// A blank local command reads as an answer while saying nothing, which is
 	// worse than declaring none: a report would print an empty line where the
-	// CFO expected the command to run.
+	// CEO expected the command to run.
 	for _, command := range append(append([]string{}, m.Local.Up...), m.Local.Down...) {
 		if strings.TrimSpace(command) == "" {
 			return errors.New("local command is empty")

@@ -125,13 +125,13 @@ func TestACodexRolloutIsReadAsItsConversation(t *testing.T) {
 	path := codexRollout(t, home, "01a16c37-1768-7270-8f61-76f09c77c962",
 		codexMeta("01a16c37-1768-7270-8f61-76f09c77c962", workDir),
 		codexTurnContext("gpt-6-astra"),
-		codexUserSaid("Read the brief at C:\\state\\brief.md and follow it exactly: it is your instruction from the CFO."),
+		codexUserSaid("Read the brief at C:\\state\\brief.md and follow it exactly: it is your instruction from the CEO."),
 		codexReasoning(),
 		codexAgentSaid("I will read the brief first."),
 		codexCall("call-1", "exec", "text(await tools.exec_command({cmd:\"Get-Content brief.md\"}));"),
 		codexUsage(),
 		codexOutput("call-1", "Script completed\nWall time 0.4 seconds\nOutput:\n{\"exit_code\":0}"),
-		codexUserSaid("CFO: steer left"),
+		codexUserSaid("CEO: steer left"),
 		codexTurnContext("gpt-6-luna"),
 		codexAgentSaid("Both done."),
 		codexUsage(),
@@ -141,15 +141,15 @@ func TestACodexRolloutIsReadAsItsConversation(t *testing.T) {
 	// Act
 	page := readCodex(t, &reader, path)
 
-	// Assert: the brief as the CFO's own words, then a reply per model
+	// Assert: the brief as the CEO's own words, then a reply per model
 	// response with its model, its call and that call's result.
 	want := []Message{
-		{ID: "user-1", Seq: 0, Kind: MessagePrompt, At: at, Source: FromCFO, Text: "Read the brief at C:\\state\\brief.md and follow it exactly: it is your instruction from the CFO."},
+		{ID: "user-1", Seq: 0, Kind: MessagePrompt, At: at, Source: FromCEO, Text: "Read the brief at C:\\state\\brief.md and follow it exactly: it is your instruction from the CEO."},
 		{ID: "@", Seq: 1, Kind: MessageReply, At: at, Model: "gpt-6-astra", Blocks: []Block{
 			{Kind: BlockText, Text: "I will read the brief first."},
 			{Kind: BlockCall, CallID: "call-1", Tool: "exec", Subject: "exec", Input: "text(await tools.exec_command({cmd:\"Get-Content brief.md\"}));", State: "done", Result: "Script completed\nWall time 0.4 seconds\nOutput:\n{\"exit_code\":0}"},
 		}},
-		{ID: "user-1", Seq: 2, Kind: MessagePrompt, At: at, Source: FromCFO, Text: "steer left"},
+		{ID: "user-1", Seq: 2, Kind: MessagePrompt, At: at, Source: FromCEO, Text: "steer left"},
 		{ID: "@", Seq: 3, Kind: MessageReply, At: at, Model: "gpt-6-luna", Blocks: []Block{{Kind: BlockText, Text: "Both done."}}},
 	}
 	assertMessages(t, page.Messages, want)

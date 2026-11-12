@@ -1,6 +1,6 @@
-# cfo help
+# goblins help
 
-`cfo help [<command> [<subcommand>] | contract <topic>]`
+`goblins help [<command> [<subcommand>] | contract <topic>]`
 
 With no topic, list available references without their bodies.
 A listed command or procedure topic returns only its embedded reference.

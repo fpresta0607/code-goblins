@@ -287,7 +287,7 @@ func TestAPageAnswerShowsDoneOnTheBoardWithinASecond(t *testing.T) {
 	presentAPage(t, store, meta, 7, "mockups.html")
 	goblin.startTurn(t)
 	scrawl := newScrawlPage(time.Second)
-	s, err := Start(context.Background(), h, Options{CFO: connection, PollPage: scrawl.poll})
+	s, err := Start(context.Background(), h, Options{CEO: connection, PollPage: scrawl.poll})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -349,7 +349,7 @@ func TestTheBoardsAreToldWhatHisSendDidWithoutWaitingOnACycle(t *testing.T) {
 			store, _ := testStore(t)
 			_, _, connection, _ := pageOfAGoblin(t, store)
 			scrawl := newScrawlPage(0)
-			s := &Service{Store: store, Options: Options{CFO: connection, PollPage: scrawl.poll}, subscribers: map[chan struct{}]struct{}{}}
+			s := &Service{Store: store, Options: Options{CEO: connection, PollPage: scrawl.poll}, subscribers: map[chan struct{}]struct{}{}}
 			board, unsubscribe := s.subscribe()
 			defer unsubscribe()
 			ctx, cancel := context.WithCancel(context.Background())
@@ -382,7 +382,7 @@ func TestTheBoardsAreToldWhatHisSendDidWithoutWaitingOnACycle(t *testing.T) {
 
 // An approval with a note is one answer: what he sends on the page just
 // before Send & End, a pick of the option the page declared or a note on an
-// element, reaches the goblin and the CFO with his approval as one answer,
+// element, reaches the goblin and the CEO with his approval as one answer,
 // and is never first read as a revision request, as his pick was on
 // 2026-10-09 (wake 1000098, then 1000099).
 func TestAnApprovalWithANoteIsOneAnswerAndNoRevision(t *testing.T) {
@@ -400,7 +400,7 @@ func TestAnApprovalWithANoteIsOneAnswerAndNoRevision(t *testing.T) {
 			scrawl := newScrawlPage(0)
 			scrawl.send(note.sent)
 			scrawl.send(approvedAsShown)
-			s := &Service{Store: store, Options: Options{CFO: connection, PollPage: scrawl.poll}}
+			s := &Service{Store: store, Options: Options{CEO: connection, PollPage: scrawl.poll}}
 
 			// Act
 			s.watchPages(context.Background())
@@ -430,7 +430,7 @@ func TestAnApprovalWithANoteIsOneAnswerAndNoRevision(t *testing.T) {
 }
 
 // The notes he sends together with Send & End are one answer that reads as
-// the set he wrote: the goblin gets it once, the CFO's wake and the board's
+// the set he wrote: the goblin gets it once, the CEO's wake and the board's
 // answer hold it too, each note on a line of its own, in his order, with
 // what it is on. Read only as a table, the set above was no words at all:
 // the goblin got the feedback file's name alone and the board no answer.
@@ -440,7 +440,7 @@ func TestAChainedSetOfNotesReachesItsGoblinOnceEachNoteWhereHePutIt(t *testing.T
 	meta, goblin, connection, page := pageOfAGoblin(t, store)
 	scrawl := newScrawlPage(0)
 	scrawl.send(chainedOnThePage)
-	s := &Service{Store: store, Options: Options{CFO: connection, PollPage: scrawl.poll}}
+	s := &Service{Store: store, Options: Options{CEO: connection, PollPage: scrawl.poll}}
 	cell := `1. On the cell in row "Step two", column "WHEN": then shouldnt this come first?`
 	whole := "2. On the whole page: Ship the plan as drawn"
 
@@ -462,7 +462,7 @@ func TestAChainedSetOfNotesReachesItsGoblinOnceEachNoteWhereHePutIt(t *testing.T
 
 // The images he attaches to a note reach its goblin with the note, each by
 // its local path, with his words or without, as his answer or as a revision,
-// and the CFO's wake that says the goblin has it holds them too. Before
+// and the CEO's wake that says the goblin has it holds them too. Before
 // #1236 the goblin got his words alone, or, for an image with no words, only
 // what the note was on.
 func TestANotesImagesReachItsGoblinEachByItsPath(t *testing.T) {
@@ -480,7 +480,7 @@ func TestANotesImagesReachItsGoblinEachByItsPath(t *testing.T) {
 			meta, goblin, connection, page := pageOfAGoblin(t, store)
 			scrawl := newScrawlPage(0)
 			scrawl.send(test.sent)
-			s := &Service{Store: store, Options: Options{CFO: connection, PollPage: scrawl.poll}}
+			s := &Service{Store: store, Options: Options{CEO: connection, PollPage: scrawl.poll}}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
@@ -489,7 +489,7 @@ func TestANotesImagesReachItsGoblinEachByItsPath(t *testing.T) {
 			told := goblin.waitForLines(t, 1)
 			for deadline := time.Now().Add(time.Minute); len(reviewWakes(t, h.State, meta.ID)) == 0; time.Sleep(10 * time.Millisecond) {
 				if time.Now().After(deadline) {
-					t.Fatal("the CFO was never told he wrote on the page")
+					t.Fatal("the CEO was never told he wrote on the page")
 				}
 			}
 			cancel()
@@ -510,7 +510,7 @@ func TestANotesImagesReachItsGoblinEachByItsPath(t *testing.T) {
 
 // His pick of the option a page declared answers the page though he does not
 // end the review, alone or sent with a note on a table cell: its item closes
-// as answered at once, the goblin and the CFO get the pick once, with his
+// as answered at once, the goblin and the CEO get the pick once, with his
 // note where he put it, and the page stays watched until he ends it, which
 // then adds nothing.
 func TestAPickOfThePagesOptionAnswersItWithoutEndingTheReview(t *testing.T) {
@@ -527,7 +527,7 @@ func TestAPickOfThePagesOptionAnswersItWithoutEndingTheReview(t *testing.T) {
 			meta, goblin, connection, page := pageOfAGoblin(t, store)
 			scrawl := newScrawlPage(0)
 			scrawl.send(test.output)
-			s := &Service{Store: store, Options: Options{CFO: connection, PollPage: scrawl.poll}}
+			s := &Service{Store: store, Options: Options{CEO: connection, PollPage: scrawl.poll}}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
@@ -543,7 +543,7 @@ func TestAPickOfThePagesOptionAnswersItWithoutEndingTheReview(t *testing.T) {
 			told := goblin.waitForLines(t, 1)
 			for deadline := time.Now().Add(time.Minute); len(reviewWakes(t, h.State, meta.ID)) == 0; time.Sleep(10 * time.Millisecond) {
 				if time.Now().After(deadline) {
-					t.Fatal("the CFO was never told his pick")
+					t.Fatal("the CEO was never told his pick")
 				}
 			}
 			scrawl.send(scrawlEnded)
@@ -560,7 +560,7 @@ func TestAPickOfThePagesOptionAnswersItWithoutEndingTheReview(t *testing.T) {
 				t.Fatalf("the goblin got %q, want his pick once", told)
 			}
 			if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "answered on the page "+page) || !strings.Contains(wakes[0].Detail, "Build it as shown") {
-				t.Fatalf("review wakes = %+v, want the CFO told his pick once", wakes)
+				t.Fatalf("review wakes = %+v, want the CEO told his pick once", wakes)
 			}
 			if got := store.Snapshot().Reviews[0]; got.PageSettled == nil {
 				t.Errorf("the page's item after he ended the review = %+v, want its page settled", got)
@@ -570,9 +570,9 @@ func TestAPickOfThePagesOptionAnswersItWithoutEndingTheReview(t *testing.T) {
 }
 
 // An agent's end of the review is never his approval. What he sent just
-// before an agent ended it stays a revision its goblin gets, and the CFO is
+// before an agent ended it stays a revision its goblin gets, and the CEO is
 // then told an agent ended the review, as it is when he had sent nothing: the
-// two reach the CFO in the order they happened.
+// two reach the CEO in the order they happened.
 func TestAnAgentsEndOfTheReviewIsNeverHisApproval(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
@@ -581,7 +581,7 @@ func TestAnAgentsEndOfTheReviewIsNeverHisApproval(t *testing.T) {
 	scrawl.send(notedOnThePage)
 	scrawl.send(scrawlEndedByAnAgent)
 	scrawl.send(scrawlEndedByAnAgent)
-	s := &Service{Store: store, Options: Options{CFO: connection, PollPage: scrawl.poll}}
+	s := &Service{Store: store, Options: Options{CEO: connection, PollPage: scrawl.poll}}
 
 	// Act
 	s.watchPages(context.Background())
@@ -595,7 +595,7 @@ func TestAnAgentsEndOfTheReviewIsNeverHisApproval(t *testing.T) {
 	if told := goblin.lines(t); len(told) != 1 || !strings.Contains(told[0], "asked for a revision on your review page "+page+`: On the element "Heading": Make the header bigger`) {
 		t.Fatalf("the goblin got %q, want his note once, as a revision", told)
 	}
-	if got := store.Snapshot().Reviews[0]; got.State != "withdrawn" || got.AnsweredBy != "" || got.Reason != "An agent ended the review on its page; the CFO was told." {
+	if got := store.Snapshot().Reviews[0]; got.State != "withdrawn" || got.AnsweredBy != "" || got.Reason != "An agent ended the review on its page; the CEO was told." {
 		t.Fatalf("the page's item = %+v, want it withdrawn as an agent ended its review, never answered by him", got)
 	}
 }
@@ -616,7 +616,7 @@ func TestASupervisorThatStopsStillPassesOnWhatHeSent(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			polls := 0
-			s := &Service{Store: store, Options: Options{CFO: connection, PollPage: func(ctx context.Context, file, reply string, timeout time.Duration) (axi.PagePoll, error) {
+			s := &Service{Store: store, Options: Options{CEO: connection, PollPage: func(ctx context.Context, file, reply string, timeout time.Duration) (axi.PagePoll, error) {
 				if polls++; polls == 1 {
 					return axi.Lavish{Commands: printed(test.sent)}.Poll(ctx, file, reply, timeout)
 				}
@@ -628,7 +628,7 @@ func TestASupervisorThatStopsStillPassesOnWhatHeSent(t *testing.T) {
 			s.watchPages(ctx)
 			s.pageWork.Wait()
 			atStop, kept := reviewWakes(t, h.State, meta.ID), store.pageReceiptsSnapshot().Answers
-			next := &Service{Store: store, Options: Options{CFO: connection}}
+			next := &Service{Store: store, Options: Options{CEO: connection}}
 			next.tellPage(context.Background(), pageKey(page))
 			next.pageWork.Wait()
 
@@ -637,7 +637,7 @@ func TestASupervisorThatStopsStillPassesOnWhatHeSent(t *testing.T) {
 				t.Fatalf("as the supervisor stopped, wakes = %+v and receipts = %+v, want what he sent kept and nothing handed on", atStop, kept)
 			}
 			if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, test.told+page) {
-				t.Fatalf("review wakes = %+v, want the CFO told once, at the next start, what he sent before the supervisor stopped", wakes)
+				t.Fatalf("review wakes = %+v, want the CEO told once, at the next start, what he sent before the supervisor stopped", wakes)
 			}
 			files := feedbackFiles(t, h.State, "waiting-"+meta.ID+"-7")
 			if len(files) != 1 {
@@ -662,7 +662,7 @@ func TestAPollThatFailsWhileHisAnswerGoesOnIsAskedAgainAtOnce(t *testing.T) {
 	store, h := testStore(t)
 	meta, goblin, connection, page := pageOfAGoblin(t, store)
 	polls := 0
-	s := &Service{Store: store, Options: Options{CFO: connection, PollPage: func(ctx context.Context, file, reply string, timeout time.Duration) (axi.PagePoll, error) {
+	s := &Service{Store: store, Options: Options{CEO: connection, PollPage: func(ctx context.Context, file, reply string, timeout time.Duration) (axi.PagePoll, error) {
 		output := scrawlEnded
 		switch polls++; polls {
 		case 1:
@@ -713,7 +713,7 @@ func TestANoteOnAClosedItemIsKeptBeforeItsTurnToBeTold(t *testing.T) {
 	defer cancel()
 	polls := 0
 	noteTaken := make(chan struct{})
-	s := &Service{Store: store, Options: Options{CFO: connection, PollPage: func(ctx context.Context, file, reply string, timeout time.Duration) (axi.PagePoll, error) {
+	s := &Service{Store: store, Options: Options{CEO: connection, PollPage: func(ctx context.Context, file, reply string, timeout time.Duration) (axi.PagePoll, error) {
 		output := scrawlWaiting
 		switch polls++; polls {
 		case 1:

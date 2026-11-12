@@ -30,7 +30,7 @@ func thisProcessCreated(t *testing.T) int64 {
 // nativeClaudeGoblin sets up a native Claude goblin whose harness is this
 // test process: its host record, the session record Claude Code keeps for
 // its process, and its conversation, in which it started a sub-agent hours
-// ago. A newer conversation in the same folder is a forked CFO session's.
+// ago. A newer conversation in the same folder is a forked CEO session's.
 // It returns the goblin and what writes its sub-agent's transcript.
 func nativeClaudeGoblin(t *testing.T, home, stateDir string, started time.Time) (state.TaskMeta, func(written time.Time)) {
 	t.Helper()
@@ -77,7 +77,7 @@ func TestANativeClaudeGoblinsSubagentIsItsProgress(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	meta, writeAgent := nativeClaudeGoblin(t, home, stateDir, now.Add(-3*time.Hour))
 	writeAgent(now.Add(-time.Minute))
-	forked := filepath.Join(claudeProjectFolder(home, meta.Worktree), "forked-cfo.jsonl")
+	forked := filepath.Join(claudeProjectFolder(home, meta.Worktree), "forked-ceo.jsonl")
 	transcriptLines(t, forked, now, claudeEntry("assistant", meta.Worktree, claudeText("a forked session's work")))
 	prober := &HostProgress{StateDir: stateDir, Home: home}
 
@@ -121,7 +121,7 @@ func TestAWorkingSubagentHoldsTheStaleWake(t *testing.T) {
 			t.Fatal(err)
 		}
 		if result.Event != nil {
-			t.Fatalf("a goblin whose sub-agent wrote at %s woke the CFO: %+v", now, result.Event)
+			t.Fatalf("a goblin whose sub-agent wrote at %s woke the CEO: %+v", now, result.Event)
 		}
 	}
 	now = now.Add(3 * service.BusyTurnMax)
