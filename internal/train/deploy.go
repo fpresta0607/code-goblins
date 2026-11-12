@@ -72,7 +72,7 @@ func (e Engine) unverifiedDeploy(ctx context.Context, t Train) (*deployRun, erro
 }
 
 // holdForDeploy keeps the train from merging while deploy has not finished
-// successfully, and says what it waits on in its note and to the CFO, again
+// successfully, and says what it waits on in its note and to the CEO, again
 // every half hour: a deploy that ended otherwise than successfully
 // waits for a run of it, or of a fix, that passes. The next step reads the
 // base's deploys again.
@@ -89,6 +89,6 @@ func (e Engine) holdForDeploy(ctx context.Context, t *Train, deploy deployRun) e
 	if err := e.save(t); err != nil {
 		return err
 	}
-	e.tellCFO(ctx, fmt.Sprintf("merge_train: %s train %s %s; held pull requests: %s", t.Repository, t.ID, note, t.numbers(t.carsIn(CarRiding))))
+	e.tellCEO(ctx, fmt.Sprintf("merge_train: %s train %s %s; held pull requests: %s", t.Repository, t.ID, note, t.numbers(t.carsIn(CarRiding))))
 	return nil
 }

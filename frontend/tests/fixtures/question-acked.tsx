@@ -5,11 +5,11 @@ import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
 declare global {
-  interface Window { ackByCFO?: () => void }
+  interface Window { ackByCEO?: () => void }
 }
 
-// A goblin asks the CFO a question, and the CFO answers it and retires the
-// notify with --ack-blocking. The question is never the Overlord's; ackByCFO
+// A goblin asks the CEO a question, and the CEO answers it and retires the
+// notify with --ack-blocking. The question is never the Overlord's; ackByCEO
 // is the supervisor closing it once its notify left the wake queue.
 const at = "2026-10-01T13:20:00Z";
 const question = {
@@ -21,11 +21,11 @@ const base = {
   tasks: [{ id: "cg-board-theme", title: "Restyle the board", phase: "blocked", generation: "1", verified: false }],
   questions: [question],
 };
-const acked = { ...base, revision: 2, questions: [{ ...question, status: "succeeded", message: "Answered by the CFO.", answered_by: "cfo", answered_at: "2026-10-01T13:32:00Z" }] };
+const acked = { ...base, revision: 2, questions: [{ ...question, status: "succeeded", message: "Answered by the CEO.", answered_by: "ceo", answered_at: "2026-10-01T13:32:00Z" }] };
 
 function QuestionAcked() {
   const [snapshot, setSnapshot] = useState(() => parseSnapshot(base));
-  window.ackByCFO = () => setSnapshot(parseSnapshot(acked));
+  window.ackByCEO = () => setSnapshot(parseSnapshot(acked));
   return <main><CommandCenterMenu snapshot={snapshot} connected presentations={[]} now={Date.now()} focus={null} onUnsent={() => {}} /></main>;
 }
 

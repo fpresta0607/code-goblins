@@ -622,7 +622,7 @@ test("a hold let go before its recording runs is dropped without a note, and the
   assert.deepEqual(problems.filter(Boolean), []);
 });
 
-test("a recognizer that never comes to listen ends the hold and the CFO is told, never the board", (context) => {
+test("a recognizer that never comes to listen ends the hold and the CEO is told, never the board", (context) => {
   // Arrange
   context.mock.timers.enable({ apis: ["setTimeout"] });
   const { subject, heard, listening, problems, failures } = dictation(LateRecognizer);

@@ -2,7 +2,7 @@ import { expect, holdStream, test, type Page } from "./site";
 import { parseSnapshot } from "../src/types";
 import { treeFleet } from "./fixtures/tree-branches-fleet";
 
-test("Arrange keeps a mixed fleet and its subagents visible beside the CFO panel", async ({ page }, testInfo) => {
+test("Arrange keeps a mixed fleet and its subagents visible beside the CEO panel", async ({ page }, testInfo) => {
   // Arrange
   const snapshot = parseSnapshot(treeFleet(Date.now()));
   snapshot.sessions = [];
@@ -10,7 +10,7 @@ test("Arrange keeps a mixed fleet and its subagents visible beside the CFO panel
   for (let index = 0; index < 13; index++) snapshot.tasks.push({ ...snapshot.tasks[3], id: "extra-" + index, title: "Review task " + (index + 1), parent: "", tree: undefined });
   snapshot.tasks[0].tree!.children.push({ ...snapshot.tasks[0].tree!.children[0], id: "shell:wait", kind: "shell", label: "Wait for checks", task: "sleep 2400" });
   await page.setViewportSize({ width: 1707, height: 1067 });
-  await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
+  await page.addInitScript(() => localStorage.setItem("ceo-first-open", "shown"));
   await holdStream(page, snapshot);
   await page.route("**/api/**", route => route.fulfill({ status: 404, json: { error: "Fixture resource" } }));
   await page.goto("/");

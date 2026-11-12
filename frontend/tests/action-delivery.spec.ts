@@ -11,7 +11,7 @@ const check = (id: string, at: string) => ({ id, kind: "evaluate", task_id: "cg-
 const FIRST = check("check-1", "2026-10-29T08:00:00Z");
 const SECOND = { ...check("check-2", "2026-10-29T08:05:00Z"), status: "queued" };
 const board = (revision: number, actionsAt: string) => ({
-  healthy: true, instance: "board-0m", cfo_runs: true, cfo_terminal: "cfo", cfo_harness: "claude", revision,
+  healthy: true, instance: "board-0m", ceo_runs: true, ceo_terminal: "ceo", ceo_harness: "claude", revision,
   tasks: [{ id: "cg-probe", title: TITLE, project: "code-goblins", phase: "working", generation: "g1", verified: false, actions_at: actionsAt }],
   questions: [], reviews: [], runs: [], credentials: [], actions: [],
 });

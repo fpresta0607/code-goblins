@@ -13,7 +13,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// newEnvBoard is a board that took the CFO's request for names whose values
+// newEnvBoard is a board that took the CEO's request for names whose values
 // also go to .env.docker.local in a throwaway checkout of the project, a file
 // that already sets PORT.
 func newEnvBoard(t *testing.T, names ...string) (*credentialBoard, string, func(dir string, args ...string)) {
@@ -23,12 +23,12 @@ func newEnvBoard(t *testing.T, names ...string) (*credentialBoard, string, func(
 	if err := os.WriteFile(path, []byte("PORT=3000\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	b := newCredentialBoardFor(t, CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "cfo", Project: "precisiondocs", Repository: root, EnvFile: ".env.docker.local", Names: names, Why: "Local database for docker compose"})
+	b := newCredentialBoardFor(t, CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "ceo", Project: "precisiondocs", Repository: root, EnvFile: ".env.docker.local", Names: names, Why: "Local database for docker compose"})
 	return b, path, git
 }
 
 // A save for a request that names an env file stores each value in the
-// project's scope and also sets its line in that file, and the CFO hears the
+// project's scope and also sets its line in that file, and the CEO hears the
 // file's name, never the value.
 func TestCredentialSaveAlsoSetsItsLineInTheRequestsEnvFile(t *testing.T) {
 	// Arrange
@@ -61,7 +61,7 @@ func TestCredentialSaveAlsoSetsItsLineInTheRequestsEnvFile(t *testing.T) {
 
 // The board checks the env file again before it writes: a file git began to
 // track after the request was filed is never written, while the value still
-// reaches the project's scope and the CFO hears why.
+// reaches the project's scope and the CEO hears why.
 func TestCredentialSaveChecksTheEnvFileAgainBeforeWriting(t *testing.T) {
 	// Arrange
 	b, path, git := newEnvBoard(t, "DATABASE_URL")
@@ -101,7 +101,7 @@ func TestBoardRefusesAnEnvFileRequestGitWouldCommit(t *testing.T) {
 	service := &Service{Store: store, Options: Options{Credentials: auth.OpenStore}}
 
 	// Act
-	_, err := service.acceptCredentialRequest(CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "cfo", Project: "precisiondocs", Repository: root, EnvFile: ".env.example", Names: []string{"DATABASE_URL"}, Why: "Local database"})
+	_, err := service.acceptCredentialRequest(CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "ceo", Project: "precisiondocs", Repository: root, EnvFile: ".env.example", Names: []string{"DATABASE_URL"}, Why: "Local database"})
 
 	// Assert
 	if err == nil || !strings.Contains(err.Error(), "tracked") {

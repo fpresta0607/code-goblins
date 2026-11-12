@@ -125,7 +125,7 @@ func doneReports(lines []string, spawned time.Time) (done, reported map[string]t
 // account gh works as that fails is tried again on the next poll, and
 // returned only once it failed failingPasses polls in a row. On 2026-10-10
 // the read of a checkout's origin ran out of time once while its drive was
-// stalled, and woke the CFO, though the CI poll had read the same origin
+// stalled, and woke the CEO, though the CI poll had read the same origin
 // moments before and the next poll read it again.
 func (s *Service) runTrain(ctx context.Context, runner execx.Runner, github *githubapi.Client, w *fleetWakes, repo string, open []train.PullRequest) error {
 	stateDir := s.Store.Home.State
@@ -260,7 +260,7 @@ func doneAndOpen(goblins []train.Goblin, open []train.PullRequest) []string {
 }
 
 // trainEngine is the merge train engine as the supervisor runs it: it tells
-// a goblin through its own native terminal and the CFO with a pr wake.
+// a goblin through its own native terminal and the CEO with a pr wake.
 func (s *Service) trainEngine(runner execx.Runner, github *githubapi.Client, repository string) train.Engine {
 	stateDir := s.Store.Home.State
 	return train.Engine{
@@ -270,20 +270,20 @@ func (s *Service) trainEngine(runner execx.Runner, github *githubapi.Client, rep
 		Now:      time.Now,
 		Wait:     time.Sleep,
 		TellGoblin: func(ctx context.Context, task, text string) error {
-			if s.Options.CFO == nil {
+			if s.Options.CEO == nil {
 				return errors.New("this supervisor has no way to reach a goblin")
 			}
 			meta, err := state.ReadTaskMeta(stateDir, task)
 			if err != nil {
 				return err
 			}
-			_, err = s.Options.CFO.SendGoblin(ctx, task, goblinIdentity(meta), text)
+			_, err = s.Options.CEO.SendGoblin(ctx, task, goblinIdentity(meta), text)
 			if errors.Is(err, fleet.ErrQueuedForToolCall) {
 				return nil
 			}
 			return err
 		},
-		TellCFO: func(_ context.Context, identity, text string) error {
+		TellCEO: func(_ context.Context, identity, text string) error {
 			if identity != "" {
 				return wake.AppendFirstAndPublish(stateDir, identity, "pr", "train:"+repository, text)
 			}
@@ -295,7 +295,7 @@ func (s *Service) trainEngine(runner execx.Runner, github *githubapi.Client, rep
 			}
 			entry := afk.Entry{Kind: afk.KindMerge, What: car.URL, Link: car.URL, Evidence: t.LandingEvidence(car), Outcome: afk.OutcomeMerged}
 			if err := s.logAFKDecision(entry); err != nil {
-				_ = raiseFleetWake(stateDir, "pr", "train:"+repository, fmt.Sprintf("merge_train: AFK mode's log did not take the merge of %s by train %s (%v); log it with cfo afk log --kind merge", car.URL, t.ID, err))
+				_ = raiseFleetWake(stateDir, "pr", "train:"+repository, fmt.Sprintf("merge_train: AFK mode's log did not take the merge of %s by train %s (%v); log it with goblins afk log --kind merge", car.URL, t.ID, err))
 			}
 		},
 	}

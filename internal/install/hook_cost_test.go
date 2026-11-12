@@ -26,15 +26,15 @@ type registeredHook struct {
 	OnFailure      string
 }
 
-// terminalHooks is every hook in the settings a Claude Code CFO's terminal
+// terminalHooks is every hook in the settings a Claude Code CEO's terminal
 // starts with, for the home at root.
 func terminalHooks(t *testing.T, root string) []registeredHook {
 	t.Helper()
-	settings, err := CFOSettings(root, filepath.Join(root, "state"))
+	settings, err := CEOSettings(root, filepath.Join(root, "state"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(t.TempDir(), "cfo-claude-settings.json")
+	path := filepath.Join(t.TempDir(), "ceo-claude-settings.json")
 	if err := os.WriteFile(path, settings, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -109,13 +109,13 @@ func selects(t *testing.T, matcher, tool string) bool {
 }
 
 // Every pre-tool hook starts a process before its tool runs, and a shell
-// command starts two more (Git Bash's launcher and bash) before cfo.exe does.
+// command starts two more (Git Bash's launcher and bash) before goblins.exe does.
 // What a tool call costs is the processes its matching hooks start: the
 // reading and editing tools a session lives in start none, a call of either
-// shell tool one cfo.exe, and the delegation tools the guard can refuse one
+// shell tool one goblins.exe, and the delegation tools the guard can refuse one
 // each. Claude Code on Windows has a PowerShell tool beside its Bash tool,
 // and a shell tool no hook selects is a shell no guard reads.
-func TestTheCFOsPreToolHooksStartOneProcessPerShellCallAndNoneForSessionTools(t *testing.T) {
+func TestTheCEOsPreToolHooksStartOneProcessPerShellCallAndNoneForSessionTools(t *testing.T) {
 	// Arrange
 	root := t.TempDir()
 
@@ -138,20 +138,20 @@ func TestTheCFOsPreToolHooksStartOneProcessPerShellCallAndNoneForSessionTools(t 
 	}
 	for _, tool := range []string{"Read", "Edit", "Write", "Grep", "Glob", "NotebookEdit", "WebFetch", "WebSearch", "Skill", "ToolSearch", "TodoWrite", "LSP"} {
 		if got := processes(tool); got != 0 {
-			t.Errorf("a %s call starts %d process(es) for CFO hooks, want none", tool, got)
+			t.Errorf("a %s call starts %d process(es) for CEO hooks, want none", tool, got)
 		}
 	}
 	for _, tool := range []string{"Bash", "PowerShell", "Agent", "Task", "SendMessage", "AskUserQuestion", "CronCreate", "EnterWorktree"} {
 		if got := processes(tool); got != 1 {
-			t.Errorf("a %s call starts %d process(es) for CFO hooks, want 1", tool, got)
+			t.Errorf("a %s call starts %d process(es) for CEO hooks, want 1", tool, got)
 		}
 	}
 }
 
-// Claude Code runs a hook with args directly, with no shell, so every CFO hook
+// Claude Code runs a hook with args directly, with no shell, so every CEO hook
 // names the home's own binary, by its full path, and the hook it runs. The
-// full path is what lets a CFO started in any folder be supervised.
-func TestTheCFOsHooksRunTheHomesBinaryWithoutAShell(t *testing.T) {
+// full path is what lets a CEO started in any folder be supervised.
+func TestTheCEOsHooksRunTheHomesBinaryWithoutAShell(t *testing.T) {
 	// Arrange
 	f := newFixture(t, adopterSettings, nil)
 
@@ -159,7 +159,7 @@ func TestTheCFOsHooksRunTheHomesBinaryWithoutAShell(t *testing.T) {
 	hooks := terminalHooks(t, f.root)
 
 	// Assert
-	binary := filepath.Join(f.bin, "cfo.exe")
+	binary := filepath.Join(f.bin, "goblins.exe")
 	names := map[string]bool{}
 	for _, hook := range hooks {
 		if hook.Command != binary {
@@ -182,13 +182,13 @@ func TestTheCFOsHooksRunTheHomesBinaryWithoutAShell(t *testing.T) {
 	}
 }
 
-func TestTheCFOsTerminalHoldsPreCompactForManualAndAutomaticCompactionOnce(t *testing.T) {
+func TestTheCEOsTerminalHoldsPreCompactForManualAndAutomaticCompactionOnce(t *testing.T) {
 	f := newFixture(t, adopterSettings, nil)
 
 	count := 0
 	for _, hook := range terminalHooks(t, f.root) {
 		// The native hook beside it only reports the compaction to the board.
-		if hook.Event != "PreCompact" || hook.Command != filepath.Join(f.bin, "cfo.exe") || hook.Args[0] == "native-hook" {
+		if hook.Event != "PreCompact" || hook.Command != filepath.Join(f.bin, "goblins.exe") || hook.Args[0] == "native-hook" {
 			continue
 		}
 		count++
@@ -202,7 +202,7 @@ func TestTheCFOsTerminalHoldsPreCompactForManualAndAutomaticCompactionOnce(t *te
 		}
 	}
 	if count != 1 {
-		t.Fatalf("the CFO's terminal starts with %d pre-compact hooks, want one", count)
+		t.Fatalf("the CEO's terminal starts with %d pre-compact hooks, want one", count)
 	}
 }
 
@@ -210,7 +210,7 @@ func TestTheCFOsTerminalHoldsPreCompactForManualAndAutomaticCompactionOnce(t *te
 // entries; installing again replaces them rather than running both.
 func TestInstallReplacesShellFormHooks(t *testing.T) {
 	// Arrange
-	shellForm := `CFO_ROOT="${CFO_HOME:-$CLAUDE_PROJECT_DIR}"; [ -x "$CFO_ROOT"/cfo.exe ] || exit 0; "$CFO_ROOT"/cfo.exe hook `
+	shellForm := `GOBLINS_ROOT="${GOBLINS_HOME:-$CLAUDE_PROJECT_DIR}"; [ -x "$GOBLINS_ROOT"/goblins.exe ] || exit 0; "$GOBLINS_ROOT"/goblins.exe hook `
 	settings := `{"hooks": {
   "PreToolUse": [
     {"matcher": "Bash", "hooks": [{"type": "command", "command": "` + jsonEscape(shellForm+"pretool-arm") + `"}, {"type": "command", "command": "` + jsonEscape(shellForm+"pretool-cd") + `"}]},
@@ -226,7 +226,7 @@ func TestInstallReplacesShellFormHooks(t *testing.T) {
 
 	// Assert
 	for _, hook := range registeredHooks(t, f.user) {
-		if strings.Contains(hook.Command, "cfo.exe hook") {
+		if strings.Contains(hook.Command, "goblins.exe hook") {
 			t.Errorf("shell-form hook survived the install: %s", hook.Command)
 		}
 	}

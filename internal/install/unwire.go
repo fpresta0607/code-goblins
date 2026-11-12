@@ -19,7 +19,7 @@ import (
 // removal back and name what is left.
 
 // UserSettingsWired reports whether the user's Claude Code settings still
-// hold what an install put there: a CFO hook an older build wrote, or the
+// hold what an install put there: a CEO hook an older build wrote, or the
 // record of the allow rules an install added, with any rule it names.
 func (s Service) UserSettingsWired() (bool, error) {
 	file, err := loadSettings(s.UserSettings)
@@ -30,7 +30,7 @@ func (s Service) UserSettingsWired() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if err := file.pruneCFOHooks(); err != nil {
+	if err := file.pruneCEOHooks(); err != nil {
 		return false, err
 	}
 	after, err := json.Marshal(file.values["hooks"])
@@ -47,7 +47,7 @@ func (s Service) UserSettingsWired() (bool, error) {
 	return recorded != nil, nil
 }
 
-// RemoveUserSettings takes the CFO hooks and the allow rules an install
+// RemoveUserSettings takes the CEO hooks and the allow rules an install
 // added out of the user's Claude Code settings, and the record of the rules.
 func (s Service) RemoveUserSettings() error {
 	return s.removeUserSettings(&reporter{out: io.Discard})
@@ -60,7 +60,7 @@ func (s Service) RemoveStartAtLoginEntry() error {
 }
 
 // EnvironmentWired names what of the install's user environment is still
-// set: CFO_HOME naming this home, the home's bin or root on PATH, and the
+// set: GOBLINS_HOME naming this home, the home's bin or root on PATH, and the
 // projects root.
 func (s Service) EnvironmentWired() ([]string, error) {
 	var wired []string
@@ -109,7 +109,7 @@ func EmptyJSON(path string) bool {
 func SettingsBackups(files ...string) []string {
 	var backups []string
 	for _, file := range files {
-		for _, suffix := range []string{backupSuffix, ".cfo-native.backup"} {
+		for _, suffix := range []string{backupSuffix, ".goblins-native.backup"} {
 			if _, err := os.Lstat(file + suffix); err == nil || !errors.Is(err, fs.ErrNotExist) {
 				backups = append(backups, file+suffix)
 			}

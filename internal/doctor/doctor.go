@@ -1,4 +1,4 @@
-// Package doctor verifies the tools cfo shells out to, with install hints.
+// Package doctor verifies the tools goblins shells out to, with install hints.
 package doctor
 
 import (
@@ -24,7 +24,7 @@ import (
 // version when the tool has one. A Presentation check is reported but never
 // makes the environment unhealthy: without it, visual review falls back to
 // plain text and nonvisual work proceeds. An Installer check is reported the
-// same way: only install.ps1 uses the tool, and cfo never does.
+// same way: only install.ps1 uses the tool, and goblins never does.
 type Check struct {
 	Name         string
 	Version      string
@@ -49,7 +49,7 @@ const LavishRelease = "https://github.com/fpresta0607/lavish-axi/releases/downlo
 
 // ChromeDevtoolsRelease is the Code Goblins build of chrome-devtools-axi, from
 // the fork at github.com/fpresta0607/chrome-devtools-axi: upstream's browser
-// command with a bridge only its own Windows user can drive, which cfo auth
+// command with a bridge only its own Windows user can drive, which goblins auth
 // browser needs, a chrome-devtools-mcp started with its update checks and
 // usage statistics off (#1446), a run that imports its script by file URL on
 // Windows (#1537), and a bridge that starts PowerShell once to start and never
@@ -182,7 +182,7 @@ func meetsFloor(versionLine, floor string) bool {
 }
 
 // hookPairingHint is checkHookPairing's remedy for a guard registered alone.
-const hookPairingHint = `register "cfo hook stop-autoarm" as a Stop hook with asyncRewake, or the turn-end guard will block without anything restoring the watcher`
+const hookPairingHint = `register "goblins hook stop-autoarm" as a Stop hook with asyncRewake, or the turn-end guard will block without anything restoring the watcher`
 
 // checkHookPairing reads the settings files a session's hooks can come from
 // and reports unhealthy only when the turnend-guard hook is registered
@@ -191,10 +191,10 @@ const hookPairingHint = `register "cfo hook stop-autoarm" as a Stop hook with as
 // to the hard ceiling on every blocked turn instead of the auto-arm ever
 // recovering the watcher. Presence-only: it does not parse which hook event
 // either hook is registered under, only that each is registered somewhere in
-// the parsed settings. Each hook is recognized both as an entry `cfo install`
-// writes (install.HookName) and in the hand-written `cfo hook <name>` form.
+// the parsed settings. Each hook is recognized both as an entry `goblins install`
+// writes (install.HookName) and in the hand-written `goblins hook <name>` form.
 //
-// Both scopes are read, because `cfo install` moves the CFO hooks to the
+// Both scopes are read, because `goblins install` moves the CEO hooks to the
 // user settings and a check that only ever looked in the checkout would go
 // quiet exactly when the hooks were working. It passes silently (no Err)
 // when the home cannot be resolved, neither file is present or readable,
@@ -228,7 +228,7 @@ func checkHookPairing() Check {
 	if hasGuard && !hasAutoarm {
 		return Check{
 			Name: "hook-pairing",
-			Err:  `"cfo hook turnend-guard" is registered without "cfo hook stop-autoarm"`,
+			Err:  `"goblins hook turnend-guard" is registered without "goblins hook stop-autoarm"`,
 			Hint: hookPairingHint,
 		}
 	}
@@ -259,8 +259,8 @@ func jsonStrings(node any) []string {
 	return nil
 }
 
-// installedHookNames adds to names every `cfo hook <name>` a hook entry that
-// `cfo install` wrote runs, recognised as the installer recognises its own
+// installedHookNames adds to names every `goblins hook <name>` a hook entry that
+// `goblins install` wrote runs, recognised as the installer recognises its own
 // (install.HookName), never by a second hand-kept copy of its form.
 func installedHookNames(node any, names map[string]bool) {
 	switch value := node.(type) {
@@ -278,11 +278,11 @@ func installedHookNames(node any, names map[string]bool) {
 	}
 }
 
-// registersHook reports whether any settings string invokes `cfo hook <name>`
+// registersHook reports whether any settings string invokes `goblins hook <name>`
 // in the hand-written form.
 func registersHook(values []string, name string) bool {
 	for _, value := range values {
-		if strings.Contains(value, "cfo hook "+name) {
+		if strings.Contains(value, "goblins hook "+name) {
 			return true
 		}
 	}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -68,6 +69,41 @@ func TestSnapshotAndStartAgreeOnBriefQueueMembership(t *testing.T) {
 	}
 }
 
+// tasks-axi moves the oldest Done rows into the done archive. A brief closed
+// without a dispatch has only that row to close it, so once the archive lists
+// it the brief is neither shown as queued nor started, even by a snapshot
+// that read it as queued before.
+func TestABriefWhoseDoneRowMovedToTheDoneArchiveIsNotStarted(t *testing.T) {
+	// Arrange
+	spawner := &spawnRecorder{}
+	handler, h := startBoard(t, 11*gigabyte, spawner)
+	writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n")
+	writeFile(t, filepath.Join(h.Data, "next-task", "brief.md"), plainBrief)
+	before, err := handler.Service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(before.Tasks, func(task Task) bool { return task.ID == "next-task" && task.Phase == "queued" }) {
+		t.Fatalf("tasks = %+v, want the unlisted brief queued before the archive lists it", before.Tasks)
+	}
+
+	// Act
+	writeFile(t, filepath.Join(h.Data, "done-archive.md"), "## Archived 2026-11-12\n- [x] next-task - Folded into a group (repo: code-goblins)\n")
+	after, err := handler.Service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := postStart(handler, `{"task":"next-task"}`, "board.local", "http://board.local", orderToken)
+
+	// Assert
+	if slices.ContainsFunc(after.Tasks, func(task Task) bool { return task.ID == "next-task" && task.Phase == "queued" }) {
+		t.Errorf("tasks = %+v, want the archived brief not queued", after.Tasks)
+	}
+	if response.Code != 409 || len(spawner.recorded()) != 0 {
+		t.Errorf("Start = %d %s, dispatches = %d; want it refused", response.Code, response.Body, len(spawner.recorded()))
+	}
+}
+
 func TestSnapshotOldQuestionCannotHoldANewNativeGeneration(t *testing.T) {
 	store, h := testStore(t)
 	meta, err := state.ReadTaskMeta(h.State, "task-1")
@@ -117,7 +153,7 @@ func TestSnapshotNativeReportsRespectQuestionsGatesAndFreshRuntime(t *testing.T)
 		{name: "newer work report than idle observation", report: "working: running package checks", health: monitor.HealthIdle, isOldObservation: true, wantPhase: "working", wantReason: "running package checks"},
 		{name: "done is per PR while next work runs", report: "done: PR https://github.com/o/r/pull/338", health: monitor.HealthBusy, wantPhase: "working"},
 		{name: "new active turn keeps independent source binding", report: "done: PR https://github.com/o/r/pull/338", health: monitor.HealthBusy, isActive: true, wantPhase: "working"},
-		{name: "newer held question beats older work", report: "working: collection evidence ready", health: monitor.HealthBusy, question: "blocked: Hold for live-auth evidence?", wantPhase: "blocked", wantReason: "Waiting on the CFO: Hold for live-auth evidence?"},
+		{name: "newer held question beats older work", report: "working: collection evidence ready", health: monitor.HealthBusy, question: "blocked: Hold for live-auth evidence?", wantPhase: "blocked", wantReason: "Waiting on the CEO: Hold for live-auth evidence?"},
 		{name: "answered question waits for explicit resumption", report: "working: collecting evidence", health: monitor.HealthBusy, question: "blocked: Which source?", isAnswered: true, wantPhase: "blocked", wantReason: "Which source?"},
 		{name: "newer report resumes without deleting decision", report: "working: old work", health: monitor.HealthBusy, question: "blocked: Which source?", isResumed: true, wantPhase: "working", wantReason: "resumed work"},
 		{name: "explicit CI wait survives idle", report: "waiting on ci: hosted checks", health: monitor.HealthIdle, wantPhase: "waiting", wantReason: "hosted checks"},
@@ -176,7 +212,7 @@ func TestSnapshotNativeReportsRespectQuestionsGatesAndFreshRuntime(t *testing.T)
 					t.Fatal(err)
 				}
 				if test.isAnswered {
-					if err := wake.MarkAnswered(h.State, record.Seq, "cfo", "Use the source"); err != nil {
+					if err := wake.MarkAnswered(h.State, record.Seq, "ceo", "Use the source"); err != nil {
 						t.Fatal(err)
 					}
 				}

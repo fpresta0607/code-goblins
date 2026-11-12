@@ -19,11 +19,11 @@ func TestSecondsGuardGrace(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.set {
-				t.Setenv("CFO_GUARD_GRACE", tt.env)
+				t.Setenv("GOBLINS_GUARD_GRACE", tt.env)
 			}
-			got := Seconds("CFO_GUARD_GRACE", 300)
+			got := Seconds("GOBLINS_GUARD_GRACE", 300)
 			if got != tt.want {
-				t.Errorf("Seconds(CFO_GUARD_GRACE, 300) = %v, want %v", got, tt.want)
+				t.Errorf("Seconds(GOBLINS_GUARD_GRACE, 300) = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -44,11 +44,11 @@ func TestIntAutoarmAttempts(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.set {
-				t.Setenv("CFO_CLAUDE_AUTOARM_ATTEMPTS", tt.env)
+				t.Setenv("GOBLINS_CLAUDE_AUTOARM_ATTEMPTS", tt.env)
 			}
-			got := Int("CFO_CLAUDE_AUTOARM_ATTEMPTS", 2, 1, 3)
+			got := Int("GOBLINS_CLAUDE_AUTOARM_ATTEMPTS", 2, 1, 3)
 			if got != tt.want {
-				t.Errorf("Int(CFO_CLAUDE_AUTOARM_ATTEMPTS, 2, 1, 3) = %d, want %d", got, tt.want)
+				t.Errorf("Int(GOBLINS_CLAUDE_AUTOARM_ATTEMPTS, 2, 1, 3) = %d, want %d", got, tt.want)
 			}
 		})
 	}

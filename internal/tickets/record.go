@@ -39,7 +39,7 @@ type Record struct {
 	// Note is what the board says about the ticket while it is open, such
 	// as why the issue the task named was not claimed.
 	Note string `json:"note,omitempty"`
-	// Overlap is the reason the CFO gave for starting the task beside a
+	// Overlap is the reason the CEO gave for starting the task beside a
 	// teammate's work, as last written to the ticket.
 	Overlap string `json:"overlap,omitempty"`
 	// What and Area are what the task changes and where, as last written to

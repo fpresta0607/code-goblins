@@ -93,8 +93,8 @@ func TestAPipedProcessReportsHowItEndedAndEndsItsOutput(t *testing.T) {
 }
 
 // Close ends the process and what it started, as a terminal's Close does, but
-// not a process that broke away from its job, as a goblin host the CFO
-// launches must to outlive the CFO's session.
+// not a process that broke away from its job, as a goblin host the CEO
+// launches must to outlive the CEO's session.
 func TestClosingAPipedProcessEndsItsTreeButNotWhatBrokeAway(t *testing.T) {
 	// Arrange
 	piped, s := startPipedChild(t, PipedSpec{})

@@ -44,12 +44,12 @@ func cut(text string, limit int) string {
 	return strings.TrimRight(kept, " ,;:-") + "…"
 }
 
-// A title note is the title the CFO gave a task with cfo title. cfo title
+// A title note is the title the CEO gave a task with goblins title. goblins title
 // writes it, and the supervisor, the tickets' only writer, puts it on the
 // task's ticket, even once the task has finished; it is the one thing that
 // changes the title of an issue already open.
 
-// WriteTitleNote keeps the title the CFO gave a task.
+// WriteTitleNote keeps the title the CEO gave a task.
 func WriteTitleNote(directory, taskID, title string) error {
 	path, err := titleNotePath(directory, taskID)
 	if err != nil {
@@ -61,7 +61,7 @@ func WriteTitleNote(directory, taskID, title string) error {
 	return fsx.AtomicWriteFile(path, []byte(title))
 }
 
-// ReadTitleNote reads the title the CFO gave a task, or "" when he gave none.
+// ReadTitleNote reads the title the CEO gave a task, or "" when he gave none.
 func ReadTitleNote(directory, taskID string) (string, error) {
 	path, err := titleNotePath(directory, taskID)
 	if err != nil {

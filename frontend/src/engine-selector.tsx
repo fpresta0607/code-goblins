@@ -8,6 +8,7 @@ import { harnessMark } from "./connectors";
 import { harnessName, taskColumn } from "./workflow";
 import { goblinName } from "./task-words";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
+import { linkedText } from "./messageText";
 
 export function EngineSelector({ task, instance }: { task: Task; instance: string }) {
   const label = useId();
@@ -28,13 +29,13 @@ export function EngineSelector({ task, instance }: { task: Task; instance: strin
   const isAutomaticHarness = isQueued && !choice.harness, isAutomaticModel = isQueued && !choice.model, isAutomaticEffort = isQueued && !choice.effort;
   const unavailable = harness?.reason || (isAutomaticHarness ? "" : !harness ? "Harness " + harnessName(choice.harness) + " is unavailable" : isAutomaticModel ? "" : !model ? "Model " + choice.model + " is unavailable" : !isAutomaticEffort && choice.effort !== "default" && !model.efforts.includes(choice.effort) ? "Effort " + choice.effort + " is unavailable for " + model.name : "");
   const isDisabled = isSending || task.starting || task.switching || !isQueued && !isPaused && task.backend !== "native";
-  // A working goblin restarts at once, as the CFO does: on its own engine
+  // A working goblin restarts at once, as the CEO does: on its own engine
   // when nothing was changed, and switched onto the one shown otherwise.
   const send = async (when: "" | "now" | "restart" | "cancel") => {
     if (isSending) return;
     setSending(true); setOutcome(""); showFeedback("");
     try {
-      const response = object(await request("/api/tasks/engine", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ task: task.id, generation: task.generation, revision: receipt?.revision || task.queue_revision, ...choice, when }) }));
+      const response = object(await request("/api/tasks/engine", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance }, body: JSON.stringify({ task: task.id, generation: task.generation, revision: receipt?.revision || task.queue_revision, ...choice, when }) }));
       if (isQueued || isPaused) {
         if (isQueued) setSaved({ choice, revision: string(response.revision), before: task.queue_revision });
         setOutcome(isQueued ? "Saved for Start" : "Saved for Resume");
@@ -57,9 +58,9 @@ export function EngineSelector({ task, instance }: { task: Task; instance: strin
           }}>{isQueued && <option value="">Automatic</option>}{!model && !isAutomaticModel && <option value={choice.model} disabled>{choice.model}{isAutomaticHarness ? "" : " (unavailable)"}</option>}{harness?.models.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           <label htmlFor={label + "-effort"}>Effort<select id={label + "-effort"} value={choice.effort} disabled={isDisabled || !model && (!isQueued || !choice.effort)} onChange={(event) => { setDraft({ ...choice, effort: event.target.value }); setOutcome(""); }}><option value="default">Default</option>{isQueued && <option value="">Automatic</option>}{!isAutomaticEffort && choice.effort !== "default" && !model?.efforts.includes(choice.effort) && <option value={choice.effort} disabled>{choice.effort}{isAutomaticHarness || isAutomaticModel ? "" : " (unavailable)"}</option>}{model?.efforts.map((effort) => <option key={effort} value={effort}>{effort}</option>)}</select></label>
         </div>
-        {unavailable && <p className="muted">{unavailable}</p>}
+        {unavailable && <p className="muted">{linkedText(unavailable)}</p>}
         {isQueued || isPaused ? draft && <button disabled={isDisabled || !!unavailable} onClick={() => void send("")}>{isQueued ? "Save" : "Save for Resume"}</button>
-          : <button className="labelled-button cfo-restart-button" aria-label={"Restart " + goblinName(task)} disabled={isDisabled || !!draft && !!unavailable} onClick={() => void send(draft ? "now" : "restart")}><Icon name="refresh" />Restart</button>}
+          : <button className="labelled-button ceo-restart-button" aria-label={"Restart " + goblinName(task)} disabled={isDisabled || !!draft && !!unavailable} onClick={() => void send(draft ? "now" : "restart")}><Icon name="refresh" />Restart</button>}
       </>}
       <ClickFeedback text={feedback} />
       {(isSending || task.switching || outcome) && <p role="status">{isSending ? "Saving..." : task.switching ? "Switching..." : outcome}</p>}

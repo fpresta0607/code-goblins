@@ -6,7 +6,7 @@ import (
 )
 
 // Claude Code on Windows has a PowerShell tool beside its Bash tool, and the
-// CFO's own session uses it. The guards below are ClassifyArm and ClassifyCd
+// CEO's own session uses it. The guards below are ClassifyArm and ClassifyCd
 // for the command of a PowerShell call: the same rules, read as PowerShell
 // writes them. A Bash reading of a PowerShell command line is wrong in both
 // directions: it takes a backtick for the start of a quoted span, which
@@ -21,9 +21,9 @@ var (
 	// the call: Start-Process and Start-Job, their aliases, a thread job,
 	// and the Start of .NET's Process.
 	powerShellStarter = regexp.MustCompile(`(?i)\b(start-process|saps|start-job|sajb|start-threadjob)\b|::start\b`)
-	// splitWatcher matches a cfo program and a watch argument that a starter
+	// splitWatcher matches a goblins program and a watch argument that a starter
 	// was handed apart, as a splatted table hands them.
-	splitWatcher = regexp.MustCompile(`(?s)\bcfo(\.exe)?\b.*\bwatch\b`)
+	splitWatcher = regexp.MustCompile(`(?s)\bgoblins(\.exe)?\b.*\bwatch\b`)
 	// powerShellKill matches the commands that end processes by name:
 	// Stop-Process and its aliases, and the programs a Bash call would use.
 	powerShellKill = regexp.MustCompile(`(?i)\b(stop-process|spps|kill|taskkill|pkill)\b`)
@@ -37,8 +37,8 @@ var (
 // parentheses and @ of an argument array and the * of a wildcard become
 // spaces and parameter names are dropped, so a program and its first
 // argument stand side by side however they were handed over:
-// Start-Process cfo -ArgumentList 'watch', ::Start('cfo.exe', 'watch') and
-// -like '*cfo*watch*' all read as cfo watch.
+// Start-Process goblins -ArgumentList 'watch', ::Start('goblins.exe', 'watch') and
+// -like '*goblins*watch*' all read as goblins watch.
 func normalizePowerShellToken(command string) string {
 	s := strings.NewReplacer(",", " ", "(", " ", ")", " ", "@", " ", "*", " ").Replace(normalizeToken(command))
 	return powerShellParameter.ReplaceAllString(s, " ")

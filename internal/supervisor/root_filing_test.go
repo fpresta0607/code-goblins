@@ -115,7 +115,7 @@ func TestALostConnectionMetAgainLaterIsNoRoot(t *testing.T) {
 	}
 }
 
-func TestAFilingThatFailsTellsTheCFOAndIsNoErrorOfTheSupervisors(t *testing.T) {
+func TestAFilingThatFailsTellsTheCEOAndIsNoErrorOfTheSupervisors(t *testing.T) {
 	// Arrange
 	service, filings := filingBoard(t, errors.New("refused: the issue would go on acme/widgets, which is public, and it names a path on this machine"))
 
@@ -139,7 +139,7 @@ func TestAFilingThatFailsTellsTheCFOAndIsNoErrorOfTheSupervisors(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatal("the CFO was not told the root was not filed")
+	t.Fatal("the CEO was not told the root was not filed")
 }
 
 func TestNoRootIsFiledWithoutAFilingPath(t *testing.T) {

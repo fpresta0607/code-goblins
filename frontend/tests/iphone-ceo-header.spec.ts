@@ -1,0 +1,52 @@
+import { CEO_DOOR, devices, expect, servePages, test, type Page } from "./site";
+import { open } from "./session-board";
+
+// The Overlord, 2026-10-29 about 11:24Z, from his phone, of the CEO's chat in
+// Classic with a row of its own for the chat button and Back stacked over the
+// CEO's header: "I don't like how it's stacked to have back and then the chat
+// button. Especially in classic mode. The back button should definitely be
+// slotted in somewhere into the classic and modern view to get back to the
+// home screen. You could even just click on the CFO in the top, the CFO
+// avatar, and that should take us back to the home screen." Since #1987 the
+// picture opens the choice of chat style instead (the Overlord, 2026-11-03:
+// "when you click on cfo avatar the dropdown with both options"), so Back is
+// the header's way back. His phone is an iPhone, so this runs in WebKit, at
+// the private board's address, since WebKit refuses the suite's own port.
+const PRIVATE = "https://pc.example.ts.net:4311";
+test.use({ ...devices["iPhone 15"], browserName: "webkit", baseURL: PRIVATE });
+
+const pane = (page: Page) => page.locator(".context-pane");
+const header = (page: Page) => page.locator(".goblin-panel > .panel-header");
+
+async function openCeo(page: Page, style: "classic" | "modern") {
+  await page.addInitScript((chosen) => localStorage.setItem("ceo-chat-style", chosen), style);
+  await servePages(page.context(), PRIVATE);
+  await open(page);
+  await page.locator(".ceo-pin").getByRole("button", { name: CEO_DOOR }).last().tap();
+  await expect(header(page).locator("#panel-title")).toHaveText("CEO");
+  if (style === "classic") await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
+  else await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
+}
+
+for (const style of ["classic", "modern"] as const) {
+  test(`on an iPhone the CEO's ${style} panel has nothing above its header, and Back to Board in it goes back to the board`, async ({ page }, testInfo) => {
+    // Arrange
+    await openCeo(page, style);
+    const button = header(page).getByRole("button", { name: "Back to Board", exact: true });
+    await expect(header(page).getByRole("button", { name: "Chat style", exact: true }).locator(".goblin-avatar")).toBeVisible();
+
+    // Assert: the header is the panel's top, with its way back in it.
+    const paneBox = (await pane(page).boundingBox())!;
+    const headerBox = (await header(page).boundingBox())!;
+    await testInfo.attach(`ceo-${style}.png`, { body: await page.screenshot(), contentType: "image/png" });
+    expect(headerBox.y - paneBox.y, "the header's distance from the panel's top").toBeLessThanOrEqual(1);
+    await expect(button).toBeInViewport();
+
+    // Act
+    await button.tap();
+
+    // Assert
+    await expect(pane(page)).toBeHidden();
+    await expect(page.locator(".task-board")).toBeVisible();
+  });
+}

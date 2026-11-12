@@ -102,7 +102,7 @@ func StrippedCommand(t *testing.T, base string, stubs map[string]string, name st
 		// The desktop shortcut goes on the session's own desktop, never this
 		// machine's, which Windows would find whatever USERPROFILE says.
 		"CODE_GOBLINS_DESKTOP=" + filepath.Join(profile, "Desktop"),
-		"CFO_USER_ENV_FILE=" + filepath.Join(local, UserEnvFile),
+		"GOBLINS_USER_ENV_FILE=" + filepath.Join(local, UserEnvFile),
 	}
 	// A stripped session has no module cache of its own, so Windows
 	// PowerShell reads every module on the machine before its first command
@@ -132,7 +132,7 @@ func ServeRelease(t *testing.T, binary []byte, sums string) string {
 	t.Helper()
 	release := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case binary != nil && r.URL.Path == "/cfo.exe":
+		case binary != nil && r.URL.Path == "/goblins.exe":
 			_, _ = w.Write(binary)
 		case binary != nil && r.URL.Path == "/SHA256SUMS":
 			_, _ = w.Write([]byte(sums))

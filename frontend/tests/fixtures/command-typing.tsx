@@ -9,7 +9,7 @@ declare global {
 }
 
 // A board with a comment box the Overlord types in. ask is a new question
-// the CFO has for him arriving, as the supervisor's snapshot brings it.
+// the CEO has for him arriving, as the supervisor's snapshot brings it.
 const question = (id: string) => ({
   id, identity: "q".repeat(64), task: "", status: "pending", created_at: new Date().toISOString(),
   text: "May I build the layout switch as drawn?", options: ["Build as drawn", "Change it first"], recommended: "Build as drawn",

@@ -32,10 +32,10 @@ import (
 // together with the framed page's snapshot, never after its five seconds
 // without one, the poll that waited at his press reads them, and the card
 // leaves once the receipt that keeps his answer is saved. His note reaches
-// the goblin once and the CFO is told once. The card's link names the page on
+// the goblin once and the CEO is told once. The card's link names the page on
 // local host or on his tailnet alike: either is polled on the page Scrawl
 // serves at it. On the build he ran that day Kenny's and Frida's pages were
-// put to the CFO with no page file, so nothing polled them and his Send & End
+// put to the CEO with no page file, so nothing polled them and his Send & End
 // there reached nobody; the build since polls them, and this test holds it.
 //
 // The card's leaving is not timed against his press: before it leaves, the
@@ -63,7 +63,7 @@ func TestASendAndEndOnAScrawlPageClearsItsCardAtOnceAndDeliversHisNoteOnce(t *te
 			if test.host != "" {
 				published = test.host + link[strings.Index(link, "/session/"):]
 			}
-			// As cfo present --kind review --watch publishes it.
+			// As goblins present --kind review --watch publishes it.
 			if err := PublishReview(h, meta.ID, "task-1-plan", "Approve the plan", published, "", nil); err != nil {
 				t.Fatal(err)
 			}
@@ -113,7 +113,7 @@ func TestASendAndEndOnAScrawlPageClearsItsCardAtOnceAndDeliversHisNoteOnce(t *te
 				}
 				return read, err
 			}
-			s, err := Start(context.Background(), h, Options{CFO: connection, PollPage: poll})
+			s, err := Start(context.Background(), h, Options{CEO: connection, PollPage: poll})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -183,13 +183,13 @@ func TestASendAndEndOnAScrawlPageClearsItsCardAtOnceAndDeliversHisNoteOnce(t *te
 				t.Errorf("the goblin got %q, want his note once", goblin.lines(t))
 			}
 			if wakes := reviewWakes(t, h.State, meta.ID); len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "Ship the plan as drawn") {
-				t.Errorf("review wakes = %+v, want the CFO told once that the goblin has his note", wakes)
+				t.Errorf("review wakes = %+v, want the CEO told once that the goblin has his note", wakes)
 			}
 		})
 	}
 }
 
-// waitForReviewWake waits until the CFO has been told of task's page.
+// waitForReviewWake waits until the CEO has been told of task's page.
 func waitForReviewWake(t *testing.T, stateDir, task string) {
 	t.Helper()
 	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
@@ -197,7 +197,7 @@ func waitForReviewWake(t *testing.T, stateDir, task string) {
 			return
 		}
 	}
-	t.Fatalf("the CFO was never told of %s's page", task)
+	t.Fatalf("the CEO was never told of %s's page", task)
 }
 
 // testScrawl is a Scrawl of the test's own: lavish-axi's server on a free

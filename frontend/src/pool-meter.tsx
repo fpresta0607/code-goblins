@@ -5,7 +5,7 @@ import { kernelPools, poolMarks, poolScale, poolState } from "./start";
 // the memory meter's box, on a bar marked at the line past which free memory
 // can no longer hold the fleet (see poolScale), whose tip gives each pool and
 // the tags that grew most since the sign-in began; the fill turns red past the
-// line, where the CFO's panel offers Restart PC, and the same in words is for
+// line, where the CEO's panel offers Restart PC, and the same in words is for
 // a screen reader. It shares the memory meter's look, with nothing written
 // under its bar.
 export function PoolMeter({ memory }: { memory: Memory }) {

@@ -357,8 +357,8 @@ func TestUpStartsTheEngineAndTheStackForTheFirstTask(t *testing.T) {
 	}
 	record := h.record(t)
 	stack := record.Stacks["PrecisionDocs-AI"]
-	if !record.Engine.StartedByCFO {
-		t.Error("the record does not say cfo started the engine")
+	if !record.Engine.StartedByCEO {
+		t.Error("the record does not say goblins started the engine")
 	}
 	if !stack.Owned || !slices.Equal(stack.HolderIDs(), []string{"task-a"}) {
 		t.Errorf("stack = %+v, want it owned and held by task-a", stack)
@@ -432,7 +432,7 @@ func TestReleaseKeepsTheStackWhileAnotherTaskHoldsIt(t *testing.T) {
 	}
 }
 
-func TestTheLastReleaseStopsTheStackAndTheEngineCFOStarted(t *testing.T) {
+func TestTheLastReleaseStopsTheStackAndTheEngineCEOStarted(t *testing.T) {
 	// Arrange
 	h := newHarness(t)
 	h.up(t, "task-a")
@@ -449,8 +449,8 @@ func TestTheLastReleaseStopsTheStackAndTheEngineCFOStarted(t *testing.T) {
 	}
 	record := h.record(t)
 	stack := record.Stacks["PrecisionDocs-AI"]
-	if stack.IsUp() || stack.Owned || record.Engine.StartedByCFO {
-		t.Errorf("record = %+v, want the stack down and the engine no longer cfo's", record)
+	if stack.IsUp() || stack.Owned || record.Engine.StartedByCEO {
+		t.Errorf("record = %+v, want the stack down and the engine no longer ceo's", record)
 	}
 	// The measured cost is kept for the next start.
 	if stack.Cost.Bytes != 3*gigabyte {
@@ -461,7 +461,7 @@ func TestTheLastReleaseStopsTheStackAndTheEngineCFOStarted(t *testing.T) {
 	}
 }
 
-func TestTheLastReleaseLeavesAnEngineCFODidNotStart(t *testing.T) {
+func TestTheLastReleaseLeavesAnEngineCEODidNotStart(t *testing.T) {
 	h := newHarness(t)
 	h.docker.engine = true
 	h.up(t, "task-a")
@@ -473,11 +473,11 @@ func TestTheLastReleaseLeavesAnEngineCFODidNotStart(t *testing.T) {
 		t.Fatalf("docker calls = %v, want only the stack stopped", h.docker.calls)
 	}
 	if !h.docker.engine {
-		t.Error("the engine cfo did not start was stopped")
+		t.Error("the engine goblins did not start was stopped")
 	}
 }
 
-func TestTheLastReleaseLeavesTheEngineWhileContainersCFODidNotStartRun(t *testing.T) {
+func TestTheLastReleaseLeavesTheEngineWhileContainersCEODidNotStartRun(t *testing.T) {
 	h := newHarness(t)
 	h.up(t, "task-a")
 	h.docker.foreign = []string{"overlord-postgres"}
@@ -491,8 +491,8 @@ func TestTheLastReleaseLeavesTheEngineWhileContainersCFODidNotStartRun(t *testin
 	if !strings.Contains(line, "overlord-postgres") {
 		t.Errorf("line = %q, want it to name the container that keeps the engine running", line)
 	}
-	if !h.record(t).Engine.StartedByCFO {
-		t.Error("the record forgot cfo started the engine, so no later release can stop it")
+	if !h.record(t).Engine.StartedByCEO {
+		t.Error("the record forgot goblins started the engine, so no later release can stop it")
 	}
 }
 
@@ -653,7 +653,7 @@ func TestAFailedStartStopsWhatItStarted(t *testing.T) {
 		t.Errorf("docker calls = %v, want %v", h.docker.calls, want)
 	}
 	record := h.record(t)
-	if record.Stacks["PrecisionDocs-AI"].IsUp() || record.Stacks["PrecisionDocs-AI"].Owned || record.Engine.StartedByCFO {
+	if record.Stacks["PrecisionDocs-AI"].IsUp() || record.Stacks["PrecisionDocs-AI"].Owned || record.Engine.StartedByCEO {
 		t.Errorf("record = %+v, want nothing left held or owned", record)
 	}
 }
@@ -763,7 +763,7 @@ func TestAFailedStartThatCannotSaveItsFailedServicesStopsAndSaysWhy(t *testing.T
 			if want := []string{"start-engine", "up backend,worker-light", "failed", "down ", "stop-engine"}; !slices.Equal(h.docker.calls, want) {
 				t.Errorf("docker calls = %v, want %v", h.docker.calls, want)
 			}
-			if record := h.record(t); record.Stacks["PrecisionDocs-AI"].Owned || record.Engine.StartedByCFO {
+			if record := h.record(t); record.Stacks["PrecisionDocs-AI"].Owned || record.Engine.StartedByCEO {
 				t.Errorf("record = %+v, want nothing left owned", record)
 			}
 		})
@@ -791,7 +791,7 @@ func TestAStackAlreadyRunningIsSharedAndNeverStopped(t *testing.T) {
 	}
 }
 
-func TestBesideARunningStackOnlyWhatCFOStartedIsStopped(t *testing.T) {
+func TestBesideARunningStackOnlyWhatCEOStartedIsStopped(t *testing.T) {
 	// Arrange: redis and qdrant run already, the backend and the worker do
 	// not.
 	h := newHarness(t)
@@ -937,8 +937,8 @@ func TestUpSaysWhatItStartsBeforeEachSlowStep(t *testing.T) {
 
 	h.up(t, "task-a")
 
-	want := "cfo services: starting the Docker engine\n" +
-		"cfo services: starting PrecisionDocs-AI's backend, worker-light and what they depend on, which builds any image they lack first and can take many minutes\n"
+	want := "goblins services: starting the Docker engine\n" +
+		"goblins services: starting PrecisionDocs-AI's backend, worker-light and what they depend on, which builds any image they lack first and can take many minutes\n"
 	if got := h.out.String(); got != want {
 		t.Errorf("progress = %q, want %q", got, want)
 	}
@@ -963,8 +963,8 @@ func TestTheLastReleaseAfterTheEngineWasQuitMarksTheStackStopped(t *testing.T) {
 		t.Fatalf("docker calls = %v, want none against a stopped engine", h.docker.calls)
 	}
 	record := h.record(t)
-	if stack := record.Stacks["PrecisionDocs-AI"]; stack.IsUp() || stack.Owned || record.Engine.StartedByCFO {
-		t.Errorf("record = %+v, want the stack and the engine no longer cfo's", record)
+	if stack := record.Stacks["PrecisionDocs-AI"]; stack.IsUp() || stack.Owned || record.Engine.StartedByCEO {
+		t.Errorf("record = %+v, want the stack and the engine no longer ceo's", record)
 	}
 	if want := "task-a was the last to hold them: PrecisionDocs-AI's services were already stopped with the Docker engine"; line != want {
 		t.Errorf("line = %q, want %q", line, want)
@@ -979,7 +979,7 @@ func TestTheLastReleaseAfterTheEngineWasQuitMarksTheStackStopped(t *testing.T) {
 // start's mark). The stop measures from the memory read before the start.
 func TestAStopAfterAStartCutShortRecordsWhatTheStartTook(t *testing.T) {
 	// Arrange: 12 GB free, the engine takes 2 GB, the build 7 GB more before
-	// cfo's process is ended from outside at its first look at memory, and
+	// ceo's process is ended from outside at its first look at memory, and
 	// the build's memory is not given back at once.
 	h := newHarness(t)
 	var isBuilt atomic.Bool
@@ -1060,14 +1060,14 @@ func TestAStartTakesTheMachinesTurnAndASharerTakesNone(t *testing.T) {
 	if !slices.Equal(h.docker.calls, want) {
 		t.Errorf("calls = %q, want %q", h.docker.calls, want)
 	}
-	if want := []string{"cfo services up PrecisionDocs-AI for task-a"}; !slices.Equal(h.turn.taken, want) {
+	if want := []string{"goblins services up PrecisionDocs-AI for task-a"}; !slices.Equal(h.turn.taken, want) {
 		t.Errorf("turns taken = %q, want %q", h.turn.taken, want)
 	}
 }
 
 // A build that takes the machine under the floor is ended at the first
 // reading under it, and the start then stops what it started, the engine
-// cfo started included, so the memory comes back. The start says why, and
+// goblins started included, so the memory comes back. The start says why, and
 // what it took is kept as the stack's cost for the next start's mark.
 func TestABuildThatReachesTheFloorIsEndedAndWhatItStartedStopped(t *testing.T) {
 	// Arrange: 12 GB free, the engine takes 2 GB and the build 7 GB, which
@@ -1098,13 +1098,13 @@ func TestABuildThatReachesTheFloorIsEndedAndWhatItStartedStopped(t *testing.T) {
 	}
 	record := h.record(t)
 	stack := record.Stacks["PrecisionDocs-AI"]
-	if stack.IsUp() || stack.Owned || record.Engine.StartedByCFO {
-		t.Errorf("holders %v, owned %t, engine cfo's %t, want nothing left held or cfo's", stack.HolderIDs(), stack.Owned, record.Engine.StartedByCFO)
+	if stack.IsUp() || stack.Owned || record.Engine.StartedByCEO {
+		t.Errorf("holders %v, owned %t, engine ceo's %t, want nothing left held or ceo's", stack.HolderIDs(), stack.Owned, record.Engine.StartedByCEO)
 	}
 	if stack.Cost.Bytes != 9*gigabyte {
 		t.Errorf("cost = %.1f GB, want the 9 GB the start took", float64(stack.Cost.Bytes)/float64(gigabyte))
 	}
-	if said := h.out.String(); !strings.Contains(said, "under the 4 GB floor, so cfo ended its start of PrecisionDocs-AI's services") {
+	if said := h.out.String(); !strings.Contains(said, "under the 4 GB floor, so goblins ended its start of PrecisionDocs-AI's services") {
 		t.Errorf("said %q, want the floor and what it ended", said)
 	}
 }

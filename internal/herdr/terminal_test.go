@@ -34,12 +34,12 @@ func TestTerminalSessionArgsTakeOverOnlyForControl(t *testing.T) {
 		control bool
 		want    []string
 	}{
-		{"an observer changes nothing", false, []string{"--session", "cfo", "terminal", "session", "observe", "term_1", "--cols", "120", "--rows", "40"}},
-		{"a controller sizes the pane and takes it over", true, []string{"--session", "cfo", "terminal", "session", "control", "term_1", "--cols", "120", "--rows", "40", "--takeover"}},
+		{"an observer changes nothing", false, []string{"--session", "ceo", "terminal", "session", "observe", "term_1", "--cols", "120", "--rows", "40"}},
+		{"a controller sizes the pane and takes it over", true, []string{"--session", "ceo", "terminal", "session", "control", "term_1", "--cols", "120", "--rows", "40", "--takeover"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := terminalSessionArgs("cfo", "term_1", c.control, 120, 40); !reflect.DeepEqual(got, c.want) {
+			if got := terminalSessionArgs("ceo", "term_1", c.control, 120, 40); !reflect.DeepEqual(got, c.want) {
 				t.Fatalf("args = %q, want %q", got, c.want)
 			}
 		})

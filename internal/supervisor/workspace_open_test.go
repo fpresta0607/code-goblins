@@ -48,7 +48,7 @@ func TestOpenWorkspaceRequiresLocalIdentityAndExactTaskDirectory(t *testing.T) {
 		r := httptest.NewRequest("POST", "http://board.local/api/workspace/open", strings.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")
 		r.Header.Set("Origin", origin)
-		r.Header.Set("X-CFO-Token", token)
+		r.Header.Set("X-CEO-Token", token)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, r)
 		return w.Code

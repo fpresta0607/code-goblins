@@ -1,4 +1,4 @@
-import { CFO_DOOR, expect, test, type Locator, type Page } from "./site";
+import { CEO_DOOR, expect, test, type Locator, type Page } from "./site";
 import { NAME, open, openGoblin, pressRow, snapshot } from "./session-board";
 
 // The Overlord, 2026-10-29: "Minimize height and maximize the space", and of
@@ -16,8 +16,8 @@ const ROW_PX = 56;
 const REPORT = "/api/afk/report/index.html";
 const header = (page: Page) => page.locator(".goblin-panel > .panel-header");
 
-async function openCfo(page: Page) {
-  await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click();
+async function openCeo(page: Page) {
+  await page.locator(".ceo-pin").getByRole("button", { name: CEO_DOOR }).last().click();
   await expect(page.locator("#panel-title")).toHaveText("CEO");
 }
 
@@ -35,7 +35,7 @@ for (const width of [1440, 393, 360]) {
 
       // Act
       if (who === "goblin") await openGoblin(page);
-      else await openCfo(page);
+      else await openCeo(page);
 
       // Assert: one row, with no separate row above it or under it, no taller
       // than a control and its padding where its name is one line. A goblin's
@@ -60,7 +60,7 @@ for (const width of [1440, 393, 360]) {
       // against them. A goblin's name wraps on a phone, so it takes the row's
       // spare room and the switch stands right of the middle there. In the
       // panel's default width beside the board the picture offers the chat
-      // style and each row shows every control, the CFO's with its name whole
+      // style and each row shows every control, the CEO's with its name whole
       // (#1987).
       const views = header(page).locator(".panel-view-switch");
       const switchBox = await box(views);
@@ -141,7 +141,7 @@ for (const who of ["CEO", "goblin"] as const) {
   });
 }
 
-// Where the row is narrowest, the CFO's panel dragged to its narrowest beside
+// Where the row is narrowest, the CEO's panel dragged to its narrowest beside
 // the board and a phone, in both chat styles and with an update waiting or
 // not, what always shows still fits: the picture stays whole, the name is
 // cut at the identity's own edge and never drawn under the switch, every
@@ -156,17 +156,17 @@ const NARROWEST = [
 for (const { where, viewport, pane } of NARROWEST) {
   for (const style of ["classic", "modern"]) {
     for (const isUpdateWaiting of [false, true]) {
-      test(`the CFO's header row on ${where} in ${style}${isUpdateWaiting ? " with an update waiting" : ""} keeps its picture whole, its name off the switch, and every control in the panel`, async ({ page }) => {
+      test(`the CEO's header row on ${where} in ${style}${isUpdateWaiting ? " with an update waiting" : ""} keeps its picture whole, its name off the switch, and every control in the panel`, async ({ page }) => {
         // Arrange
         await page.setViewportSize(viewport);
         await page.addInitScript(({ style, pane }) => {
-          localStorage.setItem("cfo-chat-style", style);
-          if (pane) localStorage.setItem("cfo-pane-width", String(pane));
+          localStorage.setItem("ceo-chat-style", style);
+          if (pane) localStorage.setItem("ceo-pane-width", String(pane));
         }, { style, pane });
-        await open(page, snapshot(isUpdateWaiting ? { cfo_update: UPDATE } : {}));
+        await open(page, snapshot(isUpdateWaiting ? { ceo_update: UPDATE } : {}));
 
         // Act
-        await openCfo(page);
+        await openCeo(page);
 
         // Assert: one row, and what the identity draws, cut at its edge
         // where it hides what overflows it, ends before the switch.
@@ -200,7 +200,7 @@ for (const { where, viewport, pane } of NARROWEST) {
 
         // Assert: Update is on the line under the row, in the panel.
         if (isUpdateWaiting) {
-          const update = page.locator(".cfo-header-line").getByRole("button", { name: "Cancel the Claude Code update", exact: true });
+          const update = page.locator(".ceo-header-line").getByRole("button", { name: "Cancel the Claude Code update", exact: true });
           expect((await box(update)).y).toBeGreaterThanOrEqual(row.y + row.height);
           await inPanel(update);
         }
@@ -209,22 +209,22 @@ for (const { where, viewport, pane } of NARROWEST) {
   }
 }
 
-// What a press in the CFO's header could not do lies over the conversation
+// What a press in the CEO's header could not do lies over the conversation
 // from the row's right end, and on the 360 px panel beside the board it is cut
 // to the panel's room, so neither its border nor its first words are hidden
 // at the panel's left edge.
 test("on a 360 px panel beside the board, Restart PC's notice lies inside the panel", async ({ page }) => {
   // Arrange: a restart that stopped short.
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.addInitScript(() => localStorage.setItem("cfo-pane-width", "360"));
+  await page.addInitScript(() => localStorage.setItem("ceo-pane-width", "360"));
   await open(page, snapshot({ pc_restart: { state: "stopped", problem: "not every working goblin paused", at: new Date().toISOString() } }));
 
   // Act
-  await openCfo(page);
+  await openCeo(page);
 
   // Assert
   const panel = await box(page.locator(".context-pane"));
-  const each = await box(page.locator(".cfo-header-line > .notice"));
+  const each = await box(page.locator(".ceo-header-line > .notice"));
   expect(each.x).toBeGreaterThanOrEqual(panel.x - 0.5);
   expect(each.x + each.width).toBeLessThanOrEqual(panel.x + panel.width + 0.5);
 });
@@ -243,10 +243,10 @@ test("a goblin's name shows whole with its task id in its Task view", async ({ p
   await expect(page.locator(".goblin-panel > .panel-task .panel-status")).toBeVisible();
 });
 
-test("the CFO's last AFK report opens from its Task view, not from the header", async ({ page }) => {
+test("the CEO's last AFK report opens from its Task view, not from the header", async ({ page }) => {
   // Arrange
   await open(page, snapshot({ afk: { state: "off", page: REPORT } }));
-  await openCfo(page);
+  await openCeo(page);
   const report = page.getByRole("button", { name: "Open your last AFK report", exact: true });
   await expect(report).toHaveCount(0);
 

@@ -116,7 +116,7 @@ type Node struct {
 	cpu         time.Duration
 	process     string
 	outsideWork bool
-	// heavyRun says the job is a run in the machine's heavy line, cfo gate
+	// heavyRun says the job is a run in the machine's heavy line, goblins gate
 	// turn's, which tells its goblin how it ended, and lineMovedAt is when
 	// that line last moved while a run of the job waits in it.
 	heavyRun    bool

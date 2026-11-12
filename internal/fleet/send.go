@@ -17,9 +17,9 @@ const (
 	completionSettle = 1200 * time.Millisecond
 )
 
-// Stamp marks a steer as the CFO's with routing.SteerPrefix, once, so the
-// fault detector can tell text the CFO wrote about a provider from text the
-// provider wrote. A message the CFO already prefixed is left alone, and so
+// Stamp marks a steer as the CEO's with routing.SteerPrefix, once, so the
+// fault detector can tell text the CEO wrote about a provider from text the
+// provider wrote. A message the CEO already prefixed is left alone, and so
 // is a slash, dollar or bang command: that is for the harness, not the goblin,
 // and a prefix would turn it into prose.
 func Stamp(message string) string {
@@ -38,7 +38,7 @@ func IsCommand(message string) bool {
 // TypeSettleFor is how long to wait after typing message before Enter submits
 // it. A message starting with `/` or `$` opens a harness completion popup, and
 // an Enter that arrives while the popup is still open selects the highlighted
-// completion instead of submitting what was typed - so `cfo send <id> "/exit"`
+// completion instead of submitting what was typed - so `goblins send <id> "/exit"`
 // could run an entirely different command. Both prefixes get the long wait
 // unconditionally: waiting longer than plain text needs costs a fraction of a
 // second against running the wrong command.
@@ -49,7 +49,7 @@ func TypeSettleFor(message string) time.Duration {
 	return typeSettle
 }
 
-// NormalizeKey names the terminal key cfo send --key accepts as key, in any of
+// NormalizeKey names the terminal key goblins send --key accepts as key, in any of
 // its spellings, as Enter, Escape, Ctrl+C or Ctrl+U.
 func NormalizeKey(key string) (string, error) {
 	switch strings.ToLower(key) {

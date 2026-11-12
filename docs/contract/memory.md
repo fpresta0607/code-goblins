@@ -14,17 +14,17 @@ A fact file starts with frontmatter `name`, `description` and `metadata.type`, w
 Do not copy history into task briefs or duplicate facts already owned by a project or conditional procedure.
 Keep private preferences and fleet delivery posture out of public project memory.
 
-`data/memory/startup.json` is a versioned map of exact source ranges, derived from the memory files by `cfo memory sync` and curated by `cfo memory scope` or by hand.
+`data/memory/startup.json` is a versioned map of exact source ranges, derived from the memory files by `goblins memory sync` and curated by `goblins memory scope` or by hand.
 It never replaces the original ruling bytes with a summary.
 The digest delivers warm ranges, each after its id, a bounded count of what each scope holds cold and a bounded fleet/backlog projection.
 State bounds also apply without a catalog, independently of the full legacy authority bytes.
 One current-state sample is reused by all startup renderings, with a shared two-second terminal-read budget and explicit unknown state when it expires.
-It reports omitted state and directs current-state reads to `cfo fleet-view`, `cfo drain` and the existing recovery owners.
+It reports omitted state and directs current-state reads to `goblins fleet-view`, `goblins drain` and the existing recovery owners.
 Displayed status tails are events, not evidence of present state, and omitted wakes remain unacknowledged.
 Read-only startup retains its existing custody boundary and writes no digest or marker.
 
 Claude's hook preview validates current sources on every start, resume, reload and fork before pointing to the newly composed `state/session-digest.md`.
-Codex and Pi run `cfo session-start` at startup and after resume or compaction; a saved digest alone never validates current authority.
+Codex and Pi run `goblins session-start` at startup and after resume or compaction; a saved digest alone never validates current authority.
 An unchanged resumed conversation skips source bytes only if it actually read and still holds them; a prior composition or completion marker is not proof of delivery.
 Changed authority must be read again before dependent action, and current state still requires reconciliation.
 Every role retrieves cold memory relevant to the project, task and topic before dependent action, even when the bounded scope counts omitted its line.
@@ -35,32 +35,32 @@ That is an authority-preservation boundary until the owner approves curation, no
 A present but invalid catalog never selects a silent legacy fallback.
 Missing sources, checksum changes, uncovered bytes, overlapping ranges, conflicting ids, duplicate JSON keys, unknown fields and cyclic or missing supersession references are errors.
 Do not act on affected authority until its diagnostic is resolved.
-Memory that changed after the catalog was written is such an error until `cfo memory sync` derives the catalog again; no startup and no retrieval rewrites the catalog.
+Memory that changed after the catalog was written is such an error until `goblins memory sync` derives the catalog again; no startup and no retrieval rewrites the catalog.
 Stale facts remain visible with a Stow diagnostic; reading never reinforces, archives or advances a grace cycle.
 
 ### Rulings by scope
 
 Startup loads the rulings of the whole fleet, the fact index and the warm facts.
-A ruling ruled for a project is cold: startup leaves it out, counts it under that project's scope, and `cfo memory retrieve --project <name> --cold` prints it.
+A ruling ruled for a project is cold: startup leaves it out, counts it under that project's scope, and `goblins memory retrieve --project <name> --cold` prints it.
 Every ruling stays verbatim in `overlord.md` and retrievable by its id, whatever its scope.
 A ruling no scope has been ruled for loads at every start, and startup says how many there are, so nothing is left out for want of a decision.
 
-`cfo memory sync` derives the catalog from the memory files, which stay the source of truth.
-Each line of `overlord.md` that is not a heading, a comment or blank is one entry, under the id `cfo memory recall` prints for that ruling; a repeated line takes `-2`, `-3` after its id.
+`goblins memory sync` derives the catalog from the memory files, which stay the source of truth.
+Each line of `overlord.md` that is not a heading, a comment or blank is one entry, under the id `goblins memory recall` prints for that ruling; a repeated line takes `-2`, `-3` after its id.
 A heading and what follows it belong to the entry of the first ruling below, and blank lines and comments to the ruling above, so every byte is in one entry.
 Each line of `memory/MEMORY.md` is one warm entry, a fact file is one cold fact found by its description and its `metadata.type`, `memory-archive.md` is one cold history range and `projects.md` one warm entry.
 A fact file that ends in a pinned, pending-capture, grace or perishable marker is warm instead, when it is new to the catalog and when the one entry it had was cold, since those tiers stay loaded and a pinned item leaves startup only on its own approval.
 A pinned fact whose entry carries its own approval keeps the location the catalog gave it, the archive's history stays cold whatever its lines carry, and ruling a fact kept warm this way for a project is still refused, with the entry named.
 A fact the index pins loads unless that entry carries its own approval.
 A fact file loads only for a reason a sync can read: one of those markers, an index pin, an active or held task state, or a ruling for the whole fleet.
-When its words change and none of them holds, it comes by scope again with the routing it had, so a fact a marker loaded leaves startup once the marker is gone; `cfo memory scope --fleet <id>` is the way to keep a fact loaded.
+When its words change and none of them holds, it comes by scope again with the routing it had, so a fact a marker loaded leaves startup once the marker is gone; `goblins memory scope --fleet <id>` is the way to keep a fact loaded.
 A fact with no trigger or no routing key stays loaded, since no scope would find it, and an entry set by hand as anything but a fact stays as it was set.
 A file that has not changed keeps its entries as they were set, a line that is still there keeps its scope by its id, and words the catalog has not seen load until a scope is ruled for them.
 A scope whose words are no longer in memory is named in the command's report.
 A catalog that would not load is never written: it is checked against the memory files before it replaces the one on disk, so a refusal leaves the catalog file as it was, or absent.
-A perishable entry with no expiry named is such a refusal, which names every one of them and the single `cfo memory scope --expiry <id>="<words>"` command, one pair for each, that names them all.
+A perishable entry with no expiry named is such a refusal, which names every one of them and the single `goblins memory scope --expiry <id>="<words>"` command, one pair for each, that names them all.
 
-`cfo memory scope --project <name>` rules the entries it names for that project and `cfo memory scope --fleet` for the whole fleet; neither changes a byte of a memory file.
+`goblins memory scope --project <name>` rules the entries it names for that project and `goblins memory scope --fleet` for the whole fleet; neither changes a byte of a memory file.
 Writing the catalog is the CEO's alone, since it decides what a CEO session reads at its start.
 Every writer of the catalog, a decision on a lesson included, holds one lock, so two never write at once.
 
@@ -119,14 +119,14 @@ If a tier is renamed or retired, Stow retargets the pending marker to the new ow
 
 ### Budgets and exceptions
 
-`cfo memory budget` measures the combined always-loaded memory: with a catalog, exactly the text startup prints, its ids, scope counts and count of unclassified rulings included.
+`goblins memory budget` measures the combined always-loaded memory: with a catalog, exactly the text startup prints, its ids, scope counts and count of unclassified rulings included.
 Before a catalog exists it counts the legacy directives, project map and fact index and says which are absent.
 `config/startup-memory-budget`, when present, is a positive integer estimated-token allowance; otherwise it is 15,000.
 An invalid setting is an exception, never an inferred default.
 An overrun retains all authority and requires a concrete budget or named-offload decision.
 It is never budget relief or a reset-safe result.
 
-`cfo memory budget --packages <file>` measures complete supplied startup captures for all three harnesses, not only a hook preview.
+`goblins memory budget --packages <file>` measures complete supplied startup captures for all three harnesses, not only a hook preview.
 The file is a JSON array with one object per `codex`, `claude` and `pi`, each having `harness` and `inputs`.
 Each input has `kind` and `path`, with paths relative to this file unless absolute.
 All six categories must be present for each harness: `core`, `global`, `memory`, `skills-index`, `brief` and `digest`.
@@ -143,7 +143,7 @@ Report before and after using the same capture boundaries, and distinguish synth
 
 ### Lossless planning and pinned offload
 
-Run `cfo memory migration-plan` before proposing any live history move.
+Run `goblins memory migration-plan` before proposing any live history move.
 It is a read-only inventory with no apply operation.
 It reports source hashes, complete byte ranges, proposed destinations, authority classification, scope, each pinned approval boundary and the hash of reconstructed retained bytes.
 An existing valid catalog supplies the exact item identities, ranges, authority, tiers, routing and declared layer owners; an invalid catalog is an error rather than permission to infer legacy ownership.

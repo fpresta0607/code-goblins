@@ -45,7 +45,7 @@ const (
 )
 
 // runReadTimeout bounds how long a client takes to send its request, and
-// runReplyTimeout how long cfo run-request waits for the answer. Only time
+// runReplyTimeout how long goblins run-request waits for the answer. Only time
 // the machine ran spends either (awake), since a pause of the whole machine
 // stops the other side too.
 var (
@@ -57,7 +57,7 @@ var (
 // directory, so two homes never share one.
 func runPipeName(stateDir string) string {
 	sum := sha256.Sum256([]byte(strings.ToLower(filepath.Clean(stateDir))))
-	return `\\.\pipe\cfo-run-requests-` + hex.EncodeToString(sum[:8])
+	return `\\.\pipe\ceo-run-requests-` + hex.EncodeToString(sum[:8])
 }
 
 // firstInstanceWait is how long the supervisor waits for a pipe name another
@@ -69,7 +69,7 @@ const firstInstanceWait = 2 * time.Second
 
 // serveRunRequests takes run items over the supervisor's named pipe until ctx
 // ends. Every client is proven by its own process: only one that runs under
-// the registered primary CFO gets an item onto the board. The pipe is the
+// the registered primary CEO gets an item onto the board. The pipe is the
 // supervisor's own from its first instance, or it is not served at all: a
 // process that created the name first, another local user's included, would
 // otherwise receive every request, and only the current user may open or add
@@ -117,7 +117,7 @@ func (s *Service) serveRunRequests(ctx context.Context) {
 		}
 		if syscall.Handle(handle) == syscall.InvalidHandle {
 			if first && errors.Is(callErr, syscall.ERROR_ACCESS_DENIED) {
-				err := fmt.Errorf("run requests: another process already holds the pipe %s, so run requests are not served; stop it and restart cfo serve", runPipeName(s.Store.Home.State))
+				err := fmt.Errorf("run requests: another process already holds the pipe %s, so run requests are not served; stop it and restart goblins serve", runPipeName(s.Store.Home.State))
 				s.Store.mu.Lock()
 				s.Store.issue(err.Error())
 				saveErr := s.Store.save()
@@ -246,7 +246,7 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 					reply.Helper = &started
 				}
 			default:
-				err = s.acceptCFOItem(int(pid), connected, req)
+				err = s.acceptCEOItem(int(pid), connected, req)
 			}
 			s.runRequests.Unlock()
 		}
@@ -336,7 +336,7 @@ func askPipe(stateDir string, req runPipeRequest) (pipeReply, error) {
 	}
 	cancelOpening()
 	if err != nil {
-		return pipeReply{}, errors.New("the supervisor is not running, so the board cannot take this; start cfo serve")
+		return pipeReply{}, errors.New("the supervisor is not running, so the board cannot take this; start goblins serve")
 	}
 	defer pipe.Close()
 	// The command goes only to the supervisor of this home: the process that

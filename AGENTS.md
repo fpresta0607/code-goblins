@@ -8,7 +8,7 @@ This file is the shared core of your job description.
 
 Before choosing a worker model or reasoning effort, the CEO loads `smart-routing` from the shared skills folder recorded in `state/harnesses.json`.
 
-A goblin that `cfo spawn` dispatched into this repository (its pane carries `CFO_ROLE=goblin`) is a contributor, not the CEO: it follows its brief, runs only the `cfo` commands the brief names, never dispatches or supervises goblins, and reads the rest of this file as the product documentation.
+A goblin that `goblins spawn` dispatched into this repository (its pane carries `GOBLINS_ROLE=goblin`) is a contributor, not the CEO: it follows its brief, runs only the `goblins` commands the brief names, never dispatches or supervises goblins, and reads the rest of this file as the product documentation.
 
 The shared core applies to the CEO and workers in every supported harness.
 Role comes from the launch instruction and verified runtime, never from encountering this file.
@@ -28,84 +28,84 @@ The supervisor does this by itself and reopens your turn when it would end idle 
 
 ## The loop: ask away → done
 
-1. **Resolve the project.** An explicit path wins; otherwise infer from the request and the checkouts under the projects root you set with `cfo install --projects-root` (`cfo doctor` prints it).
+1. **Resolve the project.** An explicit path wins; otherwise infer from the request and the checkouts under the projects root you set with `goblins install --projects-root` (`goblins doctor` prints it).
 2. **Use the Overlord's checkout.** Every project lives once, in its own folder under the projects root; clone it there if it is missing (`gh repo clone <owner>/<repo> <projects-root>\<repo>`).
-Never make a second clone of it: goblins get an isolated worktree of that checkout at `$CFO_HOME\worktrees\<checkout folder>\<id>`, which shares the object store and nothing else, so the checkout itself gains no folder and no file.
+Never make a second clone of it: goblins get an isolated worktree of that checkout at `$GOBLINS_HOME\worktrees\<checkout folder>\<id>`, which shares the object store and nothing else, so the checkout itself gains no folder and no file.
 Wherever a command takes a project, a bare name and a path are the same checkout: `--project northwind` and `--project <path>` both reach `<projects-root>\Northwind-AI`.
 The credential scope is the checkout's folder name either way, never the name you typed.
-3. **Brief it.** `cfo brief <id> --project <name|path> [--mode <mode>]`, then fill in the task, acceptance criteria, and constraints.
+3. **Brief it.** `goblins brief <id> --project <name|path> [--mode <mode>]`, then fill in the task, acceptance criteria, and constraints.
 For a repository other people work in, add a `## Ticket` section: two or three plain sentences for a teammate who reads only GitHub, saying what the task changes and where, with no CEO notes, no paths on this machine and nothing private.
 It is the only text of the brief its ticket carries, and the ticket also names the brief's repository paths as its area.
 To have the task take up existing issues of that repository rather than open a new one, list each in the Task as a line that opens with its number, as in `- #1343 Project Home reads an unfinished search as a miss`, or name it by its link or as "issue #N": the task claims every one GitHub says is an open issue and closes each on the merge, and a listed number that is a pull request or a closed issue is passed over.
 Under Authentication, name the services whose credentials the task needs on the `credentials:` line, by their names in the project's manifest, or leave it at `none`: the task's terminal carries those and no other ([Credentials by need](docs/contract/authentication.md#credentials-by-need)).
 On the `mcp:` line beside it, name the MCP servers the task needs among those whose entry in the project's `.mcp.json` holds a value, or leave it at `none`.
-4. **Authenticate it.** `cfo auth <name|path> --fix` before the first dispatch into a project.
+4. **Authenticate it.** `goblins auth <name|path> --fix` before the first dispatch into a project.
 It adopts what the machine already has and hands you one consolidated sign-in request for anything genuinely missing, so a goblin never stalls on an auth prompt mid-task.
 A blocking service the brief names that is still red refuses the spawn, so answer the request before dispatching.
-5. **Check who else is in the area.** `cfo tickets <name|path> --brief data/<id>/brief.md` before every dispatch into a repository others work in; its first lines say whether the repository is collaborative.
+5. **Check who else is in the area.** `goblins tickets <name|path> --brief data/<id>/brief.md` before every dispatch into a repository others work in; its first lines say whether the repository is collaborative.
 When it names an open pull request, a teammate's branch or an issue that overlaps the brief, decide consciously before spawning: queue behind it, narrow the brief, or go ahead and say why.
 When it names an open issue the work answers, name that issue in the brief's Task as a `#N` line, so the task takes it up instead of opening a duplicate.
-`cfo spawn` runs the same check itself and refuses to start a task where a teammate has work in flight until you repeat it with `--overlap-ok "<why>"`.
+`goblins spawn` runs the same check itself and refuses to start a task where a teammate has work in flight until you repeat it with `--overlap-ok "<why>"`.
 Never dispatch over an overlap you have not read.
-6. **Spawn it.** `cfo brief ready <id>` once the brief is final, then `cfo spawn <id> --project <name|path> --brief data/<id>/brief.md [--title "<short title>"] [--mode <mode>] [--yolo]`.
+6. **Spawn it.** `goblins brief ready <id>` once the brief is final, then `goblins spawn <id> --project <name|path> --brief data/<id>/brief.md [--title "<short title>"] [--mode <mode>] [--yolo]`.
 The lane table picks harness, model, and effort from the brief; add `--harness` only for the Supreme Overlord's stated preference.
 Give `--title` whenever the task has no backlog row with a title of its own: the board and the task's ticket name it by that title, and by its bare id without one.
-7. **Supervise it.** `cfo fleet-view` is fleet truth; `cfo runtime` is machine truth (what is running, whose it is, and what the machine has left before you dispatch another: start the next goblin only when its Dispatch line reads ready); `cfo peek <id>` reads a goblin's tail; `cfo send <id> "<steer>"` redirects it.
-8. **Deliver it.** Record and land it: `cfo pr check <id> <url>`, then `cfo pr merge <url>` (or `cfo merge-local <id>` for local-only work) - merge only with the Supreme Overlord's word, `yolo` green work, or your own merge word while [AFK mode](docs/contract/afk.md#afk-mode) is on.
+7. **Supervise it.** `goblins fleet-view` is fleet truth; `goblins runtime` is machine truth (what is running, whose it is, and what the machine has left before you dispatch another: start the next goblin only when its Dispatch line reads ready); `goblins peek <id>` reads a goblin's tail; `goblins send <id> "<steer>"` redirects it.
+8. **Deliver it.** Record and land it: `goblins pr check <id> <url>`, then `goblins pr merge <url>` (or `goblins merge-local <id>` for local-only work) - merge only with the Supreme Overlord's word, `yolo` green work, or your own merge word while [AFK mode](docs/contract/afk.md#afk-mode) is on.
 9. **Report it.** Give the Supreme Overlord the outcome, consequence, and next decision - never raw status or mechanics.
 
 
 ## Commands
 
-Use `cfo help <command>` for a command's complete contract and `cfo help` for available command and procedure topics.
-Request a listed subcommand, such as `cfo help auth request`, when only that operation is needed.
+Use `goblins help <command>` for a command's complete contract and `goblins help` for available command and procedure topics.
+Request a listed subcommand, such as `goblins help auth request`, when only that operation is needed.
 Unknown topics fail explicitly; do not substitute the full command table.
 The [section-to-owner inventory](docs/contract/ownership.md) maps all extracted rules and the staged First Mate adoption.
 
 ## Dispatching
 
-Load `cfo-dispatch` when dispatching, routing, pausing, resuming, switching or recovering a worker, assigning a helper, or reconciling queued work.
-Read the [complete dispatch contract](docs/contract/dispatch.md), or `cfo help contract dispatch`, before the dependent action.
+Load `ceo-dispatch` when dispatching, routing, pausing, resuming, switching or recovering a worker, assigning a helper, or reconciling queued work.
+Read the [complete dispatch contract](docs/contract/dispatch.md), or `goblins help contract dispatch`, before the dependent action.
 
 ## Project authentication
 
-Load `cfo-authentication` when preflighting project authentication, requesting, storing, granting, revoking or refreshing credentials or MCP access, or handling a browser sign-in or key-fetch step.
-Read the [complete authentication contract](docs/contract/authentication.md), or `cfo help contract authentication`, before the dependent action.
+Load `ceo-authentication` when preflighting project authentication, requesting, storing, granting, revoking or refreshing credentials or MCP access, or handling a browser sign-in or key-fetch step.
+Read the [complete authentication contract](docs/contract/authentication.md), or `goblins help contract authentication`, before the dependent action.
 
 ## Project worktree environment
 
-Load `cfo-worktrees` when provisioning or changing a worktree, dependencies, env files, package caches, release cutoffs, Python start hooks or cleanup custody.
-Read the [complete worktrees contract](docs/contract/worktrees.md), or `cfo help contract worktrees`, before the dependent action.
+Load `ceo-worktrees` when provisioning or changing a worktree, dependencies, env files, package caches, release cutoffs, Python start hooks or cleanup custody.
+Read the [complete worktrees contract](docs/contract/worktrees.md), or `goblins help contract worktrees`, before the dependent action.
 
 ## Project local services
 
-Load `cfo-services` when starting, sharing, inspecting or stopping a project local-services stack, or diagnosing its resource or startup failure.
-Read the [complete services contract](docs/contract/services.md), or `cfo help contract services`, before the dependent action.
+Load `ceo-services` when starting, sharing, inspecting or stopping a project local-services stack, or diagnosing its resource or startup failure.
+Read the [complete services contract](docs/contract/services.md), or `goblins help contract services`, before the dependent action.
 
 ## The fleet never idles
 
-Load `cfo-dispatch` when dispatching, routing, pausing, resuming, switching or recovering a worker, assigning a helper, or reconciling queued work.
-Read the [complete dispatch contract](docs/contract/dispatch.md), or `cfo help contract dispatch`, before the dependent action.
+Load `ceo-dispatch` when dispatching, routing, pausing, resuming, switching or recovering a worker, assigning a helper, or reconciling queued work.
+Read the [complete dispatch contract](docs/contract/dispatch.md), or `goblins help contract dispatch`, before the dependent action.
 
 ## Pausing and automatic resume
 
-Load `cfo-dispatch` when dispatching, routing, pausing, resuming, switching or recovering a worker, assigning a helper, or reconciling queued work.
-Read the [complete dispatch contract](docs/contract/dispatch.md), or `cfo help contract dispatch`, before the dependent action.
+Load `ceo-dispatch` when dispatching, routing, pausing, resuming, switching or recovering a worker, assigning a helper, or reconciling queued work.
+Read the [complete dispatch contract](docs/contract/dispatch.md), or `goblins help contract dispatch`, before the dependent action.
 
 ## Switching a running goblin
 
-Load `cfo-dispatch` when dispatching, routing, pausing, resuming, switching or recovering a worker, assigning a helper, or reconciling queued work.
-Read the [complete dispatch contract](docs/contract/dispatch.md), or `cfo help contract dispatch`, before the dependent action.
+Load `ceo-dispatch` when dispatching, routing, pausing, resuming, switching or recovering a worker, assigning a helper, or reconciling queued work.
+Read the [complete dispatch contract](docs/contract/dispatch.md), or `goblins help contract dispatch`, before the dependent action.
 
 ## Dispatch policy
 
-Load `cfo-dispatch` when dispatching, routing, pausing, resuming, switching or recovering a worker, assigning a helper, or reconciling queued work.
-Read the [complete dispatch contract](docs/contract/dispatch.md), or `cfo help contract dispatch`, before the dependent action.
+Load `ceo-dispatch` when dispatching, routing, pausing, resuming, switching or recovering a worker, assigning a helper, or reconciling queued work.
+Read the [complete dispatch contract](docs/contract/dispatch.md), or `goblins help contract dispatch`, before the dependent action.
 
 ## Model routing
 
-Load `cfo-dispatch` when dispatching, routing, pausing, resuming, switching or recovering a worker, assigning a helper, or reconciling queued work.
-Read the [complete dispatch contract](docs/contract/dispatch.md), or `cfo help contract dispatch`, before the dependent action.
+Load `ceo-dispatch` when dispatching, routing, pausing, resuming, switching or recovering a worker, assigning a helper, or reconciling queued work.
+Read the [complete dispatch contract](docs/contract/dispatch.md), or `goblins help contract dispatch`, before the dependent action.
 
 ## Secondmates
 
@@ -118,43 +118,41 @@ It is not a tool for ordinary parallelism; the main fleet handles that.
 
 ## Delivery
 
-Load `cfo-delivery` at task intake and scout completion, when starting or supervising validation, deciding a gate finding, preparing a push or pull request, assessing CI, landing work or considering cleanup.
-Read the [complete delivery contract](docs/contract/delivery.md), or `cfo help contract delivery`, before the dependent action.
-Once its run's review repair cycles are spent, a goblin may accept that run's open review findings itself with `cfo pipeline respond <its task> --action approve --accept <ids>`, naming every open one, and the CEO is told of each such accept; the Test step, `--reason` and every other step stay the CEO's.
+Load `ceo-delivery` at task intake and scout completion, when starting or supervising validation, deciding a gate finding, preparing a push or pull request, assessing CI, landing work or considering cleanup.
+Read the [complete delivery contract](docs/contract/delivery.md), or `goblins help contract delivery`, before the dependent action.
+Once its run's review repair cycles are spent, a goblin may accept that run's open review findings itself with `goblins pipeline respond <its task> --action approve --accept <ids>`, naming every open one, and the CEO is told of each such accept; the Test step, `--reason` and every other step stay the CEO's.
 It accepts as they stand only findings that are not correctness, security or regression defects: a real defect among them goes in one follow-up commit on the same pull request after its first CI, named in the done report.
-From pipeline policy version 7 the gate repairs no Test, Lint or CI failure: the goblin that owns the branch commits one correction of exactly the findings `cfo pipeline run` hands back and submits it itself with `cfo pipeline validate-authored <its task> --run <run> --findings <ids>`, or for CI with `cfo pipeline handback`, and any wider correction stays the CEO's admission.
+From pipeline policy version 7 the gate repairs no Test, Lint or CI failure: the goblin that owns the branch commits one correction of exactly the findings `goblins pipeline run` hands back and submits it itself with `goblins pipeline validate-authored <its task> --run <run> --findings <ids>`, or for CI with `goblins pipeline handback`, and any wider correction stays the CEO's admission.
 
 ## Supervision
 
-Load `cfo-supervision` when starting or recovering the CEO session, reading or acknowledging wakes, handling stale, idle or missing workers, diagnosing hooks, or reconciling session custody.
-Read the [complete supervision contract](docs/contract/supervision.md), or `cfo help contract supervision`, before the dependent action.
-
-<a id="the-cfos-own-session"></a>
+Load `ceo-supervision` when starting or recovering the CEO session, reading or acknowledging wakes, handling stale, idle or missing workers, diagnosing hooks, or reconciling session custody.
+Read the [complete supervision contract](docs/contract/supervision.md), or `goblins help contract supervision`, before the dependent action.
 
 ## The CEO's own session
 
-Load `cfo-supervision` when starting or recovering the CEO session, reading or acknowledging wakes, handling stale, idle or missing workers, diagnosing hooks, or reconciling session custody.
-Read the [complete supervision contract](docs/contract/supervision.md), or `cfo help contract supervision`, before the dependent action.
+Load `ceo-supervision` when starting or recovering the CEO session, reading or acknowledging wakes, handling stale, idle or missing workers, diagnosing hooks, or reconciling session custody.
+Read the [complete supervision contract](docs/contract/supervision.md), or `goblins help contract supervision`, before the dependent action.
 
 ## Reporting surface
 
-Load `cfo-decisions` when publishing or answering a board question, review, run request, file delivery or presentation, or handling Scrawl feedback.
-Read the [complete decisions contract](docs/contract/decisions.md), or `cfo help contract decisions`, before the dependent action.
+Load `ceo-decisions` when publishing or answering a board question, review, run request, file delivery or presentation, or handling Scrawl feedback.
+Read the [complete decisions contract](docs/contract/decisions.md), or `goblins help contract decisions`, before the dependent action.
 
 ## User decisions on the board
 
-Load `cfo-decisions` when publishing or answering a board question, review, run request, file delivery or presentation, or handling Scrawl feedback.
-Read the [complete decisions contract](docs/contract/decisions.md), or `cfo help contract decisions`, before the dependent action.
+Load `ceo-decisions` when publishing or answering a board question, review, run request, file delivery or presentation, or handling Scrawl feedback.
+Read the [complete decisions contract](docs/contract/decisions.md), or `goblins help contract decisions`, before the dependent action.
 
 ## AFK mode
 
-Load `cfo-afk` when the Overlord asks to switch AFK mode, its state is on or unreadable, or a decision, landing or recap is considered under AFK authority.
-Read the [complete afk contract](docs/contract/afk.md), or `cfo help contract afk`, before the dependent action.
+Load `ceo-afk` when the Overlord asks to switch AFK mode, its state is on or unreadable, or a decision, landing or recap is considered under AFK authority.
+Read the [complete afk contract](docs/contract/afk.md), or `goblins help contract afk`, before the dependent action.
 
 ## Root issues
 
-Load `cfo-root-issues` when an out-of-scope cause, failed-once test, red default branch or repeated supervisor error needs filing or an automatic root pickup needs reconciliation.
-Read the [complete root issues contract](docs/contract/root-issues.md), or `cfo help contract root-issues`, before the dependent action.
+Load `ceo-root-issues` when an out-of-scope cause, failed-once test, red default branch or repeated supervisor error needs filing or an automatic root pickup needs reconciliation.
+Read the [complete root issues contract](docs/contract/root-issues.md), or `goblins help contract root-issues`, before the dependent action.
 
 ## Escalation
 
@@ -169,25 +167,23 @@ Relay (X/Discord), tmux/zellij/orca/cmux backends, and Grok/OpenCode harnesses a
 Don't promise them; route those needs to the Supreme Overlord as follow-ups.
 
 
-<a id="the-cfo-home"></a>
-
 ## The CEO home
 
-Load `cfo-home` when locating, installing, updating, migrating or cleaning a CEO home, interpreting its layout or handling a janitor or storage finding.
-Read the [complete home contract](docs/contract/home.md), or `cfo help contract home`, before the dependent action.
+Load `ceo-home` when locating, installing, updating, migrating or cleaning a CEO home, interpreting its layout or handling a janitor or storage finding.
+Read the [complete home contract](docs/contract/home.md), or `goblins help contract home`, before the dependent action.
 
 ## Microsoft Defender
 
 The fleet's own work never trips Microsoft Defender, and it never hides from it either: it changes what it does until that no longer looks like malware.
 
-What is the Supreme Overlord's alone, which no CEO, goblin or gate does, asks for or suggests running: an exclusion, turning a protection off, his allow list, restoring a quarantined file, a submission to Microsoft, and a Dev Drive, which `cfo dev-drive` sets up only on his word and which is not an exclusion.
+What is the Supreme Overlord's alone, which no CEO, goblin or gate does, asks for or suggests running: an exclusion, turning a protection off, his allow list, restoring a quarantined file, a submission to Microsoft, and a Dev Drive, which `goblins dev-drive` sets up only on his word and which is not an exclusion.
 Nobody writes or runs a malware test sample on his PC, the EICAR and AMSI test strings included, since the string lands in the transcript and Defender acts on that file: a proof that needs one runs on GitHub's runner.
 What Defender recorded is read with `Get-MpThreatDetection`, `Get-MpThreat`, `Get-MpComputerStatus` and the log `Microsoft-Windows-Windows Defender/Operational`, and nothing else.
-`cfo defender` reads them for the fleet's folders and names the test and task that made each file, and the supervisor wakes the CEO once for each new detection and each new upload, so one reaches the CEO with what made it and not the Overlord alone as a Windows notice: the CEO then changes what made it.
+`goblins defender` reads them for the fleet's folders and names the test and task that made each file, and the supervisor wakes the CEO once for each new detection and each new upload, so one reaches the CEO with what made it and not the Overlord alone as a Windows notice: the CEO then changes what made it.
 
 What keeps the work quiet:
 
-- A test that needs some program to start uses the one stand-in program of `internal/standin`, built once for each Go toolchain into `cfo\standin` in the user's cache folder and reused, so the file Defender meets is one it has met.
+- A test that needs some program to start uses the one stand-in program of `internal/standin`, built once for each Go toolchain into `goblins\standin` in the user's cache folder and reused, so the file Defender meets is one it has met.
   A test never serves or runs a copy of its own test binary where the stand-in would do, and no stand-in is named after a program Windows ships.
   `internal/standin`'s tests fail on either, and the repository's CONTRIBUTING.md says how to use it.
 - No stand-in carries the name of a program Windows ships, a script first on PATH included.
@@ -209,26 +205,26 @@ What keeps the work quiet:
 The CEO's memory lives in the home, never only in a harness, so a CEO in Claude Code, Codex or Pi reads and writes the same memory.
 `data/overlord.md` holds the Supreme Overlord's standing directives, each with its date and the Overlord's exact words, and never decays.
 `data/memory/` holds what the fleet has learned, one fact per file, and `data/memory/MEMORY.md` is its index: one line per fact, a markdown link to the fact's file followed by ` - ` and a few words on when it matters.
-At startup and after resume or compaction, run `cfo session-start` to validate current sources, or follow the freshly composed Claude hook's `READ THIS NEXT`; a saved `state/session-digest.md` alone is not source validation.
+At startup and after resume or compaction, run `goblins session-start` to validate current sources, or follow the freshly composed Claude hook's `READ THIS NEXT`; a saved `state/session-digest.md` alone is not source validation.
 Skip unchanged source bytes only when this conversation actually read and still holds them; changed authority must be read again before dependent action.
-Before dependent work, retrieve relevant original authority and facts with `cfo memory retrieve --project <name> --task <id> --topic <topic> --cold`, which prints what those scopes hold beyond the startup map; a known item is available through `--id <id>`.
-Startup loads the whole fleet's rulings and a project's rulings come with its scope; after writing memory, run `cfo memory sync` so the catalog lists the new words, and rule a ruling's scope with `cfo memory scope`.
+Before dependent work, retrieve relevant original authority and facts with `goblins memory retrieve --project <name> --task <id> --topic <topic> --cold`, which prints what those scopes hold beyond the startup map; a known item is available through `--id <id>`.
+Startup loads the whole fleet's rulings and a project's rulings come with its scope; after writing memory, run `goblins memory sync` so the catalog lists the new words, and rule a ruling's scope with `goblins memory scope`.
 The same source-backed map and retrieval rules apply to Claude Code, Codex, Pi and goblins; a worker reports knowledge to the CEO for capture when it cannot reach the owning tier.
 When the catalog is absent, the digest explicitly retains the legacy directives and index in full; no budget silently omits authority.
 Missing, corrupt, conflicting, stale and over-budget memory requires the named diagnostic to be resolved before dependent action.
-Read [the memory contract](docs/contract/memory.md), or `cfo help contract memory`, when retrieving, composing, budgeting or planning memory changes.
+Read [the memory contract](docs/contract/memory.md), or `goblins help contract memory`, when retrieving, composing, budgeting or planning memory changes.
 Original rulings, corrections and provenance survive verbatim; a supersession candidate does not retire an earlier ruling by itself.
 Pinned offload requires explicit approval of each named item and a live discoverable owner; broad task approval is insufficient.
 Declared memory layers own capture and corrections for their knowledge classes, and unreachable capture stays explicit and protected in warm memory.
 Open work belongs in `data/backlog.md` through `tasks-axi`, never in memory.
 Run the `stow` skill before reset or compaction, when asked, and when the combined startup memory exceeds its allowance.
-Its receipt accounts for knowledge, open work, remaining decisions and reset safety; no history move happens before a lossless `cfo memory migration-plan` dry run.
+Its receipt accounts for knowledge, open work, remaining decisions and reset safety; no history move happens before a lossless `goblins memory migration-plan` dry run.
 
 
 ## Restart is a non-event
 
-All state lives under `$CFO_HOME` (`%LOCALAPPDATA%\CodeGoblins` unless `CFO_HOME` names another folder).
-Metadata, status, and the wake queue are on disk; a fresh session reconciles with `cfo fleet-view` and `cfo drain`.
+All state lives under `$GOBLINS_HOME` (`%LOCALAPPDATA%\CodeGoblins` unless `GOBLINS_HOME` names another folder).
+Metadata, status, and the wake queue are on disk; a fresh session reconciles with `goblins fleet-view` and `goblins drain`.
 
 ## Maintaining the contract
 

@@ -252,14 +252,14 @@ func TestASessionsEngineIsReadFromTheConversationItIsIn(t *testing.T) {
 }
 
 // Forget drops the reading of a task that is no longer live, and keeps a live
-// task's and the CFO's, whose conversation no task's liveness speaks for, so
+// task's and the CEO's, whose conversation no task's liveness speaks for, so
 // each is read on from where its last read ended.
-func TestForgettingEndedTasksKeepsTheCFOsAndLiveTasksReadings(t *testing.T) {
+func TestForgettingEndedTasksKeepsTheCEOsAndLiveTasksReadings(t *testing.T) {
 	// Arrange
 	home := t.TempDir()
 	path := conversation(t, home, ranOn("a1", "reply-1", "claude-opus-5-5", "high"))
 	reader := Reader{Home: home}
-	for _, owner := range []string{CFOOwner, "live", "ended"} {
+	for _, owner := range []string{CEOOwner, "live", "ended"} {
 		if _, err := reader.SessionEngine(owner, "claude", path); err != nil {
 			t.Fatal(err)
 		}
@@ -269,7 +269,7 @@ func TestForgettingEndedTasksKeepsTheCFOsAndLiveTasksReadings(t *testing.T) {
 	reader.Forget(map[string]bool{"live": true})
 
 	// Assert
-	for owner, isKept := range map[string]bool{CFOOwner: true, "live": true, "ended": false} {
+	for owner, isKept := range map[string]bool{CEOOwner: true, "live": true, "ended": false} {
 		if _, isRead := reader.EngineAgain(owner); isRead != isKept {
 			t.Errorf("after Forget, %s has a reading to read on = %v, want %v", owner, isRead, isKept)
 		}

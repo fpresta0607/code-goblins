@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "./site";
 
-const question = (id: string, status: string) => ({ id, identity: "cfo", text: "Which layout should I keep?", options: ["Kanban", "Stacked"], status, created_at: "2026-09-30T20:00:00Z" });
+const question = (id: string, status: string) => ({ id, identity: "ceo", text: "Which layout should I keep?", options: ["Kanban", "Stacked"], status, created_at: "2026-09-30T20:00:00Z" });
 
 // The board served with a stubbed supervisor: each new stream connection gets
 // whatever snapshot the test holds at that moment.
@@ -29,7 +29,7 @@ test("the tab and the installed app's badge count what waits on the Overlord and
     });
   });
   const badge = () => page.evaluate(() => (window as unknown as { badges: number[] }).badges.at(-1));
-  const base = { instance: "tab-fixture", healthy: true, cfo_runs: true, tasks: [] };
+  const base = { instance: "tab-fixture", healthy: true, ceo_runs: true, tasks: [] };
   const serve = await board(page, { ...base, revision: 1, questions: [question("layout", "pending"), question("colors", "pending")] });
 
   await expect.poll(() => page.title()).toBe("(2) Code Goblins");
@@ -45,7 +45,7 @@ test("the tab and the installed app's badge count what waits on the Overlord and
 // Safari adds it to an iPhone's or iPad's Home Screen as an app named Code
 // Goblins, without its bars, by the icons and meta tags the page names.
 test("the board names its icons and an installable manifest in the board's colors", async ({ page }) => {
-  await board(page, { instance: "tab-fixture", revision: 1, healthy: true, cfo_runs: true, tasks: [] });
+  await board(page, { instance: "tab-fixture", revision: 1, healthy: true, ceo_runs: true, tasks: [] });
 
   const head = await page.evaluate(() => ({
     theme: document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content,

@@ -239,12 +239,12 @@ func TestTerminalPasteCannotEndItselfEarly(t *testing.T) {
 	}
 }
 
-func terminalHTTPFixture(t *testing.T, native *testTerminal) (*HTTP, *httptest.Server, string, *cfoRunner) {
+func terminalHTTPFixture(t *testing.T, native *testTerminal) (*HTTP, *httptest.Server, string, *ceoRunner) {
 	t.Helper()
 	store, _ := testStore(t)
-	_, identity, runner, cfo := herdrPrimaryFixture(t, store)
+	_, identity, runner, ceo := herdrPrimaryFixture(t, store)
 	runner.socket = herdrtest.NewSocket(t)
-	s := &Service{Store: store, Options: Options{CFO: cfo}, Instance: "instance", done: make(chan struct{})}
+	s := &Service{Store: store, Options: Options{CEO: ceo}, Instance: "instance", done: make(chan struct{})}
 	h := NewHTTP(s, "", nil)
 	h.openTerminal = func(_ context.Context, session, id string, control bool, cols, rows int) (herdr.TerminalStream, error) {
 		if session != "isolated" || id != "test-terminal" {
@@ -262,7 +262,7 @@ func terminalPost(t *testing.T, server *httptest.Server, path, body string) *htt
 	t.Helper()
 	req, _ := http.NewRequest("POST", server.URL+path, strings.NewReader(body))
 	req.Header.Set("Origin", server.URL)
-	req.Header.Set("X-CFO-Token", "instance")
+	req.Header.Set("X-CEO-Token", "instance")
 	req.Header.Set("Content-Type", "application/json")
 	response, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -384,12 +384,12 @@ func TestNativeBindingRejectsChangedTerminalAndKnownExitedProcess(t *testing.T) 
 
 func TestTaskTerminalIdentityIgnoresDeliveryMetadata(t *testing.T) {
 	store, h := testStore(t)
-	_, _, runner, cfo := herdrPrimaryFixture(t, store)
+	_, _, runner, ceo := herdrPrimaryFixture(t, store)
 	meta, _ := state.ReadTaskMeta(h.State, "task-1")
 	meta.Mode = "local-only"
 	_ = state.WriteTaskMeta(h.State, meta)
 	runner.workerTree = meta.Worktree
-	s := &Service{Store: store, Options: Options{CFO: cfo}}
+	s := &Service{Store: store, Options: Options{CEO: ceo}}
 	selected := terminalSelection{Task: meta.ID, Generation: meta.SpawnGen}
 	before, err := s.resolveTerminal(context.Background(), selected, true)
 	if err != nil {
@@ -413,17 +413,17 @@ func TestTaskTerminalIdentityIgnoresDeliveryMetadata(t *testing.T) {
 
 func TestMissingTerminalRegistrationIsNotATransientConnection(t *testing.T) {
 	store, h := testStore(t)
-	_, _, _, cfo := herdrPrimaryFixture(t, store)
+	_, _, _, ceo := herdrPrimaryFixture(t, store)
 	meta, _ := state.ReadTaskMeta(h.State, "task-1")
 	meta.HerdrPaneID = ""
 	meta.Backend = ""
 	if err := state.WriteTaskMeta(h.State, meta); err != nil {
 		t.Fatal(err)
 	}
-	handler := NewHTTP(&Service{Store: store, Instance: "instance", Options: Options{CFO: cfo}}, "board.local", nil)
+	handler := NewHTTP(&Service{Store: store, Instance: "instance", Options: Options{CEO: ceo}}, "board.local", nil)
 	r := httptest.NewRequest("POST", "http://board.local/api/terminal/stream", strings.NewReader(`{"task":"task-1","generation":"g1","cols":80,"rows":24}`))
 	r.Header.Set("Origin", "http://board.local")
-	r.Header.Set("X-CFO-Token", "instance")
+	r.Header.Set("X-CEO-Token", "instance")
 	r.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
@@ -503,11 +503,11 @@ func TestLivePaneViewTypesIntoItsOwnVerifiedPane(t *testing.T) {
 	if status := send(3, `{"type":"terminal.resize","cols":100,"rows":30}`); status != 409 {
 		t.Fatalf("resizing a live view = %d, want 409", status)
 	}
-	// A re-registered CFO is a changed recipient, and the next key sees it in
+	// A re-registered CEO is a changed recipient, and the next key sees it in
 	// the registration file without asking Herdr.
 	reregister(t, h.Service.Store.Home.State)
 	if status := send(3, `{"type":"terminal.input","text":"x"}`); status != 409 || len(typedInto(socket, "w1:p1")) != 2 {
-		t.Fatalf("typing after the CFO re-registered = %d with %d typed, want 409 and nothing more typed", status, len(typedInto(socket, "w1:p1")))
+		t.Fatalf("typing after the CEO re-registered = %d with %d typed, want 409 and nothing more typed", status, len(typedInto(socket, "w1:p1")))
 	}
 	if len(native.writes) != 0 {
 		t.Fatalf("typing went through the observer: %v", native.writes)
@@ -750,7 +750,7 @@ func TestTerminalHistoryAnswersThePanesRecentLines(t *testing.T) {
 				t.Fatalf("history = %d %q, want %d %q", reply.StatusCode, answer.Text, c.status, c.text)
 			}
 			if c.status == 200 && answer.Agent != "codex" {
-				t.Fatalf("history agent = %q, want the registered CFO's agent codex", answer.Agent)
+				t.Fatalf("history agent = %q, want the registered CEO's agent codex", answer.Agent)
 			}
 			if c.status == 200 && (len(reads) != 1 || reads[0].Method != "pane.read" || reads[0].Params["pane_id"] != "w1:p1" || reads[0].Params["source"] != "recent" || reads[0].Params["format"] != "ansi") {
 				t.Fatalf("requests = %v, want one pane.read of w1:p1's recent ANSI output", reads)
@@ -862,7 +862,7 @@ func TestAHandBackHoldsNoStreamSlot(t *testing.T) {
 	go func() {
 		request, _ := http.NewRequest("POST", server.URL+"/api/terminal/stream", strings.NewReader(`{}`))
 		request.Header.Set("Origin", server.URL)
-		request.Header.Set("X-CFO-Token", "instance")
+		request.Header.Set("X-CEO-Token", "instance")
 		request.Header.Set("Content-Type", "application/json")
 		response, err := http.DefaultClient.Do(request)
 		if err != nil {
@@ -1045,7 +1045,7 @@ func TestControlViewRefusesCustodyAfterGitCancellation(t *testing.T) {
 			defer cancel()
 			request := httptest.NewRequest("POST", server.URL+"/api/terminal/stream", strings.NewReader(strings.TrimSuffix(body, "}")+`,"control":true,"identity":"synthetic","cols":100,"rows":30}`)).WithContext(ctx)
 			request.Header.Set("Origin", server.URL)
-			request.Header.Set("X-CFO-Token", "instance")
+			request.Header.Set("X-CEO-Token", "instance")
 			request.Header.Set("Content-Type", "application/json")
 			response := httptest.NewRecorder()
 			ended := make(chan struct{})
@@ -1278,7 +1278,7 @@ func TestLivePaneViewForwardsFramesWhileItsTickChecks(t *testing.T) {
 }
 
 // A key rereads only local state, so an unchanged binding costs no Herdr call,
-// while an exited process, a restarted task and a re-registered CFO each fall
+// while an exited process, a restarted task and a re-registered CEO each fall
 // through to the full verification, which refuses them.
 func TestEachKeyVerifiesInFullOnlyWhenItsBindingChanged(t *testing.T) {
 	native := newTestTerminal()
@@ -1330,7 +1330,7 @@ func TestEachKeyVerifiesInFullOnlyWhenItsBindingChanged(t *testing.T) {
 
 	reregister(t, h.Service.Store.Home.State)
 	if h.stillBound(ctx, primary, true) == nil {
-		t.Fatal("a key for a re-registered CFO was accepted")
+		t.Fatal("a key for a re-registered CEO was accepted")
 	}
 }
 
@@ -1411,14 +1411,14 @@ func (g gateTakesOver) CanSteer(ctx context.Context, _, _, _ string) error {
 		g.observe(ctx)
 	}
 	if g.taken.Load() {
-		return errors.New("pipeline owns this task; use cfo pipeline respond or inspect its delivery evidence")
+		return errors.New("pipeline owns this task; use goblins pipeline respond or inspect its delivery evidence")
 	}
 	return nil
 }
 
 // goblinView gives task-1 a git worktree the custody check can read and a pane
 // the fake Herdr shows, and returns the body that opens its live view.
-func goblinView(t *testing.T, h *HTTP, runner *cfoRunner) string {
+func goblinView(t *testing.T, h *HTTP, runner *ceoRunner) string {
 	t.Helper()
 	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
 	if err != nil {
@@ -1451,7 +1451,7 @@ func typeKey(t *testing.T, server *httptest.Server, lease string, seq int, text 
 	return reply.StatusCode
 }
 
-// reregister rewrites the CFO's registration as a new registration in another
+// reregister rewrites the CEO's registration as a new registration in another
 // tab would, which changes its identity.
 func reregister(t *testing.T, stateDir string) {
 	t.Helper()

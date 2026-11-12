@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { decisionAndDetails, inlineElements, isLongText, leadAndRest, linkedText, messageBlocks, messageElements, pathElements, plainMessage } from "./messageText.ts";
+import { decisionAndDetails, inlineElements, isLongText, leadAndRest, linkedSentence, linkedText, literalLinks, messageBlocks, messageElements, pathElements, plainMessage } from "./messageText.ts";
 
 const html = (text: string) => renderToStaticMarkup(messageElements(text));
 
@@ -103,7 +103,7 @@ test("markup and entities in a question are shown as text, never interpreted; on
 
 for (const [name, text, want] of [
   ["an https address", "Roll it at https://github.com/settings/tokens.", '<p>Roll it at <a class="message-link" href="https://github.com/settings/tokens" target="_blank" rel="noreferrer">https://github.com/settings/tokens</a>.</p>'],
-  ["an http address in brackets", "(page http://127.0.0.1:4387/session/f26e)", '<p>(page <a class="message-link" href="http://127.0.0.1:4387/session/f26e" target="_blank" rel="noreferrer">http://127.0.0.1:4387/session/f26e</a>)</p>'],
+  ["an http address in brackets", "(page http://127.0.0.1:4387/review/f26e)", '<p>(page <a class="message-link" href="http://127.0.0.1:4387/review/f26e" target="_blank" rel="noreferrer">http://127.0.0.1:4387/review/f26e</a>)</p>'],
   ["a backticked address", "Open `https://github.com/settings/tokens`", '<p>Open <a class="message-link" href="https://github.com/settings/tokens" target="_blank" rel="noreferrer">https://github.com/settings/tokens</a></p>'],
   ["a bold address", "**https://example.com/a?b=1**", '<p><strong><a class="message-link" href="https://example.com/a?b=1" target="_blank" rel="noreferrer">https://example.com/a?b=1</a></strong></p>'],
   ["other schemes", "ftp://example.com, javascript:alert(1) and file:///C:/x", "<p>ftp://example.com, javascript:alert(1) and file:///C:/x</p>"],
@@ -123,7 +123,76 @@ test("a line of plain text links its addresses and nothing else", () => {
   const shown = renderToStaticMarkup(linkedText("Answered: **done** at https://github.com/example/board/pull/412"));
 
   // Assert
-  assert.equal(shown, 'Answered: **done** at <a class="message-link" href="https://github.com/example/board/pull/412" target="_blank" rel="noreferrer">https://github.com/example/board/pull/412</a>');
+  assert.equal(shown, 'Answered: **done** at <a class="message-link message-chip" href="https://github.com/example/board/pull/412" target="_blank" rel="noreferrer" title="https://github.com/example/board/pull/412">board PR #412</a>');
+});
+
+const named = (address: string, label: string) => `<a class="message-link" href="${address}" target="_blank" rel="noreferrer" title="${address}">${label}</a>`;
+const chip = (address: string, label: string) => `<a class="message-link message-chip" href="${address}" target="_blank" rel="noreferrer" title="${address}">${label}</a>`;
+const raw = (address: string) => `<a class="message-link" href="${address}" target="_blank" rel="noreferrer">${address}</a>`;
+
+for (const [name, address, label] of [
+  ["a pull request", "https://github.com/example/board/pull/412", "board PR #412"],
+  ["a pull request's files page", "https://github.com/example/board/pull/412/files", "board PR #412"],
+  ["an issue's comment", "https://github.com/example/board/issues/2360#issuecomment-99", "board issue #2360"],
+  ["a CI run", "https://github.com/example/board/actions/runs/19283746", "board CI run 19283746"],
+  ["a CI run's job", "https://github.com/example/board/actions/runs/19283746/job/55", "board CI run 19283746"],
+  ["a review page's session", "http://127.0.0.1:4387/session/a1b2", "Review page"],
+  ["a review page's session by name", "http://localhost:4387/session/a1b2#item-3", "Review page"],
+] as const) {
+  test(`${name} address reads as a chip with its short name and opens the whole address in a new tab`, () => {
+    // Arrange, act
+    const shown = html(`See ${address}.`);
+
+    // Assert
+    assert.equal(shown, `<p>See ${chip(address, label)}.</p>`);
+  });
+}
+
+for (const [name, address] of [
+  ["a repository page", "https://github.com/example/board"],
+  ["a pull request list", "https://github.com/example/board/pulls"],
+  ["a look-alike host", "https://github.com.example.org/example/board/pull/412"],
+  ["a host that ends like GitHub's", "https://evilgithub.com/example/board/pull/412"],
+  ["plain http", "http://github.com/example/board/pull/412"],
+  ["a review page's look-alike host", "http://127.0.0.1.example.org:4387/session/a1b2"],
+  ["another computer's session page", "http://192.0.2.20:4387/session/a1b2"],
+  ["a review page's other path", "http://127.0.0.1:4387/sessions/a1b2"],
+] as const) {
+  test(`${name} address keeps its own words as its link`, () => {
+    // Arrange, act
+    const shown = html(address);
+
+    // Assert
+    assert.equal(shown, `<p>${raw(address)}</p>`);
+  });
+}
+
+for (const [name, text, want] of [
+  ["a Markdown link reads as its label, with its address in its tip", "Opened [the fix](https://github.com/example/board/pull/412).", `<p>Opened ${named("https://github.com/example/board/pull/412", "the fix")}.</p>`],
+  ["a Markdown link whose label is its address reads as the short name", "[https://github.com/example/board/issues/7](https://github.com/example/board/issues/7)", `<p>${chip("https://github.com/example/board/issues/7", "board issue #7")}</p>`],
+  ["a Markdown link keeps balanced parentheses in its address", "[Wiki](https://en.example.org/wiki/Go_(language)) page", `<p>${named("https://en.example.org/wiki/Go_(language)", "Wiki")} page</p>`],
+  ["a bold Markdown link stays bold", "**[Report](https://example.com/r)**", `<p><strong>${named("https://example.com/r", "Report")}</strong></p>`],
+  ["a Markdown link to another scheme stays text", "[run me](javascript:alert(1)) and [file](file:///C:/x)", "<p>[run me](javascript:alert(1)) and [file](file:///C:/x)</p>"],
+  ["markup in a Markdown link's label is shown, never run", '[<img src=x onerror="alert(1)">](https://example.com/a)', `<p>${named("https://example.com/a", "&lt;img src=x onerror=&quot;alert(1)&quot;&gt;")}</p>`],
+  ["a quote cannot break out of a link's address", 'https://example.com/a"onclick="alert(1)', `<p>${raw("https://example.com/a")}&quot;onclick=&quot;alert(1)</p>`],
+  ["a backticked pull request reads as its short name", "`https://github.com/example/board/pull/9`", `<p>${chip("https://github.com/example/board/pull/9", "board PR #9")}</p>`],
+] as const) {
+  test(`${name}`, () => {
+    // Arrange, act
+    const shown = html(text);
+
+    // Assert
+    assert.equal(shown, want);
+  });
+}
+
+test("a one-line summary keeps a Markdown link as written, so a History row still links its label to its address", () => {
+  // Arrange, act
+  const summary = plainMessage("Opened [the fix](https://github.com/example/board/pull/412) for **review**.");
+
+  // Assert
+  assert.equal(summary, "Opened [the fix](https://github.com/example/board/pull/412) for review.");
+  assert.equal(renderToStaticMarkup(linkedText(summary)), 'Opened <a class="message-link" href="https://github.com/example/board/pull/412" target="_blank" rel="noreferrer" title="https://github.com/example/board/pull/412">the fix</a> for review.');
 });
 
 test("phone prose, backticks and History validate Scrawl links while local rendering keeps them local", () => {
@@ -135,7 +204,7 @@ test("phone prose, backticks and History validate Scrawl links while local rende
       ["https:", "pc.example.ts.net", "/api/remote/scrawl-link?url=" + encodeURIComponent(review)],
     ]) {
       Object.defineProperty(globalThis, "location", { configurable: true, value: { protocol, hostname } });
-      const link = `<a class="message-link" href="${href}" target="_blank" rel="noreferrer">${review}</a>`;
+      const link = `<a class="message-link message-chip" href="${href}" target="_blank" rel="noreferrer" title="${review}">Review page</a>`;
       assert.equal(html("Review " + review), `<p>Review ${link}</p>`);
       assert.equal(html("Review `" + review + "`"), `<p>Review ${link}</p>`);
       assert.equal(renderToStaticMarkup(linkedText("Answered on " + review)), "Answered on " + link);
@@ -213,7 +282,7 @@ test("pipes without a separator row stay text, and a one-line summary leaves the
   assert.equal(html("a | b | c"), "<p>a | b | c</p>");
   assert.equal(html("| a | b |\n| c | d |"), "<p>| a | b |\n| c | d |</p>");
   assert.equal(plainMessage("Add the records\n| Type | Name |\n| --- | --- |\n| CNAME | `mcp` |\nthen tell me"), "Add the records then tell me");
-  assert.equal(plainMessage("Run `cfo doctor` first"), "Run cfo doctor first");
+  assert.equal(plainMessage("Run `goblins doctor` first"), "Run goblins doctor first");
 });
 
 test("bold may wrap a code value, sit beside one, and a lone mark near one stays as written", () => {
@@ -343,3 +412,50 @@ test("markup in a question's decision and evidence is shown as text, never inter
   // Assert
   assert.deepEqual(shown, ["<p>Ship &lt;b&gt;it&lt;/b&gt;?</p>", "<p>&lt;img src=x onerror=&quot;alert(1)&quot;&gt; <code>&lt;script&gt;alert(1)&lt;/script&gt;</code></p>"]);
 });
+
+test("literal text keeps every word as written and links each address by itself", () => {
+  // Arrange
+  const text = "gh pr view https://github.com/example/board/pull/412 [x](https://example.com/y) <b>";
+
+  // Act
+  const shown = renderToStaticMarkup(literalLinks(text));
+
+  // Assert
+  assert.equal(shown, `gh pr view ${raw("https://github.com/example/board/pull/412")} [x](${raw("https://example.com/y")}) &lt;b&gt;`);
+});
+
+for (const [name, sentence, want] of [
+  ["each word the sentence says an address by", "Opened PR #12 and issue #7.", `Opened ${named("https://github.com/o/r/pull/12", "PR #12")} and ${named("https://github.com/o/r/issues/7", "issue #7")}.`],
+  ["a word a capital starts", "PR #12 waits. Issue #7 is open.", `${named("https://github.com/o/r/pull/12", "PR #12")} waits. ${named("https://github.com/o/r/issues/7", "Issue #7")} is open.`],
+  ["only the words a summary kept", "Opened PR #12…", `Opened ${named("https://github.com/o/r/pull/12", "PR #12")}…`],
+] as const) {
+  test(`a plain sentence links ${name}`, () => {
+    // Arrange
+    const links = [{ label: "PR #12", address: "https://github.com/o/r/pull/12" }, { label: "issue #7", address: "https://github.com/o/r/issues/7" }];
+
+    // Act
+    const shown = renderToStaticMarkup(linkedSentence(sentence, links));
+
+    // Assert
+    assert.equal(shown, want);
+  });
+}
+
+const PR_235 = "https://github.com/example/board/pull/235";
+const CI_RUN = "https://github.com/example/board/actions/runs/99";
+const GUIDE = "https://example.org/guide";
+for (const [name, sentence, link, want] of [
+  ["a pull request whose number starts a longer one", "Rebased PR #2358 onto PR #235.", { label: "PR #235", address: PR_235 }, `Rebased PR #2358 onto ${named(PR_235, "PR #235")}.`],
+  ["a CI run that starts a CI runner", "A CI runner took a CI run.", { label: "a CI run", address: CI_RUN }, `A CI runner took ${named(CI_RUN, "a CI run")}.`],
+  ["a host that ends a longer host", "Read api.example.org, then example.org.", { label: "example.org", address: GUIDE }, `Read api.example.org, then ${named(GUIDE, "example.org")}.`],
+  ["a host that starts a longer host", "Read example.org.uk, then example.org.", { label: "example.org", address: GUIDE }, `Read example.org.uk, then ${named(GUIDE, "example.org")}.`],
+  ["words that stand only inside a longer number", "Rebased PR #2358.", { label: "PR #235", address: PR_235 }, "Rebased PR #2358."],
+] as const) {
+  test(`a plain sentence links a link's words only where they stand whole, never in ${name}`, () => {
+    // Arrange, act
+    const shown = renderToStaticMarkup(linkedSentence(sentence, [link]));
+
+    // Assert
+    assert.equal(shown, want);
+  });
+}

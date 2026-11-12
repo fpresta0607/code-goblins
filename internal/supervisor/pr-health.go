@@ -34,7 +34,7 @@ type reportedPRHealth struct {
 }
 
 // unreadPRs is why a repository's pull request health was not all read on
-// its last poll, and whether the CFO was woken for its listing reaching 100.
+// its last poll, and whether the CEO was woken for its listing reaching 100.
 type unreadPRs struct {
 	Failure    string `json:"failure"`
 	HasCapWake bool   `json:"capped,omitempty"`
@@ -109,7 +109,7 @@ func comparePullRequests(ctx context.Context, runner execx.Runner, github *githu
 }
 
 // prHealthChange is an open pull request whose head has fallen into a
-// condition the CFO was not woken for: a conflict with its base, or a head
+// condition the CEO was not woken for: a conflict with its base, or a head
 // behind the default branch, and the goblin whose pull request it is, if any.
 // One that is no live goblin's is a teammate's when another account than the
 // one the fleet works as opened it, and the fleet's own when that account
@@ -132,7 +132,7 @@ func checksPassed(checks []ghCheck) bool {
 }
 
 // healthChange says whether pr's head, as record last saw it, has fallen into
-// a condition the CFO was not woken for. GitHub works out whether a head
+// a condition the CEO was not woken for. GitHub works out whether a head
 // conflicts only once it is asked, and lists it UNKNOWN until then, so a
 // behind head waits up to mergeabilityGrace for that answer: reporting it
 // behind and then conflicting woke twice for one head that never changed.
@@ -167,7 +167,7 @@ func healthChange(record reportedPRHealth, pr ghPullRequest, behind int, now tim
 }
 
 // reportPRHealth raises one pr_health wake for a poll's pull requests whose
-// heads fell into a condition the CFO was not woken for, all of one
+// heads fell into a condition the CEO was not woken for, all of one
 // repository, so a poll that finds dozens raises one wake, never one each.
 // A pull request whose head and condition stay as they were is not named
 // again. The wake waits out ciWakeGap after the repository's last one.

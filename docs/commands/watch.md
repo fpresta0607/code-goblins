@@ -1,6 +1,6 @@
-# cfo watch
+# goblins watch
 
-`cfo watch`
+`goblins watch`
 
 run one triage cycle by hand (manual diagnostics; the hooks are the production entry)
 

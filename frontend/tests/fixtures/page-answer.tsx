@@ -27,7 +27,7 @@ const base = {
   ],
   reviews: [wait, { id: "icons-cg-board-polish", identity: "b".repeat(64), task: "cg-board-polish", title: "Look at the new icons", state: "open", created_at: "2026-09-30T23:21:00Z", updated_at: "2026-09-30T23:21:00Z" }],
 };
-const answered = { ...base, revision: 2, reviews: [{ ...wait, state: "answered", answered_by: "overlord", answered_in: "page", reason: "You answered on its page; the CFO relays it to the goblin.", updated_at: "2026-09-30T23:29:38Z" }, base.reviews[1]] };
+const answered = { ...base, revision: 2, reviews: [{ ...wait, state: "answered", answered_by: "overlord", answered_in: "page", reason: "You answered on its page; the CEO relays it to the goblin.", updated_at: "2026-09-30T23:29:38Z" }, base.reviews[1]] };
 
 function PageAnswer() {
   const [snapshot, setSnapshot] = useState(() => parseSnapshot(base));

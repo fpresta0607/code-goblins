@@ -126,7 +126,7 @@ func TestSpawnReportsABlockedPreflightInItsOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
-	// The CFO has to read this at dispatch; the alternative is the goblin
+	// The CEO has to read this at dispatch; the alternative is the goblin
 	// discovering it mid-task.
 	if !strings.Contains(result.Output, "BLOCKING: stripe (expired)") {
 		t.Errorf("output = %q, want the blocking service named", result.Output)
@@ -159,10 +159,10 @@ func TestSpawnStartsAGoblinWithNoBillingKeyWhenAProjectDeclaresNothing(t *testin
 // writes only at harness start are reserved all the same.
 func TestSpawnKeepsTheLaunchContractOverItsCredentials(t *testing.T) {
 	for name, env := range map[string]map[string]string{
-		"exact names":     {"GOTMPDIR": `C:\hijacked`, "CFO_HOME": `C:\hijacked`, "CFO_STATE_OVERRIDE": `C:\hijacked`, "FIXTURE_TOKEN": "t0ken"},
-		"case-aliased":    {"gotmpdir": `C:\hijacked`, "cfo_home": `C:\hijacked`, "cfo_state_override": `C:\hijacked`, "FIXTURE_TOKEN": "t0ken"},
-		"the goblin role": {"Cfo_Role": "cfo", "FIXTURE_TOKEN": "t0ken"},
-		"the task's own":  {"cfo_task_id": "another-task", "FIXTURE_TOKEN": "t0ken"},
+		"exact names":     {"GOTMPDIR": `C:\hijacked`, "GOBLINS_HOME": `C:\hijacked`, "GOBLINS_STATE_OVERRIDE": `C:\hijacked`, "FIXTURE_TOKEN": "t0ken"},
+		"case-aliased":    {"gotmpdir": `C:\hijacked`, "goblins_home": `C:\hijacked`, "goblins_state_override": `C:\hijacked`, "FIXTURE_TOKEN": "t0ken"},
+		"the goblin role": {"Goblins_Role": "ceo", "FIXTURE_TOKEN": "t0ken"},
+		"the task's own":  {"goblins_task_id": "another-task", "FIXTURE_TOKEN": "t0ken"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newQuickFixture(t)
@@ -175,12 +175,12 @@ func TestSpawnKeepsTheLaunchContractOverItsCredentials(t *testing.T) {
 			}
 			started := named(f.events(t), "env")[0].Env
 			for variable, want := range map[string]string{
-				"GOTMPDIR":           taskScratch(f.stateDir, result.Meta.ID),
-				"CFO_HOME":           filepath.Dir(f.stateDir),
-				"CFO_STATE_OVERRIDE": f.stateDir,
-				"CFO_ROLE":           harness.RoleGoblin,
-				"CFO_TASK_ID":        "task-7",
-				"FIXTURE_TOKEN":      "t0ken",
+				"GOTMPDIR":               taskScratch(f.stateDir, result.Meta.ID),
+				"GOBLINS_HOME":           filepath.Dir(f.stateDir),
+				"GOBLINS_STATE_OVERRIDE": f.stateDir,
+				"GOBLINS_ROLE":           harness.RoleGoblin,
+				"GOBLINS_TASK_ID":        "task-7",
+				"FIXTURE_TOKEN":          "t0ken",
 			} {
 				if got := started[variable]; got == nil || *got != want {
 					t.Errorf("the goblin started with %s = %v, want %q", variable, got, want)
@@ -211,7 +211,7 @@ func TestSpawnRefusesARedBlockingServiceAndPrintsTheFixCommand(t *testing.T) {
 	f.request.Yolo = false
 	f.service.Auth = &stubPreflight{result: auth.Result{
 		Warning: "auth: 0/1 services green for primary; BLOCKING: postgres (missing)",
-		Refusal: "1 blocking service(s) for primary; fix these or pass --yolo to dispatch anyway\n  postgres (missing): did not resolve: DATABASE_URL\n    cfo auth store --project primary DATABASE_URL",
+		Refusal: "1 blocking service(s) for primary; fix these or pass --yolo to dispatch anyway\n  postgres (missing): did not resolve: DATABASE_URL\n    goblins auth store --project primary DATABASE_URL",
 	}}
 
 	_, err := f.service.Spawn(context.Background(), f.request)
@@ -220,7 +220,7 @@ func TestSpawnRefusesARedBlockingServiceAndPrintsTheFixCommand(t *testing.T) {
 	}
 	// The warning scrolled past every goblin spawned that night. A refusal
 	// the operator cannot ignore is the control; the fix has to be in it.
-	if !strings.Contains(err.Error(), "cfo auth store --project primary DATABASE_URL") {
+	if !strings.Contains(err.Error(), "goblins auth store --project primary DATABASE_URL") {
 		t.Errorf("err = %v, want the exact fix command printed", err)
 	}
 }
@@ -266,7 +266,7 @@ func TestSpawnCarriesTheSharedCachesInTheGoblinsEnvironment(t *testing.T) {
 	f := newQuickFixture(t)
 	f.service.Auth = &stubPreflight{result: auth.Result{
 		Env:    map[string]string{"FIXTURE_TOKEN": "t0ken"},
-		Caches: map[string]string{"UV_CACHE_DIR": `C:\cfo\caches\uv`, "GOTMPDIR": `C:\hijacked`},
+		Caches: map[string]string{"UV_CACHE_DIR": `C:\ceo\caches\uv`, "GOTMPDIR": `C:\hijacked`},
 	}}
 
 	result, err := f.service.Spawn(context.Background(), f.request)
@@ -275,7 +275,7 @@ func TestSpawnCarriesTheSharedCachesInTheGoblinsEnvironment(t *testing.T) {
 		t.Fatalf("Spawn: %v", err)
 	}
 	started := named(f.events(t), "env")[0].Env
-	if got := started["UV_CACHE_DIR"]; got == nil || *got != `C:\cfo\caches\uv` {
+	if got := started["UV_CACHE_DIR"]; got == nil || *got != `C:\ceo\caches\uv` {
 		t.Errorf("the goblin started with UV_CACHE_DIR = %v, want the shared uv cache", got)
 	}
 	if got := started["GOTMPDIR"]; got == nil || *got != taskScratch(f.stateDir, result.Meta.ID) {

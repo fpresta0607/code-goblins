@@ -297,25 +297,25 @@ func TestGoWorkflowTimesKeystrokesInAJobOfTheirOwn(t *testing.T) {
 	}
 }
 
-// cmd/cfo's tests wait on real processes, which no faster runner shortens.
+// cmd/goblins's tests wait on real processes, which no faster runner shortens.
 // Split in two, its second job's tests took 14 to 17 minutes of go test's
 // 20-minute limit, and a slow runner took that job past it. Three jobs, the
 // last two near halves of that time, leave each well under the limit.
-func TestGoWorkflowSplitsCmdCfoIntoThreeJobs(t *testing.T) {
+func TestGoWorkflowSplitsCmdCeoIntoThreeJobs(t *testing.T) {
 	// Arrange
 	shards := goWorkflowTable(t).Go
 
 	// Act
 	var jobs []string
 	for _, shard := range shards {
-		if slices.Contains(strings.Fields(shard.Packages), "./cmd/cfo") {
+		if slices.Contains(strings.Fields(shard.Packages), "./cmd/goblins") {
 			jobs = append(jobs, shard.Shard)
 		}
 	}
 
 	// Assert
 	if len(jobs) != 3 {
-		t.Errorf("cmd/cfo is tested by jobs %v, want three", jobs)
+		t.Errorf("cmd/goblins is tested by jobs %v, want three", jobs)
 	}
 }
 

@@ -63,7 +63,7 @@ const windowHide = 0
 // window: a console handed to Windows Terminal shows through a pseudo
 // console window that neither the console's processes nor its console host
 // own, but a process of another console host Windows Terminal started.
-const ConsoleWindowRole = "cfo-console-window"
+const ConsoleWindowRole = "ceo-console-window"
 
 func init() {
 	if len(os.Args) == 2 && os.Args[0] == ConsoleWindowRole {

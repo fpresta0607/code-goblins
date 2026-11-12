@@ -11,6 +11,9 @@ import { expect, test, type Page } from "./site";
 
 const EMAIL = { subject: "Refund for order 4412", body: "Hello,\n\nPlease refund order 4412: the proxies never connected.\n\nThanks,\nNick" };
 const FORM_BODY = "Please refund order 4412.\nThe proxies never connected.";
+const PULL = "https://github.com/acme/site/pull/12";
+const NOTES_PAGE = "https://docs.example.com/release-notes";
+const REPLY = { subject: "Re: " + PULL, body: "The fix is described on " + NOTES_PAGE + ".\nNot a link: javascript:alert(1)" };
 const CARDS = [
   { open: "Open the step card", kind: "credential", id: "cred-5555555555555555", body: EMAIL.body, subject: EMAIL.subject, path: String.raw`C:\dev\code-goblins\data\pd-proxy-primary\iproyal-refund.md` },
   { open: "Open the question", kind: "question", id: "q-proxy-notes", body: FORM_BODY, subject: "", path: String.raw`C:\Users\fpres\OneDrive - SIQstack\Desktop` },
@@ -50,7 +53,7 @@ for (const c of CARDS) {
     await page.addInitScript(() => { (window as unknown as { chrome: Record<string, unknown> }).chrome = { ...(window as unknown as { chrome?: Record<string, unknown> }).chrome, webview: {} }; });
     const sent: { token: string | null; body: unknown }[] = [];
     await page.route("**/api/cards/open-path", async (route) => {
-      sent.push({ token: await route.request().headerValue("X-CFO-Token"), body: route.request().postDataJSON() });
+      sent.push({ token: await route.request().headerValue("X-CEO-Token"), body: route.request().postDataJSON() });
       await route.fulfill({ status: 200, json: { message: "Opened File Explorer." } });
     });
     const card = await openCard(page, c.open);
@@ -65,6 +68,34 @@ for (const c of CARDS) {
     await expect(card.getByRole("status").filter({ hasText: "Opened in File Explorer" })).toHaveClass("sr-only");
   });
 }
+
+// A subject reads as Copy subject copies it (#2360): an address in it is a
+// link that reads as written, never a pull request's short name, and the
+// body's address is a link while a javascript: string stays words.
+test("a subject's address is a link that reads exactly as Copy subject copies it, and the body's javascript: text stays words", async ({ page, context }) => {
+  // Arrange
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  const card = await openCard(page, "Open the reply");
+  const mail = card.getByRole("region", { name: "Message to send" });
+  const subject = mail.locator(".card-mail-line").filter({ hasText: "Subject" });
+  const body = mail.getByLabel("Message body");
+
+  // Act
+  await mail.getByRole("button", { name: "Copy subject" }).click();
+
+  // Assert
+  const pull = subject.getByRole("link");
+  await expect(pull).toHaveText(PULL);
+  await expect(pull).toHaveAttribute("href", PULL);
+  await expect(pull).toHaveAttribute("target", "_blank");
+  await expect(pull).toHaveAttribute("rel", "noreferrer");
+  await expect(subject).toHaveText("Subject" + REPLY.subject);
+  expect(await clipboard(page)).toBe(REPLY.subject);
+  await expect(body).toHaveText(REPLY.body);
+  await expect(body.getByRole("link", { name: NOTES_PAGE, exact: true })).toHaveAttribute("href", NOTES_PAGE);
+  await expect(body.getByRole("link")).toHaveCount(1);
+  await expect(mail.locator('a[href^="javascript:"]')).toHaveCount(0);
+});
 
 test("in a plain browser a path link copies the path, says so, and never asks the supervisor", async ({ page, context }) => {
   // Arrange

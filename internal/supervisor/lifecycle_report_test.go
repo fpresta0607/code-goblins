@@ -12,16 +12,16 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-// The Overlord, 2026-10-07, shown a toast that a goblin the CFO was retiring
+// The Overlord, 2026-10-07, shown a toast that a goblin the CEO was retiring
 // had failed: its pause missed the handoff deadline and its teardown ran out
-// of time, and the lifecycle's report to the CFO began with the goblin's own
+// of time, and the lifecycle's report to the CEO began with the goblin's own
 // "failed:" verb. The board read it as the goblin failing and waiting on the
-// CFO, and the CFO-quiet notice counted it as a question. A pause or stop
-// someone asked for never marks the goblin failed; the CFO still hears of it.
+// CEO, and the CEO-quiet notice counted it as a question. A pause or stop
+// someone asked for never marks the goblin failed; the CEO still hears of it.
 func TestAPauseThatDidNotFinishOnARetiredGoblinIsNeitherItsFailureNorAQuestion(t *testing.T) {
 	for action, reason := range map[string]string{"pause": "overlord", "stop": "Requested by the operator"} {
 		t.Run(action, func(t *testing.T) {
-			// Arrange: a goblin whose work is done, retired by the CFO.
+			// Arrange: a goblin whose work is done, retired by the CEO.
 			store, h := testStore(t)
 			meta := state.TaskMeta{ID: "task-1", Project: h.Root, Worktree: filepath.Join(h.Root, "work"), Harness: "claude", Mode: "direct-PR", Kind: "ship", Backend: "native", SpawnGen: "g1", TaskTmp: filepath.Join(h.State, "tasktmp", "task-1")}
 			if err := state.WriteTaskMeta(h.State, meta); err != nil {
@@ -54,16 +54,16 @@ func TestAPauseThatDidNotFinishOnARetiredGoblinIsNeitherItsFailureNorAQuestion(t
 			}
 
 			// Assert
-			if len(view.Tasks) != 1 || view.Tasks[0].Phase == "failed" || view.Tasks[0].Phase == "blocked" || strings.HasPrefix(view.Tasks[0].Reason, "Waiting on the CFO") {
-				t.Errorf("the goblin reads as %+v; want it neither failed nor waiting on the CFO", view.Tasks)
+			if len(view.Tasks) != 1 || view.Tasks[0].Phase == "failed" || view.Tasks[0].Phase == "blocked" || strings.HasPrefix(view.Tasks[0].Reason, "Waiting on the CEO") {
+				t.Errorf("the goblin reads as %+v; want it neither failed nor waiting on the CEO", view.Tasks)
 			}
 			for _, wakeRecord := range pending {
 				if verb, isQuestion := wake.BlockingNotify(wakeRecord); isQuestion {
-					t.Errorf("the CFO's queue reads the report as the goblin's %s question: %+v", verb, wakeRecord)
+					t.Errorf("the CEO's queue reads the report as the goblin's %s question: %+v", verb, wakeRecord)
 				}
 			}
 			if len(view.Decisions) != 1 || !strings.Contains(view.Decisions[0].Detail, "context deadline exceeded") || action == "pause" && !strings.Contains(view.Decisions[0].Detail, "no new handoff was saved") {
-				t.Errorf("the CFO hears %+v; want the report with what went wrong", view.Decisions)
+				t.Errorf("the CEO hears %+v; want the report with what went wrong", view.Decisions)
 			}
 		})
 	}

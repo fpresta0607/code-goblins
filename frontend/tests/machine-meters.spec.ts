@@ -25,7 +25,7 @@ const tips = {
 };
 
 async function board(page: Page, machine: object) {
-  const snapshot = { instance: "machine-meters-fixture", revision: 1, healthy: true, cfo_runs: true, attention: [], memory, disk, ...machine, tasks };
+  const snapshot = { instance: "machine-meters-fixture", revision: 1, healthy: true, ceo_runs: true, attention: [], memory, disk, ...machine, tasks };
   await page.route("**/api/**", async (route) => {
     if (new URL(route.request().url()).pathname === "/api/events") {
       await route.fulfill({ contentType: "text/event-stream", body: `event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n` });

@@ -1,10 +1,10 @@
-import { CFO_DOOR, expect, test, type Page } from "./site";
+import { CEO_DOOR, expect, test, type Page } from "./site";
 import { open, openGoblin } from "./session-board";
 
 // The Overlord, 2026-10-26: "i dont like how you remove the selector at the
 // top between caht and task panel bring that back i dont like the drop down
 // also". One segmented control switches a panel between its conversation and
-// its task view, for the CFO and a goblin, at desktop and phone widths, and
+// its task view, for the CEO and a goblin, at desktop and phone widths, and
 // the keyboard reaches it. The Overlord, 2026-10-28: "chat and task doesn't
 // need to be full width, it can fit inline with cfo and afk and just be the
 // icons", so its two buttons are icons alone, named for a screen reader, with
@@ -14,8 +14,8 @@ const switcher = (page: Page) => page.getByRole("group", { name: "Panel view", e
 const taskPanel = (page: Page) => page.locator(".goblin-panel > .panel-task");
 const messages = (page: Page) => page.getByRole("region", { name: "Messages", exact: true });
 
-async function openCfo(page: Page) {
-  await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click();
+async function openCeo(page: Page) {
+  await page.locator(".ceo-pin").getByRole("button", { name: CEO_DOOR }).last().click();
   await expect(page.locator("#panel-title")).toHaveText("CEO");
 }
 
@@ -47,7 +47,7 @@ for (const who of ["goblin", "CEO"]) {
     // Arrange
     await open(page);
     if (who === "goblin") await openGoblin(page);
-    else await openCfo(page);
+    else await openCeo(page);
 
     // Assert the conversation is what opens, with no Task disclosure fold.
     const views = switcher(page);
@@ -87,7 +87,7 @@ for (const width of [360, 393, 430]) {
       await page.setViewportSize({ width, height: 844 });
       await open(page);
       if (who === "goblin") await openGoblin(page);
-      else await openCfo(page);
+      else await openCeo(page);
       const views = switcher(page);
       const chat = views.getByRole("button", { name: "Chat", exact: true });
       const task = views.getByRole("button", { name: "Task", exact: true });

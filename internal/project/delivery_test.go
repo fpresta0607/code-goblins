@@ -91,7 +91,7 @@ func TestDeliverySelectionKeepsAnUnauthorizedNarrowerRequestStrict(t *testing.T)
 	}
 }
 
-func TestDeliverySelectionHonorsOnlyAConcreteCFOExceptionWithChecks(t *testing.T) {
+func TestDeliverySelectionHonorsOnlyAConcreteCEOExceptionWithChecks(t *testing.T) {
 	for _, test := range []struct {
 		name, exception, want string
 		fast                  []Command

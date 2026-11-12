@@ -39,7 +39,7 @@ func TestRemovalsAroundReportsEveryRawRemoval(t *testing.T) {
 		{name: "fsx.RemoveAll", imports: `"github.com/fpresta0607/code-goblins/internal/fsx"`, body: `fsx.RemoveAll("worktree")`},
 		{name: "os.Remove", imports: `"os"`, body: `os.Remove("empty")`},
 		{name: "git worktree prune", imports: `"os/exec"`, body: `exec.Command("git", "worktree", "prune")`},
-		{name: "a usage line", imports: `"fmt"`, body: `fmt.Println("cfo worktree remove <task-id> <name>")`},
+		{name: "a usage line", imports: `"fmt"`, body: `fmt.Println("goblins worktree remove <task-id> <name>")`},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -37,7 +37,7 @@ export function AnswerWindow({ asker, task, instance, isSending = false, refusal
         reader.readAsDataURL(file);
       });
       const [preview, kept] = await Promise.all([previewReady,
-        request("/api/answer-images?task=" + encodeURIComponent(task), undefined, { method: "POST", headers: { "Content-Type": file.type, "X-CFO-Token": instance }, body: file })]);
+        request("/api/answer-images?task=" + encodeURIComponent(task), undefined, { method: "POST", headers: { "Content-Type": file.type, "X-CEO-Token": instance }, body: file })]);
       setPictures((prior) => prior.map((each) => each.key === key ? { key, preview, path: string(object(kept).path) } : each));
     } catch (error) {
       setRefusal(message(error));

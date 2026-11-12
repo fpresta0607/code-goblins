@@ -1,6 +1,6 @@
 // Package guard classifies Claude Code tool calls the primary agent must
 // not be allowed to make. The first guard is pretool-subagent: it stops the
-// CFO primary from delegating through the harness's own tools (Agent, Task,
+// CEO primary from delegating through the harness's own tools (Agent, Task,
 // SendMessage, and the rest) instead of the fleet dispatch path.
 package guard
 
