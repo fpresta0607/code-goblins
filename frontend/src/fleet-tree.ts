@@ -211,9 +211,9 @@ export const hasChildren = (tree?: FleetTree) => (tree?.children.length || 0) > 
 export const hasRunningChildren = (tree?: FleetTree) => babies(tree).length > 0;
 
 // A baby goblin on its branch, the size its card is drawn at, wide enough for
-// the longest state, such as Detached, working 12h 52m, on one line, and tall
-// enough for a name of two lines, what it runs, its state and its memory, and
-// the branches' measures: the gap between two lines side by side, the room a
+// the longest state, Unknown just started, on one line beside its head, and
+// tall enough for a name of three lines, what it runs on two, its model, its
+// state and its memory, and the branches' measures: the gap between two lines side by side, the room a
 // line keeps from a baby goblin beside it, the narrowest gap between columns,
 // the gap between rows, how far under the card the first line turns aside,
 // clear of the card's chevron, how far a line drops into a baby goblin after
