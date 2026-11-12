@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { callRuns, changeMessages, copyText, DEFAULT_MESSAGE_FONT, MAX_MESSAGE_FONT, messageFontFor, messagesQuery, MIN_MESSAGE_FONT, isPowerShellBlock, isWrittenReply, olderMessages, pageMessages, parseMessages, parsePage, parseSession, parseWaiting, replyParts, textParts, turnEnds, viewStanding, type SessionMessage, type SessionReport } from "./session-messages.ts";
+import { callRuns, changeMessages, conversationHead, copyText, DEFAULT_MESSAGE_FONT, MAX_MESSAGE_FONT, messageFontFor, messagesQuery, MIN_MESSAGE_FONT, isPowerShellBlock, isWrittenReply, olderMessages, pageMessages, parseMessages, parsePage, parseSession, parseWaiting, replyParts, textParts, turnEnds, viewStanding, type SessionMessage } from "./session-messages.ts";
 import type { Task } from "./types.ts";
 
 // A message as the supervisor serves it (internal/fleettree/messages.go).
@@ -255,45 +255,38 @@ test("a disjoint newest page replaces held history so older pagination can fill 
 // What the fleet's stream says of a session, as /api/messages sends it in a
 // session event: the newest turn, whether it runs, ended or was never
 // reported, and where the head of the stream is.
-const reported = (fields: Record<string, unknown> = {}) => ({ turn: "m0", state: "running", newest: 1, head: 3, ...fields });
+const reported = (fields: Record<string, unknown> = {}) => ({ conversation: "a", turn: "m0", state: "running", newest: 1, head: 3, ...fields });
+// He drew the prompt and its first reply of conversation a.
+const drawn = conversationHead({ conversation: "a", messages: held(0, 1) });
 
-test("a session that produced a newer turn than the view drew is behind, not working", () => {
-  // Arrange: he drew the prompt and its first reply; the stream holds a later
-  // message the view has not drawn.
-  const messages = held(0, 1);
+for (const { what, report, received, standing } of [
+  { what: "a turn the stream says runs, drawn to its end, is working", report: reported(), received: drawn, standing: { isBehind: false, isWorking: true } },
+  { what: "a drawn turn the stream says ended never draws a working indicator", report: reported({ state: "ended" }), received: drawn, standing: { isBehind: false, isWorking: false } },
+  { what: "a stream whose head is past what the view drew is behind, not working", report: reported({ newest: 4 }), received: drawn, standing: { isBehind: true, isWorking: false } },
+  { what: "a newer turn the view holds back while he reads up is behind before any session event names it", report: null, received: { conversation: "a", newest: 3 }, standing: { isBehind: true, isWorking: false } },
+  { what: "a newer turn the view holds back is behind, though the stream still says the drawn turn runs", report: reported(), received: { conversation: "a", newest: 3 }, standing: { isBehind: true, isWorking: false } },
+  { what: "a newer conversation is behind, though its seqs are lower than those drawn", report: reported({ conversation: "b", newest: 0 }), received: { conversation: "b", newest: 0 }, standing: { isBehind: true, isWorking: false } },
+  { what: "a turn no harness reported draws no indicator", report: reported({ state: "unknown", why: "no hooks" }), received: drawn, standing: { isBehind: false, isWorking: false } },
+  { what: "a session the board hears nothing of yet is neither behind nor working", report: null, received: drawn, standing: { isBehind: false, isWorking: false } },
+]) {
+  test(what, () => {
+    // Act
+    const actual = viewStanding(report && parseSession(report), drawn, received);
 
-  // Act
-  const standing = viewStanding(parseSession(reported({ newest: 4 })) as SessionReport, messages);
+    // Assert
+    assert.deepEqual(actual, standing);
+  });
+}
 
-  // Assert: behind is its own state, and no indicator is drawn on a turn the
-  // view has not caught up with.
-  assert.deepEqual(standing, { isBehind: true, isWorking: false });
+test("a session event carries the conversation it names, and why no harness reported its turn", () => {
+  const report = parseSession(reported({ state: "unknown", why: "no hooks" }));
+  assert.equal(report.conversation, "a");
+  assert.equal(report.why, "no hooks");
 });
 
-test("a drawn turn the stream says ended never draws a working indicator, whatever the snapshot says", () => {
-  // Arrange
-  const messages = held(0, 1);
-
-  // Act
-  const standing = viewStanding(parseSession(reported({ state: "ended", newest: 1 })) as SessionReport, messages);
-
-  // Assert
-  assert.deepEqual(standing, { isBehind: false, isWorking: false });
-});
-
-test("a turn the stream says runs is working once the view has drawn to its end", () => {
-  const standing = viewStanding(parseSession(reported({ newest: 1 })) as SessionReport, held(0, 1));
-  assert.deepEqual(standing, { isBehind: false, isWorking: true });
-});
-
-test("a turn no harness reported draws no indicator and says why", () => {
-  const report = parseSession(reported({ state: "unknown", why: "no hooks", newest: 1 }));
-  assert.deepEqual(viewStanding(report as SessionReport, held(0, 1)), { isBehind: false, isWorking: false });
-  assert.equal((report as SessionReport).why, "no hooks");
-});
-
-test("a session the board hears nothing of yet is neither behind nor working", () => {
-  assert.deepEqual(viewStanding(null, held(0, 1)), { isBehind: false, isWorking: false });
+test("a conversation's head is its newest message, and -1 while it holds none", () => {
+  assert.deepEqual(conversationHead({ conversation: "a", messages: held(2, 7) }), { conversation: "a", newest: 7 });
+  assert.deepEqual(conversationHead({ conversation: "a", messages: [] }), { conversation: "a", newest: -1 });
 });
 
 test("a session event carries why its record is stale or its stream cannot be kept, and says neither when it omits them", () => {

@@ -19,6 +19,7 @@ import (
 
 var (
 	checkboxBacklogRow = regexp.MustCompile(`^[-*]\s+\[[ xX]\]\s+(\S+)\s+-\s+(.*)$`)
+	checkedBacklogRow  = regexp.MustCompile(`^[-*]\s+\[[xX]\]`)
 	boldBacklogRow     = regexp.MustCompile(`^[-*]\s+(?:parked\s+)?\*\*([^*]+)\*\*\s+-\s+(.*)$`)
 	urlPattern         = regexp.MustCompile(`https?://[^\s\)\]"<>]+`)
 	wrappedURLPattern  = regexp.MustCompile(`<?https?://[^\s\)\]"<>]+>?`)
@@ -58,6 +59,14 @@ type BacklogRows struct {
 	queuedTasks map[string]QueuedTask
 	duplicates  map[string]bool
 	listed      map[string]bool
+	openText    []string
+}
+
+// OpenRowsText is the text of every open row with its detail lines: a row
+// under any heading but Done that is not checked off. Notes, history and
+// closed rows are left out.
+func (backlog BacklogRows) OpenRowsText() string {
+	return strings.Join(backlog.openText, "\n")
 }
 
 // BacklogRow is either a typed tasks-axi-compatible record or a raw source
@@ -83,6 +92,11 @@ type BacklogRow struct {
 	Effort  string `json:"effort,omitempty"`
 	Mode    string `json:"mode,omitempty"`
 	Raw     string `json:"raw"`
+}
+
+// IsCheckedOff says the row is a checkbox row marked done, as - [x] id - ...
+func (row BacklogRow) IsCheckedOff() bool {
+	return checkedBacklogRow.MatchString(strings.TrimSpace(row.Raw))
 }
 
 // HasSetting distinguishes an explicit empty override from omitted metadata.
@@ -119,12 +133,14 @@ func ReadBacklog(h home.Home) (BacklogRows, error) {
 	}
 	result.Present = true
 	section := ""
+	isOpenRow := false
 	lines := strings.Split(string(data), "\n")
 	for index, raw := range lines {
 		line := strings.TrimSuffix(raw, "\r")
 		trimmed := strings.TrimSpace(line)
 		// Indented headings belong to task bodies, not backlog sections.
 		if heading := levelTwoHeading.FindStringSubmatch(line); heading != nil {
+			isOpenRow = false
 			switch strings.TrimSpace(heading[1]) {
 			case "Queued":
 				section = "queued"
@@ -143,6 +159,12 @@ func ReadBacklog(h home.Home) (BacklogRows, error) {
 		row := parseBacklogRow(trimmed)
 		if row.Structured {
 			result.listed[row.ID] = true
+			isOpenRow = section != "done" && !checkedBacklogRow.MatchString(trimmed)
+		} else if !continuesRow(line) {
+			isOpenRow = false
+		}
+		if isOpenRow {
+			result.openText = append(result.openText, trimmed)
 		}
 		if section == "" {
 			continue

@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -306,6 +307,29 @@ func (backlog BacklogRows) ReadQueuedTask(h home.Home, id string) (QueuedTask, e
 	return readUndispatchedBrief(h, id)
 }
 
+// DoneArchiveName is the file in the home's data folder that tasks-axi moves
+// the oldest Done rows of the backlog to.
+const DoneArchiveName = "done-archive.md"
+
+// isArchivedDone says the done archive holds a row for task id. A brief
+// closed without a dispatch, as one folded into a group, has only its Done
+// row to close it, and that row is moved there in time.
+func isArchivedDone(h home.Home, id string) (bool, error) {
+	data, err := fsx.ReadFile(filepath.Join(h.Data, DoneArchiveName))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.Contains(line, id) && parseBacklogRow(strings.TrimSpace(line)).ID == id {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func readUndispatchedBrief(h home.Home, id string) (QueuedTask, error) {
 	for _, suffix := range []string{".meta", ".status"} {
 		if _, err := os.Stat(filepath.Join(h.State, id+suffix)); !errors.Is(err, os.ErrNotExist) {
@@ -327,6 +351,9 @@ func readUndispatchedBrief(h home.Home, id string) (QueuedTask, error) {
 	}
 	if err != nil {
 		return QueuedTask{}, err
+	}
+	if isArchived, err := isArchivedDone(h, id); err != nil || isArchived {
+		return QueuedTask{}, cmp.Or(err, ErrNotQueued)
 	}
 	sections := map[string][]string{}
 	section := ""

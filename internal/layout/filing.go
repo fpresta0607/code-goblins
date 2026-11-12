@@ -52,6 +52,8 @@ type Record struct {
 	Waiting int `json:"waiting"`
 	// Error is why the pass could not file, empty when it could.
 	Error string `json:"error,omitempty"`
+	// Kept is every task folder the pass left in place, and why.
+	Kept []Kept `json:"kept,omitempty"`
 }
 
 // WriteRecord keeps record as the home's last filing pass.
@@ -122,8 +124,14 @@ func Plan(h home.Home, harnessMemory string, now time.Time) ([]Move, error) {
 
 // Kept is a task folder filing leaves where it is, and why.
 type Kept struct {
-	ID     string
-	Reason string
+	ID     string `json:"id"`
+	Reason string `json:"reason"`
+	// IsFinished is a finished task's folder kept because something still
+	// names it, which the janitor trims to its text record a day later, and
+	// Named the entries at its top that something names by path, which the
+	// trim keeps too.
+	IsFinished bool     `json:"finished,omitempty"`
+	Named      []string `json:"named,omitempty"`
 }
 
 // plan is Plan, and also every task folder it leaves in place with the
@@ -197,7 +205,7 @@ func plan(h home.Home, harnessMemory string, now time.Time) ([]Move, []Kept, err
 		}
 		folders = append(folders, f)
 	}
-	named, err := namedInLiveText(h, harnessMemory, briefs)
+	named, err := namedInLiveText(h, backlog, harnessMemory, briefs)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -213,7 +221,7 @@ func plan(h home.Home, harnessMemory string, now time.Time) ([]Move, []Kept, err
 			if f.live || !f.dispatched || expanded[id] {
 				continue
 			}
-			if named[id] == "" && !queuedRows[id] && !parkedRows[id] {
+			if named.where[id] == "" && !queuedRows[id] && !parkedRows[id] {
 				continue
 			}
 			expanded[id] = true
@@ -238,14 +246,14 @@ func plan(h home.Home, harnessMemory string, now time.Time) ([]Move, []Kept, err
 		}
 		id := strings.ToLower(f.id)
 		queued, parked := queuedRows[id], parkedRows[id]
-		where := named[id]
+		where := named.where[id]
 		var move Move
 		switch {
 		case f.dispatched && (queued || parked):
-			kept = append(kept, Kept{ID: f.id, Reason: "finished, but an open backlog row names it"})
+			kept = append(kept, Kept{ID: f.id, Reason: "finished, but an open backlog row names it", IsFinished: true, Named: named.entries[id]})
 			continue
 		case f.dispatched && where != "":
-			kept = append(kept, Kept{ID: f.id, Reason: "finished, but " + where + " names its path"})
+			kept = append(kept, Kept{ID: f.id, Reason: "finished, but " + where + " names its path", IsFinished: true, Named: named.entries[id]})
 			continue
 		case f.dispatched:
 			move = Move{ID: f.id, Reason: "finished"}
@@ -295,25 +303,37 @@ func isArchiveOf(name, id string) bool {
 }
 
 // dataPathName matches a path into the data folder, in either slash
-// direction, and captures the folder it names. The word boundary keeps
-// "metadata/x" from reading as a path into data.
-var dataPathName = regexp.MustCompile(`(?i)\bdata[\\/]([A-Za-z0-9._-]+)`)
+// direction, and captures the folder it names and the entry at the folder's
+// top it goes on to, when it does. The word boundary keeps "metadata/x" from
+// reading as a path into data.
+var dataPathName = regexp.MustCompile(`(?i)\bdata[\\/]([A-Za-z0-9._-]+)(?:[\\/]([A-Za-z0-9._-]+))?`)
+
+// names is what live text names by path: each data folder, lowercased, with
+// the first place that names it, and the entries at the top of each folder
+// it names, as written.
+type names struct {
+	where   map[string]string
+	entries map[string][]string
+}
 
 // namedInLiveText returns, lowercased, every data folder named by path in
 // what the fleet or the Overlord still reads, with the first place that
-// names it: all of the backlog, the directives, the home's memory and the
-// harness's memory folder, the given briefs, and every open Command Center
-// question, review item and run card. A file that is not there reads as
-// empty.
-func namedInLiveText(h home.Home, harnessMemory string, briefs []string) (map[string]string, error) {
-	files := append([]string{filepath.Join(h.Data, Backlog), filepath.Join(h.Data, "overlord.md")}, briefs...)
+// names it: the backlog's open rows, the directives, the home's memory and
+// the harness's memory folder, the given briefs, and every open Command
+// Center question, review item and run card. A Done row, a closed row and
+// the backlog's notes and history name what is over, so they keep nothing. A
+// file that is not there reads as empty.
+func namedInLiveText(h home.Home, backlog fleet.BacklogRows, harnessMemory string, briefs []string) (names, error) {
+	named := names{where: map[string]string{}, entries: map[string][]string{}}
+	noteNames(named, backlog.OpenRowsText(), "an open row of data/"+Backlog)
+	files := append([]string{filepath.Join(h.Data, "overlord.md")}, briefs...)
 	for _, dir := range []string{filepath.Join(h.Data, filepath.FromSlash(path.Dir(MemoryIndex))), harnessMemory} {
 		if dir == "" {
 			continue
 		}
 		entries, err := os.ReadDir(dir)
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return nil, err
+			return names{}, err
 		}
 		for _, entry := range entries {
 			if entry.Type().IsRegular() {
@@ -321,11 +341,10 @@ func namedInLiveText(h home.Home, harnessMemory string, briefs []string) (map[st
 			}
 		}
 	}
-	named := map[string]string{}
 	for _, file := range files {
 		data, err := fsx.ReadFile(file)
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return nil, err
+			return names{}, err
 		}
 		where := file
 		if rel, err := filepath.Rel(h.Data, file); err == nil && filepath.IsLocal(rel) {
@@ -335,21 +354,25 @@ func namedInLiveText(h home.Home, harnessMemory string, briefs []string) (map[st
 	}
 	open, err := openBoardText(h)
 	if err != nil {
-		return nil, err
+		return names{}, err
 	}
 	noteNames(named, open, "an open Command Center item")
 	return named, nil
 }
 
-// noteNames records in named, lowercased, every data folder text names by
-// path that named does not hold yet, with where as the place that names it,
-// and reports whether it recorded any.
-func noteNames(named map[string]string, text, where string) bool {
+// noteNames records in named every data folder text names by path that named
+// does not hold yet, with where as the place that names it, and every entry
+// at a folder's top it names, and reports whether it recorded a folder.
+func noteNames(named names, text, where string) bool {
 	added := false
 	for _, match := range dataPathName.FindAllStringSubmatch(text, -1) {
-		if name := strings.ToLower(strings.TrimRight(match[1], ".")); named[name] == "" {
-			named[name] = where
+		name := strings.ToLower(strings.TrimRight(match[1], "."))
+		if named.where[name] == "" {
+			named.where[name] = where
 			added = true
+		}
+		if entry := strings.TrimRight(match[2], "."); entry != "" && !slices.Contains(named.entries[name], entry) {
+			named.entries[name] = append(named.entries[name], entry)
 		}
 	}
 	return added
@@ -456,12 +479,12 @@ func File(ctx context.Context, h home.Home, now time.Time) ([]Move, error) {
 	if err != nil || !laidOut {
 		return nil, err
 	}
-	planned, err := Plan(h, ClaudeMemoryFolder(h.Root), now)
+	planned, kept, err := plan(h, ClaudeMemoryFolder(h.Root), now)
 	var moved []Move
 	if err == nil {
 		moved, err = Apply(ctx, h, planned[:min(len(planned), movesPerPass)], now)
 	}
-	record := Record{Time: now.UTC(), Filed: len(moved), Waiting: len(planned) - len(moved)}
+	record := Record{Time: now.UTC(), Filed: len(moved), Waiting: len(planned) - len(moved), Kept: kept}
 	switch {
 	case err != nil && ctx.Err() != nil:
 		err = errors.Join(err, logOnce(h, now, " filing pass cut short; the next pass files what is left"))
@@ -514,14 +537,18 @@ func isLayoutFolder(name string) bool {
 	return false
 }
 
-// rowsName returns, lowercased, every task the rows name, by its id or by a
-// path into its folder, in either slash direction and any case, as Windows
-// reads paths. A plan reads the rows once: read again for each folder, a
-// backlog of some 470 open rows took 15 seconds over 1,300 folders, and a
-// plan read them several times over.
+// rowsName returns, lowercased, every task the open rows name, by its id or
+// by a path into its folder, in either slash direction and any case, as
+// Windows reads paths. A note between rows and a row checked off name
+// nothing. A plan reads the rows once: read again for each folder, a backlog
+// of some 470 open rows took 15 seconds over 1,300 folders, and a plan read
+// them several times over.
 func rowsName(rows []fleet.BacklogRow) map[string]bool {
 	ids := map[string]bool{}
 	for _, row := range rows {
+		if !row.Structured || row.IsCheckedOff() {
+			continue
+		}
 		ids[strings.ToLower(row.ID)] = true
 		for _, match := range dataPathName.FindAllStringSubmatch(row.Raw, -1) {
 			ids[strings.ToLower(strings.TrimRight(match[1], "."))] = true
