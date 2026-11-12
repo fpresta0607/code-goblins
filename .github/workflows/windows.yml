@@ -19,7 +19,7 @@ on:
       - cmd/goblins/main.go
       - cmd/goblins/own_console*.go
       - cmd/goblins/gate_turn*.go
-      - cmd/goblins/launcher.go
+      - cmd/goblins/launcher*.go
       - internal/execx/**
       - internal/proc/**
       - internal/supervisor/console_window*.go
