@@ -134,7 +134,7 @@ test("Take control opens the goblin's own browser at the page, whose screen the 
   const views: string[] = [];
   await page.routeWebSocket("**/api/screen?*", (socket) => {
     views.push(socket.url());
-    socket.send(JSON.stringify({ type: "state", is_driven: true, can_drive: true, title: "Sign in", host: "shop.example.com", has_page: true, card_open: true }));
+    socket.send(JSON.stringify({ type: "state", is_driven: true, can_drive: true, title: "Sign in", host: "shop.example.com", has_page: true }));
   });
   const card = await openCard(page, WINDOW);
   await expect(card.getByRole("list", { name: "What to do" }).getByRole("listitem").first()).toHaveText("Press Take control below");

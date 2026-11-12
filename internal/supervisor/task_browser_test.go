@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -141,12 +142,14 @@ func (c fakeClient) Close() {
 }
 
 // fakeGoblinChrome starts browser as each goblin's, in place of Chrome, counting
-// its starts and ends; failure, when set, is each start's error.
+// its starts and ends; failure, when set, is each start's error, and hold,
+// when set, keeps each start waiting until it closes.
 type fakeGoblinChrome struct {
 	browser        *fakeBrowser
 	mu             sync.Mutex
 	started, ended int
 	failure        error
+	hold           chan struct{}
 }
 
 func (c *fakeGoblinChrome) counts() (started, ended int) {
@@ -162,6 +165,9 @@ func newFakeBrowsers(t *testing.T, chrome *fakeGoblinChrome) *taskBrowsers {
 	browsers := &taskBrowsers{
 		running: map[string]*taskBrowser{},
 		launch: func(context.Context, state.TaskMeta) (screenSource, func() error, error) {
+			if chrome.hold != nil {
+				<-chrome.hold
+			}
 			chrome.mu.Lock()
 			defer chrome.mu.Unlock()
 			if chrome.failure != nil {
@@ -177,6 +183,7 @@ func newFakeBrowsers(t *testing.T, chrome *fakeGoblinChrome) *taskBrowsers {
 		},
 		live:      func(string) error { return nil },
 		notify:    func() {},
+		ended:     func(string, string) {},
 		report:    func(err error) { t.Errorf("a browser reported %v", err) },
 		idle:      time.Hour,
 		unwatched: time.Hour,
@@ -280,8 +287,9 @@ func TestAGoblinsBrowserThatFailedToStartIsTriedAgain(t *testing.T) {
 	}
 }
 
-// A supervisor built without Start runs no browsers: its snapshot shows none
-// and an ask for one is refused, not a panic.
+// A supervisor built without Start runs no browsers: its snapshot shows none,
+// an ask for one is refused, and its sweep and stop have none to close, none
+// of it a panic.
 func TestASupervisorThatWasNeverStartedRunsNoBrowsers(t *testing.T) {
 	// Arrange
 	var browsers *taskBrowsers
@@ -289,10 +297,29 @@ func TestASupervisorThatWasNeverStartedRunsNoBrowsers(t *testing.T) {
 	// Act
 	_, err := browsers.ensure(context.Background(), state.TaskMeta{ID: "task-1", SpawnGen: "g1"})
 	browsers.handBack("task-1")
+	browsers.sweep(t.TempDir())
+	browsers.closeAll()
 
 	// Assert
 	if err == nil || browsers.isRunning("task-1", "g1") {
 		t.Fatalf("ensure = %v, want it refused", err)
+	}
+}
+
+// A goblin's browser keeps its profile in its task's scratch folder, so a
+// task with none starts no browser, and says why.
+func TestAGoblinsBrowserNeedsItsTasksScratchFolder(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	browsers := newTaskBrowsers(store.Home.State, func() {}, func(string, string) {}, func(err error) { t.Errorf("a browser reported %v", err) })
+	t.Cleanup(browsers.closeAll)
+
+	// Act
+	_, err := browsers.ensure(context.Background(), state.TaskMeta{ID: "task-1", SpawnGen: "g1"})
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "no scratch folder") || browsers.isRunning("task-1", "g1") {
+		t.Fatalf("ensure = %v, want it refused for want of a scratch folder", err)
 	}
 }
 
@@ -352,16 +379,19 @@ func TestControlNobodyWatchesGoesBackToTheGoblin(t *testing.T) {
 	eventually(t, "control's return", func() bool { return !browsers.isDriven(b) })
 }
 
-// The supervisor's sweep closes the browser of a goblin that stopped, and a
-// browser that exited, which the goblin's next use starts again.
+// The supervisor's sweep closes the browser of a goblin that stopped or was
+// started again, whose task's store says its session is g1, and a browser
+// that exited, which the goblin's next use starts again.
 func TestTheSweepClosesTheBrowserOfAGoblinThatStoppedOrABrowserThatExited(t *testing.T) {
 	for _, test := range []struct {
-		name      string
-		live      error
-		hasExited bool
+		name       string
+		generation string
+		live       error
+		hasExited  bool
 	}{
-		{"a goblin that stopped", errors.New("its terminal ended"), false},
-		{"a browser that exited", nil, true},
+		{"a goblin that stopped", "g1", errors.New("its terminal ended"), false},
+		{"a goblin started again", "g0", nil, false},
+		{"a browser that exited", "g1", nil, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -369,7 +399,7 @@ func TestTheSweepClosesTheBrowserOfAGoblinThatStoppedOrABrowserThatExited(t *tes
 			chrome := &fakeGoblinChrome{browser: newFakeBrowser()}
 			browsers := newFakeBrowsers(t, chrome)
 			browsers.live = func(string) error { return test.live }
-			meta := state.TaskMeta{ID: "task-1", SpawnGen: "g1"}
+			meta := state.TaskMeta{ID: "task-1", SpawnGen: test.generation}
 			if _, err := browsers.ensure(context.Background(), meta); err != nil {
 				t.Fatal(err)
 			}
@@ -382,7 +412,7 @@ func TestTheSweepClosesTheBrowserOfAGoblinThatStoppedOrABrowserThatExited(t *tes
 
 			// Assert
 			eventually(t, "the browser's end", func() bool { _, ended := chrome.counts(); return ended == 1 })
-			if browsers.isRunning("task-1", "g1") {
+			if browsers.isRunning("task-1", test.generation) {
 				t.Fatal("the closed browser still shows")
 			}
 			if test.hasExited {

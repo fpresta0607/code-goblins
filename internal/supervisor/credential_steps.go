@@ -395,13 +395,14 @@ func (s *Service) showCardScreen(request CredentialRequest) error {
 
 // reportCredentialWindow records what came of his press: the goblin's
 // browser is his on the board's screen, or it could not open, and the button
-// is offered again with why. A card that closed meanwhile gives the browser
-// back to its goblin, as its close would have once he held it.
+// is offered again with why. A card that closed meanwhile, or whose browser
+// closed meanwhile (endCardScreens), gives the browser back to its goblin, as
+// its close would have once he held it.
 func (s *Service) reportCredentialWindow(id string, isOpen bool, reason string) error {
 	s.credentialSaves.Lock()
 	defer s.credentialSaves.Unlock()
 	request, found := s.Store.credential(id)
-	if !found || request.State != "open" || !request.Window {
+	if !found || request.State != "open" || !request.Window || request.WindowState != "requested" {
 		if found && isOpen {
 			s.screens.handBack(request.Task)
 		}
@@ -418,6 +419,38 @@ func (s *Service) reportCredentialWindow(id string, isOpen bool, reason string) 
 	}
 	s.notify()
 	return nil
+}
+
+// endCardScreens offers Take control again, saying why, on each open card
+// whose step was on a goblin's browser that is gone: task's of generation,
+// once that browser closed, or, with no task, every card, as the supervisor
+// starts, since the browser and the press it ran ended with the one before.
+func (s *Service) endCardScreens(task, generation string) {
+	reason := "The goblin's browser closed. Press Take control to open it again."
+	if task == "" {
+		reason = "The supervisor restarted. Press Take control to open the goblin's browser again."
+	}
+	s.credentialSaves.Lock()
+	defer s.credentialSaves.Unlock()
+	s.Store.mu.Lock()
+	isChanged := false
+	for i := range s.Store.db.Credentials {
+		r := &s.Store.db.Credentials[i]
+		if r.State == "open" && r.WindowState != "" && (task == "" || r.Task == task && r.TaskGeneration == generation) {
+			r.WindowState, r.Reason, isChanged = "", reason, true
+		}
+	}
+	var err error
+	if isChanged {
+		err = s.Store.save()
+	}
+	s.Store.mu.Unlock()
+	if err != nil {
+		s.publish(fmt.Errorf("step cards: %w", err))
+	}
+	if isChanged {
+		s.notify()
+	}
 }
 
 // closeCredentialCard takes his Done or Dismiss on a card, from any board.
@@ -437,11 +470,7 @@ func (h *HTTP) closeCredentialCard(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusBadRequest, "Send the card's ID, its generation, and done, dismiss, or answer with its text.")
 		return
 	}
-	// His word reaches the goblin's conversation, so words shaped like a key
-	// are refused and never repeated.
-	if text := strings.TrimSpace(input.Text); closed == "answered" && (text == "" || len(text) > maxCredentialAnswer || slices.ContainsFunc(strings.Fields(text), func(word string) bool {
-		return auth.IsKeyValue(word) || auth.SecretShape(word) != "" && !strings.Contains(word, "=")
-	})) {
+	if text := strings.TrimSpace(input.Text); closed == "answered" && (text == "" || len(text) > maxCredentialAnswer || holdsKey(text)) {
 		apiError(w, http.StatusBadRequest, "Your answer goes to the goblin, so it is a few words of at most 4000 characters and holds no key. Nothing was sent.")
 		return
 	}
@@ -450,6 +479,15 @@ func (h *HTTP) closeCredentialCard(w http.ResponseWriter, r *http.Request) {
 		ID    string `json:"id"`
 		State string `json:"state"`
 	}{request.ID, request.State}, err)
+}
+
+// holdsKey says text holds a word shaped like a key. His words on a card
+// reach the goblin's conversation, so such words are refused and never
+// repeated.
+func holdsKey(text string) bool {
+	return slices.ContainsFunc(strings.Fields(text), func(word string) bool {
+		return auth.IsKeyValue(word) || auth.SecretShape(word) != "" && !strings.Contains(word, "=")
+	})
 }
 
 // reopenCredentialCard takes his pencil on a card in History, from any

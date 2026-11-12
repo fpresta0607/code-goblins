@@ -2682,8 +2682,9 @@ goblins auth request --project acme-shop --task shop-signup --why "Sign in to th
   Done on the card, his or the goblin's, its inputs arriving, or his answer from Something else?, also closes as answered each plain wait of that goblin opened while the card was open, so nothing asks him for the step again; a wait opened before the card, or on a page, stays its own item.
 - `--window`, which needs `--wait` and the asker's own browser session on the board, gives the card **Take control**, `POST /api/credentials/window`, taken only on this PC.
   The supervisor opens the card's link in the goblin's own browser (see [A goblin's own browser](#a-goblins-own-browser)), on the page it had open or a new one, gives him control of it, and the card shows that browser's Screen view, so no window opens on the desktop.
-  A browser that could not open offers the button again, saying why.
+  A browser that could not open offers the button again, saying why, as does a card whose browser closed before the card did, because Chrome exited, the browser went unused or the supervisor restarted.
   His **Hand back** closes the card as done with his words, which the goblin's wait prints after its Done line, and any other close of the card gives the browser back to the goblin too.
+  Words that hold one shaped like a key are never passed on, as his answer on a card is not: the card then says only that the step is taken.
 - Every open credential and step card has Skip and the pencil beside its decision buttons. Skip is `POST /api/credentials/close` with `"action": "dismiss"`, from any board, and the pencil's Send is the same with `"action": "answer"` and his `"text"`, which closes the card as answered, refuses words shaped like a key, tells the goblin his answer and ends its wait with exit 4, printing `he answered instead: <his words>`. The card closes as dismissed, the goblin that asked is told in its terminal to go on without it, and the CEO gets a `review` wake.
 - The card's place, and its History row, then show one line: the `goblins auth store` command to give a secret it still asks for later, or, for a card with none, `goblins auth request --reopen <card>`. That command, run by the CEO or the asking goblin, brings the card back open under a new generation for the rest of its day, and the goblin is told to wait on it again.
 
@@ -2702,6 +2703,7 @@ While it runs, the snapshot's task carries `browser: true`, the goblin's card sh
 
 The Screen view is `GET /api/screen?task=<id>&generation=<generation>&token=<instance>`, a WebSocket from the board's own origin.
 It shows the page the goblin or a sign-in opened or sent somewhere last, a blank page only when every page is blank, by its title and host alone, never its address, which can carry a sign-in's code.
+A page Chrome titles by its address, as it does one with no title of its own or one whose title has not drawn yet, shows as untitled.
 It sends the page's screencast as JPEG frames, each only once the view drew the one before, so a slow board is sent no more than it draws.
 A view streams only while it is on screen in a visible tab: one switched away from, scrolled out of sight, in a closed Command Center or in a hidden tab closes its socket, and the supervisor stops the page's screencast as it closes, so no frame is made or sent for nobody.
 At most 16 views are open at once; another is closed with "Too many screens are open."
@@ -2709,7 +2711,7 @@ At most 16 views are open at once; another is closed with "Too many screens are 
 **Take control**, from the board on this PC only, makes him the browser's driver: each click, wheel turn, key and paste on the view's screen goes to the page through DevTools' Input domain, and while he drives the goblin's own commands are refused with "A person is driving this browser from the Code Goblins board. Wait until they hand it back, then try again.", except those that only set up a page the session attaches to.
 Nothing typed on the screen is logged, kept or shown by the board.
 While the screen has the keyboard, F6 gives it back to the board.
-**Hand back**, from any view, gives the browser back to the goblin with a few words of what he did, at most 300 characters.
+**Hand back**, from any view, gives the browser back to the goblin with a few words of what he did, at most 300 characters, as a paste is at most 4000, each counted in characters whatever bytes they take.
 Control that no view shows for 30 minutes goes back to the goblin by itself.
 
 ## Browser key fetching

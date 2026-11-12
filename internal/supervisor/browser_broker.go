@@ -479,6 +479,7 @@ func (s *Service) keepBrowsers(ctx context.Context) {
 	if err := s.Store.stopCardFetches(); err != nil {
 		s.publish(fmt.Errorf("card fetches: %w", err))
 	}
+	s.endCardScreens("", "")
 	if err := s.browsers.sweep(); err != nil {
 		s.publish(fmt.Errorf("browser logins: %w", err))
 	}

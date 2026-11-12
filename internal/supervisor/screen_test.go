@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +21,7 @@ import (
 // a real socket so its Screen view is a real WebSocket.
 type screenBoard struct {
 	service *Service
+	handler *HTTP
 	server  *httptest.Server
 	chrome  *fakeGoblinChrome
 	browser *taskBrowser
@@ -46,7 +48,25 @@ func newScreenBoard(t *testing.T, service *Service, chrome *fakeGoblinChrome, is
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &screenBoard{service: service, server: server, chrome: chrome, browser: b}
+	return &screenBoard{service: service, handler: handler, server: server, chrome: chrome, browser: b}
+}
+
+// dial opens a Screen view of task-1 with token, from origin unless it is
+// empty, and answers the handshake's response.
+func (board *screenBoard) dial(t *testing.T, token, origin string) (*websocket.Conn, *http.Response, error) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	query := url.Values{"task": {"task-1"}, "generation": {"g1"}, "token": {token}}
+	header := http.Header{}
+	if origin != "" {
+		header.Set("Origin", origin)
+	}
+	conn, response, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(board.server.URL, "http")+"/api/screen?"+query.Encode(), &websocket.DialOptions{HTTPHeader: header})
+	if conn != nil {
+		t.Cleanup(func() { conn.CloseNow() })
+	}
+	return conn, response, err
 }
 
 // screenView is a Screen view the test holds open.
@@ -64,14 +84,10 @@ type screenSaid struct {
 
 func (board *screenBoard) open(t *testing.T) testScreenView {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	query := url.Values{"task": {"task-1"}, "generation": {"g1"}, "token": {board.service.Instance}}
-	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(board.server.URL, "http")+"/api/screen?"+query.Encode(), &websocket.DialOptions{HTTPHeader: http.Header{"Origin": {board.server.URL}}})
+	conn, _, err := board.dial(t, board.service.Instance, board.server.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { conn.CloseNow() })
 	return testScreenView{conn}
 }
 
@@ -224,6 +240,177 @@ func TestScreenViewFollowsThePageTheGoblinNavigated(t *testing.T) {
 	}
 }
 
+// Chrome titles a page with no title of its own by its address, as it titles
+// each page it navigates until the page's title is drawn, and an address can
+// carry a sign-in's code, so a view shows such a page as untitled, by its
+// host alone, whether it was open as the view opened or went there after.
+func TestScreenViewNeverShowsAnAddressChromeTitledAPageWith(t *testing.T) {
+	for _, test := range []struct {
+		name, scheme  string
+		isSchemeShown bool
+	}{
+		{"an https address, which Chrome titles whole", "https", true},
+		{"an http address, which Chrome titles without its scheme", "http", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			titled := func(code string) targetInfo {
+				address := test.scheme + "://login.example.com/callback?code=" + code
+				title := address
+				if !test.isSchemeShown {
+					title = strings.TrimPrefix(address, test.scheme+"://")
+				}
+				return targetInfo{ID: "login", Type: "page", Title: title, URL: address}
+			}
+			chrome := &fakeGoblinChrome{browser: newFakeBrowser(titled("first-code-7f3a"))}
+			board := newScreenBoard(t, screenService(t), chrome, false)
+			view := board.open(t)
+			navigated, err := json.Marshal(map[string]targetInfo{"targetInfo": titled("second-code-9b1c")})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			opened := view.next(t)
+			chrome.browser.raise("Target.targetInfoChanged", "", string(navigated))
+			went := view.next(t)
+
+			// Assert
+			for _, told := range []screenSaid{opened, went} {
+				if strings.Contains(told.raw, "-code-") || told.Title != "" || told.Host != "login.example.com" || !told.HasPage {
+					t.Fatalf("the view was told %s, want an untitled page by its host alone", told.raw)
+				}
+			}
+		})
+	}
+}
+
+// Only the board's own page, with the board's token, opens a Screen view: a
+// request without the token or with another, or with no origin, as any
+// program on this PC can send, is refused before a DevTools client of the
+// supervisor's reaches the goblin's browser.
+func TestScreenViewOpensOnlyFromTheBoardsOwnPageWithItsToken(t *testing.T) {
+	for _, test := range []struct {
+		name, token string
+		hasOrigin   bool
+	}{
+		{"without the token", "", true},
+		{"with another token", "another-instance", true},
+		{"with no origin", "test-instance", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			chrome := &fakeGoblinChrome{browser: newFakeBrowser(targetInfo{ID: "login", Type: "page", Title: "Sign in", URL: "https://login.example.com/"})}
+			board := newScreenBoard(t, screenService(t), chrome, false)
+			origin := ""
+			if test.hasOrigin {
+				origin = board.server.URL
+			}
+
+			// Act
+			_, response, err := board.dial(t, test.token, origin)
+
+			// Assert
+			if err == nil || response == nil || response.StatusCode != http.StatusForbidden {
+				t.Fatalf("the view opened with %v, want its handshake refused", err)
+			}
+			chrome.browser.mu.Lock()
+			clients := chrome.browser.clients
+			chrome.browser.mu.Unlock()
+			if clients != 0 {
+				t.Fatalf("%d DevTools clients reached the browser", clients)
+			}
+		})
+	}
+}
+
+// At most 16 Screen views are open at once, as the board's docs say: one more
+// is turned away, saying so, before it reaches the browser.
+func TestScreenViewsPastSixteenAreTurnedAway(t *testing.T) {
+	// Arrange
+	chrome := &fakeGoblinChrome{browser: newFakeBrowser(targetInfo{ID: "login", Type: "page", Title: "Sign in", URL: "https://login.example.com/"})}
+	board := newScreenBoard(t, screenService(t), chrome, false)
+	for range 16 {
+		board.open(t).next(t)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Act
+	_, _, err := board.open(t).conn.Read(ctx)
+
+	// Assert
+	var closed websocket.CloseError
+	if !errors.As(err, &closed) || closed.Code != websocket.StatusTryAgainLater || closed.Reason != "Too many screens are open." {
+		t.Fatalf("the seventeenth view read %v, want it turned away", err)
+	}
+	chrome.browser.mu.Lock()
+	clients := chrome.browser.clients
+	chrome.browser.mu.Unlock()
+	if clients != 16 {
+		t.Fatalf("%d DevTools clients reached the browser, want one for each of 16 views", clients)
+	}
+}
+
+// A driving view's mouse, keys and pastes reach the page only as DevTools'
+// Input domain takes them: an event it names, a click of at most three on a
+// point near the page, a key of a byte's code typing at most a character,
+// and a paste of at most 4000 characters, counted as the board counts them,
+// whatever bytes each takes.
+func TestScreenViewPassesOnlyInputTheInputDomainTakes(t *testing.T) {
+	paste := func(text string) string {
+		data, err := json.Marshal(map[string]string{"type": "text", "text": text})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	for _, test := range []struct {
+		name, message string
+		isPassed      bool
+	}{
+		{"a click", `{"type":"mouse","event":"mousePressed","x":10,"y":20,"button":"left","buttons":1,"click_count":1}`, true},
+		{"a click far off any page", `{"type":"mouse","event":"mousePressed","x":1e9,"y":20,"button":"left","buttons":1,"click_count":1}`, false},
+		{"a fourth click in a row", `{"type":"mouse","event":"mousePressed","x":10,"y":20,"button":"left","buttons":1,"click_count":4}`, false},
+		{"a mouse event the Input domain has no name for", `{"type":"mouse","event":"mouseDragged","x":10,"y":20,"button":"left","buttons":1}`, false},
+		{"a button no mouse has", `{"type":"mouse","event":"mousePressed","x":10,"y":20,"button":"thumb","buttons":1,"click_count":1}`, false},
+		{"a key", `{"type":"key","event":"keyDown","key":"a","code":"KeyA","key_code":65,"text":"a"}`, true},
+		{"a key code past a byte", `{"type":"key","event":"keyDown","key":"a","code":"KeyA","key_code":256,"text":"a"}`, false},
+		{"a key that types more than a character", `{"type":"key","event":"keyDown","key":"a","code":"KeyA","key_code":65,"text":"abcdefghi"}`, false},
+		{"a key event the Input domain has no name for", `{"type":"key","event":"char","key":"a","code":"KeyA","key_code":65,"text":"a"}`, false},
+		{"a paste of 4000 characters of three bytes each", paste(strings.Repeat("語", 4000)), true},
+		{"a paste past 4000 characters", paste(strings.Repeat("語", 4001)), false},
+		{"an empty paste", paste(""), false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			chrome := &fakeGoblinChrome{browser: newFakeBrowser(targetInfo{ID: "login", Type: "page", Title: "Sign in", URL: "https://login.example.com/"})}
+			board := newScreenBoard(t, screenService(t), chrome, false)
+			view := board.open(t)
+			view.next(t)
+			view.send(t, `{"type":"take"}`)
+			view.next(t)
+			inputs := func() []fakeCall {
+				chrome.browser.mu.Lock()
+				defer chrome.browser.mu.Unlock()
+				return slices.DeleteFunc(slices.Clone(chrome.browser.calls), func(call fakeCall) bool { return !strings.HasPrefix(call.method, "Input.") })
+			}
+			isMove := func(call fakeCall) bool { return strings.Contains(string(call.params), `"type":"mouseMoved"`) }
+
+			// Act
+			view.send(t, test.message)
+			view.send(t, `{"type":"mouse","event":"mouseMoved","x":1,"y":2}`)
+			eventually(t, "the move sent after it", func() bool { return slices.ContainsFunc(inputs(), isMove) })
+
+			// Assert
+			passed := slices.DeleteFunc(inputs(), isMove)
+			if test.isPassed != (len(passed) == 1) || len(passed) > 1 {
+				t.Fatalf("the page got %+v, want it passed %v", passed, test.isPassed)
+			}
+		})
+	}
+}
+
 // Only a view on this PC takes control, and only once taken do its mouse
 // and keys reach the page. What a person types reaches the page alone: no
 // file in the home and no error the board shows holds it.
@@ -337,8 +524,8 @@ func TestStepCardTakeControlOpensItsLinkAndHandBackClosesItWithHisWords(t *testi
 			} else if navigated := chrome.browser.named("Page.navigate"); len(navigated) != 1 || navigated[0].session != "session-shop" || string(navigated[0].params) != `{"url":"https://example.com/login"}` {
 				t.Fatalf("navigated %+v, want the goblin's page at the link", navigated)
 			}
-			if !told.IsDriven || !told.CardOpen {
-				t.Fatalf("the view was told %s, want him driving for an open card", told.raw)
+			if !told.IsDriven {
+				t.Fatalf("the view was told %s, want him driving", told.raw)
 			}
 			if closed := b.stored(); closed.Reason != "Handed back from the board: signed in, the second factor is on" {
 				t.Fatalf("the card closed saying %q", closed.Reason)
@@ -391,5 +578,123 @@ func TestClosingACardGivesTheGoblinItsBrowserBack(t *testing.T) {
 	}
 	if b.service.screens.isDriven(browser) {
 		t.Fatal("the goblin's browser is still his after the card closed")
+	}
+}
+
+// His Hand back closes the card with his words on one line, up to 300
+// characters however many bytes each takes, as the board counts them, and
+// never with a word shaped like a key, which would reach the goblin's
+// conversation, as his answer on a card never does: the card then says only
+// that the step is taken, and no file of the home holds the key.
+func TestHandBackClosesTheCardWithHisWordsUpTo300CharactersAndNeverAKey(t *testing.T) {
+	canary := newCanary(t)
+	for _, test := range []struct {
+		name, words, reason string
+	}{
+		{"300 characters of two bytes each", strings.Repeat("é", 300), strings.Repeat("é", 300)},
+		{"301 characters", strings.Repeat("é", 301), strings.Repeat("é", 300)},
+		{"a key among his words", "signed in, the token is " + canary, "the step is taken"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			b := stepCard(t, func(r *CredentialRequest) { r.Window, r.Link = true, "https://example.com/login" })
+			chrome := &fakeGoblinChrome{browser: newFakeBrowser(targetInfo{ID: "shop", Type: "page", Title: "Shop", URL: "https://example.com/"})}
+			b.service.screens = newFakeBrowsers(t, chrome)
+			b.send(b.handler, "/api/credentials/window", b.windowBody(), nil)
+			b.service.credentialWork.Wait()
+			view := newScreenBoard(t, b.service, chrome, false).open(t)
+			view.next(t)
+			handBack, err := json.Marshal(map[string]string{"type": "hand-back", "reason": test.words})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			// Act
+			view.send(t, string(handBack))
+			waited, err := WaitCredential(ctx, b.home.State, b.request.ID, nil)
+
+			// Assert
+			if err != nil || waited.State != "done" || waited.Reason != "Handed back from the board: "+test.reason {
+				t.Fatalf("the goblin's wait ended with %v on a card %s saying %q", err, waited.State, waited.Reason)
+			}
+			if found := filesHolding(t, b.home.Root, canary); len(found) != 0 {
+				t.Fatalf("the key is in %v", found)
+			}
+		})
+	}
+}
+
+// A card he took control on offers Take control again, saying why, once the
+// goblin's browser it showed closed, here as Chrome exited, so the step is
+// never left with no way to take it; his press then starts the browser again
+// and gives it to him.
+func TestAStepCardOffersTakeControlAgainOnceItsBrowserClosed(t *testing.T) {
+	// Arrange
+	b := stepCard(t, func(r *CredentialRequest) { r.Window, r.Link = true, "https://example.com/login" })
+	chrome := &fakeGoblinChrome{browser: newFakeBrowser()}
+	b.service.screens = newFakeBrowsers(t, chrome)
+	b.service.screens.ended = b.service.endCardScreens
+	b.send(b.handler, "/api/credentials/window", b.windowBody(), nil)
+	b.service.credentialWork.Wait()
+	taken := b.stored()
+	chrome.browser.mu.Lock()
+	chrome.browser.hasExited = true
+	chrome.browser.mu.Unlock()
+
+	// Act
+	b.service.screens.sweep(b.home.State)
+	eventually(t, "Take control offered again", func() bool { return b.stored().WindowState == "" })
+	offered := b.stored()
+	chrome.browser.mu.Lock()
+	chrome.browser.hasExited = false
+	chrome.browser.mu.Unlock()
+	again := b.send(b.handler, "/api/credentials/window", b.windowBody(), nil)
+	b.service.credentialWork.Wait()
+
+	// Assert
+	if taken.WindowState != "open" {
+		t.Fatalf("the first press left the card %+v", taken)
+	}
+	if offered.State != "open" || offered.Reason != "The goblin's browser closed. Press Take control to open it again." {
+		t.Fatalf("once the browser closed the card was %+v, want Take control offered again with why", offered)
+	}
+	started, _ := chrome.counts()
+	browser := b.service.screens.shown("task-1", "g1")
+	if again.Code != http.StatusOK || b.stored().WindowState != "open" || started != 2 || browser == nil || !b.service.screens.isDriven(browser) {
+		t.Fatalf("the second press = %d %s, card %+v, %d starts; want the browser started again and his", again.Code, again.Body, b.stored(), started)
+	}
+}
+
+// A card that closes while his Take control opens the goblin's browser leaves
+// that browser the goblin's, as the card's close would have once he held it.
+func TestACardClosedWhileTakeControlOpensLeavesTheBrowserTheGoblins(t *testing.T) {
+	// Arrange
+	b := stepCard(t, func(r *CredentialRequest) { r.Window, r.Link = true, "https://example.com/login" })
+	chrome := &fakeGoblinChrome{browser: newFakeBrowser(), hold: make(chan struct{})}
+	b.service.screens = newFakeBrowsers(t, chrome)
+	b.send(b.handler, "/api/credentials/window", b.windowBody(), nil)
+	eventually(t, "the browser's start", func() bool {
+		b.service.screens.mu.Lock()
+		defer b.service.screens.mu.Unlock()
+		return b.service.screens.running["task-1"] != nil
+	})
+
+	// Act
+	closed := b.send(b.handler, "/api/credentials/close", b.closeBody("dismiss"), nil)
+	close(chrome.hold)
+	b.service.credentialWork.Wait()
+
+	// Assert
+	if closed.Code != http.StatusOK || b.stored().State != "dismissed" {
+		t.Fatalf("dismiss = %d %s, card %+v", closed.Code, closed.Body, b.stored())
+	}
+	if created := chrome.browser.named("Target.createTarget"); len(created) != 1 {
+		t.Fatalf("created %+v, want the link opened as the press went on", created)
+	}
+	browser := b.service.screens.shown("task-1", "g1")
+	if browser == nil || b.service.screens.isDriven(browser) {
+		t.Fatal("the goblin's browser was left his after the card closed")
 	}
 }

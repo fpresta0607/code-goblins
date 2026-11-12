@@ -9,7 +9,7 @@ import { card, GOBLIN, NAME, open, openGoblin, OTHER, snapshot } from "./session
 // view sends.
 
 const BROWSING = snapshot({}, { browser: true });
-const STATE = { type: "state", is_driven: false, can_drive: true, title: "Sign in", host: "shop.example.com", has_page: true, card_open: false };
+const STATE = { type: "state", is_driven: false, can_drive: true, title: "Sign in", host: "shop.example.com", has_page: true };
 
 interface ScreenRelay {
   // views counts the connections the board opened and closed those it
@@ -234,6 +234,46 @@ test("a click on the screen lands on the page where it was drawn", async ({ page
   expect(released).toMatchObject({ event: "mouseReleased", button: "left" });
   expect(pressed.x as number).toBeCloseTo(320, -1);
   expect(pressed.y as number).toBeCloseTo(400, -1);
+});
+
+test("a paste on the driven screen goes to the page as text, at most 4000 characters, and never shows on the board", async ({ page }) => {
+  // Arrange
+  const relay = await relayScreens(page, { ...STATE, is_driven: true });
+  await open(page, BROWSING);
+  await openScreen(page, relay);
+  relay.frame({ data: await aFrame(page, 640, 400), width: 1280, height: 800 });
+  const canvas = screen(page).getByRole("application");
+  await expect(canvas).toBeVisible();
+  const pasted = "pasted-canary-" + "x".repeat(4000);
+
+  // Act
+  await canvas.evaluate((element, text) => {
+    const data = new DataTransfer();
+    data.setData("text/plain", text);
+    element.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+  }, pasted);
+
+  // Assert
+  await expect.poll(() => relay.said.filter((message) => message.type === "text")).toEqual([{ type: "text", text: pasted.slice(0, 4000) }]);
+  expect(await page.content()).not.toContain("pasted-canary");
+});
+
+test("a Screen view whose browser closed gives way to the conversation and closes its socket", async ({ page }) => {
+  // Arrange
+  const relay = await relayScreens(page);
+  await open(page, BROWSING);
+  await openScreen(page, relay);
+  const views = page.getByRole("group", { name: "Panel view", exact: true });
+
+  // Act
+  await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2 }, { browser: false }));
+
+  // Assert
+  await expect(screen(page)).toHaveCount(0);
+  await expect.poll(() => relay.closed).toBe(1);
+  await expect(views.getByRole("button", { name: "Screen", exact: true })).toHaveCount(0);
+  await expect(views.getByRole("button", { name: "Chat", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
 });
 
 test("a view on another machine watches the browser, can hand it back, and cannot take control", async ({ page }) => {

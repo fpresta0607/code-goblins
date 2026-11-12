@@ -27,7 +27,7 @@ const (
 	// screenCall bounds each command the view's relay sends the browser.
 	screenCall = 10 * time.Second
 	// maxScreenText bounds a paste into the browser and maxHandBack the words
-	// a person hands it back with.
+	// a person hands it back with, each in characters, as the board counts.
 	maxScreenText = 4000
 	maxHandBack   = 300
 )
@@ -92,7 +92,6 @@ type browserScreenState struct {
 	Title     string `json:"title"`
 	Host      string `json:"host"`
 	HasPage   bool   `json:"has_page"`
-	CardOpen  bool   `json:"card_open"`
 	DriveNote string `json:"drive_note,omitempty"`
 }
 
@@ -246,6 +245,9 @@ func (s *screenView) notePage(info targetInfo) bool {
 		return false
 	}
 	page := screenPage{id: info.ID, title: info.Title, address: pageHost(info.URL), url: info.URL}
+	if isAddressOf(info.Title, info.URL) {
+		page.title = ""
+	}
 	if at := slices.IndexFunc(s.pages, func(each screenPage) bool { return each.id == info.ID }); at >= 0 {
 		if s.pages[at].url == info.URL {
 			s.pages[at] = page
@@ -260,6 +262,21 @@ func (s *screenView) notePage(info targetInfo) bool {
 // isBlank says a page shows nothing yet, as the tab a new browser opens with.
 func isBlank(pageURL string) bool {
 	return pageURL == "" || pageURL == "about:blank" || strings.HasPrefix(pageURL, "chrome://newtab") || strings.HasPrefix(pageURL, "chrome://new-tab-page")
+}
+
+// isAddressOf says title is pageURL itself, as Chrome titles a page with no
+// title of its own, or one that has not drawn its title yet: the address
+// whole, or its host and what follows, with or without its scheme.
+func isAddressOf(title, pageURL string) bool {
+	if title == pageURL {
+		return true
+	}
+	parsed, err := url.Parse(pageURL)
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+	rest, isHost := strings.CutPrefix(strings.TrimPrefix(strings.TrimPrefix(title, "https://"), "http://"), parsed.Host)
+	return isHost && (rest == "" || strings.ContainsAny(rest[:1], "/?#"))
 }
 
 // pageHost is the host of address, the only part of it a view is shown.
@@ -313,7 +330,7 @@ func (s *screenView) tell(ctx context.Context) error {
 	if at := slices.IndexFunc(s.pages, func(each screenPage) bool { return each.id == s.target }); at >= 0 {
 		page = s.pages[at]
 	}
-	told := browserScreenState{Type: "state", IsDriven: isDriven, CanDrive: s.isLocal, Title: page.title, Host: page.address, HasPage: s.target != "", CardOpen: s.h.Service.screenCard(s.b.task) != ""}
+	told := browserScreenState{Type: "state", IsDriven: isDriven, CanDrive: s.isLocal, Title: page.title, Host: page.address, HasPage: s.target != ""}
 	if !s.isLocal {
 		told.DriveNote = "Take control from the board on this PC."
 	}
@@ -471,7 +488,7 @@ func (s *screenView) input(ctx context.Context, m screenMessage) {
 		}
 		_ = s.call(ctx, s.session, "Input.dispatchKeyEvent", params, nil)
 	case "text":
-		if m.Text == "" || len(m.Text) > maxScreenText {
+		if m.Text == "" || utf8.RuneCountInString(m.Text) > maxScreenText {
 			return
 		}
 		_ = s.call(ctx, s.session, "Input.insertText", map[string]string{"text": m.Text}, nil)
@@ -491,7 +508,8 @@ func (s *Service) screenCard(task string) string {
 
 // handBackScreen gives b back to its goblin, and closes the step card it was
 // driven for as done, with the person's words, which the goblin's wait on
-// the card prints as it goes on.
+// the card prints as it goes on. Words that hold one shaped like a key are
+// never passed on, as his answer on a card is not.
 func (s *Service) handBackScreen(b *taskBrowser, words string) {
 	s.screens.drive(b, false)
 	card := s.screenCard(b.task)
@@ -499,14 +517,11 @@ func (s *Service) handBackScreen(b *taskBrowser, words string) {
 		return
 	}
 	words = strings.Join(strings.Fields(words), " ")
-	if words == "" {
+	if words == "" || holdsKey(words) {
 		words = "the step is taken"
 	}
-	if len(words) > maxHandBack {
-		words = words[:maxHandBack]
-		for !utf8.ValidString(words) {
-			words = words[:len(words)-1]
-		}
+	if characters := []rune(words); len(characters) > maxHandBack {
+		words = string(characters[:maxHandBack])
 	}
 	// A card that still waits for values closes once they arrive, so its
 	// refusal leaves it open, and the browser is the goblin's again either way.

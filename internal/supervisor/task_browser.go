@@ -131,6 +131,8 @@ type taskBrowsers struct {
 	// live says why task's goblin no longer runs, nil while it does.
 	live   func(task string) error
 	notify func()
+	// ended hears that task's browser for generation closed.
+	ended  func(task, generation string)
 	report func(error)
 	idle   time.Duration
 	// unwatched is how long a person keeps control nobody watches.
@@ -139,12 +141,13 @@ type taskBrowsers struct {
 	closed    bool
 }
 
-func newTaskBrowsers(stateDir string, notify func(), report func(error)) *taskBrowsers {
+func newTaskBrowsers(stateDir string, notify func(), ended func(task, generation string), report func(error)) *taskBrowsers {
 	return &taskBrowsers{
 		running:   map[string]*taskBrowser{},
 		launch:    launchTaskBrowser,
 		live:      func(task string) error { return terminalAnswers(stateDir, task) },
 		notify:    notify,
+		ended:     ended,
 		report:    report,
 		idle:      taskBrowserIdle,
 		unwatched: unwatchedControl,
@@ -359,7 +362,8 @@ func (t *taskBrowsers) settleLocked(b *taskBrowser) {
 	}
 }
 
-// closeLocked closes b: its views end now and its Chrome in the background.
+// closeLocked closes b: its views end now, and its Chrome and what heard it
+// ended in the background.
 func (t *taskBrowsers) closeLocked(b *taskBrowser) {
 	if b.isClosed {
 		return
@@ -377,6 +381,11 @@ func (t *taskBrowsers) closeLocked(b *taskBrowser) {
 		t.endLocked(b)
 	}
 	go t.notify()
+	t.work.Add(1)
+	go func() {
+		defer t.work.Done()
+		t.ended(b.task, b.generation)
+	}()
 }
 
 // endLocked closes b's Chrome in the background.
@@ -393,7 +402,11 @@ func (t *taskBrowsers) endLocked(b *taskBrowser) {
 
 // sweep closes each browser whose goblin no longer runs, or runs a later
 // generation, and each that exited, which its goblin's next use starts again.
+// A supervisor that was never started runs none.
 func (t *taskBrowsers) sweep(stateDir string) {
+	if t == nil {
+		return
+	}
 	t.mu.Lock()
 	browsers := make([]*taskBrowser, 0, len(t.running))
 	for _, b := range t.running {
@@ -427,8 +440,12 @@ func (t *taskBrowsers) sweep(stateDir string) {
 	}
 }
 
-// closeAll closes every goblin's browser, as the supervisor stops.
+// closeAll closes every goblin's browser, as the supervisor stops. A
+// supervisor that was never started runs none.
 func (t *taskBrowsers) closeAll() {
+	if t == nil {
+		return
+	}
 	t.mu.Lock()
 	t.closed = true
 	for _, b := range t.running {

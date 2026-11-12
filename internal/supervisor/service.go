@@ -487,7 +487,7 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 		s.tickets = newTicketKeeper(h, options.Tickets)
 	}
 	s.browsers = newBrowserBroker(h.State, h.Data, options, func(err error) { s.publish(fmt.Errorf("browser logins: %w", err)) })
-	s.screens = newTaskBrowsers(h.State, s.notify, func(err error) { s.publish(fmt.Errorf("goblin browsers: %w", err)) })
+	s.screens = newTaskBrowsers(h.State, s.notify, s.endCardScreens, func(err error) { s.publish(fmt.Errorf("goblin browsers: %w", err)) })
 	if options.Tree != nil {
 		options.Tree.Recorded = store.recordedSession
 		options.Tree.Awaited = s.awaited
