@@ -352,8 +352,9 @@ func TestRunSpawnRoutesFromTheFleetTableWithoutHarness(t *testing.T) {
 
 // A routed lead hands bounded implementation slices to its lane's implement
 // role, chosen once at spawn after the same quota check as the lead. A lead
-// whose lane names no implement role, an explicit harness and an implement
-// role whose lanes cannot run all leave the goblin implementing its own work.
+// whose lane names no implement role, an explicit harness, model or effort
+// and an implement role whose lanes cannot run all leave the goblin
+// implementing its own work.
 func TestRunSpawnHandsImplementationToTheLanesImplementRole(t *testing.T) {
 	lightSolExhausted := quota.Report{Providers: map[string]quota.Provider{"codex": {Known: true, Scopes: map[string]quota.Scope{
 		"model:gpt-6.1-sol": {Name: "gpt-6.1-sol", Known: true, PercentRemaining: 0, Runway: "exhausted_now"},
@@ -368,6 +369,8 @@ func TestRunSpawnHandsImplementationToTheLanesImplementRole(t *testing.T) {
 		{name: "ordinary work on build", task: "Add a dark-mode toggle to the settings page.", wantImplement: routing.ExecutionLane{Name: "light-codex", Harness: "codex", Model: "gpt-6.1-sol", Effort: "high"}, wantRoute: " implement=light-codex"},
 		{name: "high-risk work on deep", task: "Security review of the session cookie signing before launch."},
 		{name: "an explicit harness", task: "Add a dark-mode toggle to the settings page.", extra: []string{"--harness", "codex", "--model", "gpt-6-astra"}},
+		{name: "an explicit model", task: "Add a dark-mode toggle to the settings page.", extra: []string{"--model", "gpt-6-luna"}, wantRoute: " overrides=--model gpt-6-luna"},
+		{name: "an explicit effort", task: "Add a dark-mode toggle to the settings page.", extra: []string{"--effort", "low"}, wantRoute: " overrides=--effort low"},
 		{name: "an implement model at its limit", task: "Add a dark-mode toggle to the settings page.", report: &lightSolExhausted, wantRoute: " implement=build implement_wanted=light-codex implement_quota=light-codex: codex gpt-6.1-sol exhausted_now"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -393,7 +396,7 @@ func TestRunSpawnHandsImplementationToTheLanesImplementRole(t *testing.T) {
 			if implement != test.wantImplement {
 				t.Errorf("implement = %+v, want %+v", got.Implement, test.wantImplement)
 			}
-			if test.wantRoute == "" && strings.Contains(stdout.String(), "implement=") || !strings.Contains(stdout.String(), test.wantRoute) {
+			if !strings.Contains(stdout.String(), test.wantRoute) || strings.Contains(stdout.String(), " implement=") != strings.Contains(test.wantRoute, " implement=") {
 				t.Errorf("stdout = %q, want the route line to say %q", stdout.String(), test.wantRoute)
 			}
 		})

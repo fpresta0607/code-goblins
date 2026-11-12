@@ -64,7 +64,7 @@ func TestLaneTableRefusesRolesAGoblinCannotRunOn(t *testing.T) {
 		{"undefined lane", `{"opus":{"review":["fabel"]}}`, `role review for "opus" names "fabel", which is not a defined lane`},
 		{"another harness", `{"opus":{"review":["astra"]}}`, `role review for "opus" names "astra" on codex: a role runs on its lead's harness, claude`},
 		{"repeated lane", `{"opus":{"verify":["fable","fable"]}}`, `role verify for "opus" names "fable" twice`},
-		{"an implement role on pi", `{"pi-strong":{"implement":["pi-light"]}}`, `role implement for "pi-strong": a pi goblin has no native subagent to hand a slice to, so its lead implements`},
+		{"an implement role on pi", `{"pi-strong":{"implement":["pi-light"]}}`, `role implement for "pi-strong": a pi goblin has no native subagent to hand a slice to: remove the role, and its lead implements its own work`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange

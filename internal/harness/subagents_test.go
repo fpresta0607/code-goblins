@@ -3,6 +3,7 @@ package harness
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -114,8 +115,30 @@ func TestBuildHandsImplementationSlicesToTheImplementRolesModelInAFreshContext(t
 				if err != nil {
 					t.Fatal(err)
 				}
-				if agent := string(data); !strings.Contains(agent, `model: "light-model"`) || !strings.Contains(agent, `effort: "high"`) || !strings.Contains(agent, "never stage, commit or push") || strings.Contains(agent, "lead-model") {
-					t.Errorf("ceo-implement = %s, want the implement model and no commit", agent)
+				frontmatter, body, isClosed := strings.Cut(strings.TrimPrefix(string(data), "---\n"), "\n---\n")
+				if !strings.HasPrefix(string(data), "---\n") || !isClosed {
+					t.Fatalf("ceo-implement has no frontmatter block: %s", data)
+				}
+				keys := map[string]string{}
+				for _, line := range strings.Split(frontmatter, "\n") {
+					key, value, isPair := strings.Cut(line, ": ")
+					if _, isRepeated := keys[key]; !isPair || isRepeated {
+						t.Fatalf("ceo-implement frontmatter line %q is not a key of its own: %s", line, data)
+					}
+					if strings.HasPrefix(value, `"`) {
+						unquoted, err := strconv.Unquote(value)
+						if err != nil {
+							t.Fatalf("ceo-implement frontmatter line %q: %v", line, err)
+						}
+						value = unquoted
+					}
+					keys[key] = value
+				}
+				if keys["name"] != "ceo-implement" || keys["model"] != "light-model" || keys["effort"] != "high" {
+					t.Errorf("ceo-implement frontmatter = %v, want name ceo-implement on light-model at high", keys)
+				}
+				if !strings.Contains(body, "never stage, commit or push") {
+					t.Errorf("ceo-implement prompt = %q, want the worker never to commit", body)
 				}
 			})
 		}

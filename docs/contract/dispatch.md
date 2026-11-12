@@ -391,8 +391,8 @@ A routed spawn chooses the implement role's first usable lane for the lead it st
 When that lane is not the lead's own, the goblin hands each bounded implementation slice to a native worker on it, in a fresh context: a Claude goblin's task-local `ceo-implement` agent, or a Codex `spawn_agent` call with that lane's model and effort and `fork_turns: none`.
 The worker edits and runs the slice's tests but never stages, commits or pushes; the lead reads its `git diff` and runs those tests before it commits, and owns every commit on the branch.
 `goblins spawn` names the lane on its route line as `implement=<lane>`.
-A resume on the task's own engine keeps the worker, and an engine the CEO changes leaves the goblin implementing its own work, as an explicit `--harness` does.
-A Pi goblin has no native subagent to hand a slice to, so an implement role on a Pi lane is refused and its lead implements.
+A resume on the task's own engine keeps the worker, and an engine the CEO changes leaves the goblin implementing its own work, as an explicit `--harness`, `--model` or `--effort` at spawn does.
+A Pi goblin has no native subagent to hand a slice to, so while a Pi lane names an implement role the whole lane table is refused, and every routed spawn, `goblins route` and `goblins doctor` table and every Claude or Codex spawn or switch with native helpers fails, until the role is removed and the Pi lead implements its own work.
 Review, verification and fixes do not launch on their roles yet: `goblins route` previews each role's lane after the quota check, or says why a role is refused, and `goblins doctor` prints each lane's roles, while every goblin's gate still reviews, verifies and fixes on its own model.
 A project's `routing` block carries no roles, so its lanes keep every role on the lead.
 

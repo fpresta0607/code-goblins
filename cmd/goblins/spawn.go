@@ -261,21 +261,22 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		route = routeLine(choice, assessment, inputs.Table.Source, skipped)
 		// The lead hands implementation slices to its lane's implement role,
 		// which ends on the lead itself when none of its lanes can run.
-		implementChoice, err := inputs.Table.ChooseRole(routing.RoleImplement, choice.ExecutionLane, usable)
-		if err != nil {
-			fmt.Fprintf(stderr, "goblins spawn: %v\n", err)
-			return 1
-		}
-		if implementChoice.Wanted != choice.Name {
-			route += " implement=" + implementChoice.Name
-			if implementChoice.Wanted != implementChoice.Name {
-				route += " implement_wanted=" + implementChoice.Wanted + " implement_quota=" + strings.Join(implementChoice.Notes, "; ")
+		if len(overrides) == 0 {
+			implementChoice, err := inputs.Table.ChooseRole(routing.RoleImplement, choice.ExecutionLane, usable)
+			if err != nil {
+				fmt.Fprintf(stderr, "goblins spawn: %v\n", err)
+				return 1
 			}
-		}
-		if implementChoice.Name != choice.Name {
-			implement = implementChoice.ExecutionLane
-		}
-		if len(overrides) > 0 {
+			if implementChoice.Wanted != choice.Name {
+				route += " implement=" + implementChoice.Name
+				if implementChoice.Wanted != implementChoice.Name {
+					route += " implement_wanted=" + implementChoice.Wanted + " implement_quota=" + strings.Join(implementChoice.Notes, "; ")
+				}
+			}
+			if implementChoice.Name != choice.Name {
+				implement = implementChoice.ExecutionLane
+			}
+		} else {
 			route += " overrides=" + strings.Join(overrides, " ")
 		}
 	} else {
