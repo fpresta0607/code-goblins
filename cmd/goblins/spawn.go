@@ -215,6 +215,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 
 	taskClass, routeLane, repairRounds := *class, "explicit", 0
 	var route, routeNotice string
+	var implement routing.ExecutionLane
 	routeReason := "explicit choice"
 	if routed {
 		if len(inputs.Table.Lanes) == 0 {
@@ -237,7 +238,8 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 			}
 			inputs.Table.Lanes[name] = lane
 		}
-		choice, err := routing.Choose(assessment, inputs.Table, usableLane(report, skipped, settings, now, inputs.Table.StartFloorPercent))
+		usable := usableLane(report, skipped, settings, now, inputs.Table.StartFloorPercent)
+		choice, err := routing.Choose(assessment, inputs.Table, usable)
 		if err != nil {
 			fmt.Fprintf(stderr, "goblins spawn: %v\n", err)
 			return 1
@@ -257,6 +259,22 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 			routeNotice = "Started " + args[0] + " on " + choice.Harness + " " + choice.Model + " in lane " + choice.Name + " instead of " + choice.Wanted + ": " + strings.Join(choice.Notes, ", ")
 		}
 		route = routeLine(choice, assessment, inputs.Table.Source, skipped)
+		// The lead hands implementation slices to its lane's implement role,
+		// which ends on the lead itself when none of its lanes can run.
+		implementChoice, err := inputs.Table.ChooseRole(routing.RoleImplement, choice.ExecutionLane, usable)
+		if err != nil {
+			fmt.Fprintf(stderr, "goblins spawn: %v\n", err)
+			return 1
+		}
+		if implementChoice.Wanted != choice.Name {
+			route += " implement=" + implementChoice.Name
+			if implementChoice.Wanted != implementChoice.Name {
+				route += " implement_wanted=" + implementChoice.Wanted + " implement_quota=" + strings.Join(implementChoice.Notes, "; ")
+			}
+		}
+		if implementChoice.Name != choice.Name {
+			implement = implementChoice.ExecutionLane
+		}
 		if len(overrides) > 0 {
 			route += " overrides=" + strings.Join(overrides, " ")
 		}
@@ -354,6 +372,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		Parent:      *parent,
 		RouteLane:   routeLane,
 		RouteReason: routeReason,
+		Implement:   implement,
 		Capsule:     writeCapsule,
 		// The read of teammates' work answers before the terminal launches.
 		BeforeLaunch: checkTeammates,

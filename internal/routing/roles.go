@@ -50,6 +50,11 @@ func (p Policy) roleTable() (map[string]map[string][]ExecutionLane, error) {
 			if len(names) == 0 {
 				return nil, fmt.Errorf("routing: %s: role %s for %q names no lane", p.Path, role, leadName)
 			}
+			// A lead hands an implementation slice to a native subagent, and
+			// Pi has none, so a Pi lead implements its own work.
+			if role == RoleImplement && lead.Harness == "pi" {
+				return nil, fmt.Errorf("routing: %s: role implement for %q: a pi goblin has no native subagent to hand a slice to, so its lead implements", p.Path, leadName)
+			}
 			for index, name := range names {
 				lane, ok := p.Lanes[name]
 				switch {

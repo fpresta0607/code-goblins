@@ -387,7 +387,13 @@ A role the lane does not name is its lead's own work, so a table without `roles`
 Implementation and fixes fall back to the lead when none of the lanes they name can run.
 Review and verification are kept off the lead's own model: while their lanes name another model, a lane on the lead's model is left out, so when no other is usable the role is refused rather than run on it; they take the lead's model only when every lane they name is that model.
 The shipped table names, for Codex work led on Astra, ordinary or escalated, verification on `gpt-6-sol`, with implementation on `gpt-6.1-sol` for ordinary work, leaving review to the lead; for its Claude fallback led on Opus, it names implementation on Sonnet and review and verification on Fable.
-Nothing launches on a role yet: `goblins route` only previews each role's lane after the quota check, or says why a role is refused, and `goblins doctor` only prints each lane's roles, while every goblin still implements, reviews, verifies and fixes on its own lane.
+A routed spawn chooses the implement role's first usable lane for the lead it starts, after the same quota check, and records it on the task, so a later table edit never changes it.
+When that lane is not the lead's own, the goblin hands each bounded implementation slice to a native worker on it, in a fresh context: a Claude goblin's task-local `ceo-implement` agent, or a Codex `spawn_agent` call with that lane's model and effort and `fork_turns: none`.
+The worker edits and runs the slice's tests but never stages, commits or pushes; the lead reads its `git diff` and runs those tests before it commits, and owns every commit on the branch.
+`goblins spawn` names the lane on its route line as `implement=<lane>`.
+A resume on the task's own engine keeps the worker, and an engine the CEO changes leaves the goblin implementing its own work, as an explicit `--harness` does.
+A Pi goblin has no native subagent to hand a slice to, so an implement role on a Pi lane is refused and its lead implements.
+Review, verification and fixes do not launch on their roles yet: `goblins route` previews each role's lane after the quota check, or says why a role is refused, and `goblins doctor` prints each lane's roles, while every goblin's gate still reviews, verifies and fixes on its own model.
 A project's `routing` block carries no roles, so its lanes keep every role on the lead.
 
 `subagents` maps each harness to `search`, `review` and `verify`, each an ordered array of lane names on that harness.
@@ -426,7 +432,7 @@ For example, these fields refer to lanes defined in the same file:
 The example omits the other lane definitions for space.
 Every referenced lane must exist in the complete policy.
 A project's `routing` block can replace its spawn lanes, while native helper roles come from the fleet policy.
-Claude receives task-local `ceo-search`, `ceo-review` and `ceo-verify` agent definitions through `--add-dir`.
+Claude receives task-local `ceo-search`, `ceo-review` and `ceo-verify` agent definitions through `--add-dir`, and `ceo-implement` when the task has an implement lane.
 Codex receives its native default helper model and effort settings, plus instructions to use explicit `spawn_agent` model and effort arguments with `fork_turns: none` for each job.
 A full conversation fork inherits its parent's model, so routed helpers use a fresh context.
 Baby cards show the model in the child's own assistant message or turn context, never the requested model inferred from its parent.

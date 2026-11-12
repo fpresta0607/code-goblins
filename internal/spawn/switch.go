@@ -17,6 +17,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
@@ -267,6 +268,13 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: %w", err)
 	}
+	// A relaunch on the task's own engine keeps the implement worker its
+	// spawn chose; an engine the CEO changes leaves the goblin implementing
+	// its own work, as publishSwitch records.
+	var implement routing.ExecutionLane
+	if target.same(meta) && meta.ImplementModel != "" {
+		implement = routing.ExecutionLane{Name: meta.ImplementLane, Harness: meta.Harness, Model: meta.ImplementModel, Effort: meta.ImplementEffort}
+	}
 	launch, err := adapter.Build(harness.LaunchSpec{
 		BriefPath:       briefPath,
 		TaskTmp:         meta.TaskTmp,
@@ -279,6 +287,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		CodexMCPServers: codexServers,
 		CodexHooks:      codexHooks,
 		Subagents:       subagents,
+		Implement:       implement,
 	})
 	if err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: build harness launch: %w; task %s was left running as it was", err, req.ID)
@@ -672,6 +681,7 @@ func requestedTarget(meta state.TaskMeta, req SwitchRequest) switchTarget {
 func (s Service) publishSwitch(meta *state.TaskMeta, target switchTarget) error {
 	if !target.same(*meta) {
 		meta.RouteLane, meta.RouteReason = "explicit", "engine changed by the CEO"
+		meta.ImplementLane, meta.ImplementModel, meta.ImplementEffort = "", "", ""
 	}
 	meta.Harness = string(target.Harness)
 	meta.Model = valueOrDefault(target.Model)

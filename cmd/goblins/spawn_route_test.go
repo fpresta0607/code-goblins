@@ -344,9 +344,59 @@ func TestRunSpawnRoutesFromTheFleetTableWithoutHarness(t *testing.T) {
 	if got.BriefPath != brief || got.Capsule != nil {
 		t.Errorf("brief = %q capsule = %v, want the original brief and no capsule when the project has no manifest", got.BriefPath, got.Capsule != nil)
 	}
-	want := "spawned g10\nrouted lane=build class=implementation risk=normal source=fleet table " + filepath.Join(h.Data, "routing.json") + " quota=check skipped (no quota reader in this runtime)\n"
+	want := "spawned g10\nrouted lane=build class=implementation risk=normal source=fleet table " + filepath.Join(h.Data, "routing.json") + " quota=check skipped (no quota reader in this runtime) implement=light-codex\n"
 	if stdout.String() != want {
 		t.Errorf("stdout = %q, want %q", stdout.String(), want)
+	}
+}
+
+// A routed lead hands bounded implementation slices to its lane's implement
+// role, chosen once at spawn after the same quota check as the lead. A lead
+// whose lane names no implement role, an explicit harness and an implement
+// role whose lanes cannot run all leave the goblin implementing its own work.
+func TestRunSpawnHandsImplementationToTheLanesImplementRole(t *testing.T) {
+	lightSolExhausted := quota.Report{Providers: map[string]quota.Provider{"codex": {Known: true, Scopes: map[string]quota.Scope{
+		"model:gpt-6.1-sol": {Name: "gpt-6.1-sol", Known: true, PercentRemaining: 0, Runway: "exhausted_now"},
+	}}}}
+	for _, test := range []struct {
+		name, task    string
+		extra         []string
+		report        *quota.Report
+		wantImplement routing.ExecutionLane
+		wantRoute     string
+	}{
+		{name: "ordinary work on build", task: "Add a dark-mode toggle to the settings page.", wantImplement: routing.ExecutionLane{Name: "light-codex", Harness: "codex", Model: "gpt-6.1-sol", Effort: "high"}, wantRoute: " implement=light-codex"},
+		{name: "high-risk work on deep", task: "Security review of the session cookie signing before launch."},
+		{name: "an explicit harness", task: "Add a dark-mode toggle to the settings page.", extra: []string{"--harness", "codex", "--model", "gpt-6-astra"}},
+		{name: "an implement model at its limit", task: "Add a dark-mode toggle to the settings page.", report: &lightSolExhausted, wantRoute: " implement=build implement_wanted=light-codex implement_quota=light-codex: codex gpt-6.1-sol exhausted_now"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			_, deps := routedRuntime(t, shippedRoutingJSON(t))
+			if test.report != nil {
+				report := *test.report
+				deps.quota = func(context.Context) (quota.Report, string) { return report, "" }
+			}
+			got := captureSpawn(&deps, "spawned g13")
+			args := append([]string{"spawn", "g13", "--project", `C:\project`, "--brief", briefWith(t, test.task)}, test.extra...)
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runWithRuntime(args, &stdout, &stderr, deps)
+
+			// Assert
+			if exit != 0 {
+				t.Fatalf("exit = %d; stderr=%s", exit, stderr.String())
+			}
+			implement := got.Implement
+			implement.Note = ""
+			if implement != test.wantImplement {
+				t.Errorf("implement = %+v, want %+v", got.Implement, test.wantImplement)
+			}
+			if test.wantRoute == "" && strings.Contains(stdout.String(), "implement=") || !strings.Contains(stdout.String(), test.wantRoute) {
+				t.Errorf("stdout = %q, want the route line to say %q", stdout.String(), test.wantRoute)
+			}
+		})
 	}
 }
 

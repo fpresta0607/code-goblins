@@ -10,7 +10,9 @@ const roleLanes = `
 	"opus":{"harness":"claude","model":"claude-opus-5-5","effort":"xhigh","note":"lead"},
 	"sonnet":{"harness":"claude","model":"claude-sonnet-5-5","effort":"high","note":"implementation"},
 	"fable":{"harness":"claude","model":"claude-fable-5-2","effort":"xhigh","note":"review"},
-	"astra":{"harness":"codex","model":"gpt-6-astra","effort":"xhigh","note":"codex lead"}`
+	"astra":{"harness":"codex","model":"gpt-6-astra","effort":"xhigh","note":"codex lead"},
+	"pi-strong":{"harness":"pi","model":"provider/strong-model","effort":"high","note":"pi lead"},
+	"pi-light":{"harness":"pi","model":"provider/light-model","effort":"medium","note":"pi implementation"}`
 
 func roleTable(t *testing.T, roles string) Table {
 	t.Helper()
@@ -62,6 +64,7 @@ func TestLaneTableRefusesRolesAGoblinCannotRunOn(t *testing.T) {
 		{"undefined lane", `{"opus":{"review":["fabel"]}}`, `role review for "opus" names "fabel", which is not a defined lane`},
 		{"another harness", `{"opus":{"review":["astra"]}}`, `role review for "opus" names "astra" on codex: a role runs on its lead's harness, claude`},
 		{"repeated lane", `{"opus":{"verify":["fable","fable"]}}`, `role verify for "opus" names "fable" twice`},
+		{"an implement role on pi", `{"pi-strong":{"implement":["pi-light"]}}`, `role implement for "pi-strong": a pi goblin has no native subagent to hand a slice to, so its lead implements`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
