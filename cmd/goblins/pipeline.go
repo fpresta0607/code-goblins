@@ -545,7 +545,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		if daemon.State != pipeline.DaemonAlive {
 			break
 		}
-		fmt.Fprintf(out, "pipeline: the gate daemon (pid %d) is alive and serving %s, and missed its short health reply before this %s reached it, so it is busy, not stopped; waiting %s for its turn (try %d of %d), and never starting or restarting it\n", daemon.PID, liveRunCount(daemon.LiveRuns), args[0], daemonTurnWait, turn, daemonTurns)
+		fmt.Fprintf(out, "pipeline: the gate daemon (pid %d) is alive and serving %s, and missed its short health reply before this %s reached it, so it is busy, not stopped; waiting %s for its turn (try %d of %d), and never starting or restarting it\n", daemon.PID, daemon.RunCount(), args[0], daemonTurnWait, turn, daemonTurns)
 		daemonTurnSleep(daemonTurnWait)
 		result, err = commands.Run(ctx, native)
 		tries = turn
@@ -652,17 +652,6 @@ var (
 	daemonTurnSleep = time.Sleep
 )
 
-// liveRunCount names how many runs the gate daemon serves.
-func liveRunCount(runs int) string {
-	switch {
-	case runs < 0:
-		return "runs its database could not count"
-	case runs == 1:
-		return "1 run"
-	}
-	return fmt.Sprintf("%d runs", runs)
-}
-
 // daemonReplyMissed says what a daemon's missed reply means for this
 // command. A live daemon is busy, never stopped, whatever native's own hint
 // says, and the run the branch already holds is the one a repeat reaches, so
@@ -678,7 +667,7 @@ func daemonReplyMissed(ctx context.Context, reader pipeline.Reader, meta state.T
 		}
 		return fmt.Errorf("pipeline: the gate daemon missed its reply and its process reads %s%s. It serves every goblin, so never start or restart it: ask the CEO with goblins notify %s --blocked \"<question>\"", daemon.State, read, meta.ID)
 	}
-	busy := fmt.Sprintf("pipeline: the gate daemon (pid %d) is alive and serving %s and missed its reply, so it is busy, not stopped: whatever native's hint above says, never start or restart it", daemon.PID, liveRunCount(daemon.LiveRuns))
+	busy := fmt.Sprintf("pipeline: the gate daemon (pid %d) is alive and serving %s and missed its reply, so it is busy, not stopped: whatever native's hint above says, never start or restart it", daemon.PID, daemon.RunCount())
 	if isHealthMissed && command == "respond" {
 		return fmt.Errorf("%s. Your answer never reached it, so repeating this command in a few minutes answers the gate", busy)
 	}
