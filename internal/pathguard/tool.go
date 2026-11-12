@@ -44,7 +44,7 @@ func (b Boundary) ToolRefusal(tool string, input json.RawMessage) string {
 		}
 	case "Bash", "bash", "PowerShell", "Monitor":
 		reason = b.ShellRefusal(arguments.Command)
-		if search := driveRootSearch(arguments.Command); reason == "" && search != "" {
+		if search := driveRootSearch(arguments.Command, tool == "PowerShell"); reason == "" && search != "" {
 			return "[drive-root-search] this " + tool + " call is refused before it ran: " + search + " recursively, the whole drive, which walks every file on it for hours and holds millions of handles open, and goes on after the shell that started it ends. Name the folder to search instead, such as your worktree."
 		}
 	}

@@ -1,9 +1,13 @@
 package reap
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/crewstate"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 // The grep of 2026-11-11: a goblin's tool call started it from Git Bash with
@@ -184,5 +188,64 @@ func TestADetachedProcessKeepsItsIdentityAsItsCostsGrow(t *testing.T) {
 	// Assert
 	if len(before) != 1 || len(after) != 1 || before[0] != after[0] {
 		t.Fatalf("report keys %v then %v, want one key that stays", before, after)
+	}
+}
+
+// The sweep measures a detached process's age from when it listed the
+// processes, so a search that has run for an hour reads as running an hour.
+func TestTheSweepMeasuresADetachedProcessFromWhenItListedIt(t *testing.T) {
+	// Arrange
+	grep := strayGrep()
+	grep.Start = time.Now().UTC().Add(-time.Hour)
+	collector := Collector{Home: testHome(t), Session: "default", Processes: stubProcesses{grep}}
+
+	// Act
+	inventory, _, err := collector.Collect(t.Context())
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	findings := classOf(Classify(inventory), DetachedProcess)
+	if len(findings) != 1 {
+		t.Fatalf("got %d detached findings, want one: %+v", len(findings), findings)
+	}
+	if running := findings[0].Running; running < time.Hour || running > time.Hour+time.Minute {
+		t.Fatalf("running %s, want the hour since the process started", running)
+	}
+}
+
+// Ending a detached process of a goblin that still runs leaves the goblin's
+// own latest report as it was: the reaper's line is its audit, not the
+// goblin's word.
+func TestEndingADetachedProcessLeavesItsGoblinsLatestReport(t *testing.T) {
+	// Arrange
+	h := testHome(t)
+	worktree := filepath.Join(t.TempDir(), ".worktrees", "gb-task-1")
+	if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "task-1", Project: filepath.Dir(filepath.Dir(worktree)), Worktree: worktree}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.AppendStatus(h.State, "task-1", "done: PR https://github.com/example/repo/pull/1"); err != nil {
+		t.Fatal(err)
+	}
+	runner := &gitRunner{}
+	service := newService(t, h, strayInventory(strayGrep()), runner)
+
+	// Act
+	_, err := service.Apply(t.Context(), Options{Force: map[string]bool{"500": true}})
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines, err := state.TailStatus(h.State, "task-1", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.killed) != 1 || !strings.Contains(strings.Join(lines, "\n"), ReapedPrefix+string(DetachedProcess)) {
+		t.Fatalf("killed %v with status log %q, want pid 500 ended and its audit line in the log", runner.killed, lines)
+	}
+	if verb, ok := crewstate.LatestVerb(lines); !ok || verb != "done" {
+		t.Fatalf("latest verb = %q after the reaper's line, want the goblin's own done", verb)
 	}
 }

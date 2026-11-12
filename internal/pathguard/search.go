@@ -18,8 +18,10 @@ var grepValueLongOptions = map[string]bool{
 // is a drive root, as "grep searches /", or is empty. Such a search walks
 // the whole drive: on 2026-11-11 a goblin's grep -rn with a stray / ran for
 // 1 hour 50 minutes after its shell ended and held 6.7 million handles. A
-// find given -maxdepth has a depth its author chose and is let run.
-func driveRootSearch(command string) string {
+// find given -maxdepth has a depth its author chose and is let run. A bare \
+// is the drive root only to PowerShell: to Bash it escapes the character
+// after it or continues the line.
+func driveRootSearch(command string, isPowerShell bool) string {
 	for _, isEscaping := range []bool{false, true} {
 		for _, segment := range shellSegments(command, isEscaping) {
 			index := verbAt(segment)
@@ -44,7 +46,7 @@ func driveRootSearch(command string) string {
 				roots = recursiveGrepPaths(words)
 			}
 			for _, root := range roots {
-				if isDriveRoot(root) {
+				if isDriveRoot(root) && (isPowerShell || root != `\`) {
 					return verb + " searches " + root
 				}
 			}

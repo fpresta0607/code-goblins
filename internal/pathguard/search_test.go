@@ -22,6 +22,7 @@ func TestToolRefusalWarnsOfARecursiveSearchFromTheDriveRoot(t *testing.T) {
 		{"find from a Windows drive root", "PowerShell", `find C:\ -name y`},
 		{"find from a drive root behind its options", "Bash", "find -L / -type d -path '*/x'"},
 		{"find in a Monitor command", "Monitor", "find /c/ -name y"},
+		{"find from PowerShell's drive root", "PowerShell", `find \ -name y`},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -51,6 +52,8 @@ func TestToolRefusalLetsASearchOfAFolderRun(t *testing.T) {
 		{"find of the drive root one level deep", "find / -maxdepth 1 -name y"},
 		{"a recursive grep of a folder under the drive root", "grep -rn x /c/dev/project"},
 		{"a recursive listing of the drive root", "ls -R /"},
+		{"grep -rn continued onto a second line", "grep -rn \"pattern\" \\\n internal/ cmd/"},
+		{"find with escaped parentheses", `find . \( -name '*.go' -o -name '*.md' \) -print`},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {

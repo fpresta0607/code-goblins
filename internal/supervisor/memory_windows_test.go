@@ -1,8 +1,13 @@
 package supervisor
 
 import (
+	"os"
 	"slices"
 	"testing"
+
+	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 func TestMachineMemoryReadsThisMachine(t *testing.T) {
@@ -56,5 +61,49 @@ func TestPoolTagsReadsThisMachine(t *testing.T) {
 	}
 	if index := slices.IndexFunc(tags, func(tag PoolTag) bool { return len(tag.Tag) != 4 }); index >= 0 {
 		t.Fatalf("tag %q is not four bytes", tags[index].Tag)
+	}
+}
+
+// heldHandleCount is how many event handles the handle holder test opens:
+// three times what the busiest process on a quiet machine holds (Microsoft
+// Defender's, about 9,000 on 2026-11-11), so this process holds the most, and
+// far below handleLine, so its command is not read.
+const heldHandleCount = 30000
+
+// The board's handle holder is the process the system process list counts the
+// most handles for, named by its pid, program and start, and a process under
+// the handle line has no command read.
+func TestTopHandleHolderNamesThisProcessWhenItHoldsTheMostHandles(t *testing.T) {
+	// Arrange
+	events := make([]windows.Handle, 0, heldHandleCount)
+	t.Cleanup(func() {
+		for _, event := range events {
+			windows.CloseHandle(event)
+		}
+	})
+	for range heldHandleCount {
+		event, err := windows.CreateEvent(nil, 0, 0, nil)
+		if err != nil {
+			t.Fatalf("open an event: %v", err)
+		}
+		events = append(events, event)
+	}
+	started, ok := proc.StartTime(os.Getpid())
+	if !ok {
+		t.Fatal("StartTime of this process failed")
+	}
+
+	// Act
+	holder, err := TopHandleHolder()
+
+	// Assert
+	if err != nil {
+		t.Fatalf("TopHandleHolder: %v", err)
+	}
+	if holder.PID != os.Getpid() || !holder.Started.Equal(started) || holder.Handles < heldHandleCount || holder.Name == "" {
+		t.Fatalf("TopHandleHolder = %+v, want this process, started %s, with at least %d handles", holder, started, heldHandleCount)
+	}
+	if holder.Command != "" {
+		t.Errorf("TopHandleHolder read the command %q of a process under the handle line", holder.Command)
 	}
 }
