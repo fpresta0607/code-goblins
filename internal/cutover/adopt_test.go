@@ -52,3 +52,32 @@ func TestHandBackSettingsGivesABuildFromBeforeTheRenameTheSettingsItWasHanded(t 
 		}
 	}
 }
+
+func TestAdoptOldSettingsNamesTheCEOsTerminalFromBeforeTheMoveByItsNewName(t *testing.T) {
+	cases := []struct{ name, terminal, want string }{
+		{name: "the CEO's", terminal: oldName, want: newName},
+		{name: "a goblin's", terminal: "demo-goblin", want: "demo-goblin"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			old := strings.ToUpper(oldName) + "_"
+			t.Setenv(old+"HOST_ID", test.terminal)
+			t.Setenv(hostIDSetting, "")
+			os.Unsetenv(hostIDSetting)
+
+			// Act
+			AdoptOldSettings()
+			adopted := os.Getenv(hostIDSetting)
+			HandBackSettings()
+
+			// Assert
+			if adopted != test.want {
+				t.Errorf("%s is %q, want %q", hostIDSetting, adopted, test.want)
+			}
+			if handed := os.Getenv(old + "HOST_ID"); handed != test.terminal {
+				t.Errorf("handed back %q, want %q", handed, test.terminal)
+			}
+		})
+	}
+}

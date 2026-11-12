@@ -5,6 +5,9 @@ import (
 	"strings"
 )
 
+// hostIDSetting names the native terminal a process runs in.
+var hostIDSetting = setting + "HOST_ID"
+
 // AdoptOldSettings reads each setting in this process's environment that a
 // build before the rename named with the old prefix as the setting of the
 // same name with goblins' prefix, where that is not set, and then drops the
@@ -12,7 +15,9 @@ import (
 // settings. A release before the rename hands its update the home only by
 // the old name, and a terminal opened before the home moved still holds only
 // the old names, so without this a home outside the usual folder is not
-// found.
+// found. The CEO's terminal took the role's new name as the home moved, so
+// a terminal opened before it that names itself by the old one is read as
+// that terminal, as it is now named.
 func AdoptOldSettings() {
 	prefix := strings.ToUpper(oldName) + "_"
 	for _, entry := range os.Environ() {
@@ -21,6 +26,9 @@ func AdoptOldSettings() {
 			continue
 		}
 		adopted := setting + strings.ToUpper(name[len(prefix):])
+		if adopted == hostIDSetting && strings.EqualFold(value, oldName) {
+			value = newName
+		}
 		if _, isSet := os.LookupEnv(adopted); !isSet {
 			_ = os.Setenv(adopted, value)
 		}
@@ -40,6 +48,9 @@ func HandBackSettings() {
 		name, value, _ := strings.Cut(entry, "=")
 		if len(name) <= len(setting) || !strings.EqualFold(name[:len(setting)], setting) {
 			continue
+		}
+		if strings.EqualFold(name, hostIDSetting) && strings.EqualFold(value, newName) {
+			value = oldName
 		}
 		_ = os.Setenv(prefix+strings.ToUpper(name[len(setting):]), value)
 	}
