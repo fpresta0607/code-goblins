@@ -40,9 +40,10 @@ const isPageVisible = () => document.visibilityState === "visible";
 // while it is on screen in a visible tab: a view hidden, scrolled away,
 // closed or in a tab out of sight closes its connection, so the browser
 // sends no frame nobody sees. Nothing typed on the screen is kept or shown by
-// the board: it goes to the page alone.
-export function ScreenView({ task, generation, name, instance, connected, isFull = false }: {
-  task: string; generation: string; name: string; instance: string; connected: boolean; isFull?: boolean;
+// the board: it goes to the page alone. A view that shouldFocus takes the
+// keyboard as it opens, as one a chat row opened does (#2362).
+export function ScreenView({ task, generation, name, instance, connected, isFull = false, shouldFocus = false }: {
+  task: string; generation: string; name: string; instance: string; connected: boolean; isFull?: boolean; shouldFocus?: boolean;
 }) {
   const region = useRef<HTMLElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -56,6 +57,9 @@ export function ScreenView({ task, generation, name, instance, connected, isFull
   const [hasFrame, setHasFrame] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [words, setWords] = useState("");
+  useEffect(() => {
+    if (shouldFocus) region.current?.focus();
+  }, [shouldFocus]);
   useEffect(() => {
     const element = region.current;
     if (!element) return;
@@ -214,7 +218,7 @@ export function ScreenView({ task, generation, name, instance, connected, isFull
     : isDriving ? "You are driving " + name + "'s browser. Your clicks and keys on the screen go to its page. F6 leaves the screen."
     : state.isDriven ? name + "'s browser is being driven from the board on your PC."
     : name + " drives its browser.";
-  return <section ref={region} className={"screen-view" + (isFull ? " full" : "") + (isDriving ? " driving" : "")} aria-label={name + "'s browser"}>
+  return <section ref={region} className={"screen-view" + (isFull ? " full" : "") + (isDriving ? " driving" : "")} aria-label={name + "'s browser"} tabIndex={-1}>
     <div className="screen-bar">
       <p className="screen-page" title={pageName}><Icon name="screen" /><span>{state ? state.hasPage ? <><strong>{state.title || "Untitled page"}</strong>{state.host && <span className="muted"> {state.host}</span>}</> : "No page is open" : name + "'s browser"}</span></p>
       {state && !state.isDriven && (state.canDrive

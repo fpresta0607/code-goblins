@@ -105,3 +105,9 @@ export function callTally(tools: string[]): string {
 const COMMAND_LANGUAGES: Record<string, string> = { bash: "bash", powershell: "powershell", exec: "javascript", exec_command: "shell", shell: "shell" };
 
 export const commandLanguage = (tool: string): string => COMMAND_LANGUAGES[tool.toLowerCase()] ?? "";
+
+// A goblin drives its own browser, the one its Screen view shows, through
+// chrome-devtools-axi, so a command that runs it is a browser row (#2362).
+const BROWSER_COMMAND = /\bchrome-devtools-axi\b/;
+
+export const isBrowserCommand = (command: string): boolean => BROWSER_COMMAND.test(command);

@@ -103,13 +103,23 @@ func (s *Service) prepareBillingRepair(month string, problem actionsbilling.Prob
 	return err
 }
 
+// refreshActionsSpend reads month again unless a read is in flight or a Retry
+// read it less than 10 s ago. A Retry that reads again after GitHub refused
+// gh's login clears the client's refused-token wait first, so a login renewed
+// with gh auth login is read at once, and gh starts at most once per read,
+// never once per click (#2003).
 func (s *Service) refreshActionsSpend(ctx context.Context, now time.Time, month string, afterConsent bool) actionsbilling.Reading {
 	s.mu.Lock()
 	entry := s.actionsSpendReadings[month]
+	isRefusedLoginRetried := false
 	if entry != nil && entry.done == nil && (afterConsent || now.Sub(entry.retried) >= 10*time.Second) {
 		entry.started, entry.retried = time.Time{}, now
+		isRefusedLoginRetried = !afterConsent && entry.reading.Problem != nil && entry.reading.Problem.Kind == "authentication"
 	}
 	s.mu.Unlock()
+	if isRefusedLoginRetried && s.Options.GitHub != nil {
+		s.Options.GitHub.InvalidateCLIToken()
+	}
 	if afterConsent {
 		return s.readActionsSpendMonth(ctx, ctx, now, month)
 	}
