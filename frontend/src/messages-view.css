@@ -118,6 +118,10 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 .message-diff > .line-removed { background: rgba(255, 107, 128, 0.10); color: #f3c0c8; }
 .message-baby { min-width: 0; border: 1px dashed var(--glass-border-hover); border-radius: 8px; font-size: .9375em; }
 .message-baby .text-button { display: inline-flex; align-items: center; gap: .25em; font-size: 1em; }
+/* The views a command's row opens, under what it printed, each a target a
+   finger can take. */
+.call-opens { display: flex; flex-wrap: wrap; gap: 0 1.25em; margin: 0; }
+.call-opens .text-button { display: inline-flex; align-items: center; gap: .35em; min-height: 2rem; font-size: .9375em; }
 /* Thinking folds to one quiet line with its first words, and opens to read
    (the Overlord's review, 2026-10-27); a compaction's summary folds too. */
 .message-compaction { color: var(--muted); }
@@ -204,6 +208,9 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 @media (pointer: coarse) { .message-copy { opacity: 1; } }
 .message-jump { position: absolute; left: 50%; bottom: 12px; z-index: 2; display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 6px 14px; border: 1px solid var(--glass-border-hover); border-radius: 999px; background: var(--box-fill); box-shadow: var(--glass-shadow); font-weight: 700; translate: -50% 0; touch-action: manipulation; }
 .message-jump .icon { width: 16px; height: 16px; }
+/* Copied, said where a selection that copied itself ends (#2438), placed by
+   the view once drawn. */
+.selection-copied { position: absolute; top: 0; left: 0; z-index: 2; }
 .messages-empty { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; color: var(--muted); pointer-events: none; }
 @media (max-width: 40rem) {
   .conversation { padding: 12px 12px 10px; }

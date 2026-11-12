@@ -5,12 +5,12 @@ import (
 	"testing"
 )
 
-// A gate step inherits the goblin pane's fleet variables and the gate agent's
-// mark in any spelling Windows accepts, and every one of them is dropped
-// while the rest stay.
+// A gate step inherits the goblin pane's fleet variables, the gate agent's
+// mark and the project's test evidence in any spelling Windows accepts, and
+// every one of them is dropped while the rest stay.
 func TestEnvironmentDropsTheFleetVariablesInAnySpelling(t *testing.T) {
 	// Arrange
-	env := []string{"PATH=C:\\bin", "GOBLINS_HOME=C:\\fleet", "goblins_state_override=C:\\fleet\\state", "Goblins_Home=C:\\other", "GOBLINS_HOMELY=kept", "no_mistakes_gate=1", "GOFLAGS=-mod=mod"}
+	env := []string{"PATH=C:\\bin", "GOBLINS_HOME=C:\\fleet", "goblins_state_override=C:\\fleet\\state", "Goblins_Home=C:\\other", "GOBLINS_HOMELY=kept", "no_mistakes_gate=1", "Goblins_Test_Evidence=hosted-ci", "GOFLAGS=-mod=mod"}
 
 	// Act
 	kept := Environment(env)

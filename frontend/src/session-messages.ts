@@ -151,7 +151,7 @@ export function conversationHead(page: Pick<MessagePage, "conversation" | "messa
 // Working means the stream says the session's turn runs and the view draws to
 // its head, so the indicator is the live session's word on what is drawn: a
 // turn that ended never draws one, however long ago the view left the end,
-// and a view that has not caught up says it is behind instead.
+// and a view that has not caught up draws none.
 export function viewStanding(report: SessionReport | null, drawn: ConversationHead, received: ConversationHead): { isBehind: boolean; isWorking: boolean } {
   const isPast = (head: ConversationHead) => head.conversation !== drawn.conversation || head.newest > drawn.newest;
   const isBehind = isPast(received) || !!report && isPast(report);

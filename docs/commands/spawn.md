@@ -23,4 +23,5 @@ Reads the services the brief's Authentication section names and runs the auth pr
 On a clean preflight it injects the credentials of those services into the goblin's terminal before the harness starts, and of no other, names them in the task's record, appends a one-line summary right after the `spawned ...` line and, where it withheld anything, one `auth: withheld ...` line naming each withheld service and the `goblins auth grant` that gives one ([Credentials by need](../contract/authentication.md#credentials-by-need)).
 It also prints a one-line outcome-split speed hint for the chosen harness when telemetry exists.
 A `no-mistakes` task freezes its `--class` review budget from `config/pipeline.json` at spawn.
-Where that policy is version 6 or later, under which a gate runs on its task's own harness, a task whose harness no gate can prove is refused, since no gate can run on it
+Where that policy is version 6 or later, under which a gate runs on its task's own harness, a task whose harness no gate can prove is refused, since no gate can run on it.
+A task whose brief carries `sandbox: needed` is refused in mode no-mistakes before anything is built, naming direct-PR and local-only, since its gate would run its code on the host ([Credentials by need](../contract/authentication.md#credentials-by-need)).
