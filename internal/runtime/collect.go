@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -10,6 +12,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/janitor"
+	"github.com/fpresta0607/code-goblins/internal/layout"
 	"github.com/fpresta0607/code-goblins/internal/services"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -141,6 +144,11 @@ func (c Collector) Collect(ctx context.Context) (Inventory, error) {
 	inv.Storage = janitor.Measure(c.Home, metas, c.VerificationStore)
 	if record, err := janitor.ReadRecord(c.Home.State); err == nil {
 		inv.Janitor = &record
+	}
+	if record, err := layout.ReadRecord(c.Home.State); err == nil {
+		inv.Filing = &record
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		inv.Notes = append(inv.Notes, "FILING RECORD UNREADABLE: "+err.Error()+" - when the home's data was last filed is not known; fix or remove state/"+layout.RecordName+" and the next filing pass writes it again")
 	}
 	if record, err := services.ReadRecord(c.Home.State); err != nil {
 		inv.Notes = append(inv.Notes, "LOCAL SERVICES UNREADABLE: "+err.Error()+" - the stacks goblins services holds for tasks are not accounted for; fix or remove the record and run this again")
