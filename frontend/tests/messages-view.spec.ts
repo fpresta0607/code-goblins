@@ -945,6 +945,35 @@ test("a stream the supervisor ends says why, and Reconnect reads the messages ag
   expect(await streams(page)).toBe(2);
 });
 
+// A view that has read nothing yet, Reconnected after the supervisor refused
+// its stream, is connecting for the first time, never reconnecting.
+test("a stream refused before its first page says Connecting, never Reconnecting, after Reconnect", async ({ page }) => {
+  // Arrange: the CEO's stream begins with nothing, and the supervisor refuses it.
+  await open(page);
+  await page.evaluate(() => Object.assign(window, { fixtureHeld: true }));
+  await openCeo(page);
+  await expect.poll(() => streams(page)).toBe(1);
+  const view = page.locator(".messages-view:not([hidden])");
+  await send(page, "unavailable", "The CEO runs in another terminal now. Open the CEO again.");
+  const closed = view.locator(".terminal-foot.box");
+  await expect(closed).toContainText("The CEO runs in another terminal now. Open the CEO again.");
+
+  // Act
+  await closed.getByRole("button", { name: "Reconnect" }).click();
+  await expect.poll(() => streams(page)).toBe(2);
+
+  // Assert
+  await expect(view.getByText("Connecting to the messages")).toBeVisible();
+  await expect(view.locator(".terminal-corner")).toHaveCount(0);
+
+  // Act: the new stream's first page arrives.
+  await send(page, "page", NEWEST);
+
+  // Assert
+  await expect(list(page, "CEO")).toContainText("Answer 99");
+  await expect(view.locator(".terminal-corner")).toHaveCount(0);
+});
+
 // The Overlord, 2026-10-29: "why is the modern chat lagging ... it seems like
 // it stopped". His CEO's chat showed a call Running at least 76 s after its
 // result was written. The board no longer infers staleness from how long the
