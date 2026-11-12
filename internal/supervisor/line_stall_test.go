@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -186,4 +187,63 @@ func keepLineLock(t *testing.T, store string, since time.Time) *lock.Info {
 	}
 	t.Cleanup(func() { _ = os.Remove(path) })
 	return owner
+}
+
+// A light run beside the slots holds none of the line's turns: with one
+// heavy run and one light run holding, a line of two with a run waiting whose
+// floor memory covers stands still with one of its two turns free.
+func TestMachineLineStallCountsOnlyTheSlotsHoldersAgainstTheLine(t *testing.T) {
+	// Arrange
+	heavyLine(t, 2, 0)
+	store, err := verify.AdmissionDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	heavy := verify.Admission{Dir: store, Available: func() (uint64, error) { return 64 * gigabyte, nil }, Who: "a heavy run", Estimate: gigabyte, Budget: time.Hour, Limit: time.Minute, Poll: 10 * time.Millisecond}
+	slot, err := heavy.Wait(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer slot.Release()
+	light := heavy
+	light.IsLight, light.Who = true, "a light run"
+	beside, err := light.Wait(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer beside.Release()
+	waiter := heavy
+	waiter.Who, waiter.Available, waiter.Limit = "a waiting run", func() (uint64, error) { return gigabyte, nil }, verify.NoLimit
+	said := make(chan struct{}, 1)
+	waiter.Waiting = func(time.Duration, string) {
+		select {
+		case said <- struct{}{}:
+		default:
+		}
+	}
+	waiting, stop := context.WithCancel(ctx)
+	stopped := make(chan struct{})
+	defer func() {
+		stop()
+		<-stopped
+	}()
+	go func() {
+		defer close(stopped)
+		_, _ = waiter.Wait(waiting)
+	}()
+	select {
+	case <-said:
+	case <-ctx.Done():
+		t.Fatal("the waiting run never joined the line")
+	}
+
+	// Act
+	stall, err := MachineLineStall(Memory{Available: 16 * gigabyte, CommitAvailable: 16 * gigabyte, Total: 32 * gigabyte})
+
+	// Assert
+	if err != nil || !strings.HasPrefix(stall, "1 of 2 turns free and 1 in line, a waiting run first") {
+		t.Fatalf("MachineLineStall = %q, %v; want 1 of 2 turns free with the light run left out of the slots' count", stall, err)
+	}
 }

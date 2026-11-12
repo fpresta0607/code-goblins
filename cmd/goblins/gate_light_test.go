@@ -256,3 +256,85 @@ func TestGateTestRunsTheChangedLevelForAProjectWhoseHostedCIIsItsTestEvidence(t 
 		})
 	}
 }
+
+// writeProjectRecord puts fields in the record of the one project the
+// gate's fixture keeps, after the project name.
+func writeProjectRecord(t *testing.T, fields string) {
+	t.Helper()
+	records, err := filepath.Glob(filepath.Join(os.Getenv("GOBLINS_HOME"), "data", "projects", "*"))
+	if err != nil || len(records) != 1 {
+		t.Fatalf("project records = %v, %v; want the fixture's one project", records, err)
+	}
+	record := `{"project":"` + filepath.Base(records[0]) + `",` + fields + `}`
+	if err := os.WriteFile(filepath.Join(records[0], "project.json"), []byte(record), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A gate's Test step of a project whose record declares its Test light takes
+// a light turn expected to use the record's memory, bounded by the shorter of
+// the record's bound and the one it was given, and is ended at that bound.
+func TestGateTestStepOfALightProjectRunsWithinTheRecordsMemoryAndTheShorterBound(t *testing.T) {
+	// Arrange
+	project, gateRoot, worktree := gateTaskFixture(t, "cg-example")
+	comparison := writeGateSource(t, gateRoot, project, worktree, "feature")
+	t.Setenv("NM_HOME", gateRoot)
+	if err := os.MkdirAll(filepath.Join(os.Getenv("GOBLINS_HOME"), "data", "projects", filepath.Base(project)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeProjectRecord(t, `"light_test":{"memory_mib":512,"limit_minutes":5},"test_evidence":"hosted-ci"`)
+	slots := turnLine(t)
+	holdHeavyTurn(t, slots)
+	programs := t.TempDir()
+	standin.RemoveAtCleanup(t, programs)
+	program := filepath.Join(programs, "stalled.exe")
+	standin.Put(t, program)
+	for _, variable := range standin.Env("", standin.Rule{Any: true, Hold: true}) {
+		name, value, _ := strings.Cut(variable, "=")
+		t.Setenv(name, value)
+	}
+	var stdout, stderr lockedBuffer
+	exited := make(chan int, 1)
+
+	// Act
+	go func() {
+		exited <- gateTurn(turnRuntime(), &stdout, &stderr, "--gate-run", "run", "--test-comparison-sha", comparison, "--execution-limit", "2s", "--", program)
+	}()
+	var light verify.Standing
+	eventually(t, "the Test step's light turn", func() bool {
+		holding, _, err := verify.Line(slots)
+		index := slices.IndexFunc(holding, func(run verify.Standing) bool { return run.IsLight })
+		if err != nil || index < 0 {
+			return false
+		}
+		light = holding[index]
+		return true
+	})
+	exit := <-exited
+
+	// Assert
+	if light.Estimate != 512<<20 || light.Budget != 2*time.Second {
+		t.Errorf("light turn = %+v; want the record's 512 MiB and the given 2s, shorter than the record's 5m", light)
+	}
+	if exit != exitExecutionLimit || !strings.Contains(stderr.String(), "goblins gate turn: the light run outlived its bound of 2s, so it was ended with everything it started") {
+		t.Fatalf("exit=%d stderr=%q; want 124 and the 2s bound named", exit, stderr.String())
+	}
+}
+
+// A project whose record also requires a test environment still gives its
+// gate's Test step the record's test evidence beside the environment.
+func TestGateTestStepOfALightProjectWithATestEnvironmentIsToldItsTestEvidence(t *testing.T) {
+	// Arrange
+	_, comparison := gateEnvironmentFixture(t)
+	writeProjectRecord(t, `"test_environment":{"python_version":"3.12.10"},"light_test":{"memory_mib":512,"limit_minutes":5},"test_evidence":"hosted-ci"`)
+	turnLine(t)
+	var stdout, stderr lockedBuffer
+
+	// Act
+	exit := gateTurn(turnRuntime(), &stdout, &stderr, "--gate-run", "run", "--test-comparison-sha", comparison, "--", "cmd.exe", "/d", "/c", "echo %GOBLINS_TEST_EVIDENCE%^|%UV_NO_SYNC%")
+
+	// Assert
+	if exit != 0 || strings.TrimSpace(stdout.String()) != "hosted-ci|1" {
+		t.Fatalf("exit=%d stdout=%q stderr=%q; want the record's evidence beside the bound environment", exit, stdout.String(), stderr.String())
+	}
+}

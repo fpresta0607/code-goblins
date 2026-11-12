@@ -219,6 +219,20 @@ func (a Admission) weighedFloor() (uint64, error) {
 	return HeadFloor(a.Dir, a.estimate(), max(a.Reserve.PhysicalAvailable, a.Reserve.CommitAvailable))
 }
 
+// headShort says how memory is short of the floor of the run at the head of
+// a line of capacity whose flat floor is floor, weighed for a line of two, or
+// nothing when it is not.
+func (a Admission) headShort(capacity int, floor uint64) (string, error) {
+	if capacity == 2 {
+		weighed, err := a.weighedFloor()
+		if err != nil {
+			return "", err
+		}
+		floor = weighed
+	}
+	return a.short(max(a.Floor, floor))
+}
+
 // HeadFloor is the memory the run at the head of the line kept in dir needs
 // free to take a slot, for a run expected to use estimate, zero for the
 // default, beside a desktop reserve of reserve. A line of one slot has its
@@ -607,13 +621,8 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 		}
 		why := a.heldBy()
 		short := ""
-		if ahead == 0 && capacity == 2 {
-			if floor, err = a.weighedFloor(); err != nil {
-				return Turn{Waited: time.Since(start)}, err
-			}
-		}
 		if ahead == 0 {
-			short, err = a.short(max(a.Floor, floor))
+			short, err = a.headShort(capacity, floor)
 			if err != nil {
 				return Turn{Waited: time.Since(start)}, err
 			}
@@ -633,7 +642,7 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 				if err := ctx.Err(); err != nil {
 					return Turn{Waited: time.Since(start)}, err
 				}
-				turn, err := a.take(capacity)
+				turn, takenShort, err := a.take(capacity, floor)
 				// A take that found the line's lock busy took no slot and
 				// wrote no card, so the run keeps its place and tries again,
 				// within its limit.
@@ -647,6 +656,8 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 				} else if err != nil {
 					turn.Waited = time.Since(start)
 					return turn, err
+				} else if takenShort != "" {
+					why = join(why, takenShort)
 				} else if turn.release != nil {
 					if err := ctx.Err(); err != nil {
 						if releaseError := turn.Release(); releaseError != nil {
@@ -903,27 +914,33 @@ func (a Admission) sayInsideContext(ctx context.Context, name, token, now string
 }
 
 // take takes a free slot or reclaims verifiably dead custody, and returns a
-// turn with no release when no slot is free. A live or uncertain holder
-// keeps the slot regardless of its elapsed budget. Once release has run, say
-// writes nothing, so a progress note can never land beside a slot the run
-// has given back.
-func (a Admission) take(capacity int) (turn Turn, failure error) {
+// turn with no release when no slot is free. The floor of the run at the head
+// of a line of capacity whose flat floor is floor is read again under the
+// line's lock, as a light run reads its own, so a light run admitted since the
+// head last read memory leaves it short, said in short, and takes no slot. A
+// live or uncertain holder keeps the slot regardless of its elapsed budget.
+// Once release has run, say writes nothing, so a progress note can never land
+// beside a slot the run has given back.
+func (a Admission) take(capacity int, floor uint64) (turn Turn, short string, failure error) {
 	unlock, err := custodyMutation(a.Dir)
 	if err != nil {
-		return Turn{}, err
+		return Turn{}, "", err
 	}
 	defer func() { failure = errors.Join(failure, unlock()) }()
 	if err := a.checkWorkerCustody(); err != nil {
-		return Turn{}, err
+		return Turn{}, "", err
+	}
+	if short, err := a.headShort(capacity, floor); err != nil || short != "" {
+		return Turn{}, short, err
 	}
 	entries, err := os.ReadDir(a.Dir)
 	if err != nil {
-		return Turn{}, err
+		return Turn{}, "", err
 	}
 	for _, entry := range entries {
 		name := entry.Name()
 		if strings.HasPrefix(name, "slot-") && !strings.HasSuffix(name, ".run") && name != "slot-1" && (capacity != 2 || name != "slot-2") {
-			return Turn{}, fmt.Errorf("verify: custody outside shared capacity %d: %s", capacity, name)
+			return Turn{}, "", fmt.Errorf("verify: custody outside shared capacity %d: %s", capacity, name)
 		}
 	}
 	// Inspect every configured slot before choosing a free one: uncertain
@@ -934,10 +951,10 @@ func (a Admission) take(capacity int) (turn Turn, failure error) {
 			continue
 		}
 		if err != nil {
-			return Turn{}, err
+			return Turn{}, "", err
 		}
 		if holder.Alive() && !holder.VerifiedAlive() {
-			return Turn{}, nil
+			return Turn{}, "", nil
 		}
 	}
 	for slot := 1; slot <= capacity; slot++ {
@@ -947,16 +964,16 @@ func (a Admission) take(capacity int) (turn Turn, failure error) {
 			continue
 		}
 		if err != nil {
-			return Turn{}, err
+			return Turn{}, "", err
 		}
 		says := card{Who: a.Who, BudgetSeconds: a.Budget.Seconds(), EstimateBytes: a.estimate()}
 		if err := a.leave(a.Dir, name, says); err != nil {
 			lock.ReleaseExclusiveNamed(a.Dir, name)
-			return Turn{}, err
+			return Turn{}, "", err
 		}
-		return a.held(name, owner, says), nil
+		return a.held(name, owner, says), "", nil
 	}
-	return Turn{}, nil
+	return Turn{}, "", nil
 }
 
 // held is the turn of the lock file name in the store, a slot's or a light

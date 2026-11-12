@@ -229,3 +229,39 @@ func TestTheHeadFloorWeighsWhatALightRunMayStillUse(t *testing.T) {
 		t.Fatalf("HeadFloor = %d, %v; want %d, the light run's 3 GiB, the default estimate and the reserve", floor, err, want)
 	}
 }
+
+// The run at the head of a line of two reads its floor again under the line's
+// lock as it takes a slot: a light run admitted after the head last read
+// memory, on memory that covered the head's floor, leaves the head waiting
+// rather than taking a slot on memory only the light run was weighed against.
+func TestAHeadRunWaitsForALightRunAdmittedAfterItReadMemory(t *testing.T) {
+	// Arrange
+	a := admissionWithCapacity(t, 2)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	var light Turn
+	defer func() { light.Release() }()
+	head := a
+	head.Limit = 200 * time.Millisecond
+	head.Available = func() (uint64, error) {
+		if light.release == nil {
+			var err error
+			if light, err = lightAdmission(a, 3*gigabyte, 6*gigabyte).Wait(ctx); err != nil {
+				t.Errorf("light run between the head's reading and its take: %v", err)
+			}
+		}
+		return 6 * gigabyte, nil
+	}
+
+	// Act
+	turn, err := head.Wait(ctx)
+	defer turn.Release()
+
+	// Assert
+	if err == nil || turn.release != nil || !strings.Contains(err.Error(), "memory floor wait expired") {
+		t.Fatalf("Wait = %+v, %v; want no slot on 6 GiB free once the light run's 3 GiB, the default estimate and the reserve need 7.5 GiB", turn, err)
+	}
+	if !strings.HasPrefix(light.Token(), lightPlace) {
+		t.Fatalf("light turn %q; want a light run admitted beside the line", light.Token())
+	}
+}
