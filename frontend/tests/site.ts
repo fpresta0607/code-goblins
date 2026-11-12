@@ -114,6 +114,32 @@ export async function openItem(page: Page, text: string): Promise<void> {
   await menu.locator(".inbox-list li").filter({ hasText: text }).getByRole("button", { name: /^Answer / }).click();
 }
 
+// openTerminalAddress points at an address a terminal draws, found by its
+// text in the rows xterm's DOM renderer draws in the page, as a person does
+// before a click, clicks it, and returns the tab it opened.
+export async function openTerminalAddress(page: Page, rows: Locator, address: string): Promise<Page> {
+  const point = await rows.evaluate((element, wanted) => {
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const start = node.textContent!.indexOf(wanted);
+      if (start < 0) continue;
+      const range = document.createRange();
+      range.setStart(node, start + 10);
+      range.setEnd(node, start + 11);
+      const box = range.getBoundingClientRect();
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    }
+    return null;
+  }, address);
+  expect(point, "the terminal draws " + address).not.toBeNull();
+  await page.mouse.move(point!.x, point!.y + 60);
+  await page.mouse.move(point!.x, point!.y);
+  await expect(page.locator(".xterm-cursor-pointer")).toHaveCount(1);
+  const [opened] = await Promise.all([page.context().waitForEvent("page"), page.mouse.click(point!.x, point!.y)]);
+  await opened.waitForLoadState();
+  return opened;
+}
+
 // A card that finishes shows its check for three quarters of a second before
 // the Command Center moves on, which a loaded machine can let pass between two
 // looks, so a board's done cards are recorded as they pass, each as its
