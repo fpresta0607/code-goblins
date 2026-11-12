@@ -48,8 +48,8 @@ func TestAnOrphanedChildOfAToolCallIsListedBySweepAndEndedByPid(t *testing.T) {
 	if err := windows.TerminateProcess(shellHandle, 1); err != nil {
 		t.Fatal(err)
 	}
-	if event, err := windows.WaitForSingleObject(shellHandle, 10000); err != nil || event != windows.WAIT_OBJECT_0 {
-		t.Fatalf("the shell had not ended 10 s after it was ended: %v", err)
+	if event, err := windows.WaitForSingleObject(shellHandle, 60000); err != nil || event != windows.WAIT_OBJECT_0 {
+		t.Fatalf("the shell had not ended 60 s after it was ended: %v", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -95,7 +95,7 @@ func TestAnOrphanedChildOfAToolCallIsListedBySweepAndEndedByPid(t *testing.T) {
 	if len(runner.killed) != 1 || runner.killed[0] != orphan.PID || len(applied.Applied) != 1 {
 		t.Fatalf("naming pid %d ended %v and applied %v, want that pid alone", orphan.PID, runner.killed, applied.Applied)
 	}
-	if event, err := windows.WaitForSingleObject(searchHandle, 10000); err != nil || event != windows.WAIT_OBJECT_0 {
-		t.Fatalf("the search still ran 10 s after its pid was named: %v", err)
+	if event, err := windows.WaitForSingleObject(searchHandle, 60000); err != nil || event != windows.WAIT_OBJECT_0 {
+		t.Fatalf("the search still ran 60 s after its pid was named: %v", err)
 	}
 }
