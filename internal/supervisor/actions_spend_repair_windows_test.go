@@ -3,6 +3,8 @@ package supervisor
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -301,6 +303,39 @@ func TestBillingRetryAfterARefusedLoginReadsTheNewLoginAtOnce(t *testing.T) {
 	}
 	if code != 200 || reading.Status != "available" || reading.Problem != nil || runner.reads != 2 {
 		t.Fatalf("HTTP %d: %s; token reads %d", code, body, runner.reads)
+	}
+}
+
+// A Retry its 10 s limit holds back reads nothing, so it keeps the wait after
+// a refused login: gh auth token starts at most once per read, never once per
+// click (#2003).
+func TestBillingRetryWithinItsLimitKeepsTheRefusedTokenWait(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	runner := &billingTokenRunner{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+	client := billingClient(server, runner)
+	service := boardService(store)
+	service.lifetime = context.Background()
+	service.Options.GitHub, service.Options.ActionsSpend = client, (actionsbilling.Reader{GitHub: client}).Read
+	month := time.Now().UTC().Format("2006-01")
+	service.readActionsSpend(context.Background(), time.Now())
+
+	// Act
+	var codes []int
+	for range 3 {
+		code, _ := askTheBoard(t, service, "POST", "/api/actions-spend/repair", `{"month":"`+month+`","action":"retry"}`, nil)
+		codes = append(codes, code)
+	}
+	held := client.Get(context.Background(), "user", &struct{}{})
+
+	// Assert
+	var credential *githubapi.CredentialError
+	if fmt.Sprint(codes) != "[200 200 200]" || runner.reads != 2 || !errors.As(held, &credential) {
+		t.Fatalf("HTTP %v; token reads %d; then %v: want one Retry read, the wait kept, and gh read once by it", codes, runner.reads, held)
 	}
 }
 
