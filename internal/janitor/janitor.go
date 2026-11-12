@@ -170,6 +170,7 @@ func Sweep(ctx context.Context, cfg Config) Record {
 	}
 	record.Buckets = Measure(cfg.Home, metas, cfg.VerificationStore)
 	cfg.reportDataSize(&record)
+	cfg.reportBacklogHistory(&record)
 	if reading, err := disk.ReadLeast(cfg.Home.Root, cfg.Home.DevDrive); err == nil {
 		record.Disk = reading
 	} else {
