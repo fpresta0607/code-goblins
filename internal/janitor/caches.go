@@ -12,6 +12,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/disk"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
@@ -151,7 +152,7 @@ func trimGoBuild(ctx context.Context, dir string, cutoff time.Time) int64 {
 			if info.IsDir() {
 				bytes = Size(path)
 			}
-			if os.RemoveAll(path) == nil {
+			if fsx.RemoveAll(path) == nil {
 				freed += bytes
 			}
 		}
