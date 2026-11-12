@@ -3,6 +3,7 @@
    one row. */
 .reply-working { display: flex; align-items: center; gap: .5em; min-width: 0; min-height: 32px; margin-top: -.375em; }
 .reply-working > .working-indicator { font-size: 20px; }
+.reply-working.held { visibility: hidden; }
 /* The words take their widest word's room, every word laid in the one cell,
    and a word wider than the row ends in an ellipsis. Each word's window sits
    past it, so the word is unseen until its turn slides the window over it to
