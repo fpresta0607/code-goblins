@@ -41,11 +41,11 @@ const refusedWait = time.Minute
 // it keeps the token gh is signed in with between calls. Its token is
 // GH_TOKEN, else GITHUB_TOKEN, from the environment, as gh reads them for
 // github.com, else the one gh auth token prints, read once and kept for the
-// client's life until explicit consent invalidates it or GitHub refuses it
-// with 401. After a refusal the client reads it again from gh once
-// refusedWait has passed, or at once after consent, and the calls in between
-// fail with a CredentialError and send nothing. A token never reaches a log,
-// an error or a file.
+// client's life until InvalidateCLIToken drops it or GitHub refuses it with
+// 401. After a refusal the client reads it again from gh once refusedWait has
+// passed, or at once after InvalidateCLIToken, and the calls in between fail
+// with a CredentialError and send nothing. A token never reaches a log, an
+// error or a file.
 type Client struct {
 	// BaseURL is where requests go: BaseURL, or a test's own server.
 	BaseURL string
@@ -317,8 +317,9 @@ func (c *Client) CredentialSource() string {
 }
 
 // InvalidateCLIToken makes every guarded copy re-read gh's persisted login
-// after user consent, at once even after a refusal. Environment credentials
-// retain their precedence.
+// after user consent, or after the user retries a billing reading GitHub
+// refused, at once even after a refusal. Environment credentials retain their
+// precedence.
 func (c *Client) InvalidateCLIToken() {
 	c.token.mu.Lock()
 	defer c.token.mu.Unlock()
