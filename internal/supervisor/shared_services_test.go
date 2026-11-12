@@ -270,6 +270,44 @@ func TestAHealthReplyMissedNowAndThenWakesNobodyUntilTwoChecksAgree(t *testing.T
 	}
 }
 
+// A crash-looping daemon is down at every check, read busy at one and stopped
+// at the next. Two checks in a row that find it down wake the CEO once, though
+// their next steps differ, and it is taken for the CEO's to decide only once
+// two checks in a row find it stopped.
+func TestAnOutageReadBusyAndStoppedByTurnsWakesTheCEOOnce(t *testing.T) {
+	// Arrange
+	s, h, machine := sharedService(t)
+	sharedWaiter(t, h, "huey", "gate-daemon")
+	busy := machine.daemon
+	stopped := pipeline.Daemon{State: pipeline.DaemonStopped}
+	now := time.Date(2026, 11, 11, 14, 0, 0, 0, time.UTC)
+
+	// Act
+	var alternating []wake.Record
+	for check := range 6 {
+		machine.daemon = busy
+		if check%2 == 1 {
+			machine.daemon = stopped
+		}
+		woke, _ := checkShared(t, s, h, &now)
+		alternating = append(alternating, woke...)
+	}
+	machine.daemon = stopped
+	var held []wake.Record
+	for range 2 {
+		woke, _ := checkShared(t, s, h, &now)
+		held = append(held, woke...)
+	}
+
+	// Assert
+	if len(alternating) != 1 || !strings.HasPrefix(alternating[0].Detail, "shared_busy:") || !strings.Contains(alternating[0].Detail, "huey") {
+		t.Fatalf("shared wakes while it was read busy and stopped by turns = %+v, want one shared_busy naming huey", alternating)
+	}
+	if len(held) != 1 || !strings.Contains(held[0].Detail, "it no longer comes back by itself, so whether to start it is now the CEO's to decide") {
+		t.Fatalf("shared wakes once it stayed stopped = %+v, want one telling the CEO it is now its to decide", held)
+	}
+}
+
 // An outage the CEO was told comes back by itself and then stops coming back,
 // a busy daemon whose process dies or an engine whose start ran past its
 // limit, wakes the CEO once more, as it is now the CEO's to decide; coming back
