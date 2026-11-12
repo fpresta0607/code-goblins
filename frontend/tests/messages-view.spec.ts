@@ -993,7 +993,7 @@ for (const when of ["while he reads the end", "while he reads up a little", "bef
     const talk = list(page, "CEO");
     await expect(talk).toContainText("Answer 99");
     await send(page, "session", { conversation: "fixture-conversation", turn: "m98", state: "running", newest: 99, head: 99 });
-    await expect(talk.locator(".reply-working")).toHaveCount(1);
+    await expect(talk.locator(".reply-working:visible")).toHaveCount(1);
     if (when === "while he reads up a little") {
       const { end } = await scroll(talk);
       await scrollTo(talk, end - 150);
@@ -1004,13 +1004,16 @@ for (const when of ["while he reads the end", "while he reads up a little", "bef
     // that comes after the word that it ended.
     if (when === "before the reply that ends it is drawn") {
       await send(page, "session", { conversation: "fixture-conversation", turn: "m98", state: "ended", newest: 101, head: 101 });
-      await expect(talk.locator(".reply-working")).toHaveCount(0);
+      await expect(talk.locator(".reply-working:visible")).toHaveCount(0);
       await send(page, "messages", { conversation: "fixture-conversation", messages: [exchange(100), exchange(101)] });
       await expect(talk).toContainText("Answer 101");
     } else await send(page, "session", { conversation: "fixture-conversation", turn: "m98", state: "ended", newest: 99, head: 99 });
 
-    // Assert
-    await expect(talk.locator(".reply-working")).toHaveCount(0);
+    // Assert: no indicator, and a view he reads up in keeps the row's room,
+    // so the rows he reads stay put.
+    await expect(talk.locator(".reply-working:visible")).toHaveCount(0);
+    await expect(talk.getByRole("status", { name: /./ })).toHaveCount(0);
+    await expect(talk.locator(".reply-working.held")).toHaveCount(when === "while he reads up a little" ? 1 : 0);
     await expect(page.getByText(BEHIND)).toHaveCount(0);
   });
 }
@@ -1043,7 +1046,7 @@ for (const newer of ["turn", "conversation"] as const) {
     // indicator.
     await expect(page.getByText(BEHIND)).toBeVisible();
     await expect(talk).not.toContainText("The newer turn's reply");
-    await expect(talk.locator(".reply-working")).toHaveCount(0);
+    await expect(talk.locator(".reply-working:visible")).toHaveCount(0);
 
     // Act: he catches up.
     await page.getByRole("button", { name: "Jump to latest" }).click();
@@ -1053,7 +1056,7 @@ for (const newer of ["turn", "conversation"] as const) {
     await expect(talk.locator("[data-message]").last()).toContainText("The newer turn's reply");
     await expect(talk.locator(newer === "turn" ? '[data-message="m100"]' : '[data-message="m0"]')).toHaveCount(1);
     await expect(page.getByText(BEHIND)).toHaveCount(0);
-    await expect(talk.locator(".reply-working")).toHaveCount(newer === "turn" ? 0 : 1);
+    await expect(talk.locator(".reply-working:visible")).toHaveCount(newer === "turn" ? 0 : 1);
     expect(await streams(page)).toBe(1);
   });
 }
@@ -1074,13 +1077,13 @@ test("a view that follows the end never says it is behind as a turn streams in a
   // supervisor sends it.
   await say(page, "messages", { conversation: "fixture-conversation", messages: [exchange(100)] });
   await send(page, "session", { conversation: "fixture-conversation", turn: "m100", state: "running", newest: 100, head: 100 });
-  await expect(talk.locator(".reply-working")).toHaveCount(1);
+  await expect(talk.locator(".reply-working:visible")).toHaveCount(1);
   await say(page, "messages", { conversation: "fixture-conversation", messages: [exchange(101)] });
   await send(page, "session", { conversation: "fixture-conversation", turn: "m100", state: "ended", newest: 101, head: 101 });
 
   // Assert
   await expect(talk.locator("[data-message]").last()).toContainText("Answer 101");
-  await expect(talk.locator(".reply-working")).toHaveCount(0);
+  await expect(talk.locator(".reply-working:visible")).toHaveCount(0);
   expect(await page.evaluate(() => (window as unknown as { cornerSaid: string[] }).cornerSaid.filter((words) => words.includes("Behind")))).toEqual([]);
 });
 
@@ -1094,7 +1097,7 @@ test("a stream that drops draws no working indicator while it says Reconnecting,
   const talk = list(page, "CEO");
   await expect(talk).toContainText("Answer 99");
   await send(page, "session", { conversation: "fixture-conversation", turn: "m98", state: "running", newest: 99, head: 99 });
-  await expect(talk.locator(".reply-working")).toHaveCount(1);
+  await expect(talk.locator(".reply-working:visible")).toHaveCount(1);
   const corner = page.locator(".messages-view:not([hidden]) .terminal-corner");
 
   // Act: the stream drops, and the browser opens it again.
@@ -1107,7 +1110,7 @@ test("a stream that drops draws no working indicator while it says Reconnecting,
 
   // Assert
   await expect(corner).toHaveText("Reconnecting");
-  await expect(talk.locator(".reply-working")).toHaveCount(0);
+  await expect(talk.locator(".reply-working:visible")).toHaveCount(0);
 
   // Act: it is back, with its newest page and the turn that still runs.
   await page.evaluate(() => { for (const { source } of (window as unknown as { messageStreams: { source: { readyState: number } }[] }).messageStreams) source.readyState = 1; });
@@ -1116,7 +1119,7 @@ test("a stream that drops draws no working indicator while it says Reconnecting,
 
   // Assert
   await expect(corner).toHaveCount(0);
-  await expect(talk.locator(".reply-working")).toHaveCount(1);
+  await expect(talk.locator(".reply-working:visible")).toHaveCount(1);
 });
 
 // #2172: the CEO's chat drew a conversation the CEO had left. The fleet's

@@ -104,12 +104,13 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   const [report, setReport] = useState<SessionReport | null>(null);
   // Behind and working are read from the stream's word and the view's own
   // place: the conversation drawn against what the stream sent and what its
-  // head names. The working row is that word as it is now, never kept from
-  // when he left the end, so a turn that ended draws no indicator wherever he
-  // reads. What the rows he reads show of their turn, its end and a reply's
-  // Run, is published with the messages, so what he reads up keeps still. A
-  // compaction is the session's own state rather than a turn, and draws the
-  // one indicator too once the view is live.
+  // head names. The working indicator is that word as it is now, never kept
+  // from when he left the end, so a turn that ended draws no indicator
+  // wherever he reads. What the rows he reads show of their turn, its end, a
+  // reply's Run and the working row's room, is published with the messages,
+  // so what he reads up keeps still. A compaction is the session's own state
+  // rather than a turn, and draws the one indicator too once the view is
+  // live.
   const standing = viewStanding(report, conversationHead(held), received);
   const isAtWork = standing.isWorking || phase === "live" && isCompacting;
   // The box's Stop reads the same word of the stream, as the session is now
@@ -852,7 +853,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     for (const row of items.current?.querySelectorAll<HTMLElement>(":scope > .reply-working, :scope > [data-queued], :scope > .conversation-ask") ?? []) observer.observe(row);
     settle();
     return () => observer.disconnect();
-  }, [queuedIDs, isAtWork, reachesEnd, phase, shown, settle]);
+  }, [queuedIDs, held.isWorking, reachesEnd, phase, shown, settle]);
   return <MessageDocumentScope query={query} instance={instance}><section className={"messages-view" + (box ? " has-box" : "")} hidden={!shown} aria-label="Messages" onKeyDown={keys}>
     {/* Connecting is a plain line above the conversation, never a cover over
         the box he types into. */}
@@ -878,7 +879,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
               session's reading, the dither included (the Overlord,
               2026-10-28: "connecting screens don't need to display the dither
               or usage unavailable"). */}
-          {shown && isAtWork && reachesEnd && <ReplyWorking said={held.said} ink={harnessInk(harness)} isCompacting={isCompacting} retry={link?.screen?.retry} />}
+          {shown && held.isWorking && reachesEnd && <ReplyWorking said={held.said} ink={harnessInk(harness)} isCompacting={isCompacting} isHeld={!isAtWork} retry={link?.screen?.retry} />}
           {/* His messages not yet in the session's record, at the
               conversation's end in its one scroll (the Overlord, 2026-10-29:
               "the double scrolls and having its own little scroll for queued
