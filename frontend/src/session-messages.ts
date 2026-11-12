@@ -120,8 +120,8 @@ export function parseUsage(value: unknown): SessionUsage | undefined {
 // head is, and why the conversation the board reads is not the current one or
 // cannot be kept. It is the one thing the board draws a turn from, so a
 // finished turn never draws a working indicator whatever a snapshot says.
-export interface SessionReport {
-  turn: string; state: TurnState; why: string; newest: number; head: number; stale: string; problem: string;
+export interface SessionReport extends ConversationHead {
+  turn: string; state: TurnState; why: string; head: number; stale: string; problem: string;
 }
 export type TurnState = "running" | "ended" | "unknown" | "none";
 const TURN_STATES = ["running", "ended", "unknown", "none"] as const;
@@ -129,23 +129,33 @@ const TURN_STATES = ["running", "ended", "unknown", "none"] as const;
 export function parseSession(value: unknown): SessionReport {
   const each = object(value);
   return {
-    turn: string(each.turn), state: choice(each.state, TURN_STATES, "turn state"),
+    conversation: string(each.conversation), turn: string(each.turn), state: choice(each.state, TURN_STATES, "turn state"),
     why: each.why == null ? "" : string(each.why), newest: number(each.newest), head: number(each.head),
     stale: each.stale == null ? "" : string(each.stale), problem: each.problem == null ? "" : string(each.problem),
   };
 }
 
-// How a view stands against the stream it draws. Behind means the stream holds
-// a message the view has not drawn, which is its own state: it is neither
-// disconnected nor ended, and no clock infers it. Working means the stream
-// says the newest turn runs and the view has drawn to the stream's head, so a
-// turn that ended never draws an indicator and a view that has not caught up
-// says it is behind instead.
-export function viewStanding(report: SessionReport | null, messages: SessionMessage[]): { isBehind: boolean; isWorking: boolean } {
-  if (!report) return { isBehind: false, isWorking: false };
-  const newest = messages.length ? messages[messages.length - 1].seq : -1;
-  const isBehind = report.newest > newest;
-  return { isBehind, isWorking: !isBehind && report.state === "running" };
+// Where a conversation ends: which conversation it is, and the seq of its
+// newest message, -1 while it holds none.
+export interface ConversationHead { conversation: string; newest: number }
+
+export function conversationHead(page: Pick<MessagePage, "conversation" | "messages">): ConversationHead {
+  return { conversation: page.conversation, newest: page.messages.at(-1)?.seq ?? -1 };
+}
+
+// How the conversation a view draws stands against the session. Behind means
+// the session holds a message the view has not drawn: one its stream sent
+// that the view holds back while he reads up, or one the stream's own head
+// names, in that conversation or in a newer one, as /clear begins. It is a
+// state of its own, neither disconnected nor ended, and no clock infers it.
+// Working means the stream says the session's turn runs and the view draws to
+// its head, so the indicator is the live session's word on what is drawn: a
+// turn that ended never draws one, however long ago the view left the end,
+// and a view that has not caught up says it is behind instead.
+export function viewStanding(report: SessionReport | null, drawn: ConversationHead, received: ConversationHead): { isBehind: boolean; isWorking: boolean } {
+  const isPast = (head: ConversationHead) => head.conversation !== drawn.conversation || head.newest > drawn.newest;
+  const isBehind = isPast(received) || !!report && isPast(report);
+  return { isBehind, isWorking: !isBehind && report?.state === "running" };
 }
 
 export function parsePage(value: unknown): MessagePage {

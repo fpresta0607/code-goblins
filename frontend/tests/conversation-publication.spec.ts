@@ -98,7 +98,7 @@ for (const ordering of ["response first", "stream first"] as const) {
 }
 
 for (const owner of ["CEO", "goblin"] as const) {
-  test(`${owner} keeps its working word while reading, with no Stop beside it`, async ({ page }) => {
+  test(`${owner} shows its working word while reading only as long as the turn runs, with no Stop beside it`, async ({ page }) => {
     const tail = { id: "working-tail", kind: "message", task_id: owner === "CEO" ? "" : GOBLIN.id, status: "queued", text: "A queued message below the working indicator\nwith another line", created_at: at, updated_at: at };
     const relay = await open(page, snapshot({ actions: [tail] }, { phase: "settled" }), "", pageOf());
     if (owner === "CEO") await page.keyboard.press("Control+Alt+1"); else await openGoblin(page);
@@ -111,12 +111,17 @@ for (const owner of ["CEO", "goblin"] as const) {
     // The working row holds no Stop: stopping is the box's (#1987).
     await expect(talk.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
     const place = await readNearEnd(talk, page);
-    const rows = await captureRows(talk);
-    // Once the turn ends, the row he reads stays as it was.
+    await captureRows(talk);
+    // Once the turn ends, its working word goes though he reads up, since it
+    // says what the session does now, and the rows he reads stay as they were.
     relay.say({ type: "screen", asking: false, open: false, working: false });
-    await expect(talk.getByRole("status", { name: "Cogitating" })).toBeVisible();
+    await expect(talk.getByRole("status", { name: "Cogitating" })).toHaveCount(0);
     expect(await reading(talk)).toEqual(place);
-    expect(await currentRows(talk)).toEqual({ sameNodes: true, rows });
+    expect(await talk.evaluate((element) => {
+      const prior = (window as unknown as { capturedRows: HTMLElement[] }).capturedRows.filter((row) => !row.matches(".reply-working"));
+      const now = [...element.querySelectorAll<HTMLElement>("[data-message], [data-queued]")];
+      return now.length === prior.length && now.every((row, index) => row === prior[index]);
+    }), "the same message and queued rows").toBe(true);
     await expect(talk.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
     expect(typed(relay)).toBe("");
     await page.getByRole("button", { name: "Jump to latest" }).click();
