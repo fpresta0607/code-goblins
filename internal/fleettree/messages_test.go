@@ -2012,6 +2012,7 @@ func TestATaskCallThatDidNotRunLeavesThePlanWhereItWas(t *testing.T) {
 		state  string
 	}{
 		{"failed", failedResult("r2", "toolu_2", "<tool_use_error>Task not found</tool_use_error>"), CallFailed},
+		{"refused", answered("r2", "toolu_2", "Task #1 not found", object{"success": false, "taskId": "1", "updatedFields": []string{}, "error": "Task not found"}, nil), CallFailed},
 		{"denied", answered("r2", "toolu_2", "Permission for this action was denied.", "Error: Permission denied", object{"permissionDecision": object{"decision": "reject", "source": "config"}, "toolDenialKind": "automode-blocked"}), CallDenied},
 		{"interrupted", answered("r2", "toolu_2", "The user doesn't want to proceed with this tool use.", object{"interrupted": true}, object{"toolDenialKind": "interrupted"}), CallInterrupted},
 	} {

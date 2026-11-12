@@ -1235,10 +1235,12 @@ type toolOutcome struct {
 	StructuredPatch     []struct {
 		Lines []string `json:"lines"`
 	} `json:"structuredPatch"`
-	// Task is the task a TaskCreate made.
+	// Task is the task a TaskCreate made, and Success false a TaskUpdate
+	// Claude Code refused without an error, as of a task it does not hold.
 	Task struct {
 		ID string `json:"id"`
 	} `json:"task"`
+	Success *bool `json:"success"`
 }
 
 // persisted is a result too large for the conversation as Claude Code writes
@@ -1263,7 +1265,7 @@ func (l *messageLog) result(entry messageEntry, block messageBlock, offset int64
 		call.State = CallInterrupted
 	case entry.PermissionDecision.Decision == "reject" || entry.ToolDenialKind != "":
 		call.State = CallDenied
-	case block.IsError:
+	case block.IsError, isTaskTool(call.Tool) && outcome.Success != nil && !*outcome.Success:
 		call.State = CallFailed
 	default:
 		call.State = CallDone
