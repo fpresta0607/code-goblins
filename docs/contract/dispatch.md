@@ -375,6 +375,16 @@ The existing weekly reserve still applies.
 A fallback records the wanted lane and evidence, and puts a durable notice in the CEO's queue; the goblin's card names its model and effort only in its harness mark's tip.
 This changes no running goblin: the separate `rules` array remains the CEO's authority for switching one.
 
+`roles` splits a lane's work into five roles.
+The lead plans, decomposes, integrates and decides: it is the lane itself, with that lane's own harness, model and effort and its `fallbacks`, so `roles` never names a lead.
+`roles` maps a lane to `implement` (writes code from the lead's plan), `review`, `verify` (both independent of the lead) and `fix` (applies a finding), each an ordered array of lanes: the role's own first, then its fallbacks.
+A role runs on its lead's harness and names lanes with explicit models, and a lane with roles names its own explicit model.
+A role the lane does not name is its lead's own work, so a table without `roles` routes every role to the lead, as before roles existed.
+Review and verification are kept off the lead's own model: while their lanes name another model, a lane on the lead's model is passed over, and when no other is usable the role is refused rather than run on it; they take the lead's model only when every lane they name is that model.
+The shipped table leads ordinary Codex work on Astra and hands implementation to `gpt-6.1-sol`, reviews on Astra and verifies on Sol; its Claude fallback leads on Opus, implements on Sonnet, and reviews and verifies on Fable.
+`goblins route` previews each role's lane after the quota check, or says why a role is refused, and `goblins doctor` prints each lane's roles.
+A project's `routing` block carries no roles, so its lanes keep every role on the lead.
+
 `subagents` maps each harness to `search`, `review` and `verify`, each an ordered array of lane names on that harness.
 Search includes reading and summaries, review uses a strong model, and verification prefers the first model different from the parent's recorded model, taking the configured one when the policy names no other.
 The shipped Codex verifier uses `gpt-6-sol` at `high`, falling back to Astra when Sol is the parent.

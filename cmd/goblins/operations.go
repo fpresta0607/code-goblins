@@ -121,12 +121,31 @@ func runRoute(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		fmt.Fprintf(stderr, "goblins route: %v\n", e)
 		return 1
 	}
-	choice, e := routing.Choose(a, inputs.Table, usableLane(report, skipped, settings, quotaClock(runtime), inputs.Table.StartFloorPercent))
+	usable := usableLane(report, skipped, settings, quotaClock(runtime), inputs.Table.StartFloorPercent)
+	choice, e := routing.Choose(a, inputs.Table, usable)
 	if e != nil {
 		fmt.Fprintln(stderr, e)
 		return 1
 	}
-	out := map[string]any{"task_class": a.Class, "risk": a.Risk, "lane": choice.ExecutionLane, "wanted": choice.Wanted, "source": inputs.Table.Source}
+	roles := make([]map[string]any, 0, len(routing.Roles))
+	for _, role := range routing.Roles {
+		if role == routing.RoleLead {
+			roles = append(roles, map[string]any{"role": role, "lane": choice.ExecutionLane, "wanted": choice.Wanted})
+			continue
+		}
+		roleChoice, e := inputs.Table.ChooseRole(role, choice.ExecutionLane, usable)
+		entry := map[string]any{"role": role, "wanted": roleChoice.Wanted}
+		if e != nil {
+			entry["refused"] = e.Error()
+		} else {
+			entry["lane"] = roleChoice.ExecutionLane
+		}
+		if len(roleChoice.Notes) > 0 {
+			entry["notes"] = roleChoice.Notes
+		}
+		roles = append(roles, entry)
+	}
+	out := map[string]any{"task_class": a.Class, "risk": a.Risk, "lane": choice.ExecutionLane, "wanted": choice.Wanted, "roles": roles, "source": inputs.Table.Source}
 	if skipped != "" {
 		out["quota"] = "check skipped (" + skipped + ")"
 	} else {

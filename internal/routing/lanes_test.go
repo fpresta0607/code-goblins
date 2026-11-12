@@ -110,6 +110,9 @@ func TestShippedRoutingTableMatchesTheDirection(t *testing.T) {
 		"small-claude":  {Harness: "claude", Model: "haiku", Effort: "medium"},
 		"verification":  {Harness: "codex", Model: "gpt-6-sol", Effort: "high"},
 		"verify-claude": {Harness: "claude", Model: "sonnet", Effort: "high"},
+		"light-codex":   {Harness: "codex", Model: "gpt-6.1-sol", Effort: "high"},
+		"light-claude":  {Harness: "claude", Model: "claude-sonnet-5-5", Effort: "high"},
+		"fable-claude":  {Harness: "claude", Model: "claude-fable-5-2", Effort: "xhigh"},
 	}
 	if len(policy.Lanes) != len(want) {
 		t.Fatalf("lanes = %v, want exactly %d", policy.Lanes, len(want))
