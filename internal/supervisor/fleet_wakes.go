@@ -113,8 +113,13 @@ type fleetWakes struct {
 	ProgressPassAt      time.Time `json:"progress_pass_at,omitzero"`
 	// IdleSince is when the scheduler first found work it could not start
 	// while memory was free, for the idle wake.
-	IdleSince    time.Time          `json:"idle_since,omitzero"`
-	RootReadings []rootStartReading `json:"root_readings,omitempty"`
+	IdleSince time.Time `json:"idle_since,omitzero"`
+	// LineStallSince is when the readings in a row began that found the heavy
+	// line standing still, a turn free with runs waiting and memory enough,
+	// and LineStallWoke says the CEO was told of them.
+	LineStallSince time.Time          `json:"line_stall_since,omitzero"`
+	LineStallWoke  bool               `json:"line_stall_woke,omitempty"`
+	RootReadings   []rootStartReading `json:"root_readings,omitempty"`
 	// DiskLow says disk_low woke since a reading was last at or above the
 	// disk floor.
 	DiskLow bool `json:"disk_low,omitempty"`
@@ -375,6 +380,7 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	if err != nil {
 		// No reading is no evidence either way: the next two decide.
 		w.MemoryAbove, w.MemoryBelow = 0, 0
+		w.LineStallSince, w.LineStallWoke = time.Time{}, false
 		return planningErr
 	}
 	if err := s.keepPools(memory, now); err != nil {
@@ -388,10 +394,12 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	s.starts.Unlock()
 	if isRestarting {
 		w.MemoryAbove, w.MemoryBelow = 0, 0
+		w.LineStallSince, w.LineStallWoke = time.Time{}, false
 		return planningErr
 	}
 	if w.MemoryReadAt.IsZero() || now.Sub(w.MemoryReadAt) > 2*fleetWatchEvery || !now.After(w.MemoryReadAt) {
 		w.MemoryAbove, w.MemoryBelow = 0, 0
+		w.LineStallSince, w.LineStallWoke = time.Time{}, false
 	}
 	w.MemoryReadAt = now
 	low := min(memory.Available, memory.CommitAvailable)
@@ -404,8 +412,10 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	if low < memoryFloor {
 		w.MemorySpent, w.MemoryAbove, w.MemoryLow = false, 0, true
 		w.MemoryBelow++
+		w.LineStallSince, w.LineStallWoke = time.Time{}, false
 		return errors.Join(planningErr, s.pauseAtMemoryFloor(w, memory, now))
 	}
+	stallErr := s.checkLineStall(w, memory, now)
 	w.MemoryBelow = 0
 	if low < memoryNext {
 		w.MemoryAbove = 0
@@ -417,17 +427,17 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	// start would dispatch is refused meanwhile, so nothing comes back or
 	// starts by itself at this reading.
 	if update.Installing(s.Store.Home.State) {
-		return planningErr
+		return errors.Join(planningErr, stallErr)
 	}
 	hold, lineErr := s.heavyLineHold(w, memory)
 	// What a restart ended comes back before anything else starts by itself, and no
 	// memory wake offers its room to other work while it does.
 	if planningErr == nil {
 		if isComing, err := s.comeBack(memory, w, hold); isComing || err != nil {
-			return errors.Join(lineErr, err)
+			return errors.Join(lineErr, stallErr, err)
 		}
 	}
-	planningErr = errors.Join(planningErr, lineErr)
+	planningErr = errors.Join(planningErr, lineErr, stallErr)
 	if low < memoryNext {
 		return planningErr
 	}
@@ -454,6 +464,43 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	w.MemorySpent = true
 	w.woke("memory", now)
 	return planningErr
+}
+
+// lineStallAfter is how long the heavy line stands still, a turn free with
+// runs waiting and memory enough, before the CEO is woken: longer than any
+// run takes to see its turn and take it.
+const lineStallAfter = 5 * time.Minute
+
+// checkLineStall wakes the CEO once when the readings in a row have found the
+// heavy line standing still for lineStallAfter, as on 2026-11-11 when one
+// process kept the line's lock for over 40 minutes while goblins gate turns read
+// "turn: free" (#2377). It wakes again only after a reading finds the line
+// moving, waiting on memory or unread.
+func (s *Service) checkLineStall(w *fleetWakes, memory Memory, now time.Time) error {
+	dispatch := s.Options.Dispatch
+	if dispatch == nil || dispatch.LineStall == nil {
+		return nil
+	}
+	stall, err := dispatch.LineStall(memory)
+	if err != nil {
+		err = fmt.Errorf("the machine's heavy line cannot be read for a stall, so none is told: %w", err)
+	}
+	if err = w.failing("line-stall", err); err != nil || stall == "" {
+		w.LineStallSince, w.LineStallWoke = time.Time{}, false
+		return err
+	}
+	if w.LineStallSince.IsZero() {
+		w.LineStallSince = now
+	}
+	if w.LineStallWoke || now.Sub(w.LineStallSince) < lineStallAfter {
+		return nil
+	}
+	detail := fmt.Sprintf("heavy_line_stalled: for %s the machine's heavy line has had %s, and no run took the turn. Next: goblins gate turns names who waits and any lock held long; a lock's owner is ended by its pid once its run is known stuck.", now.Sub(w.LineStallSince).Round(time.Minute), stall)
+	if err := raiseFleetWake(s.Store.Home.State, "idle", "heavy-line", detail); err != nil {
+		return err
+	}
+	w.LineStallWoke = true
+	return nil
 }
 
 // checkDisk wakes the CEO once when the home's drive falls under the mark the

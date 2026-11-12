@@ -71,6 +71,11 @@ type Dispatch struct {
 	// SlotHold says it, or "" when one may; nil reads none, and nothing waits
 	// on it.
 	HeavyLine func(Memory) (string, error)
+	// LineStall says how the machine's heavy line stands still at the given
+	// reading of memory, a turn free, runs waiting and memory enough for the
+	// one at its head, as MachineLineStall says it, or "" when it does not;
+	// nil reads none.
+	LineStall func(Memory) (string, error)
 	// Spawn runs goblins with args and returns what it printed.
 	Spawn func(ctx context.Context, args []string) (string, error)
 }

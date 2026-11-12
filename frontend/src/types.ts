@@ -480,7 +480,6 @@ export interface Snapshot {
   inbox: number;
   tasks: Task[];
   sessions: Session[];
-  retired: string[];
   actions: Action[];
   decisions: Decision[];
   issues: string[];
@@ -1056,7 +1055,6 @@ export function parseSnapshot(value: unknown): Snapshot {
     projects: array(v.projects).map((value) => { const p = object(value); return { name: string(p.name), repository: string(p.repository), contributors: array(p.contributors).map((person) => parsePerson(object(person))) }; }),
     release: v.release == null ? null : (({ installed, tag, page, published, source }) => ({ installed: string(installed), tag: string(tag), page: string(page), published: string(published), source: boolean(source) }))(object(v.release)),
     merge_trains: array(v.merge_trains).map(parseMergeTrain),
-    retired: strings(v.retired),
     issues: strings(v.issues),
     attention: strings(v.attention),
     history_count: v.history_count === undefined ? 0 : number(v.history_count),

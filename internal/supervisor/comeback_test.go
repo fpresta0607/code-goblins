@@ -639,6 +639,38 @@ func TestTheComebackHoldsGoblinsButNotTheCEOWhileTheHeavyLineWaits(t *testing.T)
 	}
 }
 
+// A heavy line that cannot be read for a stall is reported once it stays
+// unread, and holds back no goblin a restart ended from coming back, as a
+// line that cannot be read for a hold holds back none.
+func TestALineStallThatCannotBeReadLetsTheComebackGoOn(t *testing.T) {
+	// Arrange
+	recorder := &comebackRecorder{}
+	service, h, _ := comebackBoard(t, recorder, [2]float64{8, 8})
+	service.Options.Dispatch.LineStall = func(Memory) (string, error) { return "", errors.New("custody record incomplete") }
+	closedCEO(t, h.State)
+	terminalStarted(t, h, NativeCEOTerminal, lastSignIn.Add(time.Minute))
+	for _, id := range []string{"alpha", "bravo", "charlie"} {
+		workingGoblin(t, h, id, lastSignIn.Add(time.Hour))
+	}
+	var reported error
+
+	// Act
+	for minute := range 6 {
+		if err := service.checkFleet(t.Context(), thisSignIn.Add(time.Duration(minute)*time.Minute)); err != nil {
+			reported = err
+		}
+		awaitComeback(t, service)
+	}
+
+	// Assert
+	if came := recorder.came(); !slices.Equal(came, []string{NativeCEOTerminal, "alpha", "bravo", "charlie"}) {
+		t.Errorf("came back %v, want the CEO, then alpha, bravo and charlie", came)
+	}
+	if reported == nil || !strings.Contains(reported.Error(), "cannot be read for a stall") || !strings.Contains(reported.Error(), "custody record incomplete") {
+		t.Errorf("reported %v, want the stall read's failure", reported)
+	}
+}
+
 // A goblin that cannot come back stays stopped with the reason on its card
 // and wakes the CEO, and the goblins after it still come back.
 func TestAGoblinThatCannotComeBackStaysStoppedWithItsReasonAndBlocksNoOther(t *testing.T) {

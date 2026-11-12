@@ -291,7 +291,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		OpenPage:         (axi.Lavish{Commands: execx.OSRunner{}}).Open,
 		BoardAssets:      assets,
 		FirstRun:         firstRun,
-		Dispatch:         &supervisor.Dispatch{Memory: supervisor.MachineMemory, Disk: func() (supervisor.Disk, error) { return supervisor.MachineDisk(h) }, CommitHolders: supervisor.CommitHolders, Processors: supervisor.MachineProcessors, GPU: supervisor.MachineGPU, HeavyLine: supervisor.MachineHeavyLine, PoolTags: supervisor.PoolTags, Spawn: spawnFromBoard},
+		Dispatch:         serveDispatch(h),
 		CompactCEO:       compactNativeCEO,
 		// The CI wakes only read GitHub, as PullRequestState does, so an
 		// example home keeps them.
@@ -429,6 +429,11 @@ func firstRunOn(h home.Home, userHome string, example bool, setMachine func(root
 
 func boardStartAtLogin(h home.Home) install.Service {
 	return install.Service{Root: h.Root, StartAtLoginKey: startAtLoginKey()}
+}
+
+// serveDispatch reads the machine for the supervisor's starts and wakes.
+func serveDispatch(h home.Home) *supervisor.Dispatch {
+	return &supervisor.Dispatch{Memory: supervisor.MachineMemory, Disk: func() (supervisor.Disk, error) { return supervisor.MachineDisk(h) }, CommitHolders: supervisor.CommitHolders, Processors: supervisor.MachineProcessors, GPU: supervisor.MachineGPU, HeavyLine: supervisor.MachineHeavyLine, LineStall: supervisor.MachineLineStall, PoolTags: supervisor.PoolTags, Spawn: spawnFromBoard}
 }
 
 // spawnFromBoard runs this goblins binary with args, as a queued task's Start

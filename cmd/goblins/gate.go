@@ -631,8 +631,13 @@ func runGateTurns(stdout, stderr io.Writer, available func() (supervisor.Memory,
 	switch {
 	case len(report.Holding) == 0 && len(report.Waiting) == 0:
 		fmt.Fprintln(stdout, "no run holds the turn and none waits")
-	case len(report.Holding) == 0:
+	case len(report.Holding) == 0 && report.StuckLock == nil:
 		fmt.Fprintln(stdout, "turn: free")
+	case len(report.Holding) == 0:
+		fmt.Fprintln(stdout, "turn: free, but no run can take it")
+	}
+	if report.StuckLock != nil {
+		fmt.Fprintf(stdout, "lock: the line's lock (custody-mutation in the line's store) has been held by pid %d for %s, and while it is held no run joins the line, moves in it or takes a turn\n", report.StuckLock.PID, now.Sub(report.StuckLock.Since).Round(time.Second))
 	}
 	for _, run := range report.Holding {
 		line := fmt.Sprintf("turn: %s (pid %d), for %s", run.Who, run.PID, now.Sub(run.Since).Round(time.Second))
@@ -706,6 +711,16 @@ type turnsReport struct {
 	// a new session leaving the line's next run short of its floor, and is
 	// empty when it may.
 	Hold string `json:"hold"`
+	// StuckLock is the line's lock while a live owner has held it
+	// verify.StuckLockAfter or longer, which keeps every run out of the line
+	// and out of a free turn, and null otherwise.
+	StuckLock *turnsLock `json:"stuck_lock"`
+}
+
+// turnsLock is the owner of the line's lock and when it took it.
+type turnsLock struct {
+	PID   int       `json:"pid"`
+	Since time.Time `json:"since"`
 }
 
 // turnsRun is one run in the line: who it is, since when it holds its turn
@@ -763,6 +778,10 @@ func readTurns(available func() (supervisor.Memory, error)) (turnsReport, error)
 	if err != nil {
 		return turnsReport{}, fmt.Errorf("available memory cannot be read: %w", err)
 	}
+	stuck, err := verify.StuckLock(store, time.Now())
+	if err != nil {
+		return turnsReport{}, fmt.Errorf("the line's lock cannot be read: %w", err)
+	}
 	report := turnsReport{
 		Hold:      supervisor.SlotHold(floor, memory),
 		Capacity:  capacity,
@@ -775,6 +794,9 @@ func readTurns(available func() (supervisor.Memory, error)) (turnsReport, error)
 			FloorBytes:           floor,
 			IsShort:              min(memory.Available, memory.CommitAvailable) < floor,
 		},
+	}
+	if stuck != nil {
+		report.StuckLock = &turnsLock{PID: stuck.PID, Since: stuck.Acquired}
 	}
 	return report, nil
 }

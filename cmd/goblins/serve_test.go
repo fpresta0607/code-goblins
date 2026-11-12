@@ -134,3 +134,29 @@ func TestTheFirstRunStartWaitsForAnotherCEOStartAndKeepsItsTerminal(t *testing.T
 		t.Fatalf("first-run Start replaced the running terminal: before %+v, after %+v, error %v", before, after, err)
 	}
 }
+
+// The board's supervisor reads the machine's heavy line for a stall: with the
+// turn free, a run waiting for its floor and memory well above it, the
+// Dispatch serve hands the supervisor names the free turn and the run at the
+// head of the line, so its wake can fire (#2377).
+func TestServeDispatchReadsAHeavyLineStandingStill(t *testing.T) {
+	// Arrange
+	lineWithAWaitingRun(t)
+	dispatch := serveDispatch(testHome(t))
+	if dispatch.LineStall == nil {
+		t.Fatal("serve's Dispatch reads no line stall")
+	}
+
+	// Act
+	stall, err := dispatch.LineStall(supervisor.Memory{Available: 16 << 30, CommitAvailable: 16 << 30, Total: 32 << 30})
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"turns free and 1 in line", "a run that waits first"} {
+		if !strings.Contains(stall, want) {
+			t.Errorf("serve's LineStall = %q; want %q", stall, want)
+		}
+	}
+}
