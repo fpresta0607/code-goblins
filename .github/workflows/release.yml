@@ -85,6 +85,15 @@ jobs:
           # process for every hook, and a windowed one none.
           go build -trimpath -ldflags "-H windowsgui -X main.version=$env:RELEASE_TAG" -o goblins-hook.exe ./cmd/goblins
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # A release from before the rename, v0.5.18 and earlier, updates by
+          # downloading its own command's program, and its hook program, by
+          # the names it knew them by, and refuses a release that lists no
+          # such program. So the release ships goblins.exe and goblins-hook.exe
+          # a second time under those names, and signs, checks, scans and sums
+          # them as it does every program; the update they run moves such a
+          # home to goblins by itself.
+          Copy-Item goblins.exe cfo.exe
+          Copy-Item goblins-hook.exe cfo-hook.exe
           Push-Location cmd/goblins-window
           go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64 --product-version $env:RELEASE_TAG --file-version $env:RELEASE_TAG
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -129,6 +138,8 @@ jobs:
           path: |
             goblins.exe
             goblins-hook.exe
+            cfo.exe
+            cfo-hook.exe
             goblins-window.exe
             CodeGoblinsSetup.exe
             cg-ci-runner.exe
@@ -214,6 +225,8 @@ jobs:
             ${{ github.workspace }}\CodeGoblinsSetup.exe
             ${{ github.workspace }}\goblins.exe
             ${{ github.workspace }}\goblins-hook.exe
+            ${{ github.workspace }}\cfo.exe
+            ${{ github.workspace }}\cfo-hook.exe
             ${{ github.workspace }}\goblins-window.exe
             ${{ github.workspace }}\cg-ci-runner.exe
             ${{ github.workspace }}\no-mistakes.exe
@@ -281,7 +294,7 @@ jobs:
         run: |
           $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1
           if (-not $signtool) { throw "signtool.exe is not on this runner, so the signatures cannot be verified and nothing is published." }
-          foreach ($file in 'CodeGoblinsSetup.exe', 'goblins.exe', 'goblins-hook.exe', 'goblins-window.exe', 'cg-ci-runner.exe', 'no-mistakes.exe') {
+          foreach ($file in 'CodeGoblinsSetup.exe', 'goblins.exe', 'goblins-hook.exe', 'cfo.exe', 'cfo-hook.exe', 'goblins-window.exe', 'cg-ci-runner.exe', 'no-mistakes.exe') {
             $signature = Get-AuthenticodeSignature -FilePath $file
             if ($signature.Status -ne 'Valid') { throw "$file is not validly signed: $($signature.Status) $($signature.StatusMessage)" }
             if ($signature.SignerCertificate.GetNameInfo('SimpleName', $false) -ne $env:SIGNING_PUBLISHER) { throw "$file is signed by '$($signature.SignerCertificate.Subject)', not '$env:SIGNING_PUBLISHER'" }
@@ -339,7 +352,7 @@ jobs:
           if ($status.AMRunningMode -ne 'Normal' -or -not $status.AntivirusEnabled -or -not $status.RealTimeProtectionEnabled -or $preference.ExclusionPath -or $preference.ExclusionExtension) {
             throw "Microsoft Defender is not actively protecting this runner with nothing excluded, so its scan would prove nothing and nothing is published."
           }
-          foreach ($file in 'CodeGoblinsSetup.exe', 'goblins.exe', 'goblins-hook.exe', 'goblins-window.exe', 'cg-ci-runner.exe', 'no-mistakes.exe') {
+          foreach ($file in 'CodeGoblinsSetup.exe', 'goblins.exe', 'goblins-hook.exe', 'cfo.exe', 'cfo-hook.exe', 'goblins-window.exe', 'cg-ci-runner.exe', 'no-mistakes.exe') {
             $scan = & $scanner -Scan -ScanType 3 -File (Resolve-Path $file).Path -DisableRemediation
             $scan | Write-Host
             if ($LASTEXITCODE -ne 0) { throw "Defender's scan of $file exited with code $LASTEXITCODE (2 is a detection), so nothing is published." }
@@ -348,24 +361,12 @@ jobs:
           [IO.File]::WriteAllText("$PWD/defender-scan.txt", ($record -join "`n") + "`n")
       # install.ps1 refuses a download that does not match this file. The
       # sums are of the files as published, after signing where they are
-      # signed. A release from before the rename updates by downloading its
-      # own command's program, and its hook program when listed, by their old
-      # names, and refuses a release whose sums list no such program; so each
-      # is published under that name as a copy of the signed goblins program,
-      # whose own update moves the home to goblins. Only
-      # tests/pre_rename_build.ps1 spells those names.
+      # signed.
       - name: Checksum
         shell: pwsh
         run: |
-          . ./tests/pre_rename_build.ps1
-          New-Item -ItemType Directory -Force bridges | Out-Null
-          Copy-Item goblins.exe "bridges/$PreRenameCommand.exe"
-          Copy-Item goblins-hook.exe "bridges/$PreRenameCommand-hook.exe"
-          $lines = foreach ($file in 'CodeGoblinsSetup.exe', 'goblins.exe', 'goblins-hook.exe', 'goblins-window.exe', 'cg-ci-runner.exe', 'no-mistakes.exe') {
+          $lines = foreach ($file in 'CodeGoblinsSetup.exe', 'goblins.exe', 'goblins-hook.exe', 'cfo.exe', 'cfo-hook.exe', 'goblins-window.exe', 'cg-ci-runner.exe', 'no-mistakes.exe') {
             "$((Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant())  $file"
-          }
-          $lines += foreach ($file in Get-ChildItem bridges) {
-            "$((Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($file.Name)"
           }
           [IO.File]::WriteAllText("SHA256SUMS", ($lines -join "`n") + "`n")
       # The one-line install runs the install.ps1 published here, pinned to
@@ -451,15 +452,12 @@ jobs:
           $notes += ''
           $notes += '| File | SHA-256 |'
           $notes += '| --- | --- |'
-          . ./tests/pre_rename_build.ps1
-          $bridges = "$PreRenameCommand.exe", "$PreRenameCommand-hook.exe"
           foreach ($line in Get-Content SHA256SUMS) {
             $hash, $file = $line -split '\s+', 2
-            if ($file -in $bridges) { continue }
             $notes += "| ``$file`` | ``$hash`` |"
           }
           $notes += ''
-          $notes += "``$($bridges[0])`` and ``$($bridges[1])`` are copies of ``goblins.exe`` and ``goblins-hook.exe`` for the Update item of v0.5.18 and earlier, which moves such a home to ``goblins`` by itself; its board then says what changed and the way back."
+          $notes += "``cfo.exe`` and ``cfo-hook.exe`` are ``goblins.exe`` and ``goblins-hook.exe`` under the names the Update item of v0.5.18 and earlier downloads, which moves such a home to ``goblins`` by itself; its board then says what changed and the way back."
           $notes += ''
           $notes += "To install, download ``CodeGoblinsSetup.exe`` from this page and open it. Or run this in PowerShell:"
           $notes += ''
@@ -480,7 +478,8 @@ jobs:
             goblins.exe
             goblins-hook.exe
             goblins-window.exe
-            bridges/*.exe
+            cfo.exe
+            cfo-hook.exe
             cg-ci-runner.exe
             no-mistakes.exe
             no-mistakes-NOTICES
