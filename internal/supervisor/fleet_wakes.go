@@ -593,43 +593,34 @@ func largestBucket(record janitor.Record) (name string, bytes int64) {
 func memoryWork(h home.Home, finished *finishedWork, reading rowReading) (queued, waiting []string) {
 	queued = startableQueued(h, finished, reading)
 	for _, meta := range liveTasks(h.State) {
-		if pause, isHeld := heldByLifecycle(h.State, meta); isHeld {
-			// Memory is work a free reading can release; any other condition
-			// ends by itself, so freeing memory cannot end it, and an older
-			// report of a memory wait must not name the task as work it
-			// releases.
-			if pause != nil && pause.Reason == "memory" {
-				waiting = append(waiting, meta.ID)
-			}
-			continue
-		}
-		lines, _ := state.TailStatus(h.State, meta.ID, 200)
-		if _, report := latestReport(lines, spawnTime(meta.SpawnGen)); strings.HasPrefix(report, "waiting on memory: ") {
+		if waitsOn(h.State, meta, "memory") {
 			waiting = append(waiting, meta.ID)
 		}
 	}
 	return queued, waiting
 }
 
-// heldByLifecycle reports whether meta's lifecycle record of its current
-// generation says what holds the task now, whatever an older report said,
-// and the pause in force when it is paused. A task being changed or already
-// over is held, with no pause, as it waits on nothing. No record of this
-// generation, or a paused one that names no condition, holds nothing: an
-// older report is the only evidence there is, and missing evidence never
-// drops a real waiter.
-func heldByLifecycle(stateDir string, meta state.TaskMeta) (pause *state.PauseCondition, isHeld bool) {
-	record, err := state.ReadLifecycle(stateDir, meta.ID)
-	if err != nil || record.Generation != meta.SpawnGen {
-		return nil, false
+// waitsOn reports whether the task meta names waits on target now. Its
+// lifecycle record of its current generation says so first, whatever an older
+// report said: a paused task waits on what its pause in force names, and a
+// task being changed or already over waits on nothing. No record of this
+// generation, or a paused one that names no condition, says nothing, so the
+// task's latest report is the only evidence there is, and missing evidence
+// never drops a real waiter.
+func waitsOn(stateDir string, meta state.TaskMeta, target string) bool {
+	if record, err := state.ReadLifecycle(stateDir, meta.ID); err == nil && record.Generation == meta.SpawnGen {
+		switch record.Phase {
+		case "paused":
+			if record.Pause != nil {
+				return record.Pause.Reason == target
+			}
+		case "pausing", "resuming", "stopping", "stopped", "done", "failed":
+			return false
+		}
 	}
-	switch record.Phase {
-	case "paused":
-		return record.Pause, record.Pause != nil
-	case "pausing", "resuming", "stopping", "stopped", "done", "failed":
-		return nil, true
-	}
-	return nil, false
+	lines, _ := state.TailStatus(stateDir, meta.ID, 200)
+	_, report := latestReport(lines, spawnTime(meta.SpawnGen))
+	return strings.HasPrefix(report, "waiting on "+target+": ")
 }
 
 // queuedCandidates names the queued work in queue order: each structured row

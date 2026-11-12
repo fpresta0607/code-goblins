@@ -540,6 +540,36 @@ func TestAGoblinItsLifecycleHoldsIsNoSharedWaiter(t *testing.T) {
 	}
 }
 
+// A wait on the heavy line is a wait on memory, so a goblin paused for memory
+// waits on it whatever it last reported, as memory_ready counts it, while a
+// stopped goblin or one paused for something else does not.
+func TestAGoblinPausedForMemoryWaitsOnTheHeavyLine(t *testing.T) {
+	// Arrange
+	s, h, _ := sharedService(t)
+	pausedAt := time.Date(2026, 11, 11, 13, 0, 0, 0, time.UTC)
+	liveGoblin(t, h, "huey", `C:\dev\code-goblins`)
+	sharedWaiter(t, h, "wanda", "memory")
+	sharedWaiter(t, h, "fern", "memory")
+	for _, record := range []state.Lifecycle{
+		{ID: "huey", Generation: "s1", Operation: "pause-1", Action: "pause", Phase: "paused", Pause: &state.PauseCondition{Reason: "memory", At: pausedAt}, Updated: pausedAt},
+		{ID: "wanda", Generation: "s1", Operation: "stop-1", Action: "stop", Phase: "stopped", Updated: pausedAt},
+		{ID: "fern", Generation: "s1", Operation: "pause-1", Action: "pause", Phase: "paused", Pause: &state.PauseCondition{Reason: "overlord", At: pausedAt}, Updated: pausedAt},
+	} {
+		if err := state.WriteLifecycle(h.State, record); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Date(2026, 11, 11, 14, 0, 0, 0, time.UTC)
+
+	// Act
+	_, record := checkShared(t, s, h, &now)
+
+	// Assert
+	if waiting := sharedByName(t, record, SharedHeavyLine).Waiting; !slices.Equal(waiting, []string{"huey"}) {
+		t.Fatalf("heavy line waiting = %v, want huey alone", waiting)
+	}
+}
+
 // The heavy line reads full when every turn is held, short when memory is
 // under the next run's floor, and free otherwise, naming who holds and who
 // waits; a wait on it is a wait on memory, which memory_ready already tells,

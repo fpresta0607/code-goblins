@@ -15,7 +15,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/services"
-	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
@@ -275,17 +274,12 @@ func readDocker(ctx context.Context, probes *SharedProbes, stateDir string, now 
 	return service
 }
 
-// sharedWaiting names the live goblins whose latest report is a wait on
-// target, in name order, leaving out one its lifecycle says something else
-// holds, as no pause waits on a shared service.
+// sharedWaiting names the live goblins that wait on target now, in name
+// order.
 func sharedWaiting(h home.Home, target string) []string {
 	waiting := []string{}
 	for _, meta := range liveTasks(h.State) {
-		if _, isHeld := heldByLifecycle(h.State, meta); isHeld {
-			continue
-		}
-		lines, _ := state.TailStatus(h.State, meta.ID, 200)
-		if _, report := latestReport(lines, spawnTime(meta.SpawnGen)); strings.HasPrefix(report, "waiting on "+target+": ") {
+		if waitsOn(h.State, meta, target) {
 			waiting = append(waiting, meta.ID)
 		}
 	}
