@@ -983,6 +983,10 @@ func TestAGoblinIsToldToPutAHeavyRunBehindTheLine(t *testing.T) {
 				"never with a process start of your own, such as Win32_Process Create, Start-Process or start, which opens a window on the Overlord's desktop",
 				"A test you run by name needs no turn.",
 				"A WSL or Docker run, and a load or stress run, still need the CEO's word first, since no turn covers them.",
+				"Before you wait on or retry the gate daemon, the heavy-run line or the Docker engine, read their state with " + exe + " shared, the same under every harness",
+				"says busy, never stopped, for a live daemon that missed a reply",
+				"report it with --waiting-on gate-daemon, memory or docker and do not poll: you are told once when it is usable.",
+				"Never start, stop or restart a shared service.",
 			} {
 				if !strings.Contains(instruction, want) {
 					t.Errorf("instruction = %q, want %q", instruction, want)
@@ -1035,7 +1039,7 @@ func TestNotifyInstructionTeachesWorkingAndWaitingReports(t *testing.T) {
 	for _, want := range []string{
 		exe + " notify task-7 --done --closed <issue-url> --decision <sequence>",
 		exe + " notify task-7 --working \"<what>\"",
-		exe + " notify task-7 --waiting-on <task-id|run-id|overlord|ci|deploy|memory> \"<why>\"",
+		exe + " notify task-7 --waiting-on <task-id|run-id|overlord|ci|deploy|memory|gate-daemon|docker> \"<why>\"",
 		exe + " notify task-7 --waiting-on overlord \"<why>\" --lavish <html-file>",
 		exe + " notify task-7 --waiting-on overlord \"<why>\" --run <command.ps1>",
 		"runs it with one click in a terminal on his card, where he types into it",
