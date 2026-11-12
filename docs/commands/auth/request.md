@@ -4,7 +4,7 @@
 
 The one card for a step only the Supreme Overlord can take ([A browser step only he can take](../../contract/authentication.md#a-browser-step-only-he-can-take)): the exact page to open, the steps there, and only the inputs he enters, each labeled with `--label`.
 A NAME is a secret for the vault and a `--plain` NAME a value that comes back to the asker; a card that asks for nothing has his Done.
-`--window` brings the goblin's own browser session to him, `--wait` waits on the card and prints what came of it the moment it closes, `--done` closes it once the asker sees the step done, `--withdraw` takes it back, and `--reopen` brings back a card he closed.
+`--window` shows the goblin's own browser on the card, where he takes control and hands it back, `--wait` waits on the card and prints what came of it the moment it closes, `--done` closes it once the asker sees the step done, `--withdraw` takes it back, and `--reopen` brings back a card he closed.
 Every card has his Skip and Other.
 Ask the Supreme Overlord for credential values by name: he pastes each value on the request's card in the Command Center, on the board on this machine only, and the board stores it the way `goblins auth store` does, refreshes the project's running goblins, each for the services its task carries, and wakes you with the names stored, never a value.
 A stored name reaches a goblin only when a service of the manifest declares it and the goblin's task carries that service.

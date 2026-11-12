@@ -1421,28 +1421,36 @@ The panel keeps its live values while the switch runs, then shows the resulting 
 The CEO receives one digest line in the notify wake queue, never a prompt, for each saved queued or Resume choice, each switch that completed or failed, and each pending choice removed because its session changed or its selection became unavailable.
 Completed outcomes record the last harness, model and effort, while older outcomes without those fields say Engine not recorded.
 Connectors, the header's third view, is one page of everything the running goblins can reach, laid out as Claude's own connectors page is: a list, and a page for each connector (`frontend/src/connectors-page.tsx`, `frontend/tests/connectors-page.spec.ts`, #2303).
-The list holds MCP servers, the default connectors every goblin carries, such as the [crawler](crawler.md), repository services and credentials present in a goblin's launch environment, one row for each however many goblins have it, with 16px or larger text.
+The list holds MCP servers, the default connectors every goblin carries, such as the [crawler](crawler.md), repository services and the CLI variables present in a goblin's launch environment, one row for each however many goblins have it, with 16px or larger text.
 A row has the service's logo on a tile, a file of its own bundled with the board under `/assets/connectors` (Simple Icons marks, and Context7's own MIT icon) that loads only once its row is near the screen, or its initial where the board has none, then its name without a harness's prefix, its type and its status.
-The status is a check when every goblin that carries it reaches it, a warning mark and a word when one does not, Checking while a check runs, and a Connect button when no goblin carries it, which opens the connector's page, where the goblin to give it to is chosen.
+Its type says how it reaches a goblin: `MCP server`, `Claude MCP connector` or `Plugin MCP server` for an MCP server, `CLI variable` for a variable in the goblin's terminal, `Repository service` for a service the auth manifest declares, or `Built in`.
+The status is one word, the one of the goblin whose check says least, so a row never reads better than any goblin's check: Verified with a check mark only when every goblin's check confirmed it, Set for a variable or a service whose credentials resolve and that no check confirms, Installed for the crawler on a goblin's PATH, a green Sign in button when a goblin must sign in and the board can start it, the trouble's own word when its check failed, such as Expired or Unverified, Checking while a check runs, Not checked where no check could run, and a Connect button when no goblin carries it.
+Sign in and Connect each open the connector's page, where the goblin that signs in or takes it is chosen; where he must act it is a button in the board's look, never coloured words (the Overlord, 2026-11-11).
+Only Verified is green and only a failed check is amber, with no warning mark (the Overlord, 2026-11-11: "clean up the sign in and amber alerts to make it much more simple and user friendly especially with verification and difference between mcp and env cli variables", #2358).
+A Connect or Disconnect that waits for a goblin's next terminal says Applies at its next terminal in one quiet line under the row, and the connector's page says why.
+On a phone, what the page is doing, Checking connectors... or Check failed, takes a line of its own under the heading, clear of the heading and the recheck button.
 Yours lists the connectors at least one goblin carries and Discover those on offer that none does, a search box narrows either by name or type, and Browser logins is a third list where a goblin's project uses one.
-A row opens the connector's own page and Back returns to the list as it was left: the logo, name, type and one line on what a known service does, each goblin that can use it with its state, and the tools its harness reports, grouped as read-only and write, each group closed until opened.
+A row opens the connector's own page and Back returns to the list as it was left: the logo, name, type and one line on what a known service does, each goblin that can use it with its state in a word and the reason its check gave, and then what reaches a goblin through it in labelled parts.
+An MCP server's part says the goblin's harness starts it and calls its tools, and holds the tools its harness reports, grouped as read-only and write, each group closed until opened.
+A repository service's CLI variables part says command line tools in the goblin's terminal read them and names each variable the auth manifest declares for it, one another service shares included, with what each goblin's terminal holds of it, Set, Not set, Not given or Not checked, and a variable's own part names every service that declares it; neither shows a value.
 No harness reports a permission for a tool, so the page shows none.
 With no goblin running the page says so and lists nothing, since a connector is read from a goblin.
 The page has the canvas to itself while no panel has anything to show, with no placeholder asking for a task beside it; a goblin's or the CEO's panel that is open stays beside it, and on a phone, or maximized, it closes when the page is chosen.
 A goblin's row on that page offers Connect for a repository service the task does not carry or a project MCP server its harness was not given, and Disconnect for one the task's record names; a credential variable and an MCP server from outside the project's `.mcp.json` offer neither, and a credential variable no goblin carries has no row in the list, since its service's row offers it.
 Every name wraps whole, so a long name reads in full.
-A goblin whose connector is failing shows a warning mark with its state and reason under its name, and its repair buttons beside it; one connected, provided, optional, being checked or not carried shows no warning.
-Check details, closed until opened, holds what each goblin's check read of its session.
+A goblin whose connector is failing shows its trouble's word in amber with its reason under its name, and its repair buttons beside it, and one that must sign in shows its reason beside its green Sign in button, as Connect is green, with no word; a verified one says Verified alone, a change that waits for its next terminal says why in a quiet line, and no state shows a warning mark.
+Check details, closed until opened, holds for each goblin what its check proved and did not, when it ran and what it read of its session, so Verified carries no words on how it was checked (the Overlord, 2026-11-11).
 Claude checks use its MCP health report and the goblin's strict/config-file arguments; Codex inventory preserves the goblin's disabled-server overrides, and enabled servers earn Connected only from a fresh app-server runtime report, never from stored auth or cached tools.
-Repository services reuse the auth manifest's probes and status words; a resolved token with no probe is Unverified, and a token present in the goblin's environment is Provided rather than Connected.
+Repository services reuse the auth manifest's probes and status words: one whose credentials resolve and that declares no probe is Provided, which reads Set, and says it declares no connection check, one whose probe or identity check needs a program this machine does not have is Provided and says it was not checked here and why, and a token present in the goblin's environment is Provided rather than Connected.
+A check that could not run, because the credential store could not be opened or the goblin's terminal could not be read, is Not checked and says why; a Claude MCP server still starting when its check's time ran out is Unverified alone, and a failed, expired, missing or unreachable connector keeps reading so.
 A service the task does not carry is not probed, and its goblin's row offers Connect with nothing to store, since the value is stored and only kept from this task ([Credentials by need](contract/authentication.md#credentials-by-need)).
 Workspace says in one line which services' credentials the goblin's terminal carries, by name.
-Checks are cached for one minute, limited to two concurrent workers and 45 seconds per check, and return Checking immediately instead of blocking the board.
+Checks are cached for one minute, limited to two concurrent workers and 45 seconds per check, and return Checking immediately instead of blocking the board; a result older than a minute keeps its verdicts, each with the time it was checked, while its recheck runs.
 The page reads `GET /api/connections` once for each running goblin, two goblins at a time, so no check waits out its 45 seconds behind another's, and nothing reads it while the page is closed.
 Opening the page starts a goblin's check only when its cached result is older than a minute; Recheck and the first return to the board after each sign-in click always start one for every goblin, and a finished repair card, a Connect or a Disconnect has its own goblin read again.
 The page polls a goblin only while its check runs, so an open page never rechecks on its own.
 A recheck or finished repair that arrives while a goblin is being read has it read once more after that reading, and repair buttons act on the shown result without starting a check.
-Native environment reads verify the host, process ancestry, working folder and spawn generation; missing runtime evidence remains Unverified.
+Native environment reads verify the host, process ancestry, working folder and spawn generation; a terminal that cannot be read leaves its variables and the crawler Not checked.
 Herdr environment reads first verify the pane's registered harness, working folder, foreground process and shell ancestry, then the spawn generation in the process itself.
 Project MCP servers omitted from the goblin's configuration show with Connect on that goblin's row, and a token action when the project names a token variable and they are failing.
 CLI sign-in is offered only when the service's declared credentials resolve, and launch-disabled MCP servers offer no sign-in.
@@ -1589,11 +1597,11 @@ An open panel follows the task's current root generation or the CEO's terminal s
 The messages fill the panel, so they fill the window while it is maximized.
 A switch by Ctrl+Alt with a digit or an arrow, the first open and the end of the tour hand the keyboard to the message box, or to the terminal where the session has no messages or Classic draws it.
 The view shows the session's conversation as `GET /api/messages` serves it ([A session read as messages](#a-session-read-as-messages)), read only.
-The panel's selector chooses between this conversation and its task view, for the CEO and a goblin alike: a segmented control of Chat and Task, never a fold or a dropdown (the Overlord, 2026-10-26: "i dont like how you remove the selector at the top between caht and task panel bring that back i dont like the drop down also").
-Its two buttons are icons alone, Chat as Modern chat's message bubble and Task, each named for a screen reader, with no words and no tip, in the middle of the panel header's one row, between the name and the panel's controls, at desktop and phone widths alike (the Overlord, 2026-10-28: "chat and task doesn't need to be full width, it can fit inline with cfo and afk and just be the icons").
-It is only as wide as its two icons, and the room either side of it is shared equally, so it sits in the middle while both sides fit (the Overlord, 2026-10-29: "also put the switch in the middle less wide").
+The panel's selector chooses between this conversation and its task view, for the CEO and a goblin alike, and while a goblin's own browser runs its Screen view too ([A goblin's own browser](#a-goblins-own-browser)): a segmented control of Chat and Task, never a fold or a dropdown (the Overlord, 2026-10-26: "i dont like how you remove the selector at the top between caht and task panel bring that back i dont like the drop down also").
+Its buttons are icons alone, Chat as Modern chat's message bubble, Task and Screen, each named for a screen reader, with no words and no tip, in the middle of the panel header's one row, between the name and the panel's controls, at desktop and phone widths alike (the Overlord, 2026-10-28: "chat and task doesn't need to be full width, it can fit inline with cfo and afk and just be the icons").
+It is only as wide as its icons, and the room either side of it is shared equally, so it sits in the middle while both sides fit (the Overlord, 2026-10-29: "also put the switch in the middle less wide").
 On a narrower panel the controls keep what they show and the name gives way, wrapping onto more lines, and a control goes into More only once the name is down to its first letters.
-A maximized panel has room for both at once, draws its task list beside the conversation and hides the selector.
+A maximized panel has room for both at once, draws its task list beside the conversation and hides the selector, except while the goblin's own browser runs, when the selector switches between the conversation and the Screen view.
 The conversation carries no speaker line: no sender name and no harness icon above a message, for any speaker (the Overlord, 2026-10-26: "you dont need to ahve cfo and You above each of our messages either").
 What says who spoke is the side and the bubble it already has.
 The conversation is one centred column of a readable width, about 48 times its text size, however wide the panel is, with the message box centred under it.
@@ -2075,6 +2083,7 @@ What nothing proves is named for the CEO and never ended: a browser bridge with 
 
 A browser bridge belongs to one owner.
 chrome-devtools-axi keeps one bridge and one browser for each session name, and a terminal that names none shares its unnamed session with every other program of the user, so every goblin's terminal starts with `CHROME_DEVTOOLS_AXI_SESSION` set to its task id and the CEO's with `goblins`, whatever the user's environment named.
+A goblin started by a supervisor with a board also gets `CHROME_DEVTOOLS_AXI_BROWSER_URL`, so its bridge drives the goblin's own browser, which the supervisor runs and the board shows (see [A goblin's own browser](#a-goblins-own-browser)), and starts no browser of its own.
 The bridge is started with its terminal's environment, so it carries the terminal's mark and ends with it.
 The tool hashes a session name to one of 1,000 ports, so two tasks can be given the same port. The second bridge then fails to start, and its goblin sets `CHROME_DEVTOOLS_AXI_PORT` for itself.
 The tool removes no session's folder. The janitor removes one under `.chrome-devtools-axi\sessions` once the bridge its `bridge.pid` names no longer runs and nothing wrote to it for a day, and only when it holds nothing but the tool's own files.
@@ -2692,7 +2701,11 @@ goblins auth request --project acme-shop --task shop-signup --why "Sign in to th
 - A goblin's step card is its wait on the Overlord: a `goblins notify --waiting-on overlord` without a page while a card the goblin filed itself is open opens no second item, and the notify names the card and tells the goblin to wait on it in the background with `goblins auth request --wait-on <card> --task <id>`, which ends when the card closes.
   The board reads the goblin as waiting until it reports again, as for a wait on a run card.
   Done on the card, his or the goblin's, its inputs arriving, or his answer from Something else?, also closes as answered each plain wait of that goblin opened while the card was open, so nothing asks him for the step again; a wait opened before the card, or on a page, stays its own item.
-- `--window`, which needs `--wait` and the asker's own browser session, gives the card **Open the browser window**, `POST /api/credentials/window`, taken only on this PC. The asker's wait sees the press and restarts the goblin's chrome-devtools-axi session with a window on a profile in its task folder at the link, then reports it open or why it could not open, and the card says so. Once the card closes the wait restarts the session headless on the same profile, so the session keeps the sign-in.
+- `--window`, which needs `--wait` and the asker's own browser session on the board, gives the card **Take control**, `POST /api/credentials/window`, taken only on this PC.
+  The supervisor opens the card's link in the goblin's own browser (see [A goblin's own browser](#a-goblins-own-browser)), on the page it had open or a new one, gives him control of it, and the card shows that browser's Screen view, so no window opens on the desktop.
+  A browser that could not open offers the button again, saying why, as does a card whose browser closed before the card did, because Chrome exited, the browser went unused or the supervisor restarted.
+  His **Hand back** closes the card as done with his words, which the goblin's wait prints after its Done line, and any other close of the card gives the browser back to the goblin too.
+  Words that hold one shaped like a key are never passed on, as his answer on a card is not: the card then says only that the step is taken.
 - Every open credential and step card has Skip and the pencil beside its decision buttons. Skip is `POST /api/credentials/close` with `"action": "dismiss"`, from any board, and the pencil's Send is the same with `"action": "answer"` and his `"text"`, which closes the card as answered, refuses words shaped like a key, tells the goblin his answer and ends its wait with exit 4, printing `he answered instead: <his words>`. The card closes as dismissed, the goblin that asked is told in its terminal to go on without it, and the CEO gets a `review` wake.
 - The card's place, and its History row, then show one line: the `goblins auth store` command to give a secret it still asks for later, or, for a card with none, `goblins auth request --reopen <card>`. That command, run by the CEO or the asking goblin, brings the card back open under a new generation for the rest of its day, and the goblin is told to wait on it again.
 
@@ -2701,6 +2714,26 @@ A card the board refused, neither on the board nor in its inbox, ends the wait a
 The asker closes its own card with `--done <card>` once it sees the step done and takes it back with `--withdraw <card> --reason "<why>"`, both over the supervisor's pipe from its own terminal, and the CEO may withdraw any card.
 A goblin's open card is withdrawn once its goblin is gone or was replaced, or reported done or failed after it asked.
 A card closed as done, dismissed or withdrawn takes no value, and History lists it so.
+
+### A goblin's own browser
+
+Each goblin's browser session drives a Chrome the supervisor starts for it, headless, 1280 by 800 pixels, on a profile in the task's folder, so a sign-in made there stays with the task.
+Spawn points the session at it: `CHROME_DEVTOOLS_AXI_BROWSER_URL` is `ws://<board>/api/browser/devtools?generation=<generation>&task=<id>`, which the supervisor answers only for the task's current session, only from a process of this PC's own Windows user, and never from a web page, whose WebSocket always names its origin.
+The Chrome starts on the session's first command, closes two minutes after nothing uses it and once its goblin ends, starts again on the next use if it exited, and has no debugging port: its DevTools are on a private pipe, as a login's are.
+While it runs, the snapshot's task carries `browser: true`, the goblin's card shows **Browser active** as a button that opens `/?screen=<task>`, its Screen view full size in a tab of its own, and its panel offers **Screen** beside Chat and Task.
+
+The Screen view is `GET /api/screen?task=<id>&generation=<generation>&token=<instance>`, a WebSocket from the board's own origin.
+It shows the page the goblin or a sign-in opened or sent somewhere last, a blank page only when every page is blank, by its title and host alone, never its address, which can carry a sign-in's code.
+A title that reads as an address, with no space and a scheme's :// or a host followed by a path, query or fragment, as Chrome gives a page with no title of its own or one whose title has not drawn yet, shows as untitled, by its host alone.
+It sends the page's screencast as JPEG frames, each only once the view drew the one before, so a slow board is sent no more than it draws.
+A view streams only while it is on screen in a visible tab: one switched away from, scrolled out of sight, in a closed Command Center or in a hidden tab closes its socket, and the supervisor stops the page's screencast as it closes, so no frame is made or sent for nobody.
+At most 16 views are open at once; another is closed with "Too many screens are open."
+
+**Take control**, from the board on this PC only, makes him the browser's driver: each click, wheel turn, key and paste on the view's screen goes to the page through DevTools' Input domain, and while he drives the goblin's own commands are refused with "A person is driving this browser from the Code Goblins board. Wait until they hand it back, then try again.", except those that only set up a page the session attaches to.
+Nothing typed on the screen is logged, kept or shown by the board.
+While the screen has the keyboard, F6 gives it back to the board.
+**Hand back**, from any view, gives the browser back to the goblin with a few words of what he did, at most 300 characters, as a paste is at most 4000, each counted in characters whatever bytes they take.
+Control that no view shows for 30 minutes goes back to the goblin by itself.
 
 ## Browser key fetching
 

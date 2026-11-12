@@ -74,3 +74,29 @@ func TestAGoblinsParentIsTheRegisteredCEOElseTheSessionItsStartRunsIn(t *testing
 		})
 	}
 }
+
+// A goblin's browser is one the board can show: its session attaches to the
+// browser the supervisor runs for that generation of its task, through the
+// board, rather than starting a Chrome nothing else can reach. A spawn that
+// knows no board leaves the session its own.
+func TestAGoblinsBrowserSessionAttachesToItsBrowserThroughTheBoard(t *testing.T) {
+	for _, test := range []struct {
+		name, board, want string
+	}{
+		{"through the board", "http://127.0.0.1:7777", "ws://127.0.0.1:7777/api/browser/devtools?generation=s1&task=cg-screen"},
+		{"no board", "", ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			env := map[string]string{}
+
+			// Act
+			Service{Board: test.board}.nativeEnvironment(env, state.TaskMeta{ID: "cg-screen", SpawnGen: "s1"})
+
+			// Assert
+			if got := env[BrowserURLVariable]; got != test.want {
+				t.Fatalf("the session's browser = %q, want %q", got, test.want)
+			}
+		})
+	}
+}

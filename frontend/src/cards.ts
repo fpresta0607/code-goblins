@@ -48,5 +48,7 @@ export function panelViews(task?: Task, node?: Session): PanelView[] {
   if (task && (task.archived || ["pausing", "stopping"].includes(task.phase))) return ["task"];
   // A queued task whose Start is on its way takes a message in its Terminal
   // view until its terminal is up.
-  return task && !task.generation && !task.starting && !node ? ["task"] : ["task", "terminal"];
+  const views: PanelView[] = task && !task.generation && !task.starting && !node ? ["task"] : ["task", "terminal"];
+  // A goblin whose own browser runs shows it in its Screen view too.
+  return task?.browser && task.generation ? [...views, "screen"] : views;
 }

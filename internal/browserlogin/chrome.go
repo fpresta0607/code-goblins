@@ -24,7 +24,9 @@ type Launch struct {
 	Hosts []string
 	// Headless starts it with no window at all.
 	Headless bool
-	Page     string
+	// Width and Height size its window in pixels; zero leaves Chrome's own.
+	Width, Height int
+	Page          string
 }
 
 // Arguments are Chrome's command line for the launch: the login's profile,
@@ -38,6 +40,9 @@ func (l Launch) Arguments() []string {
 	}
 	if l.Headless {
 		arguments = append(arguments, "--headless")
+	}
+	if l.Width > 0 && l.Height > 0 {
+		arguments = append(arguments, fmt.Sprintf("--window-size=%d,%d", l.Width, l.Height))
 	}
 	if len(l.Hosts) > 0 {
 		arguments = append(arguments, "--host-resolver-rules="+HostRules(l.Hosts))
