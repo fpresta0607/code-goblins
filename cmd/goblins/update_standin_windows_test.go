@@ -459,7 +459,9 @@ func standInCrossingMachine(h home.Home, program string) (cutover.Machine, error
 // standInSettings are the user's settings a stand-in build's move reads and
 // writes, kept in the file it names, so the recovery of an update reads what
 // the update wrote. GOBLINS_TEST_CROSSING_ENDS ends the process as the move
-// sets its first setting, as a process ended part way through the move ends.
+// sets its first setting, as a process ended part way through the move ends,
+// and GOBLINS_TEST_CROSSING_FAILS fails that setting, so the move undoes
+// itself.
 type standInSettings string
 
 func (s standInSettings) read() (map[string]string, error) {
@@ -491,6 +493,9 @@ func (s standInSettings) Get(name string) (string, bool, error) {
 func (s standInSettings) Set(name, value string) error {
 	if os.Getenv("GOBLINS_TEST_CROSSING_ENDS") != "" {
 		os.Exit(9)
+	}
+	if os.Getenv("GOBLINS_TEST_CROSSING_FAILS") != "" {
+		return errors.New("the user's settings cannot be written")
 	}
 	values, err := s.read()
 	if err != nil {

@@ -1,6 +1,7 @@
 package cutover
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -192,8 +193,9 @@ func (m Machine) Undo(folder string) error {
 
 // undo undoes the steps the record says were made, and the file step that was
 // under way when the apply stopped, which may have set a program aside before
-// it wrote its replacement: its content before is kept, so undoing a file
-// step that did not run writes back what is there.
+// it wrote its replacement: its content before is kept, and undoing a file
+// step whose file already holds it, as one that did not run does, changes
+// nothing.
 func (m Machine) undo(folder string, record undoRecord) error {
 	last := record.Done
 	if last < len(record.Steps) && record.Steps[last].Kind == "file" {
@@ -321,6 +323,17 @@ func (m Machine) do(step *Step, isRemoved bool, after []byte) ([]string, error) 
 func (m Machine) undoStep(folder string, index int, step recordedStep) error {
 	switch step.Kind {
 	case "file":
+		var content []byte
+		if !step.IsAbsent {
+			kept, err := fsx.ReadFile(keptFile(folder, index))
+			if err != nil {
+				return err
+			}
+			if current, err := fsx.ReadFile(step.Key); err == nil && bytes.Equal(current, kept) {
+				return nil
+			}
+			content = kept
+		}
 		if m.isProgram(step.Key) {
 			if err := setAside(step.Key); err != nil {
 				return err
@@ -331,10 +344,6 @@ func (m Machine) undoStep(folder string, index int, step recordedStep) error {
 				return err
 			}
 			return removeMade(step.Made)
-		}
-		content, err := fsx.ReadFile(keptFile(folder, index))
-		if err != nil {
-			return err
 		}
 		if err := fsx.AtomicWriteFile(step.Key, content); err != nil {
 			return err

@@ -171,3 +171,54 @@ func TestARollbackHandsABuildFromBeforeTheRenameItsHomeByTheOldName(t *testing.T
 		})
 	}
 }
+
+// An install over a home a release before the rename set up, outside the
+// usual folder and named by the user's settings only by the old name, finds
+// it there and moves it to goblins first. A move that fails undoes itself:
+// the home stays as it was, the board starts again on the build from before
+// the rename, which is handed the home by the old name, and the copy of that
+// build the install kept as the fallback is there, since the journal that
+// release left of its last update is history.
+func TestAnInstallWhoseMoveToGoblinsFailsRestartsTheBoardFromBeforeTheRename(t *testing.T) {
+	// Arrange
+	u := newPreRenameHome(t, "candidate")
+	journal, err := cutovertest.FinishedUpdate(u.bin, u.state, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(update.Dir(u.state), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(update.Dir(u.state), "journal.json"), journal, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	environment := filepath.Join(t.TempDir(), "user-env.json")
+	values, err := json.Marshal(map[string]string{cutovertest.HomeSetting: u.root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(environment, values, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	u.serving()
+	handed := filepath.Join(u.state, oldHomeHandedFile)
+	_ = os.Remove(handed)
+	t.Setenv("GOBLINS_TEST_CROSSING_FAILS", "1")
+	t.Setenv("GOBLINS_TEST_UPDATE_SERVE_WAIT", "8s")
+
+	// Act
+	code, output, _ := (&keptHome{updateHome: u, environment: environment}).install("candidate")
+
+	// Assert
+	if code != 1 || !strings.Contains(output, "did not move to goblins") {
+		t.Fatalf("goblins install exited %d, want 1 and the move refused:\n%s", code, output)
+	}
+	u.previousServes()
+	u.isStillPreRename()
+	if got, err := os.ReadFile(handed); err != nil || !strings.EqualFold(filepath.Clean(string(got)), filepath.Clean(u.root)) {
+		t.Fatalf("the restarted board was handed the home %q (%v), want %s by the old name:\n%s", got, err, u.root, output)
+	}
+	if got, err := os.ReadFile(filepath.Join(update.Dir(u.state), "previous-goblins.exe")); err != nil || !bytes.Equal(got, u.previous) {
+		t.Fatalf("the install kept no copy of the build from before as the fallback (%v):\n%s", err, output)
+	}
+}

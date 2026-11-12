@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -242,5 +243,40 @@ func TestTheUndoOfACrossingThatEndedAsItWroteAProgramPutsTheProgramBack(t *testi
 	}
 	if found := before.differences(f.snapshot(t)); len(found) > 0 {
 		t.Fatalf("the undo left the machine changed:\n%s", strings.Join(found, "\n"))
+	}
+}
+
+// A program in the home's bin that cannot be set aside, as one a scanner
+// holds open, fails the crossing at its step, before that step changed
+// anything. The crossing then undoes every step it made before it, and the
+// program's own step, which changed nothing, does not stop that undo.
+func TestACrossingThatCannotSetAProgramAsideUndoesEverythingBeforeIt(t *testing.T) {
+	// Arrange
+	f := newFixture(t)
+	before := f.snapshot(t)
+	plan, err := f.machine.PlanCrossing(crossedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	program := filepath.Join(f.machine.Root, "bin", oldName+".exe")
+	name, err := syscall.UTF16PtrFromString(program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, err := syscall.CreateFile(name, syscall.GENERIC_READ, syscall.FILE_SHARE_READ, nil, syscall.OPEN_EXISTING, syscall.FILE_ATTRIBUTE_NORMAL, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.CloseHandle(held)
+
+	// Act
+	folder, err := f.machine.Apply(plan, crossedAt)
+
+	// Assert
+	if err == nil || folder != "" {
+		t.Fatalf("the crossing returned %q, %v; want it failed and undone", folder, err)
+	}
+	if found := before.differences(f.snapshot(t)); len(found) > 0 {
+		t.Fatalf("the failed crossing left the machine changed:\n%s", strings.Join(found, "\n"))
 	}
 }
