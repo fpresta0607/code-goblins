@@ -10,7 +10,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/crewstate"
@@ -863,19 +862,6 @@ func WorktreeOwner(stateDir string, worktreesRoots []string, project, path strin
 	}
 	task, known := ownerOf(dir, tasks, worktrees, unreadable)
 	return task, known, nil
-}
-
-// createdAt is when a directory was made, zero when that cannot be read.
-func createdAt(path string) time.Time {
-	info, err := os.Stat(path)
-	if err != nil {
-		return time.Time{}
-	}
-	data, ok := info.Sys().(*syscall.Win32FileAttributeData)
-	if !ok {
-		return time.Time{}
-	}
-	return time.Unix(0, data.CreationTime.Nanoseconds()).UTC()
 }
 
 // SelfAncestry reads this process's parents from the Windows process table.

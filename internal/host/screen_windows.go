@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -84,26 +83,6 @@ func readScreen(record Record, greeting hello) (screen, error) {
 		return screen{}, errors.New(answer.Error)
 	}
 	return answer, nil
-}
-
-// ScreenTail is a screen's last lines rows, or all of them for lines 0 or
-// less, without the trailing blanks of each row or the blank rows below the
-// last one written.
-func ScreenTail(screen []string, lines int) string {
-	rows := make([]string, len(screen))
-	for i, row := range screen {
-		rows[i] = strings.TrimRight(row, " ")
-	}
-	for len(rows) > 0 && rows[len(rows)-1] == "" {
-		rows = rows[:len(rows)-1]
-	}
-	if lines > 0 && lines < len(rows) {
-		rows = rows[len(rows)-lines:]
-	}
-	if len(rows) == 0 {
-		return ""
-	}
-	return strings.Join(rows, "\n") + "\n"
 }
 
 // serveScreen answers a screen request once its token is checked: the screen
