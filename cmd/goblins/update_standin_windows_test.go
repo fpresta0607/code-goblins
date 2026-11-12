@@ -3,19 +3,25 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
+	"testing/fstest"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/cutover"
+	"github.com/fpresta0607/code-goblins/internal/cutover/cutovertest"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
@@ -150,6 +156,12 @@ func standInServe(build string) int {
 		_ = os.WriteFile(filepath.Join(stateDir, "test-tampered-ran"), nil, 0o600)
 		return 1
 	case "previous":
+		// A build from before the rename finds its home only by the old
+		// name, so the one an update or an install hands it is kept for
+		// the test to read.
+		if handed := os.Getenv(cutovertest.HomeSetting); handed != "" {
+			_ = os.WriteFile(filepath.Join(stateDir, oldHomeHandedFile), []byte(handed), 0o600)
+		}
 		if _, err := lock.AcquireExclusiveNamed(stateDir, ".watch.lock"); err != nil {
 			fmt.Fprintln(os.Stderr, "existing watch owner must finish before serve:", err)
 			return 1
@@ -332,6 +344,7 @@ func standInInstall() int {
 		watch.HandoverWait = wait
 	}
 	updateStopWait = 5 * time.Second
+	newCrossingMachine = standInCrossingMachine
 	// A test of the refresh's bound has the install never end.
 	if os.Getenv("GOBLINS_TEST_INSTALL_HANGS") != "" {
 		time.Sleep(3 * time.Minute)
@@ -341,6 +354,7 @@ func standInInstall() int {
 
 func standInUpdate() int {
 	h := standInHome()
+	newCrossingMachine = standInCrossingMachine
 	// A home's installed build updates from a release as the version the
 	// test names, and passes the proof that the Overlord runs it unless the
 	// test asks for the proof.
@@ -420,3 +434,89 @@ func standInUpdate() int {
 	runtime := commandRuntime{resolveHome: func() (home.Home, error) { return h, nil }}
 	return runUpdate(os.Args[2:], os.Stdout, os.Stderr, runtime)
 }
+
+// oldHomeHandedFile is the file, in the home's state, where the previous
+// build's stand-in keeps the home it was handed by the old name.
+const oldHomeHandedFile = "test-old-home-handed"
+
+// standInSettingsFile is the file, in the home's root, that holds the user's
+// settings a stand-in build's move of its home reads and writes in place of
+// the machine's.
+const standInSettingsFile = "test-user-settings.json"
+
+// standInCrossingMachine is the machine a stand-in build moves its home h to
+// goblins on: the home itself, with the user's settings in
+// standInSettingsFile and no scheduled job, credential, label or harness of
+// this machine's, so no test changes the machine it runs on.
+func standInCrossingMachine(h home.Home, program string) (cutover.Machine, error) {
+	return cutover.Machine{
+		Root: h.Root, UserHome: filepath.Join(h.Root, "test-user"), Program: program,
+		Skills: fstest.MapFS{}, Contract: fstest.MapFS{}, Commands: []string{"spawn"},
+		Env: standInSettings(filepath.Join(h.Root, standInSettingsFile)), Jobs: noJobs{}, Vault: noCredentials{}, Labels: noLabels{}, Programs: runningPrograms{},
+	}, nil
+}
+
+// standInSettings are the user's settings a stand-in build's move reads and
+// writes, kept in the file it names, so the recovery of an update reads what
+// the update wrote. GOBLINS_TEST_CROSSING_ENDS ends the process as the move
+// sets its first setting, as a process ended part way through the move ends,
+// and GOBLINS_TEST_CROSSING_FAILS fails that setting, so the move undoes
+// itself.
+type standInSettings string
+
+func (s standInSettings) read() (map[string]string, error) {
+	values := map[string]string{}
+	data, err := os.ReadFile(string(s))
+	if errors.Is(err, os.ErrNotExist) {
+		return values, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return values, json.Unmarshal(data, &values)
+}
+
+func (s standInSettings) write(values map[string]string) error {
+	data, err := json.Marshal(values)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(string(s), data, 0o600)
+}
+
+func (s standInSettings) Get(name string) (string, bool, error) {
+	values, err := s.read()
+	value, isSet := values[name]
+	return value, isSet, err
+}
+
+func (s standInSettings) Set(name, value string) error {
+	if os.Getenv("GOBLINS_TEST_CROSSING_ENDS") != "" {
+		os.Exit(9)
+	}
+	if os.Getenv("GOBLINS_TEST_CROSSING_FAILS") != "" {
+		return errors.New("the user's settings cannot be written")
+	}
+	values, err := s.read()
+	if err != nil {
+		return err
+	}
+	values[name] = value
+	return s.write(values)
+}
+
+func (s standInSettings) Unset(name string) error {
+	values, err := s.read()
+	if err != nil {
+		return err
+	}
+	delete(values, name)
+	return s.write(values)
+}
+
+func (s standInSettings) Names() ([]string, error) {
+	values, err := s.read()
+	return slices.Sorted(maps.Keys(values)), err
+}
+
+func (standInSettings) Broadcast() error { return nil }

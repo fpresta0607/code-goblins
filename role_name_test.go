@@ -32,6 +32,7 @@ var recordedHistory = []struct{ path, why string }{
 	{"role_name_test.go", "this file, which names what keeps the old name"},
 	{"tests/pre_rename_build.ps1", "the names a build from before the rename knows itself by, for the tests that drive one"},
 	{"internal/cutover/", "the cutover, which finds each thing it moves from the old name by that name"},
+	{".github/workflows/release.yml", "the release, which ships goblins.exe and goblins-hook.exe a second time under the names a release from before the rename downloads to update itself, and signs, checks and sums them as every program"},
 }
 
 // overlordsWords are the Supreme Overlord's own words that name the old role,

@@ -30,7 +30,12 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	generation := flags.String("generation", "", "switch only the selected task session")
 	forceDirty := flags.Bool("force-dirty", false, "switch even though the worktree has uncommitted changes")
 	restart := flags.Bool("restart", false, "start the goblin's own harness, model and effort again on its conversation, onto any update of its harness")
+	renamed := flags.Bool("renamed", false, "with --restart: start it again under goblins' names, as the supervisor does after its home moved to them")
 	if !parseFlags(flags, args[1:]) {
+		return 2
+	}
+	if *renamed && !*restart {
+		fmt.Fprintln(stderr, "goblins switch: --renamed goes with --restart")
 		return 2
 	}
 	if *restart && (*harnessName != "" || *model != "" || *effort != "") {
@@ -75,6 +80,9 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	if *restart {
 		request.ResumeNote = "The Overlord restarted you on your own harness, model and effort."
 	}
+	if *renamed {
+		request.ResumeNote = renamedNote
+	}
 	if request.Harness == "" || string(request.Harness) == meta.Harness {
 		if request.ResumeSession, err = taskSession(h.State, meta); err != nil {
 			fmt.Fprintf(stderr, "switch: %v\n", err)
@@ -92,6 +100,10 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	}
 	return 0
 }
+
+// renamedNote is what a goblin restarted under goblins' names is told, the
+// one line it needs: the names it used before this update are gone.
+const renamedNote = "Code Goblins updated, and its command is now goblins and its settings begin GOBLINS_: the command and settings you used before are gone, so run goblins from here on. You were restarted under the new names at the end of your turn, on your own conversation, harness, model and effort."
 
 // taskSession is the conversation the task's goblin of its current
 // generation is in: the one the board recorded or kept as its running

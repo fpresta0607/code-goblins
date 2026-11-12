@@ -196,9 +196,23 @@ A build made from a clone has no release version, so it says to run `git pull` a
 The update is yours alone: it refuses to run under the CEO, in a goblin's or a gate's terminal, under an agent harness, and where its parents cannot be followed to the desktop, as in Git Bash; run it in PowerShell or cmd.
 Rerunning the install still updates the tools it pins, such as no-mistakes, which an update leaves as they are.
 
+### Updating from a release before the rename
+
+Code Goblins v0.5.18 and earlier named its command differently and began its settings with another prefix.
+Its **Update** item, and the one-line install or `CodeGoblinsSetup.exe` run over such a home, update it to `goblins` with nothing to do by hand.
+Each release ships copies of `goblins.exe` and `goblins-hook.exe` under the names those releases download, the same build, listed in `SHA256SUMS` and signed like the rest.
+Within the update's own window, the new build moves the home to goblins' names, as [`goblins cutover`](commands/cutover.md) does, and keeps everything its undo needs in `state\backups\cutover-<time>`: your settings, projects, credentials, skills, hooks, scheduled job and the goblins' work stay as they were, under the new names.
+An update that does not serve puts the move back with the previous build.
+The board then says once what changed, which terminals restart under the new names, and the way back.
+A goblin's terminal and the CEO's that started before the update hold the old settings, so each restarts on its own conversation, harness, model and effort, but only once it is idle with nothing typed on its prompt line, and never on the board's first look, so the notice comes first.
+A terminal you opened yourself before the update needs opening again.
+The copies under the old names are removed once no terminal from before the update runs and nothing runs them.
+The GitHub labels of the goblins' tickets take the new names once the updated board starts, as part of the same undo.
+The way back is the command the board and the update name, `goblins cutover --undo '<folder>'`, run with the fleet paused.
+
 ### What an update keeps
 
-An update replaces the programs and brings the home's contract, skills and hooks up to date, and keeps everything else as it was:
+An update replaces the programs and brings the home's contract, skills and hooks up to date, and keeps everything else as it was, apart from the move of a home from a release before the rename, [above](#updating-from-a-release-before-the-rename):
 
 - Your home, `%LOCALAPPDATA%\CodeGoblins` or the folder `GOBLINS_HOME` names, with its state, data and worktrees, which it never moves, deletes or rewrites.
 - Your settings: the policy files in the home's `config` folder stay as you tuned them, and Start at login stays as you set it.
