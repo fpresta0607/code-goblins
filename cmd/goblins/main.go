@@ -161,6 +161,7 @@ commands:
 `
 
 func main() {
+	cutover.AdoptOldSettings()
 	leaveOwnConsole(os.Args[1:])
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }

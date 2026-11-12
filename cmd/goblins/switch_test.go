@@ -27,6 +27,7 @@ func TestRunSwitchNeedsAHarnessModelOrEffort(t *testing.T) {
 		"no options":            {nil, 2, "one of --harness, --model, --effort or --restart is required"},
 		"--native":              {[]string{"--native"}, 2, "-native"},
 		"a restart with values": {[]string{"--restart", "--model", "gpt-5"}, 2, "--restart keeps the goblin's own harness, model and effort"},
+		"renamed alone":         {[]string{"--renamed"}, 2, "--renamed goes with --restart"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := testHome(t)
@@ -158,6 +159,33 @@ func TestRunSwitchRefusesUnreadableSessionOwnershipBeforeLaunching(t *testing.T)
 
 	if exit != 1 || isCalled || !strings.Contains(stderr.String(), "session ownership") {
 		t.Fatalf("exit=%d called=%v stderr=%s, want refusal before switching", exit, isCalled, stderr.String())
+	}
+}
+
+func TestRunSwitchRenamedRestartsTheGoblinTellingItTheNewNames(t *testing.T) {
+	// Arrange
+	h := testHome(t)
+	if err := os.MkdirAll(h.State, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "g4", Harness: "codex", SpawnGen: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	deps := testCommandRuntimeForHome(h)
+	var got spawn.SwitchRequest
+	deps.switchTask = func(_ context.Context, _ home.Home, request spawn.SwitchRequest) (spawn.SwitchResult, error) {
+		got = request
+		return spawn.SwitchResult{Output: "restarted g4"}, nil
+	}
+	deps.speedHint = func(context.Context, string) string { return "" }
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := runWithRuntime([]string{"switch", "g4", "--generation", "s1", "--restart", "--renamed"}, &stdout, &stderr, deps)
+
+	// Assert
+	if exit != 0 || !got.Restart || got.ResumeNote != renamedNote || !strings.Contains(got.ResumeNote, "command is now goblins and its settings begin GOBLINS_") {
+		t.Fatalf("renamed restart = %d, %+v: %s", exit, got, stderr.String())
 	}
 }
 

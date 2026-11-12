@@ -181,6 +181,55 @@ func TestAnArchivedBriefIsNotAnUndispatchedTask(t *testing.T) {
 	}
 }
 
+// tasks-axi moves the oldest Done rows out of the backlog into the done
+// archive. A brief closed without a dispatch, as one folded into a group,
+// has only that row to close it, so a row in the archive still does, and a
+// brief the archive does not list, even by a note under another row, stays
+// queued.
+func TestADoneRowMovedToTheDoneArchiveStillClosesItsBrief(t *testing.T) {
+	cases := []struct {
+		name       string
+		archive    string
+		wantQueued bool
+	}{
+		{"a checkbox row", "## Archived 2026-11-12\n- [x] task - Folded into a group (repo: project) (done 2026-11-01)\n", false},
+		{"a bold row", "## Archived 2026-11-12\n- **task** - Delivered by another task (repo: project)\n", false},
+		{"another task's row naming it in a note", "## Archived 2026-11-12\n- [x] other - Other work (repo: project)\n  lesson: task is next\n", true},
+		{"no archive", "", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			h := home.Home{Data: t.TempDir(), State: t.TempDir()}
+			if err := os.Mkdir(filepath.Join(h.Data, "task"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(h.Data, "task", "brief.md"), []byte("## Project\nproject\n## Task\nClosed without a dispatch\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte("## Queued\n## Done\n- [x] recent - Recent work (repo: project)\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if c.archive != "" {
+				if err := os.WriteFile(filepath.Join(h.Data, "done-archive.md"), []byte(c.archive), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Act
+			queued, err := ReadQueuedTask(h, "task")
+
+			// Assert
+			if c.wantQueued && (err != nil || !queued.IsBriefOnly) {
+				t.Fatalf("queued = %+v, %v; want the brief queued", queued, err)
+			}
+			if !c.wantQueued && err != ErrNotQueued {
+				t.Fatalf("queued = %+v, %v; want the archived row to close the brief", queued, err)
+			}
+		})
+	}
+}
+
 func TestCompletedOutcomeRefusesAQueuedRow(t *testing.T) {
 	for _, row := range []string{"- **delivered** - Delivered", "- [ ] delivered - Delivered"} {
 		t.Run(row, func(t *testing.T) {

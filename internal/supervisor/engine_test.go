@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -781,5 +782,50 @@ func TestBoardRestartRestartsAGoblinOnItsOwnEngineAtOnce(t *testing.T) {
 				t.Fatalf("engine choice after restart: %v; want none left", err)
 			}
 		})
+	}
+}
+
+// A goblin's worktree starts on no branch, and a goblin at work from before
+// the home moved to goblins' names may not have made one yet. No gate run can
+// hold a branch it has not got, so its restart under the new names waits only
+// for its turn to end.
+func TestARenamedRestartReachesAGoblinWhoseWorktreeIsOnNoBranch(t *testing.T) {
+	// Arrange
+	spawner := &spawnRecorder{}
+	handler, h := startBoard(t, 5*gigabyte, spawner)
+	service := handler.Service
+	service.Options.Dispatch.Idle = func(context.Context, state.TaskMeta) (bool, error) { return true, nil }
+	service.Options.Gate = &engineGate{}
+	meta := state.TaskMeta{ID: "goblin", SpawnGen: "s1", Harness: "pi", Model: "stand-in", Effort: "high", Backend: "native", Worktree: t.TempDir(), Project: h.Root}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	gitFixture(t, meta.Worktree)
+	detach := exec.Command("git", "checkout", "-q", "--detach")
+	detach.Dir = meta.Worktree
+	if out, err := detach.CombinedOutput(); err != nil {
+		t.Fatalf("git checkout --detach: %v\n%s", err, out)
+	}
+	choice := state.EngineChoice{ID: meta.ID, Generation: meta.SpawnGen, Harness: meta.Harness, Model: meta.Model, Effort: meta.Effort, When: "renamed", Requested: time.Now().UTC()}
+	if err := state.WriteEngineChoice(h.State, choice); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	now := time.Now().UTC()
+	for _, elapsed := range []time.Duration{0, 2 * time.Second} {
+		if err := service.applyEngineChoices(context.Background(), now.Add(elapsed)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitEngineChange(t, service, meta.ID)
+
+	// Assert
+	want := [][]string{{"switch", meta.ID, "--generation", meta.SpawnGen, "--restart", "--renamed"}}
+	if calls := spawner.recorded(); !slices.EqualFunc(calls, want, slices.Equal[[]string]) {
+		service.starts.Lock()
+		failure := service.changeErrors[meta.ID]
+		service.starts.Unlock()
+		t.Fatalf("restart calls = %+v, card problem %q; want %+v", calls, failure.Message, want)
 	}
 }

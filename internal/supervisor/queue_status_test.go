@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -65,6 +66,41 @@ func TestSnapshotAndStartAgreeOnBriefQueueMembership(t *testing.T) {
 				t.Fatalf("nonqueued Start=%d %s; dispatches=%d", response.Code, response.Body, len(spawner.recorded()))
 			}
 		})
+	}
+}
+
+// tasks-axi moves the oldest Done rows into the done archive. A brief closed
+// without a dispatch has only that row to close it, so once the archive lists
+// it the brief is neither shown as queued nor started, even by a snapshot
+// that read it as queued before.
+func TestABriefWhoseDoneRowMovedToTheDoneArchiveIsNotStarted(t *testing.T) {
+	// Arrange
+	spawner := &spawnRecorder{}
+	handler, h := startBoard(t, 11*gigabyte, spawner)
+	writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n")
+	writeFile(t, filepath.Join(h.Data, "next-task", "brief.md"), plainBrief)
+	before, err := handler.Service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(before.Tasks, func(task Task) bool { return task.ID == "next-task" && task.Phase == "queued" }) {
+		t.Fatalf("tasks = %+v, want the unlisted brief queued before the archive lists it", before.Tasks)
+	}
+
+	// Act
+	writeFile(t, filepath.Join(h.Data, "done-archive.md"), "## Archived 2026-11-12\n- [x] next-task - Folded into a group (repo: code-goblins)\n")
+	after, err := handler.Service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := postStart(handler, `{"task":"next-task"}`, "board.local", "http://board.local", orderToken)
+
+	// Assert
+	if slices.ContainsFunc(after.Tasks, func(task Task) bool { return task.ID == "next-task" && task.Phase == "queued" }) {
+		t.Errorf("tasks = %+v, want the archived brief not queued", after.Tasks)
+	}
+	if response.Code != 409 || len(spawner.recorded()) != 0 {
+		t.Errorf("Start = %d %s, dispatches = %d; want it refused", response.Code, response.Body, len(spawner.recorded()))
 	}
 }
 

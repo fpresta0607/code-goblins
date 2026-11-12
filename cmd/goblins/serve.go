@@ -26,6 +26,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/installbase"
 	"github.com/fpresta0607/code-goblins/internal/keypages"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
@@ -322,9 +323,16 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		DevDrive:           devDrive,
 		Tree:               tree,
 		Releases:           releases,
-		KeyPages:           keyPages,
-		RestartWindows:     restartWindows,
-		EndHeavyRuns:       supervisor.EndHeavyRuns,
+		Relabel: func(folder string) error {
+			machine, err := crossingMachine(installbase.NewEnvStore(execx.OSRunner{}), h, "")
+			if err != nil {
+				return err
+			}
+			return machine.Relabel(folder)
+		},
+		KeyPages:       keyPages,
+		RestartWindows: restartWindows,
+		EndHeavyRuns:   supervisor.EndHeavyRuns,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
