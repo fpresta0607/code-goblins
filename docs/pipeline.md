@@ -246,6 +246,11 @@ A short one may be given with `--intent <text>`.
 Either way `goblins pipeline run` hands it to no-mistakes in a file, never on a command line.
 An intent is prose, often several thousand characters that name a shell, and on 2026-10-02 Microsoft Defender detected one on a command line as `Trojan:Win32/ClickFix.DQ!MTB`, the lure that has a person paste such a line, and Windows refused the start.
 A no-mistakes before 1.86.0 has no `--intent-file`, so for such a build alone the intent stays on the command line, and the command says so.
+Every run starts with `--no-publish-intent`, so the intent, a task's private brief with its machine-local paths, ownership decisions and routing, never becomes the Intent section of the pull request the gate opens (issue 1866).
+no-mistakes keeps that on the run, so a later refresh of the body after CI leaves it out too, and every step but the pull request's drafting still reads the whole intent.
+no-mistakes never took a closing reference from the intent, so none is lost: its `## Issues` section comes only from `axi run --closes`.
+A no-mistakes before 1.80.0 has no such flag, so on it no run starts, and the command says to update it.
+A run started before this change, without the flag, keeps publishing its intent; reattaching to it passes no flag, since no-mistakes refuses one a running run was not started with.
 A response's `--instructions` still reach no-mistakes on its command line, which is the only way it takes them, so keep them short and plain.
 An approval `--reason` reaches it the same way, and the driver refuses one that is not a single line of plain text.
 
