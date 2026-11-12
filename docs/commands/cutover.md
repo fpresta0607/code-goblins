@@ -4,7 +4,9 @@
 
 Move an installed home from the command's old name to `goblins`, and the role's own files and records to the CEO's names, once, after the build that renamed them is merged.
 The CEO runs it as the new build with the fleet paused: it refuses while a supervisor serves the home.
-Each of its forms also refuses, before it changes anything, while any program runs from the home's `bin` folder, judged by the full path of the program each running process was started from, and names each with its pid, such as `bin\goblins-window.exe (pid 1234) runs from this home; close it first`, since Windows does not let a running program be replaced or removed.
+Each of its forms also refuses, before it changes anything, while any other program runs from the home's `bin` folder, judged by the full path of the program each running process was started from, and names each with its pid, such as `bin\goblins-window.exe (pid 1234) runs from this home; close it first`, since Windows does not let a running program be replaced or removed.
+The cutover itself may run from `bin`, as the undo the update prints does.
+An update or an install of a home from a release before the rename makes this move by itself as it installs the new build, so the command is needed only for its undo or to make the move by hand.
 The home is the one the old build's user setting for it names, else this build's `GOBLINS_HOME` user setting, which a terminal opened before the cutover does not hold, else the home this build resolves.
 
 `--dry-run` changes nothing.

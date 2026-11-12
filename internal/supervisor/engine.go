@@ -225,15 +225,18 @@ func (s *Service) startEngineSwitch(meta state.TaskMeta, choice state.EngineChoi
 	delete(s.changeErrors, meta.ID)
 	go func() {
 		args := []string{"switch", meta.ID, "--generation", meta.SpawnGen, "--harness", choice.Harness, "--model", choice.Model, "--effort", choice.Effort, "--force-dirty"}
-		if choice.When == "update" || choice.When == "restart" {
+		switch choice.When {
+		case "update", "restart":
 			args = []string{"switch", meta.ID, "--generation", meta.SpawnGen, "--restart"}
+		case "renamed":
+			args = []string{"switch", meta.ID, "--generation", meta.SpawnGen, "--restart", "--renamed"}
 		}
 		output, err := s.Options.Dispatch.Spawn(context.Background(), args)
 		s.starts.Lock()
 		if removeErr := state.RemoveEngineChoice(s.Store.Home.State, meta.ID); removeErr != nil {
 			err = errors.Join(err, removeErr)
 		}
-		outcome := map[string]string{"update": "session restarted onto its harness update", "restart": "session restarted"}[choice.When]
+		outcome := map[string]string{"update": "session restarted onto its harness update", "restart": "session restarted", "renamed": "session restarted under goblins' names"}[choice.When]
 		if outcome == "" {
 			outcome = "session switched"
 		}
@@ -284,7 +287,7 @@ func (s *Service) applyEngineChoices(ctx context.Context, now time.Time) error {
 			failures = errors.Join(failures, err)
 			continue
 		}
-		if choice.When != "turn-end" && choice.When != "update" || s.Options.Dispatch == nil {
+		if choice.When != "turn-end" && choice.When != "update" && choice.When != "renamed" || s.Options.Dispatch == nil {
 			continue
 		}
 		s.starts.Lock()
@@ -341,9 +344,9 @@ func (s *Service) applyEngineChoices(ctx context.Context, now time.Time) error {
 			continue
 		}
 		s.starts.Unlock()
-		// An update keeps the goblin's own values, which the catalog has no
-		// say in.
-		if choice.When != "update" {
+		// An update, or a restart under the new names, keeps the goblin's
+		// own values, which the catalog has no say in.
+		if choice.When != "update" && choice.When != "renamed" {
 			catalogContext, cancel := context.WithTimeout(ctx, 8*time.Second)
 			catalog, err := s.engineCatalog(catalogContext, execx.OSRunner{})
 			cancel()
@@ -466,6 +469,10 @@ func (s *Service) engineGateIdle(ctx context.Context, meta state.TaskMeta) (bool
 		return false, errors.New("Gate activity cannot be checked")
 	}
 	branch, err := s.Git.Branch(ctx, meta.Worktree)
+	// A worktree on no branch, as each goblin's starts, holds no gate run.
+	if errors.Is(err, errDetachedHead) {
+		return true, nil
+	}
 	if err != nil {
 		return false, err
 	}
