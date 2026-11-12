@@ -46,11 +46,11 @@ func (b *devToolsBridge) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Path == "/devtools/browser" {
-		b.pipe.serveClient(w, r, "")
+		b.pipe.serveClient(w, r, "", nil)
 		return
 	}
 	if target, ok := strings.CutPrefix(r.URL.Path, "/devtools/page/"); ok && target != "" {
-		b.pipe.serveClient(w, r, target)
+		b.pipe.serveClient(w, r, target, nil)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)

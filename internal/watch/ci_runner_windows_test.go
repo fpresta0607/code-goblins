@@ -99,7 +99,7 @@ func (p *pendingOnly) DeleteOwnRunners(context.Context) error { return errors.Ne
 func TestTheWatcherAsksTheRunnerWhileItRuns(t *testing.T) {
 	// Arrange
 	dir := t.TempDir()
-	t.Setenv("CFO_POLL", "300")
+	t.Setenv("GOBLINS_POLL", "300")
 	cfg := ConfigFromEnv(home.Home{Root: filepath.Dir(dir), State: dir})
 	cfg.Monitor, cfg.Reap, cfg.FileEvery = nil, nil, 0
 	cfg.CIRunnerPipe = `\\.\pipe\code-goblins-ci-runner-test-` + filepath.Base(dir)

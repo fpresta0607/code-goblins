@@ -300,7 +300,7 @@ func (e Engine) mergeTrain(ctx context.Context, t *Train, riders []int) error {
 // confirmMerged reads that GitHub shows each rider of the run that landed as
 // merged. GitHub marks a pull request merged once the base holds its head, a
 // moment after the push, so one it still lists open is read again, up to
-// mergedReads times. One still open then is named to the CFO and keeps why
+// mergedReads times. One still open then is named to the CEO and keeps why
 // on its car: its head moved after the train last read it, so the base holds
 // what rode and the rest stays open, or GitHub did not mark it.
 func (e Engine) confirmMerged(ctx context.Context, t *Train) error {
@@ -342,7 +342,7 @@ func (e Engine) confirmMerged(ctx context.Context, t *Train) error {
 		}
 		said = append(said, fmt.Sprintf("#%d: %s. %s", car.Number, car.Note, next))
 	}
-	e.tellCFO(ctx, fmt.Sprintf("merge_train: %s train %s landed on %s, and GitHub still shows a pull request it landed open. %s", t.Repository, t.ID, t.Base, strings.Join(said, " ")))
+	e.tellCEO(ctx, fmt.Sprintf("merge_train: %s train %s landed on %s, and GitHub still shows a pull request it landed open. %s", t.Repository, t.ID, t.Base, strings.Join(said, " ")))
 	return e.save(t)
 }
 

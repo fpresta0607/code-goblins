@@ -14,7 +14,7 @@ const maxWhat = 600
 var markdownHeading = regexp.MustCompile(`^(#{1,6})(?:\s+(.*))?$`)
 
 // TicketSection is a brief's Ticket section, the two or three sentences the
-// CFO wrote there for teammates, on one line and cut at a word to maxWhat
+// CEO wrote there for teammates, on one line and cut at a word to maxWhat
 // characters, or "" when the brief has none. It is the one text of a brief a
 // ticket carries. The section ends at the next heading of any level.
 func TicketSection(brief string) string {

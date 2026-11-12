@@ -116,9 +116,9 @@ type Turn struct {
 
 // TurnVariable is the environment variable that names, to a command a turn
 // was taken for, the turn it runs inside. A command that takes turns itself,
-// as cfo gate test does behind cfo gate turn, would otherwise wait for the
+// as goblins gate test does behind goblins gate turn, would otherwise wait for the
 // turn its own starter holds, for good.
-const TurnVariable = "CFO_VERIFY_TURN"
+const TurnVariable = "GOBLINS_VERIFY_TURN"
 
 // RunsInTurn says process pid runs inside a turn of the heavy line: its
 // environment names one, as it does to everything a run starts, a process
@@ -512,8 +512,8 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 	if err := ctx.Err(); err != nil {
 		return Turn{}, err
 	}
-	if os.Getenv("CFO_VERIFY_SLOTS") != "" {
-		return Turn{}, errors.New("verify: CFO_VERIFY_SLOTS is unsupported; capacity is shared in the canonical admission store")
+	if os.Getenv("GOBLINS_VERIFY_SLOTS") != "" {
+		return Turn{}, errors.New("verify: GOBLINS_VERIFY_SLOTS is unsupported; capacity is shared in the canonical admission store")
 	}
 	var err error
 	a.Dir, err = admissionDir(a.Dir, isTestBinary())

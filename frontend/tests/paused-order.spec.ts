@@ -40,9 +40,9 @@ interface Posted { path: string; body: Record<string, unknown> }
 // change.
 async function open(page: Page, tasks: object[] = [...WORKING, ...PAUSED]) {
   const posted: Posted[] = [];
-  await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
+  await page.addInitScript(() => localStorage.setItem("ceo-first-open", "shown"));
   await page.clock.install({ time: now });
-  await holdStream(page, { healthy: true, instance: "fixture", cfo_runs: true, revision: 1, attention: [], memory, tasks });
+  await holdStream(page, { healthy: true, instance: "fixture", ceo_runs: true, revision: 1, attention: [], memory, tasks });
   await page.route("**/api/**", async (route) => {
     if (route.request().method() !== "POST") return route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
     posted.push({ path: new URL(route.request().url()).pathname, body: route.request().postDataJSON() });

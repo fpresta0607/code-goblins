@@ -16,7 +16,7 @@ interface Posted { id: string; kind: string; target: string; text: string }
 // action the board is sent.
 async function sendWhileWorking(page: Page, harness: string) {
   const posts: Posted[] = [];
-  const relay = await open(page, snapshot({ cfo_harness: harness }, { harness }));
+  const relay = await open(page, snapshot({ ceo_harness: harness }, { harness }));
   await page.route("**/api/actions", (route) => {
     const body = route.request().postDataJSON() as Partial<Posted>;
     posts.push({ id: body.id ?? "", kind: body.kind ?? "", target: body.target ?? "", text: body.text ?? "" });
@@ -73,7 +73,7 @@ for (const harness of ["claude", "codex", "pi"]) {
 
     // Act: the board carries it as its own queued action.
     const action = { id: posts[0].id, kind: "message", task_id: GOBLIN.id, generation: "", status: "queued", text: "check the flaky test first", message: "Queued until " + GOBLIN.id + "'s turn ends.", can_send_now: true, updated_at: at };
-    await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2, cfo_harness: harness, actions: [action] }, { harness }));
+    await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2, ceo_harness: harness, actions: [action] }, { harness }));
 
     // Assert: still one bubble, now with its actions live.
     await expect(shown).toHaveCount(1);
@@ -83,7 +83,7 @@ for (const harness of ["claude", "codex", "pi"]) {
     expect(posts[1].target).toBe(posts[0].id);
 
     // Act: the harness takes it; the board says sent and its record shows it.
-    await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 3, cfo_harness: harness, actions: [{ ...action, status: "succeeded", message: "Accepted by the goblin in its native terminal." }] }, { harness }));
+    await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 3, ceo_harness: harness, actions: [{ ...action, status: "succeeded", message: "Accepted by the goblin in its native terminal." }] }, { harness }));
     await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })), { ...PAGE, messages: [...PAGE.messages, { id: "m2", seq: 2, at, kind: "prompt", source: "overlord", text: "check the flaky test first" }] });
 
     // Assert: it shows once, as his sent message.
@@ -149,10 +149,10 @@ test("Cancel takes a queued message back, so it never reaches the harness", asyn
   expect(typed(relay)).toBe("");
 });
 
-// A message to the CFO names no goblin, so its Cancel names the message by
+// A message to the CEO names no goblin, so its Cancel names the message by
 // its own identity alone, and the bubble goes once the board takes it back.
-test("Cancel takes a message held for the CFO's turn back, and its bubble goes", async ({ page }) => {
-  // Arrange: the CFO works, and a message he sent it waits for its turn.
+test("Cancel takes a message held for the CEO's turn back, and its bubble goes", async ({ page }) => {
+  // Arrange: the CEO works, and a message he sent it waits for its turn.
   const posts: (Posted & { task: string })[] = [];
   const relay = await open(page);
   await page.route("**/api/actions", (route) => {
@@ -168,7 +168,7 @@ test("Cancel takes a message held for the CFO's turn back, and its bubble goes",
   await field(page, "CEO").fill("stop and wait for me");
   await field(page, "CEO").press("Enter");
   await expect.poll(() => posts.length).toBe(1);
-  const action = { id: posts[0].id, kind: "message", task_id: "", generation: "", status: "queued", text: "stop and wait for me", message: "Queued until the CFO's turn ends.", can_send_now: true, updated_at: at };
+  const action = { id: posts[0].id, kind: "message", task_id: "", generation: "", status: "queued", text: "stop and wait for me", message: "Queued until the CEO's turn ends.", can_send_now: true, updated_at: at };
   await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2, actions: [action] }));
   const shown = bubble(page, "stop and wait for me");
   await expect(shown).toHaveCount(1);
@@ -176,7 +176,7 @@ test("Cancel takes a message held for the CFO's turn back, and its bubble goes",
   // Act
   await shown.getByRole("button", { name: "Cancel", exact: true }).click();
 
-  // Assert: the withdrawal names the CFO's held message, nothing reached its
+  // Assert: the withdrawal names the CEO's held message, nothing reached its
   // terminal, and once the board has taken it back the bubble goes.
   await expect.poll(() => posts.map((post) => post.kind)).toEqual(["message", "message_withdraw"]);
   expect(posts[1]).toMatchObject({ task: "", target: posts[0].id, text: "stop and wait for me" });
@@ -222,7 +222,7 @@ test("Edit takes a queued message back into the box, off the queue", async ({ pa
   await field(page).press("Enter");
   await expect.poll(() => posts.length).toBe(1);
   const action = { id: posts[0].id, kind: "message", task_id: GOBLIN.id, generation: "", status: "queued", text: "rebase onto main", message: "Queued until its turn ends.", can_send_now: true, updated_at: at };
-  await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2, cfo_harness: "pi", actions: [action] }, { harness: "pi" }));
+  await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2, ceo_harness: "pi", actions: [action] }, { harness: "pi" }));
 
   // Act
   const shown = bubble(page, "rebase onto main");

@@ -19,13 +19,13 @@ import (
 )
 
 // Program, Window and Hook are the programs an update installs: the one
-// program the home runs as cfo.exe and goblins.exe, the desktop window, which
-// a release ships from v0.4.0 on, and the hook program, cfo built as a
+// program the home runs as goblins.exe, the desktop window, which
+// a release ships from v0.4.0 on, and the hook program, goblins built as a
 // windowed program for the goblins' hooks.
 const (
-	Program = "cfo.exe"
+	Program = "goblins.exe"
 	Window  = "goblins-window.exe"
-	Hook    = "cfo-hook.exe"
+	Hook    = "goblins-hook.exe"
 )
 
 // SignatureReader reads the Authenticode signature of the file at path as
@@ -37,7 +37,7 @@ type SignatureReader func(ctx context.Context, path string) (status, signer stri
 // matched the release's SHA256SUMS and, where the release names a publisher,
 // carried that publisher's valid signature.
 type Download struct {
-	// Program is cfo.exe, and Window the desktop window and Hook the hook
+	// Program is goblins.exe, and Window the desktop window and Hook the hook
 	// program, each empty when the release ships none.
 	Program string
 	Window  string

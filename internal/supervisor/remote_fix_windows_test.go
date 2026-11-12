@@ -50,7 +50,7 @@ func pressFix(board *HTTP, body string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest("POST", "http://"+board.Host+"/api/remote", strings.NewReader(body))
 	request.RemoteAddr = "127.0.0.1:50000"
 	request.Header.Set("Origin", "http://"+board.Host)
-	request.Header.Set("X-CFO-Token", "instance")
+	request.Header.Set("X-CEO-Token", "instance")
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	board.ServeHTTP(response, request)
@@ -169,7 +169,7 @@ func TestAFixIsRefusedWhereItCannotRun(t *testing.T) {
 				request.Header.Set("Tailscale-User-Login", "owner@example.com")
 			}
 			request.RemoteAddr = "127.0.0.1:50000"
-			request.Header.Set("X-CFO-Token", "instance")
+			request.Header.Set("X-CEO-Token", "instance")
 			request.Header.Set("Content-Type", "application/json")
 			response := httptest.NewRecorder()
 
@@ -236,12 +236,12 @@ func TestAFixIsNotOneToSkip(t *testing.T) {
 }
 
 // A fix ends on the setting that ran it, which reads its row again. Nobody
-// asked for it, so the CFO is not told how it ended.
-func TestAFixEndsWithoutTellingTheCFO(t *testing.T) {
+// asked for it, so the CEO is not told how it ended.
+func TestAFixEndsWithoutTellingTheCEO(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	_, _, terminal, connection := primaryFixture(t, store)
-	s := &Service{Store: store, Instance: "instance", subscribers: map[chan struct{}]struct{}{}, Options: Options{CFO: connection, Runs: &fakeRunLauncher{started: liveStart(t)},
+	s := &Service{Store: store, Instance: "instance", subscribers: map[chan struct{}]struct{}{}, Options: Options{CEO: connection, Runs: &fakeRunLauncher{started: liveStart(t)},
 		RemoteAccess: &remoteaccess.Manager{State: h.State, Target: "http://127.0.0.1:4310", Commands: &remoteCommands{}}}}
 	if response := pressFix(NewHTTP(s, "127.0.0.1:4310", nil), fixBody("tailscale", serve)); response.Code != http.StatusOK {
 		t.Fatalf("the press = %d %s", response.Code, response.Body)
@@ -262,6 +262,6 @@ func TestAFixEndsWithoutTellingTheCFO(t *testing.T) {
 		t.Fatalf("the fix = %+v, %v; want it succeeded", ended, err)
 	}
 	if typed := terminal.lines(t); len(typed) != 0 {
-		t.Errorf("the CFO was told %q, want nothing", typed)
+		t.Errorf("the CEO was told %q, want nothing", typed)
 	}
 }

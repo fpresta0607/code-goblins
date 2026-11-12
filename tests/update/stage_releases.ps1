@@ -5,10 +5,13 @@
 # update must roll back. Each is a folder with its programs, its SHA256SUMS,
 # this checkout's install.ps1, which names no publisher as an unsigned
 # release's does, and the record GitHub's API answers for the latest
-# release, at <base>/<name>/latest.
+# release, at <base>/<name>/latest. As a release does, each also ships
+# goblins.exe and goblins-hook.exe under the names a release from before the
+# rename knows them by, which its update downloads, so a home such a release
+# runs updates to goblins by itself.
 #
 # Run it from the checkout, after npm ci and npm run build in frontend, since
-# cfo.exe embeds the board:
+# goblins.exe embeds the board:
 #
 #   .\tests\update\stage_releases.ps1 -Version v0.5.99 -Folder <folder> -Port 8765
 #
@@ -22,25 +25,28 @@ param(
 
 $ErrorActionPreference = "Stop"
 $base = "http://127.0.0.1:$Port"
-$serve = Join-Path (Get-Location) "cmd\cfo\serve.go"
+$serve = Join-Path (Get-Location) "cmd\goblins\serve.go"
+. (Join-Path $PSScriptRoot "..\pre_rename_build.ps1")
 
-function Build-Release([string]$Name) {
+function Build-Release([string]$Name, [string]$Tag) {
     $out = Join-Path $Folder $Name
     New-Item -ItemType Directory -Force -Path $out | Out-Null
-    go build -trimpath -ldflags "-X main.version=$Version" -o (Join-Path $out "cfo.exe") ./cmd/cfo
-    if ($LASTEXITCODE -ne 0) { throw "go build of $Name cfo.exe exited with code $LASTEXITCODE" }
-    go build -trimpath -ldflags "-H windowsgui -X main.version=$Version" -o (Join-Path $out "cfo-hook.exe") ./cmd/cfo
-    if ($LASTEXITCODE -ne 0) { throw "go build of $Name cfo-hook.exe exited with code $LASTEXITCODE" }
+    go build -trimpath -ldflags "-X main.version=$Tag" -o (Join-Path $out "goblins.exe") ./cmd/goblins
+    if ($LASTEXITCODE -ne 0) { throw "go build of $Name goblins.exe exited with code $LASTEXITCODE" }
+    go build -trimpath -ldflags "-H windowsgui -X main.version=$Tag" -o (Join-Path $out "goblins-hook.exe") ./cmd/goblins
+    if ($LASTEXITCODE -ne 0) { throw "go build of $Name goblins-hook.exe exited with code $LASTEXITCODE" }
     go build -trimpath -tags production -ldflags "-H windowsgui" -o (Join-Path $out "goblins-window.exe") ./cmd/goblins-window
     if ($LASTEXITCODE -ne 0) { throw "go build of $Name goblins-window.exe exited with code $LASTEXITCODE" }
     Copy-Item install.ps1 (Join-Path $out "install.ps1")
-    $names = "cfo.exe", "cfo-hook.exe", "goblins-window.exe"
+    Copy-Item (Join-Path $out "goblins.exe") (Join-Path $out "$PreRenameCommand.exe")
+    Copy-Item (Join-Path $out "goblins-hook.exe") (Join-Path $out "$PreRenameCommand-hook.exe")
+    $names = "goblins.exe", "goblins-hook.exe", "goblins-window.exe", "$PreRenameCommand.exe", "$PreRenameCommand-hook.exe"
     $lines = foreach ($file in $names) { "$((Get-FileHash (Join-Path $out $file) -Algorithm SHA256).Hash.ToLowerInvariant())  $file" }
     [IO.File]::WriteAllText((Join-Path $out "SHA256SUMS"), ($lines -join "`n") + "`n")
     $assets = foreach ($file in $names + "install.ps1", "SHA256SUMS") { [ordered]@{ name = $file; browser_download_url = "$base/$Name/$file" } }
     $record = [ordered]@{
-        tag_name     = $Version
-        html_url     = "$base/$Name/tag/$Version"
+        tag_name     = $Tag
+        html_url     = "$base/$Name/tag/$Tag"
         published_at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
         draft        = $false
         prerelease   = $false
@@ -53,16 +59,16 @@ function Build-Release([string]$Name) {
 # install.ps1 must say whether its release is signed, as the update reads it.
 if ((Get-Content -Raw install.ps1) -notmatch '(?m)^\s*\$releasePublisher = ""') { throw "this checkout's install.ps1 names no empty `$releasePublisher, so an update would refuse the staged release" }
 
-Build-Release "good"
+Build-Release "good" $Version
 
 # The broken build's board ends as it starts, as a build that does not start
 # does; everything else, its update among it, is this commit's.
 $source = Get-Content -Raw $serve
 $opening = "func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {"
-if (-not $source.Contains($opening)) { throw "cmd\cfo\serve.go has no '$opening' to break" }
+if (-not $source.Contains($opening)) { throw "cmd\goblins\serve.go has no '$opening' to break" }
 try {
     [IO.File]::WriteAllText($serve, $source.Replace($opening, "$opening`n`tfmt.Fprintln(stderr, `"this build's board does not start`")`n`treturn 1"))
-    Build-Release "broken"
+    Build-Release "broken" $Version
 }
 finally {
     [IO.File]::WriteAllText($serve, $source)

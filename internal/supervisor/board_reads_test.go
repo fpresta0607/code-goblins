@@ -106,7 +106,7 @@ func boardGit(t *testing.T, dir string, args ...string) string {
 
 // readingBoard is a board over task-1, whose worktree is a repository with
 // main two commits on and origin's main one behind it, reading git and its
-// gate's database through one read cache as cfo serve wires it.
+// gate's database through one read cache as goblins serve wires it.
 func readingBoard(t *testing.T) (*Service, state.TaskMeta, *gateStandIn) {
 	t.Helper()
 	store, h := testStore(t)

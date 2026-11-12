@@ -11,14 +11,14 @@ const task = (fields: Partial<Task>): Task => parseSnapshot({ healthy: true, tas
 // The Overlord, 2026-10-08: "message queued to chief no matter whats running
 // smoothly". What he typed shows with where it is, in a word or two, never
 // as an error line.
-test("a message says where it is: queued, sent or with the CFO", () => {
+test("a message says where it is: queued, sent or with the CEO", () => {
   assert.equal(messageState(snapshot([action({})]).actions[0]), "Queued");
   assert.equal(messageState(snapshot([action({ status: "running" })]).actions[0]), "Queued");
   assert.equal(messageState(snapshot([action({ message: "Starting goblin-one. The message goes in once it runs." })]).actions[0]), "Starting");
-  assert.equal(messageState(snapshot([action({ status: "running", message: "Starting the CFO. The message goes in once it runs." })]).actions[0]), "Starting");
+  assert.equal(messageState(snapshot([action({ status: "running", message: "Starting the CEO. The message goes in once it runs." })]).actions[0]), "Starting");
   assert.equal(messageState(snapshot([action({ status: "succeeded", message: "Accepted by the goblin in its native terminal." })]).actions[0]), "Sent");
   assert.equal(messageState(snapshot([action({ status: "running", awaiting: { task: "goblin-one" } })]).actions[0]), "Sent");
-  assert.equal(messageState(snapshot([action({ status: "failed", message: "goblin-one was stopped before it could take it; the CFO has it" })]).actions[0]), "With the CEO");
+  assert.equal(messageState(snapshot([action({ status: "failed", message: "goblin-one was stopped before it could take it; the CEO has it" })]).actions[0]), "With the CEO");
   assert.equal(messageState(snapshot([action({ status: "failed", message: "The terminal is closed." })]).actions[0]), "Not sent");
   assert.equal(messageState(snapshot([action({ status: "uncertain", message: "Typed, and not picked up." })]).actions[0]), "Not confirmed");
 });
@@ -31,21 +31,21 @@ test("a message typed into a turn under way reads Queued while its harness holds
   const held = typed({ awaiting: { task: "goblin-one", is_held: true } });
   assert.equal(isHarnessHeld(held), true);
   assert.equal(messageState(held), "Queued");
-  assert.equal(messageState(typed({ awaiting: { host: "cfo", is_held: true } })), "Queued");
+  assert.equal(messageState(typed({ awaiting: { host: "ceo", is_held: true } })), "Queued");
   for (const other of [typed({ awaiting: { task: "goblin-one" } }), typed({}), typed({ status: "uncertain", awaiting: { task: "goblin-one", is_held: true } }), typed({ status: "succeeded" })]) {
     assert.equal(isHarnessHeld(other), false);
   }
   assert.equal(messageState(typed({ awaiting: { task: "goblin-one" } })), "Sent");
 });
 
-// The Overlord, 2026-10-29: a message he typed for the CFO the day before
+// The Overlord, 2026-10-29: a message he typed for the CEO the day before
 // still showed as queued, and its Cancel said "that queued message is no
 // longer waiting, so nothing was deleted". A delivery the board typed and
 // still watches for a late take, whatever its outcome, waits nowhere: only
 // one the board holds, or is typing, or that the harness holds untaken does.
 test("a message waits only while the board or its harness holds it", () => {
   const waits = (fields: Record<string, unknown>) => isPendingMessage(snapshot([action(fields)]).actions[0]);
-  const awaiting = { host: "cfo", since: "2026-10-28T03:04:16Z" };
+  const awaiting = { host: "ceo", since: "2026-10-28T03:04:16Z" };
   assert.equal(waits({ status: "queued" }), true);
   assert.equal(waits({ status: "running" }), true);
   assert.equal(waits({ status: "running", awaiting }), true);
@@ -55,11 +55,11 @@ test("a message waits only while the board or its harness holds it", () => {
 });
 
 // A message that failed with its words given to nobody is still the board's,
-// so Send now and Cancel act on it (#2306); one handed to the CFO was
+// so Send now and Cancel act on it (#2306); one handed to the CEO was
 // delivered there, and one typed and never seen taken may have arrived.
 for (const [what, fields, isUnsent, isEnded] of [
   ["a message that failed with nobody given its words", { status: "failed", message: "Not sent. It was taken back off its prompt line." }, true, true],
-  ["a message handed to the CFO", { status: "failed", message: "goblin-one was stopped before it could take it; the CFO has it" }, false, false],
+  ["a message handed to the CEO", { status: "failed", message: "goblin-one was stopped before it could take it; the CEO has it" }, false, false],
   ["a message typed and never seen taken", { status: "uncertain", message: "Typed, and not picked up." }, false, true],
   ["a message still queued", { status: "queued" }, false, false],
   ["an answer that failed", { kind: "goblin_answer", status: "failed", message: "The terminal is closed." }, false, false],

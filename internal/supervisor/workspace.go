@@ -77,12 +77,12 @@ func credentialsNote(meta state.TaskMeta) string {
 }
 
 // servicesNotes says which local services stacks a task holds, with whom
-// and what they take, or for the CFO, every stack held and whether cfo
+// and what they take, or for the CEO, every stack held and whether ceo
 // started the engine under them.
 func (s *Service) servicesNotes(task string) []string {
 	record, err := services.ReadRecord(s.Store.Home.State)
 	if err != nil {
-		return []string{"The local services cfo holds could not be read."}
+		return []string{"The local services goblins holds could not be read."}
 	}
 	var notes []string
 	for _, stack := range record.Sorted() {
@@ -104,8 +104,8 @@ func (s *Service) servicesNotes(task string) []string {
 		note += memory
 		notes = append(notes, note)
 	}
-	if task == "" && len(notes) > 0 && record.Engine.StartedByCFO {
-		notes = append(notes, "cfo started the Docker engine for them and stops it once none of them runs.")
+	if task == "" && len(notes) > 0 && record.Engine.StartedByCEO {
+		notes = append(notes, "goblins started the Docker engine for them and stops it once none of them runs.")
 	}
 	return notes
 }

@@ -21,7 +21,7 @@ func TestHerdrProberReadsThroughTheTerminalBackend(t *testing.T) {
 		Session: meta.HerdrSession,
 		Structure: herdr.SessionSnapshot{
 			Protocol:   herdr.SupportedProtocol,
-			Workspaces: []herdr.SnapshotWorkspace{{ID: "ws", Label: "cfo"}},
+			Workspaces: []herdr.SnapshotWorkspace{{ID: "ws", Label: "ceo"}},
 			Tabs:       []herdr.SnapshotTab{{ID: meta.HerdrTabID, WorkspaceID: "ws", Label: "gb-" + meta.ID}},
 			Panes:      []herdr.SnapshotPane{{ID: meta.HerdrPaneID, TabID: meta.HerdrTabID, WorkspaceID: "ws"}},
 			Agents:     []herdr.SnapshotAgent{{PaneID: meta.HerdrPaneID, TabID: meta.HerdrTabID, WorkspaceID: "ws", Agent: "claude", Status: "working"}},

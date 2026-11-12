@@ -24,8 +24,8 @@ const log = (page: Page) => page.getByRole("log", { name: "Messages of " + NAME 
 
 // watch records every change made in the conversation's list from now on: the
 // message a change was inside, each row that left or joined the list, a
-// change to the room the list keeps above and below its rows, and anything
-// else outside a message.
+// change to the room the list keeps above and below its rows, a change in the
+// working row, and anything else outside a message.
 const watch = (page: Page) => page.evaluate(() => {
   const changes: string[] = [];
   const list = document.querySelector(".messages-view:not([hidden]) .conversation-items")!;
@@ -34,6 +34,7 @@ const watch = (page: Page) => page.evaluate(() => {
       const target = record.target instanceof Element ? record.target : record.target.parentElement;
       const message = target?.closest("[data-message]")?.getAttribute("data-message");
       if (message) changes.push(message);
+      else if (target?.closest(".reply-working")) changes.push("working");
       else if (record.target === list && record.type === "childList") {
         for (const row of record.removedNodes) changes.push("left:" + (row instanceof Element ? row.getAttribute("data-message") : row.nodeName));
         for (const row of record.addedNodes) changes.push("joined:" + (row instanceof Element ? row.getAttribute("data-message") : row.nodeName));
@@ -124,9 +125,9 @@ for (const reset of ["before request", "during old response", "during new respon
 
 for (const owner of ["CEO", "goblin"]) {
   for (const isWorking of [true, false]) {
-    test(`${owner}: working metadata stays frozen near the end when ${isWorking ? "finishing" : "starting"}`, async ({ page }) => {
+    test(`${owner}: working metadata stays frozen near the end when ${isWorking ? "finishing, but for its indicator" : "starting"}`, async ({ page }) => {
       const action = { id: "working-tail", kind: "message", task_id: owner === "CEO" ? "" : GOBLIN.id, text: "Waiting for this turn", status: "running", awaiting: { task: owner === "CEO" ? "" : GOBLIN.id }, can_send_now: true, at };
-      const board = (isBusy: boolean, revision: number) => snapshot({ revision, actions: [action], cfo_session: "cfo-1", sessions: [{ id: "cfo-1", role: "cfo", harness: "claude", phase: isBusy ? "working" : "idle" }] }, { phase: isBusy ? "working" : "idle" });
+      const board = (isBusy: boolean, revision: number) => snapshot({ revision, actions: [action], ceo_session: "ceo-1", sessions: [{ id: "ceo-1", role: "ceo", harness: "claude", phase: isBusy ? "working" : "idle" }] }, { phase: isBusy ? "working" : "idle" });
       await open(page, board(isWorking, 1), "", LONG);
       if (owner === "CEO") await page.keyboard.press("Control+Alt+1");
       else await openGoblin(page);
@@ -140,9 +141,12 @@ for (const owner of ["CEO", "goblin"]) {
       await watch(page);
 
       await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), board(!isWorking, 2));
+      // The rows he reads keep still, the working row's room included, but a
+      // turn that ended shows no indicator in it.
       expect(await reading(talk)).toEqual(place);
-      expect(await changes(page)).toEqual([]);
+      expect((await changes(page)).filter((change) => change !== "working")).toEqual([]);
       await expect(talk.locator(".reply-working")).toHaveCount(isWorking ? 1 : 0);
+      await expect(talk.locator(".reply-working:visible")).toHaveCount(0);
       await expect(talk.locator(".reply-working").getByRole("button")).toHaveCount(0);
       await expect(talk.locator('[data-message="m999"] time')).toHaveCount(isWorking ? 0 : 1);
       await expect(talk.locator('[data-queued="working-tail"] .queued-state')).toHaveText("Sent");

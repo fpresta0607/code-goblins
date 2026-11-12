@@ -22,8 +22,6 @@ Recheck a row when you upgrade a harness.
 | Hooks | settings files, merged, plus plugins | `hooks.json` and `[hooks]`, per trusted layer, each hook hash-trusted | extensions |
 | MCP | `~/.claude.json`, `.mcp.json`, plugins | `config.toml` only | none |
 
-<a id="claude-code-the-cfo-and-claude-goblins"></a>
-
 ## Claude Code: the CEO and Claude goblins
 
 **Instructions.**
@@ -32,7 +30,7 @@ Claude reads a managed policy file if one exists, then `~/.claude/CLAUDE.md`, th
 A `CLAUDE.md` in a subdirectory loads when Claude first reads a file there.
 Claude never reads `AGENTS.md` on its own: this repository's `CLAUDE.md` links to `AGENTS.md`, so the CEO reads the contract with a file read rather than having it injected.
 
-A goblin's worktree sits in the CEO home at `$CFO_HOME\worktrees\<project folder>\<id>`, outside the project checkout, and has its own `.git` file.
+A goblin's worktree sits in the CEO home at `$GOBLINS_HOME\worktrees\<project folder>\<id>`, outside the project checkout, and has its own `.git` file.
 Claude stops its upward walk there: a live probe showed that a worktree loads neither the `CLAUDE.md` nor the `.claude/skills` of a folder above it, so the CEO contract at the home's top never reaches a goblin.
 
 **Rules.**
@@ -42,7 +40,7 @@ Only Claude reads these directories.
 
 **Skills.**
 Claude lists skills from `~/.claude/skills`, the project's `.claude/skills`, nested `.claude/skills` below the working directory, enabled plugins (namespaced `plugin:skill`) and skills synced from claude.ai.
-It does not read `.agents/skills`; `cfo install` puts the skills Code Goblins ships once in `~/.agents/skills`, with a junction to each from `~/.claude/skills`, so Claude Code sees them too.
+It does not read `.agents/skills`; `goblins install` puts the skills Code Goblins ships once in `~/.agents/skills`, with a junction to each from `~/.claude/skills`, so Claude Code sees them too.
 When a user skill and a project skill share a name, the user copy wins and the listing shows one entry, so a project skill can be silently shadowed.
 `skillOverrides` in settings sets a skill to `on`, `name-only`, `user-invocable-only` or `off`.
 Every listed description is paid for in every session; a skill body loads only when used.
@@ -55,16 +53,16 @@ Subagents come from `.claude/agents`, `~/.claude/agents` and plugins.
 Hooks merge across every settings scope: managed settings, `--settings`, `.claude/settings.local.json`, `.claude/settings.json`, `~/.claude/settings.json`, and enabled plugins.
 A `SessionStart` hook's output is injected into the session; output larger than 10,000 characters is saved to a file and only a preview of about 2 KB is injected.
 The CEO's own SessionStart digest therefore stays within 9,000 bytes, and names a file that holds what it leaves out.
-The CEO's hooks are in no settings file of the user: a Claude Code CEO's terminal starts with them, `claude --settings <home>\state\cfo-claude-settings.json`, which the start writes anew each time, and Claude Code adds that file's hooks to the user's own for that session alone.
+The CEO's hooks are in no settings file of the user: a Claude Code CEO's terminal starts with them, `claude --settings <home>\state\ceo-claude-settings.json`, which the start writes anew each time, and Claude Code adds that file's hooks to the user's own for that session alone.
 The same file sets `autoCompactWindow` to 400,000 tokens, which wins over a window the user's settings hold, one `/autocompact` saved included, so the CEO compacts at about 342K under a `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` of 90, or 367K without one, rather than near its model's 1M; only `CLAUDE_CODE_AUTO_COMPACT_WINDOW` in the environment beats it.
 A Claude Code goblin's settings file, `state\goblin-claude-settings.json`, sets the same 400,000-token window, so a goblin compacts at about 342K too: every request reads the whole conversation again, and in the week to 2026-10-27 goblins on the model's own window carried a median 302K tokens into each request and up to 882K, which made reading that context again 83 percent of what they spent.
 A Claude Code resume of a transcript past 5 MiB loads only what follows its last compaction, so a CEO comes back on its conversation by the context that resume loads, at most 400K tokens, whatever the transcript's size on disk.
-`cfo install` takes out the ones a build before 2026-10 merged into `~/.claude/settings.json`, where every Claude Code session on the machine ran them.
-Every goblin pane carries `CFO_ROLE=goblin`, and the CEO's hooks do nothing when they see it.
-They do nothing in any other session either: only [the CEO's own session](contract/supervision.md#the-ceos-own-session), the agent native terminal `cfo` runs, gets the digest, the guards and the rewakes, so a Claude Code session you open yourself is never given the fleet's wakes.
-On a machine where the hooks are still in the user's settings, such a session pays one start of `cfo.exe` for each hook it fires, which leaves on its environment before it reads the home: about 0.1 second each with a dozen sessions firing at once on 2026-10-09.
+`goblins install` takes out the ones a build before 2026-10 merged into `~/.claude/settings.json`, where every Claude Code session on the machine ran them.
+Every goblin pane carries `GOBLINS_ROLE=goblin`, and the CEO's hooks do nothing when they see it.
+They do nothing in any other session either: only [the CEO's own session](contract/supervision.md#the-ceos-own-session), the agent native terminal `ceo` runs, gets the digest, the guards and the rewakes, so a Claude Code session you open yourself is never given the fleet's wakes.
+On a machine where the hooks are still in the user's settings, such a session pays one start of `goblins.exe` for each hook it fires, which leaves on its environment before it reads the home: about 0.1 second each with a dozen sessions firing at once on 2026-10-09.
 Once an install has taken them out it starts nothing.
-In the CEO's own session each hook is one start of `cfo.exe`, which is started at its harness's priority: on 2026-10-10 it took 0.02 seconds to come to exist beside ten busy threads kept to the goblins' cores, and about 0.7 where goblin work had every core.
+In the CEO's own session each hook is one start of `goblins.exe`, which is started at its harness's priority: on 2026-10-10 it took 0.02 seconds to come to exist beside ten busy threads kept to the goblins' cores, and about 0.7 where goblin work had every core.
 From its first act the hook runs one priority class above normal, as the fleet's other controls do, so its own work, about a millisecond for a pre-tool guard, does not wait behind the goblins' builds as well.
 
 **MCP.**
@@ -86,8 +84,8 @@ All project files share one budget, `project_doc_max_bytes`, 32 KiB by default; 
 Past the budget the text is cut off.
 
 This repository keeps `AGENTS.md` below 30 KiB, leaving room under that default budget.
-The core routes conditional procedures to named cfo-* skills and [contract references](contract/ownership.md), and command contracts to `cfo help <command>`.
-`cfo help contract <topic>` retrieves one embedded procedure without reading the live home or loading other procedures.
+The core routes conditional procedures to named ceo-* skills and [contract references](contract/ownership.md), and command contracts to `goblins help <command>`.
+`goblins help contract <topic>` retrieves one embedded procedure without reading the live home or loading other procedures.
 See [Loading and installation](contract/ownership.md#loading-and-installation) for how references and skill entry points reach source checkouts and installed homes, and the [legacy checkout activation boundary](contract/ownership.md#legacy-checkout-activation) before claiming that an existing home's context changed.
 
 **Skills.**
@@ -102,7 +100,7 @@ Codex 0.154 has no loader for `~/.codex/prompts`; commands reach Codex as skills
 Codex reads `hooks.json` and the `[hooks]` table of `config.toml` from each enabled layer: system, user, and each trusted project `.codex`.
 A worktree takes its project hooks from the main checkout's `.codex`.
 A hook runs only when its hash is trusted in the user configuration (review it in `/hooks`).
-A Codex session the fleet starts, the CEO's included, takes the board's native hooks as `-c` overrides of its own launch, and `cfo hooks install codex` writes them into `~/.codex/hooks.json` for one it did not start ([native hook setup](native-board.md#native-hook-setup)).
+A Codex session the fleet starts, the CEO's included, takes the board's native hooks as `-c` overrides of its own launch, and `goblins hooks install codex` writes them into `~/.codex/hooks.json` for one it did not start ([native hook setup](native-board.md#native-hook-setup)).
 
 **MCP.**
 Servers come only from `[mcp_servers]` in the `config.toml` layers; a project `.mcp.json` is never read.
@@ -128,75 +126,75 @@ The first skill with a name wins and later ones raise a collision warning; a lin
 **Prompts, hooks and MCP.**
 Prompt templates come from `~/.pi/agent/prompts` and a trusted `.pi/prompts`.
 Pi has no hooks file: extensions play that role, from `~/.pi/agent/extensions`, a trusted `.pi/extensions`, settings and packages.
-`cfo hooks install pi` writes the CEO's extension to `~/.pi/agent/extensions/cfo-native.ts`.
+`goblins hooks install pi` writes the CEO's extension to `~/.pi/agent/extensions/goblins-native.ts`.
 Pi has no MCP support.
 
 **Trust.**
 Pi asks only when the project has `.pi` resources or an `.agents/skills` directory in the working directory or an ancestor; a trusted parent directory covers the folders under it, and spawn answers for a goblin's worktree, which sits outside its project, for that run only.
 
-## What `cfo spawn` adds to a goblin
+## What `goblins spawn` adds to a goblin
 
 Everything in the user rows above still loads for a goblin; spawn adds the following on top.
 
-1. **The worktree.** `$CFO_HOME\worktrees\<project folder>\<id>`, detached from the default branch, with its own `.git` file, so project instructions and skills come from the worktree's checkout of the project.
+1. **The worktree.** `$GOBLINS_HOME\worktrees\<project folder>\<id>`, detached from the default branch, with its own `.git` file, so project instructions and skills come from the worktree's checkout of the project.
    A goblin working on code-goblins itself therefore reads this repository's `CLAUDE.md` or `AGENTS.md`, which both say it is a contributor, not the CEO.
-2. **The pane environment.** `CFO_ROLE=goblin`, `CFO_HOME`, `CFO_STATE_OVERRIDE`, `TEMP`, `TMPDIR` and `GOTMPDIR` in the task's scratch folder, `TMP` in `scratch\.tmp`, the folder every goblin shares, since Git Bash makes the `TMP` of its first shell `/tmp` for every shell of the user, the shared cache roots, and the credentials of the services the task's brief names, which ride the terminal's environment rather than being typed.
+2. **The pane environment.** `GOBLINS_ROLE=goblin`, `GOBLINS_HOME`, `GOBLINS_STATE_OVERRIDE`, `TEMP`, `TMPDIR` and `GOTMPDIR` in the task's scratch folder, `TMP` in `scratch\.tmp`, the folder every goblin shares, since Git Bash makes the `TMP` of its first shell `/tmp` for every shell of the user, the shared cache roots, and the credentials of the services the task's brief names, which ride the terminal's environment rather than being typed.
    Its `PATH` begins with the task's codex guard folder, `state\codex-guard\<id>`, which the supervisor arms while Codex's included allowance is used up, so a `codex` the goblin starts by name is refused rather than billed to paid credits ([Pausing and automatic resume](contract/dispatch.md#pausing-and-automatic-resume)).
    After it comes the home's `caches\crawler\bin`, so every goblin, whatever its harness, finds `goblin-crawl`, the [crawler connector](crawler.md), unless its brief writes `connectors: none`.
-3. **The launch.** Claude: `--dangerously-skip-permissions --strict-mcp-config [--mcp-config <file>]`, drawn in the interface the operator's `tui` setting names, as the CEO is, with `CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1`, so Claude Code does not end a goblin's background shells for low memory, among them its queued `cfo gate turn`: the line ends the run it lets use the machine's spare memory instead ([docs/pipeline.md](pipeline.md#any-command-in-the-line)).
+3. **The launch.** Claude: `--dangerously-skip-permissions --strict-mcp-config [--mcp-config <file>]`, drawn in the interface the operator's `tui` setting names, as the CEO is, with `CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1`, so Claude Code does not end a goblin's background shells for low memory, among them its queued `goblins gate turn`: the line ends the run it lets use the machine's spare memory instead ([docs/pipeline.md](pipeline.md#any-command-in-the-line)).
    Codex: `--no-daemon --dangerously-bypass-approvals-and-sandbox -c tui.copy_on_select=always`, so it runs its own app-server under the terminal that started it instead of joining a shared background one an earlier session left running, and it draws on its own full screen and copies what a drag selects when the button is released.
    `--no-daemon` is passed only where the installed Codex's help (`codex --help`, which spawn reads to validate it) lists it, since a Codex without it would refuse the launch.
    Pi: `--tui-mode fullscreen`, where its help offers it, so it draws on its own full screen too.
    Model and effort flags follow the lane table in `data/routing.json`.
    Each harness's trust dialog is confirmed automatically.
 4. **MCP.** The token-authenticated subset of the project's `.mcp.json`, written under the task's temporary directory: Claude receives it by flag, and Codex and Pi do not use it.
-   A server whose entry holds a value, in a command server's `env` map or in a header, is in it only when the task's record names the server: its brief named it on its `mcp:` line or `cfo auth grant <id> --mcp <server>` added it since, and `cfo auth revoke <id> --mcp <server>` has not taken it out.
+   A server whose entry holds a value, in a command server's `env` map or in a header, is in it only when the task's record names the server: its brief named it on its `mcp:` line or `goblins auth grant <id> --mcp <server>` added it since, and `goblins auth revoke <id> --mcp <server>` has not taken it out.
    A relaunch writes it again from the project's file.
    Spawn also leaves a copy at the worktree's `.mcp.json` when that path is free, which no harness the fleet runs now reads.
-5. **The first message.** "Read the brief at <path> and follow it exactly," followed by the task's [frozen delivery selection](contract/delivery.md#delivery), when present, how to report with `cfo notify` and, in `no-mistakes` mode, the task's frozen pipeline policy.
+5. **The first message.** "Read the brief at <path> and follow it exactly," followed by the task's [frozen delivery selection](contract/delivery.md#delivery), when present, how to report with `goblins notify` and, in `no-mistakes` mode, the task's frozen pipeline policy.
 
 ## The no-mistakes gate
 
 **Why this repository has a `.no-mistakes.yaml`.**
 It is this repository's own settings file for the no-mistakes gate, the local pipeline (review, test, document, lint, push, pull request, CI) every change passes before it merges.
-Three of its settings shape how a gate agent runs.
+Four of its settings shape how the gate runs.
 It sets `disable_project_settings: true`, so the gate's reviewers and fixers never load this repository's `AGENTS.md` or `CLAUDE.md` as project instructions and keep their assigned gate phase separate from the project's operating contract.
 It sets how many automatic fix rounds review, rebase and CI may take, and names no test or lint count, so the machine config that the home's pipeline policy sets governs both.
+It sets `rebase.strategy: merge`, so the gate's rebase step merges a moved main into the branch instead of replaying the branch's commits onto it.
+A published branch is kept current by merging main in, and a replay drops that merge's resolution, conflicts where the branch head merges cleanly and needs a force-push to publish; a merge keeps the reviewed head as its first parent, publishes as a fast-forward and still stops on a real conflict (issue 1949).
 It carries the review instruction that asks whether a change is reached by its tests through the real caller, as `review.path_instructions` scoped to the Go, TypeScript and TSX files a change touches.
 That instruction is adapted, in this repository's own words, from the ECC library at [`affaan-m/ecc`](https://github.com/affaan-m/ecc) commit `d2ef2680594f9a17526a6e1a2e18b3d242c5d17b`: the test-analysis idea in its `agents/pr-test-analyzer.md`, and its `skills/ai-regression-testing/SKILL.md` and `rules/common/code-review.md` where they bear on the same question.
 Nothing from that repository is installed, copied or executed here.
-The gate trusts this file from the default branch, so a pushed branch can neither add nor weaken the review rules that review it, and `cfo pipeline run` refuses to start a run in a repository without it.
+The gate trusts this file from the default branch, so a pushed branch can neither add nor weaken the review rules that review it, and `goblins pipeline run` refuses to start a run in a repository without it.
 
 **What a gate agent reads.**
 
-1. `config.yaml` in the gate's home (`NM_HOME`, else `~/.no-mistakes`; [cfo dev-drive move](commands/dev-drive.md) moves it): the agent chain, each agent's arguments, automatic fix limits and timeouts. From pipeline policy v6 a run the CEO drives carries its own chain as a launch selection, and this file's chain serves only the other runs.
+1. `config.yaml` in the gate's home (`NM_HOME`, else `~/.no-mistakes`; [goblins dev-drive move](commands/dev-drive.md) moves it): the agent chain, each agent's arguments, automatic fix limits and timeouts. From pipeline policy v6 a run the CEO drives carries its own chain as a launch selection, and this file's chain serves only the other runs.
 2. The repository's `.no-mistakes.yaml`, from the trusted default branch.
-3. For a CEO-managed task, `cfo pipeline run` first checks the task's frozen policy snapshot (`state/tasktmp/<id>/pipeline.json`, taken from `config/pipeline.json` at spawn) against the live configuration and refuses on drift.
+3. For a CEO-managed task, `goblins pipeline run` first checks the task's frozen policy snapshot (`state/tasktmp/<id>/pipeline.json`, taken from `config/pipeline.json` at spawn) against the live configuration and refuses on drift.
 4. The agent then runs in the gate's own worktree with `NO_MISTAKES_GATE=1`, and with project instructions neutralized: Claude through `--setting-sources`, Codex through `project_doc_max_bytes=0`, and Pi through `--no-context-files`.
    With the setting on, the gate refuses any other agent, because it cannot neutralize one.
 5. User-level files still load: the agent's global instructions, rules, skills and hooks.
 
-<a id="the-cfos-memory"></a>
-
 ## The CEO's memory
 
 The Claude SessionStart hook prints the [brief startup digest](commands/session-start.md) only in the CEO's own session and names `state/session-digest.md` for the remaining context.
-Before a Claude CEO compacts, `cfo hook pre-compact` writes `state/compact-checkpoint.md` from the fleet's disk state: each goblin and its last three status lines, lifecycle holds and AFK mode, open Command Center items and unanswered goblin questions, the goblins waiting on the CEO, unacknowledged wakes, and the newest `data/cfo-handoff-*.md` by modification time.
+Before a Claude CEO compacts, `goblins hook pre-compact` writes `state/compact-checkpoint.md` from the fleet's disk state: each goblin and its last three status lines, lifecycle holds and AFK mode, open Command Center items and unanswered goblin questions, the goblins waiting on the CEO, unacknowledged wakes, and the newest `data/ceo-handoff-*.md` by modification time.
 It runs only for the live session that holds the primary home's lock, produces no output, and never blocks compaction.
 After compaction the brief digest names that checkpoint first under READ THIS NEXT, or says it is missing, unreadable or older than fifteen minutes.
 The checkpoint warns that holds declared only in conversation are absent; the CEO's own handoff must record them.
-Re-run `cfo install` to register the PreCompact hook; this change needs no supervisor restart or new terminal hosts.
+Re-run `goblins install` to register the PreCompact hook; this change needs no supervisor restart or new terminal hosts.
 A Codex or pi CEO gets the same checkpoint through its native hooks, which only spool the event: as the supervisor ingests Codex `PreCompact` or pi `session_before_compact` it writes the checkpoint, for the registered CEO while that CEO holds the primary home's lock.
 As it ingests Codex `PostCompact` or pi `session_compact` it queues one `check` wake that names the checkpoint, or says no fresh one was written, and types it into the idle CEO like any other wake; a replayed event queues nothing new.
 A goblin's compaction, or one in a session that does not hold the home, writes nothing and wakes no one.
-A Codex CEO's launch carries these events, or, in a home whose paths a Codex hook cannot hold, `cfo hooks install codex` adds them ([native hook setup](native-board.md#native-hook-setup)), and Codex runs them only once they are trusted in `/hooks`; re-run `cfo hooks install pi` to add them for a pi CEO.
+A Codex CEO's launch carries these events, or, in a home whose paths a Codex hook cannot hold, `goblins hooks install codex` adds them ([native hook setup](native-board.md#native-hook-setup)), and Codex runs them only once they are trusted in `/hooks`; re-run `goblins hooks install pi` to add them for a pi CEO.
 The `state/session-digest.md` file holds the last composed long digest; the [memory contract](contract/memory.md#owners-and-startup) owns source validation, delivered ranges, retrieval and legacy behavior.
 Apart from the shipped lane table, `data/routing.json`, `data/` is the operator's private fleet state and never part of this repository.
 A Claude CEO also loads its auto-memory index for the folder it runs in, which is Claude Code's own and stays authoritative for a Claude Code CEO; a CEO in another harness or another folder never sees it.
-Importing that memory into the shared home follows the [`cfo home migrate` reference](commands/home/migrate.md).
+Importing that memory into the shared home follows the [`goblins home migrate` reference](commands/home/migrate.md).
 The `stow` skill owns combined memory curation, declared-tier capture, corrections and open work held in this session; directives stay word for word and individually approved pinned offloads are separate from the pass.
 The [memory contract](contract/memory.md) defines selective retrieval, lossless dry-run plans and complete startup accounting for all three harnesses, including global rules, skill discovery index, brief and emitted digest.
-The `project-check` skill assesses what the home knows about one project through `cfo project check`, and names no tool of one harness, so it reads the same in all three.
+The `project-check` skill assesses what the home knows about one project through `goblins project check`, and names no tool of one harness, so it reads the same in all three.
 
 ## Third-party skills
 
@@ -204,12 +202,12 @@ The tools the fleet drives publish their own skills, and this repository does no
 Install each once at user scope with `npx skills add kunchenguid/<tool> --skill <tool> -g`, so Codex and Pi find it in `~/.agents/skills` and Claude Code in `~/.claude/skills`; both installs in [the installation guide](https://github.com/fpresta0607/code-goblins/blob/main/docs/install.md) add all three for you.
 
 A copy inside this repository would reach only sessions opened in this checkout, never a goblin working on another project, and would compete with the user copy under the collision rules above.
-`cfo doctor` checks that these tools are installed but not yet that their skills are; checking for each skill at user scope is a natural next addition to it.
+`goblins doctor` checks that these tools are installed but not yet that their skills are; checking for each skill at user scope is a natural next addition to it.
 
 ## Keeping it clean
 
 - One skill, one directory: a skill this repository owns lives in `.agents/skills/` in the source and is installed once, into `~/.agents/skills`, with a junction from `~/.claude/skills`, and a third-party skill is installed once at user scope from its owner.
-- `cfo doctor` prints where each harness keeps its configuration and skills, and flags a skill kept as a real folder in more than one skills folder, a junction whose target is gone, and a harness folder that is missing.
+- `goblins doctor` prints where each harness keeps its configuration and skills, and flags a skill kept as a real folder in more than one skills folder, a junction whose target is gone, and a harness folder that is missing.
 - A rule every harness should follow belongs in the global instruction file each harness reads (keep those files identical with hardlinks), not in `~/.claude/rules`, which only Claude reads.
 - `SessionStart` output is paid for in every session and every goblin; a hook that repeats a skill description adds cost and nothing else.
 - Keep `AGENTS.md` below 30 KiB so the complete shared core fits the smallest default project-instruction budget.

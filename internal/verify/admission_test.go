@@ -587,7 +587,7 @@ func TestARunLeavesTheLineAtItsLineLimit(t *testing.T) {
 // The line limit bounds the run's first look at the line as well. A run that
 // finds the line's lock busy before it joins the line, and still busy at its
 // line limit, leaves there, rather than trying the lock again for as long as
-// its admission's limit lasts, which is no limit at all for cfo gate turn.
+// its admission's limit lasts, which is no limit at all for goblins gate turn.
 func TestARunLeavesABusyLockAtItsLineLimitBeforeItJoinsTheLine(t *testing.T) {
 	// Arrange
 	a := admission(t)
@@ -1313,7 +1313,7 @@ func TestAWaitingRunKeepsItsPlaceWhileTheLinesLockIsBusy(t *testing.T) {
 	}
 }
 
-// A run whose admission has a limit, as cfo gate test's hour, gives up a lock
+// A run whose admission has a limit, as goblins gate test's hour, gives up a lock
 // busy past that limit with why, rather than waiting on it for good.
 func TestAWaitingRunGivesUpALockBusyPastItsLimit(t *testing.T) {
 	// Arrange

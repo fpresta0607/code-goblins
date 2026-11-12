@@ -23,32 +23,32 @@ func TestSubscriptionVisibilityRequiresLiveHarnessEvidence(t *testing.T) {
 	liveTask := Task{ID: "goblin", Harness: "codex", Generation: "g1", Session: "session", Runtime: RuntimeEvidence{State: "busy", At: now}}
 	for _, test := range []struct {
 		name     string
-		cfo      cfoState
+		ceo      ceoState
 		tasks    []Task
 		sessions []Session
 		want     string
 	}{
-		{"CFO only", cfoState{registered: true, harness: "claude"}, nil, nil, "claude"},
-		{"goblin only", cfoState{}, []Task{liveTask}, nil, "codex"},
-		{"both", cfoState{registered: true, harness: "claude"}, []Task{liveTask}, nil, "claude,codex"},
-		{"idle harness", cfoState{}, []Task{{Harness: "claude", Generation: "g1", Runtime: RuntimeEvidence{State: "idle", At: now}}}, nil, "claude"},
-		{"weekly-limited harness remains visible", cfoState{}, []Task{{Harness: "claude", Generation: "g1", Runtime: RuntimeEvidence{State: "harness-erroring", At: now}}}, nil, "claude"},
-		{"harness parked on a decision remains visible", cfoState{}, []Task{{Harness: "claude", Generation: "g1", Runtime: RuntimeEvidence{State: "parked", At: now}}}, nil, "claude"},
-		{"configured CFO", cfoState{harness: "claude"}, nil, nil, ""},
-		{"lost CFO", cfoState{registered: true, harness: "claude", problem: "terminal ended"}, nil, nil, ""},
-		{"foreign session", cfoState{}, nil, []Session{{Role: "foreign", Harness: "claude", Phase: "active"}}, ""},
-		{"saved model", cfoState{}, []Task{{Model: "claude-opus", Generation: "g1", Runtime: liveTask.Runtime}}, nil, ""},
-		{"paused", cfoState{}, []Task{{Harness: "claude", Generation: "g1", Runtime: RuntimeEvidence{State: "paused", At: now}}}, nil, ""},
-		{"ended", cfoState{}, []Task{liveTask}, []Session{{ID: "session", TaskID: "goblin", Generation: "g1", Phase: "ended"}}, ""},
-		{"canonical paused session", cfoState{}, []Task{liveTask}, []Session{{ID: "session", TaskID: "goblin", Generation: "g1", Phase: "paused"}}, ""},
-		{"obsolete ended session", cfoState{}, []Task{liveTask}, []Session{{ID: "old-session", TaskID: "goblin", Generation: "g1", Phase: "ended"}}, "codex"},
-		{"stale", cfoState{}, []Task{{Harness: "claude", Generation: "g1", Runtime: RuntimeEvidence{State: "active", At: now.Add(-3 * time.Minute)}}}, nil, ""},
-		{"archived", cfoState{}, []Task{{Harness: "claude", Generation: "g1", Archived: true, Runtime: liveTask.Runtime}}, nil, ""},
-		{"launching host alone", cfoState{}, []Task{{Harness: "claude", Generation: "g1", Runtime: RuntimeEvidence{State: "launching", At: now}}}, nil, ""},
+		{"CEO only", ceoState{registered: true, harness: "claude"}, nil, nil, "claude"},
+		{"goblin only", ceoState{}, []Task{liveTask}, nil, "codex"},
+		{"both", ceoState{registered: true, harness: "claude"}, []Task{liveTask}, nil, "claude,codex"},
+		{"idle harness", ceoState{}, []Task{{Harness: "claude", Generation: "g1", Runtime: RuntimeEvidence{State: "idle", At: now}}}, nil, "claude"},
+		{"weekly-limited harness remains visible", ceoState{}, []Task{{Harness: "claude", Generation: "g1", Runtime: RuntimeEvidence{State: "harness-erroring", At: now}}}, nil, "claude"},
+		{"harness parked on a decision remains visible", ceoState{}, []Task{{Harness: "claude", Generation: "g1", Runtime: RuntimeEvidence{State: "parked", At: now}}}, nil, "claude"},
+		{"configured CEO", ceoState{harness: "claude"}, nil, nil, ""},
+		{"lost CEO", ceoState{registered: true, harness: "claude", problem: "terminal ended"}, nil, nil, ""},
+		{"foreign session", ceoState{}, nil, []Session{{Role: "foreign", Harness: "claude", Phase: "active"}}, ""},
+		{"saved model", ceoState{}, []Task{{Model: "claude-opus", Generation: "g1", Runtime: liveTask.Runtime}}, nil, ""},
+		{"paused", ceoState{}, []Task{{Harness: "claude", Generation: "g1", Runtime: RuntimeEvidence{State: "paused", At: now}}}, nil, ""},
+		{"ended", ceoState{}, []Task{liveTask}, []Session{{ID: "session", TaskID: "goblin", Generation: "g1", Phase: "ended"}}, ""},
+		{"canonical paused session", ceoState{}, []Task{liveTask}, []Session{{ID: "session", TaskID: "goblin", Generation: "g1", Phase: "paused"}}, ""},
+		{"obsolete ended session", ceoState{}, []Task{liveTask}, []Session{{ID: "old-session", TaskID: "goblin", Generation: "g1", Phase: "ended"}}, "codex"},
+		{"stale", ceoState{}, []Task{{Harness: "claude", Generation: "g1", Runtime: RuntimeEvidence{State: "active", At: now.Add(-3 * time.Minute)}}}, nil, ""},
+		{"archived", ceoState{}, []Task{{Harness: "claude", Generation: "g1", Archived: true, Runtime: liveTask.Runtime}}, nil, ""},
+		{"launching host alone", ceoState{}, []Task{{Harness: "claude", Generation: "g1", Runtime: RuntimeEvidence{State: "launching", At: now}}}, nil, ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			service := &Service{}
-			usage := service.subscriptionUsage(test.cfo, Snapshot{At: now, Tasks: test.tasks, Sessions: test.sessions})
+			usage := service.subscriptionUsage(test.ceo, Snapshot{At: now, Tasks: test.tasks, Sessions: test.sessions})
 			providers := []string{}
 			for _, provider := range usage {
 				providers = append(providers, provider.Provider)
@@ -123,7 +123,7 @@ func TestSubscriptionUsageSaysTheWeeklyFloorTheFleetReadingRead(t *testing.T) {
 
 			// Act
 			err := s.pauseAtAllowanceFloor(t.Context(), &fleetWakes{}, now)
-			usage := s.subscriptionUsage(cfoState{registered: true, harness: "claude"}, Snapshot{At: now, Tasks: []Task{goblin}})
+			usage := s.subscriptionUsage(ceoState{registered: true, harness: "claude"}, Snapshot{At: now, Tasks: []Task{goblin}})
 
 			// Assert
 			if isReported := err != nil && strings.Contains(err.Error(), "weekly allowance floor cannot be read"); isReported != test.isUnreadable {
@@ -231,7 +231,7 @@ func TestSubscriptionRefreshProjectsOnlySafeWeeklyFields(t *testing.T) {
 	}}}
 	service.readQuota(context.Background(), 15*time.Second)
 	view := Snapshot{At: now}
-	usage := service.subscriptionUsage(cfoState{registered: true, harness: "codex"}, view)
+	usage := service.subscriptionUsage(ceoState{registered: true, harness: "codex"}, view)
 	if len(usage) != 1 || usage[0].PercentRemaining == nil || *usage[0].PercentRemaining != 76 {
 		t.Fatalf("usage = %+v", usage)
 	}
@@ -250,14 +250,14 @@ func TestSubscriptionRefreshProjectsOnlySafeWeeklyFields(t *testing.T) {
 	}
 
 	view.At = now.Add(2 * time.Hour)
-	usage = service.subscriptionUsage(cfoState{registered: true, harness: "codex"}, view)
+	usage = service.subscriptionUsage(ceoState{registered: true, harness: "codex"}, view)
 	if usage[0].Status != "stale" || usage[0].PercentRemaining != nil {
 		t.Fatalf("cache age concealed: %+v", usage)
 	}
 
 	service.Options.Quota = func(context.Context) (quota.Report, string) { return quota.Report{}, "secret-token-error" }
 	service.readQuota(context.Background(), 15*time.Second)
-	usage = service.subscriptionUsage(cfoState{registered: true, harness: "codex"}, Snapshot{At: now})
+	usage = service.subscriptionUsage(ceoState{registered: true, harness: "codex"}, Snapshot{At: now})
 	if usage[0].Status != "available" || usage[0].PercentRemaining == nil || *usage[0].PercentRemaining != 76 || !usage[0].ReadAt.Equal(now) {
 		t.Fatalf("failed read dropped the reading before it: %+v", usage)
 	}
@@ -302,7 +302,7 @@ func TestARefreshThatMeasuresNothingKeepsTheLastReadingUntilItIsOld(t *testing.T
 		service.readQuota(t.Context(), 15*time.Second)
 	}
 	dial := func(at time.Time) SubscriptionUsage {
-		return service.subscriptionUsage(cfoState{registered: true, harness: "claude"}, Snapshot{At: at})[0]
+		return service.subscriptionUsage(ceoState{registered: true, harness: "claude"}, Snapshot{At: at})[0]
 	}
 	measured := func(reading SubscriptionUsage) bool {
 		return reading.Status == "available" && reading.PercentRemaining != nil && *reading.PercentRemaining == 75 && reading.ReadAt.Equal(now) && reading.ResetsAt.Equal(resets)
@@ -371,7 +371,7 @@ func TestOneQuotaReadAMinuteServesTheDialsAndTheFloor(t *testing.T) {
 	if got := reads.Load(); got != 1 {
 		t.Fatalf("quota-axi reads = %d, want 1 for the floor and the dials together", got)
 	}
-	if usage := floor.subscriptionUsage(cfoState{registered: true, harness: "claude"}, Snapshot{At: now}); usage[0].Status != "available" || usage[0].PercentRemaining == nil || *usage[0].PercentRemaining != 75 {
+	if usage := floor.subscriptionUsage(ceoState{registered: true, harness: "claude"}, Snapshot{At: now}); usage[0].Status != "available" || usage[0].PercentRemaining == nil || *usage[0].PercentRemaining != 75 {
 		t.Fatalf("dial after the floor's read = %+v, want its 75%%", usage)
 	}
 

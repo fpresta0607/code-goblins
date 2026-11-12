@@ -455,7 +455,7 @@ func (r *Reader) Forget(live map[string]bool) {
 		}
 	}
 	for task := range r.engines {
-		if !live[task] && task != CFOOwner {
+		if !live[task] && task != CEOOwner {
 			delete(r.engines, task)
 		}
 	}
@@ -885,7 +885,7 @@ func (r *Reader) gateNode(ctx context.Context, meta state.TaskMeta, processes []
 	return gateNode(reading, generationStart(meta.SpawnGen), processes, r.usual)
 }
 
-// generationStart is when a spawn generation began: cfo spawn names each
+// generationStart is when a spawn generation began: goblins spawn names each
 // "s" and its Unix time in nanoseconds.
 func generationStart(generation string) time.Time {
 	digits, ok := strings.CutPrefix(generation, "s")

@@ -93,8 +93,8 @@ func classify(program Running, hosts map[int]string, fromFolders bool) ownedProg
 		return ownedProgram{Running: program, kind: kindWindow, what: "the window"}
 	case fromFolders && slices.Contains(program.Arguments, "serve"):
 		return ownedProgram{Running: program, kind: kindBoard, what: "the board"}
-	case hosts[program.PID] == "cfo":
-		return ownedProgram{Running: program, kind: kindTerminal, what: "the CFO's terminal", terminal: "cfo"}
+	case hosts[program.PID] == "ceo":
+		return ownedProgram{Running: program, kind: kindTerminal, what: "the CEO's terminal", terminal: "ceo"}
 	case hosts[program.PID] != "":
 		id := hosts[program.PID]
 		return ownedProgram{Running: program, kind: kindTerminal, what: id + "'s terminal", terminal: id}

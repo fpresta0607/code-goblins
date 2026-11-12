@@ -55,7 +55,7 @@ func claim(client *http.Client, board, instance string, keys []string) ([]string
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Origin", origin)
-	request.Header.Set("X-CFO-Token", instance)
+	request.Header.Set("X-CEO-Token", instance)
 	response, err := client.Do(request)
 	if err != nil {
 		return nil, err

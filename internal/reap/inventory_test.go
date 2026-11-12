@@ -16,7 +16,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// The machine's own lister is what keeps the sweep from reporting the CFO
+// The machine's own lister is what keeps the sweep from reporting the CEO
 // session it runs inside: its ancestry names this process and its parent.
 func TestTheProcessTableNamesTheSweepsOwnSession(t *testing.T) {
 	// Act
@@ -165,7 +165,7 @@ func withRecords(t *testing.T, root string, ids ...string) home.Home {
 // an archive. The projects root and a project's checkout are every home's on
 // the machine, so another home's goblins work there too. On 2026-10-02 a
 // scratch home whose projects root was the live one listed 28 of the live
-// fleet's worktrees as unheld orphans and told its CFO to run cfo reap --apply.
+// fleet's worktrees as unheld orphans and told its CEO to run goblins reap --apply.
 func TestASecondHomeListsNoWorktreeItsRecordsDoNotName(t *testing.T) {
 	// Arrange
 	root := t.TempDir()

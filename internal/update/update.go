@@ -1,8 +1,8 @@
-// Package update installs a verified candidate build into a CFO home: it
-// swaps the home's cfo.exe and goblins.exe for the candidate as one
+// Package update installs a verified candidate build into a CEO home: it
+// swaps the home's goblins.exe for the candidate as one
 // transaction whose progress is durable before anything live changes, so an
 // update that fails, or a process that ends part way, always leaves a way back
-// to the build that ran before. This package owns the files; cfo update owns
+// to the build that ran before. This package owns the files; goblins update owns
 // the supervisor around them.
 package update
 
@@ -24,7 +24,7 @@ import (
 )
 
 // Aliases are the names the home's one program is installed under.
-var Aliases = []string{"cfo.exe", "goblins.exe"}
+var Aliases = []string{"goblins.exe"}
 
 // readStaged reads a staged copy of the candidate the first time anything
 // opens it. A virus scanner holds the first open of a program just written
@@ -60,7 +60,7 @@ func (p Phase) Finished() bool {
 	return p == Done || p == RolledBack
 }
 
-const schema = "cfo-update.v1"
+const schema = "ceo-update.v1"
 
 // Alias is one installed name with the build it held before the update and
 // the verified copy of that build kept for the way back.
@@ -104,6 +104,10 @@ type Journal struct {
 	Started   time.Time `json:"started"`
 	Updated   time.Time `json:"updated"`
 	Outcome   string    `json:"outcome,omitempty"`
+	// Crossing is the undo folder of the crossing this update made of a home
+	// from before the rename, which a rollback undoes before it puts the
+	// previous build back; empty for an update that made none.
+	Crossing string `json:"crossing,omitempty"`
 }
 
 // Dir is where an update keeps its journal, the verified copies and its lock.
@@ -114,6 +118,11 @@ func Dir(stateDir string) string {
 // LockName is the lock, in Dir, that one update of a home, or the recovery of
 // one, holds from before it changes anything until it has finished.
 const LockName = ".lock"
+
+// ReleaseLockName is the lock, in Dir, that one update of a home from a
+// release holds from its download to its last step, the install of the build
+// it put in, in every release since the rename and before it.
+const ReleaseLockName = ".release.lock"
 
 // Installing reports whether an update of the home whose state is stateDir,
 // or the recovery of one, is at work now: a process that runs holds its lock.

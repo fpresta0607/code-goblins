@@ -1,8 +1,9 @@
 import { doneCards, expect, recordDoneCards, servePages, test, type Page, type Route } from "./site";
 
 // The one card a goblin sends when its browser work reaches a step only the
-// Overlord can take: the exact page to open, or the goblin's own browser
-// window, the fewest steps, only the inputs he enters, and Done, with Close on every card.
+// Overlord can take: the exact page to open, or the goblin's own browser,
+// whose screen he takes control of on the card, the fewest steps, only the
+// inputs he enters, and Done, with Close on every card.
 const CLICKS = "cred-1111111111111111";
 const INPUTS = "cred-2222222222222222";
 const WINDOW = "cred-3333333333333333";
@@ -17,7 +18,7 @@ async function answer(page: Page): Promise<Sent[]> {
   await page.route("**/api/credentials/**", async (route: Route) => {
     const request = route.request();
     const body = request.postDataJSON() as Record<string, unknown>;
-    sent.push({ path: new URL(request.url()).pathname, token: await request.headerValue("X-CFO-Token"), body });
+    sent.push({ path: new URL(request.url()).pathname, token: await request.headerValue("X-CEO-Token"), body });
     const values = Object.keys((body.values as Record<string, string> | undefined) || {});
     await route.fulfill({ status: 200, json: { id: body.id, state: "open", saved: values.filter((name) => name !== "ACCOUNT_EMAIL"), received: values.filter((name) => name === "ACCOUNT_EMAIL"), replaced: [] } });
   });
@@ -88,7 +89,7 @@ test("Skip beside the decision buttons skips a card from any board and leaves th
 
   // Assert
   expect(sent[0]).toEqual({ path: "/api/credentials/close", token: "fixture-token", body: { id: INPUTS, generation: "b".repeat(32), action: "dismiss" } });
-  await expect.poll(() => doneCards(page)).toContainEqual(expect.stringMatching(/^Closed.*goes on without it\. Give it later: cfo auth store --project acme-shop SHOP_API_TOKEN/));
+  await expect.poll(() => doneCards(page)).toContainEqual(expect.stringMatching(/^Closed.*goes on without it\. Give it later: goblins auth store --project acme-shop SHOP_API_TOKEN/));
 });
 
 test("a closed card with nothing secret to give later says how to bring it back", async ({ page }) => {
@@ -102,7 +103,7 @@ test("a closed card with nothing secret to give later says how to bring it back"
   await setCard(page, CLICKS, { state: "dismissed", closed_at: "2026-10-14T23:45:00Z" });
 
   // Assert
-  await expect.poll(() => doneCards(page)).toContainEqual(expect.stringMatching(/^Closed.*Bring it back: cfo auth request --reopen cred-1111111111111111/));
+  await expect.poll(() => doneCards(page)).toContainEqual(expect.stringMatching(/^Closed.*Bring it back: goblins auth request --reopen cred-1111111111111111/));
 });
 
 test("each input shows by its label: a plain value is typed in the open and sent to the goblin, a secret stays hidden", async ({ page }) => {
@@ -127,22 +128,33 @@ test("each input shows by its label: a plain value is typed in the open and sent
   await expect(card.getByRole("button", { name: "Done" })).toHaveCount(0);
 });
 
-test("the window button asks for the goblin's own browser, then the card says it is open on his screen", async ({ page }) => {
+test("Take control opens the goblin's own browser at the page, whose screen the card then shows with no window on his desktop", async ({ page }) => {
   // Arrange
   const sent = await answer(page);
+  const views: string[] = [];
+  await page.routeWebSocket("**/api/screen?*", (socket) => {
+    views.push(socket.url());
+    socket.send(JSON.stringify({ type: "state", is_driven: true, can_drive: true, title: "Sign in", host: "shop.example.com", has_page: true }));
+  });
   const card = await openCard(page, WINDOW);
+  await expect(card.getByRole("list", { name: "What to do" }).getByRole("listitem").first()).toHaveText("Press Take control below");
 
   // Act
-  await card.getByRole("button", { name: "Open the browser window" }).click();
+  await card.getByRole("button", { name: "Take control", exact: true }).click();
   await expect.poll(() => sent.length).toBe(1);
   await setCard(page, WINDOW, { window_state: "requested" });
-  await expect(card.locator(".step-window")).toContainText("Opening the browser window on your PC.");
+  await expect(card.locator(".step-window")).toContainText("Opening Sign the shop up for the test account's browser at the page.");
+  await expect(card.getByRole("button", { name: "Take control", exact: true })).toBeDisabled();
   await setCard(page, WINDOW, { window_state: "open" });
 
   // Assert
   expect(sent[0]).toEqual({ path: "/api/credentials/window", token: "fixture-token", body: { id: WINDOW, generation: "c".repeat(32) } });
-  await expect(card.locator(".step-window")).toContainText("The browser window is open on your screen. Take the step there, then press Done.");
-  await expect(card.locator(".step-window .primary")).toBeDisabled();
+  await expect(card.locator(".step-window")).toContainText("Take the step on Sign the shop up for the test account's screen below, then press Hand back or Done.");
+  await expect(card.getByRole("region", { name: "Sign the shop up for the test account's browser" })).toBeVisible();
+  await expect(card.getByRole("button", { name: "Hand back", exact: true })).toBeVisible();
+  await expect(card.getByRole("button", { name: "Take control", exact: true })).toHaveCount(0);
+  await expect.poll(() => views.length).toBe(1);
+  expect(Object.fromEntries(new URL(views[0]).searchParams)).toEqual({ task: "shop-signup", generation: "1", token: "fixture-token" });
   await expect(card.getByRole("list", { name: "What to do" }).getByRole("link")).toHaveCount(0);
 });
 
@@ -159,7 +171,7 @@ test("a plain value refused as a key keeps its warning and offers to send it any
   const sent: Sent[] = [];
   const answers = [KEY_REFUSAL, { status: 200, json: { id: REFERENCE_CARD, state: "open", saved: [], received: ["MADE_UP_ACCOUNT_REF"], replaced: [] } }];
   await page.route("**/api/credentials/**", async (route: Route) => {
-    sent.push({ path: new URL(route.request().url()).pathname, token: await route.request().headerValue("X-CFO-Token"), body: route.request().postDataJSON() as Record<string, unknown> });
+    sent.push({ path: new URL(route.request().url()).pathname, token: await route.request().headerValue("X-CEO-Token"), body: route.request().postDataJSON() as Record<string, unknown> });
     await route.fulfill(answers.shift()!);
   });
   const card = await openCard(page, REFERENCE_CARD);

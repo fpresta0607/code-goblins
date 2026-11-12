@@ -1,4 +1,4 @@
-// Package claudehook is the transport layer every `cfo hook <name>`
+// Package claudehook is the transport layer every `goblins hook <name>`
 // subcommand builds on: it decodes Claude Code's hook JSON from stdin, and
 // the Claude-shaped JSON Codex writes, and owns the hook output contracts
 // (PreToolUse deny, on stderr for Claude Code and on stdout for Codex, Stop

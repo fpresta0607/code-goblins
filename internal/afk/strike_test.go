@@ -7,13 +7,13 @@ import (
 	"time"
 )
 
-// A line the CFO wrote by mistake, such as the "nothing: CFO note" with
-// evidence "test" of 2026-10-09 00:08:18Z, is struck through with the CFO's
+// A line the CEO wrote by mistake, such as the "nothing: CEO note" with
+// evidence "test" of 2026-10-09 00:08:18Z, is struck through with the CEO's
 // reason. The log keeps the line and the strike after it, and loses nothing.
-func TestTheCFOStrikesALineWrittenByMistakeAndTheLogKeepsBoth(t *testing.T) {
+func TestTheCEOStrikesALineWrittenByMistakeAndTheLogKeepsBoth(t *testing.T) {
 	// Arrange
 	dir, on := turnedOn(t)
-	bogus, err := Log(dir, Entry{Kind: KindOther, What: "nothing: CFO note", Evidence: "test"}, night.Add(time.Hour))
+	bogus, err := Log(dir, Entry{Kind: KindOther, What: "nothing: CEO note", Evidence: "test"}, night.Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +26,7 @@ func TestTheCFOStrikesALineWrittenByMistakeAndTheLogKeepsBoth(t *testing.T) {
 		t.Fatalf("Strike = %v, want the line struck", err)
 	}
 	entries, _, _ := Entries(dir, on.Session)
-	if len(entries) != 3 || entries[1].What != "nothing: CFO note" || entries[1].Evidence != "test" {
+	if len(entries) != 3 || entries[1].What != "nothing: CEO note" || entries[1].Evidence != "test" {
 		t.Fatalf("log = %+v, want the switch, the line as it was written and the strike", entries)
 	}
 	if strike.Kind != KindStrike || strike.Item != bogus.At.Format(time.RFC3339Nano) || strike.What != bogus.What || strike.Evidence != "written by mistake while testing the log command" {
@@ -62,26 +62,26 @@ func TestAStruckLineIsShownStruckInTheReportAndLeavesNothingForHim(t *testing.T)
 
 	// Assert
 	if len(sections) != 1 {
-		t.Errorf("headings = %+v, want only Struck by the CFO: the only line was struck", sections)
+		t.Errorf("headings = %+v, want only Struck by the CEO: the only line was struck", sections)
 	}
 	last := sections[len(sections)-1]
-	if last.Title != "Struck by the CFO" || len(last.Entries) != 1 || last.Entries[0].What != left.What {
-		t.Errorf("last heading = %+v, want the struck line under Struck by the CFO", last)
+	if last.Title != "Struck by the CEO" || len(last.Entries) != 1 || last.Entries[0].What != left.What {
+		t.Errorf("last heading = %+v, want the struck line under Struck by the CEO", last)
 	}
-	for _, want := range []string{"Struck by the CFO (1)", "- Sign in to Vercel for pd-auth (https://vercel.com/login) (struck)", "  Struck: pd-auth signs in with the fleet's own token, so nothing is his"} {
+	for _, want := range []string{"Struck by the CEO (1)", "- Sign in to Vercel for pd-auth (https://vercel.com/login) (struck)", "  Struck: pd-auth signs in with the fleet's own token, so nothing is his"} {
 		if !strings.Contains(text.String(), want) {
 			t.Errorf("the report text lacks %q:\n%s", want, text.String())
 		}
 	}
 }
 
-// AFK mode can be on again before the CFO strikes a line of a stretch that
+// AFK mode can be on again before the CEO strikes a line of a stretch that
 // already ended, as the bogus line of 2026-10-09 was. The strike belongs to
 // the stretch on now, so the report the Overlord reads next shows it.
 func TestAStrikeOfAnEarlierStretchsLineIsShownInTheNextReport(t *testing.T) {
 	// Arrange
 	dir, first := turnedOn(t)
-	bogus, err := Log(dir, Entry{Kind: KindHis, What: "nothing: CFO note", Link: "https://example.com/note", Evidence: "test", Options: []string{"Keep it", "Drop it"}, Recommendation: "Drop it"}, night.Add(time.Hour))
+	bogus, err := Log(dir, Entry{Kind: KindHis, What: "nothing: CEO note", Link: "https://example.com/note", Evidence: "test", Options: []string{"Keep it", "Drop it"}, Recommendation: "Drop it"}, night.Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestAStrikeOfAnEarlierStretchsLineIsShownInTheNextReport(t *testing.T) {
 	}
 
 	// Act
-	strike, err := Strike(dir, bogus.At, "a test line the CFO wrote by mistake", night.Add(4*time.Hour))
+	strike, err := Strike(dir, bogus.At, "a test line the CEO wrote by mistake", night.Add(4*time.Hour))
 
 	// Assert
 	if err != nil || strike.Session != second.Session {
@@ -103,7 +103,7 @@ func TestAStrikeOfAnEarlierStretchsLineIsShownInTheNextReport(t *testing.T) {
 	entries, _, _ := Entries(dir, second.Session)
 	report := Report{Session: second.Session, Decisions: Decisions(entries), Struck: StruckEarlier(entries)}
 	last := report.Sections()[len(report.Sections())-1]
-	if last.Title != "Struck by the CFO" || len(last.Entries) != 1 || last.Entries[0].What != "nothing: CFO note" || last.Entries[0].Struck != "a test line the CFO wrote by mistake" {
+	if last.Title != "Struck by the CEO" || len(last.Entries) != 1 || last.Entries[0].What != "nothing: CEO note" || last.Entries[0].Struck != "a test line the CEO wrote by mistake" {
 		t.Errorf("last heading = %+v, want the earlier stretch's line struck with the reason", last)
 	}
 	if earlier, _, _ := Entries(dir, first.Session); len(Decisions(earlier)) != 1 {
@@ -116,7 +116,7 @@ func TestAStrikeOfAnEarlierStretchsLineIsShownInTheNextReport(t *testing.T) {
 func TestAStrikeAfterTheStretchEndedShowsInItsKeptReport(t *testing.T) {
 	// Arrange
 	dir, on := turnedOn(t)
-	bogus, err := Log(dir, Entry{Kind: KindOther, What: "nothing: CFO note", Evidence: "test"}, night.Add(time.Hour))
+	bogus, err := Log(dir, Entry{Kind: KindOther, What: "nothing: CEO note", Evidence: "test"}, night.Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,21 +129,21 @@ func TestAStrikeAfterTheStretchEndedShowsInItsKeptReport(t *testing.T) {
 	}
 
 	// Act
-	if _, err := Strike(dir, bogus.At, "a test line the CFO wrote by mistake", night.Add(3*time.Hour)); err != nil {
+	if _, err := Strike(dir, bogus.At, "a test line the CEO wrote by mistake", night.Add(3*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	report, found, err := ReadReport(dir)
 
 	// Assert
-	if err != nil || !found || len(report.Decisions) != 1 || report.Decisions[0].Struck != "a test line the CFO wrote by mistake" {
+	if err != nil || !found || len(report.Decisions) != 1 || report.Decisions[0].Struck != "a test line the CEO wrote by mistake" {
 		t.Errorf("ReadReport = %+v, %v, %v, want the kept report's line struck", report, found, err)
 	}
 }
 
-func TestAStrikeNeedsAReasonAndALineOfTheCFOsNotStruckBefore(t *testing.T) {
+func TestAStrikeNeedsAReasonAndALineOfTheCEOsNotStruckBefore(t *testing.T) {
 	// Arrange
 	dir, on := turnedOn(t)
-	bogus, err := Log(dir, Entry{Kind: KindOther, What: "nothing: CFO note", Evidence: "test"}, night.Add(time.Hour))
+	bogus, err := Log(dir, Entry{Kind: KindOther, What: "nothing: CEO note", Evidence: "test"}, night.Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}

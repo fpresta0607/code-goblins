@@ -45,7 +45,7 @@ var (
 )
 
 // Launch starts a host for spec in a process of its own and returns the
-// host's record once it is serving. command runs a host (cfo.exe and "host"
+// host's record once it is serving. command runs a host (goblins.exe and "host"
 // in production), and env is the whole environment the host and its terminal
 // run with. The host is detached from this process, in its own process group
 // and out of this process's job where Windows allows it, so it outlives

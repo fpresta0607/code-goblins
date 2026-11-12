@@ -91,7 +91,7 @@ func Render(before []byte, p Policy) ([]byte, []string, error) {
 		}
 	}
 	// From version 6 a run carries its own agents, so the machine's chain is
-	// the operator's, and it serves only the runs the CFO does not drive.
+	// the operator's, and it serves only the runs the CEO does not drive.
 	if p.Version < 6 {
 		primary := p.Reviewer
 		if p.Version > 1 {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { message, reportToCfo, request } from "./api";
+import { message, reportToCeo, request } from "./api";
 import { parseBrowserLogins, type BrowserLogin } from "./browser-logins";
 import { useClickFeedback } from "./click-feedback";
 import { askKey, goblinKey } from "./connector-list";
@@ -29,7 +29,7 @@ function repairedAt(task: Task, runs: Run[]): string {
 // read until its check has ended and again only when a repair of it ends,
 // he gives or takes back one of its connectors, or he asks for a recheck,
 // so a page left open asks the supervisor nothing. A read that fails goes
-// to the CFO by goblin and task, and a refusal of his own click is said
+// to the CEO by goblin and task, and a refusal of his own click is said
 // beside it.
 export function useConnectors(goblins: Task[], runs: Run[], instance: string, onRepair: (key: string) => void) {
   const [readings, setReadings] = useState<ReadonlyMap<string, Reading>>(new Map());
@@ -64,7 +64,7 @@ export function useConnectors(goblins: Task[], runs: Run[], instance: string, on
         return new Map(prior).set(goblin, { connections: connections && { ...connections, checking: false }, readAt: Date.now(), hasFailed: true });
       });
       if (isRecheck) showFeedback(message(error));
-      else reportToCfo("reading the connections of " + goblinName(task) + " (" + task.id + ")", message(error));
+      else reportToCeo("reading the connections of " + goblinName(task) + " (" + task.id + ")", message(error));
     });
     reader.current = made;
     return () => { made.stop(); reader.current = null; };
@@ -74,7 +74,7 @@ export function useConnectors(goblins: Task[], runs: Run[], instance: string, on
     for (const { task, repaired } of running.current) reader.current?.read(task, repaired);
   }, [wanted, instance]);
   const post = useCallback((task: Task, endpoint: string, extra: Record<string, string> = {}) => {
-    return request(endpoint, undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ task: task.id, generation: task.generation, ...extra }) });
+    return request(endpoint, undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance }, body: JSON.stringify({ task: task.id, generation: task.generation, ...extra }) });
   }, [instance]);
   const recheck = useCallback(() => {
     setReadings((prior) => new Map([...prior].map(([goblin, reading]) => [goblin, reading.connections ? { ...reading, connections: { ...reading.connections, checking: true } } : reading])));
@@ -106,7 +106,7 @@ export function useConnectors(goblins: Task[], runs: Run[], instance: string, on
     finally { setIsBusy(false); }
   };
   // Connect gives the goblin the connector and Disconnect takes it back, as
-  // cfo auth grant and cfo auth revoke do; its row changes at once.
+  // goblins auth grant and goblins auth revoke do; its row changes at once.
   const give = async (task: Task, entry: ConnectionEntry, isGiving: boolean) => {
     const goblin = goblinKey(task);
     setAsked((prior) => new Map(prior).set(askKey(goblin, entry.id), isGiving));

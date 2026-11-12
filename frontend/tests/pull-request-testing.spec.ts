@@ -24,8 +24,8 @@ const goblin = (id: string, name: string, title: string, task: string, fields: R
 });
 const pause = (reason: string, until: string) => ({ phase: "paused", action: "pause", at: ago(20), kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason, until, at: ago(20) } });
 const SNAPSHOT = {
-  healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [],
-  sessions: [{ id: "cfo-1", harness: "claude", role: "cfo", model: "claude-opus-5-5" }],
+  healthy: true, instance: "fixture", ceo_runs: true, ceo_harness: "claude", revision: 1, attention: [],
+  sessions: [{ id: "ceo-1", harness: "claude", role: "ceo", model: "claude-opus-5-5" }],
   tasks: [
     goblin("nw-sid", "Sid", "Memory Keeper", "Keep the memory floor", { phase: "paused", at: ago(20), pr: REPO + "/pull/512", lifecycle: pause("dependency", "pr:" + REPO + "/pull/512"),
       hosted_checks: { head: HEAD, state: "passed", checks: 9, at: ago(16) } }),

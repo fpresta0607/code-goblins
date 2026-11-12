@@ -64,8 +64,8 @@ type keySpendPlan struct {
 // on another provider is no dial, a session whose credential the records do
 // not tie to it says so rather than claiming spend, and callers sharing one
 // credential show one total.
-func (s *Service) keySpendUsage(cfo cfoState, snapshot Snapshot) []KeySpend {
-	plan := s.keySpendPlanFor(cfo, snapshot)
+func (s *Service) keySpendUsage(ceo ceoState, snapshot Snapshot) []KeySpend {
+	plan := s.keySpendPlanFor(ceo, snapshot)
 	s.mu.Lock()
 	s.keySpendPlan = plan
 	readings := maps.Clone(s.keySpendReadings)
@@ -171,7 +171,7 @@ func attributeKeySpend(reading openrouter.Reading, session keySpendSession) (boo
 // use, and the sessions bound to each, as the fleet's own launch records and
 // Pi's configuration name them: the project's worktree manifest over the
 // machine's user environment, and the profile that environment names.
-func (s *Service) keySpendPlanFor(cfo cfoState, snapshot Snapshot) keySpendPlan {
+func (s *Service) keySpendPlanFor(ceo ceoState, snapshot Snapshot) keySpendPlan {
 	var plan keySpendPlan
 	userEnv := s.userEnvironment()
 	defaultDir := piProfileDefault()
@@ -194,8 +194,8 @@ func (s *Service) keySpendPlanFor(cfo cfoState, snapshot Snapshot) keySpendPlan 
 		}
 		plan.Sessions = append(plan.Sessions, keySpendSession{ID: id, Provider: provider, Since: since, Source: key})
 	}
-	if cfo.registered && cfo.harness == "pi" && cfo.problem == "" && snapshot.Registration == "" {
-		bind(cfo.session, cfoModel(cfo, snapshot), cfo.since, "")
+	if ceo.registered && ceo.harness == "pi" && ceo.problem == "" && snapshot.Registration == "" {
+		bind(ceo.session, ceoModel(ceo, snapshot), ceo.since, "")
 	}
 	for _, task := range snapshotLiveTasks(snapshot) {
 		if task.Harness != "pi" {
@@ -261,13 +261,13 @@ func modelProvider(model string) string {
 	return strings.ToLower(provider)
 }
 
-// cfoModel is the model the registered CFO's session in its harness reported,
-// or while the registration names no session, the newest Pi CFO session's,
-// which is where a Pi CFO's provider is read from.
-func cfoModel(cfo cfoState, snapshot Snapshot) string {
+// ceoModel is the model the registered CEO's session in its harness reported,
+// or while the registration names no session, the newest Pi CEO session's,
+// which is where a Pi CEO's provider is read from.
+func ceoModel(ceo ceoState, snapshot Snapshot) string {
 	var newest Session
 	for _, session := range snapshot.Sessions {
-		if session.Role == "cfo" && session.Harness == "pi" && (cfo.session == "" || session.ID == cfo.session) && !session.UpdatedAt.Before(newest.UpdatedAt) {
+		if session.Role == "ceo" && session.Harness == "pi" && (ceo.session == "" || session.ID == ceo.session) && !session.UpdatedAt.Before(newest.UpdatedAt) {
 			newest = session
 		}
 	}
@@ -286,7 +286,7 @@ func piProfileDefault() string {
 
 // userEnvironment is the environment Windows gives a new process of this
 // user, by name, which every goblin's terminal starts from: not this
-// process's own, which cfo serve inherited from whatever started it.
+// process's own, which goblins serve inherited from whatever started it.
 func (s *Service) userEnvironment() map[string]string {
 	read := s.Options.UserEnvironment
 	if read == nil {

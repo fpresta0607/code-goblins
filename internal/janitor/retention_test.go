@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/layout"
 	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -86,6 +87,65 @@ func TestSweepKeepsARetiredTaskToItsTextRecordAndDeliverables(t *testing.T) {
 		if item, ok := has(record.Removed, folder); !ok || item.Bytes == 0 {
 			t.Errorf("the record does not show %s trimmed: %+v", folder, record.Removed)
 		}
+	}
+}
+
+// A finished task's folder that filing keeps in data because something still
+// names it goes down to its text record and deliverables as a filed one does,
+// keeping too what that names by path, while a folder filing keeps for live
+// or queued work, or a finished one whose task is live again, keeps all it
+// holds.
+func TestSweepTrimsAFinishedFolderKeptInDataToItsTextRecord(t *testing.T) {
+	tests := []struct {
+		name      string
+		kept      layout.Kept
+		isLive    bool
+		isTrimmed bool
+	}{
+		{name: "finished and named", kept: layout.Kept{ID: "f1", Reason: "finished, but data/overlord.md names its path", IsFinished: true, Named: []string{"shots"}}, isTrimmed: true},
+		{name: "finished, and live again", kept: layout.Kept{ID: "f1", Reason: "finished, but data/overlord.md names its path", IsFinished: true}, isLive: true},
+		{name: "queued", kept: layout.Kept{ID: "f1", Reason: "queued: a backlog row waits on it"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			f := newSweepFixture(t)
+			folder := filepath.Join(f.home.Data, "f1")
+			writeFiles(t, folder, map[string]string{
+				"brief.md":                "the brief",
+				"handoff.md":              "where it stood",
+				"deliverables/report.pdf": "what he was handed",
+				"shots/before.png":        "a screenshot an open row names",
+				"evidence/after.png":      "a screenshot nothing names",
+				"run.log":                 "a log",
+			})
+			makeOld(t, folder)
+			if err := layout.WriteRecord(f.home.State, layout.Record{Time: f.now, Kept: []layout.Kept{test.kept}}); err != nil {
+				t.Fatal(err)
+			}
+			inv := reap.Inventory{Processes: []reap.Process{selfProcess(t)}}
+			if test.isLive {
+				inv.Tasks = []reap.Task{{ID: "f1", Meta: state.TaskMeta{ID: "f1"}}}
+			}
+
+			// Act
+			record := Sweep(context.Background(), f.config(inv))
+
+			// Assert
+			for _, kept := range []string{"brief.md", "handoff.md", filepath.Join("deliverables", "report.pdf"), filepath.Join("shots", "before.png")} {
+				if !exists(filepath.Join(folder, kept)) {
+					t.Errorf("%s was removed; notes %v", kept, record.Notes)
+				}
+			}
+			for _, entry := range []string{"evidence", "run.log"} {
+				if exists(filepath.Join(folder, entry)) == test.isTrimmed {
+					t.Errorf("%s left = %v, want trimmed = %v; notes %v, strays %v", entry, exists(filepath.Join(folder, entry)), test.isTrimmed, record.Notes, record.Strays)
+				}
+			}
+			if item, ok := has(record.Removed, folder); ok != test.isTrimmed || ok && !strings.Contains(item.Detail, test.kept.Reason) {
+				t.Errorf("removed = %+v, want the trim recorded with why the folder stays: %v", record.Removed, test.isTrimmed)
+			}
+		})
 	}
 }
 
@@ -182,6 +242,32 @@ func TestSweepKeepsTheNewestTwoBackupsOfEachKind(t *testing.T) {
 }
 
 // A data folder over 200 MB is reported, never trimmed for its size.
+// A data folder over its limit is reported with its largest folders, largest
+// first, and why filing leaves each where it is, so the weight is seen.
+func TestTheDataReportNamesTheLargestFoldersAndWhyTheyStay(t *testing.T) {
+	// Arrange
+	f := newSweepFixture(t)
+	writeFiles(t, f.home.Data, map[string]string{
+		"big/film.mp4":             strings.Repeat("x", 3<<20),
+		"small/brief.md":           strings.Repeat("x", 1<<20),
+		"archive/finished/a/x.log": strings.Repeat("x", 2<<20),
+	})
+	if err := layout.WriteRecord(f.home.State, layout.Record{Time: f.now, Kept: []layout.Kept{{ID: "big", Reason: "finished, but an open backlog row names it", IsFinished: true}}}); err != nil {
+		t.Fatal(err)
+	}
+	record := Record{Buckets: Buckets{Data: DataLimit + 1}}
+
+	// Act
+	f.config(reap.Inventory{}).reportDataSize(&record)
+
+	// Assert
+	item, ok := has(record.Strays, f.home.Data)
+	want := "the largest: data/big 3.0 MB (finished, but an open backlog row names it), data/archive 2.0 MB, data/small 1.0 MB"
+	if !ok || !strings.Contains(item.Detail, want) {
+		t.Errorf("strays = %+v, want a report naming %q", record.Strays, want)
+	}
+}
+
 func TestSweepReportsADataFolderOverItsLimit(t *testing.T) {
 	tests := []struct {
 		name  string

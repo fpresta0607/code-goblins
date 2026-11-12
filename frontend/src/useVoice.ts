@@ -34,7 +34,7 @@ export function refreshDictations(): void {
 export function rememberDictation(text: string, instance: string): void {
   const words = text.trim();
   show([{ text: words, at: Date.now() }, ...messages]);
-  request("/api/dictations", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ text: words }) })
+  request("/api/dictations", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance }, body: JSON.stringify({ text: words }) })
     .then((value) => show(parseDictations(value))).catch(() => undefined);
 }
 

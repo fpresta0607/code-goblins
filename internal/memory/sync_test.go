@@ -565,7 +565,7 @@ func TestScopeNamesEveryPerishableEntrysExpiryInOneCall(t *testing.T) {
 	}
 	named, _, _ := strings.Cut(err.Error(), ": perishable")
 	ids := regexp.MustCompile(`index-[0-9a-f]{12}`).FindAllString(named, -1)
-	if len(ids) != 2 || ids[0] == ids[1] || !errors.Is(err, errExpiryMissing) || !strings.Contains(err.Error(), `cfo memory scope --expiry `+ids[0]+`="<words>" --expiry `+ids[1]+`="<words>"`) {
+	if len(ids) != 2 || ids[0] == ids[1] || !errors.Is(err, errExpiryMissing) || !strings.Contains(err.Error(), `goblins memory scope --expiry `+ids[0]+`="<words>" --expiry `+ids[1]+`="<words>"`) {
 		t.Fatalf("the refusal does not name both entries and the one command that names their expiries: %v", err)
 	}
 
@@ -575,7 +575,7 @@ func TestScopeNamesEveryPerishableEntrysExpiryInOneCall(t *testing.T) {
 	report, bothErr := Scope(dataDir, stateDir, referenceDate, Tag{Expiries: map[string]string{ids[0]: "task-7", ids[1]: "v2"}})
 
 	// Assert
-	if oneErr == nil || !strings.Contains(oneErr.Error(), `cfo memory scope --expiry `+ids[1]+`="<words>"`) || strings.Contains(oneErr.Error(), ids[0]) || !os.IsNotExist(statErr) {
+	if oneErr == nil || !strings.Contains(oneErr.Error(), `goblins memory scope --expiry `+ids[1]+`="<words>"`) || strings.Contains(oneErr.Error(), ids[0]) || !os.IsNotExist(statErr) {
 		t.Fatalf("a call naming one expiry was not refused naming the other entry alone, with no catalog written: %v, %v", oneErr, statErr)
 	}
 	if bothErr != nil || report.Tagged != 2 {

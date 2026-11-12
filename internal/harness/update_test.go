@@ -42,11 +42,11 @@ func TestClaudeCodesUpdateLineIsSeenInEachWording(t *testing.T) {
 }
 
 // Only Claude Code's own footer says it: the same words anywhere above its
-// prompt are the conversation, such as the CFO quoting the line back, and a
+// prompt are the conversation, such as the CEO quoting the line back, and a
 // screen whose footer cannot be found says nothing. Codex and pi only say an
 // update is available, which a restart does not install.
 func TestAnUpdateLineIsSeenOnlyWhereTheHarnessDrawsIt(t *testing.T) {
-	quoted := []string{"> the footer said \"✓ Update installed · Restart to update\", so restart the CFO"}
+	quoted := []string{"> the footer said \"✓ Update installed · Restart to update\", so restart the CEO"}
 	for name, test := range map[string]struct {
 		kind   Kind
 		screen []string

@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 
 // How a conversation is drawn, kept in this browser as one setting for the
-// CFO and for every goblin: Modern draws the shared chat view, which is the
+// CEO and for every goblin: Modern draws the shared chat view, which is the
 // board's own conversation, and Classic draws the harness's raw terminal,
 // which stays the same session and the same renderer either way.
 export type ChatStyle = "modern" | "classic";
 
 // The preference's key, beside the board's other browser-kept choices.
-export const CHAT_STYLE_KEY = "cfo-chat-style";
+export const CHAT_STYLE_KEY = "ceo-chat-style";
 
 // The name the board tells every open panel a choice changed under.
-export const CHAT_STYLE_CHANGED = "cfo-chat-style-changed";
+export const CHAT_STYLE_CHANGED = "ceo-chat-style-changed";
 
 // chatStyle reads the saved choice, Classic where none was saved: every
 // conversation opens on the harness's own terminal until Modern Chat is ready
@@ -20,12 +20,12 @@ export function chatStyle(saved?: string | null): ChatStyle {
   return saved === "modern" ? "modern" : "classic";
 }
 
-// cfoDoor is the board's button to the CFO, named and drawn for what it opens:
+// ceoDoor is the board's button to the CEO, named and drawn for what it opens:
 // the chat, under the message icon of the panel's Chat view, in Modern where
-// the CFO has messages to show, and its terminal otherwise (the Overlord,
+// the CEO has messages to show, and its terminal otherwise (the Overlord,
 // 2026-11-05: "Make the terminal button the chat icon as well with the modern
 // chat being used").
-export function cfoDoor(style: ChatStyle, hasMessages: boolean): { label: string; icon: "comment" | "terminal" } {
+export function ceoDoor(style: ChatStyle, hasMessages: boolean): { label: string; icon: "comment" | "terminal" } {
   return style === "modern" && hasMessages ? { label: "Open the CEO's chat", icon: "comment" } : { label: "Open the CEO's terminal", icon: "terminal" };
 }
 

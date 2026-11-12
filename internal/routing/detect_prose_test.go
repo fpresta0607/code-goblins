@@ -3,7 +3,7 @@ package routing
 import "testing"
 
 // A goblin's own words about a limit are not its harness hitting one: on
-// 2026-10-15 wake 1006530 woke the CFO with a rate limit and a switch for a
+// 2026-10-15 wake 1006530 woke the CEO with a rate limit and a switch for a
 // working goblin that wrote "a 429 that the classifier mistakes for rate
 // limiting" (#971).
 func TestDetectIgnoresAGoblinsOwnWordsAboutALimit(t *testing.T) {

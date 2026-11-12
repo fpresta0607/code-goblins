@@ -7,7 +7,7 @@ import ts from "typescript";
 // The Overlord, 2026-10-08: "again everything error wise goes to cfo and cfo
 // decides what to tell me in command center", and of a line saying how and
 // when a panel was read: "i dont need descriptive text everywhere like this".
-// The board keeps seven kinds of words about trouble: a one or two word status
+// The board keeps eight kinds of words about trouble: a one or two word status
 // on a card, a disabled button's reason in its tip, a few words beside what
 // he clicked that go by themselves (ClickFeedback), one short line while the
 // supervisor is down, the box that says his AFK switch was refused, in full,
@@ -16,7 +16,9 @@ import ts from "typescript";
 // the board refused the value he pasted, so the row stays open, which he
 // approved with the key card on 2026-10-12, and a failed Send beside its kept
 // draft, which must stay actionable even while input is held (2026-10-27), in
-// the banner over the box that fades by itself (2026-10-29).
+// the banner over the box that fades by itself (2026-10-29), and the box that
+// says a link could not be opened, with its address to copy, which he
+// approved on 2026-11-11 (#2360).
 // This reads the board's source for
 // every other way of showing him an error, and for a line explaining where a
 // number came from or how fresh it is.
@@ -26,6 +28,7 @@ const REFUSAL = "afk-refusal.tsx";
 const KEY_CARD = "credential-card.tsx";
 const KEY_REFUSAL = "credential-refusal";
 const BOX_BANNER = "composer-banner.tsx";
+const LINK_FALLBACK = "link-fallback.tsx";
 
 // The roles and classes the board used for error boxes and warning lines.
 const ERROR_CLASSES = /\b(warning-text|task-action-problem|error-box|terminal-error|connections-error|order-error|afk-problem|connection-banner|layout-notice|lineage-warning|card-stalled|windows-teardown|memory-warning|card-silent|window-error)\b/;
@@ -60,7 +63,7 @@ function findingsIn(file: string, code: string): Finding[] {
     }
     const text = ts.isJsxText(node) ? node.getText(source).trim()
       : (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node)) && isShownText(node) ? node.text.trim() : "";
-    if (text && path.basename(file) !== FEEDBACK) {
+    if (text && path.basename(file) !== FEEDBACK && path.basename(file) !== LINK_FALLBACK) {
       if (TROUBLE.test(text) && text.split(/\s+/).length > 2) at(node, "error text: " + text.slice(0, 80));
       if (PROVENANCE.test(text)) at(node, "explanatory line: " + text.slice(0, 80));
     }

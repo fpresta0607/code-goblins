@@ -25,7 +25,7 @@ async function pngOf(picture: Blob): Promise<Blob> {
 // token is instance. A board on another device, such as his phone, holds the
 // picture there and not on this PC, which a desktop paste needs no help with.
 export async function putImage(picture: Blob, instance: string): Promise<void> {
-  await request("/api/terminal/image", undefined, { method: "POST", headers: { "Content-Type": "image/png", "X-CFO-Token": instance }, body: await pngOf(picture) });
+  await request("/api/terminal/image", undefined, { method: "POST", headers: { "Content-Type": "image/png", "X-CEO-Token": instance }, body: await pngOf(picture) });
 }
 
 // keepFile keeps a picture or file he pasted into, or added to, a message
@@ -40,7 +40,7 @@ export async function keepFile(file: Blob, name: string, instance: string, task?
   if (task) query.set("task", task);
   return string(object(await request("/api/composer/file?" + query.toString(), undefined, {
     method: "POST",
-    headers: { "Content-Type": picture ? "image/png" : "application/octet-stream", "X-CFO-Token": instance },
+    headers: { "Content-Type": picture ? "image/png" : "application/octet-stream", "X-CEO-Token": instance },
     body,
   })).path);
 }

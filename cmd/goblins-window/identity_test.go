@@ -17,10 +17,10 @@ func TestTheUsersOwnHomesWindowKeepsTheOneInstanceAndItsNotifications(t *testing
 		userEnv  []string
 		stateDir string
 	}{
-		"named by CFO_HOME":                     {[]string{"CFO_HOME=" + usersHome, "LOCALAPPDATA=" + usersLocal}, usersHome + `\state`},
-		"named by CFO_HOME, spelled in caps":    {[]string{"cfo_home=" + usersHome}, `C:\DEV\Code-Goblins\state\`},
-		"the per-user home":                     {[]string{"LOCALAPPDATA=" + usersLocal}, usersLocal + `\CodeGoblins\state`},
-		"its state named by CFO_STATE_OVERRIDE": {[]string{"CFO_HOME=" + usersHome, `CFO_STATE_OVERRIDE=D:\fleet-state`}, `D:\fleet-state`},
+		"named by GOBLINS_HOME":                     {[]string{"GOBLINS_HOME=" + usersHome, "LOCALAPPDATA=" + usersLocal}, usersHome + `\state`},
+		"named by GOBLINS_HOME, spelled in caps":    {[]string{"goblins_home=" + usersHome}, `C:\DEV\Code-Goblins\state\`},
+		"the per-user home":                         {[]string{"LOCALAPPDATA=" + usersLocal}, usersLocal + `\CodeGoblins\state`},
+		"its state named by GOBLINS_STATE_OVERRIDE": {[]string{"GOBLINS_HOME=" + usersHome, `GOBLINS_STATE_OVERRIDE=D:\fleet-state`}, `D:\fleet-state`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Act
@@ -42,7 +42,7 @@ func TestTheUsersOwnHomesWindowKeepsTheOneInstanceAndItsNotifications(t *testing
 // open, the second home's focused it instead of opening its own board.
 func TestASecondHomesWindowIsAnInstanceOfItsOwn(t *testing.T) {
 	// Arrange
-	userEnv := []string{"CFO_HOME=" + usersHome, "LOCALAPPDATA=" + usersLocal}
+	userEnv := []string{"GOBLINS_HOME=" + usersHome, "LOCALAPPDATA=" + usersLocal}
 	scratch := `C:\Users\op\AppData\Local\Temp\proof\home\state`
 
 	// Act
@@ -66,7 +66,7 @@ func TestASecondHomesWindowIsAnInstanceOfItsOwn(t *testing.T) {
 // A window on a profile of its own, as the window's tests start, is an
 // instance of its own beside the user's window and raises no notification.
 func TestAWindowOnAProfileOfItsOwnIsAnInstanceOfItsOwn(t *testing.T) {
-	userEnv := []string{"CFO_HOME=" + usersHome}
+	userEnv := []string{"GOBLINS_HOME=" + usersHome}
 
 	window := windowIdentity(usersHome+`\state`, `C:\tmp\profile`, userEnv)
 

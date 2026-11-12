@@ -187,8 +187,8 @@ func TestALightRunWithoutItsEstimateOrBoundTakesNoTurn(t *testing.T) {
 	}
 }
 
-// A command started inside a light turn, as cfo gate test is behind a light
-// cfo gate turn, runs inside it rather than waiting for a slot the heavy
+// A command started inside a light turn, as goblins gate test is behind a light
+// goblins gate turn, runs inside it rather than waiting for a slot the heavy
 // runs hold.
 func TestARunStartedInsideALightTurnRunsInsideIt(t *testing.T) {
 	// Arrange

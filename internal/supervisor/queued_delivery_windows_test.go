@@ -17,11 +17,11 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// cfoPromptLineEmpties waits until the CFO's prompt line reads empty to the
+// ceoPromptLineEmpties waits until the CEO's prompt line reads empty to the
 // screens of kind, its harness.
-func cfoPromptLineEmpties(t *testing.T, stateDir, kind string) {
+func ceoPromptLineEmpties(t *testing.T, stateDir, kind string) {
 	t.Helper()
-	record, err := host.ReadRecord(stateDir, "cfo")
+	record, err := host.ReadRecord(stateDir, "ceo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func cfoPromptLineEmpties(t *testing.T, stateDir, kind string) {
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("the CFO's prompt line never read empty: %v\n%s", err, host.ScreenTail(screen, 8))
+			t.Fatalf("the CEO's prompt line never read empty: %v\n%s", err, host.ScreenTail(screen, 8))
 		}
 	}
 }
@@ -45,14 +45,14 @@ func pressOnQueued(service *Service, kind, task, id, text string) *httptest.Resp
 
 // The Overlord, 2026-11-10: "queued messages in modern chat get stuck in input
 // box in terminal chat and never send". A harness in a turn reads what is
-// typed into it late: the live CFO's Claude Code left typed input unread for
+// typed into it late: the live CEO's Claude Code left typed input unread for
 // more than three seconds again and again that day, and a delivery that gave
 // up on seeing its words after five left them on the prompt line unsubmitted,
 // where every later message waited behind them for good (#2306). His message
-// queued while the CFO works is typed once and submitted once its words show,
-// here seven seconds late, so it reads Queued in the CFO's session with the
+// queued while the CEO works is typed once and submitted once its words show,
+// here seven seconds late, so it reads Queued in the CEO's session with the
 // prompt line empty, and it is delivered once the turn takes it.
-func TestHisQueuedMessageReachesACFOThatReadsItLateExactlyOnce(t *testing.T) {
+func TestHisQueuedMessageReachesACEOThatReadsItLateExactlyOnce(t *testing.T) {
 	for _, test := range []struct{ mode, kind string }{
 		{mode: "claude-busy-stalls", kind: "claude"},
 		{mode: "busy-stalls", kind: "codex"},
@@ -61,8 +61,8 @@ func TestHisQueuedMessageReachesACFOThatReadsItLateExactlyOnce(t *testing.T) {
 			// Arrange
 			records := useConversations(t)
 			store, home := testStore(t)
-			terminal := nativeCFOComposer(t, home.State, test.mode)
-			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}}
+			terminal := nativeCEOComposer(t, home.State, test.mode)
+			service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: home.State}}}
 			if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: "stop and rebase"}); err != nil {
 				t.Fatal(err)
 			}
@@ -80,13 +80,13 @@ func TestHisQueuedMessageReachesACFOThatReadsItLateExactlyOnce(t *testing.T) {
 			sent := actionOf(store, "m1")
 
 			// Assert
-			if err != nil || sent.Status != "running" || sent.Awaiting == nil || sent.Message != heldByCFO {
-				t.Fatalf("delivery = %v, action = %+v; want it typed into the turn and reading Queued in the CFO's session", err, sent)
+			if err != nil || sent.Status != "running" || sent.Awaiting == nil || sent.Message != heldByCEO {
+				t.Fatalf("delivery = %v, action = %+v; want it typed into the turn and reading Queued in the CEO's session", err, sent)
 			}
 			if lines := terminal.waitForLines(t, 2); len(lines) != 2 || lines[1] != "queued stop and rebase" {
 				t.Fatalf("terminal input = %q; want his message submitted into the turn once", lines)
 			}
-			cfoPromptLineEmpties(t, home.State, test.kind)
+			ceoPromptLineEmpties(t, home.State, test.kind)
 			if err := os.WriteFile(terminal.typed+".accept", nil, 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -96,7 +96,7 @@ func TestHisQueuedMessageReachesACFOThatReadsItLateExactlyOnce(t *testing.T) {
 				t.Fatal(err)
 			}
 			if delivered := actionOf(store, "m1"); delivered.Status != "succeeded" || delivered.Awaiting != nil {
-				t.Errorf("once the CFO's record shows it taken = %+v; want it delivered", delivered)
+				t.Errorf("once the CEO's record shows it taken = %+v; want it delivered", delivered)
 			}
 			if input := strings.Join(terminal.lines(t), "\n"); strings.Count(input, "queued stop and rebase") != 1 || strings.Count(input, "accepted stop and rebase") != 1 {
 				t.Errorf("terminal input = %q; want one submission and one take", input)
@@ -109,7 +109,7 @@ func TestHisQueuedMessageReachesACFOThatReadsItLateExactlyOnce(t *testing.T) {
 // reads Not sent rather than as one that may have arrived, and its words are
 // taken back off the terminal's prompt line, where they would join whatever
 // is typed next or hold it back (#2306). Cancel then takes it off the board.
-func TestAMessageTheCFONeverTookAsSubmittedReadsNotSentAndLeavesItsPromptLineEmpty(t *testing.T) {
+func TestAMessageTheCEONeverTookAsSubmittedReadsNotSentAndLeavesItsPromptLineEmpty(t *testing.T) {
 	for _, test := range []struct{ mode, kind string }{
 		{mode: "claude-ignored-enter", kind: "claude"},
 		{mode: "ignored-enter", kind: "codex"},
@@ -118,8 +118,8 @@ func TestAMessageTheCFONeverTookAsSubmittedReadsNotSentAndLeavesItsPromptLineEmp
 			// Arrange
 			useConversations(t)
 			store, home := testStore(t)
-			terminal := nativeCFOComposer(t, home.State, test.mode)
-			service := &Service{Store: store, Instance: "instance-1", Options: Options{CFO: &CFOConnection{State: home.State}}}
+			terminal := nativeCEOComposer(t, home.State, test.mode)
+			service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: home.State}}}
 			if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: "stop and rebase"}); err != nil {
 				t.Fatal(err)
 			}
@@ -134,7 +134,7 @@ func TestAMessageTheCFONeverTookAsSubmittedReadsNotSentAndLeavesItsPromptLineEmp
 			if err != nil || unsent.Status != "failed" || !strings.HasPrefix(unsent.Message, "Not sent") {
 				t.Errorf("delivery = %v, action = %+v; want it to read Not sent", err, unsent)
 			}
-			cfoPromptLineEmpties(t, home.State, test.kind)
+			ceoPromptLineEmpties(t, home.State, test.kind)
 			if input := terminal.lines(t); !slices.Contains(input, "cleared") || slices.ContainsFunc(input, func(line string) bool {
 				return strings.HasPrefix(line, "accepted ") || strings.HasPrefix(line, "queued ")
 			}) {
@@ -159,7 +159,7 @@ func TestSendNowOnAMessageThatWasNotSentSendsItAgain(t *testing.T) {
 	}
 	pastUndoWindow(t, store)
 	if err := store.ProcessOne(context.Background(), func(context.Context, Action) (Evaluation, error) {
-		return Evaluation{}, fmt.Errorf("%w: the CFO's native terminal does not answer; nothing was sent", ErrRejected)
+		return Evaluation{}, fmt.Errorf("%w: the CEO's native terminal does not answer; nothing was sent", ErrRejected)
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestAMessageInAGoblinsTurnLeavesTheBoardsQueueTheMomentItsSubmitKeyWent(t *
 	gitWorktree(t, meta.Worktree)
 	goblin := goblinTerminal(t, h.State, meta.ID)
 	goblin.startTurn(t)
-	service := &Service{Store: store, Instance: "instance-1", Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+	service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
 	messageTo(t, store, meta, "message-1", "stop and rebase")
 	delivered := make(chan error, 1)
 
@@ -252,7 +252,7 @@ func TestAPressOnAQueuedMessageDuringATryActsOnHowTheTryEnded(t *testing.T) {
 			meta := makeNative(t, h.State, "task-1")
 			gitWorktree(t, meta.Worktree)
 			goblinTerminal(t, h.State, meta.ID)
-			service := &Service{Store: store, Instance: "instance-1", Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+			service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
 			messageTo(t, store, meta, "message-1", "stop and rebase")
 			trying, ends := make(chan struct{}), make(chan struct{})
 			previous := typeIntoGoblin
@@ -293,7 +293,7 @@ func TestSendNowOnAGoblinsMessageTheBoardHasNotTriedYetIsKeptForItsTry(t *testin
 	meta := makeNative(t, h.State, "task-1")
 	gitWorktree(t, meta.Worktree)
 	goblinTerminal(t, h.State, meta.ID)
-	service := &Service{Store: store, Instance: "instance-1", Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+	service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
 	messageTo(t, store, meta, "message-1", "stop and rebase")
 	isWorking := true
 	received, sentNow := inTurnGoblin(t, &isWorking)

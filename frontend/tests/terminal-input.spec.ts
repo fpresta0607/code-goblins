@@ -113,7 +113,7 @@ for (const backend of ["native", "herdr"] as const) {
 
     // Claude Code and pi attach the clipboard's image on Alt+V on Windows, and
     // Codex on Ctrl+V, as a pseudo console here showed.
-    for (const role of ["cfo", "goblin"]) {
+    for (const role of ["ceo", "goblin"]) {
       for (const [harness, expected] of [["claude", "\x1bv"], ["pi", "\x1bv"], ["codex", "\x16"], ["bash", "\x16"]]) {
         test("Control+v with only an image sends the key the " + role + "'s " + harness + " attaches an image on", async ({ page }) => {
           await page.goto("/tests/fixtures/terminal-input.html?" + new URLSearchParams({ harness, role }) + "#" + backend);
@@ -164,7 +164,7 @@ for (const backend of ["native", "herdr"] as const) {
     });
 
     if (backend === "native") {
-      for (const role of ["cfo", "goblin"]) {
+      for (const role of ["ceo", "goblin"]) {
         for (const [harness, expected] of [
           ["claude", "\n"],
           ["codex", "\x1b[74;36;10;1;8;1_\x1b[74;36;10;0;8;1_"],
@@ -184,7 +184,7 @@ for (const backend of ["native", "herdr"] as const) {
         }
       }
 
-      for (const role of ["cfo", "goblin"]) {
+      for (const role of ["ceo", "goblin"]) {
         for (const [harness, expected] of [["claude", "\n"], ["codex", "\x1b[74;36;10;1;8;1_\x1b[74;36;10;0;8;1_"]]) {
           test("a hook reporting " + harness + " changes the " + role + " Shift+Enter key without reconnecting", async ({ page }) => {
             connections = 0;

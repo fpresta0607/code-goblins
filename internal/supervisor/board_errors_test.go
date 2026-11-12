@@ -9,7 +9,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-// boardWakes are the wakes the board's errors raised for the CFO.
+// boardWakes are the wakes the board's errors raised for the CEO.
 func boardWakes(t *testing.T, stateDir string) []wake.Record {
 	t.Helper()
 	records, err := wake.Pending(stateDir)
@@ -28,7 +28,7 @@ func boardWakes(t *testing.T, stateDir string) []wake.Record {
 func boardRequest(handler http.Handler, method, path, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, "http://board.local"+path, strings.NewReader(body))
 	req.Header.Set("Origin", "http://board.local")
-	req.Header.Set("X-CFO-Token", "instance-1")
+	req.Header.Set("X-CEO-Token", "instance-1")
 	req.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, req)
@@ -36,7 +36,7 @@ func boardRequest(handler http.Handler, method, path, body string) *httptest.Res
 }
 
 // A failure only the board saw, such as a read that failed, comes
-// to the CFO through POST /api/cfo/report, once while it repeats.
+// to the CEO through POST /api/ceo/report, once while it repeats.
 func TestTheBoardReportsAFailureOnlyItSaw(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -54,12 +54,12 @@ func TestTheBoardReportsAFailureOnlyItSaw(t *testing.T) {
 			handler := NewHTTP(&Service{Store: store, Instance: "instance-1"}, "board.local", nil)
 
 			// Act
-			first := boardRequest(handler, "POST", "/api/cfo/report", tc.body)
-			second := boardRequest(handler, "POST", "/api/cfo/report", tc.body)
+			first := boardRequest(handler, "POST", "/api/ceo/report", tc.body)
+			second := boardRequest(handler, "POST", "/api/ceo/report", tc.body)
 
 			// Assert
 			if first.Code != tc.code || second.Code != tc.code {
-				t.Fatalf("POST /api/cfo/report = %d then %d, want %d", first.Code, second.Code, tc.code)
+				t.Fatalf("POST /api/ceo/report = %d then %d, want %d", first.Code, second.Code, tc.code)
 			}
 			var details []string
 			for _, record := range boardWakes(t, store.Home.State) {

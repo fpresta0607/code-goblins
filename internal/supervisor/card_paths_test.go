@@ -46,7 +46,7 @@ func postCardPath(handler *HTTP, body string) (int, string) {
 	r := httptest.NewRequest("POST", "http://board.local/api/cards/open-path", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("Origin", "http://board.local")
-	r.Header.Set("X-CFO-Token", "instance")
+	r.Header.Set("X-CEO-Token", "instance")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 	return w.Code, w.Body.String()

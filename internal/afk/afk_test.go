@@ -147,7 +147,7 @@ func TestADecisionIsLoggedInTheStretchItWasMadeIn(t *testing.T) {
 }
 
 // A step only the Overlord can take, such as his own sign-in, is never asked
-// of him: the CFO gives it a backlog row, works around it and logs it as one
+// of him: the CEO gives it a backlog row, works around it and logs it as one
 // plain line, which his recap lists last.
 func TestAStepOnlyHeCanTakeIsLoggedAsAPlainLine(t *testing.T) {
 	// Arrange
@@ -166,10 +166,10 @@ func TestAStepOnlyHeCanTakeIsLoggedAsAPlainLine(t *testing.T) {
 	}
 }
 
-// decidedForHim is a decision the CFO would have asked the Overlord, answered
+// decidedForHim is a decision the CEO would have asked the Overlord, answered
 // itself with its recommendation: the question, what its answer stands on,
-// what is wrong found to its cause, what the CFO already tried, the choices
-// its question in his History offers, and the CFO's answer.
+// what is wrong found to its cause, what the CEO already tried, the choices
+// its question in his History offers, and the CEO's answer.
 func decidedForHim() Entry {
 	return Entry{
 		Kind: KindLeft, What: "Which fallback does the gate policy take?", Evidence: "the machine config and the policy name different models",
@@ -180,14 +180,14 @@ func decidedForHim() Entry {
 }
 
 // hisStep is a step only the Overlord can take: his own sign-in, which the
-// CFO cannot give, with why and its backlog row.
+// CEO cannot give, with why and its backlog row.
 func hisStep() Entry {
 	return Entry{Kind: KindHis, What: "Sign in to Vercel for pd-auth", Link: "https://vercel.com/login", Evidence: "Vercel asks for his own sign-in in a browser. Backlog row pd-auth-vercel-sign-in, pd-auth moved to the invoice export", Options: []string{"I signed in", "Park pd-auth"}, Recommendation: "I signed in"}
 }
 
-// Under AFK mode the CFO answers a decision itself and acts on its answer:
+// Under AFK mode the CEO answers a decision itself and acts on its answer:
 // the line keeps the choice it made, settled in his History once he is back.
-func TestADecisionTheCFOAnsweredKeepsItsAnswer(t *testing.T) {
+func TestADecisionTheCEOAnsweredKeepsItsAnswer(t *testing.T) {
 	// Arrange
 	dir, on := turnedOn(t)
 
@@ -196,17 +196,17 @@ func TestADecisionTheCFOAnsweredKeepsItsAnswer(t *testing.T) {
 
 	// Assert
 	if err != nil {
-		t.Fatalf("Log = %v, want the decision logged with the CFO's answer", err)
+		t.Fatalf("Log = %v, want the decision logged with the CEO's answer", err)
 	}
 	if entries, _, _ := Entries(dir, on.Session); len(entries) != 2 || entries[1].Answer != "Drop it from the machine config" {
-		t.Errorf("log = %+v, want the line with the CFO's answer", entries)
+		t.Errorf("log = %+v, want the line with the CEO's answer", entries)
 	}
 }
 
 // The Overlord, 2026-10-12: "in AFK mode, you should just answer everything".
-// A decision logged without the CFO's answer would be left for him as a
+// A decision logged without the CEO's answer would be left for him as a
 // question, so it is refused and the log keeps nothing of it.
-func TestADecisionLoggedWithoutTheCFOsAnswerIsRefused(t *testing.T) {
+func TestADecisionLoggedWithoutTheCEOsAnswerIsRefused(t *testing.T) {
 	// Arrange
 	dir, on := turnedOn(t)
 	unanswered := decidedForHim()
@@ -225,8 +225,8 @@ func TestADecisionLoggedWithoutTheCFOsAnswerIsRefused(t *testing.T) {
 }
 
 // A decision answered in his place reaches his History: it says what is
-// wrong and what the CFO already tried, and offers real choices with the
-// CFO's answer among them, so nothing reaches him undiagnosed.
+// wrong and what the CEO already tried, and offers real choices with the
+// CEO's answer among them, so nothing reaches him undiagnosed.
 func TestADecisionWithoutItsDiagnosisWhatWasTriedOrItsChoicesIsRefused(t *testing.T) {
 	for name, change := range map[string]func(*Entry){
 		"no diagnosis":  func(e *Entry) { e.Diagnosis = " " },
@@ -279,9 +279,9 @@ func TestADecisionWithoutEvidenceOrOfAnUnknownKindIsRefused(t *testing.T) {
 		"blank evidence":   {Kind: KindDeploy, What: "northwind production", Evidence: "  "},
 		"no subject":       {Kind: KindDeploy, Evidence: "deploy 41 is live"},
 		"unknown kind":     {Kind: "drop-table", What: "legacy_invoices", Evidence: "it was in the way"},
-		"the switch":       {Kind: KindOn, What: "the CFO", Evidence: "it seemed useful"},
+		"the switch":       {Kind: KindOn, What: "the CEO", Evidence: "it seemed useful"},
 		"a held item":      {Kind: KindHeld, What: "a question", Evidence: "held"},
-		"turning it off":   {Kind: KindOff, What: "the CFO", Evidence: "done for the night"},
+		"turning it off":   {Kind: KindOff, What: "the CEO", Evidence: "done for the night"},
 		"evidence too big": {Kind: KindDeploy, What: "northwind production", Evidence: strings.Repeat("x", 8001)},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -327,7 +327,7 @@ func TestAnItemIsHeldOnlyWhileAFKModeIsOn(t *testing.T) {
 
 // A goblin the supervisor paused at a floor while AFK mode is on is logged
 // with the readings it stood on, and then with how the pause went. It is the
-// supervisor's safety rail, not a decision of the CFO's, so it counts as none.
+// supervisor's safety rail, not a decision of the CEO's, so it counts as none.
 func TestAGoblinPausedAtAFloorIsLoggedWithItsEvidenceAndOutcome(t *testing.T) {
 	// Arrange
 	dir, on := turnedOn(t)
@@ -349,7 +349,7 @@ func TestAGoblinPausedAtAFloorIsLoggedWithItsEvidenceAndOutcome(t *testing.T) {
 		t.Errorf("Pauses = %+v, want the pause with its evidence and its outcome", pauses)
 	}
 	if decisions := Decisions(entries); len(decisions) != 0 {
-		t.Errorf("Decisions = %+v, want none: a pause at a floor is not the CFO's", decisions)
+		t.Errorf("Decisions = %+v, want none: a pause at a floor is not the CEO's", decisions)
 	}
 	if err := Pause(dir, Entry{What: "at the memory floor", Evidence: "low"}, night.Add(3*time.Minute)); err == nil {
 		t.Error("a pause that names no goblin was logged")
@@ -385,7 +385,7 @@ func TestALogLineThatCannotBeReadIsCounted(t *testing.T) {
 }
 
 // A switch file that cannot be read is never taken for off: off is what lets
-// the board prompt and what stops the CFO deciding, so a guess either way is
+// the board prompt and what stops the CEO deciding, so a guess either way is
 // a wrong answer given with confidence.
 func TestASwitchThatCannotBeReadIsAnErrorNotOff(t *testing.T) {
 	dir := t.TempDir()

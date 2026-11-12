@@ -1,6 +1,7 @@
 import { scrawlLink } from "./scrawl-link";
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "./Icon";
+import { linkedText } from "./messageText";
 
 export interface GalleryImage { src: string; value: string; text: string }
 
@@ -25,7 +26,7 @@ export function ImageGallery({ images, index, lavish, closeLabel = "Back to the 
     }}>
     <div className="gallery-top">
       <span className="count-pill">{index + 1} of {images.length}</span>
-      <strong>{image.text}</strong>
+      <strong>{linkedText(image.text)}</strong>
       {lavish && <a className="icon-button raised pill-link" href={scrawlLink(lavish)} target="_blank" rel="noreferrer"><Icon name="external" /><span>Open review</span></a>}
       <button type="button" className="icon-button raised" aria-label={zoomed ? "Zoom out" : "Zoom in"} onClick={() => setZoomed(!zoomed)}><Icon name={zoomed ? "minus" : "plus"} /></button>
       <button type="button" className="icon-button raised" aria-label={closeLabel} onClick={onClose}><Icon name="close" /></button>

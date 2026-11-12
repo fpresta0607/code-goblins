@@ -38,7 +38,7 @@ import (
 
 const (
 	// boardGrantCookie names the cookie a browser keeps its grant in.
-	boardGrantCookie = "cfo-board"
+	boardGrantCookie = "ceo-board"
 	// boardGrantFile is the home's record of the grants it gave, in its state
 	// folder.
 	boardGrantFile = "board-grants.json"

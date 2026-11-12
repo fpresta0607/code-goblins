@@ -29,16 +29,16 @@ export function alreadyKnown(
 // it will be read. Only trouble spells itself out, and one that never
 // arrived says what to do in the supervisor's own plain words.
 export function deliveryMark(action: Action, goblin = "the goblin"): { icon: IconName; label: string; trouble: boolean } {
-  const cfo = action.kind === "review" || action.kind.startsWith("cfo_");
+  const ceo = action.kind === "review" || action.kind.startsWith("ceo_");
   switch (action.status) {
     case "succeeded":
       if (action.kind.endsWith("_clear")) return { icon: "check", label: "Cleared", trouble: false };
-      // A review answer for a replaced goblin goes to the CFO, so the action
+      // A review answer for a replaced goblin goes to the CEO, so the action
       // alone cannot say it was delivered; the review item's flag does.
       if (action.kind === "review_answer") return { icon: "check", label: "Sent to the goblin or the CEO", trouble: false };
-      return { icon: "check-double", label: cfo ? "CEO received" : action.kind === "goblin_answer" ? "Delivered to " + goblin : "Done", trouble: false };
+      return { icon: "check-double", label: ceo ? "CEO received" : action.kind === "goblin_answer" ? "Delivered to " + goblin : "Done", trouble: false };
     case "failed": return { icon: "close", label: "Could not deliver", trouble: true };
-    case "uncertain": return { icon: "warning", label: action.advice || "Not confirmed. Check " + (cfo ? "the CEO's terminal" : "the goblin's terminal") + " before sending it again.", trouble: true };
+    case "uncertain": return { icon: "warning", label: action.advice || "Not confirmed. Check " + (ceo ? "the CEO's terminal" : "the goblin's terminal") + " before sending it again.", trouble: true };
     case "queued": return { icon: "check", label: action.message || "Queued", trouble: false };
     default: return { icon: "check", label: action.awaiting && action.message ? action.message : "Sending", trouble: false };
   }
@@ -71,7 +71,7 @@ export function runMark(run: Run): { icon: IconName; label: string; trouble: boo
 
 // runFailure is the one plain line a failed run item's card says, and empty
 // for any other: why it failed, and what happens next. Its result goes to
-// whoever asked for it, the CFO or the goblin, which takes the next step.
+// whoever asked for it, the CEO or the goblin, which takes the next step.
 export function runFailure(run: Run): string {
   if (run.state !== "failed") return "";
   const why = (run.exit_code === null ? run.reason : lastLine(run.output)) || "It exited with code " + run.exit_code;

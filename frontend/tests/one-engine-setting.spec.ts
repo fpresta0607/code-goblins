@@ -2,7 +2,7 @@ import { expect, openTaskList, test, type Locator, type Page } from "./site";
 import { box, GOBLIN, NAME, open, openGoblin, PAGE, pasted, snapshot, typed } from "./session-board";
 
 // A session has one record of its model and effort, a goblin's task record
-// and the CFO's engine record, and every view of the session shows that
+// and the CEO's engine record, and every view of the session shows that
 // record and nothing else: the tip of its card's harness mark, the model's
 // button in Modern Chat's box and the line under its name in the panel's Task
 // view (the Overlord, 2026-11-10: "The board tooltips are not in sync with
@@ -43,7 +43,7 @@ async function shows(page: Page, mark: Locator, name: string, shown: Shown) {
   await expect(control.locator(".engine-control-model"), "the model in Modern Chat's box").toHaveText(shown.model);
   await expect(control.locator(".effort-level"), "the effort in Modern Chat's box").toHaveText(shown.effort);
 }
-// The harness mark on Zeke's card on the board, and on the CFO's card, which
+// The harness mark on Zeke's card on the board, and on the CEO's card, which
 // the Orchestration view draws.
 const zeke = (page: Page) => page.locator(".task-board .task-card-shell").filter({ hasText: NAME }).locator(".card-harness [role=img]");
 const ceo = (page: Page) => page.locator(".flow-node").filter({ has: page.locator("strong", { hasText: "CEO" }) }).locator(".card-harness [role=img]");
@@ -99,7 +99,7 @@ test("a goblin switched to another harness and model shows them in every view, w
   await openGoblin(page);
   await shows(page, zeke(page), NAME, { tip: "Claude Code · Opus 5.5 · xhigh", model: "Opus 5.5", effort: "xhigh" });
 
-  // Act: cfo switch wrote the record and started a new generation, and the
+  // Act: goblins switch wrote the record and started a new generation, and the
   // conversation the box still holds is the one Opus 5.5 answered in.
   await push(page, snapshot({ revision: 2 }, { phase: "settled", generation: "cg-touch-2", harness: "codex", model: "gpt-6-astra", effort: "medium" }));
 
@@ -109,19 +109,19 @@ test("a goblin switched to another harness and model shows them in every view, w
   await expect((await openTaskList(page)).getByText("Codex · GPT-6 Astra · medium", { exact: true })).toBeVisible();
 });
 
-test("the CFO's card, box and Task view show its engine record, and a model set in its terminal with no reload", async ({ page }, testInfo) => {
+test("the CEO's card, box and Task view show its engine record, and a model set in its terminal with no reload", async ({ page }, testInfo) => {
   // Arrange
-  await open(page, snapshot({ cfo_engine: engine("claude", "claude-opus-5-5", "high") }), "", { ...PAGE, usage: USAGE });
+  await open(page, snapshot({ ceo_engine: engine("claude", "claude-opus-5-5", "high") }), "", { ...PAGE, usage: USAGE });
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
   await page.keyboard.press("Control+Alt+1");
   await expect(page.locator("#panel-title")).toHaveText("CEO");
   await shows(page, ceo(page), "CEO", { tip: "Claude Code · Opus 5.5 · high", model: "Opus 5.5", effort: "high" });
 
-  // Act: /model typed in the CFO's own terminal, read back into its record.
-  await push(page, snapshot({ revision: 2, cfo_engine: engine("claude", "claude-fable-5-2", "xhigh") }));
+  // Act: /model typed in the CEO's own terminal, read back into its record.
+  await push(page, snapshot({ revision: 2, ceo_engine: engine("claude", "claude-fable-5-2", "xhigh") }));
 
   // Assert
   await shows(page, ceo(page), "CEO", { tip: "Claude Code · Fable 5.2 · xhigh", model: "Fable 5.2", effort: "xhigh" });
-  await page.screenshot({ path: testInfo.outputPath("cfo-model.png") });
+  await page.screenshot({ path: testInfo.outputPath("ceo-model.png") });
   await expect((await openTaskList(page)).getByText("Claude Code · Fable 5.2 · xhigh", { exact: true })).toBeVisible();
 });

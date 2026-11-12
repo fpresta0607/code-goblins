@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
-import { message, reportToCfo } from "./api";
+import { message, reportToCeo } from "./api";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { Icon } from "./Icon";
 import { Notice } from "./notice";
@@ -22,10 +22,10 @@ const MAX_RETRIES = 5;
 // reconnect keeps the last screen in place until the replacement is ready,
 // so the panel is never blank, cleared and repainted, or half drawn.
 // query names the terminal to the relay: a task's generation, or the native
-// terminal the CFO runs in. A terminal that ended says how in place of
+// terminal the CEO runs in. A terminal that ended says how in place of
 // Reconnect. hasMicrophone is false for a command's terminal on its card,
 // which shows the voice bubble only while the dictation keys are held.
-// reportAs names the terminal in what it reports to the CFO. link, when set,
+// reportAs names the terminal in what it reports to the CEO. link, when set,
 // is the terminal deck's key it offers its link by (terminal-link.ts), so the
 // Messages view's box types through this terminal's own view. hasComposer says
 // the session's message box is the active input surface: its queue note, its
@@ -152,7 +152,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
           retry = setTimeout(() => setAttempt((prior) => prior + 1), 400 * retries.current);
           return;
         }
-        if (why && !isDetachedHold(why)) reportToCfo(reportAsValue.current, closedReason(code, why));
+        if (why && !isDetachedHold(why)) reportToCeo(reportAsValue.current, closedReason(code, why));
         setReconnecting(false);
         setClosedWhy(closedReason(code, why));
         setEnded(ended(code));

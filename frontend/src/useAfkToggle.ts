@@ -12,7 +12,7 @@ export interface AfkToggleState extends Pick<AfkSwitch, "pending" | "problem" | 
 // useAfkToggle is what the AFK toggle keeps between his press and the
 // supervisor's answer: the question it asks first, the press, and what the
 // press met. The board keeps one, not the bar or the card, since each comes and
-// goes with the view and the CFO, and a press still owes him its question and
+// goes with the view and the CEO, and a press still owes him its question and
 // its answer wherever he reads it. A press says the state of the switch he
 // pressed, so nothing here reads one before a snapshot exists. Turning on asks
 // first. Turning off needs no question.

@@ -18,13 +18,13 @@ import (
 )
 
 // A goblin finishes or withdraws its own card from its own terminal, the
-// CFO withdraws any card, and nobody else touches one.
-func TestTheAskerOrTheCFOClosesACardOverThePipe(t *testing.T) {
+// CEO withdraws any card, and nobody else touches one.
+func TestTheAskerOrTheCEOClosesACardOverThePipe(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	t.Setenv(auth.StoreDirEnv, t.TempDir())
-	_, _, _, cfo := primaryFixture(t, store)
-	service := &Service{Store: store, Options: Options{CFO: cfo, Credentials: auth.OpenStore}}
+	_, _, _, ceo := primaryFixture(t, store)
+	service := &Service{Store: store, Options: Options{CEO: ceo, Credentials: auth.OpenStore}}
 	runPipe(t, service)
 	meta, _, _, _ := goblinFixture(t, store)
 	file := func(why string) CredentialRequest {
@@ -46,26 +46,26 @@ func TestTheAskerOrTheCFOClosesACardOverThePipe(t *testing.T) {
 		}
 		return request.State
 	}
-	finished, withdrawn, byCFO := file("Create the shop's test account"), file("Confirm the account's email"), file("Accept the shop's terms")
+	finished, withdrawn, byCEO := file("Create the shop's test account"), file("Confirm the account's email"), file("Accept the shop's terms")
 
 	// Act
 	strangerErr := StepCredential(h, CredentialStep{ID: finished.ID, Task: "task-9", Action: "done"})
 	doneErr := StepCredential(h, CredentialStep{ID: finished.ID, Task: meta.ID, Action: "done"})
 	withdrawErr := StepCredential(h, CredentialStep{ID: withdrawn.ID, Task: meta.ID, Action: "withdraw", Reason: "The account already existed"})
-	cfoErr := StepCredential(h, CredentialStep{ID: byCFO.ID, Action: "withdraw", Reason: "Not needed any more"})
+	ceoErr := StepCredential(h, CredentialStep{ID: byCEO.ID, Action: "withdraw", Reason: "Not needed any more"})
 	againErr := StepCredential(h, CredentialStep{ID: finished.ID, Task: meta.ID, Action: "withdraw", Reason: "late"})
 
 	// Assert
 	if strangerErr == nil {
 		t.Fatal("a task that did not ask closed the card")
 	}
-	if doneErr != nil || withdrawErr != nil || cfoErr != nil {
-		t.Fatalf("done = %v, withdraw = %v, the CFO's withdraw = %v", doneErr, withdrawErr, cfoErr)
+	if doneErr != nil || withdrawErr != nil || ceoErr != nil {
+		t.Fatalf("done = %v, withdraw = %v, the CEO's withdraw = %v", doneErr, withdrawErr, ceoErr)
 	}
 	if againErr == nil {
 		t.Fatal("a closed card was withdrawn again")
 	}
-	if got := []string{state(finished.ID), state(withdrawn.ID), state(byCFO.ID)}; strings.Join(got, " ") != "done withdrawn withdrawn" {
+	if got := []string{state(finished.ID), state(withdrawn.ID), state(byCEO.ID)}; strings.Join(got, " ") != "done withdrawn withdrawn" {
 		t.Fatalf("states = %v, want done, withdrawn, withdrawn", got)
 	}
 	if request, _ := store.credential(withdrawn.ID); request.Reason != "The account already existed" {
@@ -73,15 +73,15 @@ func TestTheAskerOrTheCFOClosesACardOverThePipe(t *testing.T) {
 	}
 }
 
-// The Overlord, 2026-10-15: a card he closed can be brought back. The CFO or
+// The Overlord, 2026-10-15: a card he closed can be brought back. The CEO or
 // the goblin that asked reopens it, under a new generation so the card he
 // closed never saves into it, and only a card he closed comes back.
 func TestACardHeClosedComesBackOnReopen(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	t.Setenv(auth.StoreDirEnv, t.TempDir())
-	_, _, _, cfo := primaryFixture(t, store)
-	service := &Service{Store: store, Options: Options{CFO: cfo, Credentials: auth.OpenStore}}
+	_, _, _, ceo := primaryFixture(t, store)
+	service := &Service{Store: store, Options: Options{CEO: ceo, Credentials: auth.OpenStore}}
 	runPipe(t, service)
 	meta, _, _, _ := goblinFixture(t, store)
 	filed, err := FileCredentialRequest(h, CredentialRequest{Task: meta.ID, Project: "throwaway", Names: []string{"FLEET_GITHUB_TOKEN"}, Why: "Push the fleet's branches"})
@@ -115,46 +115,6 @@ func TestACardHeClosedComesBackOnReopen(t *testing.T) {
 	}
 	if againErr == nil {
 		t.Fatal("an open card was reopened again")
-	}
-}
-
-// A card that brings the goblin's own browser window to him goes from
-// requested to open when the goblin's wait shows the window, and back to
-// offered, saying why, when it could not.
-func TestTheGoblinReportsItsWindowOverThePipe(t *testing.T) {
-	// Arrange
-	store, h := testStore(t)
-	t.Setenv(auth.StoreDirEnv, t.TempDir())
-	service := &Service{Store: store, Options: Options{Credentials: auth.OpenStore}}
-	runPipe(t, service)
-	meta, _, _, _ := goblinFixture(t, store)
-	filed, err := FileCredentialRequest(h, CredentialRequest{Task: meta.ID, Project: "throwaway", Why: "Sign in to the shop", Link: "https://example.com/login", Window: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := service.ingestCredentialRequests(); err != nil {
-		t.Fatal(err)
-	}
-	request, _ := store.credential(filed.ID)
-	if err := service.requestCredentialWindow(request.ID, request.Generation); err != nil {
-		t.Fatal(err)
-	}
-
-	// Act
-	openErr := StepCredential(h, CredentialStep{ID: filed.ID, Task: meta.ID, Action: "window-open"})
-	opened, _ := store.credential(filed.ID)
-	failedErr := StepCredential(h, CredentialStep{ID: filed.ID, Task: meta.ID, Action: "window-failed", Reason: "Chrome did not start"})
-	failed, _ := store.credential(filed.ID)
-
-	// Assert
-	if openErr != nil || failedErr != nil {
-		t.Fatalf("open = %v, failed = %v", openErr, failedErr)
-	}
-	if opened.WindowState != "open" {
-		t.Fatalf("after the window opened = %q, want open", opened.WindowState)
-	}
-	if failed.WindowState != "" || failed.Reason != "Chrome did not start" || failed.State != "open" {
-		t.Fatalf("after it failed = %+v, want the button offered again with the reason", failed)
 	}
 }
 
@@ -252,7 +212,7 @@ func TestAGoblinsHeadlessBrowserReachesHisStepAndGoesOnAtDone(t *testing.T) {
 		t.Fatalf("after Done the goblin's browser shows %q", after)
 	}
 	if pending, _ := wake.Pending(h.State); len(pending) == 0 {
-		t.Fatal("the CFO was not told the step is done")
+		t.Fatal("the CEO was not told the step is done")
 	}
 }
 

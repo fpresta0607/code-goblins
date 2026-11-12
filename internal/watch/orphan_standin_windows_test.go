@@ -43,13 +43,13 @@ const (
 // processes it started, one line each, the file whose making ends the test as
 // a finished test ends, and where the test's own folders are.
 const (
-	standInPIDs        = "CFO_WATCH_STANDIN_PIDS"
-	standInFinish      = "CFO_WATCH_STANDIN_FINISH"
-	standInTestBinary  = "CFO_WATCH_STANDIN_TEST_BINARY"
-	standInTestDir     = "CFO_WATCH_STANDIN_TEST_DIR"
-	standInCodexDir    = "CFO_WATCH_STANDIN_CODEX_DIR"
-	standInNestedState = "CFO_WATCH_STANDIN_NESTED_STATE"
-	standInNestedDir   = "CFO_WATCH_STANDIN_NESTED_DIR"
+	standInPIDs        = "GOBLINS_WATCH_STANDIN_PIDS"
+	standInFinish      = "GOBLINS_WATCH_STANDIN_FINISH"
+	standInTestBinary  = "GOBLINS_WATCH_STANDIN_TEST_BINARY"
+	standInTestDir     = "GOBLINS_WATCH_STANDIN_TEST_DIR"
+	standInCodexDir    = "GOBLINS_WATCH_STANDIN_CODEX_DIR"
+	standInNestedState = "GOBLINS_WATCH_STANDIN_NESTED_STATE"
+	standInNestedDir   = "GOBLINS_WATCH_STANDIN_NESTED_DIR"
 )
 
 // standInLife is how long a part waits to be ended before it ends itself.
@@ -184,7 +184,7 @@ func withoutMark() []string {
 // folder there.
 func startStandInFleet(t *testing.T) *standInFleet {
 	t.Helper()
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	root := t.TempDir()
 	standin.RemoveAtCleanup(t, root)
 	h := home.Home{Root: root, State: filepath.Join(root, "state"), Data: filepath.Join(root, "data")}
@@ -319,7 +319,7 @@ func orphanWakes(t *testing.T, stateDir string) []wake.Record {
 	return slices.DeleteFunc(records, func(record wake.Record) bool { return record.Kind != "orphan" })
 }
 
-// On 2026-10-10 the sweep woke the CFO twice in half an hour for a goblin's
+// On 2026-10-10 the sweep woke the CEO twice in half an hour for a goblin's
 // own test at work: "3 orphan_process", a spawn.test.exe hosting the test's
 // terminal, the cmd in it and the stand-in codex.exe, each held as "could not
 // determine what this process belongs to", and all three gone on the next
@@ -376,7 +376,7 @@ func TestTheSweepRaisesNoOrphanForAStandInAGoblinsTestStarted(t *testing.T) {
 				t.Errorf("the sweep reported %d running findings for a working goblin's own test:\n%s", len(orphans), strings.Join(orphans, "\n"))
 			}
 			if wakes := orphanWakes(t, fleet.home.State); reason != "" || len(wakes) != 0 {
-				t.Errorf("the sweep woke the CFO for a working goblin's own test: reason %q, wakes %+v", reason, wakes)
+				t.Errorf("the sweep woke the CEO for a working goblin's own test: reason %q, wakes %+v", reason, wakes)
 			}
 		})
 	}
@@ -385,8 +385,8 @@ func TestTheSweepRaisesNoOrphanForAStandInAGoblinsTestStarted(t *testing.T) {
 // A harness that carries no mark of a running terminal, works in no task's
 // folders and has no parent of a running terminal is an orphan beside a
 // goblin's test as it is alone: the sweep names it, and it alone, and wakes
-// the CFO for it once.
-func TestAHarnessOfNoRunningTerminalStillWakesTheCFOOnce(t *testing.T) {
+// the CEO for it once.
+func TestAHarnessOfNoRunningTerminalStillWakesTheCEOOnce(t *testing.T) {
 	// Arrange
 	fleet := startStandInFleet(t)
 	away := t.TempDir()
@@ -452,7 +452,7 @@ func TestAHarnessOfNoRunningTerminalStillWakesTheCFOOnce(t *testing.T) {
 		t.Errorf("the sweep that found the orphan = %q, want a wake naming one orphan process", first)
 	}
 	if second != "" {
-		t.Errorf("the next sweep = %q, want no second wake for the orphan the CFO was told of", second)
+		t.Errorf("the next sweep = %q, want no second wake for the orphan the CEO was told of", second)
 	}
 	if wakes := orphanWakes(t, fleet.home.State); len(wakes) != 1 {
 		t.Errorf("the sweeps raised %d wakes, want one: %+v", len(wakes), wakes)

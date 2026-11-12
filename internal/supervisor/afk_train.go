@@ -22,7 +22,7 @@ type trainLanding struct {
 
 // LogTrainLanding asks the supervisor to log the landing of a pull request by
 // a merge train while AFK mode is on, from whichever process runs the train:
-// a train started detached does not run under the registered CFO, which the
+// a train started detached does not run under the registered CEO, which the
 // log of a decision needs, so nothing of what it merged was logged. Nothing
 // the caller says is logged: the supervisor reads the train's record for the
 // landing and GitHub for the state of the pull request.

@@ -26,7 +26,7 @@ for (const who of ["CEO", "goblin"] as const) {
     await box(page, name).getByRole("button", { name: "Speech history", exact: true }).tap();
     await page.getByRole("dialog", { name: "Speech history" }).getByRole("button", { name: /^Paste into the message:/ }).tap();
     await expect(input).toHaveValue("Typed first line\nTyped second line\nDictated first line Dictated second line");
-    const draftKey = await page.evaluate(() => Object.keys(sessionStorage).find((key) => key.startsWith("cfo-draft:")));
+    const draftKey = await page.evaluate(() => Object.keys(sessionStorage).find((key) => key.startsWith("ceo-draft:")));
     expect(draftKey).toBeTruthy();
     const bounds = await clear.boundingBox();
     expect(bounds?.width).toBeGreaterThanOrEqual(44);
@@ -66,13 +66,13 @@ for (const who of ["CEO", "goblin"] as const) {
       const name = who === "CEO" ? "CEO" : NAME;
       const task = who === "CEO" ? "" : GOBLIN.id;
       const actions: object[] = [];
-      await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+      await page.addInitScript(() => localStorage.setItem("ceo-chat-style", "classic"));
       const relay = await open(page, snapshot({ actions: [{ id: "q1", kind: "message", task_id: task, text: "Already queued", status: "queued" }] }));
       await page.route("**/api/actions", async (route) => { actions.push(route.request().postDataJSON()); await route.fulfill({ json: {} }); });
       await page.route("**/api/dictations", (route) => route.fulfill({ json: { messages: [] } }));
       if (who === "goblin") await card(page, NAME).tap();
       else await page.keyboard.press("Control+Alt+1");
-      await expect.poll(() => relay.addresses.some((address) => who === "goblin" ? new URL(address).searchParams.get("task") === GOBLIN.id : new URL(address).searchParams.has("cfo"))).toBe(true);
+      await expect.poll(() => relay.addresses.some((address) => who === "goblin" ? new URL(address).searchParams.get("task") === GOBLIN.id : new URL(address).searchParams.has("ceo"))).toBe(true);
       const composer = box(page, name);
       const input = field(page, name);
       const picture = page.locator(".context-pane .panel-header").getByRole("button", { name: "Chat style", exact: true });
@@ -102,7 +102,7 @@ for (const who of ["CEO", "goblin"] as const) {
       await expect(composer.getByRole("button", { name: "Clear message", exact: true })).toBeDisabled();
       await expect(composer.getByRole("alert")).toHaveCount(0);
       await expect(composer.getByRole("button", { name: "Dictate", exact: true })).toHaveAttribute("aria-pressed", "false");
-      expect(await page.evaluate(() => Object.keys(sessionStorage).filter((key) => key.startsWith("cfo-draft:")))).toEqual([]);
+      expect(await page.evaluate(() => Object.keys(sessionStorage).filter((key) => key.startsWith("ceo-draft:")))).toEqual([]);
       await page.keyboard.insertText("Replacement text");
       await expect(input).toHaveValue("Replacement text");
       await composer.getByRole("button", { name: "Speech history", exact: true }).tap();

@@ -70,7 +70,7 @@ func requestCodeRun(board *HTTP, body any) *httptest.ResponseRecorder {
 	data, _ := json.Marshal(body)
 	request := httptest.NewRequest("POST", "http://"+board.Host+"/api/code-run", bytes.NewReader(data))
 	request.Header.Set("Origin", "http://"+board.Host)
-	request.Header.Set("X-CFO-Token", "code-run-token")
+	request.Header.Set("X-CEO-Token", "code-run-token")
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	board.ServeHTTP(response, request)
@@ -208,12 +208,12 @@ func TestRunRefusesWhatIsNotAReplysOwnWords(t *testing.T) {
 	}
 }
 
-func TestRunStartsTheCFOsPowerShellBlockFromItsOwnSession(t *testing.T) {
-	// Arrange: the CFO's Codex session holds the reply.
+func TestRunStartsTheCEOsPowerShellBlockFromItsOwnSession(t *testing.T) {
+	// Arrange: the CEO's Codex session holds the reply.
 	board, meta, transcript := codeRunBoard(t, "```powershell\nGet-Date\n```")
-	registerNativeCFO(t, board.Service.Store.Home.State, "codex", meta.ID+"-session")
+	registerNativeCEO(t, board.Service.Store.Home.State, "codex", meta.ID+"-session")
 	message, block := replyHolding(t, board, transcript, "```p")
-	body := map[string]any{"cfo": NativeCFOTerminal, "message": message.ID, "block": block, "fence": 0}
+	body := map[string]any{"ceo": NativeCEOTerminal, "message": message.ID, "block": block, "fence": 0}
 
 	// Act
 	response := requestCodeRun(board, body)
@@ -223,23 +223,23 @@ func TestRunStartsTheCFOsPowerShellBlockFromItsOwnSession(t *testing.T) {
 		t.Fatalf("code run = %d %s", response.Code, response.Body)
 	}
 	runs := board.Service.Store.Snapshot().Runs
-	if len(runs) != 1 || runs[0].Title != "PowerShell from the CFO's reply" || runs[0].Command != "Get-Date" || runs[0].Reply != "cfo reply "+message.ID+" block 0 fence 0" {
-		t.Fatalf("runs = %+v, want the CFO's block run once, named by its reply", runs)
+	if len(runs) != 1 || runs[0].Title != "PowerShell from the CEO's reply" || runs[0].Command != "Get-Date" || runs[0].Reply != "ceo reply "+message.ID+" block 0 fence 0" {
+		t.Fatalf("runs = %+v, want the CEO's block run once, named by its reply", runs)
 	}
 	audit, err := os.ReadFile(filepath.Join(board.Service.Store.Home.State, "runs.audit"))
-	if err != nil || !strings.Contains(string(audit), runs[0].ID+" "+runs[0].ScriptSum+" started from cfo reply "+message.ID) {
+	if err != nil || !strings.Contains(string(audit), runs[0].ID+" "+runs[0].ScriptSum+" started from ceo reply "+message.ID) {
 		t.Fatalf("audit = %q, %v", audit, err)
 	}
 }
 
-func TestRunOfTheCFOsReplyIsRefusedForAnotherTerminal(t *testing.T) {
+func TestRunOfTheCEOsReplyIsRefusedForAnotherTerminal(t *testing.T) {
 	// Arrange
 	board, meta, transcript := codeRunBoard(t, "```powershell\nGet-Date\n```")
-	registerNativeCFO(t, board.Service.Store.Home.State, "codex", meta.ID+"-session")
+	registerNativeCEO(t, board.Service.Store.Home.State, "codex", meta.ID+"-session")
 	message, block := replyHolding(t, board, transcript, "```p")
 
 	// Act
-	response := requestCodeRun(board, map[string]any{"cfo": "another-terminal", "message": message.ID, "block": block, "fence": 0})
+	response := requestCodeRun(board, map[string]any{"ceo": "another-terminal", "message": message.ID, "block": block, "fence": 0})
 
 	// Assert
 	assertNothingRan(t, board, response, http.StatusConflict)

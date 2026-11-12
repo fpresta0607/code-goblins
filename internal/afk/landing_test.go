@@ -13,10 +13,10 @@ import (
 
 // The stretch the Overlord ended at 19:45 UTC on 2026-10-10, whose report
 // showed a second merge group, "Merge words with no merge recorded 36", under
-// warning triangles. All 36 were lines the CFO wrote by hand after a landing,
+// warning triangles. All 36 were lines the CEO wrote by hand after a landing,
 // each naming a merge the log already held. testdata holds the stretch's lines
 // as the live home's log holds them, except that this repository is public:
-// the CFO's own words are numbered placeholders, one for each distinct text,
+// the CEO's own words are numbered placeholders, one for each distinct text,
 // and every repository but this one is a northwind one.
 const recordedStretch = "afk-20261009T230830.982Z"
 
@@ -34,7 +34,7 @@ func recordedReport(t *testing.T) Report {
 	if err != nil || unreadable != 0 || len(entries) == 0 {
 		t.Fatalf("the recorded stretch reads %d lines, %d unreadable, %v", len(entries), unreadable, err)
 	}
-	return Report{Session: recordedStretch, Since: entries[0].At, Ended: entries[len(entries)-1].At, From: "the CFO at his ask", EndedFrom: "his own board", Decisions: Decisions(entries)}
+	return Report{Session: recordedStretch, Since: entries[0].At, Ended: entries[len(entries)-1].At, From: "the CEO at his ask", EndedFrom: "his own board", Decisions: Decisions(entries)}
 }
 
 // rendered is the report's text, or the test's end.
@@ -74,7 +74,7 @@ func TestTheStretchOf10OctoberReportsOneMergedGroupAndNoWarning(t *testing.T) {
 	sections, text := report.Sections(), rendered(t, report)
 
 	// Assert
-	// The 8 decisions the CFO answered for him that stretch are recapped under
+	// The 8 decisions the CEO answered for him that stretch are recapped under
 	// For you, and every merge is under one Merged heading.
 	if got := titled(sections); !slices.Contains(got, "Merged 80") || !slices.Contains(got, "For you 8") {
 		t.Fatalf("the stretch's headings = %q, want Merged 80 and For you 8", got)
@@ -82,7 +82,7 @@ func TestTheStretchOf10OctoberReportsOneMergedGroupAndNoWarning(t *testing.T) {
 	merged := sections[slices.IndexFunc(sections, func(section Section) bool { return section.Title == "Merged" })]
 	for _, section := range sections {
 		for _, entry := range section.Entries {
-			if entry.Kind == KindMerge && section.Title != "Merged" && section.Title != "Struck by the CFO" {
+			if entry.Kind == KindMerge && section.Title != "Merged" && section.Title != "Struck by the CEO" {
 				t.Errorf("a merge is under %q, not Merged: %+v", section.Title, entry)
 			}
 		}
@@ -97,26 +97,26 @@ func TestTheStretchOf10OctoberReportsOneMergedGroupAndNoWarning(t *testing.T) {
 			t.Errorf("the report says %q of a stretch where everything merged:\n%s", phrase, text)
 		}
 	}
-	// 72 of the 80 carry what the CFO wrote of them: the 8 others are its own
+	// 72 of the 80 carry what the CEO wrote of them: the 8 others are its own
 	// merge words and a train it wrote nothing for.
-	if noted := strings.Count(text, "\n  The CFO: words withheld "); noted != 72 {
-		t.Errorf("%d merges carry the CFO's words, want 72", noted)
+	if noted := strings.Count(text, "\n  The CEO: words withheld "); noted != 72 {
+		t.Errorf("%d merges carry the CEO's words, want 72", noted)
 	}
 	// Train 600 landed twice: 584 and 589, then 597. Each landing carries the
-	// line the CFO wrote for it, never the other's.
+	// line the CEO wrote for it, never the other's.
 	pull := func(number int) string {
 		return following(text, "- https://github.com/fpresta0607/code-goblins/pull/"+strconv.Itoa(number)+": merged")
 	}
-	if first, second := pull(584), pull(597); !strings.HasPrefix(first, "  The CFO: ") || first != pull(589) || !strings.HasPrefix(second, "  The CFO: ") || first == second {
+	if first, second := pull(584), pull(597); !strings.HasPrefix(first, "  The CEO: ") || first != pull(589) || !strings.HasPrefix(second, "  The CEO: ") || first == second {
 		t.Errorf("train 600's landings say %q, %q and %q, want 584 and 589 alike and 597 its own", first, pull(589), second)
 	}
 }
 
-// A line the CFO wrote for a landing names a merge by the pull request that
+// A line the CEO wrote for a landing names a merge by the pull request that
 // merged, as its link or as itself, or by the merge train's own pull request
 // whose train landed it, logged before it or after. It is with that merge, in
-// the CFO's words, and never a merge of its own.
-func TestALineTheCFOWroteForALandingIsWithTheMergeItNames(t *testing.T) {
+// the CEO's words, and never a merge of its own.
+func TestALineTheCEOWroteForALandingIsWithTheMergeItNames(t *testing.T) {
 	const train = "https://github.com/acme/api/pull/900"
 	pull := func(number int) string { return "https://github.com/acme/api/pull/" + strconv.Itoa(number) }
 	at := func(minute int) time.Time { return night.Add(time.Duration(minute) * time.Minute) }
@@ -185,8 +185,8 @@ func TestALineTheCFOWroteForALandingIsWithTheMergeItNames(t *testing.T) {
 				t.Fatalf("headings = %q, want %q:\n%s", got, want, text)
 			}
 			for number, words := range tc.want {
-				if got := following(text, "- "+pull(number)+": merged"); got != "  The CFO: "+words {
-					t.Errorf("#%d says %q, want the CFO's words %q:\n%s", number, got, words, text)
+				if got := following(text, "- "+pull(number)+": merged"); got != "  The CEO: "+words {
+					t.Errorf("#%d says %q, want the CEO's words %q:\n%s", number, got, words, text)
 				}
 			}
 		})
@@ -194,12 +194,12 @@ func TestALineTheCFOWroteForALandingIsWithTheMergeItNames(t *testing.T) {
 }
 
 // What did not land is the one warning in the report: under Not merged, each
-// with what the CFO did about it, then what happened, each in one sentence.
-// The CFO's own line about it is what it did, a step only the Overlord can
-// take about it says it needs him, and with neither the report says the CFO
-// logged nothing. A line the CFO wrote that names no merge says what it says
+// with what the CEO did about it, then what happened, each in one sentence.
+// The CEO's own line about it is what it did, a step only the Overlord can
+// take about it says it needs him, and with neither the report says the CEO
+// logged nothing. A line the CEO wrote that names no merge says what it says
 // itself.
-func TestANotMergedRowSaysWhatTheCFODidAndWhatHappened(t *testing.T) {
+func TestANotMergedRowSaysWhatTheCEODidAndWhatHappened(t *testing.T) {
 	pr := "https://github.com/acme/api/pull/13"
 	word := Entry{At: night, Kind: KindMerge, What: pr, Link: pr, Evidence: "verified: 15 checks green"}
 	ended := func(outcome string) Entry {
@@ -207,17 +207,17 @@ func TestANotMergedRowSaysWhatTheCFODidAndWhatHappened(t *testing.T) {
 	}
 	failed := ended("not merged: gh exited 1: Pull request is not mergeable")
 	sentBack := Entry{At: night.Add(2 * time.Minute), Kind: KindMerge, What: "Sent it back to nw-export to merge main in", Link: pr, Evidence: "Its head was behind main."}
-	his := Entry{At: night.Add(3 * time.Minute), Kind: KindHis, What: "Merge #13, a teammate's pull request", Link: pr, Evidence: "cfo pr merge refused it"}
+	his := Entry{At: night.Add(3 * time.Minute), Kind: KindHis, What: "Merge #13, a teammate's pull request", Link: pr, Evidence: "goblins pr merge refused it"}
 	for name, tc := range map[string]struct {
 		lines []Entry
 		says  []string
 	}{
-		"the CFO sent it back":      {[]Entry{word, failed, sentBack}, []string{"The CFO: Sent it back to nw-export to merge main in. Its head was behind main.", "Not merged: gh exited 1: Pull request is not mergeable."}},
-		"only he can take it":       {[]Entry{word, failed, his}, []string{"The CFO: It needs you: Merge #13, a teammate's pull request.", "Not merged: gh exited 1: Pull request is not mergeable."}},
-		"the CFO logged nothing":    {[]Entry{word, failed}, []string{"The CFO logged nothing about it.", "Not merged: gh exited 1: Pull request is not mergeable."}},
-		"it joined a merge queue":   {[]Entry{word, ended("added to the merge queue")}, []string{"The CFO logged nothing about it.", "Added to the merge queue."}},
-		"nothing followed its word": {[]Entry{word}, []string{"The CFO logged nothing about it.", "No merge was recorded."}},
-		"the CFO wrote of no merge": {[]Entry{{At: night, Kind: KindMerge, What: "PR 13 landed on merge train 900", Link: pr, Evidence: "One CI run."}}, []string{"No merge was recorded."}},
+		"the CEO sent it back":      {[]Entry{word, failed, sentBack}, []string{"The CEO: Sent it back to nw-export to merge main in. Its head was behind main.", "Not merged: gh exited 1: Pull request is not mergeable."}},
+		"only he can take it":       {[]Entry{word, failed, his}, []string{"The CEO: It needs you: Merge #13, a teammate's pull request.", "Not merged: gh exited 1: Pull request is not mergeable."}},
+		"the CEO logged nothing":    {[]Entry{word, failed}, []string{"The CEO logged nothing about it.", "Not merged: gh exited 1: Pull request is not mergeable."}},
+		"it joined a merge queue":   {[]Entry{word, ended("added to the merge queue")}, []string{"The CEO logged nothing about it.", "Added to the merge queue."}},
+		"nothing followed its word": {[]Entry{word}, []string{"The CEO logged nothing about it.", "No merge was recorded."}},
+		"the CEO wrote of no merge": {[]Entry{{At: night, Kind: KindMerge, What: "PR 13 landed on merge train 900", Link: pr, Evidence: "One CI run."}}, []string{"No merge was recorded."}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -241,9 +241,9 @@ func TestANotMergedRowSaysWhatTheCFODidAndWhatHappened(t *testing.T) {
 	}
 }
 
-// The report kept for a stretch is folded when it is read, so a strike the CFO
+// The report kept for a stretch is folded when it is read, so a strike the CEO
 // makes after the stretch ended still takes its line off the merge it names.
-func TestAKeptReportFoldsTheCFOsLinesAsTheyStandWhenItIsRead(t *testing.T) {
+func TestAKeptReportFoldsTheCEOsLinesAsTheyStandWhenItIsRead(t *testing.T) {
 	// Arrange
 	dir, pr := t.TempDir(), "https://github.com/acme/api/pull/10"
 	if _, _, err := TurnOn(dir, "the board", nil, night); err != nil {
@@ -283,18 +283,18 @@ func TestAKeptReportFoldsTheCFOsLinesAsTheyStandWhenItIsRead(t *testing.T) {
 		t.Fatal(err, found)
 	}
 	text := rendered(t, kept)
-	if got := titled(kept.Sections()); strings.Join(got, ",") != "Merged 1,Struck by the CFO 1" {
+	if got := titled(kept.Sections()); strings.Join(got, ",") != "Merged 1,Struck by the CEO 1" {
 		t.Errorf("headings = %q, want the merge and the struck line:\n%s", got, text)
 	}
-	if got := following(text, "- "+merged.What+": merged"); got != "  The CFO: PR 10 landed. One CI run." {
-		t.Errorf("the merge says %q, want only the line the CFO stands by:\n%s", got, text)
+	if got := following(text, "- "+merged.What+": merged"); got != "  The CEO: PR 10 landed. One CI run." {
+		t.Errorf("the merge says %q, want only the line the CEO stands by:\n%s", got, text)
 	}
 }
 
-// A decision the CFO answered itself about a merge that did not land is what
-// the CFO did about it: the merge's row says it with the CFO's answer, nothing
+// A decision the CEO answered itself about a merge that did not land is what
+// the CEO did about it: the merge's row says it with the CEO's answer, nothing
 // is left for him, and the decision is recapped under For you.
-func TestANotMergedRowSaysWhatTheCFOAnsweredAboutIt(t *testing.T) {
+func TestANotMergedRowSaysWhatTheCEOAnsweredAboutIt(t *testing.T) {
 	// Arrange
 	pr := "https://github.com/acme/api/pull/13"
 	word := Entry{At: night, Kind: KindMerge, What: pr, Link: pr, Evidence: "verified: 15 checks green"}
@@ -309,7 +309,7 @@ func TestANotMergedRowSaysWhatTheCFOAnsweredAboutIt(t *testing.T) {
 	if got := titled(sections); strings.Join(got, ",") != "Not merged 1,For you 1" {
 		t.Fatalf("headings = %q, want the merge not merged and the decision recapped:\n%s", got, text)
 	}
-	if got, want := following(text, "- "+pr), "  The CFO: Merge #13 past its failing check? the check fails on main too. It answered: Hold it."; got != want {
+	if got, want := following(text, "- "+pr), "  The CEO: Merge #13 past its failing check? the check fails on main too. It answered: Hold it."; got != want {
 		t.Errorf("the merge's row says %q, want %q:\n%s", got, want, text)
 	}
 }

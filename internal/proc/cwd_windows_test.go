@@ -181,7 +181,7 @@ func TestParametersReadsArgumentsBeyondTheFirstParameterPage(t *testing.T) {
 	argument := strings.Repeat("two words ", 400)
 	command := exec.Command(os.Args[0], "-test.run=^TestParametersLongArgumentFixture$", argument)
 	command.Dir = directory
-	command.Env = append(os.Environ(), "CFO_PARAMETER_FIXTURE=1")
+	command.Env = append(os.Environ(), "GOBLINS_PARAMETER_FIXTURE=1")
 	if err := command.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestParametersReadsArgumentsBeyondTheFirstParameterPage(t *testing.T) {
 }
 
 func TestParametersLongArgumentFixture(t *testing.T) {
-	if os.Getenv("CFO_PARAMETER_FIXTURE") == "1" {
+	if os.Getenv("GOBLINS_PARAMETER_FIXTURE") == "1" {
 		fmt.Println("fixture running")
 		time.Sleep(time.Minute)
 	}
@@ -226,8 +226,8 @@ func TestReadersReadAProcessThroughItsStartup(t *testing.T) {
 		return nil
 	}
 	wantEnvironment := func(got []string) error {
-		if !slices.Contains(got, "CFO_PARAMETER_FIXTURE=1") {
-			return fmt.Errorf("an environment of %d entries without CFO_PARAMETER_FIXTURE=1", len(got))
+		if !slices.Contains(got, "GOBLINS_PARAMETER_FIXTURE=1") {
+			return fmt.Errorf("an environment of %d entries without GOBLINS_PARAMETER_FIXTURE=1", len(got))
 		}
 		return nil
 	}
@@ -276,7 +276,7 @@ func TestReadersReadAProcessThroughItsStartup(t *testing.T) {
 			directory := t.TempDir()
 			command := exec.Command(os.Args[0], "-test.run=^TestParametersLongArgumentFixture$", argument)
 			command.Dir = directory
-			command.Env = append(os.Environ(), "CFO_PARAMETER_FIXTURE=1")
+			command.Env = append(os.Environ(), "GOBLINS_PARAMETER_FIXTURE=1")
 			command.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_SUSPENDED}
 			output, err := command.StdoutPipe()
 			if err != nil {

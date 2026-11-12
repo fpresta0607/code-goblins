@@ -36,7 +36,7 @@ export function credentialFinish(request: CredentialRequest): { heading: string;
 // later, or, for a card with none, to bring it back.
 export function closedLine(request: CredentialRequest): string {
   const needed = stillNeeded(request);
-  if (!needed.length) return "Bring it back: cfo auth request --reopen " + request.id;
+  if (!needed.length) return "Bring it back: goblins auth request --reopen " + request.id;
   const first = storeCommand(request.project, needed[0]);
   return needed.length === 1 ? "Give it later: " + first : "Give them later: " + first + ", then the same for " + listNames(needed.slice(1));
 }
@@ -67,7 +67,7 @@ export const canPressDone = (request: CredentialRequest) => request.state === "o
 // of them once nothing is.
 const asked = (request: CredentialRequest) => { const open = stillAsked(request); return open.length ? open : [...request.names, ...request.plain]; };
 
-// What a request asks in one line, for the inbox, the CFO bar and alerts: a
+// What a request asks in one line, for the inbox, the CEO bar and alerts: a
 // card of clicks by what it is for.
 export function credentialAsk(request: CredentialRequest): string {
   if (request.grant_service) return "Grant " + request.grant_service + " to " + request.task;
@@ -98,16 +98,16 @@ export function linkLabel(link: string): string {
 
 // The names the terminal types: each one not saved yet that the scope does
 // not hold, and a held one only once he confirms replacing it, as a save from
-// the card does (CFO decision 3624).
+// the card does (CEO decision 3624).
 export function terminalNames(request: CredentialRequest, replace: string[]): string[] {
   return stillNeeded(request).filter((name) => !request.existing.includes(name) || replace.includes(name));
 }
 
-// The exact terminal fallback for one name, as cfo prints it: a scope a shell
+// The exact terminal fallback for one name, as goblins prints it: a scope a shell
 // would split is quoted.
 export function storeCommand(project: string, name: string): string {
   const scope = /^[A-Za-z0-9._/:-]+$/.test(project) ? project : '"' + project + '"';
-  return "cfo auth store --project " + scope + " " + name;
+  return "goblins auth store --project " + scope + " " + name;
 }
 
 // A format hint's warnings for a value: one that starts none of the expected

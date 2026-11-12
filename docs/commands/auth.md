@@ -1,6 +1,6 @@
-# cfo auth
+# goblins auth
 
-`cfo auth <project> [--check\|--fix] [--env]`
+`goblins auth <project> [--check\|--fix] [--env]`
 
 Preflight a project's services against its manifest and print one honest line each, plus the resolution order behind every variable it declares.
 `--fix` adopts credentials the machine already holds, runs non-interactive CLI logins, and confirms an OAuth page whose browser session is live.
