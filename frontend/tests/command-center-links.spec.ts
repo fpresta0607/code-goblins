@@ -53,6 +53,26 @@ test("a History row's link opens in a new tab once the row unfolds", async ({ pa
   await expect(row.locator(".inbox-summary")).toHaveText("Pick a store layout on the page (page https://example.com/session/f26e)");
 });
 
+test("a History row reads a Markdown link by its label, a link to its address", async ({ page }) => {
+  // Arrange
+  const address = "https://github.com/acme/site/pull/12";
+  await page.goto("/tests/fixtures/command-center-links.html");
+  await page.locator(".command-center-menu > summary").click();
+  const panel = page.locator(".command-center-updates");
+  await panel.getByText("History").click();
+  const row = panel.locator(".inbox-history li").filter({ hasText: "Merge the release PR" });
+
+  // Act
+  await row.locator(".history-open").click();
+
+  // Assert
+  const link = row.locator(".inbox-summary").getByRole("link", { name: "the release PR", exact: true });
+  await expect(link).toHaveAttribute("href", address);
+  await expect(link).toHaveAttribute("title", address);
+  await expect(link).toHaveAttribute("target", "_blank");
+  await expect(row.locator(".inbox-summary")).toHaveText("Merge the release PR once CI is green");
+});
+
 test("phone links in prose, link values and History open the private Scrawl route", async ({ page, context }) => {
   const origin = "https://pc.example.ts.net:4311";
   const review = "http://127.0.0.1:4387/session/private-review?mode=notes#answer";

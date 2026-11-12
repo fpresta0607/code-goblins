@@ -10,8 +10,8 @@ import type { SaidLink } from "./task-words.ts";
 // row, a separator row of dashes, then its rows) for values that belong
 // together, such as DNS records. An http or https address is a link (the
 // Overlord, 2026-10-17: "I should be able to click it as a hyperlink to
-// navigate to it"). Everything else is text, so markup in a message is shown,
-// never run.
+// navigate to it"), and a Markdown link to one reads as its label.
+// Everything else is text, so markup in a message is shown, never run.
 // A link span's text is what it reads and link is the address it opens.
 export interface Span { text: string; bold: boolean; code?: true; link?: string; italic?: true }
 export type Block = { kind: "paragraph"; spans: Span[] } | { kind: "list"; items: Span[][]; start?: number } | { kind: "table"; header: Span[][]; rows: Span[][][] };
@@ -340,12 +340,14 @@ export function linkedSentence(sentence: string, links: SaidLink[]): ReactNode {
 
 // The message on one line, for a list row: marks dropped, each bullet a
 // sentence of its own, and a table left out, since its values only read in
-// the card.
+// the card. A Markdown link stays as written, so the History row that links
+// its addresses reads it by its label and still opens its address.
 export function plainMessage(text: string): string {
   const sentence = (item: string) => item.charAt(0).toUpperCase() + item.slice(1) + (/[.!?:]$/.test(item) ? "" : ".");
+  const written = (span: Span) => span.link && span.text !== span.link ? "[" + span.text + "](" + span.link + ")" : span.text;
   return messageBlocks(text).flatMap((block) => block.kind === "paragraph"
-    ? [block.spans.map((span) => span.text).join("").replace(/\s*\n\s*/g, " ")]
-    : block.kind === "list" ? block.items.map((item) => sentence(item.map((span) => span.text).join("").trim())) : []).join(" ");
+    ? [block.spans.map(written).join("").replace(/\s*\n\s*/g, " ")]
+    : block.kind === "list" ? block.items.map((item) => sentence(item.map(written).join("").trim())) : []).join(" ");
 }
 
 // A text too long to show whole on a phone, more than about six lines or 600

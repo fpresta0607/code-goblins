@@ -80,6 +80,11 @@ func linkReply(message, origin string, open func(string) error) (script string, 
 		return "", true
 	}
 	if address, ok := strings.CutPrefix(message, openMessage); ok && fromBoard(origin) {
+		// A PDF preview's blob: address opens only inside the page that made
+		// it, so it is refused silently: Download PDF is the card's way.
+		if strings.HasPrefix(address, "blob:") {
+			return "", true
+		}
 		return linkFailed(address), true
 	}
 	return "", false

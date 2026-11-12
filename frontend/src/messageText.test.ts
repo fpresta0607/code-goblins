@@ -186,12 +186,13 @@ for (const [name, text, want] of [
   });
 }
 
-test("a one-line summary reads a Markdown link by its label", () => {
+test("a one-line summary keeps a Markdown link as written, so a History row still links its label to its address", () => {
   // Arrange, act
-  const summary = plainMessage("Opened [the fix](https://github.com/example/board/pull/412) for review.");
+  const summary = plainMessage("Opened [the fix](https://github.com/example/board/pull/412) for **review**.");
 
   // Assert
-  assert.equal(summary, "Opened the fix for review.");
+  assert.equal(summary, "Opened [the fix](https://github.com/example/board/pull/412) for review.");
+  assert.equal(renderToStaticMarkup(linkedText(summary)), 'Opened <a class="message-link" href="https://github.com/example/board/pull/412" target="_blank" rel="noreferrer" title="https://github.com/example/board/pull/412">the fix</a> for review.');
 });
 
 test("phone prose, backticks and History validate Scrawl links while local rendering keeps them local", () => {

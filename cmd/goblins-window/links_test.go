@@ -64,7 +64,7 @@ func TestALinkTheBoardAsksForOpensOrIsSaidInItsPage(t *testing.T) {
 		"a web address the browser is handed":           {"open:https://example.com/", board, nil, []string{"https://example.com/"}, "", true},
 		"a web address the browser could not be handed": {"open:https://example.com/", board, errors.New("rundll32 did not start"), []string{"https://example.com/"}, said("https://example.com/"), true},
 		"a file from the board":                         {"open:file:///C:/x.pdf", board, nil, nil, said("file:///C:/x.pdf"), true},
-		"a PDF preview from the board":                  {"open:blob:http://127.0.0.1:4310/a1", board, nil, nil, said("blob:http://127.0.0.1:4310/a1"), true},
+		"a PDF preview from the board, said by nothing": {"open:blob:http://127.0.0.1:4310/a1", board, nil, nil, "", true},
 		"a script from the board":                       {"open:javascript:alert(1)", board, nil, nil, said("javascript:alert(1)"), true},
 		"a web address from another site's page":        {"open:https://example.com/", "https://example.com/", nil, nil, "", false},
 		"a file from another site's page":               {"open:file:///C:/x.pdf", "https://example.com/", nil, nil, "", false},
