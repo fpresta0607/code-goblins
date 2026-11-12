@@ -21,11 +21,6 @@ func ReadProcesses(ctx context.Context) ([]Process, error) {
 	return nil, errProcessesNotPorted
 }
 
-// ReadAllProcesses refuses, as ReadProcesses does.
-func ReadAllProcesses(ctx context.Context) ([]Process, error) {
-	return nil, errProcessesNotPorted
-}
-
 // Sightings refuses each reading, as ReadProcesses does.
 func Sightings(h home.Home) func(context.Context) ([]reap.Sighting, []string, error) {
 	return func(context.Context) ([]reap.Sighting, []string, error) {
