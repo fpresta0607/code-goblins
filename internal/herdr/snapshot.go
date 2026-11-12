@@ -30,20 +30,20 @@ type SnapshotLayout struct {
 	} `json:"panes"`
 }
 
-// SnapshotWorkspace is the workspace identity CFO validates against.
+// SnapshotWorkspace is the workspace identity CEO validates against.
 type SnapshotWorkspace struct {
 	ID    string `json:"workspace_id"`
 	Label string `json:"label"`
 }
 
-// SnapshotTab is the tab identity CFO validates against.
+// SnapshotTab is the tab identity CEO validates against.
 type SnapshotTab struct {
 	ID          string `json:"tab_id"`
 	WorkspaceID string `json:"workspace_id"`
 	Label       string `json:"label"`
 }
 
-// SnapshotPane is the pane identity CFO validates against.
+// SnapshotPane is the pane identity CEO validates against.
 type SnapshotPane struct {
 	ID          string `json:"pane_id"`
 	TabID       string `json:"tab_id"`
@@ -51,7 +51,7 @@ type SnapshotPane struct {
 	TerminalID  string `json:"terminal_id"`
 }
 
-// SnapshotAgent is the registered agent association CFO validates against.
+// SnapshotAgent is the registered agent association CEO validates against.
 type SnapshotAgent struct {
 	PaneID      string `json:"pane_id"`
 	TabID       string `json:"tab_id"`
@@ -60,7 +60,7 @@ type SnapshotAgent struct {
 	Status      string `json:"agent_status"`
 	// Cwd is the directory the agent is working in. It is the one live answer
 	// to "which worktree is this goblin in" that does not depend on any record
-	// CFO keeps, which is what the reap sweep asks it for.
+	// CEO keeps, which is what the reap sweep asks it for.
 	Cwd string `json:"cwd"`
 }
 

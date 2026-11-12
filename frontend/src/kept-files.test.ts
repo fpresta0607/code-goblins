@@ -33,7 +33,7 @@ test("a kept picture's path inside a sentence, another folder's picture and a ke
 
 // A harness's record keeps a message typed on one line, as the board types
 // it, so the paths the box named after his words are joined to them by
-// spaces, as the CFO's Claude Code recorded his messages on 2026-11-02.
+// spaces, as the CEO's Claude Code recorded his messages on 2026-11-02.
 test("kept pictures joined onto the end of his words' line become their previews", () => {
   for (const [text, want] of [
     ["what is wrong here? " + WINDOWS, { text: "what is wrong here?", paths: [WINDOWS] }],
@@ -50,12 +50,12 @@ test("a message of pictures alone has no words left", () => {
 test("a kept file's address names the board's token, the task and the path", () => {
   // Act
   const goblin = new URL(keptFileAddress("token-1", "task-1", WINDOWS), "http://board");
-  const cfo = new URL(keptFileAddress("token-1", undefined, UNIX), "http://board");
+  const ceo = new URL(keptFileAddress("token-1", undefined, UNIX), "http://board");
 
   // Assert
   assert.equal(goblin.pathname, "/api/composer/file");
   assert.deepEqual(Object.fromEntries(goblin.searchParams), { token: "token-1", task: "task-1", path: WINDOWS });
-  assert.deepEqual(Object.fromEntries(cfo.searchParams), { token: "token-1", path: UNIX });
+  assert.deepEqual(Object.fromEntries(ceo.searchParams), { token: "token-1", path: UNIX });
 });
 
 // transfer is a DataTransfer as a browser hands a paste or a drop: its files

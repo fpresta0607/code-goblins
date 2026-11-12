@@ -37,15 +37,15 @@ import (
 // the forge rather than about one goblin's screen: memory come back while
 // work waits for it, and CI that finished on a goblin's pull request or went
 // red on main, and pull requests that conflict or fall behind. They go
-// through the wake queue like every other wake, so the CFO hears them
-// however it is woken and cfo drain shows them.
+// through the wake queue like every other wake, so the CEO hears them
+// however it is woken and goblins drain shows them.
 const (
-	fleetWakesSchema = "cfo-fleet-wakes.v1"
+	fleetWakesSchema = "ceo-fleet-wakes.v1"
 	// fleetWatchEvery is how often memory is read for memory_ready, the
 	// cadence of the memory meter's own readings.
 	fleetWatchEvery = time.Minute
 	// ciPollEvery is how often GitHub is asked about CI. Every call counts
-	// against the 5,000 an hour every goblin, gate and the CFO share (they
+	// against the 5,000 an hour every goblin, gate and the CEO share (they
 	// ran out on 2026-09-23). A poll lists PRs and main's runs once each,
 	// compares open PRs in one batch, and reads details for each red run.
 	ciPollEvery = 2 * time.Minute
@@ -78,8 +78,8 @@ const (
 	// ghCallTimeout bounds one gh or git call.
 	ghCallTimeout = 30 * time.Second
 	// failingPasses is how many passes in a row a read the supervisor makes
-	// on a timer fails before the CFO hears of it. On 2026-10-08 single
-	// reads timed out under the fleet's load and each woke the CFO, and
+	// on a timer fails before the CEO hears of it. On 2026-10-08 single
+	// reads timed out under the fleet's load and each woke the CEO, and
 	// minutes later the same reads took about 600 ms: a read that fails once
 	// is read again on the next pass.
 	failingPasses = 3
@@ -106,22 +106,27 @@ type fleetWakes struct {
 	// ProgressUnreadSince is when the passes began on which every goblin's
 	// progress read ran out of time together, zero once a pass reads one or
 	// has none to read, or after a gap in the passes, and ProgressUnreadWoke
-	// says the CFO was told of those passes. ProgressPassAt is when the latest
+	// says the CEO was told of those passes. ProgressPassAt is when the latest
 	// reading that read progress ended, which tells that gap.
 	ProgressUnreadSince time.Time `json:"progress_unread_since,omitzero"`
 	ProgressUnreadWoke  bool      `json:"progress_unread_woke,omitempty"`
 	ProgressPassAt      time.Time `json:"progress_pass_at,omitzero"`
 	// IdleSince is when the scheduler first found work it could not start
 	// while memory was free, for the idle wake.
-	IdleSince    time.Time          `json:"idle_since,omitzero"`
-	RootReadings []rootStartReading `json:"root_readings,omitempty"`
+	IdleSince time.Time `json:"idle_since,omitzero"`
+	// LineStallSince is when the readings in a row began that found the heavy
+	// line standing still, a turn free with runs waiting and memory enough,
+	// and LineStallWoke says the CEO was told of them.
+	LineStallSince time.Time          `json:"line_stall_since,omitzero"`
+	LineStallWoke  bool               `json:"line_stall_woke,omitempty"`
+	RootReadings   []rootStartReading `json:"root_readings,omitempty"`
 	// DiskLow says disk_low woke since a reading was last at or above the
 	// disk floor.
 	DiskLow bool `json:"disk_low,omitempty"`
 	// DefenderSince is the time Microsoft Defender's records are read from:
 	// when the watch began, then an hour back of each reading.
 	DefenderSince time.Time `json:"defender_since,omitzero"`
-	// Checks holds each goblin pull request's finished checks the CFO was
+	// Checks holds each goblin pull request's finished checks the CEO was
 	// woken for, so each completion wakes once, and Hosted what each one's
 	// checks said at its last poll, for its goblin's card.
 	Checks map[string]reportedChecks `json:"checks,omitempty"`
@@ -147,7 +152,7 @@ type fleetWakes struct {
 	// zero while Codex has its allowance: until then every goblin's codex
 	// guard is armed.
 	CodexUsedUpUntil time.Time `json:"codex_used_up_until,omitzero"`
-	// RedRuns holds, by repository, the red push runs of its main the CFO
+	// RedRuns holds, by repository, the red push runs of its main the CEO
 	// was woken for.
 	RedRuns map[string][]int64 `json:"red_runs,omitempty"`
 	// NewestRuns holds, by repository, the newest push run of its main any
@@ -170,6 +175,14 @@ type fleetWakes struct {
 	// origin, a goblin's progress, a paused goblin's condition, and the pull
 	// request a queued row waits on.
 	Failing map[string]int `json:"failing,omitempty"`
+	// SharedRaised holds, by shared service, the next step (wait or ask) its
+	// outage last woke the CEO with for the goblins waiting on it, SharedTold
+	// the goblins the CEO was asked to tell, once, that a service they wait
+	// on is usable again, and SharedNext the next step each service's last
+	// reading gave.
+	SharedRaised map[string]string   `json:"shared_raised,omitempty"`
+	SharedTold   map[string][]string `json:"shared_told,omitempty"`
+	SharedNext   map[string]string   `json:"shared_next,omitempty"`
 	// SameArea holds, by task, the teammates' open work each live goblin's
 	// area meets, for its card.
 	SameArea map[string]sameArea `json:"same_area,omitempty"`
@@ -177,7 +190,7 @@ type fleetWakes struct {
 	// seen working in it.
 	Repos    map[string]time.Time `json:"repos,omitempty"`
 	CIPolled time.Time            `json:"ci_polled,omitzero"`
-	// Woke holds when each key last woke the CFO.
+	// Woke holds when each key last woke the CEO.
 	Woke map[string]time.Time `json:"woke,omitempty"`
 }
 
@@ -197,7 +210,7 @@ type unstartedWorkflows struct {
 }
 
 // unreadableRepo is the failure a repository's last poll met, on how many
-// polls in a row it was met, and whether the CFO was woken for it.
+// polls in a row it was met, and whether the CEO was woken for it.
 type unreadableRepo struct {
 	Failure string `json:"failure"`
 	Polls   int    `json:"polls,omitempty"`
@@ -236,7 +249,7 @@ func writeFleetWakes(stateDir string, w fleetWakes) error {
 	return fsx.AtomicWriteFile(fleetWakesPath(stateDir), data)
 }
 
-// due reports whether key may wake the CFO again at now.
+// due reports whether key may wake the CEO again at now.
 func (w *fleetWakes) due(key string, gap time.Duration, now time.Time) bool {
 	last, ok := w.Woke[key]
 	return !ok || now.Sub(last) >= gap
@@ -300,7 +313,7 @@ func (s *Service) keepFleetWakes(ctx context.Context, every time.Duration) {
 // reading met once, however many readings met it, and each repository whose
 // CI cannot be read at every cycle until a poll reads it again.
 func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
-	if (s.Options.Dispatch == nil || s.Options.Dispatch.Memory == nil) && s.Options.CI == nil && s.Options.Progress == nil && s.Options.Defender == nil {
+	if (s.Options.Dispatch == nil || s.Options.Dispatch.Memory == nil) && s.Options.CI == nil && s.Options.Progress == nil && s.Options.Defender == nil && s.Options.Shared == nil {
 		return nil
 	}
 	readingStarted := time.Now()
@@ -309,7 +322,7 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 	w, readErr := readFleetWakes(stateDir)
 	err := errors.Join(readErr, s.pauseAtAllowanceFloor(ctx, &w, now), s.pollCI(ctx, &w, now, currentTime))
 	err = errors.Join(err, s.reconcilePreparedWaits(ctx, &w, now))
-	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkDisk(&w, now), s.checkProgress(ctx, &w, now), s.checkDefender(ctx, &w, now), s.checkCFOWaits(&w, now))
+	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkDisk(&w, now), s.checkProgress(ctx, &w, now), s.checkDefender(ctx, &w, now), s.checkCEOWaits(&w, now), s.checkSharedServices(ctx, &w, now))
 	w.RootReadings = s.currentRootReadings()
 	if s.Options.Progress != nil {
 		w.ProgressPassAt = currentTime()
@@ -375,6 +388,7 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	if err != nil {
 		// No reading is no evidence either way: the next two decide.
 		w.MemoryAbove, w.MemoryBelow = 0, 0
+		w.LineStallSince, w.LineStallWoke = time.Time{}, false
 		return planningErr
 	}
 	if err := s.keepPools(memory, now); err != nil {
@@ -388,10 +402,12 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	s.starts.Unlock()
 	if isRestarting {
 		w.MemoryAbove, w.MemoryBelow = 0, 0
+		w.LineStallSince, w.LineStallWoke = time.Time{}, false
 		return planningErr
 	}
 	if w.MemoryReadAt.IsZero() || now.Sub(w.MemoryReadAt) > 2*fleetWatchEvery || !now.After(w.MemoryReadAt) {
 		w.MemoryAbove, w.MemoryBelow = 0, 0
+		w.LineStallSince, w.LineStallWoke = time.Time{}, false
 	}
 	w.MemoryReadAt = now
 	low := min(memory.Available, memory.CommitAvailable)
@@ -404,8 +420,10 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	if low < memoryFloor {
 		w.MemorySpent, w.MemoryAbove, w.MemoryLow = false, 0, true
 		w.MemoryBelow++
+		w.LineStallSince, w.LineStallWoke = time.Time{}, false
 		return errors.Join(planningErr, s.pauseAtMemoryFloor(w, memory, now))
 	}
+	stallErr := s.checkLineStall(w, memory, now)
 	w.MemoryBelow = 0
 	if low < memoryNext {
 		w.MemoryAbove = 0
@@ -417,17 +435,17 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	// start would dispatch is refused meanwhile, so nothing comes back or
 	// starts by itself at this reading.
 	if update.Installing(s.Store.Home.State) {
-		return planningErr
+		return errors.Join(planningErr, stallErr)
 	}
 	hold, lineErr := s.heavyLineHold(w, memory)
 	// What a restart ended comes back before anything else starts by itself, and no
 	// memory wake offers its room to other work while it does.
 	if planningErr == nil {
 		if isComing, err := s.comeBack(memory, w, hold); isComing || err != nil {
-			return errors.Join(lineErr, err)
+			return errors.Join(lineErr, stallErr, err)
 		}
 	}
-	planningErr = errors.Join(planningErr, lineErr)
+	planningErr = errors.Join(planningErr, lineErr, stallErr)
 	if low < memoryNext {
 		return planningErr
 	}
@@ -456,8 +474,45 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	return planningErr
 }
 
-// checkDisk wakes the CFO once when the home's drive falls under the mark the
-// CFO is woken at, with the free space, the floor and what the janitor last
+// lineStallAfter is how long the heavy line stands still, a turn free with
+// runs waiting and memory enough, before the CEO is woken: longer than any
+// run takes to see its turn and take it.
+const lineStallAfter = 5 * time.Minute
+
+// checkLineStall wakes the CEO once when the readings in a row have found the
+// heavy line standing still for lineStallAfter, as on 2026-11-11 when one
+// process kept the line's lock for over 40 minutes while goblins gate turns read
+// "turn: free" (#2377). It wakes again only after a reading finds the line
+// moving, waiting on memory or unread.
+func (s *Service) checkLineStall(w *fleetWakes, memory Memory, now time.Time) error {
+	dispatch := s.Options.Dispatch
+	if dispatch == nil || dispatch.LineStall == nil {
+		return nil
+	}
+	stall, err := dispatch.LineStall(memory)
+	if err != nil {
+		err = fmt.Errorf("the machine's heavy line cannot be read for a stall, so none is told: %w", err)
+	}
+	if err = w.failing("line-stall", err); err != nil || stall == "" {
+		w.LineStallSince, w.LineStallWoke = time.Time{}, false
+		return err
+	}
+	if w.LineStallSince.IsZero() {
+		w.LineStallSince = now
+	}
+	if w.LineStallWoke || now.Sub(w.LineStallSince) < lineStallAfter {
+		return nil
+	}
+	detail := fmt.Sprintf("heavy_line_stalled: for %s the machine's heavy line has had %s, and no run took the turn. Next: goblins gate turns names who waits and any lock held long; a lock's owner is ended by its pid once its run is known stuck.", now.Sub(w.LineStallSince).Round(time.Minute), stall)
+	if err := raiseFleetWake(s.Store.Home.State, "idle", "heavy-line", detail); err != nil {
+		return err
+	}
+	w.LineStallWoke = true
+	return nil
+}
+
+// checkDisk wakes the CEO once when the home's drive falls under the mark the
+// CEO is woken at, with the free space, the floor and what the janitor last
 // found. It wakes again only after a reading is back at or above the floor
 // and falls under the mark again, and never twice within diskWakeGap.
 func (s *Service) checkDisk(w *fleetWakes, now time.Time) error {
@@ -485,15 +540,50 @@ func (s *Service) checkDisk(w *fleetWakes, now time.Time) error {
 }
 
 // diskLowDetail is the disk wake's text: the free space against the floor and
-// the mark, what the home holds, and what the janitor last did.
+// the mark, what the home and the gate's home hold, the largest bucket, and
+// what the janitor last did.
 func diskLowDetail(h home.Home, reading Disk, now time.Time) string {
 	detail := fmt.Sprintf("disk_low: free disk on %s is %.1f GB, under the %.0f GB mark; no goblin or gate test run starts under the %.0f GB floor.", reading.Drive, disk.GB(reading.Free), disk.GB(reading.Wake), disk.GB(reading.Floor))
 	if record, err := janitor.ReadRecord(h.State); err == nil {
 		b := record.Buckets
 		detail += fmt.Sprintf(" The home holds %.1f GB: worktrees %.1f, scratch %.1f, caches %.1f, state %.1f, data %.1f, bin %.1f; the janitor last swept %s ago and freed %.1f GB.",
 			disk.GB(uint64(b.Total())), disk.GB(uint64(janitor.Sum(b.Worktrees))), disk.GB(uint64(janitor.Sum(b.Scratch))), disk.GB(uint64(janitor.Sum(b.Caches))), disk.GB(uint64(b.State)), disk.GB(uint64(b.Data)), disk.GB(uint64(b.Bin)), now.Sub(record.Time).Round(time.Minute), disk.GB(uint64(record.Freed())))
+		if record.Gate != nil {
+			detail += fmt.Sprintf(" The gate's home at %s holds %.1f GB.", strings.Join(record.Gate.Folders, " and "), disk.GB(uint64(record.Gate.Bytes)))
+		}
+		if name, bytes := largestBucket(record); bytes > 0 {
+			detail += fmt.Sprintf(" The largest bucket is %s, at %.1f GB.", name, disk.GB(uint64(bytes)))
+		}
 	}
-	return detail + " Next: cfo runtime names every bucket and Docker's share; clean up finished goblins with cfo cleanup, and put the caches and Docker beyond the home to the Overlord, whose they are."
+	return detail + " Next: goblins runtime names every bucket and Docker's share; clean up finished goblins with goblins cleanup, and put the caches and Docker beyond the home to the Overlord, whose they are."
+}
+
+// largestBucket is the bucket the sweep measured that holds the most, the
+// verification store and the gate's home among them, named as goblins
+// runtime's table names it.
+func largestBucket(record janitor.Record) (name string, bytes int64) {
+	consider := func(candidate string, size int64) {
+		if size > bytes {
+			name, bytes = candidate, size
+		}
+	}
+	b := record.Buckets
+	for _, group := range []struct {
+		prefix, suffix string
+		sizes          map[string]int64
+	}{{"task ", " worktrees", b.Worktrees}, {"task ", " scratch", b.Scratch}, {`caches\`, "", b.Caches}} {
+		for _, key := range slices.Sorted(maps.Keys(group.sizes)) {
+			consider(group.prefix+key+group.suffix, group.sizes[key])
+		}
+	}
+	consider("bin", b.Bin)
+	consider("state", b.State)
+	consider("data", b.Data)
+	consider("the verification store", b.Verification)
+	if record.Gate != nil {
+		consider("the gate's home", record.Gate.Bytes)
+	}
+	return name, bytes
 }
 
 // memoryWork is the work waiting on memory: the queued tasks a Start could
@@ -503,34 +593,34 @@ func diskLowDetail(h home.Home, reading Disk, now time.Time) string {
 func memoryWork(h home.Home, finished *finishedWork, reading rowReading) (queued, waiting []string) {
 	queued = startableQueued(h, finished, reading)
 	for _, meta := range liveTasks(h.State) {
-		if record, err := state.ReadLifecycle(h.State, meta.ID); err == nil && record.Generation == meta.SpawnGen {
-			switch record.Phase {
-			case "paused":
-				// The pause in force says what holds the task now. Memory is
-				// work a free reading can release; any other condition ends by
-				// itself, so freeing memory cannot end it, and an older report
-				// of a memory wait must not name the task as work it releases.
-				if record.Pause != nil {
-					if record.Pause.Reason == "memory" {
-						waiting = append(waiting, meta.ID)
-					}
-					continue
-				}
-			case "pausing", "resuming", "stopping", "stopped", "done", "failed":
-				// A task being changed or already over is not work memory can
-				// release, whatever an older report said.
-				continue
-			}
-		}
-		// No record of this generation, or one that names no condition: an
-		// older report is the only evidence there is, and missing evidence
-		// never drops a real waiter.
-		lines, _ := state.TailStatus(h.State, meta.ID, 200)
-		if _, report := latestReport(lines, spawnTime(meta.SpawnGen)); strings.HasPrefix(report, "waiting on memory: ") {
+		if waitsOn(h.State, meta, "memory") {
 			waiting = append(waiting, meta.ID)
 		}
 	}
 	return queued, waiting
+}
+
+// waitsOn reports whether the task meta names waits on target now. Its
+// lifecycle record of its current generation says so first, whatever an older
+// report said: a paused task waits on what its pause in force names, and a
+// task being changed or already over waits on nothing. No record of this
+// generation, or a paused one that names no condition, says nothing, so the
+// task's latest report is the only evidence there is, and missing evidence
+// never drops a real waiter.
+func waitsOn(stateDir string, meta state.TaskMeta, target string) bool {
+	if record, err := state.ReadLifecycle(stateDir, meta.ID); err == nil && record.Generation == meta.SpawnGen {
+		switch record.Phase {
+		case "paused":
+			if record.Pause != nil {
+				return record.Pause.Reason == target
+			}
+		case "pausing", "resuming", "stopping", "stopped", "done", "failed":
+			return false
+		}
+	}
+	lines, _ := state.TailStatus(stateDir, meta.ID, 200)
+	_, report := latestReport(lines, spawnTime(meta.SpawnGen))
+	return strings.HasPrefix(report, "waiting on "+target+": ")
 }
 
 // queuedCandidates names the queued work in queue order: each structured row
@@ -606,7 +696,7 @@ func gigabytes(bytes uint64) float64 {
 }
 
 // raiseFleetWake appends one wake and publishes its episode, the way every
-// other wake reaches the CFO.
+// other wake reaches the CEO.
 func raiseFleetWake(stateDir, kind, key, detail string) error {
 	if _, err := wake.Append(stateDir, kind, key, detail); err != nil {
 		return err
@@ -1530,7 +1620,7 @@ func runsPullRequestWorkflows(repo string) bool {
 }
 
 // reportChecks raises ci_finished for pr once every check on it has
-// concluded, unless the CFO was already woken for this very result. In a
+// concluded, unless the CEO was already woken for this very result. In a
 // repository whose pull requests run workflows, the checks other apps report
 // are not the whole result: on 2026-10-07 a wake said "all 1 passed" with
 // only GitGuardian's in. So pr finishes once a workflow has reported too, or
@@ -1611,7 +1701,7 @@ func reportChecks(stateDir string, w *fleetWakes, goblin string, pr ghPullReques
 		detail += fmt.Sprintf("all %d passed%s; next: check the base and the merge ref's first parent, then merge it with a merge commit if its work is done (%s)", len(pr.Checks)-len(limited), once, pr.URL)
 	default:
 		sort.Strings(failed)
-		detail += fmt.Sprintf("%d of %d failed (%s)%s; next: tell %s which checks failed with cfo send %s \"...\" so it fixes them (%s)", len(failed), len(pr.Checks), strings.Join(failed, ", "), once, goblin, goblin, pr.URL)
+		detail += fmt.Sprintf("%d of %d failed (%s)%s; next: tell %s which checks failed with goblins send %s \"...\" so it fixes them (%s)", len(failed), len(pr.Checks), strings.Join(failed, ", "), once, goblin, goblin, pr.URL)
 	}
 	if err := raiseFleetWake(stateDir, "ci", goblin, detail); err != nil {
 		return err
@@ -1678,7 +1768,7 @@ func defaultBranch(ctx context.Context, runner execx.Runner, repo string) (strin
 // pollMain raises ci_finished for each workflow whose newest push run on
 // repo's default branch finished red and was not reported yet, naming the
 // workflow, the jobs that failed and the run. On 2026-09-30 main's install
-// workflow stayed red for hours before the CFO noticed. GitHub sometimes
+// workflow stayed red for hours before the CEO noticed. GitHub sometimes
 // answers the newest-first listing with an older page: on 2026-10-06 it gave
 // a deploy run of 2026-03-01 as PrecisionDocs-AI's newest while every deploy
 // that day had passed. So the runs are judged newest first by their IDs,

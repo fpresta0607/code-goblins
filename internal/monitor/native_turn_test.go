@@ -71,14 +71,14 @@ func nativeTurnFixture(t *testing.T, turns turnsFake) (Service, *fakeProber, sta
 	service := testService(stateDir, probe, clock)
 	service.Replies = turns
 	if result := nativeTurnScan(t, service, probe, meta, clock, herdr.AgentWorking, "working"); result.Event != nil {
-		t.Fatalf("a working goblin woke the CFO: %+v", *result.Event)
+		t.Fatalf("a working goblin woke the CEO: %+v", *result.Event)
 	}
 	return service, probe, meta, clock
 }
 
 // A native screen is one frame of a redraw. A frame caught mid-turn shows the
 // input prompt beneath partial commentary while the turn is still working, and
-// on 2026-10-23 that frame was read as a finished turn and woke the CFO for an
+// on 2026-10-23 that frame was read as a finished turn and woke the CEO for an
 // answer nobody owed. The harness's own record of the conversation says the
 // turn is open, so it is read as work in progress. Issue 1423.
 func TestANativeTurnTheHarnessRecordsAsOpenIsNotAnEndedTurn(t *testing.T) {
@@ -90,7 +90,7 @@ func TestANativeTurnTheHarnessRecordsAsOpenIsNotAnEndedTurn(t *testing.T) {
 
 	// Assert
 	if result.Event != nil {
-		t.Fatalf("a turn the harness records as open woke the CFO as awaiting an answer: %+v", *result.Event)
+		t.Fatalf("a turn the harness records as open woke the CEO as awaiting an answer: %+v", *result.Event)
 	}
 }
 
@@ -201,7 +201,7 @@ func nativeTurnProgressFixture(t *testing.T, turns turnsFake) (Service, *fakePro
 	service.Progress = progress
 	service.Replies = turns
 	if result := nativeTurnScan(t, service, probe, meta, clock, herdr.AgentWorking, "working"); result.Event != nil {
-		t.Fatalf("a working goblin woke the CFO: %+v", *result.Event)
+		t.Fatalf("a working goblin woke the CEO: %+v", *result.Event)
 	}
 	return service, probe, progress, meta, clock
 }
@@ -272,7 +272,7 @@ func TestAMovingNativeTurnStaysQuietWhileItsFramesReadDone(t *testing.T) {
 
 		// Assert
 		if result.Event != nil {
-			t.Fatalf("a moving turn woke the CFO: %q", result.Event.Detail)
+			t.Fatalf("a moving turn woke the CEO: %q", result.Event.Detail)
 		}
 	}
 }

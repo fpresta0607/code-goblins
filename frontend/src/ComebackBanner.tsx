@@ -2,9 +2,10 @@ import { useState } from "react";
 import { comebackLine } from "./comeback";
 import { Notice } from "./notice";
 import type { Comeback } from "./types";
+import { linkedText } from "./messageText";
 
 // Which restart's line this browser dismissed, by the sign-in it began.
-const DISMISSED_KEY = "cfo-comeback-dismissed";
+const DISMISSED_KEY = "ceo-comeback-dismissed";
 
 function dismissed(): string {
   try { return localStorage.getItem(DISMISSED_KEY) || ""; } catch { return ""; }
@@ -22,5 +23,5 @@ export function ComebackBanner({ comeback }: { comeback?: Comeback }) {
     setHidden(comeback.signed_in);
     try { localStorage.setItem(DISMISSED_KEY, comeback.signed_in); } catch { /* the line comes back on a reload */ }
   };
-  return <Notice form="box" actions={line.isDone && <button onClick={dismiss}>Dismiss</button>}>{line.text}</Notice>;
+  return <Notice form="box" actions={line.isDone && <button onClick={dismiss}>Dismiss</button>}>{linkedText(line.text)}</Notice>;
 }

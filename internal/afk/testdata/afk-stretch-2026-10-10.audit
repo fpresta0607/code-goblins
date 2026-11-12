@@ -1,4 +1,4 @@
-{"at":"2026-10-09T23:08:30.9824444Z","session":"afk-20261009T230830.982Z","kind":"on","what":"the CFO at his ask (claude pid 26924)","evidence":"words withheld 1"}
+{"at":"2026-10-09T23:08:30.9824444Z","session":"afk-20261009T230830.982Z","kind":"on","what":"the CEO at his ask (claude pid 26924)","evidence":"words withheld 1"}
 {"at":"2026-10-09T23:29:55.1646243Z","session":"afk-20261009T230830.982Z","kind":"held","what":"words withheld 2","task":"goblin-01","item":"words withheld 3"}
 {"at":"2026-10-09T23:29:56.718212Z","session":"afk-20261009T230830.982Z","kind":"merge","what":"https://github.com/fpresta0607/code-goblins/pull/556","link":"https://github.com/fpresta0607/code-goblins/pull/556","evidence":"words withheld 4"}
 {"at":"2026-10-09T23:30:01.1116222Z","session":"afk-20261009T230830.982Z","kind":"merge","what":"https://github.com/fpresta0607/code-goblins/pull/556","link":"https://github.com/fpresta0607/code-goblins/pull/556","evidence":"gh pr merge https://github.com/fpresta0607/code-goblins/pull/556 --merge --match-head-commit 9cbaf3c02c353c78516a388900f1536c88c9d29b","outcome":"merged"}

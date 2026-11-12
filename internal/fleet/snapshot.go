@@ -222,7 +222,7 @@ func BuildSnapshot(ctx context.Context, h home.Home, endpoint EndpointReader) (S
 			Endpoint:    endpointSummary(meta, endpointExists),
 			Artifact:    artifact,
 			Path:        taskPath(meta),
-			Actions:     Actions{Peek: "cfo peek gb-" + meta.ID},
+			Actions:     Actions{Peek: "goblins peek gb-" + meta.ID},
 			Teardown:    teardown,
 			Pause:       pause,
 			Parent:      meta.Parent,

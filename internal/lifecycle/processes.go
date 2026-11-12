@@ -195,7 +195,7 @@ func isAtWorkIn(process Process, directories []string) bool {
 			isClaimed = true
 		}
 		name := strings.TrimSuffix(strings.ToLower(process.Name), ".exe")
-		isRuntime := name == "node" || strings.HasPrefix(name, "python") || name == "pwsh" || name == "powershell" || name == "bash" || name == "sh" || name == "go" || name == "cfo"
+		isRuntime := name == "node" || strings.HasPrefix(name, "python") || name == "pwsh" || name == "powershell" || name == "bash" || name == "sh" || name == "go" || name == "goblins"
 		isBrowser := name == "chrome" || name == "msedge"
 		for index, argument := range process.Arguments {
 			flag, value, hasValue := strings.Cut(argument, "=")
@@ -250,7 +250,7 @@ func ownerOf(process Process, proofs func(terminal string) []string, places map[
 // does not is the task's by its place, or by a parent that is, and was left
 // only when no parent of it still runs, as a tool Git Bash started is once
 // its shell has gone. Under a living parent that is not itself left,
-// somebody else runs it there, as when the CFO tests a retired goblin's
+// somebody else runs it there, as when the CEO tests a retired goblin's
 // worktree or the Overlord has a shell open in it, and it is theirs: a pause
 // stops a task where it stands, and this ends only what nothing else
 // accounts for. started says when each running process began, the command

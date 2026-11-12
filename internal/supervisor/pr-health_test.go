@@ -757,7 +757,7 @@ func finishedPull(mergeable, author, checks, labels string) string {
 	return fmt.Sprintf(`[{"number":209,"url":"https://github.com/o/r/pull/209","headRefName":"feat/wakes","headRefOid":"head-one","baseRefName":"main","mergeable":%q,"author":{"login":%q},"labels":%s,"statusCheckRollup":%s}]`, mergeable, author, labels, checks)
 }
 
-// On 2026-10-10 pr_health woke the CFO five times with a goblin's pull
+// On 2026-10-10 pr_health woke the CEO five times with a goblin's pull
 // request "N commits behind main" (wakes 1000415, 1000420, 1000431, 1000435
 // and 1000446), and seven times more once a train's riders were left alone
 // (wakes 1000612 to 1000667), each for a green, mergeable pull request its
@@ -829,14 +829,14 @@ func TestPRHealthSaysNothingOfAGoblinsPullRequestThatIsOnlyBehindItsBase(t *test
 			if !slices.Contains(test.want, theirs) && strings.Contains(wakes[0].Detail, "teammate") || !slices.Contains(test.want, mine) && strings.Contains(wakes[0].Detail, "tell cg-health") {
 				t.Errorf("wake %q calls the pull request a teammate's or the goblin's, want neither but as %q says", wakes[0].Detail, test.want)
 			}
-			if strings.Contains(wakes[0].Detail, "cfo pr train") {
-				t.Errorf("wake %q names cfo pr train, which takes no pull request it tells of", wakes[0].Detail)
+			if strings.Contains(wakes[0].Detail, "goblins pr train") {
+				t.Errorf("wake %q names goblins pr train, which takes no pull request it tells of", wakes[0].Detail)
 			}
 		})
 	}
 }
 
-// On 2026-10-10 pr_health told the CFO that a goblin's pull request was 9
+// On 2026-10-10 pr_health told the CEO that a goblin's pull request was 9
 // commits behind main minutes after its push, while its checks still ran
 // (wake 1000554). A head whose checks are still running is not yet one a
 // merge train has passed over: it is left alone until they conclude, and is
@@ -893,10 +893,10 @@ func TestPRHealthLeavesABehindHeadAloneWhileItsChecksRun(t *testing.T) {
 
 			// Assert
 			if isTold := whileRunning != ""; isTold != (test.wantWhileRunning != "") || !strings.Contains(whileRunning, test.wantWhileRunning) {
-				t.Errorf("while its checks ran the CFO was told %q, want %q", whileRunning, test.wantWhileRunning)
+				t.Errorf("while its checks ran the CEO was told %q, want %q", whileRunning, test.wantWhileRunning)
 			}
 			if after := told(); (after != "") != (test.wantOnceTheyConclude != "") || !strings.Contains(after, test.wantOnceTheyConclude) {
-				t.Errorf("%s later the CFO was told %q, want %q", test.after, after, test.wantOnceTheyConclude)
+				t.Errorf("%s later the CEO was told %q, want %q", test.after, after, test.wantOnceTheyConclude)
 			}
 		})
 	}

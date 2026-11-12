@@ -14,9 +14,9 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-// The CFO's own question is the Overlord's alone to answer, and the one way
-// the CFO can close it is by recording an answer he gave somewhere else. While
-// AFK mode is on he is away, so nothing is recorded as his, through cfo answer
+// The CEO's own question is the Overlord's alone to answer, and the one way
+// the CEO can close it is by recording an answer he gave somewhere else. While
+// AFK mode is on he is away, so nothing is recorded as his, through goblins answer
 // or straight over the pipe, and the question stays held for him.
 func TestWhileAFKModeIsOnNoAnswerIsRecordedAsTheOverlords(t *testing.T) {
 	// Arrange
@@ -32,10 +32,10 @@ func TestWhileAFKModeIsOnNoAnswerIsRecordedAsTheOverlords(t *testing.T) {
 
 	// Act
 	_, recordErr := connection.RecordAnswer("drop-legacy-invoices", "Apply it", "", "chat")
-	pipeErr := sendPipeRequest(h.State, runPipeRequest{Kind: "answer", Answer: &cfoAnswer{QuestionID: "drop-legacy-invoices", Option: "Apply it", Answer: "Apply it", In: "chat", At: time.Now().UTC()}})
+	pipeErr := sendPipeRequest(h.State, runPipeRequest{Kind: "answer", Answer: &ceoAnswer{QuestionID: "drop-legacy-invoices", Option: "Apply it", Answer: "Apply it", In: "chat", At: time.Now().UTC()}})
 
 	// Assert
-	for name, err := range map[string]error{"cfo answer --record-only --in chat": recordErr, "an answer sent straight to the pipe": pipeErr} {
+	for name, err := range map[string]error{"goblins answer --record-only --in chat": recordErr, "an answer sent straight to the pipe": pipeErr} {
 		if err == nil || !strings.Contains(err.Error(), "AFK mode is on") || !strings.Contains(err.Error(), "held for him") {
 			t.Errorf("%s = %v, want it refused because he is away", name, err)
 		}
@@ -77,10 +77,10 @@ func TestAnAnswerHeGaveElsewhereIsRecordedOnceAFKModeIsOff(t *testing.T) {
 	}
 }
 
-// An answer the CFO gives a goblin while AFK mode is on is a decision made
+// An answer the CEO gives a goblin while AFK mode is on is a decision made
 // under its authority, so the log holds it with its evidence: the question,
-// whose it was and what the CFO answered.
-func TestTheCFOsAnswerToAGoblinIsLoggedWhileAFKModeIsOn(t *testing.T) {
+// whose it was and what the CEO answered.
+func TestTheCEOsAnswerToAGoblinIsLoggedWhileAFKModeIsOn(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	primaryFixture(t, store)
@@ -108,9 +108,9 @@ func TestTheCFOsAnswerToAGoblinIsLoggedWhileAFKModeIsOn(t *testing.T) {
 	}
 }
 
-// A choice the CFO gave a goblin another way and records afterwards is its
+// A choice the CEO gave a goblin another way and records afterwards is its
 // own decision too.
-func TestAChoiceTheCFORecordsAfterwardsIsLoggedWhileAFKModeIsOn(t *testing.T) {
+func TestAChoiceTheCEORecordsAfterwardsIsLoggedWhileAFKModeIsOn(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	primaryFixture(t, store)
@@ -137,10 +137,10 @@ func TestAChoiceTheCFORecordsAfterwardsIsLoggedWhileAFKModeIsOn(t *testing.T) {
 	}
 }
 
-// The Command Center's History tells an answer the CFO gave while the
+// The Command Center's History tells an answer the CEO gave while the
 // Overlord was away from one he could have seen. The supervisor marks it
 // from AFK mode's state when the answer arrives, whatever the sender says.
-func TestTheCFOsAnswerIsMarkedAsGivenWhileHeWasAwayOnlyWhileAFKModeIsOn(t *testing.T) {
+func TestTheCEOsAnswerIsMarkedAsGivenWhileHeWasAwayOnlyWhileAFKModeIsOn(t *testing.T) {
 	for name, test := range map[string]struct {
 		isAFKOn, isClaimedAway, wantAway bool
 	}{
@@ -162,22 +162,22 @@ func TestTheCFOsAnswerIsMarkedAsGivenWhileHeWasAwayOnlyWhileAFKModeIsOn(t *testi
 			}
 
 			// Act
-			err := sendPipeRequest(h.State, runPipeRequest{Kind: "answer", Answer: &cfoAnswer{QuestionID: q.ID, Option: "SQLite", Answer: "SQLite", Away: test.isClaimedAway, At: time.Now().UTC()}})
+			err := sendPipeRequest(h.State, runPipeRequest{Kind: "answer", Answer: &ceoAnswer{QuestionID: q.ID, Option: "SQLite", Answer: "SQLite", Away: test.isClaimedAway, At: time.Now().UTC()}})
 
 			// Assert
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := store.Snapshot().Questions[0]; got.AnsweredBy != "cfo" || got.AnsweredAway != test.wantAway {
-				t.Errorf("the question = %+v, want it answered by the CFO with answered_away %v", got, test.wantAway)
+			if got := store.Snapshot().Questions[0]; got.AnsweredBy != "ceo" || got.AnsweredAway != test.wantAway {
+				t.Errorf("the question = %+v, want it answered by the CEO with answered_away %v", got, test.wantAway)
 			}
 		})
 	}
 }
 
-// A goblin question the CFO answered another way, such as with cfo send, and
-// then acked closes as the CFO's answer, marked the same way.
-func TestAQuestionTheCFOAckedIsMarkedAsAnsweredWhileHeWasAwayOnlyWhileAFKModeIsOn(t *testing.T) {
+// A goblin question the CEO answered another way, such as with goblins send, and
+// then acked closes as the CEO's answer, marked the same way.
+func TestAQuestionTheCEOAckedIsMarkedAsAnsweredWhileHeWasAwayOnlyWhileAFKModeIsOn(t *testing.T) {
 	for name, isAFKOn := range map[string]bool{"AFK mode on": true, "AFK mode off": false} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -202,8 +202,8 @@ func TestAQuestionTheCFOAckedIsMarkedAsAnsweredWhileHeWasAwayOnlyWhileAFKModeIsO
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := store.Snapshot().Questions[0]; got.Status != "succeeded" || got.AnsweredBy != "cfo" || got.AnsweredAway != isAFKOn {
-				t.Errorf("the question = %+v, want it closed as the CFO's answer with answered_away %v", got, isAFKOn)
+			if got := store.Snapshot().Questions[0]; got.Status != "succeeded" || got.AnsweredBy != "ceo" || got.AnsweredAway != isAFKOn {
+				t.Errorf("the question = %+v, want it closed as the CEO's answer with answered_away %v", got, isAFKOn)
 			}
 		})
 	}
@@ -217,7 +217,7 @@ func TestAnUnreadableAFKSwitchHoldsOnlyTheAckedQuestion(t *testing.T) {
 		change func(t *testing.T, h string, meta state.TaskMeta, record wake.Record)
 		want   string
 	}{
-		"a question the CFO acked": {func(t *testing.T, h string, _ state.TaskMeta, record wake.Record) {
+		"a question the CEO acked": {func(t *testing.T, h string, _ state.TaskMeta, record wake.Record) {
 			if err := wake.AckThrough(h, record.Seq); err != nil {
 				t.Fatal(err)
 			}
@@ -255,7 +255,7 @@ func TestAnUnreadableAFKSwitchHoldsOnlyTheAckedQuestion(t *testing.T) {
 	}
 }
 
-// While AFK mode is off the CFO answers as before and nothing is logged as
+// While AFK mode is off the CEO answers as before and nothing is logged as
 // decided under it.
 func TestAnAnswerIsNotLoggedWhileAFKModeIsOff(t *testing.T) {
 	// Arrange

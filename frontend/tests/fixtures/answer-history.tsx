@@ -19,28 +19,28 @@ declare global {
 }
 
 // The Command Center as the Overlord reads it at 01:30Z on 2026-10-11: his
-// own answer to the CFO's question about PocketPiggies 125, the CFO's answer
-// to Bernie's gate question two minutes ago, the CFO's answer while he was
-// away to Lucy, who has reported since, and the CFO's answer to Marge, whose
+// own answer to the CEO's question about PocketPiggies 125, the CEO's answer
+// to Bernie's gate question two minutes ago, the CEO's answer while he was
+// away to Lucy, who has reported since, and the CEO's answer to Marge, whose
 // pull request merged since.
 const NOW = Date.parse("2026-10-11T01:30:00Z");
 const minutesAgo = (minutes: number) => new Date(NOW - minutes * 60000).toISOString();
-const cfoAnswer = (answer: string, reason = "") => ({ status: "succeeded", answer: reason ? answer + ". " + reason : answer, answer_kind: "option", answered_option: answer, answered_by: "cfo" });
+const ceoAnswer = (answer: string, reason = "") => ({ status: "succeeded", answer: reason ? answer + ". " + reason : answer, answer_kind: "option", answered_option: answer, answered_by: "ceo" });
 const merge = {
   id: "pp-merge-125-20261010", identity: "f".repeat(64), task: "", text: "Merge PocketPiggies 125?\n- CI is green on current main.", options: ["Merge it", "Keep it open"], recommended: "Merge it",
   created_at: minutesAgo(70), answered_at: minutesAgo(40), status: "succeeded", answer_id: "board-merge", answer: "Merge it", answer_kind: "option", answered_option: "Merge it", answered_by: "overlord",
 };
 const gate = {
   id: "notify-cg-verify-fast-12", identity: "a".repeat(64), task: "cg-verify-fast", generation: "s1", text: "May PR 2's gate start now?", options: ["Start PR 2's gate now", "Wait for the running test step to end"], recommended: "Wait for the running test step to end",
-  created_at: minutesAgo(5), answered_at: minutesAgo(2), ...cfoAnswer("Wait for the running test step to end", "the running test step ends in 4 minutes"),
+  created_at: minutesAgo(5), answered_at: minutesAgo(2), ...ceoAnswer("Wait for the running test step to end", "the running test step ends in 4 minutes"),
 };
 const accent = {
   id: "notify-cg-board-theme-3", identity: "b".repeat(64), task: "cg-board-theme", generation: "s1", text: "Which accent should the board use?", options: ["Mint", "Amber"],
-  created_at: minutesAgo(200), answered_at: minutesAgo(180), ...cfoAnswer("Mint"), answered_away: true,
+  created_at: minutesAgo(200), answered_at: minutesAgo(180), ...ceoAnswer("Mint"), answered_away: true,
 };
 const tenants = {
   id: "notify-pd-pilot-sweep-7", identity: "c".repeat(64), task: "pd-pilot-sweep", generation: "s1", text: "Move the three pilot tenants to the free tier?", options: ["Move them now", "Wait for Prometheus"], recommended: "Move them now",
-  created_at: minutesAgo(300), answered_at: minutesAgo(290), ...cfoAnswer("Move them now"), answered_away: true,
+  created_at: minutesAgo(300), answered_at: minutesAgo(290), ...ceoAnswer("Move them now"), answered_away: true,
 };
 const task = (id: string, name: string, title: string, reported: number, merged = false) => ({ id, title: id, goblin_name: name, goblin_title: title, phase: merged ? "done" : "working", generation: "s1", verified: false, reported_at: minutesAgo(reported), merged });
 const base = {

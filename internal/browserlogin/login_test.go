@@ -115,11 +115,11 @@ func TestALoginsProfileIsReadableByItsOwnerAlone(t *testing.T) {
 }
 
 func TestChromeOnALoginIsHeadlessAndReachesOnlyItsHosts(t *testing.T) {
-	launch := Launch{Executable: `C:\chrome.exe`, Profile: `C:\cfo\state\browser-logins\stripe-x`, Hosts: []string{"stripe.com", "*.stripe.com"}, Headless: true}
+	launch := Launch{Executable: `C:\chrome.exe`, Profile: `C:\ceo\state\browser-logins\stripe-x`, Hosts: []string{"stripe.com", "*.stripe.com"}, Headless: true}
 
 	arguments := launch.Arguments()
 
-	for _, want := range []string{`--user-data-dir=C:\cfo\state\browser-logins\stripe-x`, "--remote-debugging-pipe", "--headless", "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE stripe.com, EXCLUDE *.stripe.com"} {
+	for _, want := range []string{`--user-data-dir=C:\ceo\state\browser-logins\stripe-x`, "--remote-debugging-pipe", "--headless", "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE stripe.com, EXCLUDE *.stripe.com"} {
 		if !slices.Contains(arguments, want) {
 			t.Errorf("arguments %q lack %q", arguments, want)
 		}

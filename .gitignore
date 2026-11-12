@@ -1,5 +1,5 @@
-# What a clone an older build made its CFO home holds, and what an install
-# that keeps such a home adds to it; cfo home move takes it to the per-user
+# What a clone an older build made its CEO home holds, and what an install
+# that keeps such a home adds to it; goblins home move takes it to the per-user
 # home, and a clone is source only after that.
 projects/
 /state/
@@ -24,35 +24,35 @@ config/
 !/config/verify.json
 !/config/voice.json
 !/config/key-pages.json
-/cfo.exe
-# The marker of a checkout an older build made the CFO home, which install and
+/goblins.exe
+# The marker of a checkout an older build made the CEO home, which install and
 # update write so this build takes it for the home in use.
-/.cfo-home
+/.ceo-home
 # What a narrowing of such a home left with its access, which the next install
 # narrows again.
-/.cfo-narrowing-unfinished
+/.ceo-narrowing-unfinished
 # A go build in the clone, and what an older install.cmd -Dev built there:
-# both names and the desktop window, and a copy still running moved aside.
+# the program and the desktop window, and a copy still running moved aside.
 /goblins.exe
 # The desktop window built in the clone, and the picture of its notifications,
 # which it writes beside itself at each start.
 /goblins-window.exe
 /goblins-window.png
-/cfo.exe.new
+/goblins.exe.new
 /goblins-window.exe.new
-/cfo.exe.*.old
+/goblins.exe.*.old
 /goblins.exe.*.old
 /goblins-window.exe.*.old
-# What cfo update stages and moves aside where a checkout home keeps its build
+# What goblins update stages and moves aside where a checkout home keeps its build
 # at its root: a copy something still runs stays until the janitor removes it.
-/cfo.exe.update-new
 /goblins.exe.update-new
-/cfo.exe.update-restore
+/goblins.exe.update-new
 /goblins.exe.update-restore
-/cfo.exe.*.update-old
+/goblins.exe.update-restore
+/goblins.exe.*.update-old
 /goblins.exe.*.update-old
 /frontend/node_modules/
-# The board npm run build writes for cfo.exe to embed. The placeholder page a
+# The board npm run build writes for goblins.exe to embed. The placeholder page a
 # build without it serves is the one file under dist that is committed.
 /internal/boardweb/dist/*
 !/internal/boardweb/dist/index.html
@@ -67,7 +67,7 @@ config/
 # Machine-local Claude permissions; never publish them.
 /.claude/settings.json
 
-# Where an older build put goblin worktrees; they now live in the CFO home.
+# Where an older build put goblin worktrees; they now live in the CEO home.
 .worktrees/
 # The crawler connector's packages, which npm ci installs from its lockfile.
 /connectors/crawler/node_modules/

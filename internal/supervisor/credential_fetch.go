@@ -98,7 +98,7 @@ func (s *Service) startCardFetch(id, generation string) error {
 // cardFetch runs the fetch a card started and records on the card how it
 // ended: its keys stored, which closes the request as a save does, his
 // sign-in card filed, which the Command Center shows by itself, or why it
-// stopped, which the CFO hears too.
+// stopped, which the CEO hears too.
 func (s *Service) cardFetch(request CredentialRequest) {
 	defer s.credentialWork.Done()
 	ctx, cancel := context.WithTimeout(context.Background(), browserFetchTimeout)

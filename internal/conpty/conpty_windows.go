@@ -154,7 +154,7 @@ func Start(spec Spec) (*Console, error) {
 // every process in it when the job's last handle closes, starts the console's
 // input waker in the same job, and only then lets the process run, so
 // nothing it starts escapes the job unless it asks to: a process started with
-// CREATE_BREAKAWAY_FROM_JOB leaves it, as the host of a goblin a CFO in this
+// CREATE_BREAKAWAY_FROM_JOB leaves it, as the host of a goblin a CEO in this
 // terminal launches must, to outlive the terminal. With processors the
 // process is kept to those processor threads before it runs, and Windows
 // starts every process on the threads of the one that started it, so
@@ -303,11 +303,11 @@ func (c *Console) Read(p []byte) (int, error) {
 }
 
 // heldEndingWait is how long an ending conhost would hold waits for the next
-// write: cfo attach writes what its console reads 4 KiB at a time, so a key
+// write: goblins attach writes what its console reads 4 KiB at a time, so a key
 // event can be split across two writes, and the rest follows at once, while
 // an Escape typed alone has nothing after it. Only time the machine ran
 // spends it (awake), since a pause of the whole machine between the two
-// writes stops cfo attach too.
+// writes stops goblins attach too.
 const heldEndingWait = 100 * time.Millisecond
 
 // Write types p into the terminal as the process's input, and tells the

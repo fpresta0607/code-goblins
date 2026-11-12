@@ -21,7 +21,7 @@ for (const width of [390, 1440]) {
       ], conversation: "pdf-conversation", more: false });
       const requests: { token: string | undefined; query: URLSearchParams }[] = [];
       await page.route("**/api/messages?*", (route) => {
-        requests.push({ token: route.request().headers()["x-cfo-token"], query: new URL(route.request().url()).searchParams });
+        requests.push({ token: route.request().headers()["x-ceo-token"], query: new URL(route.request().url()).searchParams });
         return route.fulfill({ status: 403, json: { error: "That PDF is unavailable for this session." } });
       });
       await openGoblin(page);
@@ -67,9 +67,9 @@ for (const width of [390, 1440]) {
       await page.route("**/api/messages?*", async (route) => {
         const url = new URL(route.request().url());
         expect(url.searchParams.get("token")).toBeNull();
-        expect(route.request().headers()["x-cfo-token"]).toBe("fixture");
+        expect(route.request().headers()["x-ceo-token"]).toBe("fixture");
         reads.push(url.searchParams.get("document") ?? "");
-        if (proof) return route.fulfill({ response: await route.fetch({ url: proof + url.pathname + url.search, headers: { "X-CFO-Token": "fixture" } }) });
+        if (proof) return route.fulfill({ response: await route.fetch({ url: proof + url.pathname + url.search, headers: { "X-CEO-Token": "fixture" } }) });
         return route.fulfill({ contentType: "application/pdf", body: PDF });
       });
       await openGoblin(page);

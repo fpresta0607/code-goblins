@@ -11,8 +11,8 @@ const ben = { login: "ben-teammate", avatar_url: avatar(8) };
 const cy = { login: "cy-teammate", avatar_url: avatar(404) };
 const task = (id: string, title: string, fields: Record<string, unknown> = {}) => ({ id, title, project: "northwind-api", phase: "working", verified: false, generation: id + "-1", harness: "claude", since: new Date(Date.now() - 42 * 60_000).toISOString(), ...fields });
 const SNAPSHOT = {
-  healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [],
-  sessions: [{ id: "cfo-1", harness: "claude", role: "cfo", model: "claude-opus-5-5" }],
+  healthy: true, instance: "fixture", ceo_runs: true, ceo_harness: "claude", revision: 1, attention: [],
+  sessions: [{ id: "ceo-1", harness: "claude", role: "ceo", model: "claude-opus-5-5" }],
   projects: [{ name: "northwind-api", repository: "northwind/northwind-api", contributors: [ben, ana, cy] }],
   tasks: [
     task("nw-sync", "Say why a billing sync fails", { pr: REPO + "/pull/55", ticket: { number: 52, url: REPO + "/issues/52", state: "pr open" }, overlaps: [{ ...ana, what: "PR #46", url: REPO + "/pull/46" }, { ...ana, what: "issue #49", url: REPO + "/issues/49" }] }),
@@ -81,7 +81,7 @@ test.describe("in his window", () => {
     await expect(teammate).toHaveAttribute("data-tip", "In the same area: ana-teammate: PR #46, issue #49");
     await expect(teammate.locator("img")).toHaveAttribute("src", avatar(7));
     expect(await crowded(page, "Say why a billing sync fails")).toEqual({ parts: 3, outside: 0, overlaps: 0 });
-    // Queued work shows the ticket it was given at once, here and in the CFO's queue.
+    // Queued work shows the ticket it was given at once, here and in the CEO's queue.
     expect(await card(page, "Export the audit trail").locator("a.card-ticket").evaluateAll((tickets) => tickets.map((ticket) => ticket.getAttribute("data-tip")?.split(":")[0]))).toEqual(["Ticket #54", "Ticket #54"]);
 
     const header = await openPanel(page, "Say why a billing sync fails");

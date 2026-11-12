@@ -13,29 +13,29 @@ import (
 )
 
 // After a restart or sign-out, which end every terminal of the sign-in, the
-// supervisor brings the fleet back by itself: first the CFO, in its terminal,
+// supervisor brings the fleet back by itself: first the CEO, in its terminal,
 // on its own conversation where that is small enough and on a new one where
 // not, then each goblin that was working, in its own
 // session, one at a time as memory allows. What it brings back is what the
-// sign-in before this one left: the CFO, when it ran in that sign-in or an
+// sign-in before this one left: the CEO, when it ran in that sign-in or an
 // earlier comeback had not reached it, and every goblin left meant to run
 // whose terminal no longer runs, whatever its host's record says, except a
 // goblin that finished, was paused or stopped, or is retired.
 
 // Comeback is how the supervisor brings the fleet back after a restart or
-// sign-out, and the CFO after its terminal ended unasked; without it nothing
+// sign-out, and the CEO after its terminal ended unasked; without it nothing
 // comes back by itself.
 type Comeback struct {
 	// SignedIn is when this Windows sign-in began.
 	SignedIn func() (time.Time, error)
-	// CFO brings the CFO back in its terminal after a restart or sign-out, on
+	// CEO brings the CEO back in its terminal after a restart or sign-out, on
 	// its own conversation where that is small enough and on a new one where
 	// not, and says why it did not come back.
-	CFO func(ctx context.Context) error
-	// CFOEnded brings the CFO back the same way, telling it why, after its
+	CEO func(ctx context.Context) error
+	// CEOEnded brings the CEO back the same way, telling it why, after its
 	// terminal ended in this sign-in while nobody asked it to stop or for a
 	// message he sent it while none ran, and says why it did not come back.
-	CFOEnded func(ctx context.Context, why string) error
+	CEOEnded func(ctx context.Context, why string) error
 	// Goblin brings one goblin back in place, in its own session, and tells
 	// it the machine restarted.
 	Goblin func(ctx context.Context, id string) GoblinComeback
@@ -71,7 +71,7 @@ const (
 )
 
 // comeBack takes the next step of the comeback checkMemory planned, at a
-// memory reading at or above the floor: the CFO first, then the next goblin
+// memory reading at or above the floor: the CEO first, then the next goblin
 // once memory and commit read
 // at or above the next-start mark twice in a row, hold, as SlotHold says it,
 // is empty, the performance cores have room and a launch has room, one at a
@@ -89,24 +89,24 @@ func (s *Service) comeBack(memory Memory, w *fleetWakes, hold string) (bool, err
 		return false, err
 	}
 	next := slices.IndexFunc(record.Goblins, func(entry state.ComebackEntry) bool { return entry.State == state.ComebackWaiting })
-	isCFOWaiting := record.CFO != nil && record.CFO.State == state.ComebackWaiting
-	if !isCFOWaiting && next < 0 {
+	isCEOWaiting := record.CEO != nil && record.CEO.State == state.ComebackWaiting
+	if !isCEOWaiting && next < 0 {
 		return false, nil
 	}
-	// The CFO comes back whatever the processors and the heavy line do; a
+	// The CEO comes back whatever the processors and the heavy line do; a
 	// goblin waits for room on the performance cores, so a restart does not
 	// bring each back straight into the last one's builds, and for the memory
 	// the heavy line keeps for its next test run, as a start does (#1926).
-	isBusy := !isCFOWaiting && (s.processorsBusy() != "" || hold != "")
+	isBusy := !isCEOWaiting && (s.processorsBusy() != "" || hold != "")
 	s.starts.Lock()
-	if s.starting != "" || len(s.changing) > 0 || s.isCFOComingBack {
+	if s.starting != "" || len(s.changing) > 0 || s.isCEOComingBack {
 		s.starts.Unlock()
 		return true, nil
 	}
-	if isCFOWaiting {
-		s.isCFOComingBack = true
+	if isCEOWaiting {
+		s.isCEOComingBack = true
 		s.starts.Unlock()
-		go s.bringCFOBack(comeback)
+		go s.bringCEOBack(comeback)
 		s.notify()
 		return true, nil
 	}
@@ -173,13 +173,13 @@ func (s *Service) planComeback(now time.Time) (state.Comeback, bool, error) {
 	// What ran in the sign-in before this one says so in two places that do
 	// not outlast each other: its host's record, which the host removes when
 	// its terminal's program ends first, as a restart can end it, and the
-	// registration of the CFO's program, which stays.
+	// registration of the CEO's program, which stays.
 	isSignInBefore := func(at time.Time) bool { return !at.Before(prior.SignedIn) && at.Before(s.signedIn) }
-	if primary, _, err := readPrimary(directory); err == nil && !CFORuns(directory) {
-		terminal, recordErr := host.ReadRecord(directory, NativeCFOTerminal)
-		isEnded := prior.CFO != nil && prior.CFO.State == state.ComebackWaiting || recordErr == nil && isSignInBefore(terminal.Started) || primary.Host != "" && isSignInBefore(primary.Process.Start)
+	if primary, _, err := readPrimary(directory); err == nil && !CEORuns(directory) {
+		terminal, recordErr := host.ReadRecord(directory, NativeCEOTerminal)
+		isEnded := prior.CEO != nil && prior.CEO.State == state.ComebackWaiting || recordErr == nil && isSignInBefore(terminal.Started) || primary.Host != "" && isSignInBefore(primary.Process.Start)
 		if isEnded {
-			record.CFO = &state.ComebackEntry{ID: NativeCFOTerminal, State: state.ComebackWaiting}
+			record.CEO = &state.ComebackEntry{ID: NativeCEOTerminal, State: state.ComebackWaiting}
 		}
 	}
 	// Every goblin left meant to run whose terminal is gone comes back,
@@ -223,14 +223,14 @@ func (s *Service) planComeback(now time.Time) (state.Comeback, bool, error) {
 	return record, true, state.WriteComeback(directory, record)
 }
 
-// bringCFOBack brings the CFO back and records how it went.
-func (s *Service) bringCFOBack(comeback *Comeback) {
-	err := comeback.CFO(context.Background())
+// bringCEOBack brings the CEO back and records how it went.
+func (s *Service) bringCEOBack(comeback *Comeback) {
+	err := comeback.CEO(context.Background())
 	s.comeback.Lock()
-	if record, readErr := state.ReadComeback(s.Store.Home.State); readErr == nil && record.CFO != nil {
-		record.CFO.State, record.CFO.Reason, record.CFO.At = state.ComebackBack, "", time.Now().UTC()
+	if record, readErr := state.ReadComeback(s.Store.Home.State); readErr == nil && record.CEO != nil {
+		record.CEO.State, record.CEO.Reason, record.CEO.At = state.ComebackBack, "", time.Now().UTC()
 		if err != nil {
-			record.CFO.State, record.CFO.Reason = state.ComebackStopped, err.Error()
+			record.CEO.State, record.CEO.Reason = state.ComebackStopped, err.Error()
 		}
 		err = state.WriteComeback(s.Store.Home.State, record)
 	} else {
@@ -238,14 +238,14 @@ func (s *Service) bringCFOBack(comeback *Comeback) {
 	}
 	s.comeback.Unlock()
 	s.starts.Lock()
-	s.isCFOComingBack = false
+	s.isCEOComingBack = false
 	s.starts.Unlock()
 	s.reportComeback(err)
 }
 
 // bringGoblinBack brings one goblin back and records how it went. One that
 // could not come back stays stopped, with the reason on its card, and wakes
-// the CFO; the next goblin's turn comes at the next reading either way.
+// the CEO; the next goblin's turn comes at the next reading either way.
 func (s *Service) bringGoblinBack(comeback *Comeback, id string, memory Memory) {
 	directory := s.Store.Home.State
 	meta, metaErr := state.ReadTaskMeta(directory, id)
@@ -293,7 +293,7 @@ func (s *Service) bringGoblinBack(comeback *Comeback, id string, memory Memory) 
 			}
 			detail := fmt.Sprintf("%s did not come back after the restart: %s. It stays stopped, with this reason on its card", id, result.Said)
 			if metaErr == nil && meta.Harness != "" {
-				detail += fmt.Sprintf("; once the cause is fixed, cfo switch %s --harness %s brings it back in place", id, meta.Harness)
+				detail += fmt.Sprintf("; once the cause is fixed, goblins switch %s --harness %s brings it back in place", id, meta.Harness)
 			}
 			err = raiseFleetWake(directory, "check", id, detail)
 		}
@@ -318,14 +318,14 @@ func (s *Service) reportComeback(err error) {
 	s.notify()
 }
 
-// comebackView is the comeback the board shows: the CFO and the goblins this
+// comebackView is the comeback the board shows: the CEO and the goblins this
 // sign-in's comeback brings back, or nil when it brings none.
 func (s *Service) comebackView() *state.Comeback {
 	if s.Options.Comeback == nil || s.Options.Example {
 		return nil
 	}
 	record, err := state.ReadComeback(s.Store.Home.State)
-	if err != nil || record.CFO == nil && len(record.Goblins) == 0 {
+	if err != nil || record.CEO == nil && len(record.Goblins) == 0 {
 		return nil
 	}
 	return &record

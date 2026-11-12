@@ -1,9 +1,9 @@
 import { expect, holdStream, test, type Page } from "./site";
 
-// The panel of anything but the CFO has Back where Close was: an icon button
-// with its arrow, named Back to the CFO, which returns the panel to the CFO's
+// The panel of anything but the CEO has Back where Close was: an icon button
+// with its arrow, named Back to the CEO, which returns the panel to the CEO's
 // panel on the view that panel last showed. It is an icon alone since the
-// header is one row (2026-10-29). The CFO's own panel keeps Close. Escape does
+// header is one row (2026-10-29). The CEO's own panel keeps Close. Escape does
 // what the button in the corner does.
 const since = "2026-10-02T09:00:00Z";
 const task = (id: string, phase: string, fields: Record<string, unknown> = {}) => ({ id, title: id, project: "code-goblins", phase, verified: false, generation: id + "-1", since, ...fields });
@@ -15,8 +15,8 @@ const BOARD = [
 ];
 
 async function open(page: Page) {
-  await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
-  const snapshot = { healthy: true, instance: "fixture", cfo_runs: true, revision: 1, attention: [], tasks: BOARD };
+  await page.addInitScript(() => localStorage.setItem("ceo-first-open", "shown"));
+  const snapshot = { healthy: true, instance: "fixture", ceo_runs: true, revision: 1, attention: [], tasks: BOARD };
   await holdStream(page, snapshot);
   await page.route("**/api/**", async (route) => {
     if (new URL(route.request().url()).pathname === "/api/workspace") await route.fulfill({ json: { repository: "code-goblins", root: "C:/work/code-goblins", harness: "codex", notes: [] } });
@@ -26,7 +26,7 @@ async function open(page: Page) {
   await expect(page.locator(".board-column").first()).toBeVisible();
 }
 
-// A card on the board: the CFO's panel lists the queued tasks too.
+// A card on the board: the CEO's panel lists the queued tasks too.
 const card = (page: Page, id: string) => page.locator(".task-board .task-card-shell").filter({ has: page.locator(".card-title").getByText(id, { exact: true }) }).locator(".task-card");
 const title = (page: Page) => page.locator("#panel-title");
 const back = (page: Page) => page.getByRole("button", { name: "Back to the CEO", exact: true });
@@ -35,7 +35,7 @@ const close = (page: Page) => page.getByRole("button", { name: "Close panel", ex
 test.use({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 });
 
 for (const id of ["queued-one", "working-one", "paused-one", "done-one"]) {
-  test(`the panel of ${id} has Back in place of Close, and Back shows the CFO's panel`, async ({ page }) => {
+  test(`the panel of ${id} has Back in place of Close, and Back shows the CEO's panel`, async ({ page }) => {
     await open(page);
     await card(page, id).click();
     await expect(title(page)).toHaveText(id);
@@ -51,7 +51,7 @@ for (const id of ["queued-one", "working-one", "paused-one", "done-one"]) {
   });
 }
 
-test("Escape goes back from a task's panel, and closes the CFO's", async ({ page }) => {
+test("Escape goes back from a task's panel, and closes the CEO's", async ({ page }) => {
   await open(page);
   await card(page, "working-one").click();
   await expect(title(page)).toHaveText("working-one");
@@ -75,7 +75,7 @@ for (const id of ["working-one", "paused-one"]) {
   });
 }
 
-test("Back returns to the CFO's panel, and a maximized panel stays maximized", async ({ page }) => {
+test("Back returns to the CEO's panel, and a maximized panel stays maximized", async ({ page }) => {
   await open(page);
   await page.keyboard.press("Control+Alt+1");
   await expect(title(page)).toHaveText("CEO");
@@ -85,7 +85,7 @@ test("Back returns to the CFO's panel, and a maximized panel stays maximized", a
   await expect(title(page)).toHaveText("CEO");
   await expect(page.locator(".canvas-region")).toBeVisible();
 
-  // Now the CFO's panel is maximized over the board.
+  // Now the CEO's panel is maximized over the board.
   await page.getByRole("button", { name: "Maximize the panel", exact: true }).click();
   await expect(page.locator(".canvas-region")).toBeHidden();
   await page.keyboard.press("Control+Alt+2");
@@ -97,7 +97,7 @@ test("Back returns to the CFO's panel, and a maximized panel stays maximized", a
   await expect(close(page)).toBeVisible();
 });
 
-test("on Orchestration a goblin's panel has Back, and the CFO's has Close", async ({ page }) => {
+test("on Orchestration a goblin's panel has Back, and the CEO's has Close", async ({ page }) => {
   await open(page);
   await card(page, "working-one").click();
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();

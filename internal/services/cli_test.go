@@ -339,8 +339,8 @@ func TestCLIStartEngineClosesOnlyTheDashboardItsStartOpened(t *testing.T) {
 		wantSaid        string
 	}{
 		{"the dashboard is closed before it shows", []fakeProcess{launcher, backend, renderer, dashboard}, 3, 6, []proc.Window{hidden}, true, "closed the dashboard window Docker Desktop made as its engine started (pid 102) before it showed"},
-		{"a dashboard shown as it is made is closed once shown", []fakeProcess{launcher, backend, dashboard}, 3, 3, []proc.Window{shown}, true, "closed the dashboard window Docker Desktop opened as its engine started (pid 102), which had shown before cfo found it"},
-		{"the dashboard is never made", []fakeProcess{launcher, backend, dashboard}, 0, 0, nil, true, "Docker Desktop's window process (pid 102) made no dashboard window while cfo looked"},
+		{"a dashboard shown as it is made is closed once shown", []fakeProcess{launcher, backend, dashboard}, 3, 3, []proc.Window{shown}, true, "closed the dashboard window Docker Desktop opened as its engine started (pid 102), which had shown before goblins found it"},
+		{"the dashboard is never made", []fakeProcess{launcher, backend, dashboard}, 0, 0, nil, true, "Docker Desktop's window process (pid 102) made no dashboard window while goblins looked"},
 		{"his setting shows no dashboard", []fakeProcess{launcher, backend, tray}, 1, 1, nil, false, ""},
 		{"no window process starts", []fakeProcess{launcher, backend}, 1, 1, nil, false, ""},
 	}

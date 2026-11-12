@@ -11,29 +11,29 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
-// ErrNotOwnSession says a process is not in the CFO's own session. Each
+// ErrNotOwnSession says a process is not in the CEO's own session. Each
 // error that wraps it says why.
-var ErrNotOwnSession = errors.New("this is not the CFO's own session, which is the agent native terminal cfo runs")
+var ErrNotOwnSession = errors.New("this is not the CEO's own session, which is the agent native terminal ceo runs")
 
-// OwnSession proves this process runs in the CFO's own session and returns
+// OwnSession proves this process runs in the CEO's own session and returns
 // that session's harness, the process the home's session lock and
 // registration name.
 //
-// The CFO's own session is the agent that native terminal cfo of this home
+// The CEO's own session is the agent that native terminal ceo of this home
 // runs: goblins, the board's first-run page, Restart and the comeback after a
-// restart each start the CFO there, and nothing starts it anywhere else. A
+// restart each start the CEO there, and nothing starts it anywhere else. A
 // process is in it when its environment names that terminal, it is neither a
 // goblin's nor a gate agent's, and the terminal's host record names a program
 // that is one of its own ancestors, by pid and creation time, or, where its
 // chain of parents stops short, it carries the terminal's proof value.
 //
-// `cfo install` puts the CFO's hooks in the user's settings, so they run in
+// `goblins install` puts the CEO's hooks in the user's settings, so they run in
 // every Claude Code session on the machine, and on 2026-10-09 one the
 // Overlord's desktop app reopened after a restart took the session lock
-// before the CFO came back, was rewoken with the fleet's wakes and
+// before the CEO came back, was rewoken with the fleet's wakes and
 // acknowledged them. Every session but this one is therefore left alone: it
 // takes no lock, registers nothing, is never rewoken, and may not act as the
-// CFO.
+// CEO.
 //
 // The terminal's host is not asked. A host that does not answer cannot be
 // typed into, which a registration cares about and Register checks, and its
@@ -60,10 +60,10 @@ func ownProgram(stateDir string) ([]proc.Entry, int, error) {
 		return notOwn("this one is a gate agent's")
 	case id == "":
 		return notOwn("this one runs in no native terminal")
-	case id != NativeCFOTerminal:
+	case id != NativeCEOTerminal:
 		return notOwn("this one runs in native terminal " + id)
 	}
-	_, ancestry, at, err := terminalAncestry(stateDir, NativeCFOTerminal)
+	_, ancestry, at, err := terminalAncestry(stateDir, NativeCEOTerminal)
 	if err != nil {
 		return notOwn(err.Error())
 	}
@@ -99,12 +99,12 @@ func terminalAncestry(stateDir, id string) (host.Record, []proc.Entry, int, erro
 	return record, ancestry, at, nil
 }
 
-// NotTheCFO is why this process may not act as the CFO, or nil when it may:
-// it runs in an agent's session that is not the CFO's own. The CFO's own
+// NotTheCEO is why this process may not act as the CEO, or nil when it may:
+// it runs in an agent's session that is not the CEO's own. The CEO's own
 // session may, and so may a goblin's and a gate agent's, which keep the
 // commands they have always had, and a terminal no agent harness runs, such
 // as the Overlord's own.
-func NotTheCFO(stateDir string) error {
+func NotTheCEO(stateDir string) error {
 	env := os.Environ()
 	if environmentValue(env, harness.RoleVariable) == harness.RoleGoblin || environmentValue(env, gateAgentVariable) != "" {
 		return nil

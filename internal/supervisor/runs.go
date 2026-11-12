@@ -46,8 +46,8 @@ const (
 // PowerShell 7 and Git Bash. Run launches exactly the one named.
 var runShells = []string{"powershell", "pwsh", "bash"}
 
-// Run is a command the CFO needs the Overlord to run, which he runs with one
-// click from the Command Center. The registered primary CFO can create one,
+// Run is a command the CEO needs the Overlord to run, which he runs with one
+// click from the Command Center. The registered primary CEO can create one,
 // and a goblin its own through its notify; the board can also create a
 // connection repair bound to a task generation.
 // Its command is the exact text of a script file under state/runs, and Run
@@ -56,10 +56,10 @@ type Run struct {
 	ID       string `json:"id"`
 	Identity string `json:"identity"`
 	// Made is the identity the item was made under, once it has followed the
-	// CFO to another registration: its directory stays named after it.
+	// CEO to another registration: its directory stays named after it.
 	Made string `json:"made,omitempty"`
-	// By is "cfo" on an item the registered CFO published over the pipe. Only
-	// such an item follows the CFO and waits to tell it how it ended.
+	// By is "ceo" on an item the registered CEO published over the pipe. Only
+	// such an item follows the CEO and waits to tell it how it ended.
 	By      string `json:"by,omitempty"`
 	Title   string `json:"title"`
 	Shell   string `json:"shell"`
@@ -86,8 +86,8 @@ type Run struct {
 	ConnectionTask       string         `json:"connection_task,omitempty"`
 	ConnectionGeneration string         `json:"connection_generation,omitempty"`
 	Billing              *BillingRepair `json:"billing,omitempty"`
-	// Untold is how the item ended, in the words the CFO is told, while no
-	// CFO has been told yet: one that was closed when the item ended hears it
+	// Untold is how the item ended, in the words the CEO is told, while no
+	// CEO has been told yet: one that was closed when the item ended hears it
 	// once it runs again.
 	Untold string `json:"untold,omitempty"`
 	// CredentialRequest is the credential request whose card opened this
@@ -95,7 +95,7 @@ type Run struct {
 	CredentialRequest string   `json:"credential_request,omitempty"`
 	CredentialNames   []string `json:"credential_names,omitempty"`
 
-	// Task is the goblin whose own command this is, empty for the CFO's.
+	// Task is the goblin whose own command this is, empty for the CEO's.
 	Task string `json:"task,omitempty"`
 	// Terminal is whether the item's terminal runs, which its card draws:
 	// from Run on, and for an administrator's item once Windows started it
@@ -117,19 +117,19 @@ type Run struct {
 	// scrawl, whose mending command the Overlord ran from it: the setting
 	// draws its terminal, and it is never a Command Center item.
 	RemoteFix string `json:"remote_fix,omitempty"`
-	// CFOUnwoken is the oldest wake the supervisor could not type into the
-	// CFO, for the item that offers the Overlord its restart.
-	CFOUnwoken int `json:"cfo_unwoken,omitempty"`
-	// CFOStopped marks the item that tells the Overlord the supervisor
-	// stopped bringing back a CFO that kept ending, or could not bring it
+	// CEOUnwoken is the oldest wake the supervisor could not type into the
+	// CEO, for the item that offers the Overlord its restart.
+	CEOUnwoken int `json:"ceo_unwoken,omitempty"`
+	// CEOStopped marks the item that tells the Overlord the supervisor
+	// stopped bringing back a CEO that kept ending, or could not bring it
 	// back, and offers him Reopen.
-	CFOStopped bool `json:"cfo_stopped,omitempty"`
+	CEOStopped bool `json:"ceo_stopped,omitempty"`
 	// Mail is a message the item gives him to send himself, such as an
 	// email, which his card copies with one click.
 	Mail *Mail `json:"mail,omitempty"`
 }
 
-// RunRequest is what cfo run-request asks for; CommandFile and MessageFile
+// RunRequest is what goblins run-request asks for; CommandFile and MessageFile
 // are each read once.
 type RunRequest struct {
 	ID, Title, Shell, Cwd, CommandFile, MessageFile string
@@ -167,7 +167,7 @@ type RunStarted struct {
 }
 
 // runTerminal is the id of a run item's terminal, which is recorded in the
-// item's own directory, apart from the CFO's and every goblin's.
+// item's own directory, apart from the CEO's and every goblin's.
 const runTerminal = "run"
 
 func validRun(r Run) error {
@@ -175,7 +175,7 @@ func validRun(r Run) error {
 	case !reviewID.MatchString(r.ID):
 		return errors.New("a run item needs an ID of 8 to 128 letters, digits, dots, dashes or underscores")
 	case len(r.Identity) != 64:
-		return errors.New("a run item needs the CFO's identity")
+		return errors.New("a run item needs the CEO's identity")
 	case strings.TrimSpace(r.Title) == "" || len(r.Title) > 2000:
 		return errors.New("a run item needs a title of at most 2000 characters saying why it should run")
 	case !slices.Contains(runShells, r.Shell):
@@ -201,7 +201,7 @@ func runDir(stateDir string, r Run) string {
 	return filepath.Join(stateDir, "runs", hex.EncodeToString(sum[:]))
 }
 
-// runScript is the file Run executes: the command exactly as the CFO wrote
+// runScript is the file Run executes: the command exactly as the CEO wrote
 // it. A PowerShell script starts with a UTF-8 byte order mark, without which
 // Windows PowerShell 5.1 reads it in the ANSI code page.
 func runScript(r Run) (name string, data []byte) {
@@ -219,7 +219,7 @@ func runDigest(data []byte) string {
 // PublishRun hands a command for the Overlord to run to the supervisor over
 // its named pipe. It reads the command file, and any message file, once. The
 // supervisor proves the calling process runs under the registered primary
-// CFO and writes the script file Run executes itself, so nothing written
+// CEO and writes the script file Run executes itself, so nothing written
 // straight into the state directory ever reaches the board.
 func PublishRun(h home.Home, req RunRequest) error {
 	command, err := ReadRunCommand(req.CommandFile)
@@ -239,18 +239,18 @@ func PublishRun(h home.Home, req RunRequest) error {
 }
 
 // WithdrawRun takes a run item nobody ran off the board for the registered
-// primary CFO, with its reason, over the supervisor's pipe.
+// primary CEO, with its reason, over the supervisor's pipe.
 func WithdrawRun(h home.Home, id, reason string) error {
 	return sendPipeRequest(h.State, runPipeRequest{Kind: "withdraw-run", ID: id, Reason: reason})
 }
 
-// runPipeRequest is one request over the supervisor's pipe: a run item as cfo
-// run-request sends it, or, named by Kind, an item only the registered CFO
+// runPipeRequest is one request over the supervisor's pipe: a run item as goblins
+// run-request sends it, or, named by Kind, an item only the registered CEO
 // may put on the board (a question, a review record, an answer or a
 // credential request), a run item it withdraws or a decision it logs under
 // AFK mode, which the supervisor records only once the sending process is
-// proven to be the CFO. AFK mode's switch (afk-on, afk-off) is the one kind
-// the CFO may not send: the supervisor makes it only for a process proven to
+// proven to be the CEO. AFK mode's switch (afk-on, afk-off) is the one kind
+// the CEO may not send: the supervisor makes it only for a process proven to
 // be the Overlord's own terminal. A helper is a goblin's ask for a helper
 // goblin, which its own terminal proved before sending.
 type runPipeRequest struct {
@@ -265,16 +265,16 @@ type runPipeRequest struct {
 	Mail       *Mail              `json:"mail,omitempty"`
 	Question   *Question          `json:"question,omitempty"`
 	Review     *Review            `json:"review,omitempty"`
-	Answer     *cfoAnswer         `json:"answer,omitempty"`
+	Answer     *ceoAnswer         `json:"answer,omitempty"`
 	Credential *CredentialRequest `json:"credential,omitempty"`
-	// AFK is a decision the CFO logs under AFK mode's authority.
+	// AFK is a decision the CEO logs under AFK mode's authority.
 	AFK *afk.Entry `json:"afk,omitempty"`
-	// Asked is the Overlord's words when the CFO asks for his AFK switch at
-	// his ask, as the CFO quotes them.
+	// Asked is the Overlord's words when the CEO asks for his AFK switch at
+	// his ask, as the CEO quotes them.
 	Asked   string          `json:"asked,omitempty"`
 	Helper  *HelperRequest  `json:"helper,omitempty"`
 	Browser *BrowserRequest `json:"browser,omitempty"`
-	// Step is a card's asker, or the CFO, acting on the card.
+	// Step is a card's asker, or the CEO, acting on the card.
 	Step *CredentialStep `json:"step,omitempty"`
 	// Train is a landing a merge train asks to be logged as merged.
 	Train *trainLanding `json:"train,omitempty"`
@@ -293,14 +293,14 @@ type pipeReply struct {
 
 // acceptRunRequest records a run item that came over the pipe from process
 // pid, connected at connected, once that process is proven to run under the
-// registered primary CFO.
+// registered primary CEO.
 // Republishing an ID with the same content while its item still waits changes
 // nothing; any other reuse of the ID is refused.
 func (s *Service) acceptRunRequest(pid int, connected time.Time, req runPipeRequest) error {
-	if s.Options.CFO == nil {
-		return errors.New("this supervisor cannot verify the CFO")
+	if s.Options.CEO == nil {
+		return errors.New("this supervisor cannot verify the CEO")
 	}
-	identity, release, err := s.Options.CFO.identityOf(pid, connected)
+	identity, release, err := s.Options.CEO.identityOf(pid, connected)
 	if err != nil {
 		return err
 	}
@@ -313,7 +313,7 @@ func (s *Service) acceptRunRequest(pid int, connected time.Time, req runPipeRequ
 		return fmt.Errorf("the run's folder %s is not a directory", cwd)
 	}
 	now := time.Now().UTC()
-	r := Run{ID: req.ID, Identity: identity, By: "cfo", Title: req.Title, Shell: req.Shell, Admin: req.Admin, Command: req.Command, Cwd: cwd, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime), Mail: req.Mail}
+	r := Run{ID: req.ID, Identity: identity, By: "ceo", Title: req.Title, Shell: req.Shell, Admin: req.Admin, Command: req.Command, Cwd: cwd, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime), Mail: req.Mail}
 	if err := validRun(r); err != nil {
 		return err
 	}
@@ -361,7 +361,7 @@ func (s *Store) acceptRun(r Run) error {
 		}
 		return nil
 	}
-	// The script on disk must be exactly the command the CFO published.
+	// The script on disk must be exactly the command the CEO published.
 	name, script := runScript(r)
 	data, err := fsx.ReadFile(filepath.Join(runDir(s.Home.State, r), name))
 	if err != nil || r.ScriptSum != runDigest(script) || runDigest(data) != r.ScriptSum {
@@ -384,12 +384,12 @@ func (s *Store) acceptRun(r Run) error {
 }
 
 // withdrawRun takes the run item id, which nobody ran yet, off the board for
-// the registered CFO, or a goblin's own once the goblin moved past it,
+// the registered CEO, or a goblin's own once the goblin moved past it,
 // keeping its reason on the item and in state/runs.audit;
 // Run on it is refused from then on. Replacing an item is withdrawing it and
 // publishing the new command under a new ID. An item the board made for the
 // Overlord, a connection repair, a credential request's terminal or a Remote
-// access fix, is not the CFO's to withdraw.
+// access fix, is not the CEO's to withdraw.
 func (s *Store) withdrawRun(id, reason string) error {
 	reason = strings.TrimSpace(reason)
 	if reason == "" || len(reason) > 1900 {
@@ -406,19 +406,19 @@ func (s *Store) withdrawRun(id, reason string) error {
 	switch {
 	case r.ConnectionTask != "":
 		s.mu.Unlock()
-		return fmt.Errorf("run item %s is the connection repair the Overlord asked for on %s; it is not the CFO's to withdraw", r.ID, r.ConnectionTask)
+		return fmt.Errorf("run item %s is the connection repair the Overlord asked for on %s; it is not the CEO's to withdraw", r.ID, r.ConnectionTask)
 	case r.CredentialRequest != "":
 		s.mu.Unlock()
-		return fmt.Errorf("run item %s is the terminal the Overlord opened for a credential request; it is not the CFO's to withdraw", r.ID)
+		return fmt.Errorf("run item %s is the terminal the Overlord opened for a credential request; it is not the CEO's to withdraw", r.ID)
 	case r.RemoteFix != "":
 		s.mu.Unlock()
-		return fmt.Errorf("run item %s is the command the Overlord ran from Remote access; it is not the CFO's to withdraw", r.ID)
+		return fmt.Errorf("run item %s is the command the Overlord ran from Remote access; it is not the CEO's to withdraw", r.ID)
 	case r.Billing != nil:
 		s.mu.Unlock()
-		return fmt.Errorf("run item %s is the GitHub billing consent the Overlord asked for; it is not the CFO's to withdraw", r.ID)
+		return fmt.Errorf("run item %s is the GitHub billing consent the Overlord asked for; it is not the CEO's to withdraw", r.ID)
 	case r.Update != nil:
 		s.mu.Unlock()
-		return fmt.Errorf("run item %s is the Overlord's Update to Code Goblins %s; it is not the CFO's to withdraw", r.ID, r.Update.To)
+		return fmt.Errorf("run item %s is the Overlord's Update to Code Goblins %s; it is not the CEO's to withdraw", r.ID, r.Update.To)
 	case r.State != "ready":
 		s.mu.Unlock()
 		return fmt.Errorf("the run item is already %s, so it cannot be withdrawn", r.State)
@@ -441,7 +441,7 @@ func (s *Store) withdrawRun(id, reason string) error {
 
 // declineRun tells the asker of a command he skipped, or answered in words
 // instead of running it, which the board closed as it took his press: a
-// goblin in its own terminal, the CFO as a message. The close is recorded in
+// goblin in its own terminal, the CEO as a message. The close is recorded in
 // state/runs.audit as a withdrawal is.
 func (s *Service) declineRun(ctx context.Context, a Action) (Evaluation, error) {
 	i := slices.IndexFunc(s.Store.Snapshot().Runs, func(r Run) bool { return r.ID == a.RunID && r.RunAction == a.ID })
@@ -458,17 +458,17 @@ func (s *Service) declineRun(ctx context.Context, a Action) (Evaluation, error) 
 		text = "The Overlord answered your command " + r.ID + " (" + r.Title + ") instead of running it: " + a.Text
 	}
 	if r.Task == "" {
-		if err := s.tellCFO(ctx, text, his); err != nil {
-			return Evaluation{Reason: "Closed. The CFO could not be told: " + bounded(err.Error(), 300)}, nil
+		if err := s.tellCEO(ctx, text, his); err != nil {
+			return Evaluation{Reason: "Closed. The CEO could not be told: " + bounded(err.Error(), 300)}, nil
 		}
-		return Evaluation{Reason: "Closed, and the CFO was told."}, nil
+		return Evaluation{Reason: "Closed, and the CEO was told."}, nil
 	}
-	if s.Options.CFO == nil {
+	if s.Options.CEO == nil {
 		return Evaluation{Reason: "Closed. " + r.Task + " could not be told: message transport is unavailable."}, nil
 	}
-	deliver := s.Options.CFO.SendGoblin
+	deliver := s.Options.CEO.SendGoblin
 	if his {
-		deliver = s.Options.CFO.SendGoblinHis
+		deliver = s.Options.CEO.SendGoblinHis
 	}
 	if _, err := deliver(ctx, r.Task, r.Identity, text); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
 		return Evaluation{Reason: "Closed. " + r.Task + " could not be told: " + bounded(err.Error(), 300)}, nil
@@ -476,13 +476,13 @@ func (s *Service) declineRun(ctx context.Context, a Action) (Evaluation, error) 
 	return Evaluation{Reason: "Closed, and " + r.Task + " was told."}, nil
 }
 
-// withdrawCFOUnwoken takes back the item that offers the Overlord the CFO's
-// restart, while nobody ran it, once the CFO was told of its wakes.
-func (s *Store) withdrawCFOUnwoken(reason string) error {
+// withdrawCEOUnwoken takes back the item that offers the Overlord the CEO's
+// restart, while nobody ran it, once the CEO was told of its wakes.
+func (s *Store) withdrawCEOUnwoken(reason string) error {
 	var open []string
 	s.mu.Lock()
 	for _, r := range s.db.Runs {
-		if r.CFOUnwoken != 0 && r.State == "ready" {
+		if r.CEOUnwoken != 0 && r.State == "ready" {
 			open = append(open, r.ID)
 		}
 	}
@@ -498,14 +498,14 @@ func (s *Store) withdrawCFOUnwoken(reason string) error {
 	return err
 }
 
-// withdrawCFOStopped takes back the item that offers the Overlord to reopen a
-// CFO the supervisor left stopped, while nobody acted on it, once a CFO runs
+// withdrawCEOStopped takes back the item that offers the Overlord to reopen a
+// CEO the supervisor left stopped, while nobody acted on it, once a CEO runs
 // again.
-func (s *Store) withdrawCFOStopped(reason string) error {
+func (s *Store) withdrawCEOStopped(reason string) error {
 	var open []string
 	s.mu.Lock()
 	for _, r := range s.db.Runs {
-		if r.CFOStopped && r.State == "ready" {
+		if r.CEOStopped && r.State == "ready" {
 			open = append(open, r.ID)
 		}
 	}
@@ -519,12 +519,12 @@ func (s *Store) withdrawCFOStopped(reason string) error {
 	return err
 }
 
-// offersCFOReopen reports whether an item offering to reopen a CFO the
+// offersCEOReopen reports whether an item offering to reopen a CEO the
 // supervisor left stopped still waits.
-func (s *Store) offersCFOReopen() bool {
+func (s *Store) offersCEOReopen() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return slices.ContainsFunc(s.db.Runs, func(r Run) bool { return r.CFOStopped && r.State == "ready" && time.Now().Before(r.ExpiresAt) })
+	return slices.ContainsFunc(s.db.Runs, func(r Run) bool { return r.CEOStopped && r.State == "ready" && time.Now().Before(r.ExpiresAt) })
 }
 
 // runReady reports whether run item id waits to be run.
@@ -534,18 +534,18 @@ func (s *Store) runReady(id string) bool {
 	return slices.ContainsFunc(s.db.Runs, func(r Run) bool { return r.ID == id && r.State == "ready" && time.Now().Before(r.ExpiresAt) })
 }
 
-// offeredCFORestart reports whether an item offers the CFO's restart for the
+// offeredCEORestart reports whether an item offers the CEO's restart for the
 // untyped wake oldest now: one waiting or running, or one that ended within
-// cfoWakeStuckAfter, so a restart that did not help is offered again only
+// ceoWakeStuckAfter, so a restart that did not help is offered again only
 // after as long a wait as the first, and an expired one at once.
-func (s *Store) offeredCFORestart(oldest int, now time.Time) bool {
+func (s *Store) offeredCEORestart(oldest int, now time.Time) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return slices.ContainsFunc(s.db.Runs, func(r Run) bool {
-		if r.CFOUnwoken != oldest {
+		if r.CEOUnwoken != oldest {
 			return false
 		}
-		isRecent := r.FinishedAt != nil && now.Sub(*r.FinishedAt) < cfoWakeStuckAfter && r.State != "expired"
+		isRecent := r.FinishedAt != nil && now.Sub(*r.FinishedAt) < ceoWakeStuckAfter && r.State != "expired"
 		return r.State == "ready" || r.State == "running" || isRecent
 	})
 }
@@ -634,7 +634,7 @@ func (s *Store) finishRun(id, action, state string, code *int, output, reason st
 	return true, s.save()
 }
 
-// untoldRun records what the CFO is still to be told of how an item ended,
+// untoldRun records what the CEO is still to be told of how an item ended,
 // or with text empty that it was told.
 func (s *Store) untoldRun(id, action, text string) error {
 	s.mu.Lock()
@@ -827,7 +827,7 @@ func (s *Service) completeRun(ctx context.Context, r Run, code *int, reason stri
 }
 
 // endRun records how an item ended, in state, appends its audit line and
-// hands the result to the CFO as its answer, so the CFO continues without
+// hands the result to the CEO as its answer, so the CEO continues without
 // asking whether it worked. The full output stays on the item.
 func (s *Service) endRun(ctx context.Context, r Run, state string, code *int, reason string) error {
 	// A credential request takes no save between its terminal ending and the
@@ -850,7 +850,7 @@ func (s *Service) endRun(ctx context.Context, r Run, state string, code *int, re
 		s.finishBillingRepair(r, state)
 		return err
 	}
-	// A credential request's terminal tells the CFO the names it stored.
+	// A credential request's terminal tells the CEO the names it stored.
 	if r.CredentialRequest != "" {
 		s.credentialTerminalEnded(r, code)
 		return err
@@ -881,8 +881,8 @@ func (s *Service) endRun(ctx context.Context, r Run, state string, code *int, re
 			text = fmt.Sprintf("The Overlord ran your command (%s); it finished with exit code %d.", why, *code)
 		}
 		delivery := errors.New("no goblin transport")
-		if s.Options.CFO != nil {
-			_, delivery = s.Options.CFO.SendGoblin(ctx, r.Task, r.Identity, text)
+		if s.Options.CEO != nil {
+			_, delivery = s.Options.CEO.SendGoblin(ctx, r.Task, r.Identity, text)
 		}
 		if delivery != nil && !errors.Is(delivery, fleet.ErrQueuedForToolCall) {
 			err = errors.Join(err, s.Store.noteRun(r.ID, r.RunAction, "the goblin could not be told: "+bounded(delivery.Error(), 300)))
@@ -896,29 +896,29 @@ func (s *Service) endRun(ctx context.Context, r Run, state string, code *int, re
 	if output != "" {
 		text += " The output ends: " + tail(output, 1500)
 	}
-	if r.By == "cfo" && !s.Store.cfoLive() {
+	if r.By == "ceo" && !s.Store.ceoLive() {
 		return errors.Join(err, s.Store.untoldRun(r.ID, r.RunAction, text))
 	}
-	delivery := s.tellCFO(ctx, text, false)
-	if r.By == "cfo" && (errors.Is(delivery, ErrRejected) || errors.Is(delivery, ErrDeferred)) {
+	delivery := s.tellCEO(ctx, text, false)
+	if r.By == "ceo" && (errors.Is(delivery, ErrRejected) || errors.Is(delivery, ErrDeferred)) {
 		return errors.Join(err, s.Store.untoldRun(r.ID, r.RunAction, text))
 	}
 	if delivery != nil {
-		err = errors.Join(err, s.Store.noteRun(r.ID, r.RunAction, "the CFO could not be told: "+bounded(delivery.Error(), 300)))
+		err = errors.Join(err, s.Store.noteRun(r.ID, r.RunAction, "the CEO could not be told: "+bounded(delivery.Error(), 300)))
 	}
 	return err
 }
 
-// retellRuns tells the CFO, while one runs, how each of its items ended that
-// no CFO was told of. A result stays untold only while nothing of it was
-// sent: one that may have reached the CFO is noted and never typed again.
+// retellRuns tells the CEO, while one runs, how each of its items ended that
+// no CEO was told of. A result stays untold only while nothing of it was
+// sent: one that may have reached the CEO is noted and never typed again.
 func (s *Service) retellRuns(ctx context.Context) error {
 	var errs error
 	for _, r := range s.Store.Snapshot().Runs {
-		if r.By != "cfo" || r.Untold == "" {
+		if r.By != "ceo" || r.Untold == "" {
 			continue
 		}
-		delivery := s.tellCFO(ctx, r.Untold, false)
+		delivery := s.tellCEO(ctx, r.Untold, false)
 		if errors.Is(delivery, ErrDeferred) {
 			continue
 		}
@@ -926,42 +926,42 @@ func (s *Service) retellRuns(ctx context.Context) error {
 			return errors.Join(errs, delivery)
 		}
 		if delivery != nil {
-			errs = errors.Join(errs, s.Store.noteRun(r.ID, r.RunAction, "the CFO could not be told: "+bounded(delivery.Error(), 300)))
+			errs = errors.Join(errs, s.Store.noteRun(r.ID, r.RunAction, "the CEO could not be told: "+bounded(delivery.Error(), 300)))
 		}
 		errs = errors.Join(errs, s.Store.untoldRun(r.ID, r.RunAction, ""))
 	}
 	return errs
 }
 
-// tellCFO sends a run's result to the CFO registered now, which may have
-// restarted since it created the item. A result submitted behind the CFO's
-// turn is told: the CFO takes it when the turn ends. An error that is
-// ErrRejected sent nothing; any other may have reached the CFO.
-func (s *Service) tellCFO(ctx context.Context, text string, his bool) error {
-	_, err := s.sendToCFO(ctx, text, his)
+// tellCEO sends a run's result to the CEO registered now, which may have
+// restarted since it created the item. A result submitted behind the CEO's
+// turn is told: the CEO takes it when the turn ends. An error that is
+// ErrRejected sent nothing; any other may have reached the CEO.
+func (s *Service) tellCEO(ctx context.Context, text string, his bool) error {
+	_, err := s.sendToCEO(ctx, text, his)
 	return err
 }
 
-// sendToCFO is tellCFO for a delivery that keeps how it went, such as one the
-// CFO takes as its turn ends. One from him keeps his mark on the terminal the
-// CFO's next screen is bound to.
-func (s *Service) sendToCFO(ctx context.Context, text string, his bool) (Evaluation, error) {
-	if s.Options.CFO == nil {
-		return Evaluation{}, errors.New("no CFO transport")
+// sendToCEO is tellCEO for a delivery that keeps how it went, such as one the
+// CEO takes as its turn ends. One from him keeps his mark on the terminal the
+// CEO's next screen is bound to.
+func (s *Service) sendToCEO(ctx context.Context, text string, his bool) (Evaluation, error) {
+	if s.Options.CEO == nil {
+		return Evaluation{}, errors.New("no CEO transport")
 	}
 	file, err := openPrimary(filepath.Join(s.Store.Home.State, "primary.json"))
 	if err != nil {
-		return Evaluation{}, fmt.Errorf("%w: no CFO is registered", ErrRejected)
+		return Evaluation{}, fmt.Errorf("%w: no CEO is registered", ErrRejected)
 	}
 	_, identity, err := decodePrimary(file)
 	_ = file.Close()
 	if err != nil {
-		return Evaluation{}, fmt.Errorf("%w: the CFO registration is unreadable", ErrRejected)
+		return Evaluation{}, fmt.Errorf("%w: the CEO registration is unreadable", ErrRejected)
 	}
 	if his {
-		return s.Options.CFO.Send(ctx, identity, text)
+		return s.Options.CEO.Send(ctx, identity, text)
 	}
-	return s.Options.CFO.SendNotice(ctx, identity, text)
+	return s.Options.CEO.SendNotice(ctx, identity, text)
 }
 
 func tail(text string, n int) string {
@@ -1036,7 +1036,7 @@ func readRunOutput(dir string) string {
 
 // appendRunAudit records how a run item ended in state/runs.audit: when, the
 // item, the SHA-256 of exactly its script file, and its outcome: the exit
-// code, none when it did not finish, or withdrawn and the CFO's reason.
+// code, none when it did not finish, or withdrawn and the CEO's reason.
 func appendRunAudit(stateDir string, r Run, outcome string, now time.Time) error {
 	f, err := fsx.OpenAppend(filepath.Join(stateDir, "runs.audit"), 0600)
 	if err != nil {

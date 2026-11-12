@@ -1,18 +1,21 @@
 # fleet_at_work.ps1 - a person's Code Goblins at work, as an update finds it:
 # one goblin in their checkout with work it has not landed and a stored
-# credential (tests\uninstall\one_goblin_session.ps1), the CFO running in its
+# credential (tests\uninstall\one_goblin_session.ps1), the CEO running in its
 # terminal, a setting of the fleet's and one of Claude Code's of their own,
 # and their project's record. It writes what an update must keep, as
 # fleet_facts.ps1 reads it, to <facts>.
 #
-# pi has no account on a runner, so the goblin and the CFO run pi signed in
+# pi has no account on a runner, so the goblin and the CEO run pi signed in
 # to the stand-in model, which keeps running for the update to find them at
 # work; its pid is in <facts>.stand-in.pid for the job to end it by.
+# -PreRename runs it under a release from before the rename, by the names
+# that release knows itself by.
 #
-#   .\tests\update\fleet_at_work.ps1 -Project <checkout> -Facts <file>
+#   .\tests\update\fleet_at_work.ps1 -Project <checkout> -Facts <file> [-PreRename]
 param(
     [Parameter(Mandatory = $true)][string]$Project,
-    [Parameter(Mandatory = $true)][string]$Facts
+    [Parameter(Mandatory = $true)][string]$Facts,
+    [switch]$PreRename
 )
 
 $ErrorActionPreference = "Stop"
@@ -27,12 +30,14 @@ $ErrorActionPreference = "Stop"
 $piTools = Join-Path $env:USERPROFILE ".pi\agent\bin"
 New-Item -ItemType File -Force -Path (Join-Path $piTools "fd.exe"), (Join-Path $piTools "rg.exe") | Out-Null
 
-& (Join-Path $PSScriptRoot "..\uninstall\one_goblin_session.ps1") -Project $Project
+& (Join-Path $PSScriptRoot "..\uninstall\one_goblin_session.ps1") -Project $Project -PreRename:$PreRename
 $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
-$env:CFO_HOME = [Environment]::GetEnvironmentVariable("CFO_HOME", "User")
-$state = Join-Path $env:CFO_HOME "state"
+$command, $settingPrefix, $ceoTerminal = Get-BuildNames -PreRename:$PreRename
+$ceoHome = [Environment]::GetEnvironmentVariable("${settingPrefix}HOME", "User")
+Set-Item -LiteralPath "env:${settingPrefix}HOME" -Value $ceoHome
+$state = Join-Path $ceoHome "state"
 
-# The session ended the stand-in once the goblin was at work; the CFO needs
+# The session ended the stand-in once the goblin was at work; the CEO needs
 # it to start, and both keep it through the update.
 $port = 8767
 $standIn = Start-Process -FilePath python -ArgumentList (Join-Path $PSScriptRoot "..\uninstall\stand_in_model.py"), $port -WindowStyle Hidden -PassThru
@@ -55,11 +60,11 @@ if ($LASTEXITCODE -ne 0) {
     if ($LASTEXITCODE -ne 0) { throw "goblins project init exited with code $LASTEXITCODE" }
 }
 
-# The quick start, told the agent, starts the CFO in its terminal and ends on
+# The quick start, told the agent, starts the CEO in its terminal and ends on
 # a screen that asks which to open; with no console to ask in it ends there,
-# and the CFO keeps running.
+# and the CEO keeps running.
 Set-Content -LiteralPath "$Facts.no-input" -Value $null
-$quickStart = Start-Process -FilePath (Join-Path $env:CFO_HOME "bin\goblins.exe") -ArgumentList "--harness", "pi" -NoNewWindow -PassThru `
+$quickStart = Start-Process -FilePath (Join-Path $ceoHome "bin\goblins.exe") -ArgumentList "--harness", "pi" -NoNewWindow -PassThru `
     -RedirectStandardInput "$Facts.no-input" -RedirectStandardOutput "$Facts.quick-start.log" -RedirectStandardError "$Facts.quick-start.err"
 if (-not $quickStart.WaitForExit(180000)) {
     Stop-Process -Id $quickStart.Id -Force
@@ -67,14 +72,14 @@ if (-not $quickStart.WaitForExit(180000)) {
 }
 Get-Content -LiteralPath "$Facts.quick-start.log", "$Facts.quick-start.err" | Write-Host
 $deadline = (Get-Date).AddMinutes(2)
-while (-not (Test-Path -LiteralPath (Join-Path $state "hosts\cfo.json"))) {
-    if ((Get-Date) -gt $deadline) { throw "the CFO's terminal did not start within 2 minutes of the quick start" }
+while (-not (Test-Path -LiteralPath (Join-Path $state "hosts\$ceoTerminal.json"))) {
+    if ((Get-Date) -gt $deadline) { throw "the CEO's terminal did not start within 2 minutes of the quick start" }
     Start-Sleep -Seconds 1
 }
 
-$before = Get-FleetFacts -Project $Project
+$before = Get-FleetFacts -Project $Project -PreRename:$PreRename
 $before | Format-Table -AutoSize -Wrap | Out-String -Width 400 | Write-Host
-foreach ($running in "board", "cfo host", "cfo harness", "demo-goblin host", "demo-goblin harness") {
+foreach ($running in "board", "ceo host", "ceo harness", "demo-goblin host", "demo-goblin harness") {
     if ($before[$running] -match "not running") { throw "before the update the $running is not running: $($before[$running])" }
 }
 if ($before.credentials -notmatch "DEMO_TOKEN") { throw "the stored credential is not listed before the update: $($before.credentials)" }

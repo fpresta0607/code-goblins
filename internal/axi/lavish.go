@@ -20,7 +20,7 @@ import (
 
 // Lavish invokes lavish-axi, the Overlord's review surface, to open a page
 // and to wait for his feedback on it. Its output is TOON: only the session
-// fields cfo acts on are read, and a poll's whole output is kept for the CFO.
+// fields goblins acts on are read, and a poll's whole output is kept for the CEO.
 type Lavish struct {
 	Commands execx.Runner
 }
@@ -46,7 +46,7 @@ type PagePoll struct {
 	// Changes are the answers he changed with a return page's Change, in the
 	// order he sent them.
 	Changes []PageChange
-	// Output is the poll's whole output, which the CFO reads.
+	// Output is the poll's whole output, which the CEO reads.
 	Output string
 }
 

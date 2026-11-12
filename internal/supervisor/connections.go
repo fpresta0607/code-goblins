@@ -168,15 +168,15 @@ func (h *HTTP) fixConnection(w http.ResponseWriter, r *http.Request) {
 
 // grantingBoard asks for a connector's Connect or Disconnect: giving a goblin
 // a service or an MCP server, or taking it back, is the Overlord's from a
-// board of his own, or the CFO's with cfo auth.
-var grantingBoard = boardAsker("Giving a goblin a connector is the Supreme Overlord's", ": he presses it on a board of his own, or the CFO runs cfo auth grant or cfo auth revoke", "Change it in the Code Goblins window, or ask the CFO.", reopenTheWindow+"change it there.")
+// board of his own, or the CEO's with goblins auth.
+var grantingBoard = boardAsker("Giving a goblin a connector is the Supreme Overlord's", ": he presses it on a board of his own, or the CEO runs goblins auth grant or goblins auth revoke", "Change it in the Code Goblins window, or ask the CEO.", reopenTheWindow+"change it there.")
 
 // grantConnection gives a running task one of its project's services or MCP
-// servers from the board's Connectors page, or takes it back: what cfo auth
-// grant and cfo auth revoke do. Past the board's Host, Origin and token checks it takes
+// servers from the board's Connectors page, or takes it back: what goblins auth
+// grant and goblins auth revoke do. Past the board's Host, Origin and token checks it takes
 // only a board proven to be the Overlord's own, since a goblin can read the
-// token. The task's status names him, the CFO is told by a wake, and a running
-// terminal of the task is told to load a granted service's credentials, as cfo
+// token. The task's status names him, the CEO is told by a wake, and a running
+// terminal of the task is told to load a granted service's credentials, as goblins
 // auth grant tells it. The check that follows shows the card's new state.
 func (h *HTTP) grantConnection(w http.ResponseWriter, r *http.Request) {
 	asked := time.Now()
@@ -296,7 +296,7 @@ func (s *Service) connectionRun(meta state.TaskMeta, input connectionRequest, pl
 		return Run{}, errors.New("Connection repair is unavailable.")
 	}
 	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "''") + "'" }
-	command := "$ErrorActionPreference = 'Stop'\n$env:CFO_HOME = " + quote(s.Store.Home.Root) + "\n$env:CFO_STATE_OVERRIDE = " + quote(s.Store.Home.State) + "\n"
+	command := "$ErrorActionPreference = 'Stop'\n$env:GOBLINS_HOME = " + quote(s.Store.Home.Root) + "\n$env:GOBLINS_STATE_OVERRIDE = " + quote(s.Store.Home.State) + "\n"
 	title := "Sign in to " + strings.TrimPrefix(input.Connection, "service:")
 	if plan.Credential != "" {
 		title = "Store " + plan.Credential + " from clipboard for " + filepath.Base(meta.Project)

@@ -26,25 +26,25 @@ const pathVariable = "Path"
 
 // ProjectsRootVariable names the folder that holds the operator's checkouts,
 // which is what lets `--project <name>` stand for `<root>/<name>`. It is a
-// fact about the machine, so it is kept where CFO_HOME is and nowhere in the
+// fact about the machine, so it is kept where GOBLINS_HOME is and nowhere in the
 // repository: every adopter's folder is somewhere else.
-const ProjectsRootVariable = "CFO_PROJECTS_ROOT"
+const ProjectsRootVariable = "GOBLINS_PROJECTS_ROOT"
 
-// Service installs and uninstalls the CFO on one machine. Every destination
+// Service installs and uninstalls the CEO on one machine. Every destination
 // is a field so a test can point the whole thing at a temp directory and a
 // fake environment: nothing here reads the real user's configuration by
 // default, because the file it merges into is someone's personal Claude Code
 // setup and losing their hooks to our installer is the worst failure here.
 type Service struct {
-	// Root is the CFO home, the per-user home every install uses unless
-	// CFO_HOME names another. It is the value CFO_HOME gets; its bin folder is
-	// the directory added to PATH and the one holding cfo.exe.
+	// Root is the CEO home, the per-user home every install uses unless
+	// GOBLINS_HOME names another. It is the value GOBLINS_HOME gets; its bin folder is
+	// the directory added to PATH and the one holding goblins.exe.
 	Root string
 	// UserSettings is the Claude Code user settings file, normally
 	// ~/.claude/settings.json.
 	UserSettings string
-	// RepoSettings is the checkout's own .claude/settings.json, whose CFO
-	// hooks duplicate the ones the CFO's terminal starts with.
+	// RepoSettings is the checkout's own .claude/settings.json, whose CEO
+	// hooks duplicate the ones the CEO's terminal starts with.
 	RepoSettings string
 	// Env is the user-scope environment.
 	Env installbase.EnvStore
@@ -61,13 +61,13 @@ type Service struct {
 	// Code's, never into the home.
 	Skills fs.FS
 	// Harnesses is where each harness keeps its configuration on this
-	// machine, recorded in the home for the CFO and goblins to read.
+	// machine, recorded in the home for the CEO and goblins to read.
 	Harnesses harnessmap.Map
 	// Link makes the directory junction Claude Code reads a shared skill
 	// through.
 	Link harnessmap.Linker
 	// HarnessDirs are the configuration folders, by harness name, whose
-	// board native hooks (written by `cfo hooks install`) an uninstall
+	// board native hooks (written by `goblins hooks install`) an uninstall
 	// removes.
 	HarnessDirs map[string]string
 	// StartMenuShortcut is the Code Goblins shortcut the install script puts
@@ -99,7 +99,7 @@ type Service struct {
 	Version string
 }
 
-// Install wires the CFO into the machine and reports every change and every
+// Install wires the CEO into the machine and reports every change and every
 // deliberate non-change. It is safe to run twice: a second run finds
 // everything in place and writes nothing.
 func (s Service) Install(out io.Writer) error {
@@ -160,7 +160,7 @@ func (s Service) Install(out io.Writer) error {
 	if err := s.keepAppsEntry(report); err != nil {
 		return err
 	}
-	return s.finish(report, "cfo install: already installed - nothing changed")
+	return s.finish(report, "goblins install: already installed - nothing changed")
 }
 
 // Uninstall reverses Install. An adopter who cannot cleanly back out will
@@ -212,7 +212,7 @@ func (s Service) Uninstall(out io.Writer) error {
 		report.change("apps", "took Code Goblins out of Installed apps")
 	}
 	report.same("home", "kept "+s.Root+" with its state and data; delete the folder to remove them")
-	return s.finish(report, "cfo install --uninstall: nothing to remove")
+	return s.finish(report, "goblins install --uninstall: nothing to remove")
 }
 
 // removeDictation removes the speech engine and model the install set
@@ -242,7 +242,7 @@ func (s Service) removeDictation(report *reporter) error {
 	return nil
 }
 
-// refreshPiHooks brings the board's pi extension, where `cfo hooks install
+// refreshPiHooks brings the board's pi extension, where `goblins hooks install
 // pi` put one, up to this build, so an update reaches every pi session
 // started after it.
 func (s Service) refreshPiHooks(report *reporter) error {
@@ -250,7 +250,7 @@ func (s Service) refreshPiHooks(report *reporter) error {
 	if !ok {
 		return nil
 	}
-	changed, err := nativehook.RefreshPi(nativehook.InstallConfig{ConfigDir: root.Path, Executable: filepath.Join(s.bin(), "cfo.exe"), Home: s.Root, State: filepath.Join(s.Root, "state")})
+	changed, err := nativehook.RefreshPi(nativehook.InstallConfig{ConfigDir: root.Path, Executable: filepath.Join(s.bin(), "goblins.exe"), Home: s.Root, State: filepath.Join(s.Root, "state")})
 	if err != nil {
 		return fmt.Errorf("install: refresh the board's pi extension in %s: %w", root.Path, err)
 	}
@@ -396,7 +396,7 @@ func (s Service) setHome(report *reporter) error {
 		return err
 	}
 	if set && installbase.SameDirectory(current, s.Root) {
-		report.same("CFO_HOME", "already "+current)
+		report.same("GOBLINS_HOME", "already "+current)
 		return nil
 	}
 	if err := s.Env.Set(installbase.HomeVariable, s.Root); err != nil {
@@ -404,10 +404,10 @@ func (s Service) setHome(report *reporter) error {
 	}
 	report.envChanged = true
 	if set {
-		report.change("CFO_HOME", fmt.Sprintf("changed from %s to %s (user scope)", current, s.Root))
+		report.change("GOBLINS_HOME", fmt.Sprintf("changed from %s to %s (user scope)", current, s.Root))
 		return nil
 	}
-	report.change("CFO_HOME", "set to "+s.Root+" (user scope)")
+	report.change("GOBLINS_HOME", "set to "+s.Root+" (user scope)")
 	return nil
 }
 
@@ -417,14 +417,14 @@ func (s Service) unsetHome(report *reporter) error {
 		return err
 	}
 	if !set {
-		report.same("CFO_HOME", "not set")
+		report.same("GOBLINS_HOME", "not set")
 		return nil
 	}
 	if err := s.Env.Unset(installbase.HomeVariable); err != nil {
 		return err
 	}
 	report.envChanged = true
-	report.change("CFO_HOME", "removed (was "+current+")")
+	report.change("GOBLINS_HOME", "removed (was "+current+")")
 	return nil
 }
 
@@ -438,7 +438,7 @@ func (s Service) setProjectsRoot(report *reporter) error {
 		report.same("projects", "root is "+current)
 		return nil
 	case s.ProjectsRoot == "":
-		report.same("projects", "root not set; `cfo install --projects-root <dir>` lets --project take a bare name")
+		report.same("projects", "root not set; `goblins install --projects-root <dir>` lets --project take a bare name")
 		return nil
 	case set && installbase.SameDirectory(current, s.ProjectsRoot):
 		report.same("projects", "root already "+current)
@@ -476,8 +476,8 @@ func (s Service) unsetProjectsRoot(report *reporter) error {
 // projectsRoot reads the machine's projects root, or "" when none is recorded.
 // The process environment answers first, so an operator can point one command
 // somewhere else. The user scope answers second, because a session that was
-// already open when `cfo install --projects-root` ran keeps its old
-// environment for as long as it lives, and the CFO's own session is exactly
+// already open when `goblins install --projects-root` ran keeps its old
+// environment for as long as it lives, and the CEO's own session is exactly
 // that.
 func projectsRoot(env installbase.EnvStore) (string, error) {
 	if root := strings.TrimSpace(os.Getenv(ProjectsRootVariable)); root != "" {
@@ -496,7 +496,7 @@ func MachineProjectsRoot() (string, error) {
 }
 
 // SetMachineProjectsRoot records root as this machine's projects root in the
-// user scope, as cfo install --projects-root does.
+// user scope, as goblins install --projects-root does.
 func SetMachineProjectsRoot(root string) error {
 	return installbase.NewEnvStore(execx.OSRunner{}).Set(ProjectsRootVariable, root)
 }
@@ -522,9 +522,9 @@ func AddToUserPath(dir string) error {
 }
 
 // addToPath puts the home's bin folder on the user PATH, where the hooks and
-// every terminal find cfo and goblins, and takes off the home's root, where an
+// every terminal find goblins, and takes off the home's root, where an
 // older install put the binaries, and the root of the former home it takes
-// over from, so neither an older build left there nor a cfo.exe built in that
+// over from, so neither an older build left there nor a goblins.exe built in that
 // checkout ever runs before this home's bin.
 func (s Service) addToPath(report *reporter, former string) error {
 	raw, _, err := s.Env.Get(pathVariable)
@@ -596,15 +596,15 @@ func (s Service) bin() string {
 	return filepath.Join(s.Root, home.BinDir)
 }
 
-// writeUserSettings takes the CFO hooks out of the user's Claude Code
+// writeUserSettings takes the CEO hooks out of the user's Claude Code
 // settings and merges the Command Center allow rules into them in one write,
 // so the one backup holds the file as it stood before either.
 //
 // The hooks were written there until 2026-10, where every Claude Code session
 // of the user ran them: each Bash call, turn end and start, in his own
-// sessions and in every goblin's, started cfo.exe, about 0.1 s each, only for
-// the hook to leave on its environment. The CFO's terminal starts with them
-// instead (CFOSettings), so no other session runs them at all, and an install
+// sessions and in every goblin's, started goblins.exe, about 0.1 s each, only for
+// the hook to leave on its environment. The CEO's terminal starts with them
+// instead (CEOSettings), so no other session runs them at all, and an install
 // removes the ones an older build wrote.
 func (s Service) writeUserSettings(report *reporter) error {
 	file, err := loadSettings(s.UserSettings)
@@ -616,7 +616,7 @@ func (s Service) writeUserSettings(report *reporter) error {
 	if err != nil {
 		return err
 	}
-	if err := file.pruneCFOHooks(); err != nil {
+	if err := file.pruneCEOHooks(); err != nil {
 		return err
 	}
 	hooksAfter, err := json.Marshal(file.values["hooks"])
@@ -664,25 +664,25 @@ func (s Service) writeUserSettings(report *reporter) error {
 		return errors.Join(err, restoreRecord())
 	}
 	if bytes.Equal(hooksBefore, hooksAfter) {
-		report.same("user hooks", "none of the CFO's in "+s.UserSettings)
+		report.same("user hooks", "none of the CEO's in "+s.UserSettings)
 	} else {
-		report.change("user hooks", "removed the CFO hooks an older build wrote into "+s.UserSettings)
+		report.change("user hooks", "removed the CEO hooks an older build wrote into "+s.UserSettings)
 	}
-	report.detail("the CFO's terminal starts with its hooks, so no other Claude Code session runs them")
+	report.detail("the CEO's terminal starts with its hooks, so no other Claude Code session runs them")
 	if len(missing) > 0 {
 		report.change("permissions", fmt.Sprintf("added %d Command Center allow rules to %s: %s", len(missing), s.UserSettings, strings.Join(missing, ", ")))
-		report.detail("so Claude Code's auto mode lets the CFO file questions, run items, reviews, presentations, documents and credential requests for the Overlord")
+		report.detail("so Claude Code's auto mode lets the CEO file questions, run items, reviews, presentations, documents and credential requests for the Overlord")
 	} else {
 		report.same("permissions", fmt.Sprintf("the %d Command Center allow rules are already in %s", len(PermissionRules()), s.UserSettings))
 	}
 	if backup != "" {
 		report.detail("backed up the previous file to " + backup)
 	}
-	report.detail(fmt.Sprintf("left %d hook(s) that are not the CFO's exactly as they were", foreign))
+	report.detail(fmt.Sprintf("left %d hook(s) that are not the CEO's exactly as they were", foreign))
 	return nil
 }
 
-// removeUserSettings takes the CFO hooks and the allow rules cfo install
+// removeUserSettings takes the CEO hooks and the allow rules goblins install
 // recorded adding out of the user's Claude Code settings in one write, and
 // then the record. A rule the adopter wrote stays, even one install would
 // have added.
@@ -695,7 +695,7 @@ func (s Service) removeUserSettings(report *reporter) error {
 	if err != nil {
 		return err
 	}
-	if err := file.pruneCFOHooks(); err != nil {
+	if err := file.pruneCEOHooks(); err != nil {
 		return err
 	}
 	hooksAfter, err := json.Marshal(file.values["hooks"])
@@ -730,27 +730,27 @@ func (s Service) removeUserSettings(report *reporter) error {
 	}
 	hooksChanged := !bytes.Equal(hooksBefore, hooksAfter)
 	if hooksChanged {
-		report.change("user hooks", "removed the CFO hooks from "+s.UserSettings)
+		report.change("user hooks", "removed the CEO hooks from "+s.UserSettings)
 	} else {
-		report.same("user hooks", "none of the CFO's in "+s.UserSettings)
+		report.same("user hooks", "none of the CEO's in "+s.UserSettings)
 	}
 	if removed > 0 {
-		report.change("permissions", fmt.Sprintf("removed the %d Command Center allow rules cfo install added to %s, keeping the rest", removed, s.UserSettings))
+		report.change("permissions", fmt.Sprintf("removed the %d Command Center allow rules goblins install added to %s, keeping the rest", removed, s.UserSettings))
 	} else {
-		report.same("permissions", "none of the Command Center allow rules cfo install added are in "+s.UserSettings)
+		report.same("permissions", "none of the Command Center allow rules goblins install added are in "+s.UserSettings)
 	}
 	if backup != "" {
 		report.detail("backed up the previous file to " + backup)
 	}
 	if hooksChanged || removed > 0 {
-		report.detail(fmt.Sprintf("left %d hook(s) that are not the CFO's exactly as they were", file.foreignHookCount()))
+		report.detail(fmt.Sprintf("left %d hook(s) that are not the CEO's exactly as they were", file.foreignHookCount()))
 	}
 	return nil
 }
 
-// clearRepoHooks drops the checkout's own hooks block. The CFO's terminal
+// clearRepoHooks drops the checkout's own hooks block. The CEO's terminal
 // starts with its hooks, so a block here fires each of them twice in the
-// CFO's own session, two session digests and two wake handlers, and once in
+// CEO's own session, two session digests and two wake handlers, and once in
 // every other session opened in the checkout. The permissions block and
 // every other key in that file are left exactly as they are.
 func (s Service) clearRepoHooks(report *reporter) error {

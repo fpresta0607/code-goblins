@@ -12,7 +12,7 @@ func postStartAtLogin(handler *HTTP, body string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest("POST", "http://board.local/api/start-at-login", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Origin", "http://board.local")
-	request.Header.Set("X-CFO-Token", orderToken)
+	request.Header.Set("X-CEO-Token", orderToken)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	return response

@@ -14,16 +14,16 @@ import (
 // is, and nothing else, so nothing he never saw closes with it.
 
 // Clearing a page's card clears only the page: a question its goblin asked
-// meanwhile stays pending for the CFO to answer, and the CFO is told of no
+// meanwhile stays pending for the CEO to answer, and the CEO is told of no
 // dismissed question, at once or when the clear's action runs.
 func TestClearingAPagesCardLeavesTheGoblinsQuestion(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
-	_, _, cfo, connection := primaryFixture(t, store)
+	_, _, ceo, connection := primaryFixture(t, store)
 	servePipe(t, store, connection)
 	askOnAPage(t, store)
 	page := store.Snapshot().Reviews[0]
-	s := &Service{Store: store, Options: Options{CFO: connection}}
+	s := &Service{Store: store, Options: Options{CEO: connection}}
 
 	// Act
 	_, queued := store.Queue(Action{ID: "clear-1", Kind: "review_clear", ReviewID: page.ID, Generation: page.Identity})
@@ -43,9 +43,9 @@ func TestClearingAPagesCardLeavesTheGoblinsQuestion(t *testing.T) {
 			t.Errorf("the goblin's question %s = %s %q, want it still pending", when, got.Status, got.Message)
 		}
 	}
-	for _, line := range cfo.lines(t) {
+	for _, line := range ceo.lines(t) {
 		if strings.Contains(line, "question") && strings.Contains(line, "dismissed") {
-			t.Errorf("the CFO got %q, want no question named dismissed", line)
+			t.Errorf("the CEO got %q, want no question named dismissed", line)
 		}
 	}
 }

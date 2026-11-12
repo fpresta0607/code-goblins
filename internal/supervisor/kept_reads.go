@@ -213,7 +213,7 @@ func (s *Service) created(path string) time.Time {
 	return created(info)
 }
 
-// sessionStarted is when a goblin started: its worktree is made fresh by cfo
+// sessionStarted is when a goblin started: its worktree is made fresh by goblins
 // spawn and kept across a switch, which writes a new spawn generation, so
 // the generation's time dates the session only when the folder cannot.
 func (s *Service) sessionStarted(meta state.TaskMeta) time.Time {
@@ -226,18 +226,18 @@ func (s *Service) sessionStarted(meta state.TaskMeta) time.Time {
 // The readers below are the snapshot's: each reads as the function it names
 // does, once per state of its file.
 
-func (s *Service) cfoConversationLeft() string {
-	path := cfoConversationLeftPath(s.Store.Home.State)
-	data, _ := kept(&s.reads, "cfo-conversation-left", []string{path}, func() ([]byte, error) { return fsx.ReadFile(path) })
-	return cfoConversationLeftNotice(data)
+func (s *Service) ceoConversationLeft() string {
+	path := ceoConversationLeftPath(s.Store.Home.State)
+	data, _ := kept(&s.reads, "ceo-conversation-left", []string{path}, func() ([]byte, error) { return fsx.ReadFile(path) })
+	return ceoConversationLeftNotice(data)
 }
 
-// cfoEngine is the engine the CFO was selected to run, read once per state of
+// ceoEngine is the engine the CEO was selected to run, read once per state of
 // its file: a snapshot that opened it every time spent one more open than the
 // budget the board's own reads keep.
-func (s *Service) cfoEngine() (CFOEngine, error) {
+func (s *Service) ceoEngine() (CEOEngine, error) {
 	directory := s.Store.Home.State
-	return kept(&s.reads, "cfo-engine", []string{filepath.Join(directory, "cfo-engine.json")}, func() (CFOEngine, error) { return ReadCFOEngine(directory) })
+	return kept(&s.reads, "ceo-engine", []string{filepath.Join(directory, "ceo-engine.json")}, func() (CEOEngine, error) { return ReadCEOEngine(directory) })
 }
 
 func (s *Service) taskMeta(id string) (state.TaskMeta, error) {
@@ -296,15 +296,15 @@ func (s *Service) backlog() (fleet.BacklogRows, error) {
 
 // queuedTask reads a queued task from everything fleet.ReadQueuedTask
 // consults: the backlog, the task's brief, its task record and status log,
-// and the archive's listing. That a task is not queued is an answer like any
-// other, and is kept.
+// the archive's listing and the done archive. That a task is not queued is
+// an answer like any other, and is kept.
 func (s *Service) queuedTask(id string) (fleet.QueuedTask, error) {
 	type answer struct {
 		task      fleet.QueuedTask
 		notQueued bool
 	}
 	h := s.Store.Home
-	paths := []string{filepath.Join(h.Data, "backlog.md"), filepath.Join(h.Data, id, "brief.md"), state.TaskMetaPath(h.State, id), state.StatusPath(h.State, id), filepath.Join(h.State, state.ArchiveDirName), filepath.Join(h.State, "outcomes", id+".json")}
+	paths := []string{filepath.Join(h.Data, "backlog.md"), filepath.Join(h.Data, id, "brief.md"), state.TaskMetaPath(h.State, id), state.StatusPath(h.State, id), filepath.Join(h.State, state.ArchiveDirName), filepath.Join(h.State, "outcomes", id+".json"), filepath.Join(h.Data, fleet.DoneArchiveName)}
 	read, err := kept(&s.reads, "queued", paths, func() (answer, error) {
 		backlog, err := s.backlog()
 		if err != nil {

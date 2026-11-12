@@ -12,6 +12,7 @@ import { CardClock } from "./card-clock";
 import { CardPullRequest } from "./card-pull-request";
 import { BrandGlyph } from "./brand-glyph";
 import { safeGitHubLink } from "./people";
+import { screenAddress } from "./screen-address";
 
 const TERMINAL_ACTIVITY: Record<string, string> = { busy: "Terminal active", active: "Terminal active", parked: "Terminal awaiting input", idle: "Terminal idle", stale: "Terminal evidence stale", unknown: "Terminal state unknown", unavailable: "Terminal unavailable", launching: "Terminal starting", ended: "Terminal ended" };
 
@@ -29,16 +30,18 @@ const TERMINAL_ACTIVITY: Record<string, string> = { busy: "Terminal active", act
 // issue"), then the mark of the harness it runs, whose tip names the model
 // and effort. A goblin leads with its name, a finished one too, which wraps
 // rather than ending in an ellipsis, and shows its task in the name's tip
-// (the CFO's decision 1008011). Its checks and deploy, the goblin it helps,
+// (the CEO's decision 1008011). Its checks and deploy, the goblin it helps,
 // what runs under it and a waiting update are in its panel. rank, when the
 // card sits in an ordered list, is read out with it; nextText and nextTone
 // mark the one card the order for a free slot takes first. The goblin it waits on is named in
 // its status line only. A goblin gone quiet, and windows still closing, are
-// the CFO's to hear, never warnings on the card.
+// the CEO's to hear, never warnings on the card.
 //
 // A card is given what it shows as plain values (cardFacts) and is drawn
 // again only when one of them changed, so a snapshot that changed another
-// goblin, or only the meters, leaves it as it is (#1599).
+// goblin, or only the meters, leaves it as it is (#1599). While the goblin's
+// own browser runs, its Browser active is a button of its own beside the
+// card's, which opens the browser's Screen view full size in a new tab.
 export const TaskCard = memo(function TaskCard({ task, status, phase, repository, isPresenting, selected, now, rank, nextText, nextTone, onSelect, buttonProps }: CardFacts & {
   task: Task; selected: boolean; now: number; rank?: string;
   nextText?: string; nextTone?: NextUp["tone"];
@@ -67,7 +70,7 @@ export const TaskCard = memo(function TaskCard({ task, status, phase, repository
   const line = [activity, ...parked].filter(Boolean).join(" · ");
   const content = <>
     <Avatar persona={personaFor(task)} />
-    <span className="card-copy"><span className="card-head">{isPresenting && <span className="browser-indicator">Browser active</span>}{nextText && <span className={"next-chip" + (nextTone ? " " + nextTone : "")}>{nextText}</span>}<strong className={"card-title" + (isNamed ? "" : " card-task-title")}>{name}</strong></span>
+    <span className="card-copy"><span className="card-head">{isPresenting && !task.browser && <span className="browser-indicator">Browser active</span>}{nextText && <span className={"next-chip" + (nextTone ? " " + nextTone : "")}>{nextText}</span>}<strong className={"card-title" + (isNamed ? "" : " card-task-title")}>{name}</strong></span>
       {rank && <span className="sr-only">, {rank}</span>}
       <span className={"plain-status phase-" + phase + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text" data-tip={task.gate_step && task.reason ? task.reason : undefined}>{status}</span></span>
       {line && <span className="card-activity">{line}</span>}
@@ -79,6 +82,8 @@ export const TaskCard = memo(function TaskCard({ task, status, phase, repository
     {task.project && <span className="card-repo">{task.project}{repositoryLink && <a className="card-repo-link" href={repositoryLink} target="_blank" rel="noreferrer" aria-label={"Open " + repository + " on GitHub"} data-tip={repository}><BrandGlyph brand="github" /></a>}</span>}
     <CardClock task={task} now={now} />
     <div className="card-icons">
+      {task.browser && <button type="button" className="browser-indicator screen-open" aria-label={"Browser active: open " + name + "'s screen in a new tab"} data-tip="Open its screen in a new tab"
+        onClick={() => window.open(screenAddress(task.id), "_blank", "noopener")}>Browser active</button>}
       {task.ticket && <TicketLink ticket={task.ticket} className="card-ticket" isIconOnly />}
       <CardPullRequest task={task} isIconOnly />
       <SameAreaAvatars overlaps={task.overlaps} />

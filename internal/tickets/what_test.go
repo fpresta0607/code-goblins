@@ -18,7 +18,7 @@ func TestTicketSectionIsTheOneBriefTextATicketCarries(t *testing.T) {
 		{name: "a brief with no section", brief: "## Task\n\nThe billing sync says why it failed.\n"},
 		{name: "an empty section", brief: "## Ticket\n\n## Task\n\nThe billing sync says why it failed.\n"},
 		{name: "a line that starts with an issue number stays in it", brief: "## Ticket\n\n#1448 asks for this.\nIt adds the layer.\n", want: "#1448 asks for this. It adds the layer."},
-		{name: "a deeper heading inside the section ends it", brief: "## Ticket\n\nThe billing sync says why it failed.\n\n### Notes for the CFO\n\nAsk the Overlord first.\n", want: "The billing sync says why it failed."},
+		{name: "a deeper heading inside the section ends it", brief: "## Ticket\n\nThe billing sync says why it failed.\n\n### Notes for the CEO\n\nAsk the Overlord first.\n", want: "The billing sync says why it failed."},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

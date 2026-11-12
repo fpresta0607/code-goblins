@@ -155,7 +155,7 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// The composer's footer names the session's permission mode
 			// while it waits, as in "⏵⏵ auto mode on (shift+tab to
 			// cycle)" or "⏸ manual mode on": a goblin runs with permission
-			// checks bypassed, and a CFO in whichever mode its session
+			// checks bypassed, and a CEO in whichever mode its session
 			// chose. The modes are Claude Code 2.1.302's.
 			Ready: claudeModes,
 			Modes: claudeModes,
@@ -585,7 +585,7 @@ func (s Screens) ComposerMatches(screen []string, typed string) bool {
 	if _, hasDialog := s.Dialog(screen); hasDialog {
 		return false
 	}
-	held, isRead := s.draft(screen)
+	held, isRead := s.Draft(screen)
 	want := compactScreen([]string{typed})
 	return isRead && want != "" && held == want
 }
@@ -600,14 +600,14 @@ func (s Screens) ComposerHoldsPartOf(screen []string, typed string) bool {
 	if !s.ComposerHoldsText(screen) {
 		return false
 	}
-	held, _ := s.draft(screen)
+	held, _ := s.Draft(screen)
 	return strings.Contains(compactScreen([]string{typed}), held) || s.ComposerHoldsOnePaste(screen)
 }
 
 // ComposerHoldsOnePaste reports whether all screen's composer holds is one
 // paste's placeholder, as a harness shows text it collapsed as a paste.
 func (s Screens) ComposerHoldsOnePaste(screen []string) bool {
-	held, isRead := s.draft(screen)
+	held, isRead := s.Draft(screen)
 	if !isRead {
 		return false
 	}
@@ -619,9 +619,9 @@ func (s Screens) ComposerHoldsOnePaste(screen []string) bool {
 	return false
 }
 
-// draft returns what screen's composer holds, without its prompt or any
+// Draft returns what screen's composer holds, without its prompt or any
 // whitespace, and false when the composer cannot be read.
-func (s Screens) draft(screen []string) (string, bool) {
+func (s Screens) Draft(screen []string) (string, bool) {
 	composer, isRead := s.composer(screen)
 	if !isRead {
 		return "", false

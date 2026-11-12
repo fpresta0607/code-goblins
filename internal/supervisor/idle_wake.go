@@ -9,12 +9,12 @@ import (
 )
 
 // idleWakeAfter is how long work that could run may wait with memory free
-// and nothing starting before the CFO is woken about it, and woken again for
-// as long as that lasts. On 2026-10-07 memory_ready woke the CFO once, the
+// and nothing starting before the CEO is woken about it, and woken again for
+// as long as that lasts. On 2026-10-07 memory_ready woke the CEO once, the
 // work it named could not start, and the fleet idled four hours.
 const idleWakeAfter = 30 * time.Minute
 
-// wakeWhenStalled wakes the CFO as idle once work the scheduler could not
+// wakeWhenStalled wakes the CEO as idle once work the scheduler could not
 // start has waited idleWakeAfter with memory free and nothing started since,
 // and again each idleWakeAfter that lasts, naming each waiting task and why it
 // did not start. A reading with nothing waiting stops the clock.
@@ -37,7 +37,7 @@ func (s *Service) wakeWhenStalled(w *fleetWakes, record *Scheduling, memory Memo
 	for _, work := range record.Waiting {
 		waiting = append(waiting, work.ID+": "+work.Why)
 	}
-	detail := fmt.Sprintf("idle: nothing has started for %d minutes with %.1f GB of memory and %.1f GB of commit free while this work waits; %s; next: fix what stops each, then start it with Start on the board or cfo spawn, or park its row if it must not start",
+	detail := fmt.Sprintf("idle: nothing has started for %d minutes with %.1f GB of memory and %.1f GB of commit free while this work waits; %s; next: fix what stops each, then start it with Start on the board or goblins spawn, or park its row if it must not start",
 		int(now.Sub(since)/time.Minute), gigabytes(memory.Available), gigabytes(memory.CommitAvailable), strings.Join(waiting, "; "))
 	if err := raiseFleetWake(s.Store.Home.State, "idle", "fleet", detail); err != nil {
 		return err

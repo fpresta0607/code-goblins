@@ -4,7 +4,7 @@ import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
 // The Command Center's History as the Overlord reads it at 05:00Z on
-// 2026-10-15: long goblin waits withdrawn or answered, a question the CFO
+// 2026-10-15: long goblin waits withdrawn or answered, a question the CEO
 // answered with its reason, a page he answered and a card he cleared.
 const NOW = Date.parse("2026-10-15T05:00:00Z");
 const minutesAgo = (minutes: number) => new Date(NOW - minutes * 60000).toISOString();
@@ -20,7 +20,7 @@ const reviews = [
 ];
 const question = {
   id: "notify-cg-verify-fast-12", identity: "a".repeat(64), task: "cg-verify-fast", generation: "s1", text: "May PR 2's gate start now, or should it wait for the running test step of PR 1 to end first?", options: ["Start PR 2's gate now", "Wait for the running test step to end"], recommended: "Wait for the running test step to end",
-  created_at: minutesAgo(8), answered_at: minutesAgo(6), status: "succeeded", answer: "Wait for the running test step to end. The running test step ends in 4 minutes and two gates at once run the machine out of memory", answer_kind: "option", answered_option: "Wait for the running test step to end", answered_by: "cfo",
+  created_at: minutesAgo(8), answered_at: minutesAgo(6), status: "succeeded", answer: "Wait for the running test step to end. The running test step ends in 4 minutes and two gates at once run the machine out of memory", answer_kind: "option", answered_option: "Wait for the running test step to end", answered_by: "ceo",
 };
 const task = (id: string, name: string, title: string) => ({ id, title: id, goblin_name: name, goblin_title: title, phase: "working", generation: "s1", verified: false, reported_at: minutesAgo(3), merged: false });
 const snapshot = parseSnapshot({

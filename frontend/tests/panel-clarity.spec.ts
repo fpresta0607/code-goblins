@@ -7,16 +7,20 @@ import { events } from "./panel-states";
 // diff read before a file is opened. The tasks are the Overlord's
 // 2026-10-05 screenshots, with the words their goblins really wrote.
 const PATCH = "@@ -1,3 +1,4 @@\n package lifecycle\n+// resume\n \n func Resume() {}\n";
+// An activity line that names its CI log, a link (#2360), and a javascript:
+// string that stays words.
+const CI_LOG = "https://ci.example.com/runs/9f3c2a1e/log";
+const ACTIVITY_LOG = "2026-10-05T16:29:40Z working: the CI log is at " + CI_LOG + "; javascript:alert(1) is not a step";
 
 async function open(page: Page, calls: string[] = []) {
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname !== "/api/events") calls.push(url.pathname + url.search);
     if (url.pathname === "/api/events") return route.fulfill({ contentType: "text/event-stream", body: events() });
-    if (url.pathname === "/api/workspace") return route.fulfill({ json: { project: "code-goblins", repository: "code-goblins", branch: "feat/resume-and-closed-cfo", root: "C:\\dev\\code-goblins\\.worktrees\\gb-cg-goblins-quickstart", harness: "claude", notes: [] } });
+    if (url.pathname === "/api/workspace") return route.fulfill({ json: { project: "code-goblins", repository: "code-goblins", branch: "feat/resume-and-closed-ceo", root: "C:\\dev\\code-goblins\\.worktrees\\gb-cg-goblins-quickstart", harness: "claude", notes: [] } });
     if (url.pathname.endsWith("/files")) return route.fulfill({ json: [{ path: "internal/lifecycle/service.go", status: "modified" }, { path: "frontend/src/workflow.ts", status: "modified" }] });
     if (url.pathname.endsWith("/diff")) return route.fulfill({ json: { path: url.searchParams.get("path"), patch: PATCH, code: "", head: "h", revision: "", fingerprint: "f", binary: false, code_omitted: false } });
-    if (url.pathname.endsWith("/activity")) return route.fulfill({ json: ["2026-10-05T16:30:06Z failed: go test ./internal/billing failed at 9f3c2a1e"] });
+    if (url.pathname.endsWith("/activity")) return route.fulfill({ json: [ACTIVITY_LOG, "2026-10-05T16:30:06Z failed: go test ./internal/billing failed at 9f3c2a1e"] });
     return route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
   });
   await page.goto("/");
@@ -30,7 +34,7 @@ const panel = (page: Page) => page.locator(".goblin-panel");
 // A card is found by the start of its title, so a test fails on what it
 // checks rather than on finding its card. Its panel holds that title in its
 // heading, or on the task line under it for a queued task with no goblin
-// named yet, which is headed by its id (#1600); the CFO's panel lists queued
+// named yet, which is headed by its id (#1600); the CEO's panel lists queued
 // titles too, so the panel must first be another's.
 async function select(page: Page, title: string) {
   // On a phone an open panel covers the board, and Back returns to it.
@@ -136,7 +140,7 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
 
       // Assert: its status says what it waits for, with no line and nothing
       // folded under it (2026-10-10, "the [More] dropdown is not really
-      // necessary"): the CFO's note on the wait is not on the board.
+      // necessary"): the CEO's note on the wait is not on the board.
       await expect(detailsHeader.locator(".panel-status")).toHaveText("Waits for 12 GB free");
       await expect(detailsHeader.locator(".panel-activity")).toHaveCount(0);
       await expect(detailsHeader.locator("details")).toHaveCount(0);
@@ -203,7 +207,7 @@ test("Workspace and Harness are closed sections like those below them, with a li
   // Assert
   const workspace = panel(page).locator("details.workspace-details");
   await expect(workspace.locator("dt")).toHaveText(["Repository", "Branch", "Working folder"]);
-  await expect(workspace.locator("dd")).toHaveText(["code-goblins", "feat/resume-and-closed-cfo", "C:\\dev\\code-goblins\\.worktrees\\gb-cg-goblins-quickstart"]);
+  await expect(workspace.locator("dd")).toHaveText(["code-goblins", "feat/resume-and-closed-ceo", "C:\\dev\\code-goblins\\.worktrees\\gb-cg-goblins-quickstart"]);
 });
 
 test("a failure's Open the log opens Activity and reads the log", async ({ page }) => {
@@ -218,5 +222,11 @@ test("a failure's Open the log opens Activity and reads the log", async ({ page 
   // Assert
   await expect(panel(page).locator("#task-activity")).toHaveAttribute("open");
   await expect(panel(page).locator(".activity-list")).toContainText("go test ./internal/billing failed");
+  const logged = panel(page).locator(".activity-list li").filter({ hasText: "the CI log is at" });
+  await expect(logged).toHaveText(ACTIVITY_LOG);
+  await expect(logged.getByRole("link")).toHaveText(CI_LOG);
+  await expect(logged.getByRole("link")).toHaveAttribute("href", CI_LOG);
+  await expect(logged.getByRole("link")).toHaveAttribute("target", "_blank");
+  await expect(panel(page).locator('.activity-list a[href^="javascript:"]')).toHaveCount(0);
   expect(calls).toContain("/api/tasks/pd-ci-minutes/activity");
 });

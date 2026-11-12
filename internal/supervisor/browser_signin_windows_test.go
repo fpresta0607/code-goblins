@@ -34,12 +34,12 @@ func TestBrowserSignInWindowOnAHiddenDesktop(t *testing.T) {
 // Overlord's screen. The copy is ended with everything it started when it
 // is done or out of time, and its output fails the test when it failed.
 func onAHiddenDesktop(t *testing.T, prove func(*testing.T)) {
-	if os.Getenv("CFO_HIDDEN_DESKTOP_PROOF") == t.Name() {
+	if os.Getenv("GOBLINS_HIDDEN_DESKTOP_PROOF") == t.Name() {
 		prove(t)
 		return
 	}
 	user32 := windows.NewLazySystemDLL("user32.dll")
-	name, err := windows.UTF16PtrFromString(fmt.Sprintf("cfo-signin-test-%d-%d", os.Getpid(), time.Now().UnixNano()))
+	name, err := windows.UTF16PtrFromString(fmt.Sprintf("ceo-signin-test-%d-%d", os.Getpid(), time.Now().UnixNano()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func onAHiddenDesktop(t *testing.T, prove func(*testing.T)) {
 	if err := proc.SetJobInformation(held, windows.JobObjectExtendedLimitInformation, unsafe.Pointer(&limits), unsafe.Sizeof(limits)); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("CFO_HIDDEN_DESKTOP_PROOF", t.Name())
+	t.Setenv("GOBLINS_HIDDEN_DESKTOP_PROOF", t.Name())
 	command, err := windows.UTF16PtrFromString(syscall.EscapeArg(os.Args[0]) + " -test.run=^" + t.Name() + "$ -test.v")
 	if err != nil {
 		t.Fatal(err)
@@ -145,7 +145,7 @@ func proveBrowserSignInWindow(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "http://"+credentialBoardHost+"/api/browser-signins/open", strings.NewReader(fmt.Sprintf(`{"id":%q,"generation":%q}`, card.ID, card.Generation)))
 	request.RemoteAddr = "127.0.0.1:8000"
 	request.Header.Set("Origin", "http://"+credentialBoardHost)
-	request.Header.Set("X-CFO-Token", service.Instance)
+	request.Header.Set("X-CEO-Token", service.Instance)
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)

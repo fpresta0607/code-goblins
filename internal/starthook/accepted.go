@@ -13,11 +13,11 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
-// acceptedFile holds, in the state directory, the start hooks the CFO
+// acceptedFile holds, in the state directory, the start hooks the CEO
 // accepted.
 const acceptedFile = "accepted-start-hooks.json"
 
-// Acceptance is a start hook the CFO judged safe and accepted for the goblins
+// Acceptance is a start hook the CEO judged safe and accepted for the goblins
 // of one project or of the fleet: the file named File whose content has the
 // SHA-256 SHA256, from the distribution whose RECORD installs it. It passes in
 // every environment of those goblins at every install, while a file that
@@ -35,7 +35,7 @@ type Acceptance struct {
 	// Distribution is the distribution whose RECORD installs it, as its
 	// .dist-info folder names it, such as zope.interface-6.4.
 	Distribution string `json:"distribution"`
-	// Task is the goblin whose stop the CFO judged it from, and At is when
+	// Task is the goblin whose stop the CEO judged it from, and At is when
 	// he accepted it.
 	Task string    `json:"task"`
 	At   time.Time `json:"at"`
@@ -59,7 +59,7 @@ func Accept(stateDir string, acceptance Acceptance) error {
 	return fsx.AtomicWriteFile(filepath.Join(stateDir, acceptedFile), append(data, '\n'))
 }
 
-// Unaccepted are the hooks among hooks that the CFO accepted, as stateDir
+// Unaccepted are the hooks among hooks that the CEO accepted, as stateDir
 // records, neither for the goblins of project nor for the fleet's.
 func Unaccepted(stateDir, project string, hooks []Hook) ([]Hook, error) {
 	acceptances, err := readAccepted(stateDir)

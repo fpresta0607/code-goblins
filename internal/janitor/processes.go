@@ -49,7 +49,7 @@ func withControllers(processes []Process, controllers []lifecycle.Identity) []Pr
 	return processes
 }
 
-// Owner is a terminal of this home: a task's, the CFO's or a run item's.
+// Owner is a terminal of this home: a task's, the CEO's or a run item's.
 type Owner struct {
 	ID string
 	// Marks are the proofs the terminal was given since the machine started.
@@ -66,7 +66,7 @@ type Owner struct {
 	// goblin that has delivered and rests: its last report is done or failed,
 	// no turn of its is in progress, and it waits on no work of its own that
 	// has shown something new within the busy budget. It is zero for a goblin
-	// that works or waits on something or somebody, for the CFO's terminal
+	// that works or waits on something or somebody, for the CEO's terminal
 	// and a run item's, and whenever it cannot be read: nothing of theirs is
 	// idle.
 	AtRestSince time.Time
@@ -130,7 +130,7 @@ func sightings(running []proc.Entry, processes []Process, owners []Owner) []reap
 	return sighted
 }
 
-// ProcessItem is one process the sweep ended or left for the CFO. Memory is
+// ProcessItem is one process the sweep ended or left for the CEO. Memory is
 // its own and that of everything under it.
 type ProcessItem struct {
 	PID     int       `json:"pid"`
@@ -201,7 +201,7 @@ type ProcessPlan struct {
 	Read   int
 	Owners []Owner
 	// Ending is what the sweep would end and Left what it would name for the
-	// CFO, each with why.
+	// CEO, each with why.
 	Ending []ProcessItem
 	Left   []ProcessItem
 	// Kept is what the sweep judged and leaves: each process that is a
@@ -212,7 +212,7 @@ type ProcessPlan struct {
 	Notes    []string
 }
 
-// planProcesses decides what a sweep ends, what it leaves for the CFO and
+// planProcesses decides what a sweep ends, what it leaves for the CEO and
 // what it goes on watching. A process is a terminal's own by the rule its
 // teardown ends it by (lifecycle.OwnedProcesses), so the sweep ends nothing
 // a pause or a stop of that terminal would not have ended.
@@ -229,7 +229,7 @@ type ProcessPlan struct {
 // idle, however still it sits. It ends with the goblin, at its pause, stop,
 // cleanup or relaunch, and shows on the board under it meanwhile.
 //
-// The rest is left and named for the CFO: a gate agent's process whose gate
+// The rest is left and named for the CEO: a gate agent's process whose gate
 // is gone, and a browser bridge nothing ties to an owner. A desktop program
 // is the Overlord's and is neither ended nor named.
 func planProcesses(processes []Process, owners []Owner, watched []Watched, now time.Time) (ending, left []ProcessItem, watching []Watched, kept []ProcessItem) {
@@ -341,7 +341,7 @@ func planProcesses(processes []Process, owners []Owner, watched []Watched, now t
 			}
 			// A process that is the terminal's by its place alone, under a
 			// living parent that is not the terminal's, is being run there
-			// by somebody else, as when the CFO reads a paused goblin's
+			// by somebody else, as when the CEO reads a paused goblin's
 			// worktree.
 			tree := under(process.PID, isDetached)
 			if !slices.Contains(owner.Marks, process.Mark) && hasLivingParent(process) {
@@ -441,7 +441,7 @@ func planProcesses(processes []Process, owners []Owner, watched []Watched, now t
 }
 
 // PlanProcesses reads the machine and the home's terminals once and says
-// what a sweep would end, what it would name for the CFO and what it would
+// what a sweep would end, what it would name for the CEO and what it would
 // leave, with the rule that decides each. It ends nothing and writes nothing.
 // The sweep acts on this same plan (sweepProcesses), so what it lists to end
 // is what a sweep with the same readers ends.

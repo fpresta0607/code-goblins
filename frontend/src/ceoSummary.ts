@@ -1,0 +1,33 @@
+import type { Snapshot } from "./types.ts";
+import { leftByTheCEO, waitingItems } from "./commandQueue.ts";
+import { afkLine } from "./afk.ts";
+import { taskColumn } from "./workflow.ts";
+
+// The pinned CEO bar says how many goblins are at work, and how many
+// items wait on the Overlord, since every question and review reaches him
+// through the CEO. It names nothing of what waits: its Open Command Center
+// glows instead, and the Command Center says what each item is. While the
+// CEO has left goblins' questions unanswered for ten minutes the bar says so
+// first, with how many and how long the oldest has waited, in place of All
+// quiet: those questions wait in his Command Center too, so the bar never
+// names one he cannot see there, and that is never an alert, which is only
+// for what asks the Overlord himself. Each fact is a short sentence of its
+// own, its number first, as the Overlord asked on 2026-10-07 ("honestly hate
+// how you print semi colons"). A goblin is at work while its card is in In
+// progress and its terminal runs, so never while it is paused, whatever for.
+//
+// While AFK mode is on the bar says so instead, and still counts what waits:
+// nothing is held for the Overlord while he is away, and Open Command Center,
+// unlit, is the bar's one way to whatever is there.
+export function ceoSummary(snapshot: Snapshot, now = Date.now()): { waiting: number; line: string } {
+  const away = afkLine(snapshot.afk, now);
+  const waiting = waitingItems(snapshot).length;
+  if (away) return { waiting, line: away };
+  const goblins = snapshot.tasks.filter((task) => !!task.generation && taskColumn(task) === "In progress" && !["paused", "pausing", "resuming"].includes(task.phase)).length;
+  const fleet = goblins ? goblins + (goblins === 1 ? " goblin" : " goblins") + " at work." : "No goblins are at work.";
+  const at = Date.parse(snapshot.at);
+  const left = (snapshot.questions || []).filter((question) => leftByTheCEO(question, at));
+  const oldest = Math.min(...left.map((question) => Date.parse(question.created_at)));
+  const behind = left.length ? `${left.length} question${left.length === 1 ? " waits" : "s wait"} for the CEO (${Math.floor((at - oldest) / 60_000)} min). ` : "";
+  return { waiting, line: behind ? behind + fleet : waiting ? fleet : "All quiet. " + fleet };
+}

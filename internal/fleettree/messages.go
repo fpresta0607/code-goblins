@@ -78,8 +78,10 @@ type Block struct {
 	Edit     Edit      `json:"edit,omitzero"`
 	Agent    AgentLink `json:"agent,omitzero"`
 	// Plan is the checklist a call wrote, as Claude Code's TodoWrite and
-	// Codex's update_plan write the whole of it each time, and none for a
-	// call that failed, was denied or was interrupted, or that Codex refused.
+	// Codex's update_plan write the whole of it each time, or the task list
+	// Claude Code's TaskCreate and TaskUpdate calls built, on the latest of
+	// them alone (messageLog.taskDone), and none for a call that failed, was
+	// denied or was interrupted, or that Codex refused.
 	Plan []PlanStep `json:"plan,omitempty"`
 }
 
@@ -104,11 +106,7 @@ const (
 // state it knows, and nil for any other call or a plan it cannot read.
 func callPlan(tool string, input json.RawMessage) []PlanStep {
 	var steps []PlanStep
-	add := func(text, status string) {
-		if text = firstLine(text); text != "" && len(steps) < planStepLimit {
-			steps = append(steps, PlanStep{Text: bounded(text, agentLineLimit), Status: status})
-		}
-	}
+	add := func(text, status string) { steps = appendStep(steps, text, status) }
 	switch tool {
 	case "TodoWrite":
 		var fields struct {
@@ -144,8 +142,39 @@ func callPlan(tool string, input json.RawMessage) []PlanStep {
 	return steps
 }
 
-// planStatus is a todo's state, pending for any Claude Code names that the
-// board does not draw.
+// appendStep adds a step with the first line of text to steps, unless that
+// line is empty or the plan already holds as many steps as one keeps.
+func appendStep(steps []PlanStep, text, status string) []PlanStep {
+	if text = firstLine(text); text != "" && len(steps) < planStepLimit {
+		steps = append(steps, PlanStep{Text: bounded(text, agentLineLimit), Status: status})
+	}
+	return steps
+}
+
+// planTask is one task of the list Claude Code's task calls build: its ID,
+// which TaskCreate's result gives and TaskUpdate names, its subject and its
+// state.
+type planTask struct {
+	ID, Subject, Status string
+}
+
+// taskCall is what a TaskCreate or TaskUpdate call asks of the task list:
+// the task it names, by TaskUpdate's ID, and the subject and state it gives,
+// a state of deleted taking the task off the list.
+type taskCall struct {
+	TaskID  string `json:"taskId"`
+	Subject string `json:"subject"`
+	Status  string `json:"status"`
+}
+
+// isTaskTool reports whether tool is one of Claude Code's that change its
+// task list.
+func isTaskTool(tool string) bool {
+	return tool == "TaskCreate" || tool == "TaskUpdate"
+}
+
+// planStatus is a todo's or a task's state, pending for any Claude Code names
+// that the board does not draw.
 func planStatus(status string) string {
 	switch status {
 	case PlanInProgress, PlanCompleted:
@@ -193,8 +222,8 @@ const (
 	// FromOverlord is a prompt typed into the session that names no other
 	// source.
 	FromOverlord = "overlord"
-	// FromCFO is the CFO's brief or a line the CFO sent.
-	FromCFO = "cfo"
+	// FromCEO is the CEO's brief or a line the CEO sent.
+	FromCEO = "ceo"
 	// FromAnswer is the Overlord's answer from the Command Center, and
 	// FromPage is one he gave on a session's Scrawl page.
 	FromAnswer = "answer"
@@ -202,7 +231,7 @@ const (
 	// FromNotice is the fleet's own word to a session rather than the
 	// Overlord's: Claude Code's notice that a background task or sub-agent
 	// ended or a monitor reported, and the wake line the supervisor types
-	// into a Codex or pi CFO's terminal.
+	// into a Codex or pi CEO's terminal.
 	FromNotice = "notice"
 	FromSlash  = "slash"
 	FromShell  = "shell"
@@ -224,7 +253,7 @@ const (
 	// pictureEntryReach bounds the entry a picture is read back from.
 	pictureEntryReach = 64 << 20
 	// messageTailReach is how much of the end of a conversation is read
-	// before its newest page is served: a CFO's conversation runs to a
+	// before its newest page is served: a CEO's conversation runs to a
 	// hundred megabytes, which take seconds to read whole.
 	messageTailReach = 8 << 20
 )
@@ -402,6 +431,16 @@ type messageState struct {
 	replies  map[string]int
 	calls    map[string]blockAt
 	pictures map[string]pictureAt
+	// tasks is the task list Claude Code's task calls built, in the order
+	// they created its tasks, as a read from the conversation's start knows
+	// it, and isTaskListLost says a call on a task the list does not hold
+	// showed the list was made elsewhere, so this read cannot know it.
+	// taskCalls is what each task call not yet settled asks of the list, and
+	// taskCard the call whose block shows it.
+	tasks          []planTask
+	isTaskListLost bool
+	taskCalls      map[string]taskCall
+	taskCard       string
 	// usage is what the conversation says the session spent, and window the
 	// context window of the model it last named (claudeContextWindow).
 	usage   Usage
@@ -425,7 +464,7 @@ type pictureAt struct {
 
 // reset starts the log over as the read epoch of its conversation.
 func (l *messageLog) reset(epoch uint64) {
-	l.messageState = messageState{epoch: epoch, replies: map[string]int{}, calls: map[string]blockAt{}, pictures: map[string]pictureAt{}}
+	l.messageState = messageState{epoch: epoch, replies: map[string]int{}, calls: map[string]blockAt{}, pictures: map[string]pictureAt{}, taskCalls: map[string]taskCall{}}
 }
 
 // messageEntry is the part of a Claude Code transcript entry the message
@@ -936,6 +975,18 @@ func (l *messageLog) reply(entry messageEntry, id string, offset int64) {
 				_ = json.Unmarshal(block.Input, &input)
 				call.Agent = AgentLink{Node: "subagent:" + block.ID, Type: cmp.Or(input.SubagentType, "general-purpose")}
 			}
+			if isTaskTool(block.Name) {
+				var asked taskCall
+				_ = json.Unmarshal(block.Input, &asked)
+				l.taskCalls[block.ID] = asked
+				subject := asked.Subject
+				if i := l.task(asked.TaskID); subject == "" && i >= 0 {
+					subject = l.tasks[i].Subject
+				}
+				if subject = firstLine(subject); subject != "" {
+					call.Subject = bounded(subject, agentLineLimit)
+				}
+			}
 			added = append(added, call)
 		}
 	}
@@ -1035,18 +1086,18 @@ var (
 	commandStdout = regexp.MustCompile(`(?s)<(local-command|bash)-(stdout|stderr)>(.*?)</(?:local-command|bash)-(?:stdout|stderr)>`)
 	// boardAnswer begins the words the board types for the Overlord's answer
 	// from the Command Center (internal/supervisor/questions.go and the
-	// items beside it), to a goblin after the CFO's stamp.
-	boardAnswer = regexp.MustCompile(`^(?:The Overlord answered |The Overlord changed the answer |User answer to CFO question |\d+ user answers to CFO questions)`)
+	// items beside it), to a goblin after the CEO's stamp.
+	boardAnswer = regexp.MustCompile(`^(?:The Overlord answered |The Overlord changed the answer |User answer to CEO question |\d+ user answers to CEO questions)`)
 	// These are the complete shapes emitted by gate_run_end.go and notify.go,
-	// after fleet.Stamp, rather than arbitrary sentences beginning with CFO.
+	// after fleet.Stamp, rather than arbitrary sentences beginning with CEO.
 	runEndedNotice = regexp.MustCompile(`^Your run .+ ended with exit -?\d+ after [^;]+; read its output and carry on from it\.$`)
-	helperNotice   = regexp.MustCompile(`(?s)^Your helper [A-Za-z0-9_-]+ (?:is done: its work is committed on its branch, .+\. Merge it into your branch with: cfo helper merge [A-Za-z0-9_-]+|asks: .+ Answer it with: cfo send [A-Za-z0-9_-]+ "<answer>"|failed: .+\. Tell it what to do with: cfo send [A-Za-z0-9_-]+ "<what>", or stop it with: cfo kill [A-Za-z0-9_-]+ --reason "<why>")$`)
+	helperNotice   = regexp.MustCompile(`(?s)^Your helper [A-Za-z0-9_-]+ (?:is done: its work is committed on its branch, .+\. Merge it into your branch with: goblins helper merge [A-Za-z0-9_-]+|asks: .+ Answer it with: goblins send [A-Za-z0-9_-]+ "<answer>"|failed: .+\. Tell it what to do with: goblins send [A-Za-z0-9_-]+ "<what>", or stop it with: goblins kill [A-Za-z0-9_-]+ --reason "<why>")$`)
 	wakeDigest     = regexp.MustCompile(`^WAKE QUEUE: (?:\d+ pending\n|empty$)`)
 )
 
-// cfoBrief ends the line a goblin starts on, which names its brief
+// ceoBrief ends the line a goblin starts on, which names its brief
 // (internal/spawn/native_launch.go).
-const cfoBrief = ": it is your instruction from the CFO."
+const ceoBrief = ": it is your instruction from the CEO."
 
 func (l *messageLog) prompt(message Message, text string) {
 	message.Kind = MessagePrompt
@@ -1064,14 +1115,14 @@ func promptOf(text string) (string, string) {
 }
 
 // WakePrefix begins the wake line the supervisor types into a Codex or pi
-// CFO's native terminal (internal/supervisor/cfo_wake.go's wakeLine builds its
+// CEO's native terminal (internal/supervisor/ceo_wake.go's wakeLine builds its
 // line from here), so the board reads that line as the fleet's own and the two
 // can never drift apart.
-const WakePrefix = "cfo watcher wake: "
+const WakePrefix = "ceo watcher wake: "
 
 // promptSource is where a prompt of text came from and the words it shows:
 // a task notice's summary, the fleet's own typed wake line, a command as it
-// was typed, the CFO's words without the stamp the CFO's lines carry, and his
+// was typed, the CEO's words without the stamp the CEO's lines carry, and his
 // own words where the board typed them into a goblin behind both stamps.
 func promptSource(text string) (string, string) {
 	if strings.HasPrefix(text, "<task-notification>") {
@@ -1079,7 +1130,7 @@ func promptSource(text string) (string, string) {
 	}
 	// The supervisor's wake line is the fleet speaking, not the Overlord: he
 	// never typed it, and it is never copied as his words. Only this exact
-	// opening is the fleet's, so anything else he types, "cfo" included,
+	// opening is the fleet's, so anything else he types, "ceo" included,
 	// stays his own message.
 	isAFKDrain := strings.HasPrefix(text, "AFK MODE IS ON: ") && strings.Contains(text, "\nIt is complete autopilot: no Command Center prompt opens for him while it is on, and nothing is asked of him or held for him.\n") && strings.Contains(text, "\nWAKE QUEUE: ")
 	if strings.HasPrefix(text, WakePrefix) || strings.HasPrefix(text, "== SESSION LOCK ==\n") || wakeDigest.MatchString(text) || isAFKDrain {
@@ -1119,8 +1170,8 @@ func promptSource(text string) (string, string) {
 			return FromPage, words
 		}
 		return FromAnswer, words
-	case isStamped, strings.HasPrefix(text, "Read ") && strings.HasSuffix(text, cfoBrief):
-		return FromCFO, words
+	case isStamped, strings.HasPrefix(text, "Read ") && strings.HasSuffix(text, ceoBrief):
+		return FromCEO, words
 	}
 	return FromOverlord, text
 }
@@ -1191,6 +1242,12 @@ type toolOutcome struct {
 	StructuredPatch     []struct {
 		Lines []string `json:"lines"`
 	} `json:"structuredPatch"`
+	// Task is the task a TaskCreate made, and Success false a TaskUpdate
+	// Claude Code refused without an error, as of a task it does not hold.
+	Task struct {
+		ID string `json:"id"`
+	} `json:"task"`
+	Success *bool `json:"success"`
 }
 
 // persisted is a result too large for the conversation as Claude Code writes
@@ -1215,7 +1272,7 @@ func (l *messageLog) result(entry messageEntry, block messageBlock, offset int64
 		call.State = CallInterrupted
 	case entry.PermissionDecision.Decision == "reject" || entry.ToolDenialKind != "":
 		call.State = CallDenied
-	case block.IsError:
+	case block.IsError, isTaskTool(call.Tool) && outcome.Success != nil && !*outcome.Success:
 		call.State = CallFailed
 	default:
 		call.State = CallDone
@@ -1242,7 +1299,51 @@ func (l *messageLog) result(entry messageEntry, block messageBlock, offset int64
 		call.Plan = nil
 	}
 	l.messages[at.message].Blocks[at.block] = call
+	if asked, isTaskCall := l.taskCalls[call.CallID]; isTaskCall {
+		delete(l.taskCalls, call.CallID)
+		if call.State == CallDone {
+			l.taskDone(at, call, asked, outcome.Task.ID)
+		}
+	}
 	l.touch(at.message)
+}
+
+// taskDone puts into the task list the change a task call that ran, call at
+// at, made as asked, a TaskCreate making the task created, and moves the
+// list's card to that call: the conversation shows the list once, at its
+// latest task call, the earlier ones staying rows. A read that cannot know
+// the list, one of a tail or one that lost it, shows it nowhere.
+func (l *messageLog) taskDone(at blockAt, call Block, asked taskCall, created string) {
+	if call.Tool == "TaskCreate" {
+		l.tasks = append(l.tasks, planTask{ID: created, Subject: asked.Subject, Status: PlanPending})
+		l.isTaskListLost = l.isTaskListLost || created == ""
+	} else if i := l.task(asked.TaskID); i < 0 {
+		l.isTaskListLost = true
+	} else if asked.Status == "deleted" {
+		l.tasks = slices.Delete(l.tasks, i, i+1)
+	} else {
+		l.tasks[i].Subject = cmp.Or(asked.Subject, l.tasks[i].Subject)
+		l.tasks[i].Status = cmp.Or(asked.Status, l.tasks[i].Status)
+	}
+	if card, isShown := l.calls[l.taskCard]; isShown && l.taskCard != "" {
+		l.messages[card.message].Blocks[card.block].Plan = nil
+		l.touch(card.message)
+	}
+	l.taskCard = ""
+	if l.from > 0 || l.isTaskListLost {
+		return
+	}
+	var steps []PlanStep
+	for _, task := range l.tasks {
+		steps = appendStep(steps, task.Subject, planStatus(task.Status))
+	}
+	l.messages[at.message].Blocks[at.block].Plan = steps
+	l.taskCard = call.CallID
+}
+
+// task is where the task list holds the task id, and -1 when it holds none.
+func (l *messageLog) task(id string) int {
+	return slices.IndexFunc(l.tasks, func(task planTask) bool { return task.ID == id })
 }
 
 // spilled is the start of a result Claude Code saved to a file of its own,

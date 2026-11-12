@@ -20,11 +20,11 @@ import (
 func TestRewriteReplacesARecordTheRenameThatPlacedItStillHolds(t *testing.T) {
 	// Arrange
 	stateDir := t.TempDir()
-	path := filepath.Join(stateDir, "hosts", "cfo.json")
+	path := filepath.Join(stateDir, "hosts", "ceo.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(host.Record{ID: "cfo", Pipe: `\\.\pipe\hosttest-nobody-serves-this`, Token: "token", Version: host.Version, HostPID: os.Getpid(), ChildPID: 4, Started: time.Now().UTC()})
+	data, err := json.Marshal(host.Record{ID: "ceo", Pipe: `\\.\pipe\hosttest-nobody-serves-this`, Token: "token", Version: host.Version, HostPID: os.Getpid(), ChildPID: 4, Started: time.Now().UTC()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,10 +52,10 @@ func TestRewriteReplacesARecordTheRenameThatPlacedItStillHolds(t *testing.T) {
 	}
 
 	// Act
-	Rewrite(t, stateDir, "cfo", func(record *host.Record) { record.ChildPID = os.Getpid() })
+	Rewrite(t, stateDir, "ceo", func(record *host.Record) { record.ChildPID = os.Getpid() })
 
 	// Assert
-	record, err := host.ReadRecord(stateDir, "cfo")
+	record, err := host.ReadRecord(stateDir, "ceo")
 	if err != nil {
 		t.Fatal(err)
 	}

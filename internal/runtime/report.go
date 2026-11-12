@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/janitor"
+	"github.com/fpresta0607/code-goblins/internal/layout"
 	"github.com/fpresta0607/code-goblins/internal/services"
 )
 
@@ -17,9 +18,9 @@ type Report struct {
 	Home   string `json:"home"`
 	// Stacks are the container groups, one per owner and stack name.
 	Stacks []Stack `json:"stacks"`
-	// Services are the local services stacks cfo services started or shares
-	// for tasks: who holds each, what cfo started of it and what it was
-	// measured to cost, and whether cfo started the Docker engine.
+	// Services are the local services stacks goblins services started or shares
+	// for tasks: who holds each, what goblins started of it and what it was
+	// measured to cost, and whether goblins started the Docker engine.
 	Services services.Record `json:"services"`
 	// LooseVolumes are named volumes no container references. They are the
 	// quiet half of the disk bill: 11 GB of them here, none attached to
@@ -29,16 +30,19 @@ type Report struct {
 	Servers []Server `json:"servers"`
 	// Folded accounts for the listeners left out of Servers and why. They are
 	// counted rather than dropped: a report that silently hides a port is one
-	// the CFO cannot trust when it does not find the port it is looking for.
+	// the CEO cannot trust when it does not find the port it is looking for.
 	Folded []Folded `json:"folded"`
 	// Headroom is what the machine has left to give.
 	Headroom Machine `json:"headroom"`
-	// Storage is what the CFO home holds on disk, by bucket: each task's
+	// Storage is what the CEO home holds on disk, by bucket: each task's
 	// worktrees and scratch folder, each cache, the binaries, the state and
 	// the data. Docker's share is in Headroom.
 	Storage janitor.Buckets `json:"storage"`
 	// Janitor is the janitor's last sweep, absent before the first.
 	Janitor *janitor.Record `json:"janitor,omitempty"`
+	// Filing is the last pass that filed the home's data, absent before the
+	// first.
+	Filing *layout.Record `json:"filing,omitempty"`
 	// Dispatch says whether the headroom has room for the next goblin.
 	Dispatch Dispatch `json:"dispatch"`
 	// Limits is the memory each running stack declared, so a dispatch
@@ -163,7 +167,7 @@ type StopVerdict string
 const (
 	// StopNo is a live goblin's server. Stopping it breaks a working goblin.
 	StopNo StopVerdict = "no"
-	// StopSafe is a server whose task is finished. `cfo reap` retires it.
+	// StopSafe is a server whose task is finished. `goblins reap` retires it.
 	StopSafe StopVerdict = "safe"
 	// StopAsk is the Overlord's own. It is not the fleet's to stop.
 	StopAsk StopVerdict = "ask"
@@ -190,6 +194,7 @@ func Build(home string, inv Inventory) Report {
 		Headroom:     inv.Machine,
 		Storage:      inv.Storage,
 		Janitor:      inv.Janitor,
+		Filing:       inv.Filing,
 		Dispatch:     inv.Machine.Dispatch(),
 		Projects:     inv.Projects,
 		Notes:        inv.Notes,
@@ -349,7 +354,7 @@ func buildFolded(inv Inventory) []Folded {
 }
 
 // buildServers attributes each listening process by the directory it is
-// actually running in, and turns that into the one verdict the CFO needs.
+// actually running in, and turns that into the one verdict the CEO needs.
 func buildServers(inv Inventory, attribution Attribution) []Server {
 	published := publishedPorts(inv.Containers)
 	servers := make([]Server, 0, len(inv.Listeners))
@@ -415,9 +420,9 @@ func (s Server) StopReason() string {
 		return "task " + s.Owner.TaskID + " is live and working in this directory"
 	case StopSafe:
 		if s.Owner.TaskID != "" {
-			return "task " + s.Owner.TaskID + " is finished; cfo reap retires it"
+			return "task " + s.Owner.TaskID + " is finished; goblins reap retires it"
 		}
-		return "no task holds this worktree; cfo reap retires it"
+		return "no task holds this worktree; goblins reap retires it"
 	case StopUnknown:
 		return "no task record for this worktree could be read, so it is not established that anything here is finished"
 	default:
@@ -461,7 +466,7 @@ func buildLimits(stacks []Stack) []StackLimit {
 	return limits
 }
 
-// ownerRank orders the report so the sections the CFO acts on come first: what
+// ownerRank orders the report so the sections the CEO acts on come first: what
 // must not be touched, then what is somebody's, then what nobody is coming
 // back for.
 func ownerRank(kind OwnerKind) int {

@@ -219,10 +219,10 @@ func TestApplyOpensAnIssueForANewTask(t *testing.T) {
 		t.Fatalf("requests = %v, want one issue opened", got)
 	}
 	opened := gh.call(t, "POST repos/"+northwind+"/issues")
-	if opened.Fields["title"][0] != ticket.Title || opened.Fields["body"][0] != ticket.Body() || !slices.Equal(opened.Fields["labels[]"], []string{"cfo: queued"}) {
+	if opened.Fields["title"][0] != ticket.Title || opened.Fields["body"][0] != ticket.Body() || !slices.Equal(opened.Fields["labels[]"], []string{"ceo: queued"}) {
 		t.Fatalf("opened with %v", opened.Fields)
 	}
-	if record == nil || record.Number != 501 || record.URL != "https://github.com/"+northwind+"/issues/501" || record.IsClaimed || record.State != Queued || record.Status != "Queued" || !slices.Equal(record.Labels, []string{"cfo: queued"}) {
+	if record == nil || record.Number != 501 || record.URL != "https://github.com/"+northwind+"/issues/501" || record.IsClaimed || record.State != Queued || record.Status != "Queued" || !slices.Equal(record.Labels, []string{"ceo: queued"}) {
 		t.Fatalf("record = %+v", record)
 	}
 }
@@ -246,18 +246,18 @@ func TestApplyMovesAnOpenedIssueThroughEachState(t *testing.T) {
 		wantAdded    []string
 		wantClosed   string
 	}{
-		{name: "queued to in progress", from: openedRecord(Queued, "cfo: queued"), to: Ticket{State: InProgress, Harness: "claude"},
-			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/cfo:%20queued", "POST " + issue + "/labels", "PATCH " + issue}, wantRemoved: "cfo: queued", wantAdded: []string{"cfo: in progress", "goblin: claude"}},
-		{name: "in progress to pull request open", from: openedRecord(InProgress, "cfo: in progress", "goblin: claude"), to: Ticket{State: PROpen, Harness: "claude", PullRequest: mergedPull},
-			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/cfo:%20in%20progress", "POST " + issue + "/labels", "PATCH " + issue}, wantAdded: []string{"cfo: pr open"}},
-		{name: "pull request open to paused", from: openedRecord(PROpen, "cfo: pr open", "goblin: claude"), to: Ticket{State: Paused, Harness: "claude", PullRequest: mergedPull},
-			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/cfo:%20pr%20open", "POST " + issue + "/labels", "PATCH " + issue}, wantAdded: []string{"cfo: paused"}},
-		{name: "in progress to blocked", from: openedRecord(InProgress, "cfo: in progress", "goblin: claude"), to: Ticket{State: Blocked, Harness: "claude", Reason: WaitingOnDecision},
-			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/cfo:%20in%20progress", "POST " + issue + "/labels", "PATCH " + issue}, wantAdded: []string{"cfo: blocked"}},
-		{name: "pull request open to merged", from: openedRecord(PROpen, "cfo: pr open", "goblin: claude"), to: Ticket{State: Merged, Harness: "claude", PullRequest: mergedPull},
-			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/cfo:%20pr%20open", "PATCH " + issue, "PATCH " + issue, "POST " + issue + "/comments"}, wantClosed: "completed"},
-		{name: "in progress to stopped", from: openedRecord(InProgress, "cfo: in progress", "goblin: claude"), to: Ticket{State: Closed, Harness: "claude", Reason: StoppedByCFO},
-			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/cfo:%20in%20progress", "PATCH " + issue, "PATCH " + issue, "POST " + issue + "/comments"}, wantClosed: "not_planned"},
+		{name: "queued to in progress", from: openedRecord(Queued, "ceo: queued"), to: Ticket{State: InProgress, Harness: "claude"},
+			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/ceo:%20queued", "POST " + issue + "/labels", "PATCH " + issue}, wantRemoved: "ceo: queued", wantAdded: []string{"ceo: in progress", "goblin: claude"}},
+		{name: "in progress to pull request open", from: openedRecord(InProgress, "ceo: in progress", "goblin: claude"), to: Ticket{State: PROpen, Harness: "claude", PullRequest: mergedPull},
+			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/ceo:%20in%20progress", "POST " + issue + "/labels", "PATCH " + issue}, wantAdded: []string{"ceo: pr open"}},
+		{name: "pull request open to paused", from: openedRecord(PROpen, "ceo: pr open", "goblin: claude"), to: Ticket{State: Paused, Harness: "claude", PullRequest: mergedPull},
+			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/ceo:%20pr%20open", "POST " + issue + "/labels", "PATCH " + issue}, wantAdded: []string{"ceo: paused"}},
+		{name: "in progress to blocked", from: openedRecord(InProgress, "ceo: in progress", "goblin: claude"), to: Ticket{State: Blocked, Harness: "claude", Reason: WaitingOnDecision},
+			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/ceo:%20in%20progress", "POST " + issue + "/labels", "PATCH " + issue}, wantAdded: []string{"ceo: blocked"}},
+		{name: "pull request open to merged", from: openedRecord(PROpen, "ceo: pr open", "goblin: claude"), to: Ticket{State: Merged, Harness: "claude", PullRequest: mergedPull},
+			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/ceo:%20pr%20open", "PATCH " + issue, "PATCH " + issue, "POST " + issue + "/comments"}, wantClosed: "completed"},
+		{name: "in progress to stopped", from: openedRecord(InProgress, "ceo: in progress", "goblin: claude"), to: Ticket{State: Closed, Harness: "claude", Reason: StoppedByCEO},
+			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/ceo:%20in%20progress", "PATCH " + issue, "PATCH " + issue, "POST " + issue + "/comments"}, wantClosed: "not_planned"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -300,7 +300,7 @@ func TestApplyMovesAnOpenedIssueThroughEachState(t *testing.T) {
 func TestApplyWritesNothingWhileTheTicketIsUnchanged(t *testing.T) {
 	// Arrange
 	gh := &issueGitHub{}
-	from := openedRecord(InProgress, "cfo: in progress", "goblin: claude")
+	from := openedRecord(InProgress, "ceo: in progress", "goblin: claude")
 
 	// Act
 	record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: InProgress, Harness: "claude"}, nil)
@@ -312,14 +312,14 @@ func TestApplyWritesNothingWhileTheTicketIsUnchanged(t *testing.T) {
 }
 
 func TestApplyRecordsAPullRequestThatAppearsWhileTheStateStays(t *testing.T) {
-	claimed := &Record{TaskID: "nw-sync", Repository: northwind, Number: 415, IsClaimed: true, CommentID: 9001, State: Paused, Status: "Paused", Labels: []string{"cfo: paused", "goblin: claude"}}
+	claimed := &Record{TaskID: "nw-sync", Repository: northwind, Number: 415, IsClaimed: true, CommentID: 9001, State: Paused, Status: "Paused", Labels: []string{"ceo: paused", "goblin: claude"}}
 	cases := []struct {
 		name      string
 		from      *Record
 		wantWrite string
 		wantBody  func(Ticket) string
 	}{
-		{name: "an opened issue's body gets its link", from: openedRecord(Paused, "cfo: paused", "goblin: claude"), wantWrite: "PATCH repos/" + northwind + "/issues/501", wantBody: Ticket.Body},
+		{name: "an opened issue's body gets its link", from: openedRecord(Paused, "ceo: paused", "goblin: claude"), wantWrite: "PATCH repos/" + northwind + "/issues/501", wantBody: Ticket.Body},
 		{name: "a claimed issue's status comment is written again", from: claimed, wantWrite: "PATCH repos/" + northwind + "/issues/comments/9001", wantBody: Ticket.StatusLine},
 	}
 	for _, tc := range cases {
@@ -422,7 +422,7 @@ func TestApplyWritesWhatTheTaskChangesAndWhereIntoTheBody(t *testing.T) {
 		wantRequests []string
 	}{
 		{name: "an issue opened with them", wantRequests: []string{"POST repos/" + northwind + "/issues"}},
-		{name: "an open issue that had neither", from: openedRecord(InProgress, "cfo: in progress", "goblin: claude"), wantRequests: []string{"PATCH " + issue}},
+		{name: "an open issue that had neither", from: openedRecord(InProgress, "ceo: in progress", "goblin: claude"), wantRequests: []string{"PATCH " + issue}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -460,7 +460,7 @@ func TestApplyListsEveryPullRequestOfTheTask(t *testing.T) {
 	// opened a second.
 	gh := &issueGitHub{}
 	second := PullRequestLink{Number: 415, URL: "https://github.com/" + northwind + "/pull/415"}
-	from := openedRecord(PROpen, "cfo: pr open", "goblin: claude")
+	from := openedRecord(PROpen, "ceo: pr open", "goblin: claude")
 	from.PullRequest, from.PullRequests = mergedPull.URL, []string{mergedPull.URL}
 	ticket := Ticket{TaskID: "nw-sync", State: PROpen, Harness: "claude", PullRequest: second, PullRequests: []PullRequestLink{mergedPull, second}}
 
@@ -545,11 +545,11 @@ func TestApplyFinishesAClaimWhoseStatusCommentFailed(t *testing.T) {
 		wantClosed   []string
 	}{
 		{name: "still in progress", next: Ticket{TaskID: "nw-sync", State: InProgress, Harness: "pi"},
-			wantRequests: []string{"POST " + issue + "/comments"}, wantStatus: "In progress: goblin nw-sync on pi", wantLabels: []string{"cfo: in progress", "goblin: pi"}},
-		{name: "stopped meanwhile", next: Ticket{TaskID: "nw-sync", State: Closed, Harness: "pi", Reason: StoppedByCFO},
-			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/cfo:%20in%20progress", "DELETE " + issue + "/labels/goblin:%20pi", "POST " + issue + "/comments"}, wantStatus: "Released: stopped by the CFO", wantLabels: []string{}},
+			wantRequests: []string{"POST " + issue + "/comments"}, wantStatus: "In progress: goblin nw-sync on pi", wantLabels: []string{"ceo: in progress", "goblin: pi"}},
+		{name: "stopped meanwhile", next: Ticket{TaskID: "nw-sync", State: Closed, Harness: "pi", Reason: StoppedByCEO},
+			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/ceo:%20in%20progress", "DELETE " + issue + "/labels/goblin:%20pi", "POST " + issue + "/comments"}, wantStatus: "Released: stopped by the CEO", wantLabels: []string{}},
 		{name: "merged meanwhile", next: Ticket{TaskID: "nw-sync", State: Merged, Harness: "pi", PullRequest: mergedPull},
-			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/cfo:%20in%20progress", "PATCH " + issue, "POST " + issue + "/comments"}, wantStatus: "Merged in #412", wantLabels: []string{"goblin: pi"}, wantClosed: []string{issue}},
+			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/ceo:%20in%20progress", "PATCH " + issue, "POST " + issue + "/comments"}, wantStatus: "Merged in #412", wantLabels: []string{"goblin: pi"}, wantClosed: []string{issue}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -570,7 +570,7 @@ func TestApplyFinishesAClaimWhoseStatusCommentFailed(t *testing.T) {
 			record, err := github.Apply(context.Background(), northwind, partial, tc.next, nil)
 
 			// Assert
-			if claimErr == nil || partial == nil || !partial.IsClaimed || partial.Number != 415 || partial.CommentID != 0 || partial.Status != "" || !slices.Equal(partial.Labels, []string{"cfo: in progress", "goblin: pi"}) {
+			if claimErr == nil || partial == nil || !partial.IsClaimed || partial.Number != 415 || partial.CommentID != 0 || partial.Status != "" || !slices.Equal(partial.Labels, []string{"ceo: in progress", "goblin: pi"}) {
 				t.Fatalf("record = %+v, err = %v, want the labelled claim kept with the failure", partial, claimErr)
 			}
 			if err != nil {
@@ -722,7 +722,7 @@ func TestApplyRedoesAFailedCloseOnThatIssueAlone(t *testing.T) {
 	closeSecond := "PATCH " + second + " state=closed"
 	gh := &issueGitHub{failures: map[string]int{closeSecond: 502}, failTimes: map[string]int{closeSecond: 1}}
 	issue := func(number int, commentID int64) Record {
-		return Record{TaskID: "nw-sync", Repository: northwind, Number: number, IsClaimed: true, CommentID: commentID, State: PROpen, Status: "PR open: #412", Labels: []string{"cfo: pr open", "goblin: claude"}}
+		return Record{TaskID: "nw-sync", Repository: northwind, Number: number, IsClaimed: true, CommentID: commentID, State: PROpen, Status: "PR open: #412", Labels: []string{"ceo: pr open", "goblin: claude"}}
 	}
 	from := issue(1343, 9001)
 	from.Issues = []Record{issue(1343, 9001), issue(1344, 9002)}
@@ -761,8 +761,8 @@ func TestApplyRefusesAClaimOverAnIssueSomeoneElseHas(t *testing.T) {
 			brief: "## Task\n\nResolve issue #415.\n", wantWhy: "issue #415 was not claimed because it is assigned to nreid1609; a new issue was opened for the task"},
 		{name: "listed, and assigned to someone else", issue: `{"number":415,"state":"open","assignees":[{"login":"nreid1609"}]}`,
 			brief: "## Task\n\n- #415 the parcel layer drops the ETJ\n", wantWhy: "issue #415 was not claimed because it is assigned to nreid1609; a new issue was opened for the task"},
-		{name: "held by another account's fleet", issue: `{"number":415,"state":"open","assignees":[],"labels":[{"name":"cfo: in progress"},{"name":"goblin: codex"}]}`,
-			brief: "## Task\n\n- #415 the parcel layer drops the ETJ\n", wantWhy: "issue #415 was not claimed because another Code Goblins fleet holds it (cfo: in progress); a new issue was opened for the task"},
+		{name: "held by another account's fleet", issue: `{"number":415,"state":"open","assignees":[],"labels":[{"name":"ceo: in progress"},{"name":"goblin: codex"}]}`,
+			brief: "## Task\n\n- #415 the parcel layer drops the ETJ\n", wantWhy: "issue #415 was not claimed because another Code Goblins fleet holds it (ceo: in progress); a new issue was opened for the task"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -834,12 +834,12 @@ func TestApplyUnassignsAClaimedIssueItReleases(t *testing.T) {
 	// Arrange
 	issue := "repos/" + northwind + "/issues/415"
 	gh := &issueGitHub{}
-	from := &Record{TaskID: "nw-sync", Repository: northwind, Number: 415, IsClaimed: true, CommentID: 9001, State: InProgress, Status: "In progress: goblin nw-sync on claude", Labels: []string{"cfo: in progress", "goblin: claude"}, Assignee: "fpresta0607"}
+	from := &Record{TaskID: "nw-sync", Repository: northwind, Number: 415, IsClaimed: true, CommentID: 9001, State: InProgress, Status: "In progress: goblin nw-sync on claude", Labels: []string{"ceo: in progress", "goblin: claude"}, Assignee: "fpresta0607"}
 
 	gh.holding(from)
 
 	// Act
-	record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: Closed, Harness: "claude", Reason: StoppedByCFO}, nil)
+	record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: Closed, Harness: "claude", Reason: StoppedByCEO}, nil)
 
 	// Assert
 	if err != nil {
@@ -863,15 +863,15 @@ func TestApplyReadsAnIssuesLabelsBeforeItChangesThem(t *testing.T) {
 		wantRequests []string
 		wantLabels   []string
 	}{
-		{name: "a label another account removed comes back", from: openedRecord(InProgress, "cfo: in progress", "goblin: claude"), live: []string{"cfo: in progress"},
+		{name: "a label another account removed comes back", from: openedRecord(InProgress, "ceo: in progress", "goblin: claude"), live: []string{"ceo: in progress"},
 			to:           Ticket{TaskID: "nw-sync", State: PROpen, Harness: "claude", PullRequest: mergedPull},
-			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/cfo:%20in%20progress", "POST " + issue + "/labels", "PATCH " + issue}, wantLabels: []string{"cfo: pr open", "goblin: claude"}},
-		{name: "a label another fleet set stays", from: openedRecord(InProgress, "cfo: in progress", "goblin: claude"), live: []string{"cfo: in progress", "goblin: claude", "cfo: blocked"},
+			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/ceo:%20in%20progress", "POST " + issue + "/labels", "PATCH " + issue}, wantLabels: []string{"ceo: pr open", "goblin: claude"}},
+		{name: "a label another fleet set stays", from: openedRecord(InProgress, "ceo: in progress", "goblin: claude"), live: []string{"ceo: in progress", "goblin: claude", "ceo: blocked"},
 			to:           Ticket{TaskID: "nw-sync", State: PROpen, Harness: "claude", PullRequest: mergedPull},
-			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/cfo:%20in%20progress", "POST " + issue + "/labels", "PATCH " + issue}, wantLabels: []string{"goblin: claude", "cfo: blocked", "cfo: pr open"}},
-		{name: "a label someone already removed is not removed again", from: openedRecord(Queued, "cfo: queued"), live: []string{},
+			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/ceo:%20in%20progress", "POST " + issue + "/labels", "PATCH " + issue}, wantLabels: []string{"goblin: claude", "ceo: blocked", "ceo: pr open"}},
+		{name: "a label someone already removed is not removed again", from: openedRecord(Queued, "ceo: queued"), live: []string{},
 			to:           Ticket{TaskID: "nw-sync", State: InProgress, Harness: "claude"},
-			wantRequests: []string{"GET " + issue, "POST " + issue + "/labels", "PATCH " + issue}, wantLabels: []string{"cfo: in progress", "goblin: claude"}},
+			wantRequests: []string{"GET " + issue, "POST " + issue + "/labels", "PATCH " + issue}, wantLabels: []string{"ceo: in progress", "goblin: claude"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -930,12 +930,12 @@ func TestApplyMovesAClaimedIssueByItsStatusComment(t *testing.T) {
 		wantClosed    bool
 		wantLabelsNow []string
 	}{
-		{name: "pull request opened", from: claimed(InProgress, "cfo: in progress", "goblin: pi"), to: Ticket{State: PROpen, Harness: "pi", PullRequest: mergedPull},
-			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/cfo:%20in%20progress", "POST " + issue + "/labels", "PATCH repos/" + northwind + "/issues/comments/9001"}, wantStatus: "PR open: #412", wantLabelsNow: []string{"cfo: pr open", "goblin: pi"}},
-		{name: "merged closes it", from: claimed(PROpen, "cfo: pr open", "goblin: pi"), to: Ticket{State: Merged, Harness: "pi", PullRequest: mergedPull},
-			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/cfo:%20pr%20open", "PATCH repos/" + northwind + "/issues/comments/9001", "PATCH " + issue}, wantStatus: "Merged in #412", wantClosed: true, wantLabelsNow: []string{"goblin: pi"}},
-		{name: "stopped releases it open", from: claimed(InProgress, "cfo: in progress", "goblin: pi"), to: Ticket{State: Closed, Harness: "pi", Reason: StoppedByCFO},
-			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/cfo:%20in%20progress", "DELETE " + issue + "/labels/goblin:%20pi", "PATCH repos/" + northwind + "/issues/comments/9001"}, wantStatus: "Released: stopped by the CFO", wantLabelsNow: []string{}},
+		{name: "pull request opened", from: claimed(InProgress, "ceo: in progress", "goblin: pi"), to: Ticket{State: PROpen, Harness: "pi", PullRequest: mergedPull},
+			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/ceo:%20in%20progress", "POST " + issue + "/labels", "PATCH repos/" + northwind + "/issues/comments/9001"}, wantStatus: "PR open: #412", wantLabelsNow: []string{"ceo: pr open", "goblin: pi"}},
+		{name: "merged closes it", from: claimed(PROpen, "ceo: pr open", "goblin: pi"), to: Ticket{State: Merged, Harness: "pi", PullRequest: mergedPull},
+			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/ceo:%20pr%20open", "PATCH repos/" + northwind + "/issues/comments/9001", "PATCH " + issue}, wantStatus: "Merged in #412", wantClosed: true, wantLabelsNow: []string{"goblin: pi"}},
+		{name: "stopped releases it open", from: claimed(InProgress, "ceo: in progress", "goblin: pi"), to: Ticket{State: Closed, Harness: "pi", Reason: StoppedByCEO},
+			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/ceo:%20in%20progress", "DELETE " + issue + "/labels/goblin:%20pi", "PATCH repos/" + northwind + "/issues/comments/9001"}, wantStatus: "Released: stopped by the CEO", wantLabelsNow: []string{}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -970,7 +970,7 @@ func TestApplyKeepsTheRecordWhenAWriteFails(t *testing.T) {
 	// Arrange
 	issue := "repos/" + northwind + "/issues/501"
 	gh := &issueGitHub{failures: map[string]int{"PATCH " + issue: 502}}
-	from := openedRecord(InProgress, "cfo: in progress", "goblin: claude")
+	from := openedRecord(InProgress, "ceo: in progress", "goblin: claude")
 
 	gh.holding(from)
 
@@ -993,14 +993,14 @@ func TestApplyRetriesAFailedCloseWithOneClosingComment(t *testing.T) {
 		to   Ticket
 	}{
 		{name: "merged", to: Ticket{TaskID: "nw-sync", State: Merged, Harness: "claude", PullRequest: mergedPull}},
-		{name: "stopped", to: Ticket{TaskID: "nw-sync", State: Closed, Harness: "claude", Reason: StoppedByCFO}},
+		{name: "stopped", to: Ticket{TaskID: "nw-sync", State: Closed, Harness: "claude", Reason: StoppedByCEO}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
 			closeIssue := "PATCH " + issue + " state=closed"
 			gh := &issueGitHub{failures: map[string]int{closeIssue: 502}, failTimes: map[string]int{closeIssue: 1}}
-			from := openedRecord(PROpen, "cfo: pr open", "goblin: claude")
+			from := openedRecord(PROpen, "ceo: pr open", "goblin: claude")
 			gh.holding(from)
 			comments := func() int {
 				return len(slices.DeleteFunc(slices.Clone(gh.calls), func(c apiCall) bool { return c.String() != "POST "+issue+"/comments" }))
@@ -1042,15 +1042,15 @@ func TestApplyPostsANewStatusCommentWhenSomeoneDeletedIt(t *testing.T) {
 		wantClosed   []string
 	}{
 		{name: "merged closes it", to: Ticket{TaskID: "nw-sync", State: Merged, Harness: "pi", PullRequest: mergedPull},
-			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/cfo:%20pr%20open", deleted, "PATCH " + issue, "POST " + issue + "/comments"}, wantStatus: "Merged in #412", wantClosed: []string{issue}},
-		{name: "stopped releases it", to: Ticket{TaskID: "nw-sync", State: Closed, Harness: "pi", Reason: StoppedByCFO},
-			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/cfo:%20pr%20open", "DELETE " + issue + "/labels/goblin:%20pi", deleted, "POST " + issue + "/comments"}, wantStatus: "Released: stopped by the CFO"},
+			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/ceo:%20pr%20open", deleted, "PATCH " + issue, "POST " + issue + "/comments"}, wantStatus: "Merged in #412", wantClosed: []string{issue}},
+		{name: "stopped releases it", to: Ticket{TaskID: "nw-sync", State: Closed, Harness: "pi", Reason: StoppedByCEO},
+			wantRequests: []string{"GET " + issue, "DELETE " + issue + "/labels/ceo:%20pr%20open", "DELETE " + issue + "/labels/goblin:%20pi", deleted, "POST " + issue + "/comments"}, wantStatus: "Released: stopped by the CEO"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
 			gh := &issueGitHub{failures: map[string]int{deleted: 404}}
-			from := &Record{TaskID: "nw-sync", Repository: northwind, Number: 415, IsClaimed: true, CommentID: 8800, State: PROpen, Status: "PR open: #412", Labels: []string{"cfo: pr open", "goblin: pi"}}
+			from := &Record{TaskID: "nw-sync", Repository: northwind, Number: 415, IsClaimed: true, CommentID: 8800, State: PROpen, Status: "PR open: #412", Labels: []string{"ceo: pr open", "goblin: pi"}}
 
 			gh.holding(from)
 
@@ -1080,7 +1080,7 @@ func TestApplyEndsATicketWhoseIssueIsGone(t *testing.T) {
 			// Arrange
 			issue := "repos/" + northwind + "/issues/501"
 			gh := &issueGitHub{failures: map[string]int{"PATCH " + issue: status}}
-			from := openedRecord(InProgress, "cfo: in progress", "goblin: claude")
+			from := openedRecord(InProgress, "ceo: in progress", "goblin: claude")
 
 			gh.holding(from)
 
@@ -1107,7 +1107,7 @@ func TestApplyKeepsATicketLiveWhileTheRepositoryIsNotVisible(t *testing.T) {
 	// Arrange
 	issue := "repos/" + northwind + "/issues/501"
 	gh := &issueGitHub{failures: map[string]int{"PATCH " + issue: 404, "GET repos/" + northwind: 404}}
-	from := openedRecord(InProgress, "cfo: in progress", "goblin: claude")
+	from := openedRecord(InProgress, "ceo: in progress", "goblin: claude")
 
 	// Act
 	record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: PROpen, Harness: "claude", PullRequest: mergedPull}, nil)
@@ -1123,9 +1123,9 @@ func TestApplyKeepsATicketLiveWhileTheRepositoryIsNotVisible(t *testing.T) {
 
 func TestApplyTakesALabelAlreadyGoneAsRemoved(t *testing.T) {
 	issue := "repos/" + northwind + "/issues/501"
-	gh := &issueGitHub{failures: map[string]int{"DELETE " + issue + "/labels/cfo:%20queued": 404}}
-	gh.holding(openedRecord(Queued, "cfo: queued"))
-	record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, openedRecord(Queued, "cfo: queued"), Ticket{TaskID: "nw-sync", State: InProgress, Harness: "claude"}, nil)
+	gh := &issueGitHub{failures: map[string]int{"DELETE " + issue + "/labels/ceo:%20queued": 404}}
+	gh.holding(openedRecord(Queued, "ceo: queued"))
+	record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, openedRecord(Queued, "ceo: queued"), Ticket{TaskID: "nw-sync", State: InProgress, Harness: "claude"}, nil)
 	if err != nil || record.State != InProgress {
 		t.Fatalf("record = %+v, err = %v, want a label someone removed by hand to count as removed", record, err)
 	}
@@ -1152,7 +1152,7 @@ func TestEnsureLabelsCreatesEachLabelOnceAndAcceptsExistingOnes(t *testing.T) {
 		}
 		names = append(names, call.Fields["name"][0])
 	}
-	want := []string{"cfo: queued", "cfo: in progress", "cfo: pr open", "cfo: paused", "cfo: blocked", "goblin: claude", "goblin: codex", "goblin: pi"}
+	want := []string{"ceo: queued", "ceo: in progress", "ceo: pr open", "ceo: paused", "ceo: blocked", "goblin: claude", "goblin: codex", "goblin: pi"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("labels created = %v, want %v", names, want)
 	}
@@ -1171,7 +1171,7 @@ func TestEnsureLabelsNamesAnyOtherFailure(t *testing.T) {
 func TestRecordRoundTripsThroughItsFile(t *testing.T) {
 	// Arrange
 	dir := t.TempDir()
-	record := Record{TaskID: "nw-sync", Repository: northwind, Number: 415, URL: "https://github.com/" + northwind + "/issues/415", IsClaimed: true, CommentID: 9001, State: PROpen, Status: "PR open: #412", Labels: []string{"cfo: pr open"}}
+	record := Record{TaskID: "nw-sync", Repository: northwind, Number: 415, URL: "https://github.com/" + northwind + "/issues/415", IsClaimed: true, CommentID: 9001, State: PROpen, Status: "PR open: #412", Labels: []string{"ceo: pr open"}}
 
 	// Act
 	writeErr := WriteRecord(dir, record)

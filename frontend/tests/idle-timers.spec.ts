@@ -4,7 +4,7 @@ declare global { interface Window { intervals: number[]; goToTray: () => void } 
 
 const GB = 2 ** 30;
 const snapshot = {
-  instance: "idle-timers-fixture", revision: 1, healthy: true, cfo_runs: true, attention: [], tasks: [],
+  instance: "idle-timers-fixture", revision: 1, healthy: true, ceo_runs: true, attention: [], tasks: [],
   memory: { total: 32 * GB, commit_limit: 48 * GB, floor: 4 * GB, next: 5 * GB, available: 9.4 * GB, commit_available: 20 * GB },
 };
 
@@ -21,7 +21,7 @@ async function recordIntervals(page: Page) {
 }
 
 // What an event can announce is not polled for (#1598): a board that is
-// connected and has nothing open but the CFO starts no interval timer, save a
+// connected and has nothing open but the CEO starts no interval timer, save a
 // one-second clock.
 test("a connected, idle board starts no interval timer but a one-second clock", async ({ page }) => {
   // Arrange

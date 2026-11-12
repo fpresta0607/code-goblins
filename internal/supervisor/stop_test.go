@@ -96,7 +96,7 @@ func TestAStopRequestEndsTheSupervisorWhileItsCycleIsBusy(t *testing.T) {
 // A stop request that names a successor, as an update's does, gets the
 // watcher lock handed to it as the supervisor ends: the lock is never free
 // between the two, so nothing else, a supervisor a goblins starts or the
-// CFO's Stop hook, can take it in the moment the supervisor used to let go.
+// CEO's Stop hook, can take it in the moment the supervisor used to let go.
 func TestAStopRequestNamingASuccessorHandsItTheWatcherLock(t *testing.T) {
 	// Arrange
 	_, h := testStore(t)

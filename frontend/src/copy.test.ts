@@ -4,7 +4,7 @@ import path from "node:path";
 import { test } from "node:test";
 import ts from "typescript";
 
-// The Overlord, 2026-10-07, on a CFO status line: "not easy to read and
+// The Overlord, 2026-10-07, on a CEO status line: "not easy to read and
 // honestly hate how you print semi colons". Every sentence the board shows him
 // is short sentences with no semicolon, so this reads every string and every
 // piece of JSX text in the board's source and names each one that joins two

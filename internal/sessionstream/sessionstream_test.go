@@ -27,7 +27,7 @@ func TestTheStreamLivesBesideTheIdentityRecord(t *testing.T) {
 		path string
 	}{
 		"goblin": {goblin(), filepath.Join("conversations", "cg-stream", "1201-1", "session-1.jsonl")},
-		"ceo":    {Identity{Harness: "pi", Session: "pi-7"}, filepath.Join("conversations", "cfo", "pi-7.jsonl")},
+		"ceo":    {Identity{Harness: "pi", Session: "pi-7"}, filepath.Join("conversations", "ceo", "pi-7.jsonl")},
 	} {
 		got, err := want.id.Path(stateDir)
 		if err != nil || got != filepath.Join(stateDir, want.path) {

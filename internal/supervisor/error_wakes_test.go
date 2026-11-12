@@ -23,11 +23,11 @@ func supervisorErrorWakes(t *testing.T, s *Service) []string {
 
 // On 2026-10-07 a failure the sweep met every ten minutes sat on the board as
 // a huge amber box that told the Overlord nothing he could act on. What the
-// supervisor meets goes to the CFO instead, once while it lasts: a line wakes
+// supervisor meets goes to the CEO instead, once while it lasts: a line wakes
 // when it is new, a line that stays or comes back with each cycle does not
 // wake again, new lines wait out the gap after the last wake rather than
 // being dropped, and a line not met for an hour is new again.
-func TestASupervisorErrorWakesTheCFOOnceWhenItIsNew(t *testing.T) {
+func TestASupervisorErrorWakesTheCEOOnceWhenItIsNew(t *testing.T) {
 	// Arrange
 	s, _ := fleetService(t)
 	now := time.Date(2026, 10, 7, 23, 0, 0, 0, time.UTC)
@@ -96,7 +96,7 @@ func TestAnErrorWakeTheQueueRefusesIsToldAtTheNextPublish(t *testing.T) {
 	}
 }
 
-func TestPublishWakesTheCFOForANewErrorButNotForUnreadableCI(t *testing.T) {
+func TestPublishWakesTheCEOForANewErrorButNotForUnreadableCI(t *testing.T) {
 	// Arrange
 	s, _ := fleetService(t)
 	s.ciUnreadable = errors.New("ci wakes: list the open pull requests of C:\\dev\\app: gh exited 1")

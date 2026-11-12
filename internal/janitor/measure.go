@@ -30,7 +30,7 @@ type Buckets struct {
 	// which measures nothing.
 	Verification      int64  `json:"verification"`
 	VerificationStore string `json:"verification_store,omitempty"`
-	// Incomplete names, as cfo runtime's table does, the buckets that held an
+	// Incomplete names, as goblins runtime's table does, the buckets that held an
 	// entry the sweep could not read, whose bytes are then what it could
 	// count, not all they hold: "task <id> worktrees", "task <id> scratch",
 	// "caches\<tool>", "caches" when the folder could not be listed, "bin",
@@ -39,6 +39,30 @@ type Buckets struct {
 	// nothing, and a path that is not there, as on a volume not mounted,
 	// holds nothing.
 	Incomplete []string `json:"incomplete,omitempty"`
+}
+
+// GateHome is what the gate's home holds: the folders the gate keeps its
+// repositories, its runs' worktrees and its logs in. Its own daemon trims it,
+// not the janitor, which measures it so goblins runtime and the disk wake show
+// it beside the home.
+type GateHome struct {
+	Folders []string `json:"folders"`
+	Bytes   int64    `json:"bytes"`
+	// IsIncomplete is a folder holding an entry the sweep could not read,
+	// whose bytes are then what it could count.
+	IsIncomplete bool `json:"incomplete,omitempty"`
+}
+
+// MeasureGate measures the gate home's folders. Links are not followed, so a
+// folder linked from one to the other counts once.
+func MeasureGate(folders []string) *GateHome {
+	gate := &GateHome{Folders: folders}
+	for _, folder := range folders {
+		bytes, isWhole := sizeOf(folder)
+		gate.Bytes += bytes
+		gate.IsIncomplete = gate.IsIncomplete || !isWhole
+	}
+	return gate
 }
 
 // Total is the bytes every bucket holds together.

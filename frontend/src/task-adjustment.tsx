@@ -50,7 +50,7 @@ export function TaskAdjustment({ task, snapshot }: { task: Task; snapshot: Snaps
     const payload = JSON.stringify({ task: task.id, revision: draft.revision, text: draft.text, action: "save" });
     if (attempt.current?.payload !== payload) attempt.current = { payload, operation: crypto.randomUUID() };
     try {
-      const response = object(await request("/api/tasks/adjust", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify({ task: task.id, revision: draft.revision, text: draft.text, action: "save", operation: attempt.current.operation }) }));
+      const response = object(await request("/api/tasks/adjust", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": snapshot.instance }, body: JSON.stringify({ task: task.id, revision: draft.revision, text: draft.text, action: "save", operation: attempt.current.operation }) }));
       setSaved({ over: task.queue_revision, revision: string(response.revision), text: draft.text });
       setDraft(null);
       attempt.current = null;

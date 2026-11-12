@@ -32,7 +32,7 @@ import (
 
 // The board reads the fleet's own records for work no native hook reported:
 // task metadata, status logs, the wake queue, the gate database, merge
-// commits in fleet repositories and what cfo cleanup leaves behind. Without
+// commits in fleet repositories and what goblins cleanup leaves behind. Without
 // them a goblin that never installed the native hooks read as awaiting
 // evidence however busy it was.
 
@@ -137,7 +137,7 @@ func GitMergedPRs(repos []string) func(context.Context, time.Time) ([]MergedPR, 
 // gitMergedPRs lists merges as GitMergedPRs does. A merge commit more than one
 // repository holds goes to the repository whose origin publishes that pull
 // request's head as the merge's second parent; when none does, to the first
-// repository listed, the CFO home first. heads lists every pull request head
+// repository listed, the CEO home first. heads lists every pull request head
 // a repository's origin publishes in one call, and a listing is kept: it is
 // asked for again only for a pull request it does not list or lists with
 // another head, such as one listed while it was still open, and then at most
@@ -329,7 +329,7 @@ func fleetEvaluation(evaluation Evaluation, meta state.TaskMeta, runtime Runtime
 		evaluation = Evaluation{Generation: meta.SpawnGen}
 	}
 	if verb, detail, ok := waitingQuestion(records, meta.ID); ok {
-		evaluation.Phase, evaluation.Reason = verb, "Waiting on the CFO: "+detail
+		evaluation.Phase, evaluation.Reason = verb, "Waiting on the CEO: "+detail
 		return evaluation
 	}
 	switch evaluation.Phase {
@@ -371,7 +371,7 @@ func latestReport(lines []string, spawned time.Time) (time.Time, string) {
 		if !spawned.IsZero() && stamp.Before(spawned.Truncate(time.Second)) {
 			break
 		}
-		if event = strings.TrimSpace(event); event != "" && !crewstate.IsCFOAudit(event) {
+		if event = strings.TrimSpace(event); event != "" && !crewstate.IsCEOAudit(event) {
 			return stamp, event
 		}
 	}
@@ -422,17 +422,17 @@ func reportKind(report string) string {
 
 // supersedesQuestion says a report is newer news than a question the task
 // asked before it: the goblin went back to work or waits on something. The
-// question stays in the CFO's queue; only the board's reading of the task
+// question stays in the CEO's queue; only the board's reading of the task
 // changes.
 func supersedesQuestion(report string) bool {
 	return strings.HasPrefix(report, "working: ") || strings.HasPrefix(report, "waiting on ")
 }
 
 // reportedProgress is what a goblin last said it is doing: working on
-// something, or waiting on another task, the Overlord, CI, a deploy or memory. A wait
-// on another task clears itself once that task reports done, and a wait on the
+// something, or waiting on another task, the Overlord, CI, a deploy, memory,
+// the gate daemon or Docker. A wait on another task clears itself once that task reports done, and a wait on the
 // Overlord once the Command Center item it raised closed, answered, cleared or
-// handed to the CFO; any other wait lasts until the goblin reports again.
+// handed to the CEO; any other wait lasts until the goblin reports again.
 func reportedProgress(tail func(id string) ([]string, error), id string, reviews []Review, reportedAt time.Time, report string) (phase, reason, waitingOn string, ok bool) {
 	if what, found := strings.CutPrefix(report, "working: "); found {
 		return "working", what, "", true
@@ -443,12 +443,12 @@ func reportedProgress(tail func(id string) ([]string, error), id string, reviews
 		return "", "", "", false
 	}
 	switch target {
-	case "ci", "deploy", "memory":
+	case "ci", "deploy", "memory", SharedGateDaemon, SharedDocker:
 	case "overlord":
 		// Its item is published after the report. An answer typed on the item
 		// counts once it reached the goblin; until then it is still on its way.
 		// An answer he gave elsewhere, such as on the item's page, is the
-		// CFO's to relay.
+		// CEO's to relay.
 		if slices.ContainsFunc(reviews, func(r Review) bool {
 			return r.Task == id && strings.HasPrefix(r.ID, "waiting-"+id+"-") && !r.CreatedAt.Before(reportedAt) &&
 				r.State != "open" && (r.State != "answered" || r.Delivered || r.AnsweredIn != "")
@@ -509,7 +509,7 @@ func breakWaitCycles(tasks []Task) [][]string {
 	return cycles
 }
 
-// tellWaitCycles tells the CFO, once for each, of a circle the goblins'
+// tellWaitCycles tells the CEO, once for each, of a circle the goblins'
 // standing waits close. A newer report of any goblin in it is a new circle.
 func (s *Service) tellWaitCycles() error {
 	snapshot, err := s.Snapshot()
@@ -527,7 +527,7 @@ func (s *Service) tellWaitCycles() error {
 				newest = task.ReportedAt
 			}
 		}
-		detail := "wait_cycle: " + strings.Join(names, " waits on ") + " waits on " + names[0] + ", each by its latest cfo notify --waiting-on, so none of them can go on as reported. Ask each what it waits for and tell the one that can go on."
+		detail := "wait_cycle: " + strings.Join(names, " waits on ") + " waits on " + names[0] + ", each by its latest goblins notify --waiting-on, so none of them can go on as reported. Ask each what it waits for and tell the one that can go on."
 		_, isNew, err := wake.AppendFirst(s.Store.Home.State, "wait-cycle/"+strings.Join(cycle, "+")+"/"+newest.UTC().Format(time.RFC3339), "notify", cycle[0], detail)
 		if err != nil {
 			return err
@@ -540,7 +540,7 @@ func (s *Service) tellWaitCycles() error {
 	return err
 }
 
-// tellParkedRuns tells the CFO, once for each, of a gate run that waits on a
+// tellParkedRuns tells the CEO, once for each, of a gate run that waits on a
 // decision since before its goblin's newest report, which holds no card. The
 // run parking again, at another step or in a later round, is a new one.
 func (s *Service) tellParkedRuns() error {
@@ -552,7 +552,7 @@ func (s *Service) tellParkedRuns() error {
 	for _, task := range snapshot.Tasks {
 		for _, run := range task.parkedBeforeReport {
 			parkedAt := run.ParkedAt.UTC().Format(time.RFC3339)
-			detail := fmt.Sprintf("parked_run: %s (%s) has gate run %s on branch %s waiting on a decision at its %s step since %s, before the goblin's newest report, so it holds no card. Act on it with cfo pipeline respond %s --branch %s, or read it with no-mistakes axi status --run %s", cmp.Or(task.GoblinName, task.ID), task.ID, run.RunID, run.Branch, run.Step, parkedAt, task.ID, run.Branch, run.RunID)
+			detail := fmt.Sprintf("parked_run: %s (%s) has gate run %s on branch %s waiting on a decision at its %s step since %s, before the goblin's newest report, so it holds no card. Act on it with goblins pipeline respond %s --branch %s, or read it with no-mistakes axi status --run %s", cmp.Or(task.GoblinName, task.ID), task.ID, run.RunID, run.Branch, run.Step, parkedAt, task.ID, run.Branch, run.RunID)
 			_, isNew, err := wake.AppendFirst(s.Store.Home.State, "parked-run/"+task.ID+"/"+run.RunID+"/"+run.Step+"/"+parkedAt, "check", task.ID, detail)
 			if err != nil {
 				return err
@@ -578,7 +578,7 @@ func statusActivity(lines []string, spawned time.Time) (string, string) {
 			break
 		}
 		event = strings.TrimSpace(event)
-		if activity == "" && !crewstate.IsCFOAudit(event) {
+		if activity == "" && !crewstate.IsCEOAudit(event) {
 			activity = event
 		}
 		// Only an https link is a pull request; the line is goblin-written.
@@ -606,7 +606,7 @@ func taskSessionSummary(lines []string, spawned time.Time) (report string, repor
 		}
 		event = strings.TrimSpace(event)
 		kind, detail, _ := strings.Cut(event, ": ")
-		if (kind == "done" || kind == "stopped") && (strings.HasPrefix(detail, "returned worktree ") || strings.HasPrefix(detail, "force-archived via cfo cleanup")) {
+		if (kind == "done" || kind == "stopped") && (strings.HasPrefix(detail, "returned worktree ") || strings.HasPrefix(detail, "force-archived via goblins cleanup")) {
 			if retired.IsZero() && report == "" {
 				retired = stamp
 			}
@@ -617,9 +617,9 @@ func taskSessionSummary(lines []string, spawned time.Time) (report string, repor
 	return report, reportedAt, retired
 }
 
-// finishedTasks are tasks cfo cleanup finished within the history window,
+// finishedTasks are tasks goblins cleanup finished within the history window,
 // newest first. Cleanup leaves the status log in place with no task record
-// beside it; cfo reap later moves it into the archive as its own file, and
+// beside it; goblins reap later moves it into the archive as its own file, and
 // older archives keep it inside the task's archived directory.
 //
 // The Completed column is rebuilt every minute, and a finished task's files
@@ -730,6 +730,8 @@ func finishedTasks(h home.Home, reads *keptReads, now time.Time) []Task {
 			phase, reason = "done", "Delivered pull request; task cleaned up"
 		} else if issue := state.DoneClosed(report); issue != "" {
 			phase, reason = "done", "Closed "+issue+"; task cleaned up"
+		} else if kept := state.DoneReport(report); kept != "" {
+			phase, reason = "done", "Reported "+kept+"; task cleaned up"
 		}
 		title, project := id, ""
 		if row, isListed := backlogRows[id]; isListed {
@@ -863,7 +865,7 @@ func withMergedPRs(history []Task, merged []MergedPR) []Task {
 // gave its number to, is no answer at all: the task keeps the outcome and
 // link it reported, its card says the evidence is unavailable, and the
 // address is not asked about again, since neither can change into evidence
-// and reporting it would only ask the CFO to act on what nothing can act on.
+// and reporting it would only ask the CEO to act on what nothing can act on.
 // All asks of one refresh share pullRequestBudget, so a slow GitHub never
 // holds the supervisor's loop much longer; a pull request not asked before it
 // runs out is asked on the next refresh.

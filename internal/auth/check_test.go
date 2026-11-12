@@ -336,6 +336,11 @@ func TestCheckSeparatesAnUninstalledProbeToolFromAnExpiredCredential(t *testing.
 	if !strings.Contains(status.Detail, "flyctl is not installed") {
 		t.Errorf("detail = %q, want it to name the missing tool", status.Detail)
 	}
+	// No check ran here, which the board says in the place of a check that
+	// did not confirm the credential.
+	if status.Unchecked != "flyctl is not installed" {
+		t.Errorf("unchecked = %q, want it to say why no check ran", status.Unchecked)
+	}
 	// It is not a credential fault, so it must not appear in the sign-in
 	// request the Overlord is asked to answer.
 	if len(report.Blocking()) != 0 {
@@ -348,6 +353,40 @@ func TestCheckSeparatesAnUninstalledProbeToolFromAnExpiredCredential(t *testing.
 	}
 	if env["FLY_API_TOKEN"] != "token-value-long-enough" {
 		t.Errorf("env = %v, want the present credential injected anyway", env)
+	}
+}
+
+// An identity check whose program is not on this machine checks nothing, so
+// the status says why no check ran, while one that ran and named another
+// project leaves nothing unchecked.
+func TestCheckSaysWhyAnIdentityCheckDidNotRun(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		results   map[string]execx.Result
+		errs      map[string]error
+		state     State
+		unchecked string
+	}{
+		{"its program is not installed", nil, map[string]error{"svcid": exec.ErrNotFound}, StateUnverified, "svcid is not installed"},
+		{"it names another project", map[string]execx.Result{"svcid": {ExitCode: 0, Stdout: []byte("db.other.test")}}, nil, StateWrongTarget, ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			clearEnv(t, "SERVICE_URL")
+			manifest := Manifest{Services: []Service{{Name: "svc", Method: MethodEnv, Env: []string{"SERVICE_URL"}, Shared: true, Identity: &Identity{Command: []string{"svcid"}, Expect: "db.this.test"}}}}
+			store := newMemoryStore(map[string]string{"SERVICE_URL": "postgres://db.this.test/db"})
+
+			// Act
+			report, err := Checker{Store: store, Runner: &fakeRunner{results: test.results, errs: test.errs}, Project: "shop"}.Check(context.Background(), manifest)
+
+			// Assert
+			if err != nil {
+				t.Fatalf("Check: %v", err)
+			}
+			if status := report.Statuses[0]; status.State != test.state || status.Unchecked != test.unchecked {
+				t.Fatalf("status = %s, unchecked %q; want %s, %q", status.State, status.Unchecked, test.state, test.unchecked)
+			}
+		})
 	}
 }
 
@@ -666,7 +705,7 @@ func TestWriteLoginRequestConsolidatesEveryBlockingService(t *testing.T) {
 		t.Fatalf("WriteLoginRequest: %v", err)
 	}
 	text := out.String()
-	for _, want := range []string{"2 services", "precisiondocs / stripe", "clock-in / neon", "cfo auth store --project precisiondocs STRIPE_SECRET_KEY", "https://console.neon.tech"} {
+	for _, want := range []string{"2 services", "precisiondocs / stripe", "clock-in / neon", "goblins auth store --project precisiondocs STRIPE_SECRET_KEY", "https://console.neon.tech"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("login request lacks %q:\n%s", want, text)
 		}

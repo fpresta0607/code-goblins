@@ -252,7 +252,7 @@ func gateCardFixture(t *testing.T, gate ProgressReader, extras []string, reports
 	return service, h
 }
 
-// parkedRunWakes are the parked_run wakes the CFO holds for task-1.
+// parkedRunWakes are the parked_run wakes the CEO holds for task-1.
 func parkedRunWakes(t *testing.T, h home.Home) []wake.Record {
 	t.Helper()
 	records, err := wake.Pending(h.State)
@@ -269,7 +269,7 @@ func parkedRunWakes(t *testing.T, h home.Home) []wake.Record {
 // The run behind it had parked the day before on an older branch of his task
 // and held the card over every report since (#1677). A gate decision holds
 // the card only while the goblin has reported nothing since the run parked;
-// an older one is an item of its own, which the CFO is woken to once.
+// an older one is an item of its own, which the CEO is woken to once.
 func TestAGateRunParkedBeforeTheNewestReportHoldsNoCard(t *testing.T) {
 	const runID = "01M5YTMPMZGYMPFFN9T08BRKMZ"
 	reports := []string{"done: PR https://github.com/o/r/pull/1671 ready", "waiting on ci: #1672 checks are running"}
@@ -317,7 +317,7 @@ func TestAGateRunParkedBeforeTheNewestReportHoldsNoCard(t *testing.T) {
 				t.Fatalf("%d parked_run wakes %+v, want %d", len(wakes), wakes, test.wantWakes)
 			}
 			for _, record := range wakes {
-				for _, want := range []string{runID, "feat/primary", "test step", parkedAt.Format(time.RFC3339), "cfo pipeline respond task-1 --branch feat/primary", "no-mistakes axi status --run " + runID} {
+				for _, want := range []string{runID, "feat/primary", "test step", parkedAt.Format(time.RFC3339), "goblins pipeline respond task-1 --branch feat/primary", "no-mistakes axi status --run " + runID} {
 					if !strings.Contains(record.Detail, want) {
 						t.Errorf("wake %q does not name %q", record.Detail, want)
 					}
@@ -331,7 +331,7 @@ func TestAGateRunParkedBeforeTheNewestReportHoldsNoCard(t *testing.T) {
 // there is an item on the task's card naming that branch, its step and that
 // run's pull request, never the task's own, and the task's phase stays its
 // own branch's and its goblin's. One parked before the goblin's newest
-// report wakes the CFO once, as a run on its own branch would.
+// report wakes the CEO once, as a run on its own branch would.
 func TestAGateRunParkedOnAnExtraWorktreesBranchIsAnItemOfItsOwn(t *testing.T) {
 	const sidePR = "https://github.com/o/r/pull/1584"
 	for _, test := range []struct {
@@ -374,7 +374,7 @@ func TestAGateRunParkedOnAnExtraWorktreesBranchIsAnItemOfItsOwn(t *testing.T) {
 				t.Fatalf("%d parked_run wakes %+v, want %d", len(wakes), wakes, test.wantWakes)
 			}
 			for _, record := range wakes {
-				if !strings.Contains(record.Detail, "cfo pipeline respond task-1 --branch fix/side") {
+				if !strings.Contains(record.Detail, "goblins pipeline respond task-1 --branch fix/side") {
 					t.Errorf("wake %q does not say how to act on the run on fix/side", record.Detail)
 				}
 			}
@@ -383,7 +383,7 @@ func TestAGateRunParkedOnAnExtraWorktreesBranchIsAnItemOfItsOwn(t *testing.T) {
 }
 
 // A goblin's question is its state while it waits on an answer: Waiting on
-// the CFO while the CFO owes one, and Blocked once answered until the answer
+// the CEO while the CEO owes one, and Blocked once answered until the answer
 // reaches the goblin, since an answer can be to stay held. Once the goblin
 // takes the answer, the question holds the card no longer, and it reads
 // Working before it writes a line of its own.
@@ -415,7 +415,7 @@ func TestAnAnsweredQuestionNoLongerHoldsTheCard(t *testing.T) {
 				}
 				harnessHook(t, store, h, harness, "task-1", "settle", now.Add(-7*time.Minute))
 				if test.isAnswered {
-					if err := wake.MarkAnswered(h.State, record.Seq, wake.AnsweredByCFO, "8080"); err != nil {
+					if err := wake.MarkAnswered(h.State, record.Seq, wake.AnsweredByCEO, "8080"); err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -428,15 +428,15 @@ func TestAnAnsweredQuestionNoLongerHoldsTheCard(t *testing.T) {
 				got := snapshotTask(t, &Service{Store: store}, "task-1")
 
 				// Assert
-				if got.Phase != test.wantPhase || strings.HasPrefix(got.Reason, "Waiting on the CFO") != test.isWaitingOn {
-					t.Fatalf("phase %q (%s), want %q waiting on the CFO %v", got.Phase, got.Reason, test.wantPhase, test.isWaitingOn)
+				if got.Phase != test.wantPhase || strings.HasPrefix(got.Reason, "Waiting on the CEO") != test.isWaitingOn {
+					t.Fatalf("phase %q (%s), want %q waiting on the CEO %v", got.Phase, got.Reason, test.wantPhase, test.isWaitingOn)
 				}
 			})
 		}
 	}
 }
 
-// failedSpawn is the line cfo spawn writes when a goblin's terminal kept its
+// failedSpawn is the line goblins spawn writes when a goblin's terminal kept its
 // instruction in the composer unsubmitted past the start's budget.
 const failedSpawn = "failed: spawn: native terminal task-1 never showed its harness working on the instruction: not within 1m30s; its screen ends: > Read the brief"
 

@@ -35,9 +35,9 @@ type Engine struct {
 	EffortAt     time.Time
 }
 
-// CFOOwner is the owner SessionEngine reads the CFO's own conversation for.
+// CEOOwner is the owner SessionEngine reads the CEO's own conversation for.
 // No task's id can spell it, and Forget keeps its reading.
-const CFOOwner = "/cfo"
+const CEOOwner = "/ceo"
 
 // engineLog is what one conversation has named of its session's engine, read
 // on from where the last read ended.
@@ -73,7 +73,7 @@ var (
 )
 
 // SessionEngine reads the engine the conversation at path names, which
-// harness wrote, for owner: a task, or the CFO's terminal. It reads on from
+// harness wrote, for owner: a task, or the CEO's terminal. It reads on from
 // where owner's last read of that conversation ended.
 func (r *Reader) SessionEngine(owner, harness, path string) (Engine, error) {
 	r.mu.Lock()

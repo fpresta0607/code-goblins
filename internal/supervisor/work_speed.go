@@ -27,9 +27,15 @@ const (
 // board's reading of its family tree, may be and still count as a reading.
 const evidenceFresh = 2 * time.Minute
 
+// selfEndingWaits are the --waiting-on targets that end and report by
+// themselves, none of them another task or a gate run: CI, a deploy, the
+// Overlord, memory, and the gate daemon and the Docker engine, whose return
+// the shared check tells the CEO.
+var selfEndingWaits = []string{"ci", "deploy", "overlord", "memory", SharedGateDaemon, SharedDocker}
+
 // waitsOnWhatEndsItself reports whether a goblin's latest report is a wait that
 // ends and reports by itself, so nothing of the goblin's own is expected
-// meanwhile: CI, a deploy, the Overlord or memory. A run is not read from here
+// meanwhile: one of selfEndingWaits. A run is not read from here
 // at all. A goblin waiting on one is paused with a record that names the run,
 // and pollAwaitedRuns watches that record, while a pause already keeps the
 // stall check off. No status line is therefore read as a run identifier, and a
@@ -43,11 +49,7 @@ func waitsOnWhatEndsItself(report string) bool {
 	if !ok {
 		return false
 	}
-	switch strings.TrimSpace(target) {
-	case "ci", "deploy", "overlord", "memory":
-		return true
-	}
-	return false
+	return slices.Contains(selfEndingWaits, strings.TrimSpace(target))
 }
 
 type WorkProgress struct {
@@ -135,7 +137,7 @@ func (s *Service) checkProgress(ctx context.Context, watched *fleetWakes, now ti
 	unread := map[string][]string{}
 	// failed holds each goblin whose read failed at this pass. Such a read
 	// is made again on the next: on 2026-10-10, with every processor busy,
-	// three goblins' reads ran out of time once and woke the CFO twice in
+	// three goblins' reads ran out of time once and woke the CEO twice in
 	// minutes. It is an error once it failed failingPasses passes in a row.
 	failed := map[string]bool{}
 	// ranOut holds why each read that ran out of time, or that the
@@ -249,7 +251,7 @@ measuring:
 	// 2026-11-04 at 01:10Z ten goblins' reads ran out in one pass while two
 	// test runs held the machine (#1630). Such a pass tells nothing of any
 	// goblin, so it neither counts nor ends a goblin's run of failed passes,
-	// and the CFO hears of it once, when it has lasted as long as a stall
+	// and the CEO hears of it once, when it has lasted as long as a stall
 	// takes to tell: no goblin that went quiet during it can be stalled
 	// before then, and one that went quiet before it keeps its clock, so its
 	// stall is raised by the first pass that reads it. One read alone cannot
@@ -259,7 +261,7 @@ measuring:
 			watched.ProgressUnreadSince = now
 		}
 		if lasted := now.Sub(watched.ProgressUnreadSince); lasted >= PROGRESS_THRESHOLD && !watched.ProgressUnreadWoke {
-			detail := fmt.Sprintf("progress_unread: every live goblin's progress read has run out of time together on every pass for %d minutes, since %s, so the machine is too slow to read any of them, not any one goblin, and no stall has been judged since; next: see what holds the machine with cfo gate turns and cfo runtime", int(lasted/time.Minute), watched.ProgressUnreadSince.UTC().Format("15:04Z"))
+			detail := fmt.Sprintf("progress_unread: every live goblin's progress read has run out of time together on every pass for %d minutes, since %s, so the machine is too slow to read any of them, not any one goblin, and no stall has been judged since; next: see what holds the machine with goblins gate turns and goblins runtime", int(lasted/time.Minute), watched.ProgressUnreadSince.UTC().Format("15:04Z"))
 			if err := raiseFleetWake(s.Store.Home.State, "check", "progress", detail); err != nil {
 				problems = errors.Join(problems, err)
 			} else {
@@ -272,7 +274,7 @@ measuring:
 		watched.ProgressUnreadSince, watched.ProgressUnreadWoke = time.Time{}, false
 	}
 	// A memory low slows every read at once: on 2026-10-08 the supervisor
-	// woke the CFO with every goblin's read run out of time while 1.9 GB was
+	// woke the CEO with every goblin's read run out of time while 1.9 GB was
 	// free. Those goblins wait for a reading that can see them.
 	if !watched.MemoryLow {
 		for _, id := range slices.Sorted(maps.Keys(ranOut)) {
@@ -292,7 +294,7 @@ measuring:
 		}
 		prior.Seconds = max(0, int64(now.Sub(prior.At)/time.Second))
 		// done and failed carry their own wake, and so does a parked decision
-		// the CFO already owns, whether it reads blocked, needs-decision or
+		// the CEO already owns, whether it reads blocked, needs-decision or
 		// checks-passed. A declared wait carries one too when it names CI, a
 		// deploy, the Overlord or memory. A wait on a task, or on a bare target
 		// no record names, is judged by the goblin's own progress instead, so
@@ -387,15 +389,15 @@ func ownReport(lines []string, born time.Time) (time.Time, string) {
 
 // awaited is what the goblin's latest report says it waits on, which the
 // family tree reads as its gate run when it names one: empty when it reports
-// no wait, or a wait on CI, a deploy, the Overlord or memory, none of which
-// is a run. A status log that cannot be read names no wait here, and the
+// no wait, or a wait on one of selfEndingWaits, none of which is a run. A
+// status log that cannot be read names no wait here, and the
 // stall check, which reads the same log, reports it.
 func (s *Service) awaited(meta state.TaskMeta) string {
 	lines, _ := s.statusTail(meta.ID)
 	_, report := ownReport(lines, spawnTime(meta.SpawnGen))
 	rest, isWaiting := strings.CutPrefix(report, "waiting on ")
 	target, _, _ := strings.Cut(rest, ": ")
-	if !isWaiting || slices.Contains([]string{"ci", "deploy", "overlord", "memory"}, target) {
+	if !isWaiting || slices.Contains(selfEndingWaits, target) {
 		return ""
 	}
 	return target

@@ -6,8 +6,8 @@ import { expect, test, type Locator, type Page } from "./site";
 const REPO = "https://github.com/northwind/northwind-api";
 const car = (number: number, state: string, title: string, note = "", goblin = "", goblin_title = "") => ({ number, url: REPO + "/pull/" + number, title, task: "nw-" + number, state, note, goblin, goblin_title });
 const SNAPSHOT = {
-  healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [],
-  sessions: [{ id: "cfo-1", harness: "claude", role: "cfo", model: "claude-opus-5-5" }],
+  healthy: true, instance: "fixture", ceo_runs: true, ceo_harness: "claude", revision: 1, attention: [],
+  sessions: [{ id: "ceo-1", harness: "claude", role: "ceo", model: "claude-opus-5-5" }],
   tasks: [
     { id: "nw-sync", title: "Say why a billing sync fails", project: "northwind-api", phase: "working", verified: false, generation: "nw-sync-1", harness: "claude", since: new Date(Date.now() - 42 * 60_000).toISOString() },
   ],

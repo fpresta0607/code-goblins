@@ -50,7 +50,7 @@ func Resolve(arg string, root func() (string, error)) (string, error) {
 		}
 	}
 	if strings.TrimSpace(dir) == "" {
-		return "", fmt.Errorf("project %q is a bare name and the %w: run `cfo install --projects-root <dir>` with the folder that holds your checkouts, or pass a path", arg, ErrRootUnset)
+		return "", fmt.Errorf("project %q is a bare name and the %w: run `goblins install --projects-root <dir>` with the folder that holds your checkouts, or pass a path", arg, ErrRootUnset)
 	}
 	dir = filepath.Clean(dir)
 	entries, err := os.ReadDir(dir)

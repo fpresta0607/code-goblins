@@ -16,7 +16,7 @@ import (
 // A native goblin runs no hook the supervisor can rely on - a Codex goblin
 // continues without trusting its hooks - so what its own screen shows decides.
 // Claude Code, Codex and pi goblins sitting at their composers with a process
-// of their own left idle wake the CFO once, three minutes in, as goblin_idle;
+// of their own left idle wake the CEO once, three minutes in, as goblin_idle;
 // on 2026-09-30 the same Codex goblin was flagged only after about an hour.
 func TestANativeGoblinIdleAtItsComposerWakesWithoutHooks(t *testing.T) {
 	for harness, screen := range map[string][]string{

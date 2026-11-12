@@ -17,7 +17,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
-// ManifestDirName is the directory under the CFO home's data/ that holds one
+// ManifestDirName is the directory under the CEO home's data/ that holds one
 // subdirectory per project.
 const ManifestDirName = "projects"
 
@@ -245,7 +245,7 @@ func validateFormats(formats []Format) error {
 }
 
 // ManifestPath returns the manifest location for a project directory under a
-// CFO home's data directory.
+// CEO home's data directory.
 func ManifestPath(dataDir, project string) string {
 	return filepath.Join(dataDir, ManifestDirName, ProjectName(project), ManifestFileName)
 }

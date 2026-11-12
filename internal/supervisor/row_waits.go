@@ -102,7 +102,7 @@ func awaitedTask(h home.Home, backlog fleet.BacklogRows, id string) string {
 }
 
 // waitRefusal is why a row with waits does not start: the first wait the
-// scheduler cannot read, which the CFO must fix, or else what it waits for,
+// scheduler cannot read, which the CEO must fix, or else what it waits for,
 // which clears by itself and holds the row.
 func waitRefusal(id string, row fleet.BacklogRow, waits []fleet.Blocker) StartRefusal {
 	targets := make([]string, len(waits))
