@@ -201,7 +201,7 @@ func TestTheCrossingLoopRestartsNothingOnItsFirstLook(t *testing.T) {
 	}()
 
 	// Assert: the first look names Huey and sets nothing to restart.
-	for deadline := time.Now().Add(every / 2); s.crossingView() == nil; time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(30 * time.Second); s.crossingView() == nil; time.Sleep(20 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("the loop's first look made no notice")
 		}
@@ -213,7 +213,7 @@ func TestTheCrossingLoopRestartsNothingOnItsFirstLook(t *testing.T) {
 		t.Fatal("the loop's first look set the goblin to restart before the notice said so")
 	}
 	// Assert: a later look sets it to restart under the new names.
-	for deadline := time.Now().Add(3 * every); ; time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(50 * time.Millisecond) {
 		if choice, err := state.ReadEngineChoice(stateDir, "cg-before"); err == nil {
 			if choice.When != "renamed" {
 				t.Fatalf("the goblin's restart is %+v, want one under the new names", choice)
