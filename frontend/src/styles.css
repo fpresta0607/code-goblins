@@ -1481,6 +1481,16 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .ceo-header-line { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: 0 8px; }
 .ceo-header-line:has(> :is(button, .muted)) { padding-block: 6px; }
 .fills-phone .ceo-header-line { margin-inline: 6px; }
+/* Why the conversation drawn is stale is one quiet line under the row, as the
+   CEO's rare states are, in muted words after a warning dot, never a notice
+   over the conversation (#2438). A dropped connection is a quiet warning dot
+   on the row's picture, where a messenger marks presence: it takes no room,
+   so nothing moves while it reconnects (2026-10-28). */
+.panel-chat-state { display: flex; align-items: flex-start; gap: 8px; margin: 0 8px; padding-block: 6px; color: var(--muted); font-size: .875rem; line-height: 1.45; overflow-wrap: anywhere; }
+.panel-chat-state::before { content: ""; flex: none; width: 8px; height: 8px; margin-top: calc(.725em - 4px); border-radius: 50%; background: var(--amber); }
+.fills-phone .panel-chat-state { margin-inline: 6px; }
+.panel-identity.is-reconnecting .goblin-avatar { position: relative; }
+.panel-identity.is-reconnecting .goblin-avatar::after { content: ""; position: absolute; right: 0; bottom: 0; width: 12px; height: 12px; border: 2px solid var(--body-bg); border-radius: 50%; background: var(--amber); }
 /* The goblin's whole name and task id, which the row may cut short, open its
    Task view. */
 .panel-whole-name { margin: 0; color: #c4d4df; font-size: 1.125rem; font-weight: 600; overflow-wrap: anywhere; }
@@ -1490,7 +1500,7 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
    as every control of a panel keeps from the next. */
 .panel-view-switch { display: flex; flex: none; align-self: center; gap: 8px; padding: 0; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--field-bg); }
 .goblin-panel > .panel-top { order: 0; }
-.goblin-panel > :is(.panel-header, .ceo-header-line) { order: 1; }
+.goblin-panel > :is(.panel-header, .ceo-header-line, .panel-chat-state) { order: 1; }
 .goblin-panel > .panel-task { order: 3; }
 .panel-view-switch > button { display: inline-grid; place-items: center; width: 44px; min-height: 44px; padding: 0; border-color: transparent; border-radius: 999px; background: transparent; color: var(--muted); }
 .panel-view-switch .icon { width: 17px; height: 17px; }
@@ -1512,6 +1522,9 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .panel-header-details { display: grid; gap: 10px; padding: 16px 28px 0; }
 .panel-header-details:empty { display: none; }
 .panel-header-details:empty + .panel-content > .workspace-details:first-child { border-top: 0; }
+/* What the CEO's details hold, its last AFK report, has as much room under it,
+   before Workspace's rule, as over it under the header's (#2438). */
+.panel-header-details:not(:empty) + .panel-content > .workspace-details:first-child { margin-top: 16px; }
 .panel-stage > .messages-view { position: absolute; inset: 0; z-index: 1; }
 .terminal-deck { display: flex; flex: 1; min-height: 0; background: #071015; }
 .terminal-deck.behind { visibility: hidden; }
