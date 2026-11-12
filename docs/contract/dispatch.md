@@ -89,7 +89,7 @@ Its spawn checks the helper contract instead of brief readiness: a nonempty brie
 It reports to its parent, not to you: its `goblins notify <helper> --done`, which needs no pull request, its `--blocked` and its `--failed` are typed into the parent's terminal, and wake you only when that terminal cannot take them.
 You are told once when each helper starts or fails to start, and `goblins fleet-view` names each helper's parent.
 The parent answers its helper with `goblins send <helper> "<answer>"`, reports `goblins notify <parent> --waiting-on <helper> "<why>"` while it only waits, which makes the helper's progress count as its own, and once the helper reports done runs `goblins helper merge <parent>`: a merge commit of the helper's branch in the parent's own worktree, then the helper retired through Stop.
-A conflict is left for the parent to resolve and commit, and asked again the command only retires the helper; the parent stays the one who opens the pull request.
+A conflict is left for the parent to resolve and commit, and asked again the command only retires the helper; a parent that opens a pull request stays the one who opens it.
 A helper its parent no longer needs is stopped with `goblins kill <helper> --reason "<why>"`, which keeps its unmerged work.
 
 ### Goblin names
