@@ -20,12 +20,14 @@ import (
 )
 
 // TestStartHiddenServerSaysWhyItsServerDidNotAnswer starts Python servers as
-// the install jobs' Start-HiddenServer starts theirs, with a 2-second wait. A
-// server that answers is handed back; one that ends first fails the wait at
-// once with its exit code and output; and one that runs but never answers
-// fails it at the deadline with its pid, its last request's error and its
-// output, and is ended. A hidden server's output reaches no log of its own, so
-// these are what a failed wait in a job says.
+// the install jobs' Start-HiddenServer starts theirs. A server that answers is
+// handed back; one that ends first fails the wait at once with its exit code
+// and output; and one that runs but never answers fails it at the deadline
+// with its pid, its last request's error and its output, and is ended. A
+// hidden server's output reaches no log of its own, so these are what a failed
+// wait in a job says. Only the server that never answers waits out its
+// deadline, so only it has a short one, and as Python can take longer than
+// that to start on a busy runner, its case reads nothing Python prints.
 func TestStartHiddenServerSaysWhyItsServerDidNotAnswer(t *testing.T) {
 	// Arrange
 	port := freePort(t)
@@ -35,25 +37,29 @@ func TestStartHiddenServerSaysWhyItsServerDidNotAnswer(t *testing.T) {
 		script    string
 		arguments string
 		url       string
+		seconds   int
 		want      []string
 	}{
 		{
 			name:      "hands back a server that answers",
 			arguments: "'-m', 'http.server', '" + strconv.Itoa(port) + "', '--bind', '127.0.0.1'",
 			url:       "http://127.0.0.1:" + strconv.Itoa(port) + "/",
+			seconds:   30,
 			want:      []string{"answered as pid"},
 		},
 		{
-			name:   "names the exit code and output of a server that ended",
-			script: "print('Serving HTTP on 127.0.0.1 port 8765')\nraise OSError('the port is taken')\n",
-			url:    refused,
-			want:   []string{"the test server exited with code 1 before it answered " + refused, "its output:\nServing HTTP on 127.0.0.1 port 8765", "OSError: the port is taken"},
+			name:    "names the exit code and output of a server that ended",
+			script:  "print('Serving HTTP on 127.0.0.1 port 8765')\nraise OSError('the port is taken')\n",
+			url:     refused,
+			seconds: 30,
+			want:    []string{"the test server exited with code 1 before it answered " + refused, "its output:\nServing HTTP on 127.0.0.1 port 8765", "OSError: the port is taken"},
 		},
 		{
-			name:   "ends a server that runs and never answers, naming its pid, last error and output",
-			script: "import time\nprint('starting')\ntime.sleep(3600)\n",
-			url:    refused,
-			want:   []string{"the test server did not answer within 2 seconds and was ended: it still ran as pid", "its last request to " + refused + " failed: ", "its output:\nstarting"},
+			name:    "ends a server that runs and never answers, naming its pid, last error and output",
+			script:  "import time\ntime.sleep(3600)\n",
+			url:     refused,
+			seconds: 2,
+			want:    []string{"the test server did not answer within 2 seconds and was ended: it still ran as pid", "its last request to " + refused + " failed: ", "its output:\n", "its errors:\n"},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -70,7 +76,7 @@ func TestStartHiddenServerSaysWhyItsServerDidNotAnswer(t *testing.T) {
 			script := "$ErrorActionPreference = 'Stop'\n" +
 				". '" + hiddenServerScript(t) + "'\n" +
 				"try {\n" +
-				"  $server = Start-HiddenServer -Name 'test server' -ArgumentList " + arguments + " -Url '" + test.url + "' -Log '" + filepath.Join(dir, "server") + "' -Seconds 2\n" +
+				"  $server = Start-HiddenServer -Name 'test server' -ArgumentList " + arguments + " -Url '" + test.url + "' -Log '" + filepath.Join(dir, "server") + "' -Seconds " + strconv.Itoa(test.seconds) + "\n" +
 				"  \"answered as pid $($server.Id)\"\n" +
 				"  Stop-Process -Id $server.Id\n" +
 				"} catch { $_.Exception.Message }\n"
