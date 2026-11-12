@@ -24,14 +24,14 @@ func decisionService(stateDir string, probe Prober, now *time.Time) Service {
 }
 
 // park drives one scan so the task has an observation, then blocks it with an
-// unacknowledged wake record, exactly as `cfo notify <id> --blocked` leaves it.
+// unacknowledged wake record, exactly as `goblins notify <id> --blocked` leaves it.
 func park(t *testing.T, service Service, stateDir, id, question string) {
 	t.Helper()
 	notifyFrom(t, service, stateDir, id, "blocked: "+question)
 }
 
 // notifyFrom is park for any notify verb, so a `--failed` notify - which
-// `cfo drain` also renders as a decision and refuses to ack unread - can be
+// `goblins drain` also renders as a decision and refuses to ack unread - can be
 // driven through the same path.
 func notifyFrom(t *testing.T, service Service, stateDir, id, detail string) {
 	t.Helper()
@@ -68,7 +68,7 @@ func cycle(t *testing.T, service Service, now *time.Time, count int) []Event {
 	return events
 }
 
-// The incident: two goblins parked on a CFO decision and waited 8h47m while
+// The incident: two goblins parked on a CEO decision and waited 8h47m while
 // the watcher cycled the whole time. One wake fired, reached nobody, and
 // nothing ever asked again, because the monitor treated "emitted once" as
 // "answered". An unanswered question must keep asking.
@@ -103,7 +103,7 @@ func TestScanReAsksAnUnansweredDecisionInsteadOfGoingQuiet(t *testing.T) {
 // The noise protection the original comment was right to want, kept exactly
 // where it belongs. Working is the one reading that suppresses a re-ask even
 // with the question still on the ledger: the goblin is executing, typically
-// because the CFO answered it. An idle pane is not executing, so what keeps
+// because the CEO answered it. An idle pane is not executing, so what keeps
 // it quiet is the record itself - an informational notify is not a question.
 func TestScanNeverReAsksAGoblinThatIsWorking(t *testing.T) {
 	for _, test := range []struct {
@@ -314,7 +314,7 @@ func TestScanNeverReAsksAnInformationalDoneNotify(t *testing.T) {
 
 	notifyFrom(t, service, stateDir, "g1", "done: PR https://example.test/repo/pull/7")
 	if events := cycle(t, service, &now, 1); len(events) != 0 {
-		t.Fatalf("a freshly reported done woke the CFO: %+v", events)
+		t.Fatalf("a freshly reported done woke the CEO: %+v", events)
 	}
 
 	// The pane's own counter advances, which releases the gate the terminal
@@ -339,7 +339,7 @@ func TestScanNeverReAsksAnInformationalDoneNotify(t *testing.T) {
 
 // The suppression is the pending record, never the status line. A goblin's
 // `done:` verb is the last thing it ever wrote and stays there forever, so a
-// goblin the CFO acked and then steered back to work with `cfo send` would be
+// goblin the CEO acked and then steered back to work with `goblins send` would be
 // silenced by a verb from hours ago - the same silence, arriving by a
 // different door. Once the notify is acked, a turn that ends at the prompt is
 // a standing question again.
@@ -362,7 +362,7 @@ func TestScanReAsksAfterAnAckedDoneLeavesTheGoblinWaitingAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The CFO steers the acked goblin back to work; its turn then ends at the
+	// The CEO steers the acked goblin back to work; its turn then ends at the
 	// prompt with a question, and it files no new notify. The `done:` line it
 	// wrote earlier is still the latest verb in its status file.
 	working := sampleForStatus(meta, herdr.AgentWorking, "moved")
@@ -581,7 +581,7 @@ func TestScanStopsReAskingTheWaitingPromptOnceItIsAcked(t *testing.T) {
 
 // A question the Overlord answered on the board is owed nothing more: the
 // goblin has its answer, so the monitor stops re-asking while the record
-// waits for the CFO's ordinary ack.
+// waits for the CEO's ordinary ack.
 func TestScanStopsReAskingAQuestionAnsweredOnTheBoard(t *testing.T) {
 	stateDir := t.TempDir()
 	now := time.Date(2026, 9, 18, 2, 40, 49, 0, time.UTC)

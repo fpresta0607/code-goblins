@@ -33,8 +33,8 @@ const STATES: GoblinState[] = [
 ];
 
 const SNAPSHOT = {
-  healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [],
-  sessions: [{ id: "cfo-1", harness: "claude", role: "cfo", model: "claude-opus-5-5" }],
+  healthy: true, instance: "fixture", ceo_runs: true, ceo_harness: "claude", revision: 1, attention: [],
+  sessions: [{ id: "ceo-1", harness: "claude", role: "ceo", model: "claude-opus-5-5" }],
   tasks: STATES.map(({ id, name, fields }) => {
     const [goblinName, goblinTitle] = name.split(" - ");
     return { id, title: id, goblin_name: goblinName, goblin_title: goblinTitle, project: "northwind-api", verified: false,

@@ -18,7 +18,7 @@ import (
 
 // lockHolder makes the test binary another command of the fleet's: one that
 // holds, or tries to take, one of a task's locks from a process of its own,
-// as cfo resume, cfo switch and cfo pause do. TestMain runs it.
+// as goblins resume, goblins switch and goblins pause do. TestMain runs it.
 const lockHolder = "hold-a-task-lock"
 
 // runLockHolder takes the lock arguments name in the state directory they
@@ -80,7 +80,7 @@ func everythingOf(task homeTask) []string {
 	return append([]string{task.worktree, task.scratch, state.TaskMetaPath(task.stateDir, "g1")}, task.extras...)
 }
 
-// On 2026-10-09 the supervisor resumed a paused goblin while the CFO's
+// On 2026-10-09 the supervisor resumed a paused goblin while the CEO's
 // cleanup of it ran: the cleanup removed the worktree under the resume, which
 // then wrote a new task record. A cleanup that finds a pause, a resume or a
 // stop of its task in flight, or its record being changed as a switch and a
@@ -176,11 +176,11 @@ func TestCleanupHoldsTheTaskAgainstEveryCommandThatChangesIt(t *testing.T) {
 	}
 }
 
-// cfo kill stops a goblin and then cleans it up in its own process, while it
+// goblins kill stops a goblin and then cleans it up in its own process, while it
 // still holds the task's lifecycle and record locks. Those are the cleanup's
 // own caller's, so the cleanup runs, and leaves them held for the caller to
 // release.
-func TestCleanupRunsUnderTheLocksItsOwnProcessHoldsAsCfoKillDoes(t *testing.T) {
+func TestCleanupRunsUnderTheLocksItsOwnProcessHoldsAsCeoKillDoes(t *testing.T) {
 	// Arrange
 	task := newHomeTask(t)
 	held := []string{state.LifecycleLockName("g1"), state.MetadataLockName("g1")}

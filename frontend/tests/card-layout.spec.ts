@@ -147,14 +147,14 @@ for (const [width, region] of [[1400, 280], [390, 0], [1000, 0]]) {
   });
 }
 
-// In a list as narrow as the CFO panel's queue on a phone, a card's clock and
+// In a list as narrow as the CEO panel's queue on a phone, a card's clock and
 // icons, its harness mark last, take a line under its name and status, which
 // keep the card's whole width, inside the list and with nothing drawn over
 // anything else.
-test("at 390 px a card in the CFO panel's queue puts its clock and icons under its text", async ({ page }) => {
+test("at 390 px a card in the CEO panel's queue puts its clock and icons under its text", async ({ page }) => {
   await board(page, 390, 0, "?queue");
-  const shell = page.locator(".cfo-queue .task-card-shell").first();
-  const list = (await page.locator(".cfo-queue .task-cards").first().boundingBox())!;
+  const shell = page.locator(".ceo-queue .task-card-shell").first();
+  const list = (await page.locator(".ceo-queue .task-cards").first().boundingBox())!;
   const card = (await shell.locator(".task-card").boundingBox())!, mark = (await shell.locator(".card-harness").boundingBox())!;
   expect(list.width).toBeLessThan(420);
   expect(mark.y).toBeGreaterThanOrEqual(card.y + card.height);
@@ -333,18 +333,18 @@ test("a card shows its harness mark with the harness, model and effort in its ti
 });
 
 // The Overlord, 2026-10-07: "format and indent can fill whole box why so
-// uneven". In his window, beside the CFO's panel, a live card's status
+// uneven". In his window, beside the CEO's panel, a live card's status
 // starts where its name starts, as a row in a conversation list does since
 // 2026-10-17. The Overlord, 2026-10-16: a card
 // carries no action buttons, so a goblin with a harness update waiting shows
 // no Update, Pause or Stop on its card; they are in its panel.
-test.describe("in his window, beside the CFO's panel", () => {
+test.describe("in his window, beside the CEO's panel", () => {
   test.use({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 });
 
   test("a live card's status lines up under its name, and it carries no controls", async ({ page }) => {
     // Arrange
     const live = { id: "cg-board-trim", title: "Trim the board's header, meters and cards", project: "code-goblins", phase: "working", verified: false, generation: "g1", since: "2026-10-07T20:00:00Z", harness: "claude", harness_update: { harness: "claude", installed: "2026-10-07T20:30:00Z" } };
-    await holdStream(page, { healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [], tasks: [live] });
+    await holdStream(page, { healthy: true, instance: "fixture", ceo_runs: true, ceo_harness: "claude", revision: 1, attention: [], tasks: [live] });
     await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
     await page.goto("/");
     await page.keyboard.press("Control+Alt+1");

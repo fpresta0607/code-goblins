@@ -126,7 +126,7 @@ for (const owner of ["CEO", "goblin"]) {
   for (const isWorking of [true, false]) {
     test(`${owner}: working metadata stays frozen near the end when ${isWorking ? "finishing" : "starting"}`, async ({ page }) => {
       const action = { id: "working-tail", kind: "message", task_id: owner === "CEO" ? "" : GOBLIN.id, text: "Waiting for this turn", status: "running", awaiting: { task: owner === "CEO" ? "" : GOBLIN.id }, can_send_now: true, at };
-      const board = (isBusy: boolean, revision: number) => snapshot({ revision, actions: [action], cfo_session: "cfo-1", sessions: [{ id: "cfo-1", role: "cfo", harness: "claude", phase: isBusy ? "working" : "idle" }] }, { phase: isBusy ? "working" : "idle" });
+      const board = (isBusy: boolean, revision: number) => snapshot({ revision, actions: [action], ceo_session: "ceo-1", sessions: [{ id: "ceo-1", role: "ceo", harness: "claude", phase: isBusy ? "working" : "idle" }] }, { phase: isBusy ? "working" : "idle" });
       await open(page, board(isWorking, 1), "", LONG);
       if (owner === "CEO") await page.keyboard.press("Control+Alt+1");
       else await openGoblin(page);

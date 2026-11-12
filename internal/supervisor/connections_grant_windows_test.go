@@ -57,8 +57,8 @@ func grantBoard(t *testing.T) (*Service, string) {
 }
 
 // A connector's Connect gives the task the service or MCP server, and its
-// Disconnect takes it back, as cfo auth grant and cfo auth revoke do: the task's
-// record changes, its status names the Overlord's board, and the CFO is told.
+// Disconnect takes it back, as goblins auth grant and goblins auth revoke do: the task's
+// record changes, its status names the Overlord's board, and the CEO is told.
 func TestAConnectorPressGivesAndTakesBackAServiceOrAnMCPServer(t *testing.T) {
 	cases := []struct {
 		name, connection string
@@ -95,7 +95,7 @@ func TestAConnectorPressGivesAndTakesBackAServiceOrAnMCPServer(t *testing.T) {
 				if err != nil || !slices.ContainsFunc(pending, func(record wake.Record) bool {
 					return strings.Contains(record.Detail, "connections: the Overlord "+step.done+" "+name+" from his own board")
 				}) {
-					t.Fatalf("wakes = %+v (%v), want the CFO told of the %s", pending, err, step.action)
+					t.Fatalf("wakes = %+v (%v), want the CEO told of the %s", pending, err, step.action)
 				}
 			}
 		})
@@ -157,7 +157,7 @@ func TestAConnectorPressChangesNothingForAnotherCallerOrConnector(t *testing.T) 
 // A grant that changed the task's record stands though its credential script
 // could not be rewritten after it, as a goblin can arrange in its own task
 // folder: the board is answered with the check, not told nothing changed, and
-// the CFO is told of the grant and of what failed after it.
+// the CEO is told of the grant and of what failed after it.
 func TestAConnectorGrantThatStandsIsToldAsOneWhateverFailedAfterIt(t *testing.T) {
 	// Arrange
 	s, stateDir := grantBoard(t)
@@ -182,13 +182,13 @@ func TestAConnectorGrantThatStandsIsToldAsOneWhateverFailedAfterIt(t *testing.T)
 	if err != nil || !slices.ContainsFunc(pending, func(record wake.Record) bool {
 		return strings.Contains(record.Detail, "connections: the Overlord granted sample from his own board") && strings.Contains(record.Detail, ", but ") && strings.Contains(record.Detail, "auth.ps1 was not rewritten")
 	}) {
-		t.Fatalf("wakes = %+v (%v), want the CFO told of the grant and what failed after it", pending, err)
+		t.Fatalf("wakes = %+v (%v), want the CEO told of the grant and what failed after it", pending, err)
 	}
 }
 
-// A program that sends a refused press again and again wakes the CFO once a
+// A program that sends a refused press again and again wakes the CEO once a
 // minute at most, and each press is still refused.
-func TestARefusedConnectorPressRepeatedWakesTheCFOOnce(t *testing.T) {
+func TestARefusedConnectorPressRepeatedWakesTheCEOOnce(t *testing.T) {
 	// Arrange
 	s, stateDir := grantBoard(t)
 	asOverlordsBoard(s)
@@ -201,7 +201,7 @@ func TestARefusedConnectorPressRepeatedWakesTheCFOOnce(t *testing.T) {
 		request := httptest.NewRequest("POST", "http://"+credentialBoardHost+"/api/connections/grant", strings.NewReader(`{"task":"task-1","generation":"g1","connection":"service:sample","action":"grant"}`))
 		request.RemoteAddr = "127.0.0.1:50000"
 		request.Header.Set("Origin", "http://"+credentialBoardHost)
-		request.Header.Set("X-CFO-Token", s.Instance)
+		request.Header.Set("X-CEO-Token", s.Instance)
 		request.Header.Set("Content-Type", "application/json")
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
@@ -220,6 +220,6 @@ func TestARefusedConnectorPressRepeatedWakesTheCFOOnce(t *testing.T) {
 		}
 	}
 	if !slices.Equal(codes, []int{http.StatusForbidden, http.StatusForbidden, http.StatusForbidden}) || err != nil || refusals != 1 {
-		t.Fatalf("presses = %v, CFO woken %d times (%v), want every press refused and one wake", codes, refusals, err)
+		t.Fatalf("presses = %v, CEO woken %d times (%v), want every press refused and one wake", codes, refusals, err)
 	}
 }

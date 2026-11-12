@@ -289,7 +289,7 @@ func TestAllowanceFloorWithoutAResetSaysTheFloorItStoodOn(t *testing.T) {
 
 // At a floor of 0 the week runs until the provider refuses, and a week used
 // up is then waited out as a used-up session is: nothing starts or resumes
-// on it until it renews, no goblin is paused, and its renewal wakes the CFO
+// on it until it renews, no goblin is paused, and its renewal wakes the CEO
 // naming the goblins it stopped.
 func TestAWeekUsedUpUnderAFloorOf0IsWaitedOutAsASpentSessionIs(t *testing.T) {
 	// Arrange

@@ -16,7 +16,7 @@ import (
 // registry value without ever touching the live HKCU:\Environment.
 func testRegistryKey(t *testing.T) string {
 	t.Helper()
-	key := fmt.Sprintf(`HKCU:\Software\cfo-install-test-%d`, os.Getpid())
+	key := fmt.Sprintf(`HKCU:\Software\ceo-install-test-%d`, os.Getpid())
 	runRegistryScript(t, fmt.Sprintf(`New-Item -Path '%s' -Force | Out-Null`, key))
 	t.Cleanup(func() {
 		runRegistryScript(t, fmt.Sprintf(`Remove-Item -LiteralPath '%s' -Recurse -Force -ErrorAction SilentlyContinue`, key))
@@ -46,10 +46,10 @@ func TestRegistryEnvStoreRoundTripsNonASCII(t *testing.T) {
 	store := registryEnvStore{Commands: execx.OSRunner{}, key: testRegistryKey(t)}
 
 	value := `C:\Users\José\bin;C:\dev\日本語;C:\tools\Ünïcödé €`
-	if err := store.Set("CfoTestPath", value); err != nil {
+	if err := store.Set("CeoTestPath", value); err != nil {
 		t.Fatal(err)
 	}
-	got, set, err := store.Get("CfoTestPath")
+	got, set, err := store.Get("CeoTestPath")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestRegistryEnvStoreRoundTripsNonASCII(t *testing.T) {
 		t.Errorf("Get = %q, want %q (byte-exact round trip)", got, value)
 	}
 
-	if _, set, err := store.Get("CfoTestAbsent"); err != nil || set {
+	if _, set, err := store.Get("CeoTestAbsent"); err != nil || set {
 		t.Errorf("Get(absent) = set %v, err %v; want unset with no error", set, err)
 	}
 }

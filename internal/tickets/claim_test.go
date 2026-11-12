@@ -54,8 +54,8 @@ func TestHeldElsewhereSaysWhenSomeoneElseHasAnIssue(t *testing.T) {
 	}{
 		{name: "assigned to someone else", assignees: []string{"nreid1609"}, want: "it is assigned to nreid1609"},
 		{name: "assigned to the account and someone else", assignees: []string{"fpresta0607", "nreid1609"}, want: "it is assigned to nreid1609"},
-		{name: "another fleet's state label with nobody assigned", labels: []string{"bug", "cfo: pr open"}, want: "another Code Goblins fleet holds it (cfo: pr open)"},
-		{name: "assigned to the account, its name in another case", assignees: []string{"FPresta0607"}, labels: []string{"cfo: in progress"}},
+		{name: "another fleet's state label with nobody assigned", labels: []string{"bug", "ceo: pr open"}, want: "another Code Goblins fleet holds it (ceo: pr open)"},
+		{name: "assigned to the account, its name in another case", assignees: []string{"FPresta0607"}, labels: []string{"ceo: in progress"}},
 		{name: "a harness label alone", labels: []string{"goblin: claude"}},
 		{name: "free"},
 	}

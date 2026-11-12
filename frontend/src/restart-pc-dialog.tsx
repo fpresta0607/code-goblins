@@ -18,7 +18,7 @@ export function RestartPcDialog({ pools, line, isPending, onRestart, onClose }: 
     return () => { element?.close(); if (source instanceof HTMLElement && source.isConnected) source.focus(); };
   }, []);
   return <dialog ref={dialog} className="stop-task-dialog restart-pc-dialog" aria-labelledby={title} aria-describedby={description} onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }} onCancel={(event) => { event.preventDefault(); onClose(); }}>
-    <Avatar persona="cfo" />
+    <Avatar persona="ceo" />
     <h2 id={title}>Restart the PC?</h2>
     <p id={description}>The kernel's pools hold {pools} GB, past the {line} GB line where free memory can no longer hold the fleet. A restart frees them.</p>
     <ol className="restart-pc-steps">

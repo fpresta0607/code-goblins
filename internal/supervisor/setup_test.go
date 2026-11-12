@@ -23,12 +23,12 @@ import (
 // file, Claude Code and Codex on PATH, each saying it is signed in, with
 // their sign-ins saved in the home, and a Code Goblins home that remembers no
 // agent yet. It records every projects root set, every agent asked whether
-// it is signed in, every agent remembered and the agent of every CFO started.
+// it is signed in, every agent remembered and the agent of every CEO started.
 type firstRunMachine struct {
 	run      *FirstRun
 	root     string
 	home     string
-	cfoHome  string
+	ceoHome  string
 	saved    string
 	recorded []string
 	started  []string
@@ -37,7 +37,7 @@ type firstRunMachine struct {
 	signIns map[string]SignInState
 	askedMu sync.Mutex
 	asked   []string
-	// runs is whether a CFO runs, reopened counts the CFOs brought back,
+	// runs is whether a CEO runs, reopened counts the CEOs brought back,
 	// and reopenErr is what bringing one back ends with; restarted counts
 	// the restarts of a running one, which end with restartErr or else on
 	// its conversation, unless restartEnds says its harness could not
@@ -70,10 +70,10 @@ func newFirstRunMachine(t *testing.T) *firstRunMachine {
 			t.Fatal(err)
 		}
 	}
-	m.cfoHome = filepath.Join(t.TempDir(), "CodeGoblins")
+	m.ceoHome = filepath.Join(t.TempDir(), "CodeGoblins")
 	m.run = &FirstRun{
 		Home:       m.home,
-		CFOHome:    m.cfoHome,
+		CEOHome:    m.ceoHome,
 		SavedAgent: func() string { return m.saved },
 		SaveAgent:  func(agent string) error { m.saved = agent; return nil },
 		LookPath: func(name string) (string, error) {
@@ -87,15 +87,15 @@ func newFirstRunMachine(t *testing.T) *firstRunMachine {
 		},
 		ProjectsRoot:    func() (string, error) { return "", nil },
 		SetProjectsRoot: func(dir string) error { m.recorded = append(m.recorded, dir); return nil },
-		CFORuns:         func() bool { return m.runs },
-		StartCFO:        func(agent string) error { m.started = append(m.started, agent); return nil },
-		ReopenCFO:       func() error { m.reopened++; return m.reopenErr },
-		RestartCFO: func(harness string) (CFOConversation, bool, error) {
+		CEORuns:         func() bool { return m.runs },
+		StartCEO:        func(agent string) error { m.started = append(m.started, agent); return nil },
+		ReopenCEO:       func() error { m.reopened++; return m.reopenErr },
+		RestartCEO: func(harness string) (CEOConversation, bool, error) {
 			m.restarted++
 			if m.restartErr != nil {
-				return CFOConversation{}, false, m.restartErr
+				return CEOConversation{}, false, m.restartErr
 			}
-			return CFOConversation{Harness: "claude", Session: "a1b2c3d4-session"}, !m.restartEnds && (harness == "" || harness == "claude"), nil
+			return CEOConversation{Harness: "claude", Session: "a1b2c3d4-session"}, !m.restartEnds && (harness == "" || harness == "claude"), nil
 		},
 		SignIn: func(_ context.Context, agent string) SignInState {
 			m.askedMu.Lock()
@@ -110,7 +110,7 @@ func newFirstRunMachine(t *testing.T) *firstRunMachine {
 	return m
 }
 
-func TestSnapshotReportsWhetherTheCFOHasASavedHarness(t *testing.T) {
+func TestSnapshotReportsWhetherTheCEOHasASavedHarness(t *testing.T) {
 	for _, testCase := range []struct {
 		name         string
 		firstRun     *FirstRun
@@ -135,22 +135,22 @@ func TestSnapshotReportsWhetherTheCFOHasASavedHarness(t *testing.T) {
 
 			// Assert
 			var snapshot struct {
-				CFOConfigured *bool `json:"cfo_configured"`
-				CFOClosed     bool  `json:"cfo_closed"`
+				CEOConfigured *bool `json:"ceo_configured"`
+				CEOClosed     bool  `json:"ceo_closed"`
 			}
 			if err := json.Unmarshal(response.Body.Bytes(), &snapshot); err != nil {
 				t.Fatal(err)
 			}
-			if response.Code != http.StatusOK || snapshot.CFOConfigured == nil || *snapshot.CFOConfigured != testCase.isConfigured || snapshot.CFOClosed {
+			if response.Code != http.StatusOK || snapshot.CEOConfigured == nil || *snapshot.CEOConfigured != testCase.isConfigured || snapshot.CEOClosed {
 				t.Fatalf("snapshot=%s status=%d, want configured=%v and closed=false", response.Body, response.Code, testCase.isConfigured)
 			}
 		})
 	}
 }
 
-// The page shows every harness a CFO can run in, by the table of what is
+// The page shows every harness a CEO can run in, by the table of what is
 // proved: Claude Code marked as the recommended one, each with the few words
-// on what a CFO in it gets, and none refused that this machine has. Only one
+// on what a CEO in it gets, and none refused that this machine has. Only one
 // that is not installed says why Start cannot pick it.
 func TestFirstRunShowsTheFoldersProjectsAndEachAgent(t *testing.T) {
 	// Arrange
@@ -160,13 +160,13 @@ func TestFirstRunShowsTheFoldersProjectsAndEachAgent(t *testing.T) {
 	setup := m.run.Setup(t.Context(), m.root)
 
 	// Assert
-	if setup.ProjectsRoot != m.root || strings.Join(setup.Checkouts, ",") != "alpha,beta" || setup.Problem != "" || setup.CFORuns {
+	if setup.ProjectsRoot != m.root || strings.Join(setup.Checkouts, ",") != "alpha,beta" || setup.Problem != "" || setup.CEORuns {
 		t.Fatalf("setup = %+v, want the folder with alpha and beta", setup)
 	}
 	want := []SetupAgent{
 		{ID: "claude", Name: "Claude Code", Recommended: true, Note: "the best experience", Installed: true, SignIn: SignedIn},
 		{ID: "codex", Name: "Codex", Note: "woken by a typed line; no digest or guards", Installed: true, SignIn: SignedIn},
-		{ID: "pi", Name: "pi", Note: "woken by a typed line; no digest or guards", SignIn: SignInUnknown, Reason: "Install pi to start the CFO"},
+		{ID: "pi", Name: "pi", Note: "woken by a typed line; no digest or guards", SignIn: SignInUnknown, Reason: "Install pi to start the CEO"},
 	}
 	if len(setup.Agents) != len(want) {
 		t.Fatalf("agents = %+v, want %+v", setup.Agents, want)
@@ -179,9 +179,9 @@ func TestFirstRunShowsTheFoldersProjectsAndEachAgent(t *testing.T) {
 }
 
 // The page says what each agent's own status command says, in the
-// environment the CFO's terminal starts with, never whether a sign-in file
+// environment the CEO's terminal starts with, never whether a sign-in file
 // sits in the home this supervisor sees. Found 2026-10-06 in a scratch
-// profile: the page said Not signed in while the CFO's terminal started
+// profile: the page said Not signed in while the CEO's terminal started
 // Claude Code signed in with the PC user's own account.
 func TestFirstRunSaysWhatEachAgentsOwnStatusCommandSays(t *testing.T) {
 	for _, c := range []struct {
@@ -245,7 +245,7 @@ func TestFirstRunAsksOnlyInstalledAgentsAndStartAsksNone(t *testing.T) {
 }
 
 // The page reads what the terminal quick start already knows, so neither
-// asks it again: the home the CFO starts in, and the agent goblins remembered
+// asks it again: the home the CEO starts in, and the agent goblins remembered
 // for it, which is none until one is chosen.
 func TestFirstRunShowsTheHomeAndTheAgentTheQuickStartRemembered(t *testing.T) {
 	for _, saved := range []string{"", "claude", "codex"} {
@@ -258,8 +258,8 @@ func TestFirstRunShowsTheHomeAndTheAgentTheQuickStartRemembered(t *testing.T) {
 			setup := m.run.Setup(t.Context(), "")
 
 			// Assert
-			if setup.Home != m.cfoHome || setup.Agent != saved {
-				t.Fatalf("setup names the home %q and the agent %q, want %q and %q", setup.Home, setup.Agent, m.cfoHome, saved)
+			if setup.Home != m.ceoHome || setup.Agent != saved {
+				t.Fatalf("setup names the home %q and the agent %q, want %q and %q", setup.Home, setup.Agent, m.ceoHome, saved)
 			}
 		})
 	}
@@ -298,8 +298,8 @@ func TestFirstRunSaysWhyAFolderOffersNoProject(t *testing.T) {
 
 func TestFirstRunSaysWhyClaudeCodeCannotStart(t *testing.T) {
 	for _, c := range []struct{ name, path, reason string }{
-		{"not installed", "", "Install Claude Code to start the CFO"},
-		{"a script shim", `C:\Tools\claude.cmd`, "The CFO starts from the native build of Claude Code, claude.exe"},
+		{"not installed", "", "Install Claude Code to start the CEO"},
+		{"a script shim", `C:\Tools\claude.cmd`, "The CEO starts from the native build of Claude Code, claude.exe"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange
@@ -322,7 +322,7 @@ func TestFirstRunSaysWhyClaudeCodeCannotStart(t *testing.T) {
 	}
 }
 
-// A Codex CFO starts from the page as a Claude Code one does, now that the
+// A Codex CEO starts from the page as a Claude Code one does, now that the
 // fleet wakes it: the page refuses no harness that works.
 func TestFirstRunStartsAHarnessTheFleetCanWake(t *testing.T) {
 	// Arrange
@@ -337,18 +337,18 @@ func TestFirstRunStartsAHarnessTheFleetCanWake(t *testing.T) {
 	}
 }
 
-// The table of what is proved is the one place that says what a CFO in each
+// The table of what is proved is the one place that says what a CEO in each
 // harness gets: Claude Code alone is recommended and goes without nothing,
-// every harness in it can be woken, and a Codex or pi CFO says plainly what
+// every harness in it can be woken, and a Codex or pi CEO says plainly what
 // it goes without.
-func TestTheCFOCapabilityTableSaysOnlyWhatIsProved(t *testing.T) {
-	table := CFOCapabilities()
+func TestTheCEOCapabilityTableSaysOnlyWhatIsProved(t *testing.T) {
+	table := CEOCapabilities()
 	if len(table) != 3 || table[0].Agent != "claude" || table[1].Agent != "codex" || table[2].Agent != "pi" {
 		t.Fatalf("the table names %+v, want Claude Code, Codex and pi in that order", table)
 	}
 	for _, row := range table {
-		if row.Wake != CFOWakeFor(row.Agent) || row.Wake == CFOWakeNone {
-			t.Errorf("%s: wake %q, want what CFOWakeFor says, and a wake", row.Agent, row.Wake)
+		if row.Wake != CEOWakeFor(row.Agent) || row.Wake == CEOWakeNone {
+			t.Errorf("%s: wake %q, want what CEOWakeFor says, and a wake", row.Agent, row.Wake)
 		}
 		if row.Recommended != (row.Agent == "claude") {
 			t.Errorf("%s: recommended %v, want Claude Code alone recommended", row.Agent, row.Recommended)
@@ -363,19 +363,19 @@ func TestTheCFOCapabilityTableSaysOnlyWhatIsProved(t *testing.T) {
 	if !table[0].Resumes || !table[1].Resumes || !table[2].Resumes {
 		t.Errorf("resumes: %v %v %v, want Claude Code, Codex and pi to come back on their conversation", table[0].Resumes, table[1].Resumes, table[2].Resumes)
 	}
-	if row, ok := CFOCapabilityFor("codex"); !ok || row.Agent != "codex" {
-		t.Errorf("CFOCapabilityFor(codex) = %+v, %v", row, ok)
+	if row, ok := CEOCapabilityFor("codex"); !ok || row.Agent != "codex" {
+		t.Errorf("CEOCapabilityFor(codex) = %+v, %v", row, ok)
 	}
-	if _, ok := CFOCapabilityFor("kimi"); ok {
-		t.Error("CFOCapabilityFor(kimi) found a row for a harness no CFO runs in")
+	if _, ok := CEOCapabilityFor("kimi"); ok {
+		t.Error("CEOCapabilityFor(kimi) found a row for a harness no CEO runs in")
 	}
 }
 
-// Start asks for no project: it starts the agent as the CFO, which the
+// Start asks for no project: it starts the agent as the CEO, which the
 // machine starts in the home, and remembers the agent as goblins would. A
-// projects folder is recorded when one is entered and is new, and the CFO
+// projects folder is recorded when one is entered and is new, and the CEO
 // starts with none entered, whatever is recorded.
-func TestFirstRunStartsTheCFOWithNoProjectAndRemembersItsAgent(t *testing.T) {
+func TestFirstRunStartsTheCEOWithNoProjectAndRemembersItsAgent(t *testing.T) {
 	for _, c := range []struct {
 		name        string
 		entered     func(root string) string
@@ -405,7 +405,7 @@ func TestFirstRunStartsTheCFOWithNoProjectAndRemembersItsAgent(t *testing.T) {
 				t.Fatalf("projects roots recorded = %q, want %d of %s", m.recorded, c.wantRecords, m.root)
 			}
 			if len(m.started) != 1 || m.started[0] != "claude" || m.saved != "claude" {
-				t.Fatalf("CFOs started = %q, agent remembered = %q; want Claude Code started once and remembered", m.started, m.saved)
+				t.Fatalf("CEOs started = %q, agent remembered = %q; want Claude Code started once and remembered", m.started, m.saved)
 			}
 		})
 	}
@@ -416,11 +416,11 @@ func TestFirstRunRefusesAStartItCannotMake(t *testing.T) {
 		name, agent, refusal string
 		change               func(m *firstRunMachine) string
 	}{
-		{"a CFO already runs", "claude", "The CFO already runs", func(m *firstRunMachine) string {
-			m.run.CFORuns = func() bool { return true }
+		{"a CEO already runs", "claude", "The CEO already runs", func(m *firstRunMachine) string {
+			m.run.CEORuns = func() bool { return true }
 			return m.root
 		}},
-		{"an agent this machine does not have", "pi", "Install pi to start the CFO", func(m *firstRunMachine) string { return m.root }},
+		{"an agent this machine does not have", "pi", "Install pi to start the CEO", func(m *firstRunMachine) string { return m.root }},
 		{"an unknown agent", "gemini", "Pick one of the agents this page offers", func(m *firstRunMachine) string { return m.root }},
 		{"a relative folder", "claude", "Enter the full path of a folder", func(*firstRunMachine) string { return "projects" }},
 		{"an entered folder without a checkout", "claude", "No git checkout is in this folder", func(m *firstRunMachine) string { return filepath.Join(m.root, "notes") }},
@@ -443,24 +443,24 @@ func TestFirstRunRefusesAStartItCannotMake(t *testing.T) {
 				t.Fatalf("err = %v, want a refusal saying %q", err, c.refusal)
 			}
 			if len(m.started) != 0 || len(m.recorded) != 0 || m.saved != "" {
-				t.Fatalf("CFOs started = %q, projects roots recorded = %q, agent remembered = %q; want none", m.started, m.recorded, m.saved)
+				t.Fatalf("CEOs started = %q, projects roots recorded = %q, agent remembered = %q; want none", m.started, m.recorded, m.saved)
 			}
 		})
 	}
 }
 
-// Remembering is part of the start: the CFO starts in a home that already
+// Remembering is part of the start: the CEO starts in a home that already
 // remembers its agent, and a start that fails puts back what the home
 // remembered before, which may be nothing, so the next goblins in the
 // terminal starts the agent he chose there.
-func TestFirstRunPutsBackTheRememberedAgentWhenTheCFOCannotStart(t *testing.T) {
+func TestFirstRunPutsBackTheRememberedAgentWhenTheCEOCannotStart(t *testing.T) {
 	for _, before := range []string{"codex", ""} {
 		t.Run("remembered "+before, func(t *testing.T) {
 			// Arrange
 			m := newFirstRunMachine(t)
 			m.saved = before
 			var atStart string
-			m.run.StartCFO = func(string) error {
+			m.run.StartCEO = func(string) error {
 				atStart = m.saved
 				return errors.New("the terminal host is down")
 			}
@@ -473,7 +473,7 @@ func TestFirstRunPutsBackTheRememberedAgentWhenTheCFOCannotStart(t *testing.T) {
 				t.Fatalf("err = %v, want the failed start with its cause, not a refusal", err)
 			}
 			if atStart != "claude" || m.saved != before {
-				t.Fatalf("agent remembered as the CFO started = %q, and after it failed = %q; want claude, then %q as it was", atStart, m.saved, before)
+				t.Fatalf("agent remembered as the CEO started = %q, and after it failed = %q; want claude, then %q as it was", atStart, m.saved, before)
 			}
 		})
 	}
@@ -484,7 +484,7 @@ func TestFirstRunSaysWhenAFailedStartCannotPutBackTheRememberedAgent(t *testing.
 	// Arrange
 	m := newFirstRunMachine(t)
 	m.saved = "codex"
-	m.run.StartCFO = func(string) error {
+	m.run.StartCEO = func(string) error {
 		m.run.SaveAgent = func(string) error { return errors.New("the state folder is read-only") }
 		return errors.New("the terminal host is down")
 	}
@@ -519,7 +519,7 @@ func TestFirstRunRefusesAProjectsFolderItCannotRecord(t *testing.T) {
 	}
 }
 
-func TestTheBoardServesTheFirstRunPageAndStartsTheCFO(t *testing.T) {
+func TestTheBoardServesTheFirstRunPageAndStartsTheCEO(t *testing.T) {
 	// Arrange
 	m := newFirstRunMachine(t)
 	store, _ := testStore(t)
@@ -530,7 +530,7 @@ func TestTheBoardServesTheFirstRunPageAndStartsTheCFO(t *testing.T) {
 		req := httptest.NewRequest(method, "http://board.local"+path, strings.NewReader(body))
 		if method == "POST" {
 			req.Header.Set("Origin", "http://board.local")
-			req.Header.Set("X-CFO-Token", "instance-1")
+			req.Header.Set("X-CEO-Token", "instance-1")
 			req.Header.Set("Content-Type", "application/json")
 		}
 		response := httptest.NewRecorder()
@@ -567,7 +567,7 @@ func TestTheBoardServesTheFirstRunPageAndStartsTheCFO(t *testing.T) {
 	if strings.Count(setup, `"recommended":true`) != 1 || strings.Count(setup, `"recommended":false`) != 2 {
 		t.Fatalf("GET /api/setup = %s, want each of the three agents to say whether it is the recommended one", setup)
 	}
-	if refusedCode != http.StatusConflict || !strings.Contains(refused, "Install pi to start the CFO") {
+	if refusedCode != http.StatusConflict || !strings.Contains(refused, "Install pi to start the CEO") {
 		t.Fatalf("a start as pi, which this machine lacks = %d %s, want 409 with the reason", refusedCode, refused)
 	}
 	if startCode != http.StatusOK || len(m.started) != 1 || m.started[0] != "claude" || m.saved != "claude" {
@@ -576,14 +576,14 @@ func TestTheBoardServesTheFirstRunPageAndStartsTheCFO(t *testing.T) {
 	select {
 	case <-changes:
 	default:
-		t.Fatal("a start sent the board no fresh snapshot, so it shows no CFO until the next ping")
+		t.Fatal("a start sent the board no fresh snapshot, so it shows no CEO until the next ping")
 	}
 }
 
-// The board's Reopen brings a closed CFO back, as goblins does, and tells
-// the board at once. It brings none back beside a CFO that runs, says why a
-// CFO could not come back, and a board that starts no CFO says so.
-func TestTheBoardReopensAClosedCFO(t *testing.T) {
+// The board's Reopen brings a closed CEO back, as goblins does, and tells
+// the board at once. It brings none back beside a CEO that runs, says why a
+// CEO could not come back, and a board that starts no CEO says so.
+func TestTheBoardReopensAClosedCEO(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		arrange   func(m *firstRunMachine, s *Service)
@@ -592,10 +592,10 @@ func TestTheBoardReopensAClosedCFO(t *testing.T) {
 		reopened  int
 		announced bool
 	}{
-		{"a closed CFO", func(*firstRunMachine, *Service) {}, http.StatusOK, `"reopened":true`, 1, true},
-		{"a CFO that runs", func(m *firstRunMachine, _ *Service) { m.runs = true }, http.StatusConflict, "The CFO already runs", 0, false},
-		{"a CFO that cannot come back", func(m *firstRunMachine, _ *Service) { m.reopenErr = errors.New("claude is not on PATH") }, http.StatusInternalServerError, "the CFO could not be reopened: claude is not on PATH", 1, false},
-		{"a board that starts no CFO", func(_ *firstRunMachine, s *Service) { s.Options.FirstRun = nil }, http.StatusConflict, "This board cannot start a CFO", 0, false},
+		{"a closed CEO", func(*firstRunMachine, *Service) {}, http.StatusOK, `"reopened":true`, 1, true},
+		{"a CEO that runs", func(m *firstRunMachine, _ *Service) { m.runs = true }, http.StatusConflict, "The CEO already runs", 0, false},
+		{"a CEO that cannot come back", func(m *firstRunMachine, _ *Service) { m.reopenErr = errors.New("claude is not on PATH") }, http.StatusInternalServerError, "the CEO could not be reopened: claude is not on PATH", 1, false},
+		{"a board that starts no CEO", func(_ *firstRunMachine, s *Service) { s.Options.FirstRun = nil }, http.StatusConflict, "This board cannot start a CEO", 0, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
@@ -606,9 +606,9 @@ func TestTheBoardReopensAClosedCFO(t *testing.T) {
 			handler := NewHTTP(s, "board.local", fstest.MapFS{})
 			changes, unsubscribe := s.subscribe()
 			defer unsubscribe()
-			req := httptest.NewRequest("POST", "http://board.local/api/cfo/reopen", strings.NewReader("{}"))
+			req := httptest.NewRequest("POST", "http://board.local/api/ceo/reopen", strings.NewReader("{}"))
 			req.Header.Set("Origin", "http://board.local")
-			req.Header.Set("X-CFO-Token", "instance-1")
+			req.Header.Set("X-CEO-Token", "instance-1")
 			req.Header.Set("Content-Type", "application/json")
 			response := httptest.NewRecorder()
 
@@ -617,7 +617,7 @@ func TestTheBoardReopensAClosedCFO(t *testing.T) {
 
 			// Assert
 			if response.Code != tc.code || !strings.Contains(response.Body.String(), tc.reason) || m.reopened != tc.reopened {
-				t.Fatalf("POST /api/cfo/reopen = %d %s, reopened %d; want %d with %q and %d reopened", response.Code, response.Body.String(), m.reopened, tc.code, tc.reason, tc.reopened)
+				t.Fatalf("POST /api/ceo/reopen = %d %s, reopened %d; want %d with %q and %d reopened", response.Code, response.Body.String(), m.reopened, tc.code, tc.reason, tc.reopened)
 			}
 			announced := false
 			select {
@@ -632,11 +632,11 @@ func TestTheBoardReopensAClosedCFO(t *testing.T) {
 	}
 }
 
-// The board's Restart does what goblins resume does for a CFO that runs, as
+// The board's Restart does what goblins resume does for a CEO that runs, as
 // for one whose screen froze: it restarts it on its conversation and says
-// whether it came back on it. It restarts nothing while no CFO runs, and a
-// CFO it could not restart says why.
-func TestTheBoardRestartsARunningCFO(t *testing.T) {
+// whether it came back on it. It restarts nothing while no CEO runs, and a
+// CEO it could not restart says why.
+func TestTheBoardRestartsARunningCEO(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		arrange   func(m *firstRunMachine, s *Service)
@@ -646,18 +646,18 @@ func TestTheBoardRestartsARunningCFO(t *testing.T) {
 		restarted int
 		announced bool
 	}{
-		{"a running CFO", func(m *firstRunMachine, _ *Service) { m.runs = true }, "{}", http.StatusOK, `"restarted":true,"resumed":true,"session":"a1b2c3d4-session"`, 1, true},
+		{"a running CEO", func(m *firstRunMachine, _ *Service) { m.runs = true }, "{}", http.StatusOK, `"restarted":true,"resumed":true,"session":"a1b2c3d4-session"`, 1, true},
 		{"an explicit running harness", func(m *firstRunMachine, _ *Service) { m.runs = true }, `{"harness":"claude"}`, http.StatusOK, `"resumed":true`, 1, true},
 		{"another harness", func(m *firstRunMachine, _ *Service) { m.runs = true }, `{"harness":"codex"}`, http.StatusOK, `"resumed":false`, 1, true},
 		{"pi", func(m *firstRunMachine, _ *Service) { m.runs = true }, `{"harness":"pi"}`, http.StatusOK, `"resumed":false`, 1, true},
 		{"unsupported harness", func(m *firstRunMachine, _ *Service) { m.runs = true }, `{"harness":"unknown"}`, http.StatusBadRequest, "not claude, codex or pi", 0, false},
-		{"a CFO whose harness could not resume its conversation", func(m *firstRunMachine, _ *Service) { m.runs, m.restartEnds = true, true }, "{}", http.StatusOK, `"resumed":false`, 1, true},
-		{"no CFO running", func(*firstRunMachine, *Service) {}, "{}", http.StatusConflict, "No CFO runs to restart", 0, false},
-		{"a CFO left running", func(m *firstRunMachine, _ *Service) {
-			m.runs, m.restartErr = true, errors.New("the CFO in native terminal cfo registered no conversation it can come back on, so it is left running")
-		}, "{}", http.StatusInternalServerError, "the CFO could not be restarted: the CFO in native terminal cfo registered no conversation", 1, false},
+		{"a CEO whose harness could not resume its conversation", func(m *firstRunMachine, _ *Service) { m.runs, m.restartEnds = true, true }, "{}", http.StatusOK, `"resumed":false`, 1, true},
+		{"no CEO running", func(*firstRunMachine, *Service) {}, "{}", http.StatusConflict, "No CEO runs to restart", 0, false},
+		{"a CEO left running", func(m *firstRunMachine, _ *Service) {
+			m.runs, m.restartErr = true, errors.New("the CEO in native terminal ceo registered no conversation it can come back on, so it is left running")
+		}, "{}", http.StatusInternalServerError, "the CEO could not be restarted: the CEO in native terminal ceo registered no conversation", 1, false},
 		{"a body field the route does not take", func(m *firstRunMachine, _ *Service) { m.runs = true }, `{"now":true}`, http.StatusBadRequest, "Invalid request JSON", 0, false},
-		{"a board that starts no CFO", func(_ *firstRunMachine, s *Service) { s.Options.FirstRun = nil }, "{}", http.StatusConflict, "This board cannot start a CFO", 0, false},
+		{"a board that starts no CEO", func(_ *firstRunMachine, s *Service) { s.Options.FirstRun = nil }, "{}", http.StatusConflict, "This board cannot start a CEO", 0, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
@@ -668,9 +668,9 @@ func TestTheBoardRestartsARunningCFO(t *testing.T) {
 			handler := NewHTTP(s, "board.local", fstest.MapFS{})
 			changes, unsubscribe := s.subscribe()
 			defer unsubscribe()
-			req := httptest.NewRequest("POST", "http://board.local/api/cfo/restart", strings.NewReader(tc.body))
+			req := httptest.NewRequest("POST", "http://board.local/api/ceo/restart", strings.NewReader(tc.body))
 			req.Header.Set("Origin", "http://board.local")
-			req.Header.Set("X-CFO-Token", "instance-1")
+			req.Header.Set("X-CEO-Token", "instance-1")
 			req.Header.Set("Content-Type", "application/json")
 			response := httptest.NewRecorder()
 
@@ -679,7 +679,7 @@ func TestTheBoardRestartsARunningCFO(t *testing.T) {
 
 			// Assert
 			if response.Code != tc.code || !strings.Contains(response.Body.String(), tc.reply) || m.restarted != tc.restarted {
-				t.Fatalf("POST /api/cfo/restart = %d %s, restarted %d; want %d with %q and %d restarted", response.Code, response.Body.String(), m.restarted, tc.code, tc.reply, tc.restarted)
+				t.Fatalf("POST /api/ceo/restart = %d %s, restarted %d; want %d with %q and %d restarted", response.Code, response.Body.String(), m.restarted, tc.code, tc.reply, tc.restarted)
 			}
 			announced := false
 			select {
@@ -694,26 +694,26 @@ func TestTheBoardRestartsARunningCFO(t *testing.T) {
 	}
 }
 
-func TestABoardWithoutFirstRunSaysItCannotStartACFO(t *testing.T) {
+func TestABoardWithoutFirstRunSaysItCannotStartACEO(t *testing.T) {
 	store, _ := testStore(t)
 	s := &Service{Store: store, Instance: "instance-1"}
 	handler := NewHTTP(s, "board.local", nil)
 	req := httptest.NewRequest("POST", "http://board.local/api/setup/start", strings.NewReader(`{"root":"C:\\dev","agent":"claude"}`))
 	req.Header.Set("Origin", "http://board.local")
-	req.Header.Set("X-CFO-Token", "instance-1")
+	req.Header.Set("X-CEO-Token", "instance-1")
 	req.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 
 	handler.ServeHTTP(response, req)
 
-	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "This board cannot start a CFO") {
+	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "This board cannot start a CEO") {
 		t.Fatalf("POST /api/setup/start = %d %s", response.Code, response.Body.String())
 	}
 }
 
-// With no CFO registered and no native terminal cfo up, the snapshot says no
-// CFO runs, so the board shows its first-run page.
-func TestASnapshotSaysWhenNoCFORuns(t *testing.T) {
+// With no CEO registered and no native terminal ceo up, the snapshot says no
+// CEO runs, so the board shows its first-run page.
+func TestASnapshotSaysWhenNoCEORuns(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
 
@@ -724,7 +724,7 @@ func TestASnapshotSaysWhenNoCFORuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.CFORuns {
-		t.Fatal("the snapshot says a CFO runs with none registered or starting")
+	if snapshot.CEORuns {
+		t.Fatal("the snapshot says a CEO runs with none registered or starting")
 	}
 }

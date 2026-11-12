@@ -10,7 +10,7 @@ declare global {
 }
 
 // A goblin asks for two Stripe credentials for precisiondocs, with the steps
-// for getting them, one of which the scope already holds, and the CFO asks
+// for getting them, one of which the scope already holds, and the CEO asks
 // for a database URL. board.request
 // changes a request and board.runs sets the board's runs, as the supervisor's
 // snapshot does after a save or while a request's terminal is open.
@@ -26,7 +26,7 @@ const requests: Record<string, unknown>[] = [
     state: "open", created_at: at, expires_at: "2026-10-02T03:00:00Z",
   },
   {
-    id: "cred-fedcba9876543210", generation: "e".repeat(32), identity: "b".repeat(64), by: "cfo", task: "",
+    id: "cred-fedcba9876543210", generation: "e".repeat(32), identity: "b".repeat(64), by: "ceo", task: "",
     project: "precisiondocs", repository: "C:\\dev\\precisiondocs", env_file: ".env.docker.local", names: ["DATABASE_URL"], why: "Local database for docker compose",
     state: "open", created_at: "2026-10-01T03:05:00Z", expires_at: "2026-10-02T03:05:00Z",
   },

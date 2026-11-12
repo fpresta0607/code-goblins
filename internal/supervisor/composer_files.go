@@ -24,7 +24,7 @@ const composerFilesDir = "composer-files"
 var composerExtension = regexp.MustCompile(`^\.[A-Za-z0-9]{1,10}$`)
 
 // composerDir is where the files he adds to a message to task are kept: the
-// task's folder for a goblin, or the state folder for the CFO, which task
+// task's folder for a goblin, or the state folder for the CEO, which task
 // leaves empty. It is not ok for a task whose folder is gone.
 func (h *HTTP) composerDir(task string) (string, bool) {
 	if task == "" {
@@ -38,7 +38,7 @@ func (h *HTTP) composerDir(task string) (string, bool) {
 }
 
 // keepComposerFile keeps one picture or file he pasted into, or added to, a
-// message: the task's folder for a goblin, or the state folder for the CFO.
+// message: the task's folder for a goblin, or the state folder for the CEO.
 // The board's composer names the returned path in the message it sends, so
 // the session reads the file from there, as answer_images.go does for a
 // picture pasted into an answer.

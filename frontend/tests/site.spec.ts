@@ -73,7 +73,7 @@ test.describe("with no memory free", () => {
 // is clicked, or a second after the page asks for it while nothing clicks.
 test("a first-run board whose first snapshot comes late still opens on the board", async ({ page }) => {
   // Arrange
-  const snapshot = { instance: "late-fixture", revision: 1, healthy: true, example: true, cfo_runs: false, tasks: [{ id: "polish-settings", title: "Polish settings", project: "example", phase: "queued", brief: true, verified: false }] };
+  const snapshot = { instance: "late-fixture", revision: 1, healthy: true, example: true, ceo_runs: false, tasks: [{ id: "polish-settings", title: "Polish settings", project: "example", phase: "queued", brief: true, verified: false }] };
   let pressBoard!: () => void;
   const boardPressed = new Promise<void>((resolve) => { pressBoard = resolve; });
   await page.exposeFunction("pressedBoard", () => pressBoard());

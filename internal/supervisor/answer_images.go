@@ -18,7 +18,7 @@ var answerImageExtensions = map[string]string{"image/png": ".png", "image/jpeg":
 
 // keepAnswerImage keeps one picture he pasted into his answer to a card, where
 // the asker can read it: the asking goblin's task folder, or the state folder
-// for the CFO, which asks with no task. It answers with the path his answer
+// for the CEO, which asks with no task. It answers with the path his answer
 // names, so the asker reads the picture from there.
 func (h *HTTP) keepAnswerImage(w http.ResponseWriter, r *http.Request) {
 	dir := filepath.Join(h.Service.Store.Home.State, answerImagesDir)

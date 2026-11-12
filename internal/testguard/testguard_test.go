@@ -44,7 +44,7 @@ func TestScanFindsDeletedTests(t *testing.T) {
 		},
 		{
 			name: "a Go test renamed in place is a rename",
-			diff: "diff --git a/guard_test.go b/guard_test.go\n--- a/guard_test.go\n+++ b/guard_test.go\n@@ -4 +4 @@\n-func TestGuardRefusesTheCFO(t *testing.T) {\n+func TestGuardRefusesTheRegisteredCFO(t *testing.T) {\n",
+			diff: "diff --git a/guard_test.go b/guard_test.go\n--- a/guard_test.go\n+++ b/guard_test.go\n@@ -4 +4 @@\n-func TestGuardRefusesTheCEO(t *testing.T) {\n+func TestGuardRefusesTheRegisteredCEO(t *testing.T) {\n",
 			want: nil,
 		},
 		{

@@ -44,10 +44,10 @@ type credentialBoard struct {
 
 func newCredentialBoard(t *testing.T, names ...string) *credentialBoard {
 	t.Helper()
-	return newCredentialBoardFor(t, CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "cfo", Project: "throwaway", Names: names, Why: "Charge test cards in the checkout tests", Link: "https://dashboard.stripe.com/apikeys"})
+	return newCredentialBoardFor(t, CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "ceo", Project: "throwaway", Names: names, Why: "Charge test cards in the checkout tests", Link: "https://dashboard.stripe.com/apikeys"})
 }
 
-// newCredentialBoardFor is a board that took the CFO's request filed.
+// newCredentialBoardFor is a board that took the CEO's request filed.
 func newCredentialBoardFor(t *testing.T, filed CredentialRequest) *credentialBoard {
 	t.Helper()
 	store, h := testStore(t)
@@ -119,7 +119,7 @@ func (b *credentialBoard) send(handler *HTTP, path, body string, change func(*ht
 	request.Host = handler.Host
 	request.RemoteAddr = "127.0.0.1:50000"
 	request.Header.Set("Origin", "http://"+handler.Host)
-	request.Header.Set("X-CFO-Token", "test-instance")
+	request.Header.Set("X-CEO-Token", "test-instance")
 	request.Header.Set("Content-Type", "application/json")
 	if change != nil {
 		change(request)
@@ -194,7 +194,7 @@ func filesHolding(t *testing.T, root, text string) []string {
 
 // The Overlord's value goes into the project's scope of the credential
 // store and nowhere else, one row at a time: a save of one name stores it and
-// leaves the request open for the rest, and the CFO hears which names the
+// leaves the request open for the rest, and the CEO hears which names the
 // card still asks for.
 func TestCredentialSaveStoresOneRowAndKeepsTheRequestOpenForTheRest(t *testing.T) {
 	// Arrange
@@ -330,8 +330,8 @@ func TestCredentialSaveRefusesEverythingButAnOpenRequestFromThisMachine(t *testi
 		{"Tailscale-User-Profile-Pic", false, nil, header("Tailscale-User-Profile-Pic", "https://example.com/p.png"), http.StatusForbidden},
 		{"Tailscale-Headers-Info", false, nil, header("Tailscale-Headers-Info", "https://tailscale.com/s/serve-headers"), http.StatusForbidden},
 		{"a peer off this machine", false, nil, func(r *http.Request) { r.RemoteAddr = "100.101.102.103:51234" }, http.StatusForbidden},
-		{"no board token", false, nil, func(r *http.Request) { r.Header.Del("X-CFO-Token") }, http.StatusForbidden},
-		{"another board's token", false, nil, header("X-CFO-Token", "other-instance"), http.StatusForbidden},
+		{"no board token", false, nil, func(r *http.Request) { r.Header.Del("X-CEO-Token") }, http.StatusForbidden},
+		{"another board's token", false, nil, header("X-CEO-Token", "other-instance"), http.StatusForbidden},
 		{"no origin", false, nil, func(r *http.Request) { r.Header.Del("Origin") }, http.StatusForbidden},
 		{"a cross-site origin", false, nil, header("Origin", "https://evil.example"), http.StatusForbidden},
 		{"a GET", false, nil, func(r *http.Request) { r.Method = "GET" }, http.StatusNotFound},
@@ -459,8 +459,8 @@ func TestCredentialSaveRefusesAValueOfTheWrongShape(t *testing.T) {
 }
 
 // A request nobody saved within its lifetime takes no value, closes as
-// expired, and the CFO hears so by name.
-func TestExpiredCredentialRequestTakesNoValueAndTellsTheCFO(t *testing.T) {
+// expired, and the CEO hears so by name.
+func TestExpiredCredentialRequestTakesNoValueAndTellsTheCEO(t *testing.T) {
 	// Arrange
 	b := newCredentialBoard(t, "STRIPE_SECRET_KEY")
 	canary := newCanary(t)
@@ -487,12 +487,12 @@ func TestExpiredCredentialRequestTakesNoValueAndTellsTheCFO(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(pending) != 1 || pending[0].Kind != "review" || !strings.Contains(pending[0].Detail, "STRIPE_SECRET_KEY") || !strings.Contains(pending[0].Detail, "expired") {
-		t.Fatalf("wakes = %+v, want one telling the CFO the request expired", pending)
+		t.Fatalf("wakes = %+v, want one telling the CEO the request expired", pending)
 	}
 }
 
 // Expiry waits for a save in flight: a request the save records as saved just
-// past its expiry stays saved, and the CFO hears nothing of it expiring.
+// past its expiry stays saved, and the CEO hears nothing of it expiring.
 func TestCredentialExpiryWaitsForASaveInFlight(t *testing.T) {
 	// Arrange
 	b := newCredentialBoard(t, "STRIPE_SECRET_KEY")
@@ -581,9 +581,9 @@ func TestCredentialSaveReplacesAStoredValueOnlyWhenConfirmed(t *testing.T) {
 	}
 }
 
-// After a save the project's running goblins are refreshed, and the CFO hears
+// After a save the project's running goblins are refreshed, and the CEO hears
 // which names were stored for which project and who was told, never a value.
-func TestCredentialSaveRefreshesTheProjectAndTellsTheCFOTheNamesOnly(t *testing.T) {
+func TestCredentialSaveRefreshesTheProjectAndTellsTheCEOTheNamesOnly(t *testing.T) {
 	// Arrange
 	b := newCredentialBoard(t, "STRIPE_SECRET_KEY")
 	canary := newCanary(t)
@@ -607,10 +607,10 @@ func TestCredentialSaveRefreshesTheProjectAndTellsTheCFOTheNamesOnly(t *testing.
 		t.Fatal(err)
 	}
 	if len(pending) != 1 || pending[0].Kind != "review" || !strings.Contains(pending[0].Detail, "STRIPE_SECRET_KEY stored for throwaway") || !strings.Contains(pending[0].Detail, "task-1") {
-		t.Fatalf("wakes = %+v, want one telling the CFO the name, the project and the goblin told", pending)
+		t.Fatalf("wakes = %+v, want one telling the CEO the name, the project and the goblin told", pending)
 	}
 	if strings.Contains(pending[0].Detail, canary) {
-		t.Fatal("the CFO's wake holds the value")
+		t.Fatal("the CEO's wake holds the value")
 	}
 }
 
@@ -632,7 +632,7 @@ func TestCredentialSavePanicLeavesNoTraceOfTheValue(t *testing.T) {
 		t.Fatal(err)
 	}
 	request.Header.Set("Origin", server.URL)
-	request.Header.Set("X-CFO-Token", "test-instance")
+	request.Header.Set("X-CEO-Token", "test-instance")
 	request.Header.Set("Content-Type", "application/json")
 
 	// Act
@@ -677,7 +677,7 @@ func TestCredentialValueReachesNoRecordSnapshotOrStream(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	request, err := s.acceptCredentialRequest(CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "cfo", Project: "throwaway", Names: []string{"STRIPE_SECRET_KEY"}, Why: "Charge test cards"})
+	request, err := s.acceptCredentialRequest(CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "ceo", Project: "throwaway", Names: []string{"STRIPE_SECRET_KEY"}, Why: "Charge test cards"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -691,7 +691,7 @@ func TestCredentialValueReachesNoRecordSnapshotOrStream(t *testing.T) {
 		body := `{"id":"` + request.ID + `","generation":"` + request.Generation + `","values":` + values + `}`
 		req, _ := http.NewRequest("POST", server.URL+"/api/credentials/save", strings.NewReader(body))
 		req.Header.Set("Origin", server.URL)
-		req.Header.Set("X-CFO-Token", s.Instance)
+		req.Header.Set("X-CEO-Token", s.Instance)
 		req.Header.Set("Content-Type", "application/json")
 		response, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -749,7 +749,7 @@ func TestCredentialValueReachesNoRecordSnapshotOrStream(t *testing.T) {
 // is refused, and so is a link that is not a plain https page.
 func TestCredentialRequestTakesNamesNeverValues(t *testing.T) {
 	random := "q7Lm2Xv9Rt4Kp8Zw3Nb6Hd1Yc5Fg0Js"
-	base := CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "cfo", Project: "throwaway", Names: []string{"STRIPE_SECRET_KEY"}, Why: "Charge test cards", Link: "https://dashboard.stripe.com/apikeys"}
+	base := CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "ceo", Project: "throwaway", Names: []string{"STRIPE_SECRET_KEY"}, Why: "Charge test cards", Link: "https://dashboard.stripe.com/apikeys"}
 	t.Run("the request as written is taken", func(t *testing.T) {
 		store, _ := testStore(t)
 		t.Setenv(auth.StoreDirEnv, t.TempDir())
@@ -824,7 +824,7 @@ func TestCredentialRequestCarriesItsStepsToTheBoard(t *testing.T) {
 	t.Setenv(auth.StoreDirEnv, t.TempDir())
 	s := &Service{Store: store, Options: Options{Credentials: auth.OpenStore}}
 	steps := []string{"Sign in to the PrecisionDocs Stripe account", "Reveal the test secret key and copy it"}
-	filed := CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "cfo", Project: "throwaway", Names: []string{"STRIPE_SECRET_KEY"}, Why: "Charge test cards", Link: "https://dashboard.stripe.com/test/apikeys", Steps: steps}
+	filed := CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "ceo", Project: "throwaway", Names: []string{"STRIPE_SECRET_KEY"}, Why: "Charge test cards", Link: "https://dashboard.stripe.com/test/apikeys", Steps: steps}
 
 	// Act
 	_, err := s.acceptCredentialRequest(filed)
@@ -863,7 +863,7 @@ func TestCredentialRequestShowsWhereEachValueGoes(t *testing.T) {
 	}
 	repository := filepath.Join(t.TempDir(), "throwaway")
 	s := &Service{Store: store, Options: Options{Credentials: auth.OpenStore}}
-	base := CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "cfo", Project: "throwaway", Repository: repository, Names: []string{"STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "RESEND_API_KEY", "OTHER_KEY"}, Why: "Charge test cards"}
+	base := CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "ceo", Project: "throwaway", Repository: repository, Names: []string{"STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "RESEND_API_KEY", "OTHER_KEY"}, Why: "Charge test cards"}
 
 	// Act
 	request, err := s.acceptCredentialRequest(base)
@@ -921,7 +921,7 @@ func TestCredentialRequestCarriesFormatHintsAndStoredNames(t *testing.T) {
 	s := &Service{Store: store, Options: Options{Credentials: auth.OpenStore}}
 
 	// Act
-	request, err := s.acceptCredentialRequest(CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "cfo", Project: "throwaway", Names: []string{"STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "RESEND_API_KEY"}, Why: "Charge test cards"})
+	request, err := s.acceptCredentialRequest(CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "ceo", Project: "throwaway", Names: []string{"STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "RESEND_API_KEY"}, Why: "Charge test cards"})
 	if err != nil {
 		t.Fatal(err)
 	}

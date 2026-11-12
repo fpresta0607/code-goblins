@@ -26,7 +26,7 @@ var harnessNames = map[string]string{"claude": "Claude Code", "codex": "Codex", 
 // allow rules and hooks in Claude Code's settings, the board's own hooks in
 // each, the skills it ships, the backups it kept of their files, its trust
 // of each goblin's folder, and the agents' records of the goblins' and the
-// CFO's conversations, which name folders that go with the home.
+// CEO's conversations, which name folders that go with the home.
 func (m Machine) harnesses(ctx context.Context) ([]Item, error) {
 	var items []Item
 	if wired, err := m.Install.UserSettingsWired(); err != nil {
@@ -173,8 +173,8 @@ func (m Machine) madeFolders() []string {
 	return folders
 }
 
-// homeFolders are the folders goblins and the CFO work in: the home itself,
-// where the CFO runs, and each folder goblin worktrees are in.
+// homeFolders are the folders goblins and the CEO work in: the home itself,
+// where the CEO runs, and each folder goblin worktrees are in.
 func (m Machine) homeFolders() []string {
 	return append([]string{m.Home.Root}, m.Home.WorktreeRoots()...)
 }
@@ -250,12 +250,12 @@ func (m Machine) conversations() ([]Item, error) {
 }
 
 // whose names whose conversations a record holds from what is left of its
-// folder's name past the home's own: nothing for the CFO's, held in the home,
+// folder's name past the home's own: nothing for the CEO's, held in the home,
 // and the goblin's folder for a goblin's.
 func whose(rest string) string {
 	rest = strings.TrimPrefix(rest, "-")
 	if rest == "" {
-		return "the CFO's conversations"
+		return "the CEO's conversations"
 	}
 	return rest + "'s conversations"
 }

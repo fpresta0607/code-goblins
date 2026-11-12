@@ -1,7 +1,7 @@
 // Command notices writes THIRD_PARTY_NOTICES, the licence of everything a
 // Code Goblins release ships: the Go standard library and every module
 // compiled into the commands under cmd/, Microsoft's console host embedded
-// into cfo.exe, the npm packages bundled into the board, and the board's own
+// into goblins.exe, the npm packages bundled into the board, and the board's own
 // licensed assets. With -check it writes nothing
 // and fails when the file is stale or when anything shipped is under a
 // copyleft or unrecognised licence. Build-only tools, such as Vite and its
@@ -355,7 +355,7 @@ func assetComponents(assets string, known []component) (section, []string, error
 }
 
 // consoleHostComponents lists the Microsoft ConPTY package whose conpty.dll
-// and OpenConsole.exe dir holds, which cfo.exe embeds, by the version and
+// and OpenConsole.exe dir holds, which goblins.exe embeds, by the version and
 // licence beside them.
 func consoleHostComponents(dir string) (section, []string, error) {
 	version, err := fsx.ReadFile(filepath.Join(dir, "VERSION"))
@@ -372,7 +372,7 @@ func consoleHostComponents(dir string) (section, []string, error) {
 	if err != nil {
 		problems = append(problems, name+": "+err.Error())
 	}
-	return section{heading: "Microsoft's console host, embedded into cfo.exe", components: []component{{name: name, licence: licence, text: text}}}, problems, nil
+	return section{heading: "Microsoft's console host, embedded into goblins.exe", components: []component{{name: name, licence: licence, text: text}}}, problems, nil
 }
 
 // licenceText joins a package's licence and notice files, in name order.

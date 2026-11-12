@@ -13,8 +13,8 @@ for (const state of ["held", "reconnecting", "ended"] as const) {
     test(`Classic full-screen Codex opens readable history with ${input} while ${state}`, async ({ page }, testInfo) => {
       if (input === "touch") await page.setViewportSize({ width: 390, height: 844 });
       await page.addInitScript(() => {
-        localStorage.setItem("cfo-chat-style", "classic");
-        sessionStorage.setItem("cfo-draft:cg-touch", "keep my draft");
+        localStorage.setItem("ceo-chat-style", "classic");
+        sessionStorage.setItem("ceo-draft:cg-touch", "keep my draft");
       });
       const messages = { messages: Array.from({ length: 80 }, (_, seq) => ({ ...PAGE.messages[0], id: "m" + seq, seq, text: "History " + seq + " " + "readable text ".repeat(15) })), conversation: "fixture-conversation", more: false };
       const relay = await open(page, snapshot({ actions: [pending] }, { harness: "codex" }), "", messages, "\x1b[?1049h" + HISTORY);
@@ -66,7 +66,7 @@ for (const state of ["held", "reconnecting", "ended"] as const) {
       expect(typed(relay)).toBe("");
       // Reading back opens the conversation and leaves the saved Classic alone:
       // only Modern chat in the style menu saves Modern (#1584).
-      expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style"))).toBe("classic");
+      expect(await page.evaluate(() => localStorage.getItem("ceo-chat-style"))).toBe("classic");
       await page.screenshot({ path: testInfo.outputPath(`codex-${state}-${input}-history.png`) });
     });
   }
@@ -78,7 +78,7 @@ for (const state of ["held", "reconnecting", "ended"] as const) {
 // first, so the wheel still opens the history.
 test("Classic full-screen Codex opens readable history with wheel while ended though xterm's scrollbar would take the wheel", async ({ page }) => {
   // Arrange
-  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+  await page.addInitScript(() => localStorage.setItem("ceo-chat-style", "classic"));
   const relay = await open(page, snapshot({}, { harness: "codex" }), "", PAGE, "\x1b[?1049h" + HISTORY);
   await card(page, NAME).click();
   const terminal = page.locator(".terminal-view:not(.staged) > .xterm .xterm-screen");
@@ -94,7 +94,7 @@ test("Classic full-screen Codex opens readable history with wheel while ended th
   // Assert: the history opens and the saved Classic stays, since only Back
   // to messages saves Modern (#1584).
   await expect(page.locator(".messages-view:not([hidden]) .conversation")).toBeVisible();
-  expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style"))).toBe("classic");
+  expect(await page.evaluate(() => localStorage.getItem("ceo-chat-style"))).toBe("classic");
 });
 
 // Reading back out of Classic shows the conversation and its box while the
@@ -104,7 +104,7 @@ test("Classic full-screen Codex opens readable history with wheel while ended th
 // screen").
 test("Terminal chosen on the header's picture while reading back out of Classic returns the terminal at once", async ({ page }) => {
   // Arrange
-  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+  await page.addInitScript(() => localStorage.setItem("ceo-chat-style", "classic"));
   const relay = await open(page, snapshot({}, { harness: "codex" }), "", PAGE, "[?1049h" + HISTORY);
   await card(page, NAME).click();
   const terminal = page.locator(".terminal-view:not(.staged) > .xterm .xterm-screen");
@@ -123,21 +123,21 @@ test("Terminal chosen on the header's picture while reading back out of Classic 
   await expect(terminal).toBeVisible();
   await expect(conversation).toHaveCount(0);
   await expect(box(page, NAME)).toBeHidden();
-  expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style"))).toBe("classic");
+  expect(await page.evaluate(() => localStorage.getItem("ceo-chat-style"))).toBe("classic");
 });
 
 // The right button held while the wheel turns zooms the text, even over a
 // full-screen program that a wheel up alone would leave for its history.
 test("Classic full-screen Codex zooms on a right-button wheel up while ended and keeps its terminal", async ({ page }) => {
   // Arrange
-  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+  await page.addInitScript(() => localStorage.setItem("ceo-chat-style", "classic"));
   const relay = await open(page, snapshot({}, { harness: "codex" }), "", PAGE, "\x1b[?1049h" + HISTORY);
   await card(page, NAME).click();
   const terminal = page.locator(".terminal-view:not(.staged) > .xterm .xterm-screen");
   await expect(terminal).toBeVisible();
   relay.end();
   await expect(page.locator(".terminal-foot.box")).toBeVisible();
-  const keptSize = () => page.evaluate(() => localStorage.getItem("cfo-terminal-font-size"));
+  const keptSize = () => page.evaluate(() => localStorage.getItem("ceo-terminal-font-size"));
   const before = await keptSize();
 
   // Act
@@ -149,7 +149,7 @@ test("Classic full-screen Codex zooms on a right-button wheel up while ended and
   // Assert
   await expect.poll(keptSize).not.toBe(before);
   await expect(page.locator(".messages-view:not([hidden])")).toHaveCount(0);
-  expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style"))).toBe("classic");
+  expect(await page.evaluate(() => localStorage.getItem("ceo-chat-style"))).toBe("classic");
 });
 
 // A view that connects again replays the terminal's history before its
@@ -157,7 +157,7 @@ test("Classic full-screen Codex zooms on a right-button wheel up while ended and
 // written after the last repaint is still there to return to (#1566).
 test("Classic keeps the line it reads in later output through a reconnect", async ({ page }) => {
   // Arrange
-  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+  await page.addInitScript(() => localStorage.setItem("ceo-chat-style", "classic"));
   const relay = await open(page, snapshot({}, { harness: "codex" }), "", PAGE, HISTORY);
   await card(page, NAME).click();
   const rows = page.locator(".terminal-view:not(.staged) > .xterm .xterm-rows");
@@ -187,19 +187,19 @@ test("Classic keeps the line it reads in later output through a reconnect", asyn
 });
 
 for (const style of ["classic", "modern"] as const) {
-  test(`${style} follows an ended CFO host into Codex without reload or losing its draft`, async ({ page }) => {
+  test(`${style} follows an ended CEO host into Codex without reload or losing its draft`, async ({ page }) => {
     await page.addInitScript((style) => {
-      localStorage.setItem("cfo-chat-style", style);
-      sessionStorage.setItem("cfo-draft:cfo", "keep the CEO draft");
+      localStorage.setItem("ceo-chat-style", style);
+      sessionStorage.setItem("ceo-draft:ceo", "keep the CEO draft");
     }, style);
     const oldSince = "2026-10-22T09:00:00Z", newSince = "2026-10-22T10:00:00Z";
-    const cfoPending = { ...pending, task_id: "" };
-    const relay = await open(page, snapshot({ cfo_harness: "pi", cfo_terminal_since: oldSince, actions: [cfoPending] }), "", PAGE, HISTORY);
+    const ceoPending = { ...pending, task_id: "" };
+    const relay = await open(page, snapshot({ ceo_harness: "pi", ceo_terminal_since: oldSince, actions: [ceoPending] }), "", PAGE, HISTORY);
     await page.keyboard.press("Control+Alt+1");
     await expect.poll(() => relay.addresses.some((address) => new URL(address).searchParams.get("since") === oldSince)).toBe(true);
     relay.end();
 
-    await page.evaluate((detail) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail })), snapshot({ revision: 2, cfo_harness: "codex", cfo_terminal_since: newSince, actions: [cfoPending] }));
+    await page.evaluate((detail) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail })), snapshot({ revision: 2, ceo_harness: "codex", ceo_terminal_since: newSince, actions: [ceoPending] }));
 
     await expect.poll(() => relay.addresses.some((address) => new URL(address).searchParams.get("since") === newSince)).toBe(true);
     await expect(page.locator(".terminal-foot.box")).toHaveCount(0);
@@ -216,14 +216,14 @@ for (const style of ["classic", "modern"] as const) {
       await expect(page.locator(".deck-slot:not([hidden]) .terminal-view:not(.staged) > .xterm .xterm-rows")).toContainText("The CEO keeps working in Codex");
       await page.getByRole("textbox", { name: "Terminal input", exact: true }).press("Shift+Tab");
       await expect.poll(() => typed(relay)).toBe("\x1b[Z");
-      expect(await page.evaluate(() => sessionStorage.getItem("cfo-draft:cfo"))).toBe("keep the CEO draft");
+      expect(await page.evaluate(() => sessionStorage.getItem("ceo-draft:ceo"))).toBe("keep the CEO draft");
     }
     expect(relay.inputs.every((input) => new URL(input.address).searchParams.get("since") === newSince)).toBe(true);
   });
 
   test(`${style} follows an ended Pi root into Codex without reload or losing its draft`, async ({ page }, testInfo) => {
-    await page.addInitScript(() => sessionStorage.setItem("cfo-draft:cg-touch", "keep my draft"));
-    await page.addInitScript((style) => localStorage.setItem("cfo-chat-style", style), style);
+    await page.addInitScript(() => sessionStorage.setItem("ceo-draft:cg-touch", "keep my draft"));
+    await page.addInitScript((style) => localStorage.setItem("ceo-chat-style", style), style);
     const initial = snapshot({ sessions: [pi], actions: [pending] }, { harness: "pi", session: pi.id, generation: pi.generation });
     const relay = await open(page, initial, "", PAGE, HISTORY);
     await page.getByRole("button", { name: "Orchestration", exact: true }).click();
@@ -248,7 +248,7 @@ for (const style of ["classic", "modern"] as const) {
       await expect(page.locator(".deck-slot:not([hidden]) .terminal-view:not(.staged) > .xterm .xterm-rows")).toContainText("Codex is still progressing");
       await page.getByRole("textbox", { name: "Terminal input", exact: true }).press("Shift+Tab");
       await expect.poll(() => typed(relay)).toBe("\x1b[Z");
-      expect(await page.evaluate(() => sessionStorage.getItem("cfo-draft:cg-touch"))).toBe("keep my draft");
+      expect(await page.evaluate(() => sessionStorage.getItem("ceo-draft:cg-touch"))).toBe("keep my draft");
     }
     expect(relay.inputs.every((input) => new URL(input.address).searchParams.get("generation") === codex.generation)).toBe(true);
     relay.say({ type: "held", reason: "pipeline owns this task" });
@@ -267,7 +267,7 @@ for (const phone of [false, true]) {
     test.use({ viewport: phone ? { width: 390, height: 844 } : { width: 1440, height: 1000 }, hasTouch: phone });
     for (const style of ["classic", "modern"] as const) {
       test(`${style} history scrolls while busy, held, reconnected and ended`, async ({ page }, testInfo) => {
-        await page.addInitScript((style) => localStorage.setItem("cfo-chat-style", style), style);
+        await page.addInitScript((style) => localStorage.setItem("ceo-chat-style", style), style);
         const messages = { messages: Array.from({ length: 80 }, (_, seq) => ({ ...PAGE.messages[0], id: "m" + seq, seq, text: "History " + seq + " " + "readable text ".repeat(15) })), conversation: "fixture-conversation", more: false };
         const relay = await open(page, snapshot({}, { harness: "codex", runtime: { state: "working", at } }), "", messages, HISTORY);
         await card(page, NAME).click();

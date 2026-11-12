@@ -1,4 +1,4 @@
-import { CFO_DOOR, expect, test, type Page } from "./site";
+import { CEO_DOOR, expect, test, type Page } from "./site";
 import { box, open, openGoblin, snapshot } from "./session-board";
 import { openTaskList } from "./site";
 
@@ -44,30 +44,30 @@ for (const session of SESSIONS) {
   });
 }
 
-// The CFO's panel has no task, so its Task view names the model and effort of
-// the CFO's engine record, the one record of them, as the box's model button
+// The CEO's panel has no task, so its Task view names the model and effort of
+// the CEO's engine record, the one record of them, as the box's model button
 // shows them (model-effort.spec.ts): a pending engine or one that could not
-// be applied names a selection the CFO does not run, so the view names the
-// harness alone, as it does before the record exists. What the CFO's session
+// be applied names a selection the CEO does not run, so the view names the
+// harness alone, as it does before the record exists. What the CEO's session
 // reported of itself as it started is no second record, and is never shown.
-const CFO_ENGINES = [
+const CEO_ENGINES = [
   { why: "no saved engine", engine: undefined, line: "Claude Code" },
   { why: "an applied engine", engine: { pending: false, problem: "" }, line: "Claude Code · Fable 5.2 · high" },
   { why: "a pending engine", engine: { pending: true, problem: "" }, line: "Claude Code" },
-  { why: "an engine that could not be applied", engine: { pending: false, problem: "The selection could not be applied: the CFO is busy" }, line: "Claude Code" },
+  { why: "an engine that could not be applied", engine: { pending: false, problem: "The selection could not be applied: the CEO is busy" }, line: "Claude Code" },
 ] as const;
-for (const cfo of CFO_ENGINES) {
-  test(`the CFO's Task view with ${cfo.why} names its harness, and the model and effort its engine record says it runs`, async ({ page }) => {
-    // Arrange: a CFO whose session reported Opus 5.5 as it started.
+for (const ceo of CEO_ENGINES) {
+  test(`the CEO's Task view with ${ceo.why} names its harness, and the model and effort its engine record says it runs`, async ({ page }) => {
+    // Arrange: a CEO whose session reported Opus 5.5 as it started.
     const [claude] = SESSIONS;
-    await open(page, snapshot({ sessions: [{ id: "cfo-1", harness: claude.harness, role: "cfo", model: claude.model }], ...(cfo.engine && { cfo_engine: { harness: claude.harness, model: "claude-fable-5-2", effort: "high", waiting: "", ...cfo.engine } }) }));
+    await open(page, snapshot({ sessions: [{ id: "ceo-1", harness: claude.harness, role: "ceo", model: claude.model }], ...(ceo.engine && { ceo_engine: { harness: claude.harness, model: "claude-fable-5-2", effort: "high", waiting: "", ...ceo.engine } }) }));
 
     // Act
-    await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click();
+    await page.locator(".ceo-pin").getByRole("button", { name: CEO_DOOR }).last().click();
     await expect(page.locator("#panel-title")).toHaveText("CEO");
 
     // Assert
     await expect(page.locator(".goblin-panel > .panel-header .mark")).toHaveCount(0);
-    await expect((await openTaskList(page)).getByText(cfo.line, { exact: true })).toBeVisible();
+    await expect((await openTaskList(page)).getByText(ceo.line, { exact: true })).toBeVisible();
   });
 }

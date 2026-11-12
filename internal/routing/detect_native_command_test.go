@@ -38,7 +38,7 @@ func TestDetectIgnoresSavedExplanatorySearchSentence(t *testing.T) {
 
 func TestDetectConstructedOperatorContinuationKeepsFaultContext(t *testing.T) {
 	// The historical 4972 screen is unavailable; this indented wrap is constructed.
-	tail := "↳ CFO: Inspect the quoted search command.\n  invalid_api_key was a literal search token.\n• Working (8s • esc to interrupt)"
+	tail := "↳ CEO: Inspect the quoted search command.\n  invalid_api_key was a literal search token.\n• Working (8s • esc to interrupt)"
 	fault, detail, found := Detect(tail)
 	if found {
 		t.Fatalf("Detect = (%q, %q), want no worker fault from the constructed steer", fault, detail)
@@ -68,7 +68,7 @@ func TestDetectKeepsFaultsAfterNativeCommandBoundaries(t *testing.T) {
 			}{
 				{"output then blank", "• Ran rg -n \"invalid_api_key\" internal/routing\n  └ no matches\n\n"},
 				{"wrapped arguments then turn", "• Ran rg -n\n    \"invalid_api_key\"\n    internal/routing\n  └ no matches\n• Working (8s • esc to interrupt)\n"},
-				{"constructed operator then turn", "↳ CFO: Inspect the search evidence.\n  invalid_api_key was a literal search token.\n• Working (8s • esc to interrupt)\n"},
+				{"constructed operator then turn", "↳ CEO: Inspect the search evidence.\n  invalid_api_key was a literal search token.\n• Working (8s • esc to interrupt)\n"},
 			} {
 				t.Run(boundary.name, func(t *testing.T) {
 					fault, detail, found := Detect(boundary.prefix + test.refusal)
@@ -93,7 +93,7 @@ func TestDetectKeepsFaultsAfterNativeCommandBoundaries(t *testing.T) {
 }
 
 func TestDetectRecognizesRemoteCompactCapacityRefusal(t *testing.T) {
-	// Complete native line witnessed by the CFO for wake 4989, not a quota banner.
+	// Complete native line witnessed by the CEO for wake 4989, not a quota banner.
 	refusal := "■ Error running remote compact task: Selected model is at capacity. Please try a different model."
 	for _, test := range []struct {
 		name, tail string
@@ -118,7 +118,7 @@ func TestDetectRecognizesRemoteCompactCapacityRefusal(t *testing.T) {
 		{"tool output", "• Ran Get-Content review.log\n  └ " + refusal + "\n\n• Working (8s • esc to interrupt)"},
 		{"diff", "    38 +" + refusal},
 		{"source", "review.log:38: " + refusal},
-		{"operator", "↳ CFO: Inspect this earlier refusal.\n  " + refusal},
+		{"operator", "↳ CEO: Inspect this earlier refusal.\n  " + refusal},
 		{"ordinary discussion", "Earlier output said " + refusal + "; the worker continued."},
 	} {
 		t.Run(test.name, func(t *testing.T) {

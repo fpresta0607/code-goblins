@@ -288,7 +288,7 @@ func TestSpawnRefusesEmptyDeliveryModeLine(t *testing.T) {
 // id and no Herdr pane, and its harness starts there with the task's identity
 // and its brief.
 func TestSpawnShipPublishesANativeTaskAndBriefsItsHarness(t *testing.T) {
-	for _, key := range []string{"CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID", "PI_SESSION_ID", "CFO_SESSION_ID", "CFO_SESSION_HARNESS", "CFO_ROOT_SESSION_ID"} {
+	for _, key := range []string{"CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID", "PI_SESSION_ID", "GOBLINS_SESSION_ID", "GOBLINS_SESSION_HARNESS", "GOBLINS_ROOT_SESSION_ID"} {
 		t.Setenv(key, "")
 	}
 	f := newQuickFixture(t)
@@ -335,7 +335,7 @@ func TestSpawnShipPublishesANativeTaskAndBriefsItsHarness(t *testing.T) {
 	// of its first shell /tmp for every shell of the user, so it can be no
 	// task's own folder, which goes with the task.
 	sharedTemp := filepath.Join(filepath.Dir(scratch), home.SharedTempDir)
-	for name, want := range map[string]string{"CFO_TASK_ID": "task-7", "CFO_ROLE": harness.RoleGoblin, "GOTMPDIR": scratch, "TEMP": scratch, "TMPDIR": scratch, "TMP": sharedTemp, "CFO_STATE_OVERRIDE": f.stateDir} {
+	for name, want := range map[string]string{"GOBLINS_TASK_ID": "task-7", "GOBLINS_ROLE": harness.RoleGoblin, "GOTMPDIR": scratch, "TEMP": scratch, "TMPDIR": scratch, "TMP": sharedTemp, "GOBLINS_STATE_OVERRIDE": f.stateDir} {
 		if got := env[name]; got == nil || *got != want {
 			t.Errorf("the harness started with %s = %v, want %q", name, got, want)
 		}
@@ -476,19 +476,19 @@ func TestSpawnKeepsTheLaunchContractOverCaseAliasedRedirects(t *testing.T) {
 	f := newQuickFixture(t)
 	// Windows compares environment names without case, so a redirect that
 	// differs from a reserved name only by case is the same variable.
-	// CFO_STATE_OVERRIDE is only written at harness start, after the manifest
+	// GOBLINS_STATE_OVERRIDE is only written at harness start, after the manifest
 	// is merged, so it proves the reserved set does not depend on what the
 	// launch map happens to hold at merge time. LOCALAPPDATA, XDG_CACHE_HOME
 	// and HOME are reserved for a different reason: the launch never writes
 	// them, but os.UserCacheDir reads them to derive the task's Go temporary
-	// directory, so a redirect would leave any cfo command the goblin runs
+	// directory, so a redirect would leave any goblins command the goblin runs
 	// computing a different directory than spawn created.
 	writeWorktreeManifest(t, f.dataDir, f.project, worktree.Manifest{
 		Project: "primary",
 		Env: map[string]string{
 			"gotmpdir":                 `C:\hijacked-gotmpdir`,
-			"cfo_state_override":       `C:\hijacked-state`,
-			"Cfo_Role":                 "overlord",
+			"goblins_state_override":   `C:\hijacked-state`,
+			"Goblins_Role":             "overlord",
 			"localappdata":             `C:\hijacked-cache`,
 			"XDG_Cache_Home":           "/hijacked-cache",
 			"Home":                     "/hijacked-cache-home",
@@ -509,8 +509,8 @@ func TestSpawnKeepsTheLaunchContractOverCaseAliasedRedirects(t *testing.T) {
 	}
 	for name, want := range map[string]string{
 		"GOTMPDIR":                 taskScratch(f.stateDir, result.Meta.ID),
-		"CFO_STATE_OVERRIDE":       f.stateDir,
-		"CFO_ROLE":                 harness.RoleGoblin,
+		"GOBLINS_STATE_OVERRIDE":   f.stateDir,
+		"GOBLINS_ROLE":             harness.RoleGoblin,
 		"PLAYWRIGHT_BROWSERS_PATH": `C:\cache\ms-playwright`,
 	} {
 		if got := env[name]; got == nil || *got != want {
@@ -844,7 +844,7 @@ func TestSpawnRemovesTheCapsuleOfASpawnThatFailsBeforePublishing(t *testing.T) {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return "", err
 		}
-		return brief, os.WriteFile(brief, []byte(completedSpawnBrief+"\n## CFO durable task capsule\n"), 0o600)
+		return brief, os.WriteFile(brief, []byte(completedSpawnBrief+"\n## CEO durable task capsule\n"), 0o600)
 	}
 	f.git.acquireErr = errors.New("worktree: add worktree refused")
 
@@ -877,7 +877,7 @@ func TestSpawnKeepsTheCapsuleOfALaunchItKeeps(t *testing.T) {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return "", err
 		}
-		return brief, os.WriteFile(brief, []byte(completedSpawnBrief+"\n## CFO durable task capsule\n"), 0o600)
+		return brief, os.WriteFile(brief, []byte(completedSpawnBrief+"\n## CEO durable task capsule\n"), 0o600)
 	}
 	f.userEnv = append(f.userEnv, fakeCodexMode+"=daybreak-inline", fakeCodexDraft+"=An unfinished user draft")
 
@@ -886,7 +886,7 @@ func TestSpawnKeepsTheCapsuleOfALaunchItKeeps(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "holds a draft") {
 		t.Fatalf("Spawn = %v, want a refusal that keeps the running terminal", err)
 	}
-	if saved, err := os.ReadFile(filepath.Join(taskTmp, "brief.md")); err != nil || !strings.Contains(string(saved), "CFO durable task capsule") {
+	if saved, err := os.ReadFile(filepath.Join(taskTmp, "brief.md")); err != nil || !strings.Contains(string(saved), "CEO durable task capsule") {
 		t.Fatalf("capsule brief = %q, %v; want it kept with the session", saved, err)
 	}
 	terminal, err := host.ReadRecord(f.stateDir, f.request.ID)
@@ -938,7 +938,7 @@ func TestSpawnFailureLeavesNoTaskTemporaryDirectory(t *testing.T) {
 // don't want to just increase time out"), so every goblin's first
 // instruction, a helper's too, and the one a goblin taking over a task gets,
 // says how a heavy run stands in the line, what the wait looks like, and
-// which runs still need the CFO's word because no turn covers them.
+// which runs still need the CEO's word because no turn covers them.
 func TestAGoblinIsToldToPutAHeavyRunBehindTheLine(t *testing.T) {
 	// Arrange
 	exe, err := os.Executable()
@@ -1036,7 +1036,7 @@ func TestNotifyInstructionTeachesWorkingAndWaitingReports(t *testing.T) {
 		}
 	}
 	if strings.Contains(instruction, "the board shows them to the Supreme Overlord") {
-		t.Error("goblin questions must name the CFO as their recipient")
+		t.Error("goblin questions must name the CEO as their recipient")
 	}
 }
 

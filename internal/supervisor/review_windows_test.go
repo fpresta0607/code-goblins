@@ -53,16 +53,16 @@ func TestReviewRangeAcceptsVisibleContextAndRefusesGaps(t *testing.T) {
 
 func TestReviewRejectsStaleContextAndGenerationWithoutDelivery(t *testing.T) {
 	store, h := testStore(t)
-	_, _, terminal, cfo := primaryFixture(t, store)
+	_, _, terminal, ceo := primaryFixture(t, store)
 	meta, _ := state.ReadTaskMeta(h.State, "task-1")
 	gitFixture(t, meta.Worktree)
-	service := &Service{Store: store, Options: Options{CFO: cfo}}
+	service := &Service{Store: store, Options: Options{CEO: ceo}}
 	ctx := context.Background()
-	valid, err := store.QueueReview(reviewAction(t, service, meta, "review-stale", "main.go", 2, 2), cfo)
+	valid, err := store.QueueReview(reviewAction(t, service, meta, "review-stale", "main.go", 2, 2), ceo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if valid.CFOIdentity == "" {
+	if valid.CEOIdentity == "" {
 		t.Fatal("test requires an admitted pinned action")
 	}
 	for _, mutate := range []func(*Action){
@@ -79,12 +79,12 @@ func TestReviewRejectsStaleContextAndGenerationWithoutDelivery(t *testing.T) {
 			t.Fatalf("invalid selection not rejected: %v", err)
 		}
 	}
-	if _, err := store.QueueReview(valid, cfo); err != nil {
+	if _, err := store.QueueReview(valid, ceo); err != nil {
 		t.Fatal(err)
 	}
 	conflict := valid
 	conflict.EndLine++
-	if _, err := store.QueueReview(conflict, cfo); err == nil {
+	if _, err := store.QueueReview(conflict, ceo); err == nil {
 		t.Fatal("same ID accepted with another range")
 	}
 	// A browser-held draft must not adopt the next spawn generation, and a
@@ -95,7 +95,7 @@ func TestReviewRejectsStaleContextAndGenerationWithoutDelivery(t *testing.T) {
 	}
 	stale := valid
 	stale.ID = "review-after-respawn"
-	if _, err := store.QueueReview(stale, cfo); err == nil {
+	if _, err := store.QueueReview(stale, ceo); err == nil {
 		t.Fatal("old generation accepted after respawn")
 	}
 	if len(store.Snapshot().Actions) != 1 {
@@ -112,14 +112,14 @@ func TestReviewRejectsStaleContextAndGenerationWithoutDelivery(t *testing.T) {
 		t.Fatalf("invalid review reached queue: %+v %v", records, err)
 	}
 	if typed := terminal.lines(t); len(typed) != 0 {
-		t.Fatalf("stale context reached the CFO's terminal: %q", typed)
+		t.Fatalf("stale context reached the CEO's terminal: %q", typed)
 	}
 }
 
 // A stale registration used to answer 202 Queued and fail only at delivery.
-// Admission now proves the registered CFO live first; a refusal leaves no
+// Admission now proves the registered CEO live first; a refusal leaves no
 // durable action and sends nothing.
-func TestReviewAdmissionRefusesAStaleCFOBeforeQueueing(t *testing.T) {
+func TestReviewAdmissionRefusesAStaleCEOBeforeQueueing(t *testing.T) {
 	for _, c := range []struct {
 		name, reason string
 		stale        func(*testing.T, string, primaryRegistration, hostedTerminal)
@@ -140,33 +140,33 @@ func TestReviewAdmissionRefusesAStaleCFOBeforeQueueing(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			store, h := testStore(t)
-			primary, _, terminal, cfo := primaryFixture(t, store)
+			primary, _, terminal, ceo := primaryFixture(t, store)
 			meta, _ := state.ReadTaskMeta(h.State, "task-1")
 			gitFixture(t, meta.Worktree)
-			service := &Service{Store: store, Options: Options{CFO: cfo}}
-			action := reviewAction(t, service, meta, "stale-cfo-review", "main.go", 2, 2)
+			service := &Service{Store: store, Options: Options{CEO: ceo}}
+			action := reviewAction(t, service, meta, "stale-ceo-review", "main.go", 2, 2)
 			c.stale(t, h.State, primary, terminal)
-			_, err := store.QueueReview(action, cfo)
+			_, err := store.QueueReview(action, ceo)
 			if err == nil || !strings.Contains(err.Error(), c.reason) || !strings.Contains(err.Error(), "No review was queued") {
-				t.Fatalf("stale CFO admission: %v", err)
+				t.Fatalf("stale CEO admission: %v", err)
 			}
 			reopened, err := Open(h)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if len(store.Snapshot().Actions) != 0 || len(reopened.Snapshot().Actions) != 0 || len(terminal.lines(t)) != 0 {
-				t.Fatal("refused review left an action or reached the CFO")
+				t.Fatal("refused review left an action or reached the CEO")
 			}
 		})
 	}
 }
 
 // The browser path: a stale registration is refused with 409 before anything
-// is queued, and the same unchanged request is admitted once the CFO is live.
-func TestReviewEndpointVerifiesTheCFOBeforeQueueing(t *testing.T) {
+// is queued, and the same unchanged request is admitted once the CEO is live.
+func TestReviewEndpointVerifiesTheCEOBeforeQueueing(t *testing.T) {
 	store, _ := testStore(t)
-	_, identity, terminal, cfo := primaryFixture(t, store)
-	h := NewHTTP(&Service{Store: store, Options: Options{CFO: cfo}, Instance: "instance", done: make(chan struct{})}, "", nil)
+	_, identity, terminal, ceo := primaryFixture(t, store)
+	h := NewHTTP(&Service{Store: store, Options: Options{CEO: ceo}, Instance: "instance", done: make(chan struct{})}, "", nil)
 	server := httptest.NewServer(h)
 	h.Host = strings.TrimPrefix(server.URL, "http://")
 	t.Cleanup(server.Close)
@@ -177,34 +177,34 @@ func TestReviewEndpointVerifiesTheCFOBeforeQueueing(t *testing.T) {
 	response := terminalPost(t, server, "/api/actions", body)
 	response.Body.Close()
 	if response.StatusCode != 409 || len(store.Snapshot().Actions) != 0 {
-		t.Fatalf("stale CFO review: status %d, actions %+v", response.StatusCode, store.Snapshot().Actions)
+		t.Fatalf("stale CEO review: status %d, actions %+v", response.StatusCode, store.Snapshot().Actions)
 	}
 	terminal.standIn(t)
 	response = terminalPost(t, server, "/api/actions", body)
 	var admitted Action
 	err := json.NewDecoder(response.Body).Decode(&admitted)
 	response.Body.Close()
-	if err != nil || response.StatusCode != 202 || admitted.CFOIdentity != identity || admitted.Status != "queued" || len(terminal.lines(t)) != 0 {
-		t.Fatalf("live CFO review: status %d, action %+v, error %v", response.StatusCode, admitted, err)
+	if err != nil || response.StatusCode != 202 || admitted.CEOIdentity != identity || admitted.Status != "queued" || len(terminal.lines(t)) != 0 {
+		t.Fatalf("live CEO review: status %d, action %+v, error %v", response.StatusCode, admitted, err)
 	}
 }
 
 func TestReviewKeepsPinnedPrimaryAcrossRetryAndPreservesHistoricalWake(t *testing.T) {
 	store, h := testStore(t)
-	primary, identity, terminal, cfo := primaryFixture(t, store)
+	primary, identity, terminal, ceo := primaryFixture(t, store)
 	meta, _ := state.ReadTaskMeta(h.State, "task-1")
 	gitFixture(t, meta.Worktree)
-	service := &Service{Store: store, Options: Options{CFO: cfo}}
+	service := &Service{Store: store, Options: Options{CEO: ceo}}
 	old, err := wake.Append(h.State, "notify", "unrelated", "blocked: retained historical wake")
 	if err != nil {
 		t.Fatal(err)
 	}
 	a := reviewAction(t, service, meta, "pinned-review", "main.go", 2, 2)
-	queued, err := store.QueueReview(a, cfo)
+	queued, err := store.QueueReview(a, ceo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if queued.CFOIdentity != identity || len(terminal.lines(t)) != 0 {
+	if queued.CEOIdentity != identity || len(terminal.lines(t)) != 0 {
 		t.Fatal("admission did not pin the recipient, or it sent")
 	}
 	// Another registration replaces the one the review was pinned to.
@@ -213,8 +213,8 @@ func TestReviewKeepsPinnedPrimaryAcrossRetryAndPreservesHistoricalWake(t *testin
 	if err := os.WriteFile(filepath.Join(h.State, "primary.json"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	again, err := store.QueueReview(a, cfo)
-	if err != nil || again.CFOIdentity != identity || len(store.Snapshot().Actions) != 1 {
+	again, err := store.QueueReview(a, ceo)
+	if err != nil || again.CEOIdentity != identity || len(store.Snapshot().Actions) != 1 {
 		t.Fatal("retry retargeted the primary", err)
 	}
 	_, replacement, err := readPrimary(h.State)
@@ -222,7 +222,7 @@ func TestReviewKeepsPinnedPrimaryAcrossRetryAndPreservesHistoricalWake(t *testin
 		t.Fatal("the replacement did not change the primary identity", err)
 	}
 	if err := store.ProcessOne(context.Background(), func(ctx context.Context, action Action) (Evaluation, error) {
-		if action.CFOIdentity != replacement {
+		if action.CEOIdentity != replacement {
 			t.Fatal("the queued review did not follow the live replacement")
 		}
 		terminal.runs(t, 4)
@@ -233,9 +233,9 @@ func TestReviewKeepsPinnedPrimaryAcrossRetryAndPreservesHistoricalWake(t *testin
 	if store.Snapshot().Actions[0].Status != "failed" || len(terminal.lines(t)) != 0 {
 		t.Fatal("stale primary received review")
 	}
-	// Old queued annotations without a recipient cannot be replayed into a new CFO.
+	// Old queued annotations without a recipient cannot be replayed into a new CEO.
 	queued.ID = "legacy-review"
-	queued.CFOIdentity = ""
+	queued.CEOIdentity = ""
 	queued.Status = "queued"
 	store.db.Actions = append(store.db.Actions, queued)
 	if err := store.save(); err != nil {
@@ -257,7 +257,7 @@ func TestReviewUsesRequiredNativeChannelAcrossHarnesses(t *testing.T) {
 	for _, harness := range []string{"claude", "codex", "pi"} {
 		t.Run(harness, func(t *testing.T) {
 			store, h := testStore(t)
-			primary, _, terminal, cfo := primaryFixture(t, store)
+			primary, _, terminal, ceo := primaryFixture(t, store)
 			primary.Agent = harness
 			data, _ := json.Marshal(primary)
 			if err := os.WriteFile(filepath.Join(h.State, "primary.json"), data, 0600); err != nil {
@@ -266,8 +266,8 @@ func TestReviewUsesRequiredNativeChannelAcrossHarnesses(t *testing.T) {
 			terminal.drawsComposer(t, harness)
 			meta, _ := state.ReadTaskMeta(h.State, "task-1")
 			gitFixture(t, meta.Worktree)
-			service := &Service{Store: store, Options: Options{CFO: cfo}}
-			if _, err := store.QueueReview(reviewAction(t, service, meta, "harness-review", "main.go", 2, 2), cfo); err != nil {
+			service := &Service{Store: store, Options: Options{CEO: ceo}}
+			if _, err := store.QueueReview(reviewAction(t, service, meta, "harness-review", "main.go", 2, 2), ceo); err != nil {
 				t.Fatal(err)
 			}
 			if err := store.ProcessOne(context.Background(), service.execute); err != nil {
@@ -283,10 +283,10 @@ func TestReviewUsesRequiredNativeChannelAcrossHarnesses(t *testing.T) {
 // An empty untracked file has no line 1 to annotate; a lone newline has one.
 func TestReviewCannotDeliverALineAZeroByteFileDoesNotHave(t *testing.T) {
 	store, h := testStore(t)
-	_, _, terminal, cfo := primaryFixture(t, store)
+	_, _, terminal, ceo := primaryFixture(t, store)
 	meta, _ := state.ReadTaskMeta(h.State, "task-1")
 	gitFixture(t, meta.Worktree)
-	service := &Service{Store: store, Options: Options{CFO: cfo}}
+	service := &Service{Store: store, Options: Options{CEO: ceo}}
 	for i, c := range []struct {
 		path, content, code string
 		delivered           bool
@@ -299,7 +299,7 @@ func TestReviewCannotDeliverALineAZeroByteFileDoesNotHave(t *testing.T) {
 			t.Fatal(err)
 		}
 		before := len(terminal.lines(t))
-		if _, err := store.QueueReview(reviewAction(t, service, meta, fmt.Sprintf("line-one-%d", i), c.path, 1, 1), cfo); err != nil {
+		if _, err := store.QueueReview(reviewAction(t, service, meta, fmt.Sprintf("line-one-%d", i), c.path, 1, 1), ceo); err != nil {
 			t.Fatal(err)
 		}
 		if err := store.ProcessOne(context.Background(), service.execute); err != nil {
@@ -328,15 +328,15 @@ func TestReviewCannotDeliverALineAZeroByteFileDoesNotHave(t *testing.T) {
 
 func TestReviewCrashAfterNativeAcceptanceRemainsUncertain(t *testing.T) {
 	store, h := testStore(t)
-	_, _, terminal, cfo := primaryFixture(t, store)
+	_, _, terminal, ceo := primaryFixture(t, store)
 	meta, _ := state.ReadTaskMeta(h.State, "task-1")
 	gitFixture(t, meta.Worktree)
-	service := &Service{Store: store, Options: Options{CFO: cfo}}
+	service := &Service{Store: store, Options: Options{CEO: ceo}}
 	action := reviewAction(t, service, meta, "review-crash", "main.go", 2, 2)
-	if _, err := store.QueueReview(action, cfo); err != nil {
+	if _, err := store.QueueReview(action, ceo); err != nil {
 		t.Fatal(err)
 	}
-	// The store stops taking writes once the CFO has the review, so its
+	// The store stops taking writes once the CEO has the review, so its
 	// outcome cannot be recorded.
 	var restore func()
 	delivered := func(ctx context.Context, a Action) (Evaluation, error) {
@@ -356,20 +356,20 @@ func TestReviewCrashAfterNativeAcceptanceRemainsUncertain(t *testing.T) {
 	if reopened.Snapshot().Actions[0].Status != "uncertain" {
 		t.Fatal("native side effect was retried")
 	}
-	if _, err := reopened.QueueReview(action, cfo); err != nil {
+	if _, err := reopened.QueueReview(action, ceo); err != nil {
 		t.Fatal(err)
 	}
 	if err := reopened.ProcessOne(context.Background(), service.execute); err != nil {
 		t.Fatal(err)
 	}
 	if typed := terminal.lines(t); len(typed) != 1 {
-		t.Fatalf("the CFO's terminal received %q, want the accepted comment once and never replayed", typed)
+		t.Fatalf("the CEO's terminal received %q, want the accepted comment once and never replayed", typed)
 	}
 }
 
-func TestReviewTwoFilesReachNativeCFOWithoutWorkerSteering(t *testing.T) {
+func TestReviewTwoFilesReachNativeCEOWithoutWorkerSteering(t *testing.T) {
 	store, h := testStore(t)
-	_, _, terminal, cfo := primaryFixture(t, store)
+	_, _, terminal, ceo := primaryFixture(t, store)
 	meta, _ := state.ReadTaskMeta(h.State, "task-1")
 	gitFixture(t, meta.Worktree)
 	for path, content := range map[string]string{"main.go": "package main\nfunc main() {\n println(2)\n}\n", "extra.go": "package main\nconst extra = 1\n"} {
@@ -378,7 +378,7 @@ func TestReviewTwoFilesReachNativeCFOWithoutWorkerSteering(t *testing.T) {
 		}
 	}
 	service := &Service{Store: store, Options: Options{
-		CFO:  cfo,
+		CEO:  ceo,
 		Gate: fakeProgress{value: pipeline.Progress{Status: "running"}},
 	}}
 	for i, path := range []string{"main.go", "extra.go"} {
@@ -387,17 +387,17 @@ func TestReviewTwoFilesReachNativeCFOWithoutWorkerSteering(t *testing.T) {
 			last = 2
 		}
 		action := reviewAction(t, service, meta, fmt.Sprintf("review-%d", i), path, 2, last)
-		if _, err := store.QueueReview(action, cfo); err != nil {
+		if _, err := store.QueueReview(action, ceo); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := store.QueueReview(action, cfo); err != nil {
+		if _, err := store.QueueReview(action, ceo); err != nil {
 			t.Fatal(err)
 		}
 		if err := store.ProcessOne(context.Background(), service.execute); err != nil {
 			t.Fatal(err)
 		}
 		got := store.Snapshot().Actions[i]
-		if got.Status != "succeeded" || !strings.Contains(got.Message, "CFO") {
+		if got.Status != "succeeded" || !strings.Contains(got.Message, "CEO") {
 			t.Fatalf("review outcome: %+v", got)
 		}
 	}

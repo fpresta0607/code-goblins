@@ -4,7 +4,7 @@ import { HostTerminal } from "../../src/HostTerminal";
 import "../../src/styles.css";
 import { SteppedIn } from "./stepped-in";
 
-// Two terminals open side by side, as the CFO's terminal stays open behind a
+// Two terminals open side by side, as the CEO's terminal stays open behind a
 // run's terminal on its Command Center card. The button takes the second out
 // of sight and brings it back, as switching terminals does.
 function Fixture() {

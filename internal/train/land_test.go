@@ -562,8 +562,8 @@ func TestAdvanceLandsAGreenTrainInOrderAndMainMatchesTheTrain(t *testing.T) {
 	if len(gh.closed) != 0 || s.hasBranch(started.Branch) {
 		t.Fatalf("closed %v, branch kept %v: want the train pull request merged, never closed, and its branch deleted", gh.closed, s.hasBranch(started.Branch))
 	}
-	if len(s.cfo) != 2 || !strings.Contains(s.cfo[1], "landed #11, #12, #13") {
-		t.Fatalf("CFO told %q, want the landing", s.cfo)
+	if len(s.ceo) != 2 || !strings.Contains(s.ceo[1], "landed #11, #12, #13") {
+		t.Fatalf("CEO told %q, want the landing", s.ceo)
 	}
 	if len(s.told) != 0 {
 		t.Fatalf("goblins told %q, want nothing for a train that landed", s.told)
@@ -725,8 +725,8 @@ func TestAMergeGitHubKeepsRefusingHoldsItsGreenProofOnceItsErrorBudgetIsSpent(t 
 	if len(gh.closed) != 0 || !s.hasBranch(started.Branch) || len(gh.mergeCalls()) != maxErrors || len(failed.History[0].MergeFailures) != maxErrors || failed.History[0].MergeAttempts != maxErrors || failed.Errors != maxErrors {
 		t.Fatalf("train %+v, closed %v, merges %v: want no discarded proof or renewed attempts", failed, gh.closed, gh.mergeCalls())
 	}
-	if len(s.cfo) != 2 || !strings.Contains(s.cfo[1], "holds its merge") {
-		t.Fatalf("CFO told %q, want one hold notice", s.cfo)
+	if len(s.ceo) != 2 || !strings.Contains(s.ceo[1], "holds its merge") {
+		t.Fatalf("CEO told %q, want one hold notice", s.ceo)
 	}
 }
 

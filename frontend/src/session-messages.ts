@@ -28,11 +28,11 @@ export interface SessionMessage {
   source: PromptSource; queued: boolean; text: string; output: string; errors: string; trigger: string;
   blocks: MessageBlock[]; pictures: MessagePicture[];
 }
-export type PromptSource = "overlord" | "cfo" | "answer" | "page" | "notice" | "slash" | "shell" | "";
+export type PromptSource = "overlord" | "ceo" | "answer" | "page" | "notice" | "slash" | "shell" | "";
 
 const KINDS = ["prompt", "reply", "compaction", "interrupt"] as const;
 const BLOCK_KINDS = ["text", "thinking", "call"] as const;
-const SOURCES = ["overlord", "cfo", "answer", "page", "notice", "slash", "shell"] as const;
+const SOURCES = ["overlord", "ceo", "answer", "page", "notice", "slash", "shell"] as const;
 const STATES = ["running", "done", "failed", "denied", "interrupted"] as const;
 const PLAN_STATES = ["pending", "in_progress", "completed"] as const;
 
@@ -190,13 +190,13 @@ function messagesHarness(harness: string): boolean {
 
 // messagesQuery names the session whose messages a panel shows, as
 // /api/messages takes it: a supported goblin's current generation in a
-// native terminal, or the CFO in its native terminal, since the Messages
+// native terminal, or the CEO in its native terminal, since the Messages
 // view's box types through that terminal. A paused
 // goblin's conversation still reads. Empty for every other session, which
 // keeps its Terminal and Task views alone: one in Herdr, a task
 // not started yet, and one stopped or retired.
-export function messagesQuery(snapshot: Pick<Snapshot, "cfo_terminal" | "cfo_harness"> & { cfo_terminal_since?: string }, task?: Task): string {
-  if (!task) return snapshot.cfo_terminal && messagesHarness(snapshot.cfo_harness) ? new URLSearchParams({ cfo: snapshot.cfo_terminal, ...(snapshot.cfo_terminal_since ? { since: snapshot.cfo_terminal_since } : {}) }).toString() : "";
+export function messagesQuery(snapshot: Pick<Snapshot, "ceo_terminal" | "ceo_harness"> & { ceo_terminal_since?: string }, task?: Task): string {
+  if (!task) return snapshot.ceo_terminal && messagesHarness(snapshot.ceo_harness) ? new URLSearchParams({ ceo: snapshot.ceo_terminal, ...(snapshot.ceo_terminal_since ? { since: snapshot.ceo_terminal_since } : {}) }).toString() : "";
   const ended = sessionEnd(task);
   return messagesHarness(task.harness) && task.backend === "native" && task.generation && !task.archived && (!ended || ended === "paused") ? new URLSearchParams({ task: task.id, generation: task.generation }).toString() : "";
 }
@@ -333,7 +333,7 @@ export function turnEnds(messages: SessionMessage[], isWorking: boolean): Set<st
 // Ctrl+Minus, the right button and the wheel, or the wheel with Ctrl and
 // Shift, step it a pixel between the terminals' bounds, and Ctrl+0 restores
 // it.
-export const MESSAGE_FONT_KEY = "cfo-message-font-size";
+export const MESSAGE_FONT_KEY = "ceo-message-font-size";
 export const DEFAULT_MESSAGE_FONT = 16;
 export const MIN_MESSAGE_FONT = MIN_FONT_SIZE;
 export const MAX_MESSAGE_FONT = MAX_FONT_SIZE;

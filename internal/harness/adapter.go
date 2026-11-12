@@ -107,7 +107,7 @@ func BriefInstruction(promptFile string) string {
 }
 
 // Control is how a running harness is stopped in place and, where it can,
-// resumed. It exists so `cfo switch` can change a goblin's harness, model, or
+// resumed. It exists so `goblins switch` can change a goblin's harness, model, or
 // effort without tearing down its tab or worktree.
 type Control struct {
 	// StopKeys are sent before StopCommand. A harness mid-stream ignores a
@@ -131,10 +131,10 @@ type Control struct {
 }
 
 // RoleVariable names the pane role every launch stamps, and RoleGoblin is
-// the value a goblin's pane carries. The CFO's Claude Code hooks read it and
+// the value a goblin's pane carries. The CEO's Claude Code hooks read it and
 // stay inert: a goblin is the work being supervised, never the supervisor.
 const (
-	RoleVariable = "CFO_ROLE"
+	RoleVariable = "GOBLINS_ROLE"
 	RoleGoblin   = "goblin"
 )
 
@@ -196,13 +196,13 @@ func buildBase(spec LaunchSpec) (Launch, error) {
 			// Windows for the temporary folder, as Go's os.TempDir does,
 			// gets that shared folder with it; everything else stays here.
 			"TMP": home.SharedTempBeside(spec.Scratch),
-			// Every goblin pane is stamped with its role, and the CFO's
+			// Every goblin pane is stamped with its role, and the CEO's
 			// hooks read it to stay out of the way. It belongs in the launch
 			// contract rather than in the project credentials a preflight
 			// returns, because a project that declares no services returns
 			// no credentials at all and would leave its goblin unstamped -
-			// and an unstamped goblin is a goblin the CFO starts supervising
-			// as if it were the CFO.
+			// and an unstamped goblin is a goblin the CEO starts supervising
+			// as if it were the CEO.
 			RoleVariable: RoleGoblin,
 		},
 		PromptFile: spec.BriefPath,

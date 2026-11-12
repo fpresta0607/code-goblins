@@ -36,4 +36,5 @@ var errUnsupported = errors.New("install: user-scope environment variables are W
 func (unsupportedEnvStore) Get(string) (string, bool, error) { return "", false, errUnsupported }
 func (unsupportedEnvStore) Set(string, string) error         { return errUnsupported }
 func (unsupportedEnvStore) Unset(string) error               { return errUnsupported }
+func (unsupportedEnvStore) Names() ([]string, error)         { return nil, errUnsupported }
 func (unsupportedEnvStore) Broadcast() error                 { return errUnsupported }

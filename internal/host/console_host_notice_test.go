@@ -8,9 +8,9 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-// A home whose terminals run on the system conhost tells the CFO once, with
+// A home whose terminals run on the system conhost tells the CEO once, with
 // why, however many of its terminals start so.
-func TestATerminalOnTheSystemConhostWakesTheCFOOnceWithWhy(t *testing.T) {
+func TestATerminalOnTheSystemConhostWakesTheCEOOnceWithWhy(t *testing.T) {
 	// Arrange
 	stateDir := t.TempDir()
 	problem := errors.New("the embedded OpenConsole cannot be used, so terminals run on the system conhost: Access is denied.")
@@ -31,6 +31,6 @@ func TestATerminalOnTheSystemConhostWakesTheCFOOnceWithWhy(t *testing.T) {
 		t.Fatalf("wakes = %+v, want one check wake keyed conpty that says %q", records, problem)
 	}
 	if episode, err := wake.ReadEpisode(stateDir); err != nil || episode.Gen == 0 {
-		t.Fatalf("episode = %+v, %v; want the wake published to the CFO", episode, err)
+		t.Fatalf("episode = %+v, %v; want the wake published to the CEO", episode, err)
 	}
 }

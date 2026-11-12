@@ -42,7 +42,7 @@ func allowancePass(t *testing.T, s *Service, watched *fleetWakes, report quota.R
 
 // The fixture is quota-axi's snapshot of 2026-10-07 23:13Z for Claude and
 // Codex, with Claude's five-hour window set to used up.
-func TestSpentSessionWakesTheCFOOnceAtItsResetNamingTheGoblinsOnIt(t *testing.T) {
+func TestSpentSessionWakesTheCEOOnceAtItsResetNamingTheGoblinsOnIt(t *testing.T) {
 	// Arrange
 	data, err := os.ReadFile(filepath.Join("..", "quota", "testdata", "session-spent.json"))
 	if err != nil {
@@ -74,7 +74,7 @@ func TestSpentSessionWakesTheCFOOnceAtItsResetNamingTheGoblinsOnIt(t *testing.T)
 
 	// Assert
 	if len(beforeReset) != 1 || len(stillBefore) != 1 || !strings.Contains(beforeReset[0].Detail, "five_hour window is 100 percent used") {
-		t.Fatalf("before the reset the CFO hears only the warning: %+v then %+v", beforeReset, stillBefore)
+		t.Fatalf("before the reset the CEO hears only the warning: %+v then %+v", beforeReset, stillBefore)
 	}
 	if len(records) != 2 {
 		t.Fatalf("allowance wakes=%+v, want the warning and one at the reset", records)
@@ -85,7 +85,7 @@ func TestSpentSessionWakesTheCFOOnceAtItsResetNamingTheGoblinsOnIt(t *testing.T)
 	}
 	for _, record := range records {
 		if strings.Contains(strings.ToLower(record.Detail), "limit") {
-			t.Fatalf("a wake the CFO's terminal shows must not read as its harness refusing: %q", record.Detail)
+			t.Fatalf("a wake the CEO's terminal shows must not read as its harness refusing: %q", record.Detail)
 		}
 	}
 }

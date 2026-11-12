@@ -45,12 +45,12 @@ func writeAllowRules(t *testing.T, path string, rules []string) {
 }
 
 // The rules are exactly the commands that only put an item in front of the
-// Overlord, for both shell tools; cfo answer, which types into a goblin's
-// terminal, and cfo send are not among them.
+// Overlord, for both shell tools; goblins answer, which types into a goblin's
+// terminal, and goblins send are not among them.
 func TestPermissionRulesAreTheBoardCommandsForBothShells(t *testing.T) {
 	want := []string{
-		"Bash(cfo question *)", "Bash(cfo run-request *)", "Bash(cfo review *)", "Bash(cfo present *)", "Bash(cfo deliver *)", "Bash(cfo auth request *)",
-		"PowerShell(cfo question *)", "PowerShell(cfo run-request *)", "PowerShell(cfo review *)", "PowerShell(cfo present *)", "PowerShell(cfo deliver *)", "PowerShell(cfo auth request *)",
+		"Bash(goblins question *)", "Bash(goblins run-request *)", "Bash(goblins review *)", "Bash(goblins present *)", "Bash(goblins deliver *)", "Bash(goblins auth request *)",
+		"PowerShell(goblins question *)", "PowerShell(goblins run-request *)", "PowerShell(goblins review *)", "PowerShell(goblins present *)", "PowerShell(goblins deliver *)", "PowerShell(goblins auth request *)",
 	}
 
 	got := PermissionRules()
@@ -87,7 +87,7 @@ func TestInstallAddsEachCommandCenterRuleOnceAndKeepsTheAdoptersOwn(t *testing.T
 	}
 }
 
-// A machine installed before the rules existed has the CFO hooks and no
+// A machine installed before the rules existed has the CEO hooks and no
 // rules: a re-install repairs it, backing the file up as it stood first.
 func TestReinstallAddsMissingRulesAndBacksUpTheFileFirst(t *testing.T) {
 	// Arrange
@@ -112,7 +112,7 @@ func TestReinstallAddsMissingRulesAndBacksUpTheFileFirst(t *testing.T) {
 			t.Errorf("allow rule %q appears %d times after the repair, want 1", rule, count(rules, rule))
 		}
 	}
-	for _, want := range []string{"unchanged none of the CFO's in " + f.user, "added 12 Command Center allow rules"} {
+	for _, want := range []string{"unchanged none of the CEO's in " + f.user, "added 12 Command Center allow rules"} {
 		if !strings.Contains(output, want) {
 			t.Errorf("output is missing %q:\n%s", want, output)
 		}
@@ -145,15 +145,15 @@ func TestReinstallWithTheRulesInPlaceWritesNothing(t *testing.T) {
 // leaves it.
 func TestUninstallRemovesOnlyTheRulesTheInstallAdded(t *testing.T) {
 	// Arrange
-	own := []string{"Bash(git:*)", "Bash(cfo question *)", "PowerShell(cfo deliver:*)"}
+	own := []string{"Bash(git:*)", "Bash(goblins question *)", "PowerShell(goblins deliver:*)"}
 	f := newFixture(t, adopterSettings, nil)
 	writeAllowRules(t, f.user, own)
 	before := readFile(t, f.user)
 	f.install()
 	rules := allowRules(t, f.user)
-	for _, duplicate := range []string{"PowerShell(cfo deliver *)"} {
+	for _, duplicate := range []string{"PowerShell(goblins deliver *)"} {
 		if slices.Contains(rules, duplicate) {
-			t.Errorf("install added %q beside the adopter's own %q", duplicate, "PowerShell(cfo deliver:*)")
+			t.Errorf("install added %q beside the adopter's own %q", duplicate, "PowerShell(goblins deliver:*)")
 		}
 	}
 	if got := len(rules); got != len(own)+10 {
@@ -173,7 +173,7 @@ func TestUninstallRemovesOnlyTheRulesTheInstallAdded(t *testing.T) {
 	if _, err := os.Stat(f.user + rulesRecordSuffix); !os.IsNotExist(err) {
 		t.Errorf("the record of the rules the install added survived the uninstall: %v", err)
 	}
-	if want := "removed the 10 Command Center allow rules cfo install added"; !strings.Contains(output, want) {
+	if want := "removed the 10 Command Center allow rules goblins install added"; !strings.Contains(output, want) {
 		t.Errorf("output is missing %q:\n%s", want, output)
 	}
 }
@@ -254,7 +254,7 @@ func TestReadPermissionsNamesTheMissingRulesAndTheClassifySwitch(t *testing.T) {
 		{name: "empty", settings: `{}`, missing: PermissionRules()},
 		{name: "all in place", settings: settingsWithRules(PermissionRules()...)},
 		{name: "two gone", settings: settingsWithRules(PermissionRules()[2:]...), missing: PermissionRules()[:2]},
-		{name: "colon-star form", settings: settingsWithRules(append([]string{"Bash(cfo question:*)"}, PermissionRules()[1:]...)...)},
+		{name: "colon-star form", settings: settingsWithRules(append([]string{"Bash(goblins question:*)"}, PermissionRules()[1:]...)...)},
 		{name: "classifier judges every shell command", settings: `{"autoMode": {"classifyAllShell": true}, "permissions": {"allow": ` + jsonList(PermissionRules()) + `}}`, classifyAllShell: true},
 	}
 	for _, c := range cases {
@@ -346,7 +346,7 @@ func TestInstallThatCannotRecordTheRulesAddsNone(t *testing.T) {
 func TestInstallThatCannotWriteTheSettingsLeavesTheRecordAsItWas(t *testing.T) {
 	for name, prior := range map[string]string{
 		"no record":    "",
-		"an older one": `["Bash(cfo question *)"]`,
+		"an older one": `["Bash(goblins question *)"]`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -408,22 +408,22 @@ func TestUninstallWithNoRecordIgnoresAMalformedPermissionsBlock(t *testing.T) {
 
 	// Assert
 	for _, command := range hookCommands(t, f.user) {
-		if isCFOCommand(command) {
-			t.Errorf("CFO hook %q survived the uninstall", command)
+		if isCEOCommand(command) {
+			t.Errorf("CEO hook %q survived the uninstall", command)
 		}
 	}
-	if _, ok := f.env.values["CFO_HOME"]; ok {
-		t.Error("CFO_HOME survived the uninstall")
+	if _, ok := f.env.values["GOBLINS_HOME"]; ok {
+		t.Error("GOBLINS_HOME survived the uninstall")
 	}
 }
 
 func TestReadRulesRecordAcceptsAByteOrderMark(t *testing.T) {
 	settings := filepath.Join(t.TempDir(), "settings.json")
-	writeFile(t, settings+rulesRecordSuffix, "\xef\xbb\xbf"+`["Bash(cfo question *)"]`)
+	writeFile(t, settings+rulesRecordSuffix, "\xef\xbb\xbf"+`["Bash(goblins question *)"]`)
 
 	got, err := readRulesRecord(settings)
 
-	if err != nil || !slices.Equal(got, []string{"Bash(cfo question *)"}) {
+	if err != nil || !slices.Equal(got, []string{"Bash(goblins question *)"}) {
 		t.Errorf("readRulesRecord = %q, %v; want the one rule", got, err)
 	}
 }

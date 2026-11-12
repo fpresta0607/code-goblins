@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Avatar } from "./Avatar";
 import type { Persona } from "./workflow";
 
-// A goblin, or the CFO, coming up to the Overlord with something to say, drawn
+// A goblin, or the CEO, coming up to the Overlord with something to say, drawn
 // as a game dialogue box: the speaker's portrait, the speaker's name on a tab
 // in lantern, what it says, and what he can do about it. A box whose words
 // already name the speaker, such as an alert, has no tab. A portrait with an

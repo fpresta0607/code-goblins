@@ -7,9 +7,9 @@ import { Icon } from "./Icon";
 import type { Snapshot } from "./types";
 
 // Whether the board already asked this browser for Windows notifications.
-const ASKED_KEY = "cfo-notifications-asked";
+const ASKED_KEY = "ceo-notifications-asked";
 // The alerts this browser has shown, so a reload never shows one again.
-const SEEN_KEY = "cfo-alerts-seen-v1";
+const SEEN_KEY = "ceo-alerts-seen-v1";
 
 const permission = (): NotificationPermission | "unsupported" => typeof Notification === "undefined" ? "unsupported" : Notification.permission;
 function asked(): boolean {
@@ -101,7 +101,7 @@ export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (item
   if (!asking) return null;
   return <section className="toasts" aria-live="polite" aria-label="Alerts">
     <div className="toast ask">
-      <DialogueBox persona="cfo" label="Windows notifications"
+      <DialogueBox persona="ceo" label="Windows notifications"
         actions={<>
           <button className="pixel-button" onClick={() => answer(true)}>Turn on</button>
           <button className="pixel-button outline" onClick={() => answer(false)}>Not now</button>

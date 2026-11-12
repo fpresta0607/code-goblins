@@ -71,7 +71,7 @@ func TestNativeCodexProgressReadsARolloutWhileItsWriterStaysOpen(t *testing.T) {
 
 		// Assert
 		if result.Event != nil {
-			t.Fatalf("a native Codex rollout written at %s with its writer still open woke the CFO: %+v", now, result.Event)
+			t.Fatalf("a native Codex rollout written at %s with its writer still open woke the CEO: %+v", now, result.Event)
 		}
 		if len(result.Observations) != 1 || result.Observations[0].EvidenceAt == nil || !result.Observations[0].EvidenceAt.Equal(now) {
 			t.Fatalf("observations = %+v, want evidence from the newest rollout record at %s", result.Observations, now)

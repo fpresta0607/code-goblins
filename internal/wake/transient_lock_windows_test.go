@@ -41,7 +41,7 @@ func holdOpen(t *testing.T, path string, share uint32, hold time.Duration) <-cha
 	return released
 }
 
-// On 2026-10-01 at about 03:44Z the CFO's Stop hook failed with "open
+// On 2026-10-01 at about 03:44Z the CEO's Stop hook failed with "open
 // state\.wake-queue: The process cannot access the file because it is being
 // used by another process" after one attempt. Another process holding the
 // queue for a moment must cost a wait, never a failed hook or a lost notify.

@@ -2,7 +2,7 @@ import { useId } from "react";
 import { Icon } from "./Icon";
 import "./afk.css";
 
-// SettingSwitch is a setting's switch, drawn as the AFK switch on the CFO's
+// SettingSwitch is a setting's switch, drawn as the AFK switch on the CEO's
 // bar is, the board's one look for a switch, with a spinner while
 // the supervisor answers. Beside it a mark says how it stands: a green check
 // when it works, an amber triangle when something is wrong, which names what

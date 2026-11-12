@@ -72,7 +72,7 @@ type Move struct {
 // brief that says "start from data/<id>/handoff.md" keeps working. The brief
 // and handoff of a finished folder kept in place are read too, so what they
 // name by path stays, and so on.
-// harnessMemory is the CFO harness's own memory folder, read as part of that.
+// harnessMemory is the CEO harness's own memory folder, read as part of that.
 func Plan(h home.Home, harnessMemory string, now time.Time) ([]Move, error) {
 	moves, _, err := plan(h, harnessMemory, now)
 	return moves, err

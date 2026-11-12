@@ -15,13 +15,13 @@ const snapshot = parseSnapshot({
   healthy: true, instance: "fixture",
   comeback: {
     signed_in: "2026-10-06T22:00:00Z",
-    cfo: { id: "cfo", state: "back" },
+    ceo: { id: "ceo", state: "back" },
     goblins: goblins.map((id, index) => ({ id, state: id === "cg-site-hero" ? "stopped" : isComing && index > 1 ? "waiting" : "back", reason: id === "cg-site-hero" ? "Codex is not signed in" : "" })),
   },
   tasks: [
     { id: "cg-site-hero", title: "Site download hero", project: "SIQstack-Website", harness: "codex", phase: "working", generation: "s1", verified: false,
       comeback: { id: "cg-site-hero", state: "stopped", reason: "Codex is not signed in" },
-      action_error: "Did not come back after the restart: Codex is not signed in. The CFO was told." },
+      action_error: "Did not come back after the restart: Codex is not signed in. The CEO was told." },
     { id: "cg-dials", title: "Subscription dials", project: "code-goblins", harness: "claude", phase: "working", generation: "s2", verified: false,
       comeback: { id: "cg-dials", state: "waiting" } },
   ],

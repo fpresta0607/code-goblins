@@ -4,7 +4,7 @@ import { Notice } from "./notice";
 import type { Comeback } from "./types";
 
 // Which restart's line this browser dismissed, by the sign-in it began.
-const DISMISSED_KEY = "cfo-comeback-dismissed";
+const DISMISSED_KEY = "ceo-comeback-dismissed";
 
 function dismissed(): string {
   try { return localStorage.getItem(DISMISSED_KEY) || ""; } catch { return ""; }
