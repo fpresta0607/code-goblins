@@ -150,6 +150,51 @@ test("a selection he settles copies itself, with the quiet Copied where it ends,
   await expect.poll(() => page.evaluate(() => (window as unknown as { __copied?: string[] }).__copied?.length ?? 0)).toBe(1);
 });
 
+// A selection can end below what the conversation shows, as a long reply's
+// paragraph does when he selects it from its first line. Copied is then said
+// at the frame's foot, never under the box or off the panel (#2438).
+test("a selection that ends below the conversation's frame says Copied inside the frame", async ({ page }) => {
+  // Arrange: a reply whose one paragraph is taller than the conversation,
+  // read from its first line, so its end lies below the frame.
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => { (window as unknown as { __copied?: string[] }).__copied = ((window as unknown as { __copied?: string[] }).__copied ?? []).concat(text); } } });
+  });
+  const paragraph = "The brief asks for one long answer. ".repeat(240);
+  await open(page, snapshot(), "rebase onto main", { ...PAGE, messages: [PAGE.messages[0], { ...PAGE.messages[1], blocks: [{ kind: "text", text: paragraph }] }] });
+  await openGoblin(page);
+  await expect(page.locator(".message-reply .message-words")).toContainText("The brief asks for one long answer.");
+  await page.evaluate(() => {
+    const conversation = document.querySelector(".messages-view:not([hidden]) .conversation")!;
+    const words = conversation.querySelector(".message-reply .message-words")!;
+    conversation.scrollTop += words.getBoundingClientRect().top - conversation.getBoundingClientRect().top - 24;
+  });
+  await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
+
+  // Act: the whole paragraph, selected from its first line, settles.
+  const selectedBottom = await page.evaluate(() => {
+    const words = document.querySelector(".messages-view:not([hidden]) .message-reply .message-words")!;
+    const range = document.createRange();
+    range.selectNodeContents(words);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    return [...range.getClientRects()].at(-1)!.bottom;
+  });
+
+  // Assert: the selection ends below the frame, and Copied is said within it.
+  const copied = page.getByRole("status").filter({ hasText: "Copied" });
+  await expect(copied).toBeVisible();
+  const frame = (await page.locator(".messages-view:not([hidden]) .conversation-frame").boundingBox())!;
+  const said = (await copied.boundingBox())!;
+  expect(selectedBottom, "the selection ends below the frame").toBeGreaterThan(frame.y + frame.height);
+  expect(said.y, "Copied starts inside the frame").toBeGreaterThanOrEqual(frame.y);
+  expect(said.y + said.height, "Copied ends inside the frame").toBeLessThanOrEqual(frame.y + frame.height + 1);
+  expect(said.x).toBeGreaterThanOrEqual(frame.x);
+  expect(said.x + said.width).toBeLessThanOrEqual(frame.x + frame.width + 1);
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __copied?: string[] }).__copied?.join("") ?? "")).toContain("The brief asks for one long answer.");
+});
+
 for (const runtime of [undefined, { state: "idle" }]) {
   test(`Codex keeps the board's working indicator at the reply's end when runtime is ${runtime ? "idle" : "unavailable"}`, async ({ page }) => {
     await open(page, snapshot({}, { harness: "codex", phase: "working", runtime }), "", PAGE_WITH_USAGE);

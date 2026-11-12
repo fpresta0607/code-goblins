@@ -1257,6 +1257,42 @@ test("a CEO whose stream says its record is stale says why in its panel's header
   await expect(page.getByText("Behind the session", { exact: false })).toHaveCount(0);
 });
 
+// The line under the header speaks for the Chat view alone (#2438): the Task
+// view never carries it, though the conversation stays open behind it, and a
+// panel with no chat carries none left from the one shown before.
+test("a stale record is said under the header only while the Chat view shows, and a panel with no chat says none", async ({ page }) => {
+  // Arrange: the board also holds a queued task, which has no chat, and the
+  // CEO's stream says its record is stale.
+  await open(page);
+  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, tasks: [...SNAPSHOT.tasks, { id: "cg-queued", title: "A queued task", project: "code-goblins", phase: "queued", verified: false, generation: "", brief: true, queue_revision: "q1", since: at }] });
+  await openCeo(page);
+  await expect(list(page, "CEO")).toContainText("Answer 99");
+  const stale = "The CEO's record names conversation ceo-9, which its folder does not hold.";
+  await send(page, "session", { conversation: "fixture-conversation", turn: "q102", state: "ended", newest: 104, head: 104, stale });
+  await expect(chatState(page)).toHaveText(stale);
+  const views = page.locator(".panel-view-switch");
+
+  // Act: he opens the CEO's Task view.
+  await views.getByRole("button", { name: "Task", exact: true }).click();
+
+  // Assert
+  await expect(views.getByRole("button", { name: "Task", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(chatState(page)).toHaveCount(0);
+
+  // Act: he goes back to the Chat view.
+  await views.getByRole("button", { name: "Chat", exact: true }).click();
+
+  // Assert
+  await expect(chatState(page)).toHaveText(stale);
+
+  // Act: he opens the queued task.
+  await openGoblin(page, "A queued task");
+
+  // Assert
+  await expect(page.locator(".messages-view")).toHaveCount(0);
+  await expect(chatState(page)).toHaveCount(0);
+});
+
 // #2438, the Overlord on 2026-11-12, of the notices drawn over the first
 // messages of his chat: "I hate all these alerts remove them!!", then "The
 // ones at top of chat". At a phone's width and a desktop's, in the CEO's panel

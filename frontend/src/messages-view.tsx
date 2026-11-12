@@ -724,7 +724,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     const room = frame.getBoundingClientRect();
     const under = copiedAt.bottom - room.top + COPIED_GAP;
     const top = under + said.offsetHeight <= room.height ? under : copiedAt.top - room.top - COPIED_GAP - said.offsetHeight;
-    said.style.top = Math.max(0, top) + "px";
+    said.style.top = Math.min(Math.max(0, top), room.height - said.offsetHeight) + "px";
     said.style.left = Math.max(0, Math.min(copiedAt.right - room.left, room.width) - said.offsetWidth) + "px";
   }, [copiedAt]);
   useEffect(() => {
