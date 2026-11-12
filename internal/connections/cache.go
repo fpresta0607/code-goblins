@@ -56,15 +56,11 @@ func (c *Cache) Get(key string, refresh bool) Snapshot {
 		c.work.Add(1)
 		go c.run(key, item)
 	}
-	result := item.snapshot()
-	if !item.at.IsZero() && c.now().Sub(item.at) >= c.ttl {
-		for index := range result.Entries {
-			result.Entries[index].Status = "unverified"
-			result.Entries[index].LiveStatus = "unknown"
-			result.Entries[index].Detail = "Observation expired. Recheck connections."
-		}
-	}
-	return result
+	// An observation older than the time to live keeps its verdicts, each
+	// with the time it was checked, while the recheck it started runs: its age
+	// says how old it is, and calling it unverified would say a check failed
+	// to confirm what no check has looked at again yet.
+	return item.snapshot()
 }
 
 func (c *Cache) Cached(key string) Snapshot {
