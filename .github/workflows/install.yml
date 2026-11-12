@@ -216,13 +216,10 @@ jobs:
           [IO.File]::WriteAllText("$PWD/release/SHA256SUMS", ($lines -join "`n") + "`n")
           # The setup program downloads the release's own install script.
           Copy-Item install.ps1 release/install.ps1
-          Start-Process python -ArgumentList "-m", "http.server", "8765", "--bind", "127.0.0.1", "--directory", "release" -WindowStyle Hidden
           # The next step downloads at once, so wait until the server answers.
-          $deadline = (Get-Date).AddSeconds(30)
-          while ($true) {
-            try { Invoke-WebRequest http://127.0.0.1:8765/SHA256SUMS -UseBasicParsing | Out-Null; break }
-            catch { if ((Get-Date) -gt $deadline) { throw "the release server did not answer within 30 seconds" }; Start-Sleep -Milliseconds 250 }
-          }
+          . ./tests/hidden_server.ps1
+          Start-HiddenServer -Name "release server" -FilePath python -ArgumentList "-u", "-m", "http.server", "8765", "--bind", "127.0.0.1", "--directory", "release" `
+            -Url http://127.0.0.1:8765/SHA256SUMS -Log (Join-Path $env:RUNNER_TEMP "release-server") | Out-Null
       - name: Snapshot the profile before the install
         shell: pwsh
         run: |
