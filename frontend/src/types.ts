@@ -170,6 +170,11 @@ export interface ComebackEntry { id: string; state: "waiting" | "back" | "stoppe
 // Comeback is what the supervisor brings back after the last restart or
 // sign-out: the CEO first, then each goblin that was working.
 export interface Comeback { signed_in: string; ceo?: ComebackEntry; goblins: ComebackEntry[] }
+// CrossingView is the home's move to goblins' names that an update or an
+// install made: when, the command that moves it back, each terminal from
+// before it that restarts under the new names once idle, and what did not go
+// as it should.
+export interface CrossingView { at: string; undo: string; waiting: string[]; problem: string }
 // StartAtLoginView is whether Windows starts this home at login, or why it
 // cannot be started at login.
 export interface StartAtLoginView { on: boolean; unavailable: string }
@@ -457,6 +462,9 @@ export interface Snapshot {
   // comeback is what the supervisor brings back after the last restart or
   // sign-out; absent when it brings nothing back.
   comeback?: Comeback;
+  // crossing is the home's move to goblins' names for the board's notice;
+  // absent for a home that made none.
+  crossing?: CrossingView;
   // start_at_login is whether Windows starts this home at login; absent on a
   // board that cannot change it.
   start_at_login?: StartAtLoginView;
@@ -1044,6 +1052,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     ...(v.start_at_login == null ? {} : { start_at_login: ((setting) => ({ on: boolean(setting.on), unavailable: setting.unavailable === undefined ? "" : string(setting.unavailable) }))(object(v.start_at_login)) }),
     ...(v.dev_drive == null ? {} : { dev_drive: parseDevDrive(object(v.dev_drive)) }),
     ...(v.comeback == null ? {} : { comeback: ((c) => ({ signed_in: string(c.signed_in), ...(c.ceo == null ? {} : { ceo: parseComebackEntry(c.ceo) }), goblins: array(c.goblins).map(parseComebackEntry) }))(object(v.comeback)) }),
+    ...(v.crossing == null ? {} : { crossing: ((c) => ({ at: string(c.at), undo: string(c.undo), waiting: c.waiting == null ? [] : array(c.waiting).map(string), problem: c.problem === undefined ? "" : string(c.problem) }))(object(v.crossing)) }),
     build: string(v.build),
     ceo_runs: v.ceo_runs === undefined || boolean(v.ceo_runs),
     ceo_starting: v.ceo_starting === undefined ? false : boolean(v.ceo_starting),

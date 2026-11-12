@@ -220,10 +220,21 @@ type planner struct {
 	changes []Change
 	// claimed are the paths a change already moves or rewrites.
 	claimed map[string]bool
+	// crossing is the record of the crossing planned, nil for a cutover.
+	crossing *Crossing
 }
 
 // Plan reads the machine and plans the cutover. It changes nothing.
 func (m Machine) Plan() (Plan, error) {
+	return m.plan(nil)
+}
+
+// plan plans the cutover, or, given the record of a crossing, the crossing
+// an update or an install makes while the fleet works: the old programs stay
+// in the home's bin as copies of this build, which the update and the
+// terminals from before it still run, the labels wait for the supervisor,
+// and the record is written last.
+func (m Machine) plan(crossing *Crossing) (Plan, error) {
 	skills, err := fs.ReadDir(m.Skills, ".")
 	if err != nil {
 		return Plan{}, fmt.Errorf("cutover: read this build's skills: %w", err)
@@ -234,8 +245,12 @@ func (m Machine) Plan() (Plan, error) {
 			skillNames = append(skillNames, strings.ToLower(entry.Name()))
 		}
 	}
-	p := &planner{machine: m, rules: newRules(m.Commands, skillNames), claimed: map[string]bool{}}
-	for _, part := range []func() error{p.programs, p.contract, p.settings, p.harnessFiles, p.skills, p.jobs, p.credentials, p.stateFiles, p.taskFiles, p.labels, p.elsewhere} {
+	p := &planner{machine: m, rules: newRules(m.Commands, skillNames), claimed: map[string]bool{}, crossing: crossing}
+	parts := []func() error{p.programs, p.contract, p.settings, p.harnessFiles, p.skills, p.jobs, p.credentials, p.stateFiles, p.taskFiles, p.labels, p.elsewhere}
+	if crossing != nil {
+		parts = []func() error{p.programs, p.contract, p.settings, p.harnessFiles, p.skills, p.jobs, p.credentials, p.stateFiles, p.taskFiles, p.elsewhere, p.record}
+	}
+	for _, part := range parts {
 		if err := part(); err != nil {
 			return Plan{}, err
 		}
@@ -301,26 +316,45 @@ func (p *planner) programs() error {
 	if err := install(newCommand+".exe", p.machine.Program, program); err != nil {
 		return err
 	}
-	for _, name := range []string{newCommand + "-hook.exe", newCommand + "-window.exe"} {
-		source := filepath.Join(filepath.Dir(p.machine.Program), name)
-		content, err := fsx.ReadFile(source)
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		if err := install(name, source, content); err != nil {
-			return err
+	// A release before the rename downloads this build's hook program under
+	// the old name, beside this build under the old name.
+	hook := program
+	for _, names := range [][]string{{newCommand + "-hook.exe", oldName + "-hook.exe"}, {newCommand + "-window.exe"}} {
+		for _, shipped := range names {
+			source := filepath.Join(filepath.Dir(p.machine.Program), shipped)
+			content, err := fsx.ReadFile(source)
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if names[0] == newCommand+"-hook.exe" {
+				hook = content
+			}
+			if err := install(names[0], source, content); err != nil {
+				return err
+			}
+			break
 		}
 	}
-	for _, name := range []string{oldName + ".exe", oldName + "-hook.exe"} {
-		path := filepath.Join(bin, name)
+	for _, old := range []struct {
+		name    string
+		content []byte
+	}{{oldName + ".exe", program}, {oldName + "-hook.exe", hook}} {
+		path := filepath.Join(bin, old.name)
 		before, isAbsent, err := readFile(path)
 		if err != nil {
 			return err
 		}
-		if !isAbsent {
+		switch {
+		case isAbsent:
+		case p.crossing != nil:
+			p.crossing.Bridges = append(p.crossing.Bridges, path)
+			if string(before) != string(old.content) {
+				p.add(KindProgram, path+": this build, for the update and the terminals from before the rename, until the supervisor removes it", writeStep(path, before, false, old.content))
+			}
+		default:
 			p.add(KindProgram, path+": removed, the old build", removeStep(path, before))
 		}
 	}
@@ -746,13 +780,19 @@ func (p *planner) stateFiles() error {
 		}
 		return nil
 	}
+	// A crossing runs inside an update, whose own journal and copies are the
+	// update's way back while it runs, so it leaves the update's folder alone.
 	updates := filepath.Join(p.state(), "update")
-	for _, folder := range []string{p.machine.Root, p.state(), p.data(), updates} {
+	folders := []string{p.machine.Root, p.state(), p.data(), updates}
+	if p.crossing != nil {
+		folders = folders[:3]
+	}
+	for _, folder := range folders {
 		if err := move(folder); err != nil {
 			return err
 		}
 	}
-	if journal := filepath.Join(updates, "journal.json"); exists(journal) {
+	if journal := filepath.Join(updates, "journal.json"); p.crossing == nil && exists(journal) {
 		if err := p.journal(journal); err != nil {
 			return err
 		}

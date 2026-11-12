@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
@@ -45,7 +46,7 @@ type recordedStep struct {
 // fails removes the folders it made and undoes every step made before it.
 func (m Machine) Apply(plan Plan, now time.Time) (string, error) {
 	record := undoRecord{Plan: plan.Digest()}
-	folder := filepath.Join(m.Root, "state", "backups", "cutover-"+now.UTC().Format("20060102T150405Z"))
+	folder := backupFolder(m.Root, now)
 	if exists(folder) {
 		return "", fmt.Errorf("cutover: %s is already there", folder)
 	}
@@ -100,6 +101,70 @@ func (m Machine) Apply(plan Plan, now time.Time) (string, error) {
 		}
 	}
 	return folder, nil
+}
+
+// extend makes plan's steps as further steps of the apply whose folder is
+// folder, so its undo undoes them too. A step that fails leaves the steps
+// before it made, and the record says how far it got.
+func (m Machine) extend(folder string, plan Plan) error {
+	data, err := fsx.ReadFile(filepath.Join(folder, UndoFile))
+	if err != nil {
+		return fmt.Errorf("cutover: read how to undo: %w", err)
+	}
+	var record undoRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		return fmt.Errorf("cutover: read %s: %w", filepath.Join(folder, UndoFile), err)
+	}
+	record.Steps = record.Steps[:record.Done]
+	for _, change := range plan.Changes {
+		for _, step := range change.Steps {
+			if step.Kind == "file" {
+				return fmt.Errorf("cutover: a later step of an apply changes no file, but %s would", step.Key)
+			}
+			record.Steps = append(record.Steps, recordedStep{Step: step})
+		}
+	}
+	for index := record.Done; index < len(record.Steps); index++ {
+		if _, err := m.do(&record.Steps[index].Step, false, nil); err != nil {
+			failed := record.Steps[index]
+			record.Steps = record.Steps[:index]
+			return errors.Join(fmt.Errorf("cutover: %s %s: %w", failed.Kind, failed.Key, err), writeRecord(folder, record))
+		}
+		record.Done = index + 1
+		if err := writeRecord(folder, record); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// backupFolder is the folder an apply at now keeps its undo in.
+func backupFolder(root string, now time.Time) string {
+	return filepath.Join(root, "state", "backups", "cutover-"+now.UTC().Format("20060102T150405Z"))
+}
+
+// isProgram says whether path is a program in the home's bin, which a
+// process may run: Windows refuses to write over or remove a program while
+// it runs, but renames it, so each is set aside before it is written or
+// removed.
+func (m Machine) isProgram(path string) bool {
+	rel, err := filepath.Rel(filepath.Join(m.Root, "bin"), path)
+	return err == nil && filepath.IsLocal(rel) && strings.EqualFold(filepath.Ext(path), ".exe")
+}
+
+// setAside renames the program at path out of the way, under the name an
+// update gives a program it set aside, and removes it there unless something
+// still runs it, which leaves it for the janitor.
+func setAside(path string) error {
+	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	aside := fmt.Sprintf("%s.%d.update-old", path, time.Now().UnixNano())
+	if err := fsx.WaitOut(func() error { return os.Rename(path, aside) }); err != nil {
+		return err
+	}
+	_ = os.Remove(aside)
+	return nil
 }
 
 // abandon removes the folder of an apply that changed nothing yet.
@@ -176,6 +241,15 @@ func makeParents(path string) ([]string, error) {
 	return missing, nil
 }
 
+// removeAbsent removes the file at path, which a program set aside first
+// no longer is.
+func removeAbsent(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
 func removeMade(made []string) error {
 	for index := len(made) - 1; index >= 0; index-- {
 		if err := os.Remove(made[index]); err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -189,8 +263,13 @@ func removeMade(made []string) error {
 func (m Machine) do(step *Step, isRemoved bool, after []byte) ([]string, error) {
 	switch step.Kind {
 	case "file":
+		if m.isProgram(step.Key) {
+			if err := setAside(step.Key); err != nil {
+				return nil, err
+			}
+		}
 		if isRemoved {
-			return nil, os.Remove(step.Key)
+			return nil, removeAbsent(step.Key)
 		}
 		made, err := makeParents(step.Key)
 		if err != nil {
@@ -233,8 +312,13 @@ func (m Machine) do(step *Step, isRemoved bool, after []byte) ([]string, error) 
 func (m Machine) undoStep(folder string, index int, step recordedStep) error {
 	switch step.Kind {
 	case "file":
+		if m.isProgram(step.Key) {
+			if err := setAside(step.Key); err != nil {
+				return err
+			}
+		}
 		if step.IsAbsent {
-			if err := os.Remove(step.Key); err != nil {
+			if err := removeAbsent(step.Key); err != nil {
 				return err
 			}
 			return removeMade(step.Made)

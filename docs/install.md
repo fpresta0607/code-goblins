@@ -187,6 +187,20 @@ It ends on one line, a plain sentence: `Updated:`, `Rolled back:` when the new b
 The lines above it say why, and how long each step took.
 Whatever an update left unfinished, the next one puts right first, and opening Code Goblins again starts the board when an update left it down, so there is nothing to paste.
 To recover by hand, when nothing else can, run the copy the update kept, with the home and its state named: set `GOBLINS_HOME` to the home and `GOBLINS_STATE_OVERRIDE` to its `state` folder, then run `state\update\candidate.exe update --recover` from any folder.
+
+### Updating from a release before the rename
+
+Code Goblins v0.5.18 and earlier named its command differently and began its settings with another prefix.
+Its **Update** item, and the one-line install or `CodeGoblinsSetup.exe` run over such a home, update it to `goblins` with nothing to do by hand.
+Each release ships copies of `goblins.exe` and `goblins-hook.exe` under the names those releases download, the same build, listed in `SHA256SUMS` and signed like the rest.
+Within the update's own window, the new build moves the home to goblins' names, as [`goblins cutover`](commands/cutover.md) does, and keeps everything its undo needs in `state\backups\cutover-<time>`: your settings, projects, credentials, skills, hooks, scheduled job and the goblins' work stay as they were, under the new names.
+An update that does not serve puts the move back with the previous build.
+The board then says once what changed, which terminals restart under the new names, and the way back.
+A goblin's terminal and the CEO's that started before the update hold the old settings, so each restarts on its own conversation, harness, model and effort, but only once it is idle with nothing typed on its prompt line, and never on the board's first look, so the notice comes first.
+A terminal you opened yourself before the update needs opening again.
+The copies under the old names are removed once no terminal from before the update runs and nothing runs them.
+The GitHub labels of the goblins' tickets take the new names once the updated board starts, as part of the same undo.
+The way back is the command the board and the update name, `goblins cutover --undo '<folder>'`, run with the fleet paused.
 When the new build serves but its install cannot refresh the home, or the machine's installed home cannot be read, it keeps that build, ends on `Updated:` saying what remains to do, and exits 6; run `goblins install` to finish.
 Updating another home deliberately skips that refresh and exits 0.
 The download is removed afterwards.

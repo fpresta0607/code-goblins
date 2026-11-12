@@ -348,12 +348,24 @@ jobs:
           [IO.File]::WriteAllText("$PWD/defender-scan.txt", ($record -join "`n") + "`n")
       # install.ps1 refuses a download that does not match this file. The
       # sums are of the files as published, after signing where they are
-      # signed.
+      # signed. A release from before the rename updates by downloading its
+      # own command's program, and its hook program when listed, by their old
+      # names, and refuses a release whose sums list no such program; so each
+      # is published under that name as a copy of the signed goblins program,
+      # whose own update moves the home to goblins. Only
+      # tests/pre_rename_build.ps1 spells those names.
       - name: Checksum
         shell: pwsh
         run: |
+          . ./tests/pre_rename_build.ps1
+          New-Item -ItemType Directory -Force bridges | Out-Null
+          Copy-Item goblins.exe "bridges/$PreRenameCommand.exe"
+          Copy-Item goblins-hook.exe "bridges/$PreRenameCommand-hook.exe"
           $lines = foreach ($file in 'CodeGoblinsSetup.exe', 'goblins.exe', 'goblins-hook.exe', 'goblins-window.exe', 'cg-ci-runner.exe', 'no-mistakes.exe') {
             "$((Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant())  $file"
+          }
+          $lines += foreach ($file in Get-ChildItem bridges) {
+            "$((Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($file.Name)"
           }
           [IO.File]::WriteAllText("SHA256SUMS", ($lines -join "`n") + "`n")
       # The one-line install runs the install.ps1 published here, pinned to
@@ -439,10 +451,15 @@ jobs:
           $notes += ''
           $notes += '| File | SHA-256 |'
           $notes += '| --- | --- |'
+          . ./tests/pre_rename_build.ps1
+          $bridges = "$PreRenameCommand.exe", "$PreRenameCommand-hook.exe"
           foreach ($line in Get-Content SHA256SUMS) {
             $hash, $file = $line -split '\s+', 2
+            if ($file -in $bridges) { continue }
             $notes += "| ``$file`` | ``$hash`` |"
           }
+          $notes += ''
+          $notes += "``$($bridges[0])`` and ``$($bridges[1])`` are copies of ``goblins.exe`` and ``goblins-hook.exe`` for the Update item of v0.5.18 and earlier, which moves such a home to ``goblins`` by itself; its board then says what changed and the way back."
           $notes += ''
           $notes += "To install, download ``CodeGoblinsSetup.exe`` from this page and open it. Or run this in PowerShell:"
           $notes += ''
@@ -463,6 +480,7 @@ jobs:
             goblins.exe
             goblins-hook.exe
             goblins-window.exe
+            bridges/*.exe
             cg-ci-runner.exe
             no-mistakes.exe
             no-mistakes-NOTICES

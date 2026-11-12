@@ -106,11 +106,11 @@ func releaseUpdate(h home.Home, check bool, to, pressed string, stdout, stderr i
 	}
 	// One update from a release downloads into the home at a time; the
 	// build it installs takes the update's own lock.
-	if _, err := lock.AcquireExclusiveNamed(update.Dir(h.State), ".release.lock"); err != nil {
+	if _, err := lock.AcquireExclusiveNamed(update.Dir(h.State), update.ReleaseLockName); err != nil {
 		fmt.Fprintf(stderr, "goblins update: another update of this home from a release is running: %v\n", err)
 		return 1
 	}
-	defer lock.ReleaseExclusiveNamed(update.Dir(h.State), ".release.lock")
+	defer lock.ReleaseExclusiveNamed(update.Dir(h.State), update.ReleaseLockName)
 
 	ctx, cancel := context.WithTimeout(context.Background(), releaseCheckWait)
 	latest, err := release.Latest(ctx, http.DefaultClient, source, h.State)

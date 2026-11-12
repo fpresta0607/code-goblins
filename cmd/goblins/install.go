@@ -15,6 +15,7 @@ import (
 
 	codegoblins "github.com/fpresta0607/code-goblins"
 	"github.com/fpresta0607/code-goblins/internal/crawler"
+	"github.com/fpresta0607/code-goblins/internal/cutover"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harnessmap"
@@ -108,6 +109,11 @@ func runInstall(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 	fmt.Fprintf(stdout, "goblins install: wiring %s into this machine\n", root)
 	h := home.Home{Root: root, State: filepath.Join(root, "state")}
 	board, serving := servingBoard(h, stdout)
+	if cutover.PreRename(root) {
+		if code := crossHome(h, board, serving, stdout, stderr); code != 0 {
+			return code
+		}
+	}
 	if err := service.Install(stdout); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -131,6 +137,45 @@ func runInstall(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 		fmt.Fprintf(stdout, "goblins install: the crawler connector %s is ready in %s\n", crawler.Command, crawler.Dir(root))
 	}
 	fmt.Fprintln(stdout, "Open a new terminal for the environment change to take effect.")
+	return 0
+}
+
+// crossHome moves the home h, which a release before the rename set up, to
+// goblins as the install's first step, the way an update does: its
+// supervisor is stopped first, so nothing writes the state the move reads,
+// and the install's restart of the board starts it again, on the old build
+// when the move did not finish and undid itself.
+func crossHome(h home.Home, board runningBoard, serving bool, stdout, stderr io.Writer) int {
+	program, err := os.Executable()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if serving {
+		if err := endSupervisor(h, board.process); err != nil {
+			fmt.Fprintf(stderr, "goblins install: the home %s was set up before Code Goblins' command was goblins, and its board must stop before it moves, but it did not: %v. Nothing was changed.\n", h.Root, err)
+			return 1
+		}
+	}
+	fmt.Fprintf(stdout, "goblins install: moving the home %s, which an older Code Goblins set up, to goblins\n", h.Root)
+	now := time.Now()
+	machine, err := newCrossingMachine(h, program)
+	var plan cutover.Plan
+	if err == nil {
+		plan, err = machine.PlanCrossing(now)
+	}
+	var folder string
+	if err == nil {
+		folder, err = machine.Apply(plan, now)
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "goblins install: the home %s did not move to goblins (%v), so it stays as it was\n", h.Root, err)
+		if serving {
+			board.restart(h, stdout)
+		}
+		return 1
+	}
+	fmt.Fprintf(stdout, "%s Code Goblins' command is now goblins, and its settings begin GOBLINS_. A terminal opened before this install needs opening again, and the goblins' and the CEO's terminals restart under the new names once each is idle. The way back, with the fleet paused: goblins cutover --undo '%s'\n", notePrefix, folder)
 	return 0
 }
 
@@ -315,7 +360,21 @@ func installTarget() (installbase.Target, error) {
 	if err != nil {
 		return installbase.Target{}, fmt.Errorf("goblins install: resolve the per-user home: %w", err)
 	}
-	return installbase.FindTarget(installbase.NewEnvStore(execx.OSRunner{}), standard)
+	return installbase.FindTarget(oldHomeSetting{installbase.NewEnvStore(execx.OSRunner{})}, standard)
+}
+
+// oldHomeSetting is the user's settings, where goblins' home setting falls
+// back on the one a release before the rename set, so an install over such
+// a home finds it where it is.
+type oldHomeSetting struct{ installbase.EnvStore }
+
+func (e oldHomeSetting) Get(name string) (string, bool, error) {
+	value, isSet, err := e.EnvStore.Get(name)
+	if err != nil || isSet || name != installbase.HomeVariable {
+		return value, isSet, err
+	}
+	root, _, err := cutover.OldSettings(e.EnvStore)
+	return root, root != "", err
 }
 
 // junction links a directory through cmd's mklink /J, which needs no

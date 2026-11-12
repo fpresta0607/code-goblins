@@ -255,8 +255,7 @@ func TestCutoverRefusesEveryFormWhileAProgramRunsFromTheHomesBin(t *testing.T) {
 		want      string
 		forbidden string
 	}{
-		{"the window", 1234, "goblins-window.exe", " (pid 1234) runs from this home; close it first", "is this cutover"},
-		{"this cutover", os.Getpid(), "goblins.exe", fmt.Sprintf(" (pid %d) is this cutover", os.Getpid()), "close it first"},
+		{"the window", 1234, "goblins-window.exe", " (pid 1234) runs from this home; close it first", "goblins.exe"},
 	}
 	for _, program := range programs {
 		for _, form := range []string{"--dry-run", "--plan", "--undo"} {
@@ -305,6 +304,24 @@ func TestCutoverProceedsWhileNothingRunsFromTheHomesBin(t *testing.T) {
 		t.Fatalf("bin\\goblins.exe is %q, %v; want this build", content, err)
 	}
 	if code, _, stderr := runCutoverOn(machine, "--undo", folder); code != 0 {
+		t.Fatalf("undo: exit %d, %q", code, stderr)
+	}
+}
+
+// The undo of a crossing runs as the home's own goblins, from its bin: each
+// program it writes there is set aside first, which Windows allows while it
+// runs.
+func TestCutoverProceedsWhileItRunsFromTheHomesBinItself(t *testing.T) {
+	// Arrange
+	machine, root := cutoverHome(t)
+	machine.Programs = runningPrograms{{PID: os.Getpid(), Image: filepath.Join(root, "bin", "goblins.exe")}}
+
+	// Act
+	folder := appliedCutover(t, machine)
+	code, _, stderr := runCutoverOn(machine, "--undo", folder)
+
+	// Assert
+	if code != 0 {
 		t.Fatalf("undo: exit %d, %q", code, stderr)
 	}
 }
