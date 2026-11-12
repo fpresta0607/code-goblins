@@ -101,7 +101,9 @@ test("the conversation draws no speaker name and no harness icon above a message
   await expect(log.locator(".message-reply")).toContainText("On it.");
 });
 
-test("a selection he settles copies itself, with the quiet Copied, and a cleared selection copies nothing", async ({ page }) => {
+// Copied is said where the selection that copied ends, as a button says it
+// on itself, never in a notice over the top of the conversation (#2438).
+test("a selection he settles copies itself, with the quiet Copied where it ends, and a cleared selection copies nothing", async ({ page }) => {
   // Arrange
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => { (window as unknown as { __copied?: string[] }).__copied = ((window as unknown as { __copied?: string[] }).__copied ?? []).concat(text); } } });
@@ -114,6 +116,7 @@ test("a selection he settles copies itself, with the quiet Copied, and a cleared
     const bubble = document.querySelector(".message-prompt .message-bubble");
     const conversation = document.querySelector(".conversation");
     if (!bubble || !conversation) throw new Error("no conversation");
+    bubble.scrollIntoView({ block: "center" });
     const range = document.createRange();
     range.selectNodeContents(bubble);
     const selection = window.getSelection()!;
@@ -122,8 +125,19 @@ test("a selection he settles copies itself, with the quiet Copied, and a cleared
     window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
   });
 
-  // Assert
-  await expect(page.getByRole("status").filter({ hasText: "Copied" })).toBeVisible();
+  // Assert: Copied is said under the selection's last line, and the
+  // selection is copied.
+  const copied = page.getByRole("status").filter({ hasText: "Copied" });
+  await expect(copied).toBeVisible();
+  const said = (await copied.boundingBox())!;
+  const selected = await page.evaluate(() => {
+    const { left, right, bottom } = [...window.getSelection()!.getRangeAt(0).getClientRects()].at(-1)!;
+    return { left, right, bottom };
+  });
+  expect(said.y, "Copied starts under the selection's last line").toBeGreaterThanOrEqual(selected.bottom);
+  expect(said.y - selected.bottom, "Copied sits right under it").toBeLessThanOrEqual(12);
+  expect(said.x, "Copied overlaps the selection's last line across").toBeLessThan(selected.right);
+  expect(said.x + said.width).toBeGreaterThan(selected.left);
   await expect.poll(() => page.evaluate(() => (window as unknown as { __copied?: string[] }).__copied?.join("") ?? "")).toContain("Read the brief");
 
   // Act: a cleared selection settles.

@@ -544,6 +544,7 @@ The turn-on question focuses Cancel, and a switch that cannot be read shows off,
 The [README](https://github.com/fpresta0607/code-goblins/blob/main/README.md#afk-mode) describes the switch's loading and refusal displays; a refusal is drawn under the switch, over the board, so it neither widens the bar nor moves the board down.
 The name wraps at the edge of its own part of the panel's row, which never narrows past the session's picture, so it is never drawn under the Chat and Task switch.
 While AFK mode is off and his page of the last stretch is in his Command Center, **Open your last AFK report** in the CEO's Task view opens that page again, from the snapshot's `afk.page`.
+It has as much room under it, before Workspace's rule, as over it, under the header's, and with no report to open the details over Workspace take no room (#2438).
 The status at the top of the panel's Task view is the one place the panel says the task's state (`frontend/src/task-words.ts` translates what the fleet wrote, at display time, and changes no record).
 A resume or stop whose lifecycle record failed reads Resume failed or Stop failed, whatever the goblin's own last report says, on its card, node and panel alike.
 A failed resume whose goblin then reports from the session the resume started, working, waiting, asking or done, took its instruction after all: the supervisor's next reading finishes its record as running, under the task's lifecycle lock, so the card reads what the goblin reports.
@@ -561,6 +562,7 @@ The panel's controls are Open in Windows Terminal and Maximize, each a 44 px ico
 The supervisor's panel and every label the board writes for that role name it CEO (#2222); the `goblins` executable, its commands and its environment names keep theirs, and words the supervisor or the server wrote, such as a push notification or a run's reason, are shown as they came.
 The Chat and Task switch's icons are 44 px targets too, and Chat is the message bubble, as Modern chat is in the style menu (the Overlord, 2026-11-04: "I'd rather you have them be the message icon that we had before").
 The name wraps whole onto more lines in a taller header when the row is narrow, never cut, at a phone's width and the desktop's (2026-11-04), and the Task view's details open with the goblin's whole name and task id, then its harness with the model and effort it runs, so none of them needs a tip.
+The CEO's Task view names no harness there, since its Harness section does (the Overlord, 2026-11-12: "we don't need the Claude code . Fable 5.2", #2438).
 Everything else the header used to hold is in those details at the top of the Task view: the goblin's status and the one sentence under it, its project and people, and its buttons, which wrap onto rows of their own when they do not fit.
 The task list holds the workspace, harness, changes, activity and commit history, each a section closed until it is opened, and one Connectors line that opens the Connectors page, beside the goblin's messages or its live native terminal.
 Its header details keep the link to a goblin this one waits on, both beside the conversation and in the Task fold.
@@ -1489,15 +1491,17 @@ A stream that has sent nothing for five seconds sends an `alive` event, so the v
 A `session` event says what the fleet's stream says of the session: its newest turn, whether that turn runs, ended or was never reported by its harness, why not when it was never reported, the stream's head, and why the conversation the board reads is not the one the session writes, or why the board cannot write or read the stream.
 The view draws a turn's working indicator from that event alone, never from a snapshot of the session's terminal, so a finished turn never draws one at any snapshot timing.
 It reads that word against the conversation it draws, never against a copy kept from when he left the end, so a turn that ends while he reads up loses its indicator there too.
-A view that draws less than the session holds says it is behind: one that holds back what its stream sent while he reads up, and one whose stream's head names a newer message or a newer conversation, as `/clear` begins.
+A view that draws less than the session holds is behind: one that holds back what its stream sent while he reads up, and one whose stream's head names a newer message or a newer conversation, as `/clear` begins.
 Behind is a state of its own that is neither disconnected nor ended, it draws no indicator and no turn's end for what it has not drawn, Jump to latest catches up to every message it held back without a reload, and no timer infers it from elapsed time.
+Nothing says it over the conversation, since Jump to latest shows wherever he reads up (the Overlord, 2026-11-12: "I hate all these alerts remove them!!", #2438).
 A view that follows the end draws what its stream sends as it arrives, so it is behind only while its stream's head is past what the stream sent it.
 While its stream reconnects, the view keeps the turn's last word, so it claims no turn end and no Send the stream never said, and it draws the working indicator only while its stream is live and connected, as the turn may end meanwhile.
 A closed stream draws nothing it last said of the turn until a new stream speaks.
 The box under the conversation reads its Stop from the same event, so a turn that ended leaves a Send, never a Stop, whatever a snapshot still says of the session (#2292).
 On 2026-10-29 the Overlord's view of the CEO showed a call Running at least 76 seconds after it ended, with no word that it was stale.
 A stream that drops or ends is opened again, which begins with the newest page, and says Reconnecting until it does.
-Its corner shows one of those notices at a time, the most pressing first: Reconnecting, then why the conversation it draws is stale or why its stream cannot be kept, then Behind.
+Nothing is drawn over the top of the conversation, at a phone's width or the desktop's, in the CEO's panel or a goblin's (#2438).
+The panel's header says one of those states at a time, on a quiet line of its own under its row, the most pressing first: Reconnecting, then why the conversation it draws is stale or why its stream cannot be kept.
 A stream also ends after ten minutes, as a baby goblin's does, and at most 32 stream at once, a limit of their own.
 With `picture=ID` it answers a picture a message holds, read back from its entry by the id a read of the messages gave it, never by a path or an offset the browser names; a Claude Code picture's id names where it is in its conversation, so a read of the tail and a read of the whole name it alike, and it is answered only when a read found a picture there.
 It must come with the page's `conversation`, and is refused with 400 without one; a picture of a conversation the session no longer has, or whose file changed while it was read, is answered with 404 as one no read found.
@@ -1654,7 +1658,7 @@ A call that started a sub-agent is its baby goblin's row, named as the canvas na
 A compaction is folded to its summary, an interrupt is a plain Interrupted row, and a background task's notice is a quiet line.
 Each prompt he sent keeps a small row under it with Copy, which copies its words as written, and when it was sent; the row stays hidden until he taps the message or points at it where there is a pointer, and closes when he taps away.
 Nothing else shows under his message: no receipt of when it was sent or replied to (the Overlord, 2026-10-29: "We don't need the sent just now if we already have the hover where it shows a timestamp and copy").
-A selection he settles in the conversation, released with a mouse or a touch or ended from the keyboard, copies itself and says Copied quietly; a selection he clears copies nothing.
+A selection he settles in the conversation, released with a mouse or a touch or ended from the keyboard, copies itself and says Copied quietly right under where the selection ends, as a button says it on itself (#2438), and a selection he clears copies nothing.
 Each text of a reply has a Copy of its own, shown with no pointer over it and on a phone, which copies that text's whole Markdown source as written, while the turn runs too (#2048).
 Only the reply that ends a turn, the last before his next message or an interrupt, shows when it arrived, once the turn has ended, with its last text's Copy between that time and the harness's mark, so a turn of many replies and tool rows prints its time once (`turnEnds` in `frontend/src/session-messages.ts`); a message the harness queued into its turn goes on with that turn.
 A notice and a compaction keep Copy too, which copies the notice's whole text, but for the Stop hook feedback note, whose own words are only its label, and every message's text can be selected.

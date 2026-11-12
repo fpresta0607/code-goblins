@@ -7,7 +7,7 @@ import { BRAND_MARKS } from "./brandMarks";
 import { Icon } from "./Icon";
 import { Notice } from "./notice";
 import { ownsTaskSession, sessionTitle } from "./lineageTree";
-import { ALREADY_FINISHED, ceoEngine, harnessName, harnessTip, liveCeoSession, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest, waitingTarget } from "./workflow";
+import { ALREADY_FINISHED, harnessName, harnessTip, liveCeoSession, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest, waitingTarget } from "./workflow";
 import { reviewLine, waitingItems, type Item } from "./commandQueue";
 import { credentialAsk } from "./credentials";
 import { signInHeading } from "./browser-signins";
@@ -36,19 +36,23 @@ import { TaskAdjustment } from "./task-adjustment";
 // row's end, then row, the panel's controls with Close or Back. The CEO's rare
 // states take a line of their own under the row, at its end, only while one
 // shows: Restart PC while the kernel's pools are past their line and Update
-// while an update of the CEO's harness waits, so the row keeps its room.
+// while an update of the CEO's harness waits, so the row keeps its room. So
+// does chatState, what keeps the Chat view's conversation from being the
+// session's own now, Reconnecting or why its record is stale, which is never
+// a notice over the conversation (#2438).
 // While the Chat view shows a conversation both styles can draw, the picture,
 // the CEO's and every goblin's, opens the choice of chat style, styleChoice,
 // with the style shown chosen (PanelStyleMenu); Close or Back goes back to
 // the board, as the CEO's picture did before (#1987).
 // Everything else is the details, isDetails, at the top of the Task view: the
 // goblin's whole name and task id, its harness with the model and effort it
-// runs, which the Terminal style shows nowhere else (#1987), its status, the
+// runs, which the Terminal style shows nowhere else (#1987), though not the
+// CEO's, which its Harness section names (#2438), its status, the
 // one place the panel says the task's state, with one plain sentence under it
 // and the words that sentence leaves out behind Details, where a failure links
 // to the task's log, the task's buttons, and on the CEO's panel the last AFK
 // report and what a press of Update waits for.
-export function PanelHeader({ task, node, snapshot, isDetails = false, switcher, row, styleChoice, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; isDetails?: boolean; switcher?: ReactNode; row?: { controls: PanelControl[]; corner: ReactNode; notice?: ReactNode }; styleChoice?: StyleChoice; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
+export function PanelHeader({ task, node, snapshot, isDetails = false, switcher, row, styleChoice, chatState, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; isDetails?: boolean; switcher?: ReactNode; row?: { controls: PanelControl[]; corner: ReactNode; notice?: ReactNode }; styleChoice?: StyleChoice; chatState?: string; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
   const [opening, setOpening] = useState(false);
   const [feedback, showFeedback] = useClickFeedback();
   const ceo = !task && !node;
@@ -63,9 +67,8 @@ export function PanelHeader({ task, node, snapshot, isDetails = false, switcher,
   const { text: status, phase } = owner ? taskStatus(task, snapshot)
     : ceo ? { text: nodeStatus({ id: "ceo", title, session: ceoSession, relation: "", status: snapshot.registration ? "Registration stale" : ceoSession ? undefined : "Supervising" }), phase: snapshot.registration ? "stale" : ceoSession?.runtime?.state || ceoSession?.phase || "working" }
       : { text: nodeStatus({ id: title, title, task, session: node, relation: "" }, false, snapshot.tasks, trains), phase: node?.runtime?.state || node?.phase || "" };
-  const harness = (task && task.harness) || (node && node.harness) || (ceo ? snapshot.ceo_harness : "");
-  const ceoRuns = ceoEngine(snapshot);
-  const engine = harness ? harnessTip(harness, ceo ? ceoRuns.model : task?.model || node?.model || "", ceo ? ceoRuns.effort : task?.effort || "") : "";
+  const harness = task?.harness || node?.harness || "";
+  const engine = harness ? harnessTip(harness, task?.model || node?.model || "", task?.effort || "") : "";
   const goblinTask = owner && task.phase !== "queued" && task.goblin_name ? task.id : "";
   // A helper names the goblin it helps here, since its card on the board is
   // one row with no room for it.
@@ -140,5 +143,6 @@ export function PanelHeader({ task, node, snapshot, isDetails = false, switcher,
       <RestartPcButton snapshot={snapshot} />
       <CeoUpdate snapshot={snapshot} />
     </div>}
+    {chatState && <p className="panel-chat-state" role="status">{chatState}</p>}
   </>;
 }
