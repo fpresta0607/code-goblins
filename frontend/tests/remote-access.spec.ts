@@ -462,7 +462,9 @@ async function installedApp(page: Page, { answer = "granted", isSubscribed = fal
       getSubscription: async () => subscription,
       subscribe: async (options: { applicationServerKey: Uint8Array }) => { calls.push("subscribe with a " + options.applicationServerKey.byteLength + "-byte key"); subscription = made; return made; },
     } };
-    Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: { register: async (url: string) => { calls.push("register " + url); return registration; }, ready: Promise.resolve(registration), getRegistration: async () => registration } });
+    // A browser's worker container is an event target, which a worker's
+    // messages reach the page through.
+    Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: Object.assign(new EventTarget(), { register: async (url: string) => { calls.push("register " + url); return registration; }, ready: Promise.resolve(registration), getRegistration: async () => registration }) });
     Object.defineProperty(window, "Notification", { configurable: true, value: { get permission() { return permission; }, requestPermission: async () => { calls.push("ask"); permission = answer; return answer; } } });
     const media = window.matchMedia.bind(window);
     window.matchMedia = (query: string) => query === "(display-mode: standalone)" ? { ...media(query), matches: true } : media(query);

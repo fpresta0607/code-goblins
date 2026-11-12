@@ -21,7 +21,7 @@ const SNAPSHOT = {
     started: new Date(Date.now() - 10 * 60_000).toISOString(), note: "",
     cars: [
       { number: 55, url: REPO + "/pull/55", title: "feat: export the audit trail", task: "nw-export", goblin: "Mabel", goblin_title: "Bug Hunter", state: "riding", note: "" },
-      { number: 56, url: REPO + "/pull/56", title: "fix: retry the webhook", task: "nw-webhook", goblin: "Otis", goblin_title: "Train Conductor", state: "riding", note: "" },
+      { number: 56, url: REPO + "/pull/56", title: "fix: retry the webhook", task: "nw-webhook", goblin: "Laverne", goblin_title: "Permission Whisperer", state: "riding", note: "" },
     ],
   }],
 };
@@ -81,7 +81,7 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await open(page);
       const cars = page.locator(".train-car");
       await expect(cars.nth(0)).toContainText("Mabel - Bug Hunter");
-      await expect(cars.nth(1)).toContainText("Otis - Train Conductor");
+      await expect(cars.nth(1)).toContainText("Laverne - Permission Whisperer");
       await expect(cars.nth(0).locator(".goblin-avatar")).toBeVisible();
       await expect(cars.nth(1).locator(".goblin-avatar")).toBeVisible();
       await cars.nth(0).locator(".train-car-goblin").hover();
@@ -90,6 +90,8 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await expect(page.getByRole("tooltip")).toHaveText("fix: retry the webhook");
     });
 
+    // The longest name in the pool with a title as long as a title can be,
+    // 20 characters, shows whole.
     test("a merge train car shows its goblin's whole name and title", async ({ page }) => {
       await open(page);
       const names = page.locator(".train-car-title");

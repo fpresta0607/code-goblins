@@ -90,3 +90,46 @@ func TestSnapshotNamesAQueuedTaskAndKeepsItsName(t *testing.T) {
 		})
 	}
 }
+
+// A brief's author can name the goblin's title after the task was queued:
+// the queued card takes the title its brief gives and keeps its name.
+func TestSnapshotGivesAQueuedTaskTheTitleItsBriefGivesAndKeepsItsName(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	briefPath := filepath.Join(h.Data, "cg-voice-long", "brief.md")
+	if err := os.MkdirAll(filepath.Dir(briefPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	brief := "# Brief cg-voice-long\n\n## Task\n\nHear a long dictation in full.\n\n## Delivery\n\nkind: ship\n"
+	if err := os.WriteFile(briefPath, []byte(brief), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte("## Queued\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := &Service{Store: store}
+	queued := func(view Snapshot, err error) Task {
+		t.Helper()
+		index := slices.IndexFunc(view.Tasks, func(task Task) bool { return task.ID == "cg-voice-long" && task.Phase == "queued" })
+		if err != nil || index < 0 {
+			t.Fatalf("snapshot tasks = %+v, %v, want cg-voice-long queued", view.Tasks, err)
+		}
+		return view.Tasks[index]
+	}
+	named := queued(s.Snapshot())
+	if err := os.WriteFile(briefPath, []byte(brief+"goblin title: Dictation Dynamo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	retitled := queued(s.Snapshot())
+
+	// Assert
+	if named.GoblinTitle != "Voice Whisperer" || retitled.GoblinName != named.GoblinName || retitled.GoblinTitle != "Dictation Dynamo" {
+		t.Fatalf("queued task was %s - %s, then %s - %s, want its name kept with the title Dictation Dynamo", named.GoblinName, named.GoblinTitle, retitled.GoblinName, retitled.GoblinTitle)
+	}
+	pairs, err := goblinname.ReadQueued(h.State)
+	if err != nil || pairs["cg-voice-long"] != (goblinname.Pair{Name: named.GoblinName, Title: "Dictation Dynamo"}) {
+		t.Fatalf("queued pairs = %+v, %v, want the given title kept for its spawn", pairs, err)
+	}
+}

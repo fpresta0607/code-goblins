@@ -147,6 +147,26 @@ for (const [width, region] of [[1400, 280], [390, 0], [1000, 0]]) {
   });
 }
 
+// The Overlord, 2026-11-11: names and titles "not specific enough to the
+// task". A title fitted to the task is up to 20 characters: the longest
+// name in the pool with the longest title shows whole on the board's
+// narrowest card, never clamped or cut.
+for (const [width, region] of [[1400, 280], [390, 0]]) {
+  test(`at ${region || width} px the longest goblin name and title show whole`, async ({ page }) => {
+    // Arrange
+    await board(page, width, region);
+    const title = page.locator(".task-card-shell .card-title", { hasText: "Laverne" });
+
+    // Act
+    const fit = await title.evaluate((element) => ({ isWhole: element.scrollHeight <= element.clientHeight + 1 && element.scrollWidth <= element.clientWidth + 1, width: element.getBoundingClientRect().width }));
+
+    // Assert
+    await expect(title).toHaveText("Laverne - Permission Whisperer");
+    expect(fit.isWhole).toBe(true);
+    expect(fit.width).toBeLessThanOrEqual(region || width);
+  });
+}
+
 // In a list as narrow as the CEO panel's queue on a phone, a card's clock and
 // icons, its harness mark last, take a line under its name and status, which
 // keep the card's whole width, inside the list and with nothing drawn over

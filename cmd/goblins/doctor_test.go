@@ -38,7 +38,7 @@ func TestRunDoctorPrintsTheLaneTableBesideTheSwitchRules(t *testing.T) {
 	path := filepath.Join(root, "data", "routing.json")
 	wants := []string{
 		"routing: 1 standing switch rule(s) from " + path,
-		"routing: 8 execution lane(s) from " + path + " (default build, escalate to deep)",
+		"routing: 11 execution lane(s) from " + path + " (default build, escalate to deep)",
 		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "deep", "codex", "gpt-6-astra", "xhigh", "architecture, security, migration, rescue, anything high risk"),
 		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "build", "codex", "gpt-6-astra", "xhigh", "ordinary implementation"),
 		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "mechanical", "codex", "gpt-6-luna", "medium", "renames, config edits, docs, tightly specified changes"),
@@ -47,8 +47,77 @@ func TestRunDoctorPrintsTheLaneTableBesideTheSwitchRules(t *testing.T) {
 		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "small-claude", "claude", "haiku", "medium", "narrow cross-harness fallback"),
 		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "verification", "codex", "gpt-6-sol", "high", "independent verification"),
 		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "verify-claude", "claude", "sonnet", "high", "independent verification"),
+		"routing: roles for 3 lane(s); a role a lane does not name is its lead's own",
+		fmt.Sprintf("  %-13s %-9s %-13s %-17s %s", "build", "lead", "build", "gpt-6-astra", "xhigh"),
+		fmt.Sprintf("  %-13s %-9s %-13s %-17s %s, then build\n", "build", "implement", "light-codex", "gpt-6.1-sol", "high"),
+		fmt.Sprintf("  %-13s %-9s %-13s %-17s %s\n", "build", "review", "build", "gpt-6-astra", "xhigh"),
+		fmt.Sprintf("  %-13s %-9s %-13s %-17s %s", "build", "fix", "build", "gpt-6-astra", "xhigh"),
+		fmt.Sprintf("  %-13s %-9s %-13s %-17s %s, then strong-claude\n", "strong-claude", "implement", "light-claude", "claude-sonnet-5-5", "high"),
+		fmt.Sprintf("  %-13s %-9s %-13s %-17s %s, then verify-claude", "strong-claude", "verify", "fable-claude", "claude-fable-5-2", "xhigh"),
 	}
 	for _, want := range wants {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("stdout lacks %q\n%s", want, stdout.String())
+		}
+	}
+}
+
+// A home's own table from before roles keeps working, and doctor says what
+// that means for each goblin.
+func TestRunDoctorSaysATableWithoutRolesLeavesEveryRoleToTheLead(t *testing.T) {
+	// Arrange
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	policy := `{"rules":[],"default_lane":"build","lanes":{"build":{"harness":"claude","model":"claude-opus-5-5","effort":"high"}},"subagents":{},"fallbacks":{"build":[]}}`
+	if err := os.WriteFile(filepath.Join(root, "data", "routing.json"), []byte(policy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GOBLINS_HOME", root)
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	run([]string{"doctor"}, &stdout, &stderr)
+
+	// Assert
+	for _, want := range []string{
+		"routing: 1 execution lane(s) from ",
+		"routing: no roles per lane, so each goblin leads, implements, reviews, verifies and fixes on its own lane",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("stdout lacks %q\n%s", want, stdout.String())
+		}
+	}
+}
+
+// Doctor prints the lanes a role would try, so a lane on the lead's own model
+// that review and verification are kept off is not shown as a fallback.
+func TestRunDoctorPrintsOnlyTheLanesARoleWouldTry(t *testing.T) {
+	// Arrange
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	policy := `{"rules":[],"default_lane":"build","lanes":{
+		"build":{"harness":"claude","model":"claude-opus-5-5","effort":"xhigh"},
+		"fable":{"harness":"claude","model":"claude-fable-5-2","effort":"xhigh"},
+		"sonnet":{"harness":"claude","model":"claude-sonnet-5-5","effort":"high"}},
+		"roles":{"build":{"implement":["sonnet"],"verify":["fable","build"]}}}`
+	if err := os.WriteFile(filepath.Join(root, "data", "routing.json"), []byte(policy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GOBLINS_HOME", root)
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	run([]string{"doctor"}, &stdout, &stderr)
+
+	// Assert
+	for _, want := range []string{
+		fmt.Sprintf("  %-13s %-9s %-13s %-17s %s, then build\n", "build", "implement", "sonnet", "claude-sonnet-5-5", "high"),
+		fmt.Sprintf("  %-13s %-9s %-13s %-17s %s\n", "build", "verify", "fable", "claude-fable-5-2", "xhigh"),
+	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("stdout lacks %q\n%s", want, stdout.String())
 		}
