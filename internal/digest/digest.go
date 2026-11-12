@@ -33,6 +33,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/layout"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/memory"
+	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
@@ -641,7 +642,7 @@ func writeShared(stateDir string, now time.Time, ew *werr) {
 		switch service.Name {
 		case supervisor.SharedGateDaemon:
 			if service.PID > 0 {
-				part += fmt.Sprintf(" (pid %d, %d runs)", service.PID, service.Runs)
+				part += fmt.Sprintf(" (pid %d, %s)", service.PID, pipeline.Daemon{LiveRuns: service.Runs}.RunCount())
 			}
 		case supervisor.SharedHeavyLine:
 			part += fmt.Sprintf(" (%d held, %d in line, %.1f of %.1f GB)", len(service.Holders), len(service.Queued), disk.GB(service.AvailableBytes), disk.GB(service.FloorBytes))

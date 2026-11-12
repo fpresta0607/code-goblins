@@ -44,6 +44,10 @@ const sharedServicesSchema = "ceo-shared-services.v1"
 // take before an engine that still does not answer reads stopped.
 const dockerStartLimit = 5 * time.Minute
 
+// sharedProbeTimeout bounds each read of a shared service, so a wedged engine
+// or a stalled daemon holds up no other fleet wake.
+const sharedProbeTimeout = 10 * time.Second
+
 // SharedServices is the state of every service the fleet shares, as the
 // supervisor last checked it.
 type SharedServices struct {
@@ -74,7 +78,7 @@ type SharedService struct {
 	Queued  []string `json:"queued"`
 	Waiting []string `json:"waiting"`
 	// PID and Runs are the gate daemon's process and how many runs it
-	// serves; AvailableBytes and FloorBytes the memory the heavy line's next
+	// serves, -1 when its database could not count them; AvailableBytes and FloorBytes the memory the heavy line's next
 	// run is read against.
 	PID            int    `json:"pid,omitempty"`
 	Runs           int    `json:"runs,omitempty"`
@@ -159,12 +163,18 @@ func (s *Service) checkSharedServices(ctx context.Context, w *fleetWakes, now ti
 func readGateDaemon(ctx context.Context, probes *SharedProbes, now time.Time) SharedService {
 	service := SharedService{Name: SharedGateDaemon, CheckedAt: now, Holders: []string{}, Queued: []string{}}
 	never := "It serves every goblin, so never start or restart it yourself."
-	if probes.Daemon == nil {
-		service.State, service.Detail, service.Next, service.NextDetail = "unknown", "this supervisor does not read the gate daemon", SharedAsk, "Ask the CEO. "+never
-		return service
+	read, cancelRead := context.WithTimeout(ctx, sharedProbeTimeout)
+	daemon, err := probes.Daemon(read)
+	cancelRead()
+	if daemon.State != pipeline.DaemonStopped {
+		service.PID, service.Runs = daemon.PID, daemon.LiveRuns
 	}
-	daemon, err := probes.Daemon(ctx)
-	service.PID, service.Runs = daemon.PID, max(daemon.LiveRuns, 0)
+	isAnswering := false
+	if daemon.State == pipeline.DaemonAlive {
+		ask, cancelAsk := context.WithTimeout(ctx, sharedProbeTimeout)
+		isAnswering = probes.DaemonAnswers(ask)
+		cancelAsk()
+	}
 	switch {
 	case daemon.State == pipeline.DaemonStopped:
 		service.State, service.Detail = "stopped", "no gate daemon process runs"
@@ -175,27 +185,17 @@ func readGateDaemon(ctx context.Context, probes *SharedProbes, now time.Time) Sh
 			service.Detail += ": " + err.Error()
 		}
 		service.Next, service.NextDetail = SharedAsk, "Ask the CEO. "+never
-	case probes.DaemonAnswers != nil && probes.DaemonAnswers(ctx):
+	case isAnswering:
 		service.State, service.IsUsable = "ready", true
-		service.Detail = fmt.Sprintf("pid %d is alive, serves %s and answered its health check", daemon.PID, runsServed(daemon.LiveRuns))
+		service.Detail = fmt.Sprintf("pid %d is alive, serves %s and answered its health check", daemon.PID, daemon.RunCount())
 		service.Next, service.NextDetail = SharedGo, "Start or answer your gate."
 	default:
 		service.State = "busy"
-		service.Detail = fmt.Sprintf("pid %d is alive and serves %s, and missed its short health reply, so it is busy, not stopped", daemon.PID, runsServed(daemon.LiveRuns))
+		service.Detail = fmt.Sprintf("pid %d is alive and serves %s, and missed its short health reply, so it is busy, not stopped", daemon.PID, daemon.RunCount())
 		service.Next, service.RetryAt = SharedWait, now.Add(fleetWatchEvery)
 		service.NextDetail = "goblins pipeline run and respond wait their turn by themselves; report the wait with goblins notify <task> --waiting-on gate-daemon \"<why>\" and do not poll: you are told when it answers again. " + never
 	}
 	return service
-}
-
-func runsServed(runs int) string {
-	switch {
-	case runs < 0:
-		return "runs its database could not count"
-	case runs == 1:
-		return "1 run"
-	}
-	return fmt.Sprintf("%d runs", runs)
 }
 
 // readHeavyLine reads who holds the machine's turns for heavy runs, who
@@ -203,10 +203,6 @@ func runsServed(runs int) string {
 // line's head is not started.
 func readHeavyLine(probes *SharedProbes, now time.Time) SharedService {
 	service := SharedService{Name: SharedHeavyLine, CheckedAt: now, Holders: []string{}, Queued: []string{}}
-	if probes.Line == nil {
-		service.State, service.Detail, service.Next, service.NextDetail = "unknown", "this supervisor does not read the heavy line", SharedAsk, "Ask the CEO."
-		return service
-	}
 	line, err := probes.Line()
 	if err != nil {
 		service.State, service.Detail, service.Next, service.NextDetail = "unknown", "the heavy line cannot be read: "+err.Error(), SharedAsk, "Ask the CEO."
@@ -255,11 +251,9 @@ func readDocker(ctx context.Context, probes *SharedProbes, stateDir string, now 
 	if len(service.Holders) > 0 {
 		held = "; its stacks are held by " + strings.Join(service.Holders, ", ")
 	}
-	if probes.Docker == nil {
-		service.State, service.Detail, service.Next, service.NextDetail = "unknown", "this supervisor does not read the Docker engine", SharedAsk, "Ask the CEO."
-		return service
-	}
-	running, err := probes.Docker(ctx)
+	probe, cancel := context.WithTimeout(ctx, sharedProbeTimeout)
+	running, err := probes.Docker(probe)
+	cancel()
 	switch {
 	case err != nil:
 		service.State, service.Detail = "unknown", "the engine cannot be asked: "+err.Error()
@@ -296,11 +290,21 @@ func sharedWaiting(h home.Home, target string) []string {
 
 // wakeSharedWaiters raises one wake for every goblin waiting on a service
 // that is not usable, however many wait, and one more once it is usable,
-// naming the goblins to tell, each told once.
+// naming the goblins to tell, each told once. A service is taken for down or
+// usable only once two readings in a row agree, so a daemon that misses its
+// health reply now and then wakes nobody at each miss.
 func (s *Service) wakeSharedWaiters(w *fleetWakes, service SharedService) error {
+	wasUsable, isRead := w.SharedUsable[service.Name]
+	if w.SharedUsable == nil {
+		w.SharedUsable = map[string]bool{}
+	}
+	w.SharedUsable[service.Name] = service.IsUsable
 	if len(service.Waiting) == 0 {
 		delete(w.SharedRaised, service.Name)
 		delete(w.SharedTold, service.Name)
+		return nil
+	}
+	if !isRead || wasUsable != service.IsUsable {
 		return nil
 	}
 	if !service.IsUsable {
@@ -309,7 +313,11 @@ func (s *Service) wakeSharedWaiters(w *fleetWakes, service SharedService) error 
 		if w.SharedRaised[service.Name] {
 			return nil
 		}
-		detail := fmt.Sprintf("shared_busy: the %s is %s: %s. %d %s on it, %s; it is shared, so nothing restarts it, and each is told once when it is usable again.", sharedName(service.Name), service.State, service.Detail, len(service.Waiting), goblinsWait(len(service.Waiting)), strings.Join(service.Waiting, ", "))
+		owner := "it is shared and comes back by itself, so nothing restarts it"
+		if service.Next == SharedAsk {
+			owner = "whether to start it is the CEO's to decide, never a goblin's"
+		}
+		detail := fmt.Sprintf("shared_busy: the %s is %s: %s. %d %s on it, %s; %s, and each is told once when it is usable again.", sharedName(service.Name), service.State, service.Detail, len(service.Waiting), goblinsWait(len(service.Waiting)), strings.Join(service.Waiting, ", "), owner)
 		if err := raiseFleetWake(s.Store.Home.State, "shared", service.Name, detail); err != nil {
 			return err
 		}

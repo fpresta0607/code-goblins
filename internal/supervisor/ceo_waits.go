@@ -176,7 +176,7 @@ func ceoWaitOf(stateDir string, meta state.TaskMeta, ceoRow func(id string) (row
 	case pullRequest != "" && keptOff[pullRequest] != "":
 		wait.What = quoted + ", which no merge train takes: " + keptOff[pullRequest]
 		wait.Next = fmt.Sprintf("review %s, then clear what keeps it off the train, or tell %s what to change with goblins send %s \"<what>\"", pullRequest, meta.ID, meta.ID)
-	case isWait && !slices.Contains([]string{"ci", "deploy", "overlord", "memory"}, target) && state.ValidTaskID(target) == nil:
+	case isWait && !slices.Contains(selfEndingWaits, target) && state.ValidTaskID(target) == nil:
 		row, isDone, isCEOs, err := ceoRow(target)
 		if err != nil || !isCEOs {
 			return wait, false, err

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
@@ -52,6 +53,47 @@ func TestTheDigestShowsTheSharedServicesAndWhoWaitsOnThem(t *testing.T) {
 			// Assert
 			if c.want == "" && out.Len() != 0 || !strings.Contains(out.String(), c.want) {
 				t.Fatalf("shared line = %q, want %q", out.String(), c.want)
+			}
+		})
+	}
+}
+
+// The CEO's session digest, long and brief, carries the SHARED line, and a
+// daemon whose database could not count its runs says so, never 0 runs.
+func TestTheLongAndBriefDigestsCarryTheSharedLine(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		compose func(t *testing.T, h home.Home) string
+	}{
+		{name: "the long digest", compose: func(t *testing.T, h home.Home) string {
+			var out bytes.Buffer
+			if err := Compose(h, os.Getpid(), "s1", &out); err != nil {
+				t.Fatalf("Compose: %v", err)
+			}
+			return out.String()
+		}},
+		{name: "the brief digest", compose: composeBrief},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h := newDigestHome(t)
+			record := supervisor.SharedServices{Schema: "ceo-shared-services.v1", CheckedAt: time.Now(), Services: []supervisor.SharedService{
+				{Name: supervisor.SharedGateDaemon, State: "busy", PID: 276, Runs: -1, Waiting: []string{"huey"}},
+			}}
+			data, err := json.Marshal(record)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(h.State, "shared-services.json"), data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			out := test.compose(t, h)
+
+			// Assert
+			if want := "SHARED: gate-daemon busy (pid 276, runs its database could not count), 1 goblin(s) waiting\n"; !strings.Contains(out, want) {
+				t.Fatalf("%s carries no %q:\n%s", test.name, want, out)
 			}
 		})
 	}

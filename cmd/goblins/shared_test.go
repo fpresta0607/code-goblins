@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -9,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/gatehome"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
@@ -162,6 +165,52 @@ func TestSharedSaysWhenTheSupervisorIsNotChecking(t *testing.T) {
 			// Assert
 			if code != c.wantCode || !strings.Contains(stdout, c.wantStdout) || !strings.Contains(stderr, c.wantStderr) {
 				t.Fatalf("goblins shared %v = %d, stdout %q, stderr %q; want %d, %q, %q", c.args, code, stdout, stderr, c.wantCode, c.wantStdout, c.wantStderr)
+			}
+		})
+	}
+}
+
+// daemonStatusRunner answers no-mistakes daemon status as the native build
+// does, with stdout and exitCode, and records each request.
+type daemonStatusRunner struct {
+	stdout   string
+	exitCode int
+	requests []execx.Request
+}
+
+func (r *daemonStatusRunner) Run(_ context.Context, request execx.Request) (execx.Result, error) {
+	r.requests = append(r.requests, request)
+	return execx.Result{Stdout: []byte(r.stdout), ExitCode: r.exitCode}, nil
+}
+
+// no-mistakes daemon status exits 0 even when it says the daemon is not
+// running, so the supervisor's health probe counts an answer only when the
+// command both exits 0 and says "daemon running", and it only reads.
+func TestTheDaemonHealthProbeCountsOnlyARunningDaemonsAnswer(t *testing.T) {
+	for _, c := range []struct {
+		name        string
+		stdout      string
+		exitCode    int
+		isAnswering bool
+	}{
+		{"a running daemon", "daemon running (pid 276)\n", 0, true},
+		{"a daemon that gave no answer", "daemon not running\n", 0, false},
+		{"a status that failed", "daemon running (pid 276)\n", 1, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			t.Setenv(gatehome.Variable, t.TempDir())
+			commands := &daemonStatusRunner{stdout: c.stdout, exitCode: c.exitCode}
+
+			// Act
+			isAnswering := sharedProbes(commands).DaemonAnswers(t.Context())
+
+			// Assert
+			if isAnswering != c.isAnswering {
+				t.Fatalf("the health probe read %q, exit %d, as answering %t, want %t", c.stdout, c.exitCode, isAnswering, c.isAnswering)
+			}
+			if len(commands.requests) != 1 || commands.requests[0].Name != "no-mistakes" || strings.Join(commands.requests[0].Args, " ") != "daemon status" {
+				t.Fatalf("the health probe ran %+v, want one no-mistakes daemon status", commands.requests)
 			}
 		})
 	}

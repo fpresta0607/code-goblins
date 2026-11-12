@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -105,11 +106,15 @@ func TestABusyDaemonThatMissesItsHealthReplyIsBusyNotStopped(t *testing.T) {
 		wantState   string
 		wantNext    string
 		isUsable    bool
+		wantPID     int
+		wantRuns    int
 	}{
-		{"alive and missing its reply", pipeline.Daemon{State: pipeline.DaemonAlive, PID: 276, LiveRuns: 3}, false, "busy", SharedWait, false},
-		{"alive and answering", pipeline.Daemon{State: pipeline.DaemonAlive, PID: 276, LiveRuns: 3}, true, "ready", SharedGo, true},
-		{"no process", pipeline.Daemon{State: pipeline.DaemonStopped}, false, "stopped", SharedAsk, false},
-		{"an unreadable process", pipeline.Daemon{State: pipeline.DaemonUnknown, PID: 276}, false, "unknown", SharedAsk, false},
+		{"alive and missing its reply", pipeline.Daemon{State: pipeline.DaemonAlive, PID: 276, LiveRuns: 3}, false, "busy", SharedWait, false, 276, 3},
+		{"alive, missing its reply, with an unreadable database", pipeline.Daemon{State: pipeline.DaemonAlive, PID: 276, LiveRuns: -1}, false, "busy", SharedWait, false, 276, -1},
+		{"alive and answering", pipeline.Daemon{State: pipeline.DaemonAlive, PID: 276, LiveRuns: 3}, true, "ready", SharedGo, true, 276, 3},
+		{"no process", pipeline.Daemon{State: pipeline.DaemonStopped}, false, "stopped", SharedAsk, false, 0, 0},
+		{"a pid file naming a gone process", pipeline.Daemon{State: pipeline.DaemonStopped, PID: 276, LiveRuns: -1}, false, "stopped", SharedAsk, false, 0, 0},
+		{"an unreadable process", pipeline.Daemon{State: pipeline.DaemonUnknown, PID: 276}, false, "unknown", SharedAsk, false, 276, 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange
@@ -128,8 +133,11 @@ func TestABusyDaemonThatMissesItsHealthReplyIsBusyNotStopped(t *testing.T) {
 			if !c.isUsable && !strings.Contains(daemon.NextDetail, "never start or restart it") {
 				t.Fatalf("gate daemon next = %q, want it to say never start or restart it", daemon.NextDetail)
 			}
-			if c.wantState == "busy" && (daemon.PID != 276 || daemon.Runs != 3 || !daemon.RetryAt.Equal(now.Add(time.Minute)) || !strings.Contains(daemon.Detail, "busy, not stopped")) {
-				t.Fatalf("busy gate daemon = %+v, want pid 276 serving 3 runs, rechecked at %s", daemon, now.Add(time.Minute))
+			if daemon.PID != c.wantPID || daemon.Runs != c.wantRuns {
+				t.Fatalf("gate daemon = %+v, want pid %d serving %d runs", daemon, c.wantPID, c.wantRuns)
+			}
+			if c.wantState == "busy" && (!daemon.RetryAt.Equal(now.Add(time.Minute)) || !strings.Contains(daemon.Detail, "busy, not stopped")) {
+				t.Fatalf("busy gate daemon = %+v, want it busy, not stopped, rechecked at %s", daemon, now.Add(time.Minute))
 			}
 		})
 	}
@@ -200,17 +208,22 @@ func TestALaterWaiterAndALaterOutageAreToldAgain(t *testing.T) {
 	s, h, machine := sharedService(t)
 	sharedWaiter(t, h, "huey", "gate-daemon")
 	now := time.Date(2026, 11, 11, 14, 0, 0, 0, time.UTC)
-	checkShared(t, s, h, &now)
+	checkTwice := func() []wake.Record {
+		first, _ := checkShared(t, s, h, &now)
+		second, _ := checkShared(t, s, h, &now)
+		return append(first, second...)
+	}
+	checkTwice()
 	machine.isAnswering = true
-	checkShared(t, s, h, &now)
+	checkTwice()
 
 	// Act
 	sharedWaiter(t, h, "wanda", "gate-daemon")
 	lateWaiter, _ := checkShared(t, s, h, &now)
 	machine.isAnswering = false
-	secondOutage, _ := checkShared(t, s, h, &now)
+	secondOutage := checkTwice()
 	machine.isAnswering = true
-	secondReturn, _ := checkShared(t, s, h, &now)
+	secondReturn := checkTwice()
 
 	// Assert
 	if len(lateWaiter) != 1 || !strings.Contains(lateWaiter[0].Detail, "tell wanda, once") || strings.Contains(lateWaiter[0].Detail, "huey") {
@@ -221,6 +234,133 @@ func TestALaterWaiterAndALaterOutageAreToldAgain(t *testing.T) {
 	}
 	if len(secondReturn) != 1 || !strings.Contains(secondReturn[0].Detail, "tell huey, wanda, once") {
 		t.Fatalf("wakes once usable again = %+v, want one telling huey and wanda", secondReturn)
+	}
+}
+
+// Issue 2365's loaded machine: a live daemon misses its health reply at one
+// check and answers at the next. A service is taken for down or usable only
+// once two checks in a row agree, so a waiter on a reply missed now and then
+// wakes nobody at each flip, and two misses in a row still wake the CEO once.
+func TestAHealthReplyMissedNowAndThenWakesNobodyUntilTwoChecksAgree(t *testing.T) {
+	// Arrange
+	s, h, machine := sharedService(t)
+	sharedWaiter(t, h, "huey", "gate-daemon")
+	now := time.Date(2026, 11, 11, 14, 0, 0, 0, time.UTC)
+
+	// Act
+	var flapping []wake.Record
+	for check := range 10 {
+		machine.isAnswering = check%2 == 1
+		woke, _ := checkShared(t, s, h, &now)
+		flapping = append(flapping, woke...)
+	}
+	machine.isAnswering = false
+	var steady []wake.Record
+	for range 2 {
+		woke, _ := checkShared(t, s, h, &now)
+		steady = append(steady, woke...)
+	}
+
+	// Assert
+	if len(flapping) != 0 {
+		t.Fatalf("shared wakes while the reply flapped = %+v, want none", flapping)
+	}
+	if len(steady) != 1 || !strings.HasPrefix(steady[0].Detail, "shared_busy:") {
+		t.Fatalf("shared wakes after two misses in a row = %+v, want one shared_busy", steady)
+	}
+}
+
+// A goblin waiting on a stopped Docker engine wakes the CEO once, told that
+// starting it is the CEO's to decide, never a goblin's, and is told once the
+// engine answers again.
+func TestAGoblinWaitingOnAStoppedEngineIsTheCEOsToDecideAndIsToldWhenItAnswers(t *testing.T) {
+	// Arrange
+	s, h, machine := sharedService(t)
+	machine.isDockerUp = false
+	sharedWaiter(t, h, "fern", "docker")
+	now := time.Date(2026, 11, 11, 14, 0, 0, 0, time.UTC)
+
+	// Act
+	var stoppedWakes []wake.Record
+	for range 3 {
+		woke, record := checkShared(t, s, h, &now)
+		stoppedWakes = append(stoppedWakes, woke...)
+		if docker := sharedByName(t, record, SharedDocker); docker.State != "stopped" || strings.Join(docker.Waiting, ",") != "fern" {
+			t.Fatalf("docker = %+v, want stopped with fern waiting", docker)
+		}
+	}
+	machine.isDockerUp = true
+	var runningWakes []wake.Record
+	for range 3 {
+		woke, _ := checkShared(t, s, h, &now)
+		runningWakes = append(runningWakes, woke...)
+	}
+
+	// Assert
+	if len(stoppedWakes) != 1 || !strings.HasPrefix(stoppedWakes[0].Detail, "shared_busy: the Docker engine is stopped") || !strings.Contains(stoppedWakes[0].Detail, "1 goblin waits on it, fern") || !strings.Contains(stoppedWakes[0].Detail, "the CEO's to decide, never a goblin's") || strings.Contains(stoppedWakes[0].Detail, "nothing restarts it") {
+		t.Fatalf("shared wakes while the engine is stopped = %+v, want one naming fern that leaves the engine to the CEO", stoppedWakes)
+	}
+	if len(runningWakes) != 1 || !strings.HasPrefix(runningWakes[0].Detail, "shared_ready: the Docker engine is usable again") || !strings.Contains(runningWakes[0].Detail, "tell fern, once") {
+		t.Fatalf("shared wakes once the engine answers = %+v, want one telling fern", runningWakes)
+	}
+}
+
+// Each read of a shared service runs under its own short deadline, never the
+// supervisor's long-lived context, so a wedged docker info or a stalled
+// daemon holds up no other fleet wake; a read its deadline ended is unknown
+// and the pass still keeps its record.
+func TestEveryReadOfASharedServiceHasItsOwnDeadline(t *testing.T) {
+	// Arrange
+	s, h, _ := sharedService(t)
+	var deadlines []time.Time
+	bounded := func(ctx context.Context) {
+		if deadline, ok := ctx.Deadline(); ok {
+			deadlines = append(deadlines, deadline)
+		}
+	}
+	s.Options.Shared.Daemon = func(ctx context.Context) (pipeline.Daemon, error) {
+		bounded(ctx)
+		return pipeline.Daemon{State: pipeline.DaemonAlive, PID: 276, LiveRuns: 3}, nil
+	}
+	s.Options.Shared.DaemonAnswers = func(ctx context.Context) bool {
+		bounded(ctx)
+		return false
+	}
+	s.Options.Shared.Docker = func(ctx context.Context) (bool, error) {
+		bounded(ctx)
+		return false, context.DeadlineExceeded
+	}
+	now := time.Date(2026, 11, 11, 14, 0, 0, 0, time.UTC)
+
+	// Act
+	_, record := checkShared(t, s, h, &now)
+	finished := time.Now()
+
+	// Assert
+	// stall-accepted: it compares the deadline the code set with the moment the check ended, so a stall only makes it looser; the test waits on nothing.
+	if len(deadlines) != 3 || slices.ContainsFunc(deadlines, func(deadline time.Time) bool { return deadline.After(finished.Add(sharedProbeTimeout)) }) {
+		t.Fatalf("the shared reads' deadlines = %v, want each of the three reads bounded by %s", deadlines, sharedProbeTimeout)
+	}
+	if docker := sharedByName(t, record, SharedDocker); docker.State != "unknown" || docker.Next != SharedAsk {
+		t.Fatalf("docker = %+v, want unknown once its read ran out of time", docker)
+	}
+	if daemon := sharedByName(t, record, SharedGateDaemon); daemon.State != "busy" {
+		t.Fatalf("gate daemon = %+v, want busy", daemon)
+	}
+}
+
+// The machine's heavy line is read from the admission store real runs keep:
+// a store nobody has set to two turns has one turn and its flat 4 GiB floor.
+func TestTheMachinesHeavyLineIsReadFromItsAdmissionStore(t *testing.T) {
+	// Arrange
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
+
+	// Act
+	line, err := MachineSharedLine()
+
+	// Assert
+	if err != nil || line.Capacity != 1 || line.FloorBytes != 4<<30 || len(line.Holding) != 0 || len(line.Waiting) != 0 || line.Memory.Available == 0 {
+		t.Fatalf("MachineSharedLine = %+v, %v; want one free turn, a 4 GiB floor and the machine's memory", line, err)
 	}
 }
 

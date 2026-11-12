@@ -272,7 +272,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	// An example home shows no machine's shared services.
 	var shared *supervisor.SharedProbes
 	if !*example {
-		shared = sharedProbes()
+		shared = sharedProbes(execx.OSRunner{})
 	}
 	s, err := supervisor.Start(ctx, h, supervisor.Options{
 		HoldsWatchLock:   true,

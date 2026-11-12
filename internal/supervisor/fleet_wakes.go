@@ -176,10 +176,12 @@ type fleetWakes struct {
 	// request a queued row waits on.
 	Failing map[string]int `json:"failing,omitempty"`
 	// SharedRaised names each shared service whose outage woke the CEO for
-	// the goblins waiting on it, and SharedTold the goblins the CEO was asked
-	// to tell, once, that a service they wait on is usable again.
+	// the goblins waiting on it, SharedTold the goblins the CEO was asked to
+	// tell, once, that a service they wait on is usable again, and
+	// SharedUsable whether each service's last reading found it usable.
 	SharedRaised map[string]bool     `json:"shared_raised,omitempty"`
 	SharedTold   map[string][]string `json:"shared_told,omitempty"`
+	SharedUsable map[string]bool     `json:"shared_usable,omitempty"`
 	// SameArea holds, by task, the teammates' open work each live goblin's
 	// area meets, for its card.
 	SameArea map[string]sameArea `json:"same_area,omitempty"`
