@@ -1447,7 +1447,7 @@ func TestPipelineScopeDecisionRecordsANativeRefusalWithoutFallback(t *testing.T)
 // rather than a busy daemon's.
 func TestPipelineScopeDecisionTurnedAwayByABusyDaemonSaysItWasTriedAndNeverArrived(t *testing.T) {
 	if runtime.GOOS != "windows" {
-		t.Skip("the primary CFO registration is verified on Windows only")
+		t.Skip("the primary CEO registration is verified on Windows only")
 	}
 	for _, scenario := range []struct {
 		name      string
