@@ -327,7 +327,7 @@ func stateRoot(t *testing.T) string {
 }
 
 // A read of the gate's database starts sqlite3, which a loaded machine can
-// take tens of seconds to start: a 5 s bound on each read failed `cfo
+// take tens of seconds to start: a 5 s bound on each read failed `ceo
 // pipeline recover` twice on 2026-10-20 while sqlite3 was installed and the
 // database readable, and the same read passed once load dropped (#1286).
 func TestAStateReadSlowedByALoadedMachineIsAnswered(t *testing.T) {
@@ -417,7 +417,7 @@ func (s *startRecorder) Run(_ context.Context, req execx.Request) (execx.Result,
 	return execx.Result{}, errors.New("no program may start")
 }
 
-// The CFO takes a gate's open findings as they stand only with approve and by
+// The CEO takes a gate's open findings as they stand only with approve and by
 // naming exactly the open ask-user and auto-fix findings; every other shape
 // is refused for its own reason or stays unresolved.
 func TestApproveAcceptsExactlyTheOpenFindings(t *testing.T) {
@@ -486,7 +486,7 @@ func TestApprovedTestExceptionCarriesTheOperatorReason(t *testing.T) {
 	for _, c := range []struct {
 		name string
 		gate Gate
-		// response is the answer the CFO gave.
+		// response is the answer the CEO gave.
 		response Response
 		// want is the exact argv handed to the native engine.
 		want string
@@ -495,7 +495,7 @@ func TestApprovedTestExceptionCarriesTheOperatorReason(t *testing.T) {
 		refusal    string
 		unresolved bool
 	}{
-		{name: "a Test exception whose open finding the CFO accepted", gate: open, response: Response{Action: "approve", Accept: "test-2", Reason: reason}, want: "axi respond --step test --action approve --reason " + reason},
+		{name: "a Test exception whose open finding the CEO accepted", gate: open, response: Response{Action: "approve", Accept: "test-2", Reason: reason}, want: "axi respond --step test --action approve --reason " + reason},
 		{name: "a Test gate with nothing open", gate: quiet, response: Response{Action: "approve", Reason: reason}, want: "axi respond --step test --action approve --reason " + reason},
 		{name: "a reason on another step", gate: review, response: Response{Action: "approve", Reason: reason}, refusal: "applies only to an approve of the test step, and this gate is review"},
 		{name: "a reason with fix", gate: review, response: Response{Action: "fix", Findings: "bug", Reason: reason}, refusal: "never with fix"},
@@ -510,7 +510,7 @@ func TestApprovedTestExceptionCarriesTheOperatorReason(t *testing.T) {
 			// Assert
 			switch {
 			case c.unresolved:
-				// A reason is never consent: the finding still needs the CFO's
+				// A reason is never consent: the finding still needs the CEO's
 				// explicit --accept.
 				if !errors.Is(err, ErrUnresolved) || len(args) != 0 {
 					t.Fatalf("got %v %q, want it unresolved", err, args)
@@ -637,9 +637,9 @@ func TestRequiredEnvironmentRefusalRequiresRetryInsteadOfApproval(t *testing.T) 
 	}{
 		{"recorded native refusal", recorded("native-environment-refusal.json"), "test-command-no-turn"},
 		{"recorded native refusal through verify", recorded("native-environment-refusal-through-verify.json"), "test-command-no-turn"},
-		{"before admission", `{"findings":[{"id":"test-command-no-turn","action":"ask-user","description":"The wrapper reported: cfo gate turn: the command did not start: required test environment: .venv is missing. Respond with fix to run it again."}]}`, "test-command-no-turn"},
-		{"after admission", `{"findings":[{"id":"test-command-no-turn","action":"ask-user","description":"The wrapper reported: cfo gate turn: the command did not start: required test environment changed while waiting; verify the project binding and retry."}]}`, "test-command-no-turn"},
-		{"base attribution", `{"findings":[{"id":"test-1","action":"ask-user","description":"configured test command exited with code 7"}],"summary":"Base attribution unavailable (test command was given no turn on the base checkout: cfo gate turn: the command did not start: required test environment: .venv is missing); every failure is attributed to this change."}`, "test-1"},
+		{"before admission", `{"findings":[{"id":"test-command-no-turn","action":"ask-user","description":"The wrapper reported: goblins gate turn: the command did not start: required test environment: .venv is missing. Respond with fix to run it again."}]}`, "test-command-no-turn"},
+		{"after admission", `{"findings":[{"id":"test-command-no-turn","action":"ask-user","description":"The wrapper reported: goblins gate turn: the command did not start: required test environment changed while waiting; verify the project binding and retry."}]}`, "test-command-no-turn"},
+		{"base attribution", `{"findings":[{"id":"test-1","action":"ask-user","description":"configured test command exited with code 7"}],"summary":"Base attribution unavailable (test command was given no turn on the base checkout: goblins gate turn: the command did not start: required test environment: .venv is missing); every failure is attributed to this change."}`, "test-1"},
 	} {
 		t.Run(report.name, func(t *testing.T) {
 			gate := Gate{RunID: "run", StepID: "step", Step: "test", Status: "awaiting_approval", Round: 1, Findings: report.findings}
@@ -664,8 +664,8 @@ func TestRequiredEnvironmentRefusalRequiresRetryInsteadOfApproval(t *testing.T) 
 	for _, report := range []struct {
 		name, findings string
 	}{
-		{"unrelated no-turn refusal", `{"findings":[{"id":"test-command-no-turn","action":"ask-user","description":"The test command ` + "`echo required test environment`" + ` was given no turn. The wrapper reported: cfo gate turn: this run takes no turn: it took no turn within its wait of 1m0s."}]}`},
-		{"unrelated base refusal", `{"findings":[{"id":"test-command-no-turn","action":"ask-user","description":"The wrapper reported: cfo gate turn: this run takes no turn: it took no turn within its wait of 1m0s."}],"summary":"Base attribution unavailable (test command was given no turn on the base checkout: cfo gate turn: this run takes no turn: queue timeout); every failure is attributed to this change.\nTest output mentions required test environment."}`},
+		{"unrelated no-turn refusal", `{"findings":[{"id":"test-command-no-turn","action":"ask-user","description":"The test command ` + "`echo required test environment`" + ` was given no turn. The wrapper reported: goblins gate turn: this run takes no turn: it took no turn within its wait of 1m0s."}]}`},
+		{"unrelated base refusal", `{"findings":[{"id":"test-command-no-turn","action":"ask-user","description":"The wrapper reported: goblins gate turn: this run takes no turn: it took no turn within its wait of 1m0s."}],"summary":"Base attribution unavailable (test command was given no turn on the base checkout: goblins gate turn: this run takes no turn: queue timeout); every failure is attributed to this change.\nTest output mentions required test environment."}`},
 	} {
 		t.Run(report.name, func(t *testing.T) {
 			gate := Gate{RunID: "run", StepID: "step", Step: "test", Status: "awaiting_approval", Round: 1, Findings: report.findings}

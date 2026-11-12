@@ -21,7 +21,7 @@ func recentDictations(handler *HTTP, text string, change func(*http.Request)) *h
 		body, _ := json.Marshal(map[string]string{"text": text})
 		request = httptest.NewRequest("POST", "http://"+handler.Host+"/api/dictations", bytes.NewReader(body))
 		request.Header.Set("Origin", "http://"+handler.Host)
-		request.Header.Set("X-CFO-Token", "test-instance")
+		request.Header.Set("X-CEO-Token", "test-instance")
 		request.Header.Set("Content-Type", "application/json")
 	}
 	request.Host = handler.Host
@@ -109,7 +109,7 @@ func TestRecentDictationsAreReadAndKeptOnlyByTheBoardsOwnPageOnThisMachine(t *te
 		"a read from a peer off this machine": {"", func(r *http.Request) { r.RemoteAddr = "100.101.102.103:51234" }, http.StatusForbidden},
 		"a read through a proxy":              {"", header("X-Forwarded-For", "100.101.102.103"), http.StatusForbidden},
 		"a keep from a peer off this machine": {"private words", func(r *http.Request) { r.RemoteAddr = "100.101.102.103:51234" }, http.StatusForbidden},
-		"a keep with no board token":          {"private words", func(r *http.Request) { r.Header.Del("X-CFO-Token") }, http.StatusForbidden},
+		"a keep with no board token":          {"private words", func(r *http.Request) { r.Header.Del("X-CEO-Token") }, http.StatusForbidden},
 		"a keep from another site's page":     {"private words", header("Origin", "https://example.test"), http.StatusForbidden},
 		"a keep of nothing but spaces":        {"   ", nil, http.StatusBadRequest},
 	} {

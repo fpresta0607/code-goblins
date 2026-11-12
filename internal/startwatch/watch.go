@@ -1,6 +1,6 @@
-// Package startwatch watches what each goblin and the CFO's terminal start,
+// Package startwatch watches what each goblin and the CEO's terminal start,
 // placed under its owner the way the family tree places processes, and says
-// once what the CFO should know of it: a process that shows on the
+// once what the CEO should know of it: a process that shows on the
 // Overlord's screen, one command started again and again, and a goblin that
 // rests after its report with something it started still running. It reads
 // what it is given and ends nothing: ending stays with the sweeps.
@@ -74,12 +74,12 @@ type Reading struct {
 	Generations map[string]string
 	// Resting holds each goblin that rests after its report, by task.
 	Resting map[string]Rest
-	// CFO is the owner that is the CFO's terminal, which the CFO is told of
+	// CEO is the owner that is the CEO's terminal, which the CEO is told of
 	// as its own.
-	CFO string
+	CEO string
 }
 
-// Finding is what the CFO is told once: a check wake's detail for its owner,
+// Finding is what the CEO is told once: a check wake's detail for its owner,
 // and the identity that makes it once, across restarts of the supervisor.
 type Finding struct {
 	Identity string
@@ -188,15 +188,15 @@ func (w *Watch) windows(reading Reading) []Finding {
 		}
 		w.told[identity] = true
 		next := "tell " + process.Owner + " to end it by its pid unless the Overlord uses it, and to run what it tests headless or hidden unless a picture needs a window"
-		if process.Owner == reading.CFO {
+		if process.Owner == reading.CEO {
 			next = "end it by its pid unless the Overlord uses it"
 		}
 		shows := "shows " + process.Shown + " on the Overlord's screen"
 		if process.IsHidden {
 			shows = "showed " + process.Shown + " on the Overlord's screen, which the supervisor hid"
-			next = "tell " + process.Owner + " to start a heavy run with cfo gate turn --detach <log-file> -- <command>, and nothing else that opens a console"
+			next = "tell " + process.Owner + " to start a heavy run with goblins gate turn --detach <log-file> -- <command>, and nothing else that opens a console"
 		}
-		findings = append(findings, Finding{Identity: identity, Owner: process.Owner, Detail: fmt.Sprintf("window_shown: %s's %s (pid %d), started %s, %s: %s. Next: %s", ownerName(process.Owner, reading.CFO), filepath.Base(process.Exe), process.PID, process.Started.UTC().Format("15:04Z"), shows, shownCommand(process.Command), next)})
+		findings = append(findings, Finding{Identity: identity, Owner: process.Owner, Detail: fmt.Sprintf("window_shown: %s's %s (pid %d), started %s, %s: %s. Next: %s", ownerName(process.Owner, reading.CEO), filepath.Base(process.Exe), process.PID, process.Started.UTC().Format("15:04Z"), shows, shownCommand(process.Command), next)})
 	}
 	return findings
 }
@@ -217,10 +217,10 @@ func (w *Watch) loops(reading Reading) []Finding {
 		w.told[identity] = true
 		latest := started.latest
 		next := "peek " + latest.Owner + " and have it cap or stop what starts it again and again"
-		if latest.Owner == reading.CFO {
+		if latest.Owner == reading.CEO {
 			next = "cap or stop what starts it again and again"
 		}
-		findings = append(findings, Finding{Identity: identity, Owner: latest.Owner, Detail: fmt.Sprintf("start_loop: %s started %s %d times in the last %s, the last as pid %d: %s. Next: %s", ownerName(latest.Owner, reading.CFO), filepath.Base(latest.Exe), len(started.at), spanText(reading.At.Sub(started.at[0])), latest.PID, shownCommand(latest.Command), next)})
+		findings = append(findings, Finding{Identity: identity, Owner: latest.Owner, Detail: fmt.Sprintf("start_loop: %s started %s %d times in the last %s, the last as pid %d: %s. Next: %s", ownerName(latest.Owner, reading.CEO), filepath.Base(latest.Exe), len(started.at), spanText(reading.At.Sub(started.at[0])), latest.PID, shownCommand(latest.Command), next)})
 	}
 	slices.SortFunc(findings, func(a, b Finding) int { return strings.Compare(a.Identity, b.Identity) })
 	return findings
@@ -319,9 +319,9 @@ func Named(processes []fleettree.Placed) string {
 // namedTrees is how many trees of processes one wake names.
 const namedTrees = 5
 
-func ownerName(owner, cfo string) string {
-	if owner == cfo {
-		return "the CFO terminal"
+func ownerName(owner, ceo string) string {
+	if owner == ceo {
+		return "the CEO terminal"
 	}
 	return owner
 }

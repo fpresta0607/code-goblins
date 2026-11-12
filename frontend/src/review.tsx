@@ -49,7 +49,7 @@ export function useReview(task: Task | undefined, snapshot: Snapshot | null) {
     change(key, { submission: attempt, sending: true, error: "", receipt: undefined });
     try {
       const receipt = parseAction(await request("/api/actions", undefined, {
-        method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance },
+        method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": snapshot.instance },
         body: JSON.stringify({ id: attempt.id, kind: "review", text: draft.text, ...draft.selection }),
       }));
       change(key, { receipt, sending: false });

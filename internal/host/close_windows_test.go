@@ -185,7 +185,7 @@ func TestCloseTakesARecordWhosePidALaterProcessReusesAsEnded(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			stateDir := t.TempDir()
-			record := Record{ID: "g1", Pipe: `\\.\pipe\cfo-host-g1`, Token: "0123", Version: Version, Started: time.Now().UTC().Add(-time.Second)}
+			record := Record{ID: "g1", Pipe: `\\.\pipe\ceo-host-g1`, Token: "0123", Version: Version, Started: time.Now().UTC().Add(-time.Second)}
 			later := start(t)
 			record.HostPID, record.ChildPID = later, later
 			if err := writeRecord(stateDir, record); err != nil {
@@ -253,7 +253,7 @@ func TestRunningKnowsAHostByWhenItsProcessStarted(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			pid, recorded := test.arrange(t)
-			record := Record{ID: "g1", Pipe: `\\.\pipe\cfo-host-g1`, Token: "0123", Version: Version, HostPID: pid, Started: recorded}
+			record := Record{ID: "g1", Pipe: `\\.\pipe\ceo-host-g1`, Token: "0123", Version: Version, HostPID: pid, Started: recorded}
 
 			// Act
 			isRunning := Running(record)
@@ -349,7 +349,7 @@ func TestCloseEndsAHostWhoseRecordAReaderHeldAsItEnded(t *testing.T) {
 // removed: the removal is tried again until the reader lets go.
 func TestRemoveRecordOutlastsABriefReader(t *testing.T) {
 	stateDir := t.TempDir()
-	record := Record{ID: "g1", Pipe: `\.\pipe\cfo-host-g1`, Token: "0123", Version: Version, HostPID: os.Getpid(), Started: time.Now().UTC()}
+	record := Record{ID: "g1", Pipe: `\.\pipe\ceo-host-g1`, Token: "0123", Version: Version, HostPID: os.Getpid(), Started: time.Now().UTC()}
 	if err := writeRecord(stateDir, record); err != nil {
 		t.Fatal(err)
 	}

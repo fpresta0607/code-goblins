@@ -17,8 +17,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-// The CFO makes the Overlord's switch when he asks it to in his own words.
-// The supervisor proves the process that asks is the registered CFO's, keeps
+// The CEO makes the Overlord's switch when he asks it to in his own words.
+// The supervisor proves the process that asks is the registered CEO's, keeps
 // his words with the switch, and makes it for nobody else.
 
 const (
@@ -26,24 +26,24 @@ const (
 	hisAskOff = "I'm back, turn AFK off"
 )
 
-// asTheCFO is a supervisor whose pipe proves this test process is the
-// registered CFO, with nothing of the fleet in its environment: the tests run
+// asTheCEO is a supervisor whose pipe proves this test process is the
+// registered CEO, with nothing of the fleet in its environment: the tests run
 // under go test, and often under a goblin's harness.
-func asTheCFO(t *testing.T) (*Service, home.Home, string) {
+func asTheCEO(t *testing.T) (*Service, home.Home, string) {
 	t.Helper()
 	store, h := testStore(t)
-	primary, _, _, cfo := primaryFixture(t, store)
-	for _, name := range []string{"CFO_ROLE", "NO_MISTAKES_GATE"} {
+	primary, _, _, ceo := primaryFixture(t, store)
+	for _, name := range []string{"GOBLINS_ROLE", "NO_MISTAKES_GATE"} {
 		t.Setenv(name, "")
 	}
-	s := &Service{Store: store, Options: Options{CFO: cfo}}
+	s := &Service{Store: store, Options: Options{CEO: ceo}}
 	runPipe(t, s)
-	return s, h, fmt.Sprintf("the CFO at his ask (%s pid %d)", primary.Agent, primary.Process.PID)
+	return s, h, fmt.Sprintf("the CEO at his ask (%s pid %d)", primary.Agent, primary.Process.PID)
 }
 
-func TestTheRegisteredCFOSwitchesAFKModeAtHisAskAndTheSwitchKeepsHisWords(t *testing.T) {
+func TestTheRegisteredCEOSwitchesAFKModeAtHisAskAndTheSwitchKeepsHisWords(t *testing.T) {
 	// Arrange
-	_, h, theCFO := asTheCFO(t)
+	_, h, theCEO := asTheCEO(t)
 
 	// Act: his words arrive as he typed them, on two lines.
 	onErr := SwitchAFKAtHisAsk(h, true, "  I'm stepping away,\n turn AFK on ")
@@ -51,69 +51,69 @@ func TestTheRegisteredCFOSwitchesAFKModeAtHisAskAndTheSwitchKeepsHisWords(t *tes
 	offErr := SwitchAFKAtHisAsk(h, false, hisAskOff)
 
 	// Assert
-	if onErr != nil || onReadErr != nil || !on.On || on.From != theCFO || on.Asked != hisAskOn {
-		t.Fatalf("on at his ask = %v, switch %+v (%v), want it on by %s with his words on one line", onErr, on, onReadErr, theCFO)
+	if onErr != nil || onReadErr != nil || !on.On || on.From != theCEO || on.Asked != hisAskOn {
+		t.Fatalf("on at his ask = %v, switch %+v (%v), want it on by %s with his words on one line", onErr, on, onReadErr, theCEO)
 	}
 	off, err := afk.Read(h.State)
-	if offErr != nil || err != nil || off.On || off.Asked != hisAskOn || off.EndedFrom != theCFO || off.EndedAsked != hisAskOff {
-		t.Fatalf("off at his ask = %v, switch %+v (%v), want it off by %s with both asks kept", offErr, off, err, theCFO)
+	if offErr != nil || err != nil || off.On || off.Asked != hisAskOn || off.EndedFrom != theCEO || off.EndedAsked != hisAskOff {
+		t.Fatalf("off at his ask = %v, switch %+v (%v), want it off by %s with both asks kept", offErr, off, err, theCEO)
 	}
 	entries := afkEntries(t, h.State)
 	if len(entries) != 2 ||
-		entries[0].Kind != afk.KindOn || entries[0].What != theCFO || entries[0].Evidence != "his words: "+hisAskOn ||
-		entries[1].Kind != afk.KindOff || entries[1].What != theCFO || entries[1].Evidence != "his words: "+hisAskOff {
-		t.Errorf("the AFK log = %+v, want the on and the off, each by the CFO with his words", entries)
+		entries[0].Kind != afk.KindOn || entries[0].What != theCEO || entries[0].Evidence != "his words: "+hisAskOn ||
+		entries[1].Kind != afk.KindOff || entries[1].What != theCEO || entries[1].Evidence != "his words: "+hisAskOff {
+		t.Errorf("the AFK log = %+v, want the on and the off, each by the CEO with his words", entries)
 	}
 	report, found, err := afk.ReadReport(h.State)
-	if err != nil || !found || report.From != theCFO || report.Asked != hisAskOn || report.EndedFrom != theCFO || report.EndedAsked != hisAskOff {
+	if err != nil || !found || report.From != theCEO || report.Asked != hisAskOn || report.EndedFrom != theCEO || report.EndedAsked != hisAskOff {
 		t.Errorf("the report = %+v (found %v, %v), want who switched it and his words both times", report, found, err)
 	}
 	pending, err := wake.Pending(h.State)
 	if err != nil || len(pending) != 2 ||
-		!strings.Contains(pending[0].Detail, `AFK mode was turned on by `+theCFO+`, in his words "`+hisAskOn+`"`) ||
-		!strings.Contains(pending[1].Detail, `AFK mode was turned off by `+theCFO+`, in his words "`+hisAskOff+`"`) {
-		t.Errorf("the CFO's queue = %+v, %v, want the on and the off, each by the CFO with his words", pending, err)
+		!strings.Contains(pending[0].Detail, `AFK mode was turned on by `+theCEO+`, in his words "`+hisAskOn+`"`) ||
+		!strings.Contains(pending[1].Detail, `AFK mode was turned off by `+theCEO+`, in his words "`+hisAskOff+`"`) {
+		t.Errorf("the CEO's queue = %+v, %v, want the on and the off, each by the CEO with his words", pending, err)
 	}
 }
 
 // Who asks is what the supervisor proves, so his words open the switch to
-// nobody but the registered CFO: a goblin and a gate agent are refused though
-// they pass words and though they run under the CFO, and so is a process
+// nobody but the registered CEO: a goblin and a gate agent are refused though
+// they pass words and though they run under the CEO, and so is a process
 // outside it.
-func TestASwitchAtHisAskIsMadeForNobodyButTheRegisteredCFO(t *testing.T) {
+func TestASwitchAtHisAskIsMadeForNobodyButTheRegisteredCEO(t *testing.T) {
 	for _, c := range []struct {
 		name    string
 		arrange func(t *testing.T, s *Service, h home.Home)
 		refusal string
 	}{
 		{name: "a goblin", refusal: "this command runs in a goblin's terminal", arrange: func(t *testing.T, _ *Service, _ home.Home) {
-			t.Setenv("CFO_ROLE", "goblin")
+			t.Setenv("GOBLINS_ROLE", "goblin")
 		}},
 		{name: "a gate agent", refusal: "this command runs as a gate agent", arrange: func(t *testing.T, _ *Service, _ home.Home) {
 			t.Setenv("NO_MISTAKES_GATE", "1")
 		}},
-		{name: "a process outside the registered CFO", refusal: "does not run under the registered CFO", arrange: func(t *testing.T, _ *Service, h home.Home) {
+		{name: "a process outside the registered CEO", refusal: "does not run under the registered CEO", arrange: func(t *testing.T, _ *Service, h home.Home) {
 			registerElsewhere(t, h.State)
 		}},
-		{name: "no CFO registered", refusal: "could not prove the process that asked for it with his words is the registered CFO's", arrange: func(t *testing.T, _ *Service, h home.Home) {
+		{name: "no CEO registered", refusal: "could not prove the process that asked for it with his words is the registered CEO's", arrange: func(t *testing.T, _ *Service, h home.Home) {
 			if err := os.Remove(filepath.Join(h.State, "primary.json")); err != nil {
 				t.Fatal(err)
 			}
 		}},
-		{name: "a supervisor that cannot verify the CFO", refusal: "this supervisor cannot verify the CFO", arrange: func(_ *testing.T, s *Service, _ home.Home) {
-			s.Options.CFO = nil
+		{name: "a supervisor that cannot verify the CEO", refusal: "this supervisor cannot verify the CEO", arrange: func(_ *testing.T, s *Service, _ home.Home) {
+			s.Options.CEO = nil
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange
-			s, h, _ := asTheCFO(t)
+			s, h, _ := asTheCEO(t)
 			c.arrange(t, s, h)
 
 			// Act
 			err := SwitchAFKAtHisAsk(h, true, hisAskOn)
 
 			// Assert
-			if err == nil || !strings.Contains(err.Error(), c.refusal) || !strings.Contains(err.Error(), "the registered CFO only at his ask, with his words") {
+			if err == nil || !strings.Contains(err.Error(), c.refusal) || !strings.Contains(err.Error(), "the registered CEO only at his ask, with his words") {
 				t.Fatalf("SwitchAFKAtHisAsk = %v, want it refused as %q, with who makes the switch", err, c.refusal)
 			}
 			if switched, err := afk.Read(h.State); err != nil || switched.On {
@@ -123,22 +123,22 @@ func TestASwitchAtHisAskIsMadeForNobodyButTheRegisteredCFO(t *testing.T) {
 				t.Errorf("the AFK log = %+v, want nothing", entries)
 			}
 			if pending, _ := wake.Pending(h.State); len(pending) != 0 {
-				t.Errorf("the CFO's queue = %+v, want nothing", pending)
+				t.Errorf("the CEO's queue = %+v, want nothing", pending)
 			}
 		})
 	}
 }
 
-// A switch at his ask carries his words. Without them the CFO's request is the
+// A switch at his ask carries his words. Without them the CEO's request is the
 // plain one, which is his alone, and words that say nothing, or run past their
 // bound, are refused before and behind the pipe.
-func TestTheCFOsSwitchWithoutHisWordsIsRefused(t *testing.T) {
+func TestTheCEOsSwitchWithoutHisWordsIsRefused(t *testing.T) {
 	for _, c := range []struct {
 		name    string
 		ask     func(h home.Home) error
 		refusal string
 	}{
-		{name: "the plain switch", refusal: "under the registered CFO", ask: func(h home.Home) error { return SwitchAFK(h, true) }},
+		{name: "the plain switch", refusal: "under the registered CEO", ask: func(h home.Home) error { return SwitchAFK(h, true) }},
 		{name: "blank words", refusal: "carries his words", ask: func(h home.Home) error { return SwitchAFKAtHisAsk(h, true, " \t\n ") }},
 		{name: "blank words sent past the command", refusal: "carries his words", ask: func(h home.Home) error {
 			return sendPipeRequest(h.State, runPipeRequest{Kind: "afk-on", Asked: " \t "})
@@ -149,7 +149,7 @@ func TestTheCFOsSwitchWithoutHisWordsIsRefused(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange
-			_, h, _ := asTheCFO(t)
+			_, h, _ := asTheCEO(t)
 
 			// Act
 			err := c.ask(h)
@@ -168,7 +168,7 @@ func TestTheCFOsSwitchWithoutHisWordsIsRefused(t *testing.T) {
 	}
 }
 
-func TestTheAFKSwitchReplyReachesACFOThatReadsItLater(t *testing.T) {
+func TestTheAFKSwitchReplyReachesACEOThatReadsItLater(t *testing.T) {
 	for _, testCase := range []struct {
 		name      string
 		asked     string
@@ -181,7 +181,7 @@ func TestTheAFKSwitchReplyReachesACFOThatReadsItLater(t *testing.T) {
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			// Arrange
-			_, h, _ := asTheCFO(t)
+			_, h, _ := asTheCEO(t)
 			var pipe *os.File
 			var err error
 			for deadline := time.Now().Add(time.Minute); ; time.Sleep(25 * time.Millisecond) {
@@ -198,7 +198,7 @@ func TestTheAFKSwitchReplyReachesACFOThatReadsItLater(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			// Act: let the server finish before the CFO reads its reply.
+			// Act: let the server finish before the CEO reads its reply.
 			if err := json.NewEncoder(pipe).Encode(runPipeRequest{Kind: "afk-on", Asked: testCase.asked}); err != nil {
 				t.Fatal(err)
 			}
@@ -210,7 +210,7 @@ func TestTheAFKSwitchReplyReachesACFOThatReadsItLater(t *testing.T) {
 
 			// Assert
 			if err != nil {
-				t.Fatalf("the CFO did not receive the reply: %v", err)
+				t.Fatalf("the CEO did not receive the reply: %v", err)
 			}
 			if err := json.Unmarshal(line, &reply); err != nil {
 				t.Fatal(err)
@@ -225,13 +225,13 @@ func TestTheAFKSwitchReplyReachesACFOThatReadsItLater(t *testing.T) {
 	}
 }
 
-// His own switch works whoever made the last one: what the CFO turned on at
+// His own switch works whoever made the last one: what the CEO turned on at
 // his ask he turns off from his terminal or his board, and what he turned on
-// the CFO turns off when he asks it to.
-func TestHisOwnSwitchTurnsOffWhatTheCFOTurnedOnAndTheCFOTurnsOffHisAtHisAsk(t *testing.T) {
-	t.Run("his terminal turns off what the CFO turned on", func(t *testing.T) {
+// the CEO turns off when he asks it to.
+func TestHisOwnSwitchTurnsOffWhatTheCEOTurnedOnAndTheCEOTurnsOffHisAtHisAsk(t *testing.T) {
+	t.Run("his terminal turns off what the CEO turned on", func(t *testing.T) {
 		// Arrange
-		s, h, theCFO := asTheCFO(t)
+		s, h, theCEO := asTheCEO(t)
 		if err := SwitchAFKAtHisAsk(h, true, hisAskOn); err != nil {
 			t.Fatal(err)
 		}
@@ -242,18 +242,18 @@ func TestHisOwnSwitchTurnsOffWhatTheCFOTurnedOnAndTheCFOTurnsOffHisAtHisAsk(t *t
 
 		// Assert
 		switched, readErr := afk.Read(h.State)
-		if err != nil || readErr != nil || switched.On || switched.From != theCFO || switched.Asked != hisAskOn || switched.EndedFrom != "his own terminal (powershell.exe pid 4242)" || switched.EndedAsked != "" {
+		if err != nil || readErr != nil || switched.On || switched.From != theCEO || switched.Asked != hisAskOn || switched.EndedFrom != "his own terminal (powershell.exe pid 4242)" || switched.EndedAsked != "" {
 			t.Fatalf("his off = %v, switch %+v (%v), want it off from his own terminal, with no words of his for the off", err, switched, readErr)
 		}
 		report, found, err := afk.ReadReport(h.State)
 		if err != nil || !found || report.Asked != hisAskOn || report.EndedFrom != switched.EndedFrom || report.EndedAsked != "" {
-			t.Errorf("the report = %+v (found %v, %v), want the CFO's on with his words and his own off", report, found, err)
+			t.Errorf("the report = %+v (found %v, %v), want the CEO's on with his words and his own off", report, found, err)
 		}
 	})
 
-	t.Run("his board turns off what the CFO turned on", func(t *testing.T) {
+	t.Run("his board turns off what the CEO turned on", func(t *testing.T) {
 		// Arrange
-		s, h, _ := asTheCFO(t)
+		s, h, _ := asTheCEO(t)
 		if err := SwitchAFKAtHisAsk(h, true, hisAskOn); err != nil {
 			t.Fatal(err)
 		}
@@ -269,9 +269,9 @@ func TestHisOwnSwitchTurnsOffWhatTheCFOTurnedOnAndTheCFOTurnsOffHisAtHisAsk(t *t
 		}
 	})
 
-	t.Run("the CFO turns off at his ask what he turned on himself", func(t *testing.T) {
+	t.Run("the CEO turns off at his ask what he turned on himself", func(t *testing.T) {
 		// Arrange
-		s, h, theCFO := asTheCFO(t)
+		s, h, theCEO := asTheCEO(t)
 		asOverlordsTerminal(s)
 		if err := SwitchAFK(h, true); err != nil {
 			t.Fatal(err)
@@ -281,17 +281,17 @@ func TestHisOwnSwitchTurnsOffWhatTheCFOTurnedOnAndTheCFOTurnsOffHisAtHisAsk(t *t
 		err := SwitchAFKAtHisAsk(h, false, hisAskOff)
 
 		// Assert
-		if switched, readErr := afk.Read(h.State); err != nil || readErr != nil || switched.On || switched.From != "his own terminal (powershell.exe pid 4242)" || switched.Asked != "" || switched.EndedFrom != theCFO || switched.EndedAsked != hisAskOff {
-			t.Fatalf("the CFO's off = %v, switch %+v (%v), want his own on kept and the off by the CFO with his words", err, switched, readErr)
+		if switched, readErr := afk.Read(h.State); err != nil || readErr != nil || switched.On || switched.From != "his own terminal (powershell.exe pid 4242)" || switched.Asked != "" || switched.EndedFrom != theCEO || switched.EndedAsked != hisAskOff {
+			t.Fatalf("the CEO's off = %v, switch %+v (%v), want his own on kept and the off by the CEO with his words", err, switched, readErr)
 		}
 	})
 }
 
-// A switch that cannot be read is the Overlord's to reset. The CFO's off at
+// A switch that cannot be read is the Overlord's to reset. The CEO's off at
 // his ask leaves it as it is and says whose the reset is.
-func TestTheCFOCannotResetASwitchThatCannotBeRead(t *testing.T) {
+func TestTheCEOCannotResetASwitchThatCannotBeRead(t *testing.T) {
 	// Arrange
-	_, h, _ := asTheCFO(t)
+	_, h, _ := asTheCEO(t)
 	broken := []byte("{not json")
 	path := filepath.Join(h.State, "afk.json")
 	if err := os.WriteFile(path, broken, 0o600); err != nil {
@@ -303,7 +303,7 @@ func TestTheCFOCannotResetASwitchThatCannotBeRead(t *testing.T) {
 
 	// Assert
 	if err == nil || !strings.Contains(err.Error(), "only the Overlord resets it") {
-		t.Fatalf("the CFO's off of a switch that cannot be read = %v, want it refused as the Overlord's to reset", err)
+		t.Fatalf("the CEO's off of a switch that cannot be read = %v, want it refused as the Overlord's to reset", err)
 	}
 	if kept, readErr := os.ReadFile(path); readErr != nil || string(kept) != string(broken) {
 		t.Errorf("the switch file = %q (%v), want it left as it was", kept, readErr)
@@ -313,11 +313,11 @@ func TestTheCFOCannotResetASwitchThatCannotBeRead(t *testing.T) {
 	}
 }
 
-// The board says who turned AFK mode on, so a stretch the CFO turned on at his
+// The board says who turned AFK mode on, so a stretch the CEO turned on at his
 // ask reaches the board with his words, and the report page with both asks.
-func TestTheBoardIsToldTheCFOSwitchedAFKModeAtHisAskWithHisWords(t *testing.T) {
+func TestTheBoardIsToldTheCEOSwitchedAFKModeAtHisAskWithHisWords(t *testing.T) {
 	// Arrange
-	s, h, theCFO := asTheCFO(t)
+	s, h, theCEO := asTheCEO(t)
 	if err := SwitchAFKAtHisAsk(h, true, hisAskOn); err != nil {
 		t.Fatal(err)
 	}
@@ -328,8 +328,8 @@ func TestTheBoardIsToldTheCFOSwitchedAFKModeAtHisAskWithHisWords(t *testing.T) {
 	report, found, reportErr := ReadAFKReport(h)
 
 	// Assert
-	if onErr != nil || on.State != "on" || on.From != theCFO || on.Asked != hisAskOn {
-		t.Errorf("the board's view while on = %+v (%v), want on by %s with his words", on, onErr, theCFO)
+	if onErr != nil || on.State != "on" || on.From != theCEO || on.Asked != hisAskOn {
+		t.Errorf("the board's view while on = %+v (%v), want on by %s with his words", on, onErr, theCEO)
 	}
 	data, err := json.Marshal(on)
 	if err != nil || !strings.Contains(string(data), `"asked":"I'm stepping away, turn AFK on"`) {
@@ -338,7 +338,7 @@ func TestTheBoardIsToldTheCFOSwitchedAFKModeAtHisAskWithHisWords(t *testing.T) {
 	if offErr != nil || reportErr != nil || !found {
 		t.Fatalf("off = %v, the report = %v, %v", offErr, found, reportErr)
 	}
-	if report.From != theCFO || report.Asked != hisAskOn || report.EndedFrom != theCFO || report.EndedAsked != hisAskOff {
+	if report.From != theCEO || report.Asked != hisAskOn || report.EndedFrom != theCEO || report.EndedAsked != hisAskOff {
 		t.Errorf("the report = %+v, want who switched it and his words both times", report)
 	}
 }

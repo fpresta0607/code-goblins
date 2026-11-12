@@ -12,9 +12,9 @@ import (
 )
 
 // The Overlord, 2026-10-09: "CFO got overloaded with a bunch of these overlord
-// messages". Between 13:55:58Z and 13:56:05Z he answered four of the CFO's
-// questions from the Command Center, and each was typed into the CFO as a
-// message of its own, in the middle of a turn, two minutes after a CFO
+// messages". Between 13:55:58Z and 13:56:05Z he answered four of the CEO's
+// questions from the Command Center, and each was typed into the CEO as a
+// message of its own, in the middle of a turn, two minutes after a CEO
 // restart. sitting is those four questions by their ids, in the order he
 // answered them. Their words and his choices stand in for the real ones.
 var sitting = []sittingQuestion{
@@ -28,18 +28,18 @@ var sitting = []sittingQuestion{
 // the sitting: four answers within seven seconds.
 var sittingGaps = []time.Duration{0, 2300 * time.Millisecond, 2400 * time.Millisecond, 2300 * time.Millisecond}
 
-// sittingQuestion is a question of the CFO's own and the choice the Overlord
+// sittingQuestion is a question of the CEO's own and the choice the Overlord
 // answers it with.
 type sittingQuestion struct{ id, text, answer string }
 
-// line is the answer as the CFO reads it, alone or as one of several.
+// line is the answer as the CEO reads it, alone or as one of several.
 func (q sittingQuestion) line() string {
-	return fmt.Sprintf("User answer to CFO question %s. Question: %s Answer: %s", q.id, q.text, q.answer)
+	return fmt.Sprintf("User answer to CEO question %s. Question: %s Answer: %s", q.id, q.text, q.answer)
 }
 
-// cfoAsks publishes questions as the CFO registered as identity asked them,
+// ceoAsks publishes questions as the CEO registered as identity asked them,
 // each waiting on the Overlord.
-func cfoAsks(t *testing.T, store *Store, identity string, questions ...sittingQuestion) {
+func ceoAsks(t *testing.T, store *Store, identity string, questions ...sittingQuestion) {
 	t.Helper()
 	for _, q := range questions {
 		if err := store.acceptQuestion(Question{ID: q.id, Identity: identity, Text: q.text, Options: []string{q.answer, "Not now"}, CreatedAt: time.Now().UTC()}); err != nil {
@@ -52,7 +52,7 @@ func cfoAsks(t *testing.T, store *Store, identity string, questions ...sittingQu
 // Center.
 func heAnswers(t *testing.T, store *Store, identity string, q sittingQuestion) {
 	t.Helper()
-	if _, err := store.Queue(Action{ID: "answer-" + q.id, Kind: "cfo_answer", Generation: identity, QuestionID: q.id, Text: q.answer, AnswerKind: "option"}); err != nil {
+	if _, err := store.Queue(Action{ID: "answer-" + q.id, Kind: "ceo_answer", Generation: identity, QuestionID: q.id, Text: q.answer, AnswerKind: "option"}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -63,7 +63,7 @@ func passes(store *Store, d time.Duration) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	for i := range store.db.Actions {
-		if a := &store.db.Actions[i]; a.Kind == "cfo_answer" && a.Status == "queued" {
+		if a := &store.db.Actions[i]; a.Kind == "ceo_answer" && a.Status == "queued" {
 			a.CreatedAt = a.CreatedAt.Add(-d)
 		}
 	}
@@ -71,7 +71,7 @@ func passes(store *Store, d time.Duration) {
 
 // heAnswersTheSitting replays the sitting: each answer of it queued its gap
 // after the one before, with the supervisor's worker run between them as a
-// queued answer runs it, and returns how many messages the CFO's terminal had
+// queued answer runs it, and returns how many messages the CEO's terminal had
 // taken by the time his last answer was in.
 func heAnswersTheSitting(t *testing.T, s *Service, identity string, typed func() []string) int {
 	t.Helper()
@@ -85,7 +85,7 @@ func heAnswersTheSitting(t *testing.T, s *Service, identity string, typed func()
 	return len(overlordMessages(typed()))
 }
 
-// overlordMessages is each message of the board's that lines, which a CFO's
+// overlordMessages is each message of the board's that lines, which a CEO's
 // terminal recorded, show it took, in order and as typed.
 func overlordMessages(lines []string) []string {
 	var messages []string
@@ -102,12 +102,12 @@ func overlordMessages(lines []string) []string {
 // order he gave them.
 func wantTheSittingAsOneMessage(t *testing.T, messages []string) {
 	t.Helper()
-	want := fmt.Sprintf("Overlord: %d user answers to CFO questions, in the order he gave them.", len(sitting))
+	want := fmt.Sprintf("Overlord: %d user answers to CEO questions, in the order he gave them.", len(sitting))
 	for i, q := range sitting {
 		want += fmt.Sprintf(" [%d/%d] %s", i+1, len(sitting), q.line())
 	}
 	if len(messages) != 1 || messages[0] != want {
-		t.Errorf("the CFO got %d messages, %q, want his %d answers as the one message %q", len(messages), messages, len(sitting), want)
+		t.Errorf("the CEO got %d messages, %q, want his %d answers as the one message %q", len(messages), messages, len(sitting), want)
 	}
 }
 
@@ -125,12 +125,12 @@ func wantTheSittingAnswered(t *testing.T, store *Store) {
 	}
 }
 
-func TestFourAnswersGivenWithinSevenSecondsReachTheCFOAsOneMessage(t *testing.T) {
+func TestFourAnswersGivenWithinSevenSecondsReachTheCEOAsOneMessage(t *testing.T) {
 	tests := []struct {
 		name string
-		// another is a question of the CFO's he leaves unanswered.
+		// another is a question of the CEO's he leaves unanswered.
 		another bool
-		// atOnce is how many messages the CFO has the moment his last answer
+		// atOnce is how many messages the CEO has the moment his last answer
 		// is in.
 		atOnce int
 	}{
@@ -141,12 +141,12 @@ func TestFourAnswersGivenWithinSevenSecondsReachTheCFOAsOneMessage(t *testing.T)
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			store, home := testStore(t)
-			terminal := nativeCFOComposer(t, home.State, "claude-ready")
+			terminal := nativeCEOComposer(t, home.State, "claude-ready")
 			identity := registrationIdentity(t, home.State)
-			s := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}, work: make(chan struct{}, 1)}
-			cfoAsks(t, store, identity, sitting...)
+			s := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: home.State}}, work: make(chan struct{}, 1)}
+			ceoAsks(t, store, identity, sitting...)
 			if test.another {
-				cfoAsks(t, store, identity, sittingQuestion{"merge-words-today", "Merge on your word today?", "Merge"})
+				ceoAsks(t, store, identity, sittingQuestion{"merge-words-today", "Merge on your word today?", "Merge"})
 			}
 
 			// Act
@@ -158,10 +158,10 @@ func TestFourAnswersGivenWithinSevenSecondsReachTheCFOAsOneMessage(t *testing.T)
 
 			// Assert
 			if during != 0 {
-				t.Errorf("the CFO had %d messages while he was still answering, want none before his last answer", during)
+				t.Errorf("the CEO had %d messages while he was still answering, want none before his last answer", during)
 			}
 			if atOnce != test.atOnce {
-				t.Errorf("the CFO had %d messages the moment his last answer was in, want %d", atOnce, test.atOnce)
+				t.Errorf("the CEO had %d messages the moment his last answer was in, want %d", atOnce, test.atOnce)
 			}
 			wantTheSittingAsOneMessage(t, overlordMessages(terminal.lines(t)))
 			wantTheSittingAnswered(t, store)
@@ -173,10 +173,10 @@ func TestAnAnswerAloneIsNotDelayedPastTheBatchingWindow(t *testing.T) {
 	t.Run("an answer to the only question goes at once", func(t *testing.T) {
 		// Arrange
 		store, home := testStore(t)
-		terminal := nativeCFOComposer(t, home.State, "claude-ready")
+		terminal := nativeCEOComposer(t, home.State, "claude-ready")
 		identity := registrationIdentity(t, home.State)
-		s := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}, work: make(chan struct{}, 1)}
-		cfoAsks(t, store, identity, sitting[0])
+		s := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: home.State}}, work: make(chan struct{}, 1)}
+		ceoAsks(t, store, identity, sitting[0])
 
 		// Act
 		heAnswers(t, store, identity, sitting[0])
@@ -184,16 +184,16 @@ func TestAnAnswerAloneIsNotDelayedPastTheBatchingWindow(t *testing.T) {
 
 		// Assert
 		if typed := overlordMessages(terminal.lines(t)); len(typed) != 1 || typed[0] != "Overlord: "+sitting[0].line() {
-			t.Errorf("the CFO got %q, want %q at once, as an answer alone always read", typed, "Overlord: "+sitting[0].line())
+			t.Errorf("the CEO got %q, want %q at once, as an answer alone always read", typed, "Overlord: "+sitting[0].line())
 		}
 	})
 	t.Run("with another question still waiting on him it goes as the window ends", func(t *testing.T) {
 		// Arrange
 		store, home := testStore(t)
-		terminal := nativeCFOComposer(t, home.State, "claude-ready")
+		terminal := nativeCEOComposer(t, home.State, "claude-ready")
 		identity := registrationIdentity(t, home.State)
-		s := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}, work: make(chan struct{}, 1)}
-		cfoAsks(t, store, identity, sitting[0], sitting[1])
+		s := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: home.State}}, work: make(chan struct{}, 1)}
+		ceoAsks(t, store, identity, sitting[0], sitting[1])
 
 		// Act
 		given := time.Now()
@@ -217,14 +217,14 @@ func TestAnAnswerAloneIsNotDelayedPastTheBatchingWindow(t *testing.T) {
 
 		// Assert
 		if len(held) != 0 {
-			t.Errorf("the CFO got %q inside the window, want the answer held for his next one", held)
+			t.Errorf("the CEO got %q inside the window, want the answer held for his next one", held)
 		}
 		// stall-accepted: it checks the wake came no earlier than the window's end, and a stall only makes it later.
 		if ends := given.Add(answerBatchWindow); woken.Before(ends.Add(-20 * time.Millisecond)) {
 			t.Errorf("the worker was woken %s before the window ended, want it woken as the window ends", ends.Sub(woken))
 		}
 		if typed := overlordMessages(terminal.lines(t)); len(typed) != 1 || typed[0] != "Overlord: "+sitting[0].line() {
-			t.Errorf("the CFO got %q, want %q as the window ended, as an answer alone always read", typed, "Overlord: "+sitting[0].line())
+			t.Errorf("the CEO got %q, want %q as the window ended, as an answer alone always read", typed, "Overlord: "+sitting[0].line())
 		}
 		if waiting := store.Snapshot().Questions[1]; waiting.Status != "pending" {
 			t.Errorf("the question he left reads %s, want it still waiting on him", waiting.Status)
@@ -232,15 +232,15 @@ func TestAnAnswerAloneIsNotDelayedPastTheBatchingWindow(t *testing.T) {
 	})
 }
 
-func TestACFOThatIsBusyOrRestartingGetsTheAnswersOnceWhenItsInputIsReady(t *testing.T) {
+func TestACEOThatIsBusyOrRestartingGetsTheAnswersOnceWhenItsInputIsReady(t *testing.T) {
 	t.Run("in a turn", func(t *testing.T) {
 		// Arrange
 		records := useConversations(t)
 		store, home := testStore(t)
-		terminal := nativeCFOComposer(t, home.State, "claude-busy")
+		terminal := nativeCEOComposer(t, home.State, "claude-busy")
 		identity := registrationIdentity(t, home.State)
-		s := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}, work: make(chan struct{}, 1)}
-		cfoAsks(t, store, identity, sitting...)
+		s := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: home.State}}, work: make(chan struct{}, 1)}
+		ceoAsks(t, store, identity, sitting...)
 
 		// Act
 		heAnswersTheSitting(t, s, identity, func() []string { return terminal.lines(t) })
@@ -259,8 +259,8 @@ func TestACFOThatIsBusyOrRestartingGetsTheAnswersOnceWhenItsInputIsReady(t *test
 		wantTheSittingAsOneMessage(t, typed)
 		awaited := map[string]bool{}
 		for _, a := range sent {
-			if a.Status != "running" || a.Awaiting == nil || a.Message != heldByCFO {
-				t.Errorf("behind the CFO's turn the answer to %s reads %s (%s), want it queued in the CFO's session and awaiting the CFO", a.QuestionID, a.Status, a.Message)
+			if a.Status != "running" || a.Awaiting == nil || a.Message != heldByCEO {
+				t.Errorf("behind the CEO's turn the answer to %s reads %s (%s), want it queued in the CEO's session and awaiting the CEO", a.QuestionID, a.Status, a.Message)
 				continue
 			}
 			awaited[a.Awaiting.Digest] = true
@@ -273,14 +273,14 @@ func TestACFOThatIsBusyOrRestartingGetsTheAnswersOnceWhenItsInputIsReady(t *test
 	t.Run("with a draft in its input", func(t *testing.T) {
 		// Arrange
 		store, home := testStore(t)
-		terminal := nativeCFOComposer(t, home.State, "claude-ready")
+		terminal := nativeCEOComposer(t, home.State, "claude-ready")
 		identity := registrationIdentity(t, home.State)
 		rule := strings.Repeat("─", 80)
-		connection := &CFOConnection{State: home.State, ReadScreen: func(host.Record) ([]string, error) {
+		connection := &CEOConnection{State: home.State, ReadScreen: func(host.Record) ([]string, error) {
 			return []string{rule, "❯ unfinished thought", rule, "⏵⏵ bypass permissions on (shift+tab to cycle)"}, nil
 		}}
-		s := &Service{Store: store, Options: Options{CFO: connection}, work: make(chan struct{}, 1)}
-		cfoAsks(t, store, identity, sitting...)
+		s := &Service{Store: store, Options: Options{CEO: connection}, work: make(chan struct{}, 1)}
+		ceoAsks(t, store, identity, sitting...)
 
 		// Act
 		heAnswersTheSitting(t, s, identity, func() []string { return terminal.lines(t) })
@@ -297,11 +297,11 @@ func TestACFOThatIsBusyOrRestartingGetsTheAnswersOnceWhenItsInputIsReady(t *test
 
 		// Assert
 		if len(overDraft) != 0 {
-			t.Errorf("the CFO got %q over the draft in its input, want nothing typed", overDraft)
+			t.Errorf("the CEO got %q over the draft in its input, want nothing typed", overDraft)
 		}
 		for _, a := range waiting {
 			if a.Status != "queued" || a.Awaiting != nil {
-				t.Errorf("while the CFO's input held a draft the answer to %s reads %s, want it queued and unsent", a.QuestionID, a.Status)
+				t.Errorf("while the CEO's input held a draft the answer to %s reads %s, want it queued and unsent", a.QuestionID, a.Status)
 			}
 		}
 		wantTheSittingAsOneMessage(t, overlordMessages(terminal.lines(t)))
@@ -309,23 +309,23 @@ func TestACFOThatIsBusyOrRestartingGetsTheAnswersOnceWhenItsInputIsReady(t *test
 	})
 	t.Run("restarting", func(t *testing.T) {
 		// Arrange
-		s, stateDir, closed := cfoBoard(t)
-		cfoAsks(t, s.Store, closed, sitting...)
+		s, stateDir, closed := ceoBoard(t)
+		ceoAsks(t, s.Store, closed, sitting...)
 
 		// Act
 		heAnswersTheSitting(t, s, closed, func() []string { return nil })
 		deliver(t, s)
 		waiting := s.Store.Snapshot().Actions
-		cfo := reopenCFO(t, stateDir)
+		ceo := reopenCEO(t, stateDir)
 		deliver(t, s)
 
 		// Assert
 		for _, a := range waiting {
 			if a.Status != "queued" {
-				t.Errorf("with the CFO closed the answer to %s reads %s (%s), want it waiting as queued", a.QuestionID, a.Status, a.Message)
+				t.Errorf("with the CEO closed the answer to %s reads %s (%s), want it waiting as queued", a.QuestionID, a.Status, a.Message)
 			}
 		}
-		wantTheSittingAsOneMessage(t, overlordMessages(cfo.waitForLines(t, 2)))
+		wantTheSittingAsOneMessage(t, overlordMessages(ceo.waitForLines(t, 2)))
 		wantTheSittingAnswered(t, s.Store)
 	})
 }
@@ -346,7 +346,7 @@ func runsWhatCanRun(t *testing.T, store *Store) []string {
 				handed += " + " + with.QuestionID
 			}
 			ran = append(ran, handed)
-			return Evaluation{Reason: "Taken by the CFO."}, nil
+			return Evaluation{Reason: "Taken by the CEO."}, nil
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -355,17 +355,17 @@ func runsWhatCanRun(t *testing.T, store *Store) []string {
 	return ran
 }
 
-// What he sends the CFO keeps the order he sent it in: an answer never waits
+// What he sends the CEO keeps the order he sent it in: an answer never waits
 // behind a message of his own that he sent after it, and an answer he gave
 // after that message never goes ahead of it, even while the message waits
 // out its undo window.
-func TestHisMessageToTheCFOKeepsItsPlaceAmongHisAnswers(t *testing.T) {
-	// Arrange: the CFO runs, since a delivery to a closed one waits, and a
+func TestHisMessageToTheCEOKeepsItsPlaceAmongHisAnswers(t *testing.T) {
+	// Arrange: the CEO runs, since a delivery to a closed one waits, and a
 	// third question still waits on him, so his answers wait for his next.
 	store, home := testStore(t)
 	writeRegistration(t, home.State, thisProcess(t))
 	identity := registrationIdentity(t, home.State)
-	cfoAsks(t, store, identity, sitting[0], sitting[1], sitting[2])
+	ceoAsks(t, store, identity, sitting[0], sitting[1], sitting[2])
 
 	// Act
 	heAnswers(t, store, identity, sitting[0])
@@ -379,11 +379,11 @@ func TestHisMessageToTheCFOKeepsItsPlaceAmongHisAnswers(t *testing.T) {
 	later := runsWhatCanRun(t, store)
 
 	// Assert
-	if want := []string{"cfo_answer " + sitting[0].id}; !slices.Equal(atOnce, want) {
-		t.Errorf("at once the CFO was handed %q, want %q: his first answer, which nothing can join ahead of his message", atOnce, want)
+	if want := []string{"ceo_answer " + sitting[0].id}; !slices.Equal(atOnce, want) {
+		t.Errorf("at once the CEO was handed %q, want %q: his first answer, which nothing can join ahead of his message", atOnce, want)
 	}
-	if want := []string{"message", "cfo_answer " + sitting[1].id}; !slices.Equal(later, want) {
-		t.Errorf("once the windows ended the CFO was handed %q, want %q: his message, then the answer he gave after it", later, want)
+	if want := []string{"message", "ceo_answer " + sitting[1].id}; !slices.Equal(later, want) {
+		t.Errorf("once the windows ended the CEO was handed %q, want %q: his message, then the answer he gave after it", later, want)
 	}
 }
 
@@ -395,7 +395,7 @@ func TestAnswersGoingAsOneMessageAllReadUncertainAfterASupervisorThatStoppedMidS
 	store, home := testStore(t)
 	writeRegistration(t, home.State, thisProcess(t))
 	identity := registrationIdentity(t, home.State)
-	cfoAsks(t, store, identity, sitting[0], sitting[1])
+	ceoAsks(t, store, identity, sitting[0], sitting[1])
 	heAnswers(t, store, identity, sitting[0])
 	heAnswers(t, store, identity, sitting[1])
 
@@ -405,7 +405,7 @@ func TestAnswersGoingAsOneMessageAllReadUncertainAfterASupervisorThatStoppedMidS
 	err := store.ProcessOne(context.Background(), func(context.Context, Action) (Evaluation, error) {
 		var err error
 		restarted, err = Open(home)
-		return Evaluation{Reason: "Taken by the CFO."}, err
+		return Evaluation{Reason: "Taken by the CEO."}, err
 	})
 
 	// Assert

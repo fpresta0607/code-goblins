@@ -31,7 +31,7 @@ func TestAKeyFetchAfterHisSignInReachesOnlyTheVault(t *testing.T) {
 // carries on headless, reveals the secret key with a person's click, and
 // stores both keys. Each key is then in the vault and in no file of the
 // home, its login's profile included, no answer to the goblin and no
-// notice to the CFO.
+// notice to the CEO.
 func proveKeyFetch(t *testing.T) {
 	publishable, secret := "pk"+"_test_"+strings.TrimPrefix(newCanary(t), "sk_test_"), newCanary(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -99,7 +99,7 @@ document.getElementById("reveal").addEventListener("click", async (event) => {
 	// HTTP on this machine, so the request goes on the board as the board
 	// takes one, past the link check alone.
 	now := time.Now().UTC()
-	request, err := store.acceptCredential(CredentialRequest{ID: "cred-0123456789abcdef", Generation: "fetch-proof", Identity: strings.Repeat("c", 64), By: "cfo", Task: "pd-keys", Project: "throwaway", Names: []string{"STRIPE_TEST_PUBLISHABLE_KEY", "STRIPE_TEST_SECRET_KEY"}, Why: "Charge test cards in the checkout tests", Link: provider.KeyPage, State: "open", CreatedAt: now, ExpiresAt: now.Add(credentialLifetime)})
+	request, err := store.acceptCredential(CredentialRequest{ID: "cred-0123456789abcdef", Generation: "fetch-proof", Identity: strings.Repeat("c", 64), By: "ceo", Task: "pd-keys", Project: "throwaway", Names: []string{"STRIPE_TEST_PUBLISHABLE_KEY", "STRIPE_TEST_SECRET_KEY"}, Why: "Charge test cards in the checkout tests", Link: provider.KeyPage, State: "open", CreatedAt: now, ExpiresAt: now.Add(credentialLifetime)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ document.getElementById("reveal").addEventListener("click", async (event) => {
 	click := httptest.NewRequest(http.MethodPost, "http://"+credentialBoardHost+"/api/browser-signins/open", strings.NewReader(fmt.Sprintf(`{"id":%q,"generation":%q}`, card.ID, card.Generation)))
 	click.RemoteAddr = "127.0.0.1:8000"
 	click.Header.Set("Origin", "http://"+credentialBoardHost)
-	click.Header.Set("X-CFO-Token", service.Instance)
+	click.Header.Set("X-CEO-Token", service.Instance)
 	click.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, click)

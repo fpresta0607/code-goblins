@@ -4,7 +4,7 @@ import { expect, test, ORIGIN } from "./site";
 // the page's own words and the page itself and opens it from one button. The
 // page is where he answers, so the card offers no choices of its own and
 // explains nothing (the Overlord, 2026-10-11). A question the goblin asked
-// meanwhile is the CFO's, never the page's: on 2026-10-13 one shown on Cora's
+// meanwhile is the CEO's, never the page's: on 2026-10-13 one shown on Cora's
 // page card was taken for the page, and answering it closed the page.
 test("a goblin's open review page is one card with the page's own words, never its goblin's question", async ({ page }) => {
   // Arrange

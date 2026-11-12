@@ -132,7 +132,7 @@ func TestTheGateMarksOnlyWhatItAdmittedAsTheOwners(t *testing.T) {
 func TestGateKeepsMutationTokensAndRechecksPersistentRevocation(t *testing.T) {
 	g, m := testGate(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// The real board still performs this check after translation.
-		if r.Header.Get("X-CFO-Token") != "instance" {
+		if r.Header.Get("X-CEO-Token") != "instance" {
 			http.Error(w, "token", 403)
 			return
 		}
@@ -140,7 +140,7 @@ func TestGateKeepsMutationTokensAndRechecksPersistentRevocation(t *testing.T) {
 	}))
 	for _, token := range []string{"", "instance"} {
 		r := remoteRequest("POST", "/api/actions")
-		r.Header.Set("X-CFO-Token", token)
+		r.Header.Set("X-CEO-Token", token)
 		w := httptest.NewRecorder()
 		g.ServeHTTP(w, r)
 		if (w.Code == 204) != (token == "instance") {

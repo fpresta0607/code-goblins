@@ -147,11 +147,11 @@ func answerScreens(asked <-chan struct{}, asks *atomic.Uint64, report io.Writer)
 
 // olderHostScreenRole, as a program's first argument, makes a program built
 // with this package read the screen of the console the pid after it runs in
-// and exit, instead of running. A host started by a cfo from before input
+// and exit, instead of running. A host started by a goblins from before input
 // wakers read screens starts its own program that way for every read, and an
 // update puts the new build at that program's path while such a host runs
 // on, so every build answers it.
-const olderHostScreenRole = "cfo-host-screen"
+const olderHostScreenRole = "ceo-host-screen"
 
 var (
 	attachConsole              = kernel32.NewProc("AttachConsole")

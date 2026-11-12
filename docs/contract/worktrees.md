@@ -1,7 +1,7 @@
 ## Project worktree environment
 
-Every goblin works in a git worktree of the project at `$CFO_HOME\worktrees\<project folder>\<id>`, detached from the project's default branch, and an extra worktree it asks for with `cfo worktree add` sits beside it.
-cfo's own git commands there turn `core.longpaths` on, because a worktree under the home is a few folders deeper than one inside the checkout; `cfo doctor` says whether it is on for the goblin's own git.
+Every goblin works in a git worktree of the project at `$GOBLINS_HOME\worktrees\<project folder>\<id>`, detached from the project's default branch, and an extra worktree it asks for with `goblins worktree add` sits beside it.
+goblins' own git commands there turn `core.longpaths` on, because a worktree under the home is a few folders deeper than one inside the checkout; `goblins doctor` says whether it is on for the goblin's own git.
 A worktree starts as the files git tracks and nothing else of the checkout.
 An env file holds the project's production values, so none reaches a worktree by silence: with no worktree manifest, or with one that names no `link`, a goblin's worktree is given no file of the checkout.
 A spawn says so when it matters, by file name only: ``env: the checkout holds .env, .env.local, which this worktree was not given``, with the `link` line that shares them, and it tells the goblin the same, so nobody learns it from a dev server that will not start.
@@ -28,20 +28,20 @@ A project can declare how that worktree becomes runnable in `data/projects/<name
   Each must install exactly what a lock with hashes holds, with nothing chained after it: `npm ci`, `pnpm install --frozen-lockfile`, `yarn install --frozen-lockfile` or `--immutable`, `uv sync --locked` or `--frozen`, and `uv pip sync` or `uv pip install` with `--require-hashes`, beside `uv venv` (without `--seed`) and `python -m venv` (without `--upgrade-deps`), which make an empty environment.
   One that resolves versions at a package index, such as `uv pip install -r requirements.txt`, gives the goblin no install step at all: on 2026-10-21 that command brought a hijacked release to three goblins within ten minutes of its upload.
   A `package.json`, `pyproject.toml` or `requirements.txt` at the worktree's root with no lockfile of its own that the strategy installs from is installed by no step either, beside the install of a lockfile the worktree does hold, such as a `requirements.txt` beside a `package-lock.json`, and a Go module, whose `go.sum` holds its hashes, needs none.
-  `cfo project check` reports a manifest install that resolves as `worktree-install-unlocked`; a requirements file compiled with `uv pip compile --generate-hashes` is a lock with hashes.
+  `goblins project check` reports a manifest install that resolves as `worktree-install-unlocked`; a requirements file compiled with `uv pip compile --generate-hashes` is a lock with hashes.
   The spawn runs no installer: an install writes tens of thousands of files, which under on-access scanning took one spawn over 30 minutes while it held the home's spawn lock, so every other start and resume waited behind it.
   In the goblin's own terminal an install holds up only that goblin, its output is on the goblin's screen, and the goblin is the one that can repair a lockfile it fails on.
 - `env` carries environment redirects for large read-only caches into the goblin's pane, where its dependency install runs, and overrides the machine-wide cache redirects below for this project.
 - Everything provisioning places inside the worktree, and what the install commands will create there (`node_modules`, `.venv`), is registered in the clone's `info/exclude` when the project does not already ignore it, so the goblin's `git status` reflects only its own work.
-  That matters because `cfo cleanup` refuses a worktree whose status is not empty, so an unignored provisioned artifact would read as uncommitted goblin work and block removal.
+  That matters because `goblins cleanup` refuses a worktree whose status is not empty, so an unignored provisioned artifact would read as uncommitted goblin work and block removal.
   Git has no per-worktree exclude file: `info/exclude` lives in the clone's shared common directory, so those entries - whatever config and dependency paths provisioning places, such as `.env`, `node_modules`, or `.venv` - also apply to the primary checkout, and cleanup does not remove them.
   A project that already ignores them gets no entry at all, and the worktree itself, outside the checkout, needs none.
   Edit `.git/info/exclude` by hand if the primary checkout needs one of them back.
-- `cfo cleanup` also refuses while the harness is still attached to the pane - agent state `idle` and `done` both count as active, and there is deliberately no force override.
-  A goblin that has filed its terminal `cfo notify` is finished with the work but has not left the pane; release it with `cfo send <id> "/exit"` and confirm with `cfo peek` that the pane is back at a shell prompt before running cleanup.
+- `goblins cleanup` also refuses while the harness is still attached to the pane - agent state `idle` and `done` both count as active, and there is deliberately no force override.
+  A goblin that has filed its terminal `goblins notify` is finished with the work but has not left the pane; release it with `goblins send <id> "/exit"` and confirm with `goblins peek` that the pane is back at a shell prompt before running cleanup.
   That send may report the agent gone and exit non-zero, and here that is not a failure: `/exit` is precisely what deregistered the agent, so nothing is left to confirm the prompt with.
   A clean `sent` and a zero exit are equally normal - the harness had simply not finished exiting when the confirmation read landed, so the agent was still registered and its counters had already moved on the `/exit` turn.
-  `cfo peek` is the confirmation either way.
+  `goblins peek` is the confirmation either way.
 - The goblin receives the token-authenticated subset of the project's `.mcp.json`: stdio servers and HTTP servers with a bearer token qualify; OAuth-only connectors are withheld and named on the `spawned` line, because a goblin can never complete their browser flow.
   A server whose entry holds a value, in a command server's `env` map or in a header, is withheld too unless the task's brief names it, and is named on its own `mcp: withheld ...` line with the command that grants it ([Credentials by need](authentication.md#credentials-by-need)).
   That filtered configuration is materialized under the task's temporary directory, outside the checkout, and it is the only file a harness is handed through `--mcp-config`.
@@ -53,16 +53,16 @@ A project can declare how that worktree becomes runnable in `data/projects/<name
 
 ### Share caches, never share materialized environments
 
-Every goblin's pane inherits one shared package-cache root at `$CFO_HOME/caches/`, with a subdirectory per ecosystem: `UV_CACHE_DIR`, `pnpm_config_store_dir` (pnpm's store, read by pnpm 11 and later), `npm_config_cache`, `PLAYWRIGHT_BROWSERS_PATH`, `GOMODCACHE`, and `GOCACHE`.
+Every goblin's pane inherits one shared package-cache root at `$GOBLINS_HOME/caches/`, with a subdirectory per ecosystem: `UV_CACHE_DIR`, `pnpm_config_store_dir` (pnpm's store, read by pnpm 11 and later), `npm_config_cache`, `PLAYWRIGHT_BROWSERS_PATH`, `GOMODCACHE`, and `GOCACHE`.
 The janitor keeps the folder under `config/fleet.json`'s `caches_cap_gb`, default 20, with each tool's own prune (see [The janitor](home.md#the-janitor)).
 The goblin runs its dependency install in that pane, against those same redirects, which is where they matter most: the install is both the largest consumer of the store and the thing that fills it.
 It also installs from the store the goblin's later commands use, by construction, which matters because pnpm records the store it installed from and a pane pointed at a different one tears `node_modules` down and reinstalls.
 `CARGO_HOME` is deliberately excluded and must not be added: cargo has no cache-only variable, so redirecting it would also relocate `config.toml`, `credentials.toml` and `bin/`, and a goblin would lose the operator's registry and linker configuration.
 These locations are a property of the machine rather than of any project, so they live in the CEO home and no manifest repeats them.
 A variable the CEO's own environment already sets is inherited untouched, and a project's `worktree.json` `env` block wins over both for that project, in the pane and so in the install.
-The one exception is the names the launch contract owns - `GOTMPDIR`, `TEMP` and `TMPDIR`, which point into the task's scratch folder, `TMP`, which points to the folder every goblin shares, `CFO_HOME` and `CFO_STATE_OVERRIDE`, `CFO_ROLE`, and `LOCALAPPDATA`, `XDG_CACHE_HOME` and `HOME` - which a manifest cannot redirect in the pane, where the install runs too.
-A pane whose cache root moved would leave every `cfo` command run there computing a different Go temporary directory than the spawn that created it.
-`cfo auth <project> --env` prints every one of them in full and names where each came from, marking a project-declared one `(project)` and an inherited one `(inherited)`, so a tuned location is visible rather than indistinguishable from one that was never set.
+The one exception is the names the launch contract owns - `GOTMPDIR`, `TEMP` and `TMPDIR`, which point into the task's scratch folder, `TMP`, which points to the folder every goblin shares, `GOBLINS_HOME` and `GOBLINS_STATE_OVERRIDE`, `GOBLINS_ROLE`, and `LOCALAPPDATA`, `XDG_CACHE_HOME` and `HOME` - which a manifest cannot redirect in the pane, where the install runs too.
+A pane whose cache root moved would leave every `goblins` command run there computing a different Go temporary directory than the spawn that created it.
+`goblins auth <project> --env` prints every one of them in full and names where each came from, marking a project-declared one `(project)` and an inherited one `(inherited)`, so a tuned location is visible rather than indistinguishable from one that was never set.
 The audit is scoped to the project it is given, so it reports where that project's goblin actually builds rather than the machine default.
 
 A `.venv` or a `node_modules` is never shared or linked between worktrees.
@@ -86,7 +86,7 @@ An executable line of a `.pth` file in its `site-packages` or, on Windows, in th
 The ones an environment carries with no release hijacked pass, each only from what makes it: uv's and virtualenv's own `_virtualenv.pth` in an environment its `pyvenv.cfg` says uv or virtualenv made, the start hooks setuptools, pywin32, coverage and pytest-cov before 7.0 ship from those packages, and any line of a project installed editable from a folder of the worktree, as setuptools, meson-python and scikit-build-core write one.
 Any other refuses the call before it runs and every call after it until the file is gone or you accept it, and wakes you, kind `review`, keyed by the goblin, naming the file and the package whose `RECORD` installed it, never what the file says: once while that wake waits for you, and again once you have acknowledged it and the file is still there.
 A file no package names yet while the environment's `site-packages` changed within the last minute, as while an install still writes, refuses the call with no wake, and wakes you once the install has ended if no package names it then.
-Decide from the package and the file: once you know it is safe, accept it with `cfo start-hook accept <task-id> <file>`, or remove it, and the goblin's commands run again; otherwise end the task.
+Decide from the package and the file: once you know it is safe, accept it with `goblins start-hook accept <task-id> <file>`, or remove it, and the goblin's commands run again; otherwise end the task.
 Accepting is for a file you cannot remove without breaking its package, such as the `-nspkg.pth` file setuptools writes for a package that declares a namespace package, which a project that locks that package installs at every spawn.
 It accepts the file by its name, its exact content and the distribution whose `RECORD` installs it, such as `zope.interface-6.4`, for every goblin of the task's project, or of every project with `--fleet`, recorded in `state\accepted-start-hooks.json`.
 Their seals let that file through in every later environment, and still stop one whose content, name or distribution differs, as one a later release or another package writes does.

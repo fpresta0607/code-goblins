@@ -1,5 +1,5 @@
 import { writeFile } from "node:fs/promises";
-import { CFO_DOOR, expect, openChat, openTaskList, test, type Page } from "./site";
+import { CEO_DOOR, expect, openChat, openTaskList, test, type Page } from "./site";
 import { GOBLIN, open as openSession, openGoblin, snapshot } from "./session-board";
 
 // The board's render budget (#1599, #1580). The Overlord, 2026-10-27: "every
@@ -21,7 +21,7 @@ const RESTING = [
   ...numbered(4, (number) => task("paused-" + number, "paused", { at: since })),
   ...numbered(6, (number) => task("finished:done-" + number, "done", { archived: true, merged: true, verified: true, generation: "", branch: "fix/done-" + number, at: since })),
 ];
-const fleet = (tasks: Record<string, unknown>[]) => ({ healthy: true, instance: "fixture", cfo_runs: true, revision: 1, at: since, attention: [], memory, tasks,
+const fleet = (tasks: Record<string, unknown>[]) => ({ healthy: true, instance: "fixture", ceo_runs: true, revision: 1, at: since, attention: [], memory, tasks,
   actions_spend: { status: "available", month: "2026-10", total: { minutes: 700, used_usd: 12, billed_usd: 8.5 }, repositories: [{ name: "fern", minutes: 700, used_usd: 12, billed_usd: 8.5 }], read_at: since, checked_at: since, detail: "" } });
 
 interface Counts { commits: number; rendered: Record<string, number>; frames: number }
@@ -30,7 +30,7 @@ interface Counts { commits: number; rendered: Record<string, number>; frames: nu
 // devtools hook counting what React draws and the page counting animation
 // frames asked for.
 async function open(page: Page, snapshot: Record<string, unknown>) {
-  await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
+  await page.addInitScript(() => localStorage.setItem("ceo-first-open", "shown"));
   await page.addInitScript((first) => {
     const counts: Counts = { commits: 0, rendered: {}, frames: 0 };
     interface Fiber { tag: number; flags: number; child?: Fiber; sibling?: Fiber; stateNode?: unknown; alternate?: Fiber | null }
@@ -180,7 +180,7 @@ test("orchestration with seven goblins and Chat stays within its idle budget", a
   // Arrange
   await page.clock.install({ time: new Date("2026-10-27T12:00:05Z") });
   await page.routeWebSocket("**/api/terminal/native?*", () => {});
-  await open(page, { ...fleet(WORKING), cfo_terminal: "fixture-terminal", cfo_harness: "claude" });
+  await open(page, { ...fleet(WORKING), ceo_terminal: "fixture-terminal", ceo_harness: "claude" });
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
   await expect(page.locator(".messages-view")).toBeVisible();
   await page.waitForTimeout(1000);
@@ -289,15 +289,15 @@ test("a snapshot that changes nothing draws no card and almost nothing else", as
   expect(total(counts), JSON.stringify(counts.rendered)).toBeLessThanOrEqual(40);
 });
 
-test("a snapshot that changes nothing draws no queued card in the CFO's panel", async ({ page }) => {
-  // Arrange: the clock stands five seconds into a minute, and the CFO's panel
+test("a snapshot that changes nothing draws no queued card in the CEO's panel", async ({ page }) => {
+  // Arrange: the clock stands five seconds into a minute, and the CEO's panel
   // shows its queue.
   await page.clock.install({ time: new Date("2026-10-27T12:00:05Z") });
   const snapshot = fleet([...WORKING, ...RESTING]);
   await open(page, snapshot);
-  await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).first().click();
+  await page.locator(".ceo-pin").getByRole("button", { name: CEO_DOOR }).first().click();
   await openTaskList(page);
-  await expect(page.locator(".cfo-queue .task-card-shell").first()).toBeVisible();
+  await expect(page.locator(".ceo-queue .task-card-shell").first()).toBeVisible();
   await page.waitForTimeout(1000);
   await reset(page);
 
@@ -310,11 +310,11 @@ test("a snapshot that changes nothing draws no queued card in the CFO's panel", 
   expect(counts.rendered["task-card-shell"] ?? 0, JSON.stringify(counts.rendered)).toBe(0);
 });
 
-test("a snapshot that changes nothing draws no message in the CFO box's list again", async ({ page }) => {
-  // Arrange: the clock stands five seconds into a minute, and the CFO's box
+test("a snapshot that changes nothing draws no message in the CEO box's list again", async ({ page }) => {
+  // Arrange: the clock stands five seconds into a minute, and the CEO's box
   // lists the five messages he sent last.
   await page.clock.install({ time: new Date("2026-10-27T12:00:05Z") });
-  const sent = numbered(5, (number) => ({ id: "sent-" + number, kind: "message", task_id: "", generation: "", status: "succeeded", message: "Taken by the CFO.", awaiting: "", can_send_now: false, send_now_why: "", text: "Message " + number, created_at: since, updated_at: since }));
+  const sent = numbered(5, (number) => ({ id: "sent-" + number, kind: "message", task_id: "", generation: "", status: "succeeded", message: "Taken by the CEO.", awaiting: "", can_send_now: false, send_now_why: "", text: "Message " + number, created_at: since, updated_at: since }));
   const snapshot = { ...fleet([...WORKING, ...RESTING]), actions: sent };
   await open(page, snapshot);
   await expect(page.locator(".queued-message")).toHaveCount(5);
@@ -463,7 +463,7 @@ test("a board with no goblin at work asks for no animation frame and runs no ani
   expect(running).toEqual([]);
 });
 
-// The CFO, 2026-10-30, of the helix's return after Biff's panel at rest held
+// The CEO, 2026-10-30, of the helix's return after Biff's panel at rest held
 // the main thread 44 percent busy: "The helix must come back without the main
 // thread working while nothing changes". Chrome wakes the main thread at
 // every turn of a CSS animation while anything in the page listens for

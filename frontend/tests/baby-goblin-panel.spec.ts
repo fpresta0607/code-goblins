@@ -33,7 +33,7 @@ const OUTPUTS: Record<string, string[]> = {
 
 async function open(page: Page, width = 1600, height = 1000) {
   await page.setViewportSize({ width, height });
-  await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
+  await page.addInitScript(() => localStorage.setItem("ceo-first-open", "shown"));
   // No WebGL, so xterm draws with its DOM renderer on every machine, the cells
   // it draws readable with their colours, as a browser without a GPU draws them.
   await page.addInitScript(() => {

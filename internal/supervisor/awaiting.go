@@ -16,7 +16,7 @@ import (
 )
 
 // Awaiting is a delivery typed into a native terminal and submitted that its
-// harness has not yet been seen taking: the CFO's terminal by its host, or a
+// harness has not yet been seen taking: the CEO's terminal by its host, or a
 // goblin's by its task and spawn generation. A harness inside a turn queues
 // the text and hands it to its model at its next tool call, and one slow to
 // start its next turn takes it later, so until its own record of the
@@ -30,7 +30,7 @@ type Awaiting struct {
 	// Digest is the monitor.TextDigest of the text typed, which the
 	// harness's record of the conversation is searched for.
 	Digest string `json:"digest,omitempty"`
-	// Session is the CFO's harness session, whose record is searched; a
+	// Session is the CEO's harness session, whose record is searched; a
 	// goblin's record is the one its harness keeps for its worktree.
 	Session string `json:"session,omitempty"`
 	// Typed is the line as typed, which its terminal's prompt line shows
@@ -48,14 +48,14 @@ type Awaiting struct {
 	IsHeld bool `json:"is_held,omitempty"`
 }
 
-// sentToCFO and sentToGoblin are what a delivery that awaits its reader says,
-// heldByCFO and heldByGoblin what one submitted into a turn under way says
+// sentToCEO and sentToGoblin are what a delivery that awaits its reader says,
+// heldByCEO and heldByGoblin what one submitted into a turn under way says
 // while its harness holds it in its own queue, and sentNowInTurn what one
 // says once its harness's send-now key went.
 const (
-	sentToCFO     = "Sent. The CFO takes it at its next tool call, or as its current turn ends."
+	sentToCEO     = "Sent. The CEO takes it at its next tool call, or as its current turn ends."
 	sentToGoblin  = "Sent. The goblin takes it at its next tool call, or as its current turn ends."
-	heldByCFO     = "Queued in the CFO's session. The CFO takes it at its next tool call, or as its current turn ends."
+	heldByCEO     = "Queued in the CEO's session. The CEO takes it at its next tool call, or as its current turn ends."
 	heldByGoblin  = "Queued in the goblin's session. The goblin takes it at its next tool call, or as its current turn ends."
 	sentNowInTurn = "Typed while it was working and sent now."
 )
@@ -91,7 +91,7 @@ func (a Awaiting) recipient() string {
 	if a.Task != "" {
 		return "the goblin"
 	}
-	return "the CFO"
+	return "the CEO"
 }
 
 // settleDeliveries settles each delivery that awaits its reader: delivered
@@ -167,7 +167,7 @@ func (s *Store) settleDeliveries(now time.Time, look func(Awaiting) terminalLook
 
 // deliveredReview marks the review item whose answer action id carried as
 // delivered, when task, whose terminal took it, is the item's reporter: an
-// answer handed to the CFO for a goblin that restarted or ended never reached
+// answer handed to the CEO for a goblin that restarted or ended never reached
 // the goblin. The caller holds the store lock.
 func (s *Store) deliveredReview(action, task string) {
 	for i := range s.db.Reviews {
@@ -323,7 +323,7 @@ func (s *Service) takeBackLeftTyped(ctx context.Context) error {
 // takeBackFrom takes back off the prompt line of the terminal record names
 // those of deliveries, all left typed in it in the order given, whose words
 // are all the line holds, and returns them once the line read empty. The
-// screen is read without the CFO's typing lock and again under it before any
+// screen is read without the CEO's typing lock and again under it before any
 // key, as submitOnto reads it.
 func (s *Service) takeBackFrom(ctx context.Context, record host.Record, screens harness.Screens, deliveries []Action) []Action {
 	typed := make([]Awaiting, len(deliveries))
@@ -342,9 +342,9 @@ func (s *Service) takeBackFrom(ctx context.Context, record host.Record, screens 
 	if len(held) == 0 {
 		return nil
 	}
-	if typed[0].Host != "" && s.Options.CFO != nil {
-		s.Options.CFO.typing.Lock()
-		defer s.Options.CFO.typing.Unlock()
+	if typed[0].Host != "" && s.Options.CEO != nil {
+		s.Options.CEO.typing.Lock()
+		defer s.Options.CEO.typing.Unlock()
 		if held = shown(); len(held) == 0 {
 			return nil
 		}
@@ -402,9 +402,9 @@ func (s *Store) settleLeftTyped(taken, dropped []Action, now time.Time) error {
 // submitOnto presses the submit key in terminal when its harness waits idle
 // with nothing on its prompt line but some of deliveries, all typed into it
 // in the order given, as submitHandedBack says, and returns those it
-// submitted as one prompt, or none. The screen is read without the CFO's
-// typing lock, which a delivery to the CFO holds for seconds, and read again
-// under it before the key, so nothing else types into the CFO's terminal
+// submitted as one prompt, or none. The screen is read without the CEO's
+// typing lock, which a delivery to the CEO holds for seconds, and read again
+// under it before the key, so nothing else types into the CEO's terminal
 // meanwhile.
 func (s *Service) submitOnto(ctx context.Context, deliveries []Action) []Action {
 	first := *deliveries[0].Awaiting
@@ -428,9 +428,9 @@ func (s *Service) submitOnto(ctx context.Context, deliveries []Action) []Action 
 	if len(prompt) == 0 {
 		return nil
 	}
-	if first.Host != "" && s.Options.CFO != nil {
-		s.Options.CFO.typing.Lock()
-		defer s.Options.CFO.typing.Unlock()
+	if first.Host != "" && s.Options.CEO != nil {
+		s.Options.CEO.typing.Lock()
+		defer s.Options.CEO.typing.Unlock()
 		if prompt = handedBack(); len(prompt) == 0 {
 			return nil
 		}
@@ -495,7 +495,7 @@ func (s *Service) lookAtTerminal(a Awaiting) terminalLook {
 		id = meta.ID
 		took = a.Digest != "" && conversations().Took(context.Background(), goblinConversation(meta), a.Digest, a.Since)
 	} else {
-		took = cfoConversationTook(context.Background(), s.Store.Home.State, a)
+		took = ceoConversationTook(context.Background(), s.Store.Home.State, a)
 	}
 	record, err := host.ReadRecord(s.Store.Home.State, id)
 	if err != nil || !host.Running(record) {
@@ -509,17 +509,17 @@ func (s *Service) lookAtTerminal(a Awaiting) terminalLook {
 	return terminalLook{Working: err == nil && screens.IsWorking(rows), Took: took}
 }
 
-// cfoConversationTook reports whether the CFO's own record of conversation a
+// ceoConversationTook reports whether the CEO's own record of conversation a
 // shows it took a's text since: the session a was submitted in, and the one a
 // live primary holds now, since a clear, compact or resume moves the
 // conversation to a new session after the submit.
-func cfoConversationTook(ctx context.Context, stateDir string, a Awaiting) bool {
+func ceoConversationTook(ctx context.Context, stateDir string, a Awaiting) bool {
 	if a.Digest == "" {
 		return false
 	}
 	sessions := []string{a.Session}
 	if primary, live := livePrimary(stateDir); live && primary.Host == a.Host {
-		sessions = append(sessions, cfoSession(stateDir, primary))
+		sessions = append(sessions, ceoSession(stateDir, primary))
 	}
 	for _, session := range slices.Compact(sessions) {
 		if session != "" && conversations().Took(ctx, monitor.Conversation{Harness: a.Harness, Session: session}, a.Digest, a.Since) {
@@ -541,13 +541,13 @@ func conversations() *monitor.HostProgress {
 	return reader.(*monitor.HostProgress)
 }
 
-// cfoSession is the session the registered CFO, primary, holds its
+// ceoSession is the session the registered CEO, primary, holds its
 // conversation in now: the one it last registered, when that registration
-// was this CFO process's, since a compact, a clear or a resume moves it to a
+// was this CEO process's, since a compact, a clear or a resume moves it to a
 // new session while primary.json keeps the session it first registered;
 // else the one primary names.
-func cfoSession(stateDir string, primary primaryRegistration) string {
-	if conversation, err := ReadCFOConversation(stateDir); err == nil && conversation.Harness == primary.Agent && conversation.Host == primary.Host && conversation.PID == primary.Process.PID {
+func ceoSession(stateDir string, primary primaryRegistration) string {
+	if conversation, err := ReadCEOConversation(stateDir); err == nil && conversation.Harness == primary.Agent && conversation.Host == primary.Host && conversation.PID == primary.Process.PID {
 		return conversation.Session
 	}
 	return primary.Process.Session
@@ -555,7 +555,7 @@ func cfoSession(stateDir string, primary primaryRegistration) string {
 
 // NativeTook reports whether native goblin meta's harness took text since,
 // as the record its harness keeps of the goblin's conversation shows: the
-// proof cfo send and the board wait for once a goblin is in a turn.
+// proof goblins send and the board wait for once a goblin is in a turn.
 func NativeTook(ctx context.Context, meta state.TaskMeta, session, text string, since time.Time) bool {
 	conversation := goblinConversation(meta)
 	conversation.Session = session

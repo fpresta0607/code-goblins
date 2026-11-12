@@ -62,8 +62,8 @@ func TestSupervisorPublishesOneHoldWhenItsAcknowledgementIsLost(t *testing.T) {
 	}
 	project.mergeRefusal = "the base branch policy prohibits the merge"
 	engine := service.trainEngine(project, githubtest.Client(project), "o/r")
-	publish := engine.TellCFO
-	engine.TellCFO = func(ctx context.Context, identity, text string) error {
+	publish := engine.TellCEO
+	engine.TellCEO = func(ctx context.Context, identity, text string) error {
 		if err := publish(ctx, identity, text); err != nil {
 			return err
 		}

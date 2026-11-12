@@ -5,7 +5,7 @@ test.use({ launchOptions: { args: ["--disable-webgl"] } });
 
 for (const who of ["CEO", "goblin"] as const) {
   test(`Codex ${who} reads and updates Modern chat without hooks or a reload`, async ({ page }, testInfo) => {
-    const data = snapshot({ cfo_harness: "codex" }, { harness: "codex", model: "gpt-6", runtime: { state: "working", at } });
+    const data = snapshot({ ceo_harness: "codex" }, { harness: "codex", model: "gpt-6", runtime: { state: "working", at } });
     const relay = await open(page, data);
     if (who === "goblin") await openGoblin(page);
     else await page.keyboard.press("Control+Alt+1");
@@ -33,7 +33,7 @@ for (const who of ["CEO", "goblin"] as const) {
     // Enter types into the terminal once its view is live, which a busy
     // machine can take seconds to reach; until then the box keeps the draft
     // and says the terminal is connecting (#1574). openGoblin waits for it,
-    // and the CFO's panel, opened by its key, waits here.
+    // and the CEO's panel, opened by its key, waits here.
     await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1, { timeout: 20_000 });
     // The box hears the view is live a render after its class changes, so an
     // Enter in between is refused too. A refused Enter keeps the draft and a
@@ -81,7 +81,7 @@ test("Codex messages keep scrolling and a gate-held draft is durable without ter
 });
 
 test("Codex Classic keeps drawing new output on the same connection", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+  await page.addInitScript(() => localStorage.setItem("ceo-chat-style", "classic"));
   const relay = await open(page, snapshot({}, { harness: "codex" }));
   await card(page, NAME).click();
   const terminal = page.getByRole("textbox", { name: "Terminal input", exact: true });

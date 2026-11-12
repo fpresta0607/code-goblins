@@ -20,7 +20,7 @@ const options = {};
 for (let i = 2; i < process.argv.length; i += 2) options[process.argv[i].replace(/^--/, "")] = process.argv[i + 1];
 if (!options.url || !options.title) throw new Error("--url and --title are required");
 const browser = options.browser || "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
-const profile = mkdtempSync(join(tmpdir(), "cfo-latency-"));
+const profile = mkdtempSync(join(tmpdir(), "ceo-latency-"));
 const edge = spawn(browser, ["--headless=new", "--disable-gpu", "--disable-webgl", "--no-first-run", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--window-size=1600,1000", "about:blank"], { stdio: "ignore" });
 
 // measure runs in the board's page.

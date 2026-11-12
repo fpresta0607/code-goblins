@@ -1,5 +1,5 @@
-# cfo version
+# goblins version
 
-`cfo version`
+`goblins version`
 
 Print the version

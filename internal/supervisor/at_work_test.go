@@ -229,9 +229,9 @@ func TestASessionOfAnEarlierGenerationIsNoEvidence(t *testing.T) {
 }
 
 // Goblins whose standing waits close a circle each wait on one that waits
-// back, so none shows a wait it cannot be, and the CFO is told of the circle
+// back, so none shows a wait it cannot be, and the CEO is told of the circle
 // once. A chain that ends outside the goblins stays a wait. Issue #1013.
-func TestAWaitCircleShowsNoWaitAndTellsTheCFOOnce(t *testing.T) {
+func TestAWaitCircleShowsNoWaitAndTellsTheCEOOnce(t *testing.T) {
 	// Arrange
 	store, h := atWorkFixture(t, "pi", "task-1", "task-2", "task-3")
 	now := time.Now().UTC()

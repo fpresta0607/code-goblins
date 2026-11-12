@@ -55,7 +55,7 @@ func TestResolveAcceptsAManifestWithNoLocalBlock(t *testing.T) {
 
 // A blank command reads as an answer while saying nothing, and a teardown
 // with no way to start reads as half a manifest. Both fail here rather than
-// printing an empty cell where the CFO expected a command.
+// printing an empty cell where the CEO expected a command.
 func TestValidateRefusesAnIncompleteLocalStack(t *testing.T) {
 	cases := map[string]string{
 		"blank up command":   `{"project":"p","local":{"up":["  "]}}`,

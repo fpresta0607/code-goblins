@@ -358,7 +358,7 @@ func TestTheReleaseBuildsTheSetupWithNothingOfTheRelease(t *testing.T) {
 
 // The setup builds with the Go release go.mod names, and every other program
 // with the newest one setup-go installs, so a new Go release changes the
-// setup's file only once go.mod is bumped to it, while cfo and the window
+// setup's file only once go.mod is bumped to it, while goblins and the window
 // take each Go security fix as it ships. The setup's own step sets
 // GOTOOLCHAIN, which ends with that step, and no other part of the release
 // does.

@@ -134,7 +134,7 @@ func TestPruneExecutionsProtectsARecordItCannotReadOnlyWhileItIsYoung(t *testing
 		t.Fatal(err)
 	}
 	writeAged(t, filepath.Join(dir, renamed+".json"), other, now.Add(-2*abandonedExecutionAge))
-	// A record a newer cfo writes, in a format this one does not know.
+	// A record a newer goblins writes, in a format this one does not know.
 	for id, written := range map[string]time.Time{newer: now.Add(-time.Hour), newerStale: now.Add(-2 * abandonedExecutionAge)} {
 		data, err := json.Marshal(ExecutionRecord{Version: 2, ID: id, Status: "passed", Created: written})
 		if err != nil {
@@ -153,7 +153,7 @@ func TestPruneExecutionsProtectsARecordItCannotReadOnlyWhileItIsYoung(t *testing
 	}
 	for _, id := range []string{young, newer} {
 		if _, err := os.Stat(filepath.Join(dir, id+".json")); err != nil {
-			t.Fatalf("removed record %s, which may still be written or a newer cfo's: %v", id, err)
+			t.Fatalf("removed record %s, which may still be written or a newer ceo's: %v", id, err)
 		}
 	}
 	for _, id := range []string{stale, renamed, newerStale} {
@@ -241,7 +241,7 @@ func TestPruneExecutionsRemovesALogOnlyOnceItIsAbandoned(t *testing.T) {
 func TestPruneExecutionsReadsCustodyWhereAdmissionKeepsIt(t *testing.T) {
 	// Arrange
 	store := t.TempDir()
-	t.Setenv("CFO_VERIFY_DIR", store)
+	t.Setenv("GOBLINS_VERIFY_DIR", store)
 	executions := filepath.Join(store, "executions")
 	if err := os.MkdirAll(executions, 0o700); err != nil {
 		t.Fatal(err)
@@ -269,7 +269,7 @@ func TestPruneExecutionsReadsCustodyWhereAdmissionKeepsIt(t *testing.T) {
 
 func TestPruneExecutionsOfAStoreThatHasNoneIsNoError(t *testing.T) {
 	// Arrange
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 
 	// Act
 	err := PruneExecutions(time.Now())
@@ -280,7 +280,7 @@ func TestPruneExecutionsOfAStoreThatHasNoneIsNoError(t *testing.T) {
 	}
 }
 
-// A run that kept no logs, as cfo gate turn's, whose output its caller
+// A run that kept no logs, as goblins gate turn's, whose output its caller
 // keeps, is kept apart, so a burst of them never evicts a run's logs.
 func TestPruneExecutionsKeepsRunsWithoutLogsApart(t *testing.T) {
 	// Arrange
@@ -490,7 +490,7 @@ func TestPruneExecutionsPinsOnlyWithinHalfItsBudgetNewestPassFirst(t *testing.T)
 func TestPruneExecutionsReadsThePassesWhereKeepPassKeepsThem(t *testing.T) {
 	// Arrange
 	store := t.TempDir()
-	t.Setenv("CFO_VERIFY_DIR", store)
+	t.Setenv("GOBLINS_VERIFY_DIR", store)
 	executions := filepath.Join(store, "executions")
 	if err := os.MkdirAll(executions, 0o700); err != nil {
 		t.Fatal(err)

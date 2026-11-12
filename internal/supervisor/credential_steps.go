@@ -37,7 +37,7 @@ var credentialWaitRecheck = 10
 // its step.
 const maxCredentialAnswer = 4000
 
-// CredentialStep is what a card's asker, or the CFO, does to it from outside
+// CredentialStep is what a card's asker, or the CEO, does to it from outside
 // the board: done, once the asker saw the step done; withdraw, once nobody
 // needs it; reopen, to bring back a card he closed; and, from the goblin's
 // wait, window-open or window-failed once it showed its browser's window or
@@ -50,7 +50,7 @@ type CredentialStep struct {
 }
 
 // StepCredential sends step to this home's supervisor: a goblin for its own
-// task's card, proven from inside its terminal, or the registered CFO, whom
+// task's card, proven from inside its terminal, or the registered CEO, whom
 // the supervisor proves over its pipe.
 func StepCredential(h home.Home, step CredentialStep) error {
 	if !credentialID.MatchString(step.ID) {
@@ -66,26 +66,26 @@ func StepCredential(h home.Home, step CredentialStep) error {
 
 // stepCredential takes a step from process pid, connected at connected,
 // once that process is proven to be the goblin the card is for, or the
-// registered CFO.
+// registered CEO.
 func (s *Service) stepCredential(pid int, connected time.Time, step CredentialStep) error {
 	request, found := s.Store.credential(step.ID)
 	if !found {
 		return fmt.Errorf("card %s is not on the board", step.ID)
 	}
-	by := "cfo"
+	by := "ceo"
 	if step.Task != "" {
 		if err := goblinPipeCaller(s.Store.Home.State, step.Task, pid, connected); err != nil {
 			return fmt.Errorf("card caller: %w", err)
 		}
 		if request.Task != step.Task {
-			return errors.New("only the goblin a card is for, or the CFO, can act on it")
+			return errors.New("only the goblin a card is for, or the CEO, can act on it")
 		}
 		by = "goblin"
 	} else {
-		if s.Options.CFO == nil {
-			return errors.New("this supervisor cannot verify the CFO")
+		if s.Options.CEO == nil {
+			return errors.New("this supervisor cannot verify the CEO")
 		}
-		_, release, err := s.Options.CFO.identityOf(pid, connected)
+		_, release, err := s.Options.CEO.identityOf(pid, connected)
 		if err != nil {
 			return err
 		}
@@ -119,9 +119,9 @@ func (s *Service) stepCredential(pid int, connected time.Time, step CredentialSt
 
 // reopenCredential brings back a card he pressed Done on, answered or
 // dismissed: by the Overlord from History on the board, who names its
-// generation, or by its asker or the CFO, who name none. It comes back under a
+// generation, or by its asker or the CEO, who name none. It comes back under a
 // new generation so the card he closed never saves into it, for the rest of
-// its day, and the goblin that asked is told to wait on it again, as the CFO
+// its day, and the goblin that asked is told to wait on it again, as the CEO
 // is of his own press.
 func (s *Service) reopenCredential(id, generation, by string) error {
 	s.credentialSaves.Lock()
@@ -147,21 +147,21 @@ func (s *Service) reopenCredential(id, generation, by string) error {
 	}
 	s.notify()
 	if by == "overlord" {
-		whose := "the CFO's card " + reopened.ID
+		whose := "the CEO's card " + reopened.ID
 		if reopened.Task != "" {
 			whose = reopened.Task + "'s card " + reopened.ID
 		}
-		wait := "Wait on it again with cfo auth request --wait-on " + reopened.ID + "."
+		wait := "Wait on it again with goblins auth request --wait-on " + reopened.ID + "."
 		if reopened.By == "goblin" {
 			wait = reopened.Task + " is told to wait on it again."
 		}
 		s.credentialNotice(reopened, "the Overlord brought back "+whose+" ("+reopened.Why+") from History, so it waits on him again. "+wait)
 	}
-	if reopened.By == "goblin" && s.Options.CFO != nil {
+	if reopened.By == "goblin" && s.Options.CEO != nil {
 		s.credentialWork.Add(1)
 		go func() {
 			defer s.credentialWork.Done()
-			if _, err := s.Options.CFO.SendGoblin(context.Background(), reopened.Task, reopened.Identity, "Your card "+reopened.ID+" ("+reopened.Why+") is back in the Command Center. Wait on it again with cfo auth request --wait-on "+reopened.ID+" --task "+reopened.Task+"."); err != nil {
+			if _, err := s.Options.CEO.SendGoblin(context.Background(), reopened.Task, reopened.Identity, "Your card "+reopened.ID+" ("+reopened.Why+") is back in the Command Center. Wait on it again with goblins auth request --wait-on "+reopened.ID+" --task "+reopened.Task+"."); err != nil {
 				s.credentialNotice(reopened, "card "+reopened.ID+" is back in the Command Center, but "+reopened.Task+" could not be told: "+bounded(err.Error(), 300))
 			}
 		}()
@@ -185,7 +185,7 @@ func oneLineReason(reason string) error {
 
 // closeCredential closes an open card as done, dismissed or withdrawn: by
 // the Overlord on the board, who names its generation, or by its asker or
-// the CFO, who name none. His Done closes only a card that asks for no
+// the CEO, who name none. His Done closes only a card that asks for no
 // input, since one that asks closes when the input arrives. A closed card
 // takes no value, and its asker's wait ends at once.
 func (s *Service) closeCredential(id, generation, closed, by, reason string) (CredentialRequest, error) {
@@ -242,8 +242,8 @@ func (s *Store) closeWaitsForCard(card CredentialRequest, by string) error {
 		reason = "You wrote on its step card " + card.ID + ": " + card.Reason
 	case by == "overlord":
 		reason = "You pressed Done on its step card " + card.ID + "."
-	case by == "cfo":
-		reason = "The CFO closed its step card " + card.ID + " as done."
+	case by == "ceo":
+		reason = "The CEO closed its step card " + card.ID + " as done."
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -262,13 +262,13 @@ func (s *Store) closeWaitsForCard(card CredentialRequest, by string) error {
 	return s.save()
 }
 
-// afterCredentialClose tells whoever must hear that a card closed: the CFO
+// afterCredentialClose tells whoever must hear that a card closed: the CEO
 // of his Done or Dismiss and of a goblin's own done or withdrawal, and the
 // goblin, in its own terminal, that he dismissed its card and it goes on
 // without it.
 func (s *Service) afterCredentialClose(request CredentialRequest, by string) {
 	defer s.credentialWork.Done()
-	whose := "the CFO's card " + request.ID
+	whose := "the CEO's card " + request.ID
 	if request.Task != "" {
 		whose = request.Task + "'s card " + request.ID
 	}
@@ -278,9 +278,9 @@ func (s *Service) afterCredentialClose(request CredentialRequest, by string) {
 		told := ""
 		if request.By == "goblin" {
 			told = "; the goblin was told"
-			if s.Options.CFO == nil {
+			if s.Options.CEO == nil {
 				told = "; the goblin could not be told: message transport is unavailable"
-			} else if _, err := s.Options.CFO.SendGoblin(context.Background(), request.Task, request.Identity, "The Overlord dismissed your card "+request.ID+" ("+request.Why+") from the Command Center. Go on without it. If you still need him for it, file a new card."); err != nil {
+			} else if _, err := s.Options.CEO.SendGoblin(context.Background(), request.Task, request.Identity, "The Overlord dismissed your card "+request.ID+" ("+request.Why+") from the Command Center. Go on without it. If you still need him for it, file a new card."); err != nil {
 				told = "; the goblin could not be told: " + bounded(err.Error(), 300)
 			}
 		}
@@ -293,9 +293,9 @@ func (s *Service) afterCredentialClose(request CredentialRequest, by string) {
 		told := ""
 		if request.By == "goblin" {
 			told = "; the goblin was told"
-			if s.Options.CFO == nil {
+			if s.Options.CEO == nil {
 				told = "; the goblin could not be told: message transport is unavailable"
-			} else if _, err := s.Options.CFO.SendGoblinHis(context.Background(), request.Task, request.Identity, "The Overlord answered your card "+request.ID+" ("+request.Why+") instead of taking its step: "+request.Reason); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
+			} else if _, err := s.Options.CEO.SendGoblinHis(context.Background(), request.Task, request.Identity, "The Overlord answered your card "+request.ID+" ("+request.Why+") instead of taking its step: "+request.Reason); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
 				told = "; the goblin could not be told: " + bounded(err.Error(), 300)
 			}
 		}

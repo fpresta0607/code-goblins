@@ -78,7 +78,7 @@ func (s *Service) isOverlapLive(meta state.TaskMeta, now time.Time) bool {
 // goblin works there live, and reads overlapPagesPerPass pages of it a poll:
 // a read with more pages, or one whose page failed, takes up where it left
 // off on the next poll. What a read could not read stays on the board, and
-// is returned, to wake the CFO, once it went unread failingPasses polls in a
+// is returned, to wake the CEO, once it went unread failingPasses polls in a
 // row.
 func (s *Service) pollOverlaps(ctx context.Context, runner execx.Runner, github *githubapi.Client, w *fleetWakes, repo string, mine []ciGoblin, currentTime func() time.Time) error {
 	if ctx.Err() != nil {
@@ -175,11 +175,11 @@ func (s *Service) pollOverlaps(ctx context.Context, runner execx.Runner, github 
 	return errors.New(w.OverlapUnread[repo])
 }
 
-// readOverlaps tells the CFO of each teammate's pull request or issue, as
+// readOverlaps tells the CEO of each teammate's pull request or issue, as
 // activity has them so far, that meets a live goblin's area and opened after
 // the goblin started, and keeps on each goblin's card the teammates' work its
 // area meets. It returns what it could not read, apart from what went wrong
-// telling the CFO.
+// telling the CEO.
 func (s *Service) readOverlaps(ctx context.Context, runner execx.Runner, github *githubapi.Client, w *fleetWakes, activity tickets.Activity, active []ciGoblin, now time.Time, currentTime func() time.Time) (unread, err error) {
 	repository := activity.Repository
 	if activity.Viewer.Login == "" {
@@ -527,7 +527,7 @@ func (s *Service) recordOverlap(ctx context.Context, w *fleetWakes, goblin ciGob
 		}
 		return s.deliverOverlap(ctx, w, identity, notice)
 	}
-	notice := overlapNotice{Task: goblin.id, Generation: goblin.meta.SpawnGen, Detail: fmt.Sprintf("pr_overlap: %s: %s (%s) overlaps branch %s; next: CFO decide whether to continue, wait or narrow %s", goblin.id, line, url, goblin.branch, goblin.id)}
+	notice := overlapNotice{Task: goblin.id, Generation: goblin.meta.SpawnGen, Detail: fmt.Sprintf("pr_overlap: %s: %s (%s) overlaps branch %s; next: CEO decide whether to continue, wait or narrow %s", goblin.id, line, url, goblin.branch, goblin.id)}
 	if w.OverlapNotices == nil {
 		w.OverlapNotices = map[string]overlapNotice{}
 	}

@@ -43,7 +43,7 @@ type Custody struct {
 // machine's global namespace, so a run in any logon session, or after the
 // controller's session has ended, finds the job by its name. The run ID
 // after it is random, so no other run can guess an execution's job.
-const jobNamespace = `Global\cfo-verify-`
+const jobNamespace = `Global\goblins-verify-`
 
 // JobName is the name of the Windows job an execution's workers run in.
 func JobName(runID string) string {

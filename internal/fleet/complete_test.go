@@ -29,7 +29,7 @@ func completedHome(t *testing.T, backlog string) home.Home {
 	return h
 }
 
-// cfo backlog done closes the row of a delivered task alone, while a
+// goblins backlog done closes the row of a delivered task alone, while a
 // retirement closes the row of any retired task, as retired when it did not
 // deliver.
 func TestOnlyARetirementClosesAnUndeliveredTasksRow(t *testing.T) {

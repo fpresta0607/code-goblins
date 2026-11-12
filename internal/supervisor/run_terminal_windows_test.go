@@ -20,11 +20,11 @@ import (
 )
 
 // runHostVariable makes this test binary, started as "host", host a run
-// item's terminal as cfo host does.
-const runHostVariable = "CFO_TEST_RUN_HOST"
+// item's terminal as goblins host does.
+const runHostVariable = "GOBLINS_TEST_RUN_HOST"
 
 // runHostCommand is the command a run item's launcher hosts its terminal
-// with: this test binary, in place of cfo.exe host.
+// with: this test binary, in place of goblins.exe host.
 func runHostCommand(t *testing.T) []string {
 	t.Helper()
 	program, err := os.Executable()
@@ -35,11 +35,11 @@ func runHostCommand(t *testing.T) []string {
 	return []string{program, "host"}
 }
 
-// commandRun records a run item the way cfo run-request does, with its
+// commandRun records a run item the way goblins run-request does, with its
 // command as its script on disk.
 func commandRun(t *testing.T, store *Store, identity, id, shell, command string, admin bool) Run {
 	t.Helper()
-	r := Run{ID: id, Identity: identity, By: "cfo", Title: "Run " + id, Shell: shell, Admin: admin, Command: command, Cwd: store.Home.Root, CreatedAt: time.Now().UTC()}
+	r := Run{ID: id, Identity: identity, By: "ceo", Title: "Run " + id, Shell: shell, Admin: admin, Command: command, Cwd: store.Home.Root, CreatedAt: time.Now().UTC()}
 	name, script := runScript(r)
 	dir := runDir(store.Home.State, r)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -118,7 +118,7 @@ func gitBash(t *testing.T) {
 // supervisor hosts, which its card shows: what he types there reaches the
 // command, and when the command ends the item records its exit code and the
 // end of what its terminal showed, the terminal closes by itself with nothing
-// left waiting for Enter, and the CFO hears how it ended.
+// left waiting for Enter, and the CEO hears how it ended.
 func TestARunItemRunsInATerminalOnItsCard(t *testing.T) {
 	for _, test := range []struct {
 		name, shell, command string
@@ -135,8 +135,8 @@ func TestARunItemRunsInATerminalOnItsCard(t *testing.T) {
 			}
 			// Arrange
 			store, h := testStore(t)
-			_, identity, cfo, connection := primaryFixture(t, store)
-			s := &Service{Store: store, Instance: "instance", done: make(chan struct{}), Options: Options{CFO: connection, Runs: OSRunLauncher{HostCommand: runHostCommand(t)}}}
+			_, identity, ceo, connection := primaryFixture(t, store)
+			s := &Service{Store: store, Instance: "instance", done: make(chan struct{}), Options: Options{CEO: connection, Runs: OSRunLauncher{HostCommand: runHostCommand(t)}}}
 			server := runBoard(t, s)
 			r := commandRun(t, store, identity, "sign-in-1", test.shell, test.command, false)
 			dir := runDir(h.State, r)
@@ -164,22 +164,22 @@ func TestARunItemRunsInATerminalOnItsCard(t *testing.T) {
 			}
 			terminalGone(t, dir)
 			view.waitForClose(t)
-			if typed := cfo.lines(t); len(typed) != 1 || !strings.Contains(typed[0], "exit code "+strconv.Itoa(test.code)) || !strings.Contains(typed[0], "hello Overlord") {
-				t.Errorf("the CFO got %q, want the exit code and the end of the output once", typed)
+			if typed := ceo.lines(t); len(typed) != 1 || !strings.Contains(typed[0], "exit code "+strconv.Itoa(test.code)) || !strings.Contains(typed[0], "hello Overlord") {
+				t.Errorf("the CEO got %q, want the exit code and the end of the output once", typed)
 			}
 		})
 	}
 }
 
 // The card keeps a way to stop the command: Stop keeps what its terminal
-// showed and the item reads stopped, not failed, since he chose it; the CFO
+// showed and the item reads stopped, not failed, since he chose it; the CEO
 // hears it did not finish, and the supervisor's next pass ends the terminal
 // and everything in it.
 func TestStoppingARunEndsItsTerminal(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
-	_, identity, cfo, connection := primaryFixture(t, store)
-	s := &Service{Store: store, Instance: "instance", done: make(chan struct{}), Options: Options{CFO: connection, Runs: OSRunLauncher{HostCommand: runHostCommand(t)}}}
+	_, identity, ceo, connection := primaryFixture(t, store)
+	s := &Service{Store: store, Instance: "instance", done: make(chan struct{}), Options: Options{CEO: connection, Runs: OSRunLauncher{HostCommand: runHostCommand(t)}}}
 	server := runBoard(t, s)
 	r := commandRun(t, store, identity, "long-copy-1", "powershell", "Write-Output 'copying'\nStart-Sleep -Seconds 300\n", false)
 	pressRun(t, s, r, "press-copy")
@@ -205,8 +205,8 @@ func TestStoppingARunEndsItsTerminal(t *testing.T) {
 	}
 	terminalGone(t, runDir(h.State, r))
 	view.waitForClose(t)
-	if typed := cfo.lines(t); len(typed) != 1 || !strings.Contains(typed[0], "did not finish: the Overlord stopped it") {
-		t.Errorf("the CFO got %q, want to hear the Overlord stopped it", typed)
+	if typed := ceo.lines(t); len(typed) != 1 || !strings.Contains(typed[0], "did not finish: the Overlord stopped it") {
+		t.Errorf("the CEO got %q, want to hear the Overlord stopped it", typed)
 	}
 	if _, err := store.Queue(Action{ID: "stop-again", Kind: "run_stop", RunID: r.ID, Generation: r.Identity}); err == nil {
 		t.Error("a second Stop was queued for a command that already ended")
@@ -255,15 +255,15 @@ func TestAnElevatedRunStartsItsHostHiddenThroughWindows(t *testing.T) {
 	args := []string{"host", "--state", `C:\Users\Over Lord\AppData\Local\CodeGoblins\state\runs\ab12`, "--id", runTerminal, "--dir", `C:\work dir`, "--", `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`, "-File", `C:\it's here\runner.ps1`, `a "quoted" arg`}
 
 	// Act
-	script := string(elevateScript(`C:\Program Files\cfo.exe`, args, `C:\runs\ab12\declined.txt`))
+	script := string(elevateScript(`C:\Program Files\goblins.exe`, args, `C:\runs\ab12\declined.txt`))
 	line := elevatedCommandLine(args)
 
 	// Assert
-	decomposed, err := windows.DecomposeCommandLine("cfo.exe " + line)
+	decomposed, err := windows.DecomposeCommandLine("goblins.exe " + line)
 	if err != nil || strings.Join(decomposed[1:], "\x00") != strings.Join(args, "\x00") {
 		t.Fatalf("the elevated command line %q reads back as %q (%v), want exactly %q", line, decomposed, err, args)
 	}
-	for _, want := range []string{"Start-Process -FilePath 'C:\\Program Files\\cfo.exe'", "-ArgumentList '" + strings.ReplaceAll(line, "'", "''") + "'", "-Verb RunAs", "-WindowStyle Hidden", "-PassThru", "declined.txt", "$run.WaitForExit()"} {
+	for _, want := range []string{"Start-Process -FilePath 'C:\\Program Files\\goblins.exe'", "-ArgumentList '" + strings.ReplaceAll(line, "'", "''") + "'", "-Verb RunAs", "-WindowStyle Hidden", "-PassThru", "declined.txt", "$run.WaitForExit()"} {
 		if !strings.Contains(script, want) {
 			t.Errorf("the elevation script lacks %q:\n%s", want, script)
 		}

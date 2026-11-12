@@ -41,23 +41,23 @@ type terminalBinding struct {
 	Terminal       string
 	Identity       string
 	Process        lock.Info
-	// Agent is the agent the pane runs: the registered CFO's, or a goblin's
+	// Agent is the agent the pane runs: the registered CEO's, or a goblin's
 	// harness, which Herdr's own detection in the pane has to match.
 	Agent string
 }
 
 // verifyHerdrPane reports why the Herdr pane an older build registered the
-// CFO in cannot be shown, or nil while its agent, terminal and foreground
+// CEO in cannot be shown, or nil while its agent, terminal and foreground
 // process are the registered ones. It serves this view alone: the board
-// delivers nothing to a CFO in Herdr and takes no proof from one.
-func (c *CFOConnection) verifyHerdrPane(ctx context.Context, primary primaryRegistration) error {
+// delivers nothing to a CEO in Herdr and takes no proof from one.
+func (c *CEOConnection) verifyHerdrPane(ctx context.Context, primary primaryRegistration) error {
 	if !primary.Process.VerifiedAlive() {
-		return registrationProblem(fmt.Sprintf("The registered CFO process is unavailable: pid %d, started %s, is no longer running", primary.Process.PID, primary.Process.Start.UTC().Format("2006-01-02 15:04 UTC")))
+		return registrationProblem(fmt.Sprintf("The registered CEO process is unavailable: pid %d, started %s, is no longer running", primary.Process.PID, primary.Process.Start.UTC().Format("2006-01-02 15:04 UTC")))
 	}
 	client := c.Terminals(primary.Target.Session)
 	snapshot, err := client.Snapshot(ctx)
 	if err != nil {
-		return errors.New("Herdr cannot verify the registered CFO")
+		return errors.New("Herdr cannot verify the registered CEO")
 	}
 	found := false
 	for _, agent := range snapshot.Agents {
@@ -66,7 +66,7 @@ func (c *CFOConnection) verifyHerdrPane(ctx context.Context, primary primaryRegi
 		}
 	}
 	if !found {
-		return registrationProblem("The registered CFO agent changed or is missing in Herdr pane " + primary.Target.Pane)
+		return registrationProblem("The registered CEO agent changed or is missing in Herdr pane " + primary.Target.Pane)
 	}
 	found = false
 	for _, pane := range snapshot.Panes {
@@ -75,21 +75,21 @@ func (c *CFOConnection) verifyHerdrPane(ctx context.Context, primary primaryRegi
 		}
 	}
 	if !found {
-		return registrationProblem("The registered CFO terminal changed or is missing in Herdr pane " + primary.Target.Pane)
+		return registrationProblem("The registered CEO terminal changed or is missing in Herdr pane " + primary.Target.Pane)
 	}
 	process, err := client.PaneProcessInfo(ctx, primary.Target)
 	if err != nil {
-		return errors.New("Herdr cannot verify the registered CFO")
+		return errors.New("Herdr cannot verify the registered CEO")
 	}
 	if process.ForegroundProcessGroupID != primary.Process.PID || process.ForegroundProcessGroupID == process.ShellPID {
-		return registrationProblem("The registered CFO process no longer owns its pane " + primary.Target.Pane)
+		return registrationProblem("The registered CEO process no longer owns its pane " + primary.Target.Pane)
 	}
 	return nil
 }
 
 func (s *Service) resolveTerminal(ctx context.Context, selected terminalSelection, write bool) (terminalBinding, error) {
 	var b terminalBinding
-	c := s.Options.CFO
+	c := s.Options.CEO
 	if c == nil || c.Terminals == nil {
 		return b, errors.New("Native terminal transport is unavailable.")
 	}
@@ -105,7 +105,7 @@ func (s *Service) resolveTerminal(ctx context.Context, selected terminalSelectio
 			return b, err
 		}
 		if p.Host != "" {
-			return b, unavailableTerminal("The CFO runs in a native terminal, which this view cannot show yet.")
+			return b, unavailableTerminal("The CEO runs in a native terminal, which this view cannot show yet.")
 		}
 		if err := c.verifyHerdrPane(ctx, p); err != nil {
 			return b, err
@@ -300,7 +300,7 @@ func (l *terminalLease) history(ctx context.Context, lines int, verify func(cont
 }
 
 // stillBound is the check each input makes before it is typed, and it starts
-// no process: it rereads the task's record, or the CFO's registration, to see
+// no process: it rereads the task's record, or the CEO's registration, to see
 // that the view's pane and generation are unchanged and that the process
 // verified when the view opened is still alive. Only a change pays for the
 // full verification, which refuses a changed recipient; the view is verified
@@ -313,11 +313,11 @@ func (h *HTTP) stillBound(ctx context.Context, b terminalBinding, write bool) er
 }
 
 // sameBinding reports from local files alone that nothing a view is bound to
-// was replaced: the CFO's registration, or the task's generation, session and
+// was replaced: the CEO's registration, or the task's generation, session and
 // pane.
 func (s *Service) sameBinding(b terminalBinding) bool {
 	if b.Selection.Task == "" {
-		file, err := openPrimary(filepath.Join(s.Options.CFO.State, "primary.json"))
+		file, err := openPrimary(filepath.Join(s.Options.CEO.State, "primary.json"))
 		if err != nil {
 			return false
 		}
@@ -333,7 +333,7 @@ func (s *Service) sameBinding(b terminalBinding) bool {
 }
 
 // terminalCustody is whether a no-mistakes gate lets the Overlord type into a
-// goblin's pane now; the CFO's own terminal has no gate.
+// goblin's pane now; the CEO's own terminal has no gate.
 func (s *Service) terminalCustody(ctx context.Context, b terminalBinding) error {
 	if b.Selection.Task == "" {
 		return nil
@@ -359,7 +359,7 @@ func (h *HTTP) verifyTerminal(ctx context.Context, b terminalBinding, write bool
 // paneSize is the size Herdr lays the pane out at, clamped to what an observer
 // accepts.
 func (h *HTTP) paneSize(ctx context.Context, target herdr.Target) (int, int, error) {
-	client := h.Service.Options.CFO.Terminals(target.Session)
+	client := h.Service.Options.CEO.Terminals(target.Session)
 	check, stop := context.WithTimeout(ctx, 8*time.Second)
 	defer stop()
 	snapshot, err := client.Snapshot(check)
@@ -578,7 +578,7 @@ func (h *HTTP) terminalStream(w http.ResponseWriter, r *http.Request) {
 	// for them. A control view types through its own stream, so it opens
 	// without the socket, only without history.
 	var panes herdr.PaneInput
-	if found, err := h.Service.Options.CFO.Terminals(b.Target.Session).PaneInput(ctx); err == nil {
+	if found, err := h.Service.Options.CEO.Terminals(b.Target.Session).PaneInput(ctx); err == nil {
 		panes = found
 	} else if !input.Control {
 		apiError(w, 503, "Typing into this pane is unavailable: its Herdr socket cannot be found.")

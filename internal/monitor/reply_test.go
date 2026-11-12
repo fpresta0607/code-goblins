@@ -67,7 +67,7 @@ func recordedAs(home, session string) *HostProgress {
 // running or ended on a tool call.
 func TestANativeClaudeGoblinsLastReplyIsReadFromItsTranscript(t *testing.T) {
 	cwd := t.TempDir()
-	prompt := claudeEntry("user", cwd, "CFO: PR 369's failure is not yours.")
+	prompt := claudeEntry("user", cwd, "CEO: PR 369's failure is not yours.")
 	thinking := claudeEntry("assistant", cwd, []map[string]any{{"type": "thinking", "thinking": ""}})
 	reply := claudeEntry("assistant", cwd, claudeText(editorSyncReply))
 	settled := []map[string]any{{"type": "system", "subtype": "stop_hook_summary", "cwd": cwd}, {"type": "system", "subtype": "turn_duration", "cwd": cwd}}
@@ -109,7 +109,7 @@ func TestANativeClaudeGoblinsLastReplyIsReadFromItsTranscript(t *testing.T) {
 
 // The goblin's conversation is the one the board's record or its own harness
 // proves, as the board reads it, never merely its folder's newest, where a
-// forked CFO session worked on 2026-10-06; a Herdr goblin's is the session
+// forked CEO session worked on 2026-10-06; a Herdr goblin's is the session
 // Herdr names, wherever Claude Code keeps it.
 func TestTheClaudeConversationReadIsTheGoblinsOwn(t *testing.T) {
 	// Arrange
@@ -187,7 +187,7 @@ func piFolder(home, worktree string) string {
 // tokens showed their thinking on screen, which the stale sweep read as
 // questions.
 func TestAPiGoblinsLastReplyIsReadFromItsSession(t *testing.T) {
-	prompt := map[string]any{"type": "message", "message": map[string]any{"role": "user", "content": "CFO: carry on"}}
+	prompt := map[string]any{"type": "message", "message": map[string]any{"role": "user", "content": "CEO: carry on"}}
 	thought := map[string]any{"type": "thinking", "thinking": "Should I open the pull request now, or wait?"}
 	text := func(text string) map[string]any { return map[string]any{"type": "text", "text": text} }
 	toolCall := map[string]any{"type": "toolCall", "name": "bash"}
@@ -231,7 +231,7 @@ func TestAPiGoblinsLastReplyIsReadFromItsSession(t *testing.T) {
 // record that says nothing of a turn, such as a model change, proves nothing
 // either way.
 func TestPiTurnStateReadsTheSessionsOwnTurnBoundaries(t *testing.T) {
-	prompt := map[string]any{"type": "message", "message": map[string]any{"role": "user", "content": "CFO: carry on"}}
+	prompt := map[string]any{"type": "message", "message": map[string]any{"role": "user", "content": "CEO: carry on"}}
 	toolCall := map[string]any{"type": "message", "message": map[string]any{"role": "assistant", "stopReason": "toolUse", "content": []map[string]any{{"type": "toolCall", "id": "call-1", "name": "bash"}}}}
 	toolResult := map[string]any{"type": "message", "message": map[string]any{"role": "toolResult", "toolCallId": "call-1", "content": []map[string]any{{"type": "text", "text": "ok"}}}}
 	shell := map[string]any{"type": "message", "message": map[string]any{"role": "bashExecution", "command": "git status", "output": "clean"}}
@@ -279,7 +279,7 @@ func TestPiTurnStateReadsTheSessionsOwnTurnBoundaries(t *testing.T) {
 // reader the board's tree uses, so a frame caught mid-redraw is not taken for
 // the end of a turn. The session is the goblin's own, named by its worktree.
 func TestANativePiTurnsOpenIsReadFromItsOwnSession(t *testing.T) {
-	prompt := map[string]any{"type": "message", "message": map[string]any{"role": "user", "content": "CFO: carry on"}}
+	prompt := map[string]any{"type": "message", "message": map[string]any{"role": "user", "content": "CEO: carry on"}}
 	toolCall := map[string]any{"type": "message", "message": map[string]any{"role": "assistant", "stopReason": "toolUse", "content": []map[string]any{{"type": "toolCall", "id": "call-1", "name": "bash"}}}}
 	reply := piTurnMessage("assistant", "stop", map[string]any{"type": "text", "text": "Done."})
 	for _, test := range []struct {

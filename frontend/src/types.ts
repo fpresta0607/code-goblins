@@ -3,10 +3,10 @@
 // screen and installed when its program was installed since, whichever
 // showed it.
 export interface HarnessUpdate { harness: string; line: string; installed: string }
-// CFOUpdate is the CFO's, with its Update button's state: pending once he
-// pressed it, until the CFO's turn ends; updating while the restart runs;
+// CEOUpdate is the CEO's, with its Update button's state: pending once he
+// pressed it, until the CEO's turn ends; updating while the restart runs;
 // problem why the last press did not restart it.
-export interface CFOUpdate extends HarnessUpdate { pending: boolean; updating: boolean; problem: string }
+export interface CEOUpdate extends HarnessUpdate { pending: boolean; updating: boolean; problem: string }
 // What the board knows of a harness's own update check, which the supervisor
 // runs outside every session (#2333): running while one he asked for runs,
 // result how the last one ended, failed when that is why it failed, and
@@ -91,7 +91,7 @@ export interface Task extends Evaluation {
   // was written; empty when neither is known.
   since: string;
   // brief says queued work has its brief, which Start needs; starting that
-  // its Start runs cfo spawn now or waits its turn, start_error why its last
+  // its Start runs goblins spawn now or waits its turn, start_error why its last
   // Start failed, and finished why it never starts again by itself: what
   // says it already finished. asked says a Start or Resume the Overlord
   // clicked waits its turn behind another start or resume, or for memory or
@@ -116,7 +116,7 @@ export interface Task extends Evaluation {
   ticket?: Ticket;
   overlaps: Overlap[];
   // hosted_checks is what its pull request's hosted checks said at the last
-  // CI poll, local_checks its change's newest cfo gate test run, and
+  // CI poll, local_checks its change's newest goblins gate test run, and
   // deployment how the deploy of its merge stands, apart.
   hosted_checks?: HostedChecks;
   local_checks?: LocalChecks;
@@ -164,12 +164,12 @@ function parseTree(value: unknown): FleetTree {
   };
 }
 export interface WorkProgress { at: string; source: string }
-// ComebackEntry is the CFO or one goblin the supervisor brings back after a
+// ComebackEntry is the CEO or one goblin the supervisor brings back after a
 // restart or sign-out: waiting for its turn, back, or stopped with the reason.
 export interface ComebackEntry { id: string; state: "waiting" | "back" | "stopped" | ""; reason: string }
 // Comeback is what the supervisor brings back after the last restart or
-// sign-out: the CFO first, then each goblin that was working.
-export interface Comeback { signed_in: string; cfo?: ComebackEntry; goblins: ComebackEntry[] }
+// sign-out: the CEO first, then each goblin that was working.
+export interface Comeback { signed_in: string; ceo?: ComebackEntry; goblins: ComebackEntry[] }
 // StartAtLoginView is whether Windows starts this home at login, or why it
 // cannot be started at login.
 export interface StartAtLoginView { on: boolean; unavailable: string }
@@ -186,7 +186,7 @@ export interface DevDriveView { state: string; line: string; note: string; expla
 // reviewer approved the pull request; rate_limited names the deploys the host
 // rate limited, which never built the head and checks leaves out.
 export interface HostedChecks { head: string; state: string; checks: number; failed: string[]; rate_limited: string[]; link: string; approved: boolean }
-// LocalChecks is the newest cfo gate test run of a task's change: the commit,
+// LocalChecks is the newest goblins gate test run of a task's change: the commit,
 // the level it ran and the one required, passed or failed, how long it took
 // and waited for its turn, and the packages or commands that failed.
 export interface LocalChecks { commit: string; level: string; required_level: string; status: string; duration_seconds: number; queue_seconds: number; failed: string[]; at: string }
@@ -282,7 +282,7 @@ export interface CIUsual { repository: string; kind: string; seconds: number }
 export interface CommitHolder { name: string; commit: number }
 // Disk is the free space in bytes of the least free of the home's drive and
 // the Dev Drive, which every start and wake reads, beside the floor under
-// which no goblin or gate test run starts and the lower mark at which the CFO
+// which no goblin or gate test run starts and the lower mark at which the CEO
 // is woken, and each drive the fleet writes to, which the disk meter shows.
 export interface Disk { drive: string; free: number; total: number; floor: number; wake: number; drives: DiskDrive[] }
 // DiskDrive is one drive the fleet writes to: its name, its free space and
@@ -333,7 +333,7 @@ export interface Action {
   // awaiting: who a delivery typed and submitted waits on to report taking
   // it, empty when it waits on nobody. advice: what to do about one that
   // never arrived, in the Overlord's words.
-  awaiting: "" | "the CFO" | "the goblin";
+  awaiting: "" | "the CEO" | "the goblin";
   // is_held: the delivery was typed into a turn under way, so its harness
   // holds it in its own queue until that turn takes it.
   is_held: boolean;
@@ -357,7 +357,7 @@ export interface Decision {
   detail: string;
 }
 export interface BoardActivity {
-  cfo_identity?:string; live?:boolean;
+  ceo_identity?:string; live?:boolean;
   // watch is the line a goblin writes when it asks the Overlord to watch this
   // presentation; only such a presentation reaches his Command Center.
   watch?:string;
@@ -434,23 +434,23 @@ export interface Snapshot {
   healthy: boolean;
   error: string;
   registration: string;
-  // The native terminal the registered CFO runs in; empty while it runs in Herdr.
-  cfo_terminal: string;
+  // The native terminal the registered CEO runs in; empty while it runs in Herdr.
+  ceo_terminal: string;
   // When the host of that terminal started; a new one, as after a restart,
   // is viewed afresh.
-  cfo_terminal_since: string;
-  // The harness the registered CFO runs, such as claude; empty while none is registered.
-  cfo_harness: string;
-  cfo_engine?: { harness: string; model: string; effort: string; pending: boolean; problem: string; waiting: string };
-  // The registered CFO's session, as sessions key it; empty while no CFO is
+  ceo_terminal_since: string;
+  // The harness the registered CEO runs, such as claude; empty while none is registered.
+  ceo_harness: string;
+  ceo_engine?: { harness: string; model: string; effort: string; pending: boolean; problem: string; waiting: string };
+  // The registered CEO's session, as sessions key it; empty while no CEO is
   // registered or its registration names no session.
-  cfo_session: string;
-  // The conversation the CFO could not resume when it last came back, and how
+  ceo_session: string;
+  // The conversation the CEO could not resume when it last came back, and how
   // to resume it by hand; empty when it came back on its own.
-  cfo_conversation_left: string;
-  // cfo_update is an update of the harness the CFO runs, installed since it
+  ceo_conversation_left: string;
+  // ceo_update is an update of the harness the CEO runs, installed since it
   // started, for the Update button on its header; null while none waits.
-  cfo_update: CFOUpdate | null;
+  ceo_update: CEOUpdate | null;
   // update_checks is each harness's own update check, by harness, for a
   // session's notice of a failed update; empty while the board knows of none.
   update_checks: Record<string, UpdateCheck>;
@@ -464,19 +464,19 @@ export interface Snapshot {
   dev_drive?: DevDriveView;
   // build names the board bundle the supervisor serves.
   build: string;
-  // cfo_runs says a CFO is registered and running or starting; without one
+  // ceo_runs says a CEO is registered and running or starting; without one
   // the board shows its first-run page.
-  cfo_runs: boolean;
-  // cfo_starting says the CFO runs in its terminal but has not registered
+  ceo_runs: boolean;
+  // ceo_starting says the CEO runs in its terminal but has not registered
   // yet: Claude Code registers through its SessionStart hook after its
-  // onboarding and sign-in, a Codex or pi CFO when its first prompt runs cfo
+  // onboarding and sign-in, a Codex or pi CEO when its first prompt runs goblins
   // register.
-  cfo_starting: boolean;
-  // cfo_closed says the home's CFO registered and has since ended, with no
+  ceo_starting: boolean;
+  // ceo_closed says the home's CEO registered and has since ended, with no
   // terminal up for a new one: the board says so and offers Reopen, and
   // shows no first-run page.
-  cfo_closed: boolean;
-  cfo_configured: boolean;
+  ceo_closed: boolean;
+  ceo_configured: boolean;
   inbox: number;
   tasks: Task[];
   sessions: Session[];
@@ -516,18 +516,18 @@ export interface Snapshot {
   merge_trains?: MergeTrain[];
 }
 // AfkHeld is an item that waited on the Overlord in the Command Center while
-// AFK mode was on: its key there, its goblin (empty for the CFO's own), what
+// AFK mode was on: its key there, its goblin (empty for the CEO's own), what
 // it asks, whether it still waits on him and what became of it, what its
 // goblin reported meanwhile, the choice its asker recommends, empty for none,
 // and, in a report kept before nothing was left for him, what became of a
-// line the CFO left for him and settled, which was never asked.
+// line the CEO left for him and settled, which was never asked.
 export interface AfkHeld {
   item: string; task: string; what: string; at: string; waiting: boolean; now: string; meanwhile: string; recommendation: string; settled: string;
 }
 // Afk is AFK mode, the Overlord's switch for running the fleet while he is
 // away: on, off, or unreadable when the supervisor cannot read the switch.
-// While on it says since when and from where, how many decisions the CFO
-// logged and what is held for him; asked holds his words when the CFO turned
+// While on it says since when and from where, how many decisions the CEO
+// logged and what is held for him; asked holds his words when the CEO turned
 // it on at his ask, and is empty when he turned it on himself. While off,
 // page is the board-local report of the last stretch that ended.
 export interface Afk {
@@ -539,21 +539,21 @@ export interface Question {
   id: string; identity: string; text: string; options: string[]; recommended: string; answer: string; answer_kind: string; created_at: string; answer_id: string; status: string; message: string;
   // Who closed the question, with which choice and when ("" for a written answer).
   answered_option: string; answered_by: string; answered_at: string;
-  // task names the goblin that asked; it is empty for the CFO's own question.
+  // task names the goblin that asked; it is empty for the CEO's own question.
   task: string;
-  // for_task names the goblin whose decision the CFO's own question puts to
-  // him (cfo question --for); it is empty for a goblin's question.
+  // for_task names the goblin whose decision the CEO's own question puts to
+  // him (goblins question --for); it is empty for a goblin's question.
   for_task: string;
   // answered_in says where an answer given outside its card came from, such
   // as "chat".
   answered_in: string;
   // image_count is how many review images the goblin attached, one for each choice in order.
   image_count: number;
-  // generation is the asking goblin's session; empty for the CFO's question.
+  // generation is the asking goblin's session; empty for the CEO's question.
   generation: string;
-  // answered_away marks the CFO's answer given while AFK mode was on;
-  // change_id is his board action changing the CFO's answer to his own, and
-  // replaced_answer the CFO's choice it replaced once the goblin has his.
+  // answered_away marks the CEO's answer given while AFK mode was on;
+  // change_id is his board action changing the CEO's answer to his own, and
+  // replaced_answer the CEO's choice it replaced once the goblin has his.
   answered_away: boolean; change_id: string; replaced_answer: string;
   // mail is a message the question gives him to send himself, null for none.
   mail: Mail | null;
@@ -570,7 +570,7 @@ export interface Review {
   // one its card opens.
   link: string;
   // follows is the ID of the open decision a goblin's wait on him followed
-  // when it was raised, the CFO's question for its task or the goblin's own
+  // when it was raised, the CEO's question for its task or the goblin's own
   // with choices: the board shows only that question while it is open, and
   // its answer closes the wait.
   follows: string;
@@ -585,15 +585,15 @@ export interface Review {
   // revising_since is when he sent a revision from the page without ending
   // its review: the item waits on its goblin's next version, not on him.
   revising_since: string;
-  // document is a file cfo deliver handed him, which its Scrawl page shows,
+  // document is a file goblins deliver handed him, which its Scrawl page shows,
   // or null for any other item.
   document: ReviewDocument | null;
   state: string; answer: string; answer_id: string; delivered: boolean; reason: string; created_at: string; updated_at: string;
 }
-// A file delivered with cfo deliver: kind is set when its page shows it, and
+// A file delivered with goblins deliver: kind is set when its page shows it, and
 // download says its page offers it to download.
 export interface ReviewDocument { name: string; size: number; kind: string; download: boolean }
-// A command the CFO needs the Overlord to run (API8): the stored text is what
+// A command the CEO needs the Overlord to run (API8): the stored text is what
 // runs; the board shows it verbatim and names the item when he presses Run.
 export interface Run {
   id: string; identity: string; title: string; shell: string; admin: boolean; command: string; cwd: string;
@@ -607,26 +607,26 @@ export interface Run {
   // remote_fix is the row of the Remote access setting whose mending command
   // the Overlord ran from it, which draws its terminal.
   remote_fix: string;
-  // task is the goblin whose own command this is, empty for the CFO's;
+  // task is the goblin whose own command this is, empty for the CEO's;
   // terminal is whether the item's terminal runs, which its card draws.
   task: string; terminal: boolean;
   // update is the release an Update Code Goblins item installs, which the
   // board shows as its own card; null on every other item.
   update: ReleaseOffer | null;
-  // cfo_unwoken is the oldest wake the supervisor could not type into the CFO,
-  // on the item that offers the Overlord Restart the CFO; 0 on every other.
-  cfo_unwoken: number;
-  // cfo_stopped marks the item that says the supervisor stopped bringing back
-  // a CFO that kept ending, or could not bring it back, and offers him Reopen
-  // the CFO.
-  cfo_stopped: boolean;
+  // ceo_unwoken is the oldest wake the supervisor could not type into the CEO,
+  // on the item that offers the Overlord Restart the CEO; 0 on every other.
+  ceo_unwoken: number;
+  // ceo_stopped marks the item that says the supervisor stopped bringing back
+  // a CEO that kept ending, or could not bring it back, and offers him Reopen
+  // the CEO.
+  ceo_stopped: boolean;
   // mail is a message the item gives him to send himself, null for none.
   mail: Mail | null;
 }
 // A newer release of Code Goblins, as the Update item offers it: the version
 // this board runs and the one it installs, when that was published, a few
 // lines of what is new, its notes' page, whether its notes say it is signed
-// and by whom, and the SHA-256 they list for cfo.exe.
+// and by whom, and the SHA-256 they list for goblins.exe.
 export interface ReleaseOffer {
   from: string; to: string; page: string; published: string; notes: string[];
   // signing is "signed", "unsigned", or empty when the notes do not say.
@@ -648,7 +648,7 @@ export interface BrowserSignIn {
 export interface CredentialRequest {
   id: string; generation: string; identity: string;
   task_generation: string; grant_service: string;
-  // by is "cfo" or "goblin"; task is the goblin that needs the values.
+  // by is "ceo" or "goblin"; task is the goblin that needs the values.
   by: string; task: string;
   project: string;
   // env_file is a local env file at the root of the project's checkout where each
@@ -699,10 +699,10 @@ export interface FileDiff {
   code_omitted: boolean;
   fingerprint: string;
 }
-// Setup is the first-run page: the home the CFO starts in, the agent the
+// Setup is the first-run page: the home the CEO starts in, the agent the
 // quick start remembered, or "" when none was chosen, the projects folder and
 // the git checkouts in it, or why it offers none, the agents this machine
-// has, and whether a CFO already runs.
+// has, and whether a CEO already runs.
 export interface Setup {
   home: string;
   agent: string;
@@ -710,10 +710,10 @@ export interface Setup {
   checkouts: string[];
   problem: string;
   agents: SetupAgent[];
-  cfo_runs: boolean;
+  ceo_runs: boolean;
 }
 // SetupAgent is one agent the first-run page shows: whether it is the
-// recommended one and the few words on what a CFO in it gets, both from the
+// recommended one and the few words on what a CEO in it gets, both from the
 // supervisor's table of what is proved, and why Start cannot pick it when it
 // cannot.
 export interface SetupAgent {
@@ -722,7 +722,7 @@ export interface SetupAgent {
   recommended: boolean;
   note: string;
   installed: boolean;
-  // What the agent's own status command says, in the environment the CFO's
+  // What the agent's own status command says, in the environment the CEO's
   // terminal starts with; unknown is an answer it did not give.
   sign_in: SignIn;
   reason: string;
@@ -807,7 +807,7 @@ export function parseAction(value: unknown): Action {
     generation: string(v.generation),
     status: string(v.status),
     message: string(v.message),
-    awaiting: isRecord(v.awaiting) ? (string(v.awaiting.task) ? "the goblin" : "the CFO") : "",
+    awaiting: isRecord(v.awaiting) ? (string(v.awaiting.task) ? "the goblin" : "the CEO") : "",
     is_held: isRecord(v.awaiting) && v.awaiting.is_held === true,
     advice: string(v.advice),
     can_send_now: v.can_send_now === true,
@@ -888,7 +888,7 @@ function itemLists(v: Record<string, unknown>) {
         output: string(r.output), reason: string(r.reason), created_at: string(r.created_at), expires_at: string(r.expires_at), ran_at: string(r.ran_at), finished_at: string(r.finished_at),
         connection_task: string(r.connection_task), connection_generation: string(r.connection_generation),
         credential_request: string(r.credential_request), credential_names: strings(r.credential_names), remote_fix: string(r.remote_fix),
-        task: string(r.task), terminal: r.terminal === undefined ? false : boolean(r.terminal), cfo_unwoken: r.cfo_unwoken === undefined ? 0 : number(r.cfo_unwoken), cfo_stopped: r.cfo_stopped === undefined ? false : boolean(r.cfo_stopped),
+        task: string(r.task), terminal: r.terminal === undefined ? false : boolean(r.terminal), ceo_unwoken: r.ceo_unwoken === undefined ? 0 : number(r.ceo_unwoken), ceo_stopped: r.ceo_stopped === undefined ? false : boolean(r.ceo_stopped),
         update: r.update == null ? null : (({ from, to, page, published, notes, signing, publisher, sum }) => ({ from: string(from), to: string(to), page: string(page), published: string(published),
           notes: strings(notes), signing: string(signing), publisher: string(publisher), sum: string(sum) }))(object(r.update)), mail: parseMail(r.mail) };
     }),
@@ -1030,25 +1030,25 @@ export function parseSnapshot(value: unknown): Snapshot {
     example: v.example === undefined ? false : boolean(v.example),
     error: string(v.error),
     registration: v.registration === undefined ? "" : string(v.registration),
-    cfo_terminal: v.cfo_terminal === undefined ? "" : string(v.cfo_terminal),
-    cfo_terminal_since: v.cfo_terminal_since === undefined ? "" : string(v.cfo_terminal_since),
-    cfo_harness: v.cfo_harness === undefined ? "" : string(v.cfo_harness),
-    ...(v.cfo_engine == null ? {} : { cfo_engine: ((engine) => ({ harness: string(engine.harness), model: string(engine.model), effort: string(engine.effort), pending: engine.pending === undefined ? false : boolean(engine.pending), problem: engine.problem === undefined ? "" : string(engine.problem), waiting: engine.waiting === undefined ? "" : string(engine.waiting) }))(object(v.cfo_engine)) }),
-    cfo_session: v.cfo_session === undefined ? "" : string(v.cfo_session),
-    cfo_conversation_left: v.cfo_conversation_left === undefined ? "" : string(v.cfo_conversation_left),
-    cfo_update: v.cfo_update == null ? null : ((update) => ({ ...parseHarnessUpdate(update), pending: update.pending === undefined ? false : boolean(update.pending), updating: update.updating === undefined ? false : boolean(update.updating), problem: update.problem === undefined ? "" : string(update.problem) }))(object(v.cfo_update)),
+    ceo_terminal: v.ceo_terminal === undefined ? "" : string(v.ceo_terminal),
+    ceo_terminal_since: v.ceo_terminal_since === undefined ? "" : string(v.ceo_terminal_since),
+    ceo_harness: v.ceo_harness === undefined ? "" : string(v.ceo_harness),
+    ...(v.ceo_engine == null ? {} : { ceo_engine: ((engine) => ({ harness: string(engine.harness), model: string(engine.model), effort: string(engine.effort), pending: engine.pending === undefined ? false : boolean(engine.pending), problem: engine.problem === undefined ? "" : string(engine.problem), waiting: engine.waiting === undefined ? "" : string(engine.waiting) }))(object(v.ceo_engine)) }),
+    ceo_session: v.ceo_session === undefined ? "" : string(v.ceo_session),
+    ceo_conversation_left: v.ceo_conversation_left === undefined ? "" : string(v.ceo_conversation_left),
+    ceo_update: v.ceo_update == null ? null : ((update) => ({ ...parseHarnessUpdate(update), pending: update.pending === undefined ? false : boolean(update.pending), updating: update.updating === undefined ? false : boolean(update.updating), problem: update.problem === undefined ? "" : string(update.problem) }))(object(v.ceo_update)),
     update_checks: Object.fromEntries(Object.entries(v.update_checks == null ? {} : object(v.update_checks)).map(([harness, value]) => {
       const check = object(value);
       return [harness, { running: check.running === undefined ? false : boolean(check.running), failed: check.failed === undefined ? false : boolean(check.failed), current: check.current === undefined ? false : boolean(check.current), result: check.result === undefined ? "" : string(check.result) }];
     })),
     ...(v.start_at_login == null ? {} : { start_at_login: ((setting) => ({ on: boolean(setting.on), unavailable: setting.unavailable === undefined ? "" : string(setting.unavailable) }))(object(v.start_at_login)) }),
     ...(v.dev_drive == null ? {} : { dev_drive: parseDevDrive(object(v.dev_drive)) }),
-    ...(v.comeback == null ? {} : { comeback: ((c) => ({ signed_in: string(c.signed_in), ...(c.cfo == null ? {} : { cfo: parseComebackEntry(c.cfo) }), goblins: array(c.goblins).map(parseComebackEntry) }))(object(v.comeback)) }),
+    ...(v.comeback == null ? {} : { comeback: ((c) => ({ signed_in: string(c.signed_in), ...(c.ceo == null ? {} : { ceo: parseComebackEntry(c.ceo) }), goblins: array(c.goblins).map(parseComebackEntry) }))(object(v.comeback)) }),
     build: string(v.build),
-    cfo_runs: v.cfo_runs === undefined || boolean(v.cfo_runs),
-    cfo_starting: v.cfo_starting === undefined ? false : boolean(v.cfo_starting),
-    cfo_closed: v.cfo_closed === undefined ? false : boolean(v.cfo_closed),
-    cfo_configured: v.cfo_configured === undefined ? false : boolean(v.cfo_configured),
+    ceo_runs: v.ceo_runs === undefined || boolean(v.ceo_runs),
+    ceo_starting: v.ceo_starting === undefined ? false : boolean(v.ceo_starting),
+    ceo_closed: v.ceo_closed === undefined ? false : boolean(v.ceo_closed),
+    ceo_configured: v.ceo_configured === undefined ? false : boolean(v.ceo_configured),
     inbox: number(v.inbox),
     pc_restart: v.pc_restart == null ? null : ((restart) => ({ state: pcRestartState(restart.state), problem: string(restart.problem), at: string(restart.at) }))(object(v.pc_restart)),
     ci_usual: array(v.ci_usual).map((value) => { const d = object(value); return { repository: string(d.repository), kind: string(d.kind), seconds: number(d.seconds) }; }),
@@ -1058,7 +1058,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     issues: strings(v.issues),
     attention: strings(v.attention),
     history_count: v.history_count === undefined ? 0 : number(v.history_count),
-    activity: array(v.activity).map(value=>{const a=object(value);return {id:string(a.id),kind:string(a.kind),task_id:string(a.task_id),generation:string(a.generation),cfo_identity:string(a.cfo_identity),live:a.live===undefined?false:boolean(a.live),source:string(a.source),target:string(a.target),state:string(a.state),url:string(a.url),at:string(a.at),until:string(a.until),watch:string(a.watch)};}),
+    activity: array(v.activity).map(value=>{const a=object(value);return {id:string(a.id),kind:string(a.kind),task_id:string(a.task_id),generation:string(a.generation),ceo_identity:string(a.ceo_identity),live:a.live===undefined?false:boolean(a.live),source:string(a.source),target:string(a.target),state:string(a.state),url:string(a.url),at:string(a.at),until:string(a.until),watch:string(a.watch)};}),
     ...itemLists(v),
     tasks: array(v.tasks).map((value) => {
       const t = object(value);
@@ -1126,7 +1126,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     }),
     // The supervisor lists the sessions by id, so one that reports keeps its
     // place in what it sends (#1611); the board holds them oldest update
-    // first, so the newest CFO session is the last.
+    // first, so the newest CEO session is the last.
     sessions: array(v.sessions).map((value) => {
       const s = object(value);
       return {
@@ -1195,7 +1195,7 @@ export function parseSetup(value: unknown): Setup {
       if (signIn !== "signed_in" && signIn !== "signed_out" && signIn !== "unknown") throw new Error("Invalid sign-in state");
       return { id: string(agent.id), name: string(agent.name), recommended: boolean(agent.recommended), note: string(agent.note), installed: boolean(agent.installed), sign_in: signIn, reason: string(agent.reason) };
     }),
-    cfo_runs: boolean(v.cfo_runs),
+    ceo_runs: boolean(v.ceo_runs),
   };
 }
 export function parseHistory(value: unknown): Commit[] {

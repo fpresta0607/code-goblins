@@ -85,14 +85,14 @@ func failedBefore(t *testing.T, h home.Home, reads ...string) {
 	}
 }
 
-// On 2026-10-10, with every processor busy, the supervisor woke the CFO twice
+// On 2026-10-10, with every processor busy, the supervisor woke the CEO twice
 // in minutes with "progress for <task>: context deadline exceeded" for three
 // goblins at a time, and once with "gh could not read <pull request>: context
 // deadline exceeded". Each of those reads is made again on the next pass, so
 // one that failed once tells nothing of the goblin or of the supervisor. The
-// CFO is woken once the read failed on failingPasses passes in a row, and a
+// CEO is woken once the read failed on failingPasses passes in a row, and a
 // pass that reads it ends the run.
-func TestAReadThatFailedWakesTheCFOOnlyOnceItKeepsFailing(t *testing.T) {
+func TestAReadThatFailedWakesTheCEOOnlyOnceItKeepsFailing(t *testing.T) {
 	const pull = "https://github.com/o/r/pull/7"
 	timedOut := fmt.Sprintf("gh could not read %s: %v", pull, context.DeadlineExceeded)
 	pullRead := func(isTimingOut *bool) func(context.Context, string) (PullRequestInfo, error) {
@@ -171,7 +171,7 @@ func TestAReadThatFailedWakesTheCFOOnlyOnceItKeepsFailing(t *testing.T) {
 					}
 				}
 				if len(wakes) != step.wakes {
-					t.Fatalf("after pass %d (timing out: %t) the CFO had %d wakes naming %q, want %d: %q", pass+1, step.isTimingOut, len(wakes), told, step.wakes, supervisorErrorWakes(t, service))
+					t.Fatalf("after pass %d (timing out: %t) the CEO had %d wakes naming %q, want %d: %q", pass+1, step.isTimingOut, len(wakes), told, step.wakes, supervisorErrorWakes(t, service))
 				}
 			}
 		})

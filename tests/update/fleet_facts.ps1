@@ -1,11 +1,13 @@
 # fleet_facts.ps1 - what an update of a person's Code Goblins must keep, read
 # the same way before and after it: the build the home runs and the board
-# serves, the CFO's and the goblin's terminals by process, the dictation
+# serves, the CEO's and the goblin's terminals by process, the dictation
 # engine and model on disk, the person's settings, project record, stored
-# credential and the goblin's work.
+# credential and the goblin's work. -PreRename reads a home that a build from
+# before the rename runs, by the names that build knows itself by, which name
+# its program, the CEO's terminal and the home's setting.
 #
 #   . .\tests\update\fleet_facts.ps1
-#   $facts = Get-FleetFacts -Project <checkout>
+#   $facts = Get-FleetFacts -Project <checkout> [-PreRename]
 
 function Get-ProcessFact([int]$Id) {
     $process = Get-Process -Id $Id -ErrorAction SilentlyContinue
@@ -13,14 +15,24 @@ function Get-ProcessFact([int]$Id) {
     "pid $Id since $($process.StartTime.ToUniversalTime().ToString('o'))"
 }
 
-function Get-FleetFacts([Parameter(Mandatory = $true)][string]$Project) {
-    $cfoHome = [Environment]::GetEnvironmentVariable("CFO_HOME", "User")
-    $state = Join-Path $cfoHome "state"
-    $bin = Join-Path $cfoHome "bin"
+# Get-BuildNames answers the command, the prefix of its settings and the
+# CEO's own terminal, as this build names them or, with -PreRename, as a build
+# from before the rename does.
+function Get-BuildNames([switch]$PreRename) {
+    if (-not $PreRename) { return "goblins", "GOBLINS_", "ceo" }
+    . (Join-Path $PSScriptRoot "..\pre_rename_build.ps1")
+    $PreRenameCommand, $PreRenameSettingPrefix, $PreRenameCeoTerminal
+}
+
+function Get-FleetFacts([Parameter(Mandatory = $true)][string]$Project, [switch]$PreRename) {
+    $command, $settingPrefix, $ceoTerminal = Get-BuildNames -PreRename:$PreRename
+    $ceoHome = [Environment]::GetEnvironmentVariable("${settingPrefix}HOME", "User")
+    $state = Join-Path $ceoHome "state"
+    $bin = Join-Path $ceoHome "bin"
     $facts = [ordered]@{}
-    $facts.home = $cfoHome
+    $facts.home = $ceoHome
     $facts.version = ((& (Join-Path $bin "goblins.exe") version) | Out-String).Trim()
-    $facts.cfoExe = (Get-FileHash (Join-Path $bin "cfo.exe") -Algorithm SHA256).Hash.ToLowerInvariant()
+    $facts.commandExe = (Get-FileHash (Join-Path $bin "$command.exe") -Algorithm SHA256).Hash.ToLowerInvariant()
 
     # The board's record names the supervisor, which answers /api/alive with
     # its pid; the program that pid runs is the build the board serves.
@@ -32,13 +44,16 @@ function Get-FleetFacts([Parameter(Mandatory = $true)][string]$Project) {
     $facts.boardExe = (Get-FileHash -LiteralPath $served -Algorithm SHA256).Hash.ToLowerInvariant()
 
     # Each native terminal's record names its host and the harness it runs.
-    foreach ($terminal in "cfo", "demo-goblin") {
-        $record = Get-Content -Raw -LiteralPath (Join-Path $state "hosts\$terminal.json") | ConvertFrom-Json
+    # The CEO's terminal is named for the role, which a build from before the
+    # rename named for its command.
+    foreach ($terminal in "ceo", "demo-goblin") {
+        $id = if ($terminal -eq "ceo") { $ceoTerminal } else { $terminal }
+        $record = Get-Content -Raw -LiteralPath (Join-Path $state "hosts\$id.json") | ConvertFrom-Json
         $facts["$terminal host"] = Get-ProcessFact $record.host_pid
         $facts["$terminal harness"] = Get-ProcessFact $record.child_pid
     }
 
-    $voice = Join-Path $cfoHome "caches\voice"
+    $voice = Join-Path $ceoHome "caches\voice"
     $facts.dictation = @(Get-ChildItem -LiteralPath $voice -Recurse -File | Sort-Object FullName | ForEach-Object {
             "$($_.FullName.Substring($voice.Length + 1)) $($_.Length) bytes, written $($_.LastWriteTimeUtc.ToString('o'))"
         }) -join "; "
@@ -49,7 +64,7 @@ function Get-FleetFacts([Parameter(Mandatory = $true)][string]$Project) {
     $facts.project = ((& (Join-Path $bin "goblins.exe") project show $Project) | Out-String).Trim()
     $facts.credentials = ((& (Join-Path $bin "goblins.exe") auth list) | Out-String).Trim()
 
-    $worktree = Join-Path $cfoHome "worktrees\$(Split-Path -Leaf $Project)\demo-goblin"
+    $worktree = Join-Path $ceoHome "worktrees\$(Split-Path -Leaf $Project)\demo-goblin"
     $facts.goblinWork = @(
         (git -C $worktree log -1 --format=%H%x20%s)
         (Get-Content -Raw -LiteralPath (Join-Path $worktree "uncommitted.txt")).Trim()

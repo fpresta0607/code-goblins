@@ -46,7 +46,7 @@ func fetchClick(t *testing.T, b *fetchBoard, generation string, change func(*htt
 	request := httptest.NewRequest(http.MethodPost, "http://"+credentialBoardHost+"/api/credentials/fetch", strings.NewReader(fmt.Sprintf(`{"id":%q,"generation":%q}`, b.request.ID, generation)))
 	request.RemoteAddr = "127.0.0.1:50000"
 	request.Header.Set("Origin", "http://"+credentialBoardHost)
-	request.Header.Set("X-CFO-Token", "test-instance")
+	request.Header.Set("X-CEO-Token", "test-instance")
 	request.Header.Set("Content-Type", "application/json")
 	if change != nil {
 		change(request)
@@ -139,7 +139,7 @@ func TestACardFetchThatStoppedSaysWhyOnTheCard(t *testing.T) {
 				t.Fatal(err)
 			}
 			if len(pending) != 1 || !strings.Contains(pending[0].Detail, "the fetch his card started for "+b.request.ID+" stopped") || !strings.Contains(pending[0].Detail, test.want) {
-				t.Fatalf("wakes = %+v, want the CFO told why the fetch stopped", pending)
+				t.Fatalf("wakes = %+v, want the CEO told why the fetch stopped", pending)
 			}
 		})
 	}
@@ -192,7 +192,7 @@ func TestAFetchThatStoppedAfterHisSignInSaysWhyOnTheCard(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(pending) != 1 || !strings.Contains(pending[0].Detail, "after the Stripe sign-in stopped") || !strings.Contains(pending[0].Detail, "the page changed") {
-		t.Fatalf("wakes = %+v, want the CFO told why the fetch stopped", pending)
+		t.Fatalf("wakes = %+v, want the CEO told why the fetch stopped", pending)
 	}
 }
 
@@ -238,7 +238,7 @@ func TestAFetchCarryingOnLeavesAFetchHisClickStartedToSayHowItWent(t *testing.T)
 		t.Fatalf("fetch = %+v, want the running fetch of his click left to say how it went", fetch)
 	}
 	if pending, err := wake.Pending(b.home.State); err != nil || len(pending) != 1 {
-		t.Fatalf("wakes = %+v, %v, want the CFO still told why the carried-on fetch stopped", pending, err)
+		t.Fatalf("wakes = %+v, %v, want the CEO still told why the carried-on fetch stopped", pending, err)
 	}
 }
 

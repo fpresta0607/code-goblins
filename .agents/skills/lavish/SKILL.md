@@ -8,7 +8,7 @@ argument-hint: <what the artifact should show>
 
 `lavish-axi` is a presentation-only dependency, exactly as it is for First Mate.
 It is not part of the control plane: only a page named by its HTML file, a goblin's page wait (below) or a page review, uses it, and nonvisual work never waits for it.
-`cfo doctor` reports it against its floor, the Code Goblins build it names, and stays healthy without it, printing `PRESENTATION_UNAVAILABLE`.
+`goblins doctor` reports it against its floor, the Code Goblins build it names, and stays healthy without it, printing `PRESENTATION_UNAVAILABLE`.
 A build at the floor sends every comment on a page as one batch: each annotation, message and pick waits in the page's notes until Send or Send & End delivers them all in one request, where an older build sent each the moment it was written and a page review woke once per note.
 It also runs its page server in its own state folder: a build before 0.1.79-codegoblins.16 keeps the folder of the first `lavish-axi` command that started it, so a worktree it started in cannot be removed while it runs.
 
@@ -26,7 +26,7 @@ If it is empty, infer what to show from the conversation.
   Scrawl is the Overlord's name for the review page `lavish-axi` serves, so call it Scrawl when naming it to him.
 - **Neither, and say so** when lavish-axi is missing, below its floor, or not the Code Goblins build (the upstream package): name the unavailable state once ("visual review is unavailable, here it is as text"), deliver the content in plain text, and carry on.
   Never hang waiting for a surface that cannot open, and never hold unrelated dispatch for an install.
-  When the Overlord wants the visual version, ask for consent to install the Code Goblins build of lavish-axi with the command `cfo doctor` prints, then confirm with `cfo doctor`.
+  When the Overlord wants the visual version, ask for consent to install the Code Goblins build of lavish-axi with the command `goblins doctor` prints, then confirm with `goblins doctor`.
 
 ## Workflow
 
@@ -34,7 +34,7 @@ If it is empty, infer what to show from the conversation.
    Run `lavish-axi playbook` to list the playbooks, `lavish-axi playbook <id>` for the one that matches the content, and `lavish-axi design` for the design direction before writing.
    Start the page in the board's look and ask for a pick the way "The page" below says.
    Keep every other referenced asset beside the HTML and reference it with a relative path; apart from the two board stylesheets, a root-absolute path will not resolve.
-2. Publish it with `cfo review --id <stable-id> --title "<what to look at>" --lavish <file>`, adding `--task <your id>` from a goblin's own terminal: the command opens the page without a browser and puts its link in the Command Center.
+2. Publish it with `goblins review --id <stable-id> --title "<what to look at>" --lavish <file>`, adding `--task <your id>` from a goblin's own terminal: the command opens the page without a browser and puts its link in the Command Center.
 3. Keep working or end the turn: the supervisor polls the page, and what the Overlord sends reaches the CEO as a `review` wake, his feedback saved whole under `state/reviews/feedback/`.
    Never run `lavish-axi poll` yourself.
 4. Apply every queued prompt, refresh the artifact, and publish it again under a new ID to keep the loop going.
@@ -86,20 +86,20 @@ When the page asks him to pick, declare the question as data and Scrawl draws it
 - Put the declaration at the end of the page, after what he needs to read first; a list of such objects asks several questions, each with its own `id`.
 - Write each option as the answer itself, a short phrase, never a bare letter: two to four of them, with `recommended` equal to one.
 - His pick reaches the CEO as the exact option text, or the words he wrote for Other; relay it to the goblin unchanged.
-- Never build an answer form, a notes box, a dropdown or a send button of your own, and never ask the same thing again with `cfo question`: the page is the one place he answers.
+- Never build an answer form, a notes box, a dropdown or a send button of your own, and never ask the same thing again with `goblins question`: the page is the one place he answers.
   Everything else he wants to say goes in Scrawl's conversation box or as a comment on the page.
 
 ## A goblin's page
 
 Nobody polls a page themselves, and a goblin least of all: the poll takes the Overlord's feedback where only that goblin sees it, and nobody else learns that a question is waiting.
-When a goblin needs his answer on a page, it opens the page with `lavish-axi <file> --no-open` and registers the wait with `cfo notify <id> --waiting-on overlord "<why>" --lavish <file>`.
-The page's link goes on the wait's Command Center item, the supervisor polls the page, and his feedback reaches the CEO as a `review` wake with the whole reply saved under `state/reviews/feedback/`; relay it to the goblin with `cfo send`.
-While AFK mode is on the same wait is instead the goblin's question to the CEO, with the page's link and its declared choices, and the CEO answers it in his place with `cfo answer`. The goblin does nothing differently.
-A goblin's page that needs no answer is reported with `cfo present` instead.
+When a goblin needs his answer on a page, it opens the page with `lavish-axi <file> --no-open` and registers the wait with `goblins notify <id> --waiting-on overlord "<why>" --lavish <file>`.
+The page's link goes on the wait's Command Center item, the supervisor polls the page, and his feedback reaches the CEO as a `review` wake with the whole reply saved under `state/reviews/feedback/`; relay it to the goblin with `goblins send`.
+While AFK mode is on the same wait is instead the goblin's question to the CEO, with the page's link and its declared choices, and the CEO answers it in his place with `goblins answer`. The goblin does nothing differently.
+A goblin's page that needs no answer is reported with `goblins present` instead.
 
 ## The supervisor's poll
 
-- `cfo serve` runs one bounded `lavish-axi poll` at a time for each open item that names a page, for as long as the item is open, and stops it when the item closes.
+- `goblins serve` runs one bounded `lavish-axi poll` at a time for each open item that names a page, for as long as the item is open, and stops it when the item closes.
 - A poll's feedback is delivered once, so nobody else may poll the page: a second poll would take the Overlord's answer where no wake reaches it.
 - `Send & End` in the browser ends the session, and its final feedback reaches the CEO the same way.
   After that, do not reopen the session uninvited; `--reopen` is for when the Overlord asks for another look.

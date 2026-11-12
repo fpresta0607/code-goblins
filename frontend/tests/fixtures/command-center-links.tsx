@@ -3,7 +3,7 @@ import { CommandCenterMenu } from "../../src/command-center-menu";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
-// The Overlord's card of 2026-10-17: the CFO asks him to roll a token and
+// The Overlord's card of 2026-10-17: the CEO asks him to roll a token and
 // gives its page as a value to copy, with another address in its words, and
 // History holds a goblin's wait that named its page.
 const NOW = Date.parse("2026-10-17T18:20:00Z");

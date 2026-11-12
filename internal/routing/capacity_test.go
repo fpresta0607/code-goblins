@@ -19,7 +19,7 @@ func TestDetectRecognizesTheNativeCodexCapacityRefusal(t *testing.T) {
 		"• Ran Get-Content review.log\n  └ earlier output\n    " + banner,
 		"• Ran Get-Content review.log\n  └ " + banner,
 		"> " + banner,
-		"CFO: earlier capacity refusal\n  " + banner,
+		"CEO: earlier capacity refusal\n  " + banner,
 		"Overlord: " + banner,
 		"The review log contains: " + banner,
 		"Selected model is at capacity. Please try a different model.",
@@ -41,7 +41,7 @@ func TestDetectRecognizesTheNativeCodexCapacityRefusal(t *testing.T) {
 	}
 	for _, prefix := range []string{
 		"• Ran Get-Content review.log\n  └ earlier output\n    quoted continuation\n",
-		"CFO: continue on the same model\n",
+		"CEO: continue on the same model\n",
 		"```an unfinished fence\n",
 	} {
 		fault, evidence, found := Detect(prefix + banner)

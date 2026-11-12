@@ -50,7 +50,7 @@ for (const c of CARDS) {
     await page.addInitScript(() => { (window as unknown as { chrome: Record<string, unknown> }).chrome = { ...(window as unknown as { chrome?: Record<string, unknown> }).chrome, webview: {} }; });
     const sent: { token: string | null; body: unknown }[] = [];
     await page.route("**/api/cards/open-path", async (route) => {
-      sent.push({ token: await route.request().headerValue("X-CFO-Token"), body: route.request().postDataJSON() });
+      sent.push({ token: await route.request().headerValue("X-CEO-Token"), body: route.request().postDataJSON() });
       await route.fulfill({ status: 200, json: { message: "Opened File Explorer." } });
     });
     const card = await openCard(page, c.open);

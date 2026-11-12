@@ -29,21 +29,21 @@ var (
 	thisSignIn = time.Date(2026, 10, 6, 22, 0, 0, 0, time.UTC)
 )
 
-// comebackRecorder stands in for bringing the CFO and goblins back: it
+// comebackRecorder stands in for bringing the CEO and goblins back: it
 // records the order they come back in and answers each goblin with its
 // outcome, CameBack unless told otherwise.
 type comebackRecorder struct {
 	mu       sync.Mutex
 	order    []string
 	outcomes map[string]GoblinComeback
-	cfoErr   error
+	ceoErr   error
 }
 
-func (r *comebackRecorder) cfo(context.Context) error {
+func (r *comebackRecorder) ceo(context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.order = append(r.order, NativeCFOTerminal)
-	return r.cfoErr
+	r.order = append(r.order, NativeCEOTerminal)
+	return r.ceoErr
 }
 
 func (r *comebackRecorder) goblin(_ context.Context, id string) GoblinComeback {
@@ -90,7 +90,7 @@ func comebackBoard(t *testing.T, recorder *comebackRecorder, readings ...[2]floa
 	service.Options.Dispatch.Memory = meter.read
 	service.Options.Comeback = &Comeback{
 		SignedIn: func() (time.Time, error) { return thisSignIn, nil },
-		CFO:      recorder.cfo,
+		CEO:      recorder.ceo,
 		Goblin:   recorder.goblin,
 	}
 	if err := state.WriteComeback(h.State, state.Comeback{SignedIn: lastSignIn, Planned: lastSignIn.Add(time.Minute)}); err != nil {
@@ -123,7 +123,7 @@ func workingGoblin(t *testing.T, h home.Home, id string, started time.Time) stat
 
 // promptedAfterItsReports records in the store that meta's session took a
 // prompt a minute after the reports its status log holds, as a goblin the
-// CFO steers back to work with cfo send takes one.
+// CEO steers back to work with goblins send takes one.
 func promptedAfterItsReports(t *testing.T, store *Store, meta state.TaskMeta) {
 	t.Helper()
 	key := meta.Harness + "/" + meta.ID
@@ -143,7 +143,7 @@ func awaitComeback(t *testing.T, service *Service) {
 	deadline := time.Now().Add(time.Minute)
 	for time.Now().Before(deadline) {
 		service.starts.Lock()
-		isBusy := service.isCFOComingBack || len(service.changing) > 0
+		isBusy := service.isCEOComingBack || len(service.changing) > 0
 		service.starts.Unlock()
 		if !isBusy {
 			return
@@ -169,8 +169,8 @@ func TestTheComebackRecordsTheSignInBeforeLowOrFailedMemoryReadings(t *testing.T
 			t.Run(fmt.Sprintf("prior plan %v, failed reading %v", hasPriorPlan, isReadingFailed), func(t *testing.T) {
 				recorder := &comebackRecorder{}
 				service, h, spawner := comebackBoard(t, recorder, [2]float64{4, 8}, [2]float64{8, 8}, [2]float64{8, 8})
-				closedCFO(t, h.State)
-				terminalStarted(t, h, NativeCFOTerminal, lastSignIn.Add(time.Minute))
+				closedCEO(t, h.State)
+				terminalStarted(t, h, NativeCEOTerminal, lastSignIn.Add(time.Minute))
 				meta := workingGoblin(t, h, "alpha", lastSignIn.Add(time.Hour))
 				if !hasPriorPlan {
 					if err := os.Remove(state.ComebackPath(h.State)); err != nil {
@@ -196,10 +196,10 @@ func TestTheComebackRecordsTheSignInBeforeLowOrFailedMemoryReadings(t *testing.T
 					t.Fatalf("comeback %+v, error %v, want this sign-in recorded", record, err)
 				}
 				if hasPriorPlan {
-					if record.CFO == nil || record.CFO.State != state.ComebackWaiting || len(record.Goblins) != 1 || !record.Waiting(meta.ID, meta.SpawnGen) {
-						t.Fatalf("comeback %+v, want the CFO and alpha waiting", record)
+					if record.CEO == nil || record.CEO.State != state.ComebackWaiting || len(record.Goblins) != 1 || !record.Waiting(meta.ID, meta.SpawnGen) {
+						t.Fatalf("comeback %+v, want the CEO and alpha waiting", record)
 					}
-				} else if record.CFO != nil || len(record.Goblins) != 0 {
+				} else if record.CEO != nil || len(record.Goblins) != 0 {
 					t.Fatalf("first-run comeback %+v, want no returning terminals", record)
 				}
 				if len(recorder.came()) != 0 || len(spawner.recorded()) != 0 {
@@ -213,7 +213,7 @@ func TestTheComebackRecordsTheSignInBeforeLowOrFailedMemoryReadings(t *testing.T
 				afterFirstMark := recorder.came()
 				reading(t, service, 3)
 				if hasPriorPlan {
-					if !slices.Equal(afterFloor, []string{NativeCFOTerminal}) || !slices.Equal(afterFirstMark, afterFloor) || !slices.Equal(recorder.came(), []string{NativeCFOTerminal, meta.ID}) {
+					if !slices.Equal(afterFloor, []string{NativeCEOTerminal}) || !slices.Equal(afterFirstMark, afterFloor) || !slices.Equal(recorder.came(), []string{NativeCEOTerminal, meta.ID}) {
 						t.Fatalf("resumed at floor %v, first mark %v, second mark %v", afterFloor, afterFirstMark, recorder.came())
 					}
 				} else if len(recorder.came()) != 0 {
@@ -281,17 +281,17 @@ func TestAComebackPlanningErrorStillSchedulesWaitingWork(t *testing.T) {
 	}
 }
 
-// After a restart the CFO comes back first, then each goblin that was
+// After a restart the CEO comes back first, then each goblin that was
 // working, one at a time, a reading apart once memory has read at the
 // next-start mark twice, one whose terminal ran in an older sign-in among
 // them; a goblin that finished, was paused or stopped, or started in this
 // sign-in stays as it is.
-func TestARestartBringsTheCFOBackFirstThenEachWorkingGoblinOneAtATime(t *testing.T) {
+func TestARestartBringsTheCEOBackFirstThenEachWorkingGoblinOneAtATime(t *testing.T) {
 	// Arrange
 	recorder := &comebackRecorder{}
 	service, h, spawner := comebackBoard(t, recorder, [2]float64{8, 8})
-	closedCFO(t, h.State)
-	terminalStarted(t, h, NativeCFOTerminal, lastSignIn.Add(time.Minute))
+	closedCEO(t, h.State)
+	terminalStarted(t, h, NativeCEOTerminal, lastSignIn.Add(time.Minute))
 	for _, id := range []string{"alpha", "bravo", "charlie"} {
 		workingGoblin(t, h, id, lastSignIn.Add(time.Hour))
 	}
@@ -320,17 +320,17 @@ func TestARestartBringsTheCFOBackFirstThenEachWorkingGoblinOneAtATime(t *testing
 	}
 
 	// Assert
-	if !slices.Equal(afterFirst, []string{NativeCFOTerminal}) {
-		t.Errorf("the first reading brought back %v, want the CFO alone", afterFirst)
+	if !slices.Equal(afterFirst, []string{NativeCEOTerminal}) {
+		t.Errorf("the first reading brought back %v, want the CEO alone", afterFirst)
 	}
-	if came := recorder.came(); !slices.Equal(came, []string{NativeCFOTerminal, "alpha", "bravo", "charlie", "older"}) {
-		t.Errorf("came back in order %v, want the CFO, then alpha, bravo, charlie and older", came)
+	if came := recorder.came(); !slices.Equal(came, []string{NativeCEOTerminal, "alpha", "bravo", "charlie", "older"}) {
+		t.Errorf("came back in order %v, want the CEO, then alpha, bravo, charlie and older", came)
 	}
 	record, err := state.ReadComeback(h.State)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !record.SignedIn.Equal(thisSignIn) || record.CFO == nil || record.CFO.State != state.ComebackBack || len(record.Goblins) != 4 {
+	if !record.SignedIn.Equal(thisSignIn) || record.CEO == nil || record.CEO.State != state.ComebackBack || len(record.Goblins) != 4 {
 		t.Fatalf("the comeback record is %+v", record)
 	}
 	for _, entry := range record.Goblins {
@@ -454,7 +454,7 @@ func TestARestartBringsBackEveryGoblinLeftMeantToRunWhateverItsHostRecordSays(t 
 // not on a session: on 2026-10-27 a restart brought three such goblins back,
 // and each spent a fresh session only to report the same pull request done
 // again. The evaluation of a task in manual mode never reads done, so the
-// report is what says it delivered. One the CFO steered back to work after
+// report is what says it delivered. One the CEO steered back to work after
 // its report took a prompt since, so it comes back to finish that work.
 func TestARestartLeavesAGoblinThatDeliveredItsPullRequestDown(t *testing.T) {
 	// Arrange
@@ -530,11 +530,11 @@ func TestARestartPlansTheGoblinOfAFailedResumeItTook(t *testing.T) {
 	}
 }
 
-// The CFO a restart ended comes back whatever its host record says: its
+// The CEO a restart ended comes back whatever its host record says: its
 // registration names the program it ran in the sign-in before. One that
 // registered in an older sign-in, or in this one, was not ended by the
 // restart.
-func TestARestartBringsTheCFOBackWhoseHostRecordIsGone(t *testing.T) {
+func TestARestartBringsTheCEOBackWhoseHostRecordIsGone(t *testing.T) {
 	for _, testCase := range []struct {
 		name       string
 		registered time.Time
@@ -552,7 +552,7 @@ func TestARestartBringsTheCFOBackWhoseHostRecordIsGone(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			data, err := json.Marshal(primaryRegistration{Host: NativeCFOTerminal, Agent: "claude", Process: lock.Info{PID: 999999, OwnerPID: 999999, Start: testCase.registered, Hostname: hostname}})
+			data, err := json.Marshal(primaryRegistration{Host: NativeCEOTerminal, Agent: "claude", Process: lock.Info{PID: 999999, OwnerPID: 999999, Start: testCase.registered, Hostname: hostname}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -564,7 +564,7 @@ func TestARestartBringsTheCFOBackWhoseHostRecordIsGone(t *testing.T) {
 			// Assert
 			want := []string(nil)
 			if testCase.shouldCome {
-				want = []string{NativeCFOTerminal}
+				want = []string{NativeCEOTerminal}
 			}
 			if came := recorder.came(); !slices.Equal(came, want) {
 				t.Errorf("came back %v, want %v", came, want)
@@ -573,7 +573,7 @@ func TestARestartBringsTheCFOBackWhoseHostRecordIsGone(t *testing.T) {
 	}
 }
 
-// Memory gates the comeback as it gates a start: the CFO comes back at the
+// Memory gates the comeback as it gates a start: the CEO comes back at the
 // first reading at or above the 4 GB floor, and a goblin only after memory
 // and commit both read at the 5 GB next-start mark twice in a row.
 func TestTheComebackWaitsForMemoryAndCommitAtTheMarks(t *testing.T) {
@@ -581,14 +581,14 @@ func TestTheComebackWaitsForMemoryAndCommitAtTheMarks(t *testing.T) {
 	recorder := &comebackRecorder{}
 	service, h, _ := comebackBoard(t, recorder,
 		[2]float64{3.5, 8}, // under the floor: nothing
-		[2]float64{4.5, 8}, // over the floor: the CFO
+		[2]float64{4.5, 8}, // over the floor: the CEO
 		[2]float64{8, 8},   // first reading at the mark
 		[2]float64{8, 4.5}, // commit under the mark: the count starts again
 		[2]float64{8, 8},   // first again
 		[2]float64{8, 8},   // second: alpha
 	)
-	closedCFO(t, h.State)
-	terminalStarted(t, h, NativeCFOTerminal, lastSignIn.Add(time.Minute))
+	closedCEO(t, h.State)
+	terminalStarted(t, h, NativeCEOTerminal, lastSignIn.Add(time.Minute))
 	workingGoblin(t, h, "alpha", lastSignIn.Add(time.Hour))
 	var came [][]string
 
@@ -599,7 +599,7 @@ func TestTheComebackWaitsForMemoryAndCommitAtTheMarks(t *testing.T) {
 	}
 
 	// Assert
-	want := [][]string{{}, {"cfo"}, {"cfo"}, {"cfo"}, {"cfo"}, {"cfo", "alpha"}}
+	want := [][]string{{}, {"ceo"}, {"ceo"}, {"ceo"}, {"ceo"}, {"ceo", "alpha"}}
 	for index := range want {
 		if !slices.Equal(came[index], want[index]) && !(len(came[index]) == 0 && len(want[index]) == 0) {
 			t.Errorf("after reading %d came back %v, want %v", index+1, came[index], want[index])
@@ -612,15 +612,15 @@ func TestTheComebackWaitsForMemoryAndCommitAtTheMarks(t *testing.T) {
 // heavy line keeps for its next test run, so a restart does not bring a
 // goblin back into the room a resumed gate run waits for (#1926). Behind a
 // run waiting for 6 GB on a line of two slots that floor is 8 GB, so 6 GB
-// free holds alpha while the CFO comes back, and 9.5 GB brings it back.
-func TestTheComebackHoldsGoblinsButNotTheCFOWhileTheHeavyLineWaits(t *testing.T) {
+// free holds alpha while the CEO comes back, and 9.5 GB brings it back.
+func TestTheComebackHoldsGoblinsButNotTheCEOWhileTheHeavyLineWaits(t *testing.T) {
 	// Arrange
 	recorder := &comebackRecorder{}
 	service, h, _ := comebackBoard(t, recorder, [2]float64{6, 6}, [2]float64{6, 6}, [2]float64{6, 6}, [2]float64{9.5, 9.5})
 	service.Options.Dispatch.HeavyLine = MachineHeavyLine
 	heavyLine(t, 2, 6*gigabyte)
-	closedCFO(t, h.State)
-	terminalStarted(t, h, NativeCFOTerminal, lastSignIn.Add(time.Minute))
+	closedCEO(t, h.State)
+	terminalStarted(t, h, NativeCEOTerminal, lastSignIn.Add(time.Minute))
 	workingGoblin(t, h, "alpha", lastSignIn.Add(time.Hour))
 	var came [][]string
 
@@ -631,7 +631,7 @@ func TestTheComebackHoldsGoblinsButNotTheCFOWhileTheHeavyLineWaits(t *testing.T)
 	}
 
 	// Assert
-	want := [][]string{{"cfo"}, {"cfo"}, {"cfo"}, {"cfo", "alpha"}}
+	want := [][]string{{"ceo"}, {"ceo"}, {"ceo"}, {"ceo", "alpha"}}
 	for index := range want {
 		if !slices.Equal(came[index], want[index]) {
 			t.Errorf("after reading %d came back %v, want %v", index+1, came[index], want[index])
@@ -647,8 +647,8 @@ func TestALineStallThatCannotBeReadLetsTheComebackGoOn(t *testing.T) {
 	recorder := &comebackRecorder{}
 	service, h, _ := comebackBoard(t, recorder, [2]float64{8, 8})
 	service.Options.Dispatch.LineStall = func(Memory) (string, error) { return "", errors.New("custody record incomplete") }
-	closedCFO(t, h.State)
-	terminalStarted(t, h, NativeCFOTerminal, lastSignIn.Add(time.Minute))
+	closedCEO(t, h.State)
+	terminalStarted(t, h, NativeCEOTerminal, lastSignIn.Add(time.Minute))
 	for _, id := range []string{"alpha", "bravo", "charlie"} {
 		workingGoblin(t, h, id, lastSignIn.Add(time.Hour))
 	}
@@ -663,8 +663,8 @@ func TestALineStallThatCannotBeReadLetsTheComebackGoOn(t *testing.T) {
 	}
 
 	// Assert
-	if came := recorder.came(); !slices.Equal(came, []string{NativeCFOTerminal, "alpha", "bravo", "charlie"}) {
-		t.Errorf("came back %v, want the CFO, then alpha, bravo and charlie", came)
+	if came := recorder.came(); !slices.Equal(came, []string{NativeCEOTerminal, "alpha", "bravo", "charlie"}) {
+		t.Errorf("came back %v, want the CEO, then alpha, bravo and charlie", came)
 	}
 	if reported == nil || !strings.Contains(reported.Error(), "cannot be read for a stall") || !strings.Contains(reported.Error(), "custody record incomplete") {
 		t.Errorf("reported %v, want the stall read's failure", reported)
@@ -672,7 +672,7 @@ func TestALineStallThatCannotBeReadLetsTheComebackGoOn(t *testing.T) {
 }
 
 // A goblin that cannot come back stays stopped with the reason on its card
-// and wakes the CFO, and the goblins after it still come back.
+// and wakes the CEO, and the goblins after it still come back.
 func TestAGoblinThatCannotComeBackStaysStoppedWithItsReasonAndBlocksNoOther(t *testing.T) {
 	// Arrange
 	recorder := &comebackRecorder{outcomes: map[string]GoblinComeback{
@@ -703,7 +703,7 @@ func TestAGoblinThatCannotComeBackStaysStoppedWithItsReasonAndBlocksNoOther(t *t
 	if card.Comeback == nil || card.Comeback.State != state.ComebackStopped {
 		t.Fatalf("alpha's card shows comeback %+v, want stopped", card.Comeback)
 	}
-	if card.ActionError != "Did not come back after the restart: Codex is not signed in. The CFO was told." {
+	if card.ActionError != "Did not come back after the restart: Codex is not signed in. The CEO was told." {
 		t.Errorf("alpha's card says %q", card.ActionError)
 	}
 	if cards["bravo"].Comeback != nil || cards["bravo"].ActionError != "" {
@@ -717,21 +717,21 @@ func TestAGoblinThatCannotComeBackStaysStoppedWithItsReasonAndBlocksNoOther(t *t
 		t.Fatal(err)
 	}
 	woke := slices.IndexFunc(records, func(record wake.Record) bool {
-		return record.Kind == "check" && record.Key == alpha.ID && strings.Contains(record.Detail, "Codex is not signed in") && strings.Contains(record.Detail, "cfo switch alpha --harness claude")
+		return record.Kind == "check" && record.Key == alpha.ID && strings.Contains(record.Detail, "Codex is not signed in") && strings.Contains(record.Detail, "goblins switch alpha --harness claude")
 	})
 	if woke < 0 {
-		t.Errorf("no wake told the CFO alpha did not come back: %+v", records)
+		t.Errorf("no wake told the CEO alpha did not come back: %+v", records)
 	}
 }
 
-// The CFO that cannot come back on its own conversation stays closed with
+// The CEO that cannot come back on its own conversation stays closed with
 // the reason, and the goblins still come back.
-func TestACFOThatCannotComeBackLeavesTheGoblinsComingBack(t *testing.T) {
+func TestACEOThatCannotComeBackLeavesTheGoblinsComingBack(t *testing.T) {
 	// Arrange
-	recorder := &comebackRecorder{cfoErr: errors.New("its conversation s-1 could not be resumed; Reopen on its bar tries its conversation again and starts it on a new one where that cannot be resumed")}
+	recorder := &comebackRecorder{ceoErr: errors.New("its conversation s-1 could not be resumed; Reopen on its bar tries its conversation again and starts it on a new one where that cannot be resumed")}
 	service, h, _ := comebackBoard(t, recorder, [2]float64{8, 8})
-	closedCFO(t, h.State)
-	terminalStarted(t, h, NativeCFOTerminal, lastSignIn.Add(time.Minute))
+	closedCEO(t, h.State)
+	terminalStarted(t, h, NativeCEOTerminal, lastSignIn.Add(time.Minute))
 	workingGoblin(t, h, "alpha", lastSignIn.Add(time.Hour))
 
 	// Act
@@ -740,15 +740,15 @@ func TestACFOThatCannotComeBackLeavesTheGoblinsComingBack(t *testing.T) {
 	}
 
 	// Assert
-	if came := recorder.came(); !slices.Equal(came, []string{NativeCFOTerminal, "alpha"}) {
+	if came := recorder.came(); !slices.Equal(came, []string{NativeCEOTerminal, "alpha"}) {
 		t.Fatalf("came back %v", came)
 	}
 	record, err := state.ReadComeback(h.State)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if record.CFO == nil || record.CFO.State != state.ComebackStopped || !strings.Contains(record.CFO.Reason, "s-1 could not be resumed") {
-		t.Errorf("the CFO's comeback is %+v", record.CFO)
+	if record.CEO == nil || record.CEO.State != state.ComebackStopped || !strings.Contains(record.CEO.Reason, "s-1 could not be resumed") {
+		t.Errorf("the CEO's comeback is %+v", record.CEO)
 	}
 }
 
@@ -819,20 +819,20 @@ func TestTheComebackLeavesTheSpawnLockToTheRelaunch(t *testing.T) {
 	}
 }
 
-func TestTheComebackLeavesAnUnregisteredCFOToFirstRunSetup(t *testing.T) {
+func TestTheComebackLeavesAnUnregisteredCEOToFirstRunSetup(t *testing.T) {
 	recorder := &comebackRecorder{}
 	service, h, _ := comebackBoard(t, recorder, [2]float64{8, 8})
-	terminalStarted(t, h, NativeCFOTerminal, lastSignIn.Add(time.Minute))
+	terminalStarted(t, h, NativeCEOTerminal, lastSignIn.Add(time.Minute))
 	alpha := workingGoblin(t, h, "alpha", lastSignIn.Add(time.Hour))
 
 	reading(t, service, 0)
 	record, err := state.ReadComeback(h.State)
-	if err != nil || record.CFO != nil || !record.Waiting(alpha.ID, alpha.SpawnGen) || len(recorder.came()) != 0 {
+	if err != nil || record.CEO != nil || !record.Waiting(alpha.ID, alpha.SpawnGen) || len(recorder.came()) != 0 {
 		t.Fatalf("comeback %+v, error %v, resumed %v, want only alpha waiting", record, err, recorder.came())
 	}
 	snapshot, err := service.Snapshot()
-	if err != nil || snapshot.CFOClosed || snapshot.CFORuns || snapshot.CFOStarting {
-		t.Fatalf("CFO closed %v, runs %v, starting %v, error %v, want first-run setup", snapshot.CFOClosed, snapshot.CFORuns, snapshot.CFOStarting, err)
+	if err != nil || snapshot.CEOClosed || snapshot.CEORuns || snapshot.CEOStarting {
+		t.Fatalf("CEO closed %v, runs %v, starting %v, error %v, want first-run setup", snapshot.CEOClosed, snapshot.CEORuns, snapshot.CEOStarting, err)
 	}
 	reading(t, service, 1)
 	if !slices.Equal(recorder.came(), []string{alpha.ID}) {
@@ -852,7 +852,7 @@ func TestTheFirstSupervisorBringsNothingBackAndALaterOneInTheSameSignInCarriesOn
 		if err := os.Remove(state.ComebackPath(h.State)); err != nil {
 			t.Fatal(err)
 		}
-		terminalStarted(t, h, NativeCFOTerminal, lastSignIn.Add(time.Minute))
+		terminalStarted(t, h, NativeCEOTerminal, lastSignIn.Add(time.Minute))
 		workingGoblin(t, h, "alpha", lastSignIn.Add(time.Hour))
 
 		// Act
@@ -865,7 +865,7 @@ func TestTheFirstSupervisorBringsNothingBackAndALaterOneInTheSameSignInCarriesOn
 			t.Errorf("brought back %v with no record of the sign-in before", came)
 		}
 		record, err := state.ReadComeback(h.State)
-		if err != nil || !record.SignedIn.Equal(thisSignIn) || record.CFO != nil || len(record.Goblins) != 0 {
+		if err != nil || !record.SignedIn.Equal(thisSignIn) || record.CEO != nil || len(record.Goblins) != 0 {
 			t.Errorf("the record is %+v, %v; want this sign-in with nothing to bring back", record, err)
 		}
 	})
@@ -1174,7 +1174,7 @@ func TestTheComebackKeepsTheReasonForAGoblinThatRunsAfterAnError(t *testing.T) {
 }
 
 func TestTheComebackDoesNotOverlapCompetingLaunchReservations(t *testing.T) {
-	for _, kind := range []string{"start", "resume", "CFO"} {
+	for _, kind := range []string{"start", "resume", "CEO"} {
 		t.Run(kind, func(t *testing.T) {
 			recorder := &comebackRecorder{outcomes: map[string]GoblinComeback{
 				"alpha": {Outcome: WaitsForRoom, Said: "stand-in waits"},
@@ -1191,7 +1191,7 @@ func TestTheComebackDoesNotOverlapCompetingLaunchReservations(t *testing.T) {
 			service.Options.Dispatch.Disk = func() (Disk, error) {
 				admissions.Add(1)
 				service.starts.Lock()
-				if service.starting != "" || service.changing["manual"] != "" || service.isCFOComingBack {
+				if service.starting != "" || service.changing["manual"] != "" || service.isCEOComingBack {
 					overlaps.Add(1)
 				}
 				service.starts.Unlock()
@@ -1208,15 +1208,15 @@ func TestTheComebackDoesNotOverlapCompetingLaunchReservations(t *testing.T) {
 						default:
 						}
 						service.starts.Lock()
-						isReserved := service.starting == "" && len(service.changing) == 0 && !service.isCFOComingBack
+						isReserved := service.starting == "" && len(service.changing) == 0 && !service.isCEOComingBack
 						if isReserved {
 							switch kind {
 							case "start":
 								service.starting = "manual"
 							case "resume":
 								service.changing["manual"] = "resume"
-							case "CFO":
-								service.isCFOComingBack = true
+							case "CEO":
+								service.isCEOComingBack = true
 							}
 						}
 						service.starts.Unlock()
@@ -1228,7 +1228,7 @@ func TestTheComebackDoesNotOverlapCompetingLaunchReservations(t *testing.T) {
 						service.starts.Lock()
 						service.starting = ""
 						delete(service.changing, "manual")
-						service.isCFOComingBack = false
+						service.isCEOComingBack = false
 						time.Sleep(2 * time.Millisecond)
 						service.starts.Unlock()
 					}

@@ -15,14 +15,14 @@ func TestOnlyABoardsNotificationIsRaised(t *testing.T) {
 		message, sender string
 		want            Note
 	}{
-		"a question from the board":    {`notify:{"id":"question:q1","title":"CFO","body":"The CFO asks: Which plan?"}`, board, Note{"question:q1", "CFO", "The CFO asks: Which plan?"}},
+		"a question from the board":    {`notify:{"id":"question:q1","title":"CEO","body":"The CEO asks: Which plan?"}`, board, Note{"question:q1", "CEO", "The CEO asks: Which plan?"}},
 		"a note with no body":          {`notify:{"id":"task:demo","title":"Build review panel"}`, board, Note{"task:demo", "Build review panel", ""}},
 		"another site's page":          {`notify:{"id":"x","title":"Prize"}`, "https://example.com/", Note{}},
 		"a message that asks nothing":  {"shown", board, Note{}},
-		"a note with no id":            {`notify:{"title":"CFO"}`, board, Note{}},
+		"a note with no id":            {`notify:{"title":"CEO"}`, board, Note{}},
 		"a note with no title":         {`notify:{"id":"question:q1"}`, board, Note{}},
-		"a note with an id of no end":  {`notify:{"id":"` + strings.Repeat("a", 257) + `","title":"CFO"}`, board, Note{}},
-		"a note that is not an object": {`notify:["question:q1","CFO"]`, board, Note{}},
+		"a note with an id of no end":  {`notify:{"id":"` + strings.Repeat("a", 257) + `","title":"CEO"}`, board, Note{}},
+		"a note that is not an object": {`notify:["question:q1","CEO"]`, board, Note{}},
 		"a note that does not parse":   {`notify:{"id":`, board, Note{}},
 		"a note with nothing after it": {"notify:", board, Note{}},
 	} {

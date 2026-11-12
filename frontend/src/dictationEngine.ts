@@ -15,7 +15,7 @@ const RATE = 16000;
 // The worklet the page records through, which the build copies from
 // public/assets.
 const CAPTURE = "/assets/dictation-capture.js";
-const BROWSER_KEY = "cfo-dictation-browser-v1";
+const BROWSER_KEY = "ceo-dictation-browser-v1";
 
 // The page's one recorder for dictation: an audio context with the capture
 // worklet loaded into it, the worklet's node, and the analyser the bubble's
@@ -70,7 +70,7 @@ export function prepareDictation(): void {
 // loses the focus or the page is hidden, and once IDLE_MS pass with no
 // dictation; the next press opens it again, and what is said while it opens
 // is not heard. Held open before any press, it would show a microphone in use
-// whenever the board had the focus (the CFO's decision 1000850, 2026-10-11).
+// whenever the board had the focus (the CEO's decision 1000850, 2026-10-11).
 const IDLE_MS = 30 * 60_000;
 interface Microphone { stream: MediaStream; source: MediaStreamAudioSourceNode | null; analyser: AnalyserNode | null }
 let microphone: Promise<Microphone> | null = null;
@@ -117,7 +117,7 @@ export async function openMicrophone(): Promise<Capture> {
   if (!microphone) {
     watchFocus();
     const asked = navigator.mediaDevices.getUserMedia({ audio: true });
-    // A recorder that cannot be made fails the recording, which tells the CFO.
+    // A recorder that cannot be made fails the recording, which tells the CEO.
     const made = recorderFor().catch(() => null);
     const opening = asked.then(async (stream) => {
       const parts = await made;
@@ -210,7 +210,7 @@ export function record(piece: (sound: Sound) => void, since: number): Recording 
 export function recogniseWith(instance: () => string): (sound: Uint8Array<ArrayBuffer>, signal: AbortSignal) => Promise<string> {
   return async (sound, signal) => {
     try {
-      return string(object(await request("/api/dictation", signal, { method: "POST", headers: { "Content-Type": "audio/wav", "X-CFO-Token": instance() }, body: sound })).text);
+      return string(object(await request("/api/dictation", signal, { method: "POST", headers: { "Content-Type": "audio/wav", "X-CEO-Token": instance() }, body: sound })).text);
     } catch (error) {
       const status = signal.aborted ? null : await dictationStatus().catch(() => null);
       if (status && status.state !== "ready") throw new DictationSetUp(error instanceof Error ? error.message : String(error));
@@ -224,7 +224,7 @@ export function recogniseWith(instance: () => string): (sound: Uint8Array<ArrayB
 // not run says why when it is sent. Its empty answer is read to the end, so
 // the request ends there.
 export function warmWith(instance: () => string): () => void {
-  return () => { fetch("/api/dictation/warm", { method: "POST", headers: { "X-CFO-Token": instance() } }).then((response) => response.text()).catch(() => {}); };
+  return () => { fetch("/api/dictation/warm", { method: "POST", headers: { "X-CEO-Token": instance() } }).then((response) => response.text()).catch(() => {}); };
 }
 
 function store(): Storage | null {

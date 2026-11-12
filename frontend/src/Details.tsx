@@ -27,7 +27,7 @@ const DiffView = boardPage(() => import("./DiffView").then((module) => module.Di
 
 // A read that failed says what could not be read, in one sentence, with the
 // supervisor's error behind Details.
-// A read that failed: the CFO hears why (useResource), and the section offers
+// A read that failed: the CEO hears why (useResource), and the section offers
 // only Retry.
 function RetryRead({ retry }: { retry: () => void }) {
   return <button className="icon-button raised retry-read" aria-label="Retry" onClick={retry}><Icon name="refresh" /></button>;
@@ -73,7 +73,7 @@ function Changes({ task, revision = "", reviews, connected }: {
 }
 
 // Selection of commits and on-demand commit diffs follows Cline Kanban's
-// git-history-view.tsx. CFO omits destructive discard/ref mutation controls.
+// git-history-view.tsx. CEO omits destructive discard/ref mutation controls.
 function History({
   task,
   reviews,
@@ -145,7 +145,7 @@ function Activity({ task, snapshot, now }: { task?: Task; snapshot: Snapshot; no
   // checks, and its own copy of each other action is the newest.
   const read = useResource(task?.generation ? "/api/tasks/" + encodeURIComponent(task.id) + "/actions" : null, parseActions, task?.actions_at);
   const actions = (read.data || []).map((action) => snapshot.actions.find((each) => each.id === action.id) || action).reverse();
-  const actionLabel = (kind: string) => ({ review: "Review comment", feedback: "Task instruction", evaluate: "Progress check", cfo_message: "CEO message", cfo_answer: "Question answer", goblin_answer: "Question answer" })[kind] || "Action";
+  const actionLabel = (kind: string) => ({ review: "Review comment", feedback: "Task instruction", evaluate: "Progress check", ceo_message: "CEO message", ceo_answer: "Question answer", goblin_answer: "Question answer" })[kind] || "Action";
   return <>
     {activity.error ? <RetryRead retry={activity.reload} /> :
       activity.data?.length ? <ol className="activity-list">
