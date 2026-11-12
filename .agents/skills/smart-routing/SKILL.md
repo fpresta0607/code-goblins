@@ -19,7 +19,8 @@ Read the effective `data/routing.json` and the project's `routing` override, the
 This command takes task text, not a brief filename; include material complexity and risk from the brief.
 Use `--attempts <count>` before the task text for prior failures.
 The preview checks classification and quota, not model entitlement or model-specific effort support.
-It also names each role's lane, lead, implement, review, verify and fix, from the lane's `roles`: choose the lane whose roles fit the work, a lighter implement role for bounded implementation and a lead that implements itself for high-risk work.
+It also previews each role's lane (lead, implement, review, verify and fix) from the lead lane's `roles`, which `goblins doctor` also prints.
+Nothing launches on a role yet: the worker still implements, reviews, verifies and fixes on its own lane, so arrange independent verification as below rather than counting on a previewed role.
 
 Consult the installed harness and account's current catalog, using the configuration roots recorded in `state/harnesses.json`:
 

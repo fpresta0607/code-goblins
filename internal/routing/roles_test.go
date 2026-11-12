@@ -165,6 +165,55 @@ func TestChooseRoleFallsBackAlongTheRolesOwnLanes(t *testing.T) {
 	}
 }
 
+func TestImplementationAndFixesEndOnTheLeadWhenNoLaneTheyNameCanRun(t *testing.T) {
+	for _, role := range []string{RoleImplement, RoleFix} {
+		t.Run(role, func(t *testing.T) {
+			// Arrange
+			table := roleTable(t, `{"opus":{"`+role+`":["sonnet","fable"]}}`)
+			usable := func(lane ExecutionLane) (bool, string) {
+				if lane.Name == "opus" {
+					return true, ""
+				}
+				return false, lane.Model + " at its start floor"
+			}
+
+			// Act
+			choice, err := table.ChooseRole(role, table.Lanes["opus"], usable)
+
+			// Assert
+			if err != nil || choice.Name != "opus" || choice.Wanted != "sonnet" {
+				t.Fatalf("choice = %+v err = %v, want the lead opus after sonnet and fable", choice, err)
+			}
+			if want := "sonnet: claude-sonnet-5-5 at its start floor; fable: claude-fable-5-2 at its start floor"; strings.Join(choice.Notes, "; ") != want {
+				t.Errorf("notes = %v, want %q", choice.Notes, want)
+			}
+		})
+	}
+}
+
+func TestRoleLanesListOnlyTheLanesARoleWouldTry(t *testing.T) {
+	for _, test := range []struct{ name, role, lanes, want string }{
+		{"review leaves out the lead's model", RoleReview, `["opus","fable"]`, "fable"},
+		{"verify leaves out the lead's model", RoleVerify, `["fable","opus","sonnet"]`, "fable,sonnet"},
+		{"verify on the lead's model alone keeps it", RoleVerify, `["opus"]`, "opus"},
+		{"implement ends on the lead", RoleImplement, `["sonnet"]`, "sonnet,opus"},
+		{"fix that names the lead keeps its order", RoleFix, `["opus","sonnet"]`, "opus,sonnet"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			table := roleTable(t, `{"opus":{"`+test.role+`":`+test.lanes+`}}`)
+
+			// Act
+			lanes := table.RoleLanes(test.role, table.Lanes["opus"])
+
+			// Assert
+			if laneNames(lanes) != test.want {
+				t.Errorf("lanes = %s, want %s", laneNames(lanes), test.want)
+			}
+		})
+	}
+}
+
 func TestReviewAndVerificationRefuseTheLeadsOwnModel(t *testing.T) {
 	for _, role := range []string{RoleReview, RoleVerify} {
 		for _, test := range []struct {
@@ -172,6 +221,7 @@ func TestReviewAndVerificationRefuseTheLeadsOwnModel(t *testing.T) {
 		}{
 			{name: "the lead's model is passed over", lanes: `["opus","fable"]`, want: "fable"},
 			{name: "no other is usable", lanes: `["fable","opus"]`, unusable: "fable", refusal: "opus: " + role + " is kept off the lead's own model claude-opus-5-5"},
+			{name: "the one lane they name is unusable", lanes: `["fable"]`, unusable: "fable", refusal: "no usable " + role + " lane"},
 			{name: "every lane is the lead's model", lanes: `["opus"]`, want: "opus"},
 		} {
 			t.Run(role+" "+test.name, func(t *testing.T) {
@@ -213,7 +263,7 @@ func TestOtherRolesMayRunOnTheLeadsOwnModel(t *testing.T) {
 }
 
 // The shipped table leads on the strong tier and hands implementation to the
-// lighter one, with review and verification on a strong model of their own.
+// lighter one, with verification on a model other than the lead's.
 func TestShippedRolesLeadStrongAndImplementLighter(t *testing.T) {
 	// Arrange
 	policy, err := Load(filepath.Join("..", "..", "data"))

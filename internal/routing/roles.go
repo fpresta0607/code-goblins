@@ -75,29 +75,41 @@ func hasExplicitModel(model string) bool {
 
 // RoleLanes returns the lanes a role tries, in order, for a goblin led on
 // lead. A role its lane does not name is the lead's own work, as every role
-// was before the table named roles.
+// was before the table named roles, and implementation and fixes end on the
+// lead when none of the lanes they name can run. Review and verification are
+// kept apart from the lead's own model: while their lanes name another model,
+// a lane on the lead's model is left out, so the role is refused rather than
+// run on it. They take the lead's model only when every lane they name is
+// that model.
 func (t Table) RoleLanes(role string, lead ExecutionLane) []ExecutionLane {
-	if lanes, ok := t.Roles[lead.Name][role]; ok && role != RoleLead {
+	lanes, ok := t.Roles[lead.Name][role]
+	if !ok {
+		return []ExecutionLane{lead}
+	}
+	if role == RoleReview || role == RoleVerify {
+		apart := slices.DeleteFunc(slices.Clone(lanes), func(lane ExecutionLane) bool { return SameModel(lead.Harness, lead.Model, lane.Model) })
+		if len(apart) == 0 {
+			return lanes
+		}
+		return apart
+	}
+	if slices.ContainsFunc(lanes, func(lane ExecutionLane) bool { return lane.Name == lead.Name }) {
 		return lanes
 	}
-	return []ExecutionLane{lead}
+	return append(slices.Clone(lanes), lead)
 }
 
-// ChooseRole picks the first usable lane of a role for a goblin led on lead.
-// Review and verification are kept apart from the lead's own model: while
-// their lanes name another model, a lane on the lead's model is passed over,
-// and when no other is usable the role is refused rather than run on it.
-// They take the lead's model only when every lane they name is that model.
+// ChooseRole picks the first usable lane RoleLanes returns, noting first each
+// lane it left out for being on the lead's own model.
 func (t Table) ChooseRole(role string, lead ExecutionLane, usable Usable) (Choice, error) {
 	lanes := t.RoleLanes(role, lead)
 	choice := Choice{ExecutionLane: lanes[0], Wanted: lanes[0].Name}
-	isLeadModel := func(lane ExecutionLane) bool { return SameModel(lead.Harness, lead.Model, lane.Model) }
-	isKeptApart := (role == RoleReview || role == RoleVerify) && slices.ContainsFunc(lanes, func(lane ExecutionLane) bool { return !isLeadModel(lane) })
-	for _, lane := range lanes {
-		if isKeptApart && isLeadModel(lane) {
+	for _, lane := range t.Roles[lead.Name][role] {
+		if !slices.Contains(lanes, lane) {
 			choice.Notes = append(choice.Notes, lane.Name+": "+role+" is kept off the lead's own model "+lead.Model)
-			continue
 		}
+	}
+	for _, lane := range lanes {
 		isUsable, note := true, ""
 		if usable != nil {
 			isUsable, note = usable(lane)

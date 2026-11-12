@@ -294,6 +294,38 @@ func TestRunRouteShowsARoleRefusedRatherThanRunOnTheLeadsModel(t *testing.T) {
 	if review.Wanted != "fable" || review.Lane.Name != "" || !strings.Contains(review.Refused, "build: review is kept off the lead's own model claude-opus-5-5") || !strings.Contains(review.Refused, "fable: claude claude-fable-5-2 exhausted_now") {
 		t.Errorf("review = %+v, want it refused with why", review)
 	}
+	if notes := strings.Join(review.Notes, "; "); !strings.Contains(notes, "build: review is kept off the lead's own model claude-opus-5-5") || !strings.Contains(notes, "fable: claude claude-fable-5-2 exhausted_now") {
+		t.Errorf("review notes = %q, want each lane it passed over", review.Notes)
+	}
+}
+
+// Each role is chosen for the lead that would run, so a Codex lead that falls
+// back to Claude previews the Claude lead's roles.
+func TestRunRoutePreviewsTheRolesOfTheLeadItFallsBackTo(t *testing.T) {
+	// Arrange
+	_, deps := routedRuntime(t, shippedRoutingJSON(t))
+	report := quota.Report{Providers: map[string]quota.Provider{"codex": {Known: true, Scopes: map[string]quota.Scope{
+		"all_models": {Name: "all_models", Known: true, PercentRemaining: 0, Runway: "exhausted_now"},
+	}}}}
+	deps.quota = func(context.Context) (quota.Report, string) { return report, "" }
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := runWithRuntime([]string{"route", "--project", `C:\project`, "Add a dark-mode toggle to the settings page."}, &stdout, &stderr, deps)
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit %d, stderr %s", exit, stderr.String())
+	}
+	roles := routedRoles(t, stdout.String())
+	if lead := roles["lead"]; lead.Lane.Name != "strong-claude" || lead.Wanted != "build" {
+		t.Errorf("lead = %+v, want strong-claude after build", lead)
+	}
+	for role, want := range map[string]string{"lead": "claude-opus-5-5", "implement": "claude-sonnet-5-5", "review": "claude-fable-5-2", "verify": "claude-fable-5-2", "fix": "claude-opus-5-5"} {
+		if got := roles[role]; got.Lane.Model != want || got.Lane.Harness != "claude" || got.Refused != "" {
+			t.Errorf("%s = %+v, want claude %s", role, got, want)
+		}
+	}
 }
 
 func TestRunSpawnRoutesFromTheFleetTableWithoutHarness(t *testing.T) {

@@ -33,7 +33,6 @@
   "roles": {
     "build": {
       "implement": ["light-codex"],
-      "review": ["deep"],
       "verify": ["verification"]
     },
     "deep": {
