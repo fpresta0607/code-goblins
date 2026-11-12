@@ -1515,6 +1515,8 @@ func TestABareTargetIsNoEvidenceOfAwaitedWork(t *testing.T) {
 		{report: "waiting on other-task: its work must land first", stalls: true},
 		{report: "waiting on ci: the hosted run is going", stalls: false},
 		{report: "waiting on deploy: the release is rolling out", stalls: false},
+		{report: "waiting on gate-daemon: its gate start found the daemon busy", stalls: false},
+		{report: "waiting on docker: the engine is starting", stalls: false},
 	} {
 		t.Run(c.report, func(t *testing.T) {
 			// Arrange
