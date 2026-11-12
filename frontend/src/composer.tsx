@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { Action, Snapshot, Task } from "./types";
-import { message, reportToCfo, request, useResource } from "./api";
+import { message, reportToCeo, request, useResource } from "./api";
 import { ComposerAttachments } from "./composer-attachments";
 import { ComposerBanner } from "./composer-banner";
 import { DictationButton } from "./dictation-button";
@@ -30,6 +30,7 @@ import { keepFile } from "./terminal-image";
 import { TerminalStatus } from "./terminal-status";
 import { detachedHoldReason } from "./terminalInput";
 import { appendDictation, useDictation } from "./useDictation";
+import { linkedText } from "./messageText";
 import "./composer.css";
 
 // How many of his latest messages to a goblin with no live terminal show
@@ -52,9 +53,9 @@ const NO_NOTES: Record<NoteSource, string> = { adding: "", feedback: "", dictati
 // What he wrote and has not sent, kept per session for this tab's life, so a
 // switch to another view or session, a reconnect and a reload of the board
 // all find it where he left it.
-const DRAFT_KEY = "cfo-draft:";
+const DRAFT_KEY = "ceo-draft:";
 // The paths of the files he added to that draft, kept the same way.
-const ATTACHED_KEY = "cfo-draft-files:";
+const ATTACHED_KEY = "ceo-draft-files:";
 
 function storedDraft(key: string): string {
   try { return sessionStorage.getItem(DRAFT_KEY + key) ?? ""; } catch { return ""; }
@@ -205,7 +206,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // Escape closes the list until the draft changes. A box that is not on
   // screen reads nothing: its own commands are read when he can see and use
   // it, so a hidden box never reports a refusal.
-  const sessionQuery = new URLSearchParams(task ? { task: task.id, generation: task.generation } : { cfo: snapshot.cfo_terminal || "1", since: snapshot.cfo_terminal_since || "" });
+  const sessionQuery = new URLSearchParams(task ? { task: task.id, generation: task.generation } : { ceo: snapshot.ceo_terminal || "1", since: snapshot.ceo_terminal_since || "" });
   sessionQuery.set("token", snapshot.instance);
   const commands = useResource(isShown ? "/api/commands?" + sessionQuery.toString() : null, parseCommands);
   const [pick, setPick] = useState(0);
@@ -304,7 +305,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
     onActive?.(terminal, isActive);
     return () => onActive?.(terminal, false);
   }, [terminal, isActive, onActive]);
-  const post = (body: object) => request("/api/actions", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify(body) });
+  const post = (body: object) => request("/api/actions", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": snapshot.instance }, body: JSON.stringify(body) });
   const isHeld = !!live?.held;
   // A question with choices or an explicit Enter hint is drawn and answered
   // here, and takes what he writes as its answer. Any other
@@ -328,7 +329,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // The permission mode the session's terminal shows, which Shift+Tab cycles.
   const mode = live?.screen?.mode ?? "";
   const isUnread = !!live?.isUnread;
-  const harness = task?.harness || snapshot.cfo_harness;
+  const harness = task?.harness || snapshot.ceo_harness;
   const isEngineSupported = ["claude", "codex", "pi"].includes(harness);
   // The harnesses' catalog is read as a box with a model button shows, so
   // its pane opens at once.
@@ -464,7 +465,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
       setReplacing(false);
       const chosen = harness === "codex" && asked.setting === "model" ? await request("/api/engines").then(parseEngineCatalog).then(
         (catalog) => catalog.find((item) => item.id === harness)?.models.find((listed) => listed.id === asked.value),
-        (error: unknown) => { reportToCfo("the models of " + name, message(error)); return undefined; }) : undefined;
+        (error: unknown) => { reportToCeo("the models of " + name, message(error)); return undefined; }) : undefined;
       applyEngine(asked.setting === "model" ? { model: asked.value } : { effort: asked.value }, false, chosen);
       return;
     }
@@ -506,7 +507,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
       setDraft((prior) => prior || written);
       setAttached((prior) => prior.length ? prior : kept);
       setUnsent("Not sent. " + message(error));
-      reportToCfo("a message to " + name, message(error));
+      reportToCeo("a message to " + name, message(error));
     } finally {
       setSending(false);
     }
@@ -515,9 +516,9 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // the harness's own update check outside the session, which the snapshot
   // then shows running and ended (#2333). Nothing is typed into the session.
   const retryUpdateCheck = () => {
-    request("/api/harness/update-check", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify({ harness }) }).catch((error: unknown) => {
+    request("/api/harness/update-check", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": snapshot.instance }, body: JSON.stringify({ harness }) }).catch((error: unknown) => {
       setNotice((prior) => ({ text: message(error), from: "queued", count: prior.count + 1 }));
-      if (!(error instanceof Error && error.cause !== undefined)) reportToCfo("the update check of " + name, message(error));
+      if (!(error instanceof Error && error.cause !== undefined)) reportToCeo("the update check of " + name, message(error));
     });
   };
   // A delete names the message by its goblin and its words, which the
@@ -531,7 +532,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
     try {
       await post({ id: crypto.randomUUID(), kind: "message_withdraw", task_id: task.id, generation: "", text, ...(target ? { target } : {}) });
     } catch (error: unknown) {
-      reportToCfo("deleting a message to " + name, message(error));
+      reportToCeo("deleting a message to " + name, message(error));
     } finally {
       setDeleting("");
     }
@@ -620,7 +621,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
         .then((files) => setFound({ start: mentionStart, query: mentionQuery, files }), (error: unknown) => {
           if (controller.signal.aborted) return;
           setFound({ start: mentionStart, query: mentionQuery, files: [] });
-          reportToCfo("the files of " + name, message(error));
+          reportToCeo("the files of " + name, message(error));
         });
     }, MENTION_WAIT_MS);
     return () => { clearTimeout(timer); controller.abort(); };
@@ -677,7 +678,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
     } catch (error: unknown) {
       takenBack.current.delete(action.id);
       refuse("Not taken back. " + message(error));
-      if (!(error instanceof Error && error.cause !== undefined)) reportToCfo("taking back a message to " + name, message(error));
+      if (!(error instanceof Error && error.cause !== undefined)) reportToCeo("taking back a message to " + name, message(error));
     } finally {
       setSending(false);
       requestAnimationFrame(() => field.current?.focus());
@@ -822,7 +823,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
       {kept.map((text, index) => {
         const key = index + ":" + text;
         return <li key={key}>
-          <span className="composer-sent-text">{text}</span>
+          <span className="composer-sent-text">{linkedText(text)}</span>
           <span className="composer-sent-state">{task?.asked || task?.phase === "resuming" ? "Starting" : "Kept for resume"}</span>
           <button type="button" className="icon-button" aria-label={"Delete: " + text}
             disabled={deleting === key} onClick={() => void withdraw(text, key)}><Icon name="trash" /></button>

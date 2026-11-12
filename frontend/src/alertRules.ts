@@ -9,8 +9,8 @@ import { goblinName } from "./task-words.ts";
 // An alert tells the Overlord that a Command Center item asks him something,
 // and nothing else does (the Overlord, 2026-10-07: "alerts should only be
 // open command center questions"): a goblin blocked, failed or done, and the
-// CFO falling behind on its questions, are said on the goblin's card and the
-// CFO's bar. Its key is the item's id with its publishing, item is the
+// CEO falling behind on its questions, are said on the goblin's card and the
+// CEO's bar. Its key is the item's id with its publishing, item is the
 // Command Center item it opens, and says is who asks what, by which the same
 // ask filed again under a new item is known as a copy. speaker names who
 // asks, and text is its one plain line.
@@ -39,7 +39,7 @@ const nameOf = (tasks: Task[], id: string) => { const task = tasks.find((candida
 const itemAlertKey = (item: Item) => item.key + "@" + publishedAt(item);
 
 function itemAlert(item: Item, tasks: Task[]): BoardAlert {
-  const alert = (task: string, text: string): BoardAlert => ({ key: itemAlertKey(item), says: "item:" + (task || "cfo") + ":" + text, speaker: task ? nameOf(tasks, task) : "CEO", text: shortened(text), item: item.key });
+  const alert = (task: string, text: string): BoardAlert => ({ key: itemAlertKey(item), says: "item:" + (task || "ceo") + ":" + text, speaker: task ? nameOf(tasks, task) : "CEO", text: shortened(text), item: item.key });
   const asker = (task: string) => task ? shortened(nameOf(tasks, task), NAME_LIMIT) : "The CEO";
   if (item.kind === "question") {
     // A question says its lead: the first paragraph or bullet, without the
@@ -62,8 +62,8 @@ function itemAlert(item: Item, tasks: Task[]): BoardAlert {
 // boardAlerts is the items new in the Command Center between two snapshots
 // that ask the Overlord something: a question, review, command or credential
 // request. The first snapshot a page sees alerts nothing: what already waits
-// is under the badge. A goblin's question the CFO left waits in the Command
-// Center without an alert: the CFO falling behind is said on its bar.
+// is under the badge. A goblin's question the CEO left waits in the Command
+// Center without an alert: the CEO falling behind is said on its bar.
 export function boardAlerts(previous: Snapshot | null, next: Snapshot): BoardAlert[] {
   if (!previous) return [];
   const known = openKeys(previous);

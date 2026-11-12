@@ -35,7 +35,7 @@ type PipedSpec struct {
 // rather than drawing a screen, as Claude Code does with stream-json. It runs
 // in the same kind of job as a Console's process, scheduled the same way, so
 // Close ends it and everything it starts, except a process that breaks away
-// (a goblin host the CFO launches) or a machine service, and its hidden
+// (a goblin host the CEO launches) or a machine service, and its hidden
 // console keeps what it starts from opening windows.
 type Piped struct {
 	cmd        *exec.Cmd

@@ -96,7 +96,7 @@ func TestTaskResourcesRetainsIdentityAndSweepsOnlyAnOpenGateRun(t *testing.T) {
 // While only a memory pause did so, pauses for every other reason ended 29 of
 // 147 runs in three days (issue 2089).
 func TestAPauseLeavesAnOpenGateRunAlone(t *testing.T) {
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	memory := &state.PauseCondition{Reason: "memory", At: time.Now().UTC()}
 	for _, testCase := range []struct {
 		name, action  string
@@ -144,7 +144,7 @@ func TestAPauseLeavesAnOpenGateRunAlone(t *testing.T) {
 }
 
 func TestStoppingATaskKeepsAnotherTasksGateTestUnderItsGoTemp(t *testing.T) {
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	root := t.TempDir()
 	t.Setenv("LOCALAPPDATA", filepath.Join(root, "localappdata"))
 	stateDir := filepath.Join(root, "state")
@@ -171,7 +171,7 @@ func TestStoppingATaskKeepsAnotherTasksGateTestUnderItsGoTemp(t *testing.T) {
 	start := func(executable, directory string) *exec.Cmd {
 		child := exec.Command(executable, "-test.run=^TestLifecycleProcessFixture$")
 		child.Dir = directory
-		child.Env = append(os.Environ(), "CFO_LIFECYCLE_FIXTURE=1")
+		child.Env = append(os.Environ(), "GOBLINS_LIFECYCLE_FIXTURE=1")
 		if err := child.Start(); err != nil {
 			t.Fatal(err)
 		}
@@ -378,7 +378,7 @@ func TestTaskResourcesCoverATasksFoldersInEitherPlaceOfAMovedHome(t *testing.T) 
 // helper's worktree too, whatever the helper's own stop left behind, and
 // nothing of any other goblin.
 func TestStoppingAParentStopsWhatRunsInItsHelpersWorktree(t *testing.T) {
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	// Arrange
 	root := t.TempDir()
 	h := home.Home{Root: root, State: filepath.Join(root, "state")}
@@ -400,7 +400,7 @@ func TestStoppingAParentStopsWhatRunsInItsHelpersWorktree(t *testing.T) {
 	start := func(directory string) (*exec.Cmd, windows.Handle) {
 		child := exec.Command(os.Args[0], "-test.run=^TestLifecycleProcessFixture$")
 		child.Dir = directory
-		child.Env = append(os.Environ(), "CFO_LIFECYCLE_FIXTURE=1")
+		child.Env = append(os.Environ(), "GOBLINS_LIFECYCLE_FIXTURE=1")
 		if err := child.Start(); err != nil {
 			t.Fatal(err)
 		}

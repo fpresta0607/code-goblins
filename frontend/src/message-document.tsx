@@ -30,7 +30,7 @@ export function MessageDocument({ label, target }: { label: string; target: stri
       const query = new URLSearchParams(scope.query);
       query.delete("token");
       query.set("document", target);
-      const response = await fetch("/api/messages?" + query, { headers: { "X-CFO-Token": scope.instance }, signal: pending.signal, cache: "no-store" }).finally(() => clearTimeout(timeout));
+      const response = await fetch("/api/messages?" + query, { headers: { "X-CEO-Token": scope.instance }, signal: pending.signal, cache: "no-store" }).finally(() => clearTimeout(timeout));
       if (!response.ok || response.headers.get("Content-Type") !== "application/pdf") throw new Error(UNAVAILABLE);
       const pdf = await response.blob();
       if (pending.signal.aborted) return;

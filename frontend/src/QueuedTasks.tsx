@@ -7,12 +7,12 @@ import { cardFacts, TaskCard } from "./TaskCard";
 import { nextInOrder, startOrder } from "./start";
 
 // The queue in the order the supervisor starts it, top first, as the Tasks
-// column and the CFO's Task tab both show it: each queued task with its rank
+// column and the CEO's Task tab both show it: each queued task with its rank
 // and its drag; its Start is in its panel. hasMeters puts the machine meters
-// over it, free memory against the mark at which the CFO starts the next task
-// and free disk against its floor: the Tasks column has them, and the CFO's
+// over it, free memory against the mark at which the CEO starts the next task
+// and free disk against its floor: the Tasks column has them, and the CEO's
 // Task tab only where no Tasks column shows them, so they are on screen once
-// (#1598). The subscription dials are on the CFO's bar, not here. An empty
+// (#1598). The subscription dials are on the CEO's bar, not here. An empty
 // queue shows its meters and no words: its count already says it is empty.
 export function QueuedTasks({ snapshot, selected, now, presentations, hasMeters, onSelect }: {
   snapshot: Snapshot; selected?: string; now: number; presentations: BoardActivity[]; hasMeters: boolean;

@@ -20,7 +20,7 @@ const snapshot = parseSnapshot({
     question("restyle-the-header", "2026-09-30T23:41:00Z", "May I restyle the header as drawn?"),
   ],
   runs: [{ id: "long-command", identity: "run-1", title: "Run the board checks", command: details, state: "ready", shell: "powershell", created_at: "2026-09-30T23:42:00Z" }],
-  credentials: [{ id: "long-credential", identity: "credential-1", generation: "1", project: "fixture", by: "cfo", names: [], plain: ["ACCOUNT_NAME"], labels: { ACCOUNT_NAME: "Account name" }, why: "Choose the test account", steps: details.split("\n"), state: "open", created_at: "2026-09-30T23:43:00Z" }],
+  credentials: [{ id: "long-credential", identity: "credential-1", generation: "1", project: "fixture", by: "ceo", names: [], plain: ["ACCOUNT_NAME"], labels: { ACCOUNT_NAME: "Account name" }, why: "Choose the test account", steps: details.split("\n"), state: "open", created_at: "2026-09-30T23:43:00Z" }],
   reviews: [{ id: "long-review", identity: "review-1", title: "Review the board changes\n" + details, state: "open", created_at: "2026-09-30T23:44:00Z" }],
 });
 

@@ -56,13 +56,13 @@ func (s *Service) sweepPages(ctx context.Context) {
 // nothing the Overlord sent on a fleet task's page goes unread and a retired
 // goblin's page says so. A page no poller watches that holds his undelivered
 // feedback has it taken and delivered, once: to the goblin while it runs,
-// otherwise to the CFO as a review wake naming the task. The open page of a
+// otherwise to the CEO as a review wake naming the task. The open page of a
 // retired goblin is ended, with a reply on the page saying why. A page no
 // fleet task presented, and a page a poller watches, are left alone. A page
 // whose file is gone, as a retired goblin's cleanup files its folders away,
 // counts as ended: lavish-axi resolves a page's real path before anything
 // else, so it can neither end nor poll it, and on 2026-10-07 the sweep met
-// that failure every ten minutes. The CFO is told once of any prompt the
+// that failure every ten minutes. The CEO is told once of any prompt the
 // Overlord left there, which nothing can take any more. A page that could not
 // be taken or ended is tried again at the next sweep, and is the sweep's
 // error only once it failed on failingPasses sweeps in a row.
@@ -127,7 +127,7 @@ func (s *Service) sweepSessions(ctx context.Context) error {
 			// on, saying the review ended, and the poll after it takes all
 			// he sent before.
 			if err = s.Options.EndPage(ctx, session.File); err == nil {
-				err = s.takePage(ctx, session.File, owner, owner.task+" has been retired, so this review is closed. Anything you sent here went to the CFO.")
+				err = s.takePage(ctx, session.File, owner, owner.task+" has been retired, so this review is closed. Anything you sent here went to the CEO.")
 			}
 			isTaken = err == nil
 			err = s.pageFailing(failed, key, err)
@@ -193,7 +193,7 @@ func (s *Service) takePage(ctx context.Context, file string, owner pageOwner, re
 	}
 }
 
-// pageOwner is the fleet task a page belongs to, or no task for the CFO's
+// pageOwner is the fleet task a page belongs to, or no task for the CEO's
 // own, and the key its review wakes go under.
 type pageOwner struct {
 	task, key string

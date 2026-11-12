@@ -211,7 +211,7 @@ test("a merged goblin's question says in one line that the change goes as a new 
   // Assert
   await expect(dialog.locator(".change-warning")).toHaveText("Its pull request already merged. Your change goes as a new instruction.");
   await expect.poll(() => posted.length).toBe(1);
-  // The CFO's mark stays inside its line, over neither its words nor the line under it.
+  // The CEO's mark stays inside its line, over neither its words nor the line under it.
   const mark = await dialog.locator(".answered-by .answer-mark").boundingBox();
   const words = await dialog.locator(".answered-by").boundingBox();
   const warning = await dialog.locator(".change-warning").boundingBox();

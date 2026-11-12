@@ -31,7 +31,7 @@ func TestSnapshotAcknowledgementDoesNotResumeHeldWork(t *testing.T) {
 		{name: "per PR completion remains observable", sessionPhase: "settled", health: monitor.HealthIdle, laterReport: "done: PR https://github.com/o/r/pull/9", wantPhase: "idle"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			// Arrange: notify writes the report before the wake, then the CFO acknowledges delivery.
+			// Arrange: notify writes the report before the wake, then the CEO acknowledges delivery.
 			store, h := testStore(t)
 			meta, err := state.ReadTaskMeta(h.State, "task-1")
 			if err != nil {
@@ -145,12 +145,12 @@ func TestSnapshotAnswerReceiptAndAcknowledgementDoNotResumeWork(t *testing.T) {
 			}
 			service := &Service{Store: store}
 			view, err := service.Snapshot()
-			if err != nil || view.Tasks[0].Phase != "blocked" || view.Tasks[0].Reason != "Waiting on the CFO: Hold until reviewed" {
+			if err != nil || view.Tasks[0].Phase != "blocked" || view.Tasks[0].Reason != "Waiting on the CEO: Hold until reviewed" {
 				t.Fatalf("unanswered question lost: tasks=%+v err=%v", view.Tasks, err)
 			}
 
 			// Act
-			if err := wake.MarkAnswered(h.State, record.Seq, wake.AnsweredByCFO, "Remain held"); err != nil {
+			if err := wake.MarkAnswered(h.State, record.Seq, wake.AnsweredByCEO, "Remain held"); err != nil {
 				t.Fatal(err)
 			}
 			before, err := service.Snapshot()
@@ -202,7 +202,7 @@ func TestSnapshotAcknowledgedHoldStaysWithinItsGeneration(t *testing.T) {
 	}
 }
 
-func TestSnapshotHeldTaskKeepsTerminalResultForCFO(t *testing.T) {
+func TestSnapshotHeldTaskKeepsTerminalResultForCEO(t *testing.T) {
 	for _, code := range []int{0, 1} {
 		t.Run(fmt.Sprintf("exit_%d", code), func(t *testing.T) {
 			// Arrange: the provider-held task's already-running model-free job finishes.
@@ -219,7 +219,7 @@ func TestSnapshotHeldTaskKeepsTerminalResultForCFO(t *testing.T) {
 				t.Fatal(err)
 			}
 			started := time.Now().UTC()
-			run := Run{ID: "cfo-run-held", Identity: strings.Repeat("a", 64), By: "cfo", Title: "Retained check", State: "running", RunAction: "held-check", CreatedAt: started, Started: &started, Shell: "powershell", Command: "Write-Output fixture", Cwd: h.Root}
+			run := Run{ID: "ceo-run-held", Identity: strings.Repeat("a", 64), By: "ceo", Title: "Retained check", State: "running", RunAction: "held-check", CreatedAt: started, Started: &started, Shell: "powershell", Command: "Write-Output fixture", Cwd: h.Root}
 			store.db.Runs = []Run{run}
 			if err := store.save(); err != nil {
 				t.Fatal(err)
@@ -240,7 +240,7 @@ func TestSnapshotHeldTaskKeepsTerminalResultForCFO(t *testing.T) {
 				t.Fatalf("job completion resumed held work: tasks=%+v err=%v", view.Tasks, err)
 			}
 			if finished.ExitCode == nil || *finished.ExitCode != code || finished.Output != "authentic model-free result" || !strings.Contains(finished.Untold, fmt.Sprintf("finished with exit code %d", code)) || finished.FinishedAt == nil {
-				t.Fatalf("terminal result was lost while the CFO could not receive it: %+v", finished)
+				t.Fatalf("terminal result was lost while the CEO could not receive it: %+v", finished)
 			}
 			if err := service.finishRuns(context.Background()); err != nil || store.Snapshot().Runs[0].Untold != finished.Untold {
 				t.Fatalf("completion was overwritten on rescan: err=%v run=%+v", err, store.Snapshot().Runs[0])
@@ -311,7 +311,7 @@ func TestSnapshotAcknowledgementDoesNotEraseFailure(t *testing.T) {
 			if err != nil || len(after.Tasks) != 1 || after.Tasks[0].Phase != test.wantPhase || after.Tasks[0].Report != "failed" || after.Tasks[0].Verified != test.isVerified || len(after.Decisions) != 0 {
 				t.Fatalf("ACK erased failure or gate custody: tasks=%+v err=%v", after.Tasks, err)
 			}
-			if test.gatePhase == "" && (before.Tasks[0].Phase != "failed" || before.Tasks[0].Reason != "Waiting on the CFO: Retained command exited 1" || test.wantPhase == "failed" && after.Tasks[0].Reason != "Retained command exited 1") {
+			if test.gatePhase == "" && (before.Tasks[0].Phase != "failed" || before.Tasks[0].Reason != "Waiting on the CEO: Retained command exited 1" || test.wantPhase == "failed" && after.Tasks[0].Reason != "Retained command exited 1") {
 				t.Errorf("failure receipt confused with resumption: before=%+v after=%+v", before.Tasks[0], after.Tasks[0])
 			}
 			if test.gatePhase != "" && after.Tasks[0].Reason != "Independent gate evidence" {

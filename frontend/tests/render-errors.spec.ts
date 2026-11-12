@@ -1,15 +1,15 @@
 import { expect, test } from "./site";
 
 // The Overlord, 2026-10-08: "everything error wise goes to cfo". A card or a
-// list that could not be drawn tells the CFO why, and leaves only a Retry in
+// list that could not be drawn tells the CEO why, and leaves only a Retry in
 // its place.
 for (const mode of ["ranked", "history", "queued"]) {
-  test(`${mode} rendering failures stay contained, tell the CFO, and can be retried`, async ({ page }) => {
+  test(`${mode} rendering failures stay contained, tell the CEO, and can be retried`, async ({ page }) => {
     const scope = mode === "queued" ? "list" : "card";
     const retry = { name: `Show this ${scope} again` };
     const reports: { token: string | null; where: string; text: string }[] = [];
-    await page.route("**/api/cfo/report", async (route) => {
-      reports.push({ token: await route.request().headerValue("X-CFO-Token"), ...route.request().postDataJSON() });
+    await page.route("**/api/ceo/report", async (route) => {
+      reports.push({ token: await route.request().headerValue("X-CEO-Token"), ...route.request().postDataJSON() });
       await route.fulfill({ status: 202, json: { reported: true } });
     });
     await page.goto(`/tests/fixtures/render-errors.html#${mode}`);

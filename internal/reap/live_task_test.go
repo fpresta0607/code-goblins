@@ -15,7 +15,7 @@ import (
 const (
 	liveWorktree = `C:\dev\proj\.worktrees\gb-board`
 	extraDir     = `C:\dev\proj\.worktrees\gb-board-5b`
-	fixtureRoot  = `C:\Users\op\AppData\Local\Temp\cfo-board-windows-0a1b`
+	fixtureRoot  = `C:\Users\op\AppData\Local\Temp\ceo-board-windows-0a1b`
 	gateWorktree = `C:\Users\op\.no-mistakes\worktrees\a3a2\01M3RUN`
 )
 
@@ -44,7 +44,7 @@ func fleetWithGoblin(alive bool, verb string) Inventory {
 // server for its own test session, started from dir by a script that has
 // since exited, with a stand-in codex.exe running in one of its panes.
 func withFixture(inv Inventory, dir string) Inventory {
-	server := process(500, 777, "herdr.exe", `"C:\Programs\Herdr\bin\herdr.exe" --session cfo-board-test-e736 server`, fixtureLater)
+	server := process(500, 777, "herdr.exe", `"C:\Programs\Herdr\bin\herdr.exe" --session ceo-board-test-e736 server`, fixtureLater)
 	server.Cwd = dir
 	shell := process(510, 500, "powershell.exe", `powershell.exe -NoExit -Command herdr-prompt`, fixtureLatest)
 	shell.Cwd = fixtureRoot + `\project`
@@ -86,16 +86,16 @@ func TestAStandInOfARetiredGoblinsFixtureIsReportedAgainstThatGoblin(t *testing.
 // working there, never by something live working below it or, once its
 // goblin is gone, by an agent working above its worktree.
 func TestAStandInUnderAFixtureNoLiveOwnerHoldsIsReported(t *testing.T) {
-	cfo := Pane{ID: "pane-cfo", HasAgent: true, AgentCwd: `C:\dev\proj`}
-	retiredWithCFO := fleetWithGoblin(false, "done")
-	retiredWithCFO.Panes = append(retiredWithCFO.Panes, cfo)
+	ceo := Pane{ID: "pane-ceo", HasAgent: true, AgentCwd: `C:\dev\proj`}
+	retiredWithCEO := fleetWithGoblin(false, "done")
+	retiredWithCEO.Panes = append(retiredWithCEO.Panes, ceo)
 
 	for _, testCase := range []struct {
 		name string
 		inv  Inventory
 	}{
 		{"started from the main checkout while goblins work in its worktrees", withFixture(fleetWithGoblin(true, "working"), `C:\dev\proj`)},
-		{"started in a retired goblin's worktree while an agent works in the main checkout", withFixture(retiredWithCFO, liveWorktree)},
+		{"started in a retired goblin's worktree while an agent works in the main checkout", withFixture(retiredWithCEO, liveWorktree)},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			orphans := classOf(Classify(testCase.inv), OrphanProcess)
@@ -235,7 +235,7 @@ func TestADevServerInALiveGoblinsExtraWorktreeIsNotStale(t *testing.T) {
 
 func TestHerdrSessionReadsTheSessionAServerRuns(t *testing.T) {
 	for _, tc := range []struct{ command, want string }{
-		{`"C:\Herdr\herdr.exe" --session cfo-board-test-e736 server`, "cfo-board-test-e736"},
+		{`"C:\Herdr\herdr.exe" --session ceo-board-test-e736 server`, "ceo-board-test-e736"},
 		{`herdr --session=fleet server`, "fleet"},
 		{`herdr.exe server`, "default"},
 	} {
@@ -262,7 +262,7 @@ func TestCollectorPlacesHarnessesAndDatesWorktrees(t *testing.T) {
 		Home:    home.Home{Root: root, State: stateDir},
 		Session: "fleet",
 		Processes: stubProcesses{
-			process(500, 1, "herdr.exe", `herdr --session cfo-board-test-1 server`, fixtureStart),
+			process(500, 1, "herdr.exe", `herdr --session ceo-board-test-1 server`, fixtureStart),
 			process(510, 500, "powershell.exe", `powershell -NoExit`, fixtureLater),
 			process(520, 510, "codex.exe", `codex.exe fixture.json`, fixtureLatest),
 			process(900, 1, "node.exe", `node server.js`, fixtureLatest),

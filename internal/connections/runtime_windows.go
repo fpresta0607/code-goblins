@@ -53,7 +53,7 @@ func nativeRuntime(ctx context.Context, stateDir string, meta state.TaskMeta) (R
 	generation := ""
 	for _, entry := range env {
 		key, value, _ := strings.Cut(entry, "=")
-		if strings.EqualFold(key, "CFO_SPAWN_GEN") {
+		if strings.EqualFold(key, "GOBLINS_SPAWN_GEN") {
 			generation = value
 		}
 	}

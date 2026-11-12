@@ -54,11 +54,11 @@ func rootPath(dir string, elements ...string) string {
 // Codex runs each hook command inside the session's own shell, which on
 // Windows is powershell.exe -NoProfile -Command, so a hook that started the
 // helper's PowerShell started two for every event and timed out live. Its
-// hooks run cfo itself, written so PowerShell, cmd and bash read it alike.
-func TestCodexHooksRunCfoWithoutAHelperShell(t *testing.T) {
+// hooks run goblins itself, written so PowerShell, cmd and bash read it alike.
+func TestCodexHooksRunCeoWithoutAHelperShell(t *testing.T) {
 	// Arrange
 	dir := t.TempDir()
-	config := InstallConfig{Harness: "codex", ConfigDir: dir, Executable: rootPath(dir, "cg", "bin", "cfo.exe"), Home: rootPath(dir, "cg"), State: rootPath(dir, "cg", "state")}
+	config := InstallConfig{Harness: "codex", ConfigDir: dir, Executable: rootPath(dir, "cg", "bin", "goblins.exe"), Home: rootPath(dir, "cg"), State: rootPath(dir, "cg", "state")}
 	want := filepath.ToSlash(config.Executable) + " native-hook codex --home " + filepath.ToSlash(config.Home) + " --state " + filepath.ToSlash(config.State)
 
 	// Act
@@ -73,7 +73,7 @@ func TestCodexHooksRunCfoWithoutAHelperShell(t *testing.T) {
 			t.Errorf("%s handlers = %+v, want only %q with the %d-second limit", event, handlers[event], want, TimeoutSeconds)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(dir, "cfo-native-hook.ps1")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, "goblins-native-hook.ps1")); !os.IsNotExist(err) {
 		t.Errorf("a helper script was written for hooks that do not run it: %v", err)
 	}
 }
@@ -83,7 +83,7 @@ func TestCodexHooksRunCfoWithoutAHelperShell(t *testing.T) {
 func TestCodexHooksKeepTheHelperWhereAPathNeedsQuoting(t *testing.T) {
 	// Arrange
 	dir := t.TempDir()
-	config := InstallConfig{Harness: "codex", ConfigDir: dir, Executable: rootPath(dir, "Code Goblins", "bin", "cfo.exe"), Home: rootPath(dir, "cg"), State: rootPath(dir, "cg", "state")}
+	config := InstallConfig{Harness: "codex", ConfigDir: dir, Executable: rootPath(dir, "Code Goblins", "bin", "goblins.exe"), Home: rootPath(dir, "cg"), State: rootPath(dir, "cg", "state")}
 	_, want := helperCommand(dir)
 
 	// Act
@@ -98,7 +98,7 @@ func TestCodexHooksKeepTheHelperWhereAPathNeedsQuoting(t *testing.T) {
 			t.Errorf("%s handlers = %+v, want only the helper's %q", event, handlers[event], want)
 		}
 	}
-	script, err := os.ReadFile(filepath.Join(dir, "cfo-native-hook.ps1"))
+	script, err := os.ReadFile(filepath.Join(dir, "goblins-native-hook.ps1"))
 	if err != nil || !strings.Contains(string(script), config.Executable) {
 		t.Errorf("the helper does not run %s (%v): %s", config.Executable, err, script)
 	}
@@ -118,7 +118,7 @@ func TestCodexReinstallReplacesEitherCommandShape(t *testing.T) {
 			// Arrange
 			dir := t.TempDir()
 			config := func(folder string) InstallConfig {
-				return InstallConfig{Harness: "codex", ConfigDir: dir, Executable: rootPath(dir, folder, "cfo.exe"), Home: rootPath(dir, "cg"), State: rootPath(dir, "cg", "state")}
+				return InstallConfig{Harness: "codex", ConfigDir: dir, Executable: rootPath(dir, folder, "goblins.exe"), Home: rootPath(dir, "cg"), State: rootPath(dir, "cg", "state")}
 			}
 			if _, err := Install(config(test.before)); err != nil {
 				t.Fatal(err)
@@ -142,7 +142,7 @@ func TestCodexReinstallReplacesEitherCommandShape(t *testing.T) {
 					t.Errorf("%s handlers = %+v, want only %q", event, handlers[event], want)
 				}
 			}
-			if _, err := os.Stat(filepath.Join(dir, "cfo-native-hook.ps1")); usesHelper == os.IsNotExist(err) {
+			if _, err := os.Stat(filepath.Join(dir, "goblins-native-hook.ps1")); usesHelper == os.IsNotExist(err) {
 				t.Errorf("helper script present = %v, want %v", !os.IsNotExist(err), usesHelper)
 			}
 		})
@@ -156,10 +156,10 @@ func TestUninstallRemovesEitherCodexCommandShape(t *testing.T) {
 		t.Run(folder, func(t *testing.T) {
 			// Arrange
 			dir := t.TempDir()
-			if err := os.WriteFile(filepath.Join(dir, "hooks.json"), []byte(`{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"C:/tools/cfo.exe native-hook claude --home C:/cg --state C:/cg/state"}]}]}}`), 0o600); err != nil {
+			if err := os.WriteFile(filepath.Join(dir, "hooks.json"), []byte(`{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"C:/tools/goblins.exe native-hook claude --home C:/cg --state C:/cg/state"}]}]}}`), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := Install(InstallConfig{Harness: "codex", ConfigDir: dir, Executable: rootPath(dir, folder, "cfo.exe"), Home: rootPath(dir, "cg"), State: rootPath(dir, "cg", "state")}); err != nil {
+			if _, err := Install(InstallConfig{Harness: "codex", ConfigDir: dir, Executable: rootPath(dir, folder, "goblins.exe"), Home: rootPath(dir, "cg"), State: rootPath(dir, "cg", "state")}); err != nil {
 				t.Fatal(err)
 			}
 
@@ -186,7 +186,7 @@ func TestAnInstallWithTheOldLimitTakesTheNewOneOnTheNextInstall(t *testing.T) {
 		t.Run(harness, func(t *testing.T) {
 			// Arrange
 			dir := t.TempDir()
-			config := InstallConfig{Harness: harness, ConfigDir: dir, Executable: rootPath(dir, "cg", "bin", "cfo.exe"), Home: rootPath(dir, "cg"), State: rootPath(dir, "cg", "state")}
+			config := InstallConfig{Harness: harness, ConfigDir: dir, Executable: rootPath(dir, "cg", "bin", "goblins.exe"), Home: rootPath(dir, "cg"), State: rootPath(dir, "cg", "state")}
 			path, err := Install(config)
 			if err != nil {
 				t.Fatal(err)

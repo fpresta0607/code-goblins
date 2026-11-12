@@ -10,7 +10,7 @@ import { expect, test, type Locator, type Page, type Route } from "./site";
 
 const RUN_ID = "01M6EASKNZ3NNDFC6PWCBFHY7R";
 const LOG_LINK = "https://github.com/example/project/actions/runs/38280093670/job/112233445566778899?check_suite_focus=true";
-const SCREENSHOT_END = "the separate CFO lock-only/read-only restriction is why this new scope needs your decision.";
+const SCREENSHOT_END = "the separate CEO lock-only/read-only restriction is why this new scope needs your decision.";
 
 async function openCard(page: Page, name: string) {
   await page.goto("/tests/fixtures/question-clarity.html");
@@ -93,7 +93,9 @@ for (const width of [320, 375, 1440]) {
     const evidence = details.locator(".question-evidence");
     await expect(evidence.getByRole("listitem")).toHaveCount(7);
     await expect(evidence.getByRole("button", { name: "Copy " + RUN_ID })).toBeVisible();
-    await expect(evidence.getByRole("link", { name: LOG_LINK })).toHaveAttribute("href", LOG_LINK);
+    // A run's address reads as its short name, which opens it whole (#2360).
+    await expect(evidence.getByRole("link", { name: "project CI run 38280093670" })).toHaveAttribute("href", LOG_LINK);
+    await expect(evidence.getByRole("link", { name: "project CI run 38280093670" })).toHaveAttribute("title", LOG_LINK);
     expect(await overflow(page)).toEqual([0, 0, 0]);
     await page.screenshot({ path: testInfo.outputPath(`clear-question-open-${width}.png`), fullPage: true });
   });
@@ -160,7 +162,7 @@ test("his choice, the open evidence and Skip survive a new snapshot, and Send an
   await details.locator("> summary").click();
   await expect(card.getByRole("radio", { name: /Keep Review parked/ })).toBeChecked();
   await card.getByRole("button", { name: "Send decision" }).click();
-  await expect.poll(() => sent).toEqual([expect.objectContaining({ kind: "cfo_answer", question_id: "ci-review-repair", generation: "b".repeat(64), answer_kind: "option", text: "Keep Review parked" })]);
+  await expect.poll(() => sent).toEqual([expect.objectContaining({ kind: "ceo_answer", question_id: "ci-review-repair", generation: "b".repeat(64), answer_kind: "option", text: "Keep Review parked" })]);
 });
 
 test("markup in a question's decision and evidence is shown as text and never runs", async ({ page }) => {

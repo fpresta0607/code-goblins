@@ -12,7 +12,7 @@ import snapshot from "./fixtures/queued-snapshot.json" with { type: "json" };
 // page holds ten of them at 1160 px.
 test.use({ viewport: { width: 1440, height: 1160 } });
 
-test("the CFO queue can turn to its short final page without a render loop", async ({ page }) => {
+test("the CEO queue can turn to its short final page without a render loop", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.route("**/api/**", async (route) => {
@@ -32,7 +32,7 @@ test("the CFO queue can turn to its short final page without a render loop", asy
   await page.locator(".context-pane").evaluate((pane) => { pane.style.width = "832px"; });
   await expect(page.locator(".panel-view-switch")).toBeVisible();
   await openTaskList(page);
-  const queue = page.locator(".cfo-queue");
+  const queue = page.locator(".ceo-queue");
   let held = 0;
   await expect.poll(async () => {
     held = await queue.locator(".task-card-shell").count();

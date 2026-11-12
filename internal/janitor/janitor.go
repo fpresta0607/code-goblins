@@ -1,4 +1,4 @@
-// Package janitor keeps the CFO home small without anyone asking. The
+// Package janitor keeps the CEO home small without anyone asking. The
 // watcher's sweep runs it: it removes the worktrees in its home no task owns
 // once their work is safe (on the default branch, or kept as a local archive
 // tag first), keeps bin to the current build alone, removes
@@ -9,13 +9,13 @@
 // worktree holding uncommitted work, a worktree no task records, a retired
 // task's folder holding a git repository, a data folder over 200 MB, and a
 // new folder or file in the projects root that is no checkout. It stops the
-// local services stacks cfo services started that no live task holds, and
+// local services stacks goblins services started that no live task holds, and
 // beyond those never touches Docker, the Overlord's checkouts or files, or
 // anything holding uncommitted or unpushed work, and every check that decides
 // a removal refuses when it cannot read what it checks. It ends the processes
 // a terminal of the home left running once the terminal is gone, and a
 // detached tree of a running terminal once it has sat idle for an hour, each
-// proven the terminal's own as its teardown proves it, and names for the CFO
+// proven the terminal's own as its teardown proves it, and names for the CEO
 // what it cannot prove.
 package janitor
 
@@ -59,8 +59,8 @@ type Config struct {
 	// list was read before anything is removed on the strength of it.
 	SelfPID int
 	Now     time.Time
-	// StopServices stops every local services stack cfo services started
-	// that no live task holds, and the Docker engine cfo started once
+	// StopServices stops every local services stack goblins services started
+	// that no live task holds, and the Docker engine goblins started once
 	// nothing it started runs on it, and says what it stopped. Nil stops
 	// nothing.
 	StopServices func(ctx context.Context) ([]string, error)
@@ -86,6 +86,10 @@ type Config struct {
 	// VerificationStore is the verification store's folder, which the sweep
 	// measures beside the home. Empty measures it as not named.
 	VerificationStore string
+	// GateHomes are the folders of the gate's home, which the sweep measures
+	// beside the home: the one the gate runs from, and the Dev Drive's when
+	// that is another. None measures no gate home.
+	GateHomes []string
 }
 
 // Item is one thing a sweep removed, kept or reports.
@@ -96,7 +100,7 @@ type Item struct {
 	Detail string `json:"detail,omitempty"`
 }
 
-// Record is one sweep, kept in state for the digest, the board and cfo
+// Record is one sweep, kept in state for the digest, the board and goblins
 // runtime to read.
 type Record struct {
 	Time    time.Time    `json:"time"`
@@ -105,9 +109,11 @@ type Record struct {
 	Strays  []Item       `json:"strays,omitempty"`
 	Disk    disk.Reading `json:"disk"`
 	Buckets Buckets      `json:"buckets"`
-	Notes   []string     `json:"notes,omitempty"`
+	// Gate is what the gate's home holds, nil when the sweep was given none.
+	Gate  *GateHome `json:"gate,omitempty"`
+	Notes []string  `json:"notes,omitempty"`
 	// Processes are the processes the sweep ended, those it left for the
-	// CFO, and the detached trees it goes on watching.
+	// CEO, and the detached trees it goes on watching.
 	Processes ProcessSweep `json:"processes,omitzero"`
 }
 
@@ -169,7 +175,11 @@ func Sweep(ctx context.Context, cfg Config) Record {
 		metas = append(metas, task.Meta)
 	}
 	record.Buckets = Measure(cfg.Home, metas, cfg.VerificationStore)
+	if len(cfg.GateHomes) > 0 {
+		record.Gate = MeasureGate(cfg.GateHomes)
+	}
 	cfg.reportDataSize(&record)
+	cfg.reportBacklogHistory(&record)
 	if reading, err := disk.ReadLeast(cfg.Home.Root, cfg.Home.DevDrive); err == nil {
 		record.Disk = reading
 	} else {

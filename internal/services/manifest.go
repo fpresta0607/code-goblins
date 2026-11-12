@@ -3,7 +3,7 @@
 // stack per project, held by the tasks that asked for it and started only
 // when the machine's memory and commit stay above the fleet's floor with the
 // stack's cost added. The last release stops the stack, and the Docker engine
-// with it when cfo started the engine.
+// with it when goblins started the engine.
 package services
 
 import (
@@ -19,7 +19,7 @@ import (
 )
 
 // ManifestFileName is one project's local services declaration under the
-// CFO home's data directory, beside its auth manifest.
+// CEO home's data directory, beside its auth manifest.
 const ManifestFileName = "services.json"
 
 // Manifest is one project's declared local services.
@@ -38,14 +38,14 @@ type Manifest struct {
 	// as the project's guard that its env file points at no production
 	// service. A check that exits non-zero refuses the start.
 	Check []string `json:"check,omitempty"`
-	// MemoryEstimateGB is what the stack is expected to cost before cfo has
+	// MemoryEstimateGB is what the stack is expected to cost before goblins has
 	// measured it: memory, and commit beside it.
 	MemoryEstimateGB float64 `json:"memory_estimate_gb"`
 	// Path is where the manifest was loaded from. It is not serialized.
 	Path string `json:"-"`
 }
 
-// ManifestPath returns a project's services declaration under a CFO home's
+// ManifestPath returns a project's services declaration under a CEO home's
 // data directory.
 func ManifestPath(dataDir, project string) string {
 	return filepath.Join(dataDir, auth.ManifestDirName, auth.ProjectName(project), ManifestFileName)
@@ -75,7 +75,7 @@ func LoadManifest(dataDir, project string) (Manifest, error) {
 	return manifest, nil
 }
 
-// Validate refuses a declaration cfo could not start a stack from.
+// Validate refuses a declaration ceo could not start a stack from.
 func (m Manifest) Validate() error {
 	if strings.TrimSpace(m.Project) == "" {
 		return errors.New("project is required")
@@ -100,7 +100,7 @@ func (m Manifest) Validate() error {
 		return errors.New("check names no program")
 	}
 	if m.MemoryEstimateGB <= 0 {
-		return errors.New("memory_estimate_gb must be more than 0, what the stack costs before cfo has measured it")
+		return errors.New("memory_estimate_gb must be more than 0, what the stack costs before goblins has measured it")
 	}
 	return nil
 }

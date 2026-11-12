@@ -6,17 +6,17 @@ import "../../src/styles.css";
 import { SteppedIn } from "./stepped-in";
 
 const parameters = new URLSearchParams(location.search);
-const isCfo = parameters.get("role") === "cfo";
+const isCeo = parameters.get("role") === "ceo";
 const isHerdr = location.hash === "#herdr";
 const board = createRoot(document.getElementById("root")!);
 // A hook update reports the harness of a session already running in the
-// terminal; the ended CFO session before it shares that terminal. A CFO in
+// terminal; the ended CEO session before it shares that terminal. A CEO in
 // Herdr has no native terminal.
 const render = (harness: string) => {
-  const snapshot = parseSnapshot({ healthy: true, instance: "fixture", cfo_terminal: isHerdr ? "" : "cfo-proof", cfo_runs: true, cfo_harness: harness,
+  const snapshot = parseSnapshot({ healthy: true, instance: "fixture", ceo_terminal: isHerdr ? "" : "ceo-proof", ceo_runs: true, ceo_harness: harness,
     sessions: [
-      { id: "old-cfo-session", native_id: "0b7d4f3e-5a61-4c2b-9e8d-1f2a3b4c5d6e", host_id: "cfo-proof", role: "cfo", harness: harness === "claude" ? "codex" : "claude", phase: "ended", updated_at: "2026-09-30T10:00:00Z" },
-      { id: "cfo-session", native_id: "9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", host_id: "cfo-proof", role: "cfo", harness, updated_at: "2026-09-30T11:00:00Z" },
+      { id: "old-ceo-session", native_id: "0b7d4f3e-5a61-4c2b-9e8d-1f2a3b4c5d6e", host_id: "ceo-proof", role: "ceo", harness: harness === "claude" ? "codex" : "claude", phase: "ended", updated_at: "2026-09-30T10:00:00Z" },
+      { id: "ceo-session", native_id: "9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", host_id: "ceo-proof", role: "ceo", harness, updated_at: "2026-09-30T11:00:00Z" },
     ],
     tasks: [{ id: "input-proof", generation: "proof", backend: isHerdr ? "herdr" : "native", harness, verified: false }],
   });
@@ -25,7 +25,7 @@ const render = (harness: string) => {
     <div style={{ display: "flex", height: 700, width: 1000 }} onKeyDown={(event) => {
       if (event.key === "Escape") document.body.dataset.escaped = "true";
     }}>
-      <SteppedIn><TerminalDeck snapshot={snapshot} task={isCfo ? undefined : task} cfo={isCfo} shown connected focus={1} /></SteppedIn>
+      <SteppedIn><TerminalDeck snapshot={snapshot} task={isCeo ? undefined : task} ceo={isCeo} shown connected focus={1} /></SteppedIn>
     </div>,
   );
 };

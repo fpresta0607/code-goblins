@@ -1,17 +1,20 @@
 package janitor
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/layout"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -47,9 +50,10 @@ func isTextRecord(name string) bool {
 
 // trimRetiredTasks keeps only the text record of every retired task: the
 // folder cleanup archived its task temporary folder into, and its data
-// folder once filing moved it to data\archive\finished, whose deliverables
-// also stay. A task is retired when no live record of it is left; its
-// folders keep everything for a day after that.
+// folder once filing moved it to data\archive\finished, or while filing
+// keeps it in data because something still names it, whose deliverables also
+// stay, and in data what names it by path. A task is retired when no live
+// record of it is left; its folders keep everything for a day after that.
 func (cfg Config) trimRetiredTasks(processes []string, record *Record) {
 	if len(cfg.Inventory.UnreadableTasks) > 0 {
 		record.Notes = append(record.Notes, "a task record could not be read, so no retired task's folder was trimmed")
@@ -69,14 +73,29 @@ func (cfg Config) trimRetiredTasks(processes []string, record *Record) {
 		if err != nil || cfg.Now.Sub(archived) < retiredGrace {
 			continue
 		}
-		cfg.keepTextRecord(filepath.Join(archive, entry.Name()), "a retired task's scratch, logs and build output", processes, record)
+		cfg.keepTextRecord(filepath.Join(archive, entry.Name()), "a retired task's scratch, logs and build output", processes, record, nil)
 	}
 	finished := filepath.Join(cfg.Home.Data, "archive", "finished")
 	for _, entry := range cfg.readFolder(finished, record) {
 		if !entry.IsDir() || live[strings.ToLower(entry.Name())] {
 			continue
 		}
-		cfg.keepTextRecord(filepath.Join(finished, entry.Name()), "a finished task's evidence", processes, record)
+		cfg.keepTextRecord(filepath.Join(finished, entry.Name()), "a finished task's evidence", processes, record, nil)
+	}
+	filing, err := layout.ReadRecord(cfg.Home.State)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		record.Notes = append(record.Notes, "the filing record could not be read, so no finished folder kept in data was trimmed: "+err.Error())
+	}
+	for _, kept := range filing.Kept {
+		folder := filepath.Join(cfg.Home.Data, kept.ID)
+		if !kept.IsFinished || live[strings.ToLower(kept.ID)] {
+			continue
+		}
+		// A pass since the record may have filed it.
+		if _, err := os.Stat(folder); errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		cfg.keepTextRecord(folder, "a finished task's evidence; filing keeps the folder in data ("+kept.Reason+")", processes, record, kept.Named)
 	}
 }
 
@@ -89,12 +108,13 @@ func (cfg Config) readFolder(dir string, record *Record) []os.DirEntry {
 	return entries
 }
 
-// keepTextRecord removes everything at the top of folder but its text record
-// and its deliverables, all or nothing: it removes nothing while a running
-// process names the folder, anything in what it would remove was written in
-// the last day, cannot be read or is a link, or a git repository is among
-// it, whose work nothing here can prove landed. The last two are reported.
-func (cfg Config) keepTextRecord(folder, what string, processes []string, record *Record) {
+// keepTextRecord removes everything at the top of folder but its text record,
+// its deliverables and the entries keep names, all or nothing: it removes
+// nothing while a running process names the folder, anything in what it
+// would remove was written in the last day, cannot be read or is a link, or a
+// git repository is among it, whose work nothing here can prove landed. The
+// last two are reported.
+func (cfg Config) keepTextRecord(folder, what string, processes []string, record *Record, keep []string) {
 	for _, line := range processes {
 		if names(line, folder) {
 			return
@@ -107,7 +127,8 @@ func (cfg Config) keepTextRecord(folder, what string, processes []string, record
 	}
 	var doomed []string
 	for _, entry := range entries {
-		if entry.Type().IsRegular() && isTextRecord(entry.Name()) || entry.IsDir() && strings.EqualFold(entry.Name(), "deliverables") {
+		isKept := slices.ContainsFunc(keep, func(name string) bool { return strings.EqualFold(name, entry.Name()) })
+		if entry.Type().IsRegular() && isTextRecord(entry.Name()) || entry.IsDir() && strings.EqualFold(entry.Name(), "deliverables") || isKept {
 			continue
 		}
 		doomed = append(doomed, filepath.Join(folder, entry.Name()))
@@ -197,11 +218,46 @@ func (cfg Config) removeBackup(path string, processes []string, record *Record) 
 	record.Removed = append(record.Removed, Item{Kind: "backup", Path: path, Bytes: bytes, Detail: fmt.Sprintf("older than the newest %d backups of its kind", keptBackups)})
 }
 
+// largestDataShown is how many of the data folder's largest folders its
+// report names.
+const largestDataShown = 5
+
 // reportDataSize reports a data folder over DataLimit, which holds files its
-// records do not need.
+// records do not need, with its largest folders, largest first, and why
+// filing leaves each where it is.
 func (cfg Config) reportDataSize(record *Record) {
 	if record.Buckets.Data <= DataLimit {
 		return
 	}
-	record.Strays = append(record.Strays, Item{Kind: "data", Path: cfg.Home.Data, Bytes: record.Buckets.Data, Detail: fmt.Sprintf("data holds %.0f MB, over the %d MB its records need: binaries, archives, logs and evidence belong in a task's scratch, which goes when the task does", float64(record.Buckets.Data)/(1<<20), DataLimit>>20)})
+	detail := fmt.Sprintf("data holds %.0f MB, over the %d MB its records need: binaries, archives, logs and evidence belong in a task's scratch, which goes when the task does", float64(record.Buckets.Data)/(1<<20), DataLimit>>20)
+	entries, _ := os.ReadDir(cfg.Home.Data)
+	why := map[string]string{}
+	if filing, err := layout.ReadRecord(cfg.Home.State); err == nil {
+		for _, kept := range filing.Kept {
+			why[strings.ToLower(kept.ID)] = kept.Reason
+		}
+	}
+	type folder struct {
+		name  string
+		bytes int64
+	}
+	var folders []folder
+	for _, entry := range entries {
+		if entry.IsDir() {
+			folders = append(folders, folder{entry.Name(), Size(filepath.Join(cfg.Home.Data, entry.Name()))})
+		}
+	}
+	slices.SortStableFunc(folders, func(a, b folder) int { return cmp.Compare(b.bytes, a.bytes) })
+	var largest []string
+	for _, f := range folders[:min(len(folders), largestDataShown)] {
+		line := fmt.Sprintf("data/%s %.1f MB", f.name, float64(f.bytes)/(1<<20))
+		if reason := why[strings.ToLower(f.name)]; reason != "" {
+			line += " (" + reason + ")"
+		}
+		largest = append(largest, line)
+	}
+	if len(largest) > 0 {
+		detail += "; the largest: " + strings.Join(largest, ", ")
+	}
+	record.Strays = append(record.Strays, Item{Kind: "data", Path: cfg.Home.Data, Bytes: record.Buckets.Data, Detail: detail})
 }

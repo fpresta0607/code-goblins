@@ -12,6 +12,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/disk"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
@@ -37,19 +38,35 @@ var cacheTools = []cacheTool{
 // cacheTimeout bounds one tool's prune.
 const cacheTimeout = 10 * time.Minute
 
-// trimCaches brings the home's caches folder back under its cap: over it, each
-// tool prunes its own cache, the one used longest ago first, until the folder
-// is under the cap again or every tool has pruned. A prune can delete a
-// whole cache, as go clean -cache does, so each starts only once the machine's
-// heavy line is free, and runs in a turn of that line (HeavyLine.Wrap), which
-// no run that waits its turn builds beside. The trim stops at a line that is
-// not free and leaves the rest to the next sweep.
+// goBuildUnused is how long an entry of Go's build cache goes unused before
+// the sweep trims it. Go trims its own cache the same way, but at five days,
+// and a fleet that builds many worktrees fills five days with tens of
+// gigabytes. An entry's time is when it was last used, an hour late at most,
+// as Go marks a use only once an hour.
+const goBuildUnused = 24 * time.Hour
+
+// trimCaches brings the home's caches folder back under its cap: over it, it
+// first trims Go's build cache of the entries unused for a day (see
+// trimGoBuild), then each tool prunes its own cache, the one used longest ago
+// first, until the folder is under the cap again or every tool has pruned. A
+// prune can delete a whole cache, as go clean -cache does, so each starts
+// only once the machine's heavy line is free, and runs in a turn of that line
+// (HeavyLine.Wrap), which no run that waits its turn builds beside. The trim
+// stops at a line that is not free and leaves the rest to the next sweep.
 func (cfg Config) trimCaches(ctx context.Context, record *Record) {
 	root := cfg.Home.Caches()
 	limit := int64(fleetconfig.Bytes(cfg.Settings.CachesCapGB))
 	total, isWhole := sizeOf(root)
 	if !isWhole {
 		record.Notes = append(record.Notes, fmt.Sprintf("the caches could not all be read, so the %.1f GB they hold against their %.0f GB cap is only what could be counted", disk.GB(uint64(total)), cfg.Settings.CachesCapGB))
+	}
+	if total <= limit {
+		return
+	}
+	goBuild := filepath.Join(root, "go-build")
+	if freed := trimGoBuild(ctx, goBuild, cfg.Now.Add(-goBuildUnused-time.Hour)); freed > 0 {
+		total -= freed
+		record.Removed = append(record.Removed, Item{Kind: "cache", Path: goBuild, Bytes: freed, Detail: "Go build cache entries unused for a day"})
 	}
 	if total <= limit {
 		return
@@ -101,6 +118,46 @@ func (cfg Config) trimCaches(ctx context.Context, record *Record) {
 	if total > limit {
 		record.Notes = append(record.Notes, fmt.Sprintf("the caches hold %.1f GB, over their %.0f GB cap, after every tool's own prune; nothing is deleted blind", disk.GB(uint64(total)), cfg.Settings.CachesCapGB))
 	}
+}
+
+// trimGoBuild removes the entries of the Go build cache in dir last used
+// before cutoff, and returns the bytes it freed. It is Go's own trim with a
+// shorter limit: only an entry, a file or an executable's folder named
+// <hash>-a or <hash>-d in one of the cache's 256 folders, goes. Any go command
+// trims the cache this way while others build from it, and one that finds an
+// entry gone builds it again, so it needs no turn of the heavy line. An entry
+// it cannot remove, as one a build holds open, stays for the next sweep.
+func trimGoBuild(ctx context.Context, dir string, cutoff time.Time) int64 {
+	var freed int64
+	for i := range 256 {
+		if ctx.Err() != nil {
+			return freed
+		}
+		subdir := filepath.Join(dir, fmt.Sprintf("%02x", i))
+		entries, err := os.ReadDir(subdir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			name := entry.Name()
+			if !strings.HasSuffix(name, "-a") && !strings.HasSuffix(name, "-d") {
+				continue
+			}
+			info, err := entry.Info()
+			if err != nil || !info.ModTime().Before(cutoff) {
+				continue
+			}
+			path := filepath.Join(subdir, name)
+			bytes := info.Size()
+			if info.IsDir() {
+				bytes = Size(path)
+			}
+			if fsx.RemoveAll(path) == nil {
+				freed += bytes
+			}
+		}
+	}
+	return freed
 }
 
 // lastUse is the latest modification time among a cache's own entries, which

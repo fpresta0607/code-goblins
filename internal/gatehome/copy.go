@@ -24,7 +24,7 @@ var runtimeFiles = map[string]bool{"socket": true, "daemon.pid": true, "daemon.l
 // moveMarker is the file a copy puts in the Dev Drive folder first and a move
 // removes last, so a move ended outright, its terminal closed among other
 // ways, leaves a copy the next move knows for its own and replaces.
-const moveMarker = ".cfo-gate-home-move"
+const moveMarker = ".ceo-gate-home-move"
 
 // makeLink makes a link at path that leads to target, of the kind given.
 var makeLink = createLink

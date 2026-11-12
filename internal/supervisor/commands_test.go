@@ -28,7 +28,7 @@ func writeCommandFixture(t *testing.T, path, body string) {
 }
 
 // commandBoard is a board whose user's home is a fresh folder, with task-1 of
-// the harness harness running in a worktree of its own and no CFO.
+// the harness harness running in a worktree of its own and no CEO.
 func commandBoard(t *testing.T, harness string) (*HTTP, string, string) {
 	t.Helper()
 	store, _ := testStore(t)
@@ -244,7 +244,7 @@ func TestCommandsRefuseASessionTheBoardCannotName(t *testing.T) {
 		{"a folder instead of a session", "task=" + filepath.ToSlash(t.TempDir()) + "&token=test-instance", http.StatusBadRequest},
 		{"a task this home does not hold", "task=task-9&token=test-instance", http.StatusNotFound},
 		{"a generation a later start replaced", "task=task-1&generation=old&token=test-instance", http.StatusConflict},
-		{"a CFO that is not running", "cfo=1&token=test-instance", http.StatusNotFound},
+		{"a CEO that is not running", "ceo=1&token=test-instance", http.StatusNotFound},
 	} {
 		t.Run(c.what, func(t *testing.T) {
 			// Act
@@ -258,8 +258,8 @@ func TestCommandsRefuseASessionTheBoardCannotName(t *testing.T) {
 	}
 }
 
-// A task's own generation is accepted, and the CFO's panel reads the commands
-// of the harness the CFO runs.
+// A task's own generation is accepted, and the CEO's panel reads the commands
+// of the harness the CEO runs.
 func TestCommandsReadTheSessionTheBoardNames(t *testing.T) {
 	t.Run("the task's own generation", func(t *testing.T) {
 		// Arrange
@@ -277,15 +277,15 @@ func TestCommandsReadTheSessionTheBoardNames(t *testing.T) {
 			t.Fatalf("commands = %v, want %v", answered, want)
 		}
 	})
-	t.Run("the CFO's own harness", func(t *testing.T) {
+	t.Run("the CEO's own harness", func(t *testing.T) {
 		// Arrange
 		board, profile, _ := commandBoard(t, "claude")
 		writeCommandFixture(t, filepath.Join(profile, ".pi", "agent", "prompts", "plan.md"), "x")
 		writeCommandFixture(t, filepath.Join(profile, ".claude", "commands", "review.md"), "x")
-		registerNativeCFO(t, board.Service.Store.Home.State, "pi", "s1")
+		registerNativeCEO(t, board.Service.Store.Home.State, "pi", "s1")
 
 		// Act
-		answered := commandsIn(t, getCommands(board, "cfo=1&token=test-instance"))
+		answered := commandsIn(t, getCommands(board, "ceo=1&token=test-instance"))
 
 		// Assert
 		if want := []string{"plan"}; !reflect.DeepEqual(answered, want) {

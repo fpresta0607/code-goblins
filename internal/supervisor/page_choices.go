@@ -25,9 +25,9 @@ type declaredQuestion struct {
 // PageOptions is what a goblin's Scrawl page asks the Overlord to pick, as a
 // notify offers it: " options: " and the choices of the one question the
 // page's choices blocks declare, the recommended one marked "(Recommended)"
-// as a goblin marks it. While AFK mode is on the CFO answers the page in his
+// as a goblin marks it. While AFK mode is on the CEO answers the page in his
 // place with one of them. It is empty for a page that declares no question,
-// several, or choices a question cannot offer, which the CFO answers in its
+// several, or choices a question cannot offer, which the CEO answers in its
 // own words, and for a page that cannot be read.
 func PageOptions(page string) string {
 	data, err := fsx.ReadFile(page)

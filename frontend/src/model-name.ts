@@ -1,5 +1,5 @@
 // shortModel is the name the box shows for a session's model, short enough
-// that the row under the message never cuts it (the CFO's review of step 3,
+// that the row under the message never cuts it (the CEO's review of step 3,
 // 2026-10-27: "Model short (Opus 5.5), never cut at 360 px"): a Claude
 // model's family and version, a GPT model's version and tier, and any other
 // model's own name without its provider, in proper case (the Overlord,

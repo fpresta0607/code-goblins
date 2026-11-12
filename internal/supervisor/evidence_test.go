@@ -42,11 +42,11 @@ func TestFleetEvaluationPrefersAWaitingQuestionThenTheGateThenHerdr(t *testing.T
 		phase      string
 		reason     string
 	}{
-		{"a waiting question outranks the gate and the pane", ready, busy, question, "blocked", "Waiting on the CFO: Which schema? options: a | b"},
+		{"a waiting question outranks the gate and the pane", ready, busy, question, "blocked", "Waiting on the CEO: Which schema? options: a | b"},
 		{"another task's question does not block this one", ready, busy, []wake.Record{{Kind: "notify", Key: "g2", Detail: "blocked: other"}}, "ready", ""},
 		{"a question answered on the board no longer blocks", ready, busy, []wake.Record{{Seq: 3, Kind: "notify", Key: "g1", Detail: "blocked: Which schema? options: a | b", Answered: "b"}}, "ready", ""},
 		{"a done notify is not a question", Evaluation{}, busy, []wake.Record{{Kind: "notify", Key: "g1", Detail: "done: PR https://example/pr/1"}}, "working", "Herdr reports busy"},
-		{"a question asked in prose waits like a notify", ready, busy, asked, "blocked", "Waiting on the CFO: Which layout do you want?"},
+		{"a question asked in prose waits like a notify", ready, busy, asked, "blocked", "Waiting on the CEO: Which layout do you want?"},
 		{"an idle goblin asked nothing", Evaluation{}, idle, []wake.Record{{Seq: 4, Kind: "stale", Key: "g1", Detail: "goblin_idle: at its prompt for 3m"}}, "idle", "Herdr reports idle"},
 		{"the gate outranks the pane", ready, busy, nil, "ready", ""},
 		{"a busy pane is working", Evaluation{Phase: "review", Generation: "gen2"}, busy, nil, "working", "Herdr reports busy"},
@@ -88,7 +88,7 @@ func TestSnapshotShowsWhatTheFleetKnowsForATaskNoHookReported(t *testing.T) {
 	if got := view.Tasks[0]; got.Phase != "working" || got.Activity != "working: gate test step" || got.PR != "https://example/pr/7" {
 		t.Fatalf("task = phase %q activity %q pr %q, want working with its own status line and PR", got.Phase, got.Activity, got.PR)
 	}
-	// cfo notify writes the status line before the wake record, as here.
+	// goblins notify writes the status line before the wake record, as here.
 	if err := state.AppendStatus(h.State, "task-1", "blocked: Which schema?"); err != nil {
 		t.Fatal(err)
 	}
@@ -105,12 +105,12 @@ func TestSnapshotShowsWhatTheFleetKnowsForATaskNoHookReported(t *testing.T) {
 
 // proseAsk is the monitor's wake for a goblin that ended its turn asking in
 // prose, as it raises it.
-const proseAsk = `goblin_asks: g1 ended its turn asking in prose instead of with cfo notify --blocked and waits at its prompt for the answer; next: answer it with cfo send g1 "<your answer>" (cfo answer takes only a notify's question). It asked: "Which layout do you want?"`
+const proseAsk = `goblin_asks: g1 ended its turn asking in prose instead of with goblins notify --blocked and waits at its prompt for the answer; next: answer it with goblins send g1 "<your answer>" (goblins answer takes only a notify's question). It asked: "Which layout do you want?"`
 
 // A goblin that ended its turn asking in prose shows on the board as waiting
-// on the CFO with its question, as one that asked with cfo notify --blocked
+// on the CEO with its question, as one that asked with goblins notify --blocked
 // does, until it reports again.
-func TestSnapshotShowsAGoblinThatAskedInProseAsWaitingOnTheCFO(t *testing.T) {
+func TestSnapshotShowsAGoblinThatAskedInProseAsWaitingOnTheCEO(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	now := time.Now().UTC()
@@ -125,15 +125,15 @@ func TestSnapshotShowsAGoblinThatAskedInProseAsWaitingOnTheCFO(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, state.StatusPath(h.State, "task-1"), now.Add(-time.Minute).Format(time.RFC3339)+" working: building the layout\n"+now.Add(time.Minute).Format(time.RFC3339)+" working: grid layout, as the CFO answered\n")
+	writeFile(t, state.StatusPath(h.State, "task-1"), now.Add(-time.Minute).Format(time.RFC3339)+" working: building the layout\n"+now.Add(time.Minute).Format(time.RFC3339)+" working: grid layout, as the CEO answered\n")
 	after, err := service.Snapshot()
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Assert
-	if got := view.Tasks[0]; got.Phase != "blocked" || got.Reason != "Waiting on the CFO: Which layout do you want?" || got.Activity != "Which layout do you want?" {
-		t.Fatalf("asking task = phase %q reason %q activity %q, want it waiting on the CFO with its question", got.Phase, got.Reason, got.Activity)
+	if got := view.Tasks[0]; got.Phase != "blocked" || got.Reason != "Waiting on the CEO: Which layout do you want?" || got.Activity != "Which layout do you want?" {
+		t.Fatalf("asking task = phase %q reason %q activity %q, want it waiting on the CEO with its question", got.Phase, got.Reason, got.Activity)
 	}
 	if got := after.Tasks[0]; got.Phase == "blocked" {
 		t.Fatalf("after its next report the task still reads %q: %q", got.Phase, got.Reason)
@@ -173,7 +173,7 @@ func TestSnapshotReportNamesTheKindOfATasksLatestReport(t *testing.T) {
 	}
 }
 
-// A blocked or failed notify the CFO handled still holds the task, as the hold
+// A blocked or failed notify the CEO handled still holds the task, as the hold
 // tests in hold_status_test.go require, through a reconnect and later gate
 // transitions, and the gate's own block holds it while it lasts.
 func TestAHandledNotifyHoldsTheTaskThroughReconnectAndGateTransitions(t *testing.T) {
@@ -205,7 +205,7 @@ func TestAHandledNotifyHoldsTheTaskThroughReconnectAndGateTransitions(t *testing
 					if err != nil || view.Tasks[0].Phase != verb {
 						t.Fatalf("waiting snapshot = %+v, %v; want the question waiting", view.Tasks, err)
 					}
-					if err := wake.MarkAnswered(h.State, record.Seq, wake.AnsweredByCFO, "Retry"); err != nil {
+					if err := wake.MarkAnswered(h.State, record.Seq, wake.AnsweredByCEO, "Retry"); err != nil {
 						t.Fatal(err)
 					}
 					view, err = service.Snapshot()
@@ -283,7 +283,7 @@ func TestFinishedTasksReadEveryCleanupLayout(t *testing.T) {
 		}
 	}
 	// Cleaned up: the status log stays, with no task record beside it.
-	write(filepath.Join(stateDir, "cleaned.status"), "done: PR https://example/pr/1\ndone: returned worktree via cfo cleanup\n")
+	write(filepath.Join(stateDir, "cleaned.status"), "done: PR https://example/pr/1\ndone: returned worktree via goblins cleanup\n")
 	// Live: a task record beside the log means it is not finished.
 	write(filepath.Join(stateDir, "live.status"), "working: still going\n")
 	write(filepath.Join(stateDir, "live.meta"), "id=live\n")
@@ -323,7 +323,7 @@ func TestCompletedStoppedCardRetainsTaskTitleRepositoryAndPullRequest(t *testing
 	if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte("## Done\n- **launch-check** - Check launch behavior (repo: example)\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(h.State, "launch-check.status"), []byte("done: returned worktree via cfo cleanup\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(h.State, "launch-check.status"), []byte("done: returned worktree via goblins cleanup\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := state.WriteOutcome(h.State, state.Outcome{ID: "delivered", Title: "Delivered title", Project: "example", Phase: "stopped", PR: "https://github.com/owner/example/pull/42", At: time.Now()}); err != nil {
@@ -1234,7 +1234,7 @@ func TestAPullRequestGitHubCouldNotReadStaysFinishedAndIsReported(t *testing.T) 
 }
 
 // On 2026-10-08 gh could not read siqstack-cms PR 50 under the fleet's load,
-// woke the CFO, and read it in about 600 ms minutes later. A pull request
+// woke the CEO, and read it in about 600 ms minutes later. A pull request
 // GitHub did not answer for is asked again on the next refresh, and one
 // failed ask is never reported.
 func TestAPullRequestReadThatTimesOutOnceIsAskedAgainOnTheNextRefreshAndNeverReported(t *testing.T) {
@@ -1322,7 +1322,7 @@ func TestASlowGitHubHoldsARefreshOnlyForTheBudget(t *testing.T) {
 // On 2026-10-23 a finished task's outcome still named its pull request for a
 // repository recreated under the same owner and name eight days after the
 // task finished. GitHub no longer held that pull request, and the supervisor
-// read its NOT_FOUND as an ordinary failed read until it woke the CFO with an
+// read its NOT_FOUND as an ordinary failed read until it woke the CEO with an
 // error nobody could act on. The outcome is valid historical evidence: it and
 // its link stay exactly as the goblin reported them, the card says the pull
 // request is unavailable, and the address is not asked about again.
@@ -1413,7 +1413,7 @@ func TestARecreatedRepositorysReusedNumberIsNotTheFinishedTasksResult(t *testing
 
 // A pull request GitHub does not hold is only historical evidence once its
 // task has finished. A live goblin's missing pull request stays a failed read
-// the CFO hears of once it keeps failing, and never reads as unavailable.
+// the CEO hears of once it keeps failing, and never reads as unavailable.
 func TestALiveGoblinsMissingPullRequestStaysAFailedRead(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
@@ -1500,7 +1500,7 @@ func (g *pullRequestGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // request number a repository does not have, for a repository GitHub does
 // not have, which a recreated repository is not, and with HTTP 404. Every
 // other refusal, an auth failure, a rate limit or no token to send, stays an
-// ordinary failed read the CFO hears of.
+// ordinary failed read the CEO hears of.
 func TestGitHubPullRequestStateTellsAMissingPullRequestFromOtherRefusals(t *testing.T) {
 	for _, c := range []struct {
 		name       string

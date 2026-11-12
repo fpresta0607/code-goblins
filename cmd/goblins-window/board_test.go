@@ -129,7 +129,7 @@ func standInLook(t *testing.T, snapshot func() string) *httptest.Server {
 
 // The window notifies only what is new since its last look: its first look
 // learns what already waits, which the board shows; a goblin's question the
-// CFO left, which the page counts but never alerts, is never told; and a
+// CEO left, which the page counts but never alerts, is never told; and a
 // board that cannot be read shows nothing new.
 func TestTheWatcherTellsOnlyNewItems(t *testing.T) {
 	var mu sync.Mutex
@@ -149,7 +149,7 @@ func TestTheWatcherTellsOnlyNewItems(t *testing.T) {
 	if len(first) != 0 {
 		t.Errorf("first look = %+v, want nothing: it only learns what waits", first)
 	}
-	if !slices.Equal(second, []waiting.Item{{ID: "question:q2@T2", Asker: "CFO", Text: "The CFO asks: Second?"}, {ID: "question:q1@T3", Asker: "CFO", Text: "The CFO asks: First, asked again?"}}) {
+	if !slices.Equal(second, []waiting.Item{{ID: "question:q2@T2", Asker: "CEO", Text: "The CEO asks: Second?"}, {ID: "question:q1@T3", Asker: "CEO", Text: "The CEO asks: First, asked again?"}}) {
 		t.Errorf("second look = %+v, want the new question and the first's ID published again", second)
 	}
 	if len(third) != 0 || len(unreadable) != 0 {

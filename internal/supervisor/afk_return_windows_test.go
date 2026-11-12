@@ -24,7 +24,7 @@ func openedAt(link string, opened *[]string) func(context.Context, string) (stri
 
 func TestTurningAFKOffKeepsTheReportOnTheBoardWithoutScrawl(t *testing.T) {
 	// Arrange
-	s, h, _ := asTheCFO(t)
+	s, h, _ := asTheCEO(t)
 	var opened []string
 	s.Options.OpenPage = openedAt(pageLink, &opened)
 	s.Options.BoardAssets = fstest.MapFS{"assets/goblin-personas.webp": {Data: []byte("faces")}}

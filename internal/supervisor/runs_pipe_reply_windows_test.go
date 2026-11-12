@@ -63,13 +63,13 @@ func TestEveryPipeReplySurvivesAClientThatReadsAfterTheHandlerReplies(t *testing
 		{"run accepted", "", ""},
 		{"run refused", "", "a run item's shell"},
 		{"question accepted", "question", ""},
-		{"question refused", "question", "registered CFO's own"},
+		{"question refused", "question", "registered CEO's own"},
 		{"review accepted", "review", ""},
-		{"review refused", "review", "registered CFO's own"},
+		{"review refused", "review", "registered CEO's own"},
 		{"answer accepted", "answer", ""},
 		{"answer refused", "answer", "its question is gone"},
 		{"credential accepted", "credential", ""},
-		{"credential refused", "credential", "registered CFO's own"},
+		{"credential refused", "credential", "registered CEO's own"},
 		{"withdrawal accepted", "withdraw-run", ""},
 		{"withdrawal refused", "withdraw-run", "no run"},
 		{"AFK on accepted", "afk-on", ""},
@@ -86,8 +86,8 @@ func TestEveryPipeReplySurvivesAClientThatReadsAfterTheHandlerReplies(t *testing
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			store, h := testStore(t)
-			_, identity, _, cfo := primaryFixture(t, store)
-			s := &Service{Store: store, Options: Options{CFO: cfo}, looks: make(chan chan struct{})}
+			_, identity, _, ceo := primaryFixture(t, store)
+			s := &Service{Store: store, Options: Options{CEO: ceo}, looks: make(chan chan struct{})}
 			asOverlordsTerminal(s)
 			now := time.Now().UTC()
 			question := Question{ID: "pipe-question", Identity: identity, Text: "Which store?", Options: []string{"SQLite", "Postgres"}, CreatedAt: now}
@@ -100,12 +100,12 @@ func TestEveryPipeReplySurvivesAClientThatReadsAfterTheHandlerReplies(t *testing
 			case "question":
 				req.Question = &question
 				if test.refusal != "" {
-					question.Identity = "not-the-CFO"
+					question.Identity = "not-the-CEO"
 				}
 			case "review":
 				req.Review = &Review{ID: "pipe-review", Identity: identity, Title: "Read the proof", State: "open", CreatedAt: now, UpdatedAt: now}
 				if test.refusal != "" {
-					req.Review.Identity = "not-the-CFO"
+					req.Review.Identity = "not-the-CEO"
 				}
 			case "answer":
 				if test.refusal == "" {
@@ -113,11 +113,11 @@ func TestEveryPipeReplySurvivesAClientThatReadsAfterTheHandlerReplies(t *testing
 						t.Fatal(err)
 					}
 				}
-				req.Answer = &cfoAnswer{QuestionID: question.ID, Option: "SQLite", Answer: "SQLite", At: now}
+				req.Answer = &ceoAnswer{QuestionID: question.ID, Option: "SQLite", Answer: "SQLite", At: now}
 			case "credential":
-				req.Credential = &CredentialRequest{ID: "cred-1234567890abcdef", Identity: identity, By: "cfo", Project: "throwaway", Names: []string{"DATABASE_URL"}, Why: "Run the proof", CreatedAt: now}
+				req.Credential = &CredentialRequest{ID: "cred-1234567890abcdef", Identity: identity, By: "ceo", Project: "throwaway", Names: []string{"DATABASE_URL"}, Why: "Run the proof", CreatedAt: now}
 				if test.refusal != "" {
-					req.Credential.Identity = "not-the-CFO"
+					req.Credential.Identity = "not-the-CEO"
 				}
 			case "withdraw-run":
 				req.Reason = "Proof finished"
@@ -185,8 +185,8 @@ func TestEveryPipeReplySurvivesAClientThatReadsAfterTheHandlerReplies(t *testing
 func TestPipeReplyDeadlineReleasesASilentClientWithoutHoldingUpOtherCallers(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
-	_, _, _, cfo := primaryFixture(t, store)
-	s := &Service{Store: store, Options: Options{CFO: cfo}}
+	_, _, _, ceo := primaryFixture(t, store)
+	s := &Service{Store: store, Options: Options{CEO: ceo}}
 	asGoblinsTerminal(s)
 	silent, released := replyPipe(t, s, context.Background())
 	silentWritten := time.Now()
@@ -258,8 +258,8 @@ func TestPipeReplyTeardownStopsOnShutdownEvenWhileAReplyWriteWaits(t *testing.T)
 		t.Run(map[bool]string{false: "unread reply", true: "blocked reply write"}[isLarge], func(t *testing.T) {
 			// Arrange
 			store, _ := testStore(t)
-			_, _, _, cfo := primaryFixture(t, store)
-			s := &Service{Store: store, Options: Options{CFO: cfo}}
+			_, _, _, ceo := primaryFixture(t, store)
+			s := &Service{Store: store, Options: Options{CEO: ceo}}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			client, released := replyPipe(t, s, ctx)
@@ -325,8 +325,8 @@ func TestPipeReplyTeardownStopsOnShutdownEvenWhileAReplyWriteWaits(t *testing.T)
 func TestPipeReplyLargerThanItsBufferReachesItsClientWhole(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
-	_, _, _, cfo := primaryFixture(t, store)
-	s := &Service{Store: store, Options: Options{CFO: cfo}}
+	_, _, _, ceo := primaryFixture(t, store)
+	s := &Service{Store: store, Options: Options{CEO: ceo}}
 	client, released := replyPipe(t, s, context.Background())
 	kind := strings.Repeat("x", 256<<10)
 	data, err := json.Marshal(runPipeRequest{Kind: kind})

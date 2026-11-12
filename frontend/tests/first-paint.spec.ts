@@ -13,7 +13,7 @@ const task = (id: string, title: string, phase: string, fields: Record<string, u
 // A goblin from each sheet of portraits: a debugger and a researcher are
 // specialists from the two specialist sheets, a builder is on the personas'
 // sheet, and a finished task is drawn as its finisher.
-const SNAPSHOT = { healthy: true, instance: "fixture", cfo_runs: true, revision: 1, at: since, attention: [], memory, tasks: [
+const SNAPSHOT = { healthy: true, instance: "fixture", ceo_runs: true, revision: 1, at: since, attention: [], memory, tasks: [
   task("crash", "Fix the crash when the board reconnects", "working"),
   task("cache", "Research why the cache misses", "working"),
   task("kanban", "Build the kanban board", "working"),
@@ -38,7 +38,7 @@ const fetchedCode = async (fetched: () => Promise<Fetched[]>, name: string) => (
 // open loads the board, as a browser that has shown it before, and waits for
 // its first screen to be drawn and the network to go quiet.
 async function open(page: Page) {
-  await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
+  await page.addInitScript(() => localStorage.setItem("ceo-first-open", "shown"));
   await holdStream(page, SNAPSHOT);
   await page.goto("/");
   await expect(page.locator(".task-card").first()).toBeVisible();

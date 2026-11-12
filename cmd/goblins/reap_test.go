@@ -1,0 +1,204 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/reap"
+)
+
+func reapTestRuntime(h home.Home, sweep func(context.Context, home.Home, reap.Options) (reap.Result, error)) commandRuntime {
+	return commandRuntime{
+		resolveHome: func() (home.Home, error) { return h, nil },
+		reap:        sweep,
+	}
+}
+
+func TestReapHelpPrintsUsage(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if exit := runReap([]string{"--help"}, &stdout, &stderr, commandRuntime{}); exit != 0 {
+		t.Fatalf("exit = %d, want 0", exit)
+	}
+	if !strings.Contains(stdout.String(), "usage: goblins reap") {
+		t.Fatalf("stdout = %q, want the usage line", stdout.String())
+	}
+}
+
+func TestReapArgumentValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"unknown argument", []string{"--nope"}, `unknown argument "--nope"`},
+		{"force needs a value", []string{"--force"}, "--force needs a pid or a task id"},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if exit := runReap(testCase.args, &stdout, &stderr, commandRuntime{}); exit != 2 {
+				t.Fatalf("exit = %d, want 2", exit)
+			}
+			if !strings.Contains(stderr.String(), testCase.want) {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), testCase.want)
+			}
+		})
+	}
+}
+
+// TestReapDefaultsToDryRun is the posture the whole command depends on:
+// killing a process is irreversible, so acting must be typed out in full.
+func TestReapDefaultsToDryRun(t *testing.T) {
+	h := primaryHomeFixture(t)
+	var seen reap.Options
+	runtime := reapTestRuntime(h, func(_ context.Context, _ home.Home, options reap.Options) (reap.Result, error) {
+		seen = options
+		return reap.Result{Findings: []reap.Finding{{
+			Class: reap.OrphanProcess, PID: 31032, Detail: "claude.exe has no pane", Action: "kill the process tree",
+		}}}, nil
+	})
+
+	var stdout, stderr bytes.Buffer
+	if exit := runReap(nil, &stdout, &stderr, runtime); exit != 0 {
+		t.Fatalf("exit = %d stderr=%q, want 0", exit, stderr.String())
+	}
+	if seen.Apply {
+		t.Fatal("goblins reap with no flags asked to apply")
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "pid=31032") || !strings.Contains(out, "Run goblins reap --apply") {
+		t.Fatalf("stdout = %q, want the finding and the opt-in hint", out)
+	}
+}
+
+func TestReapApplyAndForceReachTheSweep(t *testing.T) {
+	h := primaryHomeFixture(t)
+	var seen reap.Options
+	runtime := reapTestRuntime(h, func(_ context.Context, _ home.Home, options reap.Options) (reap.Result, error) {
+		seen = options
+		return reap.Result{}, nil
+	})
+
+	var stdout, stderr bytes.Buffer
+	if exit := runReap([]string{"--apply", "--force", "31032", "--force", "utah"}, &stdout, &stderr, runtime); exit != 0 {
+		t.Fatalf("exit = %d stderr=%q, want 0", exit, stderr.String())
+	}
+	if !seen.Apply || !seen.ProbeIdle {
+		t.Fatalf("options = %+v, want apply with a fresh idleness probe", seen)
+	}
+	if !seen.Force["31032"] || !seen.Force["utah"] {
+		t.Fatalf("force = %+v, want both named targets", seen.Force)
+	}
+}
+
+// TestReapRecordsAFailedSweep: the session-start digest reads this record, so a
+// sweep that could not see the fleet must leave a failure behind rather than
+// the previous run's clean result.
+func TestReapRecordsAFailedSweep(t *testing.T) {
+	h := primaryHomeFixture(t)
+	runtime := reapTestRuntime(h, func(context.Context, home.Home, reap.Options) (reap.Result, error) {
+		return reap.Result{}, errors.New("herdr is down")
+	})
+
+	var stdout, stderr bytes.Buffer
+	if exit := runReap(nil, &stdout, &stderr, runtime); exit != 1 {
+		t.Fatalf("exit = %d, want 1", exit)
+	}
+	record, err := reap.ReadRecord(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Error != "herdr is down" {
+		t.Fatalf("record = %+v, want the failure recorded", record)
+	}
+}
+
+// TestReapKeepsWhatTheCEOWasTold: the watcher wakes the CEO once for a finding
+// and keeps what it told in the audit record. A sweep run by hand rewrites
+// that record, and one that dropped the memory had the watcher's next sweep
+// wake the CEO again for everything still running.
+func TestReapKeepsWhatTheCEOWasTold(t *testing.T) {
+	// Arrange
+	h := primaryHomeFixture(t)
+	seen := time.Date(2026, 10, 9, 19, 40, 0, 0, time.UTC)
+	stamp := seen.Format(time.RFC3339)
+	record := fmt.Sprintf(`{"schema":%q,"time":%q,"findings":[],"told":{"3f2a9c0d1b4e5f67":%q}}`, reap.RecordSchema, stamp, stamp)
+	if err := os.WriteFile(reap.RecordPath(h.State), []byte(record+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runtime := reapTestRuntime(h, func(context.Context, home.Home, reap.Options) (reap.Result, error) {
+		return reap.Result{}, nil
+	})
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	if exit := runReap(nil, &stdout, &stderr, runtime); exit != 0 {
+		t.Fatalf("exit = %d stderr=%q, want 0", exit, stderr.String())
+	}
+
+	// Assert
+	data, err := os.ReadFile(reap.RecordPath(h.State))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var after struct {
+		Told map[string]time.Time `json:"told"`
+	}
+	if err := json.Unmarshal(data, &after); err != nil {
+		t.Fatal(err)
+	}
+	if kept, ok := after.Told["3f2a9c0d1b4e5f67"]; !ok || !kept.Equal(seen) {
+		t.Fatalf("record after goblins reap = %s, want what the CEO was told kept with when it was last seen", data)
+	}
+}
+
+func TestReapJSON(t *testing.T) {
+	h := primaryHomeFixture(t)
+	runtime := reapTestRuntime(h, func(context.Context, home.Home, reap.Options) (reap.Result, error) {
+		return reap.Result{Findings: []reap.Finding{{Class: reap.StaleServer, PID: 555, Detail: "d", Action: "kill the process tree"}}}, nil
+	})
+
+	var stdout, stderr bytes.Buffer
+	if exit := runReap([]string{"--json"}, &stdout, &stderr, runtime); exit != 0 {
+		t.Fatalf("exit = %d stderr=%q, want 0", exit, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"class":"stale_server"`) {
+		t.Fatalf("stdout = %q, want typed JSON", stdout.String())
+	}
+}
+
+func TestReapPrintsAndRecordsCleanupNotes(t *testing.T) {
+	for _, format := range []string{"text", "json"} {
+		t.Run(format, func(t *testing.T) {
+			h := primaryHomeFixture(t)
+			notes := []string{"cleanup retired: warning: wake episode cannot be published"}
+			runtime := reapTestRuntime(h, func(context.Context, home.Home, reap.Options) (reap.Result, error) {
+				return reap.Result{Notes: notes}, nil
+			})
+			args := []string{"--apply"}
+			if format == "json" {
+				args = append(args, "--json")
+			}
+
+			var stdout, stderr bytes.Buffer
+			exit := runReap(args, &stdout, &stderr, runtime)
+
+			if exit != 0 || !strings.Contains(stdout.String(), notes[0]) {
+				t.Fatalf("exit = %d, stdout = %q, stderr = %q; want the cleanup warning printed", exit, stdout.String(), stderr.String())
+			}
+			record, err := reap.ReadRecord(h.State)
+			if err != nil || !slices.Equal(record.Notes, notes) {
+				t.Fatalf("record notes = %q, error = %v; want %q", record.Notes, err, notes)
+			}
+		})
+	}
+}

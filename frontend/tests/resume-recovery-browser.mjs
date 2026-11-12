@@ -4,7 +4,7 @@ import { chromium, expect } from "@playwright/test";
 import { build } from "vite";
 
 // The Go regression owns the scratch backend and invokes this with
-// CFO_RESUME_BROWSER=1. Requests use its real lifecycle route and CLI.
+// GOBLINS_RESUME_BROWSER=1. Requests use its real lifecycle route and CLI.
 const [origin, assets] = argv.slice(2);
 assert.ok(origin && assets);
 await build({ configFile: false, logLevel: "warn", build: { outDir: assets, emptyOutDir: false } });
@@ -14,7 +14,7 @@ try {
   const browser = await chromium.connect(server.wsEndpoint());
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   await context.route("**/*", (route) => route.request().url().startsWith(origin + "/") ? route.continue() : route.abort());
-  await context.addInitScript(() => globalThis.localStorage.setItem("cfo-tour", "seen"));
+  await context.addInitScript(() => globalThis.localStorage.setItem("ceo-tour", "seen"));
   const page = await context.newPage();
   await page.goto(origin);
   await page.getByRole("group", { name: "Workspace view" }).getByRole("button", { name: "Board", exact: true }).click();
@@ -30,10 +30,10 @@ try {
   }).toContain("another validation run owns the branch");
   await expect(card("managed-task").locator(".card-status-text")).toHaveText("Paused until you resume it");
   await expect(page.getByRole("button", { name: "Resume managed-task", exact: true })).toBeEnabled();
-  if (env.CFO_RESUME_SCREENSHOT) await page.screenshot({ path: env.CFO_RESUME_SCREENSHOT, fullPage: true });
+  if (env.GOBLINS_RESUME_SCREENSHOT) await page.screenshot({ path: env.GOBLINS_RESUME_SCREENSHOT, fullPage: true });
   await context.close();
   await browser.close();
-  stdout.write("Real board clicks: direct PR resumed; foreign validation refusal remained paused with actionable CFO evidence.\n");
+  stdout.write("Real board clicks: direct PR resumed; foreign validation refusal remained paused with actionable CEO evidence.\n");
 } finally {
   await server.close();
 }

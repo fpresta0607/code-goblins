@@ -7,7 +7,7 @@ import (
 
 // Claude Code opens its replies, its tool calls and its own notices with "⏺"
 // on macOS and "●" everywhere else. A Windows goblin's Monitor notice
-// printing a test's local 503 woke the CFO as a model-provider outage
+// printing a test's local 503 woke the CEO as a model-provider outage
 // (#1027).
 func TestDetectIgnoresOutputClaudeCodeDrawsOnItsMark(t *testing.T) {
 	const witnessed = "Monitor event: keys_windows_test.go:288: http://127.0.0.1:64300/json/version answered 503 Service Unavailable"

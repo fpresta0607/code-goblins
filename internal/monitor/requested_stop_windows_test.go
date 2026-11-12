@@ -10,8 +10,8 @@ import (
 )
 
 // Wakes 5842, 5982 and 5987 on 2026-10-07 each came seconds after a pause
-// the CFO asked for ran out of time: the lifecycle ended failed with the
-// goblin's host gone, as asked, and the monitor woke the CFO that the host
+// the CEO asked for ran out of time: the lifecycle ended failed with the
+// goblin's host gone, as asked, and the monitor woke the CEO that the host
 // did not answer. A pause or stop that failed while its host is gone ended
 // the way it was asked to; a resume that failed with no host is a goblin
 // missing, and wakes. A question the goblin asked that is still unanswered

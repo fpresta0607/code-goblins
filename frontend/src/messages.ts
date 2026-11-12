@@ -25,11 +25,11 @@ export function isHarnessHeld(action: Action): boolean {
 }
 
 // isNotSent says a message's delivery failed with its words given to nobody:
-// one its goblin could not take that the CFO has was handed on, not lost. The
+// one its goblin could not take that the CEO has was handed on, not lost. The
 // board still holds it, so Send now sends that same message and Cancel takes
 // it off the board (#2306).
 export function isNotSent(action: Action): boolean {
-  return action.kind === "message" && action.status === "failed" && !action.message.includes("the CFO has it");
+  return action.kind === "message" && action.status === "failed" && !action.message.includes("the CEO has it");
 }
 
 // isUndelivered says a message's delivery ended with no take seen: it was not
@@ -44,11 +44,11 @@ const STARTING = /^Starting /;
 
 // Where a message he typed is: Queued while it waits for its goblin, on the
 // board or in its harness's own queue, Starting while its session starts for
-// it, Sent once its harness has it for a turn, and With the CFO when its
-// goblin could not take it and the supervisor gave it to the CFO.
+// it, Sent once its harness has it for a turn, and With the CEO when its
+// goblin could not take it and the supervisor gave it to the CEO.
 export function messageState(action: Action): string {
   if (action.status === "queued" || action.status === "running" && !action.awaiting || isHarnessHeld(action)) return STARTING.test(action.message) ? "Starting" : "Queued";
-  if (action.status === "failed") return action.message.includes("the CFO has it") ? "With the CEO" : "Not sent";
+  if (action.status === "failed") return action.message.includes("the CEO has it") ? "With the CEO" : "Not sent";
   if (action.status === "uncertain") return "Not confirmed";
   return "Sent";
 }

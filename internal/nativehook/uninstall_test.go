@@ -10,7 +10,7 @@ import (
 
 func installFor(t *testing.T, harness, dir string) {
 	t.Helper()
-	if _, err := Install(InstallConfig{Harness: harness, ConfigDir: dir, Executable: filepath.Join(dir, "cfo.exe"), Home: dir, State: filepath.Join(dir, "state")}); err != nil {
+	if _, err := Install(InstallConfig{Harness: harness, ConfigDir: dir, Executable: filepath.Join(dir, "goblins.exe"), Home: dir, State: filepath.Join(dir, "state")}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -46,7 +46,7 @@ func TestUninstallRemovesOnlyTheBoardHooks(t *testing.T) {
 			if doc.Theme != "dark" || len(doc.Hooks) != 1 || len(doc.Hooks["Stop"]) != 1 || !strings.Contains(string(doc.Hooks["Stop"][0]), "echo unrelated") {
 				t.Fatalf("settings after uninstall = %s, want only the unrelated Stop hook and the theme", data)
 			}
-			if _, err := os.Stat(filepath.Join(dir, "cfo-native-hook.ps1")); !os.IsNotExist(err) {
+			if _, err := os.Stat(filepath.Join(dir, "goblins-native-hook.ps1")); !os.IsNotExist(err) {
 				t.Errorf("the helper script survived the uninstall: %v", err)
 			}
 			if removed, err := Uninstall(name, dir); err != nil || removed {
@@ -61,8 +61,8 @@ func TestUninstallLeavesFilesItDoesNotOwn(t *testing.T) {
 	for _, test := range []struct {
 		harness, file string
 	}{
-		{"claude", "cfo-native-hook.ps1"},
-		{"pi", filepath.Join("extensions", "cfo-native.ts")},
+		{"claude", "goblins-native-hook.ps1"},
+		{"pi", filepath.Join("extensions", "goblins-native.ts")},
 	} {
 		t.Run(test.harness, func(t *testing.T) {
 			dir := t.TempDir()
@@ -95,7 +95,7 @@ func TestUninstallRemovesThePiExtension(t *testing.T) {
 	if err != nil || !removed {
 		t.Fatalf("Uninstall = %v, %v; want the extension removed", removed, err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "extensions", "cfo-native.ts")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, "extensions", "goblins-native.ts")); !os.IsNotExist(err) {
 		t.Errorf("the Pi extension survived the uninstall: %v", err)
 	}
 }
@@ -143,7 +143,7 @@ func TestInstalledSaysWhetherTheBoardHooksAreThere(t *testing.T) {
 	t.Run("a file of the person's at the helper's path", func(t *testing.T) {
 		// Arrange
 		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, "cfo-native-hook.ps1"), []byte("# mine\n"), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "goblins-native-hook.ps1"), []byte("# mine\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 

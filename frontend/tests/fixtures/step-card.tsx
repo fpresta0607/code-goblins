@@ -35,7 +35,7 @@ const cards: Record<string, unknown>[] = [
     state: "open", created_at: "2026-10-14T23:43:00Z", expires_at: "2026-10-15T23:43:00Z",
   },
   {
-    id: "cred-3333333333333333", generation: "c".repeat(32), identity: "a".repeat(64), by: "goblin", task: "shop-signup", project: "acme-shop",
+    id: "cred-3333333333333333", generation: "c".repeat(32), identity: "a".repeat(64), by: "goblin", task: "shop-signup", task_generation: "1", project: "acme-shop",
     names: [], why: "Sign in to the shop in my browser", link: "https://shop.example.com/login", window: true,
     steps: ["Sign in with your password or passkey", "Press Done once the dashboard shows"],
     state: "open", created_at: "2026-10-14T23:42:00Z", expires_at: "2026-10-15T23:42:00Z",

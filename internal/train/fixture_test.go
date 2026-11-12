@@ -34,7 +34,7 @@ type scratch struct {
 	state    string
 	now      time.Time
 	told     []string
-	cfo      []string
+	ceo      []string
 	landed   []string
 	// waits counts the pauses the engine took.
 	waits int
@@ -166,8 +166,8 @@ func (s *scratch) engine(gh *fakeGitHub) Engine {
 			s.told = append(s.told, task+": "+text)
 			return nil
 		},
-		TellCFO: func(_ context.Context, _ string, text string) error {
-			s.cfo = append(s.cfo, text)
+		TellCEO: func(_ context.Context, _ string, text string) error {
+			s.ceo = append(s.ceo, text)
 			return nil
 		},
 		Landed: func(_ context.Context, t Train, car Car) {

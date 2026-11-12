@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// WorkerOptions is what `cfo voice-worker` loads: the engine's library and a
+// WorkerOptions is what `goblins voice-worker` loads: the engine's library and a
 // model, a transducer or a Moonshine model.
 type WorkerOptions struct {
 	Library string
@@ -24,7 +24,7 @@ type WorkerOptions struct {
 	MoonshineMergedDecoder string
 }
 
-// ParseWorkerArguments reads `cfo voice-worker`'s arguments: the full path of
+// ParseWorkerArguments reads `goblins voice-worker`'s arguments: the full path of
 // the engine's library, then the settings' Args with the model's folder in
 // place of {model}.
 func ParseWorkerArguments(arguments []string) (WorkerOptions, error) {

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { finishedEvidence, goblinName, listItem, pausedWithParent, pauseStatus, plainText, reportBody, summary, taskName, taskSummary, withoutHarness, teardownSentence, type Summary } from "./task-words.ts";
+import { finishedEvidence, goblinName, listItem, pausedWithParent, pauseStatus, plainText, reportBody, saidLinks, summary, taskName, taskSummary, withoutHarness, teardownSentence, type Summary } from "./task-words.ts";
 import { parseSnapshot, type CIUsual, type PauseCondition, type Task } from "./types.ts";
 
 const task = (fields: Record<string, unknown>): Task => parseSnapshot({ healthy: true, tasks: [{ id: "a", title: "a", phase: "working", generation: "s1", verified: false, ...fields }] }).tasks[0];
@@ -47,7 +47,7 @@ test("a report loses the state word the status already says", () => {
     ["waiting on ci: PR 326's checks", "PR 326's checks"],
     ["blocked: Which port should I use?", "Which port should I use?"],
     ["failed: go test timed out", "go test timed out"],
-    ["Waiting on the CFO: Which port?", "Which port?"],
+    ["Waiting on the CEO: Which port?", "Which port?"],
     ["lifecycle-paused: Requested by the operator", "Requested by the operator"],
     ["done: PR https://github.com/o/r/pull/326", ""],
     ["Native activity and runtime evidence agree", "Native activity and runtime evidence agree"],
@@ -64,7 +64,7 @@ test("plain text is sentence case with no semicolon chains, hashes, paths or lin
     ["a hash alone in brackets goes with its brackets", "merged (ce7db967) and installed", "Merged and installed."],
     ["a path becomes the name it ends with", "the board-display handoff is at state/tasktmp/cg-fleet-auto-resume/board-display-handoff.md, so this task can pause",
       "The board-display handoff is at board-display-handoff.md, so this task can pause."],
-    ["a Windows path too", "log at C:\\Users\\fpres\\AppData\\Local\\cfo\\verify\\reports\\run-12.log.", "Log at run-12.log."],
+    ["a Windows path too", "log at C:\\Users\\fpres\\AppData\\Local\\goblins\\verify\\reports\\run-12.log.", "Log at run-12.log."],
     ["a pull request link reads as the pull request", "opened https://github.com/fpresta0607/code-goblins/pull/326 for review", "Opened PR #326 for review."],
     ["a pull request named before its link is named once", "delivered as PR https://github.com/fpresta0607/code-goblins/pull/326", "Delivered as PR #326."],
     ["an issue link reads as the issue", "closed https://github.com/o/r/issues/1450 (decision 7: close it)", "Closed issue #1450 (decision 7: close it)."],
@@ -107,15 +107,15 @@ test("Windows teardown names the programs it still closes, never their process i
 });
 
 // The supervisor's words for a queued task that already finished, written
-// for the CFO (finishedRefusal in internal/supervisor/finished_work.go).
+// for the CEO (finishedRefusal in internal/supervisor/finished_work.go).
 const refusal = (evidence: string) => "Already finished: " + evidence + "; it never starts again by itself. Move its row to ## Done, or queue new work under a new id";
 
-test("what says a queued task already finished reads as one plain sentence, without what its status says or the CFO's next step", () => {
+test("what says a queued task already finished reads as one plain sentence, without what its status says or the CEO's next step", () => {
   const cases: [string, string, string][] = [
     ["its last report", refusal("its last report was done (2026-10-06 11:59Z: done: PR https://github.com/fpresta0607/code-goblins/pull/9)"), "Its last report was done (2026-10-06 11:59Z: done: PR #9)."],
     ["its pull request", refusal("its pull request merged (https://github.com/fpresta0607/code-goblins/pull/31)"), "Its pull request merged (PR #31)."],
     ["its branch's pull request", refusal("its branch fix/panel-clarity's pull request merged (https://github.com/fpresta0607/code-goblins/pull/31)"), "Its branch fix/panel-clarity's pull request merged (PR #31)."],
-    ["a retirement", refusal("the CFO retired it at 2026-10-07 03:11Z (stopped: superseded by cg-board-trim) and no brief was written for it since"), "The CFO retired it at 2026-10-07 03:11Z (stopped: superseded by cg-board-trim) and no brief was written for it since."],
+    ["a retirement", refusal("the CEO retired it at 2026-10-07 03:11Z (stopped: superseded by cg-board-trim) and no brief was written for it since"), "The CEO retired it at 2026-10-07 03:11Z (stopped: superseded by cg-board-trim) and no brief was written for it since."],
     ["other words are kept whole", "Finished under another id", "Finished under another id."],
     ["nothing says so", "", ""],
   ];
@@ -301,4 +301,41 @@ test("a helper paused with its parent says it resumes with its parent, in its st
     assert.equal(pauseStatus(helper.lifecycle?.pause, tasks, [], pausedWithParent(helper, tasks)), card);
     assert.deepEqual(taskSummary(helper, tasks), { sentence: "", details: [details], isFailure: false, isPlain: true });
   }
+});
+
+for (const [name, raw, labels] of [
+  ["a pull request, an issue, a CI run and a page", "working: opened PR https://github.com/o/r/pull/12, see https://docs.example.com/a. Issue https://github.com/o/r/issues/7 and run https://github.com/o/r/actions/runs/99/job/3",
+    [["PR #12", "https://github.com/o/r/pull/12"], ["docs.example.com", "https://docs.example.com/a"], ["issue #7", "https://github.com/o/r/issues/7"], ["a CI run", "https://github.com/o/r/actions/runs/99/job/3"]]],
+  ["a Scrawl page in brackets", "waiting on overlord: his review (http://127.0.0.1:4387/session/f26e)", [["127.0.0.1:4387", "http://127.0.0.1:4387/session/f26e"]]],
+  ["a page in quotes", 'waiting on overlord: review "https://docs.example.org/guide/start".', [["docs.example.org", "https://docs.example.org/guide/start"]]],
+  ["pages in backticks and angle brackets", "working: read `https://docs.example.org/a` and <https://github.com/example/board/pull/412>", [["docs.example.org", "https://docs.example.org/a"], ["PR #412", "https://github.com/example/board/pull/412"]]],
+  ["an address after the options", "blocked: which one? options: Keep https://a.example | Drop it", []],
+  ["no address", "working: writing the tests", []],
+] as const) {
+  test(`a report's links name ${name} by the words its plain sentence says them with, in order`, () => {
+    // Arrange, act
+    const links = saidLinks(raw);
+    const sentence = plainText(reportBody(raw)).toLowerCase();
+
+    // Assert
+    assert.deepEqual(links.map((link) => [link.label, link.address]), labels);
+    let at = 0;
+    for (const link of links) {
+      const found = sentence.indexOf(link.label.toLowerCase(), at);
+      assert.ok(found >= 0, `${link.label} is in "${sentence}" after ${at}`);
+      at = found + link.label.length;
+    }
+  });
+}
+
+test("a goblin's summary carries the links of the report it says, and none for a report with no address", () => {
+  // Arrange
+  const linked = task({ activity: "working: opened PR https://github.com/o/r/pull/12 for review" });
+  const plain = task({ activity: "working: writing the tests" });
+
+  // Act
+  const said = [taskSummary(linked, [linked], "Ready for review"), taskSummary(plain, [plain], "Ready for review")];
+
+  // Assert
+  assert.deepEqual(said.map((summary) => summary.links), [[{ label: "PR #12", address: "https://github.com/o/r/pull/12" }], undefined]);
 });

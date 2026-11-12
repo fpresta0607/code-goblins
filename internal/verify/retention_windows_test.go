@@ -18,7 +18,7 @@ func TestPruneExecutionsNeverTouchesWhatIsOnlyNamedLikeTheStoresOwn(t *testing.T
 	old := now.Add(-2 * abandonedExecutionAge)
 	id := rand.Text()
 	var lookalikes []string
-	for _, name := range []string{strings.ToLower(id) + ".json", id[:25] + ".json", id + "A.json", id + ".json.bak", id + ".json.cfo-tmp-1", id + ".json.stdout.log.old"} {
+	for _, name := range []string{strings.ToLower(id) + ".json", id[:25] + ".json", id + "A.json", id + ".json.bak", id + ".json.goblins-tmp-1", id + ".json.stdout.log.old"} {
 		path := filepath.Join(dir, name)
 		writeAged(t, path, []byte("{"), old)
 		lookalikes = append(lookalikes, path)

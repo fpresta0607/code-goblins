@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/pipeline/pipelinetest"
 	"gopkg.in/yaml.v3"
 )
 
@@ -32,7 +33,7 @@ INSERT INTO step_rounds VALUES('step',1,'user'),('step',2,'user'),('step',3,NULL
 	if out, err := exec.Command(sqlite, filepath.Join(dir, "state.sqlite"), sql).CombinedOutput(); err != nil {
 		t.Fatalf("fixture: %s %v", out, err)
 	}
-	reader := Reader{Root: dir, Commands: fixtureCommands{execx.OSRunner{}}}
+	reader := Reader{Root: dir, Commands: pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}}
 	gate, err := reader.Gate(context.Background(), "C:/project", "feat")
 	if err != nil || gate.RunID != "current" || gate.Round != 3 || gate.Selected != "" || gate.AutoFixLimit == nil || *gate.AutoFixLimit != 0 {
 		t.Fatalf("gate: %+v %v", gate, err)
@@ -66,7 +67,7 @@ INSERT INTO runs VALUES('old','repo','fix/connections',1,'failed'),('current','r
 	if out, err := exec.Command(sqlite, filepath.Join(dir, "state.sqlite"), sql).CombinedOutput(); err != nil {
 		t.Fatalf("fixture: %s %v", out, err)
 	}
-	reader := Reader{Root: dir, Commands: fixtureCommands{execx.OSRunner{}}}
+	reader := Reader{Root: dir, Commands: pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}}
 	for _, tc := range []struct {
 		run, want string
 	}{
@@ -203,7 +204,7 @@ const primaryRoutingSHA = "0123456789abcdef0123456789abcdef01234567"
 
 func (r *primaryRoutingRunner) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
 	if request.Name == "sqlite3" {
-		return fixtureCommands{execx.OSRunner{}}.Run(ctx, request)
+		return pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}.Run(ctx, request)
 	}
 	if request.Name != "git" {
 		return execx.Result{}, errors.New("unexpected command")
@@ -293,7 +294,7 @@ INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'ma
 	if out, err := exec.Command("sqlite3", filepath.Join(state, "state.sqlite"), sql).CombinedOutput(); err != nil {
 		t.Fatalf("fixture: %s %v", out, err)
 	}
-	reader := Reader{Root: state, Commands: fixtureCommands{execx.OSRunner{}}}
+	reader := Reader{Root: state, Commands: pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}}
 	_, err := reader.CheckStart(context.Background(), project, project, "feature", "ship safely", versionFive())
 	if err == nil || !strings.Contains(err.Error(), "stale") {
 		t.Fatalf("CheckStart error=%v, want stale trusted primary refusal", err)
@@ -472,7 +473,7 @@ INSERT INTO runs VALUES('previous','repo','feat',1,'` + c.status + `','` + prima
 			runPipelineGit(t, worktree, "init", "--initial-branch=feat")
 			runPipelineGit(t, worktree, "-c", "user.name=Pipeline Test", "-c", "user.email=pipeline@example.com", "commit", "--allow-empty", "-m", "work")
 			t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(worktree))
-			reader := Reader{Root: dir, Commands: fixtureCommands{execx.OSRunner{}}}
+			reader := Reader{Root: dir, Commands: pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}}
 			_, err := reader.CheckStart(context.Background(), "C:/project", worktree, "feat", "ship safely", testPolicy(t))
 			if errors.Is(err, ErrUnresolved) != c.unresolved {
 				t.Fatalf("status %q: %v", c.status, err)
@@ -505,7 +506,7 @@ INSERT INTO step_rounds VALUES('disabledstep',1,NULL),('automaticstep',1,NULL);`
 	if err != nil {
 		t.Fatal(err)
 	}
-	reader := Reader{Root: dir, Commands: fixtureCommands{execx.OSRunner{}}}
+	reader := Reader{Root: dir, Commands: pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}}
 	gate, err := reader.Gate(context.Background(), "C:/project", "feat/disabled")
 	if err != nil || gate.AutoFixLimit != nil {
 		t.Fatalf("null limit did not decode as nil: %+v %v", gate, err)
@@ -628,7 +629,7 @@ INSERT INTO repos VALUES('repo-1',` + sqlString(filepath.ToSlash(project)) + `,'
 INSERT INTO runs VALUES('run-1','repo-1','feature',1,'running','` + acceptedReattachmentHead + `','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','ship the correction',0,NULL,'https://example.com/widget/pull/1','open','` + releasedReattachmentHead + `',7,'target-1','refs/heads/feature');
 INSERT INTO ci_handbacks VALUES('receipt-1','run-1','round-1',` + sqlString(worktree) + `,'` + releasedReattachmentHead + `','https://example.com/widget/pull/1',7,'target-1','refs/heads/feature','` + acceptedReattachmentHead + `',2,` + sqlString(candidate) + `);`
 	updateReattachmentFixture(t, root, sql)
-	runner := &acceptedReattachmentRunner{Runner: fixtureCommands{execx.OSRunner{}}, head: acceptedReattachmentHead, branch: "feature"}
+	runner := &acceptedReattachmentRunner{Runner: pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}, head: acceptedReattachmentHead, branch: "feature"}
 	return Reader{Root: root, Commands: runner}, project, worktree, runner
 }
 

@@ -27,14 +27,14 @@ if (!options.url) throw new Error("--url is required");
 const seconds = Number(options.seconds || 10);
 const maxRecalcs = Number(options["max-recalcs"] || 30);
 const browser = options.browser || "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
-const profile = mkdtempSync(join(tmpdir(), "cfo-idle-"));
+const profile = mkdtempSync(join(tmpdir(), "ceo-idle-"));
 const edge = spawn(browser, ["--headless=new", "--no-first-run", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--window-size=2560,1440", "about:blank"], { stdio: "ignore" });
 
 // settle runs in the board's page: past the first-run page and the Command
 // Center closed.
 async function settle() {
   const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const skip = [...document.querySelectorAll("a, button")].find((element) => /Open the board without a CFO/.test(element.textContent || ""));
+  const skip = [...document.querySelectorAll("a, button")].find((element) => /Open the board without a CEO/.test(element.textContent || ""));
   if (skip) { skip.click(); await pause(2500); }
   if (document.querySelector("dialog.question-modal[open]")) { document.querySelector(".question-close")?.click(); await pause(800); }
   return document.querySelectorAll(".task-card").length;

@@ -1,4 +1,4 @@
-import { CFO_DOOR, expect, openChat, openItem, openTaskList, test, type Locator, type Page } from "./site";
+import { CEO_DOOR, expect, openChat, openItem, openTaskList, test, type Locator, type Page } from "./site";
 import { caret, nativeMarkers } from "./caret";
 import { at, field, GOBLIN, open, openGoblin, snapshot, typed } from "./session-board";
 
@@ -35,7 +35,7 @@ async function resizePanel(page: Page, width: number) {
 }
 
 async function preparePanel(page: Page, who = "goblin", fields: Record<string, unknown> = {}) {
-  await page.addInitScript(() => localStorage.setItem("cfo-pane-width", "800"));
+  await page.addInitScript(() => localStorage.setItem("ceo-pane-width", "800"));
   const relay = await open(page, snapshot(fields));
   const posts: { path: string; body: unknown }[] = [];
   await page.route("**/api/**", (route) => {
@@ -50,7 +50,7 @@ async function preparePanel(page: Page, who = "goblin", fields: Record<string, u
     return route.fulfill({ json: {} });
   });
   if (who === "goblin") await openGoblin(page);
-  else await page.locator(".cfo-pin").getByRole("button", { name: CFO_DOOR }).last().click();
+  else await page.locator(".ceo-pin").getByRole("button", { name: CEO_DOOR }).last().click();
   await openTaskList(page);
   return { relay, posts };
 }

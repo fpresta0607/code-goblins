@@ -352,12 +352,12 @@ func TestAnAnsweredItemReachesTheBoardAsThatItemAlone(t *testing.T) {
 // reported moved to the end of the list, and the board was sent the id of
 // every session again, 512 of them on the live fleet (#1611).
 func TestASessionThatReportsReachesTheBoardWithoutEverySessionsID(t *testing.T) {
-	// Arrange: a board open with its first snapshot, a hundred CFO sessions
+	// Arrange: a board open with its first snapshot, a hundred CEO sessions
 	// reporting, the first by id the oldest.
 	s, store, url := boardFixture(t, 0)
 	started := time.Now().UTC().Add(-time.Hour)
 	for i := range 100 {
-		reportAsCFO(t, store, "SessionStart", fmt.Sprintf("session-%03d", i), "", started.Add(time.Duration(i)*time.Second))
+		reportAsCEO(t, store, "SessionStart", fmt.Sprintf("session-%03d", i), "", started.Add(time.Duration(i)*time.Second))
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -369,7 +369,7 @@ func TestASessionThatReportsReachesTheBoardWithoutEverySessionsID(t *testing.T) 
 	}
 
 	// Act: the oldest session reports.
-	reportAsCFO(t, store, "UserPromptSubmit", "session-000", "turn-1", time.Now().UTC())
+	reportAsCEO(t, store, "UserPromptSubmit", "session-000", "turn-1", time.Now().UTC())
 	s.publish(nil)
 
 	// Assert

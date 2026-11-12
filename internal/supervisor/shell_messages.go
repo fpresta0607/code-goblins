@@ -73,7 +73,7 @@ func shellMessageLine(stateDir, actionID, task, text string) (line string, isShe
 	if !isKept {
 		who := task
 		if who == "" {
-			who = "the CFO"
+			who = "the CEO"
 		}
 		if err := appendRunAudit(stateDir, Run{ID: actionID, ScriptSum: runDigest(data)}, "shell mode for "+who, time.Now().UTC()); err != nil {
 			return "", true, err

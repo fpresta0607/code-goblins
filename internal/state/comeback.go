@@ -10,7 +10,7 @@ import (
 )
 
 // What a restart or sign-out left for the supervisor to bring back is, for
-// the CFO and each goblin, waiting until its turn comes, back in its own
+// the CEO and each goblin, waiting until its turn comes, back in its own
 // session, or stopped where it could not come back, with the reason.
 const (
 	ComebackWaiting = "waiting"
@@ -19,18 +19,18 @@ const (
 )
 
 // Comeback is what the supervisor brings back after the restart or sign-out
-// that ended the sign-in before SignedIn: the CFO first, then each goblin that
+// that ended the sign-in before SignedIn: the CEO first, then each goblin that
 // was working, in state/comeback.json. A record for the sign-in under way
 // says the comeback was planned, so a supervisor that starts again in it,
 // as an update restarts it, carries on rather than plans again.
 type Comeback struct {
 	SignedIn time.Time       `json:"signed_in"`
 	Planned  time.Time       `json:"planned"`
-	CFO      *ComebackEntry  `json:"cfo,omitempty"`
+	CEO      *ComebackEntry  `json:"ceo,omitempty"`
 	Goblins  []ComebackEntry `json:"goblins,omitempty"`
 }
 
-// ComebackEntry is the CFO or one goblin: for a goblin, its id and the spawn
+// ComebackEntry is the CEO or one goblin: for a goblin, its id and the spawn
 // generation the restart ended.
 type ComebackEntry struct {
 	ID         string    `json:"id"`

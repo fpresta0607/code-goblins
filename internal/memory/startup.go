@@ -31,7 +31,7 @@ func (catalog Catalog) StartupMap() (string, error) {
 	catalog.writeShort(&output, selected)
 	output.WriteString(catalog.Scopes(scopesRoom))
 	if unclassified > 0 {
-		fmt.Fprintf(&output, "Rulings not classified yet, which load until they are: %d; cfo memory scope --list shows them.\n", unclassified)
+		fmt.Fprintf(&output, "Rulings not classified yet, which load until they are: %d; goblins memory scope --list shows them.\n", unclassified)
 	}
 	if err := catalog.checkFresh(); err != nil {
 		return "", err
@@ -183,7 +183,7 @@ func (catalog Catalog) Scopes(limit int) string {
 		}
 	}
 	if left > 0 {
-		fmt.Fprintf(&output, "%d more scopes: cfo memory routes lists every cold entry.\n", left)
+		fmt.Fprintf(&output, "%d more scopes: goblins memory routes lists every cold entry.\n", left)
 	}
 	return output.String()
 }

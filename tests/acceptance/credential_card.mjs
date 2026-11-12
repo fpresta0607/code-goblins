@@ -46,7 +46,7 @@ const value = readFileSync(options["canary-file"], "utf8");
 unlinkSync(options["canary-file"]);
 const browser = options.browser || "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
 const visible = options.visible === "yes";
-const profile = mkdtempSync(join(tmpdir(), "cfo-credential-card-"));
+const profile = mkdtempSync(join(tmpdir(), "ceo-credential-card-"));
 mkdirSync(join(profile, "Default"));
 writeFileSync(join(profile, "Default", "Preferences"), JSON.stringify({ signin: { allowed: false, allowed_on_next_startup: false } }));
 const started = Date.now();
@@ -74,7 +74,7 @@ await new Promise((resolve) => plain.listen(0, "127.0.0.1", resolve));
 // opens its card. It answers whether the named field showed.
 async function open(request, name) {
   const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const skip = [...document.querySelectorAll("a, button")].find((element) => /Open the board without a CFO/.test(element.textContent || ""));
+  const skip = [...document.querySelectorAll("a, button")].find((element) => /Open the board without a CEO/.test(element.textContent || ""));
   if (skip) { skip.click(); await pause(2500); }
   const card = () => document.querySelector(`[data-credential-request="${CSS.escape(request)}"]`);
   for (let i = 0; i < 100 && !card(); i++) {

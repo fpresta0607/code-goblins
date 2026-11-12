@@ -194,7 +194,7 @@ func TestProgressWatchReportsOnceAndResetsOnRealProgress(t *testing.T) {
 }
 
 // A goblin whose latest report says it waits on something, finished, or
-// asked the CFO expects no commit, push or report until that changes, and
+// asked the CEO expects no commit, push or report until that changes, and
 // each of those has its own wake: ci_finished, done, its question. Twenty
 // quiet minutes after one is nothing new, so progress_stalled stays for a
 // goblin that says it is working.
@@ -409,8 +409,10 @@ func newToolCallGoblin(t *testing.T, now time.Time) *toolCallGoblin {
 				{PID: 103, ParentPID: 102, Exe: "node.exe", Created: 3, Started: launched.Add(20*time.Minute + time.Second), CPU: goblin.toolCPU},
 			}, nil
 		},
-		Listeners:   func() (map[int][]int, error) { return nil, nil },
-		CommandLine: func(pid int) (string, error) { return map[int]string{102: `bash -c "npm run test:browser"`, 103: "node --test"}[pid], nil },
+		Listeners: func() (map[int][]int, error) { return nil, nil },
+		CommandLine: func(pid int) (string, error) {
+			return map[int]string{102: `bash -c "npm run test:browser"`, 103: "node --test"}[pid], nil
+		},
 	}
 	service.Options.Progress = &progressGit{head: strings.Repeat("a", 40), pushed: strings.Repeat("a", 40)}
 	writeFile(t, filepath.Join(h.State, "slow-task.status"), now.Format(time.RFC3339)+" working: Running the 432-test browser suite\n")
@@ -431,7 +433,7 @@ func (g *toolCallGoblin) read(t *testing.T, at time.Time) {
 	}
 }
 
-// On 2026-10-08 the CFO drew about 30 progress_stalled wakes in nine hours for
+// On 2026-10-08 the CEO drew about 30 progress_stalled wakes in nine hours for
 // goblins plainly at work: a 432-test browser suite, a 200-run stress
 // acceptance, a speech-model benchmark. A goblin inside one long tool call
 // commits, pushes and reports nothing, but it is working while the tool's
@@ -484,7 +486,7 @@ func TestEvidenceOfWorkKeepsALongToolCallFromStalling(t *testing.T) {
 	}
 }
 
-// On 2026-10-11 the CFO drew two progress_stalled wakes on a goblin whose
+// On 2026-10-11 the CEO drew two progress_stalled wakes on a goblin whose
 // whole test suite was at work: a test binary under the goblin's own
 // launcher had used 916 seconds of processor time. Git Bash had cut the suite
 // off from the harness, its first processes were Git Bash's own, which carry
@@ -552,8 +554,8 @@ func TestADetachedSuiteUnderTheGoblinsLauncherKeepsItFromStalling(t *testing.T) 
 	}
 }
 
-// On 2026-10-23 the CFO drew a progress_stalled wake on a goblin that had
-// reported a wait and then left its browser checks to cfo gate turn --detach
+// On 2026-10-23 the CEO drew a progress_stalled wake on a goblin that had
+// reported a wait and then left its browser checks to goblins gate turn --detach
 // (#1443). Its run of a node script waited in the heavy line as no test or
 // build, so it was taken for a command of the goblin's own, neither a wait
 // nor its line moving seen. Once admitted, the run's Vite server listened on
@@ -650,7 +652,7 @@ func readingMemory(free *float64) *Dispatch {
 	}
 }
 
-// On 2026-10-08 the supervisor woke the CFO four times with "progress for
+// On 2026-10-08 the supervisor woke the CEO four times with "progress for
 // <task>: context deadline exceeded" for every goblin at once, three of them
 // while memory read under the 4 GB floor (1.9 GB free at 13:00Z, 3.9 GB at
 // 19:24Z). A read a starved machine slows tells nothing of the goblin or the
@@ -771,10 +773,10 @@ func TestAPassWhoseEveryReadRanOutIsNoGoblinsError(t *testing.T) {
 	}
 }
 
-// Passes on which every read runs out leave the stall check blind. The CFO
+// Passes on which every read runs out leave the stall check blind. The CEO
 // is told once, when they have lasted as long as a stall takes to tell, and
 // told again only after a pass that read a goblin ended them.
-func TestPassesThatReadNoGoblinWakeTheCFOOnceTheyLastAStall(t *testing.T) {
+func TestPassesThatReadNoGoblinWakeTheCEOOnceTheyLastAStall(t *testing.T) {
 	// Arrange
 	service, h := fleetService(t)
 	for _, id := range []string{"a-task", "b-task", "c-task"} {
@@ -831,8 +833,8 @@ func TestPassesThatReadNoGoblinWakeTheCFOOnceTheyLastAStall(t *testing.T) {
 				if strings.Contains(detail, "-task") || strings.Contains(detail, "task-1") {
 					t.Fatalf("wake %q names a goblin, want the machine", detail)
 				}
-				if !strings.Contains(detail, "cfo gate turns") {
-					t.Fatalf("wake %q, want it to name cfo gate turns, which shows the runs holding the machine", detail)
+				if !strings.Contains(detail, "goblins gate turns") {
+					t.Fatalf("wake %q, want it to name goblins gate turns, which shows the runs holding the machine", detail)
 				}
 			}
 		}
@@ -842,7 +844,7 @@ func TestPassesThatReadNoGoblinWakeTheCFOOnceTheyLastAStall(t *testing.T) {
 // A pass with no goblin to read, every goblin ended or paused, hides no stall,
 // so it ends the blind spell: the fleet that comes back is told of its own
 // spell once that has lasted as long as a stall takes to tell, whether or not
-// the spell before it woke the CFO.
+// the spell before it woke the CEO.
 func TestAPassWithNoGoblinToReadEndsTheBlindSpell(t *testing.T) {
 	for _, quiet := range []struct {
 		name              string
@@ -925,7 +927,7 @@ func TestAPassWithNoGoblinToReadEndsTheBlindSpell(t *testing.T) {
 
 // A blind spell counts only time the supervisor watched. A supervisor that
 // stopped mid-spell, crashed or with the machine asleep, starts a new spell
-// at its first pass back: it does not wake the CFO at once for the hours it
+// at its first pass back: it does not wake the CEO at once for the hours it
 // was down, and the spell before, woken or not, keeps no hold on this one.
 func TestAGapInThePassesStartsTheBlindSpellAgain(t *testing.T) {
 	for _, spell := range []struct {
@@ -1115,10 +1117,10 @@ func TestAPassTheSupervisorsStopCutShortTellsNothing(t *testing.T) {
 }
 
 // A goblin whose read keeps running out of time while the others are read in
-// the same pass is the goblin's own failure, and wakes the CFO naming it once
+// the same pass is the goblin's own failure, and wakes the CEO naming it once
 // it failed failingPasses passes in a row. A pass whose every read ran out
 // between them tells nothing of it and does not end that run.
-func TestAGoblinWhoseReadKeepsRunningOutWhileOthersAreReadWakesTheCFO(t *testing.T) {
+func TestAGoblinWhoseReadKeepsRunningOutWhileOthersAreReadWakesTheCEO(t *testing.T) {
 	// Arrange
 	handler, h := startBoard(t, 8*gigabyte, &spawnRecorder{})
 	service := handler.Service
@@ -1149,7 +1151,7 @@ func TestAGoblinWhoseReadKeepsRunningOutWhileOthersAreReadWakesTheCFO(t *testing
 			}
 		}
 		if len(wakes) != step.wakes {
-			t.Fatalf("after pass %d (every read running out: %t) the CFO had %d progress wakes, want %d: %q", pass+1, step.isEverySlow, len(wakes), step.wakes, wakes)
+			t.Fatalf("after pass %d (every read running out: %t) the CEO had %d progress wakes, want %d: %q", pass+1, step.isEverySlow, len(wakes), step.wakes, wakes)
 		}
 		for _, detail := range wakes {
 			if !strings.Contains(detail, "progress for a-slow-task: context deadline exceeded") || strings.Contains(detail, "b-task") || strings.Contains(detail, "c-task") || strings.Contains(detail, "task-1") {
@@ -1163,7 +1165,7 @@ func TestAGoblinWhoseReadKeepsRunningOutWhileOthersAreReadWakesTheCFO(t *testing
 // board's reading of a family tree go stale as every read slows, and a goblin
 // working through it would read as still. A goblin whose evidence went unread
 // then is not called stalled: its clock waits for a reading that can see it.
-// With memory at the floor an unread goblin still wakes the CFO, naming what
+// With memory at the floor an unread goblin still wakes the CEO, naming what
 // was not read.
 func TestAGoblinWhoseEvidenceAMemoryLowLeftUnreadIsNotCalledStalled(t *testing.T) {
 	for _, test := range []struct {
@@ -1297,14 +1299,14 @@ func checkWakes(t *testing.T, goblin *toolCallGoblin) []string {
 	return details
 }
 
-// On 2026-10-09 the CFO was woken that Duke (hh-video-gate) had stalled while
+// On 2026-10-09 the CEO was woken that Duke (hh-video-gate) had stalled while
 // he waited on his no-mistakes run's test step. The step runs in the shared
 // daemon, not in his own processes, and its agent wrote ten lines in half an
 // hour, so the step's last activity sat still. A goblin whose gate has a step
 // running is working for as long as the step runs in its usual time, and so
 // is one waiting on a run it names, such as one outside its worktree. A gate
 // run that is itself stuck, its step running far past that or parked on an
-// answer, is told to the CFO as that, with the run and the step.
+// answer, is told to the CEO as that, with the run and the step.
 func TestAGoblinWaitingOnItsGateIsWorkingUntilTheGateIsStuck(t *testing.T) {
 	const runID = "01M4FDZXNS0HTVPE22RFTY8RA5"
 	now := time.Date(2026, 10, 9, 5, 51, 0, 0, time.UTC)
@@ -1446,7 +1448,7 @@ func TestSnapshotRefreshesProgressAndDurationsWhenTheCycleReadsTheirRecord(t *te
 	}
 }
 
-// On 2026-10-14 the CFO drew progress_stalled wakes for goblins waiting by
+// On 2026-10-14 the CEO drew progress_stalled wakes for goblins waiting by
 // design: a run of theirs waiting 50 minutes in the machine's heavy line, and
 // monitors of theirs armed on their pull requests' CI and trains. A goblin
 // waiting on what resumes it when it ends (fleettree.Tree.Waits) is stalled

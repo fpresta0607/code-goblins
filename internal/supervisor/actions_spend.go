@@ -142,7 +142,7 @@ func (s *Service) actionsSpendUsage(now time.Time, month string, runs []Run) act
 }
 
 func (h *HTTP) actionsSpend(w http.ResponseWriter, r *http.Request) {
-	if r.Header.Get("X-CFO-Token") != h.Service.Instance || h.Service.Instance == "" {
+	if r.Header.Get("X-CEO-Token") != h.Service.Instance || h.Service.Instance == "" {
 		apiError(w, http.StatusForbidden, "Refresh the board before requesting Actions usage")
 		return
 	}

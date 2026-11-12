@@ -29,7 +29,7 @@ const (
 	SupportedSchemaVersion = 1
 )
 
-// requiredMethods are the typed socket methods CFO relies on. The preflight
+// requiredMethods are the typed socket methods CEO relies on. The preflight
 // fails before any workspace, tab, pane, agent, or worktree mutation when the
 // installed schema does not advertise every one of them.
 var requiredMethods = []string{
@@ -64,7 +64,7 @@ func RequiredMethods() []string {
 	return slices.Clone(requiredMethods)
 }
 
-// Preflight proves the installed Herdr speaks the contract CFO is coded
+// Preflight proves the installed Herdr speaks the contract CEO is coded
 // against before any task resource is created: the local schema (version,
 // protocol, envelopes, methods), then live client/server protocol
 // compatibility, then selected-session addressability.
@@ -77,7 +77,7 @@ func (c *Client) Preflight(ctx context.Context) error {
 
 // CheckSchema parses the local `herdr api schema --json` document and
 // requires the supported schema version, protocol, both response envelopes,
-// and every method CFO uses. The schema command emits the bare schema
+// and every method CEO uses. The schema command emits the bare schema
 // document, not a response envelope.
 func (c *Client) CheckSchema(ctx context.Context) error {
 	session := c.session()

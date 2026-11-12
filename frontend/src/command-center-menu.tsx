@@ -2,7 +2,7 @@ import { startTransition, Suspense, useEffect, useRef, useState } from "react";
 import type { BoardActivity, Snapshot } from "./types";
 import type { CommandFocus } from "./CommandCenter";
 import type { Sent } from "./item-state";
-import { message, reportToCfo } from "./api";
+import { message, reportToCeo } from "./api";
 import { countedTitle, showBadge } from "./arrivals";
 import { boardPage } from "./board-page";
 import { CommandCenterButton } from "./command-center-button";
@@ -27,11 +27,11 @@ export function CommandCenterMenu({ snapshot, connected, presentations, now, foc
   const baseTitle = useRef(document.title);
   useEffect(() => {
     document.title = countedTitle(baseTitle.current, needing);
-    showBadge(needing)?.catch((error: unknown) => reportToCfo("the app badge", message(error)));
+    showBadge(needing)?.catch((error: unknown) => reportToCeo("the app badge", message(error)));
   }, [needing]);
   useEffect(() => () => {
     document.title = baseTitle.current;
-    showBadge(0)?.catch((error: unknown) => reportToCfo("the app badge", message(error)));
+    showBadge(0)?.catch((error: unknown) => reportToCeo("the app badge", message(error)));
   }, []);
   const button = <details className="command-center-menu" onToggle={(event) => {
     const isInboxOpen = event.currentTarget.open;

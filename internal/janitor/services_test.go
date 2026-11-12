@@ -31,7 +31,7 @@ func servicesConfig(t *testing.T, stop func(context.Context) ([]string, error)) 
 // The sweep stops the local services stacks no live task holds, and records
 // each it stopped beside what else it removed.
 func TestSweepStopsTheLocalServicesNoLiveTaskHolds(t *testing.T) {
-	stopped := "stopped PrecisionDocs-AI's services, and stopped the Docker engine cfo started: no live task held them (pd-a ended)"
+	stopped := "stopped PrecisionDocs-AI's services, and stopped the Docker engine goblins started: no live task held them (pd-a ended)"
 	swept := 0
 	record := Sweep(context.Background(), servicesConfig(t, func(context.Context) ([]string, error) {
 		swept++

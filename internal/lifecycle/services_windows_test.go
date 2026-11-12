@@ -28,22 +28,22 @@ import (
 
 // The fixtures below run as separate processes: a terminal's host, the goblin
 // in it, and a stand-in Docker Desktop the goblin starts, each reporting the
-// processes it started to the file CFO_LIFECYCLE_PIDS names, one line each.
+// processes it started to the file GOBLINS_LIFECYCLE_PIDS names, one line each.
 const (
-	lifecycleHostState = "CFO_LIFECYCLE_HOST_STATE"
-	lifecyclePIDs      = "CFO_LIFECYCLE_PIDS"
-	lifecycleService   = "CFO_LIFECYCLE_SERVICE"
-	lifecycleAway      = "CFO_LIFECYCLE_AWAY"
+	lifecycleHostState = "GOBLINS_LIFECYCLE_HOST_STATE"
+	lifecyclePIDs      = "GOBLINS_LIFECYCLE_PIDS"
+	lifecycleService   = "GOBLINS_LIFECYCLE_SERVICE"
+	lifecycleAway      = "GOBLINS_LIFECYCLE_AWAY"
 )
 
 // TestLifecycleHostFixture hosts a goblin fixture in the task's worktree, as
-// cfo host runs a goblin's terminal.
+// goblins host runs a goblin's terminal.
 func TestLifecycleHostFixture(t *testing.T) {
 	stateDir := os.Getenv(lifecycleHostState)
 	if stateDir == "" {
 		return
 	}
-	_ = host.Run(stateDir, host.Spec{ID: os.Getenv("CFO_LIFECYCLE_HOST_ID"), Args: []string{os.Args[0], "-test.run=^TestLifecycleGoblinFixture$"}, Dir: os.Getenv("CFO_LIFECYCLE_HOST_DIR"), Cols: 80, Rows: 25})
+	_ = host.Run(stateDir, host.Spec{ID: os.Getenv("GOBLINS_LIFECYCLE_HOST_ID"), Args: []string{os.Args[0], "-test.run=^TestLifecycleGoblinFixture$"}, Dir: os.Getenv("GOBLINS_LIFECYCLE_HOST_DIR"), Cols: 80, Rows: 25})
 }
 
 // TestLifecycleGoblinFixture is a goblin that starts Docker Desktop for a
@@ -55,11 +55,11 @@ func TestLifecycleGoblinFixture(t *testing.T) {
 	if pids == "" || os.Getenv(lifecycleHostState) == "" {
 		return
 	}
-	service := startLifecycleFixture(t, os.Getenv(lifecycleService), "", "^TestLifecycleServiceFixture$", "CFO_LIFECYCLE_SERVICE_RUNS=1")
-	own := startLifecycleFixture(t, os.Args[0], "", "^TestLifecycleProcessFixture$", "CFO_LIFECYCLE_FIXTURE=1")
-	away := startLifecycleFixture(t, os.Args[0], os.Getenv(lifecycleAway), "^TestLifecycleProcessFixture$", "CFO_LIFECYCLE_FIXTURE=1")
+	service := startLifecycleFixture(t, os.Getenv(lifecycleService), "", "^TestLifecycleServiceFixture$", "GOBLINS_LIFECYCLE_SERVICE_RUNS=1")
+	own := startLifecycleFixture(t, os.Args[0], "", "^TestLifecycleProcessFixture$", "GOBLINS_LIFECYCLE_FIXTURE=1")
+	away := startLifecycleFixture(t, os.Args[0], os.Getenv(lifecycleAway), "^TestLifecycleProcessFixture$", "GOBLINS_LIFECYCLE_FIXTURE=1")
 	launcher := exec.Command(os.Args[0], "-test.run=^TestLifecycleLauncherFixture$")
-	launcher.Env = append(os.Environ(), "CFO_LIFECYCLE_LAUNCHES=1")
+	launcher.Env = append(os.Environ(), "GOBLINS_LIFECYCLE_LAUNCHES=1")
 	if output, err := launcher.CombinedOutput(); err != nil {
 		t.Fatalf("the launcher fixture: %v\n%s", err, output)
 	}
@@ -73,12 +73,12 @@ func TestLifecycleGoblinFixture(t *testing.T) {
 // process has no living parent. Nothing but the environment it inherited
 // still ties it to the terminal.
 func TestLifecycleLauncherFixture(t *testing.T) {
-	if os.Getenv("CFO_LIFECYCLE_LAUNCHES") != "1" {
+	if os.Getenv("GOBLINS_LIFECYCLE_LAUNCHES") != "1" {
 		return
 	}
 	detached := exec.Command(os.Args[0], "-test.run=^TestLifecycleProcessFixture$")
 	detached.Dir = os.Getenv(lifecycleAway)
-	detached.Env = append(os.Environ(), "CFO_LIFECYCLE_FIXTURE=1", "CFO_LIFECYCLE_LAUNCHES=")
+	detached.Env = append(os.Environ(), "GOBLINS_LIFECYCLE_FIXTURE=1", "GOBLINS_LIFECYCLE_LAUNCHES=")
 	detached.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.DETACHED_PROCESS | windows.CREATE_NEW_PROCESS_GROUP | windows.CREATE_BREAKAWAY_FROM_JOB}
 	if err := detached.Start(); err != nil {
 		t.Fatal(err)
@@ -89,10 +89,10 @@ func TestLifecycleLauncherFixture(t *testing.T) {
 // TestLifecycleServiceFixture is the stand-in Docker Desktop: it starts a
 // backend of its own, as Docker Desktop starts its engine's processes.
 func TestLifecycleServiceFixture(t *testing.T) {
-	if os.Getenv("CFO_LIFECYCLE_SERVICE_RUNS") != "1" {
+	if os.Getenv("GOBLINS_LIFECYCLE_SERVICE_RUNS") != "1" {
 		return
 	}
-	backend := startLifecycleFixture(t, os.Getenv("CFO_LIFECYCLE_BINARY"), "", "^TestLifecycleProcessFixture$", "CFO_LIFECYCLE_FIXTURE=1")
+	backend := startLifecycleFixture(t, os.Getenv("GOBLINS_LIFECYCLE_BINARY"), "", "^TestLifecycleProcessFixture$", "GOBLINS_LIFECYCLE_FIXTURE=1")
 	appendLifecyclePIDs(t, os.Getenv(lifecyclePIDs), "backend "+strconv.Itoa(backend))
 	time.Sleep(time.Minute)
 }
@@ -129,7 +129,7 @@ func appendLifecyclePIDs(t *testing.T, path string, lines ...string) {
 // handle holding each, and a channel closed once the host has ended.
 func hostedGoblin(t *testing.T, root string) (home.Home, state.TaskMeta, map[string]int, map[string]windows.Handle, <-chan struct{}) {
 	t.Helper()
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	h := home.Home{Root: root, State: filepath.Join(root, "state")}
 	project := filepath.Join(t.TempDir(), "app")
 	meta := state.TaskMeta{ID: "g1", Backend: "native", Project: project, Worktree: filepath.Join(root, "worktrees", "app", "g1"), TaskTmp: filepath.Join(h.State, "tasktmp", "g1")}
@@ -157,7 +157,7 @@ func hostedGoblin(t *testing.T, root string) (home.Home, state.TaskMeta, map[str
 	away := t.TempDir()
 	standin.RemoveAtCleanup(t, away)
 	hostProcess := exec.Command(os.Args[0], "-test.run=^TestLifecycleHostFixture$")
-	hostProcess.Env = append(os.Environ(), lifecycleHostState+"="+h.State, "CFO_LIFECYCLE_HOST_ID="+meta.ID, "CFO_LIFECYCLE_HOST_DIR="+meta.Worktree, lifecyclePIDs+"="+pids, lifecycleService+"="+docker, "CFO_LIFECYCLE_BINARY="+os.Args[0], lifecycleAway+"="+away)
+	hostProcess.Env = append(os.Environ(), lifecycleHostState+"="+h.State, "GOBLINS_LIFECYCLE_HOST_ID="+meta.ID, "GOBLINS_LIFECYCLE_HOST_DIR="+meta.Worktree, lifecyclePIDs+"="+pids, lifecycleService+"="+docker, "GOBLINS_LIFECYCLE_BINARY="+os.Args[0], lifecycleAway+"="+away)
 	hostProcess.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP, HideWindow: true}
 	if err := hostProcess.Start(); err != nil {
 		t.Fatal(err)
@@ -203,7 +203,7 @@ func hostedGoblin(t *testing.T, root string) (home.Home, state.TaskMeta, map[str
 }
 
 // A goblin's teardown never ends a machine service the goblin started. On
-// 2026-10-07 `cfo pause pd-small-cleanups` stopped Docker Desktop, which the
+// 2026-10-07 `goblins pause pd-small-cleanups` stopped Docker Desktop, which the
 // goblin had started from its worktree for a test, with its build and WSL
 // processes, and left the engine unreachable. Docker Desktop started from a
 // worktree runs there and in the goblin's terminal's job, which ends what is
@@ -353,13 +353,13 @@ func TestAGoblinsDetachedProcessEndsWithItAtPauseAndAtRetire(t *testing.T) {
 // the goblin's retirement. What a closed terminal left is ended by the proofs
 // its terminal was given, which outlast the host's record, and the machine
 // service it started goes on running. So does what somebody else runs in the
-// goblin's worktree, as the CFO runs a test there: it works in the task's
+// goblin's worktree, as the CEO runs a test there: it works in the task's
 // folder under a parent that still runs and is not the task's.
 func TestWhatAClosedTerminalLeftEndsWithItsCleanup(t *testing.T) {
 	// Arrange
 	root := t.TempDir()
 	h, meta, started, held, hostEnded := hostedGoblin(t, root)
-	started["visitor"] = startLifecycleFixture(t, os.Args[0], meta.Worktree, "^TestLifecycleProcessFixture$", "CFO_LIFECYCLE_FIXTURE=1")
+	started["visitor"] = startLifecycleFixture(t, os.Args[0], meta.Worktree, "^TestLifecycleProcessFixture$", "GOBLINS_LIFECYCLE_FIXTURE=1")
 	held["visitor"] = standin.Hold(t, started["visitor"])
 	terminal, err := host.ReadRecord(h.State, meta.ID)
 	if err != nil {

@@ -72,11 +72,11 @@ func (s *Service) keepSubscriptionReadings(report quota.Report, skipped string) 
 	s.notify()
 }
 
-// subscriptionUsage is the dials' reading of each provider the CFO or a
+// subscriptionUsage is the dials' reading of each provider the CEO or a
 // goblin runs on now, with the weekly floor the last fleet reading read for
 // it, the one the supervisor paused by, or none while it could not be read.
-func (s *Service) subscriptionUsage(cfo cfoState, snapshot Snapshot) []SubscriptionUsage {
-	active := activeHarnesses(cfo, snapshot)
+func (s *Service) subscriptionUsage(ceo ceoState, snapshot Snapshot) []SubscriptionUsage {
+	active := activeHarnesses(ceo, snapshot)
 	s.mu.Lock()
 	readings, floors := maps.Clone(s.subscriptionReadings), maps.Clone(s.weeklyFloors)
 	s.mu.Unlock()
@@ -101,12 +101,12 @@ func (s *Service) subscriptionUsage(cfo cfoState, snapshot Snapshot) []Subscript
 	return usage
 }
 
-// activeHarnesses is each harness the CFO or a goblin runs on now, by name:
+// activeHarnesses is each harness the CEO or a goblin runs on now, by name:
 // the dials show a provider only while one of them runs on it.
-func activeHarnesses(cfo cfoState, snapshot Snapshot) map[string]bool {
+func activeHarnesses(ceo ceoState, snapshot Snapshot) map[string]bool {
 	active := map[string]bool{}
-	if cfo.registered && cfo.problem == "" && snapshot.Registration == "" {
-		active[cfo.harness] = true
+	if ceo.registered && ceo.problem == "" && snapshot.Registration == "" {
+		active[ceo.harness] = true
 	}
 	for _, task := range snapshotLiveTasks(snapshot) {
 		active[task.Harness] = true

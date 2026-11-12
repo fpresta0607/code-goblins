@@ -17,7 +17,7 @@ func TestFindTargetKeepsAHomeInUseAndOtherwiseUsesTheStandardFolder(t *testing.T
 	for name, test := range map[string]struct {
 		standard []string
 		checkout []string
-		cfoHome  string
+		ceoHome  string
 		want     func(standard, checkout string) Target
 	}{
 		"nothing installed": {
@@ -25,33 +25,33 @@ func TestFindTargetKeepsAHomeInUseAndOtherwiseUsesTheStandardFolder(t *testing.T
 		},
 		"an earlier standard install": {
 			standard: []string{home.InstalledMarker, "state/"},
-			cfoHome:  "standard",
+			ceoHome:  "standard",
 			want:     func(standard, _ string) Target { return Target{Root: standard, Update: true} },
 		},
 		"the standard folder named in another spelling": {
 			standard: []string{home.InstalledMarker, "state/"},
-			cfoHome:  "standard, upper case with a trailing slash",
+			ceoHome:  "standard, upper case with a trailing slash",
 			want:     func(standard, _ string) Target { return Target{Root: standard, Update: true} },
 		},
 		"a half-finished install, its marker not yet written": {
 			standard: []string{"state/"},
 			want:     func(standard, _ string) Target { return Target{Root: standard, Update: true} },
 		},
-		"a checkout made the home, CFO_HOME naming it": {
-			checkout: []string{"AGENTS.md", "cmd/cfo/", "state/", "data/", ".worktrees/", "cfo.exe"},
-			cfoHome:  "checkout",
+		"a checkout made the home, GOBLINS_HOME naming it": {
+			checkout: []string{"AGENTS.md", "cmd/goblins/", "state/", "data/", ".worktrees/", "goblins.exe"},
+			ceoHome:  "checkout",
 			want: func(_, checkout string) Target {
 				return Target{Root: checkout, Update: true, Kept: true, Checkout: true}
 			},
 		},
-		"a home of its own outside the standard folder, CFO_HOME naming it": {
+		"a home of its own outside the standard folder, GOBLINS_HOME naming it": {
 			checkout: []string{home.InstalledMarker, "AGENTS.md", "state/", "bin/"},
-			cfoHome:  "checkout",
+			ceoHome:  "checkout",
 			want:     func(_, other string) Target { return Target{Root: other, Update: true, Kept: true} },
 		},
-		"CFO_HOME naming a folder with no fleet": {
+		"GOBLINS_HOME naming a folder with no fleet": {
 			checkout: []string{"AGENTS.md"},
-			cfoHome:  "checkout",
+			ceoHome:  "checkout",
 			want:     func(standard, _ string) Target { return Target{Root: standard} },
 		},
 	} {
@@ -62,7 +62,7 @@ func TestFindTargetKeepsAHomeInUseAndOtherwiseUsesTheStandardFolder(t *testing.T
 			lay(t, standard, test.standard)
 			lay(t, checkout, test.checkout)
 			values := map[string]string{}
-			switch test.cfoHome {
+			switch test.ceoHome {
 			case "standard":
 				values[HomeVariable] = standard
 			case "standard, upper case with a trailing slash":

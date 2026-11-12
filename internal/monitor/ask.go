@@ -6,16 +6,16 @@ import (
 	"strings"
 )
 
-// askingPhrase matches a sentence that asks the CFO something or offers it a
+// askingPhrase matches a sentence that asks the CEO something or offers it a
 // choice without a question mark: a choice it can take ("unless you want"),
 // an offer ("want me to"), a wait on its answer ("Your answer decides",
-// "Waiting for the CFO's choice") or a question the goblin says it asked. A
+// "Waiting for the CEO's choice") or a question the goblin says it asked. A
 // goblin that writes one and stops waits on an answer. Each phrase was read
-// off real turn endings of the fleet; a report that only names the CFO, such
+// off real turn endings of the fleet; a report that only names the CEO, such
 // as "waiting for your merge", "parked per your decision" or "PR 301 still
 // needs your answer" about a page it will file again, asks nothing.
 var askingPhrase = regexp.MustCompile(`(?i)` + strings.Join([]string{
-	`\bunless (you|the CFO|the CEO)\b`,
+	`\bunless (you|the CEO)\b`,
 	`\bif you(?:'d| would) rather\b`,
 	`\bif you prefer\b`,
 	`\bif you(?:'d like| would like| want) me to\b`,
@@ -29,7 +29,7 @@ var askingPhrase = regexp.MustCompile(`(?i)` + strings.Join([]string{
 	`\bor would you\b`,
 	`\b(?:it's|that's) your call\b`,
 	`\bI(?:'ve| have)? asked\b[^.?!]*\b(?:whether|which)\b`,
-	`\bwait(?:ing)? (?:for|on) (?:your|the (?:CFO|CEO)'s) (?:answer|decision|choice|go-ahead|approval|call|word|reply|ok)\b`,
+	`\bwait(?:ing)? (?:for|on) (?:your|the CEO's) (?:answer|decision|choice|go-ahead|approval|call|word|reply|ok)\b`,
 	`\byour (?:answer|decision|choice) (?:decides|will decide)\b`,
 	`\bonce you (?:answer|decide|choose|pick|confirm|approve)\b`,
 	`\bawaiting your\b`,
@@ -44,7 +44,7 @@ var notWords = regexp.MustCompile("`[^`]*`|https?://\\S+")
 // paragraphBreak is a blank line between a reply's paragraphs.
 var paragraphBreak = regexp.MustCompile(`\n\s*\n`)
 
-// askedIn returns the sentences that ask the CFO something or offer it a
+// askedIn returns the sentences that ask the CEO something or offer it a
 // choice in the last two paragraphs of reply, where a goblin that stops to
 // ask puts its question, in reply's order; none for a reply that only
 // reports. A sentence asks when it ends with a question mark or holds an
@@ -91,7 +91,7 @@ func sentences(line string) []string {
 	return split
 }
 
-// asks reports whether sentence asks the CFO something or offers it a choice.
+// asks reports whether sentence asks the CEO something or offers it a choice.
 func asks(sentence string) bool {
 	words := strings.ReplaceAll(notWords.ReplaceAllString(sentence, ""), "’", "'")
 	if strings.HasSuffix(strings.TrimRight(words, " *_\"')”"), "?") {
@@ -107,6 +107,6 @@ const askQuoteLimit = 600
 // question in its own words, which ends the wake so the board can read it
 // back whole.
 func askDetail(id string, asked []string) string {
-	return fmt.Sprintf("%s ended its turn asking in prose instead of with cfo notify --blocked and waits at its prompt for the answer; next: answer it with cfo send %s \"<your answer>\" (cfo answer takes only a notify's question). It asked: \"%s\"",
+	return fmt.Sprintf("%s ended its turn asking in prose instead of with goblins notify --blocked and waits at its prompt for the answer; next: answer it with goblins send %s \"<your answer>\" (goblins answer takes only a notify's question). It asked: \"%s\"",
 		id, id, bounded(strings.Join(asked, " "), askQuoteLimit))
 }

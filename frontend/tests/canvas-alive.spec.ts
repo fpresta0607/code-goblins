@@ -96,7 +96,7 @@ test("a baby goblin that finishes reports back, fades where it hung and goes", a
   await expect(page.locator(".tree-branches > li.leaving, .branch-pulse")).toHaveCount(0);
 });
 
-test("a goblin's report pulses its connector from the CFO, and nothing runs once the pulse ends", async ({ page }) => {
+test("a goblin's report pulses its connector from the CEO, and nothing runs once the pulse ends", async ({ page }) => {
   // Arrange
   await open(page);
 

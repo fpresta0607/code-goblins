@@ -95,10 +95,10 @@ type Setup struct {
 	// Env is the environment the script runs in; nil is this program's own.
 	Env []string
 	// StartAtLogin is the person's choice of Start at login, on or off,
-	// which the script hands to cfo install; empty keeps the home's choice.
+	// which the script hands to goblins install; empty keeps the home's choice.
 	StartAtLogin string
 	// DevDrive is the answer to the offer of a Dev Drive, on or off, which
-	// the script hands to cfo install; empty where the window showed no
+	// the script hands to goblins install; empty where the window showed no
 	// offer.
 	DevDrive string
 }

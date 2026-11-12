@@ -10,7 +10,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// cfo notify appends a status line beside its wake record, and another
+// goblins notify appends a status line beside its wake record, and another
 // process holding the status file for a moment, as a scan or a replace in
 // flight does, must cost that notify a wait, not the notify.
 func TestAppendStatusWaitsOutAHandleThatHoldsTheFile(t *testing.T) {

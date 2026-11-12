@@ -43,7 +43,7 @@ const MARKS: [string, RegExp][] = [
 ];
 
 for (const [width, height] of [[1707, 1067], [390, 844]]) {
-  test(`every History row leads with the CFO's goblin, marked with how it ended, and has the pencil, at ${width}px`, async ({ page }, testInfo) => {
+  test(`every History row leads with the CEO's goblin, marked with how it ended, and has the pencil, at ${width}px`, async ({ page }, testInfo) => {
     // Arrange
     await page.setViewportSize({ width, height });
 
@@ -57,7 +57,7 @@ for (const [width, height] of [[1707, 1067], [390, 844]]) {
       const row = rows.filter({ hasText: text });
       const mark = row.locator(".history-mark");
       await expect(mark, text).toHaveCount(1);
-      await expect(mark.locator(".goblin-avatar.persona-cfo"), text).toBeVisible();
+      await expect(mark.locator(".goblin-avatar.persona-ceo"), text).toBeVisible();
       await expect(mark.locator(".mark-badge"), text).toBeVisible();
       await expect(mark, text).toHaveAttribute("role", "img");
       await expect(mark, text).toHaveAttribute("aria-label", label);
@@ -206,6 +206,29 @@ for (const { text, steps, values } of [
   });
 }
 
+// A stored card's steps link each web address they name, as its open card
+// does (#2360), and a javascript: string stays words.
+test("a stored card's steps open each web address they name in a new tab, and a javascript: one stays text", async ({ page }) => {
+  // Arrange
+  const keysPage = "https://console.example.com/api-keys";
+  const { rows } = await history(page);
+  const row = rows.filter({ hasText: "Paste APNS_KEY_ID for sample-app" });
+  const steps = row.locator(".history-detail").getByRole("list", { name: "How to get them" });
+
+  // Act
+  await row.locator(".history-open").click();
+
+  // Assert
+  await expect(steps.getByRole("listitem")).toHaveText(["Open example.com/settings", "Open " + keysPage + " and create a key", "Never paste javascript:alert(1) into the address bar"]);
+  const link = steps.getByRole("listitem").nth(1).getByRole("link");
+  await expect(link).toHaveText(keysPage);
+  await expect(link).toHaveAttribute("href", keysPage);
+  await expect(link).toHaveAttribute("target", "_blank");
+  await expect(link).toHaveAttribute("rel", "noreferrer");
+  await expect(steps.getByRole("listitem").nth(2).getByRole("link")).toHaveCount(0);
+  await expect(steps.locator('a[href^="javascript:"]')).toHaveCount(0);
+});
+
 test("Something else? on a card whose values are stored sends his words to its asker", async ({ page }) => {
   // Arrange
   const sent: Record<string, unknown>[] = [];
@@ -232,7 +255,7 @@ test("Something else? on a card whose values are stored sends his words to its a
   await expect(row.locator(".history-detail")).toBeVisible();
 });
 
-test("Something else? on a stored card whose goblin has ended sends his words to the CFO, naming its task", async ({ page }) => {
+test("Something else? on a stored card whose goblin has ended sends his words to the CEO, naming its task", async ({ page }) => {
   // Arrange
   const sent: Record<string, unknown>[] = [];
   await page.route("**/api/actions", async (route) => {

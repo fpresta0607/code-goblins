@@ -93,7 +93,7 @@ func TestANativeProberReadsTheHarnessFromItsScreen(t *testing.T) {
 	}
 }
 
-// On 2026-09-28 the monitor woke the CFO because a live, working native
+// On 2026-09-28 the monitor woke the CEO because a live, working native
 // goblin's screen read failed once ("the screen reader failed (exit status
 // 1)"). One failed read is read again before the terminal is judged
 // unreadable or gone.
@@ -132,7 +132,7 @@ func TestANativeProberSaysWhenItCannotSeeTheTerminal(t *testing.T) {
 	recordNativeHost(t, stateDir, "g3")
 	kimi, _ := NativeProber{StateDir: stateDir, ReadScreen: screenOf("> ")}.Inspect(context.Background(), nativeMeta("g3", "kimi"))
 
-	if noHost.Verdict != ProbeMissing || !strings.Contains(noHost.Detail, "no running host") || !strings.Contains(noHost.Detail, "goblins resume brings it back in place") || !strings.Contains(noHost.Detail, "cfo switch g1 --harness claude") {
+	if noHost.Verdict != ProbeMissing || !strings.Contains(noHost.Detail, "no running host") || !strings.Contains(noHost.Detail, "goblins resume brings it back in place") || !strings.Contains(noHost.Detail, "goblins switch g1 --harness claude") {
 		t.Errorf("no host = %+v, want missing, with commands that bring it back as written", noHost)
 	}
 	if deadHost.Verdict != ProbeMissing || !strings.Contains(deadHost.Detail, "does not answer") {
@@ -292,7 +292,7 @@ func TestHostProgressReadsANativeHarnessFromItsTerminal(t *testing.T) {
 }
 
 // A goblin whose terminal a restart ended and that the supervisor's comeback
-// brings back says so, rather than sending the CFO to bring it back by hand.
+// brings back says so, rather than sending the CEO to bring it back by hand.
 func TestANativeProberSaysTheComebackBringsBackAGoblinARestartEnded(t *testing.T) {
 	// Arrange
 	stateDir := t.TempDir()
@@ -315,7 +315,7 @@ func TestANativeProberSaysTheComebackBringsBackAGoblinARestartEnded(t *testing.T
 
 // The wake for the gone terminal of a goblin that reported its pull request
 // done says what the comeback says when the comeback holds it, as it holds
-// one steered back to work since, so the CFO is not sent to switch it back by
+// one steered back to work since, so the CEO is not sent to switch it back by
 // hand beside the comeback (#1623). One the comeback does not hold is told a
 // restart leaves it down to wait on its merge.
 func TestTheWakeForADeliveredGoblinTheComebackHoldsSaysTheComebackBringsItBack(t *testing.T) {
