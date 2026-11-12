@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/pipeline/pipelinetest"
 )
 
 func TestNativeDaemonLockExcludesApplyAndReleasesOnClose(t *testing.T) {
@@ -55,7 +56,7 @@ func TestIdleRefusesDurableActiveAndUnknownRuns(t *testing.T) {
 	if out, err := exec.Command(sqlite, path, runsFixture+`INSERT INTO runs VALUES('01RUN','repo','feat/a','completed',1);`).CombinedOutput(); err != nil {
 		t.Fatalf("fixture: %s %v", out, err)
 	}
-	r := Reader{Root: dir, Commands: fixtureCommands{execx.OSRunner{}}}
+	r := Reader{Root: dir, Commands: pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}}
 	for _, test := range []struct {
 		status string
 		isIdle bool
@@ -125,7 +126,7 @@ func TestIdleNamesTheRunsItWaitsFor(t *testing.T) {
 				}
 				defer release()
 			}
-			release, err := Reader{Root: dir, Commands: fixtureCommands{execx.OSRunner{}}}.Idle(context.Background())
+			release, err := Reader{Root: dir, Commands: pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}}.Idle(context.Background())
 			if !errors.Is(err, ErrBusy) {
 				if release != nil {
 					release()
