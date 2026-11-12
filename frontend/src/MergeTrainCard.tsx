@@ -5,6 +5,7 @@ import { cardDate, fullDate } from "./cards";
 import { carLook, carName, trainLook, trainSection } from "./merge-train";
 import { taskName } from "./task-words";
 import { personaFor, stablePersona } from "./workflow";
+import { linkedText } from "./messageText";
 import "./merge-train.css";
 
 // A merge train's card, one for each batch of pull requests: the repository
@@ -35,7 +36,7 @@ export function MergeTrainCard({ train, tasks, now, selected, onSelect }: { trai
     {look.url
       ? <a className={"train-status train-" + look.tone} href={look.url} target="_blank" rel="noreferrer" aria-label={look.text + (train.deploy_hold && train.state === "testing" ? ": open the deploy run" : ": open the train's pull request")} {...tip}>{status}</a>
       : <span className={"train-status train-" + look.tone} {...tip}>{status}</span>}
-    {trainSection(train) === "Train history" && train.note && <p className="train-note">{train.note}</p>}
+    {trainSection(train) === "Train history" && train.note && <p className="train-note">{linkedText(train.note)}</p>}
     {train.cars.length > 0 && <ol className="train-cars" aria-label="Pull requests on the train">
       {train.cars.map((car) => {
         const c = carLook(car), goblin = tasks.find((task) => task.id === car.task);

@@ -3,6 +3,7 @@ import { message } from "./api";
 import { copyText } from "./clipboard";
 import { Icon } from "./Icon";
 import { Notice } from "./notice";
+import { literalLinks } from "./messageText";
 
 const COPIED_MS = 1400;
 
@@ -51,6 +52,6 @@ export function CodeBlock({ text, language, textClass, onRun }: { text: string; 
         onClick={() => setExpanded((prior) => !prior)}><Icon name={isExpanded ? "restore" : "maximize"} /></button>
     </figcaption>
     {refused && <Notice tone="warning">{refused}</Notice>}
-    <pre className={textClass}><code>{text}</code></pre>
+    <pre className={textClass}><code>{literalLinks(text)}</code></pre>
   </figure>;
 }

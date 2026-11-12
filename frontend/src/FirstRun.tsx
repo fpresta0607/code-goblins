@@ -6,6 +6,7 @@ import { devDriveOffer } from "./dev-drive-offer";
 import { startState } from "./firstRunStart";
 import { object, parseSetup, type DevDriveView, type SignIn } from "./types";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
+import { linkedText } from "./messageText";
 
 const AGENT_ICONS: Record<string, IconName> = { claude: "claude", codex: "codex", pi: "pi" };
 // What the page says of an installed agent's sign-in, as its own status
@@ -122,8 +123,8 @@ export function FirstRun({ instance, devDrive, onStarting, onStarted, onBoard }:
           <span className={shown.installed ? "yes" : "no"}><Icon name={shown.installed ? "check" : "close"} />{shown.installed ? "Installed" : "Not installed"}</span>
           {shown.installed && <span className={SIGN_IN[shown.sign_in].tone}><Icon name={SIGN_IN[shown.sign_in].icon} />{SIGN_IN[shown.sign_in].text}</span>}
         </span>
-        {shown.note && <span className="agent-note">{shown.note}</span>}
-        {shown.reason && <small>{shown.reason}</small>}
+        {shown.note && <span className="agent-note">{linkedText(shown.note)}</span>}
+        {shown.reason && <small>{linkedText(shown.reason)}</small>}
       </div>}
     </div>
     <form className="first-run-step" onSubmit={(event) => { event.preventDefault(); setAsked(folder.trim() || null); }}>

@@ -9,7 +9,7 @@ import { MessageCalls } from "./message-calls";
 import { MessageCopy } from "./message-copy";
 import { MessagePictures } from "./message-pictures";
 import { MessageText } from "./message-text";
-import { inlineElements, isLongText } from "./messageText";
+import { inlineElements, isLongText, linkedText, literalLinks } from "./messageText";
 import { copyText, replyParts, type SessionMessage } from "./session-messages";
 import type { Task, TreeNode } from "./types";
 
@@ -101,7 +101,7 @@ export const MessageRow = memo(function MessageRow({ message, task, harness, pic
       </div>}
     </article>;
   }
-  if (message.source === "notice") return <p className="message-notice" data-message={message.id}>{message.text !== HOOK_FEEDBACK && copy}{message.text}</p>;
+  if (message.source === "notice") return <p className="message-notice" data-message={message.id}>{message.text !== HOOK_FEEDBACK && copy}{linkedText(message.text)}</p>;
   const command = message.source === "slash" || message.source === "shell";
   const printed = [message.output, message.errors].filter(Boolean).join("\n");
   const kept = command ? { text: message.text, paths: [] } : keptPictures(message.text);
@@ -110,11 +110,11 @@ export const MessageRow = memo(function MessageRow({ message, task, harness, pic
     onClick={() => { if (!window.getSelection()?.toString()) setActionsOpen((prior) => !prior); }}>
     <MessagePictures sources={pictures} />
     {kept.text && <div className="message-bubble"><LongText isLong={isLongText(kept.text)} {...fold("more")}>
-      {command ? <code>{(message.source === "shell" ? "!" : "") + kept.text}</code> : <MessageText text={kept.text} />}
+      {command ? <code>{literalLinks((message.source === "shell" ? "!" : "") + kept.text)}</code> : <MessageText text={kept.text} />}
     </LongText></div>}
     {message.source === "answer" && <p className="message-origin">Answered on the board</p>}
     {message.source === "page" && <p className="message-origin">Answered on the page</p>}
-    {printed && <LongText isLong={isLongText(printed)} {...fold("output")}><pre className="message-output">{printed}</pre></LongText>}
+    {printed && <LongText isLong={isLongText(printed)} {...fold("output")}><pre className="message-output">{literalLinks(printed)}</pre></LongText>}
     {(copy || when) && <div className="message-actions" onClick={(event) => event.stopPropagation()}>
       {when && <time dateTime={message.at}>{when}</time>}
       {copy}
