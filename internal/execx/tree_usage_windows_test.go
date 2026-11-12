@@ -524,10 +524,8 @@ func TestTreeEndAndWaitWaitsUntilTheJobCountsNothingBeyondItsList(t *testing.T) 
 				// a process beyond the list, so it runs out in that wait
 				// however long a loaded machine takes to end the worker first:
 				// a two-second deadline once ran out while the worker exited
-				// (issue 1760), and here the end takes three seconds to see the
-				// worker exit.
+				// (issue 1760).
 				counted = cancel
-				execx.DelayEndForTest(t, 3*time.Second)
 			}
 			execx.CountUnlistedForTest(t, test.unlistedReads, counted)
 

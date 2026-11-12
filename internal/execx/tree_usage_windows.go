@@ -23,10 +23,6 @@ var openProcess = windows.OpenProcess
 // than it lists, as Windows does while a process exits.
 var jobProcessIDs = proc.JobProcessIDs
 
-// endJob ends a job's members for EndAndWait, and a test makes it take
-// longer to see them exit, as a loaded machine can.
-var endJob = proc.EndJob
-
 var (
 	usageKernel           = windows.NewLazySystemDLL("kernel32.dll")
 	isProcessInUsageJob   = usageKernel.NewProc("IsProcessInJob")
@@ -314,7 +310,7 @@ func (t *Tree) endAndWait(ctx context.Context, shouldSpareServices bool) (TreeUs
 	}
 	if shouldSpareServices {
 		for {
-			_, spared, err := endJob(ctx, t.job)
+			_, spared, err := proc.EndJob(ctx, t.job)
 			if err != nil {
 				return TreeUsage{}, nil, err
 			}
