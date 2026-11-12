@@ -157,7 +157,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   const [attached, setAttached] = useState(() => storedAttached(draftKey));
   useEffect(() => storeAttached(draftKey, attached), [draftKey, attached]);
   // What Send sends: his words, then the path of each file he added.
-  const outgoing = [draft.trim(), ...attached].filter(Boolean).join("\n");
+  const withAttached = (words: string) => [words.trim(), ...attached].filter(Boolean).join("\n");
+  const outgoing = withAttached(draft);
   // A message that starts with ! is shell mode (#2051): the box wears the
   // danger edge while it does, and Send hands it to the board, which runs the
   // rest in Windows PowerShell 5.1 through the harness's own !.
@@ -449,8 +450,11 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
     setAttached([]);
     setUnsent("");
   };
-  const send = async () => {
-    const text = sendable(harness, outgoing);
+  // send sends what the box holds, or words in its place: the command he
+  // picked from the list with Enter, whole, where the box holds only what he
+  // typed of its name.
+  const send = async (words = draft) => {
+    const text = sendable(harness, withAttached(words));
     if (!text || isSending || adding) return;
     // A setting the box has a control for opens the board's own pane, or is
     // set at once with the value typed after it, never the terminal's menu;
@@ -488,7 +492,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
     // The conversation shows it at once as his queued bubble, and the box
     // empties, before the board has answered; a refusal takes the bubble
     // back and returns his words and pictures to the box as he left them.
-    const written = draft, kept = attached;
+    const written = words, kept = attached;
     if (hasConversation) {
       addPendingSend({ id, task: task?.id || "", text });
       setDraft("");
@@ -742,7 +746,15 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
       if (event.key === "Escape") { event.preventDefault(); setListClosed(true); return; }
       if ((event.key === "Enter" || event.key === "Tab") && !event.shiftKey && !event.nativeEvent.isComposing) {
         event.preventDefault();
-        choose(picked);
+        // Enter runs the command he picked, as a harness's own list does in
+        // its terminal, where the box only wrote its name and a second Enter
+        // sent it (the Overlord, 2026-11-11: "cant type / commands into
+        // modern chat like terminal", #2372). Tab writes it into the box for
+        // its arguments, and Enter on a Codex skill or a file completes the
+        // mention, as Codex's own list does.
+        const command = commandOptions[picked];
+        if (event.key === "Enter" && command?.sigil === "/") void send(command.sigil + command.name);
+        else choose(picked);
         return;
       }
     }

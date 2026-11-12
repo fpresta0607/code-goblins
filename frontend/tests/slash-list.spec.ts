@@ -115,3 +115,76 @@ test("a long list scrolls inside its card and the keyboard keeps the pick in vie
   await expect(last).toHaveAttribute("aria-selected", "true");
   await expect(last).toBeInViewport();
 });
+
+// The Overlord, 2026-11-11 (#2372): "cant type / commands into modern chat
+// like terminal". A harness's own list runs the command it has picked on
+// Enter, so the box's list does too: it only wrote the name into the box, and
+// a second Enter sent it. Tab still writes it with room for its arguments,
+// and Enter on a Codex skill still completes the mention, as Codex's own does.
+for (const harness of ["claude", "codex", "pi"] as const) {
+  test(`${harness}: Enter on the picked command runs it at once, and Tab writes it into the box`, async ({ page }) => {
+    // Arrange
+    const relay = await open(page, snapshot({}, { harness }));
+    await page.route("**/api/commands**", (route) => route.fulfill({ json: { commands: ANSWERS[harness] } }));
+    await openGoblin(page);
+    await field(page).fill("/comp");
+    await expect(list(page).getByRole("option").first()).toHaveAttribute("aria-selected", "true");
+
+    // Act
+    await page.keyboard.press("Enter");
+
+    // Assert: the whole command reached the session once, and the box is empty.
+    await expect.poll(() => typed(relay)).toBe(pasted("/compact") + "\r");
+    await expect(field(page)).toHaveValue("");
+    await expect(list(page)).toHaveCount(0);
+
+    // Act: Tab on a pick.
+    await field(page).fill("/mod");
+    await page.keyboard.press("Tab");
+
+    // Assert: it waits in the box for its arguments, and nothing more was sent.
+    await expect(field(page)).toHaveValue("/model ");
+    expect(typed(relay)).toBe(pasted("/compact") + "\r");
+  });
+
+  test(`${harness}: Enter on the picked command while a turn runs hands the whole command to the board once`, async ({ page }) => {
+    // Arrange
+    const posts: string[] = [];
+    const relay = await open(page, snapshot({}, { harness }));
+    await page.route("**/api/commands**", (route) => route.fulfill({ json: { commands: ANSWERS[harness] } }));
+    await page.route("**/api/actions", (route) => {
+      const body = route.request().postDataJSON() as { kind?: string; text?: string };
+      if (body.kind === "message") posts.push(body.text ?? "");
+      return route.fulfill({ status: 202, json: { status: "queued" } });
+    });
+    await openGoblin(page);
+    relay.say({ type: "screen", asking: false, open: false, working: true });
+    await expect(page.locator(".reply-working")).toBeVisible();
+    await field(page).fill("/comp");
+    await expect(list(page).getByRole("option").first()).toHaveAttribute("aria-selected", "true");
+
+    // Act
+    await page.keyboard.press("Enter");
+
+    // Assert: the board decides what its harness does with it in a turn, so
+    // nothing is typed from here.
+    await expect.poll(() => posts).toEqual(["/compact"]);
+    await expect(field(page)).toHaveValue("");
+    expect(typed(relay)).toBe("");
+  });
+}
+
+test("codex: Enter on a picked skill completes the mention and sends nothing", async ({ page }) => {
+  // Arrange
+  const relay = await open(page, snapshot({}, { harness: "codex" }));
+  await page.route("**/api/commands**", (route) => route.fulfill({ json: { commands: ANSWERS.codex } }));
+  await openGoblin(page);
+  await field(page).fill("$alpha");
+
+  // Act
+  await page.keyboard.press("Enter");
+
+  // Assert
+  await expect(field(page)).toHaveValue("$alpha-notes ");
+  expect(typed(relay)).toBe("");
+});

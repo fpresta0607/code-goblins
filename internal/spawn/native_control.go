@@ -3,6 +3,7 @@ package spawn
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/harness"
@@ -18,7 +19,12 @@ import (
 // popup before it is submitted, and is delivered once a harness that ran no
 // turn shows it gone from its input line, its own panel, such as /model's
 // picker, open over it or not. Otherwise it is reported unconfirmed: /exit
-// ends the harness, and one typed into a turn waits in its queue.
+// ends the harness, and one typed into a turn waits in its queue. A command
+// its harness runs at once beside a turn (harness.RunsBesideTurn) is never
+// refused one, since the Overlord types it into a turn in the terminal and it
+// runs there (2026-11-11: "cant type / commands into modern chat like
+// terminal", #2372): it is delivered once the prompt line shows it ran, and
+// reported queued if its harness queued it after all.
 // Text nobody says is the Overlord's own, a wake line, a notice or a key,
 // clears the terminal's mark of his input.
 func (s Service) SendNative(ctx context.Context, meta state.TaskMeta, text string) error {
@@ -38,11 +44,21 @@ func (s Service) SendNative(ctx context.Context, meta state.TaskMeta, text strin
 		return fmt.Errorf("%w: %w", fleet.ErrNotTyped, err)
 	}
 	isBusy := screens.IsWorking(before)
-	if isBusy && s.ShouldRefuseTurn {
+	isBesideTurn := isBusy && harness.RunsBesideTurn(harness.Kind(meta.Harness), text)
+	if isBusy && !isBesideTurn && s.ShouldRefuseTurn {
 		return fmt.Errorf("spawn: native terminal %s: %w: %w", record.ID, fleet.ErrNotTyped, ErrInTurn)
 	}
 	if _, err := s.submitNative(ctx, record, screens, text, fleet.TypeSettleFor(text), false); err != nil {
 		return err
+	}
+	if isBesideTurn {
+		ran, isQueued := RanBesideTurn(ctx, func() ([]string, error) { return s.readNativeScreen(ctx, record) }, screens, text, screens.OffersQueue(before))
+		if ran {
+			return nil
+		}
+		if isQueued {
+			return fmt.Errorf("spawn: native terminal %s has the command submitted: %w", record.ID, fleet.ErrQueuedForToolCall)
+		}
 	}
 	// A command typed into a turn waits in the harness's queue, so only one
 	// submitted while no turn ran can show itself taken.
@@ -70,6 +86,40 @@ func (s Service) tookCommand(ctx context.Context, record host.Record, screens ha
 		}
 		if s.sleep(ctx, nativePoll) != nil {
 			return false
+		}
+	}
+}
+
+// RanBesideTurn reports whether a harness in a turn ran command, submitted
+// into that turn, at once beside it. Such a command starts no turn and can
+// leave no record, so the prompt line is the only sign of it: within
+// nativeCommandTaken it shows the command gone, on two reads in a row, since
+// a harness can empty its prompt line a moment before it draws what it
+// queued. A prompt line that offers its queue, and did not before the command
+// was typed, as offeredQueue says, shows the harness queued the command for
+// the turn's end after all, as a release whose own list of such commands has
+// moved on would, and isQueued says so.
+func RanBesideTurn(ctx context.Context, read func() ([]string, error), screens harness.Screens, command string, offeredQueue bool) (ran, isQueued bool) {
+	ctx, cancel := context.WithTimeout(ctx, nativeCommandTaken)
+	defer cancel()
+	for gone := 0; ; {
+		screen, err := read()
+		switch {
+		case err != nil:
+			return false, false
+		case !screens.TookCommand(screen, command):
+			gone = 0
+		case screens.OffersQueue(screen) && !offeredQueue:
+			return false, true
+		default:
+			if gone++; gone == 2 {
+				return true, false
+			}
+		}
+		select {
+		case <-time.After(nativePoll):
+		case <-ctx.Done():
+			return false, false
 		}
 	}
 }

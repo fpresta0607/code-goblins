@@ -1148,17 +1148,26 @@ func TestNativeCEOCannotCallAnAnswerSentWhileItRemainsInTheIdleComposer(t *testi
 // Codex or pi turn could be dropped with nothing to show it (#2193), and one
 // in Claude Code's queue is taken alone by its send-now key, ahead of his
 // message behind it (#2332), so it waits for the turn to end, nothing typed,
-// and a message behind it can be sent now.
+// and a message behind it can be sent now. A command its harness runs at
+// once beside a turn waits for nothing: it is typed into the turn, as he
+// types it in the terminal, and reads taken once the prompt line shows it
+// ran (the Overlord, 2026-11-11: "cant type / commands into modern chat like
+// terminal", #2372). One of those its harness queued after all reads queued
+// in the CEO's session, as his words there do.
 func TestASlashCommandReachesTheCEOInItsTrueState(t *testing.T) {
 	for _, test := range []struct {
 		mode      string
 		command   string
-		isTaken   bool
+		typed     string
 		isWaiting bool
+		isHeld    bool
 	}{
-		{mode: "claude-ready", command: "/remote-control", isTaken: true},
-		{mode: "ready", command: "/remote-control", isTaken: true},
-		{mode: "claude-busy", command: "/remote-control", isWaiting: true},
+		{mode: "claude-ready", command: "/remote-control", typed: "accepted /remote-control"},
+		{mode: "ready", command: "/remote-control", typed: "accepted /remote-control"},
+		{mode: "claude-busy", command: "/remote-control", typed: "ran /remote-control"},
+		{mode: "busy", command: "/status", typed: "ran /status"},
+		{mode: "claude-busy", command: "/model opus", typed: "queued /model opus", isHeld: true},
+		{mode: "claude-busy", command: "/compact", isWaiting: true},
 		{mode: "busy", command: "/remote-control", isWaiting: true},
 		// A ! command waits as a slash command does.
 		{mode: "claude-busy", command: "! claude doctor", isWaiting: true},
@@ -1182,11 +1191,15 @@ func TestASlashCommandReachesTheCEOInItsTrueState(t *testing.T) {
 			}
 			switch {
 			case test.isWaiting:
-				if !errors.Is(err, ErrDeferred) || len(lines) != 1 || !result.CanSendNow || result.Reason != "Queued until the CEO's turn ends. Send now has it take the message at once." {
+				if !errors.Is(err, ErrDeferred) || len(lines) != 1 || !result.CanSendNow || !strings.HasPrefix(result.Reason, "Queued until the CEO's turn ends. Send now ") {
 					t.Errorf("deliverMessage = %+v, %v, terminal input %q; want it held for the turn's end, nothing typed, with Send now for the words behind it", result, err, lines)
 				}
+			case test.isHeld:
+				if err != nil || result.Awaiting == nil || !result.Awaiting.IsHeld || result.Reason != heldByCEO || len(lines) != 2 || lines[1] != test.typed {
+					t.Errorf("deliverMessage = %+v, %v, terminal input %q; want it typed once and queued in the CEO's session", result, err, lines)
+				}
 			default:
-				if err != nil || result.Awaiting != nil || !strings.Contains(result.Reason, "Taken by the CEO") || len(lines) != 2 || lines[1] != "accepted "+test.command {
+				if err != nil || result.Awaiting != nil || !strings.Contains(result.Reason, "Taken by the CEO") || len(lines) != 2 || lines[1] != test.typed {
 					t.Errorf("deliverMessage = %+v, %v, terminal input %q; want it typed once and taken", result, err, lines)
 				}
 			}

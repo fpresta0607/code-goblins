@@ -598,9 +598,9 @@ for (const harness of ["claude", "codex", "pi"] as const) {
     await field(page).fill("/cos");
     await expect(names).toHaveText(["/cost", "/deploy-check"]);
 
-    // Act: the keyboard picks it.
+    // Act: the keyboard picks it, and Tab writes it into the box.
     await page.keyboard.press("ArrowDown");
-    await page.keyboard.press("Enter");
+    await page.keyboard.press("Tab");
 
     // Assert: the command is in the box with room for its arguments.
     await expect(field(page)).toHaveValue("/deploy-check ");

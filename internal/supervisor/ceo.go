@@ -638,8 +638,12 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 	// did with three ahead of his message on 2026-11-10 (#2332). A message
 	// behind it can be sent now, which types it into the turn ahead of it:
 	// holdCommand takes Send now off the command, and what is said here is
-	// for the words queued behind it.
-	if busy && isHarnessCommand(instruction) {
+	// for the words queued behind it. A command the harness runs at once
+	// beside a turn waits for nothing: he types it into a turn in the terminal
+	// and it runs there, so the board types it into the turn too (the
+	// Overlord, 2026-11-11: "cant type / commands into modern chat like
+	// terminal", #2372).
+	if busy && isHarnessCommand(instruction) && !harness.RunsBesideTurn(harness.Kind(primary.Agent), instruction) {
 		sendNow := "Send now types it for the CEO to take at its next tool call."
 		if screens.SendNow != "" {
 			sendNow = "Send now has it take the message at once."
@@ -722,6 +726,16 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 	// only its own record of the conversation proves it taken: the answer is
 	// sent once its submit key went, and settleDeliveries reads that record.
 	if busy {
+		// Only a command the CEO's harness runs at once beside a turn is typed
+		// into one. It starts no turn and can leave no record, so its prompt
+		// line is what shows it ran; one its harness queued after all waits
+		// there as his words do, for the CEO's record to show it taken.
+		if isHarnessCommand(instruction) {
+			if ran, _ := spawn.RanBesideTurn(ctx, func() ([]string, error) { return read(record) }, screens, instruction, screens.OffersQueue(before)); ran {
+				return Evaluation{Reason: "Taken by the CEO in its native terminal, which ran your command beside its turn."}, nil
+			}
+			return Evaluation{Reason: heldByCEO, Awaiting: waiting}, nil
+		}
 		// A Send now he asked for interrupts the turn through the key the
 		// CEO's own harness binds to that, as a goblin's does, once its
 		// input line shows the answer gone into its queue and no screen of
