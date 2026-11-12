@@ -144,7 +144,8 @@ Any other value, or a second line, refuses the brief at `cfo brief ready` and at
 The project names the container's image in its devcontainer, `.devcontainer/devcontainer.json` or `.devcontainer.json`, as an `image` field.
 A devcontainer that builds its image, with `build`, `dockerFile` or `dockerComposeFile`, is refused, since the build would run the untrusted Dockerfile on the engine outside the line; the project names a built image instead.
 A spawn is refused before anything starts when `docker` is not on PATH or the project names no image, and a helper of a sandbox task is a sandbox task too.
-The task keeps its worktree, branch and delivery, and the task's record keeps the image and the worktree's `.git` link (`sandbox_image` and `sandbox_git` in `state/<id>.meta`).
+A spawn in mode no-mistakes is refused too, naming direct-PR and local-only, since a gate would run the task's code on the host, as below.
+The task keeps its worktree and branch, and the task's record keeps the image and the worktree's `.git` link (`sandbox_image` and `sandbox_git` in `state/<id>.meta`).
 Its goblin's harness runs on the host, where its shell runs only `cfo`, `git` and `gh`, from its worktree, by name or by an absolute path outside the worktree and scratch folder.
 A host command is simple commands joined by `&&`, each of plain words and quoted text, so Bash and PowerShell read it alike.
 A plain word holds letters, digits, `.`, `_`, `/`, `:`, `=`, `@`, `%`, `+`, `-` and `~`, so a path is written with `/`.
@@ -166,7 +167,7 @@ The refusal names the `.git` it found and how to remove it in the container.
 `cfo` walks the whole worktree for it before each such command, which took 2.2 to 2.9 seconds on a warm worktree of 77,160 entries with its `node_modules`, and 27 seconds on the first, cold walk.
 Those commands wait too while a container of the task may run, from the moment `cfo sandbox run` records it until it removed it, since the container could make a repository between the walk and the command.
 A gate runs only its Test step's command in the container: the agents of its Review, Test, Document and Lint steps run their own shells on the host, as do the prepare, lint and format commands a gate file names.
-So `cfo pipeline run` starts no gate for a sandbox task, names those steps, and runs nothing.
+So a sandbox task is delivered in mode direct-PR or local-only, and `cfo pipeline run`, `respond`, `handback`, `validate-authored` and `validate-terminal` drive no gate of a sandbox task: each names those steps and runs nothing.
 
 ### The credential store
 

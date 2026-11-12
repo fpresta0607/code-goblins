@@ -1,6 +1,7 @@
 package spawn
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,7 +14,8 @@ import (
 // sandboxNeeded reports whether a new task runs its commands in a container:
 // its brief carries sandbox: needed, or it is a helper whose parent does,
 // since a helper never runs with less containment than its parent. Such a
-// task is refused when docker is not on PATH, since its commands could then
+// task is refused in mode no-mistakes, whose gate runs its code on the host
+// (issue 2244), and when docker is not on PATH, since its commands could then
 // run nowhere but the host, which it never falls back to.
 func (s Service) sandboxNeeded(req Request, brief []byte) (bool, error) {
 	isNeeded, err := sandbox.IsNeededBy(string(brief))
@@ -29,6 +31,9 @@ func (s Service) sandboxNeeded(req Request, brief []byte) (bool, error) {
 	}
 	if !isNeeded {
 		return false, nil
+	}
+	if req.Mode == "no-mistakes" {
+		return false, errors.New("spawn: the task carries sandbox: needed, so its code never runs on this PC, and a no-mistakes gate would run it there, since only its Test step's command runs in the task's container: the agents of its Review, Test, Document and Lint steps run their own shells on the host, as do the prepare, lint and format commands a gate file names. Select direct-PR or local-only, a mode that needs no gate, through a low-risk delivery assessment under a direct-PR or local-only project posture or a CFO-authorized --delivery-exception")
 	}
 	if _, err := exec.LookPath("docker"); err != nil {
 		return false, fmt.Errorf("spawn: the task carries sandbox: needed, but docker is not on PATH, so its commands could run nowhere but the host, which a sandbox task never does: install Docker Desktop or take the line out of its brief (%w)", err)

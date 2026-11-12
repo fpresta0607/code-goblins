@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/sandbox"
@@ -372,7 +373,7 @@ func TestPipelineRunStartsNoGateForASandboxTask(t *testing.T) {
 			if err == nil {
 				t.Fatalf("a sandbox task's gate started with %q", out.String())
 			}
-			for _, want := range []string{"task task carries sandbox: needed", "only the Test step's command runs in the task's container", "the agents of the Review, Test, Document and Lint steps run their own shells on the host", "the prepare, lint and format commands", "No gate starts"} {
+			for _, want := range []string{"task task carries sandbox: needed", "only the Test step's command runs in the task's container", "the agents of the Review, Test, Document and Lint steps run their own shells on the host", "the prepare, lint and format commands", "cfo pipeline run ran nothing", "direct-PR or local-only"} {
 				if !strings.Contains(err.Error(), want) {
 					t.Fatalf("error = %q, want it to name %q", err, want)
 				}
@@ -381,6 +382,65 @@ func TestPipelineRunStartsNoGateForASandboxTask(t *testing.T) {
 				t.Fatalf("refused start ran native %+v and printed %q", runner.native, out.String())
 			}
 		})
+	}
+}
+
+// A gate run of a sandbox task started before cfo pipeline run refused one
+// would go on running its agents on the host at the next answer, handback or
+// admission (issue 2244), so each of those is refused before any command
+// runs, where the same task without sandbox: needed goes on to its worktree.
+func TestPipelineDrivesNoGateRunOfASandboxTask(t *testing.T) {
+	for _, args := range [][]string{
+		{"respond", "task", "--action", "fix", "--findings", "bug"},
+		{"handback", "task"},
+		{"handback", "task", "--resume", "--receipt", "native-receipt"},
+		{"validate-authored", "task", "--admission-file", "admission.json"},
+		{"validate-terminal", "task", "--admission-file", "admission.json"},
+	} {
+		for _, test := range []struct {
+			name      string
+			image     string
+			isRefused bool
+		}{
+			{name: "a sandbox task", image: "node:22", isRefused: true},
+			{name: "an ordinary task", isRefused: false},
+		} {
+			t.Run(strings.Join(args, " ")+" of "+test.name, func(t *testing.T) {
+				// Arrange
+				t.Setenv(harness.RoleVariable, "cfo")
+				t.Setenv(gateAgentVariable, "")
+				h, nm, _ := admissionControllerStage(t)
+				meta, err := state.ReadTaskMeta(h.State, "task")
+				if err != nil {
+					t.Fatal(err)
+				}
+				meta.SandboxImage = test.image
+				if err := state.WriteTaskMeta(h.State, meta); err != nil {
+					t.Fatal(err)
+				}
+				runner := &statusRunner{}
+				var out bytes.Buffer
+
+				// Act
+				err = pipelineCommand(t.Context(), h, nm, runner, args, &out)
+
+				// Assert
+				if !test.isRefused {
+					if (err != nil && strings.Contains(err.Error(), "sandbox: needed")) || len(runner.requests) == 0 {
+						t.Fatalf("err = %v after %d commands, want the ordinary task's %s past the sandbox refusal to its worktree", err, len(runner.requests), args[0])
+					}
+					return
+				}
+				for _, want := range []string{"task task carries sandbox: needed", "the agents of the Review, Test, Document and Lint steps run their own shells on the host", "cfo pipeline " + args[0] + " ran nothing", "direct-PR or local-only"} {
+					if err == nil || !strings.Contains(err.Error(), want) {
+						t.Fatalf("error = %v, want it to name %q", err, want)
+					}
+				}
+				if len(runner.requests) != 0 || out.Len() != 0 {
+					t.Fatalf("refused %s ran %+v and printed %q", args[0], runner.requests, out.String())
+				}
+			})
+		}
 	}
 }
 
