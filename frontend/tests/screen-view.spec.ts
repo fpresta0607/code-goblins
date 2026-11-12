@@ -1,4 +1,4 @@
-import { expect, test, type Page, type WebSocketRoute } from "./site";
+import { expect, test, type Locator, type Page, type WebSocketRoute } from "./site";
 import { card, GOBLIN, NAME, open, openGoblin, OTHER, snapshot } from "./session-board";
 
 // A goblin's own browser, live in its panel's Screen view (#2361): the board
@@ -70,6 +70,11 @@ const aFrame = (page: Page, width: number, height: number): Promise<string> => p
   return canvas.toDataURL("image/jpeg").split(",")[1];
 }, [width, height]);
 
+// fontOf is the family and weight a control is drawn in, and boardFont those
+// of the board's own primary button, which the Screen view's controls use
+// wherever the view is drawn.
+const fontOf = (control: Locator) => control.evaluate((element) => getComputedStyle(element).fontFamily + " " + getComputedStyle(element).fontWeight);
+const boardFont = (page: Page) => page.evaluate(() => getComputedStyle(document.body).fontFamily + " 700");
 const acks = (relay: ScreenRelay) => relay.said.filter((message) => message.type === "ack").length;
 const screen = (page: Page) => page.getByRole("region", { name: NAME + "'s browser", exact: true });
 interface Rect { x: number; y: number; width: number; height: number }
@@ -116,6 +121,12 @@ for (const { width, height, label } of [{ width: 1440, height: 1200, label: "des
       const box = (await canvas.boundingBox())!;
       expect(box.x + box.width).toBeLessThanOrEqual(width);
       expect(box.width / box.height).toBeCloseTo(1.6, 1);
+      // On a phone the screen's box takes the picture's shape, so the page
+      // never sits small between two bands (decision 1019951).
+      if (label === "phone") {
+        const stage = (await screen(page).locator(".screen-stage").boundingBox())!;
+        expect(Math.abs(stage.height - box.height)).toBeLessThanOrEqual(2);
+      }
       await testInfo.attach(`screen-${label}.png`, { body: await page.screenshot(), contentType: "image/png" });
     });
 
@@ -140,6 +151,7 @@ for (const { width, height, label } of [{ width: 1440, height: 1200, label: "des
       const driving = screen(page).getByRole("application", { name: new RegExp("^" + NAME + "'s browser, showing Sign in on shop.example.com") });
       await expect(driving).toBeFocused();
       await expect(screen(page).getByRole("status")).toContainText("You are driving " + NAME + "'s browser");
+      expect(await fontOf(screen(page).getByRole("button", { name: "Hand back", exact: true }))).toBe(await boardFont(page));
       await testInfo.attach(`driving-${label}.png`, { body: await page.screenshot(), contentType: "image/png" });
 
       // Act: he types into the page, leaves the screen with F6, and hands the

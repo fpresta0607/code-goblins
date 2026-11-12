@@ -1,4 +1,5 @@
 import { BabyGoblin } from "./BabyGoblin";
+import { CallOpens } from "./call-opens";
 import { CallPictures } from "./call-pictures";
 import { callWords, commandLanguage } from "./call-words";
 import { CodeBlock } from "./code-block";
@@ -28,7 +29,8 @@ const STATE_MARKS: Partial<Record<CallState, IconName>> = { running: "clock", do
 // the board's one Disclosure, which mounts what it holds only while it is
 // open: a connector's tool as its harness names it, the tools a search
 // loaded, all it was called on, a command in a code
-// card, then what came back in one, an edit's diff and its pictures. A call that started a
+// card, then what came back in one, an edit's diff and its pictures, and
+// under a command the views it opens (CallOpens). A call that started a
 // sub-agent is its baby goblin's row instead, whose Open shows that baby
 // goblin's terminal while its goblin's tree holds it, and a call that wrote
 // a plan is that plan's checklist card. Whether its fold is open is the
@@ -74,5 +76,6 @@ export function MessageCall({ call, task, picture, onChild, open, onOpenChange }
       ? <div className="message-diff">{call.edit.diff.map((line, at) => <div key={at} className={line.startsWith("+") ? "line-added" : line.startsWith("-") ? "line-removed" : undefined}>{line}</div>)}</div>
       : call.result && <CodeBlock text={call.result} language="output" textClass="call-result" />}
     <MessagePictures sources={call.pictures.map((each) => picture(each.id))} />
+    {language && <CallOpens command={input} />}
   </Disclosure>;
 }

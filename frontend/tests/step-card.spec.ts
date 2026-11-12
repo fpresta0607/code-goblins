@@ -151,7 +151,12 @@ test("Take control opens the goblin's own browser at the page, whose screen the 
   expect(sent[0]).toEqual({ path: "/api/credentials/window", token: "fixture-token", body: { id: WINDOW, generation: "c".repeat(32) } });
   await expect(card.locator(".step-window")).toContainText("Take the step on Sign the shop up for the test account's screen below, then press Hand back or Done.");
   await expect(card.getByRole("region", { name: "Sign the shop up for the test account's browser" })).toBeVisible();
-  await expect(card.getByRole("button", { name: "Hand back", exact: true })).toBeVisible();
+  const handBack = card.getByRole("button", { name: "Hand back", exact: true });
+  await expect(handBack).toBeVisible();
+  // The card draws Hand back in the font of the Screen tab's, the board's
+  // own primary button, never the card's lantern font (decision 1019951).
+  expect(await handBack.evaluate((element) => getComputedStyle(element).fontFamily + " " + getComputedStyle(element).fontWeight))
+    .toBe(await page.evaluate(() => getComputedStyle(document.body).fontFamily + " 700"));
   await expect(card.getByRole("button", { name: "Take control", exact: true })).toHaveCount(0);
   await expect.poll(() => views.length).toBe(1);
   expect(Object.fromEntries(new URL(views[0]).searchParams)).toEqual({ task: "shop-signup", generation: "1", token: "fixture-token" });

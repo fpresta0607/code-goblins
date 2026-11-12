@@ -18,15 +18,16 @@
 /* Who asks is named in lantern, as the box's tab names the CEO. */
 :is(.question-card, .run-card) .asker strong, .inbox-list.waiting .inbox-text strong { color: var(--lantern); font-family: var(--font-display); font-weight: 400; }
 
-/* The one action of an item is the lantern button. */
-:is(.question-card, .run-card, .update-card) :is(button.primary, a.wait-open, a.open-page) {
+/* The one action of an item is the lantern button. A Screen view in an item
+   keeps its own controls, as the Screen tab draws them. */
+:is(.question-card, .run-card, .update-card) :is(button.primary, a.wait-open, a.open-page):not(.screen-view *) {
   position: relative; isolation: isolate; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--soot); font: 400 1rem/1.2 var(--font-display);
 }
-:is(.question-card, .run-card, .update-card) :is(button.primary, a.wait-open, a.open-page)::before {
+:is(.question-card, .run-card, .update-card) :is(button.primary, a.wait-open, a.open-page):not(.screen-view *)::before {
   content: ""; position: absolute; inset: 0; z-index: -1; clip-path: var(--pixel-corners); background: var(--lantern-fill); box-shadow: inset -2px -2px 0 var(--lantern-shade), inset 2px 2px 0 var(--lantern-light);
 }
-:is(.question-card, .run-card, .update-card) :is(button.primary, a.wait-open, a.open-page):hover:not(:disabled) { background: transparent; transform: none; }
-:is(.question-card, .run-card, .update-card) :is(button.primary, a.wait-open, a.open-page):hover:not(:disabled)::before { background: var(--lantern-hover); }
+:is(.question-card, .run-card, .update-card) :is(button.primary, a.wait-open, a.open-page):not(.screen-view *):hover:not(:disabled) { background: transparent; transform: none; }
+:is(.question-card, .run-card, .update-card) :is(button.primary, a.wait-open, a.open-page):not(.screen-view *):hover:not(:disabled)::before { background: var(--lantern-hover); }
 
 /* A row's Answer is the box's stepped icon button. */
 .inbox-list.waiting li .icon-button { position: relative; isolation: isolate; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--bone); }
