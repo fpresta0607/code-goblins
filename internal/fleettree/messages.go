@@ -979,6 +979,13 @@ func (l *messageLog) reply(entry messageEntry, id string, offset int64) {
 				var asked taskCall
 				_ = json.Unmarshal(block.Input, &asked)
 				l.taskCalls[block.ID] = asked
+				subject := asked.Subject
+				if i := l.task(asked.TaskID); subject == "" && i >= 0 {
+					subject = l.tasks[i].Subject
+				}
+				if subject = firstLine(subject); subject != "" {
+					call.Subject = bounded(subject, agentLineLimit)
+				}
 			}
 			added = append(added, call)
 		}
@@ -1310,7 +1317,7 @@ func (l *messageLog) taskDone(at blockAt, call Block, asked taskCall, created st
 	if call.Tool == "TaskCreate" {
 		l.tasks = append(l.tasks, planTask{ID: created, Subject: asked.Subject, Status: PlanPending})
 		l.isTaskListLost = l.isTaskListLost || created == ""
-	} else if i := slices.IndexFunc(l.tasks, func(task planTask) bool { return task.ID == asked.TaskID }); i < 0 {
+	} else if i := l.task(asked.TaskID); i < 0 {
 		l.isTaskListLost = true
 	} else if asked.Status == "deleted" {
 		l.tasks = slices.Delete(l.tasks, i, i+1)
@@ -1332,6 +1339,11 @@ func (l *messageLog) taskDone(at blockAt, call Block, asked taskCall, created st
 	}
 	l.messages[at.message].Blocks[at.block].Plan = steps
 	l.taskCard = call.CallID
+}
+
+// task is where the task list holds the task id, and -1 when it holds none.
+func (l *messageLog) task(id string) int {
+	return slices.IndexFunc(l.tasks, func(task planTask) bool { return task.ID == id })
 }
 
 // spilled is the start of a result Claude Code saved to a file of its own,

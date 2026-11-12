@@ -56,8 +56,8 @@ test("a task list built over several calls shows as one checklist card at its la
       { kind: "call", tool: "TaskCreate", subject: "Read the touch handlers", state: "done" },
       { kind: "call", tool: "TaskCreate", subject: "Hand the swipe to the history", state: "done" },
       { kind: "call", tool: "TaskCreate", subject: "Run the phone spec", state: "done" },
-      { kind: "call", tool: "TaskUpdate", subject: "", state: "done", plan: PLAN },
-      { kind: "call", tool: "TaskUpdate", subject: "", state: "failed", result: "Task not found" },
+      { kind: "call", tool: "TaskUpdate", subject: "Hand the swipe to the history", state: "done", plan: PLAN },
+      { kind: "call", tool: "TaskUpdate", subject: "Run the phone spec", state: "failed", result: "Task not found" },
     ] },
   ], conversation: "fixture-conversation", more: false });
 
@@ -70,7 +70,9 @@ test("a task list built over several calls shows as one checklist card at its la
   await expect(plan).toContainText("1 of 3 done");
   await expect(plan.getByRole("listitem")).toHaveText(["Read the touch handlersDone", "Hand the swipe to the historyIn progress", "Run the phone specTo do"]);
   await expect(page.locator(".message-call-group .call-verb")).toHaveText("Added 3 tasks");
-  await expect(page.locator(".message-call").filter({ hasText: "Updated a task" }).locator(".call-end")).toHaveText("Failed");
+  const failed = page.locator(".message-call").filter({ hasText: "Updated a task" });
+  await expect(failed).toContainText("Run the phone spec");
+  await expect(failed.locator(".call-end")).toHaveText("Failed");
 });
 
 test("a plan call that failed is its row with Failed, not a card", async ({ page }) => {

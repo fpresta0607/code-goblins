@@ -1950,7 +1950,8 @@ func plans(page MessagePage) map[string][]PlanStep {
 // one task, and TaskUpdate, which changes one by its ID (#1669). The list
 // they build over several calls, across answers, reads as one plan at the
 // latest task call that ran, a deleted task off it and a renamed one by its
-// new words; every earlier task call, and one that failed, is its row.
+// new words; every earlier task call, and one that failed, is its row, named
+// by the subject of the task it made or changed.
 func TestTaskCallsBuildOnePlanAtTheLatestThatRan(t *testing.T) {
 	// Arrange
 	home := t.TempDir()
@@ -1994,8 +1995,18 @@ func TestTaskCallsBuildOnePlanAtTheLatestThatRan(t *testing.T) {
 	if !reflect.DeepEqual(shown["toolu_8"], want) {
 		t.Errorf("the latest task call that ran shows %+v; want %+v", shown["toolu_8"], want)
 	}
-	if created := page.Messages[1].Blocks[0]; created.Subject != "Read the touch handlers" {
-		t.Errorf("the first TaskCreate's row reads %q; want the task's subject", created.Subject)
+	subjects := map[string]string{}
+	for _, message := range page.Messages[1:] {
+		for _, block := range message.Blocks {
+			subjects[block.CallID] = block.Subject
+		}
+	}
+	wantSubjects := map[string]string{
+		"toolu_1": "Read the touch handlers", "toolu_2": "Fix the swipe", "toolu_3": "Run the phone spec", "toolu_4": "A note to drop",
+		"toolu_5": "Read the touch handlers", "toolu_6": "Fix the swipe", "toolu_7": "A note to drop", "toolu_8": "Run the phone and desktop specs", "toolu_9": "Fix the swipe",
+	}
+	if !reflect.DeepEqual(subjects, wantSubjects) {
+		t.Errorf("the task calls' rows read %v; want each its task's subject %v", subjects, wantSubjects)
 	}
 	if failed := page.Messages[2].Blocks[4]; failed.CallID != "toolu_9" || failed.State != CallFailed {
 		t.Errorf("the failed TaskUpdate = %+v; want its failed row", failed)
