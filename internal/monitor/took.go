@@ -104,10 +104,6 @@ func (h *HostProgress) tookIn(harness string, search recordSearch) bool {
 	h.mu.Lock()
 	floor, isLater := h.searched[search]
 	h.mu.Unlock()
-	if floor > info.Size() {
-		// It is another record than the one searched, read from its end anew.
-		floor, isLater = 0, false
-	}
 	searchedTo := floor
 	var rest []byte
 	for end := info.Size(); end > floor; {
