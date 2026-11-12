@@ -59,7 +59,7 @@ See [Repo layout](README.md#repo-layout) in the README.
 
 Unit tests are deterministic: they inject fake subprocess runners and scripted clocks instead of requiring installed tools.
 The telemetry and pipeline database regressions are the exception - they build real SQLite fixtures through the `sqlite3` CLI and skip themselves when it is not on PATH, except the authored-recovery guards in `internal/pipeline`, which fail rather than pass untested without it, so install it locally to run them (CI puts the release pinned in `.github/workflows/go.yml` on PATH before the suite, from the Actions cache, and asks no package feed for it).
-A pipeline test reads its fixture through `fixtureCommands`, which runs `sqlite3` without the gate's one-minute bound on a state read, since a loaded machine has taken that whole minute only to start `sqlite3` and failed a test before its assertions ran.
+A test in any package that reads a gate fixture through `pipeline.Reader` and the real `sqlite3` runs its commands through `pipelinetest.FixtureCommands`, which runs `sqlite3` without the gate's one-minute bound on a state read, since a loaded machine has taken that whole minute only to start `sqlite3` and failed a test before its assertions ran.
 
 A test must never resolve the fleet home its shell exported.
 `internal/home.Resolve` refuses the `GOBLINS_HOME` and `GOBLINS_STATE_OVERRIDE` values the process was launched with whenever the caller is a test binary, so a test that needs a home points both at its own directory.

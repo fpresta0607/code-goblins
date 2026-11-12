@@ -34,6 +34,48 @@ const (
 	FilingLog   = "archive/filed.md"
 )
 
+// movesPerPass bounds one filing pass, so a home that fell far behind is
+// caught up a step a pass and no pass holds the supervisor for long.
+const movesPerPass = 100
+
+// RecordName is the file in the home's state folder that keeps the last
+// filing pass, which the next pass and goblins runtime read.
+const RecordName = "filing.json"
+
+// Record is what one filing pass did. Its time is when the pass started, so
+// a supervisor that restarts waits out the interval from there.
+type Record struct {
+	Time time.Time `json:"time"`
+	// Filed is the folders the pass moved, and Waiting what it left to file
+	// for a later pass.
+	Filed   int `json:"filed"`
+	Waiting int `json:"waiting"`
+	// Error is why the pass could not file, empty when it could.
+	Error string `json:"error,omitempty"`
+}
+
+// WriteRecord keeps record as the home's last filing pass.
+func WriteRecord(stateDir string, record Record) error {
+	data, err := json.MarshalIndent(record, "", "  ")
+	if err != nil {
+		return err
+	}
+	return fsx.AtomicWriteFile(filepath.Join(stateDir, RecordName), append(data, '\n'))
+}
+
+// ReadRecord reads the home's last filing pass.
+func ReadRecord(stateDir string) (Record, error) {
+	data, err := fsx.ReadFile(filepath.Join(stateDir, RecordName))
+	if err != nil {
+		return Record{}, err
+	}
+	var record Record
+	if err := json.Unmarshal(data, &record); err != nil {
+		return Record{}, fmt.Errorf("layout: read %s: %w", RecordName, err)
+	}
+	return record, nil
+}
+
 // notTasks are the data folders the layout owns, which are never a task's
 // folder whatever they hold.
 var notTasks = []string{"projects", "memory", "archive"}
@@ -159,6 +201,7 @@ func plan(h home.Home, harnessMemory string, now time.Time) ([]Move, []Kept, err
 	if err != nil {
 		return nil, nil, err
 	}
+	queuedRows, parkedRows := rowsName(backlog.Queued), rowsName(backlog.Parked)
 	// A finished folder kept in place is still read: whoever resumes the work
 	// starts from its brief and handoff. So what they name by path stays too,
 	// and so on until nothing new is kept.
@@ -170,7 +213,7 @@ func plan(h home.Home, harnessMemory string, now time.Time) ([]Move, []Kept, err
 			if f.live || !f.dispatched || expanded[id] {
 				continue
 			}
-			if named[id] == "" && !mentions(backlog.Queued, f.id) && !mentions(backlog.Parked, f.id) {
+			if named[id] == "" && !queuedRows[id] && !parkedRows[id] {
 				continue
 			}
 			expanded[id] = true
@@ -193,8 +236,9 @@ func plan(h home.Home, harnessMemory string, now time.Time) ([]Move, []Kept, err
 			kept = append(kept, Kept{ID: f.id, Reason: "under way"})
 			continue
 		}
-		queued, parked := mentions(backlog.Queued, f.id), mentions(backlog.Parked, f.id)
-		where := named[strings.ToLower(f.id)]
+		id := strings.ToLower(f.id)
+		queued, parked := queuedRows[id], parkedRows[id]
+		where := named[id]
 		var move Move
 		switch {
 		case f.dispatched && (queued || parked):
@@ -399,30 +443,39 @@ func logLine(h home.Home, move Move, now time.Time) string {
 }
 
 // File files a laid-out home's data now: see Plan and Apply, with Claude
-// Code's memory folder for the home as the harness memory it reads. A home
-// without the layout marker is left alone, because reorganising it is the
-// migration its owner decides on. A pass that fails is recorded in the
-// filing log, once until the failure changes, so a folder a process holds
-// open shows there instead of being retried in silence. A pass stopped
-// because ctx is done is not a failure: the next pass files the rest.
+// Code's memory folder for the home as the harness memory it reads, at most
+// movesPerPass folders a pass, and keeps the pass as the home's filing
+// record. A home without the layout marker is left alone, because
+// reorganising it is the migration its owner decides on. A pass that fails is
+// recorded in the filing log, once until the failure changes, so a folder a
+// process holds open shows there instead of being retried in silence. A pass
+// stopped because ctx is done is not a failure: the log says once that it was
+// cut short, and the next pass files what is left.
 func File(ctx context.Context, h home.Home, now time.Time) ([]Move, error) {
 	laidOut, err := exists(filepath.Join(h.Data, Marker))
 	if err != nil || !laidOut {
 		return nil, err
 	}
-	moves, err := Plan(h, ClaudeMemoryFolder(h.Root), now)
+	planned, err := Plan(h, ClaudeMemoryFolder(h.Root), now)
+	var moved []Move
 	if err == nil {
-		moves, err = Apply(ctx, h, moves, now)
+		moved, err = Apply(ctx, h, planned[:min(len(planned), movesPerPass)], now)
 	}
-	if err != nil && ctx.Err() == nil {
-		err = errors.Join(err, recordFailure(h, now, err))
+	record := Record{Time: now.UTC(), Filed: len(moved), Waiting: len(planned) - len(moved)}
+	switch {
+	case err != nil && ctx.Err() != nil:
+		err = errors.Join(err, logOnce(h, now, " filing pass cut short; the next pass files what is left"))
+	case err != nil:
+		record.Error = err.Error()
+		err = errors.Join(err, logOnce(h, now, " could not file: "+strings.ReplaceAll(err.Error(), "\n", " ")))
 	}
-	return moves, err
+	return moved, errors.Join(err, WriteRecord(h.State, record))
 }
 
-func recordFailure(h home.Home, now time.Time, failure error) error {
+// logOnce appends message to the filing log unless its last line already
+// ends with it.
+func logOnce(h home.Home, now time.Time, message string) error {
 	path := filepath.Join(h.Data, filepath.FromSlash(FilingLog))
-	message := " could not file: " + strings.ReplaceAll(failure.Error(), "\n", " ")
 	data, err := fsx.ReadFile(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
@@ -461,21 +514,20 @@ func isLayoutFolder(name string) bool {
 	return false
 }
 
-// mentions reports whether any row names the task, by its id or by a path
-// into its folder, in either slash direction and any case, as Windows reads
-// paths.
-func mentions(rows []fleet.BacklogRow, id string) bool {
+// rowsName returns, lowercased, every task the rows name, by its id or by a
+// path into its folder, in either slash direction and any case, as Windows
+// reads paths. A plan reads the rows once: read again for each folder, a
+// backlog of some 470 open rows took 15 seconds over 1,300 folders, and a
+// plan read them several times over.
+func rowsName(rows []fleet.BacklogRow) map[string]bool {
+	ids := map[string]bool{}
 	for _, row := range rows {
-		if strings.EqualFold(row.ID, id) {
-			return true
-		}
+		ids[strings.ToLower(row.ID)] = true
 		for _, match := range dataPathName.FindAllStringSubmatch(row.Raw, -1) {
-			if strings.EqualFold(strings.TrimRight(match[1], "."), id) {
-				return true
-			}
+			ids[strings.ToLower(strings.TrimRight(match[1], "."))] = true
 		}
 	}
-	return false
+	return ids
 }
 
 // freeTarget returns path, or path with the filing time appended when an
