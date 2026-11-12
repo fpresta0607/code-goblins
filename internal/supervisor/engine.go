@@ -469,6 +469,10 @@ func (s *Service) engineGateIdle(ctx context.Context, meta state.TaskMeta) (bool
 		return false, errors.New("Gate activity cannot be checked")
 	}
 	branch, err := s.Git.Branch(ctx, meta.Worktree)
+	// A worktree on no branch, as each goblin's starts, holds no gate run.
+	if errors.Is(err, errDetachedHead) {
+		return true, nil
+	}
 	if err != nil {
 		return false, err
 	}
