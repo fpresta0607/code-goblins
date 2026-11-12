@@ -7,6 +7,7 @@ import { harnessMark } from "./connectors";
 import { harnessName } from "./workflow";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import type { Snapshot } from "./types";
+import { linkedText } from "./messageText";
 
 // The CEO's own engine: the harness, model and effort it runs, saved for a
 // safe turn boundary of the CEO rather than sent as a restart, so choosing one
@@ -52,7 +53,7 @@ export function CeoEngineSelector({ snapshot }: { snapshot: Snapshot }) {
         }}><option value="" disabled>Choose model</option>{!model && choice.model && <option value={choice.model} disabled>{choice.model} (unavailable)</option>}{harness?.models.filter((item) => item.id !== "default").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <label htmlFor={label + "-effort"}>Effort<select id={label + "-effort"} value={choice.effort} disabled={isSaving || !model} onChange={(event) => { setDraft({ ...choice, effort: event.target.value }); }}><option value="" disabled>Choose effort</option>{choice.effort && !model?.efforts.includes(choice.effort) && <option value={choice.effort} disabled>{choice.effort === "default" ? "Default" : choice.effort + " (unavailable)"}</option>}{model?.efforts.map((effort) => <option key={effort} value={effort}>{effort}</option>)}</select></label>
       </div>
-      {unavailable && <p className="muted">{unavailable}</p>}
+      {unavailable && <p className="muted">{linkedText(unavailable)}</p>}
       <button className="labelled-button" disabled={isSaving || !draft || !!unavailable} onClick={() => void save()}><Icon name="refresh" />Save</button>
     </>}
     <ClickFeedback text={feedback} />

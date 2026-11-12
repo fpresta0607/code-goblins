@@ -10,6 +10,8 @@ import { doneCards, expect, openItem, recordDoneCards, test, type Page } from ".
 // with exit 0 is a clean end.
 const RUN = "Publish release v0.5.2";
 const QUESTION = "May I merge the release train now?";
+// The failed command's output names its release page, which is a link (#2360).
+const RELEASE_PAGE = "https://github.com/acme/site/releases/tag/v0.5.2";
 
 async function runIt(page: Page) {
   await page.route("**/api/actions", async (route) => {
@@ -70,6 +72,11 @@ test("a command that failed keeps its card on screen with its output, and leaves
   await expect(dialog.locator(".run-head .run-state")).toHaveText("Failed");
   await expect(dialog.locator(".run-failure")).toHaveText("gh: release v0.5.2 already exists. The CEO has its output and takes the next step.");
   await expect(dialog.locator(".run-output")).toContainText("Uploading assets");
+  const release = dialog.locator(".run-output").getByRole("link", { name: RELEASE_PAGE, exact: true });
+  await expect(release).toHaveAttribute("href", RELEASE_PAGE);
+  await expect(release).toHaveAttribute("target", "_blank");
+  await expect(dialog.locator(".run-output")).toContainText("Skipped: javascript:alert(1)");
+  await expect(dialog.locator('.run-output a[href^="javascript:"]')).toHaveCount(0);
   await dialog.getByRole("button", { name: "Close the Command Center" }).click();
   await expect((await history(page)).filter({ hasText: RUN })).toContainText("Failed: gh: release v0.5.2 already exists · exit 2");
   await openItem(page, QUESTION);
