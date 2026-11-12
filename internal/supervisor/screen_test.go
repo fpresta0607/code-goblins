@@ -244,23 +244,21 @@ func TestScreenViewFollowsThePageTheGoblinNavigated(t *testing.T) {
 // each page it navigates until the page's title is drawn, and an address can
 // carry a sign-in's code, so a view shows such a page as untitled, by its
 // host alone, whether it was open as the view opened or went there after.
+// Chrome shows an internationalized host in Unicode, so bücher.example, whose
+// address is xn--bcher-kva.example (RFC 3492's own example), is titled so.
 func TestScreenViewNeverShowsAnAddressChromeTitledAPageWith(t *testing.T) {
 	for _, test := range []struct {
-		name, scheme  string
-		isSchemeShown bool
+		name, address, title, host string
 	}{
-		{"an https address, which Chrome titles whole", "https", true},
-		{"an http address, which Chrome titles without its scheme", "http", false},
+		{"an https address, which Chrome titles whole", "https://login.example.com/callback?code=CODE", "https://login.example.com/callback?code=CODE", "login.example.com"},
+		{"an http address, which Chrome titles without its scheme", "http://login.example.com/callback?code=CODE", "login.example.com/callback?code=CODE", "login.example.com"},
+		{"an internationalized address, its host titled in Unicode", "https://xn--bcher-kva.example/callback?code=CODE", "https://bücher.example/callback?code=CODE", "xn--bcher-kva.example"},
+		{"an internationalized address with its token in its fragment", "https://xn--bcher-kva.example/callback#access_token=CODE", "https://bücher.example/callback#access_token=CODE", "xn--bcher-kva.example"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			titled := func(code string) targetInfo {
-				address := test.scheme + "://login.example.com/callback?code=" + code
-				title := address
-				if !test.isSchemeShown {
-					title = strings.TrimPrefix(address, test.scheme+"://")
-				}
-				return targetInfo{ID: "login", Type: "page", Title: title, URL: address}
+				return targetInfo{ID: "login", Type: "page", Title: strings.ReplaceAll(test.title, "CODE", code), URL: strings.ReplaceAll(test.address, "CODE", code)}
 			}
 			chrome := &fakeGoblinChrome{browser: newFakeBrowser(titled("first-code-7f3a"))}
 			board := newScreenBoard(t, screenService(t), chrome, false)
@@ -277,7 +275,7 @@ func TestScreenViewNeverShowsAnAddressChromeTitledAPageWith(t *testing.T) {
 
 			// Assert
 			for _, told := range []screenSaid{opened, went} {
-				if strings.Contains(told.raw, "-code-") || told.Title != "" || told.Host != "login.example.com" || !told.HasPage {
+				if strings.Contains(told.raw, "-code-") || told.Title != "" || told.Host != test.host || !told.HasPage {
 					t.Fatalf("the view was told %s, want an untitled page by its host alone", told.raw)
 				}
 			}
@@ -696,5 +694,81 @@ func TestACardClosedWhileTakeControlOpensLeavesTheBrowserTheGoblins(t *testing.T
 	browser := b.service.screens.shown("task-1", "g1")
 	if browser == nil || b.service.screens.isDriven(browser) {
 		t.Fatal("the goblin's browser was left his after the card closed")
+	}
+}
+
+// A supervisor that starts offers Take control again on a card one that
+// stopped left open on the goblin's browser, and, once a browser it runs for
+// a card closes, here as Chrome exited, offers it again on that card too.
+func TestAStartedSupervisorOffersACardsTakeControlAgainOnceItsBrowserClosed(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	card, err := (&Service{Store: store}).acceptCredentialRequest(CredentialRequest{ID: "cred-0123456789abcdef", Identity: strings.Repeat("c", 64), By: "ceo", Task: "task-1", Project: "throwaway", Why: "Create the shop's test account", Link: "https://example.com/login", Window: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.updateCredential(card.ID, func(r *CredentialRequest) { r.WindowState = "open" }); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Start(context.Background(), h, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	stored := func() CredentialRequest {
+		request, _ := s.Store.credential(card.ID)
+		return request
+	}
+	eventually(t, "the starting supervisor's offer", func() bool { return stored().WindowState == "" })
+	chrome := &fakeGoblinChrome{browser: newFakeBrowser()}
+	s.screens.launch = newFakeBrowsers(t, chrome).launch
+	pressErr := s.requestCredentialWindow(card.ID, card.Generation)
+	s.credentialWork.Wait()
+	taken := stored()
+	chrome.browser.mu.Lock()
+	chrome.browser.hasExited = true
+	chrome.browser.mu.Unlock()
+
+	// Act
+	s.screens.sweep(h.State)
+
+	// Assert
+	if pressErr != nil || taken.WindowState != "open" {
+		t.Fatalf("take control = %v, card %+v; want the browser his", pressErr, taken)
+	}
+	eventually(t, "Take control offered again", func() bool {
+		offered := stored()
+		return offered.State == "open" && offered.WindowState == "" && offered.Reason == "The goblin's browser closed. Press Take control to open it again."
+	})
+}
+
+// A press of Take control still opening the goblin's browser when that
+// browser closes, which offers the card's Take control again, leaves the card
+// offering it and the browser the goblin's: the press never marks open a card
+// whose browser is gone.
+func TestATakeControlStillOpeningWhenItsBrowserClosedLeavesTheCardOfferingIt(t *testing.T) {
+	// Arrange
+	b := stepCard(t, func(r *CredentialRequest) { r.Window, r.Link = true, "https://example.com/login" })
+	chrome := &fakeGoblinChrome{browser: newFakeBrowser(), hold: make(chan struct{})}
+	b.service.screens = newFakeBrowsers(t, chrome)
+	b.send(b.handler, "/api/credentials/window", b.windowBody(), nil)
+	eventually(t, "the browser's start", func() bool {
+		b.service.screens.mu.Lock()
+		defer b.service.screens.mu.Unlock()
+		return b.service.screens.running["task-1"] != nil
+	})
+
+	// Act
+	b.service.endCardScreens("task-1", "g1")
+	close(chrome.hold)
+	b.service.credentialWork.Wait()
+
+	// Assert
+	if card := b.stored(); card.State != "open" || card.WindowState != "" || card.Reason != "The goblin's browser closed. Press Take control to open it again." {
+		t.Fatalf("card = %+v, want Take control offered again with why", card)
+	}
+	browser := b.service.screens.shown("task-1", "g1")
+	if browser == nil || b.service.screens.isDriven(browser) {
+		t.Fatal("the press left the goblin's browser his")
 	}
 }

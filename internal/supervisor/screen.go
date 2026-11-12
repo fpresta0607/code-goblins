@@ -266,7 +266,9 @@ func isBlank(pageURL string) bool {
 
 // isAddressOf says title is pageURL itself, as Chrome titles a page with no
 // title of its own, or one that has not drawn its title yet: the address
-// whole, or its host and what follows, with or without its scheme.
+// whole, or its host and what follows, with or without its scheme, or
+// anything ending in its path, query and fragment, as an address whose host
+// Chrome shows in Unicode does.
 func isAddressOf(title, pageURL string) bool {
 	if title == pageURL {
 		return true
@@ -276,7 +278,14 @@ func isAddressOf(title, pageURL string) bool {
 		return false
 	}
 	rest, isHost := strings.CutPrefix(strings.TrimPrefix(strings.TrimPrefix(title, "https://"), "http://"), parsed.Host)
-	return isHost && (rest == "" || strings.ContainsAny(rest[:1], "/?#"))
+	if isHost && (rest == "" || strings.ContainsAny(rest[:1], "/?#")) {
+		return true
+	}
+	tail := parsed.RequestURI()
+	if parsed.Fragment != "" {
+		tail += "#" + parsed.EscapedFragment()
+	}
+	return tail != "/" && strings.HasSuffix(title, tail)
 }
 
 // pageHost is the host of address, the only part of it a view is shown.
