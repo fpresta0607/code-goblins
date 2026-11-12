@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { crossingLine } from "./crossing.ts";
-import type { CrossingView } from "./types.ts";
+import { parseSnapshot, type CrossingView } from "./types.ts";
 
 const undo = "goblins cutover --undo 'C:\\home\\state\\backups\\cutover-20261112T050000Z'";
 const crossing = (waiting: string[], problem = ""): CrossingView => ({ at: "2026-11-12T05:00:00Z", undo, waiting, problem });
@@ -35,4 +35,27 @@ test("what did not go as it should is said in the notice", () => {
 
 test("a record that could not be read is said alone", () => {
   assert.deepEqual(crossingLine({ at: "0001-01-01T00:00:00Z", undo: "", waiting: [], problem: "The record could not be read" }), { text: "The record could not be read", undo: "", isDone: false });
+});
+
+const snapshot = (value: Record<string, unknown> = {}) => parseSnapshot({ healthy: true, instance: "fixture", ...value });
+
+test("a board whose home made no move carries no crossing", () => {
+  assert.equal(snapshot().crossing, undefined);
+});
+
+test("the supervisor's crossing reads with nothing waiting and no problem where it sends none", () => {
+  // The supervisor sends a move with no terminal waiting as null and leaves
+  // out a problem it does not have.
+  const parsed = snapshot({ crossing: { at: "2026-11-12T05:00:00Z", undo, waiting: null } }).crossing;
+  assert.deepEqual(parsed, { at: "2026-11-12T05:00:00Z", undo, waiting: [], problem: "" });
+  assert.equal(crossingLine(parsed)?.isDone, true);
+});
+
+test("the supervisor's crossing reads with each terminal waiting and what went wrong", () => {
+  const parsed = snapshot({ crossing: { at: "2026-11-12T05:00:00Z", undo, waiting: ["the CEO", "Huey"], problem: "offline" } }).crossing;
+  assert.deepEqual(parsed, crossing(["the CEO", "Huey"], "offline"));
+});
+
+test("a crossing that is not the supervisor's shape is refused", () => {
+  assert.throws(() => snapshot({ crossing: { at: "2026-11-12T05:00:00Z", undo, waiting: "Huey" } }));
 });

@@ -440,10 +440,12 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 	// An earlier update whose journal cannot be read, or is another home's
 	// and unfinished, is never overwritten: its verified copies are the way
 	// back. A finished update of another home, such as this one before it
-	// moved, is history: nothing it kept is a way back any more.
+	// moved, or one a build before the rename made, is history: nothing it
+	// kept is a way back any more.
 	var unfinished *update.Journal
 	switch last, err := update.ReadJournal(h.State); {
 	case errors.Is(err, os.ErrNotExist):
+	case err != nil && cutover.FinishedOldUpdate(h.State):
 	case err == nil && journalFolder(h, last) == "" && last.Phase.Finished():
 	case err == nil && journalFolder(h, last) == "":
 		fmt.Fprintf(stderr, "goblins update: the last update's journal is for %s, not this home %s, and that update stopped at %s, so nothing was changed, and its journal and copies in %s are kept as its way back\n", last.Root, h.Root, last.Phase, update.Dir(h.State))
@@ -538,7 +540,9 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 	// A home a release before the rename set up moves to goblins in this
 	// update, planned now that its supervisor no longer writes the state it
 	// reads, and made once the build is swapped, before the supervisor starts
-	// under the new names.
+	// under the new names. The journal names the move's undo folder from the
+	// swap on, before the move begins, so a rollback after a process ended
+	// part way through it undoes what it made.
 	crossedAt := time.Now()
 	var crossing cutover.Machine
 	var crossingPlan cutover.Plan
@@ -550,6 +554,7 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 		if err != nil {
 			return rollBack(h, journal, address, fmt.Errorf("plan the move of the home to goblins: %w", err), stdout, stderr)
 		}
+		journal.Crossing = cutover.BackupFolder(h.Root, crossedAt)
 	}
 
 	if err := update.Swap(journal); err != nil {
@@ -563,14 +568,7 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 
 	if isCrossing {
 		fmt.Fprintln(stdout, "Moving the home to goblins: its programs, settings, hooks, skills, scheduled job, credentials and records take the new names, and what it changes is kept to undo.")
-		folder, err := crossing.Apply(crossingPlan, crossedAt)
-		if folder != "" {
-			journal.Crossing = folder
-		}
-		if err == nil {
-			err = recordUpdate(h.State, journal, update.Swapped, "")
-		}
-		if err != nil {
+		if _, err := crossing.Apply(crossingPlan, crossedAt); err != nil {
 			return rollBack(h, journal, address, fmt.Errorf("move the home to goblins: %w", err), stdout, stderr)
 		}
 		clock.done("cross")
@@ -676,11 +674,12 @@ func rollBack(h home.Home, journal *update.Journal, address string, cause error,
 	if err := takeWatchLock(h); err != nil {
 		fmt.Fprintf(stderr, "goblins update: %v\n", err)
 	}
-	// A move of the home to goblins is undone first, so the previous build
-	// starts on the home and the settings it knows, and it is handed this
-	// process's settings by the names it reads them by.
+	// The previous build may be one from before the rename, which reads this
+	// process's settings only by the old names, whether or not the home moved
+	// yet. A move of the home to goblins is undone first, so it starts on the
+	// home and the settings it knows.
+	cutover.HandBackSettings()
 	if journal.Crossing != "" {
-		cutover.HandBackSettings()
 		if err := undoCrossing(h, journal.Crossing); err != nil {
 			fmt.Fprintf(stderr, "goblins update: the move of the home to goblins was not undone (%v), and %s keeps how to undo it\n", err, journal.Crossing)
 		} else {
@@ -734,9 +733,11 @@ func rollBack(h home.Home, journal *update.Journal, address string, cause error,
 }
 
 // undoCrossing undoes the move of the home h to goblins whose undo folder is
-// folder; one already undone, whose folder is gone, has nothing left to undo.
+// folder; one already undone, whose folder is gone, or one that ended before
+// it wrote how to undo it, which it does before it changes anything, has
+// nothing to undo.
 func undoCrossing(h home.Home, folder string) error {
-	if _, err := os.Stat(folder); errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(folder, cutover.UndoFile)); errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	machine, err := newCrossingMachine(h, "")

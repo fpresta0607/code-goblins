@@ -1,11 +1,15 @@
 package cutover
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/cutover/cutovertest"
 )
 
 var crossedAt = time.Date(2026, 11, 12, 5, 0, 0, 0, time.UTC)
@@ -139,5 +143,104 @@ func TestRemoveBridgesRemovesTheOldProgramsAndTheirSetAsideCopies(t *testing.T) 
 	}
 	if len(entries) != 1 || entries[0].Name() != newCommand+".exe" {
 		t.Fatalf("bin holds %v, want only %s.exe", entries, newCommand)
+	}
+}
+
+// The update journal a release before the rename left is history once its
+// update finished, and only then: an unfinished one is that release's way
+// back, and this build's own journal is read as this build reads it.
+func TestFinishedOldUpdateIsOnlyAFinishedJournalOfABuildBeforeTheRename(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		journal func(bin, state string) []byte
+		want    bool
+	}{
+		"none": {journal: nil, want: false},
+		"an old build's, done": {journal: func(bin, state string) []byte {
+			return oldJournal(t, bin, state, "done")
+		}, want: true},
+		"an old build's, rolled back": {journal: func(bin, state string) []byte {
+			return oldJournal(t, bin, state, "rolled-back")
+		}, want: true},
+		"an old build's, stopped at the swap": {journal: func(bin, state string) []byte {
+			return oldJournal(t, bin, state, "swapped")
+		}, want: false},
+		"this build's, done": {journal: func(bin, state string) []byte {
+			return []byte(strings.Replace(string(oldJournal(t, bin, state, "done")), oldName+"-update.v1", newName+"-update.v1", 1))
+		}, want: false},
+		"unreadable": {journal: func(string, string) []byte { return []byte("not json") }, want: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			root := t.TempDir()
+			state := filepath.Join(root, "state")
+			if testCase.journal != nil {
+				write(t, filepath.Join(state, "update", "journal.json"), string(testCase.journal(filepath.Join(root, "bin"), state)))
+			}
+
+			// Act
+			got := FinishedOldUpdate(state)
+
+			// Assert
+			if got != testCase.want {
+				t.Fatalf("FinishedOldUpdate is %v, want %v", got, testCase.want)
+			}
+		})
+	}
+}
+
+// oldJournal is the journal a release before the rename wrote, at phase.
+func oldJournal(t *testing.T, bin, state, phase string) []byte {
+	t.Helper()
+	data, err := cutovertest.FinishedUpdate(bin, state, crossedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return []byte(strings.Replace(string(data), `"phase": "done"`, `"phase": "`+phase+`"`, 1))
+}
+
+// A process that ends while it writes a program in the home's bin has set
+// the program there aside and not yet written its replacement, and its
+// record does not count that step as made. Its undo puts the program back
+// all the same, with everything else.
+func TestTheUndoOfACrossingThatEndedAsItWroteAProgramPutsTheProgramBack(t *testing.T) {
+	// Arrange
+	f := newFixture(t)
+	before := f.snapshot(t)
+	plan, err := f.machine.PlanCrossing(crossedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	program := filepath.Join(f.machine.Root, "bin", oldName+".exe")
+	ended := slices.IndexFunc(plan.Changes, func(change Change) bool { return change.Steps[0].Key == program })
+	if ended < 0 {
+		t.Fatalf("the crossing writes no %s", program)
+	}
+	folder, err := f.machine.Apply(Plan{Changes: plan.Changes[:ended+1]}, crossedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record map[string]any
+	if err := json.Unmarshal([]byte(read(t, filepath.Join(folder, UndoFile))), &record); err != nil {
+		t.Fatal(err)
+	}
+	record["done"] = record["done"].(float64) - 1
+	data, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(folder, UndoFile), string(data))
+	if err := os.Remove(program); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	err = f.machine.Undo(folder)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found := before.differences(f.snapshot(t)); len(found) > 0 {
+		t.Fatalf("the undo left the machine changed:\n%s", strings.Join(found, "\n"))
 	}
 }

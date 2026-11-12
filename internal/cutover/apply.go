@@ -46,7 +46,7 @@ type recordedStep struct {
 // fails removes the folders it made and undoes every step made before it.
 func (m Machine) Apply(plan Plan, now time.Time) (string, error) {
 	record := undoRecord{Plan: plan.Digest()}
-	folder := backupFolder(m.Root, now)
+	folder := BackupFolder(m.Root, now)
 	if exists(folder) {
 		return "", fmt.Errorf("cutover: %s is already there", folder)
 	}
@@ -138,8 +138,9 @@ func (m Machine) extend(folder string, plan Plan) error {
 	return nil
 }
 
-// backupFolder is the folder an apply at now keeps its undo in.
-func backupFolder(root string, now time.Time) string {
+// BackupFolder is the folder an apply at now keeps its undo in, under the
+// state of the home at root.
+func BackupFolder(root string, now time.Time) string {
 	return filepath.Join(root, "state", "backups", "cutover-"+now.UTC().Format("20060102T150405Z"))
 }
 
@@ -189,8 +190,16 @@ func (m Machine) Undo(folder string) error {
 	return m.undo(folder, record)
 }
 
+// undo undoes the steps the record says were made, and the file step that was
+// under way when the apply stopped, which may have set a program aside before
+// it wrote its replacement: its content before is kept, so undoing a file
+// step that did not run writes back what is there.
 func (m Machine) undo(folder string, record undoRecord) error {
-	for index := record.Done - 1; index >= 0; index-- {
+	last := record.Done
+	if last < len(record.Steps) && record.Steps[last].Kind == "file" {
+		last++
+	}
+	for index := last - 1; index >= 0; index-- {
 		if err := m.undoStep(folder, index, record.Steps[index]); err != nil {
 			record.Done = index + 1
 			if writeErr := writeRecord(folder, record); writeErr != nil {

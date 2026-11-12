@@ -218,7 +218,7 @@ func servingBoard(h home.Home, stdout io.Writer) (runningBoard, bool) {
 	}
 	// An update that stopped part way keeps its own copies there as its way
 	// back, which are never written over.
-	if journal, err := update.ReadJournal(h.State); err == nil && !journal.Phase.Finished() || err != nil && !errors.Is(err, os.ErrNotExist) {
+	if journal, err := update.ReadJournal(h.State); err == nil && !journal.Phase.Finished() || err != nil && !errors.Is(err, os.ErrNotExist) && !cutover.FinishedOldUpdate(h.State) {
 		board.previous = ""
 	} else if err := copyProgram(identity.Image, board.previous); err != nil {
 		fmt.Fprintf(stdout, "goblins install: could not keep a copy of the running board's program %s (%v), so the board is restarted with nothing to fall back on\n", identity.Image, err)
@@ -241,6 +241,10 @@ func (b runningBoard) restart(h home.Home, stdout io.Writer) {
 		fmt.Fprintf(stdout, "%s The board keeps running its earlier build until Code Goblins next starts it: %v.\n", notePrefix, err)
 		return
 	}
+	// The build it starts may be one from before the rename, as after a move
+	// of the home to goblins that did not finish, which reads its settings
+	// only by the old names.
+	cutover.HandBackSettings()
 	if err := endSupervisor(h, b.process); err != nil {
 		fmt.Fprintf(stdout, "%s The board keeps running its earlier build until Code Goblins next starts it: %v.\n", notePrefix, err)
 		return

@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -177,5 +178,50 @@ func TestTheCrossingRelabelsOncePerSupervisorAndSaysWhenItFailed(t *testing.T) {
 	crossing, _, err := cutover.ReadCrossing(s.Store.Home.State)
 	if err != nil || crossing.IsRelabelled || crossing.Relabelling != "offline" {
 		t.Fatalf("the record is %+v, %v", crossing, err)
+	}
+}
+
+// The supervisor's own loop restarts nothing on its first look, so the
+// board's notice and the CEO's wake say what restarts before anything does,
+// and on its next look sets each terminal from before the move to restart.
+func TestTheCrossingLoopRestartsNothingOnItsFirstLook(t *testing.T) {
+	// Arrange
+	s, _ := crossedHome(t)
+	stateDir := s.Store.Home.State
+	goblinFromBefore(t, stateDir, "cg-before", "Huey")
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	t.Cleanup(func() { cancel(); <-done })
+	const every = 2 * time.Second
+
+	// Act
+	go func() {
+		defer close(done)
+		s.keepCrossing(ctx, every)
+	}()
+
+	// Assert: the first look names Huey and sets nothing to restart.
+	for deadline := time.Now().Add(every / 2); s.crossingView() == nil; time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the loop's first look made no notice")
+		}
+	}
+	if view := s.crossingView(); strings.Join(view.Waiting, ",") != "Huey" {
+		t.Fatalf("the notice is %+v, want Huey waiting", view)
+	}
+	if _, err := state.ReadEngineChoice(stateDir, "cg-before"); err == nil {
+		t.Fatal("the loop's first look set the goblin to restart before the notice said so")
+	}
+	// Assert: a later look sets it to restart under the new names.
+	for deadline := time.Now().Add(3 * every); ; time.Sleep(50 * time.Millisecond) {
+		if choice, err := state.ReadEngineChoice(stateDir, "cg-before"); err == nil {
+			if choice.When != "renamed" {
+				t.Fatalf("the goblin's restart is %+v, want one under the new names", choice)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no later look set the goblin to restart under the new names")
+		}
 	}
 }

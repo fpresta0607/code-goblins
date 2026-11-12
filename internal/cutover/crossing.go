@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/update"
 )
 
 // CrossingFile is the record, in the home's state, of the crossing an update
@@ -46,10 +47,23 @@ func PreRename(root string) bool {
 	return exists(filepath.Join(root, "bin", oldName+".exe")) && !exists(filepath.Join(root, "state", CrossingFile))
 }
 
+// FinishedOldUpdate says whether the last update of the home whose state is
+// stateDir was one a build before the rename made, and it finished. This
+// build does not read that journal, which names the old program among its
+// aliases, and it is history: nothing it kept is a way back any more.
+func FinishedOldUpdate(stateDir string) bool {
+	data, err := fsx.ReadFile(filepath.Join(update.Dir(stateDir), "journal.json"))
+	if err != nil {
+		return false
+	}
+	var journal update.Journal
+	return json.Unmarshal(data, &journal) == nil && journal.Schema == oldName+"-update.v1" && journal.Phase.Finished()
+}
+
 // PlanCrossing reads the machine and plans the crossing an apply at now
 // makes. It changes nothing.
 func (m Machine) PlanCrossing(now time.Time) (Plan, error) {
-	return m.plan(&Crossing{Folder: backupFolder(m.Root, now), At: now.UTC()})
+	return m.plan(&Crossing{Folder: BackupFolder(m.Root, now), At: now.UTC()})
 }
 
 // record writes the crossing's record, the plan's last change, so the undo

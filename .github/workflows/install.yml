@@ -726,6 +726,32 @@ jobs:
           }
       - name: Put the CEO and a goblin to work under the release's names
         run: ./tests/update/fleet_at_work.ps1 -Project (Join-Path $env:USERPROFILE "source\demo") -Facts $env:FACTS -PreRename
+      - name: Leave the journal of an update the release finished, as a home it updated before holds
+        run: |
+          # Every release before the rename keeps the journal of its last
+          # update, naming its own program and goblins.exe, which this commit
+          # must read as history once that update finished.
+          . ./tests/pre_rename_build.ps1
+          $ceoHome = [Environment]::GetEnvironmentVariable("${PreRenameSettingPrefix}HOME", "User")
+          $bin = Join-Path $ceoHome "bin"
+          $folder = Join-Path $ceoHome "state\update"
+          New-Item -ItemType Directory -Force -Path $folder | Out-Null
+          $hash = (Get-FileHash (Join-Path $bin "goblins.exe") -Algorithm SHA256).Hash.ToLowerInvariant()
+          $aliases = foreach ($name in "$PreRenameCommand.exe", "goblins.exe") { [ordered]@{ name = $name; previous_sha256 = $hash; backup = Join-Path $folder "previous-$name" } }
+          $now = (Get-Date).ToUniversalTime().ToString("o")
+          $journal = [ordered]@{
+            schema           = "$PreRenameCommand-update.v1"
+            root             = $bin
+            phase            = "done"
+            candidate        = Join-Path $bin "$PreRenameCommand.exe"
+            candidate_copy   = Join-Path $folder "candidate.exe"
+            candidate_sha256 = $hash
+            aliases          = @($aliases)
+            started          = $now
+            updated          = $now
+            outcome          = "the candidate serves"
+          }
+          [IO.File]::WriteAllText((Join-Path $folder "journal.json"), (ConvertTo-Json -InputObject $journal -Depth 4))
       - name: Update to a build whose board does not start, which rolls back and leaves the release's names
         if: ${{ matrix.by == 'update' }}
         run: ./tests/update/update_and_check.ps1 -Api http://127.0.0.1:8765/broken/latest -Release "$env:RELEASES\broken" -Want rolled-back -Project (Join-Path $env:USERPROFILE "source\demo") -Facts $env:FACTS -PreRename
