@@ -15,19 +15,19 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// leftTypedForCFO delivers message m1 to a CFO whose harness reads nothing
+// leftTypedForCEO delivers message m1 to a CEO whose harness reads nothing
 // for longer than the delivery waits to see its words, with m2 queued behind
 // it, and returns once that delivery has ended and the harness has read the
 // words onto its prompt line.
-func leftTypedForCFO(t *testing.T, mode string) (*Service, hostedTerminal) {
+func leftTypedForCEO(t *testing.T, mode string) (*Service, hostedTerminal) {
 	t.Helper()
 	previous := nativeShown
 	nativeShown = time.Second
 	t.Cleanup(func() { nativeShown = previous })
 	useConversations(t)
 	store, home := testStore(t)
-	terminal := nativeCFOComposer(t, home.State, mode)
-	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}}
+	terminal := nativeCEOComposer(t, home.State, mode)
+	service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: home.State}}}
 	for id, text := range map[string]string{"m1": "stop and rebase", "m2": "then merge it"} {
 		if _, err := store.Queue(Action{ID: id, Kind: "message", Text: text}); err != nil {
 			t.Fatal(err)
@@ -48,7 +48,7 @@ func leftTypedForCFO(t *testing.T, mode string) (*Service, hostedTerminal) {
 	if err := os.Remove(stall); err != nil {
 		t.Fatal(err)
 	}
-	cfoShows(t, home.State, "stop and rebase")
+	ceoShows(t, home.State, "stop and rebase")
 	return service, terminal
 }
 
@@ -57,14 +57,14 @@ func leftTypedForCFO(t *testing.T, mode string) (*Service, hostedTerminal) {
 // every message after them waited behind them for good (#2306). The board
 // takes them back as soon as they show, so that message reads Not sent and
 // the next one goes.
-func TestWordsACFOReadOnlyAfterTheirDeliveryEndedAreTakenBackAndTheNextMessageGoes(t *testing.T) {
+func TestWordsACEOReadOnlyAfterTheirDeliveryEndedAreTakenBackAndTheNextMessageGoes(t *testing.T) {
 	for _, test := range []struct{ mode, kind string }{
 		{mode: "claude-busy-stalls", kind: "claude"},
 		{mode: "busy-stalls", kind: "codex"},
 	} {
 		t.Run(test.mode, func(t *testing.T) {
 			// Arrange
-			service, terminal := leftTypedForCFO(t, test.mode)
+			service, terminal := leftTypedForCEO(t, test.mode)
 			store := service.Store
 			held := store.ProcessOne(context.Background(), service.execute)
 
@@ -88,7 +88,7 @@ func TestWordsACFOReadOnlyAfterTheirDeliveryEndedAreTakenBackAndTheNextMessageGo
 			if !slices.Contains(input, "cleared") || !slices.Contains(input, "queued then merge it") || strings.Contains(strings.Join(input, "\n"), "stop and rebase") {
 				t.Errorf("terminal input = %q; want the left words taken back and only the next message submitted", input)
 			}
-			cfoPromptLineEmpties(t, service.Store.Home.State, test.kind)
+			ceoPromptLineEmpties(t, service.Store.Home.State, test.kind)
 		})
 	}
 }
@@ -97,8 +97,8 @@ func TestWordsACFOReadOnlyAfterTheirDeliveryEndedAreTakenBackAndTheNextMessageGo
 // his, so nothing on it is taken back.
 func TestWordsLeftTypedBesideHisOwnStayOnThePromptLine(t *testing.T) {
 	// Arrange
-	service, terminal := leftTypedForCFO(t, "claude-busy-stalls")
-	typeIntoCFO(t, service.Store.Home.State, " and my own words", "stop and rebase and my own words")
+	service, terminal := leftTypedForCEO(t, "claude-busy-stalls")
+	typeIntoCEO(t, service.Store.Home.State, " and my own words", "stop and rebase and my own words")
 
 	// Act
 	err := service.takeBackLeftTyped(context.Background())
@@ -127,20 +127,20 @@ func TestWordsLeftTypedInATerminalThatEndedAreWatchedNoLonger(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			store, home := testStore(t)
-			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}}
+			service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: home.State}}}
 			typedAt := time.Now().UTC()
 			var terminal hostedTerminal
 			if test.isRestarted {
 				typedAt = typedAt.Add(-time.Hour)
-				terminal = nativeCFOComposer(t, home.State, "claude-busy")
-				typeIntoCFO(t, home.State, "stop and rebase", "stop and rebase")
+				terminal = nativeCEOComposer(t, home.State, "claude-busy")
+				typeIntoCEO(t, home.State, "stop and rebase", "stop and rebase")
 			}
 			if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: "stop and rebase"}); err != nil {
 				t.Fatal(err)
 			}
 			pastUndoWindow(t, store)
 			if err := store.ProcessOne(context.Background(), func(context.Context, Action) (Evaluation, error) {
-				return Evaluation{LeftTyped: &Awaiting{Host: "cfo", Harness: "claude", Since: typedAt, Typed: "stop and rebase"}}, errors.New("The answer was typed but never showed in the CFO's input.")
+				return Evaluation{LeftTyped: &Awaiting{Host: "ceo", Harness: "claude", Since: typedAt, Typed: "stop and rebase"}}, errors.New("The answer was typed but never showed in the CEO's input.")
 			}); err != nil {
 				t.Fatal(err)
 			}
@@ -181,7 +181,7 @@ func TestAGoblinsMessageThatWasTypedAndNeverSubmittedReadsAsItEnded(t *testing.T
 			meta := makeNative(t, h.State, "task-1")
 			gitWorktree(t, meta.Worktree)
 			goblinTerminal(t, h.State, meta.ID)
-			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+			service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
 			messageTo(t, store, meta, "message-1", "stop and rebase")
 			previous := typeIntoGoblin
 			t.Cleanup(func() { typeIntoGoblin = previous })

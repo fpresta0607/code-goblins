@@ -95,7 +95,7 @@ func TestASharedValueIsRefusedAndReportedForAServiceNotDeclaredShared(t *testing
 	if !strings.Contains(status.Detail, "not declared shared") {
 		t.Errorf("detail = %q, want it to report the shared value rather than stay silent about it", status.Detail)
 	}
-	if !strings.Contains(status.Detail, "cfo auth copy DATABASE_URL --to precisiondocs") {
+	if !strings.Contains(status.Detail, "goblins auth copy DATABASE_URL --to precisiondocs") {
 		t.Errorf("detail = %q, want the command that moves it into a scope without re-entering it", status.Detail)
 	}
 	env, err := InjectEnv(store, "precisiondocs", manifest, report)
@@ -459,10 +459,10 @@ func TestAProbeThatEchoesItsCredentialNeverLeaksItIntoDetail(t *testing.T) {
 func TestFixRemedyQuotesAProjectPathWithASpace(t *testing.T) {
 	status := Status{Service: "vercel", State: StateExpired}
 	got := remedies(`C:\dev\My Project`, status)
-	if len(got) != 1 || got[0] != `cfo auth "C:\dev\My Project" --fix` {
+	if len(got) != 1 || got[0] != `goblins auth "C:\dev\My Project" --fix` {
 		t.Errorf("remedies = %q, want the project path quoted so the command stays pasteable", got)
 	}
-	if got := remedies("projects/precisiondocs", status); got[0] != "cfo auth projects/precisiondocs --fix" {
+	if got := remedies("projects/precisiondocs", status); got[0] != "goblins auth projects/precisiondocs --fix" {
 		t.Errorf("remedies = %q, want a plain path left unquoted", got)
 	}
 }
@@ -535,12 +535,12 @@ func TestRefusalNamesEveryBlockingServiceAndItsExactFixCommand(t *testing.T) {
 		"3 blocking service(s) for precisiondocs",
 		"--yolo",
 		"postgres (missing)",
-		"cfo auth store --project precisiondocs DATABASE_URL",
+		"goblins auth store --project precisiondocs DATABASE_URL",
 		"supabase (wrong_target)",
 		// Only a re-store changes the target, so that is what is offered.
-		"cfo auth store --project precisiondocs SUPABASE_URL",
+		"goblins auth store --project precisiondocs SUPABASE_URL",
 		// An expired credential is what --fix exists for.
-		"cfo auth projects/precisiondocs --fix",
+		"goblins auth projects/precisiondocs --fix",
 	} {
 		if !strings.Contains(refusal, want) {
 			t.Errorf("refusal lacks %q:\n%s", want, refusal)
@@ -583,7 +583,7 @@ func TestAWrongTargetIsRemediedByAReStoreRatherThanByFix(t *testing.T) {
 		"login request": request.String(),
 	}
 	for name, text := range surfaces {
-		if !strings.Contains(text, "cfo auth store --project precisiondocs DATABASE_URL") {
+		if !strings.Contains(text, "goblins auth store --project precisiondocs DATABASE_URL") {
 			t.Errorf("%s lacks the command that changes the target:\n%s", name, text)
 		}
 		if strings.Contains(text, "--fix") {
@@ -597,7 +597,7 @@ func TestAWrongTargetIsNotInjectedThroughASiblingServiceDeclaringTheSameName(t *
 	// wrong_target is a fact about the value. A second service reading the
 	// same name resolves the same credential, so gating on its own green
 	// verdict would hand the pane exactly what the identity check refused -
-	// and `cfo switch` deliberately does not refuse a red preflight.
+	// and `goblins switch` deliberately does not refuse a red preflight.
 	manifest := Manifest{Project: "precisiondocs", Services: []Service{
 		postgresService("ep-precisiondocs-quiet-sun"),
 		{Name: "prisma", Method: MethodCLI, Env: []string{"DATABASE_URL"}, Probe: []string{"prisma", "--version"}},
@@ -696,10 +696,10 @@ func TestAPrintedStoreCommandSurvivesAScopeWithASpace(t *testing.T) {
 	// The refusal is pasted back verbatim. Unquoted, `--project Retire 91`
 	// binds the flag to "Retire" and makes "91" the credential name.
 	got := StoreCommand("Retire 91", "DATABASE_URL")
-	if want := `cfo auth store --project "Retire 91" DATABASE_URL`; got != want {
+	if want := `goblins auth store --project "Retire 91" DATABASE_URL`; got != want {
 		t.Errorf("StoreCommand = %q, want %q", got, want)
 	}
-	if got := StoreCommand("precisiondocs", "DATABASE_URL"); got != "cfo auth store --project precisiondocs DATABASE_URL" {
+	if got := StoreCommand("precisiondocs", "DATABASE_URL"); got != "goblins auth store --project precisiondocs DATABASE_URL" {
 		t.Errorf("StoreCommand quoted a scope that needs no quoting: %q", got)
 	}
 }

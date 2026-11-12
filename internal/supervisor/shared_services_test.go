@@ -281,7 +281,7 @@ func TestTheHeavyLineSaysWhyItsHeadIsNotStarted(t *testing.T) {
 }
 
 // The Docker engine reads running when it answers, starting for five
-// minutes after cfo services up started it, and stopped after, naming the
+// minutes after goblins services up started it, and stopped after, naming the
 // tasks whose stacks hold it.
 func TestTheDockerEngineSaysWhetherItIsStartingOrStopped(t *testing.T) {
 	now := time.Date(2026, 11, 11, 14, 0, 0, 0, time.UTC)
@@ -294,9 +294,9 @@ func TestTheDockerEngineSaysWhetherItIsStartingOrStopped(t *testing.T) {
 		wantRetry time.Time
 	}{
 		{"answering", true, services.Engine{}, "running", SharedGo, time.Time{}},
-		{"started by cfo a minute ago", false, services.Engine{StartedByCFO: true, Since: now}, "starting", SharedWait, now.Add(dockerStartLimit)},
-		{"started by cfo past its limit", false, services.Engine{StartedByCFO: true, Since: now.Add(-dockerStartLimit)}, "stopped", SharedAsk, time.Time{}},
-		{"never started by cfo", false, services.Engine{}, "stopped", SharedAsk, time.Time{}},
+		{"started by goblins a minute ago", false, services.Engine{StartedByCEO: true, Since: now}, "starting", SharedWait, now.Add(dockerStartLimit)},
+		{"started by goblins past its limit", false, services.Engine{StartedByCEO: true, Since: now.Add(-dockerStartLimit)}, "stopped", SharedAsk, time.Time{}},
+		{"never started by goblins", false, services.Engine{}, "stopped", SharedAsk, time.Time{}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange

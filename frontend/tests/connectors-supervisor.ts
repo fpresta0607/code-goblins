@@ -22,7 +22,7 @@ export interface Supervisor {
   repaired: object;
   held?: Promise<void>;
   // What the page asked: its reads by task, its posts, and its reports to
-  // the CFO.
+  // the CEO.
   reads: Record<string, number>;
   posts: { path: string; token: string | undefined; body: unknown }[];
   reports: { where: string; text: string }[];
@@ -38,7 +38,7 @@ export async function play(page: Page, supervisor: Supervisor): Promise<void> {
     const url = new URL(route.request().url());
     const path = url.pathname;
     const body = route.request().method() === "POST" ? route.request().postDataJSON() as { task?: string; generation?: string; login?: string } : undefined;
-    if (path === "/api/cfo/report") {
+    if (path === "/api/ceo/report") {
       supervisor.reports.push(body as { where: string; text: string });
       return route.fulfill({ status: 202, json: { reported: true } });
     }
@@ -48,7 +48,7 @@ export async function play(page: Page, supervisor: Supervisor): Promise<void> {
       checking: supervisor.checking[task] ?? false, checked_at: CHECKED_AT, error: supervisor.error, entries: supervisor.entries[task] ?? [], browser_logins: supervisor.logins,
     });
     const refused = () => route.fulfill({ status: 409, json: { error: supervisor.refuses } });
-    if (body) supervisor.posts.push({ path, token: route.request().headers()["x-cfo-token"], body });
+    if (body) supervisor.posts.push({ path, token: route.request().headers()["x-ceo-token"], body });
     if (path === "/api/connections") {
       supervisor.reads[task] = (supervisor.reads[task] ?? 0) + 1;
       return supervisor.isUnreadable ? route.fulfill({ status: 503, json: { error: "Connections cannot be checked now." } }) : route.fulfill({ json: connections() });

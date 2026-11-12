@@ -38,14 +38,14 @@ func TestSchedulerNeverRestartsFinishedWork(t *testing.T) {
 			name: "its archived status log last reported done",
 			arrange: func(t *testing.T, _ *Service, h home.Home) {
 				writeFile(t, filepath.Join(h.State, "archive", "next-task.status.20261001T090000Z"), "2026-10-01T08:00:00Z working: first try\n")
-				writeFile(t, filepath.Join(h.State, "archive", "next-task.status.20261006T120000Z"), "2026-10-06T11:00:00Z working: building\n2026-10-06T11:59:00Z done: returned worktree C:\\w via cfo cleanup\n")
+				writeFile(t, filepath.Join(h.State, "archive", "next-task.status.20261006T120000Z"), "2026-10-06T11:00:00Z working: building\n2026-10-06T11:59:00Z done: returned worktree C:\\w via goblins cleanup\n")
 			},
 			evidence: "its last report was done",
 		},
 		{
 			name: "its stopped outcome's pull request merged",
 			arrange: func(t *testing.T, service *Service, h home.Home) {
-				writeOutcome(t, h, state.Outcome{ID: "next-task", Generation: "s1", Title: "Ship it", Project: h.Root, Phase: "stopped", Reason: "Stopped by the CFO", PR: pullRequest, At: time.Now().UTC().Add(-time.Hour)})
+				writeOutcome(t, h, state.Outcome{ID: "next-task", Generation: "s1", Title: "Ship it", Project: h.Root, Phase: "stopped", Reason: "Stopped by the CEO", PR: pullRequest, At: time.Now().UTC().Add(-time.Hour)})
 				service.Options.PullRequestState = func(context.Context, string) (PullRequestInfo, error) {
 					return PullRequestInfo{State: "MERGED", Title: "Ship it"}, nil
 				}
@@ -75,7 +75,7 @@ func TestSchedulerNeverRestartsFinishedWork(t *testing.T) {
 				// whatever today's date is.
 				archived := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Second)
 				stamp := func(before time.Duration) string { return archived.Add(-before).Format(time.RFC3339) }
-				writeFile(t, filepath.Join(h.State, "archive", "next-task.status."+archived.Format("20060102T150405Z")), stamp(time.Hour)+" done: PR "+pullRequest+"\n"+stamp(30*time.Minute)+" working: more to do\n"+stamp(time.Minute)+" stopped: returned worktree C:\\w via cfo cleanup\n")
+				writeFile(t, filepath.Join(h.State, "archive", "next-task.status."+archived.Format("20060102T150405Z")), stamp(time.Hour)+" done: PR "+pullRequest+"\n"+stamp(30*time.Minute)+" working: more to do\n"+stamp(time.Minute)+" stopped: returned worktree C:\\w via goblins cleanup\n")
 				writeOutcome(t, h, state.Outcome{ID: "next-task", Generation: "s1", Title: "Ship it", Project: h.Root, Branch: "feat/ship-it", Phase: "stopped", Reason: "Worktree returned by cleanup", At: time.Now().UTC().Add(-time.Hour)})
 				if err := service.refreshHistory(t.Context(), time.Now().UTC()); err != nil {
 					t.Fatal(err)
@@ -128,16 +128,16 @@ func TestSchedulerNeverRestartsFinishedWork(t *testing.T) {
 	}
 }
 
-// A row the CFO retired its task after it was queued is stale: the scheduler
+// A row the CEO retired its task after it was queued is stale: the scheduler
 // never starts it again by itself, even with the row still under ## Queued,
-// and tells the CFO about the row once instead. A row has no time of its own,
+// and tells the CEO about the row once instead. A row has no time of its own,
 // so its brief stands for it: a brief written since the retirement is new
 // work for the id and starts, and so does a row queued again after a stop
 // took the queued task off the queue before it ever started. A row with no
 // brief does not, since its start would write one from the row. On 2026-10-09
 // Bruno's local-only scout was retired with its row left under ## Queued, and
 // the scheduler started the same scout again as Trudy a minute later.
-func TestSchedulerTellsTheCFOOfARetiredTasksRowInsteadOfStartingIt(t *testing.T) {
+func TestSchedulerTellsTheCEOOfARetiredTasksRowInsteadOfStartingIt(t *testing.T) {
 	cases := []struct {
 		name      string
 		arrange   func(t *testing.T, h home.Home, brief string)
@@ -152,7 +152,7 @@ func TestSchedulerTellsTheCFOOfARetiredTasksRowInsteadOfStartingIt(t *testing.T)
 				}
 				generation := "s" + strconv.FormatInt(time.Now().Add(-time.Hour).UnixNano(), 10)
 				retired := time.Now().UTC().Add(-time.Minute)
-				writeFile(t, filepath.Join(h.State, "next-task.status"), time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)+" working: proving the strays\n"+retired.Add(-time.Minute).Format(time.RFC3339)+" done: PR none (local-only scout). Report: C:\\home\\data\\next-task\\report.md\n"+retired.Format(time.RFC3339)+" stopped: returned worktree C:\\w via cfo cleanup\n")
+				writeFile(t, filepath.Join(h.State, "next-task.status"), time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)+" working: proving the strays\n"+retired.Add(-time.Minute).Format(time.RFC3339)+" done: PR none (local-only scout). Report: C:\\home\\data\\next-task\\report.md\n"+retired.Format(time.RFC3339)+" stopped: returned worktree C:\\w via goblins cleanup\n")
 				writeOutcome(t, h, state.Outcome{ID: "next-task", Generation: generation, Title: "Ship it", Project: h.Root, Phase: "stopped", Reason: "Worktree returned by cleanup", At: retired})
 			},
 		},
@@ -217,7 +217,7 @@ func TestSchedulerTellsTheCFOOfARetiredTasksRowInsteadOfStartingIt(t *testing.T)
 					t.Fatalf("dispatches=%v, want next-task started", calls)
 				}
 				if len(told) != 0 {
-					t.Errorf("the CFO was told %v, want nothing told of a row queued since", told)
+					t.Errorf("the CEO was told %v, want nothing told of a row queued since", told)
 				}
 				return
 			}
@@ -226,7 +226,7 @@ func TestSchedulerTellsTheCFOOfARetiredTasksRowInsteadOfStartingIt(t *testing.T)
 				t.Fatalf("a retired task started again from its stale row: %v", calls)
 			}
 			if len(told) != 1 || !strings.Contains(told[0].Detail, "## Queued") || !strings.Contains(told[0].Detail, "retired") {
-				t.Errorf("the CFO was told %+v, want one stale_row notice naming the row and the retirement", told)
+				t.Errorf("the CEO was told %+v, want one stale_row notice naming the row and the retirement", told)
 			}
 			card := queuedCard(t, handler, "next-task")
 			if !strings.Contains(card.Finished, "retired") {
@@ -240,7 +240,7 @@ func TestSchedulerTellsTheCFOOfARetiredTasksRowInsteadOfStartingIt(t *testing.T)
 	}
 }
 
-// The work memory waits for, which memory_ready and the CFO's turn end name,
+// The work memory waits for, which memory_ready and the CEO's turn end name,
 // leaves out work whose last report was done.
 func TestMemoryWorkLeavesOutFinishedWork(t *testing.T) {
 	// Arrange
@@ -248,7 +248,7 @@ func TestMemoryWorkLeavesOutFinishedWork(t *testing.T) {
 	writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n- **done-task** - Shipped (repo: code-goblins)\n- **next-task** - Ship it (repo: code-goblins)\n")
 	writeFile(t, filepath.Join(h.Data, "done-task", "brief.md"), strings.ReplaceAll(plainBrief, "next-task", "done-task"))
 	writeFile(t, filepath.Join(h.Data, "next-task", "brief.md"), plainBrief)
-	writeFile(t, filepath.Join(h.State, "archive", "done-task.status.20261006T120000Z"), "2026-10-06T11:59:00Z done: returned worktree C:\\w via cfo cleanup\n")
+	writeFile(t, filepath.Join(h.State, "archive", "done-task.status.20261006T120000Z"), "2026-10-06T11:59:00Z done: returned worktree C:\\w via goblins cleanup\n")
 
 	// Act
 	queued, _ := memoryWork(h, readFinishedWork(h, nil), rowReading{now: time.Now().UTC()})

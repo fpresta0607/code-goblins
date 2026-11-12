@@ -32,7 +32,7 @@ async function open(page: Page, { card, choose, box }: (typeof BOXES)[number]) {
   await page.route("**/api/dictation/warm", (route) => route.fulfill({ status: 202 }));
   await page.route("**/api/dictation", async (route) => {
     if (route.request().method() === "GET") return route.fulfill({ json: { engine: "test-model", state: "ready" } });
-    heard.push(await route.request().headerValue("X-CFO-Token"));
+    heard.push(await route.request().headerValue("X-CEO-Token"));
     return route.fulfill({ json: { text: "rebase onto main", engine: "test-model" } });
   });
   await page.clock.install({ time: new Date("2026-10-13T14:30:00Z") });

@@ -19,7 +19,7 @@ const tree = (task: string, children: Record<string, unknown>[]) => ({ task_id: 
 const task = (fields: Record<string, unknown>) => ({ harness: "claude", model: "claude-opus-5-5", effort: "xhigh", route_lane: "strong-claude", route_reason: "strong cross-harness fallback", verified: false, generation: "g1", since: ago(90), project: "code-goblins", ...fields });
 const view = new URLSearchParams(location.search).get("view") || "canvas";
 const snapshot = parseSnapshot({
-  healthy: true, instance: "fixture", cfo_runs: true, afk: { state: "off" }, cfo_harness: "claude",
+  healthy: true, instance: "fixture", ceo_runs: true, afk: { state: "off" }, ceo_harness: "claude",
   tasks: [
     task({ id: "cg-helpers", title: "Let goblins start helpers", phase: "working",
       tree: tree("cg-helpers", [child({ id: "helper:cg-helpers-h1", kind: "helper", label: "Accounts migration", detail: "Helper goblin cg-helpers-h1", model: "gpt-6-luna", state: "working", started: ago(4), last_activity: ago(0.5), memory: megabytes(512) })]) }),
@@ -30,10 +30,10 @@ const snapshot = parseSnapshot({
 });
 
 function Fixture() {
-  if (view === "lineage") return <main className="canvas-region" style={{ width: "100%" }}><Lineage afkToggle={RESTING_AFK_TOGGLE} onOpenCfo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} /></main>;
-  if (view === "cards") return <Board afkToggle={RESTING_AFK_TOGGLE} snapshot={snapshot} layout="stacked" now={now} freshNow={now} presentations={[]} onSelect={() => {}} onSelectTrain={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} />;
+  if (view === "lineage") return <main className="canvas-region" style={{ width: "100%" }}><Lineage afkToggle={RESTING_AFK_TOGGLE} onOpenCeo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} /></main>;
+  if (view === "cards") return <Board afkToggle={RESTING_AFK_TOGGLE} snapshot={snapshot} layout="stacked" now={now} freshNow={now} presentations={[]} onSelect={() => {}} onSelectTrain={() => {}} onOpenCeo={() => {}} onOpenCommand={() => {}} onStartCeo={() => {}} />;
   return <main style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
-    <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenCfo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} />
+    <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenCeo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} />
   </main>;
 }
 watchTips();

@@ -260,7 +260,7 @@ func TestReadBacklogKeepsParkedWorkOutOfTheQueue(t *testing.T) {
 
 ## Parked
 - [ ] p1 - Parked by hand (hold-kind: parked)
-- parked **p2** - The CFO's own parked form (repo: code-goblins)
+- parked **p2** - The CEO's own parked form (repo: code-goblins)
 
 ## Done
 - [x] d1 - Shipped https://github.com/o/r/pull/1 (merged 2026-09-26)
@@ -288,7 +288,7 @@ func TestReadBacklogKeepsParkedWorkOutOfTheQueue(t *testing.T) {
 	wantParked := []string{
 		"- [ ] q2 - Set aside in place (since 2026-09-20) (hold: stale brief) (hold-kind: parked)",
 		"- [ ] p1 - Parked by hand (hold-kind: parked)",
-		"- parked **p2** - The CFO's own parked form (repo: code-goblins)",
+		"- parked **p2** - The CEO's own parked form (repo: code-goblins)",
 	}
 	if !reflect.DeepEqual(queued, wantQueued) {
 		t.Errorf("queued = %q, want %q", queued, wantQueued)
@@ -299,7 +299,7 @@ func TestReadBacklogKeepsParkedWorkOutOfTheQueue(t *testing.T) {
 	if row := backlog.Parked[0]; !row.Structured || row.ID != "q2" || row.Title != "Set aside in place" {
 		t.Errorf("parked row = %+v, want q2 with its title cleaned", row)
 	}
-	if row := backlog.Parked[2]; !row.Structured || row.ID != "p2" || row.Title != "The CFO's own parked form" || row.Repo != "code-goblins" {
+	if row := backlog.Parked[2]; !row.Structured || row.ID != "p2" || row.Title != "The CEO's own parked form" || row.Repo != "code-goblins" {
 		t.Errorf("parked row = %+v, want p2 with its title cleaned", row)
 	}
 	if len(backlog.Done) != 1 || backlog.Done[0].ID != "d1" {
@@ -490,12 +490,12 @@ func TestReadBacklogReadsATitleAndItsWaitsApartFromEveryAnnotation(t *testing.T)
 		},
 		{
 			name:     "a row that waits on two tasks before its annotations and is held after them",
-			line:     "- [ ] cg-human-triggered-menus - Show selection menus only for human-triggered actions blocked-by: cfo-human-menu-ownership-20261030 blocked-by: cg-goblin-chat-parity (repo: code-goblins) (kind: ship) (priority: 0) (since 2026-10-30) (hold: Consolidated acceptance scope under existing cg-goblin-chat-parity owner. Preserve full brief and findings; no separate goblin or validation run. Close only after verified delivered coverage.) (hold-kind: parked)",
+			line:     "- [ ] cg-human-triggered-menus - Show selection menus only for human-triggered actions blocked-by: ceo-human-menu-ownership-20261030 blocked-by: cg-goblin-chat-parity (repo: code-goblins) (kind: ship) (priority: 0) (since 2026-10-30) (hold: Consolidated acceptance scope under existing cg-goblin-chat-parity owner. Preserve full brief and findings; no separate goblin or validation run. Close only after verified delivered coverage.) (hold-kind: parked)",
 			title:    "Show selection menus only for human-triggered actions",
 			kind:     "ship",
 			priority: "0",
 			blockers: []Blocker{
-				{Kind: "task", Target: "cfo-human-menu-ownership-20261030"},
+				{Kind: "task", Target: "ceo-human-menu-ownership-20261030"},
 				{Kind: "task", Target: "cg-goblin-chat-parity"},
 				{Kind: "hold", Target: "Consolidated acceptance scope under existing cg-goblin-chat-parity owner. Preserve full brief and findings; no separate goblin or validation run. Close only after verified delivered coverage."},
 			},

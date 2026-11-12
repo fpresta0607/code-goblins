@@ -6,7 +6,7 @@ import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
 // A goblin waits on the Overlord to add three DNS records, as
-// cg-precisiondocs-mcp did on 2026-09-28, written the way cfo notify's help
+// cg-precisiondocs-mcp did on 2026-09-28, written the way goblins notify's help
 // says: a lead sentence, a table of values in backticks, a closing line, and
 // the dashboard link given with --link. A second goblin only names an address
 // in its words, and a third opens its wait with the table itself.

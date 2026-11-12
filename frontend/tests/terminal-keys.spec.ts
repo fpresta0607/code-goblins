@@ -6,7 +6,7 @@ import { expect, test, type Page } from "./site";
 // terminal at once and sat unread while Claude Code was busy, and nothing on
 // the board said so. This is the key table of a native terminal: each key and
 // chord a harness screen names is sent as xterm, a plain terminal, sends it,
-// to the CFO's terminal and a goblin's, whatever the program is doing, and
+// to the CEO's terminal and a goblin's, whatever the program is doing, and
 // the keys the board keeps for itself send nothing.
 
 const ESC = "\x1b";
@@ -123,7 +123,7 @@ async function pressEach(page: Page, terminal: Terminal, keys: [string, string][
   return { sent, want };
 }
 
-for (const role of ["cfo", "goblin"]) {
+for (const role of ["ceo", "goblin"]) {
   for (const harness of ["claude", "codex", "pi"]) {
     const keys: [string, string][] = [...KEYS, ["Shift+Enter", SHIFT_ENTER[harness]]];
 
@@ -200,7 +200,7 @@ test.describe("at the Overlord's window size", () => {
 
   test("the waiting notice sits in the terminal's top left corner, clear of its other marks and of the line he types on", async ({ page }) => {
     const terminal = await connect(page);
-    await open(page, "cfo", "claude");
+    await open(page, "ceo", "claude");
     terminal.unread(true);
     const notice = page.getByRole("status").filter({ hasText: NOTICE });
     await expect(notice).toBeVisible();

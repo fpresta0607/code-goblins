@@ -19,7 +19,7 @@ import (
 // A message that starts with ! runs the rest in Windows PowerShell 5.1 through
 // the harness's own ! (the Overlord: "when I type in a PowerShell command ...
 // it should run PowerShell natively. like it does in the terminals cloud
-// code"). He had typed ! powershell ... into the CFO's box, and Claude Code ran
+// code"). He had typed ! powershell ... into the CEO's box, and Claude Code ran
 // it in Git Bash, where it failed on quoting. The board keeps the command as a
 // script and the harness's ! runs that script with powershell.exe, a line with
 // no quote or space for any shell to take apart, so the command's output is in
@@ -44,7 +44,7 @@ func TestAShellMessageRunsItsCommandInWindowsPowerShellThroughTheHarnessesOwnBan
 				typed = append(typed, line)
 				return nil
 			}
-			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+			service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
 			messageTo(t, store, meta, "shell-1", "  !  "+command)
 
 			// Act
@@ -80,7 +80,7 @@ func TestAShellMessageRunsItsCommandInWindowsPowerShellThroughTheHarnessesOwnBan
 	}
 }
 
-// A shell message nothing types, one handed to the CFO for a stopped goblin or
+// A shell message nothing types, one handed to the CEO for a stopped goblin or
 // kept for a paused goblin's resume, carries the command he typed: no line
 // naming powershell.exe and a script, and no script kept or audited for it.
 func TestAShellMessageNothingTypesKeepsHisCommand(t *testing.T) {
@@ -95,7 +95,7 @@ func TestAShellMessageNothingTypesKeepsHisCommand(t *testing.T) {
 			store, h := testStore(t)
 			meta := gatedGoblin(t, h)
 			atPhase(t, h.State, meta, test.action, test.phase)
-			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: &gateFake{}}}
+			service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: &gateFake{}}}
 			action := Action{ID: "shell-1", Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Text: "!git status", Status: "queued", CreatedAt: time.Now()}
 
 			// Act
@@ -106,15 +106,15 @@ func TestAShellMessageNothingTypesKeepsHisCommand(t *testing.T) {
 			if readErr != nil {
 				t.Fatal(readErr)
 			}
-			told := toldCFO(t, h.State, meta.ID)
+			told := toldCEO(t, h.State, meta.ID)
 			switch test.phase {
 			case "stopped":
 				if !errors.Is(err, ErrRejected) || len(told) != 1 || !strings.HasSuffix(told[0], "The Overlord wrote: !git status") {
-					t.Fatalf("delivery = %v, the CFO was told %q; want his command handed over as he typed it", err, told)
+					t.Fatalf("delivery = %v, the CEO was told %q; want his command handed over as he typed it", err, told)
 				}
 			case "paused":
 				if err != nil || record.ResumeNote != "!git status" || len(told) != 0 {
-					t.Fatalf("delivery = %v, resume note %q, the CFO was told %q; want his command kept for the resume", err, record.ResumeNote, told)
+					t.Fatalf("delivery = %v, resume note %q, the CEO was told %q; want his command kept for the resume", err, record.ResumeNote, told)
 				}
 			}
 			if _, statErr := os.Stat(filepath.Join(h.State, "shell-commands")); !os.IsNotExist(statErr) {

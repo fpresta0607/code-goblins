@@ -83,7 +83,7 @@ func (s Service) writeContextPack(ctx context.Context, meta state.TaskMeta, brie
 		pack, err = index.BuildPack(input)
 	}
 	if err != nil {
-		text = fmt.Sprintf("# Context pack: %s, %s\n\nThe fleet's memory could not be read for this pack: %v\nAsk the CEO for what the task needs to know, and run cfo memory recall \"<question>\" once the memory reads again.\n", project, meta.ID, err)
+		text = fmt.Sprintf("# Context pack: %s, %s\n\nThe fleet's memory could not be read for this pack: %v\nAsk the CEO for what the task needs to know, and run goblins memory recall \"<question>\" once the memory reads again.\n", project, meta.ID, err)
 	} else {
 		text, selected = pack.Text, pack.Selected
 	}
@@ -100,7 +100,7 @@ func (s Service) writeContextPack(ctx context.Context, meta state.TaskMeta, brie
 		}
 		return nil
 	}
-	return fmt.Sprintf(" Read the context pack at %s before you start: the rulings, facts, other work in this repository and recent reports picked for this task within %d estimated tokens, each with its source to open. When you need to know more, run cfo memory recall \"<question>\" --project %s.", path, budget, project), recordDelivery, nil
+	return fmt.Sprintf(" Read the context pack at %s before you start: the rulings, facts, other work in this repository and recent reports picked for this task within %d estimated tokens, each with its source to open. When you need to know more, run goblins memory recall \"<question>\" --project %s.", path, budget, project), recordDelivery, nil
 }
 
 // liveTasks is every other task the fleet runs in project now, with its

@@ -2,14 +2,14 @@ import { expect, test, type Page } from "./site";
 
 const problem = "State folder native-inbox cannot be read; native hook events are delayed while other board updates continue: open C:\\scratch-home\\state\\native-inbox: Access is denied.";
 const snapshot = (revision: number, error: string, title: string) => ({
-  instance: "same-supervisor", revision, healthy: true, cfo_runs: true, error,
+  instance: "same-supervisor", revision, healthy: true, ceo_runs: true, error,
   tasks: [{ id: "task", title, generation: "same-task", phase: "working", verified: false }],
 });
 const send = (page: Page, data: object) => page.evaluate((data) => {
   window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: data }));
 }, data);
 
-// The supervisor's own error goes to the CFO, never onto the board: the
+// The supervisor's own error goes to the CEO, never onto the board: the
 // Overlord, 2026-10-07, "this massive lump is useless to me as the user". The
 // board keeps drawing live updates while a folder cannot be read.
 for (const width of [1440, 390]) {

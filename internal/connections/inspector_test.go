@@ -596,7 +596,7 @@ func TestInspectorShowsAServiceTheTaskDoesNotCarryAsWithheld(t *testing.T) {
 			t.Errorf("%s did not have status %s: %+v", id, status, result.Entries)
 			continue
 		}
-		if status == "withheld" && (len(result.Entries[index].Actions) != 0 || !strings.Contains(result.Entries[index].Detail, "cfo auth grant sample payments")) {
+		if status == "withheld" && (len(result.Entries[index].Actions) != 0 || !strings.Contains(result.Entries[index].Detail, "goblins auth grant sample payments")) {
 			t.Errorf("%s = %+v, want no repair offered and the grant that gives it named", id, result.Entries[index])
 		}
 	}
@@ -624,8 +624,8 @@ func TestInspectorReadsATaskAnOlderBuildStartedAsBefore(t *testing.T) {
 }
 
 // The board offers Connect for a service or a project MCP server the task
-// does not carry and Disconnect for one its record names, the two that cfo
-// auth grant and cfo auth revoke change. A credential variable and an MCP
+// does not carry and Disconnect for one its record names, the two that goblins
+// auth grant and goblins auth revoke change. A credential variable and an MCP
 // server from outside the project's .mcp.json offer neither.
 func TestInspectorNamesWhatEachConnectorOffers(t *testing.T) {
 	// Arrange
@@ -678,7 +678,7 @@ func TestInspectorListsTheCrawlerAsTheGoblinsTerminalFindsIt(t *testing.T) {
 			{name: "carried", homeRoot: setUpHome, path: bin + string(os.PathListSeparator) + userPath, wantStatus: "provided"},
 			{name: "left out by its brief", homeRoot: setUpHome, path: userPath, isLeftOut: true, wantStatus: "disabled", wantDetail: "connectors: none"},
 			{name: "started before the home set it up", homeRoot: setUpHome, path: userPath, wantStatus: "missing", wantDetail: "its terminal started before the crawler was set up. A resume, switch or respawn starts one that carries it."},
-			{name: "never set up", homeRoot: bareHome, path: filepath.Join(t.TempDir(), "empty") + string(os.PathListSeparator) + userPath, wantStatus: "missing", wantDetail: "The CFO installs it with cfo crawler setup."},
+			{name: "never set up", homeRoot: bareHome, path: filepath.Join(t.TempDir(), "empty") + string(os.PathListSeparator) + userPath, wantStatus: "missing", wantDetail: "The CEO installs it with goblins crawler setup."},
 		} {
 			t.Run(kind+" "+test.name, func(t *testing.T) {
 				// Arrange

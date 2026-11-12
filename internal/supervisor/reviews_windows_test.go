@@ -132,9 +132,9 @@ func TestAReviewGivenItsScrawlLinkIsPolledOnThePageServedThere(t *testing.T) {
 
 // A page another reporter's open item already shows is refused, recording
 // nothing, whichever comes second: his answer there reaches only the reporter
-// whose item stands for it, so the CFO's review of the page a goblin waits on
+// whose item stands for it, so the CEO's review of the page a goblin waits on
 // him with would take his answer from the goblin, and a goblin's wait on the
-// page the CFO's review holds would take it from the CFO. The goblin's own
+// page the CEO's review holds would take it from the CEO. The goblin's own
 // review of its page is still its own.
 func TestAReviewOfAPageAnotherReporterHoldsIsRefused(t *testing.T) {
 	const link = "https://pc.example.ts.net:4388/session/1a4d8f434fcca24b"
@@ -152,18 +152,18 @@ func TestAReviewOfAPageAnotherReporterHoldsIsRefused(t *testing.T) {
 		holder, reporter string
 		isRefused        bool
 	}{
-		"the CFO's review of a goblin's wait page by its Scrawl link": {first: wait, second: review("", ""), holder: "waiting-task-1-7", reporter: "task-1", isRefused: true},
-		"the CFO's review of a goblin's wait page by its file":        {first: wait, second: review("", `C:\SCRATCH\task-1\review\index.html`), holder: "waiting-task-1-7", reporter: "task-1", isRefused: true},
+		"the CEO's review of a goblin's wait page by its Scrawl link": {first: wait, second: review("", ""), holder: "waiting-task-1-7", reporter: "task-1", isRefused: true},
+		"the CEO's review of a goblin's wait page by its file":        {first: wait, second: review("", `C:\SCRATCH\task-1\review\index.html`), holder: "waiting-task-1-7", reporter: "task-1", isRefused: true},
 		"the goblin's own review of its own page":                     {first: wait, second: review("task-1", ""), holder: "waiting-task-1-7"},
-		"the goblin's wait on the page the CFO's review holds":        {first: review("", ""), second: wait, holder: "layout-review", reporter: "the CFO", isRefused: true},
+		"the goblin's wait on the page the CEO's review holds":        {first: review("", ""), second: wait, holder: "layout-review", reporter: "the CEO", isRefused: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			store, h := testStore(t)
-			_, _, _, cfo := primaryFixture(t, store)
-			servePipe(t, store, cfo)
-			t.Setenv("CFO_SESSION_ID", "actual-primary")
-			t.Setenv("CFO_SESSION_HARNESS", "codex")
+			_, _, _, ceo := primaryFixture(t, store)
+			servePipe(t, store, ceo)
+			t.Setenv("GOBLINS_SESSION_ID", "actual-primary")
+			t.Setenv("GOBLINS_SESSION_HARNESS", "codex")
 			goblinFixture(t, store)
 			lavish := t.TempDir()
 			t.Setenv("LAVISH_AXI_STATE_DIR", lavish)
@@ -205,7 +205,7 @@ func TestAReviewOfAPageAnotherReporterHoldsIsRefused(t *testing.T) {
 	}
 }
 
-// The Overlord, 2026-10-17 about 22:10Z, opened a review card the CFO had just
+// The Overlord, 2026-10-17 about 22:10Z, opened a review card the CEO had just
 // published and got Scrawl's "Session ended. Return to your agent to
 // continue.": its page's session had ended a minute before. A review given
 // the link of a session that has ended is refused, recording nothing, with a
@@ -268,7 +268,7 @@ func TestReviewWithdrawnOnlyByItsReporter(t *testing.T) {
 	}
 }
 
-// cfo review withdraw refuses, recording nothing, an ID it does not know, an
+// goblins review withdraw refuses, recording nothing, an ID it does not know, an
 // item already closed and an item another reporter published.
 func TestReviewWithdrawalRefusedBeforeRecordingAnything(t *testing.T) {
 	store, h := testStore(t)
@@ -349,7 +349,7 @@ func TestReviewRepublishNeverTouchesTheRecordedImages(t *testing.T) {
 }
 
 // His Send and End closes an item, and a reporter that published it again
-// under its ID, as a goblin rerunning cfo review --reopen did, was told it was
+// under its ID, as a goblin rerunning goblins review --reopen did, was told it was
 // published while no card appeared. A republish of an item that is no longer
 // open is refused, naming a new --id, and recording nothing; a republish of
 // an open item is still that same item.
@@ -412,11 +412,11 @@ func TestReviewRefusedByAFullInboxLeavesNoCopies(t *testing.T) {
 }
 
 // The Overlord's answer reaches the item's reporter once: a live goblin in its
-// own terminal, or the CFO that reported it. Inside a long turn it is typed
+// own terminal, or the CEO that reported it. Inside a long turn it is typed
 // once and waits in the input, sent and not yet delivered, until the
 // reporter's hook reports taking it. An answer for a goblin that restarted
-// goes to the CFO instead, and the item reads undelivered.
-func TestReviewAnswerReachesItsReporterOnceOrElseTheCFO(t *testing.T) {
+// goes to the CEO instead, and the item reads undelivered.
+func TestReviewAnswerReachesItsReporterOnceOrElseTheCEO(t *testing.T) {
 	for _, c := range []struct {
 		name         string
 		goblin       bool
@@ -429,21 +429,21 @@ func TestReviewAnswerReachesItsReporterOnceOrElseTheCFO(t *testing.T) {
 		{"a live goblin", true, false, false, "The Overlord answered your review item plan-review-1 (Read the plan): Go with the grid", true, "succeeded"},
 		{"a live goblin inside a long turn", true, false, true, "The Overlord answered your review item plan-review-1 (Read the plan): Go with the grid", false, "running"},
 		{"a respawned goblin", true, true, false, "which came to you because task-1 restarted or ended: Go with the grid", false, "succeeded"},
-		{"the CFO", false, false, false, "Answer to your review item plan-review-1 (Read the plan): Go with the grid", true, "succeeded"},
-		{"the CFO inside a long turn", false, false, true, "Answer to your review item plan-review-1 (Read the plan): Go with the grid", false, "running"},
+		{"the CEO", false, false, false, "Answer to your review item plan-review-1 (Read the plan): Go with the grid", true, "succeeded"},
+		{"the CEO inside a long turn", false, false, true, "Answer to your review item plan-review-1 (Read the plan): Go with the grid", false, "running"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			store, h := testStore(t)
-			_, _, terminal, cfo := primaryFixture(t, store)
-			servePipe(t, store, cfo)
+			_, _, terminal, ceo := primaryFixture(t, store)
+			servePipe(t, store, ceo)
 			meta, _, goblin, _ := goblinFixture(t, store)
-			t.Setenv("CFO_SESSION_ID", "actual-primary")
-			t.Setenv("CFO_SESSION_HARNESS", "codex")
+			t.Setenv("GOBLINS_SESSION_ID", "actual-primary")
+			t.Setenv("GOBLINS_SESSION_HARNESS", "codex")
 			task := ""
 			if c.goblin {
 				task = meta.ID
 			}
-			// The answer is typed into the reporter's terminal, or the CFO's
+			// The answer is typed into the reporter's terminal, or the CEO's
 			// when the goblin that reported it restarted, and nowhere else.
 			recipient, other := terminal, goblin
 			if c.goblin && !c.respawn {
@@ -472,7 +472,7 @@ func TestReviewAnswerReachesItsReporterOnceOrElseTheCFO(t *testing.T) {
 			if c.isBusy {
 				recipient.startTurn(t)
 			}
-			s := &Service{Store: store, Options: Options{CFO: cfo}}
+			s := &Service{Store: store, Options: Options{CEO: ceo}}
 			if err := store.ProcessOne(ctx, s.execute); err != nil {
 				t.Fatal(err)
 			}
@@ -494,16 +494,16 @@ func TestReviewAnswerReachesItsReporterOnceOrElseTheCFO(t *testing.T) {
 }
 
 // The Overlord's board answer on a goblin's item reaches the goblin and, as a
-// notice that asks nothing, the CFO; the CFO's own item needs no notice.
-func TestABoardAnswerOnAGoblinsItemAlsoReachesTheCFO(t *testing.T) {
-	for name, goblin := range map[string]bool{"a goblin's item": true, "the CFO's own item": false} {
+// notice that asks nothing, the CEO; the CEO's own item needs no notice.
+func TestABoardAnswerOnAGoblinsItemAlsoReachesTheCEO(t *testing.T) {
+	for name, goblin := range map[string]bool{"a goblin's item": true, "the CEO's own item": false} {
 		t.Run(name, func(t *testing.T) {
 			store, h := testStore(t)
-			_, _, _, cfo := primaryFixture(t, store)
-			servePipe(t, store, cfo)
+			_, _, _, ceo := primaryFixture(t, store)
+			servePipe(t, store, ceo)
 			meta, _, _, _ := goblinFixture(t, store)
-			t.Setenv("CFO_SESSION_ID", "actual-primary")
-			t.Setenv("CFO_SESSION_HARNESS", "codex")
+			t.Setenv("GOBLINS_SESSION_ID", "actual-primary")
+			t.Setenv("GOBLINS_SESSION_HARNESS", "codex")
 			task := ""
 			if goblin {
 				task = meta.ID
@@ -520,7 +520,7 @@ func TestABoardAnswerOnAGoblinsItemAlsoReachesTheCFO(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if err := store.ProcessOne(ctx, (&Service{Store: store, Options: Options{CFO: cfo}}).execute); err != nil {
+			if err := store.ProcessOne(ctx, (&Service{Store: store, Options: Options{CEO: ceo}}).execute); err != nil {
 				t.Fatal(err)
 			}
 
@@ -531,7 +531,7 @@ func TestABoardAnswerOnAGoblinsItemAlsoReachesTheCFO(t *testing.T) {
 				}
 				for _, record := range records {
 					if record.Kind == "review" {
-						t.Fatalf("review wake %+v, want none: the CFO answered its own item", record)
+						t.Fatalf("review wake %+v, want none: the CEO answered its own item", record)
 					}
 				}
 				return
@@ -552,10 +552,10 @@ func TestABoardAnswerOnAGoblinsItemAlsoReachesTheCFO(t *testing.T) {
 // room for the waiting one.
 func TestAnsweredReviewSurvivesAFullListUntilDelivered(t *testing.T) {
 	store, h := testStore(t)
-	_, _, terminal, cfo := primaryFixture(t, store)
-	servePipe(t, store, cfo)
-	t.Setenv("CFO_SESSION_ID", "actual-primary")
-	t.Setenv("CFO_SESSION_HARNESS", "codex")
+	_, _, terminal, ceo := primaryFixture(t, store)
+	servePipe(t, store, ceo)
+	t.Setenv("GOBLINS_SESSION_ID", "actual-primary")
+	t.Setenv("GOBLINS_SESSION_HARNESS", "codex")
 	ctx := context.Background()
 	if err := PublishReview(h, "", "plan-review-1", "Read the plan", "", "", nil); err != nil {
 		t.Fatal(err)
@@ -581,11 +581,11 @@ func TestAnsweredReviewSurvivesAFullListUntilDelivered(t *testing.T) {
 	if got := store.Snapshot().Reviews; got[0].ID != r.ID || got[0].State != "answered" || got[len(got)-1].ID == "waiting-review" {
 		t.Fatalf("reviews start with %s and end with %s; want the answered item kept and the publication still waiting", got[0].ID, got[len(got)-1].ID)
 	}
-	if err := store.ProcessOne(ctx, (&Service{Store: store, Options: Options{CFO: cfo}}).execute); err != nil {
+	if err := store.ProcessOne(ctx, (&Service{Store: store, Options: Options{CEO: ceo}}).execute); err != nil {
 		t.Fatal(err)
 	}
 	if got, typed := store.Snapshot().Reviews[0], terminal.lines(t); len(typed) != 1 || !strings.Contains(typed[0], "Go with the grid") || got.ID != r.ID || !got.Delivered {
-		t.Fatalf("the CFO's terminal received %q and review = %+v, want the answer delivered once", typed, got)
+		t.Fatalf("the CEO's terminal received %q and review = %+v, want the answer delivered once", typed, got)
 	}
 	if err := store.ingestReviews(); err != nil {
 		t.Fatal(err)
@@ -693,13 +693,13 @@ func TestAWaitKeepsItsLinesAndTheLinkItGave(t *testing.T) {
 	}
 }
 
-// The registered CFO clears a goblin's stale item with a reason, which the
+// The registered CEO clears a goblin's stale item with a reason, which the
 // item keeps and state/reviews.audit records; no other process can, and an
 // item it does not know is refused before anything is recorded.
-func TestTheCFOClearsAStaleItemWithAnAuditedReason(t *testing.T) {
+func TestTheCEOClearsAStaleItemWithAnAuditedReason(t *testing.T) {
 	store, h := testStore(t)
-	_, _, _, cfo := primaryFixture(t, store)
-	servePipe(t, store, cfo)
+	_, _, _, ceo := primaryFixture(t, store)
+	servePipe(t, store, ceo)
 	meta, _, _, _ := goblinFixture(t, store)
 	for _, id := range []string{"plan-review-1", "plan-review-2"} {
 		if err := PublishReview(h, meta.ID, id, "Read the plan", "", "", nil); err != nil {
@@ -709,7 +709,7 @@ func TestTheCFOClearsAStaleItemWithAnAuditedReason(t *testing.T) {
 	if err := store.ingestReviews(); err != nil {
 		t.Fatal(err)
 	}
-	if err := spoolReview(h.State, Review{ID: "plan-review-2", Identity: strings.Repeat("e", 64), State: "cleared", Reason: "not the CFO", UpdatedAt: time.Now().UTC()}); err != nil {
+	if err := spoolReview(h.State, Review{ID: "plan-review-2", Identity: strings.Repeat("e", 64), State: "cleared", Reason: "not the CEO", UpdatedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -724,24 +724,24 @@ func TestTheCFOClearsAStaleItemWithAnAuditedReason(t *testing.T) {
 	}
 
 	got := store.Snapshot()
-	if got.Reviews[0].State != "cleared" || got.Reviews[0].Reason != "Cleared by the CFO: Decided: the plan is approved" {
-		t.Errorf("the CFO's clear = %+v, want the item cleared with its reason", got.Reviews[0])
+	if got.Reviews[0].State != "cleared" || got.Reviews[0].Reason != "Cleared by the CEO: Decided: the plan is approved" {
+		t.Errorf("the CEO's clear = %+v, want the item cleared with its reason", got.Reviews[0])
 	}
 	if got.Reviews[1].State != "open" || !strings.Contains(strings.Join(got.Issues, "\n"), "only over the supervisor's pipe") {
 		t.Errorf("a stranger's clear = %+v %q, want it refused and the item open", got.Reviews[1], got.Issues)
 	}
 	audit, err := os.ReadFile(filepath.Join(h.State, "reviews.audit"))
-	if err != nil || !strings.Contains(string(audit), " plan-review-1 task-1 Cleared by the CFO: Decided: the plan is approved\n") || strings.Contains(string(audit), "plan-review-2") {
-		t.Errorf("reviews.audit = %q (%v), want the CFO's clear recorded and nothing else", audit, err)
+	if err != nil || !strings.Contains(string(audit), " plan-review-1 task-1 Cleared by the CEO: Decided: the plan is approved\n") || strings.Contains(string(audit), "plan-review-2") {
+		t.Errorf("reviews.audit = %q (%v), want the CEO's clear recorded and nothing else", audit, err)
 	}
 }
 
 // A clear the store recorded but could not audit says so, rather than claiming
 // the clear was rejected.
-func TestACFOClearWhoseAuditFailsIsReportedAsCleared(t *testing.T) {
+func TestACEOClearWhoseAuditFailsIsReportedAsCleared(t *testing.T) {
 	store, h := testStore(t)
-	_, _, _, cfo := primaryFixture(t, store)
-	servePipe(t, store, cfo)
+	_, _, _, ceo := primaryFixture(t, store)
+	servePipe(t, store, ceo)
 	meta, _, _, _ := goblinFixture(t, store)
 	if err := PublishReview(h, meta.ID, "plan-review-1", "Read the plan", "", "", nil); err != nil {
 		t.Fatal(err)
@@ -762,19 +762,19 @@ func TestACFOClearWhoseAuditFailsIsReportedAsCleared(t *testing.T) {
 
 	got := store.Snapshot()
 	if got.Reviews[0].State != "cleared" {
-		t.Errorf("the CFO's clear = %+v, want the item cleared", got.Reviews[0])
+		t.Errorf("the CEO's clear = %+v, want the item cleared", got.Reviews[0])
 	}
 	if issues := strings.Join(got.Issues, "\n"); !strings.Contains(issues, "plan-review-1 was cleared, but state/reviews.audit was not written") || strings.Contains(issues, "rejected") {
 		t.Errorf("issues = %q, want the clear reported as recorded but unaudited", got.Issues)
 	}
 }
 
-// The CFO's answer to a goblin's question closes that question and only the
+// The CEO's answer to a goblin's question closes that question and only the
 // waits the goblin declared to follow it: the goblin's other waits on the
 // Overlord stay open, filed before the question or after it, and none is
 // recorded as cleared, since a wait only he can clear, such as a sign-in, is
 // never settled by an answer to a different question.
-func TestTheCFOsAnswerLeavesTheGoblinsWaitsOnTheOverlord(t *testing.T) {
+func TestTheCEOsAnswerLeavesTheGoblinsWaitsOnTheOverlord(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	primaryFixture(t, store)
@@ -817,7 +817,7 @@ func TestTheCFOsAnswerLeavesTheGoblinsWaitsOnTheOverlord(t *testing.T) {
 	}
 	for _, got := range reviews {
 		if got.State != "open" {
-			t.Errorf("the goblin's wait %s after the CFO answered its question = %s (%q), want it open", got.ID, got.State, got.Reason)
+			t.Errorf("the goblin's wait %s after the CEO answered its question = %s (%q), want it open", got.ID, got.State, got.Reason)
 		}
 	}
 	if audit, err := os.ReadFile(filepath.Join(h.State, "reviews.audit")); !errors.Is(err, os.ErrNotExist) {

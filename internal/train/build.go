@@ -236,8 +236,8 @@ func (e Engine) branchHead(ctx context.Context, t Train) (string, error) {
 // CI tests.
 func (t Train) words() (title, body string) {
 	riders := t.carsIn(CarRiding)
-	title = "chore(cfo): merge train for PRs " + t.numbers(riders)
-	body = fmt.Sprintf("The CFO's merge train %s: %s merged onto %s at %s in this order, so CI tests them together once. When this run is green, this pull request merges only the pinned combination CI tested after repository policy, exact head and base, successful check identities and current rider eligibility are verified: %s takes the commit CI tested, and GitHub marks each of those pull requests merged, since %s then holds its head. A policy or identity hold keeps this pull request open and visible without repeated CI runs. Before any failed-check retry or split, the train rechecks current rider eligibility. A run without green proof whose checks fail gets one retry of its failed checks, and if it fails again the train is halved until the pull request that breaks it is found. Every green half lands only after the same checks. The train closes this pull request with the reason if it finishes without landing, and deletes its branch only if its recorded head still matches.",
+	title = "chore(ceo): merge train for PRs " + t.numbers(riders)
+	body = fmt.Sprintf("The CEO's merge train %s: %s merged onto %s at %s in this order, so CI tests them together once. When this run is green, this pull request merges only the pinned combination CI tested after repository policy, exact head and base, successful check identities and current rider eligibility are verified: %s takes the commit CI tested, and GitHub marks each of those pull requests merged, since %s then holds its head. A policy or identity hold keeps this pull request open and visible without repeated CI runs. Before any failed-check retry or split, the train rechecks current rider eligibility. A run without green proof whose checks fail gets one retry of its failed checks, and if it fails again the train is halved until the pull request that breaks it is found. Every green half lands only after the same checks. The train closes this pull request with the reason if it finishes without landing, and deletes its branch only if its recorded head still matches.",
 		t.ID, t.riders(riders), t.Base, short(t.BaseSHA), t.Base, t.Base)
 	return title, body
 }
@@ -262,7 +262,7 @@ const (
 // it landed by its own number. A repository's first train finds no such
 // label and makes it, and a label the repository has is left as its owner
 // keeps it. The label is housekeeping, so a train never stops for it: one
-// that could not be put on is told to the CFO with how to put it on by hand.
+// that could not be put on is told to the CEO with how to put it on by hand.
 func (e Engine) wear(ctx context.Context, t Train) {
 	add := func() error {
 		_, err := e.run(ctx, t.Checkout, "gh", "pr", "edit", t.PR, "--add-label", OwnLabel)
@@ -277,7 +277,7 @@ func (e Engine) wear(ctx context.Context, t Train) {
 		}
 	}
 	if err != nil && ctx.Err() == nil {
-		e.tellCFO(ctx, fmt.Sprintf("merge_train: %s train %s could not put the label %s on its pull request %s (%v). The notes GitHub writes for a release list a merged pull request that does not wear it, so put it on by hand if this one merges without: gh pr edit %s --add-label %s", t.Repository, t.ID, OwnLabel, t.PR, err, t.PR, OwnLabel))
+		e.tellCEO(ctx, fmt.Sprintf("merge_train: %s train %s could not put the label %s on its pull request %s (%v). The notes GitHub writes for a release list a merged pull request that does not wear it, so put it on by hand if this one merges without: gh pr edit %s --add-label %s", t.Repository, t.ID, OwnLabel, t.PR, err, t.PR, OwnLabel))
 	}
 }
 

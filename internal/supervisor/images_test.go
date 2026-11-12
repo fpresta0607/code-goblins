@@ -184,7 +184,7 @@ func TestQuestionImagesMatchTheGoblinsChoices(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, q := range map[string]Question{
-		"the CFO's question":     func() Question { q := goblin; q.Task, q.Generation, q.Seq = "", "", 0; return q }(),
+		"the CEO's question":     func() Question { q := goblin; q.Task, q.Generation, q.Seq = "", "", 0; return q }(),
 		"one image too few":      func() Question { q := goblin; q.Images = q.Images[:1]; return q }(),
 		"images without choices": func() Question { q := goblin; q.Options = nil; return q }(),
 		"a relative path":        func() Question { q := goblin; q.Images = []string{"a.png", shot}; return q }(),

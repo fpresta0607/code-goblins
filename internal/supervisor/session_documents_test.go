@@ -84,7 +84,7 @@ func documentReference(t *testing.T, transcript, target string) {
 func requestDocument(board *HTTP, meta state.TaskMeta, target, token string) *httptest.ResponseRecorder {
 	query := url.Values{"task": {meta.ID}, "generation": {meta.SpawnGen}, "document": {target}}
 	request := httptest.NewRequest("GET", "http://"+board.Host+"/api/messages?"+query.Encode(), nil)
-	request.Header.Set("X-CFO-Token", token)
+	request.Header.Set("X-CEO-Token", token)
 	response := httptest.NewRecorder()
 	board.ServeHTTP(response, request)
 	return response
@@ -203,7 +203,7 @@ func TestSessionDocumentsRefuseCancelledReferenceLookups(t *testing.T) {
 			}
 			query := url.Values{"task": {meta.ID}, "generation": {meta.SpawnGen}, "document": {file}}
 			request := httptest.NewRequest("GET", "http://"+board.Host+"/api/messages?"+query.Encode(), nil).WithContext(ctx)
-			request.Header.Set("X-CFO-Token", "document-token")
+			request.Header.Set("X-CEO-Token", "document-token")
 			response := httptest.NewRecorder()
 
 			board.ServeHTTP(response, request)
@@ -224,7 +224,7 @@ func TestSessionDocumentsKeepRangeReadsPrivate(t *testing.T) {
 	documentReference(t, transcript, file)
 	query := url.Values{"task": {meta.ID}, "generation": {meta.SpawnGen}, "document": {file}}
 	request := httptest.NewRequest("GET", "http://"+board.Host+"/api/messages?"+query.Encode(), nil)
-	request.Header.Set("X-CFO-Token", "document-token")
+	request.Header.Set("X-CEO-Token", "document-token")
 	request.Header.Set("Range", "bytes=0-7")
 	response := httptest.NewRecorder()
 
@@ -258,17 +258,17 @@ func TestSessionDocumentsRejectQueryTokensAndForeignOrigins(t *testing.T) {
 		t.Fatal(err)
 	}
 	documentReference(t, transcript, file)
-	for _, name := range []string{"query token", "foreign origin", "CFO access"} {
+	for _, name := range []string{"query token", "foreign origin", "CEO access"} {
 		t.Run(name, func(t *testing.T) {
 			query := url.Values{"task": {meta.ID}, "generation": {meta.SpawnGen}, "document": {file}}
 			if name == "query token" {
 				query.Set("token", "document-token")
-			} else if name == "CFO access" {
-				query.Set("cfo", "native-terminal")
+			} else if name == "CEO access" {
+				query.Set("ceo", "native-terminal")
 			}
 			request := httptest.NewRequest("GET", "http://"+board.Host+"/api/messages?"+query.Encode(), nil)
 			if name != "query token" {
-				request.Header.Set("X-CFO-Token", "document-token")
+				request.Header.Set("X-CEO-Token", "document-token")
 			}
 			if name == "foreign origin" {
 				request.Header.Set("Origin", "http://untrusted.example")

@@ -188,7 +188,7 @@ func TestFilesRefuseASessionTheBoardCannotName(t *testing.T) {
 		{"a node selector", "task=task-1&token=test-instance&node=other", http.StatusBadRequest},
 		{"a task this home does not hold", "task=task-9&token=test-instance", http.StatusNotFound},
 		{"a generation a later start replaced", "task=task-1&generation=old&token=test-instance", http.StatusConflict},
-		{"a CFO that is not running", "cfo=1&token=test-instance", http.StatusNotFound},
+		{"a CEO that is not running", "ceo=1&token=test-instance", http.StatusNotFound},
 	} {
 		t.Run(c.what, func(t *testing.T) {
 			// Act

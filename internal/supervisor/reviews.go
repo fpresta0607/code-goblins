@@ -52,7 +52,7 @@ type Review struct {
 	ID       string `json:"id"`
 	Identity string `json:"identity"`
 	// Made is the identity the item was made under, once it has followed the
-	// CFO to another registration: its directory stays named after it.
+	// CEO to another registration: its directory stays named after it.
 	Made  string `json:"made,omitempty"`
 	Task  string `json:"task,omitempty"`
 	Title string `json:"title"`
@@ -62,7 +62,7 @@ type Review struct {
 	ImageSums  []string `json:"image_sums,omitempty"`
 	ImageCount int      `json:"image_count,omitempty"`
 	Lavish     string   `json:"lavish,omitempty"`
-	// LavishPage is the HTML file of a Lavish page, a goblin's or the CFO's
+	// LavishPage is the HTML file of a Lavish page, a goblin's or the CEO's
 	// own, which the supervisor polls for the Overlord's feedback until the
 	// review on it settles, whatever becomes of the item.
 	LavishPage string `json:"lavish_page,omitempty"`
@@ -76,7 +76,7 @@ type Review struct {
 	Link string `json:"link,omitempty"`
 	// Follows is the decision a goblin's wait on him that opens nothing
 	// follows, by its question's ID, which the goblin declared as it raised
-	// the wait (cfo notify --follows): the CFO's question for its task (cfo
+	// the wait (goblins notify --follows): the CEO's question for its task (goblins
 	// question --for) or the goblin's own with choices. The board shows only
 	// that question while it is open, and its answer closes the wait. A wait
 	// that declares none is its own card, whatever is open.
@@ -88,11 +88,11 @@ type Review struct {
 	Answer   string          `json:"answer,omitempty"`
 	AnswerID string          `json:"answer_id,omitempty"`
 	// Delivered says the answer reached the reporter itself; an answer for
-	// a goblin that restarted or ended goes to the CFO and stays false.
+	// a goblin that restarted or ended goes to the CEO and stays false.
 	Delivered bool `json:"delivered,omitempty"`
 	// AnsweredBy and AnsweredIn say who answered an item outside the Command
 	// Center and where, such as overlord and page for his answer on the
-	// item's own page, which the CFO has.
+	// item's own page, which the CEO has.
 	AnsweredBy string `json:"answered_by,omitempty"`
 	AnsweredIn string `json:"answered_in,omitempty"`
 	// WindowClosedAt is when the review window of the item's page last
@@ -172,8 +172,8 @@ func reviewImageDir(stateDir string, r Review) string {
 }
 
 // reviewReporter proves who is reporting: a goblin from inside its task's own
-// terminal, or the registered primary CFO when taskID is empty. The returned
-// release keeps the CFO's registration from changing until the report is made.
+// terminal, or the registered primary CEO when taskID is empty. The returned
+// release keeps the CEO's registration from changing until the report is made.
 func reviewReporter(h home.Home, taskID string) (string, func(), error) {
 	if taskID != "" {
 		meta, err := goblinAsker(h.State, taskID)
@@ -182,7 +182,7 @@ func reviewReporter(h home.Home, taskID string) (string, func(), error) {
 		}
 		return goblinIdentity(meta), func() {}, nil
 	}
-	return (&CFOConnection{State: h.State}).CallerIdentity()
+	return (&CEOConnection{State: h.State}).CallerIdentity()
 }
 
 // PublishReview reports an item for the Overlord from the reporter's own
@@ -190,7 +190,7 @@ func reviewReporter(h home.Home, taskID string) (string, func(), error) {
 // state/reviews before the item is recorded. A page, given only with its
 // link, is polled by the supervisor for his feedback; a Scrawl link given
 // without its page is polled on the page lavish-axi serves there. While AFK
-// mode is on a goblin's item with a page is that goblin's question to the CFO
+// mode is on a goblin's item with a page is that goblin's question to the CEO
 // instead, which answers it in his place.
 func PublishReview(h home.Home, taskID, id, title, lavish, page string, images []string) error {
 	if len(images) > maxReviewImages || len(images) > 0 && taskID == "" {
@@ -203,7 +203,7 @@ func PublishReview(h home.Home, taskID, id, title, lavish, page string, images [
 		}
 	}
 	if switched, err := afk.Read(h.State); taskID != "" && lavish != "" && err == nil && switched.On {
-		return askCFOOnPage(h, taskID, id, title, lavish, page, images)
+		return askCEOOnPage(h, taskID, id, title, lavish, page, images)
 	}
 	return publishItem(h, Review{ID: id, Task: taskID, Title: title, Lavish: lavish, LavishPage: page}, func(r *Review, dir string) (bool, error) {
 		sums, err := stageReviewImages(h, taskID, images, dir)
@@ -261,18 +261,18 @@ func RefuseEndedPage(page string) error {
 // EndedPage refuses a review of page, its Scrawl link or its HTML file, whose
 // review session has ended: its card would open a page that says so.
 func EndedPage(page string) error {
-	return fmt.Errorf("the review session of %s has ended, so its card would open a page that says so; open it again with cfo review --id <a new ID> --lavish <its link or HTML file> --reopen, only when the Overlord asked for another look", page)
+	return fmt.Errorf("the review session of %s has ended, so its card would open a page that says so; open it again with goblins review --id <a new ID> --lavish <its link or HTML file> --reopen, only when the Overlord asked for another look", page)
 }
 
-// askCFOOnPage puts goblin taskID's item id, with its page, to the CFO as the
+// askCEOOnPage puts goblin taskID's item id, with its page, to the CEO as the
 // goblin's question while AFK mode is on, once for the item: a notify that
-// wakes the CFO with the item's title, the page's link and the choices the
-// page declares, and the question on the board, which is the CFO's to answer
+// wakes the CEO with the item's title, the page's link and the choices the
+// page declares, and the question on the board, which is the CEO's to answer
 // and never waits on the Overlord, though his own answer on the page, which
 // the supervisor watches, answers it too. The item's images, which his card would
-// show, are named for the CFO, which answers in his place; the goblin writes
+// show, are named for the CEO, which answers in his place; the goblin writes
 // no status line, as for any item.
-func askCFOOnPage(h home.Home, taskID, id, title, link, page string, images []string) error {
+func askCEOOnPage(h home.Home, taskID, id, title, link, page string, images []string) error {
 	meta, err := goblinAsker(h.State, taskID)
 	if err != nil {
 		return err
@@ -307,7 +307,7 @@ func askCFOOnPage(h home.Home, taskID, id, title, link, page string, images []st
 // stands for it, so a second reporter's item would take it from the first.
 var ErrPageHeld = errors.New("another reporter's open item already shows that page")
 
-// refuseHeldPage refuses item r while another reporter's open item, the CFO's
+// refuseHeldPage refuses item r while another reporter's open item, the CEO's
 // or another goblin's, shows r's page. A reporter's own newer item for its
 // own page is its own. The caller holds the publish lock, so no other report
 // records the page between this check and r's record.
@@ -325,7 +325,7 @@ func refuseHeldPage(stateDir string, r Review) error {
 	if i < 0 {
 		return nil
 	}
-	reporter := "the CFO"
+	reporter := "the CEO"
 	if reviews[i].Task != "" {
 		reporter = reviews[i].Task
 	}
@@ -439,7 +439,7 @@ func WithdrawReview(h home.Home, taskID, id, reason string) error {
 	return recordReview(h.State, Review{ID: id, Identity: identity, Task: taskID, State: "withdrawn", Reason: reason, UpdatedAt: time.Now().UTC()})
 }
 
-// ClearReview closes any open item for the registered primary CFO, such as a
+// ClearReview closes any open item for the registered primary CEO, such as a
 // retired goblin's item that only its reporter could withdraw. The reason is
 // kept on the item and state/reviews.audit records the clear.
 func ClearReview(h home.Home, id, reason string) error {
@@ -467,7 +467,7 @@ func ClearReview(h home.Home, id, reason string) error {
 	if r := reviews[i]; r.State != "open" {
 		return errors.New("the review is already " + r.State)
 	}
-	return recordReview(h.State, Review{ID: id, Identity: identity, Task: reviews[i].Task, State: "cleared", Reason: "Cleared by the CFO: " + strings.TrimSpace(reason), UpdatedAt: time.Now().UTC()})
+	return recordReview(h.State, Review{ID: id, Identity: identity, Task: reviews[i].Task, State: "cleared", Reason: "Cleared by the CEO: " + strings.TrimSpace(reason), UpdatedAt: time.Now().UTC()})
 }
 
 // reviewPublishLock serializes reporters, waiting briefly for another one.
@@ -633,17 +633,17 @@ func reviewInboxRoom(stateDir string) error {
 	return nil
 }
 
-// cfoRecord reports whether a review record speaks for the registered CFO:
-// its own item, its own withdrawal, or a clear, which only the CFO gives.
-func cfoRecord(r Review) bool {
+// ceoRecord reports whether a review record speaks for the registered CEO:
+// its own item, its own withdrawal, or a clear, which only the CEO gives.
+func ceoRecord(r Review) bool {
 	return r.Task == "" || r.State == "cleared"
 }
 
-// recordReview hands a review record to the supervisor: the CFO's over the
+// recordReview hands a review record to the supervisor: the CEO's over the
 // pipe, where the supervisor proves who is sending it, and a goblin's through
 // the inbox, where it can only ever read as that goblin's.
 func recordReview(stateDir string, r Review) error {
-	if cfoRecord(r) {
+	if ceoRecord(r) {
 		return sendPipeRequest(stateDir, runPipeRequest{Kind: "review", Review: &r})
 	}
 	return spoolReview(stateDir, r)
@@ -697,7 +697,7 @@ func (s *Store) ingestReviews() error {
 				invalid = errors.New("invalid review JSON")
 			}
 		}
-		if invalid == nil && cfoRecord(r) {
+		if invalid == nil && ceoRecord(r) {
 			invalid = errFromInbox
 		}
 		records = append(records, record{path, r, invalid})
@@ -818,7 +818,7 @@ func (s *Store) acceptReview(r Review) error {
 			return errors.New("no review with that ID to clear")
 		}
 		if identity, err := s.primaryIdentity(); err != nil || identity != r.Identity {
-			return errors.New("only the registered CFO can clear another reporter's review")
+			return errors.New("only the registered CEO can clear another reporter's review")
 		}
 		prior := &s.db.Reviews[i]
 		if prior.State != "open" {
@@ -857,7 +857,7 @@ func (s *Store) acceptReview(r Review) error {
 	return s.save()
 }
 
-// primaryIdentity is the identity of the CFO primary.json registers now.
+// primaryIdentity is the identity of the CEO primary.json registers now.
 func (s *Store) primaryIdentity() (string, error) {
 	file, err := openPrimary(filepath.Join(s.Home.State, "primary.json"))
 	if err != nil {
@@ -931,7 +931,7 @@ func (s *Store) holdsWait(r Review) bool {
 // endsAWait reports whether a goblin's report after its wait on the Overlord
 // ends that wait: it finished or failed, or waits on him again, which a newer
 // item stands for. A goblin working on beside the wait, waiting on something
-// else meanwhile or asking the CFO still wants his answer, as a goblin that
+// else meanwhile or asking the CEO still wants his answer, as a goblin that
 // never waits on a choice it can undo does: pd-whats-new's picks were
 // withdrawn by its own working report on 2026-10-08 and asked again fourteen
 // hours later.
@@ -989,13 +989,13 @@ func (s *Store) clearReview(i int, reason string, at time.Time) {
 }
 
 // answerReview delivers the Overlord's answer once to the item's reporter:
-// the goblin's own pane while it is the same task generation, or the CFO that
+// the goblin's own pane while it is the same task generation, or the CEO that
 // reported it, where a reporter inside a long turn takes it once the turn
 // ends. An answer for a goblin that restarted or ended goes to the
-// current CFO instead, and the item stays undelivered. An answer a goblin
-// received also reaches the CFO, as a notice in its wake queue.
+// current CEO instead, and the item stays undelivered. An answer a goblin
+// received also reaches the CEO, as a notice in its wake queue.
 func (s *Service) answerReview(ctx context.Context, a Action) (Evaluation, error) {
-	if s.Options.CFO == nil {
+	if s.Options.CEO == nil {
 		return Evaluation{}, fmt.Errorf("%w: message transport is unavailable", ErrRejected)
 	}
 	reviews := s.Store.Snapshot().Reviews
@@ -1008,12 +1008,12 @@ func (s *Service) answerReview(ctx context.Context, a Action) (Evaluation, error
 	var err error
 	sent := time.Now().UTC()
 	if r.Task == "" {
-		result, err = s.Options.CFO.Send(ctx, r.Identity, fmt.Sprintf("Answer to your review item %s (%s): %s", r.ID, r.Title, a.Text))
+		result, err = s.Options.CEO.Send(ctx, r.Identity, fmt.Sprintf("Answer to your review item %s (%s): %s", r.ID, r.Title, a.Text))
 	} else {
 		text := fmt.Sprintf("The Overlord answered your review item %s (%s): %s", r.ID, r.Title, a.Text)
-		result, err = s.Options.CFO.SendGoblinHis(ctx, r.Task, r.Identity, text)
+		result, err = s.Options.CEO.SendGoblinHis(ctx, r.Task, r.Identity, text)
 		if errors.Is(err, ErrRejected) {
-			return s.answerReviewToCFO(ctx, r, a.Text)
+			return s.answerReviewToCEO(ctx, r, a.Text)
 		}
 		if errors.Is(err, fleet.ErrQueuedForToolCall) {
 			result, err = s.behindGoblinsTurn(r.Task, sent, text, "Submitted while its reporter was working; it takes the answer at its next tool call, or as its current turn ends."), nil
@@ -1025,7 +1025,7 @@ func (s *Service) answerReview(ctx context.Context, a Action) (Evaluation, error
 	if r.Task != "" {
 		// The goblin already has the answer, so a notice that cannot be
 		// queued is reported rather than failing, and resending, the answer.
-		if err := noticeAnswerToCFO(s.Store.Home.State, r, a.Text); err != nil {
+		if err := noticeAnswerToCEO(s.Store.Home.State, r, a.Text); err != nil {
 			s.publish(err)
 		}
 	}
@@ -1036,9 +1036,9 @@ func (s *Service) answerReview(ctx context.Context, a Action) (Evaluation, error
 	return result, s.Store.markReviewDelivered(r.ID, a.ID)
 }
 
-// noticeAnswerToCFO tells the CFO what the Overlord answered on a goblin's
+// noticeAnswerToCEO tells the CEO what the Overlord answered on a goblin's
 // item, without asking it anything.
-func noticeAnswerToCFO(stateDir string, r Review, answer string) error {
+func noticeAnswerToCEO(stateDir string, r Review, answer string) error {
 	if _, err := wake.Append(stateDir, "review", r.Task, bounded(fmt.Sprintf("the Overlord answered %s (%s) on the board, and the goblin has it: %s", r.ID, r.Title, answer), 4000)); err != nil {
 		return err
 	}
@@ -1048,7 +1048,7 @@ func noticeAnswerToCFO(stateDir string, r Review, answer string) error {
 
 // tellOfAClearedWait tells a goblin whose wait on the Overlord he cleared from
 // the Command Center that it is gone from there, since the goblin still waits
-// on him, and tells the CFO, so a wait he closed is never lost unseen. It
+// on him, and tells the CEO, so a wait he closed is never lost unseen. It
 // returns what could not be told, for the clear's own reason.
 func (s *Service) tellOfAClearedWait(ctx context.Context, id string) string {
 	reviews := s.Store.Snapshot().Reviews
@@ -1058,40 +1058,40 @@ func (s *Service) tellOfAClearedWait(ctx context.Context, id string) string {
 	}
 	r := reviews[i]
 	told := "and the goblin was told"
-	if s.Options.CFO == nil {
+	if s.Options.CEO == nil {
 		told = "but the goblin could not be told: message transport is unavailable"
-	} else if _, err := s.Options.CFO.SendGoblin(ctx, r.Task, r.Identity, fmt.Sprintf("The Overlord skipped your wait %s (%s) from the Command Center. Go on without it. If you still need him for it, ask again with cfo notify --waiting-on overlord.", r.ID, r.Title)); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
+	} else if _, err := s.Options.CEO.SendGoblin(ctx, r.Task, r.Identity, fmt.Sprintf("The Overlord skipped your wait %s (%s) from the Command Center. Go on without it. If you still need him for it, ask again with goblins notify --waiting-on overlord.", r.ID, r.Title)); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
 		told = "but the goblin could not be told: " + bounded(err.Error(), 300)
 	}
 	detail := fmt.Sprintf("the Overlord cleared %s's wait %s (%s) from the Command Center, %s", r.Task, r.ID, r.Title, told)
 	if _, err := wake.Append(s.Store.Home.State, "review", r.Task, bounded(detail, 4000)); err != nil {
-		return " The CFO could not be told: " + bounded(err.Error(), 300)
+		return " The CEO could not be told: " + bounded(err.Error(), 300)
 	}
 	if _, err := wake.PublishEpisode(s.Store.Home.State); err != nil {
-		return " The CFO could not be told: " + bounded(err.Error(), 300)
+		return " The CEO could not be told: " + bounded(err.Error(), 300)
 	}
 	return ""
 }
 
-// answerReviewToCFO hands an answer whose goblin is gone to the current CFO.
-func (s *Service) answerReviewToCFO(ctx context.Context, r Review, answer string) (Evaluation, error) {
+// answerReviewToCEO hands an answer whose goblin is gone to the current CEO.
+func (s *Service) answerReviewToCEO(ctx context.Context, r Review, answer string) (Evaluation, error) {
 	file, err := openPrimary(filepath.Join(s.Store.Home.State, "primary.json"))
 	if err != nil {
-		return Evaluation{}, fmt.Errorf("%w: %s restarted or ended and no CFO is registered; the answer is kept on the item", ErrRejected, r.Task)
+		return Evaluation{}, fmt.Errorf("%w: %s restarted or ended and no CEO is registered; the answer is kept on the item", ErrRejected, r.Task)
 	}
 	_, identity, err := decodePrimary(file)
 	_ = file.Close()
 	if err != nil {
-		return Evaluation{}, fmt.Errorf("%w: %s restarted or ended and the CFO registration is unreadable; the answer is kept on the item", ErrRejected, r.Task)
+		return Evaluation{}, fmt.Errorf("%w: %s restarted or ended and the CEO registration is unreadable; the answer is kept on the item", ErrRejected, r.Task)
 	}
-	result, err := s.Options.CFO.Send(ctx, identity, fmt.Sprintf("Answer to %s's review item %s (%s), which came to you because %s restarted or ended: %s", r.Task, r.ID, r.Title, r.Task, answer))
+	result, err := s.Options.CEO.Send(ctx, identity, fmt.Sprintf("Answer to %s's review item %s (%s), which came to you because %s restarted or ended: %s", r.Task, r.ID, r.Title, r.Task, answer))
 	if err != nil {
 		return result, err
 	}
 	if result.Awaiting != nil {
-		return Evaluation{Reason: r.Task + " had restarted or ended, so the answer went to the CFO, which takes it at its next tool call, or as its current turn ends.", Awaiting: result.Awaiting}, nil
+		return Evaluation{Reason: r.Task + " had restarted or ended, so the answer went to the CEO, which takes it at its next tool call, or as its current turn ends.", Awaiting: result.Awaiting}, nil
 	}
-	return Evaluation{Reason: r.Task + " had restarted or ended, so the CFO received the answer."}, nil
+	return Evaluation{Reason: r.Task + " had restarted or ended, so the CEO received the answer."}, nil
 }
 
 // markReviewDelivered records that an answer reached the item's reporter. An
@@ -1217,7 +1217,7 @@ func (s *Store) retireItems() error {
 }
 
 // closePageQuestionAsks closes the open items of the goblin that asked q
-// showing the page AFK mode asked of the CFO as q, published before q: an
+// showing the page AFK mode asked of the CEO as q, published before q: an
 // answer to that question is the answer to that page, and to no other page,
 // no later version of it and no wait. The caller holds the store lock.
 func (s *Store) closePageQuestionAsks(q Question, by, reason string) {
@@ -1233,8 +1233,8 @@ func (s *Store) closePageQuestionAsks(q Question, by, reason string) {
 // waited on, so none stays open behind it. The caller holds the store lock.
 func (s *Store) closeFollowUps(q Question, who string, at time.Time) {
 	reason := "You answered the decision it waited on, " + q.ID + "."
-	if who == "cfo" {
-		reason = "The CFO answered the decision it waited on, " + q.ID + "."
+	if who == "ceo" {
+		reason = "The CEO answered the decision it waited on, " + q.ID + "."
 	}
 	for i := range s.db.Reviews {
 		if r := &s.db.Reviews[i]; r.State == "open" && r.Follows == q.ID {

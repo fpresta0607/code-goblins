@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -10,6 +12,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/janitor"
+	"github.com/fpresta0607/code-goblins/internal/layout"
 	"github.com/fpresta0607/code-goblins/internal/services"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -142,8 +145,13 @@ func (c Collector) Collect(ctx context.Context) (Inventory, error) {
 	if record, err := janitor.ReadRecord(c.Home.State); err == nil {
 		inv.Janitor = &record
 	}
+	if record, err := layout.ReadRecord(c.Home.State); err == nil {
+		inv.Filing = &record
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		inv.Notes = append(inv.Notes, "FILING RECORD UNREADABLE: "+err.Error()+" - when the home's data was last filed is not known; fix or remove state/"+layout.RecordName+" and the next filing pass writes it again")
+	}
 	if record, err := services.ReadRecord(c.Home.State); err != nil {
-		inv.Notes = append(inv.Notes, "LOCAL SERVICES UNREADABLE: "+err.Error()+" - the stacks cfo services holds for tasks are not accounted for; fix or remove the record and run this again")
+		inv.Notes = append(inv.Notes, "LOCAL SERVICES UNREADABLE: "+err.Error()+" - the stacks goblins services holds for tasks are not accounted for; fix or remove the record and run this again")
 	} else {
 		inv.Services = record
 	}
@@ -189,7 +197,7 @@ func (c Collector) tasks() ([]Task, []string, error) {
 }
 
 // retired reads the ids of tasks whose records have been archived. It is what
-// separates a worktree a goblin finished with - which `cfo reap` returns -
+// separates a worktree a goblin finished with - which `goblins reap` returns -
 // from a directory the Overlord made and still wants.
 //
 // An archived record is named <id>.<timestamp> or <id>.status.<timestamp>, so
@@ -274,7 +282,7 @@ func (c Collector) markPresent(inv *Inventory) {
 	}
 }
 
-// diskVolume is the drive the headroom reading accounts for: the one the CFO
+// diskVolume is the drive the headroom reading accounts for: the one the CEO
 // home is on. The value is interpolated into a PowerShell filter string, so
 // anything that is not a bare drive letter is refused rather than escaped.
 func diskVolume(root string) string {

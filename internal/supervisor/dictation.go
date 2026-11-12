@@ -210,7 +210,7 @@ func (h *HTTP) dictate(w http.ResponseWriter, r *http.Request) {
 	}
 	speech := h.Service.Options.Dictation
 	if speech == nil {
-		apiError(w, http.StatusServiceUnavailable, "Dictation is not set up in this supervisor; cfo doctor says why.")
+		apiError(w, http.StatusServiceUnavailable, "Dictation is not set up in this supervisor; goblins doctor says why.")
 		return
 	}
 	sound, err := io.ReadAll(http.MaxBytesReader(w, r.Body, dictationLimit))

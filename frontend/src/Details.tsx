@@ -20,6 +20,7 @@ import type { ReviewControls } from "./review";
 import { pullRequestBadge, safePullRequest } from "./workflow";
 import { hasChildren, running } from "./fleet-tree";
 import { WhatsWorking } from "./WhatsWorking";
+import { linkedText } from "./messageText";
 
 // A file's diff, with the syntax colouring it draws, arrives the first time
 // one is opened.
@@ -27,7 +28,7 @@ const DiffView = boardPage(() => import("./DiffView").then((module) => module.Di
 
 // A read that failed says what could not be read, in one sentence, with the
 // supervisor's error behind Details.
-// A read that failed: the CFO hears why (useResource), and the section offers
+// A read that failed: the CEO hears why (useResource), and the section offers
 // only Retry.
 function RetryRead({ retry }: { retry: () => void }) {
   return <button className="icon-button raised retry-read" aria-label="Retry" onClick={retry}><Icon name="refresh" /></button>;
@@ -73,7 +74,7 @@ function Changes({ task, revision = "", reviews, connected }: {
 }
 
 // Selection of commits and on-demand commit diffs follows Cline Kanban's
-// git-history-view.tsx. CFO omits destructive discard/ref mutation controls.
+// git-history-view.tsx. CEO omits destructive discard/ref mutation controls.
 function History({
   task,
   reviews,
@@ -145,11 +146,11 @@ function Activity({ task, snapshot, now }: { task?: Task; snapshot: Snapshot; no
   // checks, and its own copy of each other action is the newest.
   const read = useResource(task?.generation ? "/api/tasks/" + encodeURIComponent(task.id) + "/actions" : null, parseActions, task?.actions_at);
   const actions = (read.data || []).map((action) => snapshot.actions.find((each) => each.id === action.id) || action).reverse();
-  const actionLabel = (kind: string) => ({ review: "Review comment", feedback: "Task instruction", evaluate: "Progress check", cfo_message: "CEO message", cfo_answer: "Question answer", goblin_answer: "Question answer" })[kind] || "Action";
+  const actionLabel = (kind: string) => ({ review: "Review comment", feedback: "Task instruction", evaluate: "Progress check", ceo_message: "CEO message", ceo_answer: "Question answer", goblin_answer: "Question answer" })[kind] || "Action";
   return <>
     {activity.error ? <RetryRead retry={activity.reload} /> :
       activity.data?.length ? <ol className="activity-list">
-        {activity.data.slice().reverse().map((line, i) => <li key={i}>{line}</li>)}
+        {activity.data.slice().reverse().map((line, i) => <li key={i}>{linkedText(line)}</li>)}
       </ol> : task?.generation && !activity.data ? <p className="loading" role="status">Loading activity…</p> : <p className="muted">No activity yet.</p>}
     {read.error && <RetryRead retry={read.reload} />}
     {actions.length > 0 && <section className="action-history">
@@ -158,7 +159,7 @@ function Activity({ task, snapshot, now }: { task?: Task; snapshot: Snapshot; no
         const delivery = deliveryMark(action);
         return <li key={action.id}>
           <div><strong>{actionLabel(action.kind)}</strong><span className={"delivery " + action.status} role="img" aria-label={delivery.label}><Icon name={delivery.icon} /></span><time>{age(action.updated_at, now)}</time></div>
-          {action.text && <p className="action-text">{action.text}</p>}
+          {action.text && <p className="action-text">{linkedText(action.text)}</p>}
           {delivery.trouble && <p className="muted">{delivery.label}</p>}
         </li>;
       })}</ol>

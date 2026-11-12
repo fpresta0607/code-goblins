@@ -208,7 +208,7 @@ func mayPickUp(issue tickets.OpenRoot) bool {
 	if !slices.Contains(trustedAuthors, issue.Association) || len(issue.Assignees) > 0 {
 		return false
 	}
-	return !slices.ContainsFunc(issue.Labels, func(label string) bool { return strings.HasPrefix(label, "cfo: ") })
+	return !slices.ContainsFunc(issue.Labels, func(label string) bool { return strings.HasPrefix(label, "ceo: ") })
 }
 
 // isInFlight says task id waits under Queued or runs.
@@ -221,7 +221,7 @@ func isInFlight(h home.Home, backlog fleet.BacklogRows, id string) bool {
 
 // issuesNamedInProject are the issues of repository that a queued or live
 // task of the project names to take up, in its brief or its backlog row, so
-// a root the CFO dispatched by hand is not picked up beside it.
+// a root the CEO dispatched by hand is not picked up beside it.
 func issuesNamedInProject(h home.Home, backlog fleet.BacklogRows, name, checkout, repository string) map[int]bool {
 	isOfProject := func(taskProject string) bool {
 		base := filepath.Base(strings.TrimSpace(taskProject))
@@ -258,7 +258,7 @@ func issuesNamedInProject(h home.Home, backlog fleet.BacklogRows, name, checkout
 	return named
 }
 
-// liveRootFilers are the live tasks that filed root issues with cfo issue
+// liveRootFilers are the live tasks that filed root issues with goblins issue
 // file, by each issue's address in lower case. A task that files an issue
 // may be taking it up itself, so the issue is its own while it runs.
 func liveRootFilers(h home.Home) (map[string]string, error) {
@@ -390,7 +390,7 @@ Change only what this root needs. %s %s
 credentials: %s
 mcp: none
 
-The brief records the project manifest's default services when it is written. The CEO grants another with cfo auth grant. %s
+The brief records the project manifest's default services when it is written. The CEO grants another with goblins auth grant. %s
 
 ## Commits
 

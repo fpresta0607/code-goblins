@@ -173,7 +173,7 @@ for (const { name, harness, idle, choices, inputLine, footer, asks } of HARNESSE
     expect(relay.typed()).not.toContain(ESC + "[<0;");
   });
 
-  for (const role of ["goblin", "cfo"]) {
+  for (const role of ["goblin", "ceo"]) {
     test("every key reaches " + name + "'s " + (harness === "claude" ? "permission prompt" : "model list") + " in the " + role + "'s terminal as a plain terminal sends it", async ({ page }) => {
       // Arrange
       const relay = await replay(page, recording(choices));

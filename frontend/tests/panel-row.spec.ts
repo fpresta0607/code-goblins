@@ -4,7 +4,7 @@ import { expect, holdStream, test, type Page } from "./site";
 // another or leaves the row, Close or Back always shows, and what the row
 // cannot hold goes into More and works from
 // there. The Overlord's picture of 2026-10-02 showed the word Terminal under
-// two icons in the CFO's panel dragged narrow.
+// two icons in the CEO's panel dragged narrow.
 const since = "2026-10-02T09:00:00Z";
 const task = (id: string, phase: string, fields: Record<string, unknown> = {}) => ({ id, title: id, project: "code-goblins", phase, verified: false, generation: id + "-1", since, ...fields });
 const BOARD = [
@@ -12,7 +12,7 @@ const BOARD = [
   task("working-one", "working", { harness: "codex", backend: "native" }),
 ];
 
-const snapshot = (tasks: object[], revision = 1) => ({ healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision, attention: [], tasks });
+const snapshot = (tasks: object[], revision = 1) => ({ healthy: true, instance: "fixture", ceo_runs: true, ceo_harness: "claude", revision, attention: [], tasks });
 
 interface Posted { path: string }
 
@@ -20,10 +20,10 @@ interface Posted { path: string }
 // terminal view beside the board, as his was, not over it.
 async function open(page: Page, width: number, posted: Posted[] = [], tasks = BOARD) {
   await page.addInitScript((pane) => {
-    localStorage.setItem("cfo-chat-style", "classic");
-    if (localStorage.getItem("cfo-pane-width")) return;
-    localStorage.setItem("cfo-pane-width", String(pane));
-    localStorage.setItem("cfo-terminal-maximized", "false");
+    localStorage.setItem("ceo-chat-style", "classic");
+    if (localStorage.getItem("ceo-pane-width")) return;
+    localStorage.setItem("ceo-pane-width", String(pane));
+    localStorage.setItem("ceo-terminal-maximized", "false");
   }, width);
   await holdStream(page, snapshot(tasks));
   // A test sends the board a later snapshot down the same stream.
@@ -96,7 +96,7 @@ for (const [where, viewport, deviceScaleFactor] of [["his window", { width: 1707
 
     // 360 px is the narrowest the divider lets the panel go.
     for (const width of [360, 430, 520, 700]) {
-      test(`at ${width} px the CFO's terminal panel shows every control apart, and the rest in More`, async ({ page }) => {
+      test(`at ${width} px the CEO's terminal panel shows every control apart, and the rest in More`, async ({ page }) => {
         const posted: Posted[] = [];
         await open(page, width, posted);
         await page.keyboard.press("Control+Alt+1");
@@ -106,7 +106,7 @@ for (const [where, viewport, deviceScaleFactor] of [["his window", { width: 1707
         await expect(pane(page).locator(".panel-top").getByRole("group", { name: "Panel view" })).toHaveCount(0);
         const report = await page.evaluate(rowReport);
         expect(report.problems).toEqual([]);
-        // The row shares the header's one row with the CFO's name and the Chat
+        // The row shares the header's one row with the CEO's name and the Chat
         // and Task switch, so a narrow one keeps Close and puts the rest in
         // More.
         expect(report.shown).toContain("Close panel");

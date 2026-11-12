@@ -238,8 +238,8 @@ func TestBillingRepairRejectsRemoteCSRFAndInjectedActions(t *testing.T) {
 		code       int
 	}{
 		{name: "remote", body: `{"month":"` + month + `","action":"allow"}`, change: func(r *http.Request) { r.RemoteAddr = "192.168.1.20:50000" }, code: 403},
-		{name: "csrf", body: `{"month":"` + month + `","action":"allow"}`, change: func(r *http.Request) { r.Header.Set("X-CFO-Token", "old") }, code: 403},
-		{name: "csrf retry", body: `{"month":"` + month + `","action":"retry"}`, change: func(r *http.Request) { r.Header.Set("X-CFO-Token", "old") }, code: 403},
+		{name: "csrf", body: `{"month":"` + month + `","action":"allow"}`, change: func(r *http.Request) { r.Header.Set("X-CEO-Token", "old") }, code: 403},
+		{name: "csrf retry", body: `{"month":"` + month + `","action":"retry"}`, change: func(r *http.Request) { r.Header.Set("X-CEO-Token", "old") }, code: 403},
 		{name: "arbitrary command", body: `{"month":"` + month + `","action":"allow","command":"evil"}`, code: 400},
 		{name: "invalid month", body: `{"month":"` + month + `-01","action":"allow"}`, code: 400},
 		{name: "arbitrary action", body: `{"month":"` + month + `","action":"evil"}`, code: 400},
@@ -293,7 +293,7 @@ func TestBillingConsentTerminalAndRunRequireTheLocalOwner(t *testing.T) {
 	}
 }
 
-// Consent is the board's own item, made at his click: the CFO cannot
+// Consent is the board's own item, made at his click: the CEO cannot
 // withdraw it, Skip and answers in words do not take it, and AFK mode does
 // not hold it as an item that waited on him.
 func TestBillingConsentIsTheBoardsOwn(t *testing.T) {
@@ -308,12 +308,12 @@ func TestBillingConsentIsTheBoardsOwn(t *testing.T) {
 	run := store.Snapshot().Runs[0]
 
 	// Act
-	withdrawn := store.withdrawRun(run.ID, "the CFO no longer needs it")
+	withdrawn := store.withdrawRun(run.ID, "the CEO no longer needs it")
 	_, skipped := store.Queue(Action{ID: "skip-billing", Kind: "run_skip", RunID: run.ID, Generation: run.Identity})
 	_, answered := store.Queue(Action{ID: "answer-billing", Kind: "run_answer", Text: "not now", RunID: run.ID, Generation: run.Identity})
 
 	// Assert
-	if withdrawn == nil || !strings.Contains(withdrawn.Error(), "not the CFO's to withdraw") {
+	if withdrawn == nil || !strings.Contains(withdrawn.Error(), "not the CEO's to withdraw") {
 		t.Errorf("withdrawal = %v, want it refused", withdrawn)
 	}
 	for _, err := range []error{skipped, answered} {

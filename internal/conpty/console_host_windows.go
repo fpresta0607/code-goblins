@@ -60,7 +60,7 @@ var consoleHostFolder = func() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("find this user's LocalAppData: %w", err)
 	}
-	return filepath.Join(local, "cfo", "conpty", openConsoleVersion), nil
+	return filepath.Join(local, "goblins", "conpty", openConsoleVersion), nil
 }
 
 var (

@@ -6,7 +6,7 @@ import { expect, openTaskList, type Page, type Route, test } from "./site";
 // Starting or Resuming in the frame he clicks, a second click while it is on
 // its way sends nothing more, memory under the mark holds no button, a Start
 // that waits for memory says when it starts in the frame he clicks, and a
-// click the supervisor refuses puts the card back and goes to the CFO, never
+// click the supervisor refuses puts the card back and goes to the CEO, never
 // to a line on the board.
 const since = "2026-10-08T11:00:00Z";
 const GB = 2 ** 30;
@@ -15,7 +15,7 @@ const task = (id: string, phase: string, fields: Record<string, unknown> = {}) =
 const QUEUED = task("queued-one", "queued", { generation: "", brief: true, queue_revision: "q1" });
 const PAUSED = task("paused-one", "paused", { lifecycle: { phase: "paused", action: "pause", at: since, kept: ["worktree"], stopped: [], problems: [], handoff_saved: true, validation_kept: false } });
 
-const events = (available: number) => `event: snapshot\ndata: ${JSON.stringify({ healthy: true, instance: "fixture", cfo_runs: true, revision: 1, attention: [], memory: memoryWith(available), tasks: [QUEUED, PAUSED] })}\n\n`;
+const events = (available: number) => `event: snapshot\ndata: ${JSON.stringify({ healthy: true, instance: "fixture", ceo_runs: true, revision: 1, attention: [], memory: memoryWith(available), tasks: [QUEUED, PAUSED] })}\n\n`;
 
 interface Posted { path: string; body: Record<string, unknown> }
 
@@ -23,7 +23,7 @@ interface Posted { path: string; body: Record<string, unknown> }
 // answers a Start or a lifecycle click, and posted collects every change the
 // board asked for.
 async function open(page: Page, available: number, answer: (route: Route) => Promise<void> | void, posted: Posted[]) {
-  await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
+  await page.addInitScript(() => localStorage.setItem("ceo-first-open", "shown"));
   await page.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
     if (route.request().method() === "POST") {
@@ -86,7 +86,7 @@ for (const [name, id, button, status, path, waiting] of [
     await expect(card(page, id).locator(".card-status-text")).toHaveText(waiting);
   });
 
-  test(`a ${name} the supervisor refuses puts the card back and goes to the CFO, with no line on the board`, async ({ page }) => {
+  test(`a ${name} the supervisor refuses puts the card back and goes to the CEO, with no line on the board`, async ({ page }) => {
     // Arrange
     const posted: Posted[] = [];
     await open(page, 9, (route) => route.fulfill({ status: 409, json: { error: "The task session changed; refresh its card" } }), posted);
@@ -96,7 +96,7 @@ for (const [name, id, button, status, path, waiting] of [
     await press.click();
 
     // Assert
-    await expect.poll(() => posted.filter((request) => request.path === "/api/cfo/report").map((request) => request.body.text)).toEqual(["The task session changed; refresh its card"]);
+    await expect.poll(() => posted.filter((request) => request.path === "/api/ceo/report").map((request) => request.body.text)).toEqual(["The task session changed; refresh its card"]);
     await expect(card(page, id).locator(".card-status-text")).not.toHaveText(status);
     await expect(page.locator(".workspace .notice, .task-notes, [role=alert]")).toHaveCount(0);
   });

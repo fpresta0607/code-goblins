@@ -4,7 +4,7 @@ import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
 // The Command Center with each card that offers the Overlord a box to write
-// his own answer in: the CFO's open question, its answered question reopened
+// his own answer in: the CEO's open question, its answered question reopened
 // from History to change it, and Bernie's review item.
 const NOW = Date.parse("2026-10-13T14:30:00Z");
 const minutesAgo = (minutes: number) => new Date(NOW - minutes * 60000).toISOString();
@@ -20,7 +20,7 @@ const settled = {
 const review = {
   id: "cg-question-box-review", identity: "c".repeat(64), task: bernie.id, title: "Does the Other box read right?", state: "open", created_at: minutesAgo(3), updated_at: minutesAgo(3),
 };
-const snapshot = parseSnapshot({ healthy: true, instance: "fixture", revision: 1, cfo_runs: true, actions: [], tasks: [bernie], questions: [asked, settled], reviews: [review] });
+const snapshot = parseSnapshot({ healthy: true, instance: "fixture", revision: 1, ceo_runs: true, actions: [], tasks: [bernie], questions: [asked, settled], reviews: [review] });
 
 function AnswerDictation() {
   return <main><CommandCenterMenu snapshot={snapshot} connected presentations={[]} now={Date.now()} focus={null} onUnsent={() => {}} /></main>;

@@ -1,14 +1,14 @@
 # Proves the install workflow's dictation check on a hosted runner, where the
 # speech model's download is the runner's to make and not the product's.
 # It reads goblins doctor, and when dictation is not set up it runs
-# `cfo dictation setup` once. A runner that cannot download the model is an
+# `goblins dictation setup` once. A runner that cannot download the model is an
 # environment result, never a failure of the change, in the shape
 # tests/acceptance/no_visible_windows.ps1 gives its own premise. A real
 # product failure still fails: dictation ready with the wrong number of
 # verified parts in caches\voice, or a setup that fails on anything but a
 # transport error. The step summary names which outcome happened.
 #
-#   .\tests\acceptance\dictation.ps1 -Goblins <goblins.exe> -Cfo <cfo.exe> -CfoHome <CFO_HOME> -Summary <GITHUB_STEP_SUMMARY>
+#   .\tests\acceptance\dictation.ps1 -Goblins <goblins.exe> -CeoHome <GOBLINS_HOME> -Summary <GITHUB_STEP_SUMMARY>
 #
 # -ResultFile writes the verdict as JSON for a caller that reads the outcome
 # itself, as tests/update/update_and_check.ps1 does.
@@ -18,19 +18,18 @@
 # outcome without a runner.
 param(
     [string]$Goblins = '',
-    [string]$Cfo = '',
-    [string]$CfoHome = '',
+    [string]$CeoHome = '',
     [string]$Summary = '',
     [string]$ResultFile = '',
     [string]$SelfTest = ''
 )
 $ErrorActionPreference = 'Stop'
 
-# Get-SetupReason is the one line of cfo dictation setup's output that says
+# Get-SetupReason is the one line of goblins dictation setup's output that says
 # why it failed, its last non-empty line.
 function Get-SetupReason([string]$Output) {
     $lines = @($Output -split "`r?`n" | Where-Object { $_.Trim() -ne '' })
-    if ($lines.Count -eq 0) { return 'cfo dictation setup said nothing' }
+    if ($lines.Count -eq 0) { return 'goblins dictation setup said nothing' }
     return $lines[-1].Trim()
 }
 
@@ -66,18 +65,18 @@ function Get-DictationVerdict {
     } elseif ($Result.SetupExit -eq 0) {
         $outcome = 'failure'
         $headline = 'Dictation failed.'
-        $failures += "cfo dictation setup ended 0 but doctor still does not report dictation ready: $($Result.DoctorLine)"
+        $failures += "goblins dictation setup ended 0 but doctor still does not report dictation ready: $($Result.DoctorLine)"
         if ($Result.PartsCount -ne 2) {
             $failures += "caches\voice holds $($Result.PartsCount) verified parts, want the engine and the model: $($Result.PartsNames)"
         }
     } elseif ($Result.SetupOutput -match 'could not be downloaded') {
         $outcome = 'environment'
         $headline = '**Environment result: the runner could not download dictation.**'
-        $environment += "cfo dictation setup could not download the model: $(Get-SetupReason $Result.SetupOutput)"
+        $environment += "goblins dictation setup could not download the model: $(Get-SetupReason $Result.SetupOutput)"
     } else {
         $outcome = 'failure'
         $headline = 'Dictation failed.'
-        $failures += "cfo dictation setup failed on something other than a download: $(Get-SetupReason $Result.SetupOutput)"
+        $failures += "goblins dictation setup failed on something other than a download: $(Get-SetupReason $Result.SetupOutput)"
     }
     [pscustomobject]@{ Outcome = $outcome; Headline = $headline; Failures = $failures; Environment = $environment; Result = $Result }
 }
@@ -94,9 +93,9 @@ function Write-DictationSummary {
     $lines = @('### Dictation', '', $Verdict.Headline, '')
     $lines += "- doctor: $($result.DoctorLine)"
     if ($result.SetupRan) {
-        $lines += "- cfo dictation setup ran once and exited $($result.SetupExit)"
+        $lines += "- goblins dictation setup ran once and exited $($result.SetupExit)"
     } else {
-        $lines += "- cfo dictation setup was not needed"
+        $lines += "- goblins dictation setup was not needed"
     }
     $lines += "- caches\voice holds $($result.PartsCount) verified parts: $($result.PartsNames)"
     if ($Verdict.Environment.Count -gt 0) {
@@ -113,13 +112,12 @@ function Write-DictationSummary {
 }
 
 # Measure-Dictation reads goblins doctor, and when dictation is not set up
-# runs cfo dictation setup once and reads doctor again, so a setup that
+# runs goblins dictation setup once and reads doctor again, so a setup that
 # worked is asserted exactly as a home that already had the parts.
 function Measure-Dictation {
     param(
         [Parameter(Mandatory = $true)][string]$Goblins,
-        [Parameter(Mandatory = $true)][string]$Cfo,
-        [Parameter(Mandatory = $true)][string]$CfoHome
+        [Parameter(Mandatory = $true)][string]$CeoHome
     )
     $doctor = @(& $Goblins doctor)
     $global:LASTEXITCODE = 0
@@ -130,7 +128,7 @@ function Measure-Dictation {
     $setupOutput = ''
     if (-not $ready) {
         $setupRan = $true
-        # cfo dictation setup writes its progress to stdout and its failure
+        # goblins dictation setup writes its progress to stdout and its failure
         # to stderr; both are read, and a failure is data here, not a
         # terminating error.
         $previous = $ErrorActionPreference
@@ -144,7 +142,7 @@ function Measure-Dictation {
             # the setup said is its message, which is the reason the
             # summary carries, so it is read as text and never as that
             # block's last line.
-            $setupOutput = (@(& $Cfo dictation setup 2>&1 | ForEach-Object {
+            $setupOutput = (@(& $Goblins dictation setup 2>&1 | ForEach-Object {
                 if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.Exception.Message }
                 else { "$_" }
             }) -join "`n")
@@ -159,7 +157,7 @@ function Measure-Dictation {
             $ready = $line -match '^dictation: ready: '
         }
     }
-    $parts = Get-VerifiedParts (Join-Path $CfoHome "caches\voice")
+    $parts = Get-VerifiedParts (Join-Path $CeoHome "caches\voice")
     [pscustomobject]@{
         DoctorLine   = $line
         DoctorReady  = $ready
@@ -264,22 +262,21 @@ if ($SelfTest -ne '') {
             # summary and the warning carry the reason the setup printed. A
             # native command's stderr arrives as an error record whose
             # formatted block ends in "+ FullyQualifiedErrorId", which names
-            # no part; stand-in executables say what the real setup says.
+            # no part; a stand-in says what the real doctor and setup say.
             $dir = Join-Path ([System.IO.Path]::GetTempPath()) "dictation-$([guid]::NewGuid())"
             New-Item -ItemType Directory -Path (Join-Path (Join-Path $dir 'caches') 'voice') -Force | Out-Null
             Set-Content -Path (Join-Path $dir 'goblins.ps1') -Value @'
 param([Parameter(ValueFromRemainingArguments = $true)]$Rest)
-Write-Output 'dictation: not set up: parakeet-tdt-0.6b-v2 int8-2025-08-16 missing, 460 MB'
-exit 0
-'@
-            Set-Content -Path (Join-Path $dir 'cfo.ps1') -Value @'
-param([Parameter(ValueFromRemainingArguments = $true)]$Rest)
+if ($Rest[0] -eq 'doctor') {
+    Write-Output 'dictation: not set up: parakeet-tdt-0.6b-v2 int8-2025-08-16 missing, 460 MB'
+    exit 0
+}
 Write-Output 'downloading parakeet-tdt-0.6b-v2 int8-2025-08-16'
 Write-Error 'dictation: parakeet-tdt-0.6b-v2 int8-2025-08-16 could not be downloaded: Get "https://example.test/model.tar.bz2": dial tcp: connection reset'
 exit 1
 '@
             try {
-                $measured = Measure-Dictation -Goblins (Join-Path $dir 'goblins.ps1') -Cfo (Join-Path $dir 'cfo.ps1') -CfoHome $dir
+                $measured = Measure-Dictation -Goblins (Join-Path $dir 'goblins.ps1') -CeoHome $dir
                 $verdict = Get-DictationVerdict $measured
                 Assert-SelfTest ($measured.SetupRan -and $measured.SetupExit -eq 1) "want the setup read as run once and exited 1, got ran=$($measured.SetupRan) exit=$($measured.SetupExit)"
                 Assert-SelfTest ($verdict.Outcome -eq 'environment') "want the environment outcome, got $($verdict.Outcome): $($verdict.Failures -join '; ')"
@@ -296,11 +293,11 @@ exit 1
     exit 0
 }
 
-foreach ($needed in @(@{ name = 'Goblins'; value = $Goblins }, @{ name = 'Cfo'; value = $Cfo }, @{ name = 'CfoHome'; value = $CfoHome })) {
+foreach ($needed in @(@{ name = 'Goblins'; value = $Goblins }, @{ name = 'CeoHome'; value = $CeoHome })) {
     if (-not $needed.value) { throw "dictation.ps1 needs -$($needed.name)." }
 }
 
-$result = Measure-Dictation -Goblins $Goblins -Cfo $Cfo -CfoHome $CfoHome
+$result = Measure-Dictation -Goblins $Goblins -CeoHome $CeoHome
 $verdict = Get-DictationVerdict $result
 Write-Host "$($verdict.Headline) $($result.DoctorLine)"
 if ($Summary) { Write-DictationSummary -Verdict $verdict -Path $Summary }

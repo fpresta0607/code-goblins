@@ -1,6 +1,6 @@
-# cfo hooks
+# goblins hooks
 
-`cfo hooks`
+`goblins hooks`
 
 check|install <claude|codex|pi> native lifecycle hooks
 

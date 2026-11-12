@@ -17,7 +17,7 @@ import (
 // says when the record is old enough that the supervisor may not be checking.
 func TestTheDigestShowsTheSharedServicesAndWhoWaitsOnThem(t *testing.T) {
 	checkedAt := time.Date(2026, 11, 11, 14, 0, 0, 0, time.UTC)
-	record := supervisor.SharedServices{Schema: "cfo-shared-services.v1", CheckedAt: checkedAt, Services: []supervisor.SharedService{
+	record := supervisor.SharedServices{Schema: "ceo-shared-services.v1", CheckedAt: checkedAt, Services: []supervisor.SharedService{
 		{Name: supervisor.SharedGateDaemon, State: "busy", PID: 276, Runs: 3, Waiting: []string{"fern", "huey"}},
 		{Name: supervisor.SharedHeavyLine, State: "short", Holders: []string{"wanda"}, Queued: []string{"fern"}, AvailableBytes: 4 << 30, FloorBytes: 5 << 30},
 		{Name: supervisor.SharedDocker, State: "running", Holders: []string{"fern"}},

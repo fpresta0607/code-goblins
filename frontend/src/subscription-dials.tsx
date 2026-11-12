@@ -3,7 +3,7 @@ import { KeySpendDial } from "./key-spend-dial";
 import { SubscriptionDial } from "./subscription-dial";
 
 // The usage of each subscription and API key in use, a dial each, on the
-// board's CFO bar and on the CFO's card on the canvas: a ring of the weekly
+// board's CEO bar and on the CEO's card on the canvas: a ring of the weekly
 // allowance a subscription leaves, and the dollars an API key has spent
 // against its own limit and window. Each ring carries its provider's icon
 // inside it, on the bar as on the card, and no name beside it (the Overlord,

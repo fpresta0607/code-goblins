@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/pipeline/pipelinetest"
 	"gopkg.in/yaml.v3"
 )
 
@@ -92,7 +93,7 @@ func (fixture *authoredRecoveryFixture) execute(t *testing.T, query string, args
 
 func (fixture *authoredRecoveryFixture) run(ctx context.Context, request execx.Request) (execx.Result, error) {
 	if request.Name != "no-mistakes" {
-		return fixtureCommands{execx.OSRunner{}}.Run(ctx, request)
+		return pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}.Run(ctx, request)
 	}
 	command := strings.Join(request.Args, " ")
 	if fixture.nativeFailure == command {

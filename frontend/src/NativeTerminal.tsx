@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { message, reportToCfo, request } from "./api";
+import { message, reportToCeo, request } from "./api";
 import { copyText } from "./clipboard";
 import { attachDictatedInput } from "./dictated-input";
 import { object, string, type Session, type Task } from "./types";
@@ -15,6 +15,7 @@ import { clipboardInput, imageKey, readClipboard, terminalKey } from "./terminal
 import { putImage } from "./terminal-image";
 import { TerminalTextSheet } from "./terminal-text-sheet";
 import { attachTouchScroll, terminalText } from "./terminal-touch";
+import { linkTerminalAddresses, openWebAddress } from "./terminal-links";
 import { TerminalTouchTools } from "./terminal-touch-tools";
 import { useDictation } from "./useDictation";
 import { VoiceBubble } from "./VoiceBubble";
@@ -45,7 +46,7 @@ type Connection = { sized: boolean; abort: AbortController; lease: string; frame
 // An input the supervisor refuses, or whose outcome is unknown, ends the view;
 // it is never resent, and reconnecting starts from a fresh full screen.
 export function NativeTerminal({ task, node, harness, instance, visible, shown, focus = 0 }: { task?: Task; node?: Session; harness: string; instance: string; visible: boolean; shown: boolean; focus?: number }) {
-  // What the CFO is told this terminal is, read when a report goes.
+  // What the CEO is told this terminal is, read when a report goes.
   const named = task ? terminalOf(task) : "the CEO's terminal";
   const reportAs = useRef(named);
   useEffect(() => { reportAs.current = named; }, [named]);
@@ -73,7 +74,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
   const [live, setLive] = useState(false);
   const [status, setStatus] = useState("Connecting");
   // What his own typing, scrolling, pasting or copying met, for a moment. A
-  // lease the terminal lost is the CFO's to hear (the Overlord, 2026-10-08,
+  // lease the terminal lost is the CEO's to hear (the Overlord, 2026-10-08,
   // "everything error wise goes to cfo").
   const [feedback, showFeedback] = useClickFeedback();
   const [copied, setCopied] = useState(false);
@@ -101,20 +102,22 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
   const addImageValue = useRef(addImage);
   useEffect(() => { addImageValue.current = addImage; }, [addImage]);
   const taskID = task?.id || "", generation = task?.generation || "", session = node?.id || "";
-  const cfo = !task && !node;
+  const ceo = !task && !node;
   useEffect(() => {
     if (!host.current || !pastHost.current || !visible || unavailable) return;
     const element = host.current, pastElement = pastHost.current;
     const abort = new AbortController();
-    const nonce = document.querySelector<HTMLMetaElement>('meta[name="cfo-style-nonce"]')?.content || "";
-    const look = { documentOverride: terminalDocument(nonce), fontSize: 15, fontFamily: FALLBACK_FONT, cursorBlink: false, theme: { background: "#071015", foreground: "#d8e9e2", cursor: "#6ee7b7", selectionBackground: "#286856" }, linkHandler: { activate: () => {} } };
+    const nonce = document.querySelector<HTMLMetaElement>('meta[name="ceo-style-nonce"]')?.content || "";
+    const look = { documentOverride: terminalDocument(nonce), fontSize: 15, fontFamily: FALLBACK_FONT, cursorBlink: false, theme: { background: "#071015", foreground: "#d8e9e2", cursor: "#6ee7b7", selectionBackground: "#286856" }, linkHandler: { activate: (_event: MouseEvent, address: string) => openWebAddress(address) } };
     const term = new Terminal({ ...look, scrollback: 0, disableStdin: true });
+    linkTerminalAddresses(term);
     term.open(element);
     terminal.current = term;
     // The pane's history, in a terminal of its own over the live screen, drawn
     // at the live screen's size and font.
     const past = new Terminal({ ...look, scrollback: HISTORY_LINES, disableStdin: false, cursorInactiveStyle: "none" });
     past.open(pastElement);
+    linkTerminalAddresses(past);
     history.current = past;
     past.textarea?.setAttribute("aria-label", "Terminal history");
     past.parser.registerOscHandler(52, () => true);
@@ -233,7 +236,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
       liveValue.current = false;
       setLive(false);
       setStatus("Disconnected");
-      if (!isDetachedHold(reason)) reportToCfo(reportAs.current, typingHeldReason(reason));
+      if (!isDetachedHold(reason)) reportToCeo(reportAs.current, typingHeldReason(reason));
     };
     // Typing goes one input at a time in order, each with the lease's next
     // number.
@@ -244,7 +247,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
         const command = queue.shift()!;
         scrolled = scrolledUp(scrolled, command);
         try {
-          await request("/api/terminal/input", abort.signal, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ lease, seq: ++seq, command }) });
+          await request("/api/terminal/input", abort.signal, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance }, body: JSON.stringify({ lease, seq: ++seq, command }) });
         } catch (e: unknown) {
           if (!abort.signal.aborted) stop(message(e));
           break;
@@ -268,7 +271,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
       if (reading || showing || !lease || abort.signal.aborted) return;
       reading = true;
       try {
-        const answer = object(await request("/api/terminal/history", abort.signal, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ lease, lines: HISTORY_LINES }) }));
+        const answer = object(await request("/api/terminal/history", abort.signal, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance }, body: JSON.stringify({ lease, lines: HISTORY_LINES }) }));
         if (abort.signal.aborted || !lease) return;
         selfScrolls = scrollsItself(string(answer.text), term.rows, string(answer.agent));
         selfScrollChecked = Date.now();
@@ -315,7 +318,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
       if (!lease || judging === look || abort.signal.aborted) return;
       judging = look;
       try {
-        const answer = object(await request("/api/terminal/history", abort.signal, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ lease: from, lines: judgeLines(rows) }) }));
+        const answer = object(await request("/api/terminal/history", abort.signal, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance }, body: JSON.stringify({ lease: from, lines: judgeLines(rows) }) }));
         if (abort.signal.aborted || lease !== from || judging !== look) return;
         selfScrolls = scrollsItself(string(answer.text), rows, string(answer.agent));
         selfScrollChecked = Date.now();
@@ -621,7 +624,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
       const size = sized ? panelGrid(room().width, room().height, font, cell()) : null;
       if (sized && !size) { if (pending === connection) pending = null; return; }
       try {
-        const response = await fetch("/api/terminal/stream", { signal: connection.abort.signal, method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ task: taskID, session, generation, ...(size ? { control: true, identity, cols: size.cols, rows: size.rows } : {}) }) });
+        const response = await fetch("/api/terminal/stream", { signal: connection.abort.signal, method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance }, body: JSON.stringify({ task: taskID, session, generation, ...(size ? { control: true, identity, cols: size.cols, rows: size.rows } : {}) }) });
         if (!response.ok) {
           const failure = object(await response.json());
           if (!replacing && failure.code === "terminal_unavailable") setUnavailable(true);
@@ -682,7 +685,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
     return () => { lease = ""; liveValue.current = false; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); clearTimeout(regrid); jumper.cancel(); resize.disconnect(); window.removeEventListener(PANEL_RESIZED, dropped); window.removeEventListener("focus", focused); shownChanged.current = null; element.removeEventListener("paste", paste, true); pastElement.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); pastElement.removeEventListener("pointerdown", startCopy); element.removeEventListener("wheel", liveBeside); pastElement.removeEventListener("wheel", historyBeside); stopSwiping(); stopSwipingHistory(); window.removeEventListener("pointerup", release); detachDictatedInput(); detachPastDictatedInput(); term.dispose(); past.dispose(); terminal.current = null; history.current = null; pasteText.current = null; pressImageKey.current = null; setInHistory(false); };
   }, [taskID, generation, session, instance, visible, attempt, unavailable, dictate, showFeedback]);
   if (unavailable) return <TerminalEmpty text="Terminal unavailable" />;
-  return <section className="native-terminal" aria-label={cfo ? "CEO terminal" : "Goblin terminal"}>
+  return <section className="native-terminal" aria-label={ceo ? "CEO terminal" : "Goblin terminal"}>
     <div className="terminal-surface" ref={host} />
     <div className={"terminal-surface terminal-history" + (inHistory && live ? "" : " away")} ref={pastHost} aria-hidden={!(inHistory && live)} />
     {/* Connecting is a plain line under the terminal's box, never a cover over

@@ -21,7 +21,7 @@ var updateWords = map[Kind]string{Claude: "Update installed"}
 // UpdateNotice returns the row where screen shows kind saying an update of
 // itself was installed and waits for a restart, and false when it shows none.
 // Only the footer under the composer's closing rule is the harness's own: the
-// same words above it are the conversation, such as the CFO quoting the line,
+// same words above it are the conversation, such as the CEO quoting the line,
 // and a screen without the rule has no footer to read.
 func UpdateNotice(kind Kind, screen []string) (string, bool) {
 	words, ok := updateWords[kind]

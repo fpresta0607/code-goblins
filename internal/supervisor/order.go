@@ -14,8 +14,8 @@ import (
 var errNotInProgress = errors.New("The goblins in progress changed while you moved them; the board now shows who is working.")
 
 // order serves POST /api/order: the Overlord's order of a list on the board,
-// top first. Tasks is saved as data\backlog.md's Queued order, which the CFO
-// dispatches in, and In progress as the attention order the CFO works in.
+// top first. Tasks is saved as data\backlog.md's Queued order, which the CEO
+// dispatches in, and In progress as the attention order the CEO works in.
 func (h *HTTP) order(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		List  string   `json:"list"`

@@ -76,7 +76,7 @@ type Adopted struct {
 // deliberate act of rotating a credential and every goblin dispatched
 // afterwards would otherwise carry the dead one. A file that only differs from
 // the store is not that act: the store's Seen record still holds what the
-// file offered last time, so a value stored afterwards with cfo auth store, a
+// file offered last time, so a value stored afterwards with goblins auth store, a
 // credential card or a run item is the newer decision and stays. A value read
 // for the first time has no history at all, so it never replaces a stored one
 // either; it is reported as kept. Comparing values alone put a project's older
@@ -326,7 +326,7 @@ func IgnoreScanFailedLine(paths []string) string {
 // ScanSkipped names the local files the scan declined to read, by cause. The
 // causes are kept apart because they send an operator to different places: a
 // git problem to investigate, an ordinary state that clears itself when a
-// worktree is returned, and a file the CFO could not inspect at all.
+// worktree is returned, and a file the CEO could not inspect at all.
 type ScanSkipped struct {
 	// IgnoreUnknown are files git could not classify. A file that cannot be
 	// shown to be gitignored may be one the repository tracks, so it is not
@@ -353,7 +353,7 @@ func (s ScanSkipped) Any() bool {
 // clears it. Provisioning hardlinks a project's .env into every worktree, and
 // the worktree copy is the same inode, so a goblin that writes .env writes
 // this file: following it would let a goblin rotate the fleet's stored
-// credential. The count drops back to one when cfo cleanup returns the
+// credential. The count drops back to one when goblins cleanup returns the
 // worktree, and the next dispatch adopts normally.
 //
 // It names paths. No credential name and no value appears here, the same rule
@@ -362,7 +362,7 @@ func WorktreeSharedLine(paths []string) string {
 	if len(paths) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("adoption paused for %d local file(s) shared with a live goblin worktree (%s); run `cfo cleanup <id>` to release them",
+	return fmt.Sprintf("adoption paused for %d local file(s) shared with a live goblin worktree (%s); run `goblins cleanup <id>` to release them",
 		len(paths), strings.Join(paths, ", "))
 }
 
@@ -557,13 +557,13 @@ func envOwners(ctx context.Context, runner execx.Runner, projectDir string) (map
 		// Provisioning hardlinks a project's .env into every worktree, and
 		// the worktree copy IS this file - same inode - so pruning the
 		// .worktrees directory from the scan cannot tell them apart. The
-		// link count can: it drops back to one when cfo cleanup returns the
+		// link count can: it drops back to one when goblins cleanup returns the
 		// worktree, and adoption resumes on its own.
 		shared, err := sharedIntoAWorktree(path)
 		if err != nil {
 			// Skipped for the same reason, reported as a different fact: an
 			// unreadable count is not evidence that a worktree holds the
-			// file, and telling the operator to run cfo cleanup would send
+			// file, and telling the operator to run goblins cleanup would send
 			// them to a remedy that cannot help.
 			skipped.LinkCheckFailed = append(skipped.LinkCheckFailed, path)
 			continue
@@ -620,7 +620,7 @@ func envFileRank(base string) int {
 //
 // What closes it is the link count, checked in envOwners: a local file with
 // more than one directory entry is shared with a live worktree, so it is not
-// an origin the store follows. The count drops back to one when cfo cleanup
+// an origin the store follows. The count drops back to one when goblins cleanup
 // returns the worktree, so the pause clears itself.
 func envFiles(projectDir string) []string {
 	if projectDir == "" {

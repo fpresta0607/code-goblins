@@ -20,7 +20,7 @@ export const nativeMarkers = (scope: Locator) => scope.locator("summary").evalua
 // The caret before Workspace in a goblin's task panel, closed and open: the
 // one every other part of the board that opens and closes is held to.
 export async function panelCaret(page: Page) {
-  await holdStream(page, { healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [],
+  await holdStream(page, { healthy: true, instance: "fixture", ceo_runs: true, ceo_harness: "claude", revision: 1, attention: [],
     tasks: [{ id: "caret-one", title: "caret-one", project: "code-goblins", phase: "working", verified: false, generation: "caret-one-1", since: "2026-10-09T09:00:00Z" }] });
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
   await page.goto("/");

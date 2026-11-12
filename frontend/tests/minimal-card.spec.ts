@@ -7,7 +7,7 @@ import { expect, holdStream, openTaskList, type Page, test } from "./site";
 // most two lines and its project under that, and its ticket, pull request, checks and harness mark as
 // icons whose tips say what each one is. A finished goblin's row leads with
 // its name too, its task in the name's tip, and a pause on a goblin names the
-// goblin alone (the CFO's decision 1008011).
+// goblin alone (the CEO's decision 1008011).
 const REPO = "https://github.com/fpresta0607/code-goblins";
 const now = Date.now();
 const ago = (minutes: number) => new Date(now - minutes * 60_000).toISOString();
@@ -18,7 +18,7 @@ const goblin = (id: string, name: string, title: string, task: string, fields: R
 const pause = (until: string, minutes: number) => ({ phase: "paused", action: "pause", at: ago(minutes), kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason: "dependency", until, at: ago(minutes) } });
 const LONG = "Teach the board to read every harness's own session record instead of its screen, for the waiting and working status";
 const SNAPSHOT = {
-  healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: 1, attention: [],
+  healthy: true, instance: "fixture", ceo_runs: true, ceo_harness: "claude", revision: 1, attention: [],
   projects: [{ name: "code-goblins", repository: "fpresta0607/code-goblins", contributors: [] }],
   tasks: [
     goblin("cg-benny", "Benny", "AFK Ace", "Show what needs you while AFK", { pr: REPO + "/pull/1031", ticket: { number: 1013, url: REPO + "/issues/1013", state: "open" } }),
@@ -27,7 +27,7 @@ const SNAPSHOT = {
     goblin("cg-wade", "Wade", "Waiter", "Wait on a long task", { phase: "paused", at: ago(40), lifecycle: pause("task:cg-long", 40) }),
     { id: "cg-long", title: LONG, project: "code-goblins", phase: "queued", verified: false, generation: "", brief: true, since: ago(30) },
     goblin("cg-bart", "Bartholomew", "Distinguished Infrastructure Archivist", "Archive the old gate logs", { since: ago(5) }),
-    goblin("finished:cg-ivy", "Ivy", "Merge Maven", "Read the CEO's status from the live CEO", { phase: "done", archived: true, merged: true, verified: true, at: ago(35), pr: REPO + "/pull/1036", branch: "fix/cfo-status-from-registration", generation: "" }),
+    goblin("finished:cg-ivy", "Ivy", "Merge Maven", "Read the CEO's status from the live CEO", { phase: "done", archived: true, merged: true, verified: true, at: ago(35), pr: REPO + "/pull/1036", branch: "fix/ceo-status-from-registration", generation: "" }),
   ],
 };
 
@@ -68,7 +68,7 @@ for (const width of [390, 1440]) {
 }
 
 test("a working goblin's card is one row: face, name, time and status, with its parts as icons", async ({ page }) => {
-  // Arrange: the board without the CFO's panel beside it.
+  // Arrange: the board without the CEO's panel beside it.
   await open(page);
   await page.getByRole("button", { name: "Close panel" }).click();
   const row = card(page, "Benny - AFK Ace");
@@ -143,8 +143,8 @@ test("a helper's row names no parent, and its panel names the goblin it helps", 
   await expect(header).toContainText("Helper of Benny - AFK Ace");
 });
 
-test("in a column beside the CFO's panel a card's time and icons take a line under its status", async ({ page }) => {
-  // Arrange and act: his window, with the CFO's panel open beside the board.
+test("in a column beside the CEO's panel a card's time and icons take a line under its status", async ({ page }) => {
+  // Arrange and act: his window, with the CEO's panel open beside the board.
   await open(page);
   const row = card(page, "Benny - AFK Ace");
 
@@ -203,7 +203,7 @@ for (const colorScheme of ["dark", "light"] as const) {
 // goblin's project is a quiet line of its own under its status, and its name
 // and title wrap onto another line rather than end in an ellipsis.
 test("a goblin's project is on its own line under its status", async ({ page }, testInfo) => {
-  // Arrange and act: his window, with the CFO's panel open beside the board.
+  // Arrange and act: his window, with the CEO's panel open beside the board.
   await open(page);
 
   // Assert
@@ -219,7 +219,7 @@ test("a goblin's project is on its own line under its status", async ({ page }, 
 });
 
 test("a goblin's long name and title wrap onto another line instead of being cut", async ({ page }, testInfo) => {
-  // Arrange and act: a column beside the CFO's panel, too narrow for the
+  // Arrange and act: a column beside the CEO's panel, too narrow for the
   // name and title on one line.
   await open(page);
   const row = card(page, "Bartholomew - Distinguished Infrastructure Archivist"), title = row.locator(".card-title");

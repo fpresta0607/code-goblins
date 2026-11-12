@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { message as errorText, reportToCfo, request } from "./api";
+import { message as errorText, reportToCeo, request } from "./api";
 import { copyText } from "./clipboard";
 import { conversationPictures } from "./conversation-pictures";
 import { Icon } from "./Icon";
@@ -22,6 +22,7 @@ import { harnessInk } from "./harness-ink";
 import { QueuedMessage } from "./queued-message";
 import { isUndelivered, sameWords, withTakenCommands } from "./messages";
 import { usePendingSends, type PendingSend } from "./pending-sends";
+import { linkedText } from "./messageText";
 import "./messages-view.css";
 
 // A stream that keeps dropping stops retrying and says why.
@@ -63,7 +64,7 @@ type Composing = Pick<MessagePage, "usage"> & { history: string[] };
 // text, kept in this browser.
 // query names the session as /api/messages takes it (messagesQuery), name is
 // whose replies they are, task is the goblin whose baby goblins its calls
-// open, absent for the CFO, terminal is the key of the session's terminal,
+// open, absent for the CEO, terminal is the key of the session's terminal,
 // whose link reads what it is doing, sent is every message of his to the session the
 // board knows, pending those of them that still wait, and box is the message
 // box under the conversation, told whether the stream says a turn runs. onAskSlot takes the conversation's last row,
@@ -204,8 +205,8 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   const runCode = useCallback(async (message: string, block: number, fence: number) => {
     const session = new URLSearchParams(query);
     const answer = object(await request("/api/code-run", undefined, {
-      method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance },
-      body: JSON.stringify({ task: session.get("task") ?? "", generation: session.get("generation") ?? "", cfo: session.get("cfo") ?? "", message, block, fence }),
+      method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance },
+      body: JSON.stringify({ task: session.get("task") ?? "", generation: session.get("generation") ?? "", ceo: session.get("ceo") ?? "", message, block, fence }),
     }));
     openCommand.current?.("run:" + string(answer.run_id));
   }, [query, instance]);
@@ -289,7 +290,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     };
     const invalid = () => {
       close(UNREAD);
-      reportToCfo(where, "Invalid messages stream");
+      reportToCeo(where, "Invalid messages stream");
     };
     stream.addEventListener("page", (event: MessageEvent<string>) => {
       try {
@@ -464,7 +465,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
       if (readingOlder.current !== reading) return;
       readingOlder.current = null;
       olderFailures.current = { count: olderFailures.current.count + 1, at: Date.now() };
-      reportToCfo(where, errorText(error));
+      reportToCeo(where, errorText(error));
     });
   }, [address, where]);
 
@@ -796,7 +797,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   // them, its row is his message, and the board's copy goes, so it shows once
   // whichever of the two arrives first. Each row of his is one message, the
   // oldest the board took of the same words, settled or still waiting, so a
-  // second message of the same words waits for its own row; a row the CFO or
+  // second message of the same words waits for its own row; a row the CEO or
   // the fleet wrote is never his. One the board settled had its row before it
   // settled, as the board settles a message only once it has seen the harness
   // take it, so a later row is never an older message's whose own row is not
@@ -876,7 +877,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
             return action
               ? <QueuedMessage key={"queued-" + action.id} action={action} harnessState={prompt.sending ? "Sending" : "Queued"} liveAction={pending.find((each) => each.id === action.id) ?? null} instance={instance} name={name} variant="pane" />
               : <div key={"waiting-" + prompt.id} className={"queued-message pane " + prompt.source} data-queued={prompt.id}>
-                <div className={"message-bubble queued-bubble" + (prompt.sending ? "" : " waiting")}>{prompt.text}</div>
+                <div className={"message-bubble queued-bubble" + (prompt.sending ? "" : " waiting")}>{linkedText(prompt.text)}</div>
                 <p className="queued-state">{prompt.sending ? "Sending" : "Queued"}</p>
               </div>;
           })}

@@ -111,6 +111,9 @@ textarea { resize: vertical; line-height: 1.6; }
 a { color: var(--mint); text-decoration: none; }
 /* An address in a message reads as a link. */
 .message-link { text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
+/* A pull request, issue, CI run or review page by its short name. */
+.message-chip { padding: 1px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--field-bg); text-decoration: none; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.message-chip:hover { border-color: var(--mint); }
 code, pre, .mono { font-family: var(--font-mono); }
 h1, h2, h3, p { margin: 0; }
 /* Pixelify Sans stays at 400: heavier weights close its C and G into O. */
@@ -159,19 +162,19 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
    board always does. Each column ends below its last card. */
 .task-board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; gap: 22px; min-height: 100%; padding: 28px 24px; }
 .task-board.stacked { grid-template-columns: minmax(0, 1fr); align-content: start; gap: 18px; padding: 24px; }
-/* The CFO pinned above the columns is a plain bar, a card like the columns
+/* The CEO pinned above the columns is a plain bar, a card like the columns
    under it, with its terminal on its icon and portrait; what it shows while
-   something waits on the Overlord is in cfo-pin.css. Hovered or focused, it
+   something waits on the Overlord is in ceo-pin.css. Hovered or focused, it
    rises over the columns so its tooltips show in full, and so does a bar
    holding a refusal, whose close button would otherwise lie under them. */
-.task-board:has(> .cfo-pin) { grid-template-rows: auto 1fr; }
-.task-board.stacked:has(> .cfo-pin) { grid-template-rows: auto; }
-.cfo-pin { position: relative; grid-column: 1 / -1; min-width: 0; }
-.cfo-pin:hover, .cfo-pin:focus-within, .cfo-pin:has(.afk-header > .notice) { z-index: 3; }
-.cfo-rest { display: flex; align-items: center; gap: 14px; min-width: 0; padding: 12px 14px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg); box-shadow: var(--glass-shadow); backdrop-filter: blur(16px); }
-.cfo-rest p { flex: 1; min-width: 0; margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
-.cfo-rest-portrait { display: grid; place-items: center; width: 56px; height: 56px; min-height: 56px; padding: 0; flex: none; border: 1px solid var(--glass-border); border-radius: 12px; background: var(--glass-bg), var(--hero-surface); }
-.cfo-rest-portrait .goblin-avatar { width: 48px; height: 48px; }
+.task-board:has(> .ceo-pin) { grid-template-rows: auto 1fr; }
+.task-board.stacked:has(> .ceo-pin) { grid-template-rows: auto; }
+.ceo-pin { position: relative; grid-column: 1 / -1; min-width: 0; }
+.ceo-pin:hover, .ceo-pin:focus-within, .ceo-pin:has(.afk-header > .notice) { z-index: 3; }
+.ceo-rest { display: flex; align-items: center; gap: 14px; min-width: 0; padding: 12px 14px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg); box-shadow: var(--glass-shadow); backdrop-filter: blur(16px); }
+.ceo-rest p { flex: 1; min-width: 0; margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
+.ceo-rest-portrait { display: grid; place-items: center; width: 56px; height: 56px; min-height: 56px; padding: 0; flex: none; border: 1px solid var(--glass-border); border-radius: 12px; background: var(--glass-bg), var(--hero-surface); }
+.ceo-rest-portrait .goblin-avatar { width: 48px; height: 48px; }
 /* Paused tasks sit inside In progress, after its working cards, under a thin
    labelled divider, like a page break. */
 .paused-tasks { display: grid; gap: 16px; margin-top: 22px; }
@@ -263,7 +266,7 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
    never drawn the room a card takes (#1599). */
 .task-cards.unpaged .task-card-shell { content-visibility: auto; contain-intrinsic-size: auto 130px; }
 /* A list too narrow for a card's clock and icons beside its name and status,
-   such as a column beside the CFO's panel, puts them on a line of their own
+   such as a column beside the CEO's panel, puts them on a line of their own
    under its status, the clock at the left and the icons at the right, so its
    name and status keep the card's whole width. */
 @container (max-width: 360px) {
@@ -309,7 +312,7 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .goblin-avatar { display: block; width: 88px; height: 88px; flex: none; background-image: url('/assets/goblin-personas.webp'); background-size: 300% 200%; background-repeat: no-repeat; }
 .goblin-avatar.small { width: 72px; height: 72px; }
 .persona-general { background-image: url('/assets/goblin-app.png'); background-size: contain; background-position: center; }
-.persona-cfo, .persona-debugger, .persona-researcher { background-position: 0 0; }
+.persona-ceo, .persona-debugger, .persona-researcher { background-position: 0 0; }
 .persona-builder, .persona-security, .persona-performance { background-position: 50% 0; }
 .persona-reviewer, .persona-database, .persona-integrations { background-position: 100% 0; }
 .persona-tester, .persona-designer, .persona-git { background-position: 0 100%; }
@@ -355,15 +358,15 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
    lines, the project and the relation after one, and a card that also shows a
    browser line or its relation gives lines up to make room, so every part
    still shows. Under the column a foot says what its board card says
-   besides: its clock, its pull request and its harness mark, or on the CFO's
+   besides: its clock, its pull request and its harness mark, or on the CEO's
    card its weekly dials, its terminal button and its mark. The foot sits over
    the card's button, clear of its chevron, so the whole card still drags. */
 .flow-node-main { display: flex; align-items: center; gap: 8px; width: 100%; height: 100%; padding: 8px 22px 42px 8px; border: none; border-radius: inherit; background: transparent; text-align: left; touch-action: none; cursor: grab; }
 .flow-node-foot { position: absolute; left: 12px; right: 12px; bottom: 12px; display: flex; align-items: center; gap: 12px; height: 28px; pointer-events: none; }
 .flow-node-foot > * { pointer-events: auto; }
 .flow-node-foot .card-harness, .flow-node-foot .icon-button { margin-left: auto; }
-.flow-node-foot .cfo-pin-end { margin-left: auto; }
-.flow-node-foot .cfo-pin-end + .card-harness { margin-left: 0; }
+.flow-node-foot .ceo-pin-end { margin-left: auto; }
+.flow-node-foot .ceo-pin-end + .card-harness { margin-left: 0; }
 .flow-node-foot .afk-toggle { min-height: 28px; padding-block: 0; }
 .flow-node-foot .mark, .flow-node-foot .icon-button { width: 28px; height: 28px; min-height: 28px; }
 .flow-node-foot .mark svg, .flow-node-foot .mark .icon, .flow-node-foot .icon-button svg { width: 16px; height: 16px; }
@@ -493,12 +496,12 @@ button:focus:not(:focus-visible), summary:focus:not(:focus-visible), [tabindex]:
 /* A notice above the board, as a newer board served or the line after a
    restart, keeps its height. */
 .app-shell > .notice { flex: none; }
-/* What Open in terminal met, a refusal of the CFO's AFK switch, and what a
+/* What Open in terminal met, a refusal of the CEO's AFK switch, and what a
    press of Restart PC or Update met, under its row's end, over what is
    below, so it never widens the row or pushes the conversation down. In a
    panel it is no wider than the panel's room, so the panel's edge never
    cuts it. */
-.window-feedback, .afk-header > .notice, .cfo-header-line > .notice { position: absolute; top: calc(100% + 6px); right: 0; z-index: 4; width: max-content; max-width: min(360px, 80vw, calc(100cqi - 16px)); }
+.window-feedback, .afk-header > .notice, .ceo-header-line > .notice { position: absolute; top: calc(100% + 6px); right: 0; z-index: 4; width: max-content; max-width: min(360px, 80vw, calc(100cqi - 16px)); }
 .dev-drive-setting { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 16px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 .dev-drive-setting > button { flex: none; white-space: nowrap; }
 .dev-drive-setting > p, .dev-drive-setting > .notice { flex: 1 0 100%; margin: 0; }
@@ -607,11 +610,10 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .workflow-space ul { list-style: none; margin: 0; padding: 0; }
 .workflow-roots { display: grid; gap: 32px; }
 .workflow-branch { min-width: 0; position: relative; }
-.node-relation { color: var(--muted); font-size: .9375rem; margin: 0 0 8px; overflow-wrap: anywhere; }
 .workflow-node { position: relative; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); transition: transform .16s ease, box-shadow .16s ease; }
 .node-select { display: block; width: 100%; text-align: left; background: transparent; border: 0; padding: 18px; }
 /* Under it, what the goblin's board card says besides: its clock, pull
-   request and harness mark, or the CFO's dials, terminal button and mark. */
+   request and harness mark, or the CEO's dials, terminal button and mark. */
 .node-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: -6px; padding: 0 18px 16px; }
 .node-facts .card-harness, .node-facts .icon-button { margin-left: auto; }
 .node-facts .icon-button + .card-harness { margin-left: 0; }
@@ -621,22 +623,21 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .node-status { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; font-size: .9375rem; }
 .badge { color: #c4e0d4; }
 /* A goblin under another hangs from its parent's rail, which runs down
-   beside its children to the last one's turn, on a line that turns under
-   what says how it is related into the middle of its card's top. */
+   beside its children to the last one's turn, on a line that turns into the
+   middle of its card's top, clear of the parent's disclosure button. The
+   branch carries no words (the Overlord, 2026-11-11). */
 .workflow-space .workflow-children { display: grid; gap: 20px; margin: 20px 0 0 10px; padding-left: 16px; }
 .workflow-space .workflow-children > .workflow-branch::before { content: ""; position: absolute; left: -16px; top: -20px; bottom: 0; border-left: 1px solid var(--glass-border-hover); }
-.workflow-space .workflow-children > .workflow-branch:last-child::before { content: none; }
-.workflow-children > .workflow-branch > .node-group > .node-relation { position: relative; margin-bottom: 14px; }
-.workflow-children > .workflow-branch:last-child > .node-group > .node-relation::before { content: ""; position: absolute; left: -16px; top: -20px; bottom: -6px; border-left: 1px solid var(--glass-border-hover); }
+.workflow-space .workflow-children > .workflow-branch:last-child::before { bottom: auto; height: 26px; }
+.workflow-children > .workflow-branch > .node-group { padding-top: 14px; }
 .workflow-children > .workflow-branch > .node-group > .workflow-node::after { content: ""; position: absolute; left: -17px; top: -9px; box-sizing: border-box; width: calc(50% + 17px); height: 8px; border: solid var(--glass-border-hover); border-width: 1px 1px 0 0; border-top-right-radius: 8px; pointer-events: none; }
-.compact-communication-pulse { position: absolute; left: -17px; top: -20px; width: 2px; height: 40px; overflow: hidden; background: #57e5bf55; animation: effect-life ease-in-out forwards; }
+.compact-communication-pulse { position: absolute; left: -17px; top: -20px; width: 2px; height: 26px; overflow: hidden; background: #57e5bf55; animation: effect-life ease-in-out forwards; }
 .compact-communication-pulse::after { content: ""; position: absolute; left: -2px; top: -12px; width: 6px; height: 12px; border-radius: 999px; background: #86ffe0; animation: compact-guidance 1.2s ease-out infinite; }
-.compact-creation-highlight { position: absolute; left: -18px; top: -20px; width: 3px; height: 40px; background: #70bfa9; box-shadow: 0 0 8px #67e8b744; animation: effect-life ease-in-out forwards; }
-@keyframes compact-guidance { to { transform: translateY(52px); } }
+.compact-creation-highlight { position: absolute; left: -18px; top: -20px; width: 3px; height: 26px; background: #70bfa9; box-shadow: 0 0 8px #67e8b744; animation: effect-life ease-in-out forwards; }
+@keyframes compact-guidance { to { transform: translateY(38px); } }
 .workflow-children .workflow-children { margin-left: 0; }
 .workflow-children .workflow-children .workflow-children { padding-left: 0; }
 .workflow-children .workflow-children .workflow-children > .workflow-branch::before,
-.workflow-children .workflow-children .workflow-children > .workflow-branch > .node-group > .node-relation::before,
 .workflow-children .workflow-children .workflow-children > .workflow-branch > .node-group > .workflow-node::after { content: none; }
 @media (max-width: 90rem) {
   .task-board { gap: 14px; padding: 24px 18px; }
@@ -673,7 +674,7 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 }
 /* A small screen's top bar is the brand with the Command Center and the
    connection beside it, the view switch under them; the tour, the layout
-   button and Open CFO are left off there (App.tsx), and while a panel fills
+   button and Open CEO are left off there (App.tsx), and while a panel fills
    the screen the switch goes too, so the bar is one row. */
 @media (max-width: 40rem) {
   .topbar { min-height: 0; padding: 8px 12px; }
@@ -751,7 +752,7 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 button.dialogue-portrait:hover { background: transparent; transform: none; }
 button.dialogue-portrait:hover::before { background: #12202a; }
 .dialogue-portrait .goblin-avatar { width: 56px; height: 56px; }
-/* The speaker's name on a tab over the box, in lantern, as the CFO's bar
+/* The speaker's name on a tab over the box, in lantern, as the CEO's bar
    wears it while something waits on the Overlord. */
 .dialogue-tab { position: relative; z-index: 1; max-width: calc(100% - 96px); margin: 0 0 -4px 82px; padding: 3px 12px 3px; border: 2px solid var(--soot); border-bottom: 0; background: var(--hide); box-shadow: inset 2px 2px 0 var(--edge), inset -2px 0 0 var(--edge); color: var(--lantern); font: 400 1rem/1.4 var(--font-display); overflow-wrap: anywhere; clip-path: polygon(0 4px, 2px 4px, 2px 2px, 4px 2px, 4px 0, calc(100% - 4px) 0, calc(100% - 4px) 2px, calc(100% - 2px) 2px, calc(100% - 2px) 4px, 100% 4px, 100% 100%, 0 100%); }
 .dialogue-text { min-width: 0; font-size: 1rem; line-height: 1.5; }
@@ -804,21 +805,21 @@ button.dialogue-portrait:hover::before { background: #12202a; }
    between words and breaking one only when it is wider than the line. */
 .panel-header h2 { font-size: clamp(1.625rem, 2.4vw, 2rem); line-height: 1.2; overflow-wrap: anywhere; }
 .panel-goblin-task { margin: 0; color: #c4d4df; font-size: 1.125rem; font-weight: 600; overflow-wrap: anywhere; }
-/* The CFO's Restart, under its name on one line at the height of the
+/* The CEO's Restart, under its name on one line at the height of the
    header's other controls, and what a press could not do beside it. */
-.cfo-restart { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-bottom: 4px; }
-.cfo-restart .labelled-button { min-height: 36px; padding: 4px 6px; gap: 6px; }
-.cfo-restart-controls { display: flex; align-items: center; gap: 8px; }
-.cfo-restart-button { color: var(--mint); border-color: var(--accent-green); }
-.cfo-harness-selector { position: relative; }
-.cfo-harness-trigger { min-width: 140px; }
-.cfo-harness-trigger > .icon { width: 14px; height: 14px; margin-left: auto; transform: rotate(90deg); }
-.cfo-harness-selector .mark { width: 18px; height: 18px; border: 0; background: none; box-shadow: none; }
-.cfo-harness-selector .mark svg { width: 18px; height: 18px; }
-.cfo-harness-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; display: grid; gap: 4px; min-width: 100%; padding: 6px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--tip-surface); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6); }
-.cfo-harness-menu .labelled-button { justify-content: flex-start; border-color: transparent; background: transparent; }
-.cfo-harness-menu .labelled-button[aria-checked="true"] { color: var(--mint); border-color: var(--accent-green); background: var(--glass-bg); }
-.cfo-harness-menu .labelled-button:hover, .cfo-harness-menu .labelled-button:focus-visible { background: var(--glass-bg-hover); }
+.ceo-restart { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-bottom: 4px; }
+.ceo-restart .labelled-button { min-height: 36px; padding: 4px 6px; gap: 6px; }
+.ceo-restart-controls { display: flex; align-items: center; gap: 8px; }
+.ceo-restart-button { color: var(--mint); border-color: var(--accent-green); }
+.ceo-harness-selector { position: relative; }
+.ceo-harness-trigger { min-width: 140px; }
+.ceo-harness-trigger > .icon { width: 14px; height: 14px; margin-left: auto; transform: rotate(90deg); }
+.ceo-harness-selector .mark { width: 18px; height: 18px; border: 0; background: none; box-shadow: none; }
+.ceo-harness-selector .mark svg { width: 18px; height: 18px; }
+.ceo-harness-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; display: grid; gap: 4px; min-width: 100%; padding: 6px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--tip-surface); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6); }
+.ceo-harness-menu .labelled-button { justify-content: flex-start; border-color: transparent; background: transparent; }
+.ceo-harness-menu .labelled-button[aria-checked="true"] { color: var(--mint); border-color: var(--accent-green); background: var(--glass-bg); }
+.ceo-harness-menu .labelled-button:hover, .ceo-harness-menu .labelled-button:focus-visible { background: var(--glass-bg-hover); }
 /* A queued task's line is its text in the same type, with a small pencil
    after it on its first line: the pencil, or a click on the text, turns it
    into a box of that type holding its title and detail, with Save and
@@ -1206,7 +1207,7 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .inbox-history .history-actions .icon-button { width: 36px; height: 36px; min-height: 36px; }
 .history-open svg { width: 16px; height: 16px; color: var(--muted); }
 .inbox-text small.answer-reason { color: var(--muted); font-weight: 500; }
-/* Who answered: the crown for him, the CFO's face for the CFO, with a moon
+/* Who answered: the crown for him, the CEO's face for the CEO, with a moon
    while he was away. */
 .answer-mark { position: relative; display: inline-grid; place-items: center; width: 40px; height: 40px; flex: none; }
 .answer-mark.you { border-radius: 50%; border: 1px solid var(--amber); background: rgba(243, 197, 120, .1); color: var(--amber); }
@@ -1252,8 +1253,8 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
    how long a queued task has waited. */
 .card-clock { justify-self: start; display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 1rem; font-variant-numeric: tabular-nums; line-height: 1.4; }
 .card-clock .icon { width: 14px; height: 14px; }
-/* The CFO's Task view lists the queue below its workspace. */
-.cfo-queue { display: grid; gap: 12px; margin-top: 20px; padding-top: 24px; border-top: 1px solid var(--border); }
+/* The CEO's Task view lists the queue below its workspace. */
+.ceo-queue { display: grid; gap: 12px; margin-top: 20px; padding-top: 24px; border-top: 1px solid var(--border); }
 /* Free memory at the head of Tasks, on a bar spanning twice the mark at which
    the next task starts, marked with it and the floor, whose tip says what the
    marks mean. Every line is body size, and none sits under a bar. */
@@ -1302,7 +1303,7 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .key-spend-dial.unknown .key-spend-spent { color: var(--muted); }
 .flow-node-foot .key-spend-values { align-items: flex-start; }
 .flow-node-foot .key-spend-budget { font-size: .8125rem; }
-/* The task the CFO starts next, and Start on every queued card: one play
+/* The task the CEO starts next, and Start on every queued card: one play
    button among the card's controls. */
 /* A chip sizes to its label and never wraps it; on a card too narrow for the
    label it ends in an ellipsis rather than growing a second line. */
@@ -1341,7 +1342,7 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .ranked-item.dragging .task-card-shell { transform: scale(1.02) rotate(-.6deg); border-color: var(--mint); box-shadow: 0 18px 40px #000a, 0 0 0 2px var(--mint); }
 .ranked-item.dragging .rank { border-color: var(--mint); }
 @media (prefers-reduced-motion: reduce) { .ranked-item.dragging .task-card-shell { transform: none; } }
-/* Run items: a command the CFO needs run, shown verbatim before it runs. */
+/* Run items: a command the CEO needs run, shown verbatim before it runs. */
 .run-card { display: grid; gap: 14px; padding: 22px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg); box-shadow: var(--glass-shadow); font-size: 1.0625rem; }
 .run-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .run-head .run-state { margin-left: auto; }
@@ -1460,24 +1461,24 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .one-row > .panel-identity { display: flex; flex: 1 1 0; align-items: center; gap: 6px; min-width: 32px; overflow: hidden; }
 .one-row > .panel-identity:has(> .panel-style) { min-width: 44px; }
 .one-row h2 { flex: 0 1 auto; min-width: 0; padding-block: 4px; font-size: 1.25rem; line-height: 1.2; overflow-wrap: break-word; }
-/* The CFO's name is one short word, with nothing to wrap at. */
-.one-row.is-cfo h2 { white-space: nowrap; }
+/* The CEO's name is one short word, with nothing to wrap at. */
+.one-row.is-ceo h2 { white-space: nowrap; }
 .one-row > .panel-top { flex: 1 1 0; padding: 0; }
 /* In a narrow panel a goblin's name takes the row's spare room before the
    controls do, so it wraps at its spaces rather than inside a word, and the
-   switch stands a control's gap from them. The CFO's short name needs none of
+   switch stands a control's gap from them. The CEO's short name needs none of
    it, so its switch stays in the middle. */
 @container goblin-panel (max-width: 36rem) {
-  .one-row:not(.is-cfo) > .panel-identity { flex: 1 1 auto; }
-  .panel-header.one-row:not(.is-cfo) { gap: 8px; }
+  .one-row:not(.is-ceo) > .panel-identity { flex: 1 1 auto; }
+  .panel-header.one-row:not(.is-ceo) { gap: 8px; }
 }
 .fills-phone .panel-header.one-row { padding: 4px 6px; }
-/* The CFO's rare states, Restart PC and Update, take a line of their own under
+/* The CEO's rare states, Restart PC and Update, take a line of their own under
    its header's row, at the row's end, and the line takes no room while
    neither shows. */
-.cfo-header-line { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: 0 8px; }
-.cfo-header-line:has(> :is(button, .muted)) { padding-block: 6px; }
-.fills-phone .cfo-header-line { margin-inline: 6px; }
+.ceo-header-line { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: 0 8px; }
+.ceo-header-line:has(> :is(button, .muted)) { padding-block: 6px; }
+.fills-phone .ceo-header-line { margin-inline: 6px; }
 /* The goblin's whole name and task id, which the row may cut short, open its
    Task view. */
 .panel-whole-name { margin: 0; color: #c4d4df; font-size: 1.125rem; font-weight: 600; overflow-wrap: anywhere; }
@@ -1487,7 +1488,7 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
    as every control of a panel keeps from the next. */
 .panel-view-switch { display: flex; flex: none; align-self: center; gap: 8px; padding: 0; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--field-bg); }
 .goblin-panel > .panel-top { order: 0; }
-.goblin-panel > :is(.panel-header, .cfo-header-line) { order: 1; }
+.goblin-panel > :is(.panel-header, .ceo-header-line) { order: 1; }
 .goblin-panel > .panel-task { order: 3; }
 .panel-view-switch > button { display: inline-grid; place-items: center; width: 44px; min-height: 44px; padding: 0; border-color: transparent; border-radius: 999px; background: transparent; color: var(--muted); }
 .panel-view-switch .icon { width: 17px; height: 17px; }

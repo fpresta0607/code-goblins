@@ -16,7 +16,7 @@ export const PHONE_FONT_SIZE = MIN_FONT_SIZE;
 // chose with Ctrl+Plus and Ctrl+Minus, the right button and the wheel, or the
 // wheel with Ctrl and Shift, remembered in this browser, so each device keeps
 // its own.
-const FONT_KEY = "cfo-terminal-font-size";
+const FONT_KEY = "ceo-terminal-font-size";
 // The open terminals, which follow a size chosen in any one of them at once.
 const fontFollowers = new Set<(size: number) => void>();
 
@@ -264,7 +264,7 @@ export function reconnects(code: number): boolean {
 }
 
 // A terminal that ended closes its view normally: its command or session
-// ended or was replaced, or the CFO left it, so nothing is there to reconnect
+// ended or was replaced, or the CEO left it, so nothing is there to reconnect
 // to, and a new session is one the board opens by itself.
 export function ended(code: number): boolean {
   return code === 1000;

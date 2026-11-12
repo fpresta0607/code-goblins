@@ -20,7 +20,7 @@ import (
 )
 
 // The services every goblin shares, by the name a goblin reads them under and
-// reports a wait on with cfo notify --waiting-on. A wait on the heavy line is
+// reports a wait on with goblins notify --waiting-on. A wait on the heavy line is
 // reported as a wait on memory, the word goblins already use for it.
 const (
 	SharedGateDaemon = "gate-daemon"
@@ -38,9 +38,9 @@ const (
 	SharedAsk  = "ask"
 )
 
-const sharedServicesSchema = "cfo-shared-services.v1"
+const sharedServicesSchema = "ceo-shared-services.v1"
 
-// dockerStartLimit is how long a start cfo services up made of the engine may
+// dockerStartLimit is how long a start goblins services up made of the engine may
 // take before an engine that still does not answer reads stopped.
 const dockerStartLimit = 5 * time.Minute
 
@@ -122,8 +122,8 @@ func ReadSharedServices(stateDir string) (SharedServices, error) {
 	return record, nil
 }
 
-// checkSharedServices reads each shared service, keeps the result where cfo
-// shared and the digest read it, and wakes the CFO once for the goblins
+// checkSharedServices reads each shared service, keeps the result where goblins
+// shared and the digest read it, and wakes the CEO once for the goblins
 // waiting on a service that is down and once when it is usable again.
 func (s *Service) checkSharedServices(ctx context.Context, w *fleetWakes, now time.Time) error {
 	probes := s.Options.Shared
@@ -183,7 +183,7 @@ func readGateDaemon(ctx context.Context, probes *SharedProbes, now time.Time) Sh
 		service.State = "busy"
 		service.Detail = fmt.Sprintf("pid %d is alive and serves %s, and missed its short health reply, so it is busy, not stopped", daemon.PID, runsServed(daemon.LiveRuns))
 		service.Next, service.RetryAt = SharedWait, now.Add(fleetWatchEvery)
-		service.NextDetail = "cfo pipeline run and respond wait their turn by themselves; report the wait with cfo notify <task> --waiting-on gate-daemon \"<why>\" and do not poll: you are told when it answers again. " + never
+		service.NextDetail = "goblins pipeline run and respond wait their turn by themselves; report the wait with goblins notify <task> --waiting-on gate-daemon \"<why>\" and do not poll: you are told when it answers again. " + never
 	}
 	return service
 }
@@ -220,7 +220,7 @@ func readHeavyLine(probes *SharedProbes, now time.Time) SharedService {
 	}
 	free := min(line.Memory.Available, line.Memory.CommitAvailable)
 	service.AvailableBytes, service.FloorBytes = free, line.FloorBytes
-	waits := "cfo gate turn waits its turn by itself and starts your run when it may; report the wait with cfo notify <task> --waiting-on memory \"<why>\" and do not poll."
+	waits := "goblins gate turn waits its turn by itself and starts your run when it may; report the wait with goblins notify <task> --waiting-on memory \"<why>\" and do not poll."
 	switch {
 	case len(line.Holding) >= line.Capacity:
 		service.State = "full"
@@ -233,13 +233,13 @@ func readHeavyLine(probes *SharedProbes, now time.Time) SharedService {
 	default:
 		service.State, service.IsUsable = "free", true
 		service.Detail = fmt.Sprintf("%d of %d turns are held and %.1f GB is free against the %.1f GB the next run needs", len(line.Holding), line.Capacity, gigabytes(free), gigabytes(line.FloorBytes))
-		service.Next, service.NextDetail = SharedGo, "Start your heavy run with cfo gate turn."
+		service.Next, service.NextDetail = SharedGo, "Start your heavy run with goblins gate turn."
 	}
 	return service
 }
 
 // readDocker reads whether the engine answers and which tasks hold its
-// stacks. An engine cfo services up started that has not answered within its
+// stacks. An engine goblins services up started that has not answered within its
 // start limit is stopped, not starting.
 func readDocker(ctx context.Context, probes *SharedProbes, stateDir string, now time.Time) SharedService {
 	service := SharedService{Name: SharedDocker, CheckedAt: now, Holders: []string{}, Queued: []string{}}
@@ -267,16 +267,16 @@ func readDocker(ctx context.Context, probes *SharedProbes, stateDir string, now 
 	case running:
 		service.State, service.IsUsable = "running", true
 		service.Detail = "the engine answers" + held
-		service.Next, service.NextDetail = SharedGo, "Use it through cfo services up when your brief names services."
-	case recordErr == nil && record.Engine.StartedByCFO && now.Sub(record.Engine.Since) < dockerStartLimit:
+		service.Next, service.NextDetail = SharedGo, "Use it through goblins services up when your brief names services."
+	case recordErr == nil && record.Engine.StartedByCEO && now.Sub(record.Engine.Since) < dockerStartLimit:
 		service.State = "starting"
-		service.Detail = fmt.Sprintf("cfo services up started the engine %s ago and it does not answer yet%s", now.Sub(record.Engine.Since).Round(time.Second), held)
+		service.Detail = fmt.Sprintf("goblins services up started the engine %s ago and it does not answer yet%s", now.Sub(record.Engine.Since).Round(time.Second), held)
 		service.Next, service.RetryAt = SharedWait, record.Engine.Since.Add(dockerStartLimit)
-		service.NextDetail = "Report the wait with cfo notify <task> --waiting-on docker \"<why>\" and do not poll: you are told when it answers."
+		service.NextDetail = "Report the wait with goblins notify <task> --waiting-on docker \"<why>\" and do not poll: you are told when it answers."
 	default:
 		service.State = "stopped"
 		service.Detail = "the engine does not answer" + held
-		service.Next, service.NextDetail = SharedAsk, "If your brief names services, cfo services up starts the engine for them; otherwise ask the CEO. Never stop it yourself."
+		service.Next, service.NextDetail = SharedAsk, "If your brief names services, goblins services up starts the engine for them; otherwise ask the CEO. Never stop it yourself."
 	}
 	return service
 }

@@ -1,4 +1,4 @@
-// Package projectcheck assesses what a CFO home knows about one project and
+// Package projectcheck assesses what a CEO home knows about one project and
 // says whether it is still true: the project's record, its verification gate,
 // its configs and its connectors. Every line of its report carries the
 // evidence it rests on, and nothing here writes into a project or starts one

@@ -38,7 +38,7 @@ func run(t *testing.T, project string, start time.Time, commit string) string {
 func TestFinishWritesTheReportBesideItsLogUnderTheProject(t *testing.T) {
 	// Arrange
 	store := t.TempDir()
-	t.Setenv("CFO_VERIFY_DIR", store)
+	t.Setenv("GOBLINS_VERIFY_DIR", store)
 	log, path, err := Begin("code-goblins", started, "0123456789abcdef0123456789abcdef01234567", "fast")
 	if err != nil {
 		t.Fatal(err)
@@ -83,7 +83,7 @@ func TestFinishWritesTheReportBesideItsLogUnderTheProject(t *testing.T) {
 // get their own log and report, so neither overwrites the other's evidence.
 func TestBeginGivesRunsThatStartTogetherTheirOwnFiles(t *testing.T) {
 	// Arrange
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 
 	// Act
 	first := run(t, "code-goblins", started, "0123456789abcdef")
@@ -106,7 +106,7 @@ func TestBeginGivesRunsThatStartTogetherTheirOwnFiles(t *testing.T) {
 // project's runs never remove another's.
 func TestFinishKeepsOnlyAProjectsNewestReportsAndTheirLogs(t *testing.T) {
 	// Arrange
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	other := run(t, "another-project", started.Add(-time.Hour), "ffffffffffffffff")
 	running, _, err := Begin("code-goblins", started.Add(-time.Hour), "0123456789abcdef", "full")
 	if err != nil {
@@ -153,7 +153,7 @@ func gone(t *testing.T, report string) bool {
 // and its log: the oldest of the others makes room for it.
 func TestFinishKeepsTheReportItJustWroteHoweverEarlyItsRunStarted(t *testing.T) {
 	// Arrange
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	var others []string
 	for minute := range keptReports {
 		others = append(others, run(t, "code-goblins", started.Add(time.Duration(minute)*time.Minute), "0123456789abcdef"))
@@ -178,7 +178,7 @@ func TestFinishKeepsTheReportItJustWroteHoweverEarlyItsRunStarted(t *testing.T) 
 // before it remain to remove.
 func TestFinishKeepsTheReportsWrittenLastWhenALaterRunFinishes(t *testing.T) {
 	// Arrange
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	var others []string
 	for minute := range keptReports - 1 {
 		path := run(t, "code-goblins", started.Add(time.Duration(minute)*time.Minute), "0123456789abcdef")
@@ -209,7 +209,7 @@ func TestFinishKeepsTheReportsWrittenLastWhenALaterRunFinishes(t *testing.T) {
 // removes it; another project's is not this run's to remove.
 func TestFinishRemovesAReportlessLogOlderThanADay(t *testing.T) {
 	// Arrange
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	abandoned := func(project string) string {
 		log, _, err := Begin(project, started, "0123456789abcdef", "fast")
 		if err != nil {
@@ -245,7 +245,7 @@ func TestBeginKeepsAnyProjectNameInsideTheStore(t *testing.T) {
 		t.Run(project, func(t *testing.T) {
 			// Arrange
 			store := t.TempDir()
-			t.Setenv("CFO_VERIFY_DIR", store)
+			t.Setenv("GOBLINS_VERIFY_DIR", store)
 
 			// Act
 			log, path, err := Begin(project, started, "0123456789abcdef", "fast")
@@ -263,7 +263,7 @@ func TestBeginKeepsAnyProjectNameInsideTheStore(t *testing.T) {
 	}
 }
 
-// The store is the folder CFO_VERIFY_DIR names, else cfo/verify in the
+// The store is the folder GOBLINS_VERIFY_DIR names, else goblins/verify in the
 // user's cache folder; a test binary that names none is refused, so no test
 // writes into the store real runs read.
 func TestStoreDirIsTheOverrideElseTheUsersCacheAndNeverThatFromATest(t *testing.T) {
@@ -282,11 +282,11 @@ func TestStoreDirIsTheOverrideElseTheUsersCacheAndNeverThatFromATest(t *testing.
 	if namedErr != nil || named != `D:\scratch\verify` {
 		t.Errorf("storeDir with an override = %q, %v; want the override", named, namedErr)
 	}
-	if want := filepath.Join(cache, "cfo", "verify"); realErr != nil || real != want {
+	if want := filepath.Join(cache, "goblins", "verify"); realErr != nil || real != want {
 		t.Errorf("storeDir with no override = %q, %v; want %q", real, realErr, want)
 	}
-	if refused == nil || !strings.Contains(refused.Error(), "CFO_VERIFY_DIR") {
-		t.Errorf("storeDir in a test binary with no override = %v; want a refusal naming CFO_VERIFY_DIR", refused)
+	if refused == nil || !strings.Contains(refused.Error(), "GOBLINS_VERIFY_DIR") {
+		t.Errorf("storeDir in a test binary with no override = %v; want a refusal naming GOBLINS_VERIFY_DIR", refused)
 	}
 }
 
@@ -295,7 +295,7 @@ func TestStoreDirIsTheOverrideElseTheUsersCacheAndNeverThatFromATest(t *testing.
 // a report that does not read is named rather than skipped.
 func TestReportsReadsAProjectsReportsNewestFirst(t *testing.T) {
 	// Arrange
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	run(t, "code-goblins", started.Add(time.Minute), "1111111111111111")
 	run(t, "code-goblins", started.Add(time.Hour), "2222222222222222")
 	run(t, "code-goblins", started, "3333333333333333")
@@ -333,7 +333,7 @@ func TestReportsReadsAProjectsReportsNewestFirst(t *testing.T) {
 // shows at once.
 func TestReportsReadsAgainOnlyAReportThatChanged(t *testing.T) {
 	// Arrange
-	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
 	first := run(t, "code-goblins", started, "1111111111111111")
 	if _, err := Reports("code-goblins"); err != nil {
 		t.Fatal(err)

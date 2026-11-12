@@ -7,11 +7,11 @@ import (
 	"time"
 )
 
-// A step only the Overlord could take that the CFO saw to later in the
+// A step only the Overlord could take that the CEO saw to later in the
 // stretch, as three of the six left on the night of 2026-10-08 were, is
 // settled with what became of it. The log keeps the line and the settle after
 // it, and the line folds into a decision marked settled.
-func TestTheCFOSettlesAStepOnlyHeCouldTakeWithWhatBecameOfIt(t *testing.T) {
+func TestTheCEOSettlesAStepOnlyHeCouldTakeWithWhatBecameOfIt(t *testing.T) {
 	// Arrange
 	dir, on := turnedOn(t)
 	left, err := Log(dir, hisStep(), night.Add(time.Hour))
@@ -41,7 +41,7 @@ func TestTheCFOSettlesAStepOnlyHeCouldTakeWithWhatBecameOfIt(t *testing.T) {
 
 // A settle names a step only he can take in the stretch that is on, says what
 // became of it, and is made once: everything else is refused and writes
-// nothing to the log. A decision the CFO answered is settled in his History
+// nothing to the log. A decision the CEO answered is settled in his History
 // once AFK mode turns off, never by a settle.
 func TestSettleRefusesALineItCannotName(t *testing.T) {
 	cases := []struct {

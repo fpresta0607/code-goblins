@@ -1,6 +1,6 @@
-# cfo pr merge
+# goblins pr merge
 
-`cfo pr merge <url> [--method <m>] [--delete-branch] [--verified "<what verified it>"]`
+`goblins pr merge <url> [--method <m>] [--delete-branch] [--verified "<what verified it>"]`
 
 Merge a PR (merge, squash, or rebase).
 Where its base requires GitHub's merge queue it adds the PR to the queue instead, pinned to the head it verified, with the queue's own merge method and never `--admin`: the queue tests it on the base's tip with the PRs ahead of it and merges it when that passes, a PR already queued is reported and left alone, and `--delete-branch` is refused because the merge comes later.

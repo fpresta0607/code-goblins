@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { boardPage } from "./board-page";
 import { BRAND_MARKS } from "./brandMarks";
 import { useClickFeedback } from "./click-feedback";
-import { message, reportToCfo, request } from "./api";
+import { message, reportToCeo, request } from "./api";
 import { parseActionsSpend, type ActionsSpend } from "./types";
 import "./actions-spend.css";
 
@@ -22,7 +22,7 @@ export const ActionsSpendHeader = memo(function ActionsSpendHeader({ usage, mont
   useEffect(() => {
     if (!shouldRequest) return;
     const controller = new AbortController();
-    request("/api/actions-spend?month=" + month, controller.signal, { headers: { "X-CFO-Token": instance } })
+    request("/api/actions-spend?month=" + month, controller.signal, { headers: { "X-CEO-Token": instance } })
       .then(parseActionsSpend)
       .then((reading) => {
         if (controller.signal.aborted) return;
@@ -38,7 +38,7 @@ export const ActionsSpendHeader = memo(function ActionsSpendHeader({ usage, mont
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
-        reportToCfo("reading GitHub Actions usage", message(error));
+        reportToCeo("reading GitHub Actions usage", message(error));
         setSelected({ reading: { status: "unavailable", month, total: null, repositories: [], read_at: "", checked_at: "", detail: "Could not read this month's GitHub Actions usage." }, instance, refreshAt: Date.now() + REFRESH_INTERVAL_MS });
       });
     return () => controller.abort();
@@ -57,7 +57,7 @@ export const ActionsSpendHeader = memo(function ActionsSpendHeader({ usage, mont
         for (let attempt = 0; attempt < 150 && !controller.signal.aborted; attempt++) {
           await new Promise((resolve) => setTimeout(resolve, 2000));
           if (controller.signal.aborted) return;
-          const updated = parseActionsSpend(await request("/api/actions-spend?month=" + month, controller.signal, { headers: { "X-CFO-Token": instance } }));
+          const updated = parseActionsSpend(await request("/api/actions-spend?month=" + month, controller.signal, { headers: { "X-CEO-Token": instance } }));
           setSelected({ reading: updated, instance, refreshAt: Date.now() + REFRESH_INTERVAL_MS });
           if (updated.recovery?.state !== "ready" && updated.recovery?.state !== "running") return;
         }
@@ -76,7 +76,7 @@ export const ActionsSpendHeader = memo(function ActionsSpendHeader({ usage, mont
     setIsRepairing(true);
     showRepairError("");
     try {
-      const updated = parseActionsSpend(await request("/api/actions-spend/repair", controller.signal, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify({ month, action }) }));
+      const updated = parseActionsSpend(await request("/api/actions-spend/repair", controller.signal, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance }, body: JSON.stringify({ month, action }) }));
       if (!controller.signal.aborted) setSelected({ reading: updated, instance, refreshAt: Date.now() + REFRESH_INTERVAL_MS });
     } catch (error: unknown) {
       showRepairError(controller.signal.aborted ? "Billing request timed out. Reopen the panel." : message(error));

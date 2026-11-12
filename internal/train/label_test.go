@@ -7,11 +7,11 @@ import (
 	"testing"
 )
 
-// toldOfLabel returns what the CFO was told about a label that could not be
+// toldOfLabel returns what the CEO was told about a label that could not be
 // put on.
 func (s *scratch) toldOfLabel() []string {
 	var said []string
-	for _, text := range s.cfo {
+	for _, text := range s.ceo {
 		if strings.Contains(text, "could not put the label") {
 			said = append(said, text)
 		}
@@ -68,7 +68,7 @@ func TestEveryPullRequestATrainOpensWearsItsLabel(t *testing.T) {
 		t.Errorf("the repository has the label %v after %d makings, want it made once by its first pull request", gh.labels[OwnLabel], gh.labelCalls())
 	}
 	if said := s.toldOfLabel(); len(said) != 0 {
-		t.Errorf("CFO told %q, want nothing said of a label that was put on", said)
+		t.Errorf("CEO told %q, want nothing said of a label that was put on", said)
 	}
 }
 
@@ -142,14 +142,14 @@ func TestAPullRequestATrainMergesWearsItsLabelWhoeverOpenedIt(t *testing.T) {
 				t.Fatalf("the pull request it merged wears %q, want %q", got, OwnLabel)
 			}
 			if said := s.toldOfLabel(); len(said) != 0 {
-				t.Fatalf("CFO told %q, want nothing said of a label that was put on", said)
+				t.Fatalf("CEO told %q, want nothing said of a label that was put on", said)
 			}
 		})
 	}
 }
 
 // The label is housekeeping, and a train never stops for it: where GitHub
-// refuses the label the train lands all the same, and the CFO is told which
+// refuses the label the train lands all the same, and the CEO is told which
 // pull request merged without it and how to put it on, when it opened and
 // again when it merged.
 func TestATrainThatCannotLabelItsPullRequestLandsAndSaysSo(t *testing.T) {
@@ -176,16 +176,16 @@ func TestATrainThatCannotLabelItsPullRequestLandsAndSaysSo(t *testing.T) {
 	}
 	said := s.toldOfLabel()
 	if len(said) != 2 || len(gh.wears) != 0 {
-		t.Fatalf("CFO told %q, labelled %v: want it said at the opening and at the merge, with no label on", said, gh.wears)
+		t.Fatalf("CEO told %q, labelled %v: want it said at the opening and at the merge, with no label on", said, gh.wears)
 	}
 	for _, text := range said {
 		for _, want := range []string{"merge_train: o/r train " + started.ID, OwnLabel, gh.trainURL, "HTTP 403", "gh pr edit " + gh.trainURL + " --add-label " + OwnLabel} {
 			if !strings.Contains(text, want) {
-				t.Errorf("CFO told %q, want %q", text, want)
+				t.Errorf("CEO told %q, want %q", text, want)
 			}
 		}
 		if strings.ContainsAny(text, ";—") {
-			t.Errorf("CFO told %q, want no semicolon or long dash in what he reads", text)
+			t.Errorf("CEO told %q, want no semicolon or long dash in what he reads", text)
 		}
 	}
 }

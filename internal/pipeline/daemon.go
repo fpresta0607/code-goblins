@@ -6,9 +6,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // DaemonState is whether the gate daemon runs, as its pid file and process
@@ -38,7 +40,7 @@ type Daemon struct {
 // database holds open. It sends the daemon nothing, so it adds no load to a
 // busy one.
 func (r Reader) Daemon(ctx context.Context) (Daemon, error) {
-	data, err := os.ReadFile(filepath.Join(r.Root, "daemon.pid"))
+	data, err := fsx.ReadFileContext(ctx, filepath.Join(r.Root, "daemon.pid"))
 	if errors.Is(err, os.ErrNotExist) {
 		return Daemon{State: DaemonStopped}, nil
 	}
@@ -77,12 +79,31 @@ const daemonHealthMissed = "start daemon: read response: daemon health did not r
 // IsDaemonHealthMissed reports whether a native command stopped at the
 // health reply before its request, the one reply miss safe to repeat.
 func IsDaemonHealthMissed(result execx.Result) bool {
-	return strings.Contains(string(result.Stdout)+string(result.Stderr), daemonHealthMissed)
+	return slices.ContainsFunc(nativeErrors(result), func(message string) bool {
+		return strings.HasPrefix(message, daemonHealthMissed)
+	})
 }
 
 // IsDaemonReplyMissed reports whether a native command stopped because the
 // daemon missed a reply deadline, before or after its request.
 func IsDaemonReplyMissed(result execx.Result) bool {
-	said := string(result.Stdout) + string(result.Stderr)
-	return strings.Contains(said, "read response: daemon ") && strings.Contains(said, " did not reply within ")
+	return slices.ContainsFunc(nativeErrors(result), func(message string) bool {
+		return strings.Contains(message, "read response: daemon ") && strings.Contains(message, " did not reply within ")
+	})
+}
+
+// nativeErrors is what a failed native command gave as its own error: the
+// error field of the document it prints on stdout, then the same line on
+// stderr, never a phrase a document quotes elsewhere.
+func nativeErrors(result execx.Result) []string {
+	if result.ExitCode == 0 {
+		return nil
+	}
+	var messages []string
+	for _, line := range strings.Split(string(result.Stdout)+"\n"+string(result.Stderr), "\n") {
+		if message, ok := strings.CutPrefix(strings.TrimRight(line, "\r"), "error: "); ok {
+			messages = append(messages, strings.TrimPrefix(message, `"`))
+		}
+	}
+	return messages
 }

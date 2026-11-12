@@ -39,7 +39,7 @@ export function showMoreLabel(expanded: boolean, overflowing: boolean): "Show mo
 }
 
 // The views a panel offers: a queued task has no terminal yet, so its panel
-// is its Task view alone, and the CFO, a started task and a reported child
+// is its Task view alone, and the CEO, a started task and a reported child
 // session each have a Terminal view too, which for a session whose messages
 // the board reads (messagesQuery) shows its messages, its terminal stepping
 // in when the harness opens a screen of its own.

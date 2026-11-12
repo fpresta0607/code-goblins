@@ -16,7 +16,7 @@ func warm(handler *HTTP, change func(*http.Request)) *httptest.ResponseRecorder 
 	request.Host = handler.Host
 	request.RemoteAddr = "127.0.0.1:50000"
 	request.Header.Set("Origin", "http://"+handler.Host)
-	request.Header.Set("X-CFO-Token", "test-instance")
+	request.Header.Set("X-CEO-Token", "test-instance")
 	if change != nil {
 		change(request)
 	}
@@ -52,7 +52,7 @@ func TestWarmingIsRefusedOffTheMachineAndSkippedWithoutTheModel(t *testing.T) {
 		code   int
 	}{
 		"a peer off this machine": {&fakeSpeech{}, func(r *http.Request) { r.RemoteAddr = "100.101.102.103:51234" }, http.StatusForbidden},
-		"no board token":          {&fakeSpeech{}, func(r *http.Request) { r.Header.Del("X-CFO-Token") }, http.StatusForbidden},
+		"no board token":          {&fakeSpeech{}, func(r *http.Request) { r.Header.Del("X-CEO-Token") }, http.StatusForbidden},
 		"no model yet":            {&fakeSpeech{missing: errors.New("model 1.0 is not fetched")}, nil, http.StatusAccepted},
 		// Warming takes no body, as every board endpoint refuses one it does
 		// not take.

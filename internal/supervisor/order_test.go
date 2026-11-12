@@ -31,7 +31,7 @@ func postOrder(handler *HTTP, body, origin, token string) *httptest.ResponseReco
 		request.Header.Set("Origin", origin)
 	}
 	if token != "" {
-		request.Header.Set("X-CFO-Token", token)
+		request.Header.Set("X-CEO-Token", token)
 	}
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -65,7 +65,7 @@ func snapshotIDs(t *testing.T, handler *HTTP, phase func(Task) bool) []string {
 
 func queued(task Task) bool { return task.Phase == "queued" }
 
-func TestOrderQueuedSavesTheBacklogOrderTheCFODispatchesIn(t *testing.T) {
+func TestOrderQueuedSavesTheBacklogOrderTheCEODispatchesIn(t *testing.T) {
 	// Arrange
 	handler, h := orderBoard(t)
 	writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n- **first** - First (repo: code-goblins)\n  detail: kept with its row\n- **second** - Second (repo: code-goblins)\n")
@@ -120,7 +120,7 @@ func TestCompletedOutcomeStaysOutsideTheRunnableQueueOrder(t *testing.T) {
 func TestOrderQueuedRefusesAnOrderTheBacklogNoLongerHolds(t *testing.T) {
 	// Arrange
 	handler, h := orderBoard(t)
-	const content = "## Queued\n- **first** - First\n- **second** - Second\n- **third** - Added by the CFO meanwhile\n"
+	const content = "## Queued\n- **first** - First\n- **second** - Second\n- **third** - Added by the CEO meanwhile\n"
 	writeFile(t, filepath.Join(h.Data, "backlog.md"), content)
 
 	// Act
@@ -244,7 +244,7 @@ func TestQueuedBriefNamesItsProject(t *testing.T) {
 	}{
 		{"windows path", `C:\dev\code-goblins`, "code-goblins"},
 		{"path with a space", `C:\dev\Bob Upwork`, "Bob Upwork"},
-		{"path with a note", `C:\dev\code-goblins (the cfo fleet orchestrator, Go)`, "code-goblins"},
+		{"path with a note", `C:\dev\code-goblins (the ceo fleet orchestrator, Go)`, "code-goblins"},
 		{"relative path with a note", "projects/clock-in (Clock-In: pnpm monorepo - apps/desktop (Tauri/Rust), packages/{shared,database})", "clock-in"},
 	}
 	for _, tc := range cases {

@@ -26,7 +26,7 @@ var issueLink = regexp.MustCompile(`^https://github\.com/[\w.-]+/[\w.-]+/issues/
 func IsIssueLink(link string) bool { return issueLink.MatchString(link) }
 
 // DoneClosed is the issue a done report says the task closed in place of a
-// pull request, which cfo notify --closed writes once a decision ruled it
+// pull request, which goblins notify --closed writes once a decision ruled it
 // finished; empty for any other report.
 func DoneClosed(event string) string {
 	rest, isClosed := strings.CutPrefix(strings.TrimSpace(event), "done: closed ")
@@ -37,6 +37,29 @@ func DoneClosed(event string) string {
 		return link
 	}
 	return ""
+}
+
+// DoneReport is the report a local-only task's done report says the home
+// keeps for it in place of a pull request, data/<id>/report.md by its full
+// path, which goblins notify --report writes; empty for any other report. The
+// path may hold spaces, so it ends at the first report.md that ends a word.
+func DoneReport(event string) string {
+	rest, isReport := strings.CutPrefix(strings.TrimSpace(event), "done: report ")
+	if !isReport {
+		return ""
+	}
+	for start := 0; ; {
+		index := strings.Index(rest[start:], "report.md")
+		if index < 0 {
+			return ""
+		}
+		end := start + index + len("report.md")
+		path := rest[:end]
+		if (end == len(rest) || rest[end] == ' ') && filepath.Base(path) == "report.md" && filepath.IsAbs(path) {
+			return path
+		}
+		start = end
+	}
 }
 
 // AppendStatus appends one event to state/<id>.status, creating the log on

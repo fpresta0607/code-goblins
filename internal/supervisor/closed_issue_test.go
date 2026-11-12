@@ -116,7 +116,7 @@ func TestACompletedCardOfAClosedIssueReadsDoneFromItsStatusLog(t *testing.T) {
 	stateDir := t.TempDir()
 	now := time.Now().UTC()
 	log := now.Add(-time.Minute).Format(time.RFC3339) + " done: " + closedReport + "\n" +
-		now.Format(time.RFC3339) + " done: returned worktree via cfo cleanup\n"
+		now.Format(time.RFC3339) + " done: returned worktree via goblins cleanup\n"
 	if err := os.WriteFile(filepath.Join(stateDir, "closed-task.status"), []byte(log), 0o600); err != nil {
 		t.Fatal(err)
 	}

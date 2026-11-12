@@ -60,7 +60,7 @@ func TestRunAllToolsPresent(t *testing.T) {
 	fakeTool(t, dir, "lavish-axi", "0.1.79-codegoblins.19", 0)
 	fakeTool(t, dir, "winget", "v1.9.25200", 0)
 	t.Setenv("PATH", dir)
-	t.Setenv("CFO_HOME", t.TempDir()) // no .claude/settings.json: hook-pairing passes
+	t.Setenv("GOBLINS_HOME", t.TempDir()) // no .claude/settings.json: hook-pairing passes
 	checks := Run()
 	if len(checks) != 11 {
 		t.Fatalf("len = %d, want 11 (9 tools + conpty + hook-pairing)", len(checks))
@@ -104,7 +104,7 @@ func TestRunMissingWingetIsInstallerOnly(t *testing.T) {
 	fakeTool(t, dir, "chrome-devtools-axi", "0.1.40-codegoblins.4", 0)
 	fakeTool(t, dir, "lavish-axi", "0.1.79-codegoblins.19", 0)
 	t.Setenv("PATH", dir)
-	t.Setenv("CFO_HOME", t.TempDir())
+	t.Setenv("GOBLINS_HOME", t.TempDir())
 
 	checks := Run()
 
@@ -158,7 +158,7 @@ func TestRunLavishBelowFloorOrMissingIsPresentationOnly(t *testing.T) {
 				fakeTool(t, dir, "lavish-axi", tc.version, 0)
 			}
 			t.Setenv("PATH", dir)
-			t.Setenv("CFO_HOME", t.TempDir())
+			t.Setenv("GOBLINS_HOME", t.TempDir())
 
 			checks := Run()
 			var lavish Check
@@ -181,7 +181,7 @@ func TestRunLavishBelowFloorOrMissingIsPresentationOnly(t *testing.T) {
 }
 
 // chrome-devtools-axi is pinned to the Code Goblins build from the fork, which
-// cfo auth browser and every goblin's browser session need (#1626): the
+// goblins auth browser and every goblin's browser session need (#1626): the
 // upstream package, however new, an older build of the fork's, a build of it
 // installed by hand under .1 or .2 and the .3 release, whose bridge starts
 // PowerShell for every ACL and ownership check (#1658), all read as missing,
@@ -214,7 +214,7 @@ func TestRunChromeDevtoolsAxiThatIsNotTheForkReleaseIsMissing(t *testing.T) {
 				fakeTool(t, dir, "chrome-devtools-axi", tc.version, 0)
 			}
 			t.Setenv("PATH", dir)
-			t.Setenv("CFO_HOME", t.TempDir())
+			t.Setenv("GOBLINS_HOME", t.TempDir())
 
 			// Act
 			checks := Run()
@@ -267,7 +267,7 @@ func TestHintInstallsTheForkReleaseAtItsFloor(t *testing.T) {
 
 // The install script installs exactly the tools and harnesses the doctor
 // checks, winget aside, which only the install uses. Herdr and Kimi are in
-// neither: no goblin or CFO starts in Herdr, and a spawn refuses kimi.
+// neither: no goblin or CEO starts in Herdr, and a spawn refuses kimi.
 func TestInstallScriptInstallsExactlyTheToolsTheDoctorChecks(t *testing.T) {
 	// Arrange
 	script, err := os.ReadFile(filepath.Join("..", "..", "install.ps1"))
@@ -342,7 +342,7 @@ func TestRunMissingToolCarriesHint(t *testing.T) {
 		fakeTool(t, dir, name, name+" ok", 0)
 	}
 	t.Setenv("PATH", dir) // no tasks-axi
-	t.Setenv("CFO_HOME", t.TempDir())
+	t.Setenv("GOBLINS_HOME", t.TempDir())
 	checks := Run()
 	if Healthy(checks) {
 		t.Error("Healthy = true with tasks-axi missing")
@@ -360,7 +360,7 @@ func TestRunBrokenToolReportsFailure(t *testing.T) {
 	}
 	fakeTool(t, dir, "git", "boom", 1)
 	t.Setenv("PATH", dir)
-	t.Setenv("CFO_HOME", t.TempDir())
+	t.Setenv("GOBLINS_HOME", t.TempDir())
 	checks := Run()
 	if Healthy(checks) {
 		t.Error("Healthy = true with git --version failing")
@@ -451,7 +451,7 @@ func TestRunMissingAXIToolsCarryInstallHints(t *testing.T) {
 		fakeTool(t, dir, name, name+" ok", 0)
 	}
 	t.Setenv("PATH", dir)
-	t.Setenv("CFO_HOME", t.TempDir())
+	t.Setenv("GOBLINS_HOME", t.TempDir())
 
 	checks := Run()
 	byName := make(map[string]Check, len(checks))
@@ -472,7 +472,7 @@ func TestRunMissingGateAndAXICapabilityToolsCarryInstallHints(t *testing.T) {
 		fakeTool(t, dir, name, name+" ok", 0)
 	}
 	t.Setenv("PATH", dir)
-	t.Setenv("CFO_HOME", t.TempDir())
+	t.Setenv("GOBLINS_HOME", t.TempDir())
 
 	checks := Run()
 	byName := make(map[string]Check, len(checks))
@@ -522,8 +522,8 @@ func writeSettings(t *testing.T, home, content string) {
 
 func TestHookPairingBothPresentIsHealthy(t *testing.T) {
 	dir := t.TempDir()
-	writeSettings(t, dir, `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"cfo hook stop-autoarm"}]}],"PreToolUse":[{"hooks":[{"type":"command","command":"cfo hook turnend-guard"}]}]}}`)
-	t.Setenv("CFO_HOME", dir)
+	writeSettings(t, dir, `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"goblins hook stop-autoarm"}]}],"PreToolUse":[{"hooks":[{"type":"command","command":"goblins hook turnend-guard"}]}]}}`)
+	t.Setenv("GOBLINS_HOME", dir)
 	c := checkHookPairing()
 	if c.Err != "" {
 		t.Errorf("Err = %q, want empty with both hooks registered", c.Err)
@@ -532,8 +532,8 @@ func TestHookPairingBothPresentIsHealthy(t *testing.T) {
 
 func TestHookPairingGuardWithoutAutoarmIsUnhealthy(t *testing.T) {
 	dir := t.TempDir()
-	writeSettings(t, dir, `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"cfo hook turnend-guard"}]}]}}`)
-	t.Setenv("CFO_HOME", dir)
+	writeSettings(t, dir, `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"goblins hook turnend-guard"}]}]}}`)
+	t.Setenv("GOBLINS_HOME", dir)
 	c := checkHookPairing()
 	if c.Err == "" {
 		t.Fatal("Err = empty, want non-empty with the guard registered alone")
@@ -546,7 +546,7 @@ func TestHookPairingGuardWithoutAutoarmIsUnhealthy(t *testing.T) {
 func TestHookPairingNeitherPresentIsHealthy(t *testing.T) {
 	dir := t.TempDir()
 	writeSettings(t, dir, `{"hooks":{}}`)
-	t.Setenv("CFO_HOME", dir)
+	t.Setenv("GOBLINS_HOME", dir)
 	c := checkHookPairing()
 	if c.Err != "" {
 		t.Errorf("Err = %q, want empty with neither hook registered", c.Err)
@@ -555,7 +555,7 @@ func TestHookPairingNeitherPresentIsHealthy(t *testing.T) {
 
 func TestHookPairingFileAbsentIsHealthy(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("CFO_HOME", dir)
+	t.Setenv("GOBLINS_HOME", dir)
 	c := checkHookPairing()
 	if c.Err != "" {
 		t.Errorf("Err = %q, want empty with no settings.json at all", c.Err)
@@ -567,32 +567,32 @@ func TestHookPairingMalformedJSONIsHealthy(t *testing.T) {
 	// Malformed JSON that still contains the guard substring in plain text,
 	// proving the check parses before searching rather than doing a raw
 	// text scan that could false-positive on broken config.
-	writeSettings(t, dir, `{"hooks": cfo hook turnend-guard NOT VALID JSON`)
-	t.Setenv("CFO_HOME", dir)
+	writeSettings(t, dir, `{"hooks": goblins hook turnend-guard NOT VALID JSON`)
+	t.Setenv("GOBLINS_HOME", dir)
 	c := checkHookPairing()
 	if c.Err != "" {
 		t.Errorf("Err = %q, want empty (never a hard failure) with malformed JSON", c.Err)
 	}
 }
 
-// TestHookPairingReadsTheUserScopeSettings covers the shape `cfo install`
-// leaves behind: the CFO hooks live in the user settings and the checkout
+// TestHookPairingReadsTheUserScopeSettings covers the shape `goblins install`
+// leaves behind: the CEO hooks live in the user settings and the checkout
 // carries none, so a check that only read the checkout would go quiet
 // exactly when the hooks were working.
 func TestHookPairingReadsTheUserScopeSettings(t *testing.T) {
-	t.Setenv("CFO_HOME", t.TempDir())
+	t.Setenv("GOBLINS_HOME", t.TempDir())
 	configDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
 	settings := filepath.Join(configDir, "settings.json")
 
-	if err := os.WriteFile(settings, []byte(`{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"cfo hook turnend-guard"}]}]}}`), 0o644); err != nil {
+	if err := os.WriteFile(settings, []byte(`{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"goblins hook turnend-guard"}]}]}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if c := checkHookPairing(); c.Err == "" {
 		t.Error("Err = empty, want non-empty with the guard registered alone in the user settings")
 	}
 
-	if err := os.WriteFile(settings, []byte(`{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"cfo hook turnend-guard"},{"type":"command","command":"cfo hook stop-autoarm"}]}]}}`), 0o644); err != nil {
+	if err := os.WriteFile(settings, []byte(`{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"goblins hook turnend-guard"},{"type":"command","command":"goblins hook stop-autoarm"}]}]}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if c := checkHookPairing(); c.Err != "" {
@@ -605,11 +605,11 @@ func TestHookPairingReadsTheUserScopeSettings(t *testing.T) {
 // other is healthy, because a session loads both.
 func TestHookPairingSpansBothScopes(t *testing.T) {
 	dir := t.TempDir()
-	writeSettings(t, dir, `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"cfo hook turnend-guard"}]}]}}`)
-	t.Setenv("CFO_HOME", dir)
+	writeSettings(t, dir, `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"goblins hook turnend-guard"}]}]}}`)
+	t.Setenv("GOBLINS_HOME", dir)
 	configDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
-	if err := os.WriteFile(filepath.Join(configDir, "settings.json"), []byte(`{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"cfo hook stop-autoarm"}]}]}}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(configDir, "settings.json"), []byte(`{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"goblins hook stop-autoarm"}]}]}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if c := checkHookPairing(); c.Err != "" {
@@ -639,13 +639,13 @@ func stopHookEntries(t *testing.T, entries ...any) string {
 }
 
 // TestHookPairingRecognizesInstalledCommands drives the check with the exact
-// entries `cfo install` writes: the home's cfo.exe run with args hook and a
-// name, which no settings string spells as `cfo hook <name>`. A check that
+// entries `goblins install` writes: the home's goblins.exe run with args hook and a
+// name, which no settings string spells as `goblins hook <name>`. A check that
 // only knew the hand-written form stays silent on exactly the wiring the
 // installer produces.
 func TestHookPairingRecognizesInstalledCommands(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("CFO_HOME", dir)
+	t.Setenv("GOBLINS_HOME", dir)
 	entries := map[string]any{}
 	for _, hook := range install.Hooks(dir) {
 		entries[hook.Name] = map[string]any{"type": "command", "command": hook.Command, "args": hook.Args}
@@ -667,8 +667,8 @@ func TestHookPairingRecognizesInstalledCommands(t *testing.T) {
 // text; the check reads them as the installer does.
 func TestHookPairingRecognizesShellFormCommands(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("CFO_HOME", dir)
-	shellForm := `CFO_ROOT="${CFO_HOME:-$CLAUDE_PROJECT_DIR}"; [ -x "$CFO_ROOT"/cfo.exe ] || exit 0; "$CFO_ROOT"/cfo.exe hook `
+	t.Setenv("GOBLINS_HOME", dir)
+	shellForm := `GOBLINS_ROOT="${GOBLINS_HOME:-$CLAUDE_PROJECT_DIR}"; [ -x "$GOBLINS_ROOT"/goblins.exe ] || exit 0; "$GOBLINS_ROOT"/goblins.exe hook `
 
 	writeSettings(t, dir, stopHookSettings(t, shellForm+"turnend-guard"))
 	if c := checkHookPairing(); c.Err == "" {
@@ -682,7 +682,7 @@ func TestHookPairingRecognizesShellFormCommands(t *testing.T) {
 }
 
 // TestMain keeps this suite off the machine's own fleet. On a host where the
-// CFO is installed, CFO_HOME, CFO_STATE_OVERRIDE, and a real ~/.claude are
+// CEO is installed, GOBLINS_HOME, GOBLINS_STATE_OVERRIDE, and a real ~/.claude are
 // all in the environment, and a test that resolves any of them writes into
 // the live wake queue - which is not a hypothetical: it is how this guard
 // came to be written.
@@ -691,12 +691,12 @@ func TestMain(m *testing.M) {
 		time.Sleep(time.Minute)
 		os.Exit(0)
 	}
-	for _, name := range []string{"CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_ROLE"} {
+	for _, name := range []string{"GOBLINS_HOME", "GOBLINS_STATE_OVERRIDE", "GOBLINS_ROLE"} {
 		if err := os.Unsetenv(name); err != nil {
 			panic(err)
 		}
 	}
-	configDir, err := os.MkdirTemp("", "cfo-test-claude-config-")
+	configDir, err := os.MkdirTemp("", "goblins-test-claude-config-")
 	if err != nil {
 		panic(err)
 	}

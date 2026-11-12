@@ -15,17 +15,17 @@ import (
 )
 
 // FirstRun is what the board's first-run page reads and changes on this
-// machine: the Code Goblins home the CFO starts in, the agent the quick start
+// machine: the Code Goblins home the CEO starts in, the agent the quick start
 // remembered, the agents this machine has, the folder that holds the
-// Overlord's checkouts, and the CFO it starts. Without it the board can start
-// no CFO.
+// Overlord's checkouts, and the CEO it starts. Without it the board can start
+// no CEO.
 type FirstRun struct {
 	// Home is the user's home folder, where each agent keeps its sign-in.
 	Home     string
 	LookPath func(file string) (string, error)
-	// CFOHome is the Code Goblins home: the one folder a CFO starts in,
+	// CEOHome is the Code Goblins home: the one folder a CEO starts in,
 	// from which it works across every project.
-	CFOHome string
+	CEOHome string
 	// SavedAgent is the agent goblins remembered for this home, or empty
 	// when none was chosen yet, and SaveAgent remembers the one the page
 	// starts, so the terminal and the board hold one answer. SaveAgent("")
@@ -33,34 +33,34 @@ type FirstRun struct {
 	SavedAgent func() string
 	SaveAgent  func(agent string) error
 	// ProjectsRoot and SetProjectsRoot read and record the projects folder,
-	// as cfo install --projects-root does.
+	// as goblins install --projects-root does.
 	ProjectsRoot    func() (string, error)
 	SetProjectsRoot func(root string) error
 	// SignIn asks agent's own status command whether it is signed in, in
-	// the environment the CFO's native terminal starts with, so the page
+	// the environment the CEO's native terminal starts with, so the page
 	// says what that terminal will find.
 	SignIn func(ctx context.Context, agent string) SignInState
-	// CFORuns says a CFO is registered or its native terminal is up;
-	// StartCFO starts agent as the CFO in native terminal cfo, in the home;
-	// ReopenCFO brings the home's closed CFO back as goblins does;
-	// RestartCFO restarts the running one on its conversation as goblins
+	// CEORuns says a CEO is registered or its native terminal is up;
+	// StartCEO starts agent as the CEO in native terminal ceo, in the home;
+	// ReopenCEO brings the home's closed CEO back as goblins does;
+	// RestartCEO restarts the running one on its conversation as goblins
 	// resume does, and says whether it came back on that conversation.
-	CFORuns    func() bool
-	StartCFO   func(agent string) error
-	ReopenCFO  func() error
-	RestartCFO func(harness string) (CFOConversation, bool, error)
+	CEORuns    func() bool
+	StartCEO   func(agent string) error
+	ReopenCEO  func() error
+	RestartCEO func(harness string) (CEOConversation, bool, error)
 	mu         sync.Mutex
 }
 
-// StartRefusal is a start the board cannot make, of the CFO from the
+// StartRefusal is a start the board cannot make, of the CEO from the
 // first-run page or of a queued task; its message is the reason, in the
 // board's words. Passing says a queued task's refusal has a cause that passes
 // by itself and the board sees pass: memory under the floor, or another Start
-// running. Held says the task waits on nothing the CFO can fix: it runs
+// running. Held says the task waits on nothing the CEO can fix: it runs
 // already, is not queued, already finished, its root issue reads closed, or
 // waits on another task. Waits
 // says its row waits for what its blocked-by names, which the scheduler starts
-// it after, once that clears or once the CFO fixes a wait it cannot read.
+// it after, once that clears or once the CEO fixes a wait it cannot read.
 type StartRefusal struct {
 	Reason  string
 	Passing bool
@@ -70,11 +70,11 @@ type StartRefusal struct {
 
 func (r StartRefusal) Error() string { return r.Reason }
 
-// Setup is the first-run page: the home the CFO starts in, the agent the
-// quick start remembered, the agents this machine has, whether a CFO already
+// Setup is the first-run page: the home the CEO starts in, the agent the
+// quick start remembered, the agents this machine has, whether a CEO already
 // runs, and the projects folder with the git checkouts in it, where goblins
 // find a project by its name, or why the folder offers none. No project is a
-// place to start the CFO: it starts in the home.
+// place to start the CEO: it starts in the home.
 type Setup struct {
 	Home         string       `json:"home"`
 	Agent        string       `json:"agent"`
@@ -82,11 +82,11 @@ type Setup struct {
 	Checkouts    []string     `json:"checkouts"`
 	Problem      string       `json:"problem,omitempty"`
 	Agents       []SetupAgent `json:"agents"`
-	CFORuns      bool         `json:"cfo_runs"`
+	CEORuns      bool         `json:"ceo_runs"`
 }
 
 // SetupAgent is one agent the first-run page shows: its name, whether it is
-// the recommended one and the few words on what a CFO in it gets, all from
+// the recommended one and the few words on what a CEO in it gets, all from
 // the table of what is proved; whether this machine has it on PATH and what
 // its own status command says of its sign-in; and why Start cannot pick it
 // when it cannot.
@@ -158,7 +158,7 @@ func (f *FirstRun) Setup(ctx context.Context, root string) Setup {
 // setup is the first-run page for root with no agent asked whether it is
 // signed in, which Start does not need.
 func (f *FirstRun) setup(root string) Setup {
-	setup := Setup{Home: f.CFOHome, Agent: f.SavedAgent(), Checkouts: []string{}, CFORuns: f.CFORuns()}
+	setup := Setup{Home: f.CEOHome, Agent: f.SavedAgent(), Checkouts: []string{}, CEORuns: f.CEORuns()}
 	if root == "" {
 		recorded, err := f.ProjectsRoot()
 		if err != nil {
@@ -170,20 +170,20 @@ func (f *FirstRun) setup(root string) Setup {
 	if root != "" && setup.Problem == "" {
 		setup.Checkouts, setup.Problem = projectNames(root)
 	}
-	// Every harness the table of what is proved names can be the CFO, and
+	// Every harness the table of what is proved names can be the CEO, and
 	// none is refused that the fleet can wake.
-	for _, agent := range CFOCapabilities() {
+	for _, agent := range CEOCapabilities() {
 		path, err := f.LookPath(agent.Agent)
 		shown := SetupAgent{ID: agent.Agent, Name: agent.Name, Recommended: agent.Recommended, Note: agent.Note, Installed: err == nil, SignIn: SignInUnknown}
 		switch {
-		case agent.Wake == CFOWakeNone:
-			shown.Reason = "Goblins cannot wake a " + agent.Name + " CFO"
+		case agent.Wake == CEOWakeNone:
+			shown.Reason = "Goblins cannot wake a " + agent.Name + " CEO"
 		case !shown.Installed:
-			shown.Reason = "Install " + agent.Name + " to start the CFO"
+			shown.Reason = "Install " + agent.Name + " to start the CEO"
 		case agent.Agent == "claude" && !strings.EqualFold(filepath.Ext(path), ".exe"):
 			// A native terminal starts Claude Code itself, with no shell to
 			// run a script shim; Codex and pi start through theirs.
-			shown.Reason = "The CFO starts from the native build of Claude Code, claude.exe"
+			shown.Reason = "The CEO starts from the native build of Claude Code, claude.exe"
 		}
 		setup.Agents = append(setup.Agents, shown)
 	}
@@ -213,29 +213,29 @@ func projectNames(root string) ([]string, string) {
 	return names, ""
 }
 
-// Start starts the CFO with agent, any harness the fleet can wake, in the
+// Start starts the CEO with agent, any harness the fleet can wake, in the
 // Code Goblins home, as goblins does, and remembers the agent as goblins
 // would. Remembering is part of the start: an agent that cannot be remembered
 // refuses it with nothing started, and a start that fails puts back what the
-// home remembered before, so every error means no CFO runs. It asks for no
-// project: the CFO works across every project from its home. root, when one
+// home remembered before, so every error means no CEO runs. It asks for no
+// project: the CEO works across every project from its home. root, when one
 // is entered, is recorded as the projects folder when it is not already; with
-// none the CFO starts all the same. A start it cannot make is a StartRefusal;
-// one runs at a time, so a second press finds the first CFO running.
+// none the CEO starts all the same. A start it cannot make is a StartRefusal;
+// one runs at a time, so a second press finds the first CEO running.
 func (f *FirstRun) Start(root, agent string) error {
 	if root != "" && !filepath.IsAbs(root) {
 		return StartRefusal{Reason: notAbsolute}
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.CFORuns() {
-		return StartRefusal{Reason: "The CFO already runs; open its terminal from the board"}
+	if f.CEORuns() {
+		return StartRefusal{Reason: "The CEO already runs; open its terminal from the board"}
 	}
 	setup := f.setup(root)
 	chosen := slices.IndexFunc(setup.Agents, func(shown SetupAgent) bool { return shown.ID == agent })
 	switch {
 	case chosen < 0:
-		return StartRefusal{Reason: "Pick one of the agents this page offers to start the CFO"}
+		return StartRefusal{Reason: "Pick one of the agents this page offers to start the CEO"}
 	case setup.Agents[chosen].Reason != "":
 		return StartRefusal{Reason: setup.Agents[chosen].Reason}
 	case root != "" && setup.Problem != "":
@@ -252,51 +252,51 @@ func (f *FirstRun) Start(root, agent string) error {
 	if err := f.SaveAgent(agent); err != nil {
 		return StartRefusal{Reason: "The agent could not be remembered: " + err.Error()}
 	}
-	if err := f.StartCFO(agent); err != nil {
+	if err := f.StartCEO(agent); err != nil {
 		if restoreErr := f.SaveAgent(before); restoreErr != nil {
-			return fmt.Errorf("the CFO could not be started: %w; and the agent remembered before could not be put back: %v", err, restoreErr)
+			return fmt.Errorf("the CEO could not be started: %w; and the agent remembered before could not be put back: %v", err, restoreErr)
 		}
-		return fmt.Errorf("the CFO could not be started: %w", err)
+		return fmt.Errorf("the CEO could not be started: %w", err)
 	}
 	return nil
 }
 
-// Reopen brings the home's closed CFO back, as running goblins does: as the
+// Reopen brings the home's closed CEO back, as running goblins does: as the
 // agent the home remembers, on the conversation it last registered with where
-// its harness resumes one. It starts none beside a CFO that runs or is
+// its harness resumes one. It starts none beside a CEO that runs or is
 // starting.
 func (f *FirstRun) Reopen() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.CFORuns() {
-		return StartRefusal{Reason: "The CFO already runs; open its terminal from the board"}
+	if f.CEORuns() {
+		return StartRefusal{Reason: "The CEO already runs; open its terminal from the board"}
 	}
-	if err := f.ReopenCFO(); err != nil {
-		return fmt.Errorf("the CFO could not be reopened: %w", err)
+	if err := f.ReopenCEO(); err != nil {
+		return fmt.Errorf("the CEO could not be reopened: %w", err)
 	}
 	return nil
 }
 
-// Restart restarts the CFO that runs in native terminal cfo on its
-// conversation, as goblins resume does for a CFO whose screen froze, and
-// returns that conversation and whether the CFO came back on it. It restarts
-// nothing while no CFO runs.
-func (f *FirstRun) Restart(harness string) (CFOConversation, bool, error) {
+// Restart restarts the CEO that runs in native terminal ceo on its
+// conversation, as goblins resume does for a CEO whose screen froze, and
+// returns that conversation and whether the CEO came back on it. It restarts
+// nothing while no CEO runs.
+func (f *FirstRun) Restart(harness string) (CEOConversation, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if !f.CFORuns() {
-		return CFOConversation{}, false, StartRefusal{Reason: "No CFO runs to restart"}
+	if !f.CEORuns() {
+		return CEOConversation{}, false, StartRefusal{Reason: "No CEO runs to restart"}
 	}
-	conversation, resumed, err := f.RestartCFO(harness)
+	conversation, resumed, err := f.RestartCEO(harness)
 	if err != nil {
-		return CFOConversation{}, false, fmt.Errorf("the CFO could not be restarted: %w", err)
+		return CEOConversation{}, false, fmt.Errorf("the CEO could not be restarted: %w", err)
 	}
 	return conversation, resumed, nil
 }
 
-// restartCFO serves POST /api/cfo/restart, the board's Restart for a CFO
+// restartCEO serves POST /api/ceo/restart, the board's Restart for a CEO
 // that runs.
-func (h *HTTP) restartCFO(w http.ResponseWriter, r *http.Request) {
+func (h *HTTP) restartCEO(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Harness string `json:"harness"`
 	}
@@ -309,7 +309,7 @@ func (h *HTTP) restartCFO(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.Service.Options.FirstRun == nil {
-		apiError(w, http.StatusConflict, "This board cannot start a CFO")
+		apiError(w, http.StatusConflict, "This board cannot start a CEO")
 		return
 	}
 	conversation, resumed, err := h.Service.Options.FirstRun.Restart(input.Harness)
@@ -329,8 +329,8 @@ func (h *HTTP) restartCFO(w http.ResponseWriter, r *http.Request) {
 	}{true, resumed, conversation.Session})
 }
 
-// reopenCFO serves POST /api/cfo/reopen, the board's Reopen for a closed CFO.
-func (h *HTTP) reopenCFO(w http.ResponseWriter, r *http.Request) {
+// reopenCEO serves POST /api/ceo/reopen, the board's Reopen for a closed CEO.
+func (h *HTTP) reopenCEO(w http.ResponseWriter, r *http.Request) {
 	// Reopen takes nothing: a body that names a field is refused, as every
 	// endpoint refuses a field it does not take.
 	var input struct{}
@@ -339,7 +339,7 @@ func (h *HTTP) reopenCFO(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.Service.Options.FirstRun == nil {
-		apiError(w, http.StatusConflict, "This board cannot start a CFO")
+		apiError(w, http.StatusConflict, "This board cannot start a CEO")
 		return
 	}
 	if err := h.Service.Options.FirstRun.Reopen(); err != nil {
@@ -359,14 +359,14 @@ func (h *HTTP) reopenCFO(w http.ResponseWriter, r *http.Request) {
 // setup serves GET /api/setup, the first-run page for the folder in ?root.
 func (h *HTTP) setup(w http.ResponseWriter, r *http.Request) {
 	if h.Service.Options.FirstRun == nil {
-		apiError(w, http.StatusConflict, "This board cannot start a CFO")
+		apiError(w, http.StatusConflict, "This board cannot start a CEO")
 		return
 	}
 	respond(w, http.StatusOK, h.Service.Options.FirstRun.Setup(r.Context(), r.URL.Query().Get("root")))
 }
 
-// startCFO serves POST /api/setup/start, the first-run page's Start.
-func (h *HTTP) startCFO(w http.ResponseWriter, r *http.Request) {
+// startCEO serves POST /api/setup/start, the first-run page's Start.
+func (h *HTTP) startCEO(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Root  string `json:"root"`
 		Agent string `json:"agent"`
@@ -376,7 +376,7 @@ func (h *HTTP) startCFO(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.Service.Options.FirstRun == nil {
-		apiError(w, http.StatusConflict, "This board cannot start a CFO")
+		apiError(w, http.StatusConflict, "This board cannot start a CEO")
 		return
 	}
 	if err := h.Service.Options.FirstRun.Start(input.Root, input.Agent); err != nil {

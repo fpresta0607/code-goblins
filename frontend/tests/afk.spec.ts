@@ -2,9 +2,9 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CFO_DOOR, expect, openTaskList, ORIGIN, test, type Locator, type Page, type Route } from "./site";
+import { CEO_DOOR, expect, openTaskList, ORIGIN, test, type Locator, type Page, type Route } from "./site";
 
-// AFK mode on the board: the toggle on the CFO's bar, what that bar says while
+// AFK mode on the board: the toggle on the CEO's bar, what that bar says while
 // it is on, the offer when he is back and the link to his page
 // of the last stretch once it turns off. The supervisor is played here: the board's stream
 // is held open and each snapshot is pushed to it, and what the board asks is
@@ -14,15 +14,15 @@ const BOARD = "his own board (goblins-window.exe pid 4242)";
 const task = (id: string, fields: Record<string, unknown> = {}) => ({ id, title: id, project: "northwind-api", phase: "working", verified: false, generation: id + "-1", ...fields });
 const TASKS = [task("nw-invoice-export"), task("nw-checkout-tax"), task("nw-search-index")];
 const question = (id: string, text: string, asker = "") => ({ id, text, options: ["Hold it", "Do it"], recommended: "Hold it", status: "pending", task: asker, generation: asker ? asker + "-1" : "", created_at: new Date(Date.now() - HOURS).toISOString() });
-// The second is a goblin's question the CFO passed up to him: a goblin's own
-// question is the CFO's to answer, never waits on him and is never held.
+// The second is a goblin's question the CEO passed up to him: a goblin's own
+// question is the CEO's to answer, never waits on him and is never held.
 const QUESTIONS = [question("q-drop-table", "Migration 0042 drops the legacy_invoices table. Apply it?"), question("q-old-branch", "nw-checkout-tax asks: Delete the old branch fix/tax-rounding-v1?")];
 const HELD = [
   { item: "question:q-drop-table", task: "", what: "Migration 0042 drops the legacy_invoices table. Apply it?", at: QUESTIONS[0].created_at, waiting: true, now: "still waiting on you", meanwhile: "", recommendation: "Hold it" },
   { item: "question:q-old-branch", task: "nw-checkout-tax", what: "Delete the old branch fix/tax-rounding-v1?", at: QUESTIONS[1].created_at, waiting: true, now: "still waiting on you", meanwhile: "working: moved on to the refund path", recommendation: "Hold it" },
 ];
 let revision = 0;
-const snapshot = (fields: Record<string, unknown> = {}) => ({ healthy: true, instance: "fixture", cfo_runs: true, cfo_harness: "claude", revision: ++revision, attention: [], tasks: TASKS, sessions: [{ id: "cfo-1", harness: "claude", role: "cfo", model: "claude-opus-5-5" }], ...fields });
+const snapshot = (fields: Record<string, unknown> = {}) => ({ healthy: true, instance: "fixture", ceo_runs: true, ceo_harness: "claude", revision: ++revision, attention: [], tasks: TASKS, sessions: [{ id: "ceo-1", harness: "claude", role: "ceo", model: "claude-opus-5-5" }], ...fields });
 // AFK mode on since a moment ago unless ago says how long, so a test that is
 // not about the offer never meets it.
 const on = (fields: Record<string, unknown> = {}, ago = 0) => ({ state: "on", since: new Date(Date.now() - ago).toISOString(), from: BOARD, decided: 0, held: [], ...fields });
@@ -30,8 +30,8 @@ const on = (fields: Record<string, unknown> = {}, ago = 0) => ({ state: "on", si
 const PAGE = "/api/afk/report/afk-fixture/index.html";
 const KEPT = { state: "off", page: PAGE };
 // What the supervisor tells him on a board it refuses: one short sentence that
-// says what to do. What it found goes to the CFO, never to the board.
-const REFUSAL = "Switch AFK in the Code Goblins window, or run cfo afk on in PowerShell.";
+// says what to do. What it found goes to the CEO, never to the board.
+const REFUSAL = "Switch AFK in the Code Goblins window, or run goblins afk on in PowerShell.";
 
 interface Asked { on: unknown; token: string }
 interface Supervisor { asked: Asked[]; refuses: boolean; announces: boolean }
@@ -58,7 +58,7 @@ async function open(page: Page, first: object, supervisor: Supervisor = { asked:
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
     if (pathname === "/api/afk" && request.method() === "POST") {
-      supervisor.asked.push({ on: (request.postDataJSON() as { on: unknown }).on, token: request.headers()["x-cfo-token"] });
+      supervisor.asked.push({ on: (request.postDataJSON() as { on: unknown }).on, token: request.headers()["x-ceo-token"] });
       await route.fulfill(supervisor.refuses ? { status: 403, json: { error: REFUSAL } } : { json: { state: "on" } });
     } else if (pathname === "/api/announce" && supervisor.announces) await route.fulfill({ json: { claimed: [] } });
     else await route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
@@ -90,10 +90,10 @@ async function slowPush(page: Page, waited: number) {
 }
 const push = (page: Page, value: object) => page.evaluate((next) => (window as unknown as { pushSnapshot: (value: unknown) => number }).pushSnapshot(next), value);
 
-const bar = (page: Page) => page.locator(".cfo-pin");
+const bar = (page: Page) => page.locator(".ceo-pin");
 const header = (page: Page) => page.locator(".panel-header");
 const toggle = (page: Page) => page.getByRole("switch", { name: "AFK mode" });
-// His last report reopens from the CFO's Task view, not its header (the
+// His last report reopens from the CEO's Task view, not its header (the
 // Overlord, 2026-10-29: it "could be something that you know is part of like
 // the task panel"), so reportButton opens the Task view first.
 async function reportButton(page: Page) {
@@ -112,21 +112,21 @@ const look = (row: Locator) => row.evaluate((element) => {
   const face = element.querySelector(".goblin-avatar")!;
   return { row: { ...drawn(element), width: "" }, box: { ...drawn(element, "::before"), width: "" }, asker: [asker.color, asker.fontFamily, asker.fontWeight], answer: drawn(answer), answerBox: drawn(answer, "::before"), face: drawn(face).width };
 });
-// The CFO's panel, which the CFO's bar opens.
-async function openCfoPanel(page: Page) {
-  await bar(page).getByRole("button", { name: CFO_DOOR }).last().click();
+// The CEO's panel, which the CEO's bar opens.
+async function openCeoPanel(page: Page) {
+  await bar(page).getByRole("button", { name: CEO_DOOR }).last().click();
   await expect(header(page).locator("#panel-title")).toHaveText("CEO");
 }
 
-test("the CFO's bar carries the one AFK toggle: off at rest, on asks first, and nothing turns on until he says so", async ({ page }) => {
+test("the CEO's bar carries the one AFK toggle: off at rest, on asks first, and nothing turns on until he says so", async ({ page }) => {
   const supervisor = await open(page, snapshot());
   await expect(bar(page).getByRole("switch")).toHaveCount(1);
-  await expect(bar(page).locator(".cfo-rest").getByRole("button")).toHaveCount(2);
-  await openCfoPanel(page);
+  await expect(bar(page).locator(".ceo-rest").getByRole("button")).toHaveCount(2);
+  await openCeoPanel(page);
   await expect(header(page).getByRole("switch")).toHaveCount(0);
   await expect(toggle(page)).toHaveText("AFK");
   await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
-  await expect(bar(page).locator(".cfo-rest")).toContainText("All quiet. 3 goblins at work.");
+  await expect(bar(page).locator(".ceo-rest")).toContainText("All quiet. 3 goblins at work.");
 
   // On asks, with the focus on Cancel: Enter alone turns nothing on.
   await toggle(page).click();
@@ -143,7 +143,7 @@ test("the CFO's bar carries the one AFK toggle: off at rest, on asks first, and 
   await push(page, snapshot({ afk: on() }));
   await expect(asks).toHaveCount(0);
   await expect(toggle(page)).toHaveAttribute("aria-checked", "true");
-  await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/^AFK since .+, from your board\. 0 decided\.$/);
+  await expect(bar(page).locator(".ceo-rest > p")).toHaveText(/^AFK since .+, from your board\. 0 decided\.$/);
   // Off asks nothing first: it only gives him his decisions back.
   await toggle(page).click();
   await expect.poll(() => supervisor.asked.at(-1)).toEqual({ on: false, token: "fixture" });
@@ -224,9 +224,9 @@ async function refuseLater(page: Page) {
   return answer;
 }
 // The forms the bar changes to under him: its lantern box as something starts
-// waiting on him, and the closed bar as the CFO closes.
-const LANTERN = { fields: { questions: [QUESTIONS[0]] }, shown: (page: Page) => expect(bar(page).locator(".cfo-command")).toBeVisible() };
-const CLOSED = { fields: { cfo_runs: false, cfo_closed: true }, shown: (page: Page) => expect(bar(page)).toContainText("The CEO is closed.") };
+// waiting on him, and the closed bar as the CEO closes.
+const LANTERN = { fields: { questions: [QUESTIONS[0]] }, shown: (page: Page) => expect(bar(page).locator(".ceo-command")).toBeVisible() };
+const CLOSED = { fields: { ceo_runs: false, ceo_closed: true }, shown: (page: Page) => expect(bar(page)).toContainText("The CEO is closed.") };
 
 // The bar changing form answers nothing he asked: the question he opened, the
 // press he made and its refusal all carry over to the form that replaces it.
@@ -298,7 +298,7 @@ test("a press on the switch keeps its spinner and its refusal when the bar chang
   await expect(toggle(page)).toHaveAttribute("aria-busy", "false");
 });
 
-// The bar and the card come and go with the view and with the CFO, and neither
+// The bar and the card come and go with the view and with the CEO, and neither
 // answers the switch: his press and its question belong to the board, so they
 // carry over to whichever switch is drawn, or stay open with none drawn.
 const card = (page: Page) => page.locator(".flow-node");
@@ -328,7 +328,7 @@ for (const [from, to] of [["Board", "Orchestration"], ["Orchestration", "Board"]
   });
 }
 
-test("Go AFK? opened from the CFO's card stays open, and keeps its press, when the CFO stops", async ({ page }) => {
+test("Go AFK? opened from the CEO's card stays open, and keeps its press, when the CEO stops", async ({ page }) => {
   // Arrange
   await open(page, snapshot());
   const refuse = await refuseLater(page);
@@ -354,16 +354,16 @@ test("Go AFK? opened from the CFO's card stays open, and keeps its press, when t
   await expect(asks.getByRole("alert")).toHaveText("AFK did not turn on" + REFUSAL);
 });
 
-// A refusal on the CFO's card hangs over the cards around it, whole on the
+// A refusal on the CEO's card hangs over the cards around it, whole on the
 // screen, and its close button answers the pointer, though a card lifts under
 // the pointer as it arrives.
 for (const [width, view] of [[1440, "canvas"], [390, "list"]] as const) {
-  test(`a refusal on the CFO's card on the ${view} reads whole and closes`, async ({ page }) => {
+  test(`a refusal on the CEO's card on the ${view} reads whole and closes`, async ({ page }) => {
     // Arrange
     await page.setViewportSize({ width, height: 844 });
     await open(page, snapshot({ afk: on() }));
     await showView(page, "Orchestration");
-    const place = view === "canvas" ? card(page) : page.locator(".workflow-node.role-cfo");
+    const place = view === "canvas" ? card(page) : page.locator(".workflow-node.role-ceo");
     const refuse = await refuseLater(page);
     await place.getByRole("switch", { name: "AFK mode" }).click();
     await page.mouse.move(2, 2);
@@ -431,7 +431,7 @@ test("Turn AFK off says it is working until the supervisor answers", async ({ pa
     await route.fulfill({ json: { state: "off" } });
   });
   await page.locator(".board-column").first().click({ position: { x: 8, y: 8 } });
-  // The CFO decided nothing in this stretch, so the offer counts nothing.
+  // The CEO decided nothing in this stretch, so the offer counts nothing.
   await expect(offer(page)).toContainText("AFK has been on since");
   await expect(offer(page)).not.toContainText("The CEO decided");
   await offer(page).getByRole("button", { name: "Turn AFK off" }).click();
@@ -450,7 +450,7 @@ test("Turn AFK off says it is working until the supervisor answers", async ({ pa
 // is a click away on Open Command Center, which does not glow while he is away.
 test("while AFK is on the bar stays at rest and lists nothing held, and an outline Open Command Center is its one way to what waits", async ({ page }) => {
   await open(page, snapshot({ questions: QUESTIONS }));
-  // With AFK off the same items bring the CFO's lantern box with its lantern
+  // With AFK off the same items bring the CEO's lantern box with its lantern
   // Open Command Center.
   const command = bar(page).getByRole("button", { name: /^Open Command Center/ });
   await expect(command).toHaveAccessibleName("Open Command Center: 2 waiting on you");
@@ -458,11 +458,11 @@ test("while AFK is on the bar stays at rest and lists nothing held, and an outli
   await expect(command).not.toHaveClass(/outline/);
 
   await push(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 4, held: HELD }) }));
-  await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/^AFK since .+\. 4 decided\.$/);
+  await expect(bar(page).locator(".ceo-rest > p")).toHaveText(/^AFK since .+\. 4 decided\.$/);
   await expect(bar(page).locator(".dialogue")).toHaveCount(0);
   await expect(bar(page).getByText(/held/i)).toHaveCount(0);
   await expect(bar(page).locator(".afk-held, details")).toHaveCount(0);
-  await expect(bar(page).locator(".cfo-rest").getByRole("button", { name: "Open Command Center: 2 waiting on you" })).toHaveClass(/outline/);
+  await expect(bar(page).locator(".ceo-rest").getByRole("button", { name: "Open Command Center: 2 waiting on you" })).toHaveClass(/outline/);
   await expect(page.locator("dialog.question-modal")).not.toBeVisible();
 
   await command.click();
@@ -568,7 +568,7 @@ test("his first click after he has been gone still does what he meant and offers
   await expect(page.locator("#panel-title")).toHaveText("nw-search-index");
   // He is here now, so his next clicks offer nothing, and AFK is still on.
   await page.locator(".board-column").first().click({ position: { x: 8, y: 8 } });
-  await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/^AFK since /);
+  await expect(bar(page).locator(".ceo-rest > p")).toHaveText(/^AFK since /);
   await expect(offer(page)).toHaveCount(0);
 
   // Gone again for longer than the wait: the next click offers, and Turn AFK
@@ -585,7 +585,7 @@ test("his first click after he has been gone still does what he meant and offers
 test("turning AFK off opens the report modal and its button reopens it without a new page", async ({ page, context }) => {
   const supervisor = await open(page, snapshot({ afk: on() }));
   await page.route("**" + PAGE, (route) => route.fulfill({ contentType: "text/html", body: '<article class="back"><h1>Welcome back</h1></article>' }));
-  await openCfoPanel(page);
+  await openCeoPanel(page);
   await toggle(page).click();
   await expect.poll(() => supervisor.asked).toEqual([{ on: false, token: "fixture" }]);
   await push(page, snapshot({ afk: { state: "off" } }));
@@ -616,7 +616,7 @@ test("the report's green primary button walks through every pending decision and
     answered.push(action.question_id);
     return route.fulfill({ status: 202, json: { ...action, status: "queued" } });
   });
-  await openCfoPanel(page);
+  await openCeoPanel(page);
   await (await reportButton(page)).click();
   const report = page.getByRole("dialog", { name: "Your AFK report" });
   const start = report.getByRole("button", { name: "Go through what needs you" });
@@ -681,7 +681,7 @@ test.describe("AFK report layout", () => {
     await expect(frame.getByRole("heading", { name: "Record", exact: true })).toBeInViewport();
     await expect(report.getByRole("button", { name: "Go through what needs you" })).toBeInViewport();
     await page.screenshot({ path: testInfo.outputPath(`after-${width}-scrolled.png`) });
-    await frame.getByRole("button", { name: /^Answer The CFO: Review the complete migration/ }).click();
+    await frame.getByRole("button", { name: /^Answer The CEO: Review the complete migration/ }).click();
     await expect(report).toHaveCount(0);
     await expect(page.locator("dialog.question-modal")).toContainText(QUESTIONS[0].text);
   });
@@ -704,7 +704,7 @@ test.describe("AFK report layout", () => {
       await menu.click();
       const board = await look(page.locator(".command-center-updates .inbox-list.waiting li").first());
       await menu.click();
-      await openCfoPanel(page);
+      await openCeoPanel(page);
       await (await reportButton(page)).click();
       const report = page.getByRole("dialog", { name: "Your AFK report" });
       const frame = report.locator("iframe").contentFrame();
@@ -737,7 +737,7 @@ test.describe("AFK report layout", () => {
     await page.route("**" + PAGE, (route) => route.fulfill({ contentType: "text/html", body: html }));
     const report = page.getByRole("dialog", { name: "Your AFK report" });
     await expect(report).toHaveCount(0);
-    await openCfoPanel(page);
+    await openCeoPanel(page);
     await (await reportButton(page)).click();
     await report.locator("iframe").contentFrame().getByRole("button", { name: "Change answer" }).first().click();
     await expect(report).toHaveCount(0);
@@ -761,7 +761,7 @@ test.describe("AFK report layout", () => {
   });
 
   // #1611: the snapshot carries the items closed in the last hour, and a
-  // decision the CFO took in his place can be hours older.
+  // decision the CEO took in his place can be hours older.
   test("the report opens a decision the snapshot no longer carries in its change card, read on its own", async ({ page }) => {
     // Arrange
     const decided = { ...question("afk-left-20261015T050000.000000000Z", "Delete the idle cache database?"), status: "succeeded", options: ["Delete in a week", "Delete now", "Keep it longer"], answer: "Keep it longer", answered_option: "Keep it longer", answer_kind: "option" };
@@ -773,7 +773,7 @@ test.describe("AFK report layout", () => {
       return route.fulfill({ json: { questions: [decided] } });
     });
     const report = page.getByRole("dialog", { name: "Your AFK report" });
-    await openCfoPanel(page);
+    await openCeoPanel(page);
     await (await reportButton(page)).click();
 
     // Act
@@ -790,7 +790,7 @@ test.describe("AFK report layout", () => {
     await open(page, snapshot({ afk: KEPT }));
     let isAvailable = false;
     await page.route("**" + PAGE, (route) => route.fulfill(isAvailable ? { contentType: "text/html", body: html } : { status: 404, body: "" }));
-    await openCfoPanel(page);
+    await openCeoPanel(page);
     const reopen = await reportButton(page);
     await reopen.click();
     const report = page.getByRole("dialog", { name: "Your AFK report" });
@@ -811,10 +811,10 @@ test.describe("AFK report layout", () => {
 });
 
 test("a press on the toggle itself is his answer, so it offers nothing", async ({ page }) => {
-  // The CFO's panel is open before AFK turns on, so the toggle is his first
+  // The CEO's panel is open before AFK turns on, so the toggle is his first
   // touch after he has been gone.
   const supervisor = await open(page, snapshot());
-  await openCfoPanel(page);
+  await openCeoPanel(page);
   await push(page, snapshot({ afk: on({}, 8 * HOURS) }));
   await expect(toggle(page)).toHaveAttribute("aria-checked", "true");
   await toggle(page).click();
@@ -822,26 +822,26 @@ test("a press on the toggle itself is his answer, so it offers nothing", async (
   await expect(offer(page)).toHaveCount(0);
 });
 
-test("a stretch the CFO turned on at his ask says so on the bar, and the offer quotes his words", async ({ page }) => {
+test("a stretch the CEO turned on at his ask says so on the bar, and the offer quotes his words", async ({ page }) => {
   await page.clock.install();
-  const byTheCFO = { from: "the CFO at his ask (claude pid 4242)", asked: "I'm stepping away, turn AFK on" };
-  await open(page, snapshot({ afk: on({ ...byTheCFO, decided: 1 }, 8 * HOURS) }));
-  await expect(bar(page).locator(".cfo-rest > p")).toHaveText(/^AFK since .+, turned on by the CEO at your ask\. 1 decided\.$/);
+  const byTheCEO = { from: "the CEO at his ask (claude pid 4242)", asked: "I'm stepping away, turn AFK on" };
+  await open(page, snapshot({ afk: on({ ...byTheCEO, decided: 1 }, 8 * HOURS) }));
+  await expect(bar(page).locator(".ceo-rest > p")).toHaveText(/^AFK since .+, turned on by the CEO at your ask\. 1 decided\.$/);
   await page.locator(".board-column").first().click({ position: { x: 8, y: 8 } });
   await expect(offer(page)).toContainText("turned on by the CEO at your ask: “I'm stepping away, turn AFK on”. The CEO decided 1.");
   await offer(page).getByRole("button", { name: "Stay AFK" }).click();
   await expect(offer(page)).toHaveCount(0);
 });
 
-// The Overlord, 2026-10-09, of the dialog that met him after the CFO turned
+// The Overlord, 2026-10-09, of the dialog that met him after the CEO turned
 // AFK on at his ask: "not right button for this kind of turn on". He had just
 // asked for AFK, so the main button keeps it on, turning it off is the lesser
-// one, one short line says the CFO did it at his ask, and "The CFO decided 0."
+// one, one short line says the CEO did it at his ask, and "The CEO decided 0."
 // is gone while nothing was decided.
-test("his first click or key after the CFO turned AFK on at his ask says so in one short line, its main button keeps AFK on, and the usual wait follows his answer", async ({ page }) => {
+test("his first click or key after the CEO turned AFK on at his ask says so in one short line, its main button keeps AFK on, and the usual wait follows his answer", async ({ page }) => {
   await page.clock.install();
-  const byTheCFO = { from: "the CFO at his ask (claude pid 4242)", asked: "AFK did not turn on. AFK mode is the Supreme Overlord's switch, and the supervisor could not follow its parents to the desktop ... fix this issue i should alwyas be abel to turn on afk no issues" };
-  const supervisor = await open(page, snapshot({ afk: on(byTheCFO) }));
+  const byTheCEO = { from: "the CEO at his ask (claude pid 4242)", asked: "AFK did not turn on. AFK mode is the Supreme Overlord's switch, and the supervisor could not follow its parents to the desktop ... fix this issue i should alwyas be abel to turn on afk no issues" };
+  const supervisor = await open(page, snapshot({ afk: on(byTheCEO) }));
   const switched = page.locator("dialog.afk-dialog").filter({ hasText: "The CEO turned AFK on" });
   // Nothing opens by itself after the switch.
   await expect(switched).toHaveCount(0);
@@ -872,12 +872,12 @@ test("his first click or key after the CFO turned AFK on at his ask says so in o
 
 // The lesser button still turns it off, and a refusal
 // there is the one short sentence and never the supervisor's own words.
-test("after the CFO turned AFK on at his ask, the lesser Turn AFK off turns it off, and a refusal is one short sentence", async ({ page }) => {
-  const byTheCFO = { from: "the CFO at his ask (claude pid 4242)", asked: "turn AFK on" };
-  const supervisor = await open(page, snapshot({ afk: on({ ...byTheCFO, decided: 2 }) }), { asked: [], refuses: true, announces: true });
+test("after the CEO turned AFK on at his ask, the lesser Turn AFK off turns it off, and a refusal is one short sentence", async ({ page }) => {
+  const byTheCEO = { from: "the CEO at his ask (claude pid 4242)", asked: "turn AFK on" };
+  const supervisor = await open(page, snapshot({ afk: on({ ...byTheCEO, decided: 2 }) }), { asked: [], refuses: true, announces: true });
   const switched = page.locator("dialog.afk-dialog").filter({ hasText: "The CEO turned AFK on" });
   await page.locator(".board-column").first().click({ position: { x: 8, y: 8 } });
-  // Once the CFO decided something the line counts it.
+  // Once the CEO decided something the line counts it.
   await expect(switched.locator("p").first()).toHaveText(/^It did so at your ask, at .+\. The CEO decided 2\.$/);
   await switched.getByRole("button", { name: "Turn AFK off" }).click();
   await expect(switched.getByRole("alert")).toHaveText("AFK did not turn off" + REFUSAL);
@@ -924,19 +924,19 @@ const METERS = {
 for (const width of [1440, 390]) {
   for (const state of ["off", "on", "unreadable"] as const) {
     for (const waiting of [0, 2]) {
-      test(`at ${width} px, AFK ${state} with ${waiting} waiting, the toggle stands beside the button that opens the CFO`, async ({ page }, testInfo) => {
+      test(`at ${width} px, AFK ${state} with ${waiting} waiting, the toggle stands beside the button that opens the CEO`, async ({ page }, testInfo) => {
         // Arrange
         await page.setViewportSize({ width, height: 844 });
 
         // Act
-        await open(page, snapshot({ ...METERS, cfo_terminal: "cfo", questions: QUESTIONS.slice(0, waiting), afk: state === "on" ? on({ decided: 4, held: HELD.slice(0, waiting) }) : { state } }));
+        await open(page, snapshot({ ...METERS, ceo_terminal: "ceo", questions: QUESTIONS.slice(0, waiting), afk: state === "on" ? on({ decided: 4, held: HELD.slice(0, waiting) }) : { state } }));
 
         // Assert
         await expect(bar(page).getByRole("button", { name: /billed this month/ })).toBeVisible();
         await expect(toggle(page)).toHaveAttribute("aria-checked", String(state === "on"));
-        const opens = bar(page).locator(".cfo-pin-end").getByRole("button", { name: CFO_DOOR });
+        const opens = bar(page).locator(".ceo-pin-end").getByRole("button", { name: CEO_DOOR });
         const left = (await toggle(page).boundingBox())!, right = (await opens.boundingBox())!;
-        const gap = await bar(page).locator(".cfo-pin-end").evaluate((element) => parseFloat(getComputedStyle(element).columnGap));
+        const gap = await bar(page).locator(".ceo-pin-end").evaluate((element) => parseFloat(getComputedStyle(element).columnGap));
         expect(Math.round(right.x - (left.x + left.width)), "at the row's own gap").toBe(gap);
         expect(Math.abs(left.y + left.height / 2 - (right.y + right.height / 2)), "on one line").toBeLessThanOrEqual(1);
         const held = (await bar(page).boundingBox())!;
@@ -954,7 +954,7 @@ for (const width of [1440, 390]) {
         }
         expect(await smallest(page)).toBeGreaterThanOrEqual(15);
         expect(await fits(page)).toBe(true);
-        await bar(page).screenshot({ path: testInfo.outputPath(`cfo-bar-${width}-${state}-${waiting}.png`) });
+        await bar(page).screenshot({ path: testInfo.outputPath(`ceo-bar-${width}-${state}-${waiting}.png`) });
       });
     }
   }
@@ -967,9 +967,9 @@ for (const width of [1440, 390]) {
 for (const waiting of [0, 2]) {
   test(`with Modern chat saved and ${waiting} waiting the bar's button says chat and draws the Chat view's icon`, async ({ page }) => {
     // Arrange
-    await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "modern"));
-    await open(page, snapshot({ cfo_terminal: "cfo", questions: QUESTIONS.slice(0, waiting) }));
-    const opens = bar(page).locator(".cfo-pin-end").getByRole("button", { name: "Open the CEO's chat" });
+    await page.addInitScript(() => localStorage.setItem("ceo-chat-style", "modern"));
+    await open(page, snapshot({ ceo_terminal: "ceo", questions: QUESTIONS.slice(0, waiting) }));
+    const opens = bar(page).locator(".ceo-pin-end").getByRole("button", { name: "Open the CEO's chat" });
     await expect(opens).toHaveAttribute("data-tip", "Open the CEO's chat");
     await expect(bar(page).getByRole("button", { name: "Open the CEO's terminal" })).toHaveCount(0);
     const drawn = await opens.locator("svg").innerHTML();
@@ -983,12 +983,12 @@ for (const waiting of [0, 2]) {
   });
 }
 
-for (const [saved, fields] of [["classic", { cfo_terminal: "cfo" }], ["modern", {}]] as const) {
-  test(`with ${saved} saved and ${"cfo_terminal" in fields ? "messages" : "no messages"} to show the bar's button says terminal and opens it`, async ({ page }) => {
+for (const [saved, fields] of [["classic", { ceo_terminal: "ceo" }], ["modern", {}]] as const) {
+  test(`with ${saved} saved and ${"ceo_terminal" in fields ? "messages" : "no messages"} to show the bar's button says terminal and opens it`, async ({ page }) => {
     // Arrange
-    await page.addInitScript((style) => localStorage.setItem("cfo-chat-style", style), saved);
+    await page.addInitScript((style) => localStorage.setItem("ceo-chat-style", style), saved);
     await open(page, snapshot(fields));
-    const opens = bar(page).locator(".cfo-pin-end").getByRole("button", { name: "Open the CEO's terminal" });
+    const opens = bar(page).locator(".ceo-pin-end").getByRole("button", { name: "Open the CEO's terminal" });
     await expect(opens).toHaveAttribute("data-tip", "Open the CEO's terminal");
 
     // Act
@@ -1025,23 +1025,23 @@ for (const width of [1440, 390]) {
   });
 }
 
-// A bar with no CFO running keeps its one way to start one, and no panel is
+// A bar with no CEO running keeps its one way to start one, and no panel is
 // left to turn AFK off from, so the switch stays there only while AFK is not
 // off.
 for (const [state, count] of [["off", 0], ["on", 1], ["unreadable", 1]] as const) {
-  test(`a closed CFO's bar with AFK ${state} shows the switch ${count} times`, async ({ page }) => {
+  test(`a closed CEO's bar with AFK ${state} shows the switch ${count} times`, async ({ page }) => {
     // Act
-    await open(page, snapshot({ cfo_runs: false, cfo_closed: true, afk: state === "on" ? on() : { state } }));
+    await open(page, snapshot({ ceo_runs: false, ceo_closed: true, afk: state === "on" ? on() : { state } }));
 
     // Assert
     await expect(bar(page).getByRole("button", { name: "Reopen the CEO" })).toBeVisible();
     await expect(toggle(page)).toHaveCount(count);
   });
 
-  test(`with no CFO running and AFK ${state} the bar shows the switch ${count} times`, async ({ page }) => {
+  test(`with no CEO running and AFK ${state} the bar shows the switch ${count} times`, async ({ page }) => {
     // Arrange
     await open(page, snapshot());
-    await push(page, snapshot({ cfo_runs: false, afk: state === "on" ? on() : { state } }));
+    await push(page, snapshot({ ceo_runs: false, afk: state === "on" ? on() : { state } }));
 
     // Act
     await page.getByRole("button", { name: "Board", exact: true }).click();
@@ -1060,7 +1060,7 @@ test.describe("in the desktop window", () => {
     await open(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 4, held: HELD }) }));
     await expect(bar(page).getByRole("button", { name: "Open Command Center: 2 waiting on you" })).toBeVisible();
     await expect(toggle(page)).toBeVisible();
-    expect(await within(page, ".cfo-rest")).toBe(true);
+    expect(await within(page, ".ceo-rest")).toBe(true);
     expect(await fits(page)).toBe(true);
   });
 });
@@ -1082,19 +1082,19 @@ test.describe("a board left open across an update", () => {
     const index = await readFile(join(site, "index.html"), "utf8");
     const loads = { count: 0, loaded: 0 };
     page.on("domcontentloaded", () => { loads.loaded++; });
-    // A board's first open shows the CFO's terminal at once: this one has
+    // A board's first open shows the CEO's terminal at once: this one has
     // been opened before, so no terminal opens until he opens one.
-    await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
+    await page.addInitScript(() => localStorage.setItem("ceo-first-open", "shown"));
     await page.route(ORIGIN + "/", (route) => {
       const build = builds[Math.min(loads.count, builds.length - 1)];
       loads.count++;
-      return route.fulfill({ contentType: "text/html", body: index.replace("<head>", `<head><meta name="cfo-build" content="${build}">`) });
+      return route.fulfill({ contentType: "text/html", body: index.replace("<head>", `<head><meta name="ceo-build" content="${build}">`) });
     });
     await page.route("**/assets/TerminalDeck-*", (route) => isServed(loads.count) ? route.fallback() : route.fulfill({ status: 404, body: "" }));
     return loads;
   }
-  const loadedBuild = (page: Page) => page.locator('meta[name="cfo-build"]').getAttribute("content");
-  const openTerminal = (page: Page) => bar(page).getByRole("button", { name: CFO_DOOR }).last().click();
+  const loadedBuild = (page: Page) => page.locator('meta[name="ceo-build"]').getAttribute("content");
+  const openTerminal = (page: Page) => bar(page).getByRole("button", { name: CEO_DOOR }).last().click();
 
   test("opening a terminal reloads it once onto the new build, where the terminals open", async ({ page }) => {
     // Arrange

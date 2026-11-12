@@ -248,7 +248,7 @@ test("Up in an empty box recalls what he sent before, newest first, and Down wal
   const relay = await open(page, snapshot(), "", { messages: [
     { id: "p0", seq: 0, at, kind: "prompt", source: "overlord", text: "Read the brief" },
     { id: "r1", seq: 1, at, kind: "reply", blocks: [{ kind: "text", text: "On it." }] },
-    { id: "p2", seq: 2, at: at2, kind: "prompt", source: "cfo", text: "A note from the CEO" },
+    { id: "p2", seq: 2, at: at2, kind: "prompt", source: "ceo", text: "A note from the CEO" },
     { id: "p3", seq: 3, at: at2, kind: "prompt", source: "slash", text: "/cost", output: "Total cost: $0.12" },
     { id: "p4", seq: 4, at: at2, kind: "prompt", source: "overlord", text: "Now fix the swipe" },
   ], conversation: "fixture-conversation", more: false });

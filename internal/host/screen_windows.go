@@ -74,7 +74,7 @@ func readScreen(record Record, greeting hello) (screen, error) {
 		return screen{}, err
 	}
 	if kind != frameScreen {
-		return screen{}, fmt.Errorf("its host answered with frame %q, not a screen; a host started by an older cfo cannot read screens", kind)
+		return screen{}, fmt.Errorf("its host answered with frame %q, not a screen; a host started by an older goblins cannot read screens", kind)
 	}
 	var answer screen
 	if err := json.Unmarshal(payload, &answer); err != nil {

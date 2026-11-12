@@ -13,11 +13,11 @@ import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { goblinName } from "./task-words";
 import { SkipWithNote } from "./skip-with-note";
 import { CardMail } from "./card-mail";
-import { inlineElements } from "./messageText";
+import { inlineElements, linkedText, literalLinks } from "./messageText";
 import { copyValues } from "./CopyValue";
 import { PathLink, pathLinks, type PathCard } from "./path-link";
 
-// A command the CFO, or a goblin, needs the Overlord to run: who asks when it
+// A command the CEO, or a goblin, needs the Overlord to run: who asks when it
 // is a goblin's own, why, the shell, the exact text that runs and where, each
 // local path it names a link that opens it, a message he sends himself with
 // Copy, and one Run button that says where it runs, with Skip and the
@@ -50,20 +50,20 @@ export function RunCard({ run, goblin, connected, now, instance, sending, error,
       <span className={"run-state delivery " + (mark.trouble ? "failed" : "succeeded")} role="status"><Icon name={mark.icon} />{failure ? "Failed" : mark.label}</span>
     </header>
     <h3 id={"run-" + run.id}>{inlineElements(run.title, copyValues, pathLinks(card))}</h3>
-    {failure && <p className="run-failure">{failure}</p>}
+    {failure && <p className="run-failure">{linkedText(failure)}</p>}
     <div className="run-command">
-      <pre><code>{run.command}</code></pre>
+      <pre><code>{literalLinks(run.command)}</code></pre>
       <button type="button" className="icon-button" aria-label="Copy command" onClick={copy}><Icon name={copied ? "check" : "copy"} /></button>
     </div>
     {run.cwd && <p className="run-cwd"><PathLink path={run.cwd} card={card} /></p>}
     {run.mail && <CardMail mail={run.mail} />}
-    {run.reason && !mark.trouble && !mark.label.includes(run.reason) && <p className="muted">{run.reason}</p>}
+    {run.reason && !mark.trouble && !mark.label.includes(run.reason) && <p className="muted">{linkedText(run.reason)}</p>}
     {running && (run.terminal
       ? <RunTerminal run={run} instance={instance} connected={connected} />
       : <p className="muted run-waiting" role="status"><Icon name={run.admin ? "shield" : "terminal"} />{run.admin ? "Confirm the Windows prompt to run it as administrator. It runs here once you do." : "Starting its terminal"}</p>)}
     {!running && run.output && <section className="run-terminal" aria-label="Command output">
       <header><span>Output</span></header>
-      <pre className="run-output">{run.output}</pre>
+      <pre className="run-output">{literalLinks(run.output)}</pre>
     </section>}
     {(run.state === "ready" || pager) && <div className="card-actions">
       <ClickFeedback text={feedback} />

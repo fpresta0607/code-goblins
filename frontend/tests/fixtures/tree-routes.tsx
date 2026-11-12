@@ -14,13 +14,13 @@ const ago = (minutes: number) => new Date(now - minutes * 60_000).toISOString();
 const child = (id: string, label: string, minutes: number, fields: Record<string, unknown> = {}) => ({ id, kind: "subagent", group: "", parent: "", label, detail: "Explore", task: label, state: "working", memory: 0, finished: "", last_line: "", started: ago(minutes), last_activity: ago(1), source_updated_at: ago(1), fetched_at: ago(0), ...fields });
 const tree = (task: string, children: Record<string, unknown>[]) => ({ task_id: task, generation: "g1", harness: "claude", memory: 2 ** 30, own_memory: 2 ** 29, children, source_updated_at: ago(0), fetched_at: ago(0.1) });
 const task = (id: string, title: string, fields: Record<string, unknown> = {}) => ({ id, title, project: "code-goblins", phase: "working", harness: "claude", model: "claude-opus-5-5", effort: "xhigh", verified: false, generation: "g1", session: "s-" + id, backend: "native", since: ago(90), ...fields });
-const session = (id: string, role: string, parent: string, taskID = "") => ({ id, native_id: id, harness: "claude", role, task_id: taskID, generation: taskID ? "g1" : "", parent, relation: parent ? "Dispatched by the CFO" : "", phase: "working", updated_at: ago(0) });
+const session = (id: string, role: string, parent: string, taskID = "") => ({ id, native_id: id, harness: "claude", role, task_id: taskID, generation: taskID ? "g1" : "", parent, relation: parent ? "Dispatched by the CEO" : "", phase: "working", updated_at: ago(0) });
 const isNarrow = new URLSearchParams(location.search).get("view") === "narrow";
 const snapshot = parseSnapshot({
-  healthy: true, instance: "fixture", cfo_runs: true, afk: { state: "off" }, cfo_harness: "claude", revision: 1, attention: [],
+  healthy: true, instance: "fixture", ceo_runs: true, afk: { state: "off" }, ceo_harness: "claude", revision: 1, attention: [],
   sessions: [
-    session("s-cfo", "cfo", ""), session("s-fleet", "goblin", "s-cfo", "fleet"), session("s-billing", "goblin", "s-cfo", "billing"),
-    session("s-canvas", "goblin", "s-cfo", "canvas"), ...isNarrow ? [] : [session("s-notes", "goblin", "s-fleet", "notes")],
+    session("s-ceo", "ceo", ""), session("s-fleet", "goblin", "s-ceo", "fleet"), session("s-billing", "goblin", "s-ceo", "billing"),
+    session("s-canvas", "goblin", "s-ceo", "canvas"), ...isNarrow ? [] : [session("s-notes", "goblin", "s-fleet", "notes")],
   ],
   tasks: [
     task("fleet", "Build the fleet tree", { goblin_name: "Grub", goblin_title: "Tree Surgeon", tree: tree("fleet", [
@@ -40,5 +40,5 @@ const snapshot = parseSnapshot({
 });
 watchTips();
 createRoot(document.getElementById("root")!).render(<main style={{ height: "100vh", width: isNarrow ? 836 : "100%", display: "flex", flexDirection: "column" }}>
-  <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenCfo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} />
+  <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenCeo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} />
 </main>);
