@@ -832,7 +832,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   const canSend = !isSending && !adding && !!outgoing;
   // While the harness works and the box is empty, the send button is Stop,
   // which presses Escape in its terminal as the terminal's own Esc does.
-  const canStop = isWorking && !outgoing && !isSending && live?.phase === "live" && !isHeld;
+  const canStop = isWorking && !outgoing && !isSending && live?.phase === "live" && (!isHeld || live.isStream);
   const isTouch = matchMedia(TOUCH_SCREEN).matches;
   // What the harness's own screen asks, which a box given the conversation's
   // ask slot draws as the conversation's last message (#2223), and any other

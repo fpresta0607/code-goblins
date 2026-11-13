@@ -6,7 +6,7 @@ import { attachDictatedInput } from "./dictated-input";
 import { clipboardInput, imageKey, readClipboard, terminalKey } from "./terminal-keys";
 import { FrameWriter } from "./terminalFrames";
 import { stripPasteEscapes, wheelLines } from "./terminalInput";
-import { ackDue, DEFAULT_FONT_SIZE, type FitEvent, type FitState, followFontSize, fontSizeFor, inputMessages, nextFit, panelFit, parseHeld, parseHistory, parseScreen, parseSize, parseUnread, type ScreenState } from "./terminalStream";
+import { ackDue, DEFAULT_FONT_SIZE, type FitEvent, type FitState, followFontSize, fontSizeFor, inputMessages, nextFit, panelFit, parseHeld, parseHistory, parseScreen, parseSize, parseStream, parseUnread, type ScreenState } from "./terminalStream";
 import { PinnedLine } from "./pinned-line";
 import { attachZoomGesture } from "./terminal-zoom";
 import { attachTouchScroll, terminalText } from "./terminal-touch";
@@ -55,6 +55,8 @@ export interface ViewEvents {
   // task, or an empty reason once it is free. Typing meanwhile reaches no
   // one: the relay drops it.
   held: (reason: string) => void;
+  // The relay said this view shows a session on stream-json pipes.
+  stream: () => void;
   // A key was typed while the view had no open connection, so it was not
   // sent: a key sent once the view is back could act on a screen he no
   // longer sees.
@@ -106,6 +108,9 @@ export class TerminalView {
   private isUnread = false;
   // Why typing is held, as the relay last said, or empty while it is free.
   private heldReason = "";
+  // Whether the relay said this view shows a session on stream-json pipes,
+  // which takes no typing but stops a turn on Escape or Ctrl+C.
+  private isStreamSession = false;
   // What the relay last said of the harness's screen, or null while this
   // view has not been told.
   private screenState: ScreenState | null = null;
@@ -187,6 +192,8 @@ export class TerminalView {
   get unread(): boolean { return this.isUnread; }
 
   get held(): string { return this.heldReason; }
+
+  get stream(): boolean { return this.isStreamSession; }
 
   get screen(): ScreenState | null { return this.screenState; }
 
@@ -277,7 +284,7 @@ export class TerminalView {
   }
 
   control(keys: string): boolean {
-    if (!this.isReady || this.heldReason || !this.isSendable()) return false;
+    if (!this.isReady || (this.heldReason && !(this.isStreamSession && keys === "\x03")) || !this.isSendable()) return false;
     this.term.input(keys, true);
     return true;
   }
@@ -358,6 +365,7 @@ export class TerminalView {
       if (unread !== null) { this.isUnread = unread; this.events.unread(unread); return; }
       const held = parseHeld(data);
       if (held !== null) { this.heldReason = held; this.events.held(held); return; }
+      if (parseStream(data)) { this.isStreamSession = true; this.events.stream(); return; }
       const screen = parseScreen(data);
       if (screen !== null) { this.screenState = screen; this.events.screen(screen); this.readyIfDrawn(); return; }
       // The terminal took a size here in its output. xterm parses writes in

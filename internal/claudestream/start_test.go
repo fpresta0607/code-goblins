@@ -123,6 +123,43 @@ func TestProveStartRefusesASessionGivenNoSkills(t *testing.T) {
 	}
 }
 
+// A goblin hook that cannot run leaves the supervisor knowing nothing of the
+// session, while the person's own SessionStart hooks run beside it, so one
+// hook's failure refuses the start however many others succeeded. Claude
+// Code 2.1.322 reports a hook it could not start, and one that exited with an
+// error, as these do.
+func TestProveStartRefusesASessionWhoseSessionStartHookFailed(t *testing.T) {
+	for _, testCase := range []struct{ name, failure, want string }{
+		{"its program is missing", `"stderr":"Error occurred while executing hook command: ENOENT: no such file or directory, uv_spawn 'goblins.exe'","exit_code":1,"outcome":"error"`, "a SessionStart hook failed: error Error occurred while executing hook command: ENOENT"},
+		{"it exits with an error", `"stderr":"","exit_code":3,"outcome":"error"`, "a SessionStart hook failed: error"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			write, next, _ := replayStart(t, "start.jsonl")
+			isFailed := false
+			failing := func() (json.RawMessage, error) {
+				line, err := next()
+				if text := string(line); !isFailed && strings.Contains(text, `"hook_event":"SessionStart"`) && strings.Contains(text, `"subtype":"hook_response"`) {
+					isFailed = true
+					line = json.RawMessage(strings.Replace(text, `"stderr":"","exit_code":0,"outcome":"success"`, testCase.failure, 1))
+				}
+				return line, err
+			}
+
+			// Act
+			start, err := ProveStart(write, failing, []string{userMemory})
+
+			// Assert
+			if err == nil || !strings.Contains(err.Error(), testCase.want) {
+				t.Errorf("ProveStart = %v, want it refused saying %q", err, testCase.want)
+			}
+			if start.SessionStartHooks != 1 || len(start.FailedHooks) != 1 {
+				t.Errorf("ProveStart read %d hooks that succeeded and %q that failed, want 1 and 1", start.SessionStartHooks, start.FailedHooks)
+			}
+		})
+	}
+}
+
 func TestProveStartRefusesASessionMissingAnExpectedCLAUDEFile(t *testing.T) {
 	for _, testCase := range []struct {
 		name     string

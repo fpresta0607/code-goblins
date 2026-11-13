@@ -31,9 +31,19 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	forceDirty := flags.Bool("force-dirty", false, "switch even though the worktree has uncommitted changes")
 	restart := flags.Bool("restart", false, "start the goblin's own harness, model and effort again on its conversation, onto any update of its harness")
 	renamed := flags.Bool("renamed", false, "with --restart: start it again under goblins' names, as the supervisor does after its home moved to them")
+	inTerminal := flags.Bool("terminal", false, "start the goblin again on its conversation in a terminal, taking a goblin on stream-json pipes over; --restart hands it back")
 	if !parseFlags(flags, args[1:]) {
 		return 2
 	}
+	if *inTerminal && *renamed {
+		fmt.Fprintln(stderr, "goblins switch: --renamed goes with --restart, not --terminal")
+		return 2
+	}
+	if *inTerminal && (*restart || *harnessName != "" || *model != "" || *effort != "") {
+		fmt.Fprintln(stderr, "goblins switch: --terminal keeps the goblin's own harness, model and effort; leave out --restart, --harness, --model and --effort")
+		return 2
+	}
+	*restart = *restart || *inTerminal
 	if *renamed && !*restart {
 		fmt.Fprintln(stderr, "goblins switch: --renamed goes with --restart")
 		return 2
@@ -43,7 +53,7 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		return 2
 	}
 	if !*restart && *harnessName == "" && *model == "" && *effort == "" {
-		fmt.Fprintln(stderr, "goblins switch: one of --harness, --model, --effort or --restart is required")
+		fmt.Fprintln(stderr, "goblins switch: one of --harness, --model, --effort, --restart or --terminal is required")
 		return 2
 	}
 	if *harnessName != "" && !validSpawnHarness(*harnessName) {
@@ -75,9 +85,13 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		Generation: pinned,
 		ForceDirty: *forceDirty,
 		Restart:    *restart,
+		InTerminal: *inTerminal,
 		BriefPath:  filepath.Join(h.Data, id, "brief.md"),
 	}
-	if *restart {
+	switch {
+	case *inTerminal:
+		request.ResumeNote = "The Overlord took you over in a terminal, on your own conversation, harness, model and effort."
+	case *restart:
 		request.ResumeNote = "The Overlord restarted you on your own harness, model and effort."
 	}
 	if *renamed {

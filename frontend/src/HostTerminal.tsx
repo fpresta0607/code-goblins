@@ -63,6 +63,8 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   // owns the goblin's work, which says so instead of closing the view
   // (#1304); empty while typing is free.
   const [heldWhy, setHeldWhy] = useState("");
+  // Whether the relay said the view shows a session on stream-json pipes.
+  const [isStream, setStream] = useState(false);
   // Whether a key he typed was not sent, since the view had no connection
   // then, until a new connection is whole.
   const [isUnsent, setUnsent] = useState(false);
@@ -134,6 +136,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
         setHistoryEnd(null);
         setUnread(view.unread);
         setHeldWhy(view.held);
+        setStream(view.stream);
         setScreen(view.screen);
         setUnsent(false);
         setReconnecting(false);
@@ -173,6 +176,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
       // A hold told to the first connection counts before its view is whole:
       // the relay drops typing meanwhile, so the box saves through the board.
       held: (reason) => { if (current.current === view || !current.current) setHeldWhy(reason); },
+      stream: () => { if (current.current === view || !current.current) setStream(true); },
       unsent: () => { if (current.current === view) setUnsent(true); },
       screen: (state) => { if (current.current === view) setScreen(state); },
       history: () => { if (current.current === view) onHistoryValue.current?.(); },
@@ -192,7 +196,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   useEffect(() => {
     if (!link) return;
     offerLink(link, {
-      phase, isReconnecting: reconnecting || !visible, isDictating: dictation.listening, isUnread, held: heldWhy, screen,
+      phase, isReconnecting: reconnecting || !visible, isDictating: dictation.listening, isUnread, held: heldWhy, screen, isStream,
       stopDictation: dictation.stop,
       feedback: feedback || dictation.note,
       send: (text) => phase === "live" && !reconnecting && visible ? current.current?.submit(text) ?? null : null,
@@ -201,7 +205,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
       control: (keys) => phase === "live" && !reconnecting && visible ? current.current?.control(keys) ?? false : false,
     });
     return () => offerLink(link, null);
-  }, [link, phase, reconnecting, visible, isUnread, heldWhy, screen, dictation.listening, dictation.stop, dictation.note, feedback]);
+  }, [link, phase, reconnecting, visible, isUnread, heldWhy, screen, isStream, dictation.listening, dictation.stop, dictation.note, feedback]);
   // While the view is live one notice says what keeps his keys from the
   // program, the most pressing first, never two at once (the Overlord,
   // 2026-11-04): a key it could not send while it reconnects, the reconnect,
