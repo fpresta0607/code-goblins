@@ -70,6 +70,11 @@ type LaunchSpec struct {
 	// runs none. Only the codex adapter reads them.
 	CodexHooks []string
 	Subagents  map[string]routing.ExecutionLane
+	// Implement is the lane of the native worker the goblin hands a bounded
+	// implementation slice to, from its lane's implement role, and the zero
+	// lane when the goblin implements its own work. Only the claude and codex
+	// adapters read it.
+	Implement routing.ExecutionLane
 }
 
 // Launch is a harness launch specification: the native terminal's host starts

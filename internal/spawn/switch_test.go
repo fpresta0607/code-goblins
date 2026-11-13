@@ -19,6 +19,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/project"
+	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/sandbox"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
@@ -283,6 +284,50 @@ func TestPausedResumeUsesTheSavedSessionInsteadOfTheLatestSession(t *testing.T) 
 	launches := named(f.events(t), "env")
 	if !result.Resumed || len(launches) != 1 || !strings.HasPrefix(launches[0].Text, "resume saved-session-42 ") || strings.Contains(launches[0].Text, "--last") {
 		t.Fatalf("result = %+v, launches = %+v; want the saved session resumed", result, launches)
+	}
+}
+
+// A goblin keeps the implement worker its spawn chose across a resume on its
+// own engine, and implements its own work once the CEO changes that engine,
+// as its route lane becomes explicit.
+func TestARelaunchKeepsTheImplementWorkerOnlyOnTheTasksOwnEngine(t *testing.T) {
+	recorded := routing.ExecutionLane{Name: "light-codex", Harness: "codex", Model: "gpt-6.1-sol", Effort: "high"}
+	for _, test := range []struct {
+		name    string
+		request SwitchRequest
+		want    routing.ExecutionLane
+	}{
+		{"the resume of its pause", SwitchRequest{IsResume: true, ResumeSession: "saved-session-42"}, recorded},
+		{"a switch to another model", SwitchRequest{Model: "gpt-9", ResumeSession: "saved-session-42"}, routing.ExecutionLane{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			f := newSwitchFixture(t, harness.Control{StopCommand: "/exit", ResumeArgs: []string{"resume", "--last"}})
+			f.meta.RouteLane, f.meta.ImplementLane, f.meta.ImplementModel, f.meta.ImplementEffort = "build", recorded.Name, recorded.Model, recorded.Effort
+			if err := state.WriteTaskMeta(f.stateDir, f.meta); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.WriteLifecycle(f.stateDir, state.Lifecycle{ID: f.meta.ID, Generation: f.meta.SpawnGen, Operation: "resume-1", Action: "resume", Phase: "resuming"}); err != nil {
+				t.Fatal(err)
+			}
+			request := test.request
+			request.ID, request.Generation = f.meta.ID, f.meta.SpawnGen
+
+			// Act
+			_, err := f.service.Switch(context.Background(), request)
+
+			// Assert
+			if err != nil {
+				t.Fatalf("Switch: %v", err)
+			}
+			if len(f.specs) != 1 || f.specs[0].Implement != test.want {
+				t.Fatalf("launches = %+v, want one with implement %+v", f.specs, test.want)
+			}
+			after, err := state.ReadTaskMeta(f.stateDir, f.meta.ID)
+			if err != nil || after.ImplementLane != test.want.Name || after.ImplementModel != test.want.Model || after.ImplementEffort != test.want.Effort {
+				t.Errorf("record = %+v, %v; want implement %+v", after, err, test.want)
+			}
+		})
 	}
 }
 
