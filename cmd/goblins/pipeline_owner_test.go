@@ -325,7 +325,9 @@ func TestPipelineRunHandsAFailedStepBackWithItsFindingsAndLog(t *testing.T) {
 // A failed verification escalates the role whose work it checked: under
 // version 7 a run's failed Test step moves the task's implement worker one
 // tier up its harness, once for that run however often it is read, and
-// retires the worker when that tier is its lead's. A worker on the top tier
+// retires the worker when that tier is its lead's. Every read of the run says
+// where the role went, without the table the move no longer needs, since the
+// first reader may be the CEO's respond. A worker on the top tier
 // stays, a Lint failure moves nothing, nor does a task whose goblin implements
 // its own work, and a table that does not load moves nothing while the task
 // still reads as working on its findings.
@@ -347,12 +349,12 @@ func TestAFailedTestStepEscalatesTheImplementWorkerOneTier(t *testing.T) {
 	}{
 		{
 			name: "a worker one tier below its lead is retired", step: "test", lead: "opus", implement: "sonnet",
-			said:     "pipeline handback: a failed test step moves the implement role up one tier, to this task's lead opus claude-opus-5-5 xhigh, so its worker is retired: implement this correction and every later slice yourself",
+			said:     "pipeline handback: run " + ownerRun + "'s failed test step moved the implement role up one tier, to this task's lead opus claude-opus-5-5 xhigh, so its worker is retired: implement this correction and every later slice yourself",
 			recorded: "role-escalated: implement sonnet claude-sonnet-5-5 high -> the lead opus claude-opus-5-5 xhigh after run " + ownerRun + "'s failed test step",
 		},
 		{
 			name: "a worker two tiers below its lead moves up one", step: "test", lead: "fable", implement: "haiku", want: "sonnet",
-			said:     "pipeline handback: a failed test step moves the implement role up one tier, to sonnet claude-sonnet-5-5 high, which the task's next relaunch gives its worker; until then implement this correction and every later slice yourself, since this session's worker stays on haiku",
+			said:     "pipeline handback: run " + ownerRun + "'s failed test step moved the implement role up one tier, to sonnet claude-sonnet-5-5 high, which the task's next relaunch gives its worker; until then implement this correction and every later slice yourself, since this session's worker keeps its old model",
 			recorded: "role-escalated: implement haiku haiku medium -> sonnet claude-sonnet-5-5 high after run " + ownerRun + "'s failed test step",
 		},
 		{name: "a worker on the top tier stays", step: "test", lead: "opus", implement: "fable", want: "fable"},
@@ -389,8 +391,15 @@ func TestAFailedTestStepEscalatesTheImplementWorkerOneTier(t *testing.T) {
 			}
 			var out bytes.Buffer
 
-			// Act: the goblin reads the parked run, then reattaches to it.
-			for range 2 {
+			// Act: the run is read, then read again, as when the CEO's
+			// respond reaches it before the goblin reattaches; a run that moved
+			// the role is read again with a table that no longer loads.
+			for read := range 2 {
+				if read == 1 && test.recorded != "" {
+					if err := os.WriteFile(filepath.Join(h.Data, "routing.json"), []byte(`{"default_lane":`), 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
 				if err := pipelineCommand(context.Background(), h, nm, native, []string{"run", "task", "--intent", ownerIntent}, &out); err != nil {
 					t.Fatalf("run: %v\n%s", err, out.String())
 				}
@@ -413,7 +422,7 @@ func TestAFailedTestStepEscalatesTheImplementWorkerOneTier(t *testing.T) {
 				t.Errorf("latest verb = %q, want the task still working on its findings", verb)
 			}
 			if test.recorded == "" {
-				if strings.Contains(status, "role-escalated") || strings.Contains(out.String(), "moves the implement role") || after.EscalatedRun != "" {
+				if strings.Contains(status, "role-escalated") || strings.Contains(out.String(), "moved the implement role") || after.EscalatedRun != "" {
 					t.Fatalf("a role moved, escalated run %q:\n%s\n%s", after.EscalatedRun, out.String(), status)
 				}
 				if !strings.Contains(out.String(), test.said) {
@@ -424,8 +433,8 @@ func TestAFailedTestStepEscalatesTheImplementWorkerOneTier(t *testing.T) {
 			if strings.Count(status, test.recorded) != 1 || strings.Count(status, "role-escalated") != 1 {
 				t.Errorf("status log %q, want the move recorded once: %q", lines, test.recorded)
 			}
-			if strings.Count(out.String(), test.said) != 1 {
-				t.Errorf("output lacks, or repeats, %q:\n%s", test.said, out.String())
+			if strings.Count(out.String(), test.said) != 2 || strings.Contains(out.String(), "escalation failed") {
+				t.Errorf("output does not say once per read, without a failure, %q:\n%s", test.said, out.String())
 			}
 			if after.EscalatedRun != ownerRun {
 				t.Errorf("escalated run = %q, want %s", after.EscalatedRun, ownerRun)

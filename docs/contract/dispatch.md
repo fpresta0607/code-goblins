@@ -401,6 +401,7 @@ The shipped table orders Claude as Fable, Opus, Sonnet and Haiku, and Codex as A
 A failed verification moves the role whose work it checked up one tier: when a run's Test step fails and the task's policy hands that failure back to its goblin, as version 7 does, the task's implement worker moves to the next stronger tier on its harness.
 A worker whose next tier is its lead's own is retired, and so is one whose model the tiers do not rank, while a worker already on the top tier stays where it is.
 The move is recorded on the task with the run that caused it, and as a `role-escalated:` status line naming both lanes, so reading the same run again moves it no further.
+Every read of that run says where the role went, so the goblin learns it even when the CEO's respond read the run first.
 The goblin implements that correction and every later slice itself, because its session's worker keeps its old model, and a later resume on the task's own engine gives the worker its new lane.
 A Lint or CI failure moves no role, and a repeated attempt or newly found complexity still escalates the whole lane through `escalate_to`.
 `goblins doctor` prints each harness's tiers.
