@@ -24,10 +24,13 @@ func TestRunSwitchNeedsAHarnessModelOrEffort(t *testing.T) {
 		refusal string
 	}{
 		"a model":               {[]string{"--model", "gpt-5"}, 0, ""},
-		"no options":            {nil, 2, "one of --harness, --model, --effort or --restart is required"},
+		"no options":            {nil, 2, "one of --harness, --model, --effort, --restart or --terminal is required"},
 		"--native":              {[]string{"--native"}, 2, "-native"},
 		"a restart with values": {[]string{"--restart", "--model", "gpt-5"}, 2, "--restart keeps the goblin's own harness, model and effort"},
 		"renamed alone":         {[]string{"--renamed"}, 2, "--renamed goes with --restart"},
+		"terminal with a model": {[]string{"--terminal", "--model", "gpt-5"}, 2, "--terminal keeps the goblin's own harness, model and effort"},
+		"terminal and restart":  {[]string{"--terminal", "--restart"}, 2, "--terminal keeps the goblin's own harness, model and effort"},
+		"terminal renamed":      {[]string{"--terminal", "--renamed"}, 2, "--renamed goes with --restart, not --terminal"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := testHome(t)
@@ -186,6 +189,35 @@ func TestRunSwitchRenamedRestartsTheGoblinTellingItTheNewNames(t *testing.T) {
 	// Assert
 	if exit != 0 || !got.Restart || got.ResumeNote != renamedNote || !strings.Contains(got.ResumeNote, "command is now goblins and its settings begin GOBLINS_") {
 		t.Fatalf("renamed restart = %d, %+v: %s", exit, got, stderr.String())
+	}
+}
+
+// --terminal takes a goblin on stream-json pipes over: it restarts the
+// goblin on its own conversation in a terminal, and tells it so.
+func TestRunSwitchTerminalRestartsTheGoblinOnItsConversationInATerminal(t *testing.T) {
+	// Arrange
+	h := testHome(t)
+	if err := os.MkdirAll(h.State, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "g4", Harness: "claude", SpawnGen: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	deps := testCommandRuntimeForHome(h)
+	var got spawn.SwitchRequest
+	deps.switchTask = func(_ context.Context, _ home.Home, request spawn.SwitchRequest) (spawn.SwitchResult, error) {
+		got = request
+		return spawn.SwitchResult{Output: "restarted g4"}, nil
+	}
+	deps.speedHint = func(context.Context, string) string { return "" }
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := runWithRuntime([]string{"switch", "g4", "--generation", "s1", "--terminal"}, &stdout, &stderr, deps)
+
+	// Assert
+	if exit != 0 || !got.Restart || !got.InTerminal || got.Harness != "" || got.Generation != "s1" || !strings.Contains(got.ResumeNote, "took you over in a terminal") {
+		t.Fatalf("terminal restart = %d, %+v: %s", exit, got, stderr.String())
 	}
 }
 

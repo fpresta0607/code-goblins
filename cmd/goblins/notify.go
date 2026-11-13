@@ -615,6 +615,9 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		if err == nil || errors.Is(err, fleet.ErrQueuedForToolCall) {
 			supervisor.Reported(h.State)
 			fmt.Fprintf(stdout, "notified %s's parent %s %s\n", id, parent, line)
+			if verb == "done" || verb == "failed" {
+				reportMeasurement(runtime, h, meta, verb, *pr, stdout, stderr)
+			}
 			return 0
 		}
 		fmt.Fprintf(stderr, "goblins notify: %s's terminal did not take the report, so the CEO is told instead: %v\n", parent, err)
@@ -723,6 +726,11 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	// waits on him is told to move to what does not depend on him.
 	if switched, err := afk.Read(h.State); verb == "waiting on overlord" && err == nil && switched.On {
 		fmt.Fprintf(stdout, "AFK mode is on: the Overlord is away until he turns it off and nothing is asked of him, so the CEO leaves this for him in the backlog. If any of your work does not depend on it, move to that next piece now and report it with goblins notify %s --working \"<what>\".\n", id)
+	}
+	// A run is measured once its report is new, so a report made again
+	// measures nothing twice.
+	if (verb == "done" || verb == "failed") && metaErr == nil {
+		reportMeasurement(runtime, h, meta, verb, *pr, stdout, stderr)
 	}
 	return 0
 }

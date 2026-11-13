@@ -89,7 +89,7 @@ The extraction preserves the existing obligations, including gate budgets, merge
 | `goblins project check <project> [--area <area>] [--json] [--draft <file>]` \| `check --unfiled [--json]` \| `show <project>` \| `init <project>` | [goblins help project](../commands/project.md) |
 | `goblins spawn <id> --project <p> --brief <b> [--harness <h>] [--mode <m>] [--delivery-exception "<authority and reason>"] [--model <m>] [--effort <e>] [--class <c>] [--title "<short title>"] [--yolo] [--overlap-ok "<why>"]` | [goblins help spawn](../commands/spawn.md) |
 | `goblins title <id> "<short title>"` | [goblins help title](../commands/title.md) |
-| `goblins switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty] [--restart]` | [goblins help switch](../commands/switch.md) |
+| `goblins switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty] [--restart] [--terminal]` | [goblins help switch](../commands/switch.md) |
 | `goblins pipeline` | [goblins help pipeline](../commands/pipeline.md) |
 | `goblins gate tests-kept` | [goblins help gate tests-kept](../commands/gate/tests-kept.md) |
 | `goblins gate test [--level changed\|fast\|affected\|full \| --focused] [--plan]`, `goblins gate lint [--plan]` | [goblins help gate test](../commands/gate/test.md) |

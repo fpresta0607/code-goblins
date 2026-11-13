@@ -23,9 +23,11 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
+	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/supervise"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
+	"github.com/fpresta0607/code-goblins/internal/turnnudge"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 )
@@ -41,14 +43,22 @@ func runHook(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	// own Codex, whose launch carries its seal
 	// (nativehook.CodexGoblinArguments), and its own pi, whose extension
 	// does (install.GoblinPiExtension), and for a goblin alone: they sit
-	// above the checks that keep every other hook to the CEO.
+	// above the checks that keep every other hook to the CEO. A pi goblin's
+	// extension also asks goblin-turn-end whether its run that is about to
+	// settle goes on once with the turn-end nudge, which a Claude Code or
+	// Codex goblin's native hook answers at its Stop (turnnudge.Reply).
 	switch name {
-	case "goblin-seal", "goblin-seal-codex", "goblin-seal-pi", "goblin-key-alarm":
+	case "goblin-seal", "goblin-seal-codex", "goblin-seal-pi", "goblin-key-alarm", "goblin-turn-end":
 		if os.Getenv(harness.RoleVariable) != harness.RoleGoblin {
 			return 0
 		}
-		if name == "goblin-key-alarm" {
+		switch name {
+		case "goblin-key-alarm":
 			return goblinKeyAlarm("claude", "", os.Getenv, stdin, stderr)
+		case "goblin-turn-end":
+			payload, _ := io.ReadAll(io.LimitReader(stdin, nativehook.MaxInputBytes))
+			fmt.Fprintln(stdout, turnnudge.Reply(payload))
+			return 0
 		}
 		return hookGoblinSeal(name, stdin, stdout, stderr)
 	}

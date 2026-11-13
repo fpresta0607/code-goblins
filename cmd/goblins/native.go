@@ -20,6 +20,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
+	"github.com/fpresta0607/code-goblins/internal/turnnudge"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -85,7 +86,8 @@ func runNativeHook(args []string, input io.Reader, stdout, stderr io.Writer, run
 // (supervisor.Service.followNativeCEO), so the harness never waits on it.
 // getenv reads the session's environment.
 func nativeHookEvent(harnessName, root, dir string, getenv func(string) string, input io.Reader, stdout, stderr io.Writer) int {
-	e, err := nativehook.Normalize(input, nativehook.Context{Harness: harnessName, Role: getenv("GOBLINS_ROLE"), TaskID: getenv("GOBLINS_TASK_ID"), Generation: getenv("GOBLINS_SPAWN_GEN"), ParentSessionID: getenv("GOBLINS_PARENT_SESSION_ID"), ParentHarness: getenv("GOBLINS_PARENT_HARNESS"), RootSessionID: getenv("GOBLINS_ROOT_SESSION_ID"), HostID: getenv(host.IDVariable)})
+	var payload bytes.Buffer
+	e, err := nativehook.Normalize(io.TeeReader(input, &payload), nativehook.Context{Harness: harnessName, Role: getenv("GOBLINS_ROLE"), TaskID: getenv("GOBLINS_TASK_ID"), Generation: getenv("GOBLINS_SPAWN_GEN"), ParentSessionID: getenv("GOBLINS_PARENT_SESSION_ID"), ParentHarness: getenv("GOBLINS_PARENT_HARNESS"), RootSessionID: getenv("GOBLINS_ROOT_SESSION_ID"), HostID: getenv(host.IDVariable)})
 	if errors.Is(err, nativehook.ErrUnstartedSubagent) {
 		fmt.Fprintln(stdout, "{}")
 		return 0
@@ -99,7 +101,8 @@ func nativeHookEvent(harnessName, root, dir string, getenv func(string) string, 
 		return 1
 	}
 	// Codex Stop requires a JSON reply. This is also accepted by Claude and
-	// ignored by the Pi notification extension. It never blocks continuation.
+	// ignored by the Pi notification extension. Only a goblin's turn-end nudge
+	// below blocks a Stop.
 	// The role ceo says only that the session is no goblin's, so the CEO's
 	// continuation goes to the CEO's own session alone: a Codex session the
 	// Overlord opens himself is told nothing of the fleet.
@@ -116,6 +119,12 @@ func nativeHookEvent(harnessName, root, dir string, getenv func(string) string, 
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
+	} else if e.Kind == "settled" && e.Role == harness.RoleGoblin && getenv(gateAgentVariable) == "" {
+		// A goblin's turn that ends on a promise of an action it never took
+		// goes on once with the nudge (issue #2364): the reply to a Claude
+		// Code or Codex Stop is how either is told to go on. Any other
+		// settled event, such as pi's, gets the empty reply it always had.
+		fmt.Fprintln(stdout, turnnudge.Reply(payload.Bytes()))
 	} else if e.Harness != "claude" || e.Kind != "compacting" {
 		// Claude Code adds what a PreCompact hook prints to the instructions of
 		// its summary, so that hook prints nothing.

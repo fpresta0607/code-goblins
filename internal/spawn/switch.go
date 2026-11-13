@@ -45,7 +45,11 @@ type SwitchRequest struct {
 	// Restart starts the task's own harness, model and effort again in
 	// place while it runs, as for an update of its harness installed since
 	// it started, which a switch to the same values otherwise refuses.
-	Restart    bool
+	Restart bool
+	// InTerminal, with Restart, starts it again in a terminal even where it
+	// would start on stream-json pipes, so a person can take a stream goblin
+	// over there (#2374). A restart without it hands the goblin back.
+	InTerminal bool
 	Generation string
 	// BriefPath is the fallback for a task whose metadata predates the brief
 	// field.
@@ -629,7 +633,7 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 		launch.Instruction += " Continue with the frozen pipeline policy at " + filepath.Join(meta.TaskTmp, "pipeline.json") + "; use goblins pipeline run/respond for this task. Do not reset review budgets or bypass them with native AXI."
 	}
 
-	if nativeHost, err = s.launchNativeHost(id, target.Harness, launch, userEnv, preflight); err != nil {
+	if nativeHost, err = s.launchNativeHost(id, target.Harness, launch, userEnv, preflight, request.InTerminal); err != nil {
 		return handoff, resumed, nativeHost, "", err
 	}
 	// Its release error, if any, reaches Switch's caller with the result.
