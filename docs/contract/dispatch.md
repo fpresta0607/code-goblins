@@ -406,6 +406,14 @@ The goblin implements that correction and every later slice itself, because its 
 A Lint or CI failure moves no role, and a repeated attempt or newly found complexity still escalates the whole lane through `escalate_to`.
 `goblins doctor` prints each harness's tiers.
 
+Every run records what each role spent, so a later routing change stands on measurements rather than guesses.
+A run is a task's work from its previous `--done` or `--failed` report, or from its spawn, to the next, and that report appends the run's record as one line of `state/role-measurements.jsonl`.
+The lead and its workers are read from the goblin's own transcripts: the lead is its conversation, the implement role is Claude's `ceo-implement` sub-agent or a Codex child on the task's implement lane's model and effort, and every other worker is a helper of its agent type.
+Review, verification and fixes are read from the gate's record of each agent call in the runs of the task's branch, and each run's Test step counts as passed or failed for the model of its last test agent.
+Each role's row names its harness, model and effort, its sessions or calls, its input tokens with the cache reads among them, its output tokens, its wall time, its review findings and its verification outcomes, and the record lists the run's gate runs and its `role-escalated:` lines.
+Nothing is probed or estimated: a gate call that recorded no tokens is counted as untallied, and what cannot be read is named in the record as unmeasured, as the spend before a relaunch in the run is, since only the conversation the task holds now is read.
+`goblins doctor` prints each role's totals over every recorded run.
+
 `subagents` maps each harness to `search`, `review` and `verify`, each an ordered array of lane names on that harness.
 Search includes reading and summaries, review uses a strong model, and verification prefers the first model different from the parent's recorded model, taking the configured one when the policy names no other.
 The shipped Codex verifier uses `gpt-6-sol` at `high`, falling back to Astra when Sol is the parent.
