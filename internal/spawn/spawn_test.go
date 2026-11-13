@@ -222,6 +222,9 @@ func TestSpawnRejectsMetadataBearingControlsBeforeAnyMutation(t *testing.T) {
 		{"model", func(req *Request) { req.Model = "x\nwindow=other" }},
 		{"effort", func(req *Request) { req.Effort = "high\rmalformed" }},
 		{"title", func(req *Request) { req.Title = "a title\nbackend=other" }},
+		{"implement lane", func(req *Request) { req.Implement.Name = "light\nbackend=other" }},
+		{"implement model", func(req *Request) { req.Implement.Model = "light-model\nwindow=other" }},
+		{"implement effort", func(req *Request) { req.Implement.Effort = "high\rmalformed" }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -232,8 +235,8 @@ func TestSpawnRejectsMetadataBearingControlsBeforeAnyMutation(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), "control character") {
 				t.Fatalf("Spawn control injection error = %v, want control character refusal", err)
 			}
-			if f.runner.calls != 0 || len(f.events) != 0 {
-				t.Fatalf("control injection ran work: calls=%d events=%v", f.runner.calls, f.events)
+			if f.runner.calls != 0 || len(f.events) != 0 || len(f.specs) != 0 {
+				t.Fatalf("control injection ran work: calls=%d events=%v launches=%v", f.runner.calls, f.events, f.specs)
 			}
 			if _, statErr := os.Stat(filepath.Join(f.stateDir, f.request.ID+".meta")); !errors.Is(statErr, os.ErrNotExist) {
 				t.Fatalf("Spawn wrote injected metadata: stat error = %v", statErr)

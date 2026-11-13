@@ -34,6 +34,7 @@ export function ConnectorDetail({ connector, goblins, readings, asked, isBusy, o
   // terminal holds it alike, and each goblin's otherwise.
   const variableWords = (states: { goblin: string; word: string }[]) => new Set(states.map((state) => state.word)).size === 1 ? states[0].word
     : states.map((state) => state.goblin + ": " + state.word).join(", ");
+  const isReplaceable = connector.uses.some((use) => use.isCarried && use.entry.actions.some((action) => action.startsWith("replace:")));
   return <article className="connector-detail" aria-label={connector.name}>
     <header className="connector-head">
       <ConnectorLogo name={connector.reported} />
@@ -58,6 +59,7 @@ export function ConnectorDetail({ connector, goblins, readings, asked, isBusy, o
       <h3>CLI variables</h3>
       <p className="connector-part-note">Command line tools in the goblin's terminal read them. Names only, never values.</p>
       {connector.kind === "credential" && <p className="connector-part-note">{declaredBy(connector)}</p>}
+      {isReplaceable && <p className="connector-part-note">Replace from clipboard stores what you copied in its place, for every goblin of that repository, and shows neither value. Running goblins are told to load it again. Set means a goblin holds a value, not which one.</p>}
       {variables.length > 0 && <ul className="connector-variables" aria-label={"CLI variables of " + connector.name}>
         {variables.map((variable) => <li key={variable.name}><code>{variable.name}</code><span>{variableWords(variable.states)}</span></li>)}
       </ul>}

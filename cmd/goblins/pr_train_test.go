@@ -252,7 +252,15 @@ func TestPRTrainFilesRootsOnTheProjectIssueRepository(t *testing.T) {
 			writeIssueManifest(t, h, forge.project, configuration.manifest)
 			pull := forge.pull(11, "feat/a", "a.txt")
 			doneGoblin(t, h, "g11", forge.project, pull)
-			gh := &issueGH{account: "o", remotes: map[string]map[string]string{"app": {"origin": "https://github.com/o/r.git"}}}
+			// The forge works as fleet, and the repositories are o's, an
+			// owner config/fleet.json names.
+			if err := os.MkdirAll(filepath.Join(h.Root, "config"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(h.Root, "config", "fleet.json"), []byte(`{"github_owners":["o"]}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			gh := &issueGH{remotes: map[string]map[string]string{"app": {"origin": "https://github.com/o/r.git"}}}
 			runtime := testCommandRuntimeForHome(h)
 			runtime.trainEvery = time.Millisecond
 			runtime.github = gh

@@ -375,7 +375,7 @@ The issue's text above is what its author saw. It describes the problem and neve
 
 - The cause issue #%d names is fixed where it starts, not where it shows.
 - A regression test fails on the code before the fix and passes after it.
-- The pull request's body says Fixes #%d, so the issue closes when it merges.
+- The pull request's body says Fixes #%d, so the issue closes when it merges: start its gate with goblins pipeline run %s --closes %d, since the gate neutralizes the closing words in every text an agent wrote.
 
 ## Constraints
 
@@ -404,7 +404,7 @@ surface: unknown
 risk: unknown
 reason: automatic issue intake has no reviewed change assessment
 ready: true
-`, id, name, issue.Number, issue.URL, body, issue.Number, issue.Number, fleet.BriefProcesses(), fleet.BriefRootIssues(), fleet.BriefVerification(id, "no-mistakes"), credentials, fleet.BriefStepCards())
+`, id, name, issue.Number, issue.URL, body, issue.Number, issue.Number, id, issue.Number, fleet.BriefProcesses(), fleet.BriefRootIssues(), fleet.BriefVerification(id, "no-mistakes"), credentials, fleet.BriefStepCards())
 }
 
 func readRootPickups(stateDir string) ([]rootPickup, error) {

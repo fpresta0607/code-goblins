@@ -25,19 +25,25 @@ func TestAWaiterGetsTheLockAcrossAPauseOfTheWholeMachine(t *testing.T) {
 		awaketest.Across(t)
 		return
 	}
-	// Arrange: the pause falls once the waiter has found the lock held.
+	// Arrange: the pause falls once the waiter has found the lock held, and
+	// only then does the holder's time start, so a late first look on a
+	// loaded machine no longer lets the hold run out before the waiter waits:
+	// a hold started before the waiter lined up once did, and the waiter took
+	// the lock without ever waiting (#1877). The wait of 2s leaves a slow
+	// first look room and still runs out in the pause if held to the wall
+	// clock.
 	dir := t.TempDir()
 	if _, err := AcquireNamedOwner(dir, takerLock, os.Getppid(), "holder"); err != nil {
 		t.Fatal(err)
 	}
-	held, cancelHold := awake.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancelHold()
 	released := make(chan error, 1)
-	context.AfterFunc(held, func() { released <- fsx.Remove(filepath.Join(dir, takerLock)) })
 	var isReady bool
 	sleep = func(pause time.Duration) {
 		if !isReady {
 			isReady = true
+			held, cancelHold := awake.WithTimeout(context.Background(), 300*time.Millisecond)
+			t.Cleanup(cancelHold)
+			context.AfterFunc(held, func() { released <- fsx.Remove(filepath.Join(dir, takerLock)) })
 			awaketest.Ready()
 		}
 		time.Sleep(pause)
@@ -45,9 +51,12 @@ func TestAWaiterGetsTheLockAcrossAPauseOfTheWholeMachine(t *testing.T) {
 	t.Cleanup(func() { sleep = time.Sleep })
 
 	// Act
-	info, err := AcquireNamedOwnerWithin(dir, takerLock, os.Getpid(), "waiter", time.Second)
+	info, err := AcquireNamedOwnerWithin(dir, takerLock, os.Getpid(), "waiter", 2*time.Second)
 
 	// Assert
+	if !isReady {
+		t.Fatalf("the waiter got %+v, %v without finding the lock held; want it to wait for the holder", info, err)
+	}
 	if err != nil || info.PID != os.Getpid() {
 		t.Fatalf("the waiter got %+v, %v across a pause of %s from a holder that let go %s of running time after it began; want the lock", info, err, awaketest.Length, 300*time.Millisecond)
 	}

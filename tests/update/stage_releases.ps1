@@ -16,7 +16,7 @@
 #   .\tests\update\stage_releases.ps1 -Version v0.5.99 -Folder <folder> -Port 8765
 #
 # It leaves the server running, its pid in <folder>\server.pid, for the job to
-# end by that pid.
+# end by that pid, and its output in <folder>\server.out and server.err.
 param(
     [Parameter(Mandatory = $true)][string]$Version,
     [Parameter(Mandatory = $true)][string]$Folder,
@@ -74,10 +74,7 @@ finally {
     [IO.File]::WriteAllText($serve, $source)
 }
 
-$server = Start-Process python -ArgumentList "-m", "http.server", "$Port", "--bind", "127.0.0.1", "--directory", $Folder -WindowStyle Hidden -PassThru
+. (Join-Path $PSScriptRoot "..\hidden_server.ps1")
+$server = Start-HiddenServer -Name "release server" -ArgumentList "-m", "http.server", "$Port", "--bind", "127.0.0.1", "--directory", $Folder `
+    -Url "$base/good/latest" -Log (Join-Path $Folder "server")
 Set-Content -LiteralPath (Join-Path $Folder "server.pid") -Value $server.Id
-$deadline = (Get-Date).AddSeconds(30)
-while ($true) {
-    try { Invoke-WebRequest "$base/good/latest" -UseBasicParsing | Out-Null; break }
-    catch { if ((Get-Date) -gt $deadline) { throw "the release server did not answer within 30 seconds" }; Start-Sleep -Milliseconds 250 }
-}
