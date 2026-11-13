@@ -105,7 +105,7 @@ func (r Reader) query(ctx context.Context, sql string, target interface{}) error
 // is active. It neither stops a daemon nor repairs stale state on the operator's behalf.
 // A refusal names the runs in flight it waits for, so nobody stops the daemon under them.
 func (r Reader) Idle(ctx context.Context) (func() error, error) {
-	release, err := lockDaemon(filepath.Join(r.Root, "daemon.lock"))
+	release, err := r.LockDaemon()
 	if err != nil {
 		runs, queryErr := r.activeRuns(ctx)
 		if queryErr != nil {
@@ -125,6 +125,13 @@ func (r Reader) Idle(ctx context.Context) (func() error, error) {
 		return nil, errors.Join(err, releaseErr)
 	}
 	return release, nil
+}
+
+// LockDaemon takes the native singleton lock a daemon of the home takes, so
+// none starts until release, and is ErrBusy while one holds it. It proves
+// nothing about the runs in flight: Idle does.
+func (r Reader) LockDaemon() (func() error, error) {
+	return lockDaemon(filepath.Join(r.Root, "daemon.lock"))
 }
 
 // InFlight counts the gate runs in flight: every run that has not ended, one

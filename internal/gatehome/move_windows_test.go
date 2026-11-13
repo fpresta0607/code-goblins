@@ -320,6 +320,41 @@ func TestAMoveWaitsWhileAnotherMoveHoldsTheLockAndThenCarriesTheHome(t *testing.
 	assertLockFree(t, s.lock)
 }
 
+// A move that waited on another move which carried the home meanwhile finds
+// the home already on the Dev Drive, named by NM_HOME, and changes nothing:
+// it neither says it placed a home it did not, nor asks the daemon anything.
+func TestAMoveThatWaitedWhileAnotherCarriedTheHomeFindsItAlreadyThere(t *testing.T) {
+	// Arrange
+	s := newScratch(t)
+	unlock, isTaken, err := lockFile(s.lock)
+	if err != nil || !isTaken {
+		t.Fatalf("the other move's lock: taken %v, %v", isTaken, err)
+	}
+	mover := s.mover()
+	var otherCalls int
+	mover.Waiting = func(error) {
+		if err := unlock(); err != nil {
+			t.Fatal(err)
+		}
+		if _, isCarried, err := s.mover().Move(context.Background(), s.old, s.devDrive); err != nil || !isCarried {
+			t.Fatalf("the other move: carried %v, %v", isCarried, err)
+		}
+		otherCalls = len(s.daemon.calls)
+	}
+
+	// Act
+	line, isCarried, err := mover.Move(context.Background(), s.old, s.devDrive)
+
+	// Assert
+	if err != nil || isCarried || line != "already on the Dev Drive: the gate's home is "+s.target+", named by NM_HOME; nothing changed" {
+		t.Fatalf("move = %q, %v, %v; want the home found already there", line, isCarried, err)
+	}
+	if len(s.daemon.calls) != otherCalls {
+		t.Errorf("daemon calls after the other move = %q, want none", s.daemon.calls[otherCalls:])
+	}
+	assertLockFree(t, s.lock)
+}
+
 // A move whose lock another move holds through every try changes nothing, is
 // a busy gate, and never asked the daemon anything; a move that failed frees
 // the lock as one that moved does.

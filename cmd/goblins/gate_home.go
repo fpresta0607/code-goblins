@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -39,7 +41,18 @@ type gateDaemon struct {
 }
 
 func (d gateDaemon) InFlight(ctx context.Context, root string) error {
+	if !hasGateDatabase(root) {
+		return nil
+	}
 	return gateRefusal(d.reader(root).AtRest(ctx))
+}
+
+// hasGateDatabase reports whether the gate home at root, or no home yet, has
+// the database no-mistakes records its runs in. One without it never recorded
+// a run, so none is in flight there, and a move carries it or places it.
+func hasGateDatabase(root string) bool {
+	_, err := os.Stat(filepath.Join(root, "state.sqlite"))
+	return !errors.Is(err, os.ErrNotExist)
 }
 
 // Stop stops root's daemon with daemon stop, which no-mistakes refuses while
@@ -68,7 +81,13 @@ func (d gateDaemon) Start(ctx context.Context, root string) error {
 	return err
 }
 
+// Hold holds root's daemon off with its own lock, and proves no gate run is
+// in flight in a home that has a database to record one.
 func (d gateDaemon) Hold(ctx context.Context, root string) (func() error, error) {
+	if !hasGateDatabase(root) {
+		release, err := d.reader(root).LockDaemon()
+		return release, gateRefusal(err)
+	}
 	release, err := d.reader(root).Idle(ctx)
 	return release, gateRefusal(err)
 }

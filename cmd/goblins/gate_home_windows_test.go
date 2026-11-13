@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 
+	"golang.org/x/sys/windows"
+
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/gatedb"
 	"github.com/fpresta0607/code-goblins/internal/gatehome"
@@ -391,22 +393,27 @@ func TestTheBoardsDevDriveSettingCountsTheGateRunsInFlightInTheGateHome(t *testi
 }
 
 // A gate home no-mistakes has not made yet, or made without its database,
-// holds no gate run, so the board's setting counts none in it and the carry
-// places the home on the Dev Drive, rather than waiting on a database that
-// is not there.
-func TestTheBoardsDevDriveSettingCountsNoGateRunsInAGateHomeWithNoDatabase(t *testing.T) {
+// holds no gate run: the board's setting counts none in it, and the real
+// carry then places the home on the Dev Drive, or moves it there, rather than
+// failing on a database that is not there for ever.
+func TestTheBoardsCarryPlacesOrMovesAGateHomeWithNoDatabase(t *testing.T) {
 	for _, test := range []struct {
 		name       string
 		isRootMade bool
+		wantLine   string
+		wantCalls  []string
 	}{
-		{name: "no home"},
-		{name: "a home with no database", isRootMade: true},
+		{name: "no home", wantLine: "placed: the gate's home is "},
+		{name: "a home with no database", isRootMade: true, wantLine: "moved: the gate's home is ", wantCalls: []string{"no-mistakes daemon stop", "no-mistakes daemon start"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			root := filepath.Join(t.TempDir(), ".no-mistakes")
+			s := newGateDaemonScratch(t)
+			if err := os.RemoveAll(s.old); err != nil {
+				t.Fatal(err)
+			}
 			if test.isRootMade {
-				if err := os.MkdirAll(root, 0o700); err != nil {
+				if err := os.MkdirAll(s.old, 0o700); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -414,16 +421,61 @@ func TestTheBoardsDevDriveSettingCountsNoGateRunsInAGateHomeWithNoDatabase(t *te
 				return nil, errors.New("this test carries nothing")
 			}
 			setting := boardDevDrive(home.Home{Root: t.TempDir()}, runtimeOn(t, machineWith()), noCarry)
+			target := gatehome.Target(s.devDrive)
 
 			// Act
-			runs, err := setting.GateRuns(context.Background(), root)
+			runs, runsErr := setting.GateRuns(context.Background(), s.old)
+			var out bytes.Buffer
+			line, isCarried, err := carryGateHomeWith(context.Background(), &gateTaskRunner{}, s.old, s.devDrive, s.lock, 1, 0, &out)
 
 			// Assert
-			if err != nil || runs != 0 {
-				t.Errorf("gate runs in flight = %d, %v; want none", runs, err)
+			if runsErr != nil || runs != 0 {
+				t.Errorf("gate runs in flight = %d, %v; want none", runs, runsErr)
+			}
+			if err != nil || !isCarried || !strings.HasPrefix(line, test.wantLine+target) {
+				t.Fatalf("carry = %q, %v, %v; want %q%s", line, isCarried, err, test.wantLine, target)
+			}
+			if value, isSet, err := installbase.UserVariable(gatehome.Variable); err != nil || !isSet || value != target {
+				t.Errorf("user NM_HOME = %q (set %v, %v), want %s", value, isSet, err, target)
+			}
+			if !slices.Equal(s.calls(t), test.wantCalls) {
+				t.Errorf("no-mistakes calls = %q, want %q", s.calls(t), test.wantCalls)
 			}
 		})
 	}
+}
+
+// The real carry takes the move's lock at the path it is given: while another
+// move holds that lock through every try, it gives up as a busy gate that
+// asked no-mistakes nothing, so a carry the board starts and a move from a
+// terminal never run at once.
+func TestCarryGateHomeWaitsOnTheMoveLockItIsGiven(t *testing.T) {
+	// Arrange
+	s := newGateDaemonScratch(t)
+	held, err := os.OpenFile(s.lock, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	if err := windows.LockFileEx(windows.Handle(held.Fd()), windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, new(windows.Overlapped)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	var out bytes.Buffer
+	_, isCarried, err := carryGateHomeWith(context.Background(), &gateTaskRunner{}, s.old, s.devDrive, s.lock, 1, 0, &out)
+
+	// Assert
+	if !errors.Is(err, gatehome.ErrGateBusy) || isCarried || !strings.Contains(err.Error(), "the daemon was never stopped") {
+		t.Fatalf("carry = %v, %v; want a busy gate whose daemon was never stopped", isCarried, err)
+	}
+	if !strings.Contains(out.String(), "another move of the gate's home runs") {
+		t.Errorf("out = %q, want it to wait on the other move", out.String())
+	}
+	if calls := s.calls(t); len(calls) != 0 {
+		t.Errorf("no-mistakes calls = %q, want none while another move holds the lock", calls)
+	}
+	s.assertNothingCarried(t)
 }
 
 // gateDaemonRunner records each command the gate daemon runs and answers it

@@ -77,9 +77,10 @@ type Mover struct {
 }
 
 // Move moves the gate's home at old into the Dev Drive folder devDrive
-// through one path. It holds Lock from before it reads either home until it
-// ends, waiting first on another move that holds it. It waits until no gate
-// run is in flight and the daemon stops by its own consent, never a forced stop, and holds it off; copies the
+// through one path. It holds Lock until it ends, waiting first on another
+// move that holds it, and finds a home such a move carried while it waited,
+// which the user's NM_HOME names in the Dev Drive folder, already there. It
+// waits until no gate run is in flight and the daemon stops by its own consent, never a forced stop, and holds it off; copies the
 // home and proves every copied file holds the same bytes; points the copy's
 // own records at its new place; then switches: the user's NM_HOME names the
 // copy, each gated checkout's no-mistakes remote names its moved repository,
@@ -111,6 +112,13 @@ func (m Mover) Move(ctx context.Context, old, devDrive string) (line string, isC
 	target := Target(devDrive)
 	if isUnder(old, devDrive) {
 		return "already on the Dev Drive: the gate's home is " + old + ", named by NM_HOME; nothing changed", false, nil
+	}
+	named, isNamed, err := m.Env.Get(Variable)
+	if err != nil {
+		return "", false, err
+	}
+	if _, statErr := os.Stat(target); isNamed && sameFolder(named, target) && statErr == nil {
+		return "already on the Dev Drive: the gate's home is " + target + ", named by NM_HOME; nothing changed", false, nil
 	}
 	if _, err := os.Lstat(old); errors.Is(err, os.ErrNotExist) {
 		if err := os.MkdirAll(target, 0o700); err != nil {

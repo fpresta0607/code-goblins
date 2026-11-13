@@ -25,13 +25,13 @@ const gateCarryLog = "dev-drive-move.log"
 // boardDevDrive is the Dev Drive setting of the board serving h on this
 // machine: it reads the machine and where the gate's home is as runtime
 // does, counts the gate runs in flight in the database of the gate home it
-// is asked about, read in process, none in a home with no database yet, which
-// the carry places on the Dev Drive, and carries the gate's home with this
+// is asked about, read in process, none in a home with no database yet
+// (hasGateDatabase), and carries the gate's home with this
 // build's goblins dev-drive move, started through start.
 func boardDevDrive(h home.Home, runtime commandRuntime, start func(executable, dir, logPath string, args ...string) (*exec.Cmd, error)) *supervisor.DevDrive {
 	return &supervisor.DevDrive{Read: runtime.readDevDrive, GateHome: runtime.gateHome,
 		GateRuns: func(ctx context.Context, root string) (int, error) {
-			if _, err := os.Stat(filepath.Join(root, "state.sqlite")); errors.Is(err, os.ErrNotExist) {
+			if !hasGateDatabase(root) {
 				return 0, nil
 			}
 			return pipeline.Reader{Root: root, Commands: gatedb.Runner{Next: execx.OSRunner{}}}.InFlight(ctx)
