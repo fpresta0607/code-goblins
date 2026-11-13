@@ -19,6 +19,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 )
 
@@ -172,10 +173,7 @@ func fileRoot(ctx context.Context, runtime commandRuntime, projectArg string, ro
 // remote of the checkout whose repository the fleet owns, where the issue
 // belongs instead.
 func refuseAnotherOwner(ctx context.Context, github tickets.GitHub, h home.Home, checkout, repository, owner string) error {
-	account, err := ghText(ctx, github.Commands, "api", "user", "--jq", ".login")
-	if err == nil && account == "" {
-		err = errors.New("gh named no account it works as")
-	}
+	account, err := supervisor.GitHubAccount(ctx, github.API)
 	if err != nil {
 		return fmt.Errorf("read the account gh works as, whose repositories an issue may go on: %w", err)
 	}
