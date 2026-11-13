@@ -72,7 +72,7 @@ A Claude Code goblin's settings file, `state/goblin-claude-settings.json`, and t
 A Codex goblin's launch, and the Codex CEO's, pass `--enable hooks` and one `-c hooks.<event>=...` override for each of those events and Interrupt, running `goblins native-hook codex` directly, rather than writing `~/.codex/hooks.json`; a goblin's also passes its goblin seal, a `hooks.PreToolUse` override for Bash ([The seal and the key alarm](#the-seal-and-the-key-alarm)).
 Codex keys a hook's trust by where it is defined, the same `<session-flags>/config.toml` for every launch, and by what it runs, so the Overlord trusts them once, in a Codex goblin's `/hooks`, for every Codex session of the home; until he does, each Codex start reports that it started without trusting its hooks, and its hooks do not run.
 A home whose paths would need quoting, such as one under a profile whose name has a space, cannot write the direct command into a `-c` override, so its Codex goblins start without per-launch hooks, which the start's output says, and the board reads them from their terminals; its Codex CEO starts without them too, and `goblins hooks install codex` writes them for it with its helper.
-Pi takes its hooks from its extension, `~/.pi/agent/extensions/goblins-native.ts`, which `goblins hooks install pi` writes; a pi goblin starts with its goblin seal's extension as well.
+Pi takes its hooks from its extension, `~/.pi/agent/extensions/goblins-native.ts`, which `goblins hooks install pi` writes; a pi goblin starts with its goblin seal's extension as well, which also gives it [the turn-end nudge](#the-turn-end-nudge).
 `goblins install`, which `goblins update` runs, rewrites an extension `goblins hooks install pi` wrote as its own build writes it, so a fix to it reaches every pi session started after the update; it writes none where none was installed and leaves a file it did not write.
 Run `goblins hooks check claude`, `goblins hooks check codex`, or `goblins hooks check pi` to inspect the installed capability contract.
 Run `goblins hooks install <harness>` to add the corresponding native lifecycle integration for sessions the fleet did not start; for Claude Code and Codex the fleet's own launches need none.
@@ -2909,6 +2909,23 @@ Codex runs it only once the Overlord has trusted it in a Codex goblin's `/hooks`
 A pi goblin starts with `--extension state\goblin-pi-extension.ts`, written anew at each spawn and switch, beside the native extension every pi session loads: its `tool_call` handler runs `goblins hook goblin-seal-pi` with the home's hook program before each tool call, and blocks the call with the seal's reason.
 Both seals look in the folder their session started in, which their payload names, and answer with exit 0 and the refusal as JSON on stdout: Codex runs a hook in the session's Windows PowerShell, which ends with 1 for every exit code but 0, so the exit 2 Claude Code reads never reaches it.
 The pi extension blocks the call too when the seal cannot start or answer within the native hooks' 30 seconds, as pi blocks a call whose handler throws.
+
+### The turn-end nudge
+
+A goblin whose turn ends on a promise of an action it never took, such as "I will now run the tests" with no tool call after it, is told once to do it, rather than sitting idle until the supervisor's idle wake reaches the CEO (#2364).
+Its turn goes on with one message: if it meant to act, it acts now, and if the turn is meant to end there, as on a question to the CEO, a done report or a wait its brief asked for, it ends the turn again in one line.
+A nudge that should not have come costs that one short turn and nothing else: it changes no record and wakes no one, and the turn it continues is never nudged again.
+`internal/turnnudge` reads the last paragraph of the turn's last reply and nudges when a clause opens with "I will", "I'll", "I'm going to", "I am about to", "Let me", "Let's" or "Time to" and a verb of doing, or with a verb in -ing and "now", as in "Running the gate now".
+It does not nudge a last paragraph that asks anything, a wait such as "I'll wait for CI", "Standing by" or "I'll report back", or an action held until something else happens, such as "I'll merge once CI is green", and what follows a wait or a held action in the paragraph is held by it.
+Each harness's goblin gets it from the hook that already runs at its turn's end, so it needs no hook of its own and no new trust in a Codex goblin's `/hooks`:
+
+- A Claude Code goblin's and a Codex goblin's Stop run `goblins native-hook`, which answers a goblin's Stop with `{"decision":"block","reason":...}` on stdout with exit 0, the reply both read as "go on with this prompt", and with `{}` otherwise.
+  It reads the reply and `stop_hook_active` from the Stop's payload, so a turn that a Stop hook already continued is never nudged, and it lets a Claude Code turn end while background work or a session timer the payload names will wake the session.
+- A pi goblin's extension asks `goblins hook goblin-turn-end` before a run its own prompt started settles (`agent_before_settle`), and when that answers with the nudge, the run goes on once with the nudge as its message to the model.
+  It does not ask for a run that already went on once, that was aborted or failed, or that has work queued behind it, and a hook that cannot answer lets the run end.
+
+A gate's agents and the CEO are never nudged.
+The payloads it reads are those of Claude Code 2.1.322, Codex 0.160.0 and pi 1.4.0; a harness that does not report the turn's last reply, or a pi with no `agent_before_settle`, nudges nothing and ends its turns as before.
 
 ### Logins on the Connectors page
 
