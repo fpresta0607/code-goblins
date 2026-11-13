@@ -84,7 +84,7 @@ test("every logo a connector can name is a file bundled with the board, and no f
   // Arrange
   const names = ["github", "chrome-devtools", "context7", "supabase", "sentry", "stripe", "vercel", "fly", "neon", "notion", "openrouter", "openai", "anthropic", "gemini", "gmail",
     "google-drive", "google-calendar", "google", "kimi", "resend", "upstash", "redis", "qdrant", "railway", "ionos", "postgres"];
-  const folder = new URL("../public/assets/connectors/", import.meta.url);
+  const folder = new URL("./connector-logos/", import.meta.url);
 
   for (const name of names) {
     // Act
