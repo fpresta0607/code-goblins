@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -16,7 +15,7 @@ import (
 // pid.
 func liveProcess(t *testing.T) int {
 	t.Helper()
-	cmd := exec.Command("ping", "-n", "30", "127.0.0.1")
+	cmd := lastingProgram(30)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +140,7 @@ func TestSeizeOwnerRefusesADeadOwner(t *testing.T) {
 	if _, err := AcquireOwner(dir, other, "desktop-session"); err != nil {
 		t.Fatal(err)
 	}
-	ended := exec.Command("cmd", "/c", "exit 0")
+	ended := endedProgram()
 	if err := ended.Run(); err != nil {
 		t.Fatal(err)
 	}
