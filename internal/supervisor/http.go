@@ -76,6 +76,11 @@ type HTTP struct {
 	// build names the bundle in Assets: its index.html names every hashed
 	// file of the bundle, so any rebuild changes it.
 	build string
+	// hashed holds the files under assets/ the build named by their content,
+	// and compressed each script and style once gzip-compressed (#1966).
+	hashed       map[string]bool
+	compressedMu sync.Mutex
+	compressed   map[string][]byte
 	// dictation is the engine's one download; dictationWork waits for it
 	// and for each warming, and dictationSlot runs one engine at a time.
 	dictation         dictationFetch
@@ -97,13 +102,15 @@ type HTTP struct {
 
 func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
 	build := ""
+	var hashed map[string]bool
 	if assets != nil {
+		hashed = hashedFiles(assets)
 		if page, err := fs.ReadFile(assets, "index.html"); err == nil {
 			sum := sha256.Sum256(page)
 			build = hex.EncodeToString(sum[:8])
 		}
 	}
-	return &HTTP{build: build, Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 8), nativeSlots: make(chan struct{}, 32), messageSlots: make(chan struct{}, 32), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, relays: map[string]map[*nativeRelay]struct{}{}, terminalWindow: 1 << 20, terminalBacklog: 8 << 20, editor: execx.OSRunner{}, editorLookup: exec.LookPath, openWindow: windowsTerminal, putImage: clipboard.SetImage, dictationSlot: make(chan struct{}, 1), dictationPatience: dictationPatience, fileListings: map[string]fileListing{}, screenSlots: make(chan struct{}, 16), devToolsGuard: browserlogin.OwnerOnly}
+	return &HTTP{build: build, hashed: hashed, compressed: map[string][]byte{}, Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 8), nativeSlots: make(chan struct{}, 32), messageSlots: make(chan struct{}, 32), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, relays: map[string]map[*nativeRelay]struct{}{}, terminalWindow: 1 << 20, terminalBacklog: 8 << 20, editor: execx.OSRunner{}, editorLookup: exec.LookPath, openWindow: windowsTerminal, putImage: clipboard.SetImage, dictationSlot: make(chan struct{}, 1), dictationPatience: dictationPatience, fileListings: map[string]fileListing{}, screenSlots: make(chan struct{}, 16), devToolsGuard: browserlogin.OwnerOnly}
 }
 
 func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -360,6 +367,10 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				h.grantHisBoard(w, r)
 				_, _ = io.WriteString(w, strings.Replace(string(data), "<head>", `<head><meta name="ceo-style-nonce" content="`+nonce+`"><meta name="ceo-build" content="`+h.build+`">`, 1))
 			}
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/assets/") {
+			h.serveAsset(w, r)
 			return
 		}
 		http.FileServer(http.FS(h.Assets)).ServeHTTP(w, r)

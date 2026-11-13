@@ -4,7 +4,7 @@
 // mark comes from Simple Icons 10.0.0, before its removal.
 // These are the marks the board draws in its own controls: harnesses, model
 // providers, a shell and the links to GitHub. A connector's logo is a file of its
-// own under public/assets/connectors (connectors.ts), which loads only where it is
+// own under src/connector-logos (connectors.ts), which loads only where it is
 // shown.
 // ink is the brand color, or a light tone where the brand color would vanish on the
 // dark tile.
