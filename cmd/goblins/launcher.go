@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"net"
 	"net/http"
 	"net/url"
@@ -23,7 +22,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
-	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/update"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 )
@@ -566,45 +564,6 @@ func startDetached(executable, dir, logPath string, args ...string) (*exec.Cmd, 
 	return startDetachedAfter(nil, executable, dir, logPath, args...)
 }
 
-// startDetachedAfter is startDetached for a process that must find something
-// in place before its first instruction runs: it is created suspended, before
-// runs with its pid, and only then is it let run. A before that fails ends
-// the process, which never ran.
-func startDetachedAfter(before func(pid int) error, executable, dir, logPath string, args ...string) (*exec.Cmd, error) {
-	log, err := fsx.OpenAppend(logPath, 0o600)
-	if err != nil {
-		return nil, err
-	}
-	defer log.Close()
-	var command *exec.Cmd
-	for _, flags := range []uint32{createNoWindow | createNewProcessGroup | createBreakawayFromJob, createNoWindow | createNewProcessGroup} {
-		command = execx.Command(executable, args...)
-		command.Dir = dir
-		command.Stdout, command.Stderr = log, log
-		command.SysProcAttr.CreationFlags |= flags
-		command.SysProcAttr.HideWindow = true
-		if before != nil {
-			command.SysProcAttr.CreationFlags |= createSuspended
-		}
-		if err = command.Start(); err != nil {
-			continue
-		}
-		if before == nil {
-			return command, nil
-		}
-		if err = before(command.Process.Pid); err == nil {
-			err = proc.Resume(command.Process.Pid)
-		}
-		if err != nil {
-			_ = command.Process.Kill()
-			_ = command.Wait()
-			return nil, err
-		}
-		return command, nil
-	}
-	return nil, err
-}
-
 // errNoWindow says no desktop window sits beside this binary, as in a build
 // from source, where the browser shows the board instead.
 var errNoWindow = errors.New("no desktop window beside goblins")
@@ -617,43 +576,6 @@ const windowProgram = "goblins-window.exe"
 // alone, which runs the goblins beside it, so the supervisor starts before
 // the window and no terminal shows.
 const windowLauncherVariable = "CODE_GOBLINS_LAUNCHER"
-
-// openWindow starts the desktop window beside this binary on board, in the
-// tray alone with background. A window already running takes the launch as
-// its second instance and comes to the front. Its output goes to
-// state/window.log, and it outlives this terminal.
-func openWindow(board, stateDir string, background bool) error {
-	self, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	window := filepath.Join(filepath.Dir(self), windowProgram)
-	if _, err := os.Stat(window); errors.Is(err, fs.ErrNotExist) {
-		return errNoWindow
-	}
-	args := []string{"--board", board, "--state", stateDir}
-	if background {
-		args = append(args, "--background")
-	}
-	log, err := fsx.OpenAppend(filepath.Join(stateDir, "window.log"), 0o600)
-	if err != nil {
-		return err
-	}
-	defer log.Close()
-	// HideWindow stays unset, unlike the supervisor's start: it would hide
-	// the window's first show as well.
-	for _, flags := range []uint32{createNewProcessGroup | createBreakawayFromJob, createNewProcessGroup} {
-		command := execx.Command(window, args...)
-		command.Dir = filepath.Dir(self)
-		command.Env = windowEnvironment(os.Environ(), self)
-		command.Stdout, command.Stderr = log, log
-		command.SysProcAttr.CreationFlags |= flags
-		if err = command.Start(); err == nil {
-			return command.Process.Release()
-		}
-	}
-	return err
-}
 
 // windowEnvironment is what the window starts with: environment, naming
 // launcher as the goblins that started it, and without the id and proof value

@@ -12,8 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/sys/windows"
-
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -128,19 +126,6 @@ func Run() []Check {
 	}
 	checks = append(checks, checkConPTY(), checkHookPairing())
 	return checks
-}
-
-// pseudoConsole is the Windows call every native terminal runs in.
-var pseudoConsole = windows.NewLazySystemDLL("kernel32.dll").NewProc("CreatePseudoConsole")
-
-// checkConPTY reports whether this Windows has the pseudo console a native
-// terminal runs its program in.
-func checkConPTY() Check {
-	check := Check{Name: "conpty", Version: "pseudo console available", Hint: "Windows 10 version 1809 or later, which native terminals run on"}
-	if err := pseudoConsole.Find(); err != nil {
-		check.Version, check.Err = "", "this Windows has no pseudo console"
-	}
-	return check
 }
 
 // meetsFloor reports whether the last field of a --version line is a dotted

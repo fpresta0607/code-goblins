@@ -144,6 +144,17 @@ type RunLauncher interface {
 	Launch(ctx context.Context, l RunLaunch) (RunStarted, error)
 }
 
+// OSRunLauncher starts a run item in a native terminal hosted the way a
+// goblin's is, HostCommand being what runs a host (goblins.exe host), so the
+// item's card draws it and no window opens. An admin item's host starts
+// through Windows UAC: a hidden Windows PowerShell helper asks Windows to
+// start it elevated and out of sight, so Windows itself asks the Overlord,
+// and then waits for it, so the helper lives as long as the run. An Update
+// item runs with no terminal at all.
+type OSRunLauncher struct {
+	HostCommand []string
+}
+
 // RunLaunch is one item to start: its shell, whether it runs elevated, the
 // script to execute, the directory its terminal is recorded in and the run
 // writes exit.txt to, and the folder it runs in.

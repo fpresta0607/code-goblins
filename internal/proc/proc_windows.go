@@ -7,7 +7,6 @@ package proc
 import (
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -19,19 +18,6 @@ import (
 
 // Windows access right allowing process metadata queries without wider rights.
 const processQueryLimitedInformation = 0x1000
-
-// Entry is one hop in a process ancestry chain.
-type Entry struct {
-	PID       int
-	ParentPID int
-	ExeBase   string
-	Start     time.Time
-}
-
-// Self returns the current process's PID.
-func Self() int {
-	return os.Getpid()
-}
 
 // snapshotEntry holds the fields of a process the system process list gives,
 // all read at the one moment the list was taken.

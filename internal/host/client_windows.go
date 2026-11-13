@@ -30,20 +30,6 @@ type Client struct {
 	first *Event
 }
 
-// Event is what the host sent: terminal output, the terminal's size from
-// this point in its output on, whether key presses sit unread in its input,
-// or the terminal's end with its exit code.
-type Event struct {
-	Output []byte
-	// Cols and Rows are set for a size.
-	Cols, Rows int
-	// Unread is set when the host says key presses have sat unread in the
-	// terminal's input, true, or that its program has read them, false.
-	Unread *bool
-	Exited bool
-	Code   uint32
-}
-
 // Dial connects to the host record names and says hello. The first event it
 // then reads is the terminal's history.
 func Dial(record Record) (*Client, error) {
@@ -60,10 +46,6 @@ func Dial(record Record) (*Client, error) {
 func View(record Record) (*Client, error) {
 	return dialViewer(record, hello{Version: Version, Token: record.Token, Sizes: true})
 }
-
-// ErrNoTurnEvidence requires a terminal restart before the board accepts
-// input whose resulting turn it must distinguish from a command's picker.
-var ErrNoTurnEvidence = errors.New("Restart this terminal to enable Chat turn tracking.")
 
 // Watch connects as View does, as a viewer that is also told when key presses
 // have sat unread in the terminal's input, as a busy program leaves them, and
