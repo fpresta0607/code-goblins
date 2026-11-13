@@ -99,6 +99,123 @@ func TestConnectionAPIRejectsTaskChangesDuringAsynchronousInspection(t *testing.
 	}
 }
 
+// #2394: the Connectors page reads every running goblin each time it opens,
+// and each goblin's check starts a harness process. A result stood a minute,
+// so every open after one started a harness for each goblin. A result now
+// stands ten minutes: an open within them starts none, one after them shows
+// each goblin's last result at once while its recheck runs behind it, and a
+// grant made with goblins auth, which changes the task's record, rechecks
+// that goblin at the next open.
+func TestConnectorsPageOpenStartsHarnessesOnlyForOldResultsAndChangedRecords(t *testing.T) {
+	// Arrange: three running goblins of one repository.
+	store, home := testStore(t)
+	project := gitFixture(t)
+	var tasks []state.TaskMeta
+	for _, id := range []string{"task-1", "task-2", "task-3"} {
+		meta := state.TaskMeta{ID: id, Project: project, Worktree: filepath.Join(home.Root, id), Harness: "claude", Backend: "native", SpawnGen: "g1"}
+		if output, err := execx.Command("git", "-C", project, "worktree", "add", "--detach", meta.Worktree, "HEAD").CombinedOutput(); err != nil {
+			t.Fatalf("linked fixture: %s %v", output, err)
+		}
+		if err := state.WriteTaskMeta(home.State, meta); err != nil {
+			t.Fatal(err)
+		}
+		tasks = append(tasks, meta)
+	}
+	inspector := connections.NewInspector(home.Root, home.Data, home.State)
+	inspector.Runtime = func(_ context.Context, _ string, meta state.TaskMeta) (connections.RuntimeObservation, error) {
+		return connections.RuntimeObservation{Identity: connections.RuntimeIdentity{ProcessID: 42, StartedAt: time.Unix(100, 0), Workspace: meta.Worktree}, Args: []string{"--strict-mcp-config"}}, nil
+	}
+	var harnesses atomic.Int32
+	inspector.Claude = func(context.Context, string, []string, []string) ([]connections.Entry, error) {
+		harnesses.Add(1)
+		return []connections.Entry{{ID: "mcp:tools", Name: "tools", Kind: "mcp", Status: "connected"}}, nil
+	}
+	service := &Service{Store: store, Instance: "test-instance", connectionInspector: inspector}
+	checks, _ := service.connections()
+	defer checks.Close()
+	var ahead atomic.Int64
+	checks.Now = func() time.Time { return time.Now().Add(time.Duration(ahead.Load())) } // stall-accepted: the offset the test moves the cache's clock by, not a wait.
+	handler := NewHTTP(service, "board.local", nil)
+	read := func(meta state.TaskMeta) connections.Snapshot {
+		t.Helper()
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest("GET", "http://board.local/api/connections?task="+meta.ID+"&generation="+meta.SpawnGen, nil))
+		var snapshot connections.Snapshot
+		if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &snapshot) != nil {
+			t.Fatalf("read %s: %d %s", meta.ID, response.Code, response.Body)
+		}
+		return snapshot
+	}
+	// open reads every goblin as the page does, each until its check has
+	// ended, and gives what each one's first read showed.
+	open := func() []connections.Snapshot {
+		t.Helper()
+		var shown []connections.Snapshot
+		for _, meta := range tasks {
+			first := read(meta)
+			shown = append(shown, first)
+			deadline := time.Now().Add(time.Minute)
+			for latest := first; latest.Checking; latest = read(meta) {
+				if time.Now().After(deadline) {
+					t.Fatalf("the check of %s did not end", meta.ID)
+				}
+				time.Sleep(time.Millisecond)
+			}
+		}
+		return shown
+	}
+	open()
+	if harnesses.Load() != 3 {
+		t.Fatalf("the first open started %d harnesses, want one for each of 3 goblins", harnesses.Load())
+	}
+
+	// Act: the page opens again five minutes later.
+	ahead.Store(int64(5 * time.Minute))
+	shown := open()
+
+	// Assert: no harness, and each goblin's result at once.
+	if harnesses.Load() != 3 {
+		t.Fatalf("an open five minutes later started %d harnesses, want none", harnesses.Load()-3)
+	}
+	for at, snapshot := range shown {
+		if snapshot.Checking || len(snapshot.Entries) == 0 {
+			t.Fatalf("%s showed %+v, want its last result and no check", tasks[at].ID, snapshot)
+		}
+	}
+
+	// Act: the page opens eleven minutes after the checks.
+	ahead.Store(int64(11 * time.Minute))
+	shown = open()
+
+	// Assert: each goblin's last result shows at once while one recheck
+	// each runs behind it.
+	if harnesses.Load() != 6 {
+		t.Fatalf("an open after ten minutes started %d harnesses, want one for each of 3 goblins", harnesses.Load()-3)
+	}
+	for at, snapshot := range shown {
+		if !snapshot.Checking || !slices.ContainsFunc(snapshot.Entries, func(entry connections.Entry) bool { return entry.ID == "mcp:tools" }) {
+			t.Fatalf("%s showed %+v, want its last result while its recheck runs", tasks[at].ID, snapshot)
+		}
+	}
+
+	// Act: a grant made with goblins auth gives the second goblin a server,
+	// and the page opens again at once.
+	tasks[1].MCPServers = []string{"tools"}
+	if err := state.WriteTaskMeta(home.State, tasks[1]); err != nil {
+		t.Fatal(err)
+	}
+	shown = open()
+
+	// Assert: only the goblin whose record changed is checked again, and its
+	// last result shows while it is.
+	if harnesses.Load() != 7 {
+		t.Fatalf("an open after a grant started %d harnesses, want one for the granted goblin", harnesses.Load()-6)
+	}
+	if !shown[1].Checking || len(shown[1].Entries) == 0 {
+		t.Fatalf("the granted goblin showed %+v, want its last result while its recheck runs", shown[1])
+	}
+}
+
 func TestConnectionAPIIsCachedAndRejectsStaleTasksAndUntrustedRefreshes(t *testing.T) {
 	store, _ := testStore(t)
 	release := make(chan struct{})
