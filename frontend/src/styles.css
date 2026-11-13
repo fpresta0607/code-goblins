@@ -92,7 +92,7 @@ button, select, input, textarea {
 }
 button { cursor: pointer; background: var(--ghost-bg); transition: background .15s ease, border-color .15s ease; }
 button:disabled, select:disabled { opacity: .55; cursor: default; }
-button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible,
+button:focus-visible, [role="button"]:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible,
 select:focus-visible, summary:focus-visible, pre:focus-visible, main:focus-visible {
   outline: var(--focus-ring); outline-offset: 3px;
 }

@@ -7,7 +7,8 @@ import "../../src/styles.css";
 // The Command Center's terminal text (#2524): a command of several lines
 // beside a question that quotes the prompt a command stopped at, and one
 // that fences the command it would run and, in its details, what the last
-// build printed. window.terminalStep is the supervisor's next snapshot:
+// build printed, and a command and a question's fence that fetch from a web
+// address. window.terminalStep is the supervisor's next snapshot:
 // "failed" once the command he ran ended with exit 2 and what its terminal
 // showed, and "unfinished" once its terminal closed before the command
 // finished, with no exit code. Every name in them is made up.
@@ -32,9 +33,15 @@ const cleanup = {
   text: "Should the old build be removed? Removing it runs:\n\n```powershell\nRemove-Item C:\\work\\old -Recurse\n```\n\nDetails:\n\nThe last build stopped at:\n\n```\nerror: cannot open C:\\work\\old\\config.json\nlog kept in C:\\Users\\RUNNER~1\\Temp\\a&b\\Café\\build(1).log\nwrote C:\\work\\site\\dist\\release\\artifacts\\windows-x64\\installer-with-a-long-name\\setup.exe\n```",
   options: ["Remove it", "Keep it"], recommended: "Remove it",
 };
-const base = { healthy: true, instance: "fixture", ceo_runs: true, tasks: [], questions: [question, cleanup] };
+const fetchRun = { ...run, id: "fetch-installer", identity: "f".repeat(64), title: "Fetch the installer", command: "Invoke-WebRequest https://example.com/install.ps1 -OutFile install.ps1" };
+const fetchQuestion = {
+  id: "fetch-installer-again", identity: "a".repeat(64), task: "", status: "pending", created_at: created,
+  text: "Should the installer be fetched again? Fetching it runs:\n\n```powershell\nInvoke-WebRequest https://example.com/install.ps1 -OutFile C:\\work\\install.ps1\n```",
+  options: ["Fetch it", "Keep the old one"], recommended: "Fetch it",
+};
+const base = { healthy: true, instance: "fixture", ceo_runs: true, tasks: [], questions: [question, cleanup, fetchQuestion] };
 const snapshots = {
-  ready: parseSnapshot({ ...base, revision: 1, runs: [run] }),
+  ready: parseSnapshot({ ...base, revision: 1, runs: [run, fetchRun] }),
   failed: parseSnapshot({ ...base, revision: 2, runs: [{ ...run, state: "failed", exit_code: 2, output: OUTPUT, ran_at: "2026-11-13T12:41:00Z", finished_at: "2026-11-13T12:41:10Z", terminal: true }] }),
   unfinished: parseSnapshot({ ...base, revision: 3, runs: [{ ...run, state: "failed", exit_code: null, reason: "its terminal closed before the command finished", ran_at: "2026-11-13T12:41:00Z", finished_at: "2026-11-13T12:41:10Z" }] }),
 };

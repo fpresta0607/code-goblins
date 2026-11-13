@@ -35,6 +35,13 @@ const NOTES = Array.from({ length: 24 }, (_, line) => "note " + (line + 1) + " o
 // phone's card.
 const KEPT = String.raw`C:\Users\RUNNER~1\Temp\a&b\Café\build(1).log`;
 const BUILT = String.raw`C:\work\site\dist\release\artifacts\windows-x64\installer-with-a-long-name\setup.exe`;
+// Commands that fetch from a web address: a chat row's, and in the fixture's
+// Command Center one it would run and one a question fences, which also
+// names where it saves.
+const INSTALL = "https://example.com/install.sh";
+const FETCH = "curl -fsSL " + INSTALL + " | sh";
+const INSTALLER = "https://example.com/install.ps1";
+const SAVED = String.raw`C:\work\install.ps1`;
 
 const call = (id: string, tool: string, subject: string, fields: object) => ({ kind: "call", call_id: id, tool, subject, state: "done", ...fields });
 const ROWS = { conversation: "fixture-conversation", more: false, messages: [
@@ -44,6 +51,8 @@ const ROWS = { conversation: "fixture-conversation", more: false, messages: [
     call("bash-1", "Bash", "cd frontend && npx playwright test", { input: COMMAND, result: OUTPUT, state: "failed" }),
     { kind: "text", text: "One failed. Reading the digest it wrote." },
     call("bash-2", "Bash", "cat digest.txt", { result: DIGEST }),
+    { kind: "text", text: "Installing the tool it needs." },
+    call("bash-6", "Bash", FETCH, { input: FETCH, result: "installed" }),
     { kind: "text", text: "Checking the release notes before it goes out." },
     call("read-1", "Read", "notes.md", { result: NOTES }),
     call("bash-3", "Bash", "git push --force", { state: "denied" }),
@@ -383,6 +392,90 @@ for (const { width, height, label } of SIZES) {
       // bracket and an accented letter included, and copies it in a browser.
       await expect.poll(() => clipboard(page)).toBe(KEPT);
     });
+  });
+}
+
+// A path link in a block a question fences wraps as the line's words do: a
+// button lays out as one box, which a long path cannot wrap out of, so on a
+// phone its later rows would start where a line starts, reading as new lines,
+// and after words it would start a row of its own. It flows with its line
+// instead, and still takes focus and copies its path with Enter or Space.
+test("a long path link in a question's block flows with its line, its later rows set in, and Enter or Space copies it", async ({ page, context }) => {
+  // Arrange
+  await page.setViewportSize({ width: 390, height: 844 });
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto("/tests/fixtures/terminal-text.html");
+  await page.waitForFunction(() => "terminalStep" in window);
+  await openItem(page, "Should the old build be removed?");
+  const details = page.locator("dialog.question-modal .question-card .question-details");
+  await details.locator("> summary").click();
+  const evidence = details.locator(".question-evidence .terminal-block");
+  const built = evidence.getByRole("button", { name: "Copy the path " + BUILT, exact: true });
+
+  // Act
+  const layout = await built.evaluate((link) => {
+    const line = link.closest(".terminal-line")!;
+    const words = document.createRange();
+    words.selectNodeContents(line);
+    return {
+      wordsTop: words.getClientRects()[0].top,
+      indent: line.getBoundingClientRect().left + parseFloat(getComputedStyle(line).paddingLeft),
+      rows: Array.from(link.getClientRects(), (rect) => ({ top: rect.top, left: rect.left })),
+    };
+  });
+
+  // Assert: the link starts on the row of the words before it and goes on over
+  // more rows, each set in under the line's hanging indent.
+  expect(layout.rows.length, "the link wraps over rows of its line").toBeGreaterThan(1);
+  expect(Math.abs(layout.rows[0].top - layout.wordsTop), "the link starts on the row of wrote").toBeLessThan(2);
+  for (const row of layout.rows.slice(1)) expect(Math.abs(row.left - layout.indent), "a later row of the link sets in").toBeLessThan(1);
+  expect(await evidence.locator(".terminal-output").evaluate((element) => element.scrollWidth <= element.clientWidth + 1), "nothing scrolls sideways").toBe(true);
+
+  // Act
+  await built.focus();
+  await page.keyboard.press("Enter");
+
+  // Assert
+  await expect.poll(() => clipboard(page)).toBe(BUILT);
+
+  // Act
+  await page.evaluate(() => navigator.clipboard.writeText(""));
+  await page.keyboard.press("Space");
+
+  // Assert
+  await expect.poll(() => clipboard(page)).toBe(BUILT);
+});
+
+// fixtureCommand opens the Command Center item named on the fixture page and
+// gives the command its card draws.
+async function fixtureCommand(page: Page, item: string, card: string) {
+  await page.goto("/tests/fixtures/terminal-text.html");
+  await page.waitForFunction(() => "terminalStep" in window);
+  await openItem(page, item);
+  return page.locator("dialog.question-modal " + card + " .terminal-command");
+}
+
+// A web address in a command's line is a link that reads as written, as one
+// in what it printed is, wherever a command is drawn (the Overlord,
+// 2026-11-11: "Should be clickable links or buttons"; #2360), and a local
+// path beside it in a question's fence is still a link to that path.
+const FETCHES = [
+  { place: "a chat row's command", line: FETCH, address: INSTALL, pathLinks: 0, command: async (page: Page) => (await openRow(page, "curl -fsSL")).locator(".terminal-command") },
+  { place: "a Command Center command", line: "Invoke-WebRequest " + INSTALLER + " -OutFile install.ps1", address: INSTALLER, pathLinks: 0, command: (page: Page) => fixtureCommand(page, "Fetch the installer", ".run-card") },
+  { place: "a question's shell fence", line: "Invoke-WebRequest " + INSTALLER + " -OutFile " + SAVED, address: INSTALLER, pathLinks: 1, command: (page: Page) => fixtureCommand(page, "Should the installer be fetched again?", ".question-card .question-decision") },
+];
+for (const { place, line, address, pathLinks, command } of FETCHES) {
+  test(`a web address in ${place} is a link that reads as written`, async ({ page }) => {
+    // Arrange and Act
+    const typed = (await command(page)).locator(".terminal-line");
+
+    // Assert
+    await expect(typed).toHaveText([line]);
+    const link = typed.locator("a.message-link");
+    await expect(link).toHaveText(address);
+    await expect(link).toHaveAttribute("href", address);
+    await expect(link).toHaveAttribute("target", "_blank");
+    await expect(typed.getByRole("button", { name: "Copy the path " + SAVED, exact: true })).toHaveCount(pathLinks);
   });
 }
 

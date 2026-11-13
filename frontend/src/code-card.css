@@ -24,7 +24,7 @@
 .terminal-line .message-link { overflow-wrap: normal; }
 /* A path that is a link reads as the text around it, in its type, size and
    colour, with its underline and folder, and wraps where the line does. */
-.terminal-line .path-link { overflow-wrap: normal; color: inherit; font: inherit; text-indent: 0; }
+.terminal-line .path-link { overflow-wrap: normal; color: inherit; font: inherit; cursor: pointer; }
 .terminal-command { color: #eef6f2; }
 .terminal-command .terminal-line::before { content: "  "; }
 .terminal-command .terminal-line:first-child::before { content: "$ "; color: var(--mint); font-weight: 700; }

@@ -2,18 +2,30 @@ import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { CodeCopy } from "./code-copy";
 import { FullScreen } from "./full-screen";
 import { Icon } from "./Icon";
-import { pathElements, webLink, type PathRenderer } from "./messageText";
+import { pathElements, webAddresses, webLink, type PathRenderer } from "./messageText";
 import { commandLines, plainTerminalText, softBreaks, terminalLines, type TerminalResult, type TerminalSpan } from "./terminal-text";
 import "./code-card.css";
 
 // wrapping draws text with the breaks a long word may wrap at.
 const wrapping = (text: string): ReactNode => softBreaks(text).map((piece, at) => <Fragment key={at}>{at > 0 && <wbr />}{piece}</Fragment>);
 
-// linked draws text as wrapping does and, given path, each local path in it
-// by path, as a question's words draw one, its words wrapping as well.
-const linked = (text: string, path?: PathRenderer): ReactNode => path
-  ? pathElements(text, path, wrapping).map((piece, at) => typeof piece === "string" ? <Fragment key={at}>{wrapping(piece)}</Fragment> : piece)
-  : wrapping(text);
+// linked draws text as wrapping does, each web address in it a link that
+// reads as written, as one a command printed is (#2360), and, given path,
+// each local path in it by path, as a question's words draw one, its words
+// wrapping as well.
+function linked(text: string, path?: PathRenderer): ReactNode[] {
+  const words = (piece: string) => path
+    ? pathElements(piece, path, wrapping).map((part, at) => typeof part === "string" ? <Fragment key={at}>{wrapping(part)}</Fragment> : part)
+    : wrapping(piece);
+  const out: ReactNode[] = [];
+  let at = 0;
+  for (const { start, end, address } of webAddresses(text)) {
+    out.push(<Fragment key={out.length}>{words(text.slice(at, start))}</Fragment>, webLink(address, out.length + 1, address, wrapping));
+    at = end;
+  }
+  out.push(<Fragment key={out.length}>{words(text.slice(at))}</Fragment>);
+  return out;
+}
 
 function drawn(span: TerminalSpan, key: number, path?: PathRenderer): ReactNode {
   if (span.kind === "link") return webLink(span.text, key, span.text, wrapping);
