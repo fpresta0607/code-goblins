@@ -1426,6 +1426,24 @@ func TestGateTurnEndsItsCommandWhenMemoryStaysUnderTheReserve(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "reserve-short")
 	run := startGateTurn(t, dir, []string{gateTurnTestMemoryVariable + "=" + marker}, turnCommand(dir, "command", 0, true)...)
 	eventually(t, "the run's command starts", func() bool { return left(dir, "command", "started") })
+	// The command's own handle, held from its start, names it however long
+	// Windows keeps its ended process for anyone holding it open and
+	// whatever later takes its pid: a pid that can still be opened is no
+	// command that still runs, since a scanner holding the ended process open
+	// keeps it openable (issue 1695).
+	data, err := os.ReadFile(filepath.Join(dir, "command.pid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(string(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer windows.CloseHandle(command)
 
 	// Act
 	if err := os.WriteFile(marker, nil, 0o644); err != nil {
@@ -1441,16 +1459,8 @@ func TestGateTurnEndsItsCommandWhenMemoryStaysUnderTheReserve(t *testing.T) {
 	if last := lines[len(lines)-1]; !strings.HasPrefix(last, "goblins gate turn: the run ended its command, since free memory or commit stayed under the desktop reserve: ") || !strings.Contains(last, "reserve pressure") {
 		t.Fatalf("last line = %q; want the run saying why it ended its command, which a gate parks the run on", last)
 	}
-	data, err := os.ReadFile(filepath.Join(dir, "command.pid"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	pid, err := strconv.Atoi(string(data))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, isRunning := proc.StartTime(pid); isRunning {
-		t.Fatalf("the command, pid %d, still runs after its run ended it", pid)
+	if event, err := windows.WaitForSingleObject(command, 0); err != nil || event != windows.WAIT_OBJECT_0 {
+		t.Fatalf("the command, pid %d, still runs after its run ended it: wait %#x, %v", pid, event, err)
 	}
 }
 
