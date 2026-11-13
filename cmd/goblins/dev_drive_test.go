@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -44,7 +45,9 @@ func runtimeOn(t *testing.T, m devdrive.Machine) commandRuntime {
 
 // goblins dev-drive move carries the gate's home onto the folder, waiting the
 // half hour for the gate runs in flight, and says where it went; a gate home
-// that does not move fails the command once the heavy folders moved.
+// that does not move fails the command once the heavy folders moved, with an
+// exit code of its own where the gate only stayed busy, which the supervisor
+// reads to carry it again by itself.
 func TestDevDriveMoveCarriesTheGateHome(t *testing.T) {
 	for _, test := range []struct {
 		name     string
@@ -53,7 +56,8 @@ func TestDevDriveMoveCarriesTheGateHome(t *testing.T) {
 		want     string
 	}{
 		{name: "it moves", wantExit: 0, want: "gate home: moved: the gate's home is "},
-		{name: "gate runs stay in flight", carryErr: errors.New("gate home: the daemon did not stop while gate runs stay in flight"), wantExit: 1, want: "goblins dev-drive move: gate home: the daemon did not stop"},
+		{name: "gate runs stay in flight", carryErr: fmt.Errorf("gate home: nothing moved, and the daemon was not stopped and runs as before: %w", gatehome.ErrGateBusy), wantExit: exitGateBusy, want: "goblins dev-drive move: gate home: nothing moved, and the daemon was not stopped and runs as before"},
+		{name: "the copy fails", carryErr: errors.New("gate home: the copy failed, so nothing moved"), wantExit: 1, want: "goblins dev-drive move: gate home: the copy failed"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange

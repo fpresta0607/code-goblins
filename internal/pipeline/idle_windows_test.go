@@ -98,6 +98,39 @@ func TestIdleRefusesDurableActiveAndUnknownRuns(t *testing.T) {
 
 const runsFixture = `CREATE TABLE repos(id TEXT, working_path TEXT); CREATE TABLE runs(id TEXT, repo_id TEXT, branch TEXT, status TEXT, created_at INTEGER); INSERT INTO repos VALUES('repo','C:/work/code-goblins');`
 
+// A run that has not ended is in flight, whatever it waits on: one parked on
+// an answer and one in an agent step among them. A finished run is not.
+func TestInFlightCountsEveryRunThatHasNotEnded(t *testing.T) {
+	sqlite, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Skip("sqlite3 CLI not available")
+	}
+	for _, test := range []struct {
+		name string
+		runs string
+		want int
+	}{
+		{"one parked on an answer and one in an agent step", `('01PARKED','repo','fix/a','awaiting_approval',2),('01RUNNING','repo','feat/b','running',3),('01DONE','repo','feat/c','completed',1)`, 2},
+		{"every run ended", `('01DONE','repo','feat/c','completed',1),('01FAILED','repo','fix/d','failed',2),('01CANCELLED','repo','fix/e','cancelled',3)`, 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			dir := t.TempDir()
+			if out, err := exec.Command(sqlite, filepath.Join(dir, "state.sqlite"), runsFixture+`INSERT INTO runs VALUES`+test.runs+`;`).CombinedOutput(); err != nil {
+				t.Fatalf("fixture: %s %v", out, err)
+			}
+
+			// Act
+			count, err := Reader{Root: dir, Commands: pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}}.InFlight(context.Background())
+
+			// Assert
+			if err != nil || count != test.want {
+				t.Errorf("in flight = %d, %v; want %d", count, err, test.want)
+			}
+		})
+	}
+}
+
 func TestIdleNamesTheRunsItWaitsFor(t *testing.T) {
 	sqlite, err := exec.LookPath("sqlite3")
 	if err != nil {
