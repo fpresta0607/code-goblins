@@ -309,15 +309,101 @@ A layer's Linux code sits beside the Windows code under a build tag.
 
 Layers 3 to 5 hold most of the work; layer 7 is where a goblin first works on Linux, and layer 8 is where someone else can install it.
 
-## macOS after Linux
+## macOS
+
+Issue #2535 brings Code Goblins to the Mac: one signed download, its own desktop app, and a goblin that works there under each harness.
+It comes ahead of the Linux installer (layer 8), and the Linux layers stay, since macOS takes most of them.
+Mac proof is CI on a macOS runner, as Linux proof is the `linux` job.
+
+### What macOS shares with Linux
 
 macOS takes the pseudo terminal, Unix sockets, process groups, signals and `flock` from the Linux layers.
-It differs where Linux reads `/proc` and `/sys`: process identity and the cores' kinds come from `libproc` and `sysctl`, folder watching from FSEvents or kqueue, memory from `host_statistics64`, start at sign-in from a launchd agent, the credential store from the Keychain, and the window from WKWebView, which Wails already supports.
-Its sockets always take the user's folder under `/tmp`, since it has no `$XDG_RUNTIME_DIR` and its own `$TMPDIR` already takes about half of its 104-byte `sun_path`.
-It also differs where the Linux layers call what only Linux has: the socket's peer comes from `LOCAL_PEERPID` instead of `SO_PEERCRED`, it has no `PR_SET_CHILD_SUBREAPER`, no `pidfd_open`, no `sched_setaffinity` and no systemd scope or lingering, the creation time comes from `stat` instead of `statx`, and the disk priority from `setiopolicy_np` instead of `ioprio_set`.
-Its default file system ignores case, as Windows does, so exact path comparison is not enough there either.
-A release for it needs an Apple developer account for signing and notarization, and Mac runners.
-It is filed as its own issue from this inventory once the Linux layers it reuses have landed.
+Code that holds on both is written once, in `_unix.go` files, so neither system gets a copy.
+It differs where Linux reads `/proc` and `/sys`, and where the Linux layers call what only Linux has:
+
+- Process identity comes from `sysctl` (`kern.proc` for the parent, name and start, `kern.procargs2` for the arguments and environment) and from `libproc` for the working folder, the image and each process's memory.
+- A process is named by the boot session's UUID (`kern.bootsessionuuid`) and the kernel's unique ID for it (`p_uniqueid`, from `libproc`), which is never given twice in one boot, so no clock is in it, as none is in the Linux instance.
+- No `pidfd_open`: a process is ended by its ID after its identity is checked, so a few microseconds stay between the check and the end in which the ID could pass to another program.
+  A child the fleet started cannot lose its ID that way, since its parent has not collected it.
+- No `PR_SET_CHILD_SUBREAPER`: a child that leaves its process group is found again by its parent chain.
+- No `sched_setaffinity`: the terminal is kept off the performance cores by running it at background priority (`PRIO_DARWIN_BG`), which macOS schedules on the efficiency cores of Apple silicon, and the cores' kinds come from `sysctl hw.perflevel*`.
+- No systemd: each host starts in a session of its own, and the supervisor runs as a launchd agent with `AbandonProcessGroup`, so an update of the supervisor ends no host.
+- The socket's peer comes from `LOCAL_PEERPID` instead of `SO_PEERCRED`, and the sockets take the user's 0700 folder under `/tmp`, since the 104-byte `sun_path` leaves no room under `$TMPDIR`.
+- `fsync` does not reach the disk: a durable write takes `F_FULLFSYNC`.
+- Folder watching uses `kqueue`, memory and processor readings use the Mach host calls, the creation time comes from `stat`'s birth time and the disk priority from `setiopolicy_np`.
+- Its default file system ignores case and Unicode normalization while it keeps both, as Windows ignores case, so layer 4's exact comparison is wrong there: a path compares as its volume does, read with `pathconf(_PC_CASE_SENSITIVE)`.
+- The home follows the Linux rule, `$XDG_DATA_HOME/code-goblins` or `~/.local/share/code-goblins`, rather than `~/Library/Application Support`, whose space every hook and card command would have to quote; the app itself sits in `/Applications`.
+- bash is 3.2 on every Mac, and zsh is the user's shell, so a card's command is written for `sh` and a `!` message runs in the user's shell.
+- The credential store is the Keychain, through the Security framework, from the installer's layer on, since the Keychain trusts a signed app; until then the file store Linux uses works.
+- The window is Wails on WKWebView, which Wails already draws, so the Mac gets the desktop window with its installer, not later as Linux does.
+
+### cgo on macOS
+
+`golang.org/x/sys` covers `sysctl`, `kqueue`, `flock`, `LOCAL_PEERPID`, `F_FULLFSYNC` and the terminal's ioctls without cgo.
+`libproc`, the Mach host readings, `setiopolicy_np` and the Security framework have no such call, and the desktop window needs cgo through Wails anyway.
+So the macOS build turns cgo on and builds on a macOS runner, which carries Apple's compiler, and no new dependency comes in.
+A pure-Go loader such as purego is the alternative; it adds a dependency and saves only the CLI's cgo.
+
+### Layer by layer
+
+Each remaining layer is one pull request for Linux and macOS together, proved on the Ubuntu and the macOS runners.
+The sizes are added lines, measured against layer 3 part 1, which added 985 program lines, 675 of them Linux only, and 1,202 test lines.
+
+| Layer | macOS shares with Linux | macOS needs of its own | Pull request | What macOS adds to it |
+| --- | --- | --- | --- | --- |
+| 1 and 2, build and unit tests | the build constraints, the `_windows_test.go` split, the EXCEPT list | a `macos` CI job that builds, vets and runs the tests of every package outside its own EXCEPT list; Windows-only test programs (`cmd`, `ping`) that are not yet per system | M1, macOS catches up, right after this plan | about 150 program lines, 100 test lines, the job (a workflow change for the CEO) |
+| 3 part 1, processes and the lock | the lock's line of waiters, its instance rule, `fsx.RemoveFileWhen`, supervise's liveness check, the stand-in programs (`true`, `sleep`) | `internal/proc` on `sysctl` and `libproc`; the instance from the boot session and the process's unique ID; ending a process without a `pidfd` | M1 | about 350 program lines, 300 test lines |
+| 3 part 2, trees and the gate's executor | process groups, signals, Ctrl+Break as `SIGINT` then `SIGTERM` | the tree found by its parent chain, since no subreaper holds it | 3 part 2 | about 60 program lines, 60 test lines |
+| 3 part 3, files and the home | `rename`, the hold on a file, the home under `$XDG_DATA_HOME`, mode 0700, `access.IsNarrow` by mode | `F_FULLFSYNC` for a durable write | 3 part 3 | about 20 program lines, 30 test lines |
+| 4, transport and paths | Unix sockets, the peer check, `flock` on the primary transport, `pathguard` reading a path as written | `LOCAL_PEERPID`; sockets under `/tmp`; path comparison by the volume's case and normalization | 4 | about 150 program lines, 150 test lines |
+| 5, the native terminal | the pseudo terminal, raw mode, `SIGWINCH`, the host's emulator | the pty from `/dev/ptmx`, the launchd agent's `AbandonProcessGroup` in place of a systemd scope, background priority in place of affinity, the cores' kinds from `sysctl` | 5 | about 200 program lines, 120 test lines |
+| 6, watching and readings | the reader's shape, `setpriority`, Chrome over DevTools | `kqueue`; memory and processors from the Mach host calls; each process's memory from `libproc`; the birth time; `setiopolicy_np`; Chrome in `/Applications`; `pbcopy` | 6 | about 350 program lines, 200 test lines |
+| 7, end to end | the hooks calling `goblins`, the run on CI under Claude Code, Codex and pi | cards in `sh`, `!` in the user's shell, folders opened with `open` | 7 | about 40 program lines, and the macOS runner in the end-to-end job |
+| 8 for macOS, installer, window and updater | the release's checksums, update by rename | one universal disk image for Apple silicon and Intel holding the app with the window and the CLI, signed and notarized; start at sign-in as a launch agent; the Keychain; update and uninstall of the app | 8m, its own pull request, ahead of the Linux installer | about 600 program lines, 200 test lines, and the release job on a macOS runner |
+| 8 for Linux | | | 8, after 8m | nothing |
+| 9, dictation | the loader layer 9 chooses | the sherpa engine's universal library, the microphone permission, which the signed app asks for | 9 | about 80 program lines |
+| 10, the desktop CI runner | | | 10, Linux only | nothing: left out on macOS (see below) |
+
+### What part 1 of layer 3 leaves for macOS
+
+It replaced the `!windows` stubs that `internal/proc`, `internal/lock` and `internal/supervise` built on, and its last commit brought them back for systems other than Windows and Linux, so `GOOS=darwin go build ./...` passes and those packages refuse on macOS as they did before.
+Their tests do not yet compile for macOS, since the stand-in programs (`endedProgram`, `lastingProgram`) are per system: M1 makes them `_unix` and deletes the stubs as it ports.
+M1 brings, for macOS: `Lookup`, `Processes`, `Ancestry`, `StartTime`, `WorkingDirectory`, `Arguments`, `Environment`, `Identify`, `TerminateVerified`, `TerminateVerifiedIn`, `Instance` and `runningProcesses`, and the lock's `processStart` and `readInstance`.
+The lock's line of waiters, `fsx.RemoveFileWhen` and supervise's `pidAlive` already hold on macOS and move to `_unix.go` names unchanged.
+The four records the plan names as built from a start alone carry the instance on macOS in the same layers as on Linux.
+
+### Signing and notarization
+
+The release signs the app and the CLI with a Developer ID certificate under the hardened runtime, has Apple notarize the disk image, and staples the ticket to it.
+These are the repository owner's steps: the release needs five repository secrets, which only the owner adds, and no identity, account or name goes into code, tests, documents or release notes.
+
+- `MACOS_SIGNING_CERTIFICATE`: the Developer ID Application certificate and its key, as a base64 `.p12`.
+- `MACOS_SIGNING_CERTIFICATE_PASSWORD`: the `.p12`'s password.
+- `MACOS_NOTARY_KEY`: an App Store Connect API key, as the `.p8` file's text.
+- `MACOS_NOTARY_KEY_ID` and `MACOS_NOTARY_ISSUER_ID`: that key's ID and issuer.
+
+The release notes and the install guide say "Signed with an Apple Developer ID and notarized by Apple".
+
+### Not needed on macOS
+
+The same list as Linux, and the systemd scope, the user unit and lingering, which launchd replaces.
+
+### Left out on macOS at first
+
+Nothing is dropped in silence: each of these says what it lacks when used.
+
+- GPU readings: macOS gives them only to root (`powermetrics`).
+- The desktop CI runner: a Mac sends private repositories' CI to GitHub's runners until a runner on the Virtualization framework is planned.
+- Intel Macs are built into the universal image and run in CI only while GitHub offers an Intel macOS runner.
+
+### The order
+
+1. This plan.
+2. M1: macOS catches up to layer 3 part 1, with its CI job.
+3. Layers 3 part 2, 3 part 3, 4, 5, 6 and 7, each for Linux and macOS.
+4. 8m: the Mac installer, window and updater, signed and notarized.
+5. 8: the Linux installer.
+6. 9 and 10.
 
 ## How it was measured
 
