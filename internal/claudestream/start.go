@@ -37,9 +37,9 @@ const (
 // the session writes, in order, and an error once it can read none. It
 // returns what the session said and why it is not one a goblin can run on,
 // nil when it is: one signed in to a Claude plan, at least one SessionStart
-// hook of which ran, that lists skills and that loaded every CLAUDE.md of
-// expected, each a path that exists. A Claude Code that starts -p sessions
-// bare fails here, never silently later.
+// hook of which ran, that included at least one skill and that loaded every
+// CLAUDE.md of expected, each a path that exists. A Claude Code that starts
+// -p sessions bare fails here, never silently later.
 func ProveStart(write func(json.RawMessage) error, next func() (json.RawMessage, error), expected []string) (Start, error) {
 	var start Start
 	for _, request := range []struct{ id, subtype string }{{initializeID, "initialize"}, {contextUsageID, "get_context_usage"}} {
@@ -76,7 +76,9 @@ type startLine struct {
 			MemoryFiles []struct {
 				Path string `json:"path"`
 			} `json:"memoryFiles"`
-			Skills json.RawMessage `json:"skills"`
+			Skills struct {
+				IncludedSkills int `json:"includedSkills"`
+			} `json:"skills"`
 		} `json:"response"`
 	} `json:"response"`
 }
@@ -104,7 +106,7 @@ func (s *Start) read(line json.RawMessage, requestID string) (bool, error) {
 		for _, file := range answer.MemoryFiles {
 			s.MemoryFiles = append(s.MemoryFiles, file.Path)
 		}
-		s.HasSkills = len(answer.Skills) > 0 && string(answer.Skills) != "null"
+		s.HasSkills = answer.Skills.IncludedSkills > 0
 	}
 	return true, nil
 }

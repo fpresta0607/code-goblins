@@ -104,15 +104,21 @@ func fakeStreamClaude(record func(codexEvent)) {
 			answer(line.RequestID, map[string]any{"memoryFiles": []any{}})
 		case line.Request.Subtype == "get_context_usage":
 			// Claude Code loads the CLAUDE.md of the folder it runs in and
-			// the user's own, each where one exists.
+			// the user's own, each where one exists: the user's in the
+			// folder CLAUDE_CONFIG_DIR names, and in .claude in the user's
+			// profile where it names none.
 			memory := []map[string]any{}
-			userHome, _ := os.UserHomeDir()
-			for _, path := range []string{filepath.Join(mustGetwd(), "CLAUDE.md"), filepath.Join(userHome, ".claude", "CLAUDE.md")} {
+			userFolder := os.Getenv("CLAUDE_CONFIG_DIR")
+			if userFolder == "" {
+				userHome, _ := os.UserHomeDir()
+				userFolder = filepath.Join(userHome, ".claude")
+			}
+			for _, path := range []string{filepath.Join(mustGetwd(), "CLAUDE.md"), filepath.Join(userFolder, "CLAUDE.md")} {
 				if _, err := os.Stat(path); err == nil {
 					memory = append(memory, map[string]any{"path": path, "type": "Project"})
 				}
 			}
-			answer(line.RequestID, map[string]any{"memoryFiles": memory, "skills": map[string]any{"totalSkills": 1}})
+			answer(line.RequestID, map[string]any{"memoryFiles": memory, "skills": map[string]any{"totalSkills": 1, "includedSkills": 1}})
 		case line.Request.Subtype == "interrupt":
 			answer(line.RequestID, map[string]any{})
 			if turn != "" {
@@ -238,6 +244,70 @@ func TestAStreamGoblinThatStartsBareRunsInItsTerminalAndSaysWhy(t *testing.T) {
 	assertFallbackReported(t, f, "not signed in to a Claude plan", "no SessionStart hook ran", "loaded no skills")
 }
 
+// Claude Code reads the user's CLAUDE.md in the folder CLAUDE_CONFIG_DIR
+// names, where the goblin's environment names one, and in .claude in the
+// user's profile otherwise, as install.UserSettingsPath finds the user's
+// settings. A stream
+// session's proof asks for that one file, so a stale one in the profile
+// neither refuses a session that loaded the one Claude Code reads nor stands
+// in for it.
+func TestAStreamGoblinsProofAsksForTheUsersCLAUDEFileWhereClaudeCodeReadsIt(t *testing.T) {
+	for _, testCase := range []struct {
+		name          string
+		streamMode    string
+		isFolderNamed bool
+		wantStream    bool
+	}{
+		{name: "a session under a named folder", isFolderNamed: true, wantStream: true},
+		{name: "a bare session under a named folder", streamMode: "bare", isFolderNamed: true},
+		{name: "a bare session with no folder named", streamMode: "bare"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			profile := t.TempDir()
+			t.Setenv("USERPROFILE", profile)
+			t.Setenv("CLAUDE_CONFIG_DIR", "")
+			if err := os.MkdirAll(filepath.Join(profile, ".claude"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			profileMemory := filepath.Join(profile, ".claude", "CLAUDE.md")
+			writeFile(t, profileMemory, "a stale CLAUDE.md")
+			folder := t.TempDir()
+			folderMemory := filepath.Join(folder, "CLAUDE.md")
+			writeFile(t, folderMemory, "the user's CLAUDE.md")
+			f := newStreamFixture(t, testCase.streamMode)
+			read, unread := profileMemory, folderMemory
+			if testCase.isFolderNamed {
+				f.userEnv = append(f.userEnv, "CLAUDE_CONFIG_DIR="+folder)
+				read, unread = folderMemory, profileMemory
+			}
+
+			// Act
+			_, err := f.service.Spawn(context.Background(), f.request)
+
+			// Assert
+			if err != nil {
+				t.Fatalf("Spawn: %v", err)
+			}
+			record, err := host.ReadRecord(f.stateDir, "task-7")
+			if err != nil || record.Stream != testCase.wantStream {
+				t.Fatalf("task-7's host = %+v, %v; want a stream session %v", record, err, testCase.wantStream)
+			}
+			lines := statusLines(t, f)
+			if testCase.wantStream {
+				if slices.ContainsFunc(lines, func(line string) bool { return strings.Contains(line, "rather than on stream-json pipes") }) {
+					t.Errorf("status = %q, want no fallback", lines)
+				}
+				return
+			}
+			assertFallbackReported(t, f, "did not load "+read)
+			if slices.ContainsFunc(lines, func(line string) bool { return strings.Contains(line, unread) }) {
+				t.Errorf("status = %q, want %s, which Claude Code does not read, never asked for", lines, unread)
+			}
+		})
+	}
+}
+
 func TestAStartThatCannotRunOnStreamPipesRunsInItsTerminalAndWakesTheCEOWithWhy(t *testing.T) {
 	for _, testCase := range []struct {
 		name       string
@@ -282,6 +352,36 @@ func TestAStartThatCannotRunOnStreamPipesRunsInItsTerminalAndWakesTheCEOWithWhy(
 			assertFallbackReported(t, f, testCase.wantReason)
 		})
 	}
+}
+
+// The terminal a stream session falls back to is the goblin's host from then
+// on: one that cannot take the instruction either, as one whose composer
+// holds a draft cannot, is kept running with its task and worktree, and named
+// for goblins peek, as a start in a terminal alone keeps its terminal, never
+// torn down as though the closed stream session were all the start ran.
+func TestAStreamGoblinsFallbackTerminalThatCannotTakeItsInstructionIsKept(t *testing.T) {
+	// Arrange
+	f := newStreamFixture(t, "bare")
+	f.userEnv = append(f.userEnv, fakeCodexDraft+"=An unfinished user draft")
+
+	// Act
+	_, err := f.service.Spawn(context.Background(), f.request)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "holds a draft") || !strings.Contains(err.Error(), "goblins peek task-7") {
+		t.Fatalf("Spawn = %v, want the fallback terminal's draft named and that terminal kept for goblins peek", err)
+	}
+	record, err := host.ReadRecord(f.stateDir, "task-7")
+	if err != nil || record.Stream || !host.Running(record) {
+		t.Fatalf("task-7's host = %+v, %v; want its fallback terminal still running", record, err)
+	}
+	if _, err := state.ReadTaskMeta(f.stateDir, "task-7"); err != nil || f.git.returned != 0 {
+		t.Errorf("task record %v, worktree returned %d times; want the task and its worktree kept", err, f.git.returned)
+	}
+	if submitted := named(f.events(t), "submitted"); len(submitted) != 0 {
+		t.Errorf("submitted = %+v, want nothing typed over the draft", submitted)
+	}
+	assertFallbackReported(t, f, "not signed in to a Claude plan")
 }
 
 func TestAStartGoesOnStreamPipesOnlyWhereTurnedOnAndNotAfterASessionThatEndedByItself(t *testing.T) {
@@ -473,5 +573,49 @@ func TestStoppingAStreamGoblinClosesItsSessionSoItsNextStartGoesOnStreamPipesAga
 	}
 	if isStream, fallback, err := f.service.onStream("task-7", harness.Claude); err != nil || !isStream {
 		t.Errorf("the next start: onStream = %v, %q, %v; want stream pipes again", isStream, fallback, err)
+	}
+}
+
+// A switch of a goblin on stream-json pipes closes its stream session, which
+// then ended closed rather than by itself, so the new harness starts on
+// stream-json pipes again, proves itself anew and takes its handoff as one
+// line, once. The exit command a terminal is typed never becomes a line.
+func TestAStreamGoblinSwitchesOnStreamPipes(t *testing.T) {
+	// Arrange
+	f := newStreamFixture(t, "")
+	f.service.Commands = cleanWorktree{f.service.Worktrees.Commands}
+	f.service.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{harness.Claude: nativeAdapter{kind: harness.Claude, control: harness.Control{StopCommand: "/exit"}}}}
+	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	first, err := host.ReadRecord(f.stateDir, "task-7")
+	if err != nil || !first.Stream {
+		t.Fatalf("task-7's host = %+v, %v; want a stream session", first, err)
+	}
+
+	// Act
+	result, err := f.service.Switch(context.Background(), SwitchRequest{ID: "task-7", Model: "opus"})
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+	end, err := host.ReadEnd(f.stateDir, "task-7")
+	if err != nil || end.HostPID != first.HostPID || !end.Stream || !end.Closed {
+		t.Errorf("task-7's last end = %+v, %v; want the first stream session, host pid %d, closed", end, err, first.HostPID)
+	}
+	second, err := host.ReadRecord(f.stateDir, "task-7")
+	if err != nil || !second.Stream || second.HostPID == first.HostPID || !host.Running(second) {
+		t.Errorf("task-7's host after the switch = %+v, %v; want a new running stream session", second, err)
+	}
+	submitted := submittedLines(t, f, 2)
+	if len(submitted) != 2 || result.Handoff == "" || !strings.Contains(submitted[1], "Read the handoff at "+result.Handoff) {
+		t.Errorf("submitted = %q with handoff %q; want the instruction, then the new session told its handoff once, and never /exit", submitted, result.Handoff)
+	}
+	if lines := statusLines(t, f); slices.ContainsFunc(lines, func(line string) bool { return strings.Contains(line, "rather than on stream-json pipes") }) {
+		t.Errorf("status = %q, want no fallback", lines)
+	}
+	if closed := named(f.events(t), "input closed"); len(closed) != 1 {
+		t.Errorf("input closed %d times, want once, the first session's", len(closed))
 	}
 }

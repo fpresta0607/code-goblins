@@ -221,7 +221,7 @@ func (s Service) briefNativeHarness(ctx context.Context, id string, record host.
 		return record, fmt.Errorf("spawn: %s cannot run in a native terminal yet", kind)
 	}
 	if record.Stream {
-		failure := proveStream(record, launch.Dir)
+		failure := proveStream(record, launch.Dir, s.nativeHostEnvironment(userEnv, launch, credentials))
 		if failure == nil {
 			failure = s.deliverStream(ctx, record, launch.PromptInstruction())
 			if failure == nil || errors.Is(failure, fleet.ErrQueuedForToolCall) || ctx.Err() != nil {
@@ -1101,14 +1101,20 @@ func (s Service) nativeHostEnvironment(userEnv []string, launch harness.Launch, 
 }
 
 // hasNativeVariable reports whether env, a native host environment, sets name
-// to a value. Names compare without case, as Windows compares them.
+// to a value.
 func hasNativeVariable(env []string, name string) bool {
+	return nativeVariable(env, name) != ""
+}
+
+// nativeVariable is the value env, a native host environment, gives name.
+// Names compare without case, as Windows compares them.
+func nativeVariable(env []string, name string) string {
 	for _, entry := range env {
 		if entryName, value, _ := strings.Cut(entry, "="); strings.EqualFold(entryName, name) {
-			return value != ""
+			return value
 		}
 	}
-	return false
+	return ""
 }
 
 func (s Service) userEnvironment() ([]string, error) {

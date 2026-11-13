@@ -15,6 +15,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/claudestream"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/host/hosttest"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -410,6 +411,43 @@ func TestANativeProberReadsAStreamSessionFromItsOwnState(t *testing.T) {
 			}
 			if !strings.Contains(string(sample.Capture), test.capture) {
 				t.Errorf("capture %q leaves out %q", sample.Capture, test.capture)
+			}
+		})
+	}
+}
+
+// A prober given no state read reads a stream session's state through its
+// running host, as the monitor does: Claude Code waiting for a line, or in
+// the turn the line it took started (#2374).
+func TestANativeProberReadsARunningStreamSessionThroughItsHost(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		isWorking bool
+		status    string
+		busy      herdr.BusyState
+		ready     bool
+	}{
+		{"waiting for a line", false, herdr.AgentDone, herdr.BusyIdle, true},
+		{"in a turn", true, herdr.AgentWorking, herdr.BusyWorking, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			stateDir := t.TempDir()
+			meta := nativeMeta("g1", "claude")
+			hosttest.RunStream(t, stateDir, "g1", test.isWorking)
+
+			// Act
+			sample, err := NativeProber{StateDir: stateDir}.Inspect(context.Background(), meta)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if sample.Verdict != ProbePresent || sample.Agent != herdr.AgentAlive || !validSample(meta, sample) {
+				t.Errorf("sample = %+v, want a present live harness", sample)
+			}
+			if sample.Status != test.status || sample.Busy != test.busy || sample.InteractiveReady != test.ready {
+				t.Errorf("status %q busy %q ready %v, want %q %q %v", sample.Status, sample.Busy, sample.InteractiveReady, test.status, test.busy, test.ready)
 			}
 		})
 	}

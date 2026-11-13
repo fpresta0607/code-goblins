@@ -669,7 +669,8 @@ func piStartup(startup time.Duration, isTurnEnding bool, keys <-chan string, rec
 // Claude Code 2.1.275's does, and a line submitted during it is queued, shown
 // above the composer, until Ctrl+X Ctrl+S sends what is queued at once. While
 // one waits its empty prompt line shows the hint Claude Code 2.1.314 drew
-// there, live, on 2026-10-30.
+// there, live, on 2026-10-30. A draft fakeCodexDraft names shows in the
+// composer as it starts.
 func claudeComposer(mode string, keys <-chan string, record func(codexEvent), draw func(rows ...string)) {
 	rule := strings.Repeat("─", 80)
 	footer := "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
@@ -677,8 +678,9 @@ func claudeComposer(mode string, keys <-chan string, record func(codexEvent), dr
 	composer := func(rows ...string) {
 		draw(append(append(append(append([]string{}, above...), "", rule), rows...), rule, footer)...)
 	}
-	composer(">")
 	var line strings.Builder
+	line.WriteString(os.Getenv(fakeCodexDraft))
+	composer(strings.TrimSpace("> " + line.String()))
 	lost, isLate := 0, mode == "claude-late-enter"
 	var queued []string
 	turn := func(text string) {

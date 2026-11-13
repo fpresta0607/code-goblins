@@ -96,6 +96,33 @@ func TestProveStartRefusesABareSession(t *testing.T) {
 	}
 }
 
+// Claude Code's answer to get_context_usage counts the skills it gave the
+// session in its skills member, which it writes either way: a session it gave
+// none loaded none.
+func TestProveStartRefusesASessionGivenNoSkills(t *testing.T) {
+	for _, testCase := range []struct{ name, counts string }{
+		{"none found", `"totalSkills":0,"includedSkills":0`},
+		{"none of those found included", `"totalSkills":129,"includedSkills":0`},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			write, next, _ := replayStart(t, "start.jsonl")
+			counted := func() (json.RawMessage, error) {
+				line, err := next()
+				return json.RawMessage(strings.Replace(string(line), `"totalSkills":129,"includedSkills":129`, testCase.counts, 1)), err
+			}
+
+			// Act
+			start, err := ProveStart(write, counted, []string{userMemory})
+
+			// Assert
+			if err == nil || !strings.Contains(err.Error(), "loaded no skills") || start.HasSkills {
+				t.Errorf("ProveStart = %+v, %v; want it refused for loading no skills", start, err)
+			}
+		})
+	}
+}
+
 func TestProveStartRefusesASessionMissingAnExpectedCLAUDEFile(t *testing.T) {
 	for _, testCase := range []struct {
 		name     string

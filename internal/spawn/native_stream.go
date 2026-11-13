@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/awake"
@@ -52,8 +53,9 @@ func (s Service) onStream(id string, kind harness.Kind) (isStream bool, fallback
 // proveStream asks the stream session record names what it runs with,
 // within nativeStartup, and says why it is not a session a goblin runs on,
 // or nil (claudestream.ProveStart). The CLAUDE.md files it must have loaded
-// are dir's and the user's own, each where one exists.
-func proveStream(record host.Record, dir string) error {
+// are dir's and the user's own, each where one exists, as Claude Code started
+// with env, its launch environment, finds them.
+func proveStream(record host.Record, dir string, env []string) error {
 	viewer, err := host.WatchStream(record)
 	if err != nil {
 		return err
@@ -91,16 +93,20 @@ func proveStream(record host.Record, dir string) error {
 		}
 	}
 	write := func(line json.RawMessage) error { return writer.Write(line) }
-	_, err = claudestream.ProveStart(write, next, expectedMemory(dir))
+	_, err = claudestream.ProveStart(write, next, expectedMemory(dir, env))
 	return err
 }
 
-// expectedMemory are the CLAUDE.md files a session in dir loads, each where
-// one exists: the project's in dir and the user's own in his Claude Code
-// folder.
-func expectedMemory(dir string) []string {
+// expectedMemory are the CLAUDE.md files a session in dir, started with env,
+// loads, each where one exists: the project's in dir and the user's own in
+// the user's Claude Code folder, which Claude Code finds as
+// install.UserSettingsPath does, at the CLAUDE_CONFIG_DIR env sets and in
+// .claude in the user's profile otherwise.
+func expectedMemory(dir string, env []string) []string {
 	candidates := []string{filepath.Join(dir, "CLAUDE.md")}
-	if userHome, err := os.UserHomeDir(); err == nil {
+	if configDir := strings.TrimSpace(nativeVariable(env, "CLAUDE_CONFIG_DIR")); configDir != "" {
+		candidates = append(candidates, filepath.Join(configDir, "CLAUDE.md"))
+	} else if userHome, err := os.UserHomeDir(); err == nil {
 		candidates = append(candidates, filepath.Join(userHome, ".claude", "CLAUDE.md"))
 	}
 	var expected []string
