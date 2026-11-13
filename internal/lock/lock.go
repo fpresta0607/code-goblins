@@ -125,6 +125,17 @@ func ownerInfo(pid int, session string) (*Info, processStatus) {
 	return &Info{PID: pid, OwnerPID: pid, Session: session, Start: start, Instance: instance, Hostname: hostname, Acquired: time.Now().UTC()}, status
 }
 
+// provable refuses a record that could never prove its own holder: on a
+// system that knows a process by its instance, a record without one reads
+// as another program to every reader that can read the instance, so the
+// next acquirer would remove a live holder's record.
+func (i *Info) provable() error {
+	if processInstance != nil && i.Instance == "" {
+		return fmt.Errorf("lock: cannot read which run of its program owner pid %d is, so no record of it could prove it holds the lock", i.PID)
+	}
+	return nil
+}
+
 // writeInfo puts info at path as its holder record only if none is there.
 // The record is written whole beside path and renamed into place, so no
 // reader finds it part written, and a writer ended while it writes leaves no
@@ -173,6 +184,9 @@ func acquireNamedOwnerContext(ctx context.Context, dir, name string, ownerPID in
 	self, status := ownerInfo(ownerPID, session)
 	if status == statusDead {
 		return nil, fmt.Errorf("%w: pid %d", ErrOwnerDead, ownerPID)
+	}
+	if err := self.provable(); err != nil {
+		return nil, err
 	}
 	return acquire(ctx, dir, name, self, true, false)
 }
@@ -288,6 +302,9 @@ func acquireExclusiveNamed(dir, name, purpose string, isStrict bool) (*Info, err
 	if status == statusDead {
 		return nil, fmt.Errorf("%w: pid %d", ErrOwnerDead, self.PID)
 	}
+	if err := self.provable(); err != nil {
+		return nil, err
+	}
 	self.Purpose = purpose
 	read := ReadNamed
 	if isStrict {
@@ -329,7 +346,9 @@ func acquireExclusiveNamed(dir, name, purpose string, isStrict bool) (*Info, err
 // contention: a resumed session keeps custody.
 // A verifiably dead ownerPID is refused with ErrOwnerDead before any file is
 // created or touched; an unverifiable ownerPID (statusUnknown) still
-// proceeds, fail closed to alive exactly as Alive() does.
+// proceeds, fail closed to alive exactly as Alive() does, except on a
+// system that knows a process by its instance (Linux), where an owner whose
+// instance cannot be read is refused before any file is touched (provable).
 // Strategy: exclusive create with read-back verification, grace period for
 // mid-write files, and a create that waits out another process's hold on
 // the record, as fsx does for every fleet file.
