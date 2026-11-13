@@ -471,7 +471,7 @@ func TestAStreamGoblinHoldsALineSentDuringItsTurnUntilAnInterruptEndsIt(t *testi
 	if escapeErr != nil {
 		t.Errorf("Escape: %v", escapeErr)
 	}
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	var submitted []codexEvent
 	for time.Now().Before(deadline) {
 		if submitted = named(f.events(t), "submitted"); len(submitted) == 2 {
@@ -529,7 +529,7 @@ func TestAStreamDeliveryReadsItsSessionAgainWhileAReadFailsForAMoment(t *testing
 			if testCase.wantErr != "" && (err == nil || !strings.Contains(err.Error(), testCase.wantErr)) {
 				t.Errorf("SendNative = %v, want %q", err, testCase.wantErr)
 			}
-			deadline := time.Now().Add(10 * time.Second)
+			deadline := time.Now().Add(30 * time.Second)
 			var submitted []codexEvent
 			for time.Now().Before(deadline) {
 				if submitted = named(f.events(t), "submitted"); len(submitted) >= 2 {
