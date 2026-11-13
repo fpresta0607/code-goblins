@@ -219,31 +219,52 @@ export type TextPart = { kind: "prose"; text: string } | { kind: "heading"; text
 const FENCE = /^[ \t]*(`{3,}|~{3,})[ \t]*([\w+#.-]*)/;
 const HEADING = /^#{1,6}\s+(.+?)\s*#*\s*$/;
 
-export function textParts(text: string): TextPart[] {
-  const parts: TextPart[] = [];
+type ProsePart = Extract<TextPart, { kind: "prose" }>;
+export type FencedPart = Exclude<TextPart, { kind: "heading" }>;
+
+// proseOf is lines as one part of prose, or none where every line is blank.
+const proseOf = (lines: string[]): ProsePart[] => lines.join("").trim() ? [{ kind: "prose", text: lines.join("\n") }] : [];
+
+// fencedParts is a text's fenced code blocks and the words between them as
+// written, a heading's line among them: the parts of a text that is shown as
+// written but for the blocks it fences, as a question is.
+export function fencedParts(text: string): FencedPart[] {
+  const parts: FencedPart[] = [];
   let prose: string[] = [];
-  const flush = () => {
-    if (prose.join("").trim()) parts.push({ kind: "prose", text: prose.join("\n") });
-    prose = [];
-  };
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
   for (let at = 0; at < lines.length; at++) {
     const fence = FENCE.exec(lines[at]);
-    const heading = HEADING.exec(lines[at]);
-    if (fence) {
-      flush();
-      const code: string[] = [];
-      // A fence closes on a line of the same mark at least as long; one left
-      // open, as a reply cut short leaves it, runs to the end.
-      for (at++; at < lines.length && !new RegExp("^[ \\t]*" + fence[1][0] + "{" + fence[1].length + ",}[ \\t]*$").test(lines[at]); at++) code.push(lines[at]);
-      parts.push({ kind: "code", text: code.join("\n"), language: fence[2] });
-    } else if (heading) {
-      flush();
-      parts.push({ kind: "heading", text: heading[1] });
-    } else prose.push(lines[at]);
+    if (!fence) {
+      prose.push(lines[at]);
+      continue;
+    }
+    parts.push(...proseOf(prose));
+    prose = [];
+    const code: string[] = [];
+    // A fence closes on a line of the same mark at least as long; one left
+    // open, as a reply cut short leaves it, runs to the end.
+    for (at++; at < lines.length && !new RegExp("^[ \\t]*" + fence[1][0] + "{" + fence[1].length + ",}[ \\t]*$").test(lines[at]); at++) code.push(lines[at]);
+    parts.push({ kind: "code", text: code.join("\n"), language: fence[2] });
   }
-  flush();
-  return parts;
+  return [...parts, ...proseOf(prose)];
+}
+
+export function textParts(text: string): TextPart[] {
+  return fencedParts(text).flatMap((part): TextPart[] => {
+    if (part.kind === "code") return [part];
+    const parts: TextPart[] = [];
+    let prose: string[] = [];
+    for (const line of part.text.split("\n")) {
+      const heading = HEADING.exec(line);
+      if (!heading) {
+        prose.push(line);
+        continue;
+      }
+      parts.push(...proseOf(prose), { kind: "heading", text: heading[1] });
+      prose = [];
+    }
+    return [...parts, ...proseOf(prose)];
+  });
 }
 
 // isPowerShellBlock says whether a reply's code block is a PowerShell command

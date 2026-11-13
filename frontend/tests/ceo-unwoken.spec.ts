@@ -38,7 +38,7 @@ test("an untold CEO reaches the Overlord as one plain item whose action is Resta
   // Assert: plain words and one action, no command to run.
   await expect(card.getByRole("heading", { name: TITLE })).toBeVisible();
   await expect(card.getByRole("button", { name: /PowerShell|Run/ })).toHaveCount(0);
-  await expect(card.locator(".run-command")).toHaveCount(0);
+  await expect(card.locator(".terminal-command")).toHaveCount(0);
 
   // Act: he restarts the CEO, which asks nothing more.
   await card.getByRole("button", { name: "Restart the CEO" }).click();
