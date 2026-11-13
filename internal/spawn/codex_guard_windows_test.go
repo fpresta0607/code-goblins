@@ -2,22 +2,11 @@ package spawn
 
 import (
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 )
-
-// nativeVariable is the value env, a native host environment, gives name.
-func nativeVariable(env []string, name string) string {
-	for _, entry := range env {
-		if entryName, value, _ := strings.Cut(entry, "="); strings.EqualFold(entryName, name) {
-			return value
-		}
-	}
-	return ""
-}
 
 // A goblin's terminal finds its codex guard first on PATH, ahead of the
 // user's own codex, so a codex it starts by name, from a rig, a probe or a

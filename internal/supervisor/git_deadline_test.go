@@ -15,13 +15,15 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/host/hosttest"
 )
 
 const CUSTODY_GIT_PHASE_VARIABLE = "GOBLINS_TEST_CUSTODY_GIT_PHASE"
 
 // TestMain runs this test binary as a git that never answers when it is
 // started under that name, the stand-in for a git slowed past its deadline,
-// and as a process holding the watcher lock when started as one. Asked for
+// as a process holding the watcher lock when started as one, and as
+// hosttest's stand-in Claude Code on stream-json pipes. Asked for
 // its version, the stand-in git answers at once, which is how a test starts
 // it a first time before a deadline it measures (warmStandInGit). Otherwise it
 // runs the tests with git's search for a repository stopped at the folder
@@ -30,6 +32,7 @@ const CUSTODY_GIT_PHASE_VARIABLE = "GOBLINS_TEST_CUSTODY_GIT_PHASE"
 // checkout, as a goblin's scratch sits inside the home's, they read that
 // checkout instead of failing.
 func TestMain(m *testing.M) {
+	hosttest.RunStreamChild()
 	if name := filepath.Base(os.Args[0]); strings.EqualFold(strings.TrimSuffix(name, filepath.Ext(name)), "git") {
 		if len(os.Args) == 2 && os.Args[1] == "--version" {
 			fmt.Println("git version stand-in")

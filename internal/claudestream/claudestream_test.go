@@ -6,26 +6,21 @@ import (
 	"testing"
 )
 
-func TestArgumentsStartOrResumeTheSessionOnTheStream(t *testing.T) {
-	for _, testCase := range []struct {
-		isResumed bool
-		want      []string
-	}{
-		{false, []string{"--session-id", "s1"}},
-		{true, []string{"--resume", "s1"}},
-	} {
-		// Act
-		args := Arguments("s1", testCase.isResumed)
+func TestArgumentsRunTheSessionOnTheStreamAndRefuseEveryPrompt(t *testing.T) {
+	// Act
+	args := Arguments()
 
-		// Assert
-		if !slices.Equal(args[len(args)-2:], testCase.want) {
-			t.Errorf("Arguments(resumed %v) ends %q, want %q", testCase.isResumed, args[len(args)-2:], testCase.want)
+	// Assert
+	for _, flag := range []string{"-p", "--include-partial-messages", "--replay-user-messages"} {
+		if !slices.Contains(args, flag) {
+			t.Errorf("Arguments = %q, want %s", args, flag)
 		}
-		for _, flag := range []string{"-p", "--include-partial-messages", "--replay-user-messages", "--permission-prompt-tool"} {
-			if !slices.Contains(args, flag) {
-				t.Errorf("Arguments(resumed %v) = %q, want %s", testCase.isResumed, args, flag)
-			}
-		}
+	}
+	if at := slices.Index(args, "--permission-prompts"); at < 0 || at+1 == len(args) || args[at+1] != "none" {
+		t.Errorf("Arguments = %q, want --permission-prompts none", args)
+	}
+	if slices.Contains(args, "--bare") {
+		t.Errorf("Arguments = %q, which start the session bare", args)
 	}
 }
 
@@ -47,17 +42,18 @@ func TestUserLineCarriesHisWordsExactly(t *testing.T) {
 	words := "line one\n\"quoted\" \\ <b>tag</b> é"
 
 	// Act
-	line := UserLine(words)
+	line := UserLine("c1", words)
 
 	// Assert
 	var read struct {
 		Type    string `json:"type"`
+		ID      string `json:"uuid"`
 		Message struct {
 			Role    string `json:"role"`
 			Content string `json:"content"`
 		} `json:"message"`
 	}
-	if err := json.Unmarshal(line, &read); err != nil || read.Type != "user" || read.Message.Role != "user" || read.Message.Content != words {
+	if err := json.Unmarshal(line, &read); err != nil || read.Type != "user" || read.ID != "c1" || read.Message.Role != "user" || read.Message.Content != words {
 		t.Errorf("UserLine = %s, %v", line, err)
 	}
 }

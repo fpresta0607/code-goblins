@@ -47,6 +47,9 @@ func TestRunDoctorPrintsTheLaneTableBesideTheSwitchRules(t *testing.T) {
 		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "small-claude", "claude", "haiku", "medium", "narrow cross-harness fallback"),
 		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "verification", "codex", "gpt-6-sol", "high", "independent verification"),
 		fmt.Sprintf("  %-11s %-7s %-8s %-7s %s", "verify-claude", "claude", "sonnet", "high", "independent verification"),
+		"routing: tiers, strongest first, that a role moves up one at a time after its work failed verification\n",
+		fmt.Sprintf("  %-7s %s\n", "claude", "fable-claude > strong-claude > light-claude > small-claude"),
+		fmt.Sprintf("  %-7s %s\n", "codex", "deep > light-codex > mechanical"),
 		"routing: roles for 3 lane(s); a role a lane does not name is its lead's own",
 		fmt.Sprintf("  %-13s %-9s %-13s %-17s %s", "build", "lead", "build", "gpt-6-astra", "xhigh"),
 		fmt.Sprintf("  %-13s %-9s %-13s %-17s %s, then build\n", "build", "implement", "light-codex", "gpt-6.1-sol", "high"),
@@ -83,6 +86,7 @@ func TestRunDoctorSaysATableWithoutRolesLeavesEveryRoleToTheLead(t *testing.T) {
 	// Assert
 	for _, want := range []string{
 		"routing: 1 execution lane(s) from ",
+		"routing: no tiers, so a role whose work failed verification goes back to its lead",
 		"routing: no roles per lane, so each goblin leads, implements, reviews, verifies and fixes on its own lane",
 	} {
 		if !strings.Contains(stdout.String(), want) {

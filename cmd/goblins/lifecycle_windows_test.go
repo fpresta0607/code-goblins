@@ -14,6 +14,8 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/host/hosttest"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
@@ -495,5 +497,39 @@ INSERT INTO runs(id,repo_id,branch,status,head_sha,last_pushed_sha,intent,worktr
 				t.Errorf("the kill kept %q, want it to name the worktree it left in place and that its project checkout is gone", record.Kept)
 			}
 		})
+	}
+}
+
+// A pause that failed while its goblin still runs never took effect, so a
+// Resume refuses it: a goblin on stream-json pipes runs while its stream
+// session's host answers, as a terminal goblin runs while its terminal's
+// does (#2374).
+func TestResumeRefusesAGoblinWhoseFailedPauseLeftItsStreamSessionRunning(t *testing.T) {
+	// Arrange
+	t.Setenv("NM_HOME", t.TempDir())
+	h := testHome(t)
+	if err := os.MkdirAll(h.State, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	worktree := t.TempDir()
+	meta := state.TaskMeta{ID: "g1", Window: "native", Worktree: worktree, Project: worktree, Harness: "claude", Backend: "native", SpawnGen: "s1"}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Now().UTC().Add(-time.Minute)
+	if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, RequestGeneration: meta.SpawnGen, Operation: "pause-1", Action: "pause", Phase: "failed", Started: at, Updated: at}); err != nil {
+		t.Fatal(err)
+	}
+	hosttest.RunStream(t, h.State, meta.ID, false)
+
+	// Act
+	_, err := defaultTaskLifecycle(t.Context(), h, lifecycle.Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "resume-1", Action: "resume"}, "")
+
+	// Assert
+	if err == nil || err.Error() != "only a paused task can resume" {
+		t.Errorf("the resume = %v, want it refused since the goblin still runs", err)
+	}
+	if _, err := host.ReadRecord(h.State, meta.ID); err != nil {
+		t.Errorf("the stream session after the refused resume: %v, want it still running", err)
 	}
 }

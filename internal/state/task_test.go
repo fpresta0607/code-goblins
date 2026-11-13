@@ -238,6 +238,7 @@ func TestWriteTaskMetaRejectsControlCharactersInEveryValue(t *testing.T) {
 		{"implement_lane", func(meta *TaskMeta) { meta.ImplementLane = "bad\nother" }},
 		{"implement_model", func(meta *TaskMeta) { meta.ImplementModel = "bad\nother" }},
 		{"implement_effort", func(meta *TaskMeta) { meta.ImplementEffort = "bad\nother" }},
+		{"escalated_run", func(meta *TaskMeta) { meta.EscalatedRun = "bad\nother" }},
 		{"spawn_gen", func(meta *TaskMeta) { meta.SpawnGen = "bad\nother" }},
 		{"resume_operation", func(meta *TaskMeta) { meta.ResumeOperation = "bad\nother" }},
 		{"backend", func(meta *TaskMeta) { meta.Backend = "bad\nother" }},

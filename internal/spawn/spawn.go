@@ -21,6 +21,7 @@ import (
 	"unicode"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/claudestream"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -148,6 +149,9 @@ type Service struct {
 	// ReadScreen reads a native terminal's screen. Nil reads it through its
 	// host.
 	ReadScreen func(host.Record) ([]string, error)
+	// ReadStreamState reads what a stream session's lines say of it. Nil
+	// reads it through its host.
+	ReadStreamState func(host.Record) (claudestream.Session, error)
 	// PromptSince reports whether a native task's harness, in a spawn
 	// generation, reported through its native hooks taking a prompt at or
 	// after a time: supervisor.NativePromptSince in production. Nil proves a
@@ -615,7 +619,8 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// Its release error, if any, is returned with the result once the brief
 	// is delivered: the goblin is running either way.
 	_ = endTurn()
-	if err := s.briefNativeHarness(ctx, req.ID, nativeHost, req.Harness, launch); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
+	nativeHost, err = s.briefNativeHarness(ctx, req.ID, nativeHost, req.Harness, launch, userEnv, preflight)
+	if err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
 		if host.Running(nativeHost) {
 			launchKept = true
 			return result, recordLaunchFailure(req.ID, fmt.Errorf("%w; the native terminal is still running and its task and worktree are kept; inspect it with goblins peek %s before recovering it", err, req.ID))

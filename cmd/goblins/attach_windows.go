@@ -24,6 +24,10 @@ func attachNative(stateDir, id string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "goblins attach: no native terminal %s is running: %v\n", id, err)
 		return 1
 	}
+	if record.Stream {
+		fmt.Fprintf(stderr, "goblins attach: %s runs on stream-json pipes, with no terminal to show; goblins peek %s shows what it is doing\n", id, id)
+		return 1
+	}
 	in, out := windows.Handle(os.Stdin.Fd()), windows.Handle(os.Stdout.Fd())
 	var inMode, outMode uint32
 	if windows.GetConsoleMode(in, &inMode) != nil || windows.GetConsoleMode(out, &outMode) != nil {

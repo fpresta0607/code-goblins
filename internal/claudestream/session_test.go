@@ -224,7 +224,7 @@ func TestALineTheBoardWroteAnswersItsAskAlone(t *testing.T) {
 	}
 
 	// Act
-	userErr := session.Apply(UserLine("go on"), true)
+	userErr := session.Apply(UserLine("c1", "go on"), true)
 	isWorkingAfterHisLine := session.IsWorking
 	answerErr := session.Apply(DenyLine("r1", "Not now."), true)
 
@@ -274,5 +274,89 @@ func TestApplyRefusesALineThatIsNotJSON(t *testing.T) {
 	// Assert
 	if err == nil || !strings.Contains(err.Error(), "claudestream: read a 8-byte line") {
 		t.Errorf("Apply = %v, want an error naming the line's size", err)
+	}
+}
+
+// Claude Code 2.1.322 reports each line it is given by the id the line
+// carries, in these lines, as a probe recorded on 2026-11-12: the session
+// keeps the last state of each.
+func TestASessionKeepsEachLinesLastLifecycleState(t *testing.T) {
+	// Arrange
+	var session Session
+	lines := []string{
+		`{"type":"command_lifecycle","command_uuid":"c1","state":"queued","uuid":"u1","session_id":"s1"}`,
+		`{"type":"command_lifecycle","command_uuid":"c2","state":"queued","uuid":"u2","session_id":"s1"}`,
+		`{"type":"user","message":{"role":"user","content":"go"},"parent_tool_use_id":null,"isReplay":true,"uuid":"c1"}`,
+		`{"type":"command_lifecycle","command_uuid":"c1","state":"started","uuid":"u3","session_id":"s1"}`,
+		`{"type":"command_lifecycle","command_uuid":"c1","state":"completed","uuid":"u4","session_id":"s1"}`,
+	}
+
+	// Act
+	for _, line := range lines {
+		if err := session.Apply(json.RawMessage(line), false); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Assert
+	if session.Commands["c1"] != "completed" || session.Commands["c2"] != "queued" || len(session.Commands) != 2 {
+		t.Errorf("Commands = %v, want c1 completed and c2 queued", session.Commands)
+	}
+	if len(session.Unknown) != 0 {
+		t.Errorf("the reader did not know %v", session.Unknown)
+	}
+}
+
+// A stream session is idle, as a terminal at an empty composer is, only while
+// Claude Code runs with no turn working and no tool call waiting.
+func TestASessionIsIdleOnlyWhileClaudeCodeWaitsForALine(t *testing.T) {
+	for _, testCase := range []struct {
+		name    string
+		session Session
+		want    bool
+	}{
+		{"a session that took no line yet", Session{}, true},
+		{"a session whose turn ended", Session{Result: &Result{Subtype: "success"}}, true},
+		{"a turn working", Session{IsWorking: true}, false},
+		{"a tool call waiting for an answer", Session{Asks: []Ask{{RequestID: "r1"}}}, false},
+		{"Claude Code ended", Session{IsExited: true, ExitCode: 1}, false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Act
+			isIdle := testCase.session.IsIdle()
+
+			// Assert
+			if isIdle != testCase.want {
+				t.Errorf("IsIdle = %v, want %v", isIdle, testCase.want)
+			}
+		})
+	}
+}
+
+// A stream session's rows say what it is doing first, then the reply being
+// written or, once its turn ended, its reply, a line a row, as goblins peek
+// and the monitor read a terminal's screen.
+func TestRowsSayWhatTheSessionIsDoingAndShowItsReply(t *testing.T) {
+	for _, testCase := range []struct {
+		name    string
+		session Session
+		want    []string
+	}{
+		{"a session that took no line yet", Session{}, []string{"idle"}},
+		{"a turn writing its reply", Session{IsWorking: true, Live: []LiveBlock{{Kind: "thinking", Text: "hm"}, {Kind: "text", Text: "Reading\r\nthe brief"}}}, []string{"working", "Reading", "the brief"}},
+		{"a turn that ended", Session{Result: &Result{Subtype: "success", Text: "Done."}}, []string{"idle", "Done."}},
+		{"a turn that ended in an error", Session{Result: &Result{Subtype: "error_max_turns", IsError: true, Text: "API Error: 429"}}, []string{"idle; its last turn ended in error_max_turns", "API Error: 429"}},
+		{"a tool call waiting", Session{IsWorking: true, Asks: []Ask{{RequestID: "r1"}, {RequestID: "r2"}}}, []string{"working, with 2 tool calls waiting for an answer"}},
+		{"Claude Code ended", Session{IsExited: true, ExitCode: 3, Result: &Result{Text: "Bye."}}, []string{"Claude Code ended with exit code 3", "Bye."}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Act
+			rows := testCase.session.Rows()
+
+			// Assert
+			if !slices.Equal(rows, testCase.want) {
+				t.Errorf("Rows = %q, want %q", rows, testCase.want)
+			}
+		})
 	}
 }
