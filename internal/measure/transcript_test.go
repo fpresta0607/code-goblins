@@ -188,7 +188,7 @@ func TestCodexWorkersReadsTheChildrenOfTheLeadsThread(t *testing.T) {
 	home := t.TempDir()
 	day := filepath.Join(home, codexSessions, "2026", "11", "13")
 	lead := filepath.Join(day, "rollout-lead.jsonl")
-	writeLines(t, lead, `{"type":"session_meta","payload":{"id":"lead-thread","source":"cli"}}`)
+	writeLines(t, lead, `{"timestamp":"`+at(0).Format(time.RFC3339Nano)+`","type":"session_meta","payload":{"id":"lead-thread","source":"cli"}}`)
 	writeLines(t, filepath.Join(day, "rollout-child.jsonl"),
 		`{"type":"session_meta","payload":{"id":"child","source":{"subagent":{"thread_spawn":{"parent_thread_id":"lead-thread","agent_role":"worker"}}}}}`,
 		codexTurn(20, "gpt-6.1-luna", "medium"),
@@ -210,6 +210,30 @@ func TestCodexWorkersReadsTheChildrenOfTheLeadsThread(t *testing.T) {
 	want := []Worker{{Agent: "worker", Spends: []Spend{{Model: "gpt-6.1-luna", Effort: "medium", Usage: Usage{InputTokens: 40, OutputTokens: 4}, First: at(21), Last: at(21)}}}}
 	if !reflect.DeepEqual(workers, want) {
 		t.Errorf("workers =\n%+v\nwant\n%+v", workers, want)
+	}
+}
+
+// A lead whose opening names no start bounds no dates its children can be
+// filed under, so its workers are refused rather than read from the window
+// alone, which would pass over a child spawned before the window that spends
+// in it without naming it unmeasured.
+func TestCodexWorkersRefusesALeadThatNamesNoStart(t *testing.T) {
+	// Arrange
+	home := t.TempDir()
+	lead := filepath.Join(home, codexSessions, "2026", "11", "13", "rollout-lead.jsonl")
+	writeLines(t, lead, `{"type":"session_meta","payload":{"id":"lead-thread","source":"cli"}}`)
+	writeLines(t, filepath.Join(home, codexSessions, "2026", "11", "11", "rollout-child.jsonl"),
+		`{"timestamp":"`+at(-2*24*60).Format(time.RFC3339Nano)+`","type":"session_meta","payload":{"id":"child","source":{"subagent":{"thread_spawn":{"parent_thread_id":"lead-thread","agent_role":"worker"}}}}}`,
+		codexTurn(20, "gpt-6.1-luna", "medium"),
+		codexCount(21, `{"input_tokens":40,"cached_input_tokens":0,"output_tokens":4}`),
+	)
+
+	// Act
+	workers, err := CodexWorkers(home, lead, windowFrom, windowTo)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "names no start") {
+		t.Errorf("CodexWorkers = %+v, %v; want it refused because the lead names no start", workers, err)
 	}
 }
 

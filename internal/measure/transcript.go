@@ -250,9 +250,9 @@ var codexSessions = filepath.Join(".codex", "sessions")
 // rollout, opening on the thread that spawned it and the role it spawned it
 // in, filed in home's sessions by the date it started on. A child spawned
 // before the window may spend in it, and none starts before the thread that
-// spawns it, so the dates from the lead's own start to to are read, from
-// from when the lead names no start, and a date either side for the time
-// zone it was filed in.
+// spawns it, so the dates from the lead's own start to to are read, and a
+// date either side for the time zone it was filed in. A lead that names no
+// start bounds no dates, so its workers are refused.
 func CodexWorkers(home, path string, from, to time.Time) ([]Worker, error) {
 	lead, err := readCodexMeta(path)
 	if err != nil {
@@ -261,16 +261,15 @@ func CodexWorkers(home, path string, from, to time.Time) ([]Worker, error) {
 	if lead.id == "" {
 		return nil, errors.New("measure: " + path + " names no thread")
 	}
-	start := lead.started
-	if start.IsZero() {
-		start = from
+	if lead.started.IsZero() {
+		return nil, errors.New("measure: " + path + " names no start")
 	}
 	date := func(at time.Time) time.Time {
 		year, month, day := at.UTC().Date()
 		return time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
 	}
 	var workers []Worker
-	for day, last := date(start).AddDate(0, 0, -1), date(to).AddDate(0, 0, 1); !day.After(last); day = day.AddDate(0, 0, 1) {
+	for day, last := date(lead.started).AddDate(0, 0, -1), date(to).AddDate(0, 0, 1); !day.After(last); day = day.AddDate(0, 0, 1) {
 		rollouts, err := filepath.Glob(filepath.Join(home, codexSessions, day.Format("2006"), day.Format("01"), day.Format("02"), "rollout-*.jsonl"))
 		if err != nil {
 			return nil, err
