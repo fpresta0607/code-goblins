@@ -185,9 +185,6 @@ func acquireNamedOwnerContext(ctx context.Context, dir, name string, ownerPID in
 	if status == statusDead {
 		return nil, fmt.Errorf("%w: pid %d", ErrOwnerDead, ownerPID)
 	}
-	if err := self.provable(); err != nil {
-		return nil, err
-	}
 	return acquire(ctx, dir, name, self, true, false)
 }
 
@@ -302,9 +299,6 @@ func acquireExclusiveNamed(dir, name, purpose string, isStrict bool) (*Info, err
 	if status == statusDead {
 		return nil, fmt.Errorf("%w: pid %d", ErrOwnerDead, self.PID)
 	}
-	if err := self.provable(); err != nil {
-		return nil, err
-	}
 	self.Purpose = purpose
 	read := ReadNamed
 	if isStrict {
@@ -348,7 +342,8 @@ func acquireExclusiveNamed(dir, name, purpose string, isStrict bool) (*Info, err
 // created or touched; an unverifiable ownerPID (statusUnknown) still
 // proceeds, fail closed to alive exactly as Alive() does, except on a
 // system that knows a process by its instance (Linux), where an owner whose
-// instance cannot be read is refused before any file is touched (provable).
+// instance cannot be read writes no record (provable): it is refused when
+// the lock is free, and answered ErrHeld when a live holder keeps it.
 // Strategy: exclusive create with read-back verification, grace period for
 // mid-write files, and a create that waits out another process's hold on
 // the record, as fsx does for every fleet file.
@@ -382,7 +377,15 @@ func acquireReading(ctx context.Context, dir, name string, self *Info, allowReac
 	unreadableStart := time.Time{}
 
 	for attempt := 0; attempt < acquireAttempts; attempt++ {
-		err := writeInfo(ctx, path, self)
+		// A record that could not prove its holder is never written, but a
+		// record already there is read as any asker reads it, so a lock a
+		// live holder keeps still answers ErrHeld.
+		err := self.provable()
+		if err == nil {
+			err = writeInfo(ctx, path, self)
+		} else if _, statErr := os.Lstat(path); statErr == nil {
+			err = os.ErrExist
+		}
 		if err == nil {
 			// Verify we won the race: read back the file and confirm it records us.
 			if verified, verr := read(context.WithoutCancel(ctx), dir, name); verr == nil && verified.PID == self.PID && verified.isSameRun(self) {
