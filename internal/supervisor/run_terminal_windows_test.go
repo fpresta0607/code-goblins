@@ -19,10 +19,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/host"
 )
 
-// runHostVariable makes this test binary, started as "host", host a run
-// item's terminal as goblins host does.
-const runHostVariable = "GOBLINS_TEST_RUN_HOST"
-
 // runHostCommand is the command a run item's launcher hosts its terminal
 // with: this test binary, in place of goblins.exe host.
 func runHostCommand(t *testing.T) []string {

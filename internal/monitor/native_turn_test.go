@@ -276,3 +276,8 @@ func TestAMovingNativeTurnStaysQuietWhileItsFramesReadDone(t *testing.T) {
 		}
 	}
 }
+
+// nativeMeta is the record of a native task, which names no Herdr terminal.
+func nativeMeta(id, harness string) state.TaskMeta {
+	return state.TaskMeta{ID: id, Worktree: `C:\work\` + id, Harness: harness, Backend: "native"}
+}

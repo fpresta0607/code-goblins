@@ -2,11 +2,14 @@ package supervisor
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 
@@ -167,5 +170,75 @@ func TestReviewImagesAcceptEitherSpellingOfTheRoot(t *testing.T) {
 		if response.Code != 200 || !bytes.Equal(response.Body.Bytes(), data) {
 			t.Fatalf("image %d (%s) = %d %s", i, paths[i], response.Code, response.Body.String())
 		}
+	}
+}
+
+// The board serves a question's images by position only, never a path, and
+// only while the goblin that asked is the same live task.
+func TestQuestionImagesServedOnlyWhileTheAskerLives(t *testing.T) {
+	store, h := testStore(t)
+	meta, record, _, _ := goblinFixture(t, store)
+	paths := []string{filepath.Join(meta.Worktree, "postgres.png"), filepath.Join(h.Data, meta.ID, "sqlite.png"), filepath.Join(meta.Worktree, "mysql.png")}
+	var data [][]byte
+	for _, path := range paths {
+		data = append(data, writePNG(t, path))
+	}
+	images, err := ReviewImages(h, meta.ID, paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, "", "", images, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ingestQuestions(); err != nil {
+		t.Fatal(err)
+	}
+	q := store.Snapshot().Questions[0]
+	if len(q.Images) != 3 {
+		t.Fatalf("question = %+v, want its three images", q)
+	}
+	s := &Service{Store: store}
+	snapshot, err := s.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	published, _ := json.Marshal(snapshot)
+	if snapshot.Questions[0].ImageCount != 3 || snapshot.Questions[0].Images != nil || bytes.Contains(published, []byte("postgres.png")) {
+		t.Fatalf("the board saw %+v, want the image count without paths", snapshot.Questions[0])
+	}
+	handler := NewHTTP(s, "board.local", nil)
+	get := func(path string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest("GET", "http://board.local"+path, nil))
+		return response
+	}
+	for i := range paths {
+		response := get(fmt.Sprintf("/api/questions/%s/images/%d", q.ID, i))
+		if response.Code != 200 || response.Header().Get("Content-Type") != "image/png" || !bytes.Equal(response.Body.Bytes(), data[i]) {
+			t.Fatalf("image %d = %d %q", i, response.Code, response.Header().Get("Content-Type"))
+		}
+	}
+	for _, path := range []string{"/api/questions/" + q.ID + "/images/3", "/api/questions/" + q.ID + "/images/-1", "/api/questions/" + q.ID + "/images/x", "/api/questions/" + q.ID + "/images/0/more", "/api/questions/unknown/images/0"} {
+		if response := get(path); response.Code != 404 {
+			t.Fatalf("%s = %d, want 404", path, response.Code)
+		}
+	}
+	if err := os.WriteFile(paths[2], []byte("swapped for text"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(paths[1]); err != nil {
+		t.Fatal(err)
+	}
+	for i, name := range map[int]string{1: "sqlite.png", 2: "mysql.png"} {
+		if response := get(fmt.Sprintf("/api/questions/%s/images/%d", q.ID, i)); response.Code != 403 || strings.Contains(response.Body.String(), name) {
+			t.Fatalf("changed image %d = %d %s, want a refusal that names no path", i, response.Code, response.Body.String())
+		}
+	}
+	meta.SpawnGen = "g2"
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	if response := get("/api/questions/" + q.ID + "/images/0"); response.Code != 410 {
+		t.Fatalf("image after respawn = %d, want 410", response.Code)
 	}
 }

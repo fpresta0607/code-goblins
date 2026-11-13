@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/doctor"
-	"github.com/fpresta0607/code-goblins/internal/execx/treetest"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
@@ -137,25 +136,13 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	// A build stand-in an update test installs runs as that build.
-	if code, ok := runStandInBuild(); ok {
+	if code, ok := runWindowsTestProgram(); ok {
 		os.Exit(code)
 	}
 	// The tests of goblins gate turn run this binary as the wrapper and as the
 	// command it starts.
 	if code, ok := runGateTurnTestProgram(); ok {
 		os.Exit(code)
-	}
-	// The tests of what ends with a gate's run run this binary as a gate's
-	// runner and as each process of the tree it runs.
-	if code, ok := runGateTreeTestProgram(); ok {
-		os.Exit(code)
-	}
-	if len(os.Args) > 2 && os.Args[1] == leftConsoleTestProgram {
-		os.Exit(runLeftConsoleTestProgram(os.Args[2]))
-	}
-	if len(os.Args) > 2 && os.Args[1] == ownConsoleTestProgram {
-		os.Exit(runOwnConsoleTestProgram(os.Args[2:]))
 	}
 	// A codex guard a test arms runs this binary as the home's goblins.exe.
 	if len(os.Args) > 1 && os.Args[1] == "codex-guard" {
@@ -166,7 +153,6 @@ func TestMain(m *testing.M) {
 	if len(os.Args) > 1 && os.Args[1] == "native-hook" {
 		os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 	}
-	treetest.Run()
 	// goblins starts its own program as serve. A test that reaches that start
 	// would run this binary, and with it every test again, detached and with
 	// no one waiting: it serves nothing instead.
@@ -180,40 +166,8 @@ func TestMain(m *testing.M) {
 		fmt.Println("claude 1.0.0")
 		os.Exit(0)
 	}
-	if stateDir := os.Getenv(watchLockStandInVariable); stateDir != "" {
-		os.Exit(holdWatchLockAs(stateDir, os.Getenv(watchLockRoleVariable)))
-	}
-	if report := os.Getenv(consoleProbeVariable); report != "" {
-		os.Exit(probeConsole(report))
-	}
-	if report := os.Getenv(environmentReportVariable); report != "" {
-		os.Exit(reportEnvironment(report))
-	}
-	if len(os.Args) > 1 && os.Args[1] == attachTestTerminal {
-		attachTestProgram()
-		os.Exit(0)
-	}
-	if len(os.Args) > 1 && os.Args[1] == nativeSendPasteComposer {
-		os.Exit(runNativeSendPasteComposer(os.Args[2:]))
-	}
-	if len(os.Args) > 2 && os.Args[1] == attachTestViewer {
-		os.Exit(attachTestView(os.Args[2], os.Args[3:]))
-	}
-	if len(os.Args) > 1 && os.Args[1] == authStoreConsole {
-		os.Exit(runAuth(os.Args[2:], os.Stdout, os.Stderr, commandRuntime{}))
-	}
-	// A stand-in session's harness runs this binary as goblins.exe, as Claude
-	// Code runs the home's goblins for a hook or for a command of its tools.
-	if strings.EqualFold(filepath.Base(os.Args[0]), sessionCLI) {
-		os.Exit(runSessionCLI())
-	}
-	// The native CEO test starts this binary as goblins host, and as the
-	// claude.exe its terminal runs.
-	if len(os.Args) > 1 && os.Args[1] == "host" {
-		os.Exit(runHost(os.Args[2:], os.Stderr))
-	}
-	if strings.EqualFold(filepath.Base(os.Args[0]), "claude.exe") {
-		os.Exit(runFakeClaude())
+	if code, ok := runWindowsStandIn(); ok {
+		os.Exit(code)
 	}
 	// A goblin seal a test starts as Codex's shell or pi's extension does
 	// runs this binary, under its own name, as the home's goblins.exe. It comes
