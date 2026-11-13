@@ -551,11 +551,11 @@ func (s Screens) OffersQueue(screen []string) bool {
 }
 
 // TookCommand reports whether screen shows the harness took typed, a slash
-// command submitted while no turn ran, off its input line: nothing it does
-// not know asks, typed no longer shows, and its composer is empty or a panel
-// of its own is open over it, as a command it runs itself leaves it. Such a
-// command starts no turn, and Codex and pi record none, so this is the only
-// sign of it taken (#2193).
+// command submitted while no turn ran or one it runs beside a turn, off its
+// input line: nothing it does not know asks, typed no longer shows, and its
+// composer is empty or a panel of its own is open over it, as a command it
+// runs itself leaves it. Such a command starts no turn, and Codex and pi
+// record none, so this is the only sign of it taken (#2193).
 func (s Screens) TookCommand(screen []string, typed string) bool {
 	if _, hasDialog := s.Dialog(screen); hasDialog {
 		return false
