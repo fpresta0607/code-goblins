@@ -105,15 +105,7 @@ func holdServeConsole(release string) int {
 // the supervisor's console host for its leftover (#1717).
 func TestADetachedServeAndItsConsoleHostCarryNoTerminalProof(t *testing.T) {
 	// Arrange
-	dir := t.TempDir()
-	h := home.Home{Root: dir, State: filepath.Join(dir, "state")}
-	if err := os.MkdirAll(h.State, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	release := filepath.Join(dir, "release")
-	t.Setenv(serveConsoleReleaseVariable, release)
-	t.Setenv(host.IDVariable, "ceo")
-	t.Setenv(host.ProofVariable, "terminal-proof")
+	h, release := serveFromANativeTerminal(t)
 
 	// Act
 	exited, err := startDetachedServe(h)
@@ -128,6 +120,63 @@ func TestADetachedServeAndItsConsoleHostCarryNoTerminalProof(t *testing.T) {
 			t.Error("the stand-in serve did not exit")
 		}
 	})
+
+	// Assert
+	assertServeCarriesNoTerminalProof(t, release)
+}
+
+// The supervisor the update restarts from a native terminal, created
+// suspended so the watcher lock is handed to it before it runs, carries none
+// of that terminal's id and proof value either, nor does the console host
+// Windows makes for it before it is let run (#1717).
+func TestAnUpdateRestartedServeAndItsConsoleHostCarryNoTerminalProof(t *testing.T) {
+	// Arrange
+	h, release := serveFromANativeTerminal(t)
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { releaseWatchLock(h) })
+
+	// Act
+	started, err := startSupervisor(h, executable, "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.WriteFile(release, nil, 0o600)
+		if !awaitExit(started, 30*time.Second) {
+			t.Errorf("the stand-in serve, pid %d, did not exit", started.pid)
+		}
+	})
+
+	// Assert
+	assertServeCarriesNoTerminalProof(t, release)
+}
+
+// serveFromANativeTerminal is a home in a temporary directory, with this
+// process carrying a native terminal's id and proof value, and with serve
+// started from this test binary being the stand-in holdServeConsole runs
+// until the release file it returns appears.
+func serveFromANativeTerminal(t *testing.T) (home.Home, string) {
+	t.Helper()
+	dir := t.TempDir()
+	h := home.Home{Root: dir, State: filepath.Join(dir, "state")}
+	if err := os.MkdirAll(h.State, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	release := filepath.Join(dir, "release")
+	t.Setenv(serveConsoleReleaseVariable, release)
+	t.Setenv(host.IDVariable, "ceo")
+	t.Setenv(host.ProofVariable, "terminal-proof")
+	return h, release
+}
+
+// assertServeCarriesNoTerminalProof finds the stand-in serve holding release
+// and its console host, and fails unless both run with the environment serve
+// was started with and neither carries a native terminal's id or proof value.
+func assertServeCarriesNoTerminalProof(t *testing.T, release string) {
+	t.Helper()
 	serve := 0
 	for deadline := time.Now().Add(30 * time.Second); serve == 0 && time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		if data, err := os.ReadFile(release + ".pid"); err == nil {
@@ -152,8 +201,6 @@ func TestADetachedServeAndItsConsoleHostCarryNoTerminalProof(t *testing.T) {
 	if consoleHost == 0 {
 		t.Fatalf("the stand-in serve, pid %d, has no console host", serve)
 	}
-
-	// Assert
 	for name, pid := range map[string]int{"serve": serve, "its console host": consoleHost} {
 		_, _, environment, err := proc.ParametersAndEnvironment(pid)
 		if err != nil {
