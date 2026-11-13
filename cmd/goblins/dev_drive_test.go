@@ -56,7 +56,7 @@ func TestDevDriveMoveCarriesTheGateHome(t *testing.T) {
 		want     string
 	}{
 		{name: "it moves", wantExit: 0, want: "gate home: moved: the gate's home is "},
-		{name: "gate runs stay in flight", carryErr: fmt.Errorf("gate home: nothing moved, and the daemon was not stopped and runs as before: %w", gatehome.ErrGateBusy), wantExit: exitGateBusy, want: "goblins dev-drive move: gate home: nothing moved, and the daemon was not stopped and runs as before"},
+		{name: "gate runs stay in flight", carryErr: fmt.Errorf("gate home: nothing moved, and the daemon was never stopped: %w", gatehome.ErrGateBusy), wantExit: exitGateBusy, want: "goblins dev-drive move: gate home: nothing moved, and the daemon was never stopped"},
 		{name: "the copy fails", carryErr: errors.New("gate home: the copy failed, so nothing moved"), wantExit: 1, want: "goblins dev-drive move: gate home: the copy failed"},
 	} {
 		t.Run(test.name, func(t *testing.T) {

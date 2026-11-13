@@ -16,6 +16,10 @@ import (
 
 // Daemon is the gate's daemon for the home at root, as a move needs it.
 type Daemon interface {
+	// InFlight names the gate runs in flight in root's home, a run parked
+	// on an answer and one in an agent step among them, and is nil when
+	// there is none.
+	InFlight(ctx context.Context, root string) error
 	// Stop stops root's daemon by its own consent. It is refused while a
 	// gate run is in flight, and never forced.
 	Stop(ctx context.Context, root string) error
@@ -43,14 +47,14 @@ type Mover struct {
 	// Git runs git, to point each gated checkout's no-mistakes remote at
 	// its moved repository.
 	Git execx.Runner
-	// Tries is how many times the daemon is asked to stop and be held off
-	// before the move gives up while gate runs stay in flight, Every apart;
-	// at least one.
+	// Tries is how many times the gate is looked at for a moment with no
+	// run in flight, in which the daemon stops and is held off, before the
+	// move gives up, Every apart; at least one.
 	Tries int
 	Every time.Duration
 	Now   func() time.Time
-	// Waiting is told each time the daemon refused to stop or to be held
-	// off.
+	// Waiting is told each time a gate run was in flight, or the daemon
+	// refused to stop or to be held off.
 	Waiting func(err error)
 }
 
@@ -334,14 +338,16 @@ func (m Mover) setEnv(target string) error {
 	return m.Env.Broadcast()
 }
 
-// rest brings the gate of the home at root to rest: it asks the daemon to
-// stop, which it refuses while a gate run is in flight, and then holds it
-// off, until both hold or the tries run out. A move that gives up, or is
-// interrupted while it waits, starts a daemon it stopped again and says
-// whether the daemon was stopped and whether it runs now.
+// rest brings the gate of the home at root to rest: once no gate run is in
+// flight it asks the daemon to stop, which the daemon refuses for a run of
+// its own, and then holds it off, until all three hold or the tries run out.
+// It never asks a daemon to stop while a run is in flight, and a daemon it
+// stopped but could not hold off it starts again at once. A move that gives
+// up, or is interrupted while it waits, says whether the daemon was stopped
+// and whether it runs now.
 func (m Mover) rest(ctx context.Context, root string) (func() error, error) {
 	var err error
-	var wasStopped bool
+	daemon := "the daemon was never stopped"
 	for try := 0; try < max(1, m.Tries) && ctx.Err() == nil; try++ {
 		if try > 0 {
 			select {
@@ -350,11 +356,16 @@ func (m Mover) rest(ctx context.Context, root string) (func() error, error) {
 			case <-time.After(m.Every):
 			}
 		}
-		if err = m.Daemon.Stop(ctx, root); err == nil {
-			wasStopped = true
-			var release func() error
-			if release, err = m.Daemon.Hold(ctx, root); err == nil {
-				return release, nil
+		if err = m.Daemon.InFlight(ctx, root); err == nil {
+			if err = m.Daemon.Stop(ctx, root); err == nil {
+				var release func() error
+				if release, err = m.Daemon.Hold(ctx, root); err == nil {
+					return release, nil
+				}
+				if startErr := m.Daemon.Start(context.WithoutCancel(ctx), root); startErr != nil {
+					return nil, fmt.Errorf("gate home: nothing moved, and the daemon was stopped and did not start again on %s: %w", root, errors.Join(err, startErr))
+				}
+				daemon = "the daemon was stopped and runs again on " + root
 			}
 		}
 		if m.Waiting != nil {
@@ -365,14 +376,6 @@ func (m Mover) rest(ctx context.Context, root string) (func() error, error) {
 		err = ctx.Err()
 	} else {
 		err = fmt.Errorf("%w: %w", ErrGateBusy, err)
-	}
-	daemon := "the daemon was not stopped and runs as before"
-	if wasStopped {
-		daemon = "the daemon was stopped and runs again on " + root
-		if startErr := m.Daemon.Start(context.WithoutCancel(ctx), root); startErr != nil {
-			daemon = "the daemon was stopped and did not start again on " + root
-			err = errors.Join(err, startErr)
-		}
 	}
 	return nil, fmt.Errorf("gate home: nothing moved, and %s; the home moves once no gate run is in flight: %w", daemon, err)
 }

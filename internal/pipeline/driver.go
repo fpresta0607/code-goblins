@@ -134,6 +134,16 @@ func (r Reader) InFlight(ctx context.Context) (int, error) {
 	return len(runs), err
 }
 
+// AtRest proves no gate run is in flight, and names the runs it waits for
+// when some are, as Idle does. It takes no lock and asks the daemon nothing.
+func (r Reader) AtRest(ctx context.Context) error {
+	runs, err := r.activeRuns(ctx)
+	if err == nil && len(runs) != 0 {
+		err = waitsFor(runs)
+	}
+	return err
+}
+
 type activeRun struct {
 	ID     string `json:"id"`
 	Branch string `json:"branch"`

@@ -32,6 +32,10 @@ type gateDaemon struct {
 	commands execx.Runner
 }
 
+func (d gateDaemon) InFlight(ctx context.Context, root string) error {
+	return d.reader(root).AtRest(ctx)
+}
+
 // Stop stops root's daemon with daemon stop, which no-mistakes refuses while
 // a gate run is in flight. daemon uninstall is no stop here: off macOS it
 // changes nothing and exits 0, so a move that asked it never waited (#2525).

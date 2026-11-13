@@ -13,8 +13,9 @@ Run again with the same folder it changes nothing; a second move elsewhere is re
 
 Then it carries the gate's home, where no-mistakes keeps its database, the repositories it gates and a full checkout for each run, into `no-mistakes` in the folder, so every gate checkout lands on the Dev Drive too.
 The gate's home moves whole and `NM_HOME` at user scope names it, never a junction at the old path: Go's `filepath.EvalSymlinks` fails below any directory junction, on the same volume or another, which broke the gate's test preparation when the gate's home was linked into the Dev Drive by hand (no-mistakes #172).
-It waits, up to half an hour, asking every half minute, until no gate run is in flight, `no-mistakes daemon stop` stops the daemon by its own consent, never a forced stop, and it holds the daemon's lock so none starts while it works.
-A gate run parked on an answer and a gate run in an agent step both count as in flight, and each time it waits it says which runs it waits for.
+It waits, up to half an hour, looking every half minute, until no gate run is in flight, `no-mistakes daemon stop` stops the daemon by its own consent, never a forced stop, and it holds the daemon's lock so none starts while it works.
+A gate run parked on an answer and a gate run in an agent step both count as in flight, each time it waits it says which runs it waits for, and it never asks the daemon to stop while one is.
+A daemon it stopped but could not hold off, as when a new gate run started in that moment, it starts again at once before it waits on.
 It never asks `no-mistakes daemon uninstall` to stop the daemon: on Windows that command changes nothing and exits 0, so a move that asked it never waited.
 It copies the home, less the daemon's `socket`, `daemon.pid` and `daemon.lock`, and proves every copied file holds the same bytes by SHA-256.
 In the copy alone it points every text value of the database that names the old home at the new one, in any table and any spelling, and proves none is left; then `config.yaml` and each gated repository's `core.hooksPath`.
@@ -29,7 +30,7 @@ Links inside the gate's home, such as those pnpm and Next.js leave in a run's ch
 The move never walks into a link, and the old home, or a failed move's copy, is removed with each link removed as a link first, so what a link leads to outside the home is never touched.
 A gate home that is itself a junction to any other folder, or holds a junction into `no-mistakes` in the folder that leads anywhere but its own place there, is refused by the move before the daemon is touched.
 `goblins dev-drive` and `goblins doctor` name such a junction at the home's top levels, the home itself, its entries and theirs, instead of offering the move.
-A move whose gate runs stay in flight the whole half hour changes nothing of the gate's home and exits 3, with one line that says whether the daemon was stopped and whether it runs now: `the daemon was not stopped and runs as before`, or `the daemon was stopped and runs again on <home>`.
+A move whose gate runs stay in flight the whole half hour changes nothing of the gate's home and exits 3, with one line that says whether the daemon was stopped and whether it runs now: `the daemon was never stopped`, or `the daemon was stopped and runs again on <home>`.
 Any other failure exits 1.
 Once the person asked for a Dev Drive, the supervisor carries the gate's home itself, with no Command Center item and nothing to press: each minute it counts the gate runs in flight, and at the first count of none it runs this command hidden, its output in `state\dev-drive-move.log`, and runs it again whenever it ended because the gate stayed busy.
 The board's Dev Drive row says what it waits on meanwhile, such as `Waiting for 1 gate run to finish, then the gate's home moves by itself.`

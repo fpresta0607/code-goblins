@@ -22,8 +22,10 @@ import (
 // fakeDaemon stands in for no-mistakes' daemon and records each call.
 type fakeDaemon struct {
 	calls []string
+	// inFlight is how many looks find a gate run in flight.
+	inFlight int
 	// refusals is how many Stop calls of the old home refuse, as
-	// no-mistakes does while a gate run is in flight.
+	// no-mistakes does while a gate run of its own is in flight.
 	refusals int
 	// busyHolds is how many Hold calls refuse, as the daemon's lock does
 	// while a daemon holds it.
@@ -34,6 +36,14 @@ type fakeDaemon struct {
 	onHold func()
 	// onStart runs when a daemon is asked to start, before it answers.
 	onStart func(root string)
+}
+
+func (d *fakeDaemon) InFlight(context.Context, string) error {
+	if d.inFlight > 0 {
+		d.inFlight--
+		return errors.New("pipeline busy: it waits for 1 gate run in flight, 01RUN (project fix/a, running), and changed nothing")
+	}
+	return nil
 }
 
 func (d *fakeDaemon) Stop(_ context.Context, root string) error {
@@ -190,11 +200,27 @@ func TestMoveCarriesTheHomeAndPointsEveryRecordAtIt(t *testing.T) {
 }
 
 // A move whose gate runs stay in flight through every try changes nothing
-// and says the one true thing about the daemon: it was never stopped.
+// and says the one true thing about the daemon: it was never stopped, and
+// was never asked to, whether the fleet or the daemon itself counts the run.
 func TestMoveIsRefusedWhileAGateRunIsInFlight(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		arrange   func(*fakeDaemon)
+		wantCalls int
+	}{
+		{name: "a run the fleet counts", arrange: func(d *fakeDaemon) { d.inFlight = 99 }},
+		{name: "a run only the daemon counts", arrange: func(d *fakeDaemon) { d.refusals = 99 }, wantCalls: 3},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			testMoveIsRefusedWhileAGateRunIsInFlight(t, test.arrange, test.wantCalls)
+		})
+	}
+}
+
+func testMoveIsRefusedWhileAGateRunIsInFlight(t *testing.T, arrange func(*fakeDaemon), wantStops int) {
 	// Arrange
 	s := newScratch(t)
-	s.daemon.refusals = 99
+	arrange(s.daemon)
 	var waits int
 
 	// Act
@@ -203,10 +229,10 @@ func TestMoveIsRefusedWhileAGateRunIsInFlight(t *testing.T) {
 	_, _, err := mover.Move(context.Background(), s.old, s.devDrive)
 
 	// Assert
-	if !errors.Is(err, ErrGateBusy) || !strings.Contains(err.Error(), "nothing moved, and the daemon was not stopped and runs as before") {
+	if !errors.Is(err, ErrGateBusy) || !strings.Contains(err.Error(), "nothing moved, and the daemon was never stopped") {
 		t.Fatalf("err = %v, want a busy gate whose daemon was never stopped", err)
 	}
-	if want := slices.Repeat([]string{"stop " + s.old}, 3); !slices.Equal(s.daemon.calls, want) {
+	if want := slices.Repeat([]string{"stop " + s.old}, wantStops); !slices.Equal(s.daemon.calls, want) {
 		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
 	}
 	if waits != 3 {
@@ -216,16 +242,18 @@ func TestMoveIsRefusedWhileAGateRunIsInFlight(t *testing.T) {
 }
 
 // A move started while a gate run is in flight waits, and carries the home
-// once the run ended: a daemon that still runs, which a stop that changed
-// nothing leaves, is waited for as a refused stop is (#2525).
+// once the run ended (#2525): it asks the daemon to stop only once no run is
+// in flight, and a daemon it stopped but could not hold off it starts again
+// before it waits on.
 func TestMoveWaitsForTheGateToRestAndThenCarriesTheHome(t *testing.T) {
 	// Arrange
 	s := newScratch(t)
-	s.daemon.refusals, s.daemon.busyHolds = 1, 1
+	s.daemon.inFlight, s.daemon.refusals, s.daemon.busyHolds = 1, 1, 1
+	mover := s.mover()
+	mover.Tries = 4
 	var waits []string
 
 	// Act
-	mover := s.mover()
 	mover.Waiting = func(err error) { waits = append(waits, err.Error()) }
 	line, isCarried, err := mover.Move(context.Background(), s.old, s.devDrive)
 
@@ -233,11 +261,11 @@ func TestMoveWaitsForTheGateToRestAndThenCarriesTheHome(t *testing.T) {
 	if err != nil || !isCarried || !strings.HasPrefix(line, "moved: the gate's home is "+s.target) {
 		t.Fatalf("move = %q, %v, %v; want the home carried once the gate rested", line, isCarried, err)
 	}
-	if want := []string{"stop " + s.old, "stop " + s.old, "hold " + s.old, "stop " + s.old, "hold " + s.old, "release " + s.old, "start " + s.target, "forget " + s.old}; !slices.Equal(s.daemon.calls, want) {
+	if want := []string{"stop " + s.old, "stop " + s.old, "hold " + s.old, "start " + s.old, "stop " + s.old, "hold " + s.old, "release " + s.old, "start " + s.target, "forget " + s.old}; !slices.Equal(s.daemon.calls, want) {
 		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
 	}
-	if len(waits) != 2 {
-		t.Errorf("waited on %q, want the refused stop and the busy hold", waits)
+	if len(waits) != 3 || !strings.Contains(waits[0], "it waits for 1 gate run in flight") {
+		t.Errorf("waited on %q, want the run in flight, the refused stop and the busy hold", waits)
 	}
 	if _, err := os.Lstat(s.old); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the old home is still there: %v", err)
@@ -245,7 +273,7 @@ func TestMoveWaitsForTheGateToRestAndThenCarriesTheHome(t *testing.T) {
 }
 
 // A move that stopped the daemon but never held it off starts it again on
-// the old home, which it never changed, and says so.
+// the old home, which it never changed, each time, and says so.
 func TestAMoveThatStoppedTheDaemonAndGaveUpStartsItAgain(t *testing.T) {
 	// Arrange
 	s := newScratch(t)
@@ -258,7 +286,7 @@ func TestAMoveThatStoppedTheDaemonAndGaveUpStartsItAgain(t *testing.T) {
 	if !errors.Is(err, ErrGateBusy) || !strings.Contains(err.Error(), "nothing moved, and the daemon was stopped and runs again on "+s.old) {
 		t.Fatalf("err = %v, want a busy gate whose daemon runs again", err)
 	}
-	if want := append(slices.Repeat([]string{"stop " + s.old, "hold " + s.old}, 3), "start "+s.old); !slices.Equal(s.daemon.calls, want) {
+	if want := slices.Repeat([]string{"stop " + s.old, "hold " + s.old, "start " + s.old}, 3); !slices.Equal(s.daemon.calls, want) {
 		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
 	}
 	assertUntouched(t, s)

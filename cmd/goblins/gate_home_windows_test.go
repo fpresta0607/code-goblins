@@ -186,7 +186,7 @@ func TestCarryGateHomeHoldsTheOldHomesDaemonLockBeforeItCopies(t *testing.T) {
 	if !strings.Contains(err.Error(), "nothing moved, and the daemon was stopped and runs again on "+s.old) {
 		t.Errorf("err = %v, want it to say the daemon was stopped and runs again", err)
 	}
-	if want := []string{"no-mistakes daemon stop", "no-mistakes daemon stop", "no-mistakes daemon start"}; !slices.Equal(s.calls(t), want) {
+	if want := slices.Repeat([]string{"no-mistakes daemon stop", "no-mistakes daemon start"}, 2); !slices.Equal(s.calls(t), want) {
 		t.Errorf("no-mistakes calls = %q, want %q", s.calls(t), want)
 	}
 	if strings.Count(out.String(), "gate home: waiting for the gate runs in flight to finish before it moves") != 2 {

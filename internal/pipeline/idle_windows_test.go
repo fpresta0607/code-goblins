@@ -121,11 +121,16 @@ func TestInFlightCountsEveryRunThatHasNotEnded(t *testing.T) {
 			}
 
 			// Act
-			count, err := Reader{Root: dir, Commands: pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}}.InFlight(context.Background())
+			reader := Reader{Root: dir, Commands: pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}}
+			count, err := reader.InFlight(context.Background())
+			restErr := reader.AtRest(context.Background())
 
 			// Assert
 			if err != nil || count != test.want {
 				t.Errorf("in flight = %d, %v; want %d", count, err, test.want)
+			}
+			if isBusy := errors.Is(restErr, ErrBusy); isBusy != (test.want != 0) || (restErr != nil && !isBusy) {
+				t.Errorf("at rest = %v; want busy only with a run in flight", restErr)
 			}
 		})
 	}
