@@ -236,14 +236,6 @@ type StreamViewer struct {
 	sending sync.Mutex
 }
 
-// StreamEvent is a line of the session, or its program's end with its exit
-// code.
-type StreamEvent struct {
-	Line     StreamLine
-	IsExited bool
-	Code     uint32
-}
-
 // WatchStream connects to the stream host record names as a viewer.
 func WatchStream(record Record) (*StreamViewer, error) {
 	client, answer, err := dial(record, hello{Version: Version, Token: record.Token, Stream: true})

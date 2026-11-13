@@ -24,7 +24,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/update"
-	"golang.org/x/sys/windows"
 )
 
 // Exit codes of goblins update.
@@ -268,22 +267,6 @@ func runWork(h home.Home, program string, arguments []string, prepares bool, std
 			return 0, bound, true
 		}
 	}
-}
-
-// endWithParent ends this process, which does an update's work, when the
-// update that bounds it ends first, as when its terminal is closed: an update
-// ended is not one that goes on out of sight with nothing bounding it. The
-// journal keeps the way back, as for any update that ends part way.
-func endWithParent() {
-	parent, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(os.Getppid()))
-	if err != nil {
-		return
-	}
-	go func() {
-		if event, err := windows.WaitForSingleObject(parent, windows.INFINITE); err == nil && event == windows.WAIT_OBJECT_0 {
-			os.Exit(1)
-		}
-	}()
 }
 
 // stepClock times the steps of an update for its journal.
