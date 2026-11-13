@@ -115,6 +115,17 @@ export function parseUnread(text: string): boolean | null {
 // The relay says why typing is held while custody holds it, as a gate that
 // owns the task does, and an empty reason once it is free; the screen stays
 // live either way.
+// parseStream says whether text is the relay's word that its view shows a
+// Claude Code session on stream-json pipes, with no terminal to type into.
+export function parseStream(text: string): boolean {
+  try {
+    const value: unknown = JSON.parse(text);
+    return typeof value === "object" && value !== null && (value as Record<string, unknown>).type === "stream";
+  } catch {
+    return false;
+  }
+}
+
 export function parseHeld(text: string): string | null {
   try {
     const value: unknown = JSON.parse(text);

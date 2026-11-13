@@ -241,6 +241,27 @@ test("while the harness works an empty box's send button is Stop, which presses 
   await expect(page.locator(".reply-working").getByRole("button")).toHaveCount(0);
 });
 
+test("a held view shows no Stop, while a stream goblin's view, held for typing, shows Stop, which presses Escape for its relay to interrupt the turn", async ({ page }) => {
+  // Arrange
+  const relay = await open(page, snapshot({}, { runtime: { state: "busy", reason: "", at } }));
+  await openGoblin(page);
+  const stop = box(page).getByRole("button", { name: "Stop", exact: true });
+  await expect(stop).toBeVisible();
+
+  // Act and Assert: a hold alone takes Stop away.
+  relay.say({ type: "held", reason: "This goblin runs on stream-json pipes." });
+  await expect(stop).toHaveCount(0);
+
+  // Act and Assert: the relay's stream marker brings it back, and the button
+  // and the key both press Escape.
+  relay.say({ type: "stream" });
+  await expect(stop).toBeVisible();
+  await stop.click();
+  await expect.poll(() => typed(relay)).toBe("\x1b");
+  await field(page).press("Escape");
+  await expect.poll(() => typed(relay)).toBe("\x1b\x1b");
+});
+
 test("Up in an empty box recalls what he sent before, newest first, and Down walks back to the empty box", async ({ page }) => {
   // Arrange: he sent two messages and a command earlier in the session, and
   // the session offers that command in its slash list.
