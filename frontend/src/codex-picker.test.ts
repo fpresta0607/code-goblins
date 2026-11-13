@@ -13,7 +13,7 @@ function terminal(key: string) {
   const sent: string[] = [];
   let escapes = 0;
   const link: TerminalLink = {
-    phase: "live", isReconnecting: false, isDictating: false, stopDictation: () => {}, feedback: "", isUnread: false, held: "", screen: null,
+    phase: "live", isReconnecting: false, isDictating: false, stopDictation: () => {}, feedback: "", isUnread: false, held: "", screen: null, isStream: false,
     send: () => "s1", paste: () => true, escape: () => { escapes++; return true; }, control: (keys) => { sent.push(keys); return true; },
   };
   const show = (panel: HarnessPanel | null) => {

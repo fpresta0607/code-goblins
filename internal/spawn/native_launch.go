@@ -156,10 +156,16 @@ func TakeBack(read func() ([]string, error), write func([]byte) error, screens h
 // terminal keeps off the cores the fleet's work leaves to the Overlord's own
 // apps. A start onStream puts on stream-json pipes runs in a stream host
 // instead, and in the terminal, with why reported, if that host cannot start.
-func (s Service) launchNativeHost(id string, kind harness.Kind, launch harness.Launch, userEnv []string, credentials auth.Result) (host.Record, error) {
-	isStream, fallback, err := s.onStream(id, kind)
-	if err != nil {
-		return host.Record{}, err
+// A start inTerminal, a person taking the goblin over, runs in the terminal
+// with nothing to report.
+func (s Service) launchNativeHost(id string, kind harness.Kind, launch harness.Launch, userEnv []string, credentials auth.Result, inTerminal bool) (host.Record, error) {
+	var isStream bool
+	var fallback string
+	if !inTerminal {
+		var err error
+		if isStream, fallback, err = s.onStream(id, kind); err != nil {
+			return host.Record{}, err
+		}
 	}
 	if isStream {
 		record, err := s.launchHost(id, kind, launch, userEnv, credentials, true)

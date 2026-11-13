@@ -234,23 +234,55 @@ func GoblinSettings(root, stateDir, board string) ([]byte, error) {
 // on stdout. A seal that
 // cannot run or answer within the native hooks' limit blocks the call too,
 // as pi blocks one whose handler throws, since the seal refuses what it
-// cannot read. It is plain JavaScript, which pi loads as it loads
-// TypeScript, so a test runs it in Node as it is.
+// cannot read.
+//
+// Before a run the goblin's own prompt started settles, it asks goblins
+// hook goblin-turn-end, with the run's last reply as a Stop's, whether the
+// run ends on a promise of an action it never took, and goes on once with
+// the nudge as a message to the model when it does (issue #2364), as a
+// Claude Code or Codex goblin's Stop hook has its turn go on. A run that
+// already went on once, one aborted or that failed, and one with work queued
+// behind it are not asked, and a hook that cannot answer lets the run end.
+// It is plain JavaScript, which pi loads as it loads TypeScript, so a test
+// runs it in Node as it is.
 func GoblinPiExtension(program string) string {
 	exe, _ := json.Marshal(program)
-	return `// Code Goblins goblin seal, written anew at each pi goblin's launch
+	limit := strconv.Itoa(nativehook.TimeoutSeconds * 1000)
+	return `// Code Goblins goblin seal and turn-end nudge, written anew at each pi goblin's launch
 import { spawnSync } from "node:child_process";
 export default function (pi) {
   pi.on("tool_call", (event, ctx) => {
     const result = spawnSync(` + string(exe) + `, ["hook", "goblin-seal-pi"], {
       input: JSON.stringify({cwd: ctx.cwd, tool_name: event.toolName, tool_input: event.input}),
-      encoding: "utf8", windowsHide: true, timeout: ` + strconv.Itoa(nativehook.TimeoutSeconds*1000) + `,
+      encoding: "utf8", windowsHide: true, timeout: ` + limit + `,
     });
     if (result.error || result.status !== 0) {
       return {block: true, reason: "This command waits: the check goblins makes before each command could not run (" + (result.error ? result.error.message : "exit " + result.status) + "). Run it again in a minute."};
     }
     const answer = result.stdout.trim() ? JSON.parse(result.stdout).hookSpecificOutput : undefined;
     if (answer && answer.permissionDecision === "deny") return {block: true, reason: answer.permissionDecisionReason};
+  });
+  let isNudged = false;
+  pi.on("before_agent_start", () => { isNudged = false; });
+  pi.on("agent_before_settle", (event) => {
+    if (isNudged || event.continue || event.outcome !== "completed" || !event.context.canContinue || event.context.pendingMessages.length > 0) return;
+    const reply = event.context.contextMessages.findLast((message) => message.role === "assistant");
+    if (!reply) return;
+    const text = typeof reply.content === "string" ? reply.content : reply.content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
+    const result = spawnSync(` + string(exe) + `, ["hook", "goblin-turn-end"], {
+      input: JSON.stringify({hook_event_name: "Stop", stop_hook_active: false, last_assistant_message: text}),
+      encoding: "utf8", windowsHide: true, timeout: ` + limit + `,
+    });
+    if (result.error || result.status !== 0) return;
+    let answer;
+    try {
+      answer = JSON.parse(result.stdout);
+    } catch {
+      return;
+    }
+    if (answer.decision !== "block") return;
+    isNudged = true;
+    return {entries: [{type: "custom_message", customType: "goblins-turn-end-nudge", content: answer.reason, display: true}], continue: true};
   });
 }
 `

@@ -186,7 +186,8 @@ func (h *HTTP) announce(key string, cols, rows int) {
 // open the report carries it as a panel: its rows, its choices with the one in
 // focus, and the keys its footer names (harness.ReadPanel), so the board offers
 // it as a list he picks from, and the terminal's columns as its screen was
-// read, where its words wrapped.
+// read, where its words wrapped. A goblin's session on stream-json pipes has
+// no terminal, and streamView relays its view instead.
 // custodyProbeBudget is how long a custody check has. no-mistakes'
 // sync --check reads the whole branch state and takes several seconds, and a
 // probe shorter than it reports every check as a failure of the check rather
@@ -246,6 +247,10 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		_ = view.Close(websocket.StatusNormalClosure, "No terminal is running for "+binding.name+".")
+		return
+	}
+	if record.Stream {
+		h.streamView(r.Context(), view, binding, record)
 		return
 	}
 	// A host that did not answer may be starting or busy, so the view tries

@@ -614,7 +614,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 			return fail(result, fmt.Errorf("spawn: record the dependency step: %w", err))
 		}
 	}
-	if nativeHost, err = s.launchNativeHost(req.ID, req.Harness, launch, userEnv, preflight); err != nil {
+	if nativeHost, err = s.launchNativeHost(req.ID, req.Harness, launch, userEnv, preflight, false); err != nil {
 		return fail(result, err)
 	}
 	// Its release error, if any, is returned with the result once the brief
