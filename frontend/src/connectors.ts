@@ -8,7 +8,7 @@ export type Mark = { brand: BrandKey } | { glyph: IconName };
 // removed, so "chrome-devtools", "GITHUB_TOKEN", "neon-auth" and "claude.ai
 // Supabase" all find their service. Short names are anchored so "butterfly"
 // never reads as Fly.io. Each names its logo, a file of its own under
-// /assets/connectors (public/assets/NOTICE.txt) that loads only where it is
+// src/connector-logos (public/assets/NOTICE.txt) that loads only where it is
 // shown, or none where the board carries no logo for it, and says in one line
 // what the service does.
 const SERVICES: [RegExp, string, string][] = [
