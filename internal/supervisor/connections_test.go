@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -220,6 +221,138 @@ func TestConnectionClipboardCardNeverReadsClipboardAndCannotRunForReplacedTask(t
 	}
 	if stored := store.Snapshot().Runs[0]; stored.State != "failed" {
 		t.Fatalf("stale run stayed pending: %s", stored.State)
+	}
+}
+
+// A clipboard card says whether it stores a missing variable or replaces a
+// set one, and runs the same store either way (#2389).
+func TestAClipboardCardSaysWhetherItStoresOrReplacesTheVariable(t *testing.T) {
+	for _, test := range []struct{ action, want string }{
+		{"store:TEST_TOKEN", "Store TEST_TOKEN from clipboard for "},
+		{"replace:TEST_TOKEN", "Replace TEST_TOKEN from clipboard for "},
+	} {
+		t.Run(test.action, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta, _ := state.ReadTaskMeta(h.State, "task-1")
+			service := &Service{Store: store, Instance: "test-instance"}
+
+			// Act
+			run, err := service.connectionRun(meta, connectionRequest{Task: meta.ID, Generation: meta.SpawnGen, Connection: "credential:TEST_TOKEN", Action: test.action}, connections.Repair{Credential: "TEST_TOKEN"})
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if run.Title != test.want+filepath.Base(meta.Project) {
+				t.Fatalf("title = %q, want %q", run.Title, test.want+filepath.Base(meta.Project))
+			}
+			if !strings.Contains(run.Command, "Get-Clipboard -Raw | & ") || !strings.Contains(run.Command, " auth store --project ") || !strings.HasSuffix(run.Command, " 'TEST_TOKEN'\nexit $LASTEXITCODE\n") {
+				t.Fatalf("not the clipboard store: %q", run.Command)
+			}
+		})
+	}
+}
+
+// The board's Replace and Store from clipboard reach their card through the
+// fix endpoint the board posts to, on the check the page shows: a variable the
+// goblin's terminal holds and its repository declares gets a card titled
+// Replace, a missing one gets Store's, each piping the clipboard into goblins
+// auth store for that repository, and a replace the check did not offer, for
+// a variable the terminal does not hold or no manifest declares, is refused
+// and records no card (#2389).
+func TestConnectionFixMakesTheClipboardCardItsCheckOffers(t *testing.T) {
+	// Arrange
+	store, home := testStore(t)
+	meta, err := state.ReadTaskMeta(home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Project = gitFixture(t)
+	meta.Worktree = filepath.Join(home.Root, "linked")
+	if output, err := execx.Command("git", "-C", meta.Project, "worktree", "add", "--detach", meta.Worktree, "HEAD").CombinedOutput(); err != nil {
+		t.Fatalf("linked fixture: %s %v", output, err)
+	}
+	meta.Harness = "claude"
+	meta.Credentials, meta.HasCredentials = []string{"repo"}, true
+	if err := state.WriteTaskMeta(home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := auth.ManifestPath(home.Data, meta.Project)
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, []byte(`{"project":"work","services":[{"name":"repo","method":"env","env":["TEST_TOKEN","UNSET_TOKEN"]}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	credentials, err := auth.OpenFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	inspector := connections.NewInspector(home.Root, home.Data, home.State)
+	inspector.OpenStore = func() (auth.Store, error) { return credentials, nil }
+	inspector.Runtime = func(context.Context, string, state.TaskMeta) (connections.RuntimeObservation, error) {
+		return connections.RuntimeObservation{Identity: connections.RuntimeIdentity{ProcessID: 42, StartedAt: time.Unix(100, 0), Workspace: meta.Worktree}, Env: []string{"TEST_TOKEN=synthetic-value", "LOOSE_TOKEN=synthetic-value"}, Args: []string{"--strict-mcp-config"}}, nil
+	}
+	inspector.Claude = func(context.Context, string, []string, []string) ([]connections.Entry, error) { return nil, nil }
+	service := &Service{Store: store, Instance: "test-instance", connectionInspector: inspector}
+	checks, _ := service.connections()
+	defer checks.Close()
+	checks.Get(meta.ID+"\n"+meta.SpawnGen, false)
+	waitForConnectionCheck(t, checks, meta.ID+"\n"+meta.SpawnGen)
+	handler := NewHTTP(service, "board.local", nil)
+
+	for _, test := range []struct {
+		name, variable, action, wantTitle string
+		wantCode                          int
+	}{
+		{"replace a set declared variable", "TEST_TOKEN", "replace:TEST_TOKEN", "Replace TEST_TOKEN from clipboard for " + filepath.Base(meta.Project), 200},
+		{"store a missing declared variable", "UNSET_TOKEN", "store:UNSET_TOKEN", "Store UNSET_TOKEN from clipboard for " + filepath.Base(meta.Project), 200},
+		{"replace an unset variable", "UNSET_TOKEN", "replace:UNSET_TOKEN", "", 409},
+		{"replace an undeclared variable", "LOOSE_TOKEN", "replace:LOOSE_TOKEN", "", 409},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			before := len(store.Snapshot().Runs)
+			body, err := json.Marshal(connectionRequest{Task: meta.ID, Generation: meta.SpawnGen, Connection: "credential:" + test.variable, Action: test.action})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := httptest.NewRequest("POST", "http://board.local/api/connections/fix", strings.NewReader(string(body)))
+			request.Header.Set("Origin", "http://board.local")
+			request.Header.Set("X-CEO-Token", "test-instance")
+			response := httptest.NewRecorder()
+
+			// Act
+			handler.ServeHTTP(response, request)
+
+			// Assert
+			if response.Code != test.wantCode || strings.Contains(response.Body.String(), "synthetic-value") {
+				t.Fatalf("fix returned %d: %s", response.Code, response.Body)
+			}
+			runs := store.Snapshot().Runs
+			if test.wantCode != 200 {
+				if len(runs) != before {
+					t.Fatalf("a refused fix recorded a card: %d runs, want %d", len(runs), before)
+				}
+				return
+			}
+			var result map[string]string
+			if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+			index := slices.IndexFunc(runs, func(run Run) bool { return run.ID == result["run_id"] })
+			if index < 0 {
+				t.Fatalf("run %q was not recorded", result["run_id"])
+			}
+			run := runs[index]
+			if run.Title != test.wantTitle {
+				t.Fatalf("title = %q, want %q", run.Title, test.wantTitle)
+			}
+			if !strings.Contains(run.Command, "Get-Clipboard -Raw | & ") || !strings.HasSuffix(run.Command, " auth store --project '"+meta.Project+"' '"+test.variable+"'\nexit $LASTEXITCODE\n") || strings.Contains(run.Command, "synthetic-value") {
+				t.Fatalf("not the clipboard store for %s: %q", test.variable, run.Command)
+			}
+		})
 	}
 }
 

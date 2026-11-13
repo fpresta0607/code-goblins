@@ -45,7 +45,7 @@ func (i *Inspector) RepairPlan(meta state.TaskMeta, snapshot Snapshot, connectio
 			}
 		}
 	}
-	if kind == "credential" && action == "store:"+name && slices.Contains(manifest.EnvNames(), name) && !auth.IsHarnessBillingKey(name) {
+	if kind == "credential" && (action == "store:"+name || action == "replace:"+name) && slices.Contains(manifest.EnvNames(), name) && !auth.IsHarnessBillingKey(name) {
 		return Repair{Credential: name}, nil
 	}
 	if kind == "mcp" && action == "login" && meta.Harness == "codex" {
