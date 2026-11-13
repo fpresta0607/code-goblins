@@ -9,8 +9,8 @@ import (
 
 // spent is a conversation's spend on one model and effort, from a request
 // first minutes into the window to one last minutes into it.
-func spent(model, effort string, requests int, input, output int64, first, last int) Spend {
-	return Spend{Model: model, Effort: effort, Requests: requests, Usage: Usage{InputTokens: input, OutputTokens: output}, First: at(first), Last: at(last)}
+func spent(model, effort string, input, output int64, first, last int) Spend {
+	return Spend{Model: model, Effort: effort, Usage: Usage{InputTokens: input, OutputTokens: output}, First: at(first), Last: at(last)}
 }
 
 // Each spend of a run counts for the role that spent it: the goblin's own
@@ -28,7 +28,7 @@ func TestBuildCountsEachSpendForTheRoleThatSpentIt(t *testing.T) {
 			input: Input{
 				Task: "task", Project: "project", Outcome: "done", PR: "https://example.test/pull/1", From: windowFrom, To: windowTo,
 				Harness: "claude", LeadModel: "opus", LeadEffort: "xhigh",
-				Lead:       []Spend{spent("claude-opus-5-5", "", 3, 900, 90, 0, 30), spent("claude-sonnet-5-5", "", 1, 10, 1, 40, 40)},
+				Lead:       []Spend{spent("claude-opus-5-5", "", 900, 90, 0, 30), spent("claude-sonnet-5-5", "", 10, 1, 40, 40)},
 				Unmeasured: []string{"gate: unreadable"},
 			},
 			want: Record{
@@ -45,10 +45,10 @@ func TestBuildCountsEachSpendForTheRoleThatSpentIt(t *testing.T) {
 			input: Input{
 				Harness: "claude", ImplementModel: "sonnet", ImplementEffort: "high",
 				Workers: []Worker{
-					{Agent: claudeImplementAgent, Spends: []Spend{spent("claude-sonnet-5-5", "", 4, 400, 40, 1, 11)}},
-					{Agent: claudeImplementAgent, Spends: []Spend{spent("claude-sonnet-5-5", "", 2, 200, 20, 20, 21)}},
-					{Agent: "Explore", Spends: []Spend{spent("claude-haiku-5-5", "", 1, 5, 1, 2, 2)}},
-					{Spends: []Spend{spent("claude-sonnet-5-5", "", 1, 7, 1, 3, 3)}},
+					{Agent: claudeImplementAgent, Spends: []Spend{spent("claude-sonnet-5-5", "", 400, 40, 1, 11)}},
+					{Agent: claudeImplementAgent, Spends: []Spend{spent("claude-sonnet-5-5", "", 200, 20, 20, 21)}},
+					{Agent: "Explore", Spends: []Spend{spent("claude-haiku-5-5", "", 5, 1, 2, 2)}},
+					{Spends: []Spend{spent("claude-sonnet-5-5", "", 7, 1, 3, 3)}},
 				},
 			},
 			want: Record{Roles: []Role{
@@ -62,8 +62,8 @@ func TestBuildCountsEachSpendForTheRoleThatSpentIt(t *testing.T) {
 			input: Input{
 				Harness: "codex", ImplementModel: "gpt-6.1-luna", ImplementEffort: "medium",
 				Workers: []Worker{
-					{Agent: "worker", Spends: []Spend{spent("gpt-6.1-luna", "medium", 5, 500, 50, 0, 10), spent("gpt-6.1-luna", "high", 1, 1, 1, 12, 12)}},
-					{Agent: "worker", Spends: []Spend{spent("gpt-6.1-sol", "medium", 1, 2, 1, 14, 14)}},
+					{Agent: "worker", Spends: []Spend{spent("gpt-6.1-luna", "medium", 500, 50, 0, 10), spent("gpt-6.1-luna", "high", 1, 1, 12, 12)}},
+					{Agent: "worker", Spends: []Spend{spent("gpt-6.1-sol", "medium", 2, 1, 14, 14)}},
 				},
 			},
 			want: Record{Roles: []Role{
@@ -76,7 +76,7 @@ func TestBuildCountsEachSpendForTheRoleThatSpentIt(t *testing.T) {
 			name: "a Codex child is a helper when the goblin implements its own work",
 			input: Input{
 				Harness: "codex",
-				Workers: []Worker{{Agent: "worker", Spends: []Spend{spent("gpt-6.1-luna", "medium", 1, 3, 1, 0, 0)}}},
+				Workers: []Worker{{Agent: "worker", Spends: []Spend{spent("gpt-6.1-luna", "medium", 3, 1, 0, 0)}}},
 			},
 			want: Record{Roles: []Role{
 				{Role: RoleHelper, Harness: "codex", Model: "gpt-6.1-luna", Effort: "medium", Agent: "worker", Calls: 1, Usage: Usage{InputTokens: 3, OutputTokens: 1}},

@@ -43,15 +43,9 @@ func TestMeasureRunRecordsEachRoleOfTheRunSinceItsLastReport(t *testing.T) {
 	spawned := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
 	minute := func(minutes int) time.Time { return spawned.Add(time.Duration(minutes) * time.Minute) }
 	meta := state.TaskMeta{ID: "g1", Project: project, Worktree: worktree, Harness: "claude", Model: "opus", Effort: "xhigh", ImplementModel: "sonnet", ImplementEffort: "high", SpawnGen: fmt.Sprintf("s%d", spawned.UnixNano())}
-	if err := state.WriteConversation(h.State, state.Conversation{ID: meta.ID, Generation: meta.SpawnGen, Harness: meta.Harness, Session: "measured-session", ProvedAt: minute(1)}); err != nil {
-		t.Fatal(err)
-	}
-	answer := func(id, model string, at time.Time, input, output int) string {
-		return fmt.Sprintf(`{"type":"assistant","timestamp":%q,"message":{"id":%q,"model":%q,"usage":{"input_tokens":%d,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":%d}}}`+"\n", at.Format(time.RFC3339Nano), id, model, input, output)
-	}
-	conversation := filepath.Join(userHome, ".claude", "projects", claudeProjectFolder.ReplaceAllString(worktree, "-"), "measured-session")
-	writeFixture(t, conversation+".jsonl", answer("before", "claude-opus-5-5", minute(-10), 999, 999)+answer("lead-1", "claude-opus-5-5", minute(10), 300, 30)+answer("lead-2", "claude-opus-5-5", minute(20), 200, 20))
-	writeFixture(t, filepath.Join(conversation, "subagents", "agent-implement.jsonl"), answer("implement", "claude-sonnet-5-5", minute(15), 1000, 100))
+	conversation := measuredConversation(t, h, userHome, meta, minute(1))
+	writeFixture(t, conversation+".jsonl", claudeAnswerLine("before", "claude-opus-5-5", minute(-10), 999, 999)+claudeAnswerLine("lead-1", "claude-opus-5-5", minute(10), 300, 30)+claudeAnswerLine("lead-2", "claude-opus-5-5", minute(20), 200, 20))
+	writeFixture(t, filepath.Join(conversation, "subagents", "agent-implement.jsonl"), claudeAnswerLine("implement", "claude-sonnet-5-5", minute(15), 1000, 100))
 	writeFixture(t, filepath.Join(conversation, "subagents", "agent-implement.meta.json"), `{"agentType":"ceo-implement"}`)
 	database, err := sql.Open("sqlite", filepath.Join(gateHome, "state.sqlite"))
 	if err != nil {
@@ -149,6 +143,81 @@ func TestMeasureRunNamesTheSpendBeforeARelaunchUnmeasured(t *testing.T) {
 	}
 }
 
+// A task's id is used again once its task is cleaned up, and the home's
+// measurements outlive the task, so a run starts at the later of the id's
+// last recorded report and this task's own spawn: a run an earlier task of
+// the id recorded is no part of it, and names no relaunch.
+func TestMeasureRunStartsNoEarlierThanTheTasksOwnSpawn(t *testing.T) {
+	launched := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Second)
+	generation := fmt.Sprintf("s%d", launched.UnixNano())
+	cases := []struct {
+		name     string
+		reported time.Time
+		wantFrom time.Time
+	}{
+		{name: "an earlier task of its id reported before its spawn", reported: launched.AddDate(0, 0, -8), wantFrom: launched},
+		{name: "it reported since its spawn", reported: launched.Add(30 * time.Minute), wantFrom: launched.Add(30 * time.Minute)},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			h := testHome(t)
+			if err := os.MkdirAll(h.State, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := measure.Append(h.State, measure.Record{Task: "g1", Outcome: "done", From: testCase.reported.Add(-time.Hour), To: testCase.reported}); err != nil {
+				t.Fatal(err)
+			}
+			meta := state.TaskMeta{ID: "g1", Worktree: t.TempDir(), FirstGen: generation, SpawnGen: generation}
+
+			// Act
+			record, err := measureRun(context.Background(), h, meta, "done", "https://github.com/o/r/pull/1")
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			isRelaunchNamed := slices.ContainsFunc(record.Unmeasured, func(unmeasured string) bool { return strings.HasPrefix(unmeasured, "lead and workers before ") })
+			if !record.From.Equal(testCase.wantFrom) || isRelaunchNamed {
+				t.Errorf("record from %v named unmeasured %q; want it from %v, naming no relaunch", record.From, record.Unmeasured, testCase.wantFrom)
+			}
+		})
+	}
+}
+
+// A worker that cannot be read is named unmeasured on its own: the lead's
+// conversation was read, and what it spent is recorded.
+func TestMeasureRunNamesAnUnreadableWorkerApartFromTheLead(t *testing.T) {
+	// Arrange
+	h := testHome(t)
+	if err := os.MkdirAll(h.State, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	userHome := t.TempDir()
+	t.Setenv("USERPROFILE", userHome)
+	t.Setenv("HOME", userHome)
+	spawned := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	meta := state.TaskMeta{ID: "g1", Worktree: t.TempDir(), Harness: "claude", SpawnGen: fmt.Sprintf("s%d", spawned.UnixNano())}
+	conversation := measuredConversation(t, h, userHome, meta, spawned.Add(time.Minute))
+	writeFixture(t, conversation+".jsonl", claudeAnswerLine("lead", "claude-opus-5-5", spawned.Add(10*time.Minute), 300, 30))
+	writeFixture(t, filepath.Join(conversation, "subagents", "agent-a.jsonl"), claudeAnswerLine("worker", "claude-sonnet-5-5", spawned.Add(15*time.Minute), 1000, 100))
+	writeFixture(t, filepath.Join(conversation, "subagents", "agent-a.meta.json"), `{"agentType":`)
+
+	// Act
+	record, err := measureRun(context.Background(), h, meta, "done", "")
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantRoles := []measure.Role{{Role: measure.RoleLead, Harness: "claude", Model: "claude-opus-5-5", Calls: 1, Usage: measure.Usage{InputTokens: 300, OutputTokens: 30}}}
+	isWorkersNamed := slices.ContainsFunc(record.Unmeasured, func(unmeasured string) bool { return strings.HasPrefix(unmeasured, "workers: ") })
+	isLeadNamed := slices.ContainsFunc(record.Unmeasured, func(unmeasured string) bool { return strings.HasPrefix(unmeasured, "lead and workers") })
+	if !reflect.DeepEqual(record.Roles, wantRoles) || !isWorkersNamed || isLeadNamed {
+		t.Errorf("record roles %+v, unmeasured %q; want roles %+v with the workers alone named unmeasured", record.Roles, record.Unmeasured, wantRoles)
+	}
+}
+
 func writeFixture(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -159,13 +228,34 @@ func writeFixture(t *testing.T, path, content string) {
 	}
 }
 
+// measuredConversation records the session measured-session as meta's
+// conversation, proved at provedAt, and is where Claude Code keeps it under
+// userHome for meta's worktree, without its .jsonl, which is also the folder
+// of its sub-agents.
+func measuredConversation(t *testing.T, h home.Home, userHome string, meta state.TaskMeta, provedAt time.Time) string {
+	t.Helper()
+	if err := state.WriteConversation(h.State, state.Conversation{ID: meta.ID, Generation: meta.SpawnGen, Harness: meta.Harness, Session: "measured-session", ProvedAt: provedAt}); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(userHome, ".claude", "projects", claudeProjectFolder.ReplaceAllString(meta.Worktree, "-"), "measured-session")
+}
+
+// claudeAnswerLine is a Claude Code transcript's line for one answer.
+func claudeAnswerLine(id, model string, at time.Time, input, output int) string {
+	return fmt.Sprintf(`{"type":"assistant","timestamp":%q,"message":{"id":%q,"model":%q,"usage":{"input_tokens":%d,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":%d}}}`+"\n", at.Format(time.RFC3339Nano), id, model, input, output)
+}
+
 // A done or failed report measures its run once, when it is new, and says
-// what it recorded; a report made again measures nothing twice, and a
-// measurement that fails is said without failing the report.
+// what it recorded: the CEO's task's when it wakes the CEO, and a helper's
+// when it reaches the helper's parent, or the CEO when the parent's terminal
+// refuses it. A report made again measures nothing twice, and a measurement
+// that fails is said without failing the report.
 func TestNotifyMeasuresEachNewDoneOrFailedReportOnce(t *testing.T) {
+	recorded := "Recorded this run's role measurements (lead, review) over 2 gate runs.\n"
 	cases := []struct {
 		name       string
 		reports    [][]string
+		sendErr    error
 		measureErr error
 		wantCalls  []string
 		wantStdout string
@@ -173,43 +263,55 @@ func TestNotifyMeasuresEachNewDoneOrFailedReportOnce(t *testing.T) {
 	}{
 		{
 			name:       "a done reported twice for one head",
-			reports:    [][]string{{"--done", "--pr", "https://github.com/o/r/pull/1"}, {"--done", "--pr", "https://github.com/o/r/pull/1 (ready to land)"}},
-			wantCalls:  []string{"done https://github.com/o/r/pull/1"},
-			wantStdout: "Recorded this run's role measurements (lead, review) over 2 gate runs.\nUnmeasured: gate: unreadable.\n",
+			reports:    [][]string{{"g1", "--done", "--pr", "https://github.com/o/r/pull/1"}, {"g1", "--done", "--pr", "https://github.com/o/r/pull/1 (ready to land)"}},
+			wantCalls:  []string{"g1 done https://github.com/o/r/pull/1"},
+			wantStdout: recorded + "Unmeasured: gate: unreadable.\n",
 		},
 		{
 			name:       "a failed report",
-			reports:    [][]string{{"--failed", "the build cannot start"}},
-			wantCalls:  []string{"failed "},
-			wantStdout: "Recorded this run's role measurements (lead, review) over 2 gate runs.\n",
+			reports:    [][]string{{"g1", "--failed", "the build cannot start"}},
+			wantCalls:  []string{"g1 failed "},
+			wantStdout: recorded,
 		},
 		{
 			name:       "a measurement that fails",
-			reports:    [][]string{{"--done", "--pr", "https://github.com/o/r/pull/1"}},
+			reports:    [][]string{{"g1", "--done", "--pr", "https://github.com/o/r/pull/1"}},
 			measureErr: errors.New("state folder is read-only"),
-			wantCalls:  []string{"done https://github.com/o/r/pull/1"},
+			wantCalls:  []string{"g1 done https://github.com/o/r/pull/1"},
 			wantStderr: "goblins notify: this run's role measurements could not be recorded: state folder is read-only\n",
 		},
 		{
 			name:    "a working report",
-			reports: [][]string{{"--working", "writing the tests"}},
+			reports: [][]string{{"g1", "--working", "writing the tests"}},
+		},
+		{
+			name:       "a helper's done that reaches its parent",
+			reports:    [][]string{{"g1-h1", "--done"}},
+			wantCalls:  []string{"g1-h1 done "},
+			wantStdout: recorded + "Unmeasured: gate: unreadable.\n",
+		},
+		{
+			name:       "a helper's failed that reaches its parent",
+			reports:    [][]string{{"g1-h1", "--failed", "the build is broken"}},
+			wantCalls:  []string{"g1-h1 failed "},
+			wantStdout: recorded,
+		},
+		{
+			name:       "a helper's done its parent's terminal refuses, so the CEO is told",
+			reports:    [][]string{{"g1-h1", "--done"}},
+			sendErr:    errors.New("the pane is gone"),
+			wantCalls:  []string{"g1-h1 done "},
+			wantStdout: recorded + "Unmeasured: gate: unreadable.\n",
 		},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			// Arrange
-			h := testHome(t)
-			if err := os.MkdirAll(h.State, 0o700); err != nil {
-				t.Fatal(err)
-			}
-			if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "g1", SpawnGen: "s1"}); err != nil {
-				t.Fatal(err)
-			}
-			runtime := testCommandRuntimeForHome(h)
+			_, runtime, _ := helperHome(t, testCase.sendErr)
 			runtime.github = proofRunner{stdout: strings.Repeat("a", 40) + "\n"}
 			var calls []string
 			runtime.measureRun = func(_ context.Context, _ home.Home, meta state.TaskMeta, outcome, pr string) (measure.Record, error) {
-				calls = append(calls, outcome+" "+pr)
+				calls = append(calls, meta.ID+" "+outcome+" "+pr)
 				record := measure.Record{Task: meta.ID, Runs: []string{"one", "two"}, Roles: []measure.Role{{Role: measure.RoleLead}, {Role: measure.RoleReview}, {Role: measure.RoleReview, Harness: "codex"}}}
 				if outcome == "done" {
 					record.Unmeasured = []string{"gate: unreadable"}
@@ -220,7 +322,7 @@ func TestNotifyMeasuresEachNewDoneOrFailedReportOnce(t *testing.T) {
 
 			// Act
 			for _, report := range testCase.reports {
-				if exit := runNotify(append([]string{"g1"}, report...), &stdout, &stderr, runtime); exit != 0 {
+				if exit := runNotify(report, &stdout, &stderr, runtime); exit != 0 {
 					t.Fatalf("exit=%d stderr=%q", exit, stderr.String())
 				}
 			}
@@ -252,7 +354,8 @@ func measurementLines(output string) string {
 
 // goblins doctor sums every recorded run's roles into one row each, by role,
 // harness, model, effort and agent, with the calls the gate tallied no
-// tokens for named; a home that recorded none says so, and one whose record
+// tokens for named, in place of the old line that called implementation
+// unmeasured; a home that recorded none says so, and one whose record
 // cannot be read says that.
 func TestDoctorReportsWhatEachRoleSpentOverEveryRecordedRun(t *testing.T) {
 	cases := []struct {
@@ -285,29 +388,62 @@ func TestDoctorReportsWhatEachRoleSpentOverEveryRecordedRun(t *testing.T) {
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			// Arrange
-			h := testHome(t)
-			if err := os.MkdirAll(h.State, 0o700); err != nil {
-				t.Fatal(err)
-			}
+			root := t.TempDir()
+			t.Setenv("GOBLINS_HOME", root)
 			if testCase.records != "" {
-				writeFixture(t, filepath.Join(h.State, measure.FileName), testCase.records)
+				writeFixture(t, filepath.Join(root, "state", measure.FileName), testCase.records)
 			}
-			var stdout bytes.Buffer
+			var stdout, stderr bytes.Buffer
 
 			// Act
-			reportRoleMeasurements(&stdout, testCommandRuntimeForHome(h))
+			run([]string{"doctor"}, &stdout, &stderr)
 
 			// Assert
 			var got []string
+			isTable := false
 			for line := range strings.Lines(stdout.String()) {
-				if strings.HasPrefix(line, "  ") {
-					line = strings.Join(strings.Fields(line), " ")
+				line = strings.TrimRight(line, "\r\n")
+				switch {
+				case strings.HasPrefix(line, "role measurements: "):
+					isTable = true
+					got = append(got, line)
+				case isTable && strings.HasPrefix(line, "  "):
+					got = append(got, strings.Join(strings.Fields(line), " "))
+				default:
+					isTable = false
 				}
-				got = append(got, strings.TrimRight(line, "\r\n"))
 			}
-			if !reflect.DeepEqual(got, testCase.want) {
-				t.Errorf("doctor said\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(testCase.want, "\n"))
+			if !reflect.DeepEqual(got, testCase.want) || strings.Contains(stdout.String(), "telemetry: implementation unmeasured") {
+				t.Errorf("doctor said\n%s\nwant\n%s\nand no telemetry line (stdout %s)", strings.Join(got, "\n"), strings.Join(testCase.want, "\n"), stdout.String())
 			}
 		})
+	}
+}
+
+// goblins notify, as it runs for real, records a failed report's run as one
+// line of the home's role measurements.
+func TestNotifyRecordsTheRunInTheHomesRoleMeasurements(t *testing.T) {
+	// Arrange
+	root := t.TempDir()
+	t.Setenv("GOBLINS_HOME", root)
+	userHome := t.TempDir()
+	t.Setenv("USERPROFILE", userHome)
+	t.Setenv("HOME", userHome)
+	stateDir := filepath.Join(root, "state")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteTaskMeta(stateDir, state.TaskMeta{ID: "g1", Worktree: t.TempDir(), SpawnGen: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := run([]string{"notify", "g1", "--failed", "the build cannot start"}, &stdout, &stderr)
+
+	// Assert
+	records, err := measure.Read(stateDir)
+	if exit != 0 || err != nil || len(records) != 1 || records[0].Task != "g1" || records[0].Outcome != "failed" {
+		t.Errorf("exit %d recorded %+v (%v), want one failed run of g1\nstdout %s\nstderr %s", exit, records, err, stdout.String(), stderr.String())
 	}
 }

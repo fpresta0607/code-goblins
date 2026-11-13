@@ -69,8 +69,8 @@ func TestClaudeSpendCountsEachAnswerOnceForItsModelInTheWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []Spend{
-		{Model: "claude-opus-5-5", Requests: 2, Usage: Usage{InputTokens: 435, OutputTokens: 46, CacheReadTokens: 400}, First: at(2), Last: at(30)},
-		{Model: "claude-sonnet-5-5", Requests: 1, Usage: Usage{InputTokens: 6, OutputTokens: 4, CacheReadTokens: 3}, First: at(4), Last: at(4)},
+		{Model: "claude-opus-5-5", Usage: Usage{InputTokens: 435, OutputTokens: 46, CacheReadTokens: 400}, First: at(2), Last: at(30)},
+		{Model: "claude-sonnet-5-5", Usage: Usage{InputTokens: 6, OutputTokens: 4, CacheReadTokens: 3}, First: at(4), Last: at(4)},
 	}
 	if !reflect.DeepEqual(spends, want) {
 		t.Errorf("spends =\n%+v\nwant\n%+v", spends, want)
@@ -81,37 +81,26 @@ func codexTurn(minutes int, model, effort string) string {
 	return `{"timestamp":"` + at(minutes).Format(time.RFC3339Nano) + `","type":"turn_context","payload":{"model":"` + model + `","effort":"` + effort + `"}}`
 }
 
-func codexCount(minutes int, total string, last string) string {
-	info := `{`
-	if total != "" {
-		info += `"total_token_usage":` + total
-	}
-	if last != "" {
-		if total != "" {
-			info += `,`
-		}
-		info += `"last_token_usage":` + last
-	}
-	return `{"timestamp":"` + at(minutes).Format(time.RFC3339Nano) + `","type":"event_msg","payload":{"type":"token_count","info":` + info + `}}}`
+func codexCount(minutes int, total string) string {
+	return `{"timestamp":"` + at(minutes).Format(time.RFC3339Nano) + `","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":` + total + `}}}`
 }
 
 // A Codex rollout's token counts carry the thread's running total, so each
 // request spent what the total moved since the count before it, counted
 // before the window too, on the model and effort of its turn; a count that
-// repeats the total spent nothing, and one with no total adds its own.
+// repeats the total spent nothing.
 func TestCodexSpendTakesEachRequestFromTheRunningTotal(t *testing.T) {
 	// Arrange
 	path := filepath.Join(t.TempDir(), "rollout.jsonl")
 	writeLines(t, path,
 		`{"timestamp":"`+at(-10).Format(time.RFC3339Nano)+`","type":"session_meta","payload":{"id":"lead"}}`,
 		codexTurn(-10, "gpt-6-astra", "high"),
-		codexCount(-9, `{"input_tokens":1000,"cached_input_tokens":800,"output_tokens":100}`, ""),
-		codexCount(5, `{"input_tokens":1500,"cached_input_tokens":1100,"output_tokens":150}`, ""),
-		codexCount(6, `{"input_tokens":1500,"cached_input_tokens":1100,"output_tokens":150}`, ""),
+		codexCount(-9, `{"input_tokens":1000,"cached_input_tokens":800,"output_tokens":100}`),
+		codexCount(5, `{"input_tokens":1500,"cached_input_tokens":1100,"output_tokens":150}`),
+		codexCount(6, `{"input_tokens":1500,"cached_input_tokens":1100,"output_tokens":150}`),
 		codexTurn(10, "gpt-6.1-sol", "medium"),
-		codexCount(12, `{"input_tokens":1700,"cached_input_tokens":1200,"output_tokens":170}`, ""),
-		codexCount(13, "", `{"input_tokens":30,"cached_input_tokens":10,"output_tokens":3}`),
-		codexCount(500, `{"input_tokens":9000,"cached_input_tokens":9000,"output_tokens":900}`, ""),
+		codexCount(12, `{"input_tokens":1700,"cached_input_tokens":1200,"output_tokens":170}`),
+		codexCount(500, `{"input_tokens":9000,"cached_input_tokens":9000,"output_tokens":900}`),
 	)
 
 	// Act
@@ -122,8 +111,8 @@ func TestCodexSpendTakesEachRequestFromTheRunningTotal(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []Spend{
-		{Model: "gpt-6-astra", Effort: "high", Requests: 1, Usage: Usage{InputTokens: 500, OutputTokens: 50, CacheReadTokens: 300}, First: at(5), Last: at(5)},
-		{Model: "gpt-6.1-sol", Effort: "medium", Requests: 2, Usage: Usage{InputTokens: 230, OutputTokens: 23, CacheReadTokens: 110}, First: at(12), Last: at(13)},
+		{Model: "gpt-6-astra", Effort: "high", Usage: Usage{InputTokens: 500, OutputTokens: 50, CacheReadTokens: 300}, First: at(5), Last: at(5)},
+		{Model: "gpt-6.1-sol", Effort: "medium", Usage: Usage{InputTokens: 200, OutputTokens: 20, CacheReadTokens: 100}, First: at(12), Last: at(12)},
 	}
 	if !reflect.DeepEqual(spends, want) {
 		t.Errorf("spends =\n%+v\nwant\n%+v", spends, want)
@@ -153,7 +142,7 @@ func TestPiSpendAddsTheCacheToTheInputOnTheThinkingLevel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Spend{{Model: "deepseek/deepseek-v4", Effort: "high", Requests: 2, Usage: Usage{InputTokens: 270, OutputTokens: 40, CacheReadTokens: 60}, First: at(2), Last: at(4)}}
+	want := []Spend{{Model: "deepseek/deepseek-v4", Effort: "high", Usage: Usage{InputTokens: 270, OutputTokens: 40, CacheReadTokens: 60}, First: at(2), Last: at(4)}}
 	if !reflect.DeepEqual(spends, want) {
 		t.Errorf("spends =\n%+v\nwant\n%+v", spends, want)
 	}
@@ -183,8 +172,8 @@ func TestClaudeWorkersReadsEachSubagentWithItsType(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []Worker{
-		{Agent: "ceo-implement", Spends: []Spend{{Model: "claude-sonnet-5-5", Requests: 1, Usage: Usage{InputTokens: 10, OutputTokens: 2}, First: at(5), Last: at(5)}}},
-		{Agent: "", Spends: []Spend{{Model: "claude-haiku-5-5", Requests: 1, Usage: Usage{InputTokens: 4, OutputTokens: 1}, First: at(6), Last: at(6)}}},
+		{Agent: "ceo-implement", Spends: []Spend{{Model: "claude-sonnet-5-5", Usage: Usage{InputTokens: 10, OutputTokens: 2}, First: at(5), Last: at(5)}}},
+		{Agent: "", Spends: []Spend{{Model: "claude-haiku-5-5", Usage: Usage{InputTokens: 4, OutputTokens: 1}, First: at(6), Last: at(6)}}},
 	}
 	if !reflect.DeepEqual(workers, want) {
 		t.Errorf("workers =\n%+v\nwant\n%+v", workers, want)
@@ -203,12 +192,12 @@ func TestCodexWorkersReadsTheChildrenOfTheLeadsThread(t *testing.T) {
 	writeLines(t, filepath.Join(day, "rollout-child.jsonl"),
 		`{"type":"session_meta","payload":{"id":"child","source":{"subagent":{"thread_spawn":{"parent_thread_id":"lead-thread","agent_role":"worker"}}}}}`,
 		codexTurn(20, "gpt-6.1-luna", "medium"),
-		codexCount(21, `{"input_tokens":40,"cached_input_tokens":0,"output_tokens":4}`, ""),
+		codexCount(21, `{"input_tokens":40,"cached_input_tokens":0,"output_tokens":4}`),
 	)
 	writeLines(t, filepath.Join(day, "rollout-stranger.jsonl"),
 		`{"type":"session_meta","payload":{"id":"stranger","parent_thread_id":"another-thread"}}`,
 		codexTurn(20, "gpt-6.1-luna", "medium"),
-		codexCount(21, `{"input_tokens":99,"cached_input_tokens":0,"output_tokens":9}`, ""),
+		codexCount(21, `{"input_tokens":99,"cached_input_tokens":0,"output_tokens":9}`),
 	)
 
 	// Act
@@ -218,8 +207,49 @@ func TestCodexWorkersReadsTheChildrenOfTheLeadsThread(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Worker{{Agent: "worker", Spends: []Spend{{Model: "gpt-6.1-luna", Effort: "medium", Requests: 1, Usage: Usage{InputTokens: 40, OutputTokens: 4}, First: at(21), Last: at(21)}}}}
+	want := []Worker{{Agent: "worker", Spends: []Spend{{Model: "gpt-6.1-luna", Effort: "medium", Usage: Usage{InputTokens: 40, OutputTokens: 4}, First: at(21), Last: at(21)}}}}
 	if !reflect.DeepEqual(workers, want) {
 		t.Errorf("workers =\n%+v\nwant\n%+v", workers, want)
+	}
+}
+
+// Codex files a child by the date it started on where it ran, so every
+// date of the window is read, with a date either side, whatever times of
+// day the window starts and ends at; a window with no start of its own
+// starts where the lead's thread started, which no child of it predates.
+func TestCodexWorkersReadsEveryDateOfTheWindow(t *testing.T) {
+	cases := []struct {
+		name     string
+		from, to time.Time
+		filed    string
+		spawned  int
+	}{
+		{name: "a window that ends earlier in its day than it starts, on a machine east of UTC", from: at(17*60 + 30), to: at(41 * 60), filed: "2026/11/15", spawned: 41*60 - 30},
+		{name: "a window with no start, on a machine west of UTC", to: windowTo, filed: "2026/11/12", spawned: 20},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			home := t.TempDir()
+			lead := filepath.Join(home, codexSessions, "2026", "11", "13", "rollout-lead.jsonl")
+			writeLines(t, lead, `{"timestamp":"`+at(0).Format(time.RFC3339Nano)+`","type":"session_meta","payload":{"id":"lead-thread","source":"cli"}}`)
+			writeLines(t, filepath.Join(home, codexSessions, testCase.filed, "rollout-child.jsonl"),
+				`{"timestamp":"`+at(testCase.spawned).Format(time.RFC3339Nano)+`","type":"session_meta","payload":{"id":"child","source":{"subagent":{"thread_spawn":{"parent_thread_id":"lead-thread","agent_role":"worker"}}}}}`,
+				codexTurn(testCase.spawned, "gpt-6.1-luna", "medium"),
+				codexCount(testCase.spawned+5, `{"input_tokens":40,"cached_input_tokens":0,"output_tokens":4}`),
+			)
+
+			// Act
+			workers, err := CodexWorkers(home, lead, testCase.from, testCase.to)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := []Worker{{Agent: "worker", Spends: []Spend{{Model: "gpt-6.1-luna", Effort: "medium", Usage: Usage{InputTokens: 40, OutputTokens: 4}, First: at(testCase.spawned + 5), Last: at(testCase.spawned + 5)}}}}
+			if !reflect.DeepEqual(workers, want) {
+				t.Errorf("workers =\n%+v\nwant\n%+v", workers, want)
+			}
+		})
 	}
 }

@@ -17,12 +17,11 @@ import (
 )
 
 // Spend is what one conversation spent on one model and effort in a window:
-// its requests, their tokens, and when the first and the last of them were
-// written. A harness that records no effort leaves it empty.
+// its tokens, and when the first and the last of its requests were written.
+// A harness that records no effort leaves it empty.
 type Spend struct {
-	Model    string
-	Effort   string
-	Requests int
+	Model  string
+	Effort string
 	Usage
 	First, Last time.Time
 }
@@ -38,7 +37,6 @@ func (s *spending) add(model, effort string, at time.Time, usage Usage) {
 		index = len(*s) - 1
 	}
 	spend := &(*s)[index]
-	spend.Requests++
 	spend.Usage.add(usage)
 	spend.Last = at
 }
@@ -131,7 +129,7 @@ func (u codexUsage) usage() Usage {
 // to. Each token count Codex records carries its thread's running total, so
 // a request spent what the total moved since the count before it, on the
 // model and effort of the turn it fell in, and a count that repeats the
-// total spent nothing. A count with no total adds its own request's.
+// total spent nothing.
 func CodexSpend(path string, from, to time.Time) ([]Spend, error) {
 	var spent spending
 	var model, effort string
@@ -144,9 +142,8 @@ func CodexSpend(path string, from, to time.Time) ([]Spend, error) {
 				Type   string `json:"type"`
 				Model  string `json:"model"`
 				Effort string `json:"effort"`
-				Info   *struct {
+				Info   struct {
 					Total *codexUsage `json:"total_token_usage"`
-					Last  *codexUsage `json:"last_token_usage"`
 				} `json:"info"`
 			} `json:"payload"`
 		}
@@ -157,19 +154,12 @@ func CodexSpend(path string, from, to time.Time) ([]Spend, error) {
 			model, effort = entry.Payload.Model, entry.Payload.Effort
 			return
 		}
-		info := entry.Payload.Info
-		if entry.Type != "event_msg" || entry.Payload.Type != "token_count" || info == nil {
+		if entry.Type != "event_msg" || entry.Payload.Type != "token_count" || entry.Payload.Info.Total == nil {
 			return
 		}
-		var request Usage
-		switch {
-		case info.Total != nil:
-			now := info.Total.usage()
-			request = Usage{InputTokens: now.InputTokens - total.InputTokens, OutputTokens: now.OutputTokens - total.OutputTokens, CacheReadTokens: now.CacheReadTokens - total.CacheReadTokens}
-			total = now
-		case info.Last != nil:
-			request = info.Last.usage()
-		}
+		now := entry.Payload.Info.Total.usage()
+		request := Usage{InputTokens: now.InputTokens - total.InputTokens, OutputTokens: now.OutputTokens - total.OutputTokens, CacheReadTokens: now.CacheReadTokens - total.CacheReadTokens}
+		total = now
 		if request != (Usage{}) && within(entry.Timestamp, from, to) {
 			spent.add(model, effort, entry.Timestamp, request)
 		}
@@ -258,8 +248,10 @@ var codexSessions = filepath.Join(".codex", "sessions")
 // CodexWorkers reads what each child agent of the Codex conversation whose
 // rollout is at path spent after from and by to. Codex writes a child's own
 // rollout, opening on the thread that spawned it and the role it spawned it
-// in, filed in home's sessions by the day it started, so only the days of
-// the window are read, a day either side for the time zone it was filed in.
+// in, filed in home's sessions by the date it started on, so only the dates
+// of the window are read, from the later of from and the lead's own start,
+// since no child starts before the thread that spawns it, and a date either
+// side for the time zone it was filed in.
 func CodexWorkers(home, path string, from, to time.Time) ([]Worker, error) {
 	lead, err := readCodexMeta(path)
 	if err != nil {
@@ -268,8 +260,16 @@ func CodexWorkers(home, path string, from, to time.Time) ([]Worker, error) {
 	if lead.id == "" {
 		return nil, errors.New("measure: " + path + " names no thread")
 	}
+	start := from
+	if lead.started.After(start) {
+		start = lead.started
+	}
+	date := func(at time.Time) time.Time {
+		year, month, day := at.UTC().Date()
+		return time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
+	}
 	var workers []Worker
-	for day := from.AddDate(0, 0, -1); !day.After(to.AddDate(0, 0, 1)); day = day.AddDate(0, 0, 1) {
+	for day, last := date(start).AddDate(0, 0, -1), date(to).AddDate(0, 0, 1); !day.After(last); day = day.AddDate(0, 0, 1) {
 		rollouts, err := filepath.Glob(filepath.Join(home, codexSessions, day.Format("2006"), day.Format("01"), day.Format("02"), "rollout-*.jsonl"))
 		if err != nil {
 			return nil, err
@@ -293,9 +293,11 @@ func CodexWorkers(home, path string, from, to time.Time) ([]Worker, error) {
 	return workers, nil
 }
 
-// codexMeta is what a rollout's opening session_meta says of its thread.
+// codexMeta is what a rollout's opening session_meta says of its thread,
+// and when it was written.
 type codexMeta struct {
 	id, parent, role string
+	started          time.Time
 }
 
 // readCodexMeta reads the opening session_meta of the rollout at path. A
@@ -312,8 +314,9 @@ func readCodexMeta(path string) (codexMeta, error) {
 		return codexMeta{}, err
 	}
 	var entry struct {
-		Type    string `json:"type"`
-		Payload struct {
+		Timestamp time.Time `json:"timestamp"`
+		Type      string    `json:"type"`
+		Payload   struct {
 			ID     string          `json:"id"`
 			Parent string          `json:"parent_thread_id"`
 			Source json.RawMessage `json:"source"`
@@ -339,5 +342,5 @@ func readCodexMeta(path string) (codexMeta, error) {
 		_ = json.Unmarshal(entry.Payload.Source, &source)
 	}
 	spawn := source.Subagent.ThreadSpawn
-	return codexMeta{id: entry.Payload.ID, parent: cmp.Or(entry.Payload.Parent, spawn.Parent), role: spawn.Role}, nil
+	return codexMeta{id: entry.Payload.ID, parent: cmp.Or(entry.Payload.Parent, spawn.Parent), role: spawn.Role, started: entry.Timestamp}, nil
 }

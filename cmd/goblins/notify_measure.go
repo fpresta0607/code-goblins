@@ -64,11 +64,14 @@ func measureRun(ctx context.Context, h home.Home, meta state.TaskMeta, outcome, 
 		nanoseconds, err := strconv.ParseInt(strings.TrimPrefix(generation, "s"), 10, 64)
 		return time.Unix(0, nanoseconds).UTC(), err == nil
 	}
-	if from, isMeasured := measure.Since(records, meta.ID); isMeasured {
-		input.From = from
-	} else if from, isKnown := generationStart(cmp.Or(meta.FirstGen, meta.SpawnGen)); isKnown {
-		input.From = from
-	} else {
+	spawned, isSpawnKnown := generationStart(cmp.Or(meta.FirstGen, meta.SpawnGen))
+	reported, isMeasured := measure.Since(records, meta.ID)
+	switch {
+	case isMeasured && (!isSpawnKnown || reported.After(spawned)):
+		input.From = reported
+	case isSpawnKnown:
+		input.From = spawned
+	default:
 		input.Unmeasured = append(input.Unmeasured, "start: the task's record names no spawn generation, so all it ever spent is measured")
 	}
 	// Only the conversation the task holds now is read, so a relaunch in the
@@ -77,8 +80,10 @@ func measureRun(ctx context.Context, h home.Home, meta state.TaskMeta, outcome, 
 	if started, isKnown := generationStart(meta.SpawnGen); isKnown && started.After(input.From) {
 		input.Unmeasured = append(input.Unmeasured, "lead and workers before "+started.Format(time.RFC3339)+": the task was relaunched then, and only the conversation it holds now is read")
 	}
-	if err := readSessionSpend(&input, h, meta); err != nil {
-		input.Unmeasured = append(input.Unmeasured, "lead and workers: "+err.Error())
+	if leadErr, workersErr := readSessionSpend(&input, h, meta); leadErr != nil {
+		input.Unmeasured = append(input.Unmeasured, "lead and workers: "+leadErr.Error())
+	} else if workersErr != nil {
+		input.Unmeasured = append(input.Unmeasured, "workers: "+workersErr.Error())
 	}
 	if err := readGateSpend(ctx, &input, meta); err != nil {
 		input.Unmeasured = append(input.Unmeasured, "gate: "+err.Error())
@@ -98,37 +103,40 @@ func measureRun(ctx context.Context, h home.Home, meta state.TaskMeta, outcome, 
 
 // readSessionSpend reads into input what the goblin's own conversation and
 // its workers spent: the conversation the board recorded for the task, else
-// the one its running harness is in.
-func readSessionSpend(input *measure.Input, h home.Home, meta state.TaskMeta) error {
+// the one its running harness is in. leadErr says why the conversation, and
+// so its workers, could not be read, and workersErr why its workers alone
+// could not.
+func readSessionSpend(input *measure.Input, h home.Home, meta state.TaskMeta) (leadErr, workersErr error) {
 	userHome, err := os.UserHomeDir()
 	if err != nil {
-		return err
+		return err, nil
 	}
 	session, err := taskSession(h.State, meta)
 	if err != nil {
-		return err
+		return err, nil
 	}
 	path := fleettree.HeldTranscript(userHome, input.Harness, meta.Worktree, session)
 	if path == "" {
-		return errors.New("no conversation of the task's goblin was found")
+		return errors.New("no conversation of the task's goblin was found"), nil
 	}
 	switch input.Harness {
 	case "claude":
 		if input.Lead, err = measure.ClaudeSpend(path, input.From, input.To); err != nil {
-			return err
+			return err, nil
 		}
 		input.Workers, err = measure.ClaudeWorkers(path, input.From, input.To)
+		return nil, err
 	case "codex":
 		if input.Lead, err = measure.CodexSpend(path, input.From, input.To); err != nil {
-			return err
+			return err, nil
 		}
 		input.Workers, err = measure.CodexWorkers(userHome, path, input.From, input.To)
+		return nil, err
 	case "pi":
 		input.Lead, err = measure.PiSpend(path, input.From, input.To)
-	default:
-		err = fmt.Errorf("no reader for harness %q", input.Harness)
+		return err, nil
 	}
-	return err
+	return fmt.Errorf("no reader for harness %q", input.Harness), nil
 }
 
 // readGateSpend reads into input what the gate's agents spent in the runs of
