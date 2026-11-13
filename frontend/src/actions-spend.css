@@ -13,6 +13,18 @@
 .actions-spend-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .actions-spend-title > div { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 12px; min-width: 0; }
 .actions-spend-title h2 { font-size: 1.5rem; }
+/* The month is a quiet button in the title's muted ink that opens the
+   board's menu of this month and last month. */
+.actions-spend-month { position: relative; display: flex; }
+.actions-spend-month-button { display: inline-flex; align-items: center; gap: 2px; min-height: 32px; padding: 0; border: 0; border-radius: 4px; background: none; box-shadow: none; color: var(--muted); font: inherit; }
+.actions-spend-month-button .icon { width: 12px; height: 12px; transform: rotate(90deg); }
+.actions-spend-month-button:hover { color: var(--bone); }
+.actions-spend-month-menu { right: auto; left: 0; }
+/* A retry is the refresh icon beside the close button, which turns only
+   while the read runs. */
+.actions-spend-retry { margin-left: auto; }
+.actions-spend-retry[aria-busy="true"] .icon { animation: terminal-spin .8s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .actions-spend-retry[aria-busy="true"] .icon { animation-duration: 2.4s; } }
 .actions-spend-figures { margin: 20px 0 0; font-variant-numeric: tabular-nums; }
 .actions-spend-figures > div { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; }
 .actions-spend-figures dt { color: var(--muted); }
@@ -32,7 +44,7 @@
 @media (max-width: 25rem) {
   .actions-spend-panel { padding: 20px 16px; }
   .actions-spend-title h2 { font-size: 1.125rem; }
-  .actions-spend-title .muted { font-size: .875rem; }
+  .actions-spend-month-button { font-size: .875rem; }
   .actions-spend-panel table { font-size: .875rem; }
   .actions-spend-panel th, .actions-spend-panel td { padding-left: 8px; }
 }

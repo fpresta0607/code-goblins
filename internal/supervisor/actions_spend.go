@@ -37,12 +37,26 @@ func (s *Service) readActionsSpend(ctx context.Context, now time.Time) {
 // moment ahead at its local midnight is not refused its new month.
 const actionsSpendClockSkew = 5 * time.Minute
 
+// isActionsSpendMonth reports whether month is a device's calendar month, in
+// any time zone, or the month before it, which the window offers as last
+// month.
 func isActionsSpendMonth(now time.Time, month string) bool {
-	return month >= now.UTC().Add(-12*time.Hour-actionsSpendClockSkew).Format("2006-01") && month <= now.UTC().Add(14*time.Hour+actionsSpendClockSkew).Format("2006-01")
+	earliest := now.UTC().Add(-12*time.Hour - actionsSpendClockSkew)
+	lastMonth := time.Date(earliest.Year(), earliest.Month()-1, 1, 0, 0, 0, 0, time.UTC)
+	return month >= lastMonth.Format("2006-01") && month <= now.UTC().Add(14*time.Hour+actionsSpendClockSkew).Format("2006-01")
+}
+
+// isSettledActionsSpendReading reports whether reading is of a month that had
+// ended a day before GitHub answered it: GitHub has reported the month's last
+// day by then, and a closed month's figures no longer change, so it is kept
+// as read, never read again or shown old.
+func isSettledActionsSpendReading(reading actionsbilling.Reading) bool {
+	month, err := time.Parse("2006-01", reading.Month)
+	return err == nil && reading.Status == "available" && !reading.ReadAt.Before(month.AddDate(0, 1, 1))
 }
 
 // readActionsSpendMonth returns month's reading, reading it again when its
-// last read began an hour or more ago. ctx bounds only this caller's wait for
+// last read began an hour or more ago, unless the reading is settled. ctx bounds only this caller's wait for
 // a read another caller started. A read this call starts is bounded by
 // lifetime instead, so one device disconnecting never cancels the reading
 // every device shares, while the service closing does.
@@ -70,7 +84,7 @@ func (s *Service) readActionsSpendMonth(ctx, lifetime context.Context, now time.
 			return actionsbilling.Reading{Status: "unavailable", Month: month, Detail: "The GitHub Actions usage request was interrupted."}
 		}
 	}
-	if entry != nil && now.Sub(entry.started) < time.Hour {
+	if entry != nil && (now.Sub(entry.started) < time.Hour || isSettledActionsSpendReading(entry.reading)) {
 		s.mu.Unlock()
 		return s.actionsSpendUsage(now, month, s.billingRuns())
 	}
@@ -122,7 +136,7 @@ func (s *Service) actionsSpendUsage(now time.Time, month string, runs []Run) act
 	}
 	// Old says itself where the reading is shown, so an aged reading
 	// carries no problem line.
-	if reading.Status == "available" && now.Sub(reading.ReadAt) >= 2*time.Hour {
+	if reading.Status == "available" && now.Sub(reading.ReadAt) >= 2*time.Hour && !isSettledActionsSpendReading(reading) {
 		reading.Status = "stale"
 	}
 	if reading.Problem == nil {
@@ -149,7 +163,7 @@ func (h *HTTP) actionsSpend(w http.ResponseWriter, r *http.Request) {
 	month := r.URL.Query().Get("month")
 	now := time.Now()
 	if _, err := time.Parse("2006-01", month); err != nil || !isActionsSpendMonth(now, month) {
-		apiError(w, http.StatusBadRequest, "Request the device's current calendar month as YYYY-MM")
+		apiError(w, http.StatusBadRequest, "Request the device's current or last calendar month as YYYY-MM")
 		return
 	}
 	respond(w, http.StatusOK, h.Service.readActionsSpendMonth(r.Context(), h.Service.lifetime, now, month))

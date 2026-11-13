@@ -37,7 +37,7 @@ func (h *HTTP) repairActionsSpend(w http.ResponseWriter, r *http.Request) {
 	}
 	_, monthError := time.Parse("2006-01", input.Month)
 	if err := decoder.Decode(new(json.RawMessage)); err != io.EOF || monthError != nil || !isActionsSpendMonth(time.Now(), input.Month) {
-		apiError(w, http.StatusBadRequest, "Choose this month's billing action.")
+		apiError(w, http.StatusBadRequest, "Choose this or last month's billing action.")
 		return
 	}
 	// Retry is a forced read, which GET /api/actions-spend serves on any
