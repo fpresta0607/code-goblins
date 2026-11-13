@@ -2156,8 +2156,8 @@ func TestSendNowRunsACommandHeldForAGoblinsTurnAtOnce(t *testing.T) {
 			sent := actionOf(store, "message-1")
 
 			// Assert
-			if !held.CanSendNow || held.Message != "Queued. A command runs when its turn ends. Send now runs it at once." {
-				t.Errorf("the held command = %+v; want Send now offered, saying it runs the command at once", held)
+			if !held.CanSendNow || held.Message != "Queued. A command runs when its turn ends. Send now interrupts the turn to run it." {
+				t.Errorf("the held command = %+v; want Send now offered, saying it interrupts the turn to run the command", held)
 			}
 			if pressed.Code != http.StatusAccepted || err != nil || sent.Status != "succeeded" {
 				t.Errorf("Send now = %d %s, delivery = %v, command = %+v; want the command run at once", pressed.Code, pressed.Body, err, sent)
@@ -2404,8 +2404,8 @@ func TestACommandHeldForAGoblinsTurnOffersSendNowWhereItsTerminalCanRunItAtOnce(
 				t.Fatalf("delivery = %v, action = %+v; want it held", err, held)
 			}
 			if test.isOffered {
-				if !held.CanSendNow || held.SendNowWhy != "" || held.Message != "Queued. A command runs when its turn ends. Send now runs it at once." {
-					t.Errorf("held command = %+v; want Send now offered, and words that say it runs the command at once", held)
+				if !held.CanSendNow || held.SendNowWhy != "" || held.Message != "Queued. A command runs when its turn ends. Send now interrupts the turn to run it." {
+					t.Errorf("held command = %+v; want Send now offered, and words that say it interrupts the turn to run the command", held)
 				}
 				if pressed != nil {
 					t.Errorf("Send now = %v; want it taken", pressed)
@@ -2484,8 +2484,8 @@ func TestACommandTakesItsOwnWordsNotThoseOfTheMessageItWaitsBehind(t *testing.T)
 	if words := actionOf(store, "message-2"); !words.CanSendNow || words.Message != "Queued until task-1's turn ends. Send now has it take the message at once." {
 		t.Errorf("the message behind the command = %+v; want Send now and its promise", words)
 	}
-	if command := actionOf(store, "message-3"); !command.CanSendNow || command.Message != "Queued. A command runs when its turn ends. Send now runs it at once." {
-		t.Errorf("the command behind the message = %+v; want Send now and words of its own that say it runs the command at once", command)
+	if command := actionOf(store, "message-3"); !command.CanSendNow || command.Message != "Queued. A command runs when its turn ends. Send now interrupts the turn to run it." {
+		t.Errorf("the command behind the message = %+v; want Send now and words of its own that say it interrupts the turn to run the command", command)
 	}
 }
 

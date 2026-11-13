@@ -474,7 +474,7 @@ func TestSendNowOnAMessageBehindACommandForTheCEOsTurnHasThatMessageTakenFirst(t
 			sent := actionOf(store, "m2")
 
 			// Assert
-			if command.Status != "queued" || !command.CanSendNow || command.Message != "Queued. A command runs when its turn ends. Send now runs it at once." {
+			if command.Status != "queued" || !command.CanSendNow || command.Message != "Queued. A command runs when its turn ends. Send now interrupts the turn to run it." {
 				t.Errorf("the command = %+v; want it waiting on the board for the turn's end, with a Send now of its own", command)
 			}
 			if behind.Status != "queued" || !behind.CanSendNow || behind.Message != "Queued until the CEO's turn ends. Send now has it take the message at once." {
@@ -528,8 +528,8 @@ func TestSendNowRunsACommandHeldForTheCEOsTurnAtOnce(t *testing.T) {
 			sent := actionOf(store, "m1")
 
 			// Assert
-			if !held.CanSendNow || held.Message != "Queued. A command runs when its turn ends. Send now runs it at once." {
-				t.Errorf("the held command = %+v; want Send now offered, saying it runs the command at once", held)
+			if !held.CanSendNow || held.Message != "Queued. A command runs when its turn ends. Send now interrupts the turn to run it." {
+				t.Errorf("the held command = %+v; want Send now offered, saying it interrupts the turn to run the command", held)
 			}
 			if pressed.Code != 202 || err != nil || sent.Status != "succeeded" {
 				t.Errorf("Send now = %d %s, delivery = %v, command = %+v; want the command run at once", pressed.Code, pressed.Body, err, sent)

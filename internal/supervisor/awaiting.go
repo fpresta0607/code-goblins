@@ -67,7 +67,7 @@ const (
 // it at once (#1915).
 const (
 	commandWaits      = "A command runs when its turn ends."
-	commandSendsNow   = "Send now runs it at once."
+	commandSendsNow   = "Send now interrupts the turn to run it."
 	commandNotSentNow = "Send now could not run it at once, so it runs when its turn ends."
 )
 
