@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -23,6 +24,9 @@ import (
 // the file a run names held while the run started.
 type intentFileRunner struct {
 	*pipelineStartRunner
+	// help is what its help for axi run names, the intent file alone unless
+	// a test gives more.
+	help    string
 	started []execx.Request
 	read    []string
 }
@@ -72,7 +76,7 @@ func intentFixture(t *testing.T) (home.Home, string, *intentFileRunner) {
 
 func (runner *intentFileRunner) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
 	if request.Name == "no-mistakes" && slices.Equal(request.Args, []string{"help", "axi", "run"}) {
-		return execx.Result{Stdout: []byte("      --intent-file string   read intent from this file\n      --no-publish-intent    keep the generated Intent section out of the PR body\n")}, nil
+		return execx.Result{Stdout: []byte(cmp.Or(runner.help, "      --intent-file string   read intent from this file\n      --no-publish-intent    keep the generated Intent section out of the PR body\n"))}, nil
 	}
 	if request.Name == "no-mistakes" && len(request.Args) > 1 && request.Args[0] == "axi" && request.Args[1] == "run" {
 		runner.started = append(runner.started, request)
@@ -501,6 +505,51 @@ func TestPipelineRunRefusesInvalidCIHandbackReattachment(t *testing.T) {
 			// Assert
 			if !errors.Is(err, pipeline.ErrUnresolved) || len(start.native) != 0 {
 				t.Fatalf("got %v, native calls %+v; want refusal without dispatch", err, start.native)
+			}
+		})
+	}
+}
+
+// goblins pipeline run hands no-mistakes each issue --closes names, so the
+// pull request the gate opens closes it on merge: no-mistakes neutralizes Fixes
+// #N in every text an agent wrote, the intent included, and writes a live
+// closing reference only from axi run --closes. A no-mistakes that takes no
+// --closes, or a value that is not an issue, starts no run.
+func TestPipelineRunHandsNoMistakesTheIssuesItsPullRequestCloses(t *testing.T) {
+	withCloses := "      --closes stringArray   issue this PR closes when merged\n      --intent-file string   read intent from this file\n      --no-publish-intent    keep the generated Intent section out of the PR body\n"
+	for _, row := range []struct {
+		name   string
+		help   string
+		closes []string
+		want   string
+		failed string
+	}{
+		{"each issue given", withCloses, []string{"--closes", "1996", "--closes", "fpresta0607/code-goblins#1998"}, "--closes 1996 --closes fpresta0607/code-goblins#1998", ""},
+		{"a no-mistakes that takes no closes", "", []string{"--closes", "1996"}, "", "1.87.0"},
+		{"a value that is not an issue", withCloses, []string{"--closes", "1996,1998"}, "", "is not an issue number"},
+		{"a path deeper than owner/repo", withCloses, []string{"--closes", "a/b/c#1"}, "", "is not an issue number"},
+		{"a relative path for owner/repo", withCloses, []string{"--closes", "../..#5"}, "", "is not an issue number"},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			// Arrange
+			h, nm, runner := intentFixture(t)
+			runner.help = row.help
+
+			// Act
+			err := pipelineCommand(context.Background(), h, nm, runner, append([]string{"run", "task", "--intent", "ship safely"}, row.closes...), &bytes.Buffer{})
+
+			// Assert
+			if row.failed != "" {
+				if err == nil || !strings.Contains(err.Error(), row.failed) || len(runner.started) != 0 {
+					t.Fatalf("err = %v with %d runs started, want no run and %q", err, len(runner.started), row.failed)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(runner.started) != 1 || !strings.Contains(strings.Join(runner.started[0].Args, " "), row.want) {
+				t.Fatalf("no-mistakes started %+v, want one run with %q", runner.started, row.want)
 			}
 		})
 	}

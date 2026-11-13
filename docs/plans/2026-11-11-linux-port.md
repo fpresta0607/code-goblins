@@ -6,7 +6,7 @@ It ends with the pull requests that bring the port in, one layer each, and what 
 Windows behaviour does not change in any of them.
 
 The numbers were measured on main at 3bb6a058e on 2026-11-11 by reading the code, as [How it was measured](#how-it-was-measured) says.
-No Linux build has run yet, so the compile list below is a static reading; the first Linux CI job replaces it with the compiler's own list.
+The compile list below is a static reading of what a Linux build rejected before layer 1, which makes every package build on Linux.
 Names follow the rename in #2227: the command is `goblins`, built from `cmd/goblins`.
 
 ## Where the code stands
@@ -22,7 +22,7 @@ Names follow the rename in #2227: the command is `goblins`, built from `cmd/gobl
 - The dependencies are pure Go and build on Linux, SQLite included (`modernc.org/sqlite`), with one exception: Wails v3, which the desktop window and the setup window use, draws with WebView2 on Windows and with WebKitGTK through cgo on Linux.
   Dictation needs cgo or a new dependency as well: on Windows it loads the speech engine's library with `LoadLibraryEx` and no cgo, but on Linux Go loads a shared library only through cgo or a pure-Go loader such as purego, which layer 9 chooses between.
 
-### What a Linux build rejects today
+### What a Linux build rejected before layer 1
 
 About 101 program files in 23 packages, and about 80 test files, call something that exists only on Windows.
 Without cgo the `main.go` of the setup window and of the desktop window fail as well, since Wails builds on Linux only through cgo.
@@ -237,7 +237,7 @@ The host's protocol (a token handshake, then typed frames) is the same on every 
 - **Windows:** `internal/herdr`, a client for Herdr's panes over its own pipe, which 87 files import.
   The fleet no longer runs Herdr panes: every goblin and the CEO run in native terminals, and the install neither installs nor checks Herdr.
 - **Linux:** nothing; its code leaves the repository with #2370.
-  Until then, its Windows-only names get the error-returning Linux file every name gets in layer 1, and nothing more.
+  Until then, its Windows-only names get the Linux file every name gets in layer 1, and nothing more.
 - **Not needed:** all of it.
 
 ### Restart, folder picker and other edges
@@ -271,7 +271,9 @@ Each layer is one pull request on the latest main, keeps the Windows suite green
 A layer's Linux code sits beside the Windows code under a build tag.
 
 1. **This inventory, then the build compiling on Linux.**
-   Every Windows-only name gets a Linux file beside it that, until its own layer, returns an error naming what is missing, and every untagged file that reaches Windows calls moves its Windows part into a `_windows.go` file.
+   Every Windows-only name the rest of the code reaches gets a Linux file beside it that, until its own layer, refuses with an error wrapping `errors.ErrUnsupported` that names what is missing, or answers as the Windows code does when it cannot read, such as a process not found.
+   Where Linux never needs the work, the answer is final: no Codex desktop app, which is a Windows package, and no console window to hide.
+   Every untagged file that reaches Windows calls moves its Windows part into a `_windows.go` file, and the types, constants and logic that hold on any system move out of the Windows files into untagged ones, so none is written twice.
    The setup window builds only on Windows, and the desktop window and the CI runner's service do too until their own layers.
    A Linux job in CI builds every package (`GOOS=linux go build ./...`), so a change that breaks the Linux build fails there.
 2. **Unit tests on Linux.**

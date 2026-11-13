@@ -1,3 +1,5 @@
+//go:build windows
+
 // Command goblins-setup is CodeGoblinsSetup.exe, the one file a person
 // downloads and opens to install Code Goblins with no terminal. It is only a
 // window around the newest release's install script, the one the one-line

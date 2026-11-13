@@ -51,3 +51,25 @@ func TestServeDisablesAutomaticExecutionSpeedThrottlingBeforeOpeningItsHome(t *t
 		t.Errorf("serve kept automatic/throttled scheduling: control=%#x state=%#x", policy.Control, policy.State)
 	}
 }
+
+// The board's supervisor reads which process holds the most handles from this
+// machine, so its memory reading can name it and a leak past the handle line
+// can wake the CEO.
+func TestServeDispatchReadsTheTopHandleHolderOfThisMachine(t *testing.T) {
+	// Arrange
+	dispatch := serveDispatch(testHome(t))
+	if dispatch.TopHandleHolder == nil {
+		t.Fatal("serve's Dispatch reads no handle holder")
+	}
+
+	// Act
+	holder, err := dispatch.TopHandleHolder()
+
+	// Assert
+	if err != nil {
+		t.Fatalf("serve's TopHandleHolder: %v", err)
+	}
+	if holder.PID <= 0 || holder.Name == "" || holder.Handles == 0 || holder.Started.IsZero() {
+		t.Fatalf("serve's TopHandleHolder = %+v, want a running process of this machine with the handles it holds", holder)
+	}
+}

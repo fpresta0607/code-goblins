@@ -266,10 +266,11 @@ func (w shellWord) pathValue() string {
 // Bash and PowerShell alike, which is enough to find the paths a command
 // names: a word it splits wrongly names no folder it would otherwise miss.
 // They differ on a backslash, which Bash reads as an escape and PowerShell
-// as a character, so with isEscaping it reads one before a quote or a
-// backslash as Bash does, as that character itself, outside quotes and, for
-// " and \, in double quotes. A backslash before any other character stays,
-// as the folder separator a Windows path holds.
+// as a character, so with isEscaping it reads one before a line break as
+// Bash does, as the line going on, and one before a quote or a backslash as
+// that character itself, outside quotes and, for " and \, in double quotes.
+// A backslash before any other character stays, as the folder separator a
+// Windows path holds.
 func shellSegments(command string, isEscaping bool) [][]shellWord {
 	var segments [][]shellWord
 	var segment []shellWord
@@ -292,6 +293,10 @@ func shellSegments(command string, isEscaping bool) [][]shellWord {
 	for index := 0; index < len(command); index++ {
 		c := command[index]
 		switch {
+		case isEscaping && c == '\\' && strings.HasPrefix(command[index+1:], "\n"):
+			index++
+		case isEscaping && c == '\\' && strings.HasPrefix(command[index+1:], "\r\n"):
+			index += 2
 		case isEscaping && c == '\\' && index+1 < len(command) && strings.IndexByte(`"'\`, command[index+1]) >= 0:
 			index++
 			word.WriteByte(command[index])

@@ -13,13 +13,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/awake"
 )
 
-// waitersSuffix names the file beside a lock that its waiters line up at.
-const waitersSuffix = ".waiters"
-
-// errWaitedOut reports that a waiter's place in the line did not come up
-// within its wait.
-var errWaitedOut = errors.New("lock: the wait ended in the line of waiters")
-
 // places holds, by lock, the place in the line this process stands at while
 // it holds that lock: ReleaseNamed gives it up after the lock's record.
 var places = struct {

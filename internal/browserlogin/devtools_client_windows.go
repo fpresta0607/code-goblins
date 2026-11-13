@@ -146,14 +146,6 @@ func (p *devToolsPipe) serveClient(w http.ResponseWriter, r *http.Request, targe
 	}
 }
 
-// Event is a DevTools event a Client's browser sent: its method, its
-// parameters and the page session it came from, empty for the browser's own.
-type Event struct {
-	Session string
-	Method  string
-	Params  json.RawMessage
-}
-
 // Client is a DevTools connection of this process's own to a browser it
 // started, attached to the browser itself, which reaches the browser's pages
 // by attaching to them with Target.attachToTarget and flatten. Its events
