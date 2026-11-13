@@ -778,6 +778,40 @@ test("Up in the empty box takes the newest queued message back into the box, its
   expect(posts).toHaveLength(1);
 });
 
+// A take-back disables the box while the board answers, and a disabled box
+// gives up the keyboard. The box has it back from the moment it is enabled
+// again: given back a frame later, a key he pressed at once reached nothing,
+// and given back in a frame drawn before then, it never came back.
+for (const press of ["Up", "Edit"] as const) {
+  test(`${press} takes a message back with the keyboard in the box from the moment the box is enabled again`, async ({ page }) => {
+    // Arrange
+    await open(page, snapshot({ actions: [queued()] }));
+    let answer = () => {};
+    const answered = new Promise<void>((resolve) => { answer = resolve; });
+    await page.route("**/api/actions", async (route) => {
+      await answered;
+      await route.fulfill({ status: 202, json: { status: "succeeded" } });
+    });
+    await openGoblin(page);
+    await field(page).evaluate((box) => new MutationObserver(() => {
+      if (!box.hasAttribute("disabled")) box.dataset.focusedWhenEnabled = String(document.activeElement === box);
+    }).observe(box, { attributeFilter: ["disabled"] }));
+    await field(page).focus();
+
+    // Act: he takes it back, and the board answers once the disabled box has
+    // given up the keyboard.
+    if (press === "Up") await page.keyboard.press("ArrowUp");
+    else await entry(page).getByRole("button", { name: "Edit", exact: true }).click();
+    await expect(field(page)).toBeDisabled();
+    await expect(field(page)).not.toBeFocused();
+    answer();
+
+    // Assert
+    await expect(field(page)).toHaveValue("hold the merge until the gate lets go");
+    await expect(field(page)).toHaveAttribute("data-focused-when-enabled", "true");
+  });
+}
+
 // A move with the arrows through the command list belongs to the draft it was
 // made on. Words that come back to the box without his typing them, as a
 // queued command taken back does, are another draft: Enter sends them as they

@@ -672,6 +672,15 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // presses (the Overlord, 2026-10-28: "lack of indmepotent click on teh
   // queue"), under the request ID a Cancel of it would use.
   const takenBack = useRef(new Set<string>());
+  // A take-back disables the box while the board answers, and a disabled box
+  // gives up the keyboard. It takes the keyboard back in the commit that
+  // enables it again: asked for a frame later, a key he pressed at once
+  // reached nothing, and asked for in a frame drawn before that commit, while
+  // the box was still disabled, it never came back.
+  const [takeBacksEnded, setTakeBacksEnded] = useState(0);
+  useLayoutEffect(() => {
+    if (takeBacksEnded) field.current?.focus();
+  }, [takeBacksEnded]);
   const unqueue = async (action: Action) => {
     if (takenBack.current.has(action.id)) return;
     takenBack.current.add(action.id);
@@ -688,7 +697,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
       if (!(error instanceof Error && error.cause !== undefined)) reportToCeo("taking back a message to " + name, message(error));
     } finally {
       setSending(false);
-      requestAnimationFrame(() => field.current?.focus());
+      setTakeBacksEnded((count) => count + 1);
     }
   };
   useEffect(() => {
