@@ -1,0 +1,51 @@
+name: sandbox
+
+# A sandbox task's commands run in a container of its project's image, which
+# the rest of the Go tests prove only with a fake docker. This workflow runs
+# the tests that prove it with real containers
+# (internal/sandbox/container_linux_test.go) on a hosted Ubuntu runner,
+# whose Docker engine runs Linux containers, which no standard hosted Windows
+# runner does (issue 2254). It runs for every pull request that changes how a
+# sandbox task's command reaches its container or how its container is
+# removed.
+on:
+  pull_request:
+    paths:
+      - internal/sandbox/**
+      - internal/services/cli.go
+      - cmd/goblins/sandbox.go
+      - cmd/goblins/gate_turn.go
+      - .github/workflows/sandbox.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  container:
+    name: real container
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+      # The tests skip without GOBLINS_REAL_DOCKER, and go test passes when
+      # -run names no test, so the step fails unless all three passed.
+      - name: Run sandbox commands in real containers
+        shell: bash
+        env:
+          GOBLINS_REAL_DOCKER: '1'
+          CGO_ENABLED: '0'
+        run: |
+          go test -count=1 -run 'RealContainer' -v ./internal/sandbox | tee real-container.log
+          passed=$(grep -c '^--- PASS: Test[A-Za-z]*RealContainer' real-container.log || true)
+          if [ "$passed" -ne 3 ]; then
+            echo "$passed of the 3 real-container tests passed"
+            exit 1
+          fi
