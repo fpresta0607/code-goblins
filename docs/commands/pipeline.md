@@ -1,6 +1,6 @@
 # goblins pipeline
 
-`goblins pipeline config-drift \| config-apply \| migrate <id> \| run <id> [--branch <b>] --intent-file <file> \| respond <id> [--branch <b> \| --run <run>] --action <fix\|approve> [--findings <ids>] [--instructions <text>] [--accept <ids>] [--reason <text>] [--scope-decision <answered-notify-sequence>] \| recover <id> [--branch <b> \| --run <run>] \| handback <id> [--branch <b> \| --run <run>] [--revalidate-publication] [--resume --receipt <receipt>]`
+`goblins pipeline config-drift \| config-apply \| migrate <id> \| run <id> [--branch <b>] --intent-file <file> [--closes <issue>]... \| respond <id> [--branch <b> \| --run <run>] --action <fix\|approve> [--findings <ids>] [--instructions <text>] [--accept <ids>] [--reason <text>] [--scope-decision <answered-notify-sequence>] \| recover <id> [--branch <b> \| --run <run>] \| handback <id> [--branch <b> \| --run <run>] [--revalidate-publication] [--resume --receipt <receipt>]`
 
 `goblins pipeline terminal-preflight <id> --run <predecessor>`
 
