@@ -319,17 +319,21 @@ Mac proof is CI on a macOS runner, as Linux proof is the `linux` job.
 
 macOS takes the pseudo terminal, Unix sockets, process groups, signals and `flock` from the Linux layers.
 Code that holds on both is written once, in `_unix.go` files, so neither system gets a copy.
+A durable write is shared too: `fsync` alone does not reach the disk on macOS, but Go's `File.Sync` already issues `F_FULLFSYNC` there, so it costs macOS nothing.
 It differs where Linux reads `/proc` and `/sys`, and where the Linux layers call what only Linux has:
 
 - Process identity comes from `sysctl` (`kern.proc` for the parent, name and start, `kern.procargs2` for the arguments and environment) and from `libproc` for the working folder, the image and each process's memory.
 - A process is named by the boot session's UUID (`kern.bootsessionuuid`) and the kernel's unique ID for it (`p_uniqueid`, from `libproc`), which is never given twice in one boot, so no clock is in it, as none is in the Linux instance.
 - No `pidfd_open`: a process is ended by its ID after its identity is checked, so a few microseconds stay between the check and the end in which the ID could pass to another program.
   A child the fleet started cannot lose its ID that way, since its parent has not collected it.
-- No `PR_SET_CHILD_SUBREAPER`: a child that leaves its process group is found again by its parent chain.
-- No `sched_setaffinity`: the terminal is kept off the performance cores by running it at background priority (`PRIO_DARWIN_BG`), which macOS schedules on the efficiency cores of Apple silicon, and the cores' kinds come from `sysctl hw.perflevel*`.
+- No `PR_SET_CHILD_SUBREAPER`: a child whose parent exits passes to launchd, so its parent chain no longer leads back to the fleet.
+  `internal/execx` and the gate's executor mark each tree they start with an environment marker, and a tree is found by its parent chain and by that marker, read through `kern.procargs2`, which M1 ports.
+- No `sched_setaffinity`: the terminal is kept off the performance cores by its priority, and the cores' kinds come from `sysctl hw.perflevel*`.
+  Background priority (`PRIO_DARWIN_BG`) runs it on the efficiency cores of Apple silicon, but it also gives the lowest scheduling priority and throttles disk and network, which the Windows thread mask and Linux affinity do not.
+  Spawn always passes `--leave-cores-for-apps`, so every goblin's work would be throttled.
+  Layer 5 measures background priority against the utility class (`QOS_CLASS_UTILITY`) on the macOS runner, chooses from those numbers, and states the choice and its cost in its pull request.
 - No systemd: each host starts in a session of its own, and the supervisor runs as a launchd agent with `AbandonProcessGroup`, so an update of the supervisor ends no host.
 - The socket's peer comes from `LOCAL_PEERPID` instead of `SO_PEERCRED`, and the sockets take the user's 0700 folder under `/tmp`, since the 104-byte `sun_path` leaves no room under `$TMPDIR`.
-- `fsync` does not reach the disk: a durable write takes `F_FULLFSYNC`.
 - Folder watching uses `kqueue`, memory and processor readings use the Mach host calls, the creation time comes from `stat`'s birth time and the disk priority from `setiopolicy_np`.
 - Its default file system ignores case and Unicode normalization while it keeps both, as Windows ignores case, so layer 4's exact comparison is wrong there: a path compares as its volume does, read with `pathconf(_PC_CASE_SENSITIVE)`.
 - The home follows the Linux rule, `$XDG_DATA_HOME/code-goblins` or `~/.local/share/code-goblins`, rather than `~/Library/Application Support`, whose space every hook and card command would have to quote; the app itself sits in `/Applications`.
@@ -339,7 +343,7 @@ It differs where Linux reads `/proc` and `/sys`, and where the Linux layers call
 
 ### cgo on macOS
 
-`golang.org/x/sys` covers `sysctl`, `kqueue`, `flock`, `LOCAL_PEERPID`, `F_FULLFSYNC` and the terminal's ioctls without cgo.
+`golang.org/x/sys` covers `sysctl`, `kqueue`, `flock`, `LOCAL_PEERPID` and the terminal's ioctls without cgo.
 `libproc`, the Mach host readings, `setiopolicy_np` and the Security framework have no such call, and the desktop window needs cgo through Wails anyway.
 So the macOS build turns cgo on and builds on a macOS runner, which carries Apple's compiler, and no new dependency comes in.
 A pure-Go loader such as purego is the alternative; it adds a dependency and saves only the CLI's cgo.
@@ -353,10 +357,10 @@ The sizes are added lines, measured against layer 3 part 1, which added 985 prog
 | --- | --- | --- | --- | --- |
 | 1 and 2, build and unit tests | the build constraints, the `_windows_test.go` split, the EXCEPT list | a `macos` CI job that builds, vets and runs the tests of every package outside its own EXCEPT list; Windows-only test programs (`cmd`, `ping`) that are not yet per system | M1, macOS catches up, right after this plan | about 150 program lines, 100 test lines, the job (a workflow change for the CEO) |
 | 3 part 1, processes and the lock | the lock's line of waiters, its instance rule, `fsx.RemoveFileWhen`, supervise's liveness check, the stand-in programs (`true`, `sleep`) | `internal/proc` on `sysctl` and `libproc`; the instance from the boot session and the process's unique ID; ending a process without a `pidfd` | M1 | about 350 program lines, 300 test lines |
-| 3 part 2, trees and the gate's executor | process groups, signals, Ctrl+Break as `SIGINT` then `SIGTERM` | the tree found by its parent chain, since no subreaper holds it | 3 part 2 | about 60 program lines, 60 test lines |
-| 3 part 3, files and the home | `rename`, the hold on a file, the home under `$XDG_DATA_HOME`, mode 0700, `access.IsNarrow` by mode | `F_FULLFSYNC` for a durable write | 3 part 3 | about 20 program lines, 30 test lines |
+| 3 part 2, trees and the gate's executor | process groups, signals, Ctrl+Break as `SIGINT` then `SIGTERM` | an environment marker on each tree `internal/execx` and the gate's executor start, and the tree found by its parent chain and by that marker through `kern.procargs2`, since no subreaper holds it | 3 part 2 | about 100 program lines, 80 test lines |
+| 3 part 3, files and the home | `rename`, the hold on a file, the home under `$XDG_DATA_HOME`, mode 0700, `access.IsNarrow` by mode, the durable write through `File.Sync` | nothing of its own | 3 part 3 | nothing |
 | 4, transport and paths | Unix sockets, the peer check, `flock` on the primary transport, `pathguard` reading a path as written | `LOCAL_PEERPID`; sockets under `/tmp`; path comparison by the volume's case and normalization | 4 | about 150 program lines, 150 test lines |
-| 5, the native terminal | the pseudo terminal, raw mode, `SIGWINCH`, the host's emulator | the pty from `/dev/ptmx`, the launchd agent's `AbandonProcessGroup` in place of a systemd scope, background priority in place of affinity, the cores' kinds from `sysctl` | 5 | about 200 program lines, 120 test lines |
+| 5, the native terminal | the pseudo terminal, raw mode, `SIGWINCH`, the host's emulator | the pty from `/dev/ptmx`, the launchd agent's `AbandonProcessGroup` in place of a systemd scope, background priority or the utility class in place of affinity, chosen by measuring both on the macOS runner, the cores' kinds from `sysctl` | 5 | about 200 program lines, 120 test lines |
 | 6, watching and readings | the reader's shape, `setpriority`, Chrome over DevTools | `kqueue`; memory and processors from the Mach host calls; each process's memory from `libproc`; the birth time; `setiopolicy_np`; Chrome in `/Applications`; `pbcopy` | 6 | about 350 program lines, 200 test lines |
 | 7, end to end | the hooks calling `goblins`, the run on CI under Claude Code, Codex and pi | cards in `sh`, `!` in the user's shell, folders opened with `open` | 7 | about 40 program lines, and the macOS runner in the end-to-end job |
 | 8 for macOS, installer, window and updater | the release's checksums, update by rename | one universal disk image for Apple silicon and Intel holding the app with the window and the CLI, signed and notarized; start at sign-in as a launch agent; the Keychain; update and uninstall of the app | 8m, its own pull request, ahead of the Linux installer | about 600 program lines, 200 test lines, and the release job on a macOS runner |
@@ -391,11 +395,12 @@ The same list as Linux, and the systemd scope, the user unit and lingering, whic
 
 ### Left out on macOS at first
 
-Nothing is dropped in silence: each of these says what it lacks when used.
+Nothing is dropped in silence: each of these but the last says what it lacks when used, and the last is named here, since nothing can say it when it happens.
 
 - GPU readings: macOS gives them only to root (`powermetrics`).
 - The desktop CI runner: a Mac sends private repositories' CI to GitHub's runners until a runner on the Virtualization framework is planned.
 - Intel Macs are built into the universal image and run in CI only while GitHub offers an Intel macOS runner.
+- A process that clears or replaces its environment and leaves the parent chain, because a process between it and the fleet has exited, is not found: it outlives the run.
 
 ### The order
 
