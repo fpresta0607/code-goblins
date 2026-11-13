@@ -27,6 +27,21 @@ func OldSettings(env installbase.EnvStore) (root, projects string, err error) {
 	return root, projects, err
 }
 
+// HomeSettings is the user's settings, where goblins' home setting falls back
+// on the one a build before the rename set, so whatever finds the home by the
+// user's settings, an install, an uninstall or the setup's plan, finds such a
+// home where it is.
+type HomeSettings struct{ installbase.EnvStore }
+
+func (e HomeSettings) Get(name string) (string, bool, error) {
+	value, isSet, err := e.EnvStore.Get(name)
+	if err != nil || isSet || name != installbase.HomeVariable {
+		return value, isSet, err
+	}
+	root, _, err := OldSettings(e.EnvStore)
+	return root, root != "", err
+}
+
 // TaskScheduler is Windows' Task Scheduler, read and written through
 // PowerShell, each job's definition carried in base64 so no quoting can break
 // it. Windows' own jobs, under \Microsoft\, are never read.

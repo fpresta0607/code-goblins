@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/cutover"
 )
 
 // identity is what a window is known by on this machine: its one-instance id,
@@ -46,23 +48,16 @@ func windowIdentity(stateDir, profile string, userEnv []string) identity {
 
 // usersOwnState is the state folder of the home userEnv names, as goblins
 // resolves one: GOBLINS_STATE_OVERRIDE, or else the state folder of GOBLINS_HOME, or
-// else of the per-user home under LOCALAPPDATA. It is empty when userEnv
-// names no home at all.
+// else of the per-user home under LOCALAPPDATA, each by its old name where a
+// release before the rename set only that. It is empty when userEnv names no
+// home at all.
 func usersOwnState(userEnv []string) string {
-	value := func(name string) string {
-		for _, entry := range userEnv {
-			if key, found, ok := strings.Cut(entry, "="); ok && strings.EqualFold(key, name) {
-				return found
-			}
-		}
-		return ""
-	}
-	if state := value("GOBLINS_STATE_OVERRIDE"); state != "" {
+	if state := cutover.SettingIn(userEnv, "GOBLINS_STATE_OVERRIDE"); state != "" {
 		return state
 	}
-	root := value("GOBLINS_HOME")
+	root := cutover.SettingIn(userEnv, "GOBLINS_HOME")
 	if root == "" {
-		local := value("LOCALAPPDATA")
+		local := cutover.SettingIn(userEnv, "LOCALAPPDATA")
 		if local == "" {
 			return ""
 		}

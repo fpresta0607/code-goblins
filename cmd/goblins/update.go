@@ -884,7 +884,8 @@ var homeImages = map[string]bool{"goblins.exe": true, "previous-goblins.exe": tr
 // homeServe accepts a process that is this home's supervisor: a program of
 // this home, by the image it has loaded, running serve for this home as
 // home.Resolve finds one, from GOBLINS_HOME or else the per-user home its
-// LOCALAPPDATA names, with GOBLINS_STATE_OVERRIDE or else the home's state. A
+// LOCALAPPDATA names, with GOBLINS_STATE_OVERRIDE or else the home's state,
+// each by its old name where a release before the rename started it. A
 // supervisor can run from any folder, and the fleet runs scratch supervisors
 // from the same binary for other homes and states, none of them this home's.
 func homeServe(h home.Home) func(proc.Identity) error {
@@ -897,7 +898,7 @@ func homeServe(h home.Home) func(proc.Identity) error {
 		}
 		// Its home and state are where its own file operations land: a
 		// relative name resolves against its own working folder.
-		root := identity.Getenv("GOBLINS_HOME")
+		root := cutover.SettingIn(identity.Environment, "GOBLINS_HOME")
 		if root == "" {
 			local := identity.Getenv("LOCALAPPDATA")
 			if local == "" {
@@ -907,7 +908,7 @@ func homeServe(h home.Home) func(proc.Identity) error {
 		} else {
 			root = resolvedFrom(identity.Directory, root)
 		}
-		state := identity.Getenv("GOBLINS_STATE_OVERRIDE")
+		state := cutover.SettingIn(identity.Environment, "GOBLINS_STATE_OVERRIDE")
 		if state == "" {
 			state = filepath.Join(root, "state")
 		} else {

@@ -31,6 +31,35 @@ func TestAdoptOldSettingsReadsEachOldSettingByTheNewNameAndDropsTheOld(t *testin
 	}
 }
 
+func TestSettingInReadsAnotherProcesssSettingByItsOldNameWhereTheNewIsAbsent(t *testing.T) {
+	old := strings.ToUpper(oldName) + "_"
+	cases := []struct {
+		name        string
+		environment []string
+		setting     string
+		want        string
+	}{
+		{"the old name only", []string{old + "HOME=" + `D:\elsewhere`}, setting + "HOME", `D:\elsewhere`},
+		{"the old name in another case", []string{strings.ToLower(old) + "state_override=" + `D:\state`}, setting + "STATE_OVERRIDE", `D:\state`},
+		{"the new name over the old, the old first", []string{old + "HOME=" + `D:\old`, setting + "HOME=" + `D:\new`}, setting + "HOME", `D:\new`},
+		{"the new name over the old, the new first", []string{setting + "HOME=" + `D:\new`, old + "HOME=" + `D:\old`}, setting + "HOME", `D:\new`},
+		{"another setting's old name", []string{old + "HOMELY=" + `D:\old`}, setting + "HOME", ""},
+		{"neither", []string{`LOCALAPPDATA=C:\local`}, setting + "HOME", ""},
+		{"the CEO's terminal by its old name", []string{old + "HOST_ID=" + oldName}, hostIDSetting, newName},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			got := SettingIn(test.environment, test.setting)
+
+			// Assert
+			if got != test.want {
+				t.Errorf("SettingIn(%q, %s) = %q, want %q", test.environment, test.setting, got, test.want)
+			}
+		})
+	}
+}
+
 func TestHandBackSettingsGivesABuildFromBeforeTheRenameTheSettingsItWasHanded(t *testing.T) {
 	// Arrange
 	old := strings.ToUpper(oldName) + "_"

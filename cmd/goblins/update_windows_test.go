@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/cutover/cutovertest"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
@@ -1028,6 +1029,53 @@ func TestAHomesSupervisorIsKnownByWhereItsRelativeNamesResolve(t *testing.T) {
 			}
 			if !test.isHomes && err == nil {
 				t.Fatal("a supervisor of another state was taken for this home's")
+			}
+		})
+	}
+}
+
+// A supervisor a release before the rename started holds its home and state
+// only by the old names, as one of v0.5.18 or earlier does until its update
+// moves the user's settings: an update proves it this home's by those names
+// where the new ones are absent, the new name wins where both are set, and a
+// supervisor of another home is still refused (issue 2539).
+func TestASupervisorNamedByTheOldSettingsIsProvedItsHomes(t *testing.T) {
+	local := t.TempDir()
+	parent := t.TempDir()
+	root := filepath.Join(parent, "my-home")
+	other := filepath.Join(t.TempDir(), "other-home")
+	movedState := filepath.Join(t.TempDir(), "fleet-state")
+	for _, test := range []struct {
+		name        string
+		state       string
+		directory   string
+		environment []string
+		isHomes     bool
+	}{
+		{"the old home name only, outside the per-user folder", filepath.Join(root, "state"), t.TempDir(), []string{cutovertest.HomeSetting + "=" + root}, true},
+		{"the old home and state names only", movedState, t.TempDir(), []string{cutovertest.HomeSetting + "=" + root, cutovertest.StateSetting + "=" + movedState}, true},
+		{"a relative old home name from the folder that holds it", filepath.Join(root, "state"), parent, []string{cutovertest.HomeSetting + "=my-home"}, true},
+		{"both names for the same home, as the issue's workaround sets them", filepath.Join(root, "state"), t.TempDir(), []string{cutovertest.HomeSetting + "=" + root, "GOBLINS_HOME=" + root}, true},
+		{"the new name naming this home over an old name naming another", filepath.Join(root, "state"), t.TempDir(), []string{cutovertest.HomeSetting + "=" + other, "GOBLINS_HOME=" + root}, true},
+		{"the new name naming another home over an old name naming this one", filepath.Join(root, "state"), t.TempDir(), []string{cutovertest.HomeSetting + "=" + root, "GOBLINS_HOME=" + other}, false},
+		{"the new state name over an old state name", movedState, t.TempDir(), []string{cutovertest.HomeSetting + "=" + root, cutovertest.StateSetting + "=" + movedState, "GOBLINS_STATE_OVERRIDE=" + filepath.Join(root, "state")}, false},
+		{"the old home name naming another home", filepath.Join(root, "state"), t.TempDir(), []string{cutovertest.HomeSetting + "=" + other}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h := home.Home{Root: root, State: test.state}
+			program := filepath.Join(root, "bin", "goblins.exe")
+			identity := proc.Identity{Image: program, Arguments: []string{program, "serve", "--listen", "127.0.0.1:4310"}, Directory: test.directory, Environment: append([]string{"LOCALAPPDATA=" + local}, test.environment...)}
+
+			// Act
+			err := homeServe(h)(identity)
+
+			// Assert
+			if test.isHomes && err != nil {
+				t.Fatalf("this home's supervisor was refused: %v", err)
+			}
+			if !test.isHomes && err == nil {
+				t.Fatal("a supervisor of another home or state was taken for this home's")
 			}
 		})
 	}

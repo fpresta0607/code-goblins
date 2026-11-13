@@ -19,21 +19,51 @@ var hostIDSetting = setting + "HOST_ID"
 // a terminal opened before it that names itself by the old one is read as
 // that terminal, as it is now named.
 func AdoptOldSettings() {
-	prefix := strings.ToUpper(oldName) + "_"
 	for _, entry := range os.Environ() {
 		name, value, _ := strings.Cut(entry, "=")
-		if len(name) <= len(prefix) || !strings.EqualFold(name[:len(prefix)], prefix) {
+		adopted, value, isOld := adoptedSetting(name, value)
+		if !isOld {
 			continue
-		}
-		adopted := setting + strings.ToUpper(name[len(prefix):])
-		if adopted == hostIDSetting && strings.EqualFold(value, oldName) {
-			value = newName
 		}
 		if _, isSet := os.LookupEnv(adopted); !isSet {
 			_ = os.Setenv(adopted, value)
 		}
 		_ = os.Unsetenv(name)
 	}
+}
+
+// SettingIn is the value of goblins' setting name in environment, another
+// process's NAME=value entries, as that process means it: the setting itself
+// where environment sets it, or else the setting a build before the rename
+// named the same way, read as AdoptOldSettings reads it, since a process of
+// such a build holds its home and state only by the old names. It is empty
+// where neither is set.
+func SettingIn(environment []string, name string) string {
+	fallback := ""
+	for _, entry := range environment {
+		key, value, _ := strings.Cut(entry, "=")
+		if strings.EqualFold(key, name) {
+			return value
+		}
+		if adopted, value, isOld := adoptedSetting(key, value); isOld && strings.EqualFold(adopted, name) {
+			fallback = value
+		}
+	}
+	return fallback
+}
+
+// adoptedSetting is the name and value goblins reads a setting of a build
+// before the rename by, and false for a setting that is not one.
+func adoptedSetting(name, value string) (string, string, bool) {
+	prefix := strings.ToUpper(oldName) + "_"
+	if len(name) <= len(prefix) || !strings.EqualFold(name[:len(prefix)], prefix) {
+		return "", "", false
+	}
+	adopted := setting + strings.ToUpper(name[len(prefix):])
+	if adopted == hostIDSetting && strings.EqualFold(value, oldName) {
+		value = newName
+	}
+	return adopted, value, true
 }
 
 // HandBackSettings sets each of goblins' settings in this process's
