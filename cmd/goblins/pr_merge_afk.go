@@ -10,6 +10,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/githubapi"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
@@ -69,7 +70,10 @@ func (r commandRuntime) afkLog() func(home.Home, afk.Entry) error {
 // CI on the base's tip with the pull requests ahead of it and merges only if
 // that passes, so the head need not hold the tip, and the evidence says the
 // queue decides.
-func afkMergeEvidence(ctx context.Context, pullRequest, verified string, proof prProof, queue mergeQueue, commands execx.Runner) (string, error) {
+//
+// github reads the account and the comparison, and gh reads them while it is
+// nil, as apiFor leaves it for a pull request on another host.
+func afkMergeEvidence(ctx context.Context, pullRequest, verified string, proof prProof, queue mergeQueue, commands execx.Runner, github *githubapi.Client) (string, error) {
 	repository, err := pullRequestRepository(pullRequest)
 	if err != nil {
 		return "", err
@@ -77,7 +81,12 @@ func afkMergeEvidence(ctx context.Context, pullRequest, verified string, proof p
 	if proof.CrossRepository {
 		return "", errors.New("this pull request comes from another repository, so it is not a goblin's branch here: leave it for the Overlord")
 	}
-	viewer, err := ghText(ctx, commands, "api", "user", "--jq", ".login")
+	var viewer string
+	if github != nil {
+		viewer, err = supervisor.GitHubAccount(ctx, github)
+	} else {
+		viewer, err = ghText(ctx, commands, "api", "user", "--jq", ".login")
+	}
 	if err != nil {
 		return "", fmt.Errorf("GitHub did not say which account gh is signed in as: %w", err)
 	}
@@ -102,22 +111,42 @@ func afkMergeEvidence(ctx context.Context, pullRequest, verified string, proof p
 		return fmt.Sprintf("verified: %s; head %s; %s; mergeable; by %s, the account gh is signed in as; %s requires its merge queue, which tests this head merged on %s's tip with the pull requests ahead of it and merges it only if that passes",
 			verified, proof.HeadRefOID, green, proof.Author, proof.BaseRefName, proof.BaseRefName), nil
 	}
-	compared, err := ghText(ctx, commands, "api", "repos/"+repository+"/compare/"+proof.BaseRefName+"..."+proof.HeadRefOID, "--jq", "{behind_by, base: .base_commit.sha}")
+	var comparison struct {
+		BehindBy   *int `json:"behind_by"`
+		BaseCommit struct {
+			SHA string `json:"sha"`
+		} `json:"base_commit"`
+	}
+	compare := "repos/" + repository + "/compare/" + proof.BaseRefName + "..." + proof.HeadRefOID
+	if github != nil {
+		err = github.Get(ctx, compare, &comparison)
+	} else {
+		var compared string
+		if compared, err = ghText(ctx, commands, "api", compare); err == nil {
+			err = json.Unmarshal([]byte(compared), &comparison)
+		}
+	}
 	if err != nil {
 		return "", fmt.Errorf("GitHub did not compare the head with %s: %w", proof.BaseRefName, err)
 	}
-	var comparison struct {
-		BehindBy *int   `json:"behind_by"`
-		Base     string `json:"base"`
-	}
-	if err := json.Unmarshal([]byte(compared), &comparison); err != nil || comparison.BehindBy == nil || comparison.Base == "" {
+	if comparison.BehindBy == nil || comparison.BaseCommit.SHA == "" {
 		return "", fmt.Errorf("GitHub's comparison of the head with %s could not be read", proof.BaseRefName)
 	}
 	if *comparison.BehindBy > 0 {
 		return "", fmt.Errorf("the head is %d commit(s) behind %s, so CI on it did not test %s as it is now: have its goblin merge %s in and let CI run on that head", *comparison.BehindBy, proof.BaseRefName, proof.BaseRefName, proof.BaseRefName)
 	}
 	return fmt.Sprintf("verified: %s; head %s; %s; mergeable; by %s, the account gh is signed in as; %s's tip %s was in the head when this was read, so the merge ref's first parent was that tip and CI on this head tested the merge of it",
-		verified, proof.HeadRefOID, green, proof.Author, proof.BaseRefName, comparison.Base), nil
+		verified, proof.HeadRefOID, green, proof.Author, proof.BaseRefName, comparison.BaseCommit.SHA), nil
+}
+
+// apiFor is github for a pull request on github.com, the one host GitHub's
+// API client reaches, and nil for one on another host, which gh reads.
+func apiFor(pullRequest string, github *githubapi.Client) *githubapi.Client {
+	parsed, err := url.Parse(pullRequest)
+	if err != nil || !strings.EqualFold(parsed.Host, "github.com") {
+		return nil
+	}
+	return github
 }
 
 // pullRequestRepository is the owner/name of the repository a pull request's

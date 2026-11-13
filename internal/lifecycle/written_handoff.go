@@ -9,7 +9,10 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/githubapi"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/tickets"
+	"github.com/fpresta0607/code-goblins/internal/train"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
@@ -26,6 +29,9 @@ const handoffBound = 5 * time.Second
 type HandoffWriter struct {
 	StateDir string
 	Commands execx.Runner
+	// GitHub lists the open pull requests of a worktree whose origin is on
+	// github.com.
+	GitHub *githubapi.Client
 	// Owner says whose task a process is (OwnerOf), for the task's own runs
 	// in the machine's heavy line.
 	Owner func(pid int) string
@@ -68,7 +74,7 @@ func (writer HandoffWriter) Handoff(ctx context.Context, meta state.TaskMeta) []
 		fmt.Fprintf(&note, "- HEAD: %s\n", head)
 	}
 	if branchErr == nil && branch != "HEAD" {
-		note.WriteString(writer.pullRequests(run, branch))
+		note.WriteString(writer.pullRequests(ctx, run, meta.Worktree, branch))
 	}
 	if lines, err := state.TailStatus(writer.StateDir, meta.ID, 1); err != nil {
 		fmt.Fprintf(&note, "- Your last status line: could not be read (%v)\n", err)
@@ -82,21 +88,25 @@ func (writer HandoffWriter) Handoff(ctx context.Context, meta state.TaskMeta) []
 	return []byte(note.String())
 }
 
-// pullRequests names the open pull requests from branch, as gh in the task's
-// worktree lists them, by their links alone: gh lists a fork's pull request
-// from a branch of the same name too, and its title is a stranger's words in
-// a file the goblin is told to read.
-func (writer HandoffWriter) pullRequests(run func(string, ...string) (string, error), branch string) string {
-	listed, err := run("gh", "pr", "list", "--head", branch, "--state", "open", "--json", "url,isDraft")
-	var open []struct {
-		URL     string `json:"url"`
-		IsDraft bool   `json:"isDraft"`
-	}
-	if err == nil {
-		err = json.Unmarshal([]byte(listed), &open)
-	}
-	if err == nil && open == nil {
-		err = errors.New("gh listed nothing")
+// pullRequests names the open pull requests from branch, as GitHub's API
+// lists them for a worktree whose origin is on github.com and gh in the
+// worktree lists them for one elsewhere, by their links alone: each lists a
+// fork's pull request from a branch of the same name too, and its title is a
+// stranger's words in a file the goblin is told to read.
+func (writer HandoffWriter) pullRequests(ctx context.Context, run func(string, ...string) (string, error), worktree, branch string) string {
+	var open []train.GraphPullRequest
+	repository, err := tickets.GitHub{Commands: writer.Commands}.RepositoryOf(ctx, worktree)
+	switch {
+	case err == nil:
+		open, err = train.ListPullRequests(ctx, writer.GitHub, repository, "", branch)
+	case errors.Is(err, tickets.ErrNotGitHub):
+		var listed string
+		if listed, err = run("gh", "pr", "list", "--head", branch, "--state", "open", "--json", "url,isDraft"); err == nil {
+			err = json.Unmarshal([]byte(listed), &open)
+		}
+		if err == nil && open == nil {
+			err = errors.New("gh listed nothing")
+		}
 	}
 	if err != nil {
 		return fmt.Sprintf("- Open pull requests: could not be read (%v)\n", err)

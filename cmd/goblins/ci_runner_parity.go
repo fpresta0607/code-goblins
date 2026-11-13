@@ -2,17 +2,16 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/ciparity"
-	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/githubapi"
 	"github.com/fpresta0607/code-goblins/internal/watch"
 )
 
@@ -24,8 +23,9 @@ var gitHubRepository = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-
 
 // runCIRunnerParity runs goblins ci-runner parity: it adds to the repository's
 // parity record each job its desktop mirror ran since, beside the hosted
-// job it copies, and says where each job stands.
-func runCIRunnerParity(args []string, stdout, stderr io.Writer, commands execx.Runner, runtime commandRuntime) int {
+// job it copies, and says where each job stands. It reads them through
+// GitHub's API.
+func runCIRunnerParity(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	fs := flag.NewFlagSet("goblins ci-runner parity", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	repository := fs.String("repo", "", "the private repository the desktop mirror runs for, as owner/name")
@@ -52,7 +52,7 @@ func runCIRunnerParity(args []string, stdout, stderr io.Writer, commands execx.R
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), ciParityLimit)
 	defer cancel()
-	pairs, collectErr := ciparity.Collect(ctx, ghParity{commands: commands, repository: *repository, workflow: *workflow}, record, *runs, folder)
+	pairs, collectErr := ciparity.Collect(ctx, apiParity{github: runtime.githubAPI, repository: *repository, workflow: *workflow}, record, *runs, folder)
 	record.Pairs = append(record.Pairs, pairs...)
 	if len(pairs) > 0 {
 		if err := ciparity.Write(path, record); err != nil {
@@ -81,52 +81,31 @@ func runCIRunnerParity(args []string, stdout, stderr io.Writer, commands execx.R
 	return 0
 }
 
-// ghParity reads the parity record's runs, jobs and logs through gh.
-type ghParity struct {
-	commands   execx.Runner
+// apiParity reads the parity record's runs, jobs and logs through GitHub's
+// API.
+type apiParity struct {
+	github     *githubapi.Client
 	repository string
 	workflow   string
 }
 
-func (g ghParity) MirrorRuns(ctx context.Context, limit int) ([]ciparity.Run, error) {
+func (a apiParity) MirrorRuns(ctx context.Context, limit int) ([]ciparity.Run, error) {
 	var answer struct {
 		Runs []ciparity.Run `json:"workflow_runs"`
 	}
-	err := g.api(ctx, fmt.Sprintf("repos/%s/actions/workflows/%s/runs?status=completed&per_page=%d", g.repository, g.workflow, limit), &answer)
+	err := a.github.Get(ctx, fmt.Sprintf("repos/%s/actions/workflows/%s/runs?status=completed&per_page=%d", a.repository, a.workflow, limit), &answer)
 	return answer.Runs, err
 }
 
-func (g ghParity) Jobs(ctx context.Context, run int64) ([]ciparity.Job, error) {
+func (a apiParity) Jobs(ctx context.Context, run int64) ([]ciparity.Job, error) {
 	var answer struct {
 		Jobs []ciparity.Job `json:"jobs"`
 	}
-	err := g.api(ctx, fmt.Sprintf("repos/%s/actions/runs/%d/jobs?per_page=100", g.repository, run), &answer)
+	err := a.github.Get(ctx, fmt.Sprintf("repos/%s/actions/runs/%d/jobs?per_page=100", a.repository, run), &answer)
 	return answer.Jobs, err
 }
 
-func (g ghParity) Log(ctx context.Context, job int64) (string, error) {
-	out, err := g.gh(ctx, fmt.Sprintf("repos/%s/actions/jobs/%d/logs", g.repository, job))
-	return string(out), err
-}
-
-func (g ghParity) api(ctx context.Context, path string, into any) error {
-	out, err := g.gh(ctx, path)
-	if err != nil {
-		return err
-	}
-	if err := json.Unmarshal(out, into); err != nil {
-		return fmt.Errorf("gh answered %s in a shape that cannot be read: %w", path, err)
-	}
-	return nil
-}
-
-func (g ghParity) gh(ctx context.Context, path string) ([]byte, error) {
-	result, err := g.commands.Run(ctx, execx.Request{Name: "gh", Args: []string{"api", path}})
-	if err != nil {
-		return nil, err
-	}
-	if result.ExitCode != 0 {
-		return nil, errors.New("gh api " + path + ": " + strings.TrimSpace(string(result.Stderr)))
-	}
-	return result.Stdout, nil
+func (a apiParity) Log(ctx context.Context, job int64) (string, error) {
+	log, err := a.github.Do(ctx, http.MethodGet, fmt.Sprintf("repos/%s/actions/jobs/%d/logs", a.repository, job), nil)
+	return string(log), err
 }
