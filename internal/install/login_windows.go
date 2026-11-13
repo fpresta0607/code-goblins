@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,11 +49,32 @@ func (s Service) startAtLogin() (key registry.Key, command string, ok bool, err 
 	return key, command, true, nil
 }
 
-// startsIn reports whether command starts a program in dir. The window writes
-// the program it starts in quotes, first.
+// startsIn reports whether command starts a program in dir.
 func startsIn(command, dir string) bool {
+	program, ok := startedProgram(command)
+	return ok && strings.EqualFold(filepath.Dir(program), filepath.Clean(dir))
+}
+
+// startedProgram is the program a Start at login command starts, which the
+// window and the install write in quotes, first.
+func startedProgram(command string) (string, bool) {
 	program, _, quoted := strings.Cut(strings.TrimPrefix(command, `"`), `"`)
-	return strings.HasPrefix(command, `"`) && quoted && strings.EqualFold(filepath.Dir(program), filepath.Clean(dir))
+	return program, strings.HasPrefix(command, `"`) && quoted
+}
+
+// startsAnotherHome reports whether command starts a program outside this
+// home that is there. An entry whose program is gone, such as one naming the
+// window of a home that moved or was removed, starts nothing.
+func (s Service) startsAnotherHome(command string) bool {
+	if startsIn(command, s.bin()) || startsIn(command, s.Root) {
+		return false
+	}
+	program, ok := startedProgram(command)
+	if !ok {
+		return true
+	}
+	_, err := os.Stat(program)
+	return !errors.Is(err, fs.ErrNotExist)
 }
 
 // startsHere reports whether a Start at login command starts a program in
@@ -121,7 +143,8 @@ func (s Service) adoptStartAtLogin(report *reporter) error {
 // terminal, unless the person turned Start at login off: then this home's
 // entry goes. A choice made with --start-at-login is kept in the home first,
 // on a machine with no Start at login entries too. An entry that starts
-// another home is left as it is, as is one that already starts this home's
+// another home is left as it is, while one whose program is gone starts this
+// home from now on; so is one that already starts this home's
 // supervisor at login, through its window alone or through goblins; one of
 // this home's that does not, such as a window started on its own board, which
 // starts no supervisor, starts it from now on. A home with no desktop window
@@ -157,7 +180,7 @@ func (s Service) keepStartAtLogin(report *reporter) error {
 	}
 	if ok {
 		defer key.Close()
-		if !startsIn(current, s.bin()) && !startsIn(current, s.Root) {
+		if s.startsAnotherHome(current) {
 			report.same("start at login", "kept the entry that starts another Code Goblins home: "+current)
 			return nil
 		}
