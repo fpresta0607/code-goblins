@@ -13,10 +13,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// An instance is the boot session's UUID and the kernel's unique ID of the
-// process, with no clock in either: one process reads the same each time,
-// and two processes read apart.
-func TestAnInstanceIsTheBootSessionAndTheUniqueIDOfItsProcess(t *testing.T) {
+// An instance is the boot session's UUID and the start ticks of the
+// process, with no wall clock in either: one process reads the same each
+// time, and two processes read apart.
+func TestAnInstanceIsTheBootSessionAndTheStartTicksOfItsProcess(t *testing.T) {
 	// Arrange
 	boot, err := unix.Sysctl("kern.bootsessionuuid")
 	if err != nil || boot == "" {

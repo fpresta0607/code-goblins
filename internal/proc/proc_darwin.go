@@ -45,10 +45,11 @@ func entryOf(process unix.KinfoProc) Entry {
 }
 
 // Instance names the one run of a program that has pid now, as
-// "<boot>/<id>": the UUID of this start of the machine
-// (kern.bootsessionuuid), and the ID the kernel gave the process, which it
-// never gives another until the machine starts again. Neither is worked out
-// from the clock, so every reading of one process gives the same instance,
+// "<boot>/<ticks>": the UUID of this start of the machine
+// (kern.bootsessionuuid), and when the process started in the ticks of the
+// machine's absolute clock, which counts from that start and is never
+// stepped. Neither is worked out from the wall clock, so every reading of
+// one process gives the same instance,
 // and a process that took the ID later, on this start of the machine or
 // another, gives a different one. A process that is gone or has exited is
 // fs.ErrNotExist, and any other error says only that the process could not
@@ -57,7 +58,7 @@ func Instance(pid int) (string, error) {
 	if _, err := readProcess(pid); err != nil {
 		return "", err
 	}
-	id, err := uniqueID(pid)
+	ticks, err := startTicks(pid)
 	if err != nil {
 		return "", err
 	}
@@ -70,7 +71,7 @@ func Instance(pid int) (string, error) {
 	if boot == "" {
 		return "", errors.New("proc: the machine's boot session is empty")
 	}
-	return boot + "/" + strconv.FormatUint(id, 10), nil
+	return boot + "/" + strconv.FormatUint(ticks, 10), nil
 }
 
 // Lookup reads one running process: its parent, its name, which the kernel

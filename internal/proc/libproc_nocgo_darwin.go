@@ -12,8 +12,8 @@ import (
 // what it lacks: the lock then records no holder, and a process is never
 // ended unchecked.
 
-func uniqueID(pid int) (uint64, error) {
-	return 0, withoutCgo("a process's unique ID")
+func startTicks(pid int) (uint64, error) {
+	return 0, withoutCgo("a process's start in ticks")
 }
 
 func workingDirectoryOf(pid int) (string, error) {

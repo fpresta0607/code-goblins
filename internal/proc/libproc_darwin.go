@@ -3,8 +3,21 @@
 package proc
 
 /*
+#include <stdint.h>
 #include <libproc.h>
 #include <sys/proc_info.h>
+#include <sys/resource.h>
+
+// start_ticks sets ticks to when pid started, in the ticks of the machine's
+// absolute clock, and fails with errno as proc_pid_rusage leaves it.
+static int start_ticks(int pid, uint64_t *ticks) {
+	struct rusage_info_v0 info;
+	if (proc_pid_rusage(pid, RUSAGE_INFO_V0, (rusage_info_t *)&info) != 0) {
+		return -1;
+	}
+	*ticks = info.ri_proc_start_abstime;
+	return 0;
+}
 */
 import "C"
 
@@ -20,16 +33,19 @@ import (
 // go through libproc, which needs cgo (docs/plans/2026-11-11-linux-port.md,
 // "cgo on macOS").
 
-// uniqueID is the ID the kernel gave the process that has pid now, which it
-// never gives another process until the machine starts again. The SDK gives
-// it only beside the process's BSD record (PROC_PIDT_BSDINFOWITHUNIQID), so
-// only a process of the same user, or root, may read it.
-func uniqueID(pid int) (uint64, error) {
-	var info C.struct_proc_bsdinfowithuniqid
-	if err := pidInfo(pid, C.PROC_PIDT_BSDINFOWITHUNIQID, unsafe.Pointer(&info), C.int(unsafe.Sizeof(info))); err != nil {
-		return 0, fmt.Errorf("proc: read process %d's unique ID: %w", pid, err)
+// startTicks is when the process that has pid now started, in the ticks of
+// the machine's absolute clock (ri_proc_start_abstime from
+// proc_pid_rusage). That clock counts from the machine's start and is never
+// stepped, and one ID is held by one process at a time, so no two processes
+// with one ID read the same ticks before the machine starts again. The
+// kernel's own unique ID of a process (p_uniqueid) is not in the public SDK.
+// Only a process of the same user, or root, may read it.
+func startTicks(pid int) (uint64, error) {
+	var ticks C.uint64_t
+	if failed, err := C.start_ticks(C.int(pid), &ticks); failed != 0 {
+		return 0, fmt.Errorf("proc: read process %d's start: %w", pid, readError(err))
 	}
-	return uint64(info.p_uniqidentifier.p_uniqueid), nil
+	return uint64(ticks), nil
 }
 
 // workingDirectoryOf is the directory pid runs in, which only a process of
