@@ -38,13 +38,10 @@ $state = Join-Path $ceoHome "state"
 # The session ended the stand-in once the goblin was at work; the CEO needs
 # it to start, and both keep it through the update.
 $port = 8767
-$standIn = Start-Process -FilePath python -ArgumentList (Join-Path $PSScriptRoot "..\uninstall\stand_in_model.py"), $port -WindowStyle Hidden -PassThru
+. (Join-Path $PSScriptRoot "..\hidden_server.ps1")
+$standIn = Start-HiddenServer -Name "stand-in model" -ArgumentList (Join-Path $PSScriptRoot "..\uninstall\stand_in_model.py"), $port `
+    -Url "http://127.0.0.1:$port/v1/models" -Log "$Facts.stand-in"
 Set-Content -LiteralPath "$Facts.stand-in.pid" -Value $standIn.Id
-$deadline = (Get-Date).AddSeconds(30)
-while ($true) {
-    try { Invoke-WebRequest "http://127.0.0.1:$port/v1/models" -UseBasicParsing | Out-Null; break }
-    catch { if ((Get-Date) -gt $deadline) { throw "the stand-in model did not answer within 30 seconds" }; Start-Sleep -Milliseconds 250 }
-}
 
 & goblins allowance-floor claude 7
 if ($LASTEXITCODE -ne 0) { throw "goblins allowance-floor exited with code $LASTEXITCODE" }
