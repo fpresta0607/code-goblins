@@ -283,8 +283,9 @@ func (s *Store) waitBehind(i int, commandSendsNow bool) {
 	held := s.db.Actions[i]
 	for j := i + 1; j < len(s.db.Actions); j++ {
 		if later := &s.db.Actions[j]; later.Kind == "message" && later.TaskID == held.TaskID && later.Status == "queued" && !later.IsSentNow {
+			was := later.Message
 			later.Message, later.CanSendNow, later.SendNowWhy = held.Message, held.CanSendNow, held.SendNowWhy
-			later.holdCommand(commandSendsNow)
+			later.holdCommand(commandSendsNow, was)
 		}
 	}
 }

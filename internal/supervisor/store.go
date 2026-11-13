@@ -702,6 +702,9 @@ func (s *Store) SendQueuedMessageNow(id, task string) (Action, error) {
 	}
 	delete(s.deferredUntil, a.ID)
 	a.IsSentNow = true
+	if isHarnessCommand(a.Text) && a.Message == "Queued. "+commandNotSentNow {
+		a.Message = "Queued. " + commandWaits + " " + commandSendsNow
+	}
 	a.UpdatedAt = time.Now().UTC()
 	if err := s.save(); err != nil {
 		return Action{}, err
@@ -735,16 +738,21 @@ func (s *Store) markTyped(id, task string, awaiting *Awaiting) error {
 // holdCommand gives a queued message that is a command, which waits for its
 // turn to end, words of its own in place of what it was given: that Send now
 // runs it at once, where its session's harness can (sendsNow), and otherwise
-// no Send now.
-func (a *Action) holdCommand(sendsNow bool) {
+// no Send now. One whose words were, as was says, that a Send now could not
+// run it at once keeps them, with its Send now, while it is given one: until
+// a new Send now or its turn's end (#1915).
+func (a *Action) holdCommand(sendsNow bool, was string) {
 	if !a.CanSendNow || !isHarnessCommand(a.Text) {
 		return
 	}
-	if !sendsNow {
+	switch {
+	case was == "Queued. "+commandNotSentNow:
+		a.SendNowWhy, a.Message = "", was
+	case !sendsNow:
 		a.CanSendNow, a.SendNowWhy, a.Message = false, commandWaits, "Queued. "+commandWaits
-		return
+	default:
+		a.SendNowWhy, a.Message = "", "Queued. "+commandWaits+" "+commandSendsNow
 	}
-	a.SendNowWhy, a.Message = "", "Queued. "+commandWaits+" "+commandSendsNow
 }
 
 // queueUnlessEvaluating queues a reconcile's evaluation only while no
@@ -1167,7 +1175,7 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 			completed.CanSendNow, completed.SendNowWhy = result.CanSendNow, result.SendNowWhy
 			if a.Kind == "message" {
 				s.waitBehind(i, result.CommandSendsNow)
-				completed.holdCommand(result.CommandSendsNow)
+				completed.holdCommand(result.CommandSendsNow, a.Message)
 				// A Send now of a command is one try, spent by the try it
 				// reaches: one that could not run it says so, and no later turn
 				// is interrupted for it (#1915).

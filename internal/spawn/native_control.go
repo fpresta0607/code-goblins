@@ -204,17 +204,18 @@ func RanNow(ctx context.Context, read func(context.Context) ([]string, error), p
 // InterruptTurn presses, with press, the send-now key of a harness in a turn,
 // the Escape that ends a Codex's or a pi's turn, once over screen, its empty
 // prompt line with no screen of its own open, and returns the screen that
-// shows the turn over at an empty, ready prompt line within
-// nativeCommandTaken. It returns none when screen took no key, the key could
-// not be pressed, or the turn did not end in that time: a Codex's own queue
-// then starts a turn of its own, and a pi's comes back onto its prompt line.
+// shows the turn over at an empty, ready prompt line on two reads in a row
+// within nativeCommandTaken, as RanBesideTurn reads a prompt line. It returns
+// none when screen took no key, the key could not be pressed, or the turn did
+// not end in that time: a Codex's own queue then starts a turn of its own,
+// and a pi's comes back onto its prompt line.
 func InterruptTurn(ctx context.Context, read func(context.Context) ([]string, error), press func() error, screens harness.Screens, screen []string) []string {
 	if screens.IsOpen(screen) || !screens.ComposerEmpty(screen) || press() != nil {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, nativeCommandTaken)
 	defer cancel()
-	for {
+	for idle := 0; ; {
 		select {
 		case <-time.After(nativePoll):
 		case <-ctx.Done():
@@ -224,7 +225,11 @@ func InterruptTurn(ctx context.Context, read func(context.Context) ([]string, er
 		if err != nil {
 			return nil
 		}
-		if screens.IsReady(screen) && screens.ComposerEmpty(screen) && !screens.IsOpen(screen) {
+		if !screens.IsReady(screen) || !screens.ComposerEmpty(screen) || screens.IsOpen(screen) {
+			idle = 0
+			continue
+		}
+		if idle++; idle == 2 {
 			return screen
 		}
 	}

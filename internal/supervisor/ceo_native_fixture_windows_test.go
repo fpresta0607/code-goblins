@@ -42,6 +42,11 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 	// left typed input unread for seconds on 2026-11-10 (#2306).
 	isStalling := strings.HasSuffix(mode, "-stalls")
 	mode = strings.TrimSuffix(mode, "-stalls")
+	// A harness that ignores its send-now chord leaves what its turn queued
+	// where it was, as a Claude Code with chat:sendNow bound to other keys
+	// would.
+	isSendNowIgnored := strings.HasSuffix(mode, "-ignores-send-now")
+	mode = strings.TrimSuffix(mode, "-ignores-send-now")
 	isHelp := false
 	record := func(value string) {
 		file, err := os.OpenFile(events, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
@@ -197,6 +202,10 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 			// Claude Code's chat:sendNow chord, Ctrl+X Ctrl+S, sends what its
 			// turn has queued at once.
 			if next, _, err := reader.ReadRune(); err == nil && next == '\x13' {
+				if isSendNowIgnored {
+					record("send now ignored")
+					continue
+				}
 				record("sent now")
 				hasQueued, queue = false, nil
 				draw(false)

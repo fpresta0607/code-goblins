@@ -546,8 +546,9 @@ func TestSendNowOnACommandInATurnsQueuePressesItsKeyOnceAndReadsItRanOnceTheQueu
 // Send now on a command held for a Codex's or a pi's turn presses the Escape
 // that ends the turn once, and only over an empty prompt line, so words left
 // there keep their own; the command then goes at the empty, ready prompt line
-// the turn's end leaves, and a turn that goes on, or one whose harness hands
-// its queue back onto that line, leaves none (#1915). The rows are Codex
+// the turn's end leaves, read so twice in a row, and a turn that goes on, one
+// whose line reads so only once before a turn of its own, or one whose harness
+// hands its queue back onto that line, leaves none (#1915). The rows are Codex
 // 0.160's and pi 0.85.1's full screens, read live on 2026-10-17
 // (TestFullScreenCodexAndPiReadAsReadyOnlyWhileNoTurnRuns). A case that waits
 // out the window is read for a second of it.
@@ -578,6 +579,7 @@ func TestSendNowEndsATurnForACommandOnlyOverAnEmptyPromptLineAndWaitsForTheLineI
 		{name: "pi's turn ends", kind: harness.Pi, screen: piTurn, reads: [][]string{piTurn, piAfter}, wantPresses: 1, want: piAfter},
 		{name: "words on codex's prompt line", kind: harness.Codex, screen: codexWords, reads: [][]string{codexAfter}},
 		{name: "codex's turn goes on", kind: harness.Codex, screen: codexTurn, reads: [][]string{codexTurn}, isWaitedOut: true, wantPresses: 1},
+		{name: "one idle read between codex's turns", kind: harness.Codex, screen: codexTurn, reads: [][]string{codexTurn, codexAfter, codexTurn}, isWaitedOut: true, wantPresses: 1},
 		{name: "pi hands its queue back onto its prompt line", kind: harness.Pi, screen: piTurn, reads: [][]string{piHandedBack}, isWaitedOut: true, wantPresses: 1},
 		{name: "its key cannot be pressed", kind: harness.Codex, screen: codexTurn, reads: [][]string{codexAfter}, pressErr: errGone, wantPresses: 1},
 	} {

@@ -640,6 +640,24 @@ func (terminal hostedTerminal) typeLine(t *testing.T, line string) {
 	}
 }
 
+// typeKeys types keys into the terminal directly, not through a view, as he
+// presses them in it.
+func (terminal hostedTerminal) typeKeys(t *testing.T, keys string) {
+	t.Helper()
+	record, err := host.ReadRecord(terminal.stateDir, terminal.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := host.Dial(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	if err := client.Input([]byte(keys)); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // exit ends the terminal by typing into it directly, not through a view, and
 // returns every line the program recorded before it exited.
 func (terminal hostedTerminal) exit(t *testing.T) []string {
