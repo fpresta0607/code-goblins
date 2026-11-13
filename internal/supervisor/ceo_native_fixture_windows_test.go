@@ -270,7 +270,13 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 				record("mention-picked")
 				continue
 			}
-			if isBusy {
+			// A busy fixture runs one command of its harness's own at once
+			// beside its turn, which goes on, as Claude Code 2.1.322 runs
+			// /remote-control and Codex 0.160 runs /status, and queues every
+			// other line (#2372).
+			if isBusy && composer() == map[string]string{"claude": "/remote-control", "codex": "/status"}[harness] {
+				record("ran " + composer())
+			} else if isBusy {
 				queued := typedBefore + paste + line
 				record("queued " + queued)
 				hasQueued, held, queue = true, queued, append(queue, queued)

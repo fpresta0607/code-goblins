@@ -75,21 +75,21 @@ func validatedCodex(t *testing.T, help string) Adapter {
 func TestCodexBuildsStructuredLaunchWithoutBashNotify(t *testing.T) {
 	adapter := validatedCodex(t, codexHelp)
 
-	defaults, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`})
+	defaults, err := adapter.Build(LaunchSpec{BriefPath: testBriefPath, TaskTmp: testTaskTmp, Scratch: testScratch})
 	if err != nil {
 		t.Fatalf("Build defaults: %v", err)
 	}
 	assertLaunch(t, defaults, Launch{
 		Args:       []string{"--no-daemon", "--dangerously-bypass-approvals-and-sandbox", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false", "-c", "tui.copy_on_select=always"},
-		Env:        map[string]string{"GOBLINS_ROLE": RoleGoblin, "GOTMPDIR": `C:\gotmp\task`, "TEMP": `C:\gotmp\task`, "TMP": `C:\gotmp\.tmp`, "TMPDIR": `C:\gotmp\task`},
-		PromptFile: `C:\briefs\task.md`,
+		Env:        map[string]string{"GOBLINS_ROLE": RoleGoblin, "GOTMPDIR": testScratch, "TEMP": testScratch, "TMP": absolutePath("gotmp", ".tmp"), "TMPDIR": testScratch},
+		PromptFile: testBriefPath,
 		Executable: "codex",
 	})
 
 	explicit, err := adapter.Build(LaunchSpec{
-		BriefPath:       `C:\briefs\task.md`,
-		TaskTmp:         `C:\tasks\task`,
-		Scratch:         `C:\gotmp\task`,
+		BriefPath:       testBriefPath,
+		TaskTmp:         testTaskTmp,
+		Scratch:         testScratch,
 		TurnEndedPath:   `C:\tasks\task\turn-ended`,
 		Model:           "gpt-5.2-codex",
 		Effort:          "high",
@@ -108,7 +108,7 @@ func TestCodexBuildsStructuredLaunchWithoutBashNotify(t *testing.T) {
 		}
 	}
 
-	if _, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`, Effort: "invalid"}); err == nil {
+	if _, err := adapter.Build(LaunchSpec{BriefPath: testBriefPath, TaskTmp: testTaskTmp, Scratch: testScratch, Effort: "invalid"}); err == nil {
 		t.Fatal("Build returned nil error for invalid effort")
 	}
 }
@@ -128,7 +128,7 @@ func TestCodexValidateChecksExecutable(t *testing.T) {
 
 func TestCodexMaxEffortForAstra(t *testing.T) {
 	adapter := validatedCodex(t, codexHelp)
-	launch, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`, Model: "gpt-6-astra", Effort: "max"})
+	launch, err := adapter.Build(LaunchSpec{BriefPath: testBriefPath, TaskTmp: testTaskTmp, Scratch: testScratch, Model: "gpt-6-astra", Effort: "max"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestCodexMaxEffortForAstra(t *testing.T) {
 func TestCodexStartsWithoutCheckingForAnUpdate(t *testing.T) {
 	adapter, _ := DefaultRegistry().Get(Codex)
 
-	launch, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`})
+	launch, err := adapter.Build(LaunchSpec{BriefPath: testBriefPath, TaskTmp: testTaskTmp, Scratch: testScratch})
 
 	if err != nil {
 		t.Fatal(err)
@@ -164,7 +164,7 @@ func TestCodexStartsWithoutCheckingForAnUpdate(t *testing.T) {
 func TestCodexStartsWithItsAnimationsOff(t *testing.T) {
 	adapter, _ := DefaultRegistry().Get(Codex)
 
-	launch, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`})
+	launch, err := adapter.Build(LaunchSpec{BriefPath: testBriefPath, TaskTmp: testTaskTmp, Scratch: testScratch})
 
 	if err != nil {
 		t.Fatal(err)
@@ -208,7 +208,7 @@ func TestCodexStartsWithoutTheSharedBackgroundServer(t *testing.T) {
 			}
 
 			// Act
-			launch, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`, Model: "gpt-6-astra", Effort: "xhigh"})
+			launch, err := adapter.Build(LaunchSpec{BriefPath: testBriefPath, TaskTmp: testTaskTmp, Scratch: testScratch, Model: "gpt-6-astra", Effort: "xhigh"})
 
 			// Assert
 			if err != nil {
@@ -284,7 +284,7 @@ func TestCodexDrawsItsOwnFullScreenSoItsInputLineAndFooterStayAtTheBottom(t *tes
 		t.Fatal(err)
 	}
 
-	launch, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`})
+	launch, err := adapter.Build(LaunchSpec{BriefPath: testBriefPath, TaskTmp: testTaskTmp, Scratch: testScratch})
 
 	if err != nil {
 		t.Fatal(err)
@@ -304,7 +304,7 @@ func TestCodexCopiesWhatADragSelectsWhenTheButtonIsReleased(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	launch, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`})
+	launch, err := adapter.Build(LaunchSpec{BriefPath: testBriefPath, TaskTmp: testTaskTmp, Scratch: testScratch})
 
 	if err != nil {
 		t.Fatal(err)
@@ -322,7 +322,7 @@ func TestCodexCopiesWhatADragSelectsWhenTheButtonIsReleased(t *testing.T) {
 func TestCodexStartsNoneOfTheOperatorsMCPServers(t *testing.T) {
 	adapter, _ := DefaultRegistry().Get(Codex)
 
-	launch, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`, CodexMCPServers: []string{"qdrant", "gcloud", "node_repl"}})
+	launch, err := adapter.Build(LaunchSpec{BriefPath: testBriefPath, TaskTmp: testTaskTmp, Scratch: testScratch, CodexMCPServers: []string{"qdrant", "gcloud", "node_repl"}})
 
 	if err != nil {
 		t.Fatal(err)
@@ -340,7 +340,7 @@ func TestCodexCarriesItsNativeSessionHooks(t *testing.T) {
 	adapter, _ := DefaultRegistry().Get(Codex)
 	hooks := []string{"--enable", "hooks", "-c", "hooks.Stop=[{hooks=[{type='command',command='C:/goblins.exe native-hook codex',timeout=3}]}]"}
 
-	launch, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`, CodexMCPServers: []string{"qdrant"}, CodexHooks: hooks})
+	launch, err := adapter.Build(LaunchSpec{BriefPath: testBriefPath, TaskTmp: testTaskTmp, Scratch: testScratch, CodexMCPServers: []string{"qdrant"}, CodexHooks: hooks})
 
 	if err != nil {
 		t.Fatal(err)
@@ -356,7 +356,7 @@ func TestCodexCarriesItsNativeSessionHooks(t *testing.T) {
 func TestCodexRefusesAnMCPServerItCannotTurnOff(t *testing.T) {
 	adapter, _ := DefaultRegistry().Get(Codex)
 
-	_, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`, CodexMCPServers: []string{"my server.v2"}})
+	_, err := adapter.Build(LaunchSpec{BriefPath: testBriefPath, TaskTmp: testTaskTmp, Scratch: testScratch, CodexMCPServers: []string{"my server.v2"}})
 
 	if err == nil || !strings.Contains(err.Error(), "my server.v2") {
 		t.Fatalf("Build error = %v, want the server named", err)
@@ -436,8 +436,8 @@ func TestCodexTurnsOffAQuotedServerNameItCanAddress(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`, CodexMCPServers: servers})
-	plain, plainErr := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`, CodexMCPServers: servers[1:]})
+	_, err = adapter.Build(LaunchSpec{BriefPath: testBriefPath, TaskTmp: testTaskTmp, Scratch: testScratch, CodexMCPServers: servers})
+	plain, plainErr := adapter.Build(LaunchSpec{BriefPath: testBriefPath, TaskTmp: testTaskTmp, Scratch: testScratch, CodexMCPServers: servers[1:]})
 
 	if err == nil || !strings.Contains(err.Error(), `"my server"`) {
 		t.Errorf("Build error = %v, want the server that needs quotes named", err)

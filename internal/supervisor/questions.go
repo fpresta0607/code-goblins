@@ -255,11 +255,11 @@ func (c *CEOConnection) SendGoblinHis(ctx context.Context, taskID, identity, tex
 	return c.sendGoblin(ctx, taskID, identity, text, false, false, true)
 }
 
-// sendGoblin delivers text as SendGoblin does. A send that holds types nothing
-// into a goblin in a turn and says so with spawn.ErrInTurn; one that sends now
-// has the goblin's harness take it at once in a turn, where it has a key for
-// that. One from him keeps his mark on the terminal the harness's next screen
-// is bound to.
+// sendGoblin delivers text as SendGoblin does. A send that holds refuses a
+// goblin in a turn as spawn.Service's ShouldRefuseTurn says, with
+// spawn.ErrInTurn; one that sends now has the goblin's harness take it at once
+// in a turn, where it has a key for that. One from him keeps his mark on the
+// terminal the harness's next screen is bound to.
 func (c *CEOConnection) sendGoblin(ctx context.Context, taskID, identity, text string, holds, sendsNow, his bool) (Evaluation, error) {
 	meta, err := state.ReadTaskMeta(c.State, taskID)
 	if err != nil || goblinIdentity(meta) != identity {
@@ -284,10 +284,10 @@ func goblinLine(text string) string {
 // can prove what an answer does when that evidence is not there.
 var readAnswerRecipient = state.ReadTaskMeta
 
-// typeIntoGoblin delivers text into a goblin's native terminal, types nothing
-// into a turn when it should refuse one, and has the harness take it at once
-// in a turn when it should send it now. It is a variable so a test can act
-// while a delivery is in flight.
+// typeIntoGoblin delivers text into a goblin's native terminal, refuses a turn
+// when it should, as spawn.Service's ShouldRefuseTurn says, and has the
+// harness take it at once in a turn when it should send it now. It is a
+// variable so a test can act while a delivery is in flight.
 var typeIntoGoblin = func(ctx context.Context, stateDir string, meta state.TaskMeta, text string, shouldRefuseTurn, shouldSendNow, his bool) error {
 	submitted, _ := ctx.Value(submittedKey{}).(func())
 	sender := spawn.Service{StateDir: stateDir, ShouldRefuseTurn: shouldRefuseTurn, ShouldSendNow: shouldSendNow, His: his, ShouldTakeBack: true, SubmittedIntoTurn: submitted, PromptSince: func(taskID, generation string, since time.Time) (bool, error) {

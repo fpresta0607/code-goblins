@@ -37,6 +37,14 @@ func (s Service) stopNative(ctx context.Context, id string, control harness.Cont
 	if !host.Running(record) {
 		return nil
 	}
+	if record.Stream {
+		// Its host closes Claude Code's input, which ends it on its own
+		// terms, and ends it with everything it started if it lingers.
+		if err := host.Close(s.StateDir, record, nativeCloseWait); err != nil {
+			return fmt.Errorf("switch: the stream session of task %s could not be closed, so no second harness was started beside it: %w", id, err)
+		}
+		return nil
+	}
 	ended := func(tries int) (bool, error) {
 		for i := 0; i < tries; i++ {
 			if !nativeTerminalRuns(s.StateDir, id) {

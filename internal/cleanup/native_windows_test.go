@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,37 +15,14 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/host/hosttest"
 	"github.com/fpresta0607/code-goblins/internal/proc/proctest"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// fakeClaude is the argument that makes this test binary a stand-in Claude
-// Code in a native terminal, showing the screen the next argument names.
-const fakeClaude = "cleanup-fake-claude"
-
-// fakeClaudeScreens are Claude Code's screens as a native terminal holds
-// them: waiting at its composer, and in a turn.
-var fakeClaudeScreens = map[string][]string{
-	"idle":    {"> ", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"},
-	"working": {"✽ Reticulating… (3s · esc to interrupt)", "", "> ", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"},
-}
-
 // testStarted is when this test process started, as a host that recorded
 // itself then would have.
 var testStarted = time.Now().UTC()
-
-func TestMain(m *testing.M) {
-	if len(os.Args) > 2 && os.Args[1] == fakeClaude {
-		fmt.Print("\x1b[2J\x1b[H" + strings.Join(fakeClaudeScreens[os.Args[2]], "\r\n"))
-		_, _ = io.Copy(io.Discard, os.Stdin)
-		return
-	}
-	if len(os.Args) > 4 && os.Args[1] == lockHolder {
-		runLockHolder(os.Args[2:])
-		return
-	}
-	os.Exit(m.Run())
-}
 
 // nativeCleanupFixture is the cleanup fixture's task recorded as a native one:
 // no Herdr identity, its terminal found by the host record hostPID names, or
@@ -115,6 +91,42 @@ func runFakeClaude(t *testing.T, f *cleanupFixture, screen string) {
 		if time.Now().After(deadline) {
 			t.Fatalf("the stand-in Claude never showed its %s screen", screen)
 		}
+	}
+}
+
+// A stream session has no composer to show: a cleanup closes one only while
+// Claude Code waits for a line, and refuses one in a turn, keeping its task
+// and its session (#2374).
+func TestCleanupClosesAStreamSessionOnlyWhileClaudeCodeWaitsForALine(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		isWorking bool
+		want      string
+	}{
+		{name: "waiting for a line"},
+		{name: "in a turn", isWorking: true, want: "does not show Claude Code waiting for a line"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			fixture := nativeCleanupFixture(t, 0)
+			hosttest.RunStream(t, fixture.stateDir, "g1", test.isWorking)
+
+			// Act
+			_, err := fixture.service.Cleanup(context.Background(), "g1")
+
+			// Assert
+			_, recordErr := host.ReadRecord(fixture.stateDir, "g1")
+			if test.want == "" {
+				if err != nil || !errors.Is(recordErr, os.ErrNotExist) {
+					t.Fatalf("Cleanup = %v, host record %v; want the waiting session closed and its task cleaned", err, recordErr)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.want) || recordErr != nil {
+				t.Fatalf("Cleanup = %v, host record %v; want %q and the session kept", err, recordErr, test.want)
+			}
+			fixture.assertMetadataPreserved(t)
+		})
 	}
 }
 

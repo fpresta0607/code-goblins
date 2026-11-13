@@ -56,7 +56,8 @@ const (
 // no End before it can be taken as part of the text ("swallow"), or the first
 // submit key can be taken seconds after it arrived ("slow"), where
 // by default a turn never ends. With "exitmenu", /exit opens the menu Claude
-// Code shows over background work before it exits. With "claude-lost-enter"
+// Code shows over background work before it exits. With "claude-ready" it is
+// Claude Code's composer, ready at once, and with "claude-lost-enter"
 // it is Claude Code's composer taking the first Enter that ends typed text
 // as a new line, with "claude-enters-lost" every one, with
 // "claude-late-enter" taking the first seconds late, and with
@@ -80,6 +81,10 @@ var codexMention = regexp.MustCompile(`(^|\s)\$\S*$`)
 func TestMain(m *testing.M) {
 	switch {
 	case len(os.Args) > 1 && os.Args[1] == nativeSpawnHost:
+		if os.Getenv(fakeStreamMode) == "no-stream-host" && slices.Contains(os.Args, "--stream") {
+			fmt.Fprintln(os.Stderr, "this host runs no stream session")
+			os.Exit(1)
+		}
 		if err := host.RunArgs(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
@@ -133,6 +138,10 @@ func fakeHarness() {
 		record(codexEvent{Event: "home", Text: err.Error()})
 	} else {
 		record(codexEvent{Event: "home", Home: &resolved})
+	}
+	if slices.Contains(os.Args[1:], "--input-format") {
+		fakeStreamClaude(record)
+		return
 	}
 	mode := os.Getenv(fakeCodexMode)
 	if mode == "unreadable" {
@@ -213,7 +222,7 @@ func fakeHarness() {
 		piStartup(startup, mode == "pi-stale", keys, record, draw) // stall-accepted: the stand-in pi's startup refuses the first Enter however short a stall cuts it, so a test that needs a refusal still gets one.
 		return
 	}
-	if mode == "claude-lost-enter" || mode == "claude-enters-lost" || mode == "claude-late-enter" || mode == "claude-queues" {
+	if mode == "claude-ready" || mode == "claude-lost-enter" || mode == "claude-enters-lost" || mode == "claude-late-enter" || mode == "claude-queues" {
 		claudeComposer(mode, keys, record, draw)
 		return
 	}
@@ -660,7 +669,9 @@ func piStartup(startup time.Duration, isTurnEnding bool, keys <-chan string, rec
 // Claude Code 2.1.275's does, and a line submitted during it is queued, shown
 // above the composer, until Ctrl+X Ctrl+S sends what is queued at once. While
 // one waits its empty prompt line shows the hint Claude Code 2.1.314 drew
-// there, live, on 2026-10-30.
+// there, live, on 2026-10-30. A /model command it runs at once beside that
+// turn, as Claude Code 2.1.322 does, and queues none of it. A draft
+// fakeCodexDraft names shows in the composer as it starts.
 func claudeComposer(mode string, keys <-chan string, record func(codexEvent), draw func(rows ...string)) {
 	rule := strings.Repeat("─", 80)
 	footer := "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
@@ -668,8 +679,9 @@ func claudeComposer(mode string, keys <-chan string, record func(codexEvent), dr
 	composer := func(rows ...string) {
 		draw(append(append(append(append([]string{}, above...), "", rule), rows...), rule, footer)...)
 	}
-	composer(">")
 	var line strings.Builder
+	line.WriteString(os.Getenv(fakeCodexDraft))
+	composer(strings.TrimSpace("> " + line.String()))
 	lost, isLate := 0, mode == "claude-late-enter"
 	var queued []string
 	turn := func(text string) {
@@ -694,6 +706,9 @@ func claudeComposer(mode string, keys <-chan string, record func(codexEvent), dr
 				queued = nil
 				turn(text)
 			}
+		case mode == "claude-queues" && above != nil && key == "\r" && strings.HasPrefix(line.String(), "/model"):
+			record(codexEvent{Event: "ran beside its turn", Text: line.String()})
+			line.Reset()
 		case mode == "claude-queues" && above != nil && key == "\r" && line.Len() > 0:
 			record(codexEvent{Event: "queued", Text: line.String()})
 			queued = append(queued, line.String())
@@ -896,17 +911,21 @@ func newNativeFixture(t *testing.T, kind harness.Kind, mode string) *nativeFixtu
 	// Everything the spawn started ends before the fake's folder goes.
 	t.Cleanup(func() {
 		stop()
+		// The first harness ran when its terminal's host recorded itself. With
+		// no host recorded, whatever holds its pid now counts as it.
+		harnessRunning := time.Now()
 		if terminal, found := native.terminal(); found {
+			harnessRunning = terminal.Started
 			if err := host.Close(f.stateDir, terminal, nativeCloseWait); err != nil {
 				t.Errorf("close the native terminal: %v", err)
 			}
-			if !ended(terminal.HostPID) {
+			if !ended(terminal.HostPID, terminal.Started) {
 				t.Errorf("host pid %d is still running", terminal.HostPID)
 			}
 		}
 		if data, err := os.ReadFile(record); err == nil {
 			var first codexEvent
-			if json.Unmarshal([]byte(strings.SplitN(string(data), "\n", 2)[0]), &first) == nil && first.PID != 0 && !ended(first.PID) {
+			if json.Unmarshal([]byte(strings.SplitN(string(data), "\n", 2)[0]), &first) == nil && first.PID != 0 && !ended(first.PID, harnessRunning) {
 				t.Errorf("the fake harness, pid %d, is still running", first.PID)
 			}
 		}
@@ -1028,15 +1047,64 @@ func named(events []codexEvent, name string) []codexEvent {
 	return matched
 }
 
-// ended reports whether pid has ended within thirty seconds.
-func ended(pid int) bool {
-	handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
+// ended reports whether the process that held pid at running has ended
+// within thirty seconds. Windows gives an ended process's pid to a later
+// one, which a wait on the pid alone takes for the process that ended, as
+// host.Running does not: a process that started after running only took the
+// pid, so the one that held it has ended.
+func ended(pid int, running time.Time) bool {
+	handle, err := windows.OpenProcess(windows.SYNCHRONIZE|windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
 	if err != nil {
 		return true
 	}
 	defer windows.CloseHandle(handle)
+	var creation, exit, kernel, user windows.Filetime
+	if err := windows.GetProcessTimes(handle, &creation, &exit, &kernel, &user); err == nil && time.Unix(0, creation.Nanoseconds()).After(running) {
+		return true
+	}
 	event, _ := windows.WaitForSingleObject(handle, 30000)
 	return event == windows.WAIT_OBJECT_0
+}
+
+// Windows gives an ended host's pid to a later program, which a check that
+// waits on the pid alone takes for the host still running, as a contained
+// switch's check of its first host can, thirty seconds on. A check of
+// whether a process ended tells a process that started after it ran, which
+// only took its pid, from the process itself, which it waits on until it
+// ends.
+func TestAnEndedCheckTellsALaterProcessThatTookAPidFromTheOneThatHeldIt(t *testing.T) {
+	// Arrange
+	beforeItStarted := time.Now()
+	// Past the tick of the machine's clock that both times may be read at.
+	time.Sleep(100 * time.Millisecond)
+	sleeper := exec.Command(os.Args[0], sleepChild)
+	if err := sleeper.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = sleeper.Process.Kill()
+		_ = sleeper.Wait()
+	})
+	const endsAfter = time.Second
+	pid, whileItRuns := sleeper.Process.Pid, time.Now()
+
+	// Act
+	isLaterOneEnded := ended(pid, beforeItStarted)
+	waitStarted := time.Now()
+	go func() {
+		time.Sleep(endsAfter)
+		_ = sleeper.Process.Kill()
+	}()
+	isItselfEnded := ended(pid, whileItRuns)
+	waited := time.Since(waitStarted)
+
+	// Assert
+	if !isLaterOneEnded {
+		t.Errorf("a process that started after %s holds pid %d and was taken for the one that held it then", beforeItStarted.Format(time.RFC3339Nano), pid)
+	}
+	if !isItselfEnded || waited < endsAfter {
+		t.Errorf("the check of pid %d's own process returned %t after %s; want true once it ended, %s in", pid, isItselfEnded, waited, endsAfter)
+	}
 }
 
 func TestANativeSpawnDismissesTheOptionalDaybreakOfferWithoutEnrollment(t *testing.T) {

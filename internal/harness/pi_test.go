@@ -30,21 +30,21 @@ Options:
 		t.Fatalf("Validate: %v", err)
 	}
 
-	defaults, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`})
+	defaults, err := adapter.Build(LaunchSpec{BriefPath: testBriefPath, TaskTmp: testTaskTmp, Scratch: testScratch})
 	if err != nil {
 		t.Fatalf("Build defaults: %v", err)
 	}
 	assertLaunch(t, defaults, Launch{
 		Args:       []string{"--tui-mode", "fullscreen"},
-		Env:        map[string]string{"GOBLINS_ROLE": RoleGoblin, "GOTMPDIR": `C:\gotmp\task`, "TEMP": `C:\gotmp\task`, "TMP": `C:\gotmp\.tmp`, "TMPDIR": `C:\gotmp\task`},
-		PromptFile: `C:\briefs\task.md`,
+		Env:        map[string]string{"GOBLINS_ROLE": RoleGoblin, "GOTMPDIR": testScratch, "TEMP": testScratch, "TMP": absolutePath("gotmp", ".tmp"), "TMPDIR": testScratch},
+		PromptFile: testBriefPath,
 		Executable: "pi",
 	})
 
 	explicit, err := adapter.Build(LaunchSpec{
-		BriefPath:       `C:\briefs\task.md`,
-		TaskTmp:         `C:\tasks\task`,
-		Scratch:         `C:\gotmp\task`,
+		BriefPath:       testBriefPath,
+		TaskTmp:         testTaskTmp,
+		Scratch:         testScratch,
 		Model:           "openai/gpt-5.2-codex",
 		Effort:          "xhigh",
 		PiExtensionPath: `C:\extensions\task.ts`,
@@ -73,7 +73,7 @@ Options:
 		t.Fatalf("Validate: %v", err)
 	}
 
-	launch, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`})
+	launch, err := adapter.Build(LaunchSpec{BriefPath: testBriefPath, TaskTmp: testTaskTmp, Scratch: testScratch})
 
 	if err != nil {
 		t.Fatalf("Build: %v", err)
@@ -109,7 +109,7 @@ func TestPiDrawsItsOwnFullScreenWhenItsHelpOffersOne(t *testing.T) {
 			}
 
 			// Act
-			launch, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`})
+			launch, err := adapter.Build(LaunchSpec{BriefPath: testBriefPath, TaskTmp: testTaskTmp, Scratch: testScratch})
 			screen, screenErr := PiScreenArgs(context.Background(), runner)
 
 			// Assert
@@ -164,7 +164,7 @@ func TestPiRefusesRequestedFlagsMissingFromHelp(t *testing.T) {
 		t.Fatalf("Validate: %v", err)
 	}
 
-	launch, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`})
+	launch, err := adapter.Build(LaunchSpec{BriefPath: testBriefPath, TaskTmp: testTaskTmp, Scratch: testScratch})
 	if err != nil {
 		t.Fatalf("Build defaults: %v", err)
 	}
@@ -173,9 +173,9 @@ func TestPiRefusesRequestedFlagsMissingFromHelp(t *testing.T) {
 	}
 
 	for _, spec := range []LaunchSpec{
-		{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`, Model: "model"},
-		{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`, Effort: "high"},
-		{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`, PiExtensionPath: `C:\extensions\task.ts`},
+		{BriefPath: testBriefPath, TaskTmp: testTaskTmp, Scratch: testScratch, Model: "model"},
+		{BriefPath: testBriefPath, TaskTmp: testTaskTmp, Scratch: testScratch, Effort: "high"},
+		{BriefPath: testBriefPath, TaskTmp: testTaskTmp, Scratch: testScratch, PiExtensionPath: `C:\extensions\task.ts`},
 	} {
 		if _, err := adapter.Build(spec); err == nil {
 			t.Errorf("Build(%#v) returned nil error", spec)
@@ -189,7 +189,7 @@ func TestPiRefusesUnsupportedEffortAndRequiresHelpProbe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get(Pi): %v", err)
 	}
-	if _, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`}); err == nil {
+	if _, err := adapter.Build(LaunchSpec{BriefPath: testBriefPath, TaskTmp: testTaskTmp, Scratch: testScratch}); err == nil {
 		t.Fatal("Build returned nil error before a Pi help probe")
 	}
 
@@ -199,7 +199,7 @@ func TestPiRefusesUnsupportedEffortAndRequiresHelpProbe(t *testing.T) {
 	if err := adapter.Validate(context.Background(), runner); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
-	if _, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`, Effort: "xhigh"}); err == nil {
+	if _, err := adapter.Build(LaunchSpec{BriefPath: testBriefPath, TaskTmp: testTaskTmp, Scratch: testScratch, Effort: "xhigh"}); err == nil {
 		t.Fatal("Build returned nil error for unsupported Pi effort")
 	}
 	assertRequests(t, runner.requests, []execx.Request{{Name: "pi", Args: []string{"--help"}}})
@@ -217,7 +217,7 @@ func TestPiDoesNotTreatExamplesAsAdvertisedOptions(t *testing.T) {
 	if err := adapter.Validate(context.Background(), runner); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
-	if _, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`, Model: "candidate"}); err == nil {
+	if _, err := adapter.Build(LaunchSpec{BriefPath: testBriefPath, TaskTmp: testTaskTmp, Scratch: testScratch, Model: "candidate"}); err == nil {
 		t.Fatal("Build returned nil error after --model appeared only in an example")
 	}
 }
@@ -245,9 +245,9 @@ Examples:
 		t.Fatalf("Validate: %v", err)
 	}
 	_, err = adapter.Build(LaunchSpec{
-		BriefPath:       `C:\briefs\task.md`,
-		TaskTmp:         `C:\tasks\task`,
-		Scratch:         `C:\gotmp\task`,
+		BriefPath:       testBriefPath,
+		TaskTmp:         testTaskTmp,
+		Scratch:         testScratch,
 		Model:           "candidate",
 		Effort:          "high",
 		PiExtensionPath: `C:\extensions\task.ts`,

@@ -15,13 +15,15 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/host/hosttest"
 )
 
 const CUSTODY_GIT_PHASE_VARIABLE = "GOBLINS_TEST_CUSTODY_GIT_PHASE"
 
 // TestMain runs this test binary as a git that never answers when it is
 // started under that name, the stand-in for a git slowed past its deadline,
-// and as a process holding the watcher lock when started as one. Asked for
+// as a process holding the watcher lock when started as one, and as
+// hosttest's stand-in Claude Code on stream-json pipes. Asked for
 // its version, the stand-in git answers at once, which is how a test starts
 // it a first time before a deadline it measures (warmStandInGit). Otherwise it
 // runs the tests with git's search for a repository stopped at the folder
@@ -30,6 +32,7 @@ const CUSTODY_GIT_PHASE_VARIABLE = "GOBLINS_TEST_CUSTODY_GIT_PHASE"
 // checkout, as a goblin's scratch sits inside the home's, they read that
 // checkout instead of failing.
 func TestMain(m *testing.M) {
+	hosttest.RunStreamChild()
 	if name := filepath.Base(os.Args[0]); strings.EqualFold(strings.TrimSuffix(name, filepath.Ext(name)), "git") {
 		if len(os.Args) == 2 && os.Args[1] == "--version" {
 			fmt.Println("git version stand-in")
@@ -183,23 +186,6 @@ func gitOutput(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// warmStandInGit starts the stand-in git at path once and waits for it to
-// answer. Windows scans a program the first time it starts, and for a copy of
-// this test binary a loaded runner took over eight seconds to: on 2026-10-09
-// the custody check's own deadline passed twice before the stand-in it had
-// started could record that it ran (runs 37969744895 and 38012012787, each on
-// a change that did not touch it). A stand-in that must answer inside a
-// deadline the code under test sets is started here first, so the scan is no
-// part of what that deadline measures.
-func warmStandInGit(t *testing.T, path string) {
-	t.Helper()
-	begun := time.Now()
-	defer func() { t.Logf("the stand-in git's first start took %s", time.Since(begun).Round(time.Millisecond)) }()
-	if output, err := exec.Command(path, "--version").CombinedOutput(); err != nil || !strings.Contains(string(output), "git version stand-in") {
-		t.Fatalf("the stand-in git did not start: %v\n%s", err, output)
-	}
-}
-
 func copyExecutable(t *testing.T, from, to string) {
 	t.Helper()
 	source, err := os.Open(from)
@@ -218,3 +204,7 @@ func copyExecutable(t *testing.T, from, to string) {
 		t.Fatal(err)
 	}
 }
+
+// runHostVariable makes this test binary, started as "host", host a run
+// item's terminal as goblins host does.
+const runHostVariable = "GOBLINS_TEST_RUN_HOST"

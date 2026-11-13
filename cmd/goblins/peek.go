@@ -12,8 +12,9 @@ import (
 )
 
 // peekTerminal is the tail of target's native terminal: its screen as its
-// console holds it. target names a task, by its id or as gb-<id>, or any
-// other native terminal of this home, such as the CEO's.
+// console holds it, or for a stream session what its lines say of it.
+// target names a task, by its id or as gb-<id>, or any other native terminal
+// of this home, such as the CEO's.
 func peekTerminal(h home.Home, target string, lines int) (string, error) {
 	id := target
 	if meta, native := fleet.NativeTask(h.State, target); native {
@@ -22,6 +23,13 @@ func peekTerminal(h home.Home, target string, lines int) (string, error) {
 	record, err := host.ReadRecord(h.State, id)
 	if err != nil {
 		return "", fmt.Errorf("goblins peek: %s has no native terminal running: %w", target, err)
+	}
+	if record.Stream {
+		session, err := host.ReadStreamState(record)
+		if err != nil {
+			return "", err
+		}
+		return host.ScreenTail(session.Rows(), lines), nil
 	}
 	rows, err := host.ReadScreen(record)
 	if err != nil {

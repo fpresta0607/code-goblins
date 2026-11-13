@@ -268,6 +268,8 @@ type End struct {
 	Ended      time.Time `json:"ended"`
 	Code       uint32    `json:"code"`
 	Closed     bool      `json:"closed,omitempty"`
+	// Stream is set for the end of a stream session's program.
+	Stream bool `json:"stream,omitempty"`
 }
 
 func endPath(stateDir, id string) string {

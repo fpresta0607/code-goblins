@@ -17,7 +17,7 @@ interface Opening { isInboxOpen: boolean; hasFocus: boolean }
 // is first wanted, when he opens its inbox or something asks it to open an
 // item. Its code arrives then and takes the button's place, the button
 // showing until it has, open as he left it and with the focus it had.
-export function CommandCenterMenu({ snapshot, connected, presentations, now, focus, onUnsent, onSent }: { snapshot: Snapshot; connected: boolean; presentations: BoardActivity[]; now: number; focus: CommandFocus | null; onUnsent: (unsent: boolean) => void; onSent?: (key: string, sent: Sent | null) => void }) {
+export function CommandCenterMenu({ snapshot, connected, presentations, now, focus, onUnsent, onSent, onInboxOpen }: { snapshot: Snapshot; connected: boolean; presentations: BoardActivity[]; now: number; focus: CommandFocus | null; onUnsent: (unsent: boolean) => void; onSent?: (key: string, sent: Sent | null) => void; onInboxOpen?: () => void }) {
   const summary = useRef<HTMLElement>(null);
   const [opening, setOpening] = useState<Opening | null>(null);
   if (focus && !opening) setOpening({ isInboxOpen: false, hasFocus: false });
@@ -39,6 +39,6 @@ export function CommandCenterMenu({ snapshot, connected, presentations, now, foc
     startTransition(() => setOpening({ isInboxOpen, hasFocus }));
   }}><CommandCenterButton ref={summary} needing={needing} /></details>;
   return <Suspense fallback={button}>{opening
-    ? <CommandCenter snapshot={snapshot} connected={connected} presentations={presentations} now={now} focus={focus} needing={needing} isInboxOpen={opening.isInboxOpen} hasFocus={opening.hasFocus} onUnsent={onUnsent} onSent={onSent} />
+    ? <CommandCenter snapshot={snapshot} connected={connected} presentations={presentations} now={now} focus={focus} needing={needing} isInboxOpen={opening.isInboxOpen} hasFocus={opening.hasFocus} onUnsent={onUnsent} onSent={onSent} onInboxOpen={onInboxOpen} />
     : button}</Suspense>;
 }

@@ -292,7 +292,7 @@ func newHarness(t *testing.T) *harness {
 	out := &bytes.Buffer{}
 	clock := time.Date(2026, 10, 8, 14, 0, 0, 0, time.UTC)
 	turn := &fakeTurn{docker: docker}
-	h := &harness{docker: docker, machine: machine, check: check, live: live, out: out, checkout: `C:\dev\PrecisionDocs-AI`, clock: &clock, turn: turn}
+	h := &harness{docker: docker, machine: machine, check: check, live: live, out: out, checkout: filepath.Join(t.TempDir(), "PrecisionDocs-AI"), clock: &clock, turn: turn}
 	h.service = Service{
 		StateDir: t.TempDir(),
 		DataDir:  dataDir,

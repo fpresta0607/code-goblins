@@ -12,9 +12,11 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/turnnudge"
 )
 
@@ -254,5 +256,33 @@ process.stdout.write(JSON.stringify(answers));
 		if got := isNudged(answers[at]); got != want {
 			t.Errorf("settle %d answered %q, want nudged %v", at+1, output, want)
 		}
+	}
+}
+
+// The goblin hooks run on a goblin's tool calls all day, so a call that is
+// no browser command costs the seal no look at the machine's processes, and
+// one whose output holds no key costs the key alarm no file read either.
+// The seal reads the task record its path boundary is drawn from.
+func TestGoblinHooksReadNothingForAnOrdinaryCall(t *testing.T) {
+	// Arrange
+	goblinHookHome(t)
+	listed := proc.Lists()
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	seal := runHook("goblin-seal", shellCall(t, "git status"), &stdout, &stderr)
+	sealListed := proc.Lists() - listed
+	opened, listed := fsx.Opens(), proc.Lists()
+	alarm := runHook("goblin-key-alarm", toolOutput(t, "toolu_1", "commit 9f67ba752f1e637b1d58a0e13e1c07a692648c2c"), &stdout, &stderr)
+
+	// Assert
+	if seal != 0 || alarm != 0 {
+		t.Fatalf("seal = %d, alarm = %d, want both calls left as they were", seal, alarm)
+	}
+	if sealListed != 0 {
+		t.Fatalf("the seal listed processes %d time(s), want none", sealListed)
+	}
+	if opened, listed = fsx.Opens()-opened, proc.Lists()-listed; opened != 0 || listed != 0 {
+		t.Fatalf("the key alarm opened %d file(s) and listed processes %d time(s), want neither", opened, listed)
 	}
 }
