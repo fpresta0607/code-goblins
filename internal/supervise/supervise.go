@@ -183,9 +183,10 @@ var arming = struct {
 // once it holds recovery or ends without it. A firing that finds another
 // already showing it has nothing to add.
 //
-// The sign is a lock Windows keeps, not a record: a record is a new file,
-// which the virus scanner reads, and on a machine that loaded the record
-// itself took 3.2 s to appear, after the guard had given up.
+// The sign is the head of a line of waiters (lock.Show), on Windows a lock
+// the system keeps, and not a record: a record is a new file, which the
+// virus scanner reads, and on a machine that loaded the record itself took
+// 3.2 s to appear, after the guard had given up.
 func ShowArming(stateDir string) {
 	stop, err := lock.Show(filepath.Join(stateDir, armingFile), armingWait)
 	if err != nil {
