@@ -27,13 +27,10 @@
 .terminal-command .terminal-line:first-child::before { content: "$ "; color: var(--mint); font-weight: 700; }
 .terminal-block.powershell .terminal-command .terminal-line:first-child::before { content: "> "; }
 /* What a line reads as, where its program coloured nothing: an error on a
-   red ground, as a diff's removed line, a warning, a success, and a prompt's
-   question with the choice its terminal points at. */
+   red ground, as a diff's removed line, a warning and a success. */
 .terminal-line.error { background: rgba(255, 107, 128, 0.10); color: #f3c0c8; }
 .terminal-line.warning { color: #f0cf8a; }
 .terminal-line.success { color: #bfe9c9; }
-.terminal-line.question { color: #fff; font-weight: 700; }
-.terminal-line.chosen { color: var(--mint); font-weight: 700; }
 /* A program's own colours, each the board's shade of it, light enough to
    read on the card's ground. */
 .terminal-red { color: #ff8f9e; }

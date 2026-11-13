@@ -146,7 +146,11 @@ test("a line its program coloured keeps those colours and takes no tone of the b
   assert.deepEqual(tones(`${ESC}[33merror${ESC}[0m: only a notice`), [""]);
 });
 
-test("a question with options reads as the question, the option the terminal points at, and the others", () => {
+// A prompt in terminal text is a record of what its terminal asked, never a
+// choice to make: the card that shows it offers its own (the Overlord,
+// 2026-11-13: "fix two option confirm on radio button or panel to just make
+// it simple and intuitive").
+test("a question with options reads as its terminal showed it, the mark it points with kept, and no line drawn as a choice", () => {
   // Arrange
   const prompt = "Bash command\n\n  npm test\n\nDo you want to proceed?\n❯ 1. Yes\n  2. Yes, and don't ask again for npm commands\n  3. No, and tell it what to do differently (esc)\n";
 
@@ -154,22 +158,14 @@ test("a question with options reads as the question, the option the terminal poi
   const lines = terminalLines(prompt);
 
   // Assert
-  assert.deepEqual(lines.map((line) => line.tone), ["", "", "", "", "question", "chosen", "option", "option"]);
+  assert.deepEqual(lines.map((line) => line.tone), ["", "", "", "", "", "", "", ""]);
   assert.equal(lines[5].spans.map((span) => span.text).join(""), "❯ 1. Yes");
 });
 
-const asked: [string, string, string[]][] = [
-  ["a yes or no question", "Overwrite notes.md? [y/N] ", ["question"]],
-  ["options under a question that a blank line follows", "Which account?\n\n> 1) Work\n  2) Personal\n", ["question", "", "chosen", "option"]],
-  ["a numbered list that no question leads", "Steps:\n1. build\n2. test\n", ["", "option", "option"]],
-  ["one numbered line alone", "1. only this\n", [""]],
-  ["numbers that do not count from one", "3. three\n4. four\n", ["", ""]],
-  ["a question no options follow", "Is it done?\nyes\n", ["", ""]],
-];
-for (const [name, text, expected] of asked) {
-  test("a prompt reads by its shape: " + name, () => {
+for (const [name, text] of [["a yes or no question", "Overwrite notes.md? [y/N] "], ["options under a question that a blank line follows", "Which account?\n\n> 1) Work\n  2) Personal\n"]]) {
+  test("a prompt takes no look of its own: " + name, () => {
     // Act and Assert
-    assert.deepEqual(tones(text), expected);
+    assert.deepEqual(tones(text).filter(Boolean), []);
   });
 }
 

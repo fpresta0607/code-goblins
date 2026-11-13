@@ -6,12 +6,12 @@ import { webAddresses } from "./messageText.ts";
 // colour its text, every other escape goes, a line the program redrew shows
 // as its terminal left it, and a line is one line however long, for its
 // drawing to wrap on purpose. Where a program coloured nothing, a line that
-// starts as an error, a warning or a success reads as one, a numbered prompt
-// reads as a question and its options, and a path or a web address is told
-// apart from the words around it.
+// starts as an error, a warning or a success reads as one, and a path or a
+// web address is told apart from the words around it. A prompt's lines read
+// as written: the card that shows one offers its own choices.
 export type TerminalColor = "red" | "green" | "yellow" | "blue" | "magenta" | "cyan" | "gray";
 export interface TerminalSpan { text: string; color?: TerminalColor; isBold?: true; isDim?: true; isItalic?: true; isUnderlined?: true; kind?: "path" | "link" }
-export type TerminalTone = "" | "error" | "warning" | "success" | "question" | "option" | "chosen";
+export type TerminalTone = "" | "error" | "warning" | "success";
 export interface TerminalLine { spans: TerminalSpan[]; tone: TerminalTone }
 // How a command ended, or that it still runs, as its block's last line says.
 export interface TerminalResult { tone: "success" | "error" | "warning" | "running"; text: string }
@@ -155,14 +155,11 @@ const SAID = "(?=[:!\\s[]|$)";
 const ERROR_LINE = new RegExp("^\\s*(?:--- )?(?:error|fatal|panic|fail|failed|failure|exception|traceback|npm err!|npm error|[✗✘✖×]\\uFE0F?)" + SAID, "i");
 const WARNING_LINE = new RegExp("^\\s*(?:warning|warn|npm warn|⚠\\uFE0F?)" + SAID, "i");
 const SUCCESS_LINE = new RegExp("^\\s*(?:--- )?(?:ok|pass|passed|success|done|[✓✔]\\uFE0F?)" + SAID, "i");
-// A numbered choice, with the mark a terminal points at the one in focus.
-const OPTION_LINE = /^\s*(?:([❯>→▶*])\s+)?(\d+)[.)]\s+\S/;
-const YES_OR_NO = /[[(]y(?:es)?\/n(?:o)?[\])]\s*:?\s*$/i;
 
 // terminalLines reads terminal text as its lines, each as its spans and what
 // it reads as.
 export function terminalLines(text: string): TerminalLine[] {
-  const lines = cellRows(text).map((row): TerminalLine & { plain: string } => {
+  return cellRows(text).map((row): TerminalLine => {
     const spans: TerminalSpan[] = [];
     let key = "";
     for (const cell of row) {
@@ -173,22 +170,9 @@ export function terminalLines(text: string): TerminalLine[] {
     }
     const plain = spans.map((span) => span.text).join("");
     const isColoured = spans.some((span) => span.color);
-    const tone = YES_OR_NO.test(plain) ? "question" : isColoured ? "" : ERROR_LINE.test(plain) ? "error" : WARNING_LINE.test(plain) ? "warning" : SUCCESS_LINE.test(plain) ? "success" : "";
-    return { spans: spans.flatMap(named), tone, plain };
+    const tone = isColoured ? "" : ERROR_LINE.test(plain) ? "error" : WARNING_LINE.test(plain) ? "warning" : SUCCESS_LINE.test(plain) ? "success" : "";
+    return { spans: spans.flatMap(named), tone };
   });
-  // Choices count from one, line after line, and two or more make a prompt's
-  // options; the line above them that asks is their question.
-  for (let at = 0; at < lines.length; at++) {
-    let end = at;
-    while (end < lines.length && Number(OPTION_LINE.exec(lines[end].plain)?.[2]) === end - at + 1) end++;
-    if (end - at < 2) continue;
-    for (let each = at; each < end; each++) lines[each].tone = OPTION_LINE.exec(lines[each].plain)?.[1] ? "chosen" : "option";
-    let above = at - 1;
-    while (above >= 0 && !lines[above].plain.trim()) above--;
-    if (above >= 0 && lines[above].plain.trimEnd().endsWith("?")) lines[above].tone = "question";
-    at = end - 1;
-  }
-  return lines.map(({ spans, tone }) => ({ spans, tone }));
 }
 
 // plainTerminalText is terminal text as Copy takes it: its lines as drawn,

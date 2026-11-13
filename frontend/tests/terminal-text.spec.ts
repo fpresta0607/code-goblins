@@ -263,7 +263,11 @@ for (const { width, height, label } of SIZES) {
       await expect(card).toBeVisible();
     });
 
-    test("a question that quotes a prompt draws it as terminal text: the question, the choice its terminal points at, and the others", async ({ page }, testInfo) => {
+    // He could not tell whether to click the radio buttons or the prompt the
+    // question quoted (2026-11-13: "what do you click the radio button or teh
+    // terminal ?"), so the prompt reads as its terminal showed it and the
+    // card's radios are the one place to choose.
+    test("a question that quotes a prompt draws it as terminal text, each line as written and none as a choice, beside the card's own choices", async ({ page }, testInfo) => {
       // Arrange
       await page.goto("/tests/fixtures/terminal-text.html");
       await page.waitForFunction(() => "terminalStep" in window);
@@ -271,12 +275,13 @@ for (const { width, height, label } of SIZES) {
       // Act
       await openItem(page, "Should the release be replaced?");
       const card = page.locator("dialog.question-modal .question-card");
-      const block = card.locator(".terminal-block");
+      const lines = card.locator(".terminal-block .terminal-line");
 
       // Assert
-      await expect(block.locator(".terminal-line.question")).toHaveText("Release v0.5.2 already exists. Replace it?");
-      await expect(block.locator(".terminal-line.chosen")).toHaveText("❯ 1. Yes, replace it");
-      await expect(block.locator(".terminal-line.option")).toHaveText("2. No, keep the old one");
+      await expect(lines).toHaveText(["Release v0.5.2 already exists. Replace it?", "❯ 1. Yes, replace it", "2. No, keep the old one"]);
+      const looks = await lines.evaluateAll((all) => all.map((line) => getComputedStyle(line).color + " " + getComputedStyle(line).fontWeight));
+      expect(new Set(looks).size, "no line of the prompt looks picked: " + looks.join(", ")).toBe(1);
+      expect(await foldedWords(lines)).toEqual([]);
       await expect(card.locator(".question-decision")).toContainText("Should the release be replaced? The publish command stopped at this prompt:");
       await expect(card.locator(".question-decision")).not.toContainText("```");
       await expect(card.getByRole("radio")).toHaveCount(3);
