@@ -15,8 +15,9 @@ import (
 // startDetachedAfter is startDetached for a process that must find something
 // in place before its first instruction runs: it is created suspended, before
 // runs with its pid, and only then is it let run. A before that fails ends
-// the process, which never ran.
-func startDetachedAfter(before func(pid int) error, executable, dir, logPath string, args ...string) (*exec.Cmd, error) {
+// the process, which never ran. It starts with environment, or with this
+// process's own when environment is nil.
+func startDetachedAfter(before func(pid int) error, environment []string, executable, dir, logPath string, args ...string) (*exec.Cmd, error) {
 	log, err := fsx.OpenAppend(logPath, 0o600)
 	if err != nil {
 		return nil, err
@@ -26,6 +27,7 @@ func startDetachedAfter(before func(pid int) error, executable, dir, logPath str
 	for _, flags := range []uint32{createNoWindow | createNewProcessGroup | createBreakawayFromJob, createNoWindow | createNewProcessGroup} {
 		command = execx.Command(executable, args...)
 		command.Dir = dir
+		command.Env = environment
 		command.Stdout, command.Stderr = log, log
 		command.SysProcAttr.CreationFlags |= flags
 		command.SysProcAttr.HideWindow = true

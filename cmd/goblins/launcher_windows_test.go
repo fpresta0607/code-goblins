@@ -4,10 +4,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
 	"unsafe"
+
+	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 // probeConsole writes how many processes share this process's console, none
@@ -69,6 +76,97 @@ func TestDetachedStartGivesAHiddenConsoleOfItsOwn(t *testing.T) {
 	}
 	if got := string(data); got != "processes=1 window=false visible=false" {
 		t.Fatalf("stand-in console: %s, want a console with no window that only it is attached to", got)
+	}
+}
+
+// serveConsoleReleaseVariable turns this test binary, started as goblins
+// serve, into a stand-in that writes its pid beside the file the variable
+// names and keeps its console until that file appears.
+const serveConsoleReleaseVariable = "GOBLINS_TEST_SERVE_CONSOLE_RELEASE"
+
+// holdServeConsole is that stand-in's whole run, and its exit code.
+func holdServeConsole(release string) int {
+	if err := os.WriteFile(release+".pid", []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+		return 1
+	}
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if _, err := os.Stat(release); err == nil {
+			return 0
+		}
+	}
+	return 1
+}
+
+// The supervisor goblins starts from a native terminal, and the console host
+// Windows gives its hidden console, carry none of that terminal's id and
+// proof value: Windows makes the console host from the environment serve
+// starts with, before serve forgets them, and a process carrying a
+// terminal's proof reads as that terminal's own, so its teardown could take
+// the supervisor's console host for its leftover (#1717).
+func TestADetachedServeAndItsConsoleHostCarryNoTerminalProof(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	h := home.Home{Root: dir, State: filepath.Join(dir, "state")}
+	if err := os.MkdirAll(h.State, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	release := filepath.Join(dir, "release")
+	t.Setenv(serveConsoleReleaseVariable, release)
+	t.Setenv(host.IDVariable, "ceo")
+	t.Setenv(host.ProofVariable, "terminal-proof")
+
+	// Act
+	exited, err := startDetachedServe(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.WriteFile(release, nil, 0o600)
+		select {
+		case <-exited:
+		case <-time.After(30 * time.Second):
+			t.Error("the stand-in serve did not exit")
+		}
+	})
+	serve := 0
+	for deadline := time.Now().Add(30 * time.Second); serve == 0 && time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if data, err := os.ReadFile(release + ".pid"); err == nil {
+			serve, _ = strconv.Atoi(string(data))
+		}
+	}
+	if serve == 0 {
+		t.Fatal("the stand-in serve never wrote its pid")
+	}
+	consoleHost := 0
+	for deadline := time.Now().Add(10 * time.Second); consoleHost == 0 && time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		entries, err := proc.Processes()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range entries {
+			if entry.ParentPID == serve && strings.EqualFold(entry.ExeBase, "conhost.exe") {
+				consoleHost = entry.PID
+			}
+		}
+	}
+	if consoleHost == 0 {
+		t.Fatalf("the stand-in serve, pid %d, has no console host", serve)
+	}
+
+	// Assert
+	for name, pid := range map[string]int{"serve": serve, "its console host": consoleHost} {
+		_, _, environment, err := proc.ParametersAndEnvironment(pid)
+		if err != nil {
+			t.Fatalf("read the environment of %s, pid %d: %v", name, pid, err)
+		}
+		if !slices.Contains(environment, serveConsoleReleaseVariable+"="+release) {
+			t.Fatalf("the environment read for %s, pid %d, is not the one goblins started serve with:\n%s", name, pid, strings.Join(environment, "\n"))
+		}
+		for _, entry := range environment {
+			if variable, _, _ := strings.Cut(entry, "="); strings.EqualFold(variable, host.IDVariable) || strings.EqualFold(variable, host.ProofVariable) {
+				t.Errorf("%s, pid %d, carries %s", name, pid, entry)
+			}
+		}
 	}
 }
 

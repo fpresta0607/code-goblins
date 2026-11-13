@@ -10,7 +10,7 @@ import (
 
 // startDetachedAfter refuses: starting a process detached from this one is
 // not ported to this system yet.
-func startDetachedAfter(before func(pid int) error, executable, dir, logPath string, args ...string) (*exec.Cmd, error) {
+func startDetachedAfter(before func(pid int) error, environment []string, executable, dir, logPath string, args ...string) (*exec.Cmd, error) {
 	return nil, fmt.Errorf("starting %s detached is not ported to this system yet: %w", executable, errors.ErrUnsupported)
 }
 
