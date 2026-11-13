@@ -53,10 +53,12 @@
 .terminal-result.warning { color: var(--amber); }
 .terminal-result.running { color: var(--blue); }
 /* A card over the whole window, the board dimmed under it: as wide and as
-   tall as the window, its text whole and wrapped, scrolling inside it. */
+   tall as the window, its text whole and wrapped, scrolling inside it. A
+   command takes up to two fifths of it above what it printed, and all of it
+   alone. */
 .full-screen { position: fixed; inset: 0; width: 100vw; max-width: none; height: 100dvh; max-height: none; margin: 0; padding: max(.75rem, env(safe-area-inset-top)) .75rem max(.75rem, env(safe-area-inset-bottom)); overflow: hidden; border: 0; background: transparent; color: inherit; }
 .full-screen::backdrop { background: #03050ad9; }
 .full-screen > .message-code { display: flex; flex-direction: column; height: 100%; }
 .full-screen > .message-code > pre { flex: 1 1 auto; min-height: 0; max-height: none; white-space: pre-wrap; overflow-wrap: anywhere; }
 .full-screen > .terminal-block > pre { overflow-wrap: normal; }
-.full-screen > .terminal-block > .terminal-command { flex: none; max-height: 40%; }
+.full-screen > .terminal-block > .terminal-command:not(:last-of-type) { flex: none; max-height: 40%; }

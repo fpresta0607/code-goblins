@@ -5,11 +5,17 @@ import { Disclosure } from "./Disclosure";
 import { fencedParts } from "./session-messages";
 import { TerminalBlock } from "./terminal-block";
 
-// words draws a question's words: a block it fences, such as what a command
-// printed or the prompt it stopped at, as terminal text (#2524), and the
-// rest as the question contract's text, shown as written.
-const words = (text: string, path?: PathRenderer): ReactNode => fencedParts(text).map((part, at) => part.kind === "code" ? <TerminalBlock key={at} output={part.text} />
-  : <Fragment key={at}>{messageElements(part.text, copyValues, path)}</Fragment>);
+// A fence that names a shell holds a command to run in it.
+const SHELL = /^(?:powershell|pwsh|cmd|bash|sh|zsh)$/i;
+
+// words draws a question's words: a block it fences as terminal text
+// (#2524), a command under the shell its fence names, and any other block,
+// such as what a command printed or the prompt it stopped at, as output; the
+// rest as the question contract's text, shown as written. Each local path in
+// either is drawn by path.
+const words = (text: string, path?: PathRenderer): ReactNode => fencedParts(text).map((part, at) => part.kind === "prose" ? <Fragment key={at}>{messageElements(part.text, copyValues, path)}</Fragment>
+  : SHELL.test(part.language) ? <TerminalBlock key={at} shell={part.language} command={part.text} path={path} />
+  : <TerminalBlock key={at} output={part.text} path={path} />);
 
 // A question's words on its card: the decision as body text, which names the
 // card, and the evidence after its "Details:" line folded under Technical

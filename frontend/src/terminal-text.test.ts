@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { commandLines, exitResult, plainTerminalText, softBreaks, terminalLines, type TerminalSpan } from "./terminal-text.ts";
+import { commandLines, plainTerminalText, softBreaks, terminalLines, type TerminalSpan } from "./terminal-text.ts";
 
 const ESC = "\x1b";
 const texts = (text: string) => terminalLines(text).map((line) => line.spans.map((span) => span.text).join(""));
@@ -70,7 +70,22 @@ test("a window title, a cursor move and a control character are dropped, and Cop
 
   // Act and Assert
   assert.deepEqual(texts(text), ["building", "link done"]);
-  assert.equal(plainTerminalText(text), "building\nlink done");
+  assert.equal(plainTerminalText(terminalLines(text)), "building\nlink done");
+});
+
+// A move to a column (ECMA-48's CHA, ESC [ n G) lands on column n, counted
+// from 1, as a terminal does, and stops at the right edge however far it
+// asks, so no text lays out a line wider than 512 columns.
+test("a move to a column pads the line up to that column, and a move far past any edge stops at 512 columns", () => {
+  // Act
+  const near = texts(`ab${ESC}[5Gx`);
+  const far = texts(`${ESC}[999999999Gx`);
+
+  // Assert
+  assert.deepEqual(near, ["ab  x"]);
+  assert.equal(far.length, 1);
+  assert.ok(far[0].length <= 512, "the line is " + far[0].length + " characters long");
+  assert.ok(far[0].endsWith("x"), "the text after the move is kept");
 });
 
 const redrawn: [string, string, string[]][] = [
@@ -103,15 +118,6 @@ test("a multi-line command reads as its lines in order, each with its own indent
   // Assert
   assert.deepEqual(lines, ["gh release create v0.5.2 `", "    --notes-file notes.md `", "    --title \"v0.5.2\"", "if ($LASTEXITCODE) { exit 1 }"]);
   assert.deepEqual(commandLines("npm test"), ["npm test"]);
-});
-
-// The card of a command he ran never shows its exit code (2026-10-08: "just
-// have the same complete notification"); History keeps it.
-test("an error exit reads Failed as an error, a clean exit Completed as a success, neither with its code, and a command that never exited says nothing", () => {
-  // Act and Assert
-  assert.deepEqual(exitResult(2), { tone: "error", text: "Failed" });
-  assert.deepEqual(exitResult(0), { tone: "success", text: "Completed" });
-  assert.equal(exitResult(null), null);
 });
 
 test("the lines that say why a command failed read as errors, and the lines around them stay plain", () => {

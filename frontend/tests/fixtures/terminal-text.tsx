@@ -5,10 +5,12 @@ import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
 // The Command Center's terminal text (#2524): a command of several lines
-// beside a question that quotes the prompt a command stopped at.
-// window.terminalStep is the supervisor's next snapshot: "failed" once the
-// command he ran ended with exit 2 and what its terminal showed. Every name
-// in them is made up.
+// beside a question that quotes the prompt a command stopped at, and one
+// that fences the command it would run and, in its details, what the last
+// build printed. window.terminalStep is the supervisor's next snapshot:
+// "failed" once the command he ran ended with exit 2 and what its terminal
+// showed, and "unfinished" once its terminal closed before the command
+// finished, with no exit code. Every name in them is made up.
 const created = "2026-11-13T12:40:00Z";
 const COMMAND = "gh release create v0.5.2 `\n    --notes-file notes.md `\n    --title \"v0.5.2\"\nif ($LASTEXITCODE) { exit $LASTEXITCODE }";
 const OUTPUT = [
@@ -25,10 +27,16 @@ const question = {
   text: "Should the release be replaced? The publish command stopped at this prompt:\n\n```\nRelease v0.5.2 already exists. Replace it?\n❯ 1. Yes, replace it\n  2. No, keep the old one\n```\n\n- **I recommend replacing it**: the old one came from the try that failed.",
   options: ["Replace it", "Keep the old one"], recommended: "Replace it",
 };
-const base = { healthy: true, instance: "fixture", ceo_runs: true, tasks: [], questions: [question] };
+const cleanup = {
+  id: "remove-old-build", identity: "e".repeat(64), task: "", status: "pending", created_at: created,
+  text: "Should the old build be removed? Removing it runs:\n\n```powershell\nRemove-Item C:\\work\\old -Recurse\n```\n\nDetails:\n\nThe last build stopped at:\n\n```\nerror: cannot open C:\\work\\old\\config.json\n```",
+  options: ["Remove it", "Keep it"], recommended: "Remove it",
+};
+const base = { healthy: true, instance: "fixture", ceo_runs: true, tasks: [], questions: [question, cleanup] };
 const snapshots = {
   ready: parseSnapshot({ ...base, revision: 1, runs: [run] }),
   failed: parseSnapshot({ ...base, revision: 2, runs: [{ ...run, state: "failed", exit_code: 2, output: OUTPUT, ran_at: "2026-11-13T12:41:00Z", finished_at: "2026-11-13T12:41:10Z", terminal: true }] }),
+  unfinished: parseSnapshot({ ...base, revision: 3, runs: [{ ...run, state: "failed", exit_code: null, reason: "its terminal closed before the command finished", ran_at: "2026-11-13T12:41:00Z", finished_at: "2026-11-13T12:41:10Z" }] }),
 };
 const ignore = () => {};
 

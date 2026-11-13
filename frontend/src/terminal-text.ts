@@ -1,3 +1,4 @@
+import type { IconName } from "./Icon.tsx";
 import { webAddresses } from "./messageText.ts";
 
 // Terminal text as the board reads it everywhere it shows any (#2524): what a
@@ -13,14 +14,19 @@ export type TerminalColor = "red" | "green" | "yellow" | "blue" | "magenta" | "c
 export interface TerminalSpan { text: string; color?: TerminalColor; isBold?: true; isDim?: true; isItalic?: true; isUnderlined?: true; kind?: "path" | "link" }
 export type TerminalTone = "" | "error" | "warning" | "success";
 export interface TerminalLine { spans: TerminalSpan[]; tone: TerminalTone }
-// How a command ended, or that it still runs, as its block's last line says.
-export interface TerminalResult { tone: "success" | "error" | "warning" | "running"; text: string }
+// How a command ended, or that it still runs, as its block's last line says
+// under its own row's mark.
+export interface TerminalResult { tone: "success" | "error" | "warning" | "running"; text: string; icon: IconName }
 
 type Style = Omit<TerminalSpan, "text" | "kind">;
 interface Cell { char: string; style: Style }
 
 const ESCAPE = "\x1b";
 const BELL = "\x07";
+// A move to a column stops at its terminal's right edge. Text keeps no width,
+// so here a move stops at 512 columns, however far it asks.
+const COLUMNS = 512;
+const BLANK: Cell = { char: " ", style: {} };
 
 // The eight colours a terminal names, in its order. Black is gray on the
 // board's dark ground, and white is the text's own colour.
@@ -91,7 +97,7 @@ function cellRows(text: string): Cell[][] {
         const final = text[end];
         end++;
         if (final === "m") style = styled(style, parameters);
-        else if (final === "G") column = Math.max(0, (Number(parameters) || 1) - 1);
+        else if (final === "G") column = Math.min(Math.max(0, (Number(parameters) || 1) - 1), COLUMNS - 1);
         else if (final === "K" && parameters === "2") row = [];
         else if (final === "K" && parameters !== "1") row.length = Math.min(row.length, column);
       } else if (kind === "]") {
@@ -106,7 +112,7 @@ function cellRows(text: string): Cell[][] {
     else if (char === "\r") column = 0;
     else if (char === "\b") column = Math.max(0, column - 1);
     else if (char >= " " && char !== "\x7f" || char === "\t") {
-      while (row.length < column) row.push({ char: " ", style: {} });
+      while (row.length < column) row.push(BLANK);
       row[column++] = { char, style };
     }
   }
@@ -177,7 +183,7 @@ export function terminalLines(text: string): TerminalLine[] {
 
 // plainTerminalText is terminal text as Copy takes it: its lines as drawn,
 // with no escape among them.
-export const plainTerminalText = (text: string): string => terminalLines(text).map((line) => line.spans.map((span) => span.text).join("")).join("\n");
+export const plainTerminalText = (lines: TerminalLine[]): string => lines.map((line) => line.spans.map((span) => span.text).join("")).join("\n");
 
 // commandLines is a command as its lines, each with its own indent, without
 // the blank lines at its ends.
@@ -186,13 +192,6 @@ export function commandLines(command: string): string[] {
   while (lines.length && !lines[0].trim()) lines.shift();
   while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
   return lines;
-}
-
-// exitResult says how a command that exited ended, in a call row's words and
-// never with its code, which History keeps, or nothing for one that never
-// exited.
-export function exitResult(exitCode: number | null): TerminalResult | null {
-  return exitCode === null ? null : exitCode === 0 ? { tone: "success", text: "Completed" } : { tone: "error", text: "Failed" };
 }
 
 // A word this long may not fit a narrow card's line.

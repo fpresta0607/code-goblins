@@ -29,6 +29,7 @@ const printed = (paint: (code: number, text: string) => string) => [
 const OUTPUT = printed((code, text) => `${ESC}[${code}m${text}${ESC}[39m`);
 const PLAIN = printed((_, text) => text);
 const DIGEST = "0123456789abcdef".repeat(14);
+const NOTES = Array.from({ length: 24 }, (_, line) => "note " + (line + 1) + " of the release checklist").join("\n");
 
 const call = (id: string, tool: string, subject: string, fields: object) => ({ kind: "call", call_id: id, tool, subject, state: "done", ...fields });
 const ROWS = { conversation: "fixture-conversation", more: false, messages: [
@@ -38,9 +39,24 @@ const ROWS = { conversation: "fixture-conversation", more: false, messages: [
     call("bash-1", "Bash", "cd frontend && npx playwright test", { input: COMMAND, result: OUTPUT, state: "failed" }),
     { kind: "text", text: "One failed. Reading the digest it wrote." },
     call("bash-2", "Bash", "cat digest.txt", { result: DIGEST }),
+    { kind: "text", text: "Checking the release notes before it goes out." },
+    call("read-1", "Read", "notes.md", { result: NOTES }),
+    call("bash-3", "Bash", "git push --force", { state: "denied" }),
+    call("bash-4", "Bash", "npm run lint", { state: "interrupted" }),
+    call("bash-5", "Bash", "npm run build", { state: "running" }),
     { kind: "text", text: "Done." },
   ] },
 ] };
+
+// How each command row ends: Completed, Running, Failed, Denied or
+// Interrupted.
+const ENDINGS = [
+  { command: "cat digest.txt", text: "Completed", tone: "success" },
+  { command: "npm run build", text: "Running", tone: "running" },
+  { command: "npx playwright test", text: "Failed", tone: "error" },
+  { command: "git push --force", text: "Denied", tone: "warning" },
+  { command: "npm run lint", text: "Interrupted", tone: "warning" },
+];
 
 const SIZES = [{ width: 1440, height: 1100, label: "desktop" }, { width: 390, height: 844, label: "phone" }];
 const messages = (page: Page) => page.getByRole("log", { name: "Messages of " + NAME });
@@ -172,6 +188,14 @@ for (const { width, height, label } of SIZES) {
 
       // Assert
       await expect.poll(() => clipboard(page)).toBe(COMMAND);
+
+      // Act: a row whose output stands alone, as a Read row's does.
+      const read = messages(page).locator("details.message-call", { hasText: "notes.md" });
+      await read.locator("> summary").click();
+      await read.getByRole("button", { name: "Copy", exact: true }).click();
+
+      // Assert: its one Copy takes every line, the ones scrolled out of view too.
+      await expect.poll(() => clipboard(page)).toBe(NOTES);
     });
 
     test("Full screen fills the window with the whole text, and Escape or its button leaves it and nothing else", async ({ page }, testInfo) => {
@@ -228,6 +252,18 @@ for (const { width, height, label } of SIZES) {
       await expect(block.locator(".terminal-output, .terminal-result")).toHaveCount(0);
       await page.screenshot({ path: testInfo.outputPath(`run-ready-${label}.png`) });
 
+      // Act: full screen from the command's own caption, with nothing printed yet.
+      await block.getByRole("button", { name: "Full screen", exact: true }).click();
+
+      // Assert: the command whole, with all of the card's room and not only
+      // the two fifths it takes above what a command printed.
+      await expect(over(page).locator(".terminal-command .terminal-line")).toHaveText(["gh release create v0.5.2 `", "--notes-file notes.md `", "--title \"v0.5.2\"", "if ($LASTEXITCODE) { exit $LASTEXITCODE }"]);
+      const alone = over(page).locator(".terminal-command");
+      expect(await alone.evaluate((command) => command.scrollHeight <= command.clientHeight), "the command shows whole").toBe(true);
+      expect((await alone.boundingBox())!.height, "the command takes the card's room").toBeGreaterThan((await over(page).boundingBox())!.height * 0.4);
+      await page.keyboard.press("Escape");
+      await expect(over(page)).toHaveCount(0);
+
       // Act: he runs it, and it fails.
       await card.getByRole("button", { name: "Run in PowerShell" }).click();
       await page.evaluate(() => (window as unknown as { terminalStep: (name: string) => void }).terminalStep("failed"));
@@ -279,6 +315,8 @@ for (const { width, height, label } of SIZES) {
 
       // Assert
       await expect(lines).toHaveText(["Release v0.5.2 already exists. Replace it?", "❯ 1. Yes, replace it", "2. No, keep the old one"]);
+      await expect(card.locator(".terminal-block > figcaption")).toHaveText(["output"]);
+      await expect(card.locator(".terminal-command")).toHaveCount(0);
       const looks = await lines.evaluateAll((all) => all.map((line) => getComputedStyle(line).color + " " + getComputedStyle(line).fontWeight));
       expect(new Set(looks).size, "no line of the prompt looks picked: " + looks.join(", ")).toBe(1);
       expect(await foldedWords(lines)).toEqual([]);
@@ -290,3 +328,93 @@ for (const { width, height, label } of SIZES) {
     });
   });
 }
+
+// Each way a command row ends reads under that row's own mark, so a command
+// denied at a permission prompt never reads as one paused: Completed's check,
+// Running's clock, Failed's warning, Denied's lock and Interrupted's pause.
+test("an open command row ends in how it ended, in that ending's colour and under the row's own mark", async ({ page }) => {
+  // Arrange
+  await open(page, snapshot(), undefined, ROWS);
+  await openGoblin(page);
+  const marks: string[] = [];
+
+  for (const { command, text, tone } of ENDINGS) {
+    // Act
+    const row = messages(page).locator("details.message-call", { hasText: command });
+    await row.locator("> summary").click();
+    const result = row.locator(".terminal-result");
+
+    // Assert
+    await expect(result).toHaveText(text);
+    await expect(result).toHaveClass(new RegExp("\\b" + tone + "\\b"));
+    const mark = await result.locator("path").getAttribute("d");
+    expect(mark, text + " is drawn with its row's own mark").toBe(await row.locator("> summary .call-mark path").getAttribute("d"));
+    marks.push(mark ?? "");
+  }
+  expect(new Set(marks).size, "each ending has a mark of its own").toBe(ENDINGS.length);
+});
+
+// A question can fence a command it would run, which reads as a command under
+// its shell's name, where what a command printed reads as output, and a
+// local path either names is a link, as one in the question's words is.
+test("a question's fence that names a shell reads as a command, its other fences as output, and a local path in either is a link", async ({ page, context }) => {
+  // Arrange
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto("/tests/fixtures/terminal-text.html");
+  await page.waitForFunction(() => "terminalStep" in window);
+
+  // Act
+  await openItem(page, "Should the old build be removed?");
+  const card = page.locator("dialog.question-modal .question-card");
+  const command = card.locator(".question-decision .terminal-block");
+
+  // Assert: the command under its shell's name and the prompt's mark, with
+  // no output.
+  await expect(command.locator("figcaption")).toHaveText(["powershell"]);
+  await expect(command.locator(".terminal-command .terminal-line")).toHaveText(["Remove-Item C:\\work\\old -Recurse"]);
+  expect(await command.locator(".terminal-line").first().evaluate((line) => getComputedStyle(line, "::before").content)).toBe('"> "');
+  await expect(command.locator(".terminal-output")).toHaveCount(0);
+  await expect(command.getByRole("button", { name: "Copy the path C:\\work\\old", exact: true })).toBeVisible();
+
+  // Act
+  const details = card.locator(".question-details");
+  await details.locator("> summary").click();
+  const printed = details.locator(".question-evidence .terminal-block");
+
+  // Assert: what the build printed as output, with no fence left as text.
+  await expect(printed.locator(".terminal-line")).toHaveText(["error: cannot open C:\\work\\old\\config.json"]);
+  await expect(printed.locator("figcaption")).toHaveText(["output"]);
+  await expect(details.locator(".question-evidence")).not.toContainText("```");
+
+  // Act
+  await printed.getByRole("button", { name: "Copy the path C:\\work\\old\\config.json", exact: true }).click();
+
+  // Assert: the path is the card's own link, which copies it in a browser.
+  await expect.poll(() => clipboard(page)).toBe("C:\\work\\old\\config.json");
+});
+
+// A command can fail without exiting, as one whose terminal closed before it
+// finished: its block ends in Failed as its card does, with no exit code.
+test("a Command Center command that failed with no exit code ends in Failed", async ({ page }) => {
+  // Arrange
+  await page.route("**/api/actions", async (route) => {
+    const sent: Record<string, unknown> = route.request().postDataJSON();
+    await route.fulfill({ json: { id: String(sent.id), kind: "run", run_id: "publish-v0.5.2", status: "queued" } });
+  });
+  await page.goto("/tests/fixtures/terminal-text.html");
+  await page.waitForFunction(() => "terminalStep" in window);
+  await openItem(page, "Publish release v0.5.2");
+  const card = page.locator("dialog.question-modal .run-card");
+  await card.getByRole("button", { name: "Run in PowerShell" }).click();
+
+  // Act
+  await page.evaluate(() => (window as unknown as { terminalStep: (name: string) => void }).terminalStep("unfinished"));
+  await expect(page.locator("main")).toHaveAttribute("data-step", "unfinished");
+
+  // Assert
+  const result = card.locator(".terminal-block .terminal-result");
+  await expect(result).toHaveText("Failed");
+  await expect(result).toHaveClass(/\berror\b/);
+  await expect(card.locator(".terminal-output")).toHaveCount(0);
+  await expect(card).not.toContainText(/exit code/i);
+});

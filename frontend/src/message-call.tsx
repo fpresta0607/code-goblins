@@ -17,8 +17,9 @@ import { literalLinks } from "./messageText";
 
 const STATE_WORDS: Record<CallState, string> = { running: "Running", done: "", failed: "Failed", denied: "Denied", interrupted: "Interrupted", "": "" };
 const STATE_MARKS: Partial<Record<CallState, IconName>> = { running: "clock", done: "check", failed: "warning", denied: "lock", interrupted: "pause" };
-// How a command ended, or that it still runs, as its open row's last line.
-const RESULTS: Partial<Record<CallState, TerminalResult>> = { running: { tone: "running", text: "Running" }, done: { tone: "success", text: "Completed" }, failed: { tone: "error", text: "Failed" }, denied: { tone: "warning", text: "Denied" }, interrupted: { tone: "warning", text: "Interrupted" } };
+// How a command ended, or that it still runs, as its open row's last line
+// says under the row's own mark.
+const RESULTS: Partial<Record<CallState, Omit<TerminalResult, "icon">>> = { running: { tone: "running", text: "Running" }, done: { tone: "success", text: "Completed" }, failed: { tone: "error", text: "Failed" }, denied: { tone: "warning", text: "Denied" }, interrupted: { tone: "warning", text: "Interrupted" } };
 
 // A tool call in a reply, as one quiet line: its tool's icon, the verb it is
 // told by (Read, Edited, Ran, Searched), what it was called on cut with an
@@ -73,10 +74,11 @@ export function MessageCall({ call, task, picture, onChild, open, onOpenChange }
   const language = commandLanguage(call.tool);
   const input = call.input || call.subject;
   const hasDiff = !!call.edit?.diff.length;
+  const ending = RESULTS[call.state];
   return <Disclosure kind="disclosure-line message-call" title={head} open={open} onOpenChange={onOpenChange}>
     {words.connector && <p className="call-full call-raw">{call.tool}</p>}
     {words.loaded && words.loaded.length > 0 && <ul className="call-loaded">{words.loaded.map((name, at) => <li key={at}>{name}</li>)}</ul>}
-    {language ? <TerminalBlock shell={language} command={input} output={hasDiff ? "" : call.result} result={RESULTS[call.state]} />
+    {language ? <TerminalBlock shell={language} command={input} output={hasDiff ? "" : call.result} result={ending && mark && { ...ending, icon: mark }} />
       : input && <p className="call-full">{literalLinks(input)}</p>}
     {call.edit && hasDiff
       ? <div className="message-diff">{call.edit.diff.map((line, at) => <div key={at} className={line.startsWith("+") ? "line-added" : line.startsWith("-") ? "line-removed" : undefined}>{line}</div>)}</div>

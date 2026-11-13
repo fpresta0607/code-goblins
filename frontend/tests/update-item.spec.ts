@@ -146,6 +146,21 @@ test("a running update's output is read while the page shows and never while it 
   await expect.poll(() => page.evaluate(() => window.outputReads)).toBe(hiddenAt + 2);
 });
 
+test("a running update that has printed nothing yet says its output is still to come", async ({ page }) => {
+  // Arrange
+  await page.route("**/api/runs/update-v0.5.0-1/output", (route) => route.fulfill({ json: { state: "running", output: "" } }));
+  const dialog = await openTheItem(page);
+  await page.evaluate(() => window.updateStep("running"));
+  const output = dialog.locator(".update-card details.update-output");
+
+  // Act
+  await output.locator("> summary").click();
+
+  // Assert
+  await expect(output.locator("p.muted")).toHaveText("Waiting for output");
+  await expect(output.locator(".terminal-block")).toHaveCount(0);
+});
+
 test("an update that installed says so, and its item moves to History", async ({ page }) => {
   // Arrange
   const dialog = await openTheItem(page);
