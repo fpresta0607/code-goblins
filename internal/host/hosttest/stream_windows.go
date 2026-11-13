@@ -8,9 +8,9 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/host"
 )
 
-// takenLine is the line Claude Code writes as it takes one of his lines,
+// TakenLine is the line Claude Code writes as it takes one of his lines,
 // which starts its turn.
-const takenLine = `{"type":"user","isReplay":true,"uuid":"c1","parent_tool_use_id":null,"message":{"role":"user","content":"go"}}`
+const TakenLine = `{"type":"user","isReplay":true,"uuid":"c1","parent_tool_use_id":null,"message":{"role":"user","content":"go"}}`
 
 // RunStream hosts stream session id under stateDir in this process, its
 // program the stand-in StreamChild names, waiting for a line or, with
@@ -24,7 +24,7 @@ func RunStream(t testing.TB, stateDir, id string, isWorking bool) host.Record {
 	}
 	args := []string{program, StreamChild}
 	if isWorking {
-		args = append(args, takenLine)
+		args = append(args, TakenLine)
 	}
 	ended := make(chan struct{})
 	go func() {

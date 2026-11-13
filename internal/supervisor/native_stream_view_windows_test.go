@@ -1,11 +1,13 @@
 package supervisor
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/coder/websocket"
+	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/host/hosttest"
@@ -132,5 +134,77 @@ func TestANativeViewOfAStreamGoblinClosesWhenTheBoardRestarts(t *testing.T) {
 	closed := v.waitForClose(t)
 	if closed.Code != websocket.StatusGoingAway || closed.Reason != "The board is restarting." {
 		t.Errorf("the view closed with %d %q, want it going away as the board restarts", closed.Code, closed.Reason)
+	}
+}
+
+// launchStream hosts task-1's stream session in a host process of its own,
+// as goblins host does, its program the stand-in hosttest.StreamChild names
+// given args, and closes it when the test ends.
+func launchStream(t *testing.T, stateDir string, args ...string) host.Record {
+	t.Helper()
+	program, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := runHostCommand(t)
+	record, err := host.Launch(stateDir, command, os.Environ(), host.Spec{ID: "task-1", Args: append([]string{program, hosttest.StreamChild}, args...), IsStream: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := host.Close(stateDir, record, 15*time.Second); err != nil {
+			t.Errorf("close task-1's stream session: %v", err)
+		}
+	})
+	return record
+}
+
+// A view of a stream goblin whose host stops answering, as one Windows ended
+// does, closes as one that comes back.
+func TestANativeViewOfAStreamGoblinClosesWhenItsHostStopsAnswering(t *testing.T) {
+	// Arrange
+	h, server := nativeBoard(t, "direct")
+	record := launchStream(t, h.Service.Store.Home.State)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, `{"type":"stream"}`)
+
+	// Act
+	process, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, uint32(record.HostPID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = windows.TerminateProcess(process, 1)
+	_ = windows.CloseHandle(process)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	closed := v.waitForClose(t)
+	if closed.Code != websocket.StatusGoingAway || closed.Reason != "The stream session's host stopped answering." {
+		t.Errorf("the view closed with %d %q, want it going away as its host stopped answering", closed.Code, closed.Reason)
+	}
+}
+
+// A view whose stream session refuses the interrupt, as one whose program
+// stopped reading refuses every line, closes saying so rather than drop the
+// key, and leaves the session running.
+func TestANativeViewOfAStreamGoblinClosesWhenItsSessionRefusesTheInterrupt(t *testing.T) {
+	// Arrange: the stand-in writes its turn's start once it closed its input.
+	h, server := nativeBoard(t, "direct")
+	record := launchStream(t, h.Service.Store.Home.State, hosttest.ClosesInput, hosttest.TakenLine)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, `"working":true`)
+
+	// Act
+	v.send(t, websocket.MessageBinary, "\x1b")
+
+	// Assert
+	closed := v.waitForClose(t)
+	if closed.Code != websocket.StatusGoingAway || closed.Reason != "The stream session did not take the interrupt. Inspect it before stopping it again." {
+		t.Errorf("the view closed with %d %q, want it going away as the session refused the interrupt", closed.Code, closed.Reason)
+	}
+	if !host.Running(record) {
+		t.Error("the stream session ended, want it left running for inspection")
 	}
 }
