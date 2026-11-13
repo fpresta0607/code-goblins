@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -372,8 +373,37 @@ func (p *wakeProof) brief(t *testing.T, id, task string) string {
 	}
 	writeProofFile(t, projectcfg.Path(p.home.Data, name), string(record))
 	path := filepath.Join(p.home.Data, id, "brief.md")
-	writeProofFile(t, path, "# Brief "+id+"\n\n## Project\n\n"+p.project+"\n\n## Task\n\n"+task+"\n\n## Delivery\n\nsurface: internal\nrisk: low\nreason: a disposable fixture for a live harness proof\n")
+	writeProofFile(t, path, "# Brief "+id+"\n\n## Project\n\n"+p.project+"\n\n## Task\n\n"+task+"\n\n## Acceptance criteria\n\nThe goblin does what its task says.\n\n## Constraints\n\nChange no file the task does not name.\n\n## Authentication\n\ncredentials: none\nmcp: none\n\n## Delivery\n\nsurface: internal\nrisk: low\nreason: a disposable fixture for a live harness proof\nmode: local-only\nready: true\n")
 	return path
+}
+
+func TestAProofsBriefIsReadyForSpawnAndSelectsLocalOnly(t *testing.T) {
+	// Arrange
+	root := t.TempDir()
+	p := &wakeProof{project: filepath.Join(root, "project"), home: home.Home{Data: filepath.Join(root, "data")}}
+
+	// Act
+	content, err := os.ReadFile(p.brief(t, "proof-goblin", "Reply with exactly the word ready."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestData, err := os.ReadFile(projectcfg.Path(p.home.Data, "project"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest projectcfg.Manifest
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	selected := projectcfg.SelectDelivery(manifest, string(content), "local-only", "")
+
+	// Assert
+	if err := fleet.ValidateBriefReadiness(content); err != nil {
+		t.Fatalf("a proof's brief is refused: %v", err)
+	}
+	if selected.Mode != "local-only" {
+		t.Fatalf("a proof's brief selects %s: %s; want local-only", selected.Mode, selected.Reason)
+	}
 }
 
 // commandEnv is the environment of a goblins command the proof runs itself. One
