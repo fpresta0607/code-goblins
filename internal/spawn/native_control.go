@@ -52,7 +52,7 @@ func (s Service) SendNative(ctx context.Context, meta state.TaskMeta, text strin
 		return err
 	}
 	if isBesideTurn {
-		ran, isQueued := RanBesideTurn(ctx, func() ([]string, error) { return s.readNativeScreen(ctx, record) }, screens, text, screens.OffersQueue(before))
+		ran, isQueued := RanBesideTurn(ctx, func(ctx context.Context) ([]string, error) { return s.readNativeScreen(ctx, record) }, screens, text, screens.OffersQueue(before))
 		if ran {
 			return nil
 		}
@@ -98,12 +98,14 @@ func (s Service) tookCommand(ctx context.Context, record host.Record, screens ha
 // queued. A prompt line that offers its queue, and did not before the command
 // was typed, as offeredQueue says, shows the harness queued the command for
 // the turn's end after all, as a release whose own list of such commands has
-// moved on would, and isQueued says so.
-func RanBesideTurn(ctx context.Context, read func() ([]string, error), screens harness.Screens, command string, offeredQueue bool) (ran, isQueued bool) {
+// moved on would, and isQueued says so. Each read is given that same window,
+// since a harness the command ended, as /exit does, shows nothing, and a read
+// that waits out its own grace for a screen would hold the send past it.
+func RanBesideTurn(ctx context.Context, read func(context.Context) ([]string, error), screens harness.Screens, command string, offeredQueue bool) (ran, isQueued bool) {
 	ctx, cancel := context.WithTimeout(ctx, nativeCommandTaken)
 	defer cancel()
 	for gone := 0; ; {
-		screen, err := read()
+		screen, err := read(ctx)
 		switch {
 		case err != nil:
 			return false, false

@@ -731,7 +731,7 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 		// line is what shows it ran; one its harness queued after all waits
 		// there as his words do, for the CEO's record to show it taken.
 		if isHarnessCommand(instruction) {
-			if ran, _ := spawn.RanBesideTurn(ctx, func() ([]string, error) { return read(record) }, screens, instruction, screens.OffersQueue(before)); ran {
+			if ran, _ := spawn.RanBesideTurn(ctx, func(context.Context) ([]string, error) { return read(record) }, screens, instruction, screens.OffersQueue(before)); ran {
 				return Evaluation{Reason: "Taken by the CEO in its native terminal, which ran your command beside its turn."}, nil
 			}
 			return Evaluation{Reason: heldByCEO, Awaiting: waiting}, nil

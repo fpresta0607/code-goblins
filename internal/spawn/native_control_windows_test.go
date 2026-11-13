@@ -465,7 +465,7 @@ func TestACommandTypedIntoATurnReadsRanOnlyOnceItsPromptLineIsEmptyTwiceInARow(t
 			// Arrange
 			screens, _ := harness.NativeScreens(harness.Claude)
 			read := 0
-			next := func() ([]string, error) {
+			next := func(context.Context) ([]string, error) {
 				shown := test.reads[min(read, len(test.reads)-1)]
 				read++
 				return shown, nil
