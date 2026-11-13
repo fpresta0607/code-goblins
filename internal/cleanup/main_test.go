@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/fpresta0607/code-goblins/internal/host/hosttest"
 )
 
 // fakeClaude is the argument that makes this test binary a stand-in Claude
@@ -25,6 +27,7 @@ func TestMain(m *testing.M) {
 		_, _ = io.Copy(io.Discard, os.Stdin)
 		return
 	}
+	hosttest.RunStreamChild()
 	if len(os.Args) > 4 && os.Args[1] == lockHolder {
 		runLockHolder(os.Args[2:])
 		return

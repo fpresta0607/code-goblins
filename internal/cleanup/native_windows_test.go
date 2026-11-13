@@ -15,6 +15,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/host/hosttest"
 	"github.com/fpresta0607/code-goblins/internal/proc/proctest"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -90,6 +91,42 @@ func runFakeClaude(t *testing.T, f *cleanupFixture, screen string) {
 		if time.Now().After(deadline) {
 			t.Fatalf("the stand-in Claude never showed its %s screen", screen)
 		}
+	}
+}
+
+// A stream session has no composer to show: a cleanup closes one only while
+// Claude Code waits for a line, and refuses one in a turn, keeping its task
+// and its session (#2374).
+func TestCleanupClosesAStreamSessionOnlyWhileClaudeCodeWaitsForALine(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		isWorking bool
+		want      string
+	}{
+		{name: "waiting for a line"},
+		{name: "in a turn", isWorking: true, want: "does not show Claude Code waiting for a line"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			fixture := nativeCleanupFixture(t, 0)
+			hosttest.RunStream(t, fixture.stateDir, "g1", test.isWorking)
+
+			// Act
+			_, err := fixture.service.Cleanup(context.Background(), "g1")
+
+			// Assert
+			_, recordErr := host.ReadRecord(fixture.stateDir, "g1")
+			if test.want == "" {
+				if err != nil || !errors.Is(recordErr, os.ErrNotExist) {
+					t.Fatalf("Cleanup = %v, host record %v; want the waiting session closed and its task cleaned", err, recordErr)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.want) || recordErr != nil {
+				t.Fatalf("Cleanup = %v, host record %v; want %q and the session kept", err, recordErr, test.want)
+			}
+			fixture.assertMetadataPreserved(t)
+		})
 	}
 }
 

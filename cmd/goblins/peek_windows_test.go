@@ -11,6 +11,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/host/hosttest"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -132,5 +133,38 @@ func TestPeekByTheGoblinsNameReadsANativeTasksTerminal(t *testing.T) {
 
 	if err != nil || screen != byID {
 		t.Errorf("peek gb-t1 = %q, %v; want the screen peek t1 reads, %q", screen, err, byID)
+	}
+}
+
+// goblins peek of a stream session, which has no screen to read, shows what
+// its lines say of it: whether Claude Code waits for a line or works a turn
+// (#2374).
+func TestPeekOfAStreamSessionShowsWhatItsLinesSay(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		isWorking bool
+		want      string
+	}{
+		{name: "waiting for a line", want: "idle\n"},
+		{name: "in a turn", isWorking: true, want: "working\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			stateDir := t.TempDir()
+			hosttest.RunStream(t, stateDir, "t1", test.isWorking)
+			h := home.Home{Root: filepath.Dir(stateDir), State: stateDir}
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runPeek([]string{"t1"}, &stdout, &stderr, commandRuntime{
+				resolveHome: func() (home.Home, error) { return h, nil },
+				peek:        peekTerminal,
+			})
+
+			// Assert
+			if exit != 0 || stdout.String() != test.want || stderr.Len() != 0 {
+				t.Errorf("peek t1 = exit %d, %q, stderr %q; want %q", exit, stdout.String(), stderr.String(), test.want)
+			}
+		})
 	}
 }

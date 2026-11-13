@@ -55,6 +55,7 @@ These are starting judgments, not claims of measured speed; use only supported e
 
 Do not lower effort to compensate for an incapable model.
 Reassess on new complexity or failed verification before spending another attempt; retain the task's existing repair budget.
+A handed-back Test failure already moves the task's implement worker up one tier of the table's `tiers` by rule, recorded as a `role-escalated:` status line, so reassess the lead's own lane rather than the worker's.
 
 ## Express and verify the decision
 

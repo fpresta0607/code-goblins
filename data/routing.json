@@ -44,6 +44,10 @@
       "verify": ["fable-claude", "verify-claude"]
     }
   },
+  "tiers": {
+    "claude": ["fable-claude", "strong-claude", "light-claude", "small-claude"],
+    "codex": ["deep", "light-codex", "mechanical"]
+  },
   "lanes": {
     "deep": {
       "harness": "codex",

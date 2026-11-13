@@ -29,8 +29,9 @@ import (
 )
 
 // attachTestProgram answers one typed line at a time: its terminal's size for
-// "size", more output than a host keeps for "spill", and the line itself
-// otherwise. It ends at the end of its input.
+// "size", more output than a host keeps for "spill", Codex's screen at its
+// empty composer for "codex-idle" and in a turn for "codex-working", and the
+// line itself otherwise. It ends at the end of its input.
 func attachTestProgram() {
 	fmt.Println("ready")
 	lines := bufio.NewScanner(os.Stdin)
@@ -46,6 +47,9 @@ func attachTestProgram() {
 			continue
 		case "codex-inline":
 			fmt.Print("\x1b[2J\x1b[HOpenAI Codex (fixture)\r\n\r\n\u2022 Working tree is clean.\r\n\r\n\u203a Ask Codex to do anything\r\n\r\n  gpt-6.1-sol high\r\n")
+			continue
+		case "codex-idle", "codex-working":
+			fmt.Print("\x1b[2J\x1b[H" + strings.Join(codexScreens[lines.Text()], "\r\n") + "\r\n")
 			continue
 		default:
 			fmt.Println("got", lines.Text())
@@ -708,3 +712,24 @@ const (
 	attachTestTerminal = "attach-test-terminal"
 	attachTestViewer   = "attach-test-viewer"
 )
+
+// goblins attach refuses a stream session, which has no terminal to show,
+// says why and names goblins peek, which shows what it is doing (#2374).
+func TestAttachRefusesAStreamSessionAndNamesPeek(t *testing.T) {
+	// Arrange
+	stateDir := t.TempDir()
+	hosttest.RunStream(t, stateDir, "task-1", false)
+	runtime := commandRuntime{attachNative: attachNative}
+	var stdout, stderr strings.Builder
+
+	// Act
+	exit := runAttach([]string{"--state", stateDir, "task-1"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if exit != 1 || !strings.Contains(stderr.String(), "task-1 runs on stream-json pipes") || !strings.Contains(stderr.String(), "goblins peek task-1") {
+		t.Errorf("attach task-1 = exit %d, stderr %q; want a refusal that names goblins peek", exit, stderr.String())
+	}
+	if _, err := host.ReadRecord(stateDir, "task-1"); err != nil {
+		t.Errorf("the stream session after the refusal: %v; want it still running", err)
+	}
+}

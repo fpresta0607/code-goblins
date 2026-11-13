@@ -11,6 +11,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/doctor"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/host/hosttest"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/release"
 )
@@ -98,6 +99,9 @@ func TestRunUsageListsFleetCommands(t *testing.T) {
 var startedAs []string
 
 func TestMain(m *testing.M) {
+	// A test's stream session runs this binary as the stand-in Claude Code
+	// on its pipes.
+	hosttest.RunStreamChild()
 	if code, ok := runSourceResumeTestProgram(); ok {
 		os.Exit(code)
 	}

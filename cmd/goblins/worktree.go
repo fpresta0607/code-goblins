@@ -92,7 +92,7 @@ func runWorktree(args []string, stdout, stderr io.Writer, runtime commandRuntime
 // metadata lock, so no other command's write of the record is lost.
 func updateTaskRecord(stateDir, id string, change func(*state.TaskMeta) error) (err error) {
 	if _, err := lock.AcquireExclusiveNamed(stateDir, state.MetadataLockName(id)); err != nil {
-		return fmt.Errorf("goblins worktree: lock task %s's record: %w", id, err)
+		return fmt.Errorf("goblins: lock task %s's record: %w", id, err)
 	}
 	defer func() {
 		if releaseErr := lock.ReleaseExclusiveNamed(stateDir, state.MetadataLockName(id)); releaseErr != nil {
@@ -101,7 +101,7 @@ func updateTaskRecord(stateDir, id string, change func(*state.TaskMeta) error) (
 	}()
 	meta, err := state.ReadTaskMeta(stateDir, id)
 	if err != nil {
-		return fmt.Errorf("goblins worktree: read task %s: %w", id, err)
+		return fmt.Errorf("goblins: read task %s: %w", id, err)
 	}
 	if err := change(&meta); err != nil {
 		return err

@@ -222,3 +222,33 @@ func TestRetireKeysWithoutAFileWritesNone(t *testing.T) {
 		t.Fatalf("said %q, err %v, file %v; want nothing said and no file", said, err, statErr)
 	}
 }
+
+// Stream goblins are a private opt-in (#2374): a home that never names the
+// setting starts every goblin in its terminal, and only one that turns it on
+// starts Claude Code goblins on stream-json pipes.
+func TestClaudeGoblinsOnStreamIsOffUnlessAHomeTurnsItOn(t *testing.T) {
+	for _, testCase := range []struct {
+		name, content string
+		want          bool
+	}{
+		{"a home with settings of its own", `{"disk_floor_gb": 20}`, false},
+		{"a home that turns it off", `{"claude_goblins_on_stream": false}`, false},
+		{"a home that turns it on", `{"claude_goblins_on_stream": true}`, true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			root := writeSettings(t, testCase.content)
+
+			// Act
+			settings, err := Read(root)
+
+			// Assert
+			if err != nil || settings.ClaudeGoblinsOnStream != testCase.want {
+				t.Errorf("ClaudeGoblinsOnStream = %v, %v; want %v", settings.ClaudeGoblinsOnStream, err, testCase.want)
+			}
+		})
+	}
+	if Defaults().ClaudeGoblinsOnStream {
+		t.Error("the defaults start Claude Code goblins on stream-json pipes")
+	}
+}

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -31,6 +32,9 @@ var (
 	// As Claude Code 2.1.288 draws them.
 	claudeIdle    = []string{"● Ran go test ./...", "", "────────────────────", "> ", "────────────────────", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}
 	claudeWorking = []string{"✽ Reticulating… (2m 10s · esc to interrupt)", "", "────────────────────", "> ", "────────────────────", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}
+	// codexScreens are the Codex screens attachTestProgram draws, by the
+	// line typed for each.
+	codexScreens = map[string][]string{"codex-idle": codexIdle, "codex-working": codexWorking}
 )
 
 // sentTexts keeps what a runtime's sendText was asked to type, by target,
@@ -82,9 +86,11 @@ func goblinTerminal(t *testing.T, harnessName string) (h home.Home, worktree, pr
 	return h, worktree, proof
 }
 
-// showing is a runtime's screen reader for a terminal that shows screen.
-func showing(screen []string) func(string, string) ([]string, error) {
-	return func(string, string) ([]string, error) { return screen, nil }
+// showing is a runtime's idle check for a terminal that shows screen.
+func showing(screen []string) func(string, string, harness.Screens) (bool, error) {
+	return func(_, _ string, screens harness.Screens) (bool, error) {
+		return screens.IsIdleAtEmptyComposer(screen), nil
+	}
 }
 
 // A run's end is told only to a goblin whose harness starts no turn when a
@@ -134,7 +140,7 @@ func TestTellGoblinRunEndedTellsOnlyAnIdleGoblinOfItsOwnRun(t *testing.T) {
 			}
 			sent := &sentTexts{}
 			runtime := testCommandRuntimeForHome(h)
-			runtime.sendText, runtime.screen = sent.send, showing(c.screen)
+			runtime.sendText, runtime.idle = sent.send, showing(c.screen)
 			var stderr strings.Builder
 
 			// Act
@@ -162,7 +168,7 @@ func TestTellGoblinRunEndedNamesTheRunOnOneBoundedLine(t *testing.T) {
 	h, worktree, proof := goblinTerminal(t, "codex")
 	sent := &sentTexts{}
 	runtime := testCommandRuntimeForHome(h)
-	runtime.sendText, runtime.screen = sent.send, showing(codexIdle)
+	runtime.sendText, runtime.idle = sent.send, showing(codexIdle)
 	environment := map[string]string{host.IDVariable: runEndGoblin, host.ProofVariable: proof}
 	what := "cmd.exe /c\r\nnpm test " + strings.Repeat("x", 300)
 
@@ -193,7 +199,7 @@ func TestTellGoblinRunEndedSaysOnlyADeliveryThatFailed(t *testing.T) {
 			h, worktree, proof := goblinTerminal(t, "codex")
 			runtime := testCommandRuntimeForHome(h)
 			runtime.sendText = func(context.Context, home.Home, string, string) error { return c.sendErr }
-			runtime.screen = showing(codexIdle)
+			runtime.idle = showing(codexIdle)
 			environment := map[string]string{host.IDVariable: runEndGoblin, host.ProofVariable: proof}
 			var stderr strings.Builder
 
@@ -243,7 +249,7 @@ func TestGateTurnTellsItsIdleCodexGoblinThatItsCommandEnded(t *testing.T) {
 	sent := &sentTexts{check: heldTurns(t)}
 	runtime := turnRuntime()
 	runtime.resolveHome = func() (home.Home, error) { return h, nil }
-	runtime.sendText, runtime.screen = sent.send, showing(codexIdle)
+	runtime.sendText, runtime.idle = sent.send, showing(codexIdle)
 	var stdout, stderr lockedBuffer
 
 	// Act
@@ -287,7 +293,7 @@ func TestGatePrepushTellsItsIdleCodexGoblinThatItsChecksEnded(t *testing.T) {
 			var ran []string
 			runtime := recorded(&ran)
 			runtime.resolveHome = func() (home.Home, error) { return h, nil }
-			runtime.sendText, runtime.screen = sent.send, showing(codexIdle)
+			runtime.sendText, runtime.idle = sent.send, showing(codexIdle)
 			var stdout, stderr bytes.Buffer
 
 			// Act
@@ -321,7 +327,7 @@ func TestGatePrepushPlanTellsItsGoblinNothing(t *testing.T) {
 	var ran []string
 	runtime := recorded(&ran)
 	runtime.resolveHome = func() (home.Home, error) { return h, nil }
-	runtime.sendText, runtime.screen = sent.send, showing(codexIdle)
+	runtime.sendText, runtime.idle = sent.send, showing(codexIdle)
 
 	// Act
 	exit := gatePrepushWith(runtime, &bytes.Buffer{}, &bytes.Buffer{}, "--plan")
@@ -345,7 +351,7 @@ func TestGateTurnTellsItsIdleCodexGoblinThatItsCommandDidNotStart(t *testing.T) 
 	sent := &sentTexts{check: heldTurns(t)}
 	runtime := turnRuntime()
 	runtime.resolveHome = func() (home.Home, error) { return h, nil }
-	runtime.sendText, runtime.screen = sent.send, showing(codexIdle)
+	runtime.sendText, runtime.idle = sent.send, showing(codexIdle)
 	missing := filepath.Join(t.TempDir(), "no-such-program.exe")
 	var stdout, stderr lockedBuffer
 
@@ -380,7 +386,7 @@ func TestGateTurnTellsItsIdleCodexGoblinThatItsWaitRanOut(t *testing.T) {
 	sent := &sentTexts{}
 	runtime := turnRuntime()
 	runtime.resolveHome = func() (home.Home, error) { return h, nil }
-	runtime.screen = showing(codexIdle)
+	runtime.idle = showing(codexIdle)
 	runtime.sendText = func(ctx context.Context, h home.Home, target, text string) error {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -411,7 +417,7 @@ func TestGateTurnTellsItsIdleCodexGoblinThatItsGateWaitWasRefused(t *testing.T) 
 	sent := &sentTexts{}
 	runtime := turnRuntime()
 	runtime.resolveHome = func() (home.Home, error) { return h, nil }
-	runtime.sendText, runtime.screen = sent.send, showing(codexIdle)
+	runtime.sendText, runtime.idle = sent.send, showing(codexIdle)
 	missing := filepath.Join(t.TempDir(), "no-mistakes.exe")
 	var stdout, stderr lockedBuffer
 
@@ -438,7 +444,7 @@ func TestGateTurnInterruptedTellsItsGoblinNothing(t *testing.T) {
 	signals := make(chan os.Signal, 1)
 	runtime := turnRuntime()
 	runtime.resolveHome = func() (home.Home, error) { return h, nil }
-	runtime.sendText, runtime.screen = sent.send, showing(codexIdle)
+	runtime.sendText, runtime.idle = sent.send, showing(codexIdle)
 	runtime.interrupts = func() (<-chan os.Signal, func()) { return signals, func() {} }
 	var stdout, stderr lockedBuffer
 	exited := make(chan int, 1)

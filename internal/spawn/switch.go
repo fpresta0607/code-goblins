@@ -634,7 +634,7 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	}
 	// Its release error, if any, reaches Switch's caller with the result.
 	_ = endTurn()
-	if err := s.briefNativeHarness(ctx, id, nativeHost, target.Harness, launch); err != nil {
+	if nativeHost, err = s.briefNativeHarness(ctx, id, nativeHost, target.Harness, launch, userEnv, preflight); err != nil {
 		return handoff, resumed, nativeHost, "", err
 	}
 	// The harness runs and holds its instruction, so a record that cannot be

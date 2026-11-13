@@ -51,6 +51,12 @@ type Settings struct {
 	// pause and none starts until the week resets. A provider it does not
 	// name keeps DefaultWeeklyFloorPercent back; read it with WeeklyFloor.
 	WeeklyFloorPercent map[string]float64 `json:"weekly_floor_percent"`
+	// ClaudeGoblinsOnStream starts each Claude Code goblin as claude -p on
+	// stream-json pipes rather than in a terminal, where its start proves
+	// the session runs on the owner's sign-in with his hooks, skills and
+	// CLAUDE.md; any other start stays in the terminal. It is off unless a
+	// home sets it, and no release turns it on (#2374).
+	ClaudeGoblinsOnStream bool `json:"claude_goblins_on_stream"`
 }
 
 // DefaultWeeklyFloorPercent is the part of a provider's week a home that never

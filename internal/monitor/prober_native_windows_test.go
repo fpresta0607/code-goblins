@@ -12,8 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/claudestream"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/host/hosttest"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -351,6 +353,96 @@ func TestTheWakeForADeliveredGoblinTheComebackHoldsSaysTheComebackBringsItBack(t
 			}
 			if result.Event == nil || !strings.HasPrefix(result.Event.Detail, string(EndpointMissing)) || !strings.Contains(result.Event.Detail, test.wanted) || strings.Contains(result.Event.Detail, test.unexpected) {
 				t.Errorf("event %+v, want an endpoint_missing wake that says %q", result.Event, test.wanted)
+			}
+		})
+	}
+}
+
+// A stream session has no screen: the monitor reads what Claude Code's own
+// lines say of it, a turn working, a tool call waiting or Claude Code waiting
+// for a line, and its rows stand in for the screen it captures (#2374).
+func TestANativeProberReadsAStreamSessionFromItsOwnState(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		session claudestream.Session
+		status  string
+		busy    herdr.BusyState
+		ready   bool
+		capture string
+	}{
+		{"a turn working", claudestream.Session{IsWorking: true, Live: []claudestream.LiveBlock{{Kind: "text", Text: "Reading the brief"}}}, herdr.AgentWorking, herdr.BusyWorking, false, "Reading the brief"},
+		{"a tool call waiting", claudestream.Session{IsWorking: true, Asks: []claudestream.Ask{{RequestID: "r1"}}}, herdr.AgentBlocked, herdr.BusyIdle, false, "waiting for an answer"},
+		{"waiting for a line", claudestream.Session{Result: &claudestream.Result{Subtype: "success", Text: "Done."}}, herdr.AgentDone, herdr.BusyIdle, true, "Done."},
+		{"Claude Code ended", claudestream.Session{IsExited: true, ExitCode: 1}, herdr.AgentUnknown, herdr.BusyUnknown, false, "exit code 1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			stateDir := t.TempDir()
+			meta := nativeMeta("g1", "claude")
+			record := recordNativeHost(t, stateDir, "g1")
+			record.Stream = true
+			data, err := json.Marshal(record)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(stateDir, "hosts", "g1.json"), data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			screenRead := func(host.Record) ([]string, error) { return nil, errors.New("a stream session has no screen to read") }
+			stateRead := func(host.Record) (claudestream.Session, error) { return test.session, nil }
+
+			// Act
+			sample, err := NativeProber{StateDir: stateDir, ReadScreen: screenRead, ReadState: stateRead}.Inspect(context.Background(), meta)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if sample.Verdict != ProbePresent || sample.Agent != herdr.AgentAlive || sample.TabLabel != "gb-g1" || !validSample(meta, sample) {
+				t.Errorf("sample = %+v, want a present live harness in terminal gb-g1", sample)
+			}
+			if sample.Status != test.status || sample.Busy != test.busy || sample.InteractiveReady != test.ready {
+				t.Errorf("status %q busy %q ready %v, want %q %q %v", sample.Status, sample.Busy, sample.InteractiveReady, test.status, test.busy, test.ready)
+			}
+			if !strings.Contains(string(sample.Capture), test.capture) {
+				t.Errorf("capture %q leaves out %q", sample.Capture, test.capture)
+			}
+		})
+	}
+}
+
+// A prober given no state read reads a stream session's state through its
+// running host, as the monitor does: Claude Code waiting for a line, or in
+// the turn the line it took started (#2374).
+func TestANativeProberReadsARunningStreamSessionThroughItsHost(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		isWorking bool
+		status    string
+		busy      herdr.BusyState
+		ready     bool
+	}{
+		{"waiting for a line", false, herdr.AgentDone, herdr.BusyIdle, true},
+		{"in a turn", true, herdr.AgentWorking, herdr.BusyWorking, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			stateDir := t.TempDir()
+			meta := nativeMeta("g1", "claude")
+			hosttest.RunStream(t, stateDir, "g1", test.isWorking)
+
+			// Act
+			sample, err := NativeProber{StateDir: stateDir}.Inspect(context.Background(), meta)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if sample.Verdict != ProbePresent || sample.Agent != herdr.AgentAlive || !validSample(meta, sample) {
+				t.Errorf("sample = %+v, want a present live harness", sample)
+			}
+			if sample.Status != test.status || sample.Busy != test.busy || sample.InteractiveReady != test.ready {
+				t.Errorf("status %q busy %q ready %v, want %q %q %v", sample.Status, sample.Busy, sample.InteractiveReady, test.status, test.busy, test.ready)
 			}
 		})
 	}
