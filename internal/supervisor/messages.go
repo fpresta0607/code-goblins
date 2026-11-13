@@ -178,7 +178,9 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 			// stopped, and never while each turn ran into the next (the
 			// Overlord, 2026-11-04: "Modern shat goblins that are not the CFO.
 			// Never pick up their cube message when I send them."). A command
-			// still waits for the turn to end, when its harness would run it.
+			// still waits for the turn to end, when its harness would run it,
+			// but for one its harness runs at once beside a turn, which the
+			// delivery types into the turn (spawn's SendNative, #2372).
 			// The board reads it typed the moment its submit key went, not
 			// once the wait to see it taken ends.
 			typing := tellingSubmitted(ctx, func() {

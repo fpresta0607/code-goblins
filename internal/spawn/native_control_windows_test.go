@@ -340,6 +340,148 @@ func TestASlashCommandTypedIntoATurnIsReportedUnconfirmed(t *testing.T) {
 	}
 }
 
+// The Overlord, 2026-11-11: "cant type / commands into modern chat like
+// terminal" (#2372). In the terminal a command its harness runs at once
+// beside a turn, as Codex 0.160 runs /status, runs the moment he enters it,
+// while a delivery that holds commands for the turn's end refused it the turn
+// like any other. Such a command is typed into the turn, once, and delivered
+// once the prompt line shows it ran; a command its harness would only queue
+// is refused that same turn still. Its own harness's commands decide which:
+// Codex 0.160 has no /remote-control, which Claude Code runs beside a turn,
+// and runs the /diff there that Claude Code holds for the turn's end.
+func TestACommandItsHarnessRunsBesideATurnIsDeliveredIntoOne(t *testing.T) {
+	for _, test := range []struct{ name, refused, delivered string }{
+		{name: "commands Claude Code would take the same way", refused: "/compact", delivered: "/status"},
+		{name: "commands Claude Code would take the other way", refused: "/remote-control", delivered: "/diff"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			f := newNativeFixture(t, harness.Codex, "")
+			if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+				t.Fatalf("Spawn: %v", err)
+			}
+			meta, err := state.ReadTaskMeta(f.stateDir, "task-7")
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.service.ShouldRefuseTurn = true
+
+			// Act
+			held := f.service.SendNative(context.Background(), meta, test.refused)
+			ran := f.service.SendNative(context.Background(), meta, test.delivered)
+
+			// Assert
+			if !errors.Is(held, ErrInTurn) {
+				t.Fatalf("SendNative %s = %v, want it refused as in a turn", test.refused, held)
+			}
+			if ran != nil {
+				t.Errorf("SendNative %s = %v, want it delivered into the turn", test.delivered, ran)
+			}
+			if submitted := submittedLines(t, f, 2); !slices.Equal(submitted, []string{spawnPointer(t, f.fixture), test.delivered}) {
+				t.Errorf("submitted = %q, want the instruction, then %s once", submitted, test.delivered)
+			}
+		})
+	}
+}
+
+// A command typed into a turn starts none and can leave no record, so the
+// prompt line says what became of it: a Claude Code that ran it at once
+// leaves its prompt line empty, and one that queued it after all, as a
+// release whose own list of such commands has moved on would, offers its
+// queue there. The first is delivered and the second reported queued for the
+// turn's end, never delivered (#2372). A prompt line that offered its queue
+// before the command was typed, his words waiting in it, offers it still
+// once the command ran, and that command is delivered all the same.
+func TestACommandTypedIntoATurnReadsRanOrQueuedAsItsPromptLineShows(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		ahead     string
+		command   string
+		wantErr   error
+		wantEvent string
+	}{
+		{name: "one its harness ran at once", command: "/model opus", wantEvent: "ran beside its turn"},
+		{name: "one its harness ran at once with his words in its queue", ahead: "use the staging database", command: "/model opus", wantEvent: "ran beside its turn"},
+		{name: "one its harness queued after all", command: "/status", wantErr: fleet.ErrQueuedForToolCall, wantEvent: "queued"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			f := newNativeFixture(t, harness.Claude, "claude-queues")
+			if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+				t.Fatalf("Spawn: %v", err)
+			}
+			meta, err := state.ReadTaskMeta(f.stateDir, "task-7")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.ahead != "" {
+				nativeQueuedProof = 500 * time.Millisecond
+				t.Cleanup(func() { nativeQueuedProof = 5 * time.Second })
+				if err := f.service.SendNative(t.Context(), meta, test.ahead); !errors.Is(err, fleet.ErrQueuedForToolCall) {
+					t.Fatalf("SendNative %q = %v, want it queued in the turn", test.ahead, err)
+				}
+			}
+			f.service.ShouldRefuseTurn = true
+
+			// Act
+			err = f.service.SendNative(t.Context(), meta, test.command)
+
+			// Assert
+			if !errors.Is(err, test.wantErr) || errors.Is(err, ErrInTurn) {
+				t.Errorf("SendNative %s = %v, want %v", test.command, err, test.wantErr)
+			}
+			if recorded := recordedLines(t, f, test.wantEvent, 1); !slices.Equal(recorded, []string{test.command}) {
+				t.Errorf("%s = %q, want the command once", test.wantEvent, recorded)
+			}
+		})
+	}
+}
+
+// A harness can empty its prompt line a moment before it draws what it
+// queued, so a command typed into a turn reads run only once that line shows
+// it gone on two reads in a row: one empty read ahead of the queue's offer is
+// a command its harness queued, and a read that shows the command on the line
+// again starts the count over. A queue the line offered before the command
+// was typed says nothing of the command (#2372).
+func TestACommandTypedIntoATurnReadsRanOnlyOnceItsPromptLineIsEmptyTwiceInARow(t *testing.T) {
+	rule := strings.Repeat("─", 80)
+	screen := func(prompt string) []string {
+		return []string{"✽ Reticulating… (esc to interrupt)", rule, prompt, rule, "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}
+	}
+	empty, typed, offersQueue := screen(">"), screen("> /model opus"), screen("> Press up to edit queued messages")
+	for _, test := range []struct {
+		name         string
+		offeredQueue bool
+		reads        [][]string
+		wantRan      bool
+		wantQueued   bool
+	}{
+		{name: "empty twice in a row", reads: [][]string{empty, empty}, wantRan: true},
+		{name: "empty once, then offering its queue", reads: [][]string{empty, offersQueue}, wantQueued: true},
+		{name: "empty, the command on the line again, empty, then offering its queue", reads: [][]string{empty, typed, empty, offersQueue}, wantQueued: true},
+		{name: "offering the queue it offered before the command", offeredQueue: true, reads: [][]string{offersQueue, offersQueue}, wantRan: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			screens, _ := harness.NativeScreens(harness.Claude)
+			read := 0
+			next := func(context.Context) ([]string, error) {
+				shown := test.reads[min(read, len(test.reads)-1)]
+				read++
+				return shown, nil
+			}
+
+			// Act
+			ran, isQueued := RanBesideTurn(t.Context(), next, screens, "/model opus", test.offeredQueue)
+
+			// Assert
+			if ran != test.wantRan || isQueued != test.wantQueued {
+				t.Errorf("RanBesideTurn = ran %t, queued %t after %d reads; want ran %t, queued %t", ran, isQueued, read, test.wantRan, test.wantQueued)
+			}
+		})
+	}
+}
+
 // A board message he asked for now reaches a Claude Code in a turn the way
 // its terminal sends one now: typed and queued, then Ctrl+X Ctrl+S once its
 // composer shows the line gone into that queue, so it takes the line at once

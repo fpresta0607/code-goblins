@@ -20,7 +20,7 @@ import (
 
 func TestTaskCredentialSaveGrantsOnlyItsRequestingTask(t *testing.T) {
 	// Arrange
-	s, stateDir := grantBoard(t)
+	s, stateDir, _ := grantBoard(t)
 	asOverlordsBoard(s)
 	s.Options.Credentials = auth.OpenStore
 	t.Cleanup(s.credentialWork.Wait)
@@ -98,7 +98,7 @@ func TestTaskCredentialSaveGrantsOnlyItsRequestingTask(t *testing.T) {
 
 func TestTaskCredentialSaveRequiresTheOverlordsOwnBoard(t *testing.T) {
 	// Arrange
-	s, stateDir := grantBoard(t)
+	s, stateDir, _ := grantBoard(t)
 	s.peerOf = func(netip.AddrPort, netip.AddrPort) (int, error) { return 0, errors.New("unknown peer") }
 	s.Options.Credentials = auth.OpenStore
 	card, err := s.acceptCredentialRequest(CredentialRequest{ID: "cred-0123456789abcdef", By: "ceo", Identity: strings.Repeat("c", 64), Task: "task-1", Project: "work", Names: []string{"SAMPLE_TOKEN"}, Why: "Read the test service"})
@@ -133,7 +133,7 @@ func TestTaskCredentialCardNeverGrantsOutsideItsRecordedScope(t *testing.T) {
 	for _, scenario := range []string{"dismissed", "withdrawn", "expired", "stale card", "replaced", "cross-project", "undeclared", "changed declaration", "ambiguous", "fetched"} {
 		t.Run(scenario, func(t *testing.T) {
 			// Arrange
-			s, stateDir := grantBoard(t)
+			s, stateDir, _ := grantBoard(t)
 			asOverlordsBoard(s)
 			s.Options.Credentials = auth.OpenStore
 			t.Cleanup(s.credentialWork.Wait)
@@ -234,7 +234,7 @@ func TestGrantRequestCardRejectsMismatchedOrClosedPresses(t *testing.T) {
 	for _, scenario := range []string{"denied", "cancelled", "stale task", "stale card", "another task", "another service", "cross-project", "undeclared", "done"} {
 		t.Run(scenario, func(t *testing.T) {
 			// Arrange
-			s, stateDir := grantBoard(t)
+			s, stateDir, _ := grantBoard(t)
 			asOverlordsBoard(s)
 			t.Cleanup(s.credentialWork.Wait)
 			card, err := s.acceptCredentialRequest(CredentialRequest{ID: "cred-0123456789abcdef", By: "ceo", Identity: strings.Repeat("c", 64), Task: "task-1", Project: "work", GrantService: "sample", Why: "Read the test service"})
@@ -302,7 +302,7 @@ func TestGrantRequestCardRejectsMismatchedOrClosedPresses(t *testing.T) {
 
 func TestGrantRequestCardGrantsAfterThePressAndWakesTheCEO(t *testing.T) {
 	// Arrange
-	s, stateDir := grantBoard(t)
+	s, stateDir, _ := grantBoard(t)
 	asOverlordsBoard(s)
 	card, err := s.acceptCredentialRequest(CredentialRequest{ID: "cred-0123456789abcdef", By: "ceo", Identity: strings.Repeat("c", 64), Task: "task-1", Project: "work", GrantService: "sample", Why: "Read the test service"})
 	if err != nil {
@@ -337,7 +337,7 @@ func TestGrantRequestCardGrantsAfterThePressAndWakesTheCEO(t *testing.T) {
 // revoke from the Connectors page, stays on the PC.
 func TestHisPrivateBoardGrantsAServiceOnItsCardAndNothingElse(t *testing.T) {
 	// Arrange
-	s, stateDir := grantBoard(t)
+	s, stateDir, _ := grantBoard(t)
 	s.Instance = "test-instance"
 	board := throughTheGate(t, s)
 	card, err := s.acceptCredentialRequest(CredentialRequest{ID: "cred-0123456789abcdef", By: "ceo", Identity: strings.Repeat("c", 64), Task: "task-1", Project: "work", GrantService: "sample", Why: "Read the test service"})
@@ -368,7 +368,7 @@ func TestHisPrivateBoardGrantsAServiceOnItsCardAndNothingElse(t *testing.T) {
 
 func TestGrantRequestCardKeepsTheRecordedGrantAndRecoveryWhenScriptRefreshFails(t *testing.T) {
 	// Arrange
-	s, stateDir := grantBoard(t)
+	s, stateDir, _ := grantBoard(t)
 	asOverlordsBoard(s)
 	card, err := s.acceptCredentialRequest(CredentialRequest{ID: "cred-0123456789abcdef", By: "ceo", Identity: strings.Repeat("c", 64), Task: "task-1", Project: "work", GrantService: "sample", Why: "Read the test service"})
 	if err != nil {
@@ -413,7 +413,7 @@ func TestGrantRequestFilingRequiresItsOwnProjectAndDeclaredService(t *testing.T)
 	for _, scenario := range []string{"cross-project", "undeclared", "stale generation", "different goblin"} {
 		t.Run(scenario, func(t *testing.T) {
 			// Arrange
-			s, stateDir := grantBoard(t)
+			s, stateDir, _ := grantBoard(t)
 			request := CredentialRequest{ID: "cred-0123456789abcdef", By: "ceo", Identity: strings.Repeat("c", 64), Task: "task-1", TaskGeneration: "g1", Project: "work", GrantService: "sample", Why: "Read the test service"}
 			switch scenario {
 			case "cross-project":
@@ -440,7 +440,7 @@ func TestGrantRequestFilingRequiresItsOwnProjectAndDeclaredService(t *testing.T)
 
 func TestTaskCredentialTerminalGrantsOnlyAfterItStoredTheRequestedName(t *testing.T) {
 	// Arrange
-	s, stateDir := grantBoard(t)
+	s, stateDir, _ := grantBoard(t)
 	s.Options.Credentials = auth.OpenStore
 	card, err := s.acceptCredentialRequest(CredentialRequest{ID: "cred-0123456789abcdef", By: "ceo", Identity: strings.Repeat("c", 64), Task: "task-1", Project: "work", Names: []string{"SAMPLE_TOKEN"}, Why: "Read the test service"})
 	if err != nil {

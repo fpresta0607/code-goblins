@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -177,7 +176,7 @@ func TestCollectNamesATaskRecordItCouldNotRead(t *testing.T) {
 	if err := os.WriteFile(path, []byte("project=C:\\dev\\proj\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	defer holdOpenExclusively(t, path)()
+	defer makeUnreadable(t, path)()
 
 	inv, err := Collector{Home: h, Docker: stubDocker{}, System: stubSystem{}}.Collect(context.Background())
 	if err != nil {
@@ -192,26 +191,6 @@ func TestCollectNamesATaskRecordItCouldNotRead(t *testing.T) {
 	if !strings.Contains(joined, "TASK RECORDS UNREADABLE") || !strings.Contains(joined, "unreadable-task") {
 		t.Errorf("notes = %q, want one naming the record it could not read", joined)
 	}
-}
-
-// holdOpenExclusively opens path with no sharing, so every other read of it
-// fails the way a record being rewritten under the collector does. It returns
-// the function that releases it.
-func holdOpenExclusively(t *testing.T, path string) func() {
-	t.Helper()
-	name, err := syscall.UTF16PtrFromString(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	handle, err := syscall.CreateFile(name, syscall.GENERIC_READ, 0, nil, syscall.OPEN_EXISTING, syscall.FILE_ATTRIBUTE_NORMAL, 0)
-	if err != nil {
-		t.Fatalf("lock %s: %v", path, err)
-	}
-	if _, err := os.ReadFile(path); err == nil {
-		syscall.CloseHandle(handle)
-		t.Fatalf("%s is still readable, so the test proves nothing", path)
-	}
-	return func() { syscall.CloseHandle(handle) }
 }
 
 // Whether a directory is on disk is the evidence that separates a leftover

@@ -21,13 +21,25 @@ import (
 const planner = "./tools/ciplan"
 
 // repository is this repository as the rule reads it in CI: its packages as
-// go list reports them, its policy, the files it tracks and its workflow's
-// table of jobs.
+// go list reports them for Windows, its policy, the files it tracks and its
+// workflow's table of jobs.
 type repository struct {
 	root, module, policy string
 	packages             []Package
 	tracked              []string
 	table                JobTable
+}
+
+// windowsGraph runs a program with GOOS=windows whatever system runs the
+// test. The workflow's table of jobs and config/verify.json describe the
+// Windows jobs, which test packages only Windows builds, so a test of them
+// reads the package graph go list reports for Windows, not the one of the
+// system it runs on.
+type windowsGraph struct{}
+
+func (windowsGraph) Run(ctx context.Context, req execx.Request) (execx.Result, error) {
+	req.Env = append(os.Environ(), "GOOS=windows")
+	return execx.OSRunner{}.Run(ctx, req)
 }
 
 var readRepository = sync.OnceValues(func() (repository, error) {
@@ -43,7 +55,7 @@ var readRepository = sync.OnceValues(func() (repository, error) {
 	repo.policy = string(policy)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	listed, err := output(ctx, execx.OSRunner{}, repo.root, "go", "list", "-e", "-json="+listFields, "./...")
+	listed, err := output(ctx, windowsGraph{}, repo.root, "go", "list", "-e", "-json="+listFields, "./...")
 	if err != nil {
 		return repository{}, err
 	}

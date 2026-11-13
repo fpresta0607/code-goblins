@@ -19,11 +19,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// nativeMeta is the record of a native task, which names no Herdr terminal.
-func nativeMeta(id, harness string) state.TaskMeta {
-	return state.TaskMeta{ID: id, Worktree: `C:\work\` + id, Harness: harness, Backend: "native"}
-}
-
 // recordNativeHost writes the record of a host for terminal id whose pipe
 // nothing serves, as a host that was killed leaves behind.
 func recordNativeHost(t *testing.T, stateDir, id string) host.Record {
