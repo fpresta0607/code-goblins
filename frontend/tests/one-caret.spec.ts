@@ -26,7 +26,7 @@ test("the Update card's Output starts closed and opens on the task panel's caret
   // Assert: closed, with the panel's caret and no triangle.
   await expect(summary).toHaveText("Output");
   await expect(output).not.toHaveAttribute("open");
-  await expect(card.locator(".run-output")).toBeHidden();
+  await expect(card.locator(".terminal-output")).toBeHidden();
   expect(await nativeMarkers(card)).toEqual([]);
   expect(await caret(summary)).toEqual(panel.closed);
 
@@ -37,7 +37,7 @@ test("the Update card's Output starts closed and opens on the task panel's caret
   // Assert: what the update printed shows, and the caret turned as the
   // panel's does.
   await expect(output).toHaveAttribute("open");
-  await expect(card.locator(".run-output")).toContainText("Stopping the supervisor");
+  await expect(card.locator(".terminal-output")).toContainText("Stopping the supervisor");
   expect(await caret(summary)).toEqual(panel.opened);
 
   // Act

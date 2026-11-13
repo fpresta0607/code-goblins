@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { callRuns, changeMessages, conversationHead, copyText, DEFAULT_MESSAGE_FONT, MAX_MESSAGE_FONT, messageFontFor, messagesQuery, MIN_MESSAGE_FONT, isPowerShellBlock, isWrittenReply, olderMessages, pageMessages, parseMessages, parsePage, parseSession, parseWaiting, replyParts, textParts, turnEnds, viewStanding, type SessionMessage } from "./session-messages.ts";
+import { callRuns, changeMessages, conversationHead, copyText, DEFAULT_MESSAGE_FONT, fencedParts, MAX_MESSAGE_FONT, messageFontFor, messagesQuery, MIN_MESSAGE_FONT, isPowerShellBlock, isWrittenReply, olderMessages, pageMessages, parseMessages, parsePage, parseSession, parseWaiting, replyParts, textParts, turnEnds, viewStanding, type SessionMessage } from "./session-messages.ts";
 import type { Task } from "./types.ts";
 
 // A message as the supervisor serves it (internal/fleettree/messages.go).
@@ -153,6 +153,26 @@ test("a reply's code blocks, headings and prose are drawn apart, a code block ex
   assert.deepEqual(textParts("``` c++ \nint a;\n```"), [{ kind: "code", text: "int a;", language: "c++" }], "a language with symbols, spaced from its fence");
   assert.deepEqual(textParts(""), []);
   assert.deepEqual(textParts("#hashtag is prose"), [{ kind: "prose", text: "#hashtag is prose" }]);
+});
+
+// A question's words are shown as written, markup included, so a block it
+// fences is drawn apart (#2524) while a line that starts as a heading stays
+// in its words.
+test("a text's fenced blocks are told apart from its words, which keep a heading's line as written", () => {
+  // Arrange
+  const text = "# Which release?\r\n\r\nIt stopped at this prompt:\r\n\r\n```\r\nReplace it?\r\n  1. Yes\r\n```\r\n- **Keep it**";
+
+  // Act
+  const parts = fencedParts(text);
+
+  // Assert
+  assert.deepEqual(parts, [
+    { kind: "prose", text: "# Which release?\n\nIt stopped at this prompt:\n" },
+    { kind: "code", text: "Replace it?\n  1. Yes", language: "" },
+    { kind: "prose", text: "- **Keep it**" },
+  ]);
+  assert.deepEqual(fencedParts("no fence"), [{ kind: "prose", text: "no fence" }]);
+  assert.deepEqual(fencedParts(" \n"), []);
 });
 
 // A fence the view counts is one the server counts (codeFences in
