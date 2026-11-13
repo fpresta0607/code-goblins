@@ -53,21 +53,6 @@
 .message-words .message-table { margin: 0; }
 .message-words .message-table table { font-size: 1em; }
 .message-words .message-table th { font-size: .8125em; }
-/* A code block, a command or what a call printed, in a rounded card under a
-   quiet header with its language, Copy and Expand. It shows its first lines
-   and scrolls a long line sideways inside itself; expanded, it is whole,
-   every line wrapped. */
-.message-code { min-width: 0; margin: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 14px; background: #071015; }
-.message-code > figcaption { display: flex; align-items: center; gap: .25em; min-height: 2em; padding: .15em .35em .15em .85em; border-bottom: 1px solid var(--border); color: var(--muted); font: .75em/1.4 var(--font-mono); }
-.message-code > figcaption > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.message-code > pre { max-height: 16lh; margin: 0; padding: .625em .875em; overflow: auto; color: #d8e9e2; font: .875em/1.55 var(--font-mono); white-space: pre; }
-.message-code.expanded > pre { max-height: none; white-space: pre-wrap; overflow-wrap: anywhere; }
-.message-code code { padding: 0; background: none; color: inherit; font: inherit; }
-.code-copy, .code-expand { display: inline-flex; align-items: center; justify-content: center; gap: .35em; min-height: 1.9em; padding: .1em .55em; border: 0; border-radius: 6px; background: transparent; box-shadow: none; color: var(--muted); font: 600 1em/1 var(--font-body); }
-.code-expand { width: 2.2em; height: 1.9em; padding: 0; }
-:is(.code-copy, .code-expand):hover { background: var(--glass-bg-hover); color: var(--bone); }
-:is(.code-copy, .code-expand) .icon { width: 1.1em; height: 1.1em; }
-@media (pointer: coarse) { .code-copy, .code-expand { min-height: 44px; } .code-expand { width: 44px; height: 44px; } }
 /* A run of calls as one quiet stack of rows: each one line of its tool's
    icon, the verb, what it was called on cut with an ellipsis, and its
    outcome at the end; one that unfolds leads
@@ -106,7 +91,10 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 .call-mark.denied { color: var(--amber); }
 .call-added { color: rgb(78, 186, 101); font-weight: 800; }
 .call-removed { color: rgb(255, 107, 128); font-weight: 800; }
-.disclosure.message-call > .disclosure-content { display: grid; gap: .5em; padding: .25em .5em .6em calc(.5em + 2.2em + 1.2em); }
+/* An open row's container is as wide as the row and starts under its arrow
+   (#2524), and words it holds outside a card keep the row's own inset. */
+.disclosure.message-call > .disclosure-content { display: grid; gap: .5em; padding: .25em 0 .6em; }
+.disclosure.message-call > .disclosure-content > :is(.call-full, .call-loaded, .call-opens) { padding-inline: .5em; }
 /* A folded run of calls opens to their own rows, set in under its icon. */
 .disclosure.message-call-group > .disclosure-content { gap: 1px; padding: 0 0 .25em 1.1em; font-size: 1.0667em; }
 /* The fold's count is cut with an ellipsis where its pictures leave it no
@@ -118,7 +106,7 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 .message-diff > .line-removed { background: rgba(255, 107, 128, 0.10); color: #f3c0c8; }
 .message-baby { min-width: 0; border: 1px dashed var(--glass-border-hover); border-radius: 8px; font-size: .9375em; }
 .message-baby .text-button { display: inline-flex; align-items: center; gap: .25em; font-size: 1em; }
-/* The views a command's row opens, under what it printed, each a target a
+/* The view a browser command's row opens, under what it printed, a target a
    finger can take. */
 .call-opens { display: flex; flex-wrap: wrap; gap: 0 1.25em; margin: 0; }
 .call-opens .text-button { display: inline-flex; align-items: center; gap: .35em; min-height: 2rem; font-size: .9375em; }
@@ -215,7 +203,6 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 @media (max-width: 40rem) {
   .conversation { padding: 12px 12px 10px; }
   .message-prompt, .queued-message.pane { max-width: 88%; }
-  .disclosure.message-call > .disclosure-content { padding-left: .5em; }
   .disclosure.message-call-group > .disclosure-content { padding-left: .6em; }
 }
 

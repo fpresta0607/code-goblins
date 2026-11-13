@@ -94,6 +94,8 @@ func readProcesses(ctx context.Context, withMarks, withSelf bool) ([]Process, er
 	// A desktop that cannot be read shows no program to be none of the
 	// Overlord's, so every process then counts as one he uses: nothing is
 	// the task's by its mark or its parent, only by its job and its place.
+	// A listing with no shown window counts as unreadable too (#1799): it
+	// reads only this thread's desktop, which may be a hidden one.
 	windowOwners, windowsErr := proc.WindowOwners()
 	ancestors, err := proc.Ancestry(os.Getpid(), 64)
 	if err != nil {
@@ -109,7 +111,7 @@ func readProcesses(ctx context.Context, withMarks, withSelf bool) ([]Process, er
 				if !withSelf && (entry.PID == os.Getpid() || slices.ContainsFunc(ancestors, func(ancestor proc.Entry) bool { return ancestor.PID == entry.PID && ancestor.Start.Equal(entry.Start) })) {
 					continue
 				}
-				process := Process{PID: entry.PID, ParentPID: entry.ParentPID, Name: entry.ExeBase, Started: entry.Start, HasWindow: windowsErr != nil || windowOwners[entry.PID]}
+				process := Process{PID: entry.PID, ParentPID: entry.ParentPID, Name: entry.ExeBase, Started: entry.Start, HasWindow: showsWindow(windowOwners, windowsErr, entry.PID)}
 				// The mark costs one more read of the process's memory, taken
 				// through the handle its directory and arguments are read by.
 				if withMarks {
@@ -140,6 +142,13 @@ func readProcesses(ctx context.Context, withMarks, withSelf bool) ([]Process, er
 		return nil, err
 	}
 	return processes, nil
+}
+
+// showsWindow reports whether pid counts as showing a window, given the
+// desktop's window owners and the error reading them. A listing that failed
+// or holds no window cannot show any program to be none of the Overlord's.
+func showsWindow(windowOwners map[int]bool, windowsErr error, pid int) bool {
+	return windowsErr != nil || len(windowOwners) == 0 || windowOwners[pid]
 }
 
 // markOf reads the mark a process carries from its environment, and whether

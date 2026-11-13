@@ -529,7 +529,7 @@ test("a fold he opened stays open after its row leaves the window and comes back
   await openGoblin(page);
   const call = log(page).locator('[data-message="m999"] .disclosure.message-call');
   await call.locator("summary").click();
-  await expect(call.locator(".call-result")).toHaveText("ok  github.com/example/repo  1.2s");
+  await expect(call.locator(".terminal-output")).toHaveText("ok  github.com/example/repo  1.2s");
 
   // Act: read far up, so the row leaves the page, then come back.
   await jumpTo(page, 0);
@@ -538,7 +538,7 @@ test("a fold he opened stays open after its row leaves the window and comes back
   await jumpTo(page, -1);
 
   // Assert
-  await expect(call.locator(".call-result")).toHaveText("ok  github.com/example/repo  1.2s");
+  await expect(call.locator(".terminal-output")).toHaveText("ok  github.com/example/repo  1.2s");
 });
 
 test("the keyboard on a row that leaves the window goes to the list, whose keys keep working", async ({ page }) => {

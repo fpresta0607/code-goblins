@@ -62,14 +62,16 @@ export function webLinkName(address: string): string {
 // asker wrote it. An address the board knows reads as a chip with its short
 // name, and a link shown by a name holds the whole address in its tip. A board
 // address opens its place in this page instead, with no reload (#2363).
-export function webLink(address: string, key: number, label?: string): ReactNode {
+// drawn draws the link's words where its place has a way of its own, as
+// terminal text gives a long address the breaks it may wrap at.
+export function webLink(address: string, key: number, label?: string, drawn: (name: string) => ReactNode = (name) => name): ReactNode {
   const name = label ?? webLinkName(address);
   const isChip = label === undefined && name !== address;
   const tip = name !== address ? { title: address } : {};
   if (typeof location !== "undefined" && boardPlace(address, location.origin)) {
-    return createElement("a", { key, className: "message-link", href: address, onClick: (event: MouseEvent) => { event.preventDefault(); openBoardAddress(address); }, ...tip }, name);
+    return createElement("a", { key, className: "message-link", href: address, onClick: (event: MouseEvent) => { event.preventDefault(); openBoardAddress(address); }, ...tip }, drawn(name));
   }
-  return createElement("a", { key, className: isChip ? "message-link message-chip" : "message-link", href: scrawlLink(address), target: "_blank", rel: "noreferrer", ...tip }, name);
+  return createElement("a", { key, className: isChip ? "message-link message-chip" : "message-link", href: scrawlLink(address), target: "_blank", rel: "noreferrer", ...tip }, drawn(name));
 }
 
 // A document link that starts inside a web address is part of the address.
@@ -191,8 +193,10 @@ const plainCode: CodeRenderer = (value, key) => isWebLink(value) ? webLink(value
 
 // renderPath draws a local file or folder path the text names, such as a
 // link that opens it in File Explorer; as an icon alone beside a code value,
-// which keeps its own button that copies it.
-export type PathRenderer = (path: string, key: number, isIcon?: boolean) => ReactNode;
+// which keeps its own button that copies it. drawn draws the path's words
+// where its place has a way of its own, as terminal text gives a long path
+// the breaks it may wrap at.
+export type PathRenderer = (path: string, key: number, isIcon?: boolean, drawn?: (path: string) => ReactNode) => ReactNode;
 export type DocumentRenderer = (label: string, target: string, key: number) => ReactNode;
 
 function documentElements(text: string, document: DocumentRenderer): ReactNode[] {
@@ -227,15 +231,23 @@ function trimPathEnd(path: string): string {
   return path;
 }
 
-// Text as it reads, with each local path it names drawn by path.
-export function pathElements(text: string, path: PathRenderer): ReactNode[] {
+// drivePaths finds each local path text names, as the supervisor finds it,
+// by where it starts and ends: in a card's words and in a terminal's line
+// alike, so the board finds a path one way.
+export const drivePaths = (text: string) => [...text.matchAll(TEXT_PATH)].map((match) => {
+  const path = trimPathEnd(match[0]);
+  return { start: match.index, end: match.index + path.length, path };
+});
+
+// Text as it reads, with each local path it names drawn by path, its words
+// by drawn where given.
+export function pathElements(text: string, path: PathRenderer, drawn?: (path: string) => ReactNode): ReactNode[] {
   const out: ReactNode[] = [];
   let at = 0;
-  for (const match of text.matchAll(TEXT_PATH)) {
-    const found = trimPathEnd(match[0]);
-    if (match.index > at) out.push(text.slice(at, match.index));
-    out.push(path(found, out.length));
-    at = match.index + found.length;
+  for (const found of drivePaths(text)) {
+    if (found.start > at) out.push(text.slice(at, found.start));
+    out.push(path(found.path, out.length, false, drawn));
+    at = found.end;
   }
   if (at < text.length) out.push(text.slice(at));
   return out;

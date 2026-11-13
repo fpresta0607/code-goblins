@@ -48,7 +48,7 @@ test("a new release is its own item: the versions, what is new, what the update 
   await expect(card.locator('.update-notes a[href^="javascript:"]')).toHaveCount(0);
   await expect(card.getByRole("link", { name: "What's new" })).toHaveAttribute("href", "https://github.com/fpresta0607/code-goblins/releases/tag/v0.5.0");
   await expect(card.locator(".update-trust")).toContainText("Unsigned release. Update installs it only when each file matches the release's SHA-256, such as goblins.exe 3f9a6c0e…5bc21e.");
-  await expect(card.locator(".run-command")).toHaveCount(0);
+  await expect(card.locator(".terminal-command")).toHaveCount(0);
   await expect(card.locator(".goblin-avatar.persona-releases")).toBeVisible();
 
   // Act
@@ -144,6 +144,21 @@ test("a running update's output is read while the page shows and never while it 
   await expect.poll(() => page.evaluate(() => window.outputReads)).toBe(hiddenAt + 1);
   await page.clock.runFor(1000);
   await expect.poll(() => page.evaluate(() => window.outputReads)).toBe(hiddenAt + 2);
+});
+
+test("a running update that has printed nothing yet says its output is still to come", async ({ page }) => {
+  // Arrange
+  await page.route("**/api/runs/update-v0.5.0-1/output", (route) => route.fulfill({ json: { state: "running", output: "" } }));
+  const dialog = await openTheItem(page);
+  await page.evaluate(() => window.updateStep("running"));
+  const output = dialog.locator(".update-card details.update-output");
+
+  // Act
+  await output.locator("> summary").click();
+
+  // Assert
+  await expect(output.locator("p.muted")).toHaveText("Waiting for output");
+  await expect(output.locator(".terminal-block")).toHaveCount(0);
 });
 
 test("an update that installed says so, and its item moves to History", async ({ page }) => {
