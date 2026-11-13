@@ -5,6 +5,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 var (
@@ -81,6 +83,23 @@ func CommitHolders() ([]CommitHolder, error) {
 		return nil, err
 	}
 	return topCommitHolders(processes, commitHolderCount), nil
+}
+
+// TopHandleHolder names the process holding the most handles open, from one
+// system process list, which opens no process. Only a holder past handleLine
+// has its command line read, from that one process, for the wake to show.
+func TopHandleHolder() (HandleHolder, error) {
+	top, err := proc.TopHandleHolder()
+	if err != nil {
+		return HandleHolder{}, err
+	}
+	holder := HandleHolder{PID: top.PID, Name: top.ExeBase, Started: top.Start, Handles: top.Handles}
+	if holder.Handles >= handleLine {
+		if arguments, err := proc.Arguments(top.PID); err == nil {
+			holder.Command = proc.ShownCommand(arguments)
+		}
+	}
+	return holder, nil
 }
 
 // machineProcessList reads every process's commit and processor time from

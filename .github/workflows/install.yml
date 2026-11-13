@@ -19,7 +19,7 @@ on:
       - tools/build-no-mistakes.ps1
       - home_files.go
       - cmd/goblins/install.go
-      - cmd/goblins/launcher.go
+      - cmd/goblins/launcher*.go
       - cmd/goblins/serve.go
       - cmd/goblins/native.go
       - cmd/goblins/main.go
@@ -41,7 +41,7 @@ on:
       - tools/leftovers/**
       - tests/uninstall/**
       - tests/update/**
-      - cmd/goblins/update.go
+      - cmd/goblins/update*.go
       - cmd/goblins/update_release.go
       - internal/release/**
       - internal/update/**
@@ -57,7 +57,7 @@ on:
       - tools/build-no-mistakes.ps1
       - home_files.go
       - cmd/goblins/install.go
-      - cmd/goblins/launcher.go
+      - cmd/goblins/launcher*.go
       - cmd/goblins/serve.go
       - cmd/goblins/native.go
       - cmd/goblins/main.go
@@ -79,7 +79,7 @@ on:
       - tools/leftovers/**
       - tests/uninstall/**
       - tests/update/**
-      - cmd/goblins/update.go
+      - cmd/goblins/update*.go
       - cmd/goblins/update_release.go
       - internal/release/**
       - internal/update/**

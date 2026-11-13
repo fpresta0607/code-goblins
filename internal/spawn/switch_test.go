@@ -20,6 +20,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/routing"
+	"github.com/fpresta0607/code-goblins/internal/sandbox"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
@@ -617,6 +618,43 @@ func TestARestartStartsTheSameHarnessAgainOnItsOwnConversation(t *testing.T) {
 	}
 	if current, err := host.ReadRecord(f.stateDir, "task-7"); err != nil || current.HostPID == terminal.HostPID {
 		t.Errorf("the terminal is %+v, %v; want a new host in place of %d", current, err, terminal.HostPID)
+	}
+}
+
+// A relaunch of a sandbox task has its next host command walk the worktree
+// again, since a Codex goblin's apply_patch writes outside its path boundary
+// (issue 2255): a .git it wrote after a walk found the worktree clean holds
+// back the host git of the goblin the switch starts, naming it.
+func TestASwitchOfASandboxTaskTrustsNoWalkFromBeforeIt(t *testing.T) {
+	// Arrange
+	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
+	f.meta.SandboxImage = "node:22"
+	if err := state.WriteTaskMeta(f.stateDir, f.meta); err != nil {
+		t.Fatal(err)
+	}
+	if err := sandbox.WalkForNestedGit(f.meta.TaskTmp, f.worktree); err != nil {
+		t.Fatal(err)
+	}
+	plant := filepath.Join(f.worktree, "vendor", "x", ".git")
+	if err := os.MkdirAll(plant, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(plant, "config"), []byte("[core]\n\tfsmonitor = planted.exe\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := sandbox.NestedGitCheck(f.meta.TaskTmp, f.worktree); err != nil {
+		t.Fatalf("NestedGitCheck before the switch = %v, want the clean walk trusted", err)
+	}
+
+	// Act
+	_, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9"})
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+	if err := sandbox.NestedGitCheck(f.meta.TaskTmp, f.worktree); err == nil || !strings.Contains(err.Error(), plant) {
+		t.Fatalf("NestedGitCheck after the switch = %v, want a walk that names %s", err, plant)
 	}
 }
 

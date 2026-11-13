@@ -1,3 +1,5 @@
+//go:build windows
+
 package main
 
 // speechScript runs in the board's page after each load. WebView2 has the

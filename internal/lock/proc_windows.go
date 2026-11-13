@@ -8,15 +8,6 @@ import (
 // Windows access right allowing process metadata queries without wider rights.
 const processQueryLimitedInformation = 0x1000
 
-// processStatus indicates whether a process is verifiably alive, dead, or unknown.
-type processStatus int
-
-const (
-	statusDead    processStatus = iota // Process does not exist
-	statusAlive                        // Process exists and is running
-	statusUnknown                      // Cannot verify (fail closed: treat as alive)
-)
-
 // STILL_ACTIVE is the exit code for a running process.
 const stillActive = 259
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/claudehook"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/pathguard"
 	"github.com/fpresta0607/code-goblins/internal/sandbox"
@@ -34,10 +35,14 @@ func goblinToolRefusal(h home.Home, meta state.TaskMeta, worktreeDir string, pay
 // is refused on the host, or empty when it runs: it runs anything but ceo,
 // git and gh (sandbox.HostCommandRefusal), or its worktree's .git link no
 // longer says what its spawn found (sandbox.CheckGitLink). A command that
-// may run host git waits too while a .git the container made is anywhere in
-// the worktree (sandbox.NestedGitRefusal) or a container of the task may
-// run (sandbox.RunningContainerRefusal). Every other task's command, and
-// every call that runs no command, is left to the path boundary.
+// may run host git waits too while a container of the task may run
+// (sandbox.RunningContainerRefusal) or a .git the container made is anywhere
+// in the worktree (sandbox.NestedGitCheck), which a Codex goblin's walks
+// for every time (sandbox.NestedGitRefusal), and every command that may
+// write a .git, a goblins gate turn's log included, has the next walk again
+// (sandbox.MayMakeRepository). Every other task's
+// command, and every call that runs no command, is left to the path
+// boundary.
 func sandboxRefusal(meta state.TaskMeta, payload claudehook.Payload) string {
 	if meta.SandboxImage == "" || !isShellTool(payload.ToolName) {
 		return ""
@@ -52,14 +57,29 @@ func sandboxRefusal(meta state.TaskMeta, payload claudehook.Payload) string {
 	if err := sandbox.CheckGitLink(meta.Worktree, cwd, meta.SandboxGitLink); err != nil {
 		return "[sandbox] this command waits, since host git must never read a repository the container wrote: " + err.Error() + ". Tell the CEO with a blocked report; never repair the link yourself."
 	}
-	if sandbox.RunsNoHostGit(payload.Command) {
-		return ""
+	if !sandbox.RunsNoHostGit(payload.Command) {
+		if err := sandbox.RunningContainerRefusal(meta.TaskTmp); err != nil {
+			return "[sandbox] this command waits, since host git must never read a repository the container wrote: " + err.Error() + "."
+		}
+		var nested error
+		if meta.Harness == string(harness.Codex) {
+			// A Codex goblin's apply_patch is outside the path boundary
+			// (issue 2255), so its own edits could make a .git no walk
+			// since saw.
+			nested = sandbox.NestedGitRefusal(meta.Worktree)
+		} else {
+			nested = sandbox.NestedGitCheck(meta.TaskTmp, meta.Worktree)
+		}
+		if nested != nil {
+			return "[sandbox] this command waits, since host git must never read a repository the container wrote: " + nested.Error() + "."
+		}
 	}
-	if err := sandbox.RunningContainerRefusal(meta.TaskTmp); err != nil {
-		return "[sandbox] this command waits, since host git must never read a repository the container wrote: " + err.Error() + "."
-	}
-	if err := sandbox.NestedGitRefusal(meta.Worktree); err != nil {
-		return "[sandbox] this command waits, since host git must never read a repository the container wrote: " + err.Error() + "."
+	// Forgotten only after the check, since a walk it made would mark clean
+	// what this command then writes.
+	if sandbox.MayMakeRepository(payload.Command) {
+		if err := sandbox.ForgetNestedGitWalk(meta.TaskTmp); err != nil {
+			return "[sandbox] this command waits, since it may write a .git the next host command must look for, and " + err.Error() + "."
+		}
 	}
 	return ""
 }
@@ -83,8 +103,9 @@ func isShellTool(tool string) bool {
 // goblinBoundary is the path boundary of the goblin of meta, whose shell is
 // in cwd: it writes in its worktree and extra worktrees, its scratch folder,
 // the temporary folder every goblin shares and the caches its terminal names,
-// and never reaches the credential store or ~/.ssh. A cwd its harness did
-// not say reads as its worktree.
+// and never reaches the credential store or ~/.ssh; a sandbox task's makes
+// no .git in its worktree. A cwd its harness did not say reads as its
+// worktree.
 func goblinBoundary(h home.Home, meta state.TaskMeta, cwd string) pathguard.Boundary {
 	writable := append([]string{meta.Worktree}, meta.Extras...)
 	sharedTemp := ""
@@ -105,7 +126,7 @@ func goblinBoundary(h home.Home, meta state.TaskMeta, cwd string) pathguard.Boun
 	if cwd == "" {
 		cwd = meta.Worktree
 	}
-	return userBoundary(writable, cwd, func(name string) string {
+	boundary := userBoundary(writable, cwd, func(name string) string {
 		switch strings.ToUpper(name) {
 		case "TEMP":
 			return meta.Scratch
@@ -114,6 +135,12 @@ func goblinBoundary(h home.Home, meta state.TaskMeta, cwd string) pathguard.Boun
 		}
 		return os.Getenv(name)
 	})
+	if meta.SandboxImage != "" {
+		// Its host commands trust the walk its last container run ended
+		// with (sandbox.NestedGitCheck), which no write of its goblin's sees.
+		boundary.RepositoryFree = []string{meta.Worktree}
+	}
+	return boundary
 }
 
 // userBoundary is the path boundary of a session of this user that writes

@@ -123,6 +123,9 @@ type fleetWakes struct {
 	// DiskLow says disk_low woke since a reading was last at or above the
 	// disk floor.
 	DiskLow bool `json:"disk_low,omitempty"`
+	// HandleHolder names the process past the handle line the CEO was woken
+	// for, by its pid and start, until a reading finds none past it.
+	HandleHolder string `json:"handle_holder,omitempty"`
 	// DefenderSince is the time Microsoft Defender's records are read from:
 	// when the watch began, then an hour back of each reading.
 	DefenderSince time.Time `json:"defender_since,omitzero"`
@@ -322,7 +325,7 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 	w, readErr := readFleetWakes(stateDir)
 	err := errors.Join(readErr, s.pauseAtAllowanceFloor(ctx, &w, now), s.pollCI(ctx, &w, now, currentTime))
 	err = errors.Join(err, s.reconcilePreparedWaits(ctx, &w, now))
-	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkDisk(&w, now), s.checkProgress(ctx, &w, now), s.checkDefender(ctx, &w, now), s.checkCEOWaits(&w, now), s.checkSharedServices(ctx, &w, now))
+	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkHandles(&w, now), s.checkDisk(&w, now), s.checkProgress(ctx, &w, now), s.checkDefender(ctx, &w, now), s.checkCEOWaits(&w, now), s.checkSharedServices(ctx, &w, now))
 	w.RootReadings = s.currentRootReadings()
 	if s.Options.Progress != nil {
 		w.ProgressPassAt = currentTime()

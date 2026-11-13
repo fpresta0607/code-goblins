@@ -102,10 +102,18 @@ func TestHostCommandRefusalRunsOnlyCeoGitAndGhOnTheHost(t *testing.T) {
 		{"git recursing into submodules", "git status --recurse-submodules", "--recurse-submodules starts a program"},
 		{"git recursing into submodules by its value", "git pull --recurse-submodules=yes", "--recurse-submodules starts a program"},
 		{"git recursing into submodules by its other name", "git checkout --recursive main", "--recursive starts a program"},
-		{"a gh alias", "gh alias set t --shell 'npm test'", "gh alias on the host"},
-		{"a gh extension", "gh extension install owner/gh-x", "gh extension on the host"},
-		{"a gh extension by its short name", "gh ext exec x", "gh ext on the host"},
+		{"a gh alias", "gh alias set t --shell 'npm test'", "gh alias set on the host, which is none of the gh commands"},
+		{"a gh extension", "gh extension install owner/gh-x", "gh extension install on the host, which is none"},
+		{"a gh extension by its short name", "gh ext exec x", "gh ext exec on the host, which is none"},
 		{"gh cloning with an upload pack", "gh repo clone owner/x -- --upload-pack=npm", "--upload-pack starts a program"},
+		{"gh that unpacks an artifact", "gh run download 34", "gh run download on the host, which is none"},
+		{"gh that clones", "gh repo clone owner/name", "gh repo clone on the host, which is none"},
+		{"gh with no command", "gh", "gh on the host, which is none"},
+		{"gh that reads GitHub", "gh pr checks 12 && gh run view 34 --log-failed && gh api repos/owner/name/pulls/12", ""},
+		{"gh that writes to GitHub", `gh pr create --title "x" --body-file body.md && gh pr ready 12`, ""},
+		{"git that writes the file it names", "git diff '--output=vendor/x/.git'", "since --output writes the file it names"},
+		{"git that writes the file it names by a start of it", "git log --outp vendor/x/.git", "since --output writes the file it names"},
+		{"git with an option that only starts like --output", "git log --oneline -n 3", ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Act
@@ -143,6 +151,31 @@ func TestRunsNoHostGitLetsOnlyContainedRunsAndReportsThrough(t *testing.T) {
 			// Assert
 			if got != test.want {
 				t.Fatalf("RunsNoHostGit(%q) = %v, want %v", test.command, got, test.want)
+			}
+		})
+	}
+}
+
+func TestMayMakeRepositoryHoldsEveryGoblinsCommandButNotify(t *testing.T) {
+	for _, test := range []struct {
+		name, command string
+		want          bool
+	}{
+		{"git", "git status && git add -A && git commit -m \"x\"", false},
+		{"gh", "gh pr checks 12 && gh pr create --title \"x\" --body-file body.md", false},
+		{"a report", "goblins notify task --working x", false},
+		{"a contained run", "goblins sandbox run -- npm test", true},
+		{"a turn that writes its log", "goblins gate turn --detach vendor/x/.git -- goblins sandbox run -- npm test", true},
+		{"another goblins command", "goblins issue file --project p --title t --body-file b.md", true},
+		{"git and then another goblins command", "git status && goblins pr check task", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			got := MayMakeRepository(test.command)
+
+			// Assert
+			if got != test.want {
+				t.Fatalf("MayMakeRepository(%q) = %v, want %v", test.command, got, test.want)
 			}
 		})
 	}

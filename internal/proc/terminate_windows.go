@@ -2,7 +2,6 @@ package proc
 
 import (
 	"fmt"
-	"strings"
 	"syscall"
 	"time"
 
@@ -10,27 +9,6 @@ import (
 )
 
 const processTerminate = 0x0001
-
-// Identity is what a process is, read through one handle: the program image
-// it runs now, which follows a rename of its file, the arguments it was
-// started with, its working directory and its environment.
-type Identity struct {
-	Image       string
-	Arguments   []string
-	Directory   string
-	Environment []string
-}
-
-// Getenv is the value of name in the identity's environment, empty when it
-// is not set.
-func (i Identity) Getenv(name string) string {
-	for _, entry := range i.Environment {
-		if key, value, ok := strings.Cut(entry, "="); ok && strings.EqualFold(key, name) {
-			return value
-		}
-	}
-	return ""
-}
 
 // Identify reads pid's identity, and proves it is the process created at
 // start, through one handle.

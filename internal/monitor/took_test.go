@@ -1,8 +1,11 @@
 package monitor
 
 import (
+	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -79,6 +82,169 @@ func TestAGoblinHasASteerOnlyOnceItsHarnessHandedItToTheModel(t *testing.T) {
 			// Assert
 			if got != test.want {
 				t.Errorf("Took = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+// The Overlord, 2026-11-12: "thes already sent in termianl but are shwoing
+// queued in mdoern caht fix root synch" (#1915). Two messages he pasted for
+// the CEO each held three tabs and a word joiner, U+2060, which draws
+// nothing. Claude Code 2.1.322 made each tab four spaces and left the word
+// joiner out as it took them, live, so its record never held the words the
+// board typed character for character, and both read Queued for good. What a
+// harness took is the words a reader sees: a character that draws nothing is
+// no part of them, and one a reader does see still is.
+func TestTextItsHarnessClearedOfWhatDrawsNothingIsStillTaken(t *testing.T) {
+	sent := time.Date(2026, 11, 12, 17, 44, 36, 0, time.UTC)
+	after := "2026-11-12T17:44:36.624Z"
+	recorded := "Level    error: the search for project=fa1 failed"
+	for _, tc := range []struct {
+		name  string
+		typed string
+		entry map[string]any
+		want  bool
+	}{
+		{name: "a word joiner, taken into the running turn", typed: "Level\terror: the search for project=f\u2060a1 failed", entry: claudeQueued(after, recorded), want: true},
+		{name: "a word joiner, taken as the next turn", typed: "Level\terror: the search for project=f\u2060a1 failed", entry: claudePrompt(after, recorded), want: true},
+		{name: "a zero-width space", typed: "Level\terror: the search for\u200b project=fa1 failed", entry: claudeQueued(after, recorded), want: true},
+		{name: "a byte order mark", typed: "\ufeffLevel\terror: the search for project=fa1 failed", entry: claudeQueued(after, recorded), want: true},
+		{name: "a character that draws nothing between two spaces", typed: "Level\terror: the search for \u2060 project=fa1 failed", entry: claudeQueued(after, recorded), want: true},
+		{name: "another letter", typed: "Level\terror: the search for project=f\u2060a1 failed", entry: claudeQueued(after, strings.Replace(recorded, "=fa1", "=fb1", 1)), want: false},
+		{name: "words run together", typed: "Level\terror: the search for project=f\u2060a1 failed", entry: claudeQueued(after, strings.Replace(recorded, "search for", "searchfor", 1)), want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			home, worktree := t.TempDir(), t.TempDir()
+			transcriptLines(t, filepath.Join(claudeProjectFolder(home, worktree), "conversation.jsonl"), time.Now(), tc.entry)
+
+			// Act
+			took := (&HostProgress{Home: home}).Took(context.Background(), Conversation{Harness: "claude", Dir: worktree}, TextDigest(tc.typed), sent)
+
+			// Assert
+			if took != tc.want {
+				t.Errorf("Took = %t, want %t", took, tc.want)
+			}
+		})
+	}
+}
+
+// sized is an entry that takes exactly size bytes of a record, its line break
+// counted: words of the turn stamped at, or with no at a request Claude Code
+// 2.1.322 keeps with no time on it.
+func sized(t *testing.T, at string, size int) map[string]any {
+	t.Helper()
+	entry := map[string]any{"type": "api-request-blob", "body": ""}
+	if at != "" {
+		entry = map[string]any{"type": "assistant", "timestamp": at, "body": ""}
+	}
+	line, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry["body"] = strings.Repeat("x", size-len(line)-1)
+	return entry
+}
+
+// The Overlord, 2026-11-12 (#1915): four messages of his read Queued or Not
+// confirmed for hours after the CEO's session took them. Its record had grown
+// 10 MiB since it took two of them and 40 MiB since it took the other two,
+// and the look read only the record's last 4 MiB. A take is found however
+// much its harness wrote after it: the later entries of its turn, requests
+// kept with no time on them, or so much that the take's own entry begins in
+// one read of the record and ends in the next. A copy taken before the
+// message was sent is still none.
+func TestATakeIsFoundHoweverMuchItsHarnessWroteAfterIt(t *testing.T) {
+	sent := time.Date(2026, 11, 12, 12, 33, 54, 0, time.UTC)
+	before, after, later := "2026-11-12T12:20:00Z", "2026-11-12T12:34:10Z", "2026-11-12T13:00:00Z"
+	for _, tc := range []struct {
+		name    string
+		tookAt  string
+		stamp   string
+		entries int
+		size    int
+		want    bool
+	}{
+		{name: "the later entries of its turn", tookAt: after, stamp: later, entries: 40, size: 256 << 10, want: true},
+		{name: "requests kept with no time on them", tookAt: after, entries: 8, size: 1280 << 10, want: true},
+		{name: "its own entry cut by the edge of one read", tookAt: after, stamp: later, entries: 1, size: transcriptEntryReach - 100, want: true},
+		{name: "a copy taken before it was sent", tookAt: before, stamp: later, entries: 40, size: 256 << 10, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			home, worktree := t.TempDir(), t.TempDir()
+			entries := []map[string]any{claudeQueued(tc.tookAt, steer)}
+			for range tc.entries {
+				entries = append(entries, sized(t, tc.stamp, tc.size))
+			}
+			transcriptLines(t, filepath.Join(claudeProjectFolder(home, worktree), "conversation.jsonl"), time.Now(), entries...)
+
+			// Act
+			took := (&HostProgress{Home: home}).Took(context.Background(), Conversation{Harness: "claude", Dir: worktree}, TextDigest(steer), sent)
+
+			// Assert
+			if took != tc.want {
+				t.Errorf("Took = %t, want %t", took, tc.want)
+			}
+		})
+	}
+}
+
+// A delivery is watched for a day and its record gains megabytes an hour, so
+// a look that has searched a record back to the submit reads at each later
+// one only what the record gained: whole entries, so one its harness was
+// still writing at a look is read at the next, and nothing of the part
+// searched before, which a harness never writes again.
+func TestALaterLookReadsOnlyWhatItsRecordGained(t *testing.T) {
+	sent := time.Date(2026, 11, 12, 17, 44, 36, 0, time.UTC)
+	after := "2026-11-12T17:44:40Z"
+	line := func(entry map[string]any) string {
+		data, err := json.Marshal(entry)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data) + "\n"
+	}
+	queued, taken, other := line(claudeEnqueued(after, steer)), line(claudeQueued(after, steer)), line(claudeQueued(after, strings.ToUpper(steer)))
+	for _, tc := range []struct {
+		name   string
+		first  string
+		gained string
+		later  string
+		want   bool
+	}{
+		{name: "an entry written since", first: queued, gained: taken, want: true},
+		{name: "an entry it was still writing", first: queued + taken[:len(taken)/2], gained: taken[len(taken)/2:], want: true},
+		{name: "nothing, where only the part searched before holds the words", first: other, later: taken, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			home, worktree := t.TempDir(), t.TempDir()
+			path := filepath.Join(claudeProjectFolder(home, worktree), "conversation.jsonl")
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(tc.first), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if tc.later != "" && len(tc.later) != len(tc.first) {
+				t.Fatalf("the record written again is %d bytes, was %d; want it no longer", len(tc.later), len(tc.first))
+			}
+			progress := &HostProgress{Home: home}
+			look := func() bool {
+				return progress.Took(context.Background(), Conversation{Harness: "claude", Dir: worktree}, TextDigest(steer), sent)
+			}
+
+			// Act
+			first := look()
+			if err := os.WriteFile(path, []byte(cmp.Or(tc.later, tc.first+tc.gained)), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			second := look()
+
+			// Assert
+			if first || second != tc.want {
+				t.Errorf("Took = %t, then %t; want false, then %t", first, second, tc.want)
 			}
 		})
 	}
