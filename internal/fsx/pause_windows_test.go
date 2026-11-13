@@ -23,7 +23,11 @@ func TestAReplaceWaitsOutAHolderAcrossAPauseOfTheWholeMachine(t *testing.T) {
 		awaketest.Across(t)
 		return
 	}
-	// Arrange: the pause falls once the replace waits.
+	// Arrange: the pause falls once the replace waits, and only then does
+	// the holder's time start, so a late first try on a loaded machine no
+	// longer lets the hold run out before the replace waits: a hold started
+	// before the replace once did, and the replace went through without
+	// ever waiting (#2021).
 	path := filepath.Join(t.TempDir(), ".supervisor.json")
 	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
 		t.Fatal(err)
@@ -35,15 +39,15 @@ func TestAReplaceWaitsOutAHolderAcrossAPauseOfTheWholeMachine(t *testing.T) {
 	var letGo sync.Once
 	release := func() { letGo.Do(func() { _ = reader.Close() }) }
 	t.Cleanup(release)
-	held, cancelHold := awake.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancelHold()
-	context.AfterFunc(held, release)
 	budget := transientBudget
 	transientBudget = time.Second
 	var isReady bool
 	sleep = func(wait time.Duration) {
 		if !isReady {
 			isReady = true
+			held, cancelHold := awake.WithTimeout(context.Background(), 300*time.Millisecond)
+			t.Cleanup(cancelHold)
+			context.AfterFunc(held, release)
 			awaketest.Ready()
 		}
 		time.Sleep(wait)
@@ -54,6 +58,9 @@ func TestAReplaceWaitsOutAHolderAcrossAPauseOfTheWholeMachine(t *testing.T) {
 	err = AtomicWriteFile(path, []byte("new"))
 
 	// Assert
+	if !isReady {
+		t.Fatalf("the replace ended with %v without finding the file held; want it to wait for the holder", err)
+	}
 	if err != nil {
 		t.Fatalf("the replace gave up across a pause of %s on a holder that let go %s of running time after it began: %v", awaketest.Length, 300*time.Millisecond, err)
 	}

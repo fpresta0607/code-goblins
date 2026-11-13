@@ -11,18 +11,15 @@ import (
 	"strings"
 )
 
-// Arguments are Claude Code's flags for a session on its stream: it reads his
-// lines and the board's control requests as JSON lines, writes each event as
-// one, word by word, echoes each of his lines once it takes it, and asks the
-// board before it runs a tool. A resumed session takes up the conversation
-// its id names, as the terminal's --resume does.
-func Arguments(sessionID string, isResumed bool) []string {
-	session := "--session-id"
-	if isResumed {
-		session = "--resume"
-	}
+// Arguments are Claude Code's flags for a goblin's session on its stream,
+// after the flags its terminal starts with: it reads lines and control
+// requests as JSON lines, writes each event as one, word by word, echoes each
+// line it is given once it takes it, and refuses at once anything that would
+// ask a person, since no screen shows the question. A goblin skips every
+// permission check, so only a question to a person would ask.
+func Arguments() []string {
 	return []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-		"--include-partial-messages", "--replay-user-messages", "--permission-prompt-tool", "stdio", session, sessionID}
+		"--include-partial-messages", "--replay-user-messages", "--permission-prompts", "none"}
 }
 
 // apiKeyVariable is the key Claude Code bills instead of his plan: with -p it
@@ -41,10 +38,12 @@ func Environment(env []string) []string {
 	return kept
 }
 
-// UserLine is his words as one line for Claude Code, exactly as he wrote
-// them. Written mid-turn, Claude Code takes it at its next step.
-func UserLine(text string) json.RawMessage {
-	line, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]string{"role": "user", "content": text}, "parent_tool_use_id": nil, "session_id": ""})
+// UserLine is words as one line for Claude Code, exactly as written, under
+// id, which Claude Code echoes and names in each report of the line's
+// lifecycle (Session.Commands). Written mid-turn, Claude Code queues it and
+// takes it at its next step.
+func UserLine(id, text string) json.RawMessage {
+	line, _ := json.Marshal(map[string]any{"type": "user", "uuid": id, "message": map[string]string{"role": "user", "content": text}, "parent_tool_use_id": nil, "session_id": ""})
 	return line
 }
 

@@ -96,11 +96,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 				if err != nil || !host.Running(record) {
 					return false, err
 				}
-				client, err := host.Dial(record)
-				if err != nil {
-					return false, err
-				}
-				if err := client.Close(); err != nil {
+				if err := host.Answer(record); err != nil {
 					return false, err
 				}
 				return host.Running(record), nil

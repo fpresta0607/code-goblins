@@ -80,6 +80,9 @@ type TaskMeta struct {
 	ImplementLane   string
 	ImplementModel  string
 	ImplementEffort string
+	// EscalatedRun is the gate run whose failed verification last moved the
+	// implement role up a tier, so reading that run again moves it no further.
+	EscalatedRun string
 	// Credentials names the services of the project's auth manifest whose
 	// credentials the task's terminal carries: what its spawn gave it, plus
 	// what goblins auth grant added since and less what goblins auth revoke took
@@ -352,6 +355,7 @@ func ReadTaskMeta(stateDir, id string) (TaskMeta, error) {
 		ImplementLane:    kv["implement_lane"],
 		ImplementModel:   kv["implement_model"],
 		ImplementEffort:  kv["implement_effort"],
+		EscalatedRun:     kv["escalated_run"],
 		Effort:           kv["effort"],
 		SpawnGen:         kv["spawn_gen"],
 		FirstGen:         kv["first_gen"],
@@ -459,6 +463,7 @@ func WriteTaskMeta(stateDir string, meta TaskMeta) error {
 		"implement_lane":     meta.ImplementLane,
 		"implement_model":    meta.ImplementModel,
 		"implement_effort":   meta.ImplementEffort,
+		"escalated_run":      meta.EscalatedRun,
 		"effort":             meta.Effort,
 		"spawn_gen":          meta.SpawnGen,
 		"first_gen":          meta.FirstGen,
@@ -605,6 +610,7 @@ func validateTaskMetaValues(meta TaskMeta) error {
 		{"implement_lane", meta.ImplementLane},
 		{"implement_model", meta.ImplementModel},
 		{"implement_effort", meta.ImplementEffort},
+		{"escalated_run", meta.EscalatedRun},
 		{"effort", meta.Effort},
 		{"spawn_gen", meta.SpawnGen},
 		{"first_gen", meta.FirstGen},

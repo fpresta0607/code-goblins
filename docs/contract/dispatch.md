@@ -18,7 +18,7 @@ A goblin started before this keeps the `TMP` it was started with until it is res
 - The brief's Verification section assigns project checks, tier execution and reuse to the [selected validation owner](delivery.md#delivery).
 - `--mode` is `no-mistakes`, `direct-PR`, or `local-only`; omitted, [delivery intake](delivery.md#delivery) resolves project posture and concrete change risk, with no-mistakes for missing or uncertain inputs.
   Given, it is the mode the brief's Delivery section names, and a spawn that asks for another is refused.
-- Every goblin starts in a native terminal of its own.
+- Every goblin starts in a native terminal of its own, except a Claude Code goblin its home puts on stream-json pipes ([docs/native-board.md](../native-board.md)).
   A pi goblin starts with `--approve` where its pi advertises it, trusting the folder's project files for that run only, so it never asks.
 - Every goblin's terminal names a browser session of its own, `CHROME_DEVTOOLS_AXI_SESSION` set to its task id, and the CEO's is `goblins`. chrome-devtools-axi keeps one bridge and one browser for each session name, so a bridge belongs to one owner and is never the tool's unnamed session, which every program of the user shares.
   The bridge carries its terminal's mark and ends with its goblin at a pause, a stop or the janitor's sweep.
@@ -395,6 +395,16 @@ A resume on the task's own engine keeps the worker, and an engine the CEO change
 A Pi goblin has no native subagent to hand a slice to, so while a Pi lane names an implement role the whole lane table is refused, and every routed spawn, `goblins route` and `goblins doctor` table and every Claude or Codex spawn or switch with native helpers fails, until the role is removed and the Pi lead implements its own work.
 Review, verification and fixes do not launch on their roles yet: `goblins route` previews each role's lane after the quota check, or says why a role is refused, and `goblins doctor` prints each lane's roles, while every goblin's gate still reviews, verifies and fixes on its own model.
 A project's `routing` block carries no roles, so its lanes keep every role on the lead.
+
+`tiers` orders each harness's lanes strongest first, one lane for each model, and every lane it names runs on that harness with an explicit model.
+The shipped table orders Claude as Fable, Opus, Sonnet and Haiku, and Codex as Astra, `gpt-6.1-sol` and Luna; Pi has no tiers until a user orders the models of their own key.
+A failed verification moves the role whose work it checked up one tier: when a run's Test step fails and the task's policy hands that failure back to its goblin, as version 7 does, the task's implement worker moves to the next stronger tier on its harness.
+A worker whose next tier is its lead's own is retired, and so is one whose model the tiers do not rank, while a worker already on the top tier stays where it is.
+The move is recorded on the task with the run that caused it, and as a `role-escalated:` status line naming both lanes, so reading the same run again moves it no further.
+Every read of that run says where the role went, so the goblin learns it even when the CEO's respond read the run first.
+The goblin implements that correction and every later slice itself, because its session's worker keeps its old model, and a later resume on the task's own engine gives the worker its new lane.
+A Lint or CI failure moves no role, and a repeated attempt or newly found complexity still escalates the whole lane through `escalate_to`.
+`goblins doctor` prints each harness's tiers.
 
 `subagents` maps each harness to `search`, `review` and `verify`, each an ordered array of lane names on that harness.
 Search includes reading and summaries, review uses a strong model, and verification prefers the first model different from the parent's recorded model, taking the configured one when the policy names no other.

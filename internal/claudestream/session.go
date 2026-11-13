@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 )
 
 // Session is what a stream session's lines say while it runs: what runs it,
@@ -25,6 +26,10 @@ type Session struct {
 	Asks []Ask
 	// Result is how the last turn ended.
 	Result *Result
+	// Commands is, by the id a UserLine carries, the last state Claude Code
+	// reported for that line: queued once it holds it, started once it
+	// takes it, completed once its turn ended.
+	Commands map[string]string
 	// Unknown names, once each, the kinds of line Claude Code wrote that the
 	// reader does not know. A request among them waits for an answer the
 	// board cannot give.
@@ -32,6 +37,45 @@ type Session struct {
 	// IsExited is set once Claude Code ended, with its ExitCode.
 	IsExited bool
 	ExitCode uint32
+}
+
+// IsIdle reports whether Claude Code waits for a line: it runs, no turn is
+// working, and no tool call waits for an answer.
+func (s Session) IsIdle() bool {
+	return !s.IsExited && !s.IsWorking && len(s.Asks) == 0
+}
+
+// Rows are what the session shows, a line a row, as a terminal shows its
+// harness: a row saying whether a turn is working, waits on an answer, or
+// how the last turn or Claude Code itself ended, then the reply being
+// written, or once a turn ended, its reply.
+func (s Session) Rows() []string {
+	var status, text string
+	switch {
+	case s.IsExited:
+		status = fmt.Sprintf("Claude Code ended with exit code %d", s.ExitCode)
+	case len(s.Asks) > 0:
+		status = fmt.Sprintf("working, with %d tool calls waiting for an answer", len(s.Asks))
+	case s.IsWorking:
+		status = "working"
+	case s.Result != nil && s.Result.IsError:
+		status = "idle; its last turn ended in " + s.Result.Subtype
+	default:
+		status = "idle"
+	}
+	if s.IsWorking {
+		for _, block := range s.Live {
+			if block.Kind == "text" {
+				text += block.Text
+			}
+		}
+	} else if s.Result != nil {
+		text = s.Result.Text
+	}
+	if text == "" {
+		return []string{status}
+	}
+	return append([]string{status}, strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")...)
 }
 
 // Exit says Claude Code ended with code: a turn it left, its words and its
@@ -116,6 +160,8 @@ type streamLine struct {
 	Response struct {
 		RequestID string `json:"request_id"`
 	} `json:"response"`
+	CommandID  string  `json:"command_uuid"`
+	State      string  `json:"state"`
 	IsError    bool    `json:"is_error"`
 	StopReason string  `json:"stop_reason"`
 	Text       string  `json:"result"`
@@ -167,6 +213,11 @@ func (s *Session) Apply(line json.RawMessage, isWritten bool) error {
 		s.Asks = append(s.Asks, Ask{RequestID: read.RequestID, Tool: read.Request.ToolName, ToolUseID: read.Request.ToolUseID, Description: read.Request.Description, Input: read.Request.Input})
 	case "control_cancel_request":
 		s.answered(read.RequestID)
+	case "command_lifecycle":
+		if s.Commands == nil {
+			s.Commands = map[string]string{}
+		}
+		s.Commands[read.CommandID] = read.State
 	case "result":
 		s.IsWorking, s.Live, s.Asks = false, nil, nil
 		s.Result = &Result{Subtype: read.Subtype, IsError: read.IsError, StopReason: read.StopReason, Text: read.Text, CostUSD: read.CostUSD, Usage: read.Usage}

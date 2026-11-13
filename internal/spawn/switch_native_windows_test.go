@@ -69,7 +69,7 @@ func TestANativeGoblinSwitchesInPlace(t *testing.T) {
 	if err != nil || second.HostPID == first.HostPID || !host.Running(second) {
 		t.Errorf("the terminal after the switch is %+v, %v; want a new running host under the same id", second, err)
 	}
-	if !ended(first.HostPID) {
+	if !ended(first.HostPID, first.Started) {
 		t.Errorf("the first terminal's host pid %d still runs beside its replacement", first.HostPID)
 	}
 	submitted := submittedLines(t, f, 3)
@@ -175,7 +175,7 @@ func TestANativeSwitchClosesAHarnessThatWillNotExit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Switch: %v", err)
 	}
-	if !ended(first.HostPID) {
+	if !ended(first.HostPID, first.Started) {
 		t.Errorf("the first terminal's host pid %d still runs", first.HostPID)
 	}
 	if second, err := host.ReadRecord(f.stateDir, "task-7"); err != nil || second.HostPID == first.HostPID {
@@ -219,7 +219,7 @@ func TestANativeSwitchEndsWhatTheLastHarnessLeftBeforeTheNextStarts(t *testing.T
 			awaitComposer(t, f)
 			var seen []string
 			f.service.EndLeft = func(_ context.Context, meta state.TaskMeta) ([]string, error) {
-				seen = append(seen, fmt.Sprintf("task %s, its last host ended %t, a terminal runs for it %t, harness starts %d", meta.ID, ended(first.HostPID), nativeTerminalRuns(f.stateDir, meta.ID), len(named(f.events(t), "env"))))
+				seen = append(seen, fmt.Sprintf("task %s, its last host ended %t, a terminal runs for it %t, harness starts %d", meta.ID, ended(first.HostPID, first.Started), nativeTerminalRuns(f.stateDir, meta.ID), len(named(f.events(t), "env"))))
 				return []string{"node.exe pid 4242"}, test.sweepErr
 			}
 
