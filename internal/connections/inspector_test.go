@@ -817,7 +817,10 @@ func TestASetVariableOffersReplaceOnlyWhenItsRepositoryDeclaresIt(t *testing.T) 
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			inspector, meta := inspectorFixture(t)
-			meta.HasCredentials = test.isDisconnected
+			meta.HasCredentials = true
+			if !test.isDisconnected {
+				meta.Credentials = []string{"repo"}
+			}
 			writeConnectionFixture(t, auth.ManifestPath(inspector.DataDir, meta.Project), `{"project":"project","services":[{"name":"repo","method":"env","env":["`+test.declared+`"]}]}`)
 			inspector.Runtime = func(context.Context, string, state.TaskMeta) (RuntimeObservation, error) {
 				return RuntimeObservation{Env: []string{"FIXTURE_SECRET=synthetic-value", "OPENAI_API_KEY=synthetic-value"}, Args: []string{"--strict-mcp-config", "--mcp-config", filepath.Join(meta.TaskTmp, "mcp.json")}}, nil

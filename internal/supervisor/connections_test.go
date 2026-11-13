@@ -274,6 +274,7 @@ func TestConnectionFixMakesTheClipboardCardItsCheckOffers(t *testing.T) {
 		t.Fatalf("linked fixture: %s %v", output, err)
 	}
 	meta.Harness = "claude"
+	meta.Credentials, meta.HasCredentials = []string{"repo"}, true
 	if err := state.WriteTaskMeta(home.State, meta); err != nil {
 		t.Fatal(err)
 	}
