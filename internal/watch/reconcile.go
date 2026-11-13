@@ -10,7 +10,8 @@ import (
 
 // Reconcile is one recovery pass for the persistent supervisor. Its caller
 // owns .watch.lock. It shares the legacy signal signatures, monitor episodes,
-// routing policy, and orphan sweep; it never starts a competing watch loop.
+// routing policy, data filing and orphan sweep; it never starts a competing
+// watch loop.
 func Reconcile(ctx context.Context, cfg Config) error {
 	ctx, cancel := context.WithTimeout(ctx, cfg.reconcileBudget())
 	defer cancel()
@@ -48,6 +49,7 @@ func Reconcile(ctx context.Context, cfg Config) error {
 			}
 		}
 	}
+	fileData(ctx, cfg)
 	sweepOrphans(ctx, cfg)
 	// The scan stamps last_cycle when it starts; a pass that ran to its
 	// budget would leave the heartbeat that old, so mark the pass's end.

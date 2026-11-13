@@ -3,9 +3,11 @@ package layout
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -187,8 +189,14 @@ func TestPlanKeepsAFinishedFolderNamedInLiveText(t *testing.T) {
 		arrange func(t *testing.T, h home.Home, harnessMemory string)
 		stays   bool
 	}{
-		{"a done row", emptyBacklog + "- [x] d1 - Shipped, " + mention, func(t *testing.T, h home.Home, _ string) {}, true},
-		{"a section filing does not read", emptyBacklog + "\n## Fleet defects\n" + mention, func(t *testing.T, h home.Home, _ string) {}, true},
+		{"an open row", "# Backlog\n\n## Queued\n- [ ] q1 - Next, " + mention + "\n## Parked\n\n## Done\n", func(t *testing.T, h home.Home, _ string) {}, true},
+		{"an open row's detail line", "# Backlog\n\n## Queued\n- [ ] q1 - Next\n\n  " + mention + "\n## Parked\n\n## Done\n", func(t *testing.T, h home.Home, _ string) {}, true},
+		{"an open row in a section of the CEO's own", emptyBacklog + "\n## In flight\n- [ ] i1 - Held for merge, " + mention, func(t *testing.T, h home.Home, _ string) {}, true},
+		{"a done row", emptyBacklog + "- [x] d1 - Shipped, " + mention, func(t *testing.T, h home.Home, _ string) {}, false},
+		{"a done row's detail line", emptyBacklog + "- **d1** - Shipped\n  " + mention, func(t *testing.T, h home.Home, _ string) {}, false},
+		{"a closed row outside Done", "# Backlog\n\n## Queued\n\n## Parked\n- [x] p1 - Closed, " + mention + "\n## Done\n", func(t *testing.T, h home.Home, _ string) {}, false},
+		{"a note in a history section", emptyBacklog + "\n## Fleet defects\n" + mention, func(t *testing.T, h home.Home, _ string) {}, false},
+		{"a note under Queued", "# Backlog\n\n## Queued\n" + mention + "\n## Parked\n\n## Done\n", func(t *testing.T, h home.Home, _ string) {}, false},
 		{"the directives", emptyBacklog, func(t *testing.T, h home.Home, _ string) {
 			write(t, filepath.Join(h.Data, "overlord.md"), `a ruling that cites data\f1\report.md`+"\n")
 		}, true},
@@ -455,8 +463,9 @@ func TestFileGoesOnPastAMoveThatFails(t *testing.T) {
 }
 
 // A watcher handing the lock to a serve stops its filing pass between moves:
-// the folders it had not reached stay where they are for the next pass, and
-// the stop is not recorded as a failure to file.
+// the folders it had not reached stay where they are for the next pass, the
+// stop is not recorded as a failure to file, and the filing log says once
+// that the pass was cut short, however many passes in a row are.
 func TestFileStopsBetweenMovesOnceItsContextIsDone(t *testing.T) {
 	h := filingHome(t, emptyBacklog)
 	taskFolder(t, h, "a1", StaleBriefAge)
@@ -465,17 +474,130 @@ func TestFileStopsBetweenMovesOnceItsContextIsDone(t *testing.T) {
 	cancel()
 
 	moved, err := File(ctx, h, filingNow)
+	_, again := File(ctx, h, filingNow.Add(time.Hour))
 
-	if !errors.Is(err, context.Canceled) || len(moved) != 0 {
-		t.Fatalf("File = %+v, %v; want nothing moved and the stop reported", moved, err)
+	if !errors.Is(err, context.Canceled) || !errors.Is(again, context.Canceled) || len(moved) != 0 {
+		t.Fatalf("File = %+v, %v then %v; want nothing moved and the stop reported", moved, err, again)
 	}
 	for _, id := range []string{"a1", "b2"} {
 		if _, err := os.Stat(filepath.Join(h.Data, id, "brief.md")); err != nil {
 			t.Errorf("data/%s was moved after the pass was stopped: %v", id, err)
 		}
 	}
-	if log, err := os.ReadFile(filepath.Join(h.Data, filepath.FromSlash(FilingLog))); err == nil && strings.Contains(string(log), "could not file") {
+	log, err := os.ReadFile(filepath.Join(h.Data, filepath.FromSlash(FilingLog)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(log), "could not file") {
 		t.Errorf("the filing log records a stopped pass as a failure:\n%s", log)
+	}
+	if got := strings.Count(string(log), "cut short"); got != 1 {
+		t.Errorf("the filing log says %d times that a pass was cut short, want once:\n%s", got, log)
+	}
+	record, err := ReadRecord(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Filed != 0 || record.Waiting != 2 || record.Error != "" {
+		t.Errorf("record = %+v, want nothing filed, both folders waiting and no failure", record)
+	}
+}
+
+// A home that fell far behind is caught up in bounded steps: one pass files
+// at most movesPerPass folders, records how many wait, and the next pass
+// files from what is left.
+func TestFileCatchesUpAStepAPass(t *testing.T) {
+	// Arrange
+	h := filingHome(t, emptyBacklog)
+	total := movesPerPass + 2
+	for i := range total {
+		taskFolder(t, h, fmt.Sprintf("g%03d", i), StaleBriefAge)
+	}
+
+	// Act
+	first, firstErr := File(context.Background(), h, filingNow)
+	firstRecord, firstReadErr := ReadRecord(h.State)
+	second, secondErr := File(context.Background(), h, filingNow.Add(time.Hour))
+	secondRecord, secondReadErr := ReadRecord(h.State)
+
+	// Assert
+	if err := errors.Join(firstErr, firstReadErr, secondErr, secondReadErr); err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != movesPerPass || len(second) != 2 {
+		t.Fatalf("passes filed %d then %d folders, want %d then 2", len(first), len(second), movesPerPass)
+	}
+	if want := (Record{Time: filingNow, Filed: movesPerPass, Waiting: 2}); !reflect.DeepEqual(firstRecord, want) {
+		t.Errorf("first record = %+v, want %+v", firstRecord, want)
+	}
+	if want := (Record{Time: filingNow.Add(time.Hour), Filed: 2}); !reflect.DeepEqual(secondRecord, want) {
+		t.Errorf("second record = %+v, want %+v", secondRecord, want)
+	}
+	for i := range total {
+		id := fmt.Sprintf("g%03d", i)
+		if _, err := os.Stat(filepath.Join(h.Data, "archive", "parked", id, "brief.md")); err != nil {
+			t.Errorf("%s was not filed after both passes: %v", id, err)
+		}
+	}
+}
+
+// A pass that cannot file says why in its record as well as in the log, so
+// goblins runtime shows it beside the janitor's line.
+func TestFileRecordsWhyAPassCouldNotFile(t *testing.T) {
+	// Arrange
+	h := filingHome(t, emptyBacklog)
+	taskFolder(t, h, "g1", StaleBriefAge)
+	parked := filepath.Join(h.Data, "archive", "parked")
+	if err := os.Remove(parked); err != nil {
+		t.Fatal(err)
+	}
+	write(t, parked, "a file where the parked folder should be")
+
+	// Act
+	_, err := File(context.Background(), h, filingNow)
+	record, readErr := ReadRecord(h.State)
+
+	// Assert
+	if err == nil {
+		t.Fatal("File parked g1 into a file")
+	}
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if record.Filed != 0 || record.Waiting != 1 || !strings.Contains(record.Error, "file g1") {
+		t.Errorf("record = %+v, want g1 waiting and why it could not be filed", record)
+	}
+}
+
+// A pass records every folder it leaves in place and why, so the janitor can
+// trim a finished one that something still names, keeping what that names by
+// path, and goblins runtime can say why data holds what it does.
+func TestFileRecordsTheFoldersItKeepsAndWhy(t *testing.T) {
+	// Arrange
+	h := filingHome(t, "# Backlog\n\n## Queued\n- [ ] q1 - Compare with data/f1/shots/before.png\n\n## Parked\n\n## Done\n")
+	taskFolder(t, h, "f1", 5*24*time.Hour)
+	finishedAt(t, filepath.Join(h.State, "f1.status"), "done: PR https://github.com/o/r/pull/1\n", 0)
+	finishedAt(t, filepath.Join(h.Data, "f2", "brief.md"), "# Brief f2\n", 5*24*time.Hour)
+	finishedAt(t, filepath.Join(h.State, "f2.status"), "done: PR https://github.com/o/r/pull/2\n", 0)
+	write(t, filepath.Join(h.Data, "overlord.md"), "a ruling that cites data/f2/report.md.\n")
+	taskFolder(t, h, "g1", time.Hour)
+	write(t, filepath.Join(h.State, "g1.meta"), "brief="+filepath.Join(h.Data, "g1", "brief.md")+"\n")
+
+	// Act
+	_, err := File(context.Background(), h, filingNow)
+	record, readErr := ReadRecord(h.State)
+
+	// Assert
+	if err := errors.Join(err, readErr); err != nil {
+		t.Fatal(err)
+	}
+	want := []Kept{
+		{ID: "f1", Reason: "finished, but an open backlog row names it", IsFinished: true, Named: []string{"shots"}},
+		{ID: "f2", Reason: "finished, but data/overlord.md names its path", IsFinished: true, Named: []string{"report.md"}},
+		{ID: "g1", Reason: "under way"},
+	}
+	if !reflect.DeepEqual(record.Kept, want) {
+		t.Errorf("kept = %+v, want %+v", record.Kept, want)
 	}
 }
 
@@ -532,7 +654,7 @@ func TestPlanKeepsWhatAKeptFolderStillPointsAt(t *testing.T) {
 		t.Errorf("moved %v, want only %v; stays %v", moved, want, stays)
 	}
 	want := []string{
-		"pd-agent-api-v2-build: finished, but an open backlog row names it",
+		"pd-agent-api-v2-build: finished, but an open row of data/backlog.md names its path",
 		"pd-mcp-skill: finished, but data/pd-agent-api-v2-build/brief.md names its path",
 		"pd-mcp-tools: finished, but data/pd-mcp-skill/handoff.md names its path",
 	}

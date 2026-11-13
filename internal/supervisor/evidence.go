@@ -429,8 +429,8 @@ func supersedesQuestion(report string) bool {
 }
 
 // reportedProgress is what a goblin last said it is doing: working on
-// something, or waiting on another task, the Overlord, CI, a deploy or memory. A wait
-// on another task clears itself once that task reports done, and a wait on the
+// something, or waiting on another task, the Overlord, CI, a deploy, memory,
+// the gate daemon or Docker. A wait on another task clears itself once that task reports done, and a wait on the
 // Overlord once the Command Center item it raised closed, answered, cleared or
 // handed to the CEO; any other wait lasts until the goblin reports again.
 func reportedProgress(tail func(id string) ([]string, error), id string, reviews []Review, reportedAt time.Time, report string) (phase, reason, waitingOn string, ok bool) {
@@ -443,7 +443,7 @@ func reportedProgress(tail func(id string) ([]string, error), id string, reviews
 		return "", "", "", false
 	}
 	switch target {
-	case "ci", "deploy", "memory":
+	case "ci", "deploy", "memory", SharedGateDaemon, SharedDocker:
 	case "overlord":
 		// Its item is published after the report. An answer typed on the item
 		// counts once it reached the goblin; until then it is still on its way.
@@ -510,12 +510,9 @@ func breakWaitCycles(tasks []Task) [][]string {
 }
 
 // tellWaitCycles tells the CEO, once for each, of a circle the goblins'
-// standing waits close. A newer report of any goblin in it is a new circle.
-func (s *Service) tellWaitCycles() error {
-	snapshot, err := s.Snapshot()
-	if err != nil {
-		return err
-	}
+// standing waits close in snapshot. A newer report of any goblin in it is a
+// new circle.
+func (s *Service) tellWaitCycles(snapshot Snapshot) error {
 	isTold := false
 	for _, cycle := range snapshot.waitCycles {
 		var names []string
@@ -535,9 +532,34 @@ func (s *Service) tellWaitCycles() error {
 		isTold = isTold || isNew
 	}
 	if isTold {
-		_, err = wake.PublishEpisode(s.Store.Home.State)
+		_, err := wake.PublishEpisode(s.Store.Home.State)
+		return err
 	}
-	return err
+	return nil
+}
+
+// tellParkedRuns tells the CEO, once for each, of a gate run that waits on a
+// decision since before its goblin's newest report in snapshot, which holds
+// no card. The run parking again, at another step or in a later round, is a
+// new one.
+func (s *Service) tellParkedRuns(snapshot Snapshot) error {
+	isTold := false
+	for _, task := range snapshot.Tasks {
+		for _, run := range task.parkedBeforeReport {
+			parkedAt := run.ParkedAt.UTC().Format(time.RFC3339)
+			detail := fmt.Sprintf("parked_run: %s (%s) has gate run %s on branch %s waiting on a decision at its %s step since %s, before the goblin's newest report, so it holds no card. Act on it with goblins pipeline respond %s --branch %s, or read it with no-mistakes axi status --run %s", cmp.Or(task.GoblinName, task.ID), task.ID, run.RunID, run.Branch, run.Step, parkedAt, task.ID, run.Branch, run.RunID)
+			_, isNew, err := wake.AppendFirst(s.Store.Home.State, "parked-run/"+task.ID+"/"+run.RunID+"/"+run.Step+"/"+parkedAt, "check", task.ID, detail)
+			if err != nil {
+				return err
+			}
+			isTold = isTold || isNew
+		}
+	}
+	if isTold {
+		_, err := wake.PublishEpisode(s.Store.Home.State)
+		return err
+	}
+	return nil
 }
 
 // statusActivity is a task's own latest status line, the one-line answer to
@@ -704,6 +726,8 @@ func finishedTasks(h home.Home, reads *keptReads, now time.Time) []Task {
 			phase, reason = "done", "Delivered pull request; task cleaned up"
 		} else if issue := state.DoneClosed(report); issue != "" {
 			phase, reason = "done", "Closed "+issue+"; task cleaned up"
+		} else if kept := state.DoneReport(report); kept != "" {
+			phase, reason = "done", "Reported "+kept+"; task cleaned up"
 		}
 		title, project := id, ""
 		if row, isListed := backlogRows[id]; isListed {

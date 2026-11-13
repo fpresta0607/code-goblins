@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/janitor"
+	"github.com/fpresta0607/code-goblins/internal/layout"
 	"github.com/fpresta0607/code-goblins/internal/services"
 )
 
@@ -291,6 +292,90 @@ func TestRenderMarkdownSaysWhatTheJanitorNoted(t *testing.T) {
 	// Assert
 	if want := "- note: the caches hold 21.0 GB, over their 20 GB cap, and are not trimmed, as the sweep took no turn in the machine's heavy line: goblins gate test (pid 4242) holds the machine's heavy line"; !strings.Contains(out, want) {
 		t.Errorf("output is missing %q\n%s", want, out)
+	}
+}
+
+// The home's last filing pass is shown beside the janitor's line, with how
+// many folders wait, so a filing that stopped is seen the same day: on one
+// home it stopped for a month while 992 finished folders waited and nothing
+// said so.
+func TestRenderMarkdownSaysWhenTheHomesDataWasLastFiled(t *testing.T) {
+	cases := []struct {
+		name   string
+		filing *layout.Record
+		want   []string
+	}{
+		{
+			name: "never filed",
+			want: []string{"The home's data has not been filed yet; the supervisor files a laid-out home's data every ten minutes."},
+		},
+		{
+			name:   "filed with folders waiting",
+			filing: &layout.Record{Time: time.Date(2026, 11, 12, 6, 0, 0, 0, time.UTC), Filed: 100, Waiting: 892},
+			want:   []string{"The home's data was last filed at 2026-11-12T06:00:00Z: 100 folder(s) filed, 892 finished or stale folder(s) wait for a later pass."},
+		},
+		{
+			name:   "could not file",
+			filing: &layout.Record{Time: time.Date(2026, 11, 12, 6, 0, 0, 0, time.UTC), Waiting: 1, Error: "file g1: access denied"},
+			want: []string{
+				"The home's data was last filed at 2026-11-12T06:00:00Z: 0 folder(s) filed, 1 finished or stale folder(s) wait for a later pass.",
+				"- could not file: file g1: access denied",
+			},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			report := Build(`C:\dev\code-goblins`, reportFixture())
+			report.Filing = c.filing
+
+			// Act
+			out := render(t, report)
+
+			// Assert
+			for _, line := range c.want {
+				if !strings.Contains(out, line) {
+					t.Errorf("output is missing %q\n%s", line, out)
+				}
+			}
+		})
+	}
+}
+
+// The gate's home is named beside the home's buckets with what the janitor
+// last measured there, since walking it takes minutes, and a home the
+// janitor has not measured says so rather than showing nothing.
+func TestRenderMarkdownShowsTheGateHomeTheJanitorMeasured(t *testing.T) {
+	cases := []struct {
+		name    string
+		janitor *janitor.Record
+		want    string
+	}{
+		{
+			name:    "measured",
+			janitor: &janitor.Record{Time: time.Date(2026, 11, 12, 6, 0, 0, 0, time.UTC), Gate: &janitor.GateHome{Folders: []string{`C:\Users\o\.no-mistakes`, `D:\DevDrive\no-mistakes`}, Bytes: 55 << 30}},
+			want:    `| the gate's home at C:\Users\o\.no-mistakes and D:\DevDrive\no-mistakes, as the janitor measured it at 2026-11-12T06:00:00Z | 55.0 GB |`,
+		},
+		{
+			name:    "never measured",
+			janitor: &janitor.Record{Time: time.Date(2026, 11, 12, 6, 0, 0, 0, time.UTC)},
+			want:    "| the gate's home | not measured yet; the janitor's hourly sweep measures it |",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			report := Build(`C:\dev\code-goblins`, reportFixture())
+			report.Janitor = c.janitor
+
+			// Act
+			out := render(t, report)
+
+			// Assert
+			if !strings.Contains(out, c.want) {
+				t.Errorf("output is missing %q\n%s", c.want, out)
+			}
+		})
 	}
 }
 

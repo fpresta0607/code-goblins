@@ -17,6 +17,7 @@ Admission requires nonempty Task, Acceptance criteria and Constraints sections w
 Empty or missing requirements and unfinished or malformed choices refuse dispatch before routing or policy freezing.
 An optional `connectors: none` line beside them leaves out the [crawler connector](../crawler.md) every goblin otherwise carries; any value but `none`, or a second line, refuses the brief.
 An optional `sandbox: needed` line runs the task's commands in a container of its project's devcontainer image, as [Credentials by need](../contract/authentication.md#credentials-by-need) says; any other value, or a second line, refuses the brief.
+An optional `goblin title: <title>` line in Delivery gives the task's goblin its title as written, such as `goblin title: Estimate Elf`, in place of one fitted to the task's own words, as [Goblin names](../contract/dispatch.md#goblin-names) says; a title of more than three words or 20 characters, one with a semicolon or em dash, or a second line refuses the brief.
 A helper's spawn checks the [helper contract](../contract/dispatch.md#helper-goblins) instead, so a helper's brief is never run through `goblins brief ready`.
 Choose credentials and MCP servers under [Credentials by need](../contract/authentication.md#credentials-by-need).
 Finalizing an unheld queued brief makes it eligible for automatic start; setting `ready: true` manually as the final edit uses the same admission contract.

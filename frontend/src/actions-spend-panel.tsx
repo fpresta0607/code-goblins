@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { ClickFeedback } from "./click-feedback";
 import { Icon } from "./Icon";
 import type { ActionsSpend } from "./types";
+import { linkedText } from "./messageText";
 
 const DOLLARS = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const MINUTES = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
@@ -51,7 +52,7 @@ export function ActionsSpendPanel({ usage, month, onClose, onRepair, isRepairing
         <td>{repository.name}</td><td>{MINUTES.format(repository.minutes)}</td><td>{DOLLARS.format(repository.used_usd)}</td><td>{DOLLARS.format(repository.billed_usd)}</td>
       </tr>)}</tbody>
     </table> : <p className="actions-spend-none">No Actions use this month.</p>)}
-    {detail && <p className="actions-spend-problem">{detail}</p>}
+    {detail && <p className="actions-spend-problem">{linkedText(detail)}</p>}
     {problem && <section className="actions-spend-recovery" aria-label="Billing recovery" aria-busy={isRepairing}>
       {problem.account && <p>Account: <strong>{problem.account}</strong></p>}
       {problem.action === "allow" && <p>Billing requires GitHub’s <code>user</code> scope. Review and allow access in the native GitHub consent flow on this PC.</p>}

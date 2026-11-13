@@ -26,6 +26,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/installbase"
 	"github.com/fpresta0607/code-goblins/internal/keypages"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
@@ -302,6 +303,8 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		// The Defender wakes only read what Defender recorded, as goblins
 		// defender does.
 		Defender: runtime.readDefender,
+		// The shared services' check only reads them, as goblins shared does.
+		Shared: sharedProbes(*example, execx.OSRunner{}),
 		// A credential request's card saves through the store goblins auth store
 		// writes, and its refresh is goblins auth store's own.
 		Credentials:        auth.OpenStore,
@@ -315,9 +318,16 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		DevDrive:           devDrive,
 		Tree:               tree,
 		Releases:           releases,
-		KeyPages:           keyPages,
-		RestartWindows:     restartWindows,
-		EndHeavyRuns:       supervisor.EndHeavyRuns,
+		Relabel: func(folder string) error {
+			machine, err := crossingMachine(installbase.NewEnvStore(execx.OSRunner{}), h, "")
+			if err != nil {
+				return err
+			}
+			return machine.Relabel(folder)
+		},
+		KeyPages:       keyPages,
+		RestartWindows: restartWindows,
+		EndHeavyRuns:   supervisor.EndHeavyRuns,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -433,7 +443,7 @@ func boardStartAtLogin(h home.Home) install.Service {
 
 // serveDispatch reads the machine for the supervisor's starts and wakes.
 func serveDispatch(h home.Home) *supervisor.Dispatch {
-	return &supervisor.Dispatch{Memory: supervisor.MachineMemory, Disk: func() (supervisor.Disk, error) { return supervisor.MachineDisk(h) }, CommitHolders: supervisor.CommitHolders, Processors: supervisor.MachineProcessors, GPU: supervisor.MachineGPU, HeavyLine: supervisor.MachineHeavyLine, LineStall: supervisor.MachineLineStall, PoolTags: supervisor.PoolTags, Spawn: spawnFromBoard}
+	return &supervisor.Dispatch{Memory: supervisor.MachineMemory, Disk: func() (supervisor.Disk, error) { return supervisor.MachineDisk(h) }, CommitHolders: supervisor.CommitHolders, TopHandleHolder: supervisor.TopHandleHolder, Processors: supervisor.MachineProcessors, GPU: supervisor.MachineGPU, HeavyLine: supervisor.MachineHeavyLine, LineStall: supervisor.MachineLineStall, PoolTags: supervisor.PoolTags, Spawn: spawnFromBoard}
 }
 
 // spawnFromBoard runs this goblins binary with args, as a queued task's Start

@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/pipeline/pipelinetest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -210,10 +212,10 @@ func TestProgressReadsExactLatestBranchFromSQLite(t *testing.T) {
 	database := filepath.Join(root, "state.sqlite")
 	sql := `CREATE TABLE repos(id TEXT,working_path TEXT);
 CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,created_at INTEGER,status TEXT,head_sha TEXT,submitted_head_sha TEXT,review_approved_head_sha TEXT,last_pushed_sha TEXT,pr_url TEXT,pr_state TEXT,ci_ready_at INTEGER,terminal_head_verified_at INTEGER,custody_returned_at INTEGER);
-CREATE TABLE step_results(run_id TEXT,step_name TEXT,status TEXT,step_order INTEGER,findings_json TEXT);
+CREATE TABLE step_results(run_id TEXT,step_name TEXT,status TEXT,step_order INTEGER,findings_json TEXT,started_at INTEGER,round_started_at INTEGER,last_activity_at INTEGER);
 INSERT INTO repos VALUES('repo','C:\project');
 INSERT INTO runs(id,repo_id,branch,created_at,status,head_sha) VALUES('old','repo','feat',1,'completed','old'),('latest','repo','feat',2,'running','latest'),('other','repo','other',3,'completed','other');
-INSERT INTO step_results VALUES('latest','review','completed',1,NULL),('latest','test','awaiting_approval',2,'{"findings":[{"id":"test-failure"}]}');`
+INSERT INTO step_results VALUES('latest','review','completed',1,NULL,100,0,NULL),('latest','test','awaiting_approval',2,'{"findings":[{"id":"test-failure"}]}',200,300,400),('latest','lint','pending',3,NULL,NULL,NULL,NULL);`
 	result, err := (execx.OSRunner{}).Run(context.Background(), execx.Request{Name: "sqlite3", Args: []string{database, sql}})
 	if err != nil {
 		t.Skipf("sqlite3 unavailable: %v", err)
@@ -221,13 +223,16 @@ INSERT INTO step_results VALUES('latest','review','completed',1,NULL),('latest',
 	if result.ExitCode != 0 {
 		t.Fatal(string(result.Stderr))
 	}
-	r := Reader{Root: root, Commands: fixtureCommands{execx.OSRunner{}}}
+	r := Reader{Root: root, Commands: pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}}
 	p, err := r.Progress(context.Background(), "C:/project", "feat")
-	if err != nil || p.RunID != "latest" || len(p.Steps) != 2 {
+	if err != nil || p.RunID != "latest" || len(p.Steps) != 3 {
 		t.Fatalf("wrong branch evidence %+v %v", p, err)
 	}
 	if p.Steps[0].Findings != "" || p.Steps[1].Findings != `{"findings":[{"id":"test-failure"}]}` {
 		t.Fatalf("steps = %+v, want each step's findings document, empty where it recorded none", p.Steps)
+	}
+	if moved := []int64{p.Steps[0].MovedAt, p.Steps[1].MovedAt, p.Steps[2].MovedAt}; !slices.Equal(moved, []int64{100, 400, 0}) {
+		t.Fatalf("steps moved at %v, want its start for a step with no activity, its last activity for a parked one and none for one not started", moved)
 	}
 	if _, err := r.Progress(context.Background(), "C:/other", "feat"); err == nil {
 		t.Fatal("wrong project matched")
@@ -277,7 +282,7 @@ INSERT INTO step_results VALUES('run','test','running',2,1791297214,1791300000,1
 		t.Fatal(string(result.Stderr))
 	}
 
-	steps, err := (Reader{Root: root, Commands: fixtureCommands{execx.OSRunner{}}}).StepDetails(context.Background(), "run")
+	steps, err := (Reader{Root: root, Commands: pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}}).StepDetails(context.Background(), "run")
 
 	want := []StepDetail{
 		{Name: "review", Status: "completed", StartedAt: 1791297171, LastActivityAt: 1791297214, LastActivity: "status: completed"},
@@ -301,7 +306,7 @@ func stepDatabase(t *testing.T, sql string) Reader {
 	if result.ExitCode != 0 {
 		t.Fatal(string(result.Stderr))
 	}
-	return Reader{Root: root, Commands: fixtureCommands{execx.OSRunner{}}}
+	return Reader{Root: root, Commands: pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}}
 }
 
 // A goblin can name the gate run it waits on, which may be on any branch of

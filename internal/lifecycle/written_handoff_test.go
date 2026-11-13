@@ -3,6 +3,7 @@ package lifecycle_test
 import (
 	"context"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,16 +11,29 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
-// handoffCommands answers the git and gh commands a written handoff reads,
-// and records them. An empty answer is a command that fails.
+// handoffCommands answers the git and gh commands and the GitHub API requests
+// a written handoff reads, and records them. An empty answer is a command or
+// request that fails. origin is the worktree's origin remote, the github.com
+// repository handoffOrigin unless set: GitHub's API lists the open pull
+// requests, pulls, from branch of a github.com origin and gh fails to, and gh
+// lists them for an origin on another host.
 type handoffCommands struct {
 	branch, head, pulls string
+	origin              string
 	ran                 *[]string
+}
+
+// handoffOrigin is a worktree's origin on github.com.
+const handoffOrigin = "https://github.com/owner/repo.git"
+
+func (commands handoffCommands) isOnGitHub() bool {
+	return commands.origin == "" || commands.origin == handoffOrigin
 }
 
 func (commands handoffCommands) Run(_ context.Context, request execx.Request) (execx.Result, error) {
@@ -27,10 +41,21 @@ func (commands handoffCommands) Run(_ context.Context, request execx.Request) (e
 	if commands.ran != nil {
 		*commands.ran = append(*commands.ran, command)
 	}
+	origin := commands.origin
+	if origin == "" {
+		origin = handoffOrigin
+	}
+	listed := "gh pr list --head " + commands.branch + " --state open --json url,isDraft"
+	if command == listed && commands.isOnGitHub() {
+		return execx.Result{}, errors.New("gh started for a read GitHub's API answers: " + command)
+	}
 	answers := map[string]string{
 		"git rev-parse --abbrev-ref HEAD": commands.branch,
 		"git rev-parse HEAD":              commands.head,
-		"gh pr list --head " + commands.branch + " --state open --json url,isDraft": commands.pulls,
+		listed:                            commands.pulls,
+	}
+	if len(request.Args) == 5 && request.Args[0] == "-C" && request.Args[2] == "remote" {
+		answers[command] = origin
 	}
 	answer, ok := answers[command]
 	if !ok {
@@ -40,6 +65,28 @@ func (commands handoffCommands) Run(_ context.Context, request execx.Request) (e
 		return execx.Result{ExitCode: 1, Stderr: []byte("not answered")}, nil
 	}
 	return execx.Result{Stdout: []byte(answer + "\n")}, nil
+}
+
+// ServeHTTP answers GitHub's API's list of the open pull requests of
+// owner/repo from branch with pulls, and fails it for an origin on another
+// host.
+func (commands handoffCommands) ServeHTTP(w http.ResponseWriter, request *http.Request) {
+	query, variables, err := githubtest.Query(request)
+	if commands.ran != nil {
+		*commands.ran = append(*commands.ran, request.Method+" "+strings.TrimPrefix(request.URL.Path, "/"))
+	}
+	switch {
+	case err != nil:
+		githubtest.Refuse(w, http.StatusBadRequest, err.Error())
+	case !commands.isOnGitHub():
+		githubtest.Refuse(w, http.StatusInternalServerError, "GitHub's API was asked of an origin on another host")
+	case commands.pulls == "":
+		githubtest.Refuse(w, http.StatusBadGateway, "Bad Gateway")
+	case !strings.Contains(query, "pullRequests(states:OPEN") || variables["owner"] != "owner" || variables["name"] != "repo" || variables["head"] != commands.branch:
+		githubtest.Refuse(w, http.StatusBadRequest, "not the list of owner/repo's open pull requests from "+commands.branch)
+	default:
+		_, _ = w.Write([]byte(`{"data":{"repository":{"pullRequests":{"nodes":` + commands.pulls + `}}}}`))
+	}
 }
 
 func TestWrittenHandoffSaysWhereTheTaskStands(t *testing.T) {
@@ -79,15 +126,25 @@ func TestWrittenHandoffSaysWhereTheTaskStands(t *testing.T) {
 			unwanted: []string{"go test ./...", "None held a turn"},
 		},
 		{
+			name:     "on a branch whose origin is on another host",
+			commands: handoffCommands{branch: "fix/pause", head: head, origin: "https://git.example.com/owner/repo.git", pulls: `[{"url":"https://git.example.com/owner/repo/pull/7","isDraft":false}]`},
+			want:     []string{"- Open pull request: https://git.example.com/owner/repo/pull/7\n"},
+		},
+		{
 			name:     "on a detached HEAD",
 			commands: handoffCommands{branch: "HEAD", head: head},
 			want:     []string{"- Branch: none (detached HEAD)\n", "- HEAD: " + head + "\n"},
 			unwanted: []string{"pull request"},
 		},
 		{
-			name:     "where neither git nor gh answers",
+			name:     "where neither git nor GitHub answers",
 			commands: handoffCommands{branch: "fix/pause"},
-			want:     []string{"- HEAD: could not be read (git rev-parse exited 1: not answered)\n", "- Open pull requests: could not be read (gh pr exited 1: not answered)\n"},
+			want:     []string{"- HEAD: could not be read (git rev-parse exited 1: not answered)\n", "- Open pull requests: could not be read (", "Bad Gateway"},
+		},
+		{
+			name:     "where gh does not answer for an origin on another host",
+			commands: handoffCommands{branch: "fix/pause", head: head, origin: "https://git.example.com/owner/repo.git"},
+			want:     []string{"- Open pull requests: could not be read (gh pr exited 1: not answered)\n"},
 		},
 		{
 			name:     "where git cannot read the branch",
@@ -141,7 +198,7 @@ func TestWrittenHandoffSaysWhereTheTaskStands(t *testing.T) {
 			}
 			var ran []string
 			test.commands.ran = &ran
-			writer := lifecycle.HandoffWriter{StateDir: stateDir, Commands: test.commands, Owner: func(pid int) string {
+			writer := lifecycle.HandoffWriter{StateDir: stateDir, Commands: test.commands, GitHub: githubtest.Client(test.commands), Owner: func(pid int) string {
 				if pid == os.Getpid() {
 					return test.owner
 				}
@@ -163,8 +220,12 @@ func TestWrittenHandoffSaysWhereTheTaskStands(t *testing.T) {
 				}
 			}
 			for _, command := range ran {
-				if strings.HasPrefix(command, "gh ") && test.commands.branch == "HEAD" {
+				isListing := strings.HasPrefix(command, "gh ") || strings.HasPrefix(command, "POST ")
+				if isListing && test.commands.branch == "HEAD" {
 					t.Errorf("a detached HEAD has no branch to list pull requests from, but %q ran", command)
+				}
+				if strings.HasPrefix(command, "gh ") && test.commands.isOnGitHub() {
+					t.Errorf("GitHub's API lists the pull requests of a github.com origin, but %q ran", command)
 				}
 			}
 		})
@@ -176,7 +237,7 @@ func TestWrittenHandoffSaysWhereTheTaskStands(t *testing.T) {
 func TestWrittenHandoffNamesAnUnreadHeavyLine(t *testing.T) {
 	// Arrange
 	t.Setenv("GOBLINS_VERIFY_DIR", "")
-	writer := lifecycle.HandoffWriter{StateDir: t.TempDir(), Commands: handoffCommands{branch: "HEAD"}, Owner: func(int) string { return "task" }}
+	writer := lifecycle.HandoffWriter{StateDir: t.TempDir(), Commands: handoffCommands{branch: "HEAD"}, GitHub: githubtest.Client(handoffCommands{}), Owner: func(int) string { return "task" }}
 
 	// Act
 	note := string(writer.Handoff(t.Context(), state.TaskMeta{ID: "task"}))

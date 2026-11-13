@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"flag"
 	"fmt"
@@ -34,12 +36,13 @@ const PREPARED_NOTIFY_TIMEOUT = 10 * time.Second
 //	goblins notify <task-id> --done --pr <url>
 //	goblins notify <task-id> --done --pr <url> --lesson "<one line>" --cites "<stamp or words of a status line>"
 //	goblins notify <task-id> --done --closed <issue-url> --decision <sequence>
+//	goblins notify <task-id> --done --report <file>
 //	goblins notify <task-id> --blocked "<question>"
 //	goblins notify <task-id> --blocked "<question> options: <answer> (Recommended) | <answer>" --image a.png --image b.png
 //	goblins notify <task-id> --failed "<reason>"
 //	goblins notify <task-id> --working "<what>"
 //	goblins notify <task-id> --prepared-wait task:<id>|pr:<URL> --generation <generation> --handoff <data/task/handoff.md>
-//	goblins notify <task-id> --waiting-on <task-id|run-id|overlord|ci|deploy|memory> "<why>"
+//	goblins notify <task-id> --waiting-on <task-id|run-id|overlord|ci|deploy|memory|gate-daemon|docker> "<why>"
 //	goblins notify <task-id> --waiting-on overlord "<why>" --lavish <html-file>
 //	goblins notify <task-id> --waiting-on overlord "<why>" --link <https-url>
 //	goblins notify <task-id> --waiting-on overlord "<why>" --run <command.ps1|command.sh>
@@ -96,6 +99,11 @@ const PREPARED_NOTIFY_TIMEOUT = 10 * time.Second
 // rather than the goblin's account of it, so whoever reads the report sees
 // what was decided: the record proves an answer was given, and only its words
 // say that it approved this.
+//
+// A task spawned local-only opens no pull request, such as a scout or an
+// operations task with no commit, so it reports done with its report, which
+// the home keeps as data/<id>/report.md, where cleanup reads it as the task's
+// delivery.
 func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "goblins notify: task ID is required")
@@ -110,13 +118,14 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	fs := flag.NewFlagSet("notify", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	done := fs.Bool("done", false, "report completion")
-	pr := fs.String("pr", "", "PR URL, required with --done unless --closed says what you closed in its place")
+	pr := fs.String("pr", "", "PR URL, required with --done unless --closed says what you closed in its place or --report gives a local-only task's report")
 	closed := fs.String("closed", "", "with --done and --decision, the https link of the GitHub issue you closed in place of a pull request")
 	decision := fs.String("decision", "", "with --closed, the wake sequence of your answered question that ruled the task finished with no pull request, which its --blocked notify printed")
+	report := fs.String("report", "", "with --done, for a task spawned local-only, which opens no pull request, the file of its report, which the home keeps as data/<id>/report.md")
 	blocked := fs.String("blocked", "", "report a question the goblin is blocked on: one short sentence that is the question, details on lines starting with \"- \" that give the recommendation and what each choice does, **bold** only on the verdict or the blocking item, and run IDs, findings and other evidence after a line that reads only Details:, which the board folds away")
 	failed := fs.String("failed", "", "report a failure reason")
 	working := fs.String("working", "", "report what you are working on now")
-	waitingOn := fs.String("waiting-on", "", "report what you wait on, another task's ID, a gate run's ID, overlord, ci, deploy or memory, followed by why. For overlord, lead with one sentence; values he must enter somewhere go in a Markdown table on the lines after it, a header row, a separator row and one row each (\"| Type | Name |\", \"| --- | --- |\", \"| CNAME | `mcp` |\"), each value in backticks so his card copies it with one click")
+	waitingOn := fs.String("waiting-on", "", "report what you wait on, another task's ID, a gate run's ID, overlord, ci, deploy, memory, gate-daemon or docker (the last three as goblins shared names them), followed by why. For overlord, lead with one sentence; values he must enter somewhere go in a Markdown table on the lines after it, a header row, a separator row and one row each (\"| Type | Name |\", \"| --- | --- |\", \"| CNAME | `mcp` |\"), each value in backticks so his card copies it with one click")
 	preparedWait := fs.String("prepared-wait", "", "authorize one dependency pause: task:<id> delivery or pr:<URL> merge; preparation is complete and no worker-owned work remains")
 	preparedGeneration := fs.String("generation", "", "with --prepared-wait, the exact current spawn generation")
 	preparedHandoff := fs.String("handoff", "", "with --prepared-wait, the saved data/<task>/handoff.md file")
@@ -204,7 +213,7 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	default:
 		target := *waitingOn
 		if len(positional) != 1 || strings.TrimSpace(positional[0]) == "" || target != "overlord" && target != "ci" && target != "deploy" && target != "memory" && (state.ValidTaskID(target) != nil || target == id) {
-			fmt.Fprintln(stderr, "goblins notify: --waiting-on takes another task's ID, a gate run's ID, overlord, ci, deploy or memory, then why: --waiting-on <task-id|run-id|overlord|ci|deploy|memory> \"<why>\"")
+			fmt.Fprintln(stderr, "goblins notify: --waiting-on takes another task's ID, a gate run's ID, overlord, ci, deploy, memory, gate-daemon or docker, then why: --waiting-on <task-id|run-id|overlord|ci|deploy|memory|gate-daemon|docker> \"<why>\"")
 			return 2
 		}
 		verb, detail = "waiting on "+target, positional[0]
@@ -212,6 +221,32 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	if len(lessons) > 0 && !*done {
 		fmt.Fprintln(stderr, "goblins notify: --lesson goes with --done: a done report carries what the task taught")
 		return 2
+	}
+	// A local-only task's report is read before anything is recorded, so a
+	// report that is not there fails the notify instead of a done that
+	// delivers nothing.
+	var reportContent []byte
+	if *report != "" {
+		if !*done || *pr != "" || *closed != "" || *decision != "" {
+			fmt.Fprintf(stderr, "goblins notify: --report goes alone with --done, on the done of a task spawned local-only: goblins notify %s --done --report <file>\n", id)
+			return 2
+		}
+		info, err := os.Stat(*report)
+		switch {
+		case err != nil:
+			fmt.Fprintf(stderr, "goblins notify: --report %v\n", err)
+			return 2
+		case !info.Mode().IsRegular():
+			fmt.Fprintf(stderr, "goblins notify: --report %s is not a file\n", *report)
+			return 2
+		case info.Size() == 0:
+			fmt.Fprintf(stderr, "goblins notify: --report %s is empty\n", *report)
+			return 2
+		}
+		if reportContent, err = fsx.ReadFile(*report); err != nil {
+			fmt.Fprintf(stderr, "goblins notify: --report %v\n", err)
+			return 2
+		}
 	}
 	decisionSeq := 0
 	if *closed != "" || *decision != "" {
@@ -407,7 +442,7 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	if switched, err := afk.Read(h.State); page != "" && err == nil && switched.On {
 		verb, detail = "blocked", detail+supervisor.PageOptions(page)
 	}
-	parent := ""
+	parent, reportToKeep := "", ""
 	meta, metaErr := state.ReadTaskMeta(h.State, id)
 	if metaErr == nil {
 		parent = meta.Parent
@@ -426,8 +461,36 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 			return 2
 		}
 		detail = fmt.Sprintf("closed %s (decision %d: %s)", *closed, decisionSeq, answer)
+	case *report != "" && metaErr != nil:
+		fmt.Fprintf(stderr, "goblins notify: --report cannot be checked, since %s's task record cannot be read: %v\n", id, metaErr)
+		return 1
+	case *report != "" && parent != "":
+		fmt.Fprintf(stderr, "goblins notify: a helper's done goes to its parent %s and needs no --report: run goblins notify %s --done\n", parent, id)
+		return 2
+	case *report != "" && meta.Mode != "local-only":
+		fmt.Fprintf(stderr, "goblins notify: --report is the done of a task spawned local-only, which opens no pull request, and %s's record says mode %q: report its pull request with --pr <url>\n", id, meta.Mode)
+		return 2
+	case *report != "":
+		// Cleanup reads the report the home keeps for the task, so a report
+		// written elsewhere is kept there, and one kept there already is never
+		// replaced by a different one.
+		kept := filepath.Join(h.Data, id, "report.md")
+		if !fsx.SamePath(*report, kept) {
+			existing, err := fsx.ReadFile(kept)
+			switch {
+			case err == nil && !bytes.Equal(existing, reportContent):
+				fmt.Fprintf(stderr, "goblins notify: the home already keeps a different report for %s at %s: give --report %s if it is yours, or write yours there first\n", id, kept, kept)
+				return 2
+			case err != nil && !errors.Is(err, os.ErrNotExist):
+				fmt.Fprintf(stderr, "goblins notify: the report the home keeps for %s cannot be read: %v\n", id, err)
+				return 1
+			case err != nil:
+				reportToKeep = kept
+			}
+		}
+		detail = "report " + kept
 	case verb == "done" && *pr == "" && parent == "":
-		fmt.Fprintln(stderr, "goblins notify: --done requires --pr <url>, or, once your answered question ruled the task finished with no pull request, --closed <issue-url> --decision <sequence>")
+		fmt.Fprintln(stderr, "goblins notify: --done requires --pr <url>, or, once your answered question ruled the task finished with no pull request, --closed <issue-url> --decision <sequence>, or, for a task spawned local-only, which opens no pull request, --report <file>")
 		return 2
 	case verb == "done" && *pr == "":
 		detail = "ready for " + parent + " to merge"
@@ -524,6 +587,18 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		}
 		defer fmt.Fprintf(stdout, "Your lessons wait for the CEO's word at the drain as %s.\n", strings.Join(ids, ", "))
 	}
+	// The report is kept once nothing can refuse the notify, so a refused
+	// one leaves the home keeping nothing a later report must match.
+	if reportToKeep != "" {
+		if err := os.MkdirAll(filepath.Dir(reportToKeep), 0o700); err != nil {
+			fmt.Fprintf(stderr, "goblins notify: keep your report: %v\n", err)
+			return 1
+		}
+		if err := fsx.AtomicWriteFile(reportToKeep, reportContent); err != nil {
+			fmt.Fprintf(stderr, "goblins notify: keep your report: %v\n", err)
+			return 1
+		}
+	}
 	if err := state.AppendStatus(h.State, id, line); err != nil {
 		fmt.Fprintln(stderr, "goblins notify: record status: "+err.Error())
 		return 1
@@ -566,6 +641,8 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		record, isNew, err = wake.AppendFirst(h.State, "done/"+id+"/"+prLink+"@"+head, "notify", id, line)
 	case *closed != "":
 		record, isNew, err = wake.AppendFirst(h.State, "done/"+id+"/"+*closed, "notify", id, line)
+	case *report != "":
+		record, isNew, err = wake.AppendFirst(h.State, fmt.Sprintf("done/%s/report@%x", id, sha256.Sum256(reportContent)), "notify", id, line)
 	case verb == "blocked" || verb == "failed":
 		record, isNew, err = wake.AppendDecision(h.State, id, line)
 	default:
@@ -577,6 +654,10 @@ func runNotify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	}
 	if !isNew && *closed != "" {
 		fmt.Fprintf(stdout, "%s already reported %s closed, so the CEO was not woken again\n", id, *closed)
+		return 0
+	}
+	if !isNew && *report != "" {
+		fmt.Fprintf(stdout, "%s already reported this report done, so the CEO was not woken again\n", id)
 		return 0
 	}
 	if !isNew && verb == "done" {

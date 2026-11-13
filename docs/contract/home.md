@@ -25,7 +25,7 @@ The target for a home is small: the binaries, records under 200 MB, capped cache
 
 | Path | What it holds |
 | --- | --- |
-| `data/backlog.md` | Open work in three sections. `## Queued` is work waiting to start, and `tasks-axi` manages its rows; they are in priority order, top first, so dispatch from the top. The Supreme Overlord reorders them by dragging Tasks on the board, which moves each row with its indented detail lines and changes nothing else in the file; the row of a task that already has a live task record is in progress, not queued, and stays where it is. `## Parked` is work set aside on purpose: nothing lists it as work to start, and moving a row back under Queued revives it. A row parked in place with `(hold-kind: parked)` counts as parked too. `## Done` is finished work: when cleanup retires a delivered task, its row moves there by itself with its detail lines. |
+| `data/backlog.md` | Open work in three sections. `## Queued` is work waiting to start, and `tasks-axi` manages its rows; they are in priority order, top first, so dispatch from the top. The Supreme Overlord reorders them by dragging Tasks on the board, which moves each row with its indented detail lines and changes nothing else in the file; the row of a task that already has a live task record is in progress, not queued, and stays where it is. `## Parked` is work set aside on purpose: nothing lists it as work to start, and moving a row back under Queued revives it. A row parked in place with `(hold-kind: parked)` counts as parked too. `## Done` is finished work: when cleanup retires a delivered task, its row moves there by itself with its detail lines. tasks-axi moves the oldest Done rows to `data/done-archive.md`, where a row still closes its task, so a brief closed without a dispatch, as one folded into a group, is not read as queued once its row moves there. |
 | `data/overlord.md` | The Supreme Overlord's standing directives, word for word. |
 | `data/memory/` | The CEO's memory: `MEMORY.md`, its index, and one file per fact (see [Memory](../../AGENTS.md#memory)). |
 | `data/memory-archive.md` | Recoverable history governed by the [memory contract](memory.md). |
@@ -36,19 +36,24 @@ The target for a home is small: the binaries, records under 200 MB, capped cache
 | `data/<task>/` | One folder per task that is queued or under way: `brief.md` (what to do), `report.md` (what a scout found or a ship task delivered), `decisions.md` (the rulings made for it, each with its date) and `deliverables/` (files handed to the Overlord). |
 | `data/archive/finished/<task>/` | A finished task's folder. |
 | `data/archive/parked/<task>/` | A brief set aside before it was dispatched. |
-| `data/archive/filed.md` | Every move filing made, and any pass that failed. |
+| `data/archive/filed.md` | Every move filing made, and any pass that failed or was cut short. |
+| `data/archive/backlog-history.md` | The backlog's history: notes and sections that are over, moved out of `backlog.md` with their headings, so a read of the backlog reads only work. |
 
-The watcher files a laid-out home's data every ten minutes, so finished and abandoned work leaves `data/` without anyone asking:
+The supervisor files a laid-out home's data every ten minutes, so finished and abandoned work leaves `data/` without anyone asking:
 
 - A finished task's folder moves to `data/archive/finished/<task>/`.
   Finished means no task record is left in `state/`, a status log or a state archive entry shows the task was dispatched, and its brief has not changed since; a brief written again for the same id is a new brief.
 - A brief nothing ever dispatched moves to `data/archive/parked/<task>/` once it has sat unchanged for three days, or as soon as a `## Parked` row names it, and gets a `## Parked` row saying where its brief went, so the board stops showing it as Queued.
-- A finished folder stays while an open backlog row names it by task id, or while anything still read names a path into it, such as `data/<task>/handoff.md`: all of `backlog.md`, `overlord.md`, both memory folders (`data/memory/` and Claude Code's own), the brief of every live or undispatched task, and every open Command Center question, review item and run card.
+- A finished folder stays while an open backlog row names it by task id, or while anything still read names a path into it, such as `data/<task>/handoff.md`: the open rows of `backlog.md` with their detail lines, `overlord.md`, both memory folders (`data/memory/` and Claude Code's own), the brief of every live or undispatched task, and every open Command Center question, review item and run card.
+  An open row is a row under any heading but `## Done` that is not checked off; a Done row, a checked row, and the notes and history between rows name what is over, so they keep nothing.
   A finished folder kept in place is still read, so what its own `brief.md` and `handoff.md` name by path stays too, and so on.
+  A day after, the janitor trims it as it trims a filed one, keeping too what the text that keeps it names by path at the folder's top, such as `data/<task>/shots/` for `data/<task>/shots/before.png`.
   A brief with a queued row is queued work however old it is.
 
 To revive a parked brief, move its folder back to `data/<task>/` and its row back under `## Queued`.
 A folder a process holds open stays put for the next pass, and the failure is written once in `data/archive/filed.md`.
+A pass files at most a hundred folders, so a home that fell behind is caught up a step a pass, and a pass cut short says so once in `data/archive/filed.md` and leaves the rest for the next.
+`state\filing.json` keeps the last pass, when it started, what it filed, how many folders wait, why it could not file and every folder it left in place and why, so a supervisor that restarts waits out the ten minutes from there, and `goblins runtime` shows it beside the janitor's sweep.
 
 `goblins install` lays out a new home's `data/`, and repairs a laid-out one by creating what is missing without overwriting any file; `data/.layout` marks a folder it laid out.
 A `data/` that already held work before this layout existed is left exactly as it is, because laying it out would move the operator's files.
@@ -72,7 +77,7 @@ Every check that decides a removal refuses when it cannot read what it checks, a
   `scratch\.tmp` itself, the folder every goblin's `TMP` names, is never removed, whatever is in it.
   A folder that is still `/tmp` for a running Git Bash, as the scratch folder of a goblin started before `TMP` named the shared folder can be, is kept and reported until the last shell of that Git Bash ends: the janitor asks each running Git Bash by its own `cygpath`, which changes nothing a running shell sees, and when one cannot be asked no temporary folder goes.
   `goblins cleanup` and a failed spawn's teardown leave such a scratch folder the same way and say so.
-- A retired task keeps its text record: a day after cleanup archived it, its folder in `state\archive` keeps its Markdown, plain-text and status files and loses its scratch, logs, build output and evidence, and once filing moves its data folder to `data\archive\finished`, that folder keeps the same and its `deliverables`.
+- A retired task keeps its text record: a day after cleanup archived it, its folder in `state\archive` keeps its Markdown, plain-text and status files and loses its scratch, logs, build output and evidence, and once filing moves its data folder to `data\archive\finished`, or keeps it in `data` because something still names it, that folder keeps the same and its `deliverables`.
   A document handed to the Overlord with `goblins deliver` is kept in `state\reviews` either way.
   A folder holding a git repository is never trimmed and is reported.
 - `state\backups` keeps the newest two backups of each kind.
@@ -95,6 +100,7 @@ Every check that decides a removal refuses when it cannot read what it checks, a
   It is never judged by its processes' time added up, which falls when one that used the processor exits.
 - A terminal a pause, a resume, a stop, a switch or a cleanup is changing is left to that command.
 - `caches` is trimmed back under `caches_cap_gb` with each tool's own prune (`uv cache prune`, `pnpm store prune`, `npm cache verify`, `go clean -cache`, `go clean -modcache`), the tool used longest ago first; Playwright's browsers are measured and never deleted.
+  First the sweep removes the entries of Go's build cache that Go has not used for a day, one by one, as Go's own daily trim does, which runs beside other builds, so this needs no turn in the line.
   Go's two prunes delete their whole cache, so each prune starts only while the machine's heavy line has one slot that no run holds or waits for, and runs as `goblins gate turn --as "the janitor, pruning the <tool> cache" --wait 30s -- <prune>`, whose turn no run that waits its turn builds beside, and which the line reclaims if it dies.
   A run that takes the line between that read and the prune's turn keeps the prune waiting 30 seconds at most, after which it runs nothing and the sweep trims no further, leaving the rest to the next sweep.
   The removal of the home's old caches after a move to a Dev Drive starts each folder only while the line is free the same way, though a run that takes its turn once a removal has started is not stopped.
@@ -103,7 +109,12 @@ Every check that decides a removal refuses when it cannot read what it checks, a
   A run outside the line, as a test run by name, is not seen and can build beside a prune.
 - A bucket holding an entry the sweep cannot read, as a folder another account owns, is named under `goblins runtime`'s table of buckets, since its size, and the home's, is then only what could be counted.
   The sweep notes when the caches could not all be read, as their size against `caches_cap_gb` is then a lower bound.
+- It measures the gate's home, where the gate keeps the repositories it gates and a checkout for each run: the folder the gate runs from, and the gate's folder on the Dev Drive when that is another, as a home moved there by hand reaches it through junctions.
+  The gate's own daemon trims that home, never the janitor; `goblins runtime` and the `disk_low` wake show what it holds beside the home's buckets.
 - It reports, and wakes the CEO with an `orphan` wake when it reports something it had not reported before: a worktree no task records, a new folder or file in the projects root that is no checkout, a retired task's folder it would not trim, and a `data` folder over 200 MB.
+  The report of a `data` folder over 200 MB names its five largest folders and why filing leaves each where it is.
+  It reports `data/backlog.md` too when its sections but `## Queued`, `## Parked`, `## In flight` and `## Done` that hold no open row pass 64 KB, with their size and five largest sections: history, which belongs in `data/archive/backlog-history.md`.
+  It moves none of it, since such a section can hold open work written as prose, which belongs in a row.
 - It names, and never ends, the processes nothing proves the fleet's own: a browser bridge with no mark whose parent is gone, and a gate agent's process whose gate is gone.
   They reach you as one `orphan` wake for all of them, raised once for each process, with its pid, its age, the memory of its tree and its command, with the value of any argument named as a secret left out.
   End by pid what is the fleet's leftover and leave what is the Overlord's.

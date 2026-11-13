@@ -105,6 +105,11 @@ func ReadSince(ctx context.Context, runner execx.Runner, dir, base string, asked
 	if err != nil {
 		return Plan{}, err
 	}
+	if asked == Changed {
+		if found.edited, err = editedTests(ctx, runner, found); err != nil {
+			return Plan{}, err
+		}
+	}
 	return build(found, asked), nil
 }
 
@@ -124,6 +129,9 @@ type findings struct {
 	// policy is the policy file as base has it, when hasPolicy.
 	policy    string
 	hasPolicy bool
+	// edited are the tests the change added or edited, by the import path of
+	// their package, read only for the changed level (editedTests).
+	edited map[string][]string
 }
 
 func gather(ctx context.Context, runner execx.Runner, dir, base string) (findings, error) {
@@ -222,8 +230,13 @@ func build(found findings, asked Level) Plan {
 	if asked == "" {
 		plan.Level = plan.Required
 	}
-	plan.Vet, plan.Tests, plan.Left = scope(plan.Level, plan.Choices, plan.Everything, slow)
-	plan.Tests, plan.Alone = apart(plan.Tests, found.packages, pathsIn(found.root, found.packages, policy.AlonePackages))
+	alone := pathsIn(found.root, found.packages, policy.AlonePackages)
+	if plan.Level == Changed {
+		plan.Vet, plan.Named, plan.Left = changedScope(plan.Required, plan.Choices, plan.Everything, found.edited, alone)
+	} else {
+		plan.Vet, plan.Tests, plan.Left = scope(plan.Level, plan.Choices, plan.Everything, slow)
+	}
+	plan.Tests, plan.Alone = apart(plan.Tests, found.packages, alone)
 	for _, guard := range policy.Guards {
 		if guard.GOOS != "" && guard.GOOS != runtime.GOOS {
 			plan.Left = append(plan.Left, Deferred{Check: "guard tests of " + named(guard.Package), Why: "requires " + guard.GOOS + "; this run is " + runtime.GOOS})
@@ -285,11 +298,17 @@ func names(list string) []string {
 // policyAt reads the policy file as the commit at base has it, and reports
 // whether that commit has one.
 func policyAt(ctx context.Context, runner execx.Runner, dir, base string) (text string, found bool, err error) {
-	listed, err := output(ctx, runner, dir, "git", "ls-tree", "--full-tree", "--name-only", base, "--", PolicyPath)
+	return fileAt(ctx, runner, dir, base, PolicyPath)
+}
+
+// fileAt reads file, a slash path from the repository's root, as the commit
+// at base has it, and reports whether that commit has one.
+func fileAt(ctx context.Context, runner execx.Runner, dir, base, file string) (text string, found bool, err error) {
+	listed, err := output(ctx, runner, dir, "git", "ls-tree", "--full-tree", "--name-only", base, "--", file)
 	if err != nil || strings.TrimSpace(listed) == "" {
 		return "", false, err
 	}
-	text, err = output(ctx, runner, dir, "git", "show", base+":"+PolicyPath)
+	text, err = output(ctx, runner, dir, "git", "show", base+":"+file)
 	return text, err == nil, err
 }
 

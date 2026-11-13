@@ -22,10 +22,12 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/connections"
+	"github.com/fpresta0607/code-goblins/internal/cutover"
 	"github.com/fpresta0607/code-goblins/internal/defender"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/githubapi"
 	"github.com/fpresta0607/code-goblins/internal/goblinname"
 	"github.com/fpresta0607/code-goblins/internal/harness"
@@ -134,6 +136,10 @@ type Options struct {
 	// wake that tells the CEO of each new detection and upload under the
 	// fleet's folders. It only reads.
 	Defender func(ctx context.Context, since time.Time) (defender.Report, error)
+	// Shared reads the services every goblin shares, the gate daemon, the
+	// heavy-run line and the Docker engine, for the record goblins shared reads;
+	// without it no shared service is checked.
+	Shared *SharedProbes
 	// Credentials opens the credential store goblins auth store writes, which a
 	// credential request's card saves into; without it the board takes no
 	// value.
@@ -185,6 +191,11 @@ type Options struct {
 	// Releases is where the board looks for a newer release of Code
 	// Goblins; without it the board never looks and makes no Update item.
 	Releases *Releases
+	// Relabel renames the GitHub labels of the old name as further steps of
+	// the crossing whose undo folder it is given; nil leaves them. Programs
+	// reads what runs on the machine; nil reads the machine's.
+	Relabel  func(folder string) error
+	Programs cutover.Programs
 	// ReadScreen reads a native terminal's console, and ProgramInstalled
 	// when a harness's program was installed, for the harness updates the
 	// board offers; nil reads the machine's.
@@ -296,6 +307,12 @@ type Service struct {
 	harnessUpdates   map[string]harnessUpdateRead
 	ceoUpdating      bool
 	ceoUpdateProblem string
+	// crossing is the home's move to goblins' names as the last look found
+	// it; isRelabelTried says this supervisor tried its labels once, and
+	// ceoCrossingTries how often it restarted the CEO under the new names.
+	crossing         *CrossingView
+	isRelabelTried   bool
+	ceoCrossingTries int
 	// updateChecks is what the board knows of each harness's own update
 	// check, by harness.
 	updateChecks map[string]UpdateCheck
@@ -453,6 +470,8 @@ type Service struct {
 	// browsers lends each browser login's Chrome to one goblin at a time.
 	browsers       *browserBroker
 	browserSignins sync.Mutex
+	// screens runs each goblin's own browser, which the board shows.
+	screens *taskBrowsers
 }
 
 // snapshotRefresh is how often every board gets a fresh snapshot with nothing
@@ -485,6 +504,7 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 		s.tickets = newTicketKeeper(h, options.Tickets)
 	}
 	s.browsers = newBrowserBroker(h.State, h.Data, options, func(err error) { s.publish(fmt.Errorf("browser logins: %w", err)) })
+	s.screens = newTaskBrowsers(h.State, s.notify, s.endCardScreens, func(err error) { s.publish(fmt.Errorf("goblin browsers: %w", err)) })
 	if options.Tree != nil {
 		options.Tree.Recorded = store.recordedSession
 		options.Tree.Awaited = s.awaited
@@ -617,6 +637,12 @@ func (s *Service) run(ctx context.Context) {
 		s.keepHistory(ctx, historyRefresh, historyWatch)
 	}()
 	defer func() { s.cancel(); <-historyDone }()
+	crossingDone := make(chan struct{})
+	go func() {
+		defer close(crossingDone)
+		s.keepCrossing(ctx, crossingEvery)
+	}()
+	defer func() { s.cancel(); <-crossingDone }()
 	memoryDone := make(chan struct{})
 	go func() {
 		defer close(memoryDone)
@@ -878,7 +904,11 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 			reconcileErr = errors.Join(reconcileErr, s.Options.Reconcile(ctx))
 		}
 		s.checkRegistration()
-		reconcileErr = errors.Join(reconcileErr, s.tellWaitCycles())
+		if snapshot, err := s.Snapshot(); err != nil {
+			reconcileErr = errors.Join(reconcileErr, err)
+		} else {
+			reconcileErr = errors.Join(reconcileErr, s.tellWaitCycles(snapshot), s.tellParkedRuns(snapshot))
+		}
 		s.mu.Lock()
 		reconcileErr = errors.Join(reconcileErr, s.historyErr, s.ceoWakeErr, s.fleetErr, s.pushErr)
 		s.ceoWakeErr, s.fleetErr, s.pushErr = nil, nil, nil
@@ -1018,10 +1048,11 @@ func isDelivered(lines []string, generation string, session Session) bool {
 }
 
 // reportsDelivery reports whether the latest report of generation delivered: a
-// pull request, or the issue a decision had it close in place of one.
+// pull request, the issue a decision had it close in place of one, or the
+// report a local-only task kept, which opens none.
 func reportsDelivery(lines []string, generation string) bool {
 	_, report := latestReport(lines, spawnTime(generation))
-	return deliveredPR(lines, generation) != "" || state.DoneClosed(report) != ""
+	return deliveredPR(lines, generation) != "" || state.DoneClosed(report) != "" || state.DoneReport(report) != ""
 }
 
 func deliveredPR(lines []string, generation string) string {
@@ -1331,8 +1362,21 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 			return Evaluation{}, err
 		}
 	}
+	result, err := s.branchEvaluation(ctx, meta, head, base, clean)
+	if err != nil || meta.Mode != "no-mistakes" || s.Options.Gate == nil {
+		return result, err
+	}
+	parked, problems := s.parkedExtraRuns(ctx, meta)
+	result.ParkedRuns = parked
+	result.Reason = strings.Join(append([]string{result.Reason}, problems...), "; ")
+	return result, nil
+}
+
+// branchEvaluation is the task's evaluation from its worktree at head and
+// the gate run on that worktree's branch.
+func (s *Service) branchEvaluation(ctx context.Context, meta state.TaskMeta, head, base string, isClean bool) (Evaluation, error) {
 	result := Evaluation{Phase: "review", Reason: "Task awaits independent review and delivery evidence", Head: head, Base: base}
-	if !clean {
+	if !isClean {
 		result.Phase = "working"
 		result.Reason = "Worktree has uncommitted changes"
 		return result, nil
@@ -1369,28 +1413,19 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 			result.GateStep = p.Steps[i].Name
 		}
 		for _, step := range p.Steps {
-			if step.Status != "awaiting_approval" && step.Status != "fix_review" && step.Status != "failed" {
+			if !awaitsDecision(step) {
 				continue
 			}
 			result.Phase = "blocked"
 			result.Reason = "Pipeline decision required at " + step.Name + "; use goblins pipeline respond"
-			// From policy version 7 the gate repairs no Test, Lint or CI
-			// failure: it is the goblin's to fix, not a decision to wait on,
-			// by the rule goblins pipeline run reads to hand it back, which hands
-			// back no step whose findings it cannot read. A task spawned with
-			// no frozen policy, as outside no-mistakes delivery, has none of
-			// version 7 to hand anything back.
-			if step.Name == "test" || step.Name == "lint" || step.Name == "ci" {
-				selection, err := pipeline.LoadSelection(filepath.Join(meta.TaskTmp, "pipeline.json"))
-				if err != nil && !errors.Is(err, os.ErrNotExist) {
-					return result, fmt.Errorf("task %s's frozen pipeline policy: %w", meta.ID, err)
-				}
-				if err == nil {
-					if findings, err := selection.Policy.HandedBackFindings(step.Name, step.Findings); err == nil && len(findings) != 0 {
-						result.Phase = "working"
-						result.Reason = fmt.Sprintf("The gate handed its %s failure back to the goblin, which fixes it under pipeline policy version %d", step.Name, selection.Policy.Version)
-					}
-				}
+			result.Decision = parkedRun(branch, p, step)
+			version, err := handedBackUnder(meta, step)
+			if err != nil {
+				return result, err
+			}
+			if version != 0 {
+				result.Phase, result.Decision = "working", nil
+				result.Reason = fmt.Sprintf("The gate handed its %s failure back to the goblin, which fixes it under pipeline policy version %d", step.Name, version)
 			}
 			return result, nil
 		}
@@ -1422,6 +1457,95 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 		result.Reason = "Pipeline evidence is incomplete or belongs to a different HEAD"
 	}
 	return result, nil
+}
+
+// awaitsDecision says a step of a run that has not ended waits on a
+// decision.
+func awaitsDecision(step pipeline.ProgressStep) bool {
+	return step.Status == "awaiting_approval" || step.Status == "fix_review" || step.Status == "failed"
+}
+
+// parkedRun is run p on branch, parked at step since the step last moved. A
+// step with no recorded time parked at no known moment, so no report is
+// newer than it.
+func parkedRun(branch string, p pipeline.Progress, step pipeline.ProgressStep) *ParkedRun {
+	run := &ParkedRun{Branch: branch, RunID: p.RunID, Step: step.Name, PR: p.PR}
+	if step.MovedAt > 0 {
+		run.ParkedAt = time.Unix(step.MovedAt, 0).UTC()
+	}
+	return run
+}
+
+// handedBackUnder is the pipeline policy version under which the gate handed
+// step's failure back to the goblin, and zero when it did not. From policy
+// version 7 the gate repairs no Test, Lint or CI failure: it is the goblin's
+// to fix, not a decision to wait on, by the rule goblins pipeline run reads to
+// hand it back, which hands back no step whose findings it cannot read. A
+// task spawned with no frozen policy, as outside no-mistakes delivery, has
+// none of version 7 to hand anything back.
+func handedBackUnder(meta state.TaskMeta, step pipeline.ProgressStep) (int, error) {
+	if step.Name != "test" && step.Name != "lint" && step.Name != "ci" {
+		return 0, nil
+	}
+	selection, err := pipeline.LoadSelection(filepath.Join(meta.TaskTmp, "pipeline.json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("task %s's frozen pipeline policy: %w", meta.ID, err)
+	}
+	if findings, err := selection.Policy.HandedBackFindings(step.Name, step.Findings); err == nil && len(findings) != 0 {
+		return selection.Policy.Version, nil
+	}
+	return 0, nil
+}
+
+// parkedExtraRuns are the gate runs waiting on a decision on the branches the
+// task's extra worktrees have checked out, each with its own run's pull
+// request, and what kept any of them from being read. They hold no card: on
+// 2026-10-28 a run parked the day before on an older branch of a task held
+// its card at Blocked under the pull request of another branch, over the
+// goblin's newer report (#1677). An extra worktree already gone has no branch
+// left to read and is skipped.
+func (s *Service) parkedExtraRuns(ctx context.Context, meta state.TaskMeta) (parked []ParkedRun, problems []string) {
+	for _, extra := range meta.Extras {
+		path, err := fsx.Canonical(extra)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		branch := ""
+		if err == nil {
+			branch, err = s.Git.Branch(ctx, path)
+		}
+		if errors.Is(err, errDetachedHead) {
+			continue
+		}
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("extra worktree %s: %v", extra, err))
+			continue
+		}
+		p, err := s.Options.Gate.Progress(ctx, meta.Project, branch)
+		if errors.Is(err, pipeline.ErrNoProgress) {
+			continue
+		}
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("gate run on %s: %v", branch, err))
+			continue
+		}
+		i := slices.IndexFunc(p.Steps, awaitsDecision)
+		if p.IsTerminal() || i < 0 {
+			continue
+		}
+		version, err := handedBackUnder(meta, p.Steps[i])
+		if err != nil {
+			problems = append(problems, err.Error())
+			continue
+		}
+		if version == 0 {
+			parked = append(parked, *parkedRun(branch, p, p.Steps[i]))
+		}
+	}
+	return parked, problems
 }
 
 func (s *Service) validateTerminalControl(ctx context.Context, meta state.TaskMeta) error {
@@ -1510,6 +1634,12 @@ type Task struct {
 	// ClosedIssue is the issue a live task's latest report says it closed in
 	// place of a pull request, so the board has nothing left to verify of it.
 	ClosedIssue string `json:"closed_issue,omitempty"`
+	// KeptReport is the report the home keeps for a live local-only task
+	// whose latest report is its done, which leaves nothing to verify of it.
+	KeptReport string `json:"kept_report,omitempty"`
+	// Browser says the goblin's own browser runs, which the board shows on
+	// its Screen view.
+	Browser bool `json:"browser,omitempty"`
 	// ReportedAt is when the goblin wrote its latest report, so the board
 	// can tell whether it reported since an answer it was given.
 	ReportedAt time.Time `json:"reported_at"`
@@ -1577,6 +1707,9 @@ type Task struct {
 	// isBackAtWork marks a live goblin whose turn runs on a prompt it took
 	// after its latest done report, which no merge completes.
 	isBackAtWork bool
+	// parkedBeforeReport are its ParkedRuns that parked before the goblin's
+	// newest report, which tellParkedRuns wakes the CEO to.
+	parkedBeforeReport []ParkedRun
 	Evaluation
 }
 
@@ -1663,6 +1796,9 @@ type Snapshot struct {
 	// Comeback is what the supervisor brings back after the last restart or
 	// sign-out, for the board's line; absent when it brings nothing back.
 	Comeback *state.Comeback `json:"comeback,omitempty"`
+	// Crossing is the home's move to goblins' names that an update or an
+	// install made, for the board's notice; absent for a home that made none.
+	Crossing *CrossingView `json:"crossing,omitempty"`
 	// StartAtLogin is whether Windows starts this home at login, absent on a
 	// board that cannot change it.
 	StartAtLogin *StartAtLoginView `json:"start_at_login,omitempty"`
@@ -1768,6 +1904,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	}
 	out.UpdateChecks = s.updateCheckView()
 	out.Comeback = s.comebackView()
+	out.Crossing = s.crossingView()
 	out.PCRestart = s.pcRestartView()
 	if view, issue := s.startAtLoginView(); issue != "" {
 		out.Issues = append(slices.Clone(out.Issues), issue)
@@ -1867,9 +2004,27 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if evaluation.Generation != meta.SpawnGen {
 			evaluation = Evaluation{}
 		}
-		isGateHeld := evaluation.GateStep != "" || evaluation.Phase == "blocked" || evaluation.Phase == "failed" || evaluation.Phase == "ready" || evaluation.Phase == "merged" || evaluation.Phase == "done"
 		lines, _ := s.statusTail(id)
 		spawned := spawnTime(meta.SpawnGen)
+		standingAt, standing := standingReport(lines, spawned)
+		// A decision the gate waits on holds the card only while the goblin
+		// has reported nothing since the run parked. On 2026-10-28 a run
+		// parked the day before on a branch the goblin had left held its card
+		// at Blocked over its newer wait on CI (#1677): such a run is an item
+		// of its own, which the CEO is woken to, and the report says what the
+		// goblin does.
+		if decision := evaluation.Decision; decision != nil && !decision.ParkedAt.IsZero() && decision.ParkedAt.Before(standingAt) {
+			evaluation.ParkedRuns = append(slices.Clone(evaluation.ParkedRuns), *decision)
+			evaluation.Decision, evaluation.GateStep = nil, ""
+			evaluation.Phase, evaluation.Reason = "review", "Gate run "+decision.RunID+" on "+decision.Branch+" waits on a decision at "+decision.Step+" since before the goblin's newest report"
+		}
+		var parkedBeforeReport []ParkedRun
+		for _, run := range evaluation.ParkedRuns {
+			if !run.ParkedAt.IsZero() && run.ParkedAt.Before(standingAt) {
+				parkedBeforeReport = append(parkedBeforeReport, run)
+			}
+		}
+		isGateHeld := evaluation.GateStep != "" || evaluation.Phase == "blocked" || evaluation.Phase == "failed" || evaluation.Phase == "ready" || evaluation.Phase == "merged" || evaluation.Phase == "done"
 		reportedAt, report := latestReport(lines, spawned)
 		decisions := out.Decisions
 		if !spawned.IsZero() || supersedesQuestion(report) {
@@ -1909,7 +2064,6 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		// A goblin's own newer report says what it is doing, unless a question
 		// or the gate holds it or its work already merged. A question asked
 		// beside a dependency wait replaces no such wait.
-		standingAt, standing := standingReport(lines, spawned)
 		phase, reason, target, isReported := reportedProgress(s.statusTail, id, d.Reviews, standingAt, standing)
 		if isReported && phase == "waiting" && isAtWork {
 			isReported = false
@@ -1941,19 +2095,21 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 		activity, pr := statusActivity(lines, spawned)
 		lastReport, lastReportedAt, _ := taskSessionSummary(lines, spawned)
-		// A helper hands completed work to its parent without a PR or gate, and
-		// a task a decision ruled finished closes its issue without either.
+		// A helper hands completed work to its parent without a PR or gate, a
+		// task a decision ruled finished closes its issue without either, and
+		// a local-only task keeps its report in place of both.
 		// Its idle terminal does not turn that handoff into a request for input,
 		// and a line that is no report, such as a reap or a supersede, leaves
 		// the handoff its latest report made standing.
-		if (meta.Parent != "" || state.DoneClosed(lastReport) != "") && reportKind(lastReport) == "done" && !isGateHeld && !(linked && node.PromptAt.Truncate(time.Second).After(lastReportedAt)) && !runtime.working() {
+		if (meta.Parent != "" || state.DoneClosed(lastReport) != "" || state.DoneReport(lastReport) != "") && reportKind(lastReport) == "done" && !isGateHeld && !(linked && node.PromptAt.Truncate(time.Second).After(lastReportedAt)) && !runtime.working() {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = "done", strings.TrimPrefix(lastReport, "done: "), ""
 		}
 		if verb, detail, ok := waitingQuestion(decisions, id); ok {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = verb, "Waiting on the CEO: "+detail, ""
 			activity = detail
 		}
-		if evaluation.PR == "" {
+		// A card a gate decision holds names that run's pull request, or none.
+		if evaluation.PR == "" && evaluation.Decision == nil {
 			evaluation.PR = pr
 		}
 		title := meta.Title
@@ -1961,7 +2117,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			title = id
 			untitled[id] = true
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, RouteLane: meta.RouteLane, RouteReason: meta.RouteReason, Mode: meta.Mode, Generation: meta.SpawnGen, Session: named.ID, Runtime: runtime, Activity: activity, LastReport: lastReport, ClosedIssue: state.DoneClosed(lastReport), ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), isBackAtWork: isBackAtWork, Evaluation: evaluation})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, RouteLane: meta.RouteLane, RouteReason: meta.RouteReason, Mode: meta.Mode, Generation: meta.SpawnGen, Session: named.ID, Runtime: runtime, Activity: activity, LastReport: lastReport, ClosedIssue: state.DoneClosed(lastReport), KeptReport: state.DoneReport(lastReport), ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), isBackAtWork: isBackAtWork, parkedBeforeReport: parkedBeforeReport, Evaluation: evaluation, Browser: s.screens.isRunning(id, meta.SpawnGen)})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}
@@ -2152,6 +2308,11 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			if memory.CommitAvailable < memory.Available {
 				if holders, err := dispatch.CommitHolders(); err == nil {
 					memory.Holders = holders
+				}
+			}
+			if dispatch.TopHandleHolder != nil {
+				if holder, err := dispatch.TopHandleHolder(); err == nil {
+					memory.HandleHolder = &holder
 				}
 			}
 			out.Memory = &memory

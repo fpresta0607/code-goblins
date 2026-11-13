@@ -15,8 +15,12 @@ import { PanelRow, type PanelControl } from "./panel-row";
 import { BabyHeader } from "./baby-header";
 import { PanelViewSwitch } from "./panel-view-switch";
 import type { StyleChoice } from "./panel-style-menu";
+import type { ChatState } from "./messages-view";
+import { linkedText } from "./messageText";
+import { ScreenView } from "./screen-view";
+import { goblinName } from "./task-words";
 
-export type PanelView = "terminal" | "task";
+export type PanelView = "terminal" | "task" | "screen";
 
 // One panel for a goblin, the same from Board and Orchestration: its
 // conversation, or its task panel, chosen by the selector in its header. The
@@ -25,8 +29,10 @@ export type PanelView = "terminal" | "task";
 // reconnects, and the messages lie in the deck's box, so they never resize a
 // terminal. The Overlord asked for that selector back on 2026-10-26: a
 // segmented control, never the fold that read as a dropdown. On a maximized
-// panel both are visible at once and the selector goes, since there is nothing
-// left to switch to.
+// panel both are visible at once and the selector goes, unless the goblin's
+// own browser runs: then it switches the stage between the conversation and
+// the Screen view of that browser, which streams only while it shows, and
+// takes the keyboard as it opens when a chat row opened it (shouldFocusScreen).
 // A queued task's panel has the same Start as its card, the board's one
 // Start (the Overlord, 2026-10-08: "why no run button when it says play in
 // panel"). The CEO's Task view also lists every queued task, as the Tasks column does,
@@ -36,13 +42,14 @@ export type PanelView = "terminal" | "task";
 // draws them only otherwise, and under no heading of that column (#1598). A
 // goblin's baby goblin (child) has the same panel, with its name and its task
 // above its terminal, which is all it shows.
-export function GoblinPanel({ task, node, child, snapshot, connected, reviews, view, views, onView, maximized, side, isBoardShown, now, presentations, cardStart, onAnswer, onOpenTask, onConnectors, row, styleChoice }: {
+export function GoblinPanel({ task, node, child, snapshot, connected, reviews, view, views, onView, shouldFocusScreen, maximized, side, isBoardShown, now, presentations, cardStart, onAnswer, onOpenTask, onConnectors, row, styleChoice, chatState }: {
   task?: Task; node?: Session; child?: TreeNode; snapshot: Snapshot; connected: boolean; reviews: ReviewControls;
-  view: PanelView; views: PanelView[]; onView: (view: PanelView) => void; maximized: boolean; side: HTMLElement | null; isBoardShown: boolean;
+  view: PanelView; views: PanelView[]; onView: (view: PanelView) => void; shouldFocusScreen: boolean; maximized: boolean; side: HTMLElement | null; isBoardShown: boolean;
   now: number; presentations: BoardActivity[]; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onConnectors: () => void;
   // row is the top row's controls, corner button and notice (see PanelRow),
-  // and styleChoice the chat style its picture offers (see PanelHeader).
-  cardStart: CardStarter; row: { controls: PanelControl[]; corner: ReactNode; notice?: ReactNode }; styleChoice?: StyleChoice;
+  // styleChoice the chat style its picture offers and chatState what keeps its
+  // conversation from being the session's own now (see PanelHeader).
+  cardStart: CardStarter; row: { controls: PanelControl[]; corner: ReactNode; notice?: ReactNode }; styleChoice?: StyleChoice; chatState: ChatState;
 }) {
   const owner = !!task && ownsTaskSession(node, task);
   // A failure's Open the log opens the Activity section and brings it into view.
@@ -68,7 +75,7 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, v
       <LifecycleDetails task={task} />
     </div>}
     {!task?.archived && owner ? <TaskView task={task} snapshot={snapshot} connected={connected} reviews={reviews} log={{ open: isLogOpen, onOpenChange: setLogOpen }} now={now} onConnectors={onConnectors} /> : <div className="panel-content">
-      {!task && !node && snapshot.ceo_conversation_left && <p className="ceo-conversation-left">{snapshot.ceo_conversation_left}</p>}
+      {!task && !node && snapshot.ceo_conversation_left && <p className="ceo-conversation-left">{linkedText(snapshot.ceo_conversation_left)}</p>}
       <WorkspaceDetails task={task} node={node} snapshot={snapshot} connected={connected} onConnectors={onConnectors} />
       {!task && !node && (!isBoardShown || queuedTasks(snapshot).length > 0) && <section className="ceo-queue" aria-label="Queued tasks">
         <QueuedTasks snapshot={snapshot} now={now} presentations={presentations} hasMeters={!isBoardShown} onSelect={onOpenTask} />
@@ -82,7 +89,10 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, v
     {createPortal(taskList, taskHost)}
   </>;
   return <section className={"goblin-panel" + (view === "terminal" && !child ? " showing-terminal" : "")} aria-labelledby="panel-title">
-    {child && task ? <><PanelRow {...row} /><BabyHeader goblin={task} child={child} now={now} /></> : <PanelHeader task={task} node={node} snapshot={snapshot} row={row} switcher={!maximized && <PanelViewSwitch view={view} views={views} onView={onView} />} onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} styleChoice={styleChoice} />}
+    {child && task ? <><PanelRow {...row} /><BabyHeader goblin={task} child={child} now={now} /></> : <PanelHeader task={task} node={node} snapshot={snapshot} row={row} switcher={<PanelViewSwitch view={view} views={maximized ? views.filter((each) => each !== "task") : views} onView={onView} />} onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} styleChoice={styleChoice} chatState={chatState} />}
     {list}
+    {task?.browser && view === "screen" && <div className="panel-screen">
+      <ScreenView key={task.generation} task={task.id} generation={task.generation} name={goblinName(task)} instance={snapshot.instance} connected={connected} shouldFocus={shouldFocusScreen} />
+    </div>}
   </section>;
 }

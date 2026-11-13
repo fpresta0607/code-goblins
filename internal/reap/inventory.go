@@ -10,7 +10,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/crewstate"
@@ -165,7 +164,7 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 				return Inventory{}, notes, fmt.Errorf("reap: read process table: %w", err)
 			}
 		}
-		inv.Processes, inv.SelfPIDs = processes, c.Processes.SelfAncestry()
+		inv.At, inv.Processes, inv.SelfPIDs = time.Now().UTC(), processes, c.Processes.SelfAncestry()
 		if err := c.sight(ctx, &inv, &notes); err != nil {
 			return Inventory{}, notes, err
 		}
@@ -284,30 +283,11 @@ func (c Collector) latestVerb(id string) string {
 	if err != nil {
 		return ""
 	}
-	verb, ok := crewstate.LatestVerb(taskReported(lines))
+	verb, ok := crewstate.LatestVerb(lines)
 	if !ok {
 		return ""
 	}
 	return verb
-}
-
-// taskReported drops the reaper's own audit lines from a task's status log.
-// The latest verb answers what the task last reported, and the reaper is not
-// the task: its line parses as the verb "reaped", which ends nothing, so a
-// task the sweep has acted on once would read as unfinished for the rest of
-// its life and every later finding for it would be held behind --force. That
-// is the two-sweep sequence this package relies on, where a directory is
-// removed in one sweep and the record it leaves behind is archived in the next.
-func taskReported(lines []string) []string {
-	kept := make([]string, 0, len(lines))
-	for _, line := range lines {
-		_, event := state.SplitStatus(line)
-		if strings.HasPrefix(strings.TrimSpace(event), ReapedPrefix) {
-			continue
-		}
-		kept = append(kept, line)
-	}
-	return kept
 }
 
 // readPanes pairs each pane in the structural snapshot with its
@@ -865,19 +845,6 @@ func WorktreeOwner(stateDir string, worktreesRoots []string, project, path strin
 	return task, known, nil
 }
 
-// createdAt is when a directory was made, zero when that cannot be read.
-func createdAt(path string) time.Time {
-	info, err := os.Stat(path)
-	if err != nil {
-		return time.Time{}
-	}
-	data, ok := info.Sys().(*syscall.Win32FileAttributeData)
-	if !ok {
-		return time.Time{}
-	}
-	return time.Unix(0, data.CreationTime.Nanoseconds()).UTC()
-}
-
 // SelfAncestry reads this process's parents from the Windows process table.
 func (CIMProcesses) SelfAncestry() []int {
 	entries, err := proc.Ancestry(proc.Self(), 12)
@@ -934,7 +901,7 @@ type CIMProcesses struct {
 // their command line to decide what may be killed.
 const utf8OutputPrelude = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; `
 
-const cimProcessScript = utf8OutputPrelude + `Get-CimInstance Win32_Process | ForEach-Object { [pscustomobject]@{ pid = [int]$_.ProcessId; ppid = [int]$_.ParentProcessId; name = $_.Name; cmd = $_.CommandLine; path = $_.ExecutablePath; start =$(if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString('o') } else { '' }) } } | ConvertTo-Json -Compress -Depth 3`
+const cimProcessScript = utf8OutputPrelude + `Get-CimInstance Win32_Process | ForEach-Object { [pscustomobject]@{ pid = [int]$_.ProcessId; ppid = [int]$_.ParentProcessId; name = $_.Name; cmd = $_.CommandLine; path = $_.ExecutablePath; handles = [int64]$_.HandleCount; cpu = [int64]$_.KernelModeTime + [int64]$_.UserModeTime; start =$(if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString('o') } else { '' }) } } | ConvertTo-Json -Compress -Depth 3`
 
 // List runs the CIM query and decodes it. ConvertTo-Json emits a bare object
 // rather than an array when the pipeline yields exactly one item, so a single
@@ -966,19 +933,22 @@ func decodeProcesses(stdout []byte) ([]Process, error) {
 		trimmed = "[" + trimmed + "]"
 	}
 	var rows []struct {
-		PID   int    `json:"pid"`
-		PPID  int    `json:"ppid"`
-		Name  string `json:"name"`
-		Cmd   string `json:"cmd"`
-		Path  string `json:"path"`
-		Start string `json:"start"`
+		PID     int    `json:"pid"`
+		PPID    int    `json:"ppid"`
+		Name    string `json:"name"`
+		Cmd     string `json:"cmd"`
+		Path    string `json:"path"`
+		Handles int64  `json:"handles"`
+		CPU     int64  `json:"cpu"`
+		Start   string `json:"start"`
 	}
 	if err := json.Unmarshal([]byte(trimmed), &rows); err != nil {
 		return nil, fmt.Errorf("reap: decode process listing: %w", err)
 	}
 	processes := make([]Process, 0, len(rows))
 	for _, row := range rows {
-		process := Process{PID: row.PID, ParentPID: row.PPID, Name: row.Name, CommandLine: row.Cmd, Path: row.Path}
+		// Win32_Process counts processor time in units of 100 nanoseconds.
+		process := Process{PID: row.PID, ParentPID: row.PPID, Name: row.Name, CommandLine: row.Cmd, Path: row.Path, Handles: row.Handles, Processor: time.Duration(row.CPU) * 100}
 		if row.Start != "" {
 			if parsed, err := time.Parse(time.RFC3339Nano, row.Start); err == nil {
 				process.Start = parsed.UTC()

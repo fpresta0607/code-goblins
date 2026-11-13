@@ -9,6 +9,7 @@ import { terminalDocument } from "./terminalDocument"
 import { FALLBACK_FONT, LINE_HEIGHT, PADDING, THEME } from "./terminalView"
 import { followFontSize, panelFit, storedFontSize } from "./terminalStream"
 import { drawOnGpu } from "./terminal-gpu"
+import { linkTerminalAddresses, openWebAddress } from "./terminal-links"
 import { type AgentEntry, elapsed, parseAgentEntries, redraw, SPINNER_STEP_MS, transcriptRows, workingRow } from "./claude-transcript"
 import "./agent-terminal.css"
 
@@ -37,8 +38,9 @@ export function AgentTerminal({ task, child, visible }: { task: Task; child: Tre
       documentOverride: terminalDocument(nonce), disableStdin: true, convertEol: true,
       fontFamily: FALLBACK_FONT, fontSize: storedFontSize(), lineHeight: LINE_HEIGHT,
       cursorBlink: false, scrollback: 5000, screenReaderMode: true, theme: THEME,
-      linkHandler: { activate: () => {} },
+      linkHandler: { activate: (_event, address) => openWebAddress(address) },
     })
+    linkTerminalAddresses(terminal)
     terminal.open(container)
     drawOnGpu(terminal)
     terminal.write("\x1b[?25l")

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/janitor"
+	"github.com/fpresta0607/code-goblins/internal/layout"
 	"github.com/fpresta0607/code-goblins/internal/services"
 )
 
@@ -39,6 +40,9 @@ type Report struct {
 	Storage janitor.Buckets `json:"storage"`
 	// Janitor is the janitor's last sweep, absent before the first.
 	Janitor *janitor.Record `json:"janitor,omitempty"`
+	// Filing is the last pass that filed the home's data, absent before the
+	// first.
+	Filing *layout.Record `json:"filing,omitempty"`
 	// Dispatch says whether the headroom has room for the next goblin.
 	Dispatch Dispatch `json:"dispatch"`
 	// Limits is the memory each running stack declared, so a dispatch
@@ -190,6 +194,7 @@ func Build(home string, inv Inventory) Report {
 		Headroom:     inv.Machine,
 		Storage:      inv.Storage,
 		Janitor:      inv.Janitor,
+		Filing:       inv.Filing,
 		Dispatch:     inv.Machine.Dispatch(),
 		Projects:     inv.Projects,
 		Notes:        inv.Notes,

@@ -86,7 +86,7 @@ env:
         "packages": ["./internal/boardweb", "./tools/notices"]
       },
       "browser": {
-        "paths": ["frontend/**", "internal/boardweb/dist/index.html", "cmd/goblins-window/notes.go"],
+        "paths": ["frontend/**", "internal/boardweb/dist/index.html", "cmd/goblins-window/links.go", "cmd/goblins-window/notes.go"],
         "packages": ["./internal/afk"]
       },
       "go": [
@@ -545,6 +545,30 @@ jobs:
       - if: matrix.shard == 'rest'
         run: go build ./cmd/goblins
 
+  # Every package built for Linux, the first system after Windows (#2366), so
+  # a change that breaks the Linux build fails here. It builds and tests
+  # nothing more: the Linux tests come with the port's next layer. It starts
+  # whenever the go jobs do, since it builds every package as the rest job
+  # does, and with cgo off, so the runner needs no C compiler: the desktop
+  # window and the setup window, which Wails builds through cgo on Linux,
+  # build only on Windows.
+  linux:
+    needs: plan
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.go != '[]' }}
+    name: linux build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+      - name: Build every package for Linux
+        env:
+          CGO_ENABLED: '0'
+        run: go build ./...
+
   # The check branch protection requires. It runs whatever happened above,
   # but in a run of a draft and in one whose event saw a draft and that was
   # cancelled, which it leaves as it leaves a draft's: such a run has a
@@ -560,7 +584,7 @@ jobs:
   # tree on the same main, which leaves every job out.
   test:
     if: ${{ always() && needs.draft.outputs.draft != 'true' && (needs.draft.result == 'skipped' || !cancelled()) }}
-    needs: [draft, plan, frontend, browser, go]
+    needs: [draft, plan, frontend, browser, go, linux]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -581,7 +605,7 @@ jobs:
           # true or false for each job can say.
           $leftOut = @()
           if ($env:EVENT -eq 'push' -and $plan.result -eq 'success' -and "$($plan.outputs.reused)" -match '^\d+$') {
-            $leftOut = @('frontend', 'browser', 'go')
+            $leftOut = @('frontend', 'browser', 'go', 'linux')
             "every job was left out: pull request run $($plan.outputs.reused) passed this tree on this main"
           }
           if ($env:OWN_RUN -eq 'true' -and $plan.result -eq 'success') {
@@ -591,7 +615,8 @@ jobs:
             }
             if ($said.frontend -eq 'false') { $leftOut += 'frontend' }
             if ($said.browser -eq 'false') { $leftOut += 'browser' }
-            if ($said.go -eq '[]') { $leftOut += 'go' }
+            # The Linux build starts when the go jobs do.
+            if ($said.go -eq '[]') { $leftOut += 'go', 'linux' }
             "left out by the plan: $($leftOut -join ', ')"
           }
           $notPassed = @($jobs | Where-Object { $_.Value.result -ne 'success' -and -not ($_.Value.result -eq 'skipped' -and $leftOut -contains $_.Name) })

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/pipeline/pipelinetest"
 )
 
 func TestRecoverInheritedPublicationReportsDistinctPreservedHeads(t *testing.T) {
@@ -156,7 +157,7 @@ func TestRecoverInheritedPublicationNativeFixture(t *testing.T) {
 	project := os.Getenv("GOBLINS_RECOVERY_NATIVE_PROJECT")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	reader := Reader{Root: root, Commands: fixtureCommands{execx.OSRunner{}}}
+	reader := Reader{Root: root, Commands: pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}}
 	env := append(os.Environ(), "NM_HOME="+root)
 	run, err := reader.latestRecoveryCandidate(ctx, project, "feature")
 	if err != nil {

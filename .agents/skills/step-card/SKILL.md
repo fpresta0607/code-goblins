@@ -36,9 +36,9 @@ When it ends it prints what came of the card:
 ## A step inside your own browser session
 
 When the step must happen inside your own browser session, such as a sign-in the session must keep, add `--window`.
-The card then has a button that shows your session's window at the link on his screen.
-Your session restarts on a profile in your task's folder, so start the flow from that link.
-Once the card closes your session runs headless again on the same profile and keeps what he did there.
+It gives the card Take control, which opens the link in your own browser on the board's screen.
+He takes the step there and hands it back with a few words, which your wait prints.
+While he drives, your browser commands are refused, so wait for the card to close.
 
 ## When you see the step done yourself
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -17,23 +18,29 @@ import (
 
 func TestServiceStatusRequiresAProbeBeforeConnected(t *testing.T) {
 	for _, test := range []struct {
-		name  string
-		state auth.State
-		probe []string
-		want  string
+		name      string
+		state     auth.State
+		probe     []string
+		unchecked string
+		want      string
 	}{
-		{"working", auth.StateGreen, []string{"probe"}, "connected"},
-		{"credential only", auth.StateGreen, nil, "unverified"},
-		{"wrong target", auth.StateWrongTarget, []string{"probe"}, "wrong_target"},
-		{"missing", auth.StateMissing, nil, "missing"},
-		{"rejected", auth.StateUnauthorized, []string{"probe"}, "unauthorized"},
-		{"expired", auth.StateExpired, []string{"probe"}, "expired"},
-		{"offline", auth.StateUnreachable, []string{"probe"}, "unreachable"},
+		{"working", auth.StateGreen, []string{"probe"}, "", "connected"},
+		{"credential only", auth.StateGreen, nil, "", "provided"},
+		{"probe program not on this machine", auth.StateUnverified, []string{"probe"}, "probe is not installed", "provided"},
+		{"probe ran and did not confirm", auth.StateUnverified, []string{"probe"}, "", "unverified"},
+		{"wrong target", auth.StateWrongTarget, []string{"probe"}, "", "wrong_target"},
+		{"missing", auth.StateMissing, nil, "", "missing"},
+		{"rejected", auth.StateUnauthorized, []string{"probe"}, "", "unauthorized"},
+		{"expired", auth.StateExpired, []string{"probe"}, "", "expired"},
+		{"offline", auth.StateUnreachable, []string{"probe"}, "", "unreachable"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			entry := serviceEntry(auth.Service{Name: "sample", Probe: test.probe}, auth.Status{State: test.state, Detail: "private diagnostic"})
+			entry := serviceEntry(auth.Service{Name: "sample", Probe: test.probe}, auth.Status{State: test.state, Detail: "private diagnostic", Unchecked: test.unchecked})
 			if entry.Status != test.want {
 				t.Fatalf("status = %q, want %q", entry.Status, test.want)
+			}
+			if test.unchecked != "" && !strings.Contains(entry.Detail, "Not checked on this machine: "+test.unchecked) {
+				t.Fatalf("detail = %q does not say why no check ran", entry.Detail)
 			}
 			data, _ := json.Marshal(entry)
 			if strings.Contains(string(data), "private diagnostic") {
@@ -190,30 +197,44 @@ func TestCachedReadNeverStartsACheck(t *testing.T) {
 	}
 }
 
-func TestExpiredProbeIsUnverifiedWhileRefreshRuns(t *testing.T) {
-	var calls atomic.Int32
-	var ahead atomic.Int64
-	release := make(chan struct{})
-	cache := NewCache(time.Minute, time.Minute, func(ctx context.Context, _ string) Snapshot {
-		if calls.Add(1) > 1 {
-			select {
-			case <-release:
-			case <-ctx.Done():
+// An observation older than the cache's time to live is shown as it was
+// checked, with the time of that check, while the recheck it started runs:
+// it is old, which its age says, and no check has said it stopped working.
+// A failing verdict keeps reading so as much as a passing one.
+func TestExpiredObservationKeepsItsVerdictAndAgeWhileItsRecheckRuns(t *testing.T) {
+	for _, verdict := range []string{"probe_succeeded", "failed", "expired", "missing", "unreachable"} {
+		t.Run(verdict, func(t *testing.T) {
+			// Arrange
+			var calls atomic.Int32
+			var ahead atomic.Int64
+			release := make(chan struct{})
+			cache := NewCache(time.Minute, time.Minute, func(ctx context.Context, _ string) Snapshot {
+				if calls.Add(1) > 1 {
+					select {
+					case <-release:
+					case <-ctx.Done():
+					}
+				}
+				return Snapshot{Entries: []Entry{{ID: "mcp:tools", Status: verdict, Scope: "separate_probe", LiveStatus: "unknown"}}}
+			})
+			cache.now = func() time.Time { return time.Unix(100, 0).Add(time.Duration(ahead.Load())) }
+			defer cache.Close()
+			defer close(release)
+			cache.Get("task\ng1", false)
+			waitChecked(t, cache, "task\ng1")
+			ahead.Store(int64(time.Minute))
+
+			// Act
+			result := cache.Get("task\ng1", false)
+
+			// Assert
+			if !result.Checking {
+				t.Fatalf("expired observation started no recheck: %+v", result)
 			}
-		}
-		return Snapshot{Entries: []Entry{{ID: "mcp:tools", Status: "probe_succeeded", Scope: "separate_probe", LiveStatus: "unknown"}}}
-	})
-	cache.now = func() time.Time { return time.Unix(100, 0).Add(time.Duration(ahead.Load())) }
-	defer cache.Close()
-	defer close(release)
-	cache.Get("task\ng1", false)
-	waitChecked(t, cache, "task\ng1")
-	ahead.Store(int64(time.Minute))
-
-	result := cache.Get("task\ng1", false)
-
-	if !result.Checking || result.Entries[0].Status != "unverified" || result.Entries[0].LiveStatus != "unknown" {
-		t.Fatalf("expired probe remained positive: %+v", result)
+			if result.Entries[0].Status != verdict || result.Entries[0].LiveStatus != "unknown" || !result.CheckedAt.Equal(time.Unix(100, 0)) {
+				t.Fatalf("expired observation = %+v, want %s checked at %v", result, verdict, time.Unix(100, 0).UTC())
+			}
+		})
 	}
 }
 
@@ -285,6 +306,80 @@ func waitChecked(t *testing.T, cache *Cache, key string) Snapshot {
 			t.Fatal(errors.New("check did not finish"))
 		case <-time.After(time.Millisecond): // stall-accepted: a pause between polls, whose running out only starts the next poll.
 		}
+	}
+}
+
+// A check whose time ran out while a server was still starting keeps what it
+// saw of every other server, and only the one still starting reads
+// unverified, since its check could have run and did not confirm it.
+func TestClaudeCheckThatEndsWhileAServerStartsLeavesOnlyThatServerUnverified(t *testing.T) {
+	// Arrange
+	output := "{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"request_id\":\"1\",\"response\":{}}}\n" + `{"type":"control_response","response":{"subtype":"success","request_id":"2","response":{"mcpServers":[{"name":"ready","status":"connected"},{"name":"slow","status":"pending"},{"name":"broken","status":"failed"}]}}}` + "\n"
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var input bytes.Buffer
+
+	// Act
+	entries, err := claudeReport(ctx, strings.NewReader(output), &input)
+
+	// Assert
+	if err != nil || len(entries) != 3 {
+		t.Fatalf("entries = %+v, error = %v", entries, err)
+	}
+	for index, want := range []string{"connected", "unverified", "failed"} {
+		if entries[index].Status != want {
+			t.Errorf("%s = %s, want %s", entries[index].Name, entries[index].Status, want)
+		}
+	}
+	if entries[1].Detail != "Still starting when the check ended." {
+		t.Errorf("slow server says %q", entries[1].Detail)
+	}
+}
+
+// A check whose time runs out while Claude has yet to answer its next report,
+// after one with a server still starting, ends with the report it had: Claude
+// is ended with the check, the servers that connected or failed keep their
+// verdicts, and only the one still starting reads unverified.
+func TestClaudeCheckThatEndsMidReportKeepsTheReportItHad(t *testing.T) {
+	// Arrange
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	output, harness := io.Pipe()
+	requests, input := io.Pipe()
+	defer requests.Close()
+	go func() {
+		defer harness.Close()
+		decoder := json.NewDecoder(requests)
+		for _, reply := range []string{
+			`{"type":"control_response","response":{"subtype":"success","request_id":"1","response":{}}}`,
+			`{"type":"control_response","response":{"subtype":"success","request_id":"2","response":{"mcpServers":[{"name":"ready","status":"connected"},{"name":"slow","status":"pending"},{"name":"broken","status":"failed"}]}}}`,
+		} {
+			var request json.RawMessage
+			if decoder.Decode(&request) != nil {
+				return
+			}
+			fmt.Fprintln(harness, reply)
+		}
+		var next json.RawMessage
+		if decoder.Decode(&next) == nil {
+			cancel()
+		}
+	}()
+
+	// Act
+	entries, err := claudeReport(ctx, output, input)
+
+	// Assert
+	if err != nil || len(entries) != 3 {
+		t.Fatalf("entries = %+v, error = %v", entries, err)
+	}
+	for index, want := range []string{"connected", "unverified", "failed"} {
+		if entries[index].Status != want {
+			t.Errorf("%s = %s, want %s", entries[index].Name, entries[index].Status, want)
+		}
+	}
+	if entries[1].Detail != "Still starting when the check ended." {
+		t.Errorf("slow server says %q", entries[1].Detail)
 	}
 }
 

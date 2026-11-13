@@ -144,7 +144,8 @@ Any other value, or a second line, refuses the brief at `goblins brief ready` an
 The project names the container's image in its devcontainer, `.devcontainer/devcontainer.json` or `.devcontainer.json`, as an `image` field.
 A devcontainer that builds its image, with `build`, `dockerFile` or `dockerComposeFile`, is refused, since the build would run the untrusted Dockerfile on the engine outside the line; the project names a built image instead.
 A spawn is refused before anything starts when `docker` is not on PATH or the project names no image, and a helper of a sandbox task is a sandbox task too.
-The task keeps its worktree, branch and delivery, and the task's record keeps the image and the worktree's `.git` link (`sandbox_image` and `sandbox_git` in `state/<id>.meta`).
+A spawn in mode no-mistakes is refused too, naming direct-PR and local-only, since a gate would run the task's code on the host, as below.
+The task keeps its worktree and branch, and the task's record keeps the image and the worktree's `.git` link (`sandbox_image` and `sandbox_git` in `state/<id>.meta`).
 Its goblin's harness runs on the host, where its shell runs only `goblins`, `git` and `gh`, from its worktree, by name or by an absolute path outside the worktree and scratch folder.
 A host command is simple commands joined by `&&`, each of plain words and quoted text, so Bash and PowerShell read it alike.
 A plain word holds letters, digits, `.`, `_`, `/`, `:`, `=`, `@`, `%`, `+`, `-` and `~`, so a path is written with `/`.
@@ -152,10 +153,11 @@ Quoted text holds no backslash, `$`, backtick, parenthesis, quote of the other k
 Anything else is refused, naming the character, so a pipe, a redirection, a `;`, a variable and a command of its own all run in the container.
 What the two shells would read as different words is refused too: a backslash outside quotes, which Bash takes off and PowerShell keeps; a word that starts with quoted text and goes on after it; an empty quoted word, which Windows PowerShell drops; a `,`, which PowerShell reads as a list; an `@` that starts a word; an unquoted word that starts with `-` and holds a `.`, which Windows PowerShell splits; and `--%`.
 Host git runs only `status`, `diff`, `log`, `show`, `add`, `commit`, `push`, `fetch`, `pull`, `switch`, `checkout`, `branch`, `rebase`, `merge`, `reset`, `restore`, `stash`, `tag`, `rev-parse`, `ls-files` and `blame`, with no option before its command.
-It is refused `rebase -x`, and `--exec`, `--upload-pack`, `--receive-pack`, `--recurse-submodules` and `--recursive` or any start of them, each of which starts a program or reaches a submodule.
-Host gh is refused `alias` and `extension`, which run a command or program of their own, and those options too.
+It is refused `rebase -x`, and `--exec`, `--upload-pack`, `--receive-pack`, `--recurse-submodules` and `--recursive` or any start of them, each of which starts a program or reaches a submodule, and `--output` or any start of it, which writes the file it names.
+Host gh runs only the commands that write no file on this PC: `api`, `auth status`, `issue` `comment`, `create`, `edit`, `list` and `view`, `pr` `checks`, `comment`, `create`, `diff`, `edit`, `list`, `ready`, `status` and `view`, `repo view`, and `run` `list`, `view` and `watch`, and none of the options above that start a program or reach a submodule.
+Any other could make a repository host git reads, as `gh run download` and `gh repo clone` unpack one where they run, or run a program of its own, as an alias or an extension does.
 `goblins gate test`, `goblins verify`, `goblins security`, `goblins deploy` and `goblins services` are refused there, and the goblin runs what they run in the container with [`goblins sandbox run`](../commands/sandbox.md), in the machine's heavy line.
-Its gate's Test step runs its command in the same image, with the gate's checkout alone mounted.
+A gate's Test step of the task runs its command in the same image, with the gate's checkout alone mounted.
 A run that cannot start Docker runs nowhere, never on the host instead.
 Code in the container can write the worktree, so the task's host git reads hooks from an empty folder, runs with its fsmonitor off, takes no folder it finds for a bare repository, and reads attributes from the empty tree, so no filter, diff or merge driver the worktree names runs.
 A sandbox task's project cannot use submodules: every host command is refused while the worktree holds a `.gitmodules`, whose `ignore` lines would have host git recurse into a submodule the container made, or the worktree's index names a gitlink or a sparse directory, which could hold one.
@@ -163,9 +165,17 @@ A sandbox task's project cannot use submodules: every host command is refused wh
 Every host command is also refused while the worktree's `.git` link differs from the one its spawn recorded, and the container sees the `.git` link read-only.
 Every host command but `goblins sandbox run` and `goblins notify` waits while a `.git` other than the worktree's own link is anywhere in the worktree, since host git would read that repository from a folder under it or once a checkout brings in its gitlink.
 The refusal names the `.git` it found and how to remove it in the container.
-`goblins` walks the whole worktree for it before each such command, which took 2.2 to 2.9 seconds on a warm worktree of 77,160 entries with its `node_modules`, and 27 seconds on the first, cold walk.
 Those commands wait too while a container of the task may run, from the moment `goblins sandbox run` records it until it removed it, since the container could make a repository between the walk and the command.
-The gate's prepare, lint and format commands and its agents' own shells still run on the host.
+A walk of the whole worktree for a `.git` took 2.2 to 2.9 seconds on a warm worktree of 77,160 entries with its `node_modules`, and 27 seconds on the first, cold walk.
+So `goblins sandbox run` walks the worktree once as its container ends, and a host command walks it again only once something may have made a `.git` since the last walk that found none.
+Host git and gh write none, as above, and the goblin's file tools make none: its path boundary refuses a write whose path in its worktree holds a `.git`, in any case, with dots or spaces after it or a stream after a colon, each of which Windows opens as `.git`.
+What may make one has the next host command walk: a `goblins sandbox run`, from before its container starts, and every other `goblins` command but `goblins notify`, which may write a file it names, as `goblins gate turn --detach` its log.
+Such a `goblins` command run beside a walk, in a tool call made at the same time, can still write after that walk found the worktree clean.
+A Codex goblin's host commands walk the worktree every time, since its `apply_patch` edits are outside the boundary until #2255 lands.
+A relaunch of the task by `goblins switch` or a resume has the next host command walk too, once its last harness has stopped, so a goblin started after a Codex goblin trusts no walk from before that goblin's edits.
+A walk token, which each of those `goblins` commands, each relaunch and each walk replaces, and the token of the last walk that found the worktree clean, are kept in the task's tasktmp folder, which no container mounts and no goblin's boundary lets it write.
+A gate runs only its Test step's command in the container: the agents of its Review, Test, Document and Lint steps run their own shells on the host, as do the prepare, lint and format commands a gate file names.
+So a sandbox task is delivered in mode direct-PR or local-only, and `goblins pipeline run`, `respond`, `handback`, `validate-authored` and `validate-terminal` drive no gate of a sandbox task: each names those steps and runs nothing.
 
 ### The credential store
 
@@ -244,8 +254,8 @@ The card is `goblins auth request --project <p> --task <its id> --why "<what it 
   A card that asks for nothing has a Done button.
 - A message he sends himself, such as an email, goes in a file named with `--message-file`, never as a step that points at the file.
   His card shows its body with Copy, and Copy subject when it has a subject.
-- When the step must happen inside the goblin's own browser session, such as a sign-in the session keeps, `--window` puts a button on the card that shows the session's window at the link on his screen, on a profile in the task's folder.
-  Once the card closes the session runs headless again on that profile, so it keeps what he did there.
+- When the step must happen inside the goblin's own browser, such as a sign-in its session keeps, `--window` gives the card Take control, which opens the link in that browser and shows its screen on the card, where he takes the step and hands the browser back with a few words, which the wait prints.
+  The browser runs on a profile in the task's folder, so it keeps what he did there.
 
 The goblin runs the command in the background, so it goes on the moment the card closes: when every input is in, when he presses Done, or when the goblin sees the step done itself and runs `goblins auth request --done <card> --task <its id>`.
 Exit 3 means he skipped the card, and the goblin goes on without it.

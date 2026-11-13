@@ -23,10 +23,8 @@ $ErrorActionPreference = "Stop"
 
 # pi downloads fd and rg from GitHub the first time it starts, and until they
 # land it hands a submitted prompt back to its editor. v0.5.15 presses Enter
-# once, and a board that starts the goblin from its brief beside this spawn
-# outlives the stand-in, so a slow download fails the job. pi takes a file of
-# either name as the tool and nothing here runs one, so an empty file saves
-# the download.
+# once, so a slow download fails the job. pi takes a file of either name as
+# the tool and nothing here runs one, so an empty file saves the download.
 $piTools = Join-Path $env:USERPROFILE ".pi\agent\bin"
 New-Item -ItemType File -Force -Path (Join-Path $piTools "fd.exe"), (Join-Path $piTools "rg.exe") | Out-Null
 
@@ -40,13 +38,10 @@ $state = Join-Path $ceoHome "state"
 # The session ended the stand-in once the goblin was at work; the CEO needs
 # it to start, and both keep it through the update.
 $port = 8767
-$standIn = Start-Process -FilePath python -ArgumentList (Join-Path $PSScriptRoot "..\uninstall\stand_in_model.py"), $port -WindowStyle Hidden -PassThru
+. (Join-Path $PSScriptRoot "..\hidden_server.ps1")
+$standIn = Start-HiddenServer -Name "stand-in model" -ArgumentList (Join-Path $PSScriptRoot "..\uninstall\stand_in_model.py"), $port `
+    -Url "http://127.0.0.1:$port/v1/models" -Log "$Facts.stand-in"
 Set-Content -LiteralPath "$Facts.stand-in.pid" -Value $standIn.Id
-$deadline = (Get-Date).AddSeconds(30)
-while ($true) {
-    try { Invoke-WebRequest "http://127.0.0.1:$port/v1/models" -UseBasicParsing | Out-Null; break }
-    catch { if ((Get-Date) -gt $deadline) { throw "the stand-in model did not answer within 30 seconds" }; Start-Sleep -Milliseconds 250 }
-}
 
 & goblins allowance-floor claude 7
 if ($LASTEXITCODE -ne 0) { throw "goblins allowance-floor exited with code $LASTEXITCODE" }

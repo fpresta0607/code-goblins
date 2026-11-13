@@ -554,6 +554,8 @@ type Policy struct {
 	Fallbacks         map[string][]string            `json:"fallbacks,omitempty"`
 	StartFloorPercent float64                        `json:"start_floor_percent,omitempty"`
 	Subagents         map[string]map[string][]string `json:"subagents,omitempty"`
+	// Roles maps a lane to the lanes each of its roles runs on (roles.go).
+	Roles map[string]map[string][]string `json:"roles,omitempty"`
 	// Path is where it was loaded from; not serialized.
 	Path string `json:"-"`
 }
@@ -594,6 +596,9 @@ type Table struct {
 	EscalateTo        string
 	Fallbacks         map[string][]string
 	StartFloorPercent float64
+	// Roles holds each lane's roles with their lanes resolved, so a spawn's
+	// own change to its lanes leaves them as the table names them.
+	Roles map[string]map[string][]ExecutionLane
 	// Source says where the table came from, for the spawn report.
 	Source string
 }
@@ -630,7 +635,11 @@ func (p Policy) LaneTable() (Table, error) {
 	if _, ok := p.Lanes[p.EscalateTo]; p.EscalateTo != "" && !ok {
 		return Table{}, fmt.Errorf("routing: %s: escalate_to %q is not a defined lane", p.Path, p.EscalateTo)
 	}
-	t := Table{Lanes: map[string]ExecutionLane{}, DefaultLane: p.DefaultLane, EscalateTo: p.EscalateTo, Fallbacks: p.Fallbacks, StartFloorPercent: p.StartFloorPercent, Source: "fleet table " + p.Path}
+	roles, err := p.roleTable()
+	if err != nil {
+		return Table{}, err
+	}
+	t := Table{Lanes: map[string]ExecutionLane{}, DefaultLane: p.DefaultLane, EscalateTo: p.EscalateTo, Fallbacks: p.Fallbacks, StartFloorPercent: p.StartFloorPercent, Roles: roles, Source: "fleet table " + p.Path}
 	for name, lane := range p.Lanes {
 		t.Lanes[name] = ExecutionLane{Name: name, Harness: lane.Harness, Model: lane.Model, Effort: lane.Effort, Note: lane.Note}
 	}

@@ -9,6 +9,10 @@ import (
 type Level string
 
 const (
+	// Changed vets what the change requires and runs only the tests the
+	// change added or edited, by name, leaving every other test to CI: the
+	// Test step of a project whose hosted CI is its test evidence.
+	Changed Level = "changed"
 	// Fast vets what the change reaches and runs the changed packages' quick
 	// tests: feedback while working, never what a merge requires.
 	Fast Level = "fast"
@@ -20,14 +24,14 @@ const (
 )
 
 // levels are the levels from narrowest to broadest.
-var levels = []Level{Fast, Affected, Full}
+var levels = []Level{Changed, Fast, Affected, Full}
 
 // ParseLevel reads a level's name.
 func ParseLevel(name string) (Level, error) {
 	if level := Level(name); slices.Contains(levels, level) {
 		return level, nil
 	}
-	return "", fmt.Errorf("gatetest: level %q is not fast, affected or full", name)
+	return "", fmt.Errorf("gatetest: level %q is not changed, fast, affected or full", name)
 }
 
 // Covers reports whether a run at l verifies at least what required asks.

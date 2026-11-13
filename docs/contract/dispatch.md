@@ -22,6 +22,7 @@ A goblin started before this keeps the `TMP` it was started with until it is res
   A pi goblin starts with `--approve` where its pi advertises it, trusting the folder's project files for that run only, so it never asks.
 - Every goblin's terminal names a browser session of its own, `CHROME_DEVTOOLS_AXI_SESSION` set to its task id, and the CEO's is `goblins`. chrome-devtools-axi keeps one bridge and one browser for each session name, so a bridge belongs to one owner and is never the tool's unnamed session, which every program of the user shares.
   The bridge carries its terminal's mark and ends with its goblin at a pause, a stop or the janitor's sweep.
+  On a supervisor with a board, `CHROME_DEVTOOLS_AXI_BROWSER_URL` points the bridge at the goblin's own browser, which the supervisor runs so the board can show it.
 - Every goblin's first instruction, a helper's and a takeover's too, says that what it starts is its own to end: browsers headless and programs hidden in tests unless a picture needs a window, every start tracked by its pid and ended by that pid, never by its name, and no retry or polling loop without a cap.
   `goblins brief` and the board's Start write the same into a brief's Constraints, and the supervisor tells you what it sees of it ([Supervision](supervision.md#supervision)).
 - `--class` is `ordinary` (default), `high-risk`, or `mechanical`; it freezes the task's review repair budget at spawn - two cycles for ordinary and mechanical, three for high-risk - and a running task's snapshot never changes ([docs/pipeline.md](../pipeline.md)).
@@ -89,7 +90,7 @@ Its spawn checks the helper contract instead of brief readiness: a nonempty brie
 It reports to its parent, not to you: its `goblins notify <helper> --done`, which needs no pull request, its `--blocked` and its `--failed` are typed into the parent's terminal, and wake you only when that terminal cannot take them.
 You are told once when each helper starts or fails to start, and `goblins fleet-view` names each helper's parent.
 The parent answers its helper with `goblins send <helper> "<answer>"`, reports `goblins notify <parent> --waiting-on <helper> "<why>"` while it only waits, which makes the helper's progress count as its own, and once the helper reports done runs `goblins helper merge <parent>`: a merge commit of the helper's branch in the parent's own worktree, then the helper retired through Stop.
-A conflict is left for the parent to resolve and commit, and asked again the command only retires the helper; the parent stays the one who opens the pull request.
+A conflict is left for the parent to resolve and commit, and asked again the command only retires the helper; a parent that opens a pull request stays the one who opens it.
 A helper its parent no longer needs is stopped with `goblins kill <helper> --reason "<why>"`, which keeps its unmerged work.
 
 ### Goblin names
@@ -97,9 +98,13 @@ A helper its parent no longer needs is stopped with `goblins kill <helper> --rea
 Every goblin gets a fun first name and title, such as Jerry - Code Designer, from a list in the binary, as soon as its task is queued.
 The supervisor names each queued task the board shows and keeps the pair in `state/.goblin-names-queued.json`, and `goblins spawn` gives the task that same pair, so its name is the same in Tasks and In progress.
 A task spawned without being queued first gets its pair at spawn.
-The name is one no live goblin or queued task holds and none of the last 20 spawns used.
-The title names the subject of the work in two or three words, read from the task's id and title, or from the Task section of its brief when those name none, such as Voice Whisperer for long dictation, Resume Wrangler for smooth resumes or Token Tamer for a Fly token fix.
-A task that names no subject the binary knows gets a generic title, such as Code Designer.
+The name is one no live goblin or queued task holds and none of the last 300 spawns used, from a pool of 452, so recent History never shows one name on two tasks.
+Give the title yourself when you know the task best: a `goblin title: <title>` line in the brief's Delivery section, one to three words and at most 20 characters, such as `goblin title: Estimate Elf`, is the goblin's title as written, and `goblins brief ready` refuses one past that rule.
+A queued task keeps its name when its brief gives a title later, and its card takes that title.
+Without the line, the title names the subject of the work in the task's own words with a fun role, such as Estimate Elf for a cost estimate fix, Corpus Curator for reloading legal corpora or Voice Whisperer for long dictation.
+The subject is the word the task's title leans on most, the last word of a phrase counting most, so "cost estimate" is about an estimate; a label before a colon, words in brackets and the id count less, the project the id names never counts, and the brief's Task section is read only when the title and id give no word.
+A subject word another live or queued goblin's title already names is passed over while the task names another, so two goblins on different work read apart on the board.
+A task that gives no word a title can use gets a generic title, such as Code Designer.
 `goblins spawn` prints the pair on a `goblin:` line, the task's record keeps it, and the supervisor gives one to any live goblin that has none, the pair it was queued with where it has one.
 The board, the merge train and the orchestration canvas show the name, title and harness icon in place of the task id, a queued task's card included, and the task sits in the panel and the hover tooltip.
 `goblins fleet-view`, the wake queue and a merge train's pull request name each goblin as `Name (id)`.
@@ -153,6 +158,7 @@ The product does this by itself in every home, with no setting, and wakes you fo
 - **The queue cleans itself.** When `goblins cleanup` (with or without `--force-archive`, and through `goblins reap --apply`) retires a task, its row moves from `## Queued` to `## Done` with its detail lines, in one write that keeps every other line as it was, whatever the task last reported, so nothing starts it again from its row.
   The row closes as `done` when the task delivered and as `retired` when it did not, and the supervisor moves any row a delivered task left behind.
   A local-only task opens no pull request, so it is delivered when a done line of its current run names its report, `data/<task>/report.md`, by its full path or its path in the home, and that report is there.
+  [goblins notify --report](../commands/notify.md) keeps the report there and records that line.
   A task ruled finished with no pull request is delivered when a done line of its current run names the issue it closed, which [goblins notify --closed](../commands/notify.md) records from its answered decision.
 - **Work that cannot start wakes you again.** A start that failed is not retried by itself, and its card says why.
   A brief changed during admission instead produces `start deferred: ...` and is reconsidered on the next scan with its final choices.
@@ -372,6 +378,17 @@ Unknown, stale or reset windows do not establish a floor.
 The existing weekly reserve still applies.
 A fallback records the wanted lane and evidence, and puts a durable notice in the CEO's queue; the goblin's card names its model and effort only in its harness mark's tip.
 This changes no running goblin: the separate `rules` array remains the CEO's authority for switching one.
+
+`roles` splits a lane's work into five roles.
+The lead plans, decomposes, integrates and decides: it is the lane itself, with that lane's own harness, model and effort and its `fallbacks`, so `roles` never names a lead.
+`roles` maps a lane to `implement` (writes code from the lead's plan), `review`, `verify` (both independent of the lead) and `fix` (applies a finding), each an ordered array of lanes: the role's own first, then its fallbacks.
+A role runs on its lead's harness and names lanes with explicit models, and a lane with roles names its own explicit model.
+A role the lane does not name is its lead's own work, so a table without `roles` routes every role to the lead, as before roles existed.
+Implementation and fixes fall back to the lead when none of the lanes they name can run.
+Review and verification are kept off the lead's own model: while their lanes name another model, a lane on the lead's model is left out, so when no other is usable the role is refused rather than run on it; they take the lead's model only when every lane they name is that model.
+The shipped table names, for Codex work led on Astra, ordinary or escalated, verification on `gpt-6-sol`, with implementation on `gpt-6.1-sol` for ordinary work, leaving review to the lead; for its Claude fallback led on Opus, it names implementation on Sonnet and review and verification on Fable.
+Nothing launches on a role yet: `goblins route` only previews each role's lane after the quota check, or says why a role is refused, and `goblins doctor` only prints each lane's roles, while every goblin still implements, reviews, verifies and fixes on its own lane.
+A project's `routing` block carries no roles, so its lanes keep every role on the lead.
 
 `subagents` maps each harness to `search`, `review` and `verify`, each an ordered array of lane names on that harness.
 Search includes reading and summaries, review uses a strong model, and verification prefers the first model different from the parent's recorded model, taking the configured one when the policy names no other.

@@ -30,6 +30,7 @@ import { keepFile } from "./terminal-image";
 import { TerminalStatus } from "./terminal-status";
 import { detachedHoldReason } from "./terminalInput";
 import { appendDictation, useDictation } from "./useDictation";
+import { linkedText } from "./messageText";
 import "./composer.css";
 
 // How many of his latest messages to a goblin with no live terminal show
@@ -822,7 +823,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
       {kept.map((text, index) => {
         const key = index + ":" + text;
         return <li key={key}>
-          <span className="composer-sent-text">{text}</span>
+          <span className="composer-sent-text">{linkedText(text)}</span>
           <span className="composer-sent-state">{task?.asked || task?.phase === "resuming" ? "Starting" : "Kept for resume"}</span>
           <button type="button" className="icon-button" aria-label={"Delete: " + text}
             disabled={deleting === key} onClick={() => void withdraw(text, key)}><Icon name="trash" /></button>

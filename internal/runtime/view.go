@@ -419,6 +419,14 @@ func renderStorage(out *writer, report Report) {
 	} else {
 		out.row("the verification store at "+storage.VerificationStore, Bytes(storage.Verification))
 	}
+	// The gate's home is outside the home too, and walking it takes minutes,
+	// so it is what the janitor's last sweep measured.
+	sweep := report.Janitor
+	if sweep == nil || sweep.Gate == nil {
+		out.row("the gate's home", "not measured yet; the janitor's hourly sweep measures it")
+	} else {
+		out.row("the gate's home at "+strings.Join(sweep.Gate.Folders, " and ")+", as the janitor measured it at "+stamp(sweep.Time), Bytes(sweep.Gate.Bytes))
+	}
 	out.row("Docker's share", Bytes(report.Headroom.DockerTotal()))
 	out.line("")
 	var partial []string
@@ -437,6 +445,19 @@ func renderStorage(out *writer, report Report) {
 	if isStorePartial {
 		out.line("Some of the verification store could not be read, so it holds at least the size shown.")
 		out.line("")
+	}
+	if sweep != nil && sweep.Gate != nil && sweep.Gate.IsIncomplete {
+		out.line("Some of the gate's home could not be read, so it holds at least the size shown.")
+		out.line("")
+	}
+	if filing := report.Filing; filing == nil {
+		out.line("The home's data has not been filed yet; the supervisor files a laid-out home's data every ten minutes.")
+	} else {
+		out.line(fmt.Sprintf("The home's data was last filed at %s: %d folder(s) filed, %d finished or stale folder(s) wait for a later pass.",
+			filing.Time.Format(time.RFC3339), filing.Filed, filing.Waiting))
+		if filing.Error != "" {
+			out.line("- could not file: " + text(filing.Error))
+		}
 	}
 	if report.Janitor == nil {
 		out.line("The janitor has not swept this home yet; the watcher's sweep runs it every hour.")

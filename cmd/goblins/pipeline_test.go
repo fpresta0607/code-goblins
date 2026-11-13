@@ -49,6 +49,9 @@ type pipelineRunner struct {
 	activeRuns    int
 	nativeResult  *execx.Result
 	nativeError   error
+	// nativeOutcomes, when set, answers native commands in order, the last
+	// repeating.
+	nativeOutcomes []execx.Result
 }
 
 type pipelineStartRunner struct {
@@ -119,10 +122,11 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 			return execx.Result{Stdout: []byte("auto_fix: {review: 0}\n")}, nil
 		}
 	case "no-mistakes":
-		// This no-mistakes names no --intent-file in its help, as one before
-		// 1.86.0, so a run it starts has its intent on the command line.
+		// This no-mistakes names no --intent-file in its help, as one from
+		// 1.80.0 to before 1.86.0, so a run it starts has its intent on the
+		// command line, kept out of the pull request.
 		if slices.Equal(q.Args, []string{"help", "axi", "run"}) {
-			return execx.Result{}, nil
+			return execx.Result{Stdout: []byte("      --no-publish-intent   keep the generated Intent section out of the PR body\n")}, nil
 		}
 		r.native = append(r.native, q)
 		r.roleStarted = r.advance && r.remoteRead >= 2
@@ -248,6 +252,9 @@ func (r *pipelineRunner) Run(_ context.Context, q execx.Request) (execx.Result, 
 			}
 		}
 		r.native = append(r.native, q)
+		if r.nativeOutcomes != nil {
+			return r.nativeOutcomes[min(len(r.native), len(r.nativeOutcomes))-1], nil
+		}
 		if r.nativeResult != nil {
 			return *r.nativeResult, r.nativeError
 		}
@@ -1433,6 +1440,73 @@ func TestPipelineScopeDecisionRecordsANativeRefusalWithoutFallback(t *testing.T)
 	}
 }
 
+// A scope response a busy gate daemon turns away at its health reply is waited
+// on as any response is. Turned away on every try, its refusal says the daemon
+// is busy, not stopped, and that the answer never reached it, rather than that
+// no retry was attempted after four tries (#2158). Turned away once and then
+// refused by the gate, its refusal names that refusal as the recorded outcome
+// rather than a busy daemon's.
+func TestPipelineScopeDecisionTurnedAwayByABusyDaemonSaysItWasTriedAndNeverArrived(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the primary CEO registration is verified on Windows only")
+	}
+	for _, scenario := range []struct {
+		name      string
+		outcomes  []execx.Result
+		wantTries int
+		wantSaid  []string
+	}{
+		{
+			name:      "turned away on every try",
+			outcomes:  []execx.Result{{ExitCode: 1, Stdout: []byte(healthMissed)}},
+			wantTries: daemonTurns,
+			wantSaid:  []string{"busy, not stopped", "Your answer never reached it"},
+		},
+		{
+			name:      "turned away once and then refused by the gate",
+			outcomes:  []execx.Result{{ExitCode: 1, Stdout: []byte(healthMissed)}, {ExitCode: 1, Stderr: []byte("daemon did not acknowledge the accepted scope decision")}},
+			wantTries: 2,
+			wantSaid:  []string{"after a busy gate daemon turned away every earlier try at its health reply, try 2 reached it and was refused; that refusal is the recorded outcome, and no ordinary response was attempted"},
+		},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			// Arrange
+			h, meta, nativeRoot, runner := scopeStage(t)
+			runner.nativeOutcomes = scenario.outcomes
+			serveScopeRun(t, nativeRoot, scopeRunInfo())
+			if err := os.WriteFile(filepath.Join(nativeRoot, "daemon.pid"), []byte(fmt.Sprintf(`{"pid":%d,"started_at":"2026-11-11T12:57:48Z"}`, os.Getpid())), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var waits []time.Duration
+			previousSleep := daemonTurnSleep
+			daemonTurnSleep = func(wait time.Duration) { waits = append(waits, wait) }
+			t.Cleanup(func() { daemonTurnSleep = previousSleep })
+
+			// Act
+			err := scopeRespond(t, h, nativeRoot, runner)
+
+			// Assert
+			if len(runner.native) != scenario.wantTries || len(waits) != scenario.wantTries-1 {
+				t.Fatalf("native calls=%d waits=%v, want %d tries and %d waits", len(runner.native), waits, scenario.wantTries, scenario.wantTries-1)
+			}
+			if err == nil || !strings.Contains(err.Error(), "recorded in review-scope-decisions.jsonl") {
+				t.Fatalf("err=%v, want the journal named", err)
+			}
+			for _, said := range scenario.wantSaid {
+				if !strings.Contains(err.Error(), said) {
+					t.Fatalf("err=%v, want it to say %q", err, said)
+				}
+			}
+			if strings.Contains(err.Error(), "no ordinary response or retry was attempted") {
+				t.Fatalf("err=%v claims no retry after %d tries", err, len(runner.native))
+			}
+			if journal, readErr := os.ReadFile(scopeJournalPath(meta)); readErr != nil || !bytes.Contains(journal, []byte(`"exit_code":1`)) {
+				t.Fatalf("scope journal=%s, %v; want the last try's outcome kept", journal, readErr)
+			}
+		})
+	}
+}
+
 // A clean native exit with no durable record of this decision is an uncertain
 // acknowledgement: the controller refuses instead of reporting delivery.
 func TestPipelineScopeDecisionRefusesAnUnconfirmedAcknowledgement(t *testing.T) {
@@ -1757,7 +1831,7 @@ func TestPipelineRunLaunchesNativeAfterCheckStart(t *testing.T) {
 		t.Fatalf("native launches=%+v, want one", runner.native)
 	}
 	request := runner.native[0]
-	if request.Name != "no-mistakes" || !strings.HasPrefix(strings.Join(request.Args, " "), "axi run --intent ship safely --launch-nonce ceo-") {
+	if request.Name != "no-mistakes" || !strings.HasPrefix(strings.Join(request.Args, " "), "axi run --intent ship safely --no-publish-intent --launch-nonce ceo-") {
 		t.Fatalf("native launch argv: %+v", request)
 	}
 	if request.Dir != wt {
@@ -1993,7 +2067,7 @@ func TestPipelineRunAndRecoverActInTheWorktreeOfTheNamedBranch(t *testing.T) {
 		if err != nil {
 			t.Fatalf("run --branch: %v", err)
 		}
-		if len(start.native) != 1 || !strings.HasSuffix(start.native[0].Dir, "task-connections") || !strings.HasPrefix(strings.Join(start.native[0].Args, " "), "axi run --intent ship safely --launch-nonce ceo-") {
+		if len(start.native) != 1 || !strings.HasSuffix(start.native[0].Dir, "task-connections") || !strings.HasPrefix(strings.Join(start.native[0].Args, " "), "axi run --intent ship safely --no-publish-intent --launch-nonce ceo-") {
 			t.Fatalf("native launches = %+v, want one run in the extra worktree", start.native)
 		}
 	})

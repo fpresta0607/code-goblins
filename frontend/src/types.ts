@@ -69,6 +69,9 @@ export interface Task extends Evaluation {
   // closed_issue is the issue a live task's latest report says it closed in
   // place of a pull request, which leaves nothing to verify of it.
   closed_issue: string;
+  // kept_report is the report the home keeps for a live local-only task whose
+  // latest report is its done, which leaves nothing to verify of it.
+  kept_report: string;
   // reported_at is when the goblin wrote its latest report.
   reported_at?: string;
   retired_at?: string;
@@ -115,6 +118,10 @@ export interface Task extends Evaluation {
   // goblin's branch.
   ticket?: Ticket;
   overlaps: Overlap[];
+  // parked_runs are gate runs waiting on a decision that hold no card: those
+  // on the branches of its extra worktrees, and one on its own branch older
+  // than its goblin's newest report, each with its own run's pull request.
+  parked_runs?: ParkedRun[];
   // hosted_checks is what its pull request's hosted checks said at the last
   // CI poll, local_checks its change's newest goblins gate test run, and
   // deployment how the deploy of its merge stands, apart.
@@ -127,6 +134,9 @@ export interface Task extends Evaluation {
   // comeback is where a live goblin the last restart ended is in coming
   // back: waiting for its turn, or stopped with the reason.
   comeback?: ComebackEntry;
+  // browser says the goblin's own browser runs now, which its Screen view
+  // shows.
+  browser?: boolean;
 }
 // FleetTree is a goblin and what runs under it as the supervisor last read
 // it: memory is its harness and everything under it, own_memory the harness
@@ -170,6 +180,11 @@ export interface ComebackEntry { id: string; state: "waiting" | "back" | "stoppe
 // Comeback is what the supervisor brings back after the last restart or
 // sign-out: the CEO first, then each goblin that was working.
 export interface Comeback { signed_in: string; ceo?: ComebackEntry; goblins: ComebackEntry[] }
+// CrossingView is the home's move to goblins' names that an update or an
+// install made: when, the command that moves it back, each terminal from
+// before it that restarts under the new names once idle, and what did not go
+// as it should.
+export interface CrossingView { at: string; undo: string; waiting: string[]; problem: string }
 // StartAtLoginView is whether Windows starts this home at login, or why it
 // cannot be started at login.
 export interface StartAtLoginView { on: boolean; unavailable: string }
@@ -228,6 +243,9 @@ export interface Person { login: string; name: string; avatar_url: string }
 // Overlap is one piece of a teammate's open work, such as "PR #1446", that
 // changes the files a goblin's branch changes or names its area.
 export interface Overlap extends Person { what: string; url: string }
+// ParkedRun is a gate run on one branch of a task that waits on a decision
+// at step since parked_at, with that run's own pull request.
+export interface ParkedRun { branch: string; run_id: string; step: string; parked_at: string; pr: string }
 // ProjectPeople is a project on the board whose origin is on GitHub: its
 // repository, and the people other than the Overlord, bots aside, who
 // committed to its default branch or opened a pull request in it in the last
@@ -457,6 +475,9 @@ export interface Snapshot {
   // comeback is what the supervisor brings back after the last restart or
   // sign-out; absent when it brings nothing back.
   comeback?: Comeback;
+  // crossing is the home's move to goblins' names for the board's notice;
+  // absent for a home that made none.
+  crossing?: CrossingView;
   // start_at_login is whether Windows starts this home at login; absent on a
   // board that cannot change it.
   start_at_login?: StartAtLoginView;
@@ -660,8 +681,9 @@ export interface CredentialRequest {
   // steps say how to get the values, in order, for the card's header.
   steps: string[];
   // window says the step happens in the goblin's own browser, which the
-  // card's button brings to him; window_state is "" while the button is
-  // offered, "requested" once pressed and "open" once the window shows.
+  // card's Take control opens and shows on its screen; window_state is ""
+  // while the button is offered, "requested" once pressed and "open" once
+  // the browser is his on the card's screen.
   window: boolean; window_state: string;
   // received are the plain values that reached the goblin.
   received: string[];
@@ -1044,6 +1066,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     ...(v.start_at_login == null ? {} : { start_at_login: ((setting) => ({ on: boolean(setting.on), unavailable: setting.unavailable === undefined ? "" : string(setting.unavailable) }))(object(v.start_at_login)) }),
     ...(v.dev_drive == null ? {} : { dev_drive: parseDevDrive(object(v.dev_drive)) }),
     ...(v.comeback == null ? {} : { comeback: ((c) => ({ signed_in: string(c.signed_in), ...(c.ceo == null ? {} : { ceo: parseComebackEntry(c.ceo) }), goblins: array(c.goblins).map(parseComebackEntry) }))(object(v.comeback)) }),
+    ...(v.crossing == null ? {} : { crossing: ((c) => ({ at: string(c.at), undo: string(c.undo), waiting: c.waiting == null ? [] : array(c.waiting).map(string), problem: c.problem === undefined ? "" : string(c.problem) }))(object(v.crossing)) }),
     build: string(v.build),
     ceo_runs: v.ceo_runs === undefined || boolean(v.ceo_runs),
     ceo_starting: v.ceo_starting === undefined ? false : boolean(v.ceo_starting),
@@ -1090,6 +1113,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         handoff: t.handoff === undefined ? false : boolean(t.handoff),
         last_report: string(t.last_report),
         closed_issue: t.closed_issue === undefined ? "" : string(t.closed_issue),
+        kept_report: t.kept_report === undefined ? "" : string(t.kept_report),
         reported_at: string(t.reported_at),
         retired_at: string(t.retired_at),
         report: t.report === undefined ? "" : string(t.report),
@@ -1111,7 +1135,9 @@ export function parseSnapshot(value: unknown): Snapshot {
         ...(t.progress == null ? {} : { progress: ((progress) => ({ at: string(progress.at), source: string(progress.source) }))(object(t.progress)) }),
         ...(t.ticket == null ? {} : { ticket: ((ticket) => ({ number: number(ticket.number), url: string(ticket.url), state: string(ticket.state) }))(object(t.ticket)) }),
         overlaps: array(t.overlaps).map((value) => { const o = object(value); return { ...parsePerson(o), what: string(o.what), url: string(o.url) }; }),
+        ...(t.parked_runs == null ? {} : { parked_runs: array(t.parked_runs).map((value) => { const r = object(value); return { branch: string(r.branch), run_id: string(r.run_id), step: string(r.step), parked_at: string(r.parked_at), pr: r.pr === undefined ? "" : string(r.pr) }; }) }),
         ...(t.comeback == null ? {} : { comeback: parseComebackEntry(t.comeback) }),
+        ...(t.browser === undefined ? {} : { browser: boolean(t.browser) }),
         ...(t.hosted_checks == null ? {} : { hosted_checks: ((c) => ({ head: string(c.head), state: string(c.state), checks: number(c.checks), failed: strings(c.failed), rate_limited: strings(c.rate_limited), link: string(c.link), approved: c.approved === undefined ? false : boolean(c.approved) }))(object(t.hosted_checks)) }),
         ...(t.tree == null ? {} : { tree: parseTree(t.tree) }),
         ...(t.local_checks == null ? {} : { local_checks: ((c) => ({ commit: string(c.commit), level: string(c.level), required_level: string(c.required_level), status: string(c.status), duration_seconds: number(c.duration_seconds), queue_seconds: number(c.queue_seconds), failed: strings(c.failed), at: string(c.at) }))(object(t.local_checks)) }),

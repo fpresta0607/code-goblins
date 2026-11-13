@@ -16,6 +16,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/githubapi"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
@@ -157,6 +158,7 @@ exist.
 
 Run goblins brief ready %s after requirements, credentials and launch settings are complete.
 Keep ready: false while editing so the supervisor and explicit spawn wait.
+Give the goblin its title on a line like goblin title: Estimate Elf, one to three words and at most 20 characters, or leave it out to fit the title to the task's own words.
 kind: %s
 mode: %s
 surface: %s
@@ -214,7 +216,7 @@ func runPR(sub string, args []string, stdout, stderr io.Writer, commands execx.R
 			fmt.Fprintln(stderr, "goblins pr merge: "+err.Error())
 			return 1
 		}
-		return runPRMerge(args, stdout, stderr, commands, away)
+		return runPRMerge(args, stdout, stderr, commands, runtime.githubAPI, away)
 	case "train":
 		return runPRTrain(args, stdout, stderr, commands, runtime)
 	default:
@@ -293,7 +295,10 @@ func recordPR(stateDir, id, url, head string) (err error) {
 // word: it says what verified the pull request, the pull request must meet
 // what the Overlord's authority names, the word is logged with its evidence
 // before anything merges, and deleting the branch stays his.
-func runPRMerge(args []string, stdout, stderr io.Writer, commands execx.Runner, away *afkAuthority) int {
+//
+// GitHub's API, through github, reads the merge queue and what AFK mode
+// checks of a pull request on github.com; gh reads them on another host.
+func runPRMerge(args []string, stdout, stderr io.Writer, commands execx.Runner, github *githubapi.Client, away *afkAuthority) int {
 	if len(args) < 1 {
 		fmt.Fprintln(stderr, "goblins pr merge: <url> is required")
 		return 2
@@ -328,6 +333,7 @@ func runPRMerge(args []string, stdout, stderr io.Writer, commands execx.Runner, 
 		}
 	}
 	ctx := context.Background()
+	github = apiFor(url, github)
 	proof, err := verifyPRReady(ctx, url, commands)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -336,7 +342,7 @@ func runPRMerge(args []string, stdout, stderr io.Writer, commands execx.Runner, 
 	if len(proof.RateLimited) > 0 {
 		fmt.Fprintf(stdout, "goblins pr merge: the host rate limited the deploy of %s, which never built this head and counts as not run\n", strings.Join(proof.RateLimited, ", "))
 	}
-	queue, err := readMergeQueue(ctx, url, commands)
+	queue, err := readMergeQueue(ctx, url, commands, github)
 	if err != nil {
 		fmt.Fprintln(stderr, "goblins pr merge: "+err.Error())
 		return 1
@@ -369,7 +375,7 @@ func runPRMerge(args []string, stdout, stderr io.Writer, commands execx.Runner, 
 		}
 	}
 	if away != nil {
-		evidence, err := afkMergeEvidence(ctx, url, strings.TrimSpace(*verified), proof, queue, commands)
+		evidence, err := afkMergeEvidence(ctx, url, strings.TrimSpace(*verified), proof, queue, commands, github)
 		if err != nil {
 			fmt.Fprintln(stderr, "goblins pr merge: AFK mode is on, and "+err.Error())
 			return 1

@@ -104,6 +104,10 @@ type Journal struct {
 	Started   time.Time `json:"started"`
 	Updated   time.Time `json:"updated"`
 	Outcome   string    `json:"outcome,omitempty"`
+	// Crossing is the undo folder of the crossing this update made of a home
+	// from before the rename, which a rollback undoes before it puts the
+	// previous build back; empty for an update that made none.
+	Crossing string `json:"crossing,omitempty"`
 }
 
 // Dir is where an update keeps its journal, the verified copies and its lock.
@@ -114,6 +118,11 @@ func Dir(stateDir string) string {
 // LockName is the lock, in Dir, that one update of a home, or the recovery of
 // one, holds from before it changes anything until it has finished.
 const LockName = ".lock"
+
+// ReleaseLockName is the lock, in Dir, that one update of a home from a
+// release holds from its download to its last step, the install of the build
+// it put in, in every release since the rename and before it.
+const ReleaseLockName = ".release.lock"
 
 // Installing reports whether an update of the home whose state is stateDir,
 // or the recovery of one, is at work now: a process that runs holds its lock.

@@ -133,6 +133,16 @@
       "why": "the role-name guard lists it among the files that keep the old names, and fails when a listed file is gone"
     },
     {
+      "paths": ["tests/uninstall/one_goblin_session.ps1"],
+      "packages": ["."],
+      "why": "a test runs the session script's self-tests"
+    },
+    {
+      "paths": ["tests/hidden_server.ps1", "tests/hidden_server.py"],
+      "packages": ["."],
+      "why": "a test runs the hidden server's start and wait"
+    },
+    {
       "paths": ["**/*.go"],
       "packages": ["internal/fsx", "internal/execx"],
       "why": "the read and process-start guards scan every Go file"

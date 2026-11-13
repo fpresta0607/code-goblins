@@ -77,7 +77,7 @@ func TestACommandRefusesAnArgumentItDoesNotTakeSayingWhich(t *testing.T) {
 			return runBrief([]string{"cg-task", "--project", `C:\project`, "stray"}, stdout, stderr, runtime)
 		}},
 		{"pr merge", func(stdout, stderr io.Writer, _ commandRuntime) int {
-			return runPRMerge([]string{"https://github.com/o/r/pull/1", "stray"}, stdout, stderr, nil, nil)
+			return runPRMerge([]string{"https://github.com/o/r/pull/1", "stray"}, stdout, stderr, nil, nil, nil)
 		}},
 		{"drain", func(stdout, stderr io.Writer, _ commandRuntime) int {
 			return runDrain(home.Home{}, []string{"stray"}, stdout, stderr)

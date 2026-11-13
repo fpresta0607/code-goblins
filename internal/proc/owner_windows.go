@@ -9,15 +9,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// Owner is whose a process is on this machine: the Windows user it runs as,
-// by SID, and the session it runs in. Two programs one person runs at one
-// desktop share both, and a program of another user, of a service or of
-// another sign-in differs in one of them.
-type Owner struct {
-	User    string
-	Session uint32
-}
-
 // OwnerOf reads whose pid is, and proves it is the process created at start,
 // through one handle.
 func OwnerOf(pid int, start time.Time) (Owner, error) {
