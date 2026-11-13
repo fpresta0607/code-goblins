@@ -8,6 +8,7 @@ import (
 
 const tierLanes = roleLanes + `,
 	"haiku":{"harness":"claude","model":"haiku","effort":"medium","note":"small work"},
+	"opus-alias":{"harness":"claude","model":"opus","effort":"high","note":"opus under its alias"},
 	"unranked":{"harness":"claude","model":"claude-other-1","effort":"high","note":"a model no tier names"},
 	"plain":{"harness":"claude","note":"the harness default"}`
 
@@ -28,11 +29,11 @@ func tierTable(t *testing.T, tiers string) Table {
 
 func TestLaneTableRefusesTiersThatCannotRankAModel(t *testing.T) {
 	for _, test := range []struct{ name, tiers, want string }{
-		{"no lane", `{"claude":[]}`, `tiers for claude name no lane`},
 		{"undefined lane", `{"claude":["fable","opsu"]}`, `tiers for claude name "opsu", which is not a defined lane`},
 		{"another harness", `{"claude":["fable","astra"]}`, `tiers for claude name "astra", which runs on codex`},
 		{"the harness default", `{"claude":["fable","plain"]}`, `tiers for claude name "plain", which has no explicit model`},
 		{"one model twice", `{"claude":["fable","opus","fable"]}`, `tiers for claude name model claude-fable-5-2 twice, in "fable" and "fable": a tier is one model`},
+		{"one model under two names", `{"claude":["opus","opus-alias"]}`, `tiers for claude name model opus twice, in "opus" and "opus-alias": a tier is one model`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -78,6 +79,20 @@ func TestEscalationAfterAFailedVerificationMovesTheRoleUpOneTier(t *testing.T) {
 				t.Errorf("EscalateRole(%s, lead %s) = %+v, want %s", test.current, test.lead, next, test.want)
 			}
 		})
+	}
+}
+
+// An empty list is no order, just as a harness the tiers do not list.
+func TestAnEmptyTierListHandsAnEscalatedRoleToTheLead(t *testing.T) {
+	// Arrange
+	table := tierTable(t, `{"claude":["fable","opus","sonnet","haiku"],"pi":[]}`)
+
+	// Act
+	next := table.EscalateRole(table.Lanes["pi-light"], table.Lanes["pi-strong"])
+
+	// Assert
+	if next != table.Lanes["pi-strong"] {
+		t.Errorf("EscalateRole = %+v, want the lead pi-strong", next)
 	}
 }
 

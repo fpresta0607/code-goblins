@@ -325,8 +325,10 @@ func TestPipelineRunHandsAFailedStepBackWithItsFindingsAndLog(t *testing.T) {
 // A failed verification escalates the role whose work it checked: under
 // version 7 a run's failed Test step moves the task's implement worker one
 // tier up its harness, once for that run however often it is read, and
-// retires the worker when that tier is its lead's. A Lint failure moves
-// nothing, nor does a task whose goblin implements its own work.
+// retires the worker when that tier is its lead's. A worker on the top tier
+// stays, a Lint failure moves nothing, nor does a task whose goblin implements
+// its own work, and a table that does not load moves nothing while the task
+// still reads as working on its findings.
 func TestAFailedTestStepEscalatesTheImplementWorkerOneTier(t *testing.T) {
 	const table = `{"default_lane":"opus","lanes":{
 		"fable":{"harness":"claude","model":"claude-fable-5-2","effort":"xhigh"},
@@ -341,7 +343,7 @@ func TestAFailedTestStepEscalatesTheImplementWorkerOneTier(t *testing.T) {
 		"haiku":  {"haiku", "haiku", "medium"},
 	}
 	for _, test := range []struct {
-		name, step, lead, implement, want, said, recorded string
+		name, step, lead, implement, want, routing, said, recorded string
 	}{
 		{
 			name: "a worker one tier below its lead is retired", step: "test", lead: "opus", implement: "sonnet",
@@ -353,13 +355,23 @@ func TestAFailedTestStepEscalatesTheImplementWorkerOneTier(t *testing.T) {
 			said:     "pipeline handback: a failed test step moves the implement role up one tier, to sonnet claude-sonnet-5-5 high, which the task's next relaunch gives its worker; until then implement this correction and every later slice yourself, since this session's worker stays on haiku",
 			recorded: "role-escalated: implement haiku haiku medium -> sonnet claude-sonnet-5-5 high after run " + ownerRun + "'s failed test step",
 		},
+		{name: "a worker on the top tier stays", step: "test", lead: "opus", implement: "fable", want: "fable"},
 		{name: "a lint failure moves nothing", step: "lint", lead: "opus", implement: "sonnet", want: "sonnet"},
 		{name: "a goblin implementing its own work has no worker to move", step: "test", lead: "opus"},
+		{
+			name: "a table that does not load moves nothing", step: "test", lead: "opus", implement: "sonnet", want: "sonnet",
+			routing: `{"default_lane":`,
+			said:    "pipeline handback: no role moved, since the implement role's escalation failed: routing: ",
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			h, nm, _, _, native := ownerStage(t, test.step, 7)
-			if err := os.WriteFile(filepath.Join(h.Data, "routing.json"), []byte(table), 0o600); err != nil {
+			routingTable := table
+			if test.routing != "" {
+				routingTable = test.routing
+			}
+			if err := os.WriteFile(filepath.Join(h.Data, "routing.json"), []byte(routingTable), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			meta, err := state.ReadTaskMeta(h.State, "task")
@@ -397,9 +409,15 @@ func TestAFailedTestStepEscalatesTheImplementWorkerOneTier(t *testing.T) {
 				t.Fatal(err)
 			}
 			status := strings.Join(lines, "\n")
+			if verb, _ := crewstate.LatestVerb(lines); verb != "working" {
+				t.Errorf("latest verb = %q, want the task still working on its findings", verb)
+			}
 			if test.recorded == "" {
-				if strings.Contains(status, "role-escalated") || strings.Contains(out.String(), "moves the implement role") {
-					t.Fatalf("a role moved:\n%s\n%s", out.String(), status)
+				if strings.Contains(status, "role-escalated") || strings.Contains(out.String(), "moves the implement role") || after.EscalatedRun != "" {
+					t.Fatalf("a role moved, escalated run %q:\n%s\n%s", after.EscalatedRun, out.String(), status)
+				}
+				if !strings.Contains(out.String(), test.said) {
+					t.Errorf("output lacks %q:\n%s", test.said, out.String())
 				}
 				return
 			}
@@ -411,9 +429,6 @@ func TestAFailedTestStepEscalatesTheImplementWorkerOneTier(t *testing.T) {
 			}
 			if after.EscalatedRun != ownerRun {
 				t.Errorf("escalated run = %q, want %s", after.EscalatedRun, ownerRun)
-			}
-			if verb, _ := crewstate.LatestVerb(lines); verb != "working" {
-				t.Errorf("latest verb = %q, want the task still working on its findings", verb)
 			}
 		})
 	}

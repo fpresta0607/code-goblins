@@ -51,9 +51,9 @@ func reportHandback(ctx context.Context, h home.Home, reader pipeline.Reader, me
 		}
 	}
 	fmt.Fprintf(out, "pipeline handback: %s; a correction of anything else is the CEO's to admit\n", correctionCommand(meta.ID, run))
-	if run.Step == "test" && meta.ImplementModel != "" && meta.EscalatedRun != run.RunID {
+	if run.Step == "test" && meta.ImplementModel != "" {
 		if err := escalateImplement(h, meta.ID, run.RunID, out); err != nil {
-			return err
+			fmt.Fprintf(out, "pipeline handback: no role moved, since the implement role's escalation failed: %v\n", err)
 		}
 	}
 	return state.AppendStatus(h.State, meta.ID, fmt.Sprintf("working: fixing run %s's %s findings %s, which its gate handed back", run.RunID, run.Step, ids))

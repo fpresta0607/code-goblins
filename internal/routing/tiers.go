@@ -8,16 +8,13 @@ import (
 // tierTable checks the policy's tiers and resolves each lane they name. A
 // harness's tiers run strongest first, one lane for each model, and a role
 // moves up them by rule once its work failed verification. A harness the
-// tiers do not list has no order to move along.
+// tiers do not list, or list with no lane, has no order to move along.
 func (p Policy) tierTable() (map[string][]ExecutionLane, error) {
 	if len(p.Tiers) == 0 {
 		return nil, nil
 	}
 	table := make(map[string][]ExecutionLane, len(p.Tiers))
 	for harness, names := range p.Tiers {
-		if len(names) == 0 {
-			return nil, fmt.Errorf("routing: %s: tiers for %s name no lane", p.Path, harness)
-		}
 		for _, name := range names {
 			lane, ok := p.Lanes[name]
 			switch {
