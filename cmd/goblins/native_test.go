@@ -6,6 +6,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/host/hosttest"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
+	"github.com/fpresta0607/code-goblins/internal/turnnudge"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -214,5 +215,70 @@ func TestACodexCEOStartingInANativeTerminalRegisters(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(dir, "primary.json"))
 	if err != nil || !strings.Contains(string(data), `"host":"ceo"`) || !strings.Contains(string(data), `"agent":"codex"`) {
 		t.Fatalf("primary.json = %s, %v; want native terminal ceo registered for codex", data, err)
+	}
+}
+
+// A goblin whose turn ends on a promise of an action it never took is told
+// once to do it: its Stop hook, the native hook Claude Code and Codex both
+// run, answers with a block that carries the nudge, on stdout with exit 0,
+// which each reads. A turn a Stop hook already continued, a CEO's session and
+// a gate's agent are never nudged, and every one still spools its turn end
+// (issue #2364).
+func TestAGoblinsStopOnAPromiseIsNudgedOnceByItsNativeHook(t *testing.T) {
+	promise := "The fix is in. Now let me run the tests."
+	for _, test := range []struct {
+		name, harness, role string
+		isStopHookActive    bool
+		isGateAgent         bool
+		isNudged            bool
+	}{
+		{"a Claude Code goblin's turn end", "claude", "goblin", false, false, true},
+		{"a Codex goblin's turn end", "codex", "goblin", false, false, true},
+		{"a Claude Code goblin's turn its Stop hook already continued", "claude", "goblin", true, false, false},
+		{"a Codex goblin's turn its Stop hook already continued", "codex", "goblin", true, false, false},
+		{"a Claude Code CEO's turn end", "claude", "", false, false, false},
+		{"a gate agent's turn end", "claude", "goblin", false, true, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			root := t.TempDir()
+			dir := filepath.Join(root, "state")
+			clearNativeCEOEnvironment(t)
+			t.Setenv(gateAgentVariable, "")
+			if test.isGateAgent {
+				t.Setenv(gateAgentVariable, "1")
+			}
+			if test.role != "" {
+				t.Setenv("GOBLINS_ROLE", test.role)
+				t.Setenv("GOBLINS_TASK_ID", "fixture")
+				t.Setenv("GOBLINS_SPAWN_GEN", "g1")
+			}
+			payload, err := json.Marshal(map[string]any{"hook_event_name": "Stop", "session_id": "native-session", "turn_id": "t1", "cwd": root, "stop_hook_active": test.isStopHookActive, "last_assistant_message": promise})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var output, diagnostics bytes.Buffer
+
+			// Act
+			exit := runNativeHook([]string{test.harness, "--home", root, "--state", dir}, bytes.NewReader(payload), &output, &diagnostics, commandRuntime{})
+
+			// Assert
+			if exit != 0 {
+				t.Fatalf("exit=%d diagnostics=%q, want exit 0, the only one Codex's shell passes on", exit, diagnostics.String())
+			}
+			var reply struct{ Decision, Reason string }
+			if err := json.Unmarshal(output.Bytes(), &reply); err != nil {
+				t.Fatalf("output %q is not one JSON reply: %v", output.String(), err)
+			}
+			if isBlocked := reply.Decision == "block" && reply.Reason == turnnudge.Message; isBlocked != test.isNudged {
+				t.Fatalf("output %q, want nudged %v", output.String(), test.isNudged)
+			}
+			if !test.isNudged && strings.TrimSpace(output.String()) != "{}" {
+				t.Fatalf("output %q, want {}", output.String())
+			}
+			if files, err := os.ReadDir(nativehook.SpoolDir(dir)); err != nil || len(files) != 1 {
+				t.Fatalf("spool %v %v, want the turn end spooled once", files, err)
+			}
+		})
 	}
 }

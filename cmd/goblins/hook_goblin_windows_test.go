@@ -14,6 +14,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
+	"github.com/fpresta0607/code-goblins/internal/turnnudge"
 )
 
 // The tests below run this binary as the home's goblins.exe, as a harness runs
@@ -144,5 +145,98 @@ process.stdout.write(JSON.stringify(answer ?? null));
 				t.Fatalf("the extension answered %+v, want the call blocked with %q", answer, test.want)
 			}
 		})
+	}
+}
+
+// piSettle is what a pi goblin's extension answers a run about to settle
+// with: the entries it adds, and whether the run goes on.
+type piSettle struct {
+	Entries []struct {
+		Type       string `json:"type"`
+		CustomType string `json:"customType"`
+		Content    string `json:"content"`
+	} `json:"entries"`
+	Continue bool `json:"continue"`
+}
+
+// A pi goblin's extension has a run that ends on a promise of an action it
+// never took go on once with the turn-end nudge, as its message to the model,
+// and lets the same run end the second time it would settle. A run that
+// ends on a question, or that was aborted, ends as it would, as does every
+// run when the hook program cannot run. The extension runs in Node as pi
+// loads it, with a stand-in for pi's API, and asks this binary as the home's
+// hook program (issue #2364).
+func TestAPiGoblinsExtensionNudgesARunThatEndsOnAPromiseOnce(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("pi runs on Node, so a machine with no node on PATH runs no pi goblin")
+	}
+	// Arrange
+	goblinHookHome(t)
+	if err := os.WriteFile(filepath.Join(os.Getenv("GOBLINS_HOME"), scratchHomeMarker), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	driver := filepath.Join(dir, "driver.mjs")
+	files := map[string]string{
+		filepath.Join(dir, "extension.mjs"):      install.GoblinPiExtension(filepath.Join(sessionProgramsDir(t), sessionCLI)),
+		filepath.Join(dir, "extension-gone.mjs"): install.GoblinPiExtension(filepath.Join(t.TempDir(), "gone", "goblins-hook.exe")),
+		driver: `import extension from "./extension.mjs";
+import extensionGone from "./extension-gone.mjs";
+const load = (factory) => {
+  const handlers = {};
+  factory({on: (name, handler) => { handlers[name] = handler; }});
+  return handlers;
+};
+const settle = (handlers, text, outcome = "completed") => handlers.agent_before_settle({
+  type: "agent_before_settle", entries: [], continue: false, outcome,
+  context: {canContinue: true, pendingMessages: [], contextMessages: [
+    {role: "user", content: "Fix the bug."},
+    {role: "assistant", content: [{type: "thinking", thinking: "plan"}, {type: "text", text}]},
+  ]},
+}) ?? null;
+const pi = load(extension), piGone = load(extensionGone);
+const promise = "The fix is in. Now let me run the tests.";
+const answers = [];
+pi.before_agent_start({});
+answers.push(settle(pi, promise));
+answers.push(settle(pi, promise));
+pi.before_agent_start({});
+answers.push(settle(pi, "Should I run the tests?"));
+answers.push(settle(pi, promise, "aborted"));
+answers.push(settle(pi, promise));
+piGone.before_agent_start({});
+answers.push(settle(piGone, promise));
+process.stdout.write(JSON.stringify(answers));
+`,
+	}
+	for path, content := range files {
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run := exec.Command(node, driver)
+	run.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
+	var stderr bytes.Buffer
+	run.Stderr = &stderr
+
+	// Act
+	output, err := run.Output()
+
+	// Assert
+	if err != nil {
+		t.Fatalf("node ended with %v (stderr %q)", err, stderr.String())
+	}
+	var answers []*piSettle
+	if err := json.Unmarshal(output, &answers); err != nil {
+		t.Fatalf("the extension answered %q: %v", output, err)
+	}
+	isNudged := func(answer *piSettle) bool {
+		return answer != nil && answer.Continue && len(answer.Entries) == 1 && answer.Entries[0].Type == "custom_message" && answer.Entries[0].Content == turnnudge.Message
+	}
+	for at, want := range []bool{true, false, false, false, true, false} {
+		if got := isNudged(answers[at]); got != want {
+			t.Errorf("settle %d answered %q, want nudged %v", at+1, output, want)
+		}
 	}
 }
