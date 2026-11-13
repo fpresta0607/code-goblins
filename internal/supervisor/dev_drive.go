@@ -85,7 +85,8 @@ const devDriveAttachEvery = 12 * time.Hour
 
 // watchDevDrive keeps the Dev Drive's view and items to the machine: now,
 // every minute while a step is under way and every half hour otherwise,
-// whenever the person asks or one of its items ends, and at the next tick
+// whenever the person asks, one of its items ends or its own carry of the
+// gate's home ends, and at the next tick
 // after config\dev-drive.json changed, as goblins dev-drive setup, goblins dev-drive
 // move and the install change it. Only that file is read each tick; the
 // machine is read when a look is due.
@@ -135,7 +136,8 @@ func (s *Service) devDriveAgain() {
 }
 
 // keepDevDrive reads the machine and the home's config\dev-drive.json, makes
-// the next step's item when one is due, and keeps the view the board shows.
+// the next step's item when one is due, or takes the gate step itself, and
+// keeps the view the board shows.
 // It reads the config each time rather than the home this supervisor started
 // with, which a move changes.
 func (s *Service) keepDevDrive(ctx context.Context) time.Duration {

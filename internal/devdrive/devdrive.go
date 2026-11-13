@@ -197,8 +197,8 @@ func (r Report) Untrusted() bool {
 	return (r.State == StatePresent || r.State == StateOn) && r.Volume.Trust != Trusted
 }
 
-// BoardSteps says where a person sets a Dev Drive up: every step is a
-// Command Center item, made once the board's setting is pressed.
+// BoardSteps says where a person sets a Dev Drive up: every step that needs
+// him is a Command Center item, made once the board's setting is pressed.
 const BoardSteps = "Set up under Dev Drive in the board's Workspace panel puts each step in the Command Center"
 
 // Explain is the sentence every surface uses to say what a Dev Drive is.
