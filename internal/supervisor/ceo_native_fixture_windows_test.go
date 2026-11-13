@@ -237,7 +237,7 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 				}
 				continue
 			}
-			if isBusy && hasQueued {
+			if isBusy {
 				record("interrupted")
 				isBusy, hasQueued, line, held, queue = false, false, held, "", nil
 				draw(false)

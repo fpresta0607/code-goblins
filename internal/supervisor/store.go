@@ -96,6 +96,9 @@ type Evaluation struct {
 	// on a retry, and SendNowWhy says why not when it could not.
 	CanSendNow bool   `json:"-"`
 	SendNowWhy string `json:"-"`
+	// CommandSendsNow says a command held for its session's turn can be run
+	// at once there, by the send-now key of that session's harness.
+	CommandSendsNow bool `json:"-"`
 }
 
 // ParkedRun is a gate run that waits on a decision at one of its steps, on
@@ -729,13 +732,19 @@ func (s *Store) markTyped(id, task string, awaiting *Awaiting) error {
 	return s.save()
 }
 
-// holdCommand takes Send now off a queued message that is a command, which
-// waits for its turn to end whatever he presses, and says so in place of what
-// it was given.
-func (a *Action) holdCommand() {
-	if a.CanSendNow && isHarnessCommand(a.Text) {
-		a.CanSendNow, a.SendNowWhy, a.Message = false, commandWaits, "Queued. "+commandWaits
+// holdCommand gives a queued message that is a command, which waits for its
+// turn to end, words of its own in place of what it was given: that Send now
+// runs it at once, where its session's harness can (sendsNow), and otherwise
+// no Send now.
+func (a *Action) holdCommand(sendsNow bool) {
+	if !a.CanSendNow || !isHarnessCommand(a.Text) {
+		return
 	}
+	if !sendsNow {
+		a.CanSendNow, a.SendNowWhy, a.Message = false, commandWaits, "Queued. "+commandWaits
+		return
+	}
+	a.SendNowWhy, a.Message = "", "Queued. "+commandWaits+" "+commandSendsNow
 }
 
 // queueUnlessEvaluating queues a reconcile's evaluation only while no
@@ -948,7 +957,7 @@ func (s *Store) queue(a Action) (Action, error) {
 	if message {
 		s.waitBehind(slices.IndexFunc(s.db.Actions, func(queued Action) bool {
 			return queued.Kind == "message" && queued.TaskID == a.TaskID && queued.Status == "queued"
-		}))
+		}), false)
 	}
 	if answer {
 		for i := range s.db.Questions {
@@ -1157,8 +1166,17 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 			}
 			completed.CanSendNow, completed.SendNowWhy = result.CanSendNow, result.SendNowWhy
 			if a.Kind == "message" {
-				s.waitBehind(i)
-				completed.holdCommand()
+				s.waitBehind(i, result.CommandSendsNow)
+				completed.holdCommand(result.CommandSendsNow)
+				// A Send now of a command is one try, spent by the try it
+				// reaches: one that could not run it says so, and no later turn
+				// is interrupted for it (#1915).
+				if a.IsSentNow && isHarnessCommand(a.Text) {
+					completed.IsSentNow = false
+					if completed.CanSendNow {
+						completed.Message = "Queued. " + commandNotSentNow
+					}
+				}
 			}
 			if s.deferredUntil == nil {
 				s.deferredUntil = make(map[string]time.Time)
