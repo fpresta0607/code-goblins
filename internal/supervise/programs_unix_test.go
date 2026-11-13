@@ -1,4 +1,6 @@
-package lock
+//go:build linux || darwin
+
+package supervise
 
 import (
 	"os/exec"
