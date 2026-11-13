@@ -2,6 +2,9 @@ package proc
 
 import (
 	"encoding/binary"
+	"errors"
+	"io/fs"
+	"os/exec"
 	"slices"
 	"strings"
 	"testing"
@@ -63,6 +66,54 @@ func TestAChildsStartLiesBetweenTheMomentsBeforeAndAfterItsSpawn(t *testing.T) {
 	}
 	if start.Before(before) || start.After(after) {
 		t.Errorf("the child reads as started at %s, want between %s and %s", start.Format(time.RFC3339Nano), before.Format(time.RFC3339Nano), after.Format(time.RFC3339Nano))
+	}
+}
+
+// macOS has no pidfd, so the end goes to the ID once the instance is read
+// again. A child that exits after its identity was read keeps its ID until
+// it is collected, and kill(2) of it succeeds, so only that last reading
+// keeps TerminateVerifiedIn from reporting it ended.
+func TestTerminateVerifiedInRefusesAChildThatExitedAfterItWasIdentified(t *testing.T) {
+	// Arrange
+	child := exec.Command("sleep", "600")
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = child.Process.Kill()
+		_ = child.Wait()
+	})
+	start, isFound := StartTime(child.Process.Pid)
+	if !isFound {
+		t.Fatal("the child's start could not be read")
+	}
+	isAccepted := false
+	var exitedErr error
+	endChild := func(Identity) error {
+		isAccepted = true
+		if err := child.Process.Kill(); err != nil {
+			return err
+		}
+		for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+			if _, exitedErr = Lookup(child.Process.Pid); exitedErr != nil {
+				break
+			}
+		}
+		return nil
+	}
+
+	// Act
+	err := TerminateVerifiedIn(child.Process.Pid, start, endChild)
+
+	// Assert
+	if !isAccepted {
+		t.Fatalf("the child was refused before accept was asked: %v", err)
+	}
+	if !errors.Is(exitedErr, fs.ErrNotExist) {
+		t.Fatalf("Lookup of the child ended in accept = %v, want fs.ErrNotExist", exitedErr)
+	}
+	if err == nil {
+		t.Error("TerminateVerifiedIn reported a child that exited after it was identified as ended")
 	}
 }
 

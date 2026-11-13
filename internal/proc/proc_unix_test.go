@@ -109,8 +109,8 @@ func TestAncestryOfAChildWalksUpThroughThisProcess(t *testing.T) {
 }
 
 // A process that has exited keeps its ID until its parent collects it. It
-// runs nothing, so it reads as gone, never as a process that could not be
-// read.
+// runs nothing, so it reads as gone and is left out of the processes listed,
+// never read as a process that could not be read.
 func TestAChildThatExitedReadsAsGoneBeforeItIsCollected(t *testing.T) {
 	// Arrange
 	child := exec.Command("true")
@@ -136,6 +136,13 @@ func TestAChildThatExitedReadsAsGoneBeforeItIsCollected(t *testing.T) {
 	}
 	if _, isFound := StartTime(child.Process.Pid); isFound {
 		t.Error("StartTime found an exited child running")
+	}
+	processes, err := Processes()
+	if err != nil {
+		t.Errorf("Processes = %v", err)
+	}
+	if slices.ContainsFunc(processes, func(entry Entry) bool { return entry.PID == child.Process.Pid }) {
+		t.Errorf("the processes listed hold the exited child, pid %d", child.Process.Pid)
 	}
 	if _, err := Instance(child.Process.Pid); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("Instance of an exited child = %v, want fs.ErrNotExist", err)
