@@ -65,8 +65,15 @@ func runDevDrive(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	return 0
 }
 
+// exitGateBusy is how goblins dev-drive move ends when all it asked moved but
+// the gate's home, which waited for gate runs that stayed in flight: nothing
+// of the gate's home changed, and the same command carries it once the gate
+// rests, as the board does by itself.
+const exitGateBusy = 3
+
 // runDevDriveSetup asks for the next Dev Drive step from a terminal, as Set up
-// on the board does: the board puts it in the Command Center.
+// on the board does: the board puts each step that needs a person in the
+// Command Center and takes the others itself.
 func runDevDriveSetup(stdout, stderr io.Writer, runtime commandRuntime) int {
 	h, err := runtime.resolveHome()
 	if err != nil {
@@ -77,7 +84,7 @@ func runDevDriveSetup(stdout, stderr io.Writer, runtime commandRuntime) int {
 		fmt.Fprintln(stderr, "goblins dev-drive setup: "+err.Error())
 		return 1
 	}
-	fmt.Fprintln(stdout, "asked: the board puts the next Dev Drive step in the Command Center within a minute, each step one item to run")
+	fmt.Fprintln(stdout, "asked: within a minute the board puts the next Dev Drive step that needs you in the Command Center, one item to run, and moves the gate's home itself once no gate run is in flight")
 	return 0
 }
 
@@ -123,10 +130,13 @@ func runDevDriveMove(args []string, stdout, stderr io.Writer, runtime commandRun
 	if gateErr != nil {
 		fmt.Fprintln(stderr, "goblins dev-drive move: "+gateErr.Error())
 	}
-	if narrowErr != nil || gateErr != nil {
-		return 1
+	switch {
+	case narrowErr == nil && gateErr == nil:
+		return 0
+	case narrowErr == nil && errors.Is(gateErr, gatehome.ErrGateBusy):
+		return exitGateBusy
 	}
-	return 0
+	return 1
 }
 
 // carryGateHomeOnto moves the gate's home into the Dev Drive folder, which an

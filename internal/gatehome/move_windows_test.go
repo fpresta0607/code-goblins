@@ -22,9 +22,12 @@ import (
 // fakeDaemon stands in for no-mistakes' daemon and records each call.
 type fakeDaemon struct {
 	calls []string
-	// refusals is how many Uninstall calls of the old home refuse, as
+	// refusals is how many Stop calls of the old home refuse, as
 	// no-mistakes does while a gate run is in flight.
 	refusals int
+	// busyHolds is how many Hold calls refuse, as the daemon's lock does
+	// while a daemon holds it.
+	busyHolds int
 	// failStart fails Start on the named home.
 	failStart string
 	// onHold runs when the home is held.
@@ -33,17 +36,26 @@ type fakeDaemon struct {
 	onStart func(root string)
 }
 
-func (d *fakeDaemon) Uninstall(_ context.Context, root string) error {
-	d.calls = append(d.calls, "uninstall "+root)
+func (d *fakeDaemon) Stop(_ context.Context, root string) error {
+	d.calls = append(d.calls, "stop "+root)
 	if d.refusals > 0 {
 		d.refusals--
-		return errors.New("refusing daemon uninstall: 1 pipeline run is active")
+		return errors.New("refusing daemon stop because 1 active pipeline runs are in progress")
 	}
+	return nil
+}
+
+func (d *fakeDaemon) Forget(_ context.Context, root string) error {
+	d.calls = append(d.calls, "forget "+root)
 	return nil
 }
 
 func (d *fakeDaemon) Hold(_ context.Context, root string) (func() error, error) {
 	d.calls = append(d.calls, "hold "+root)
+	if d.busyHolds > 0 {
+		d.busyHolds--
+		return nil, errors.New("pipeline busy: the no-mistakes daemon is running and no gate run is in flight")
+	}
 	if d.onHold != nil {
 		d.onHold()
 	}
@@ -129,7 +141,7 @@ func TestMoveCarriesTheHomeAndPointsEveryRecordAtIt(t *testing.T) {
 	if !strings.HasPrefix(line, "moved: the gate's home is "+s.target) {
 		t.Errorf("line = %q", line)
 	}
-	if want := []string{"uninstall " + s.old, "hold " + s.old, "release " + s.old, "start " + s.target}; !slices.Equal(s.daemon.calls, want) {
+	if want := []string{"stop " + s.old, "hold " + s.old, "release " + s.old, "start " + s.target, "forget " + s.old}; !slices.Equal(s.daemon.calls, want) {
 		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
 	}
 	if value, isSet, _ := s.env.Get(Variable); !isSet || value != s.target {
@@ -177,6 +189,8 @@ func TestMoveCarriesTheHomeAndPointsEveryRecordAtIt(t *testing.T) {
 	}
 }
 
+// A move whose gate runs stay in flight through every try changes nothing
+// and says the one true thing about the daemon: it was never stopped.
 func TestMoveIsRefusedWhileAGateRunIsInFlight(t *testing.T) {
 	// Arrange
 	s := newScratch(t)
@@ -189,14 +203,63 @@ func TestMoveIsRefusedWhileAGateRunIsInFlight(t *testing.T) {
 	_, _, err := mover.Move(context.Background(), s.old, s.devDrive)
 
 	// Assert
-	if err == nil || !strings.Contains(err.Error(), "while gate runs stay in flight") {
-		t.Fatalf("err = %v, want a refusal while runs are in flight", err)
+	if !errors.Is(err, ErrGateBusy) || !strings.Contains(err.Error(), "nothing moved, and the daemon was not stopped and runs as before") {
+		t.Fatalf("err = %v, want a busy gate whose daemon was never stopped", err)
 	}
-	if want := slices.Repeat([]string{"uninstall " + s.old}, 3); !slices.Equal(s.daemon.calls, want) {
+	if want := slices.Repeat([]string{"stop " + s.old}, 3); !slices.Equal(s.daemon.calls, want) {
 		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
 	}
 	if waits != 3 {
 		t.Errorf("waited %d times, want 3", waits)
+	}
+	assertUntouched(t, s)
+}
+
+// A move started while a gate run is in flight waits, and carries the home
+// once the run ended: a daemon that still runs, which a stop that changed
+// nothing leaves, is waited for as a refused stop is (#2525).
+func TestMoveWaitsForTheGateToRestAndThenCarriesTheHome(t *testing.T) {
+	// Arrange
+	s := newScratch(t)
+	s.daemon.refusals, s.daemon.busyHolds = 1, 1
+	var waits []string
+
+	// Act
+	mover := s.mover()
+	mover.Waiting = func(err error) { waits = append(waits, err.Error()) }
+	line, isCarried, err := mover.Move(context.Background(), s.old, s.devDrive)
+
+	// Assert
+	if err != nil || !isCarried || !strings.HasPrefix(line, "moved: the gate's home is "+s.target) {
+		t.Fatalf("move = %q, %v, %v; want the home carried once the gate rested", line, isCarried, err)
+	}
+	if want := []string{"stop " + s.old, "stop " + s.old, "hold " + s.old, "stop " + s.old, "hold " + s.old, "release " + s.old, "start " + s.target, "forget " + s.old}; !slices.Equal(s.daemon.calls, want) {
+		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
+	}
+	if len(waits) != 2 {
+		t.Errorf("waited on %q, want the refused stop and the busy hold", waits)
+	}
+	if _, err := os.Lstat(s.old); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the old home is still there: %v", err)
+	}
+}
+
+// A move that stopped the daemon but never held it off starts it again on
+// the old home, which it never changed, and says so.
+func TestAMoveThatStoppedTheDaemonAndGaveUpStartsItAgain(t *testing.T) {
+	// Arrange
+	s := newScratch(t)
+	s.daemon.busyHolds = 99
+
+	// Act
+	_, _, err := s.mover().Move(context.Background(), s.old, s.devDrive)
+
+	// Assert
+	if !errors.Is(err, ErrGateBusy) || !strings.Contains(err.Error(), "nothing moved, and the daemon was stopped and runs again on "+s.old) {
+		t.Fatalf("err = %v, want a busy gate whose daemon runs again", err)
+	}
+	if want := append(slices.Repeat([]string{"stop " + s.old, "hold " + s.old}, 3), "start "+s.old); !slices.Equal(s.daemon.calls, want) {
+		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
 	}
 	assertUntouched(t, s)
 }
@@ -213,7 +276,7 @@ func TestAnInterruptedCopyUndoesTheMove(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want the copy's interruption", err)
 	}
-	if want := []string{"uninstall " + s.old, "hold " + s.old, "release " + s.old, "start " + s.old}; !slices.Equal(s.daemon.calls, want) {
+	if want := []string{"stop " + s.old, "hold " + s.old, "release " + s.old, "start " + s.old}; !slices.Equal(s.daemon.calls, want) {
 		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
 	}
 	assertUntouched(t, s)
@@ -234,7 +297,7 @@ func TestAFailedStartOnTheCopyUndoesTheSwitch(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "did not start on "+s.target) {
 		t.Fatalf("err = %v, want the failed start", err)
 	}
-	if want := []string{"uninstall " + s.old, "hold " + s.old, "release " + s.old, "start " + s.target, "uninstall " + s.target, "start " + s.old}; !slices.Equal(s.daemon.calls, want) {
+	if want := []string{"stop " + s.old, "hold " + s.old, "release " + s.old, "start " + s.target, "stop " + s.target, "forget " + s.target, "start " + s.old}; !slices.Equal(s.daemon.calls, want) {
 		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
 	}
 	if value, _, _ := s.env.Get(Variable); value != s.old {
@@ -473,7 +536,7 @@ func TestMoveCarriesAHomeThatIsItselfAJunctionToTheDevDriveInPlace(t *testing.T)
 	if err != nil || !isCarried || !strings.Contains(line, "the junction "+s.old+" is gone, removed as a link") {
 		t.Fatalf("line = %q, carried %v, err = %v", line, isCarried, err)
 	}
-	if want := []string{"uninstall " + s.old, "hold " + s.old, "release " + s.old, "start " + s.target}; !slices.Equal(s.daemon.calls, want) {
+	if want := []string{"stop " + s.old, "hold " + s.old, "release " + s.old, "start " + s.target, "forget " + s.old}; !slices.Equal(s.daemon.calls, want) {
 		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
 	}
 	if _, err := os.Lstat(s.old); !errors.Is(err, os.ErrNotExist) {
@@ -521,7 +584,7 @@ func TestAFailedStartOfAHomeThatIsAJunctionLeavesItAsItWas(t *testing.T) {
 	if err == nil || isCarried || !strings.Contains(err.Error(), "did not start on "+s.target) {
 		t.Fatalf("carried %v, err = %v; want the failed start", isCarried, err)
 	}
-	if want := []string{"uninstall " + s.old, "hold " + s.old, "release " + s.old, "start " + s.target, "uninstall " + s.target, "start " + s.old}; !slices.Equal(s.daemon.calls, want) {
+	if want := []string{"stop " + s.old, "hold " + s.old, "release " + s.old, "start " + s.target, "stop " + s.target, "forget " + s.target, "start " + s.old}; !slices.Equal(s.daemon.calls, want) {
 		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
 	}
 	if linked, isLink := linkTarget(s.old); !isLink || !sameFolder(linked, s.target) {
@@ -664,7 +727,7 @@ func TestALinkThatCannotBeMadeAgainUndoesTheMove(t *testing.T) {
 	if err == nil || isCarried || !strings.Contains(err.Error(), "the link "+refused) || !strings.Contains(err.Error(), "refused for the test") {
 		t.Fatalf("carried %v, err = %v; want the link %s named", isCarried, err, refused)
 	}
-	if want := []string{"uninstall " + s.old, "hold " + s.old, "release " + s.old, "start " + s.old}; !slices.Equal(s.daemon.calls, want) {
+	if want := []string{"stop " + s.old, "hold " + s.old, "release " + s.old, "start " + s.old}; !slices.Equal(s.daemon.calls, want) {
 		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
 	}
 	assertUntouched(t, s)

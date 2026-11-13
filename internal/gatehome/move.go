@@ -16,17 +16,24 @@ import (
 
 // Daemon is the gate's daemon for the home at root, as a move needs it.
 type Daemon interface {
-	// Uninstall stops root's daemon and removes the scheduled task that
-	// starts it at sign-in, which no-mistakes names after the home. It is
-	// refused while a gate run is in flight, and never forced.
-	Uninstall(ctx context.Context, root string) error
+	// Stop stops root's daemon by its own consent. It is refused while a
+	// gate run is in flight, and never forced.
+	Stop(ctx context.Context, root string) error
 	// Hold keeps any daemon of root from starting and proves no gate run is
 	// in flight, until release.
 	Hold(ctx context.Context, root string) (release func() error, err error)
 	// Start installs root's scheduled task and starts its daemon, and
-	// returns once it runs.
+	// returns once it runs. A daemon that runs already is started.
 	Start(ctx context.Context, root string) error
+	// Forget removes the scheduled task that starts root's daemon at
+	// sign-in, which no-mistakes names after the home and a stop leaves.
+	Forget(ctx context.Context, root string) error
 }
+
+// ErrGateBusy is a move that changed nothing because the gate never came to
+// rest while it waited: gate runs stayed in flight, or a daemon held the
+// home. The same move carries the home once the gate rests.
+var ErrGateBusy = errors.New("gate home: the gate stayed busy")
 
 // Mover moves the gate's home onto the Dev Drive.
 type Mover struct {
@@ -36,12 +43,14 @@ type Mover struct {
 	// Git runs git, to point each gated checkout's no-mistakes remote at
 	// its moved repository.
 	Git execx.Runner
-	// Tries is how many times the daemon is asked to stop before the move
-	// gives up while gate runs stay in flight, Every apart; at least one.
+	// Tries is how many times the daemon is asked to stop and be held off
+	// before the move gives up while gate runs stay in flight, Every apart;
+	// at least one.
 	Tries int
 	Every time.Duration
 	Now   func() time.Time
-	// Waiting is told each time the daemon refused to stop.
+	// Waiting is told each time the daemon refused to stop or to be held
+	// off.
 	Waiting func(err error)
 }
 
@@ -91,14 +100,15 @@ func (m Mover) Move(ctx context.Context, old, devDrive string) (string, bool, er
 	if err != nil {
 		return "", false, err
 	}
-	if err := m.stop(ctx, old); err != nil {
+	release, err := m.rest(ctx, old)
+	if err != nil {
 		return "", false, err
 	}
-	move := &moving{mover: m, old: old, target: target, plan: plan}
+	move := &moving{mover: m, old: old, target: target, plan: plan, release: release}
 	if err := move.run(ctx); err != nil {
 		return "", false, errors.Join(err, move.undo(context.WithoutCancel(ctx)))
 	}
-	return move.finish(), true, nil
+	return move.finish(context.WithoutCancel(ctx)), true, nil
 }
 
 // carryInPlace carries a home that is itself a junction to target without a
@@ -112,19 +122,23 @@ func (m Mover) carryInPlace(ctx context.Context, old, target string) (string, bo
 	if err != nil {
 		return "", false, err
 	}
-	if err := m.stop(ctx, old); err != nil {
+	release, err := m.rest(ctx, old)
+	if err != nil {
 		return "", false, err
 	}
-	move := &moving{mover: m, old: old, target: target}
+	move := &moving{mover: m, old: old, target: target, release: release}
 	if err := move.run(ctx); err != nil {
 		return "", false, errors.Join(err, move.undo(context.WithoutCancel(ctx)))
 	}
 	line, err := move.unlink(repositories)
+	if err == nil {
+		line += move.forget(context.WithoutCancel(ctx))
+	}
 	return line, true, err
 }
 
-// moving is one move after the daemon stopped, with what it changed so far
-// for its undo.
+// moving is one move after the daemon stopped and was held off, which release
+// ends, with what it changed so far for its undo.
 type moving struct {
 	mover       Mover
 	old, target string
@@ -141,11 +155,6 @@ type moving struct {
 }
 
 func (m *moving) run(ctx context.Context) error {
-	release, err := m.mover.Daemon.Hold(ctx, m.old)
-	if err != nil {
-		return fmt.Errorf("gate home: the daemon stopped but could not be held off, so nothing moved: %w", err)
-	}
-	m.release = release
 	if m.plan != nil {
 		if err := m.plan.setAside(); err != nil {
 			return fmt.Errorf("gate home: what a move by hand left in %s could not be set aside, so nothing moved: %w", m.target, err)
@@ -179,7 +188,8 @@ func (m *moving) run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	release, m.release = m.release, nil
+	release := m.release
+	m.release = nil
 	if err := release(); err != nil {
 		return err
 	}
@@ -195,7 +205,7 @@ func (m *moving) run(ctx context.Context) error {
 func (m *moving) undo(ctx context.Context) error {
 	var errs []error
 	if m.isStarted {
-		errs = append(errs, m.mover.Daemon.Uninstall(ctx, m.target))
+		errs = append(errs, m.mover.Daemon.Stop(ctx, m.target), m.mover.Daemon.Forget(ctx, m.target))
 	}
 	errs = append(errs, restoreRemotes(ctx, m.mover.Git, m.remotes))
 	if m.isEnvSet {
@@ -265,10 +275,12 @@ func (r relink) restore() error {
 	return makeLink(r.path, r.linked, r.isJunction, r.isDirectory)
 }
 
-// finish removes the old home, its links as links so what they lead to
-// stays, and what a move by hand left aside, and says what the move did.
-func (m *moving) finish() string {
+// finish removes the old home's sign-in task, the old home, its links as
+// links so what they lead to stays, and what a move by hand left aside, and
+// says what the move did.
+func (m *moving) finish(ctx context.Context) string {
 	line := fmt.Sprintf("moved: the gate's home is %s on the Dev Drive, named by NM_HOME for every program started from now on, and its daemon runs there; %d gated checkout(s) push to it", m.target, len(m.remotes))
+	line += m.forget(ctx)
 	if err := removeTree(m.old); err != nil {
 		line += fmt.Sprintf("; the old home %s could not be removed (%v) and stays as a backup", m.old, err)
 	} else {
@@ -278,6 +290,15 @@ func (m *moving) finish() string {
 		line += fmt.Sprintf("; what an earlier move left in the Dev Drive folder may stay in %s (%v)", m.plan.aside, err)
 	}
 	return line
+}
+
+// forget removes the old home's sign-in task once the daemon runs on the new
+// one, and says so when it could not: the move is done either way.
+func (m *moving) forget(ctx context.Context) string {
+	if err := m.mover.Daemon.Forget(ctx, m.old); err != nil {
+		return fmt.Sprintf("; the sign-in task that started the daemon on %s could not be removed (%v)", m.old, err)
+	}
+	return ""
 }
 
 // unlink removes the junction at the old home as a link alone, once the
@@ -313,23 +334,45 @@ func (m Mover) setEnv(target string) error {
 	return m.Env.Broadcast()
 }
 
-// stop asks the daemon to stop until it does or the tries run out.
-func (m Mover) stop(ctx context.Context, root string) error {
+// rest brings the gate of the home at root to rest: it asks the daemon to
+// stop, which it refuses while a gate run is in flight, and then holds it
+// off, until both hold or the tries run out. A move that gives up, or is
+// interrupted while it waits, starts a daemon it stopped again and says
+// whether the daemon was stopped and whether it runs now.
+func (m Mover) rest(ctx context.Context, root string) (func() error, error) {
 	var err error
-	for try := 0; try < max(1, m.Tries); try++ {
+	var wasStopped bool
+	for try := 0; try < max(1, m.Tries) && ctx.Err() == nil; try++ {
 		if try > 0 {
 			select {
 			case <-ctx.Done():
-				return ctx.Err()
+				continue
 			case <-time.After(m.Every):
 			}
 		}
-		if err = m.Daemon.Uninstall(ctx, root); err == nil {
-			return nil
+		if err = m.Daemon.Stop(ctx, root); err == nil {
+			wasStopped = true
+			var release func() error
+			if release, err = m.Daemon.Hold(ctx, root); err == nil {
+				return release, nil
+			}
 		}
 		if m.Waiting != nil {
 			m.Waiting(err)
 		}
 	}
-	return fmt.Errorf("gate home: the daemon did not stop while gate runs stay in flight, so nothing moved; it moves once no gate run is in flight: %w", err)
+	if ctx.Err() != nil {
+		err = ctx.Err()
+	} else {
+		err = fmt.Errorf("%w: %w", ErrGateBusy, err)
+	}
+	daemon := "the daemon was not stopped and runs as before"
+	if wasStopped {
+		daemon = "the daemon was stopped and runs again on " + root
+		if startErr := m.Daemon.Start(context.WithoutCancel(ctx), root); startErr != nil {
+			daemon = "the daemon was stopped and did not start again on " + root
+			err = errors.Join(err, startErr)
+		}
+	}
+	return nil, fmt.Errorf("gate home: nothing moved, and %s; the home moves once no gate run is in flight: %w", daemon, err)
 }

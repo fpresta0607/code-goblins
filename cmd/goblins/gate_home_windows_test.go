@@ -5,9 +5,12 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"html"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -65,6 +68,45 @@ func newGateDaemonScratch(t *testing.T) gateDaemonScratch {
 	return s
 }
 
+// gateTaskRunner answers schtasks itself, as a machine whose only scheduled
+// tasks are tasks, each name to its definition, and records each schtasks
+// call; every other program runs for real.
+type gateTaskRunner struct {
+	tasks map[string]string
+	calls []string
+}
+
+func (r *gateTaskRunner) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
+	if request.Name != "schtasks" {
+		return execx.OSRunner{}.Run(ctx, request)
+	}
+	r.calls = append(r.calls, strings.Join(request.Args, " "))
+	switch {
+	case slices.Equal(request.Args, []string{"/query", "/fo", "csv", "/nh"}):
+		var listed strings.Builder
+		for _, name := range slices.Sorted(maps.Keys(r.tasks)) {
+			listed.WriteString(`"` + name + `","N/A","Ready"` + "\r\n")
+		}
+		return execx.Result{Stdout: []byte(listed.String())}, nil
+	case len(request.Args) == 4 && request.Args[0] == "/query" && request.Args[3] == "/xml":
+		return execx.Result{Stdout: []byte(r.tasks[request.Args[2]])}, nil
+	case len(request.Args) == 4 && request.Args[0] == "/delete":
+		delete(r.tasks, request.Args[2])
+		return execx.Result{}, nil
+	}
+	return execx.Result{ExitCode: 1, Stderr: []byte("ERROR: Invalid argument/option")}, nil
+}
+
+// gateDaemonTask is the definition of the scheduled task no-mistakes
+// registers to start the daemon of the home at root at sign-in, as schtasks
+// prints it.
+func gateDaemonTask(root string) string {
+	if strings.ContainsAny(root, " \t\"") {
+		root = strconv.Quote(root)
+	}
+	return "<Task>\r\n  <Actions Context=\"Author\">\r\n    <Exec>\r\n      <Command>C:\\Programs\\no-mistakes\\no-mistakes.exe</Command>\r\n      <Arguments>daemon run --root " + html.EscapeString(root) + "</Arguments>\r\n    </Exec>\r\n  </Actions>\r\n</Task>\r\n"
+}
+
 // calls are the no-mistakes calls the stand-in recorded, in order.
 func (s gateDaemonScratch) calls(t *testing.T) []string {
 	t.Helper()
@@ -78,25 +120,37 @@ func (s gateDaemonScratch) calls(t *testing.T) []string {
 	return strings.Split(strings.TrimSpace(string(raw)), "\r\n")
 }
 
-// The real carry asks no-mistakes to uninstall the daemon of the old home,
-// never to stop it by force, then to start it once the home moved; the
-// user's NM_HOME then names the moved home. Which home each call names, and
-// how, TestGateDaemonRunsNoMistakesWithTheHomeAsNMHomeAndNoUpdateCheck proves.
-func TestCarryGateHomeUninstallsTheOldDaemonAndStartsItOnTheMovedHome(t *testing.T) {
+// The real carry asks no-mistakes to stop the daemon of the old home, never
+// by force and never with daemon uninstall, which changes nothing on Windows
+// and so never waited for a gate run (#2525), then to start it once the home
+// moved; the user's NM_HOME then names the moved home, and the old home's
+// sign-in task goes while every other task stays. Which home each call
+// names, and how, TestGateDaemonRunsNoMistakesWithTheHomeAsNMHomeAndNoUpdateCheck
+// proves.
+func TestCarryGateHomeStopsTheOldDaemonAndStartsItOnTheMovedHome(t *testing.T) {
 	// Arrange
 	s := newGateDaemonScratch(t)
 	target := gatehome.Target(s.devDrive)
+	elsewhere := filepath.Join(filepath.Dir(s.devDrive), "another home", ".no-mistakes")
+	tasks := &gateTaskRunner{tasks: map[string]string{
+		`\no-mistakes-daemon-0a0a0a0a`: gateDaemonTask(s.old),
+		`\no-mistakes-daemon-0b0b0b0b`: gateDaemonTask(elsewhere),
+		`\Another Program\Updater`:     "<Task><Actions><Exec><Arguments>--root " + html.EscapeString(s.old) + "</Arguments></Exec></Actions></Task>",
+	}}
 
 	// Act
 	var out bytes.Buffer
-	line, isCarried, err := carryGateHome(context.Background(), s.old, s.devDrive, 1, 0, &out)
+	line, isCarried, err := carryGateHomeWith(context.Background(), tasks, s.old, s.devDrive, 1, 0, &out)
 
 	// Assert
 	if err != nil || !isCarried || !strings.HasPrefix(line, "moved: the gate's home is "+target) {
 		t.Fatalf("carry = %q, %v, %v; want it moved to %s", line, isCarried, err, target)
 	}
-	if want := []string{"no-mistakes daemon uninstall", "no-mistakes daemon start"}; !slices.Equal(s.calls(t), want) {
+	if want := []string{"no-mistakes daemon stop", "no-mistakes daemon start"}; !slices.Equal(s.calls(t), want) {
 		t.Errorf("no-mistakes calls = %q, want %q", s.calls(t), want)
+	}
+	if want := []string{`\Another Program\Updater`, `\no-mistakes-daemon-0b0b0b0b`}; !slices.Equal(slices.Sorted(maps.Keys(tasks.tasks)), want) {
+		t.Errorf("scheduled tasks left = %q, want only the old home's gone: %q", slices.Sorted(maps.Keys(tasks.tasks)), want)
 	}
 	if value, isSet, err := installbase.UserVariable(gatehome.Variable); err != nil || !isSet || value != target {
 		t.Errorf("user NM_HOME = %q (set %v, %v), want %s", value, isSet, err, target)
@@ -108,8 +162,9 @@ func TestCarryGateHomeUninstallsTheOldDaemonAndStartsItOnTheMovedHome(t *testing
 
 // The real carry holds the daemon lock of the old home, the one a daemon of
 // that home takes, before it copies: while something else holds that lock
-// nothing is copied, the user's NM_HOME is not set, and the daemon starts on
-// the old home again.
+// through every try nothing is copied, the user's NM_HOME is not set, no
+// scheduled task is read, and the daemon it stopped starts on the old home
+// again.
 func TestCarryGateHomeHoldsTheOldHomesDaemonLockBeforeItCopies(t *testing.T) {
 	// Arrange
 	s := newGateDaemonScratch(t)
@@ -121,14 +176,24 @@ func TestCarryGateHomeHoldsTheOldHomesDaemonLockBeforeItCopies(t *testing.T) {
 
 	// Act
 	var out bytes.Buffer
-	_, isCarried, err := carryGateHome(context.Background(), s.old, s.devDrive, 1, 0, &out)
+	tasks := &gateTaskRunner{tasks: map[string]string{`\no-mistakes-daemon-0a0a0a0a`: gateDaemonTask(s.old)}}
+	_, isCarried, err := carryGateHomeWith(context.Background(), tasks, s.old, s.devDrive, 2, 0, &out)
 
 	// Assert
-	if !errors.Is(err, pipeline.ErrBusy) || isCarried {
-		t.Fatalf("carry = %v, %v; want it refused while the old home's daemon lock is held", isCarried, err)
+	if !errors.Is(err, pipeline.ErrBusy) || !errors.Is(err, gatehome.ErrGateBusy) || isCarried {
+		t.Fatalf("carry = %v, %v; want it refused as busy while the old home's daemon lock is held", isCarried, err)
 	}
-	if want := []string{"no-mistakes daemon uninstall", "no-mistakes daemon start"}; !slices.Equal(s.calls(t), want) {
+	if !strings.Contains(err.Error(), "nothing moved, and the daemon was stopped and runs again on "+s.old) {
+		t.Errorf("err = %v, want it to say the daemon was stopped and runs again", err)
+	}
+	if want := []string{"no-mistakes daemon stop", "no-mistakes daemon stop", "no-mistakes daemon start"}; !slices.Equal(s.calls(t), want) {
 		t.Errorf("no-mistakes calls = %q, want %q", s.calls(t), want)
+	}
+	if strings.Count(out.String(), "gate home: waiting for the gate runs in flight to finish before it moves") != 2 {
+		t.Errorf("out = %q, want it to say it waits at each try", out.String())
+	}
+	if len(tasks.calls) != 0 || len(tasks.tasks) != 1 {
+		t.Errorf("schtasks calls = %q with %d task(s) left, want the old home's task untouched", tasks.calls, len(tasks.tasks))
 	}
 	if _, err := os.Lstat(gatehome.Target(s.devDrive)); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("something was copied to the Dev Drive: %v", err)
@@ -158,17 +223,17 @@ func TestGateDaemonRunsNoMistakesWithTheHomeAsNMHomeAndNoUpdateCheck(t *testing.
 	daemon := gateDaemon{commands: runner}
 
 	// Act
-	uninstallErr := daemon.Uninstall(context.Background(), old)
+	stopErr := daemon.Stop(context.Background(), old)
 	startErr := daemon.Start(context.Background(), target)
 
 	// Assert
-	if uninstallErr != nil || startErr != nil {
-		t.Fatalf("uninstall %v, start %v", uninstallErr, startErr)
+	if stopErr != nil || startErr != nil {
+		t.Fatalf("stop %v, start %v", stopErr, startErr)
 	}
 	if len(runner.requests) != 2 {
-		t.Fatalf("requests = %+v, want an uninstall and a start", runner.requests)
+		t.Fatalf("requests = %+v, want a stop and a start", runner.requests)
 	}
-	for index, want := range []struct{ args, root string }{{"daemon uninstall", old}, {"daemon start", target}} {
+	for index, want := range []struct{ args, root string }{{"daemon stop", old}, {"daemon start", target}} {
 		request := runner.requests[index]
 		if request.Name != "no-mistakes" || strings.Join(request.Args, " ") != want.args {
 			t.Errorf("request %d = %s %q, want no-mistakes %s", index, request.Name, request.Args, want.args)

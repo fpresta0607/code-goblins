@@ -127,6 +127,13 @@ func (r Reader) Idle(ctx context.Context) (func() error, error) {
 	return release, nil
 }
 
+// InFlight counts the gate runs in flight: every run that has not ended, one
+// parked on an answer and one in an agent step among them.
+func (r Reader) InFlight(ctx context.Context) (int, error) {
+	runs, err := r.activeRuns(ctx)
+	return len(runs), err
+}
+
 type activeRun struct {
 	ID     string `json:"id"`
 	Branch string `json:"branch"`

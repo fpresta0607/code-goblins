@@ -5,10 +5,14 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/devdrive"
@@ -20,13 +24,33 @@ import (
 // set one up; without it the board shows neither. Every step that needs a
 // person is one of those items, made here, in order, one at a time: create
 // the drive, trust it, move the home's heavy folders onto it, and attach it
-// again whenever Windows did not.
+// again whenever Windows did not. The last step, carrying the gate's home
+// onto the drive, needs nobody, so the supervisor takes it itself.
 type DevDrive struct {
 	// Read reads what this machine says about Dev Drives.
 	Read func(context.Context) (devdrive.Machine, error)
 	// GateHome is where the gate's home is now (gatehome.Root); without it
-	// the board offers no step for the gate's home.
+	// the board has no step for the gate's home, and with it GateRuns and
+	// CarryGateHome are set too.
 	GateHome func() (string, error)
+	// GateRuns counts the gate runs in flight in the gate's home at root, a
+	// run parked on an answer among them.
+	GateRuns func(ctx context.Context, root string) (int, error)
+	// CarryGateHome carries the gate's home into the Dev Drive folder and
+	// returns once that ended: nil when the home is there, an error that is
+	// gatehome.ErrGateBusy when gate runs stayed in flight all the while it
+	// waited, and otherwise what went wrong, in a line for the person.
+	CarryGateHome func(ctx context.Context, folder string) error
+}
+
+// gateCarry is the supervisor's own carry of the gate's home onto the Dev
+// Drive: whether one runs now, and why the last one failed for a reason
+// other than a busy gate, which waits for the person to ask again.
+type gateCarry struct {
+	mu        sync.Mutex
+	isRunning bool
+	failed    string
+	failedAt  time.Time
 }
 
 // DevDriveView is the Dev Drive as the board's Workspace panel shows it.
@@ -40,8 +64,12 @@ type DevDriveView struct {
 	// Waiting is the step whose Command Center item waits to be run.
 	Waiting string `json:"waiting,omitempty"`
 	// Action is the button the panel offers: set-up, try-again or attach;
-	// empty when there is nothing to press.
+	// empty when a press would do nothing the supervisor does not do alone.
 	Action string `json:"action,omitempty"`
+	// Status is the panel's Dev Drive row in plain words: what is done, what
+	// is left and what it waits on. Empty when nothing is left, and the
+	// panel then shows no row.
+	Status string `json:"status,omitempty"`
 }
 
 // The panel's buttons.
@@ -144,14 +172,16 @@ func (s *Service) devDriveStep(ctx context.Context) (*DevDriveView, bool, error)
 	h.DevDrive = config.Root
 	report := devdrive.Describe(m, h)
 	view := &DevDriveView{State: string(report.State), Line: report.Line, Note: report.Note, Explain: devdrive.Explain, Choice: config.Choice}
+	done := devDriveDone(report, m, h)
 	if waiting := s.devDriveWaiting(); waiting != "" {
 		view.Waiting = waiting
+		view.Status = done + " " + devDriveLeft[devdrive.Step(waiting)] + " waits for you in the Command Center."
 		return view, true, nil
 	}
 	var shouldMoveGateHome bool
+	var gateRoot string
 	if s.Options.DevDrive.GateHome != nil {
-		gateRoot, err := s.Options.DevDrive.GateHome()
-		if err != nil {
+		if gateRoot, err = s.Options.DevDrive.GateHome(); err != nil {
 			return nil, false, err
 		}
 		shouldMoveGateHome = gatehome.Read(gateRoot, config.Root).ShouldMove()
@@ -159,6 +189,12 @@ func (s *Service) devDriveStep(ctx context.Context) (*DevDriveView, bool, error)
 	plan, needed := devdrive.Next(m, h, config, shouldMoveGateHome)
 	if !needed {
 		return view, false, nil
+	}
+	if plan.Step == devdrive.StepGate {
+		done += " The gate's home is not there yet."
+		if config.Choice == home.DevDriveWanted {
+			return view, s.keepGateCarry(ctx, view, done, plan.Folder, gateRoot, config.AskedAt), nil
+		}
 	}
 	now := time.Now().UTC()
 	offered := config.Offered[string(plan.Step)]
@@ -169,11 +205,11 @@ func (s *Service) devDriveStep(ctx context.Context) (*DevDriveView, bool, error)
 	if !due {
 		switch {
 		case plan.Step == devdrive.StepAttach:
-			view.Action = devDriveAttach
+			view.Action, view.Status = devDriveAttach, done
 		case config.Choice == home.DevDriveWanted:
-			view.Action = devDriveTryAgain
+			view.Action, view.Status = devDriveTryAgain, done+" "+devDriveLeft[plan.Step]+" is left: its Command Center item did not finish."
 		default:
-			view.Action = devDriveSetUp
+			view.Action, view.Status = devDriveSetUp, done
 		}
 		return view, false, nil
 	}
@@ -191,13 +227,84 @@ func (s *Service) devDriveStep(ctx context.Context) (*DevDriveView, bool, error)
 		return nil, false, err
 	}
 	view.Waiting = string(plan.Step)
+	view.Status = done + " " + devDriveLeft[plan.Step] + " waits for you in the Command Center."
 	return view, true, nil
 }
 
+// devDriveLeft names each step a person runs, as the row says what is left.
+var devDriveLeft = map[devdrive.Step]string{
+	devdrive.StepCreate: "Creating the drive",
+	devdrive.StepAttach: "Attaching it again",
+	devdrive.StepTrust:  "Trusting it, which turns on Defender's performance mode there,",
+	devdrive.StepMove:   "Moving the worktrees and caches onto it",
+}
+
+// devDriveDone says in one sentence how far the Dev Drive is, for the row.
+func devDriveDone(report devdrive.Report, m devdrive.Machine, h home.Home) string {
+	switch report.State {
+	case devdrive.StateOn:
+		return "The worktrees and caches are on " + h.DevDrive + "."
+	case devdrive.StateMissing:
+		return filepath.VolumeName(h.DevDrive) + " is not attached, so no goblin starts."
+	case devdrive.StatePresent:
+		if v, found := m.Reusable(); found {
+			return v.Letter() + " is a Dev Drive, not used yet."
+		}
+	}
+	return "No Dev Drive is set up yet."
+}
+
+// keepGateCarry takes the gate step itself, once the person asked for a Dev
+// Drive: it starts the carry of the gate's home at gateRoot into folder at
+// the first look that finds no gate run in flight, with no Command Center
+// item, and says in the row what it waits on. A carry that gave up because
+// the gate stayed busy is started again the same way; one that failed for
+// another reason waits for Try again, which only then is something to press.
+// It says whether another look is due soon.
+func (s *Service) keepGateCarry(ctx context.Context, view *DevDriveView, done, folder, gateRoot string, askedAt time.Time) bool {
+	carry := &s.gateCarry
+	carry.mu.Lock()
+	defer carry.mu.Unlock()
+	if carry.failed != "" && carry.failedAt.After(askedAt) {
+		view.Action, view.Status = devDriveTryAgain, done+" It did not move: "+carry.failed
+		return false
+	}
+	runs, err := s.Options.DevDrive.GateRuns(ctx, gateRoot)
+	switch {
+	case err != nil:
+		view.Status = done + " It moves by itself once the gate's runs can be read: " + err.Error()
+		return true
+	case runs == 1:
+		view.Status = done + " Waiting for 1 gate run to finish, then the gate's home moves by itself."
+		return true
+	case runs > 1:
+		view.Status = fmt.Sprintf("%s Waiting for %d gate runs to finish, then the gate's home moves by itself.", done, runs)
+		return true
+	}
+	view.Status = done + " It is moving there now, by itself."
+	if carry.isRunning {
+		return true
+	}
+	carry.isRunning, carry.failed = true, ""
+	go func() {
+		err := s.Options.DevDrive.CarryGateHome(context.WithoutCancel(ctx), folder)
+		carry.mu.Lock()
+		carry.isRunning = false
+		if err != nil && !errors.Is(err, gatehome.ErrGateBusy) {
+			carry.failed, carry.failedAt = err.Error(), time.Now().UTC()
+		}
+		carry.mu.Unlock()
+		s.devDriveAgain()
+	}()
+	return true
+}
+
 // devDriveWaiting is the step of the Dev Drive item that waits or runs, or "".
+// A gate item an earlier build made is none: the supervisor takes that step
+// itself now, and a person who still runs the item moves the same home.
 func (s *Service) devDriveWaiting() string {
 	for _, r := range s.Store.Snapshot().Runs {
-		if r.DevDrive != "" && (r.State == "ready" || r.State == "running") {
+		if r.DevDrive != "" && r.DevDrive != string(devdrive.StepGate) && (r.State == "ready" || r.State == "running") {
 			return r.DevDrive
 		}
 	}
@@ -205,8 +312,8 @@ func (s *Service) devDriveWaiting() string {
 }
 
 // offerDevDriveStep makes plan's Command Center item: the create, trust and
-// attach steps run their script as administrator, and the move and the gate
-// step run this build's goblins dev-drive move in the home.
+// attach steps run their script as administrator, and the move runs this
+// build's goblins dev-drive move in the home.
 func (s *Service) offerDevDriveStep(plan devdrive.Plan, now time.Time) error {
 	var nonce [8]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
@@ -215,7 +322,7 @@ func (s *Service) offerDevDriveStep(plan devdrive.Plan, now time.Time) error {
 	id := "dev-drive-" + string(plan.Step) + "-" + hex.EncodeToString(nonce[:])
 	identity := sha256.Sum256([]byte("dev-drive\n" + id + "\n" + strconv.FormatInt(now.UnixNano(), 10)))
 	command := plan.Script
-	if plan.Step == devdrive.StepMove || plan.Step == devdrive.StepGate {
+	if plan.Step == devdrive.StepMove {
 		executable, err := os.Executable()
 		if err != nil {
 			return err
