@@ -272,3 +272,45 @@ test("on a phone, Answer on a goblin's panel that fills the screen opens the Com
   // Assert
   await expect(card(page).getByRole("form", { name: question.text })).toBeVisible();
 });
+
+// On a phone an Answer whose decision was answered elsewhere while the
+// Command Center's code was on its way opens its inbox instead, in the header
+// banner her panel put away: the panel steps back to the board at that
+// banner, where the inbox shows, though her card it was opened from lies
+// below the first screen (#1816).
+test("on a phone, Answer on a decision answered meanwhile shows the Command Center's inbox though her card lies below the first screen", async ({ page, context }) => {
+  // Arrange
+  await page.setViewportSize({ width: 390, height: 844 });
+  await standInStream(context);
+  let release = () => {};
+  const released = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/assets/CommandCenter-*.js", async (route) => {
+    await released;
+    await route.fallback();
+  });
+  const question = { id: "pd-connector-parity-20261017", identity: "c".repeat(64), task: "", for_task: wanda.id, status: "pending", created_at: "2026-10-17T18:16:04Z", text: "Build connector tools for the 63 parity routes?", options: ["Build them", "End her task here"] };
+  const crew = Array.from({ length: 16 }, (_, at) => ({ id: "cg-crew-" + at, title: "Crew task " + at, project: "code-goblins", phase: "working", generation: "g1", verified: false }));
+  const crowded = { ...quiet, tasks: [greta, ...crew, wanda] };
+  await page.goto("/");
+  await send(page, crowded);
+  await expect(bar(page)).toContainText("All quiet");
+  await send(page, { ...crowded, revision: 2, questions: [question] });
+  await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
+  const herCard = page.getByRole("main", { name: "Board" }).getByRole("button", { name: /^Wanda - API Ace ,/ });
+  await expect(herCard, "her card lies below the first screen").not.toBeInViewport();
+  await herCard.click();
+  const header = await openTaskList(page);
+  await expect(page.locator(".topbar"), "the panel fills the phone").toBeHidden();
+  const answer = header.getByRole("button", { name: "Answer: " + question.text });
+
+  // Act: he presses Answer, the decision is answered elsewhere, and then the
+  // Command Center's code arrives.
+  await answer.click();
+  await send(page, { ...crowded, revision: 3 });
+  await expect(answer).toHaveCount(0);
+  release();
+
+  // Assert
+  await expect(page.locator(".topbar")).toBeInViewport();
+  await expect(waitingList(page)).toBeInViewport();
+});

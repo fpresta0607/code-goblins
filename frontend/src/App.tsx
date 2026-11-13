@@ -486,6 +486,17 @@ export function App() {
   // in turn, keeps them stacked.
   const fillsPhone = compact && showsPanel && !touring && (!!selected || ceoOpen);
   useVisualViewport(fillsPhone);
+  // The Command Center's inbox sits in that header banner, so an inbox that
+  // opens while a panel fills a phone, as when a focus on an item that no
+  // longer waits falls back to it, steps the panel back to the board, where
+  // he sees it (#1816). It closes as Back does but returns the keyboard
+  // without scrolling: on a phone the page scrolls, and focusing a card below
+  // the first screen would carry the banner and its inbox out of sight.
+  const showInbox = () => {
+    if (!fillsPhone) return;
+    setPaneOpen(false);
+    requestAnimationFrame(() => returnFocus.current?.isConnected && returnFocus.current.focus({ preventScroll: true }));
+  };
   // Back, on the panel of anything but the CEO, returns the panel to the
   // CEO's, still maximized if it was, and hands
   // the keyboard back to where the panel was opened from, or to the panel
@@ -595,7 +606,7 @@ export function App() {
             Overlord, 2026-10-28: "dont need live status pill in top right
             corner of desktop", and his mobile corrections of 2026-11-04). */}
         {!connected && <Notice tone="warning">{connection}</Notice>}
-        {snapshot && <CommandCenterMenu snapshot={snapshot} connected={connected} presentations={presentations} now={freshNow} focus={commandFocus} onUnsent={setHasUnsentAnswers} onSent={sent} />}
+        {snapshot && <CommandCenterMenu snapshot={snapshot} connected={connected} presentations={presentations} now={freshNow} focus={commandFocus} onUnsent={setHasUnsentAnswers} onSent={sent} onInboxOpen={showInbox} />}
         {!paneOpen && !compact && (view !== "Connectors" || !!task || !!train || ceoOpen) && <button onClick={() => setPaneOpen(true)}>Open {selected ? "details" : "CEO"}</button>}
       </div>
     </header>
