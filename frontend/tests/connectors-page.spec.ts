@@ -17,6 +17,7 @@ const BOARD = {
   tasks: [goblin("cg-touch", "Zeke", "Touch Wrangler"), goblin("cg-other", "Ivy", "Window Painter")],
 };
 const ZEKE = "Zeke - Touch Wrangler", IVY = "Ivy - Window Painter";
+const REPLACE_NOTE = "Replace from clipboard stores what you copied in its place, for every goblin of that repository, and shows neither value. Running goblins are told to load it again. Set means a goblin holds a value, not which one.";
 const TOOLS = [{ name: "list_projects", read_only: true }, { name: "list_tables", read_only: true }, { name: "supabase_get_project_url", read_only: true }, { name: "execute_sql", read_only: false }, { name: "apply_migration" }];
 const SUPABASE = { id: "mcp:claude.ai Supabase", name: "claude.ai Supabase", kind: "mcp", status: "connected", source: "Claude", checked_at: CHECKED_AT, tools: TOOLS };
 const CRAWLER = { id: "connector:crawler", name: "crawler", kind: "connector", status: "provided", source: "Code Goblins", checked_at: CHECKED_AT };
@@ -30,11 +31,11 @@ const fleet = () => supervisorWith({
     { id: "mcp:acme-internal", name: "acme-internal", kind: "mcp", status: "connected", checked_at: CHECKED_AT },
     { ...carried("github"), restart_required: true, restart_reason: "Connected. Its missing variables reach this goblin at its next terminal. The one running started without them." },
     withheld("sentry"), CRAWLER,
-    { id: "credential:GITHUB_TOKEN", name: "GITHUB_TOKEN", kind: "credential", status: "provided", scope: "launch_environment", accounts: ["github"], checked_at: CHECKED_AT },
+    { id: "credential:GITHUB_TOKEN", name: "GITHUB_TOKEN", kind: "credential", status: "provided", scope: "launch_environment", accounts: ["github"], actions: ["replace:GITHUB_TOKEN"], checked_at: CHECKED_AT },
     { id: "credential:SENTRY_AUTH_TOKEN", name: "SENTRY_AUTH_TOKEN", kind: "credential", status: "withheld", detail: "This task does not carry it.", accounts: ["sentry"], checked_at: CHECKED_AT },
   ],
   "cg-other": [SUPABASE, { ...withheld("github"), restart_required: true, restart_reason: "Disconnected. Its variables leave this goblin at its next terminal. The one running still has them." }, withheld("sentry"), CRAWLER,
-    { id: "credential:GITHUB_TOKEN", name: "GITHUB_TOKEN", kind: "credential", status: "withheld", detail: "This task does not carry it.", accounts: ["github"], checked_at: CHECKED_AT }],
+    { id: "credential:GITHUB_TOKEN", name: "GITHUB_TOKEN", kind: "credential", status: "provided", scope: "launch_environment", accounts: ["github"], checked_at: CHECKED_AT }],
 });
 
 // The board, with the Connectors page chosen from its top bar.
@@ -260,10 +261,11 @@ for (const width of [1440, 390]) {
     }
 
     // Assert: it brings its CLI variables, each by name with what each goblin's
-    // terminal holds of it, never a value, and no MCP server.
+    // terminal holds of it, the disconnected one's until its next terminal,
+    // never a value, and no MCP server.
     const variables = github.getByRole("region", { name: "CLI variables" });
     await expect(variables.locator(".connector-part-note")).toHaveText("Command line tools in the goblin's terminal read them. Names only, never values.");
-    await expect(variables.getByRole("listitem")).toHaveText(["GITHUB_TOKEN" + ZEKE + ": Set, " + IVY + ": Not given"]);
+    await expect(variables.getByRole("listitem")).toHaveText(["GITHUB_TOKEN" + "Set"]);
     await expect(github.getByRole("region", { name: "MCP server" })).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath(`connector-github-${width}.png`), fullPage: true });
 
@@ -276,7 +278,47 @@ for (const width of [1440, 390]) {
     await expect(goblinRow(token, ZEKE).locator(".connector-use")).toHaveText("Set");
     await token.locator("details.connector-checks > summary").click();
     await expect(token.locator("details.connector-checks")).toContainText(ZEKE + " The goblin's environment has it. Not checked: whether the goblin's own session can use it, or which account and project it reaches. Checked " + CHECKED_AT + ".");
-    await expect(token.getByRole("region", { name: "CLI variables" }).locator(".connector-part-note")).toHaveText(["Command line tools in the goblin's terminal read them. Names only, never values.", "Declared by the GitHub repository service."]);
+    await expect(token.getByRole("region", { name: "CLI variables" }).locator(".connector-part-note")).toHaveText(["Command line tools in the goblin's terminal read them. Names only, never values.", "Declared by the GitHub repository service.", REPLACE_NOTE]);
+  });
+}
+
+// The Overlord, 2026-11-11, on the cleaned page: change or reset a variable
+// without peeking at it (#2389). A set variable offers Replace from clipboard
+// beside each goblin that holds it, which asks for the same clipboard store as
+// Store from clipboard, and a refused one says why.
+for (const width of [1440, 390]) {
+  test(`a set variable offers Replace from clipboard beside each goblin that holds it, never showing a value, at ${width}px`, async ({ page }, testInfo) => {
+    // Arrange
+    const supervisor = fleet();
+    const main = await open(page, supervisor, width);
+
+    // Act
+    await row(main, "GITHUB_TOKEN").getByRole("button", { name: "GITHUB_TOKEN", exact: true }).click();
+
+    // Assert: Replace beside the goblin that holds it, in Store from
+    // clipboard's look, its one word on the button and its whole name for a
+    // screen reader (the Overlord, 2026-11-12: "i hate this much text on a
+    // button"), none beside the one disconnected from GitHub, whose running
+    // terminal still holds it but would not load a replaced value, and the
+    // page says what it does.
+    const token = main.getByRole("article", { name: "GITHUB_TOKEN" });
+    const replace = goblinRow(token, ZEKE).getByRole("button", { name: "Replace GITHUB_TOKEN from clipboard for " + ZEKE, exact: true });
+    await expect(replace).toHaveText("Replace");
+    await expect(replace).not.toHaveClass(/\bprimary\b/);
+    await expect(goblinRow(token, ZEKE).locator(".connector-use")).toHaveText("Set");
+    await expect(goblinRow(token, IVY).locator(".connector-use")).toHaveText("Set");
+    await expect(goblinRow(token, IVY).getByRole("button")).toHaveCount(0);
+    await expect(token.getByRole("region", { name: "CLI variables" }).locator(".connector-part-note").last()).toHaveText(REPLACE_NOTE);
+    await expectFits(page, main);
+    await page.screenshot({ path: testInfo.outputPath(`connector-replace-${width}.png`), fullPage: true });
+
+    // Act
+    supervisor.refuses = "This repair is no longer available. Refresh connections.";
+    await replace.click();
+
+    // Assert: it asks for that goblin's clipboard store, and a refusal is said.
+    await expect.poll(() => supervisor.posts).toEqual([{ path: "/api/connections/fix", token: "fixture", body: { task: "cg-touch", generation: "cg-touch-1", connection: "credential:GITHUB_TOKEN", action: "replace:GITHUB_TOKEN" } }]);
+    await expect(main.locator(".connectors-page > .notice")).toHaveText("This repair is no longer available. Refresh connections.");
   });
 }
 
