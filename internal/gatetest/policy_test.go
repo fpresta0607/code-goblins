@@ -225,7 +225,7 @@ func TestTheRepositoryPolicyAccountsForEveryTrackedFile(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	listed, err := output(ctx, execx.OSRunner{}, root, "go", "list", "-e", "-json="+listFields, "./...")
+	listed, err := output(ctx, windowsGraph{}, root, "go", "list", "-e", "-json="+listFields, "./...")
 	if err != nil {
 		t.Fatal(err)
 	}
