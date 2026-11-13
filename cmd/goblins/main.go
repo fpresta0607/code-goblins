@@ -39,6 +39,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/installbase"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
+	"github.com/fpresta0607/code-goblins/internal/measure"
 	"github.com/fpresta0607/code-goblins/internal/onboarding"
 	"github.com/fpresta0607/code-goblins/internal/openrouter"
 	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
@@ -198,8 +199,11 @@ type commandRuntime struct {
 	// leftRunning reads what a task's goblin started that still runs, for
 	// its done or failed report to name; nil names nothing.
 	leftRunning func(home.Home, string) ([]fleettree.Placed, error)
-	speedHint   func(context.Context, string) string
-	quota       func(context.Context) (quota.Report, string)
+	// measureRun records what each role of a task's run spent, for its done
+	// or failed report; nil records nothing.
+	measureRun func(context.Context, home.Home, state.TaskMeta, string, string) (measure.Record, error)
+	speedHint  func(context.Context, string) string
+	quota      func(context.Context) (quota.Report, string)
 	// keySpend reads the spend the OpenRouter key of one Pi credential source
 	// reports at the provider, for the board's dial.
 	keySpend     func(context.Context, openrouter.Source) openrouter.Reading
@@ -509,6 +513,7 @@ func defaultCommandRuntime() commandRuntime {
 		reap:          defaultReap,
 		processPlan:   defaultProcessPlan,
 		leftRunning:   defaultLeftRunning,
+		measureRun:    measureRun,
 		speedHint: func(ctx context.Context, name string) string {
 			return telemetry.SpeedHint(ctx, gatedb.Runner{Next: execx.OSRunner{}}, name)
 		},

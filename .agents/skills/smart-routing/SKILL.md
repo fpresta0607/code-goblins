@@ -70,4 +70,5 @@ Use the configured helper roles and existing independent-verification checks.
 Record the task class and risk, chosen lane/model/effort, capability and quota evidence with age, any fallback reason, and the condition for escalation in the brief or dispatch note.
 Compare success rate and time to verified completion for comparable tasks and roles, including failed attempts in that total.
 `goblins doctor` telemetry measures validation invocations only: successful test time is not implementation time, and failed or cancelled latency is not successful speed.
-Absent implementation evidence stays unmeasured.
+Its role measurements sum what each role spent over every recorded run, by harness, model and effort, with review findings and verification outcomes: compare roles there.
+What a record names unmeasured stays unmeasured, never estimated.
