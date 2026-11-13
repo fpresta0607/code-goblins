@@ -215,8 +215,9 @@ test("codex: Enter on a skill a slash word found completes the mention and sends
 });
 
 // The list also offers a command whose name or description only holds the
-// word he typed. That one is no pick of his: a whole command his harness
-// knows and the list lacks goes as he typed it, as it does in the terminal.
+// word he typed. That one is no pick of his, so a whole command his harness
+// knows and the list lacks goes as he typed it, as it does in the terminal,
+// unless a listed name starts with it (#2490).
 for (const lacked of [
   { draft: "/settings", commands: ANSWERS.claude, found: "/config", by: "description" },
   { draft: "/rc", commands: [...ANSWERS.claude, { name: "search-notes", description: "Search the notes of the project", source: "skill", sigil: "/" }], found: "/search-notes", by: "name" },
@@ -264,6 +265,62 @@ test("Enter runs a pick he moved to with the arrows, until the box changes", asy
 
   // Assert: the move does not outlive the draft it was made on.
   await expect.poll(() => typed(relay)).toBe(pasted("/release-notes") + "\r" + pasted("/settings") + "\r");
+});
+
+// Each guard of "the pick is his" on its own: the arrow that wraps upward,
+// the move forgotten once he types on, and the compare without case.
+test("Enter runs a pick he moved up to with the arrows", async ({ page }) => {
+  // Arrange
+  const relay = await open(page, snapshot({}, { harness: "claude" }));
+  await page.route("**/api/commands**", (route) => route.fulfill({ json: { commands: ANSWERS.claude } }));
+  await openGoblin(page);
+  await field(page).fill("/notes");
+  await expect(list(page).locator(".popup-option-label")).toHaveText(["/kit-one:find-notes", "/release-notes"]);
+
+  // Act: Up from the first entry wraps to the last.
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("Enter");
+
+  // Assert
+  await expect.poll(() => typed(relay)).toBe(pasted("/release-notes") + "\r");
+});
+
+test("a move with the arrows is forgotten once he types on, even back to the same word", async ({ page }) => {
+  // Arrange
+  const relay = await open(page, snapshot({}, { harness: "claude" }));
+  await page.route("**/api/commands**", (route) => route.fulfill({ json: { commands: ANSWERS.claude } }));
+  await openGoblin(page);
+  const names = list(page).locator(".popup-option-label");
+  await field(page).fill("/notes");
+  await expect(names).toHaveText(["/kit-one:find-notes", "/release-notes"]);
+  await page.keyboard.press("ArrowDown");
+
+  // Act: he types on and comes back to the word he moved on.
+  await field(page).fill("/note");
+  await field(page).fill("/notes");
+  await expect(names).toHaveText(["/kit-one:find-notes", "/release-notes"]);
+  await expect(list(page).getByRole("option").first()).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("Enter");
+
+  // Assert: the pick is the list's again, not his, so the box goes as typed.
+  await expect.poll(() => typed(relay)).toBe(pasted("/notes") + "\r");
+  await expect(field(page)).toHaveValue("");
+});
+
+test("Enter runs the pick whose name starts with what he typed in capitals", async ({ page }) => {
+  // Arrange
+  const relay = await open(page, snapshot({}, { harness: "claude" }));
+  await page.route("**/api/commands**", (route) => route.fulfill({ json: { commands: ANSWERS.claude } }));
+  await openGoblin(page);
+  await field(page).fill("/COMP");
+  await expect(list(page).locator(".popup-option-label").first()).toHaveText("/compact");
+  await expect(list(page).getByRole("option").first()).toHaveAttribute("aria-selected", "true");
+
+  // Act
+  await page.keyboard.press("Enter");
+
+  // Assert
+  await expect.poll(() => typed(relay)).toBe(pasted("/compact") + "\r");
 });
 
 test("codex: Enter on a skill a slash word found, with no arrow pressed, still completes the mention and sends nothing", async ({ page }) => {

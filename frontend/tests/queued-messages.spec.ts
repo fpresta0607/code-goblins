@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "./site";
-import { at, box, field, GOBLIN, open, openGoblin, PAGE, snapshot, typed } from "./session-board";
+import { at, box, field, GOBLIN, open, openGoblin, PAGE, pasted, snapshot, typed } from "./session-board";
 
 // The Overlord, 2026-10-26: "I can't see cued messages. There should be a way
 // to see what messages are cue in the chat pane" and "Does this seem to be a
@@ -776,6 +776,38 @@ test("Up in the empty box takes the newest queued message back into the box, its
 
   // Assert
   expect(posts).toHaveLength(1);
+});
+
+// A move with the arrows through the command list belongs to the draft it was
+// made on. Words that come back to the box without his typing them, as a
+// queued command taken back does, are another draft: Enter sends them as they
+// are, never the pick the list found for them (#2372).
+test("a queued command taken back into the box is sent as it is, whatever pick he moved to before", async ({ page }) => {
+  // Arrange
+  const relay = await open(page, snapshot({ actions: [queued({ text: "/settings" })] }));
+  await page.route("**/api/actions", (route) => route.fulfill({ status: 202, json: { status: "succeeded" } }));
+  await page.route("**/api/commands**", (route) => route.fulfill({ json: { commands: [
+    { name: "kit-one:find-notes", description: "Find the notes of the project", source: "skill", sigil: "/" },
+    { name: "release-notes", description: "Write the release notes for the branch", source: "skill", sigil: "/" },
+    { name: "config", description: "Open the settings interface.", source: "builtin", sigil: "/" },
+  ] } }));
+  await openGoblin(page);
+  const names = page.getByRole("listbox", { name: "Commands", exact: true }).locator(".popup-option-label");
+  await field(page).fill("/notes");
+  await expect(names).toHaveText(["/kit-one:find-notes", "/release-notes"]);
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await expect.poll(() => typed(relay)).toBe(pasted("/release-notes") + "\r");
+  await expect(field(page)).toHaveValue("");
+
+  // Act: Up takes the queued command back, and Enter sends it.
+  await page.keyboard.press("ArrowUp");
+  await expect(field(page)).toHaveValue("/settings");
+  await expect(names).toHaveText(["/config"]);
+  await page.keyboard.press("Enter");
+
+  // Assert
+  await expect.poll(() => typed(relay)).toBe(pasted("/release-notes") + "\r" + pasted("/settings") + "\r");
 });
 
 // The Overlord, 2026-10-28: "see how claude includes pictures when pasted".
