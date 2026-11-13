@@ -769,16 +769,17 @@ func TestAResumeSubmitsOnceMoreOnlyWhenItsFirstEnterWasLost(t *testing.T) {
 func TestAResumeSubmitsOnceMoreALaunchInstructionItsCodexLeftUnsent(t *testing.T) {
 	for _, test := range []struct {
 		mode, wantPhase string
+		window          time.Duration
 		wantLost        int
 	}{
-		{mode: "lost-enter", wantPhase: "running", wantLost: 1},
-		{mode: "enters-lost", wantPhase: "failed", wantLost: 2},
-		{mode: "slow", wantPhase: "running", wantLost: 0},
+		{mode: "lost-enter", window: 5 * time.Second, wantPhase: "running", wantLost: 1},
+		{mode: "enters-lost", window: 5 * time.Second, wantPhase: "failed", wantLost: 2},
+		{mode: "slow", window: 30 * time.Second, wantPhase: "running", wantLost: 0},
 	} {
 		t.Run(test.mode, func(t *testing.T) {
 			// Arrange
 			previous := nativeAccepted
-			nativeAccepted = 5 * time.Second
+			nativeAccepted = test.window
 			t.Cleanup(func() { nativeAccepted = previous })
 			f := newSwitchFixtureOf(t, harness.Codex, harness.Control{})
 			f.userEnv = append(f.userEnv, fakeCodexMode+"="+test.mode)

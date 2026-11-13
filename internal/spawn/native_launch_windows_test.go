@@ -56,7 +56,10 @@ const (
 // no End before it can be taken as part of the text ("swallow"), the first
 // submit key can be taken seconds after it arrived ("slow"), or the first
 // submit key can be lost, the text left in the composer ("lost-enter"), or
-// every one ("enters-lost"), where by default a turn never ends. With "exitmenu", /exit opens the menu Claude
+// every one ("enters-lost"), where by default a turn never ends. One that
+// loses its key draws a footer a live Codex drew, with no count of the context
+// left: Codex 0.154's model and folder row ("lost-enter"), or Codex 0.160's
+// model display name row over its shortcuts row ("enters-lost"). With "exitmenu", /exit opens the menu Claude
 // Code shows over background work before it exits. With "claude-ready" it is
 // Claude Code's composer, ready at once, and with "claude-lost-enter"
 // it is Claude Code's composer taking the first Enter that ends typed text
@@ -227,8 +230,15 @@ func fakeHarness() {
 		claudeComposer(mode, keys, record, draw)
 		return
 	}
+	footer := []string{"  ? for shortcuts                                                                    100% context left"}
+	switch mode {
+	case "lost-enter":
+		footer = []string{"  gpt-6-astra low · ~\\proof"}
+	case "enters-lost":
+		footer = []string{"  GPT-6.1 Sol xhigh · C:\\proof · Resume the task", "  ? for shortcuts"}
+	}
 	composer := func(text string) {
-		draw("", "› "+text, "", "  ? for shortcuts                                                                    100% context left")
+		draw(append([]string{"", "› " + text, ""}, footer...)...)
 	}
 	if strings.HasPrefix(mode, "hooks-during-") || strings.HasPrefix(mode, "hooks-before-") || strings.HasPrefix(mode, "hooks-after-") {
 		lateHookComposer(mode, keys, record, draw, composer)

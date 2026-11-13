@@ -678,13 +678,13 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 			}
 			// A harness whose composer still holds the instruction and nothing
 			// else a whole window after its submit key, with no turn and no
-			// screen of its own over it, lost that key: on 2026-10-31 a resumed
-			// Codex goblin sat that way until the CFO pressed Enter by hand
-			// (#1873). A launch, whose instruction nobody else submits, presses
-			// the key once more and waits a window again, unless an Enter was
-			// already pressed again, so a harness is never pressed two after
-			// its first.
-			if isStartup && presses == 0 && !screens.IsWorking(screen) && !screens.IsOpen(screen) && screens.ComposerMatches(screen, instruction) {
+			// dialog or list of choices asking over it, lost that key: on
+			// 2026-10-31 a resumed Codex goblin sat that way until the CFO
+			// pressed Enter by hand (#1873). A launch, whose instruction nobody
+			// else submits, presses the key once more and waits a window again,
+			// unless an Enter was already pressed again, so a harness is never
+			// pressed two after its first.
+			if isStartup && presses == 0 && !screens.IsAsking(screen) && screens.ComposerMatches(screen, instruction) {
 				client, err := host.Dial(record)
 				if err != nil {
 					return fmt.Errorf("spawn: submit the instruction again in native terminal %s: %w", record.ID, err)
