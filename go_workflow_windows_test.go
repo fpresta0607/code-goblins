@@ -353,7 +353,7 @@ func TestWorkflowsCancelOnlyASupersededPullRequestRun(t *testing.T) {
 		"a run started by hand":        {"workflow_dispatch", "", false},
 	}
 	shared := [][2]string{{"a ready run of #7", "another ready run of #7"}, {"a draft-seen run of #7", "another draft-seen run of #7"}}
-	cancels := map[string]bool{"go.yml": true, "install.yml": true, "release.yml": false, "windows.yml": true}
+	cancels := map[string]bool{"go.yml": true, "install.yml": true, "release.yml": false, "sandbox.yml": true, "windows.yml": true}
 	files, err := filepath.Glob(filepath.Join(".github", "workflows", "*.yml"))
 	if err != nil {
 		t.Fatal(err)

@@ -1,0 +1,82 @@
+name: sandbox
+
+# A sandbox task's commands run in a container of its project's image, which
+# the rest of the Go tests prove only with a fake docker. This workflow runs
+# the tests that prove it with real containers
+# (internal/sandbox/container_linux_test.go) on a hosted Ubuntu runner,
+# whose Docker engine runs Linux containers, which no standard hosted Windows
+# runner does (issue 2254). It runs once a pull request that changes how a
+# sandbox task's command reaches its container or how its container is
+# removed is ready.
+on:
+  # A draft runs nothing but the draft job, and marking it ready runs the
+  # tests on its head, as the go workflow does.
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - internal/sandbox/**
+      - internal/services/cli.go
+      - cmd/goblins/sandbox.go
+      - cmd/goblins/gate_turn.go
+      - .github/workflows/sandbox.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  # A newer commit on a pull request supersedes the run on the older one,
+  # which is cancelled. A run whose event saw a draft has a group apart from
+  # the one of runs whose event saw the pull request ready, so neither
+  # cancels the other, as in the go workflow.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}{1}', github.event.pull_request.number, github.event.pull_request.draft && '-draft' || '') || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  # A run whose event saw a draft asks GitHub whether the pull request is a
+  # draft now, as the go workflow's does, and the tests run unless it still is.
+  draft:
+    # The check this job makes tests nothing, and every reader of a head's
+    # checks passes over it by this name (train.DraftStateCheck).
+    name: draft state
+    if: github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      draft: ${{ steps.read.outputs.draft }}
+    steps:
+      - name: Read whether the pull request is a draft now
+        id: read
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PULL_REQUEST: repos/${{ github.repository }}/pulls/${{ github.event.number }}
+        run: |
+          draft=$(gh api "$PULL_REQUEST" --jq .draft)
+          echo "draft=$draft" >> "$GITHUB_OUTPUT"
+
+  container:
+    name: real container
+    needs: draft
+    if: ${{ !cancelled() && needs.draft.outputs.draft != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+      # The tests skip without GOBLINS_REAL_DOCKER, and go test passes when
+      # -run names no test, so the step fails unless all three passed.
+      - name: Run sandbox commands in real containers
+        shell: bash
+        env:
+          GOBLINS_REAL_DOCKER: '1'
+          CGO_ENABLED: '0'
+        run: |
+          go test -count=1 -run 'RealContainer' -v ./internal/sandbox | tee real-container.log
+          passed=$(grep -c '^--- PASS: Test[A-Za-z]*RealContainer' real-container.log || true)
+          if [ "$passed" -ne 3 ]; then
+            echo "$passed of the 3 real-container tests passed"
+            exit 1
+          fi
