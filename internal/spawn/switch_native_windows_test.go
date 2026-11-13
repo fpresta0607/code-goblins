@@ -756,6 +756,70 @@ func TestAResumeSubmitsOnceMoreOnlyWhenItsFirstEnterWasLost(t *testing.T) {
 	}
 }
 
+// On 2026-10-31 a paused Codex goblin's resume typed its instruction into
+// Codex's composer and pressed its submit key, which Codex lost: the
+// instruction sat unsent, with no turn, until the resume's window ran out,
+// and the resume was recorded failed while the goblin waited on one Enter
+// (#1873). A resume whose window runs out while its harness's composer holds
+// the instruction and nothing else, with no turn, presses the submit key once
+// more and gives it a window of its own, so the goblin resumes; one whose
+// second key is lost too fails, having pressed it only once more. A Codex
+// that takes its submit key seconds late, within the window, is pressed
+// nothing more that would reach it after the instruction.
+func TestAResumeSubmitsOnceMoreALaunchInstructionItsCodexLeftUnsent(t *testing.T) {
+	for _, test := range []struct {
+		mode, wantPhase string
+		wantLost        int
+	}{
+		{mode: "lost-enter", wantPhase: "running", wantLost: 1},
+		{mode: "enters-lost", wantPhase: "failed", wantLost: 2},
+		{mode: "slow", wantPhase: "running", wantLost: 0},
+	} {
+		t.Run(test.mode, func(t *testing.T) {
+			// Arrange
+			previous := nativeAccepted
+			nativeAccepted = 5 * time.Second
+			t.Cleanup(func() { nativeAccepted = previous })
+			f := newSwitchFixtureOf(t, harness.Codex, harness.Control{})
+			f.userEnv = append(f.userEnv, fakeCodexMode+"="+test.mode)
+			paused := state.Lifecycle{ID: f.meta.ID, Generation: f.meta.SpawnGen, RequestGeneration: f.meta.SpawnGen, Operation: "pause-1", Action: "pause", Phase: "paused", Session: "owned-session", Started: time.Now().UTC()}
+			if err := state.WriteLifecycle(f.stateDir, paused); err != nil {
+				t.Fatal(err)
+			}
+			controller := lifecycle.Service{StateDir: f.stateDir, Operations: lifecycle.Operations{
+				Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
+				Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
+					_, err := f.service.Switch(ctx, SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, IsResume: true, ResumeSession: prior.Session})
+					return err
+				},
+				Notify: func(state.Lifecycle) error { return nil },
+			}}
+
+			// Act
+			result, err := controller.Run(t.Context(), lifecycle.Request{ID: f.meta.ID, Generation: f.meta.SpawnGen, Operation: "resume-1", Action: "resume"})
+
+			// Assert
+			if result.Phase != test.wantPhase || (err == nil) != (test.wantPhase == "running") {
+				t.Fatalf("resume = %+v, %v; want it %s", result, err, test.wantPhase)
+			}
+			events := f.events(t)
+			if lost := named(events, "lost enter"); len(lost) != test.wantLost {
+				t.Errorf("submit keys lost = %+v, want %d", lost, test.wantLost)
+			}
+			submitted := named(events, "submitted")
+			if test.wantPhase == "failed" {
+				if len(submitted) != 0 || !strings.Contains(err.Error(), "never showed its harness working") {
+					t.Errorf("submitted = %+v after %v, want nothing taken and the window's error", submitted, err)
+				}
+				return
+			}
+			if len(submitted) != 1 || !strings.Contains(delivered(t, submitted[0].Text), "Your session was restarted") {
+				t.Errorf("submitted = %+v, want the resume instruction once", submitted)
+			}
+		})
+	}
+}
+
 // A paused goblin's resume is a refusal, which leaves it paused as it was,
 // for as long as its relaunch has published no replacement generation, and a
 // failed resume from there on. That holds only while a relaunch publishes its

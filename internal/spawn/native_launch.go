@@ -545,6 +545,9 @@ func (s Service) answerDialog(ctx context.Context, record host.Record, dialog ha
 // once its composer shows that key taken as a new line: either can take the
 // key late, the text still showing in its composer, and a key pressed again
 // then would reach it after the instruction, as an empty submission. A
+// launch whose harness still holds the instruction alone in its composer, with
+// no turn, a whole window after its key lost that key instead: it is pressed
+// once more, unless one was already, and given a window again. A
 // harness that turns it away as still starting, putting it back in its
 // composer, has not taken it: while its screen says so, and did not already
 // say so before the submit, Enter is pressed again until it does, for as long
@@ -672,6 +675,29 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 			}
 			if busy {
 				return fmt.Errorf("spawn: native terminal %s has the text submitted: %w", record.ID, fleet.ErrQueuedForToolCall)
+			}
+			// A harness whose composer still holds the instruction and nothing
+			// else a whole window after its submit key, with no turn and no
+			// screen of its own over it, lost that key: on 2026-10-31 a resumed
+			// Codex goblin sat that way until the CFO pressed Enter by hand
+			// (#1873). A launch, whose instruction nobody else submits, presses
+			// the key once more and waits a window again, unless an Enter was
+			// already pressed again, so a harness is never pressed two after
+			// its first.
+			if isStartup && presses == 0 && !screens.IsWorking(screen) && !screens.IsOpen(screen) && screens.ComposerMatches(screen, instruction) {
+				client, err := host.Dial(record)
+				if err != nil {
+					return fmt.Errorf("spawn: submit the instruction again in native terminal %s: %w", record.ID, err)
+				}
+				s.markHis(client)
+				err = client.Input([]byte(submitKey(screens, instruction)))
+				client.Close()
+				if err != nil {
+					return fmt.Errorf("spawn: submit the instruction again in native terminal %s: %w", record.ID, err)
+				}
+				atPress, pressed, presses = screen, time.Now(), presses+1
+				deadline = pressed.Add(within)
+				continue
 			}
 			return fmt.Errorf("spawn: native terminal %s never showed its harness working on the instruction: not within %s; its screen ends:\n%s", record.ID, within, host.ScreenTail(screen, 8))
 		}
@@ -812,15 +838,20 @@ func (s Service) submitNative(ctx context.Context, record host.Record, screens h
 	if !screens.Shows(atPress, instruction) {
 		return nil, s.leftTyped(fmt.Errorf("spawn: native terminal %s no longer shows the instruction, so it was not submitted", record.ID))
 	}
-	submit := "\r"
-	if screens.PasteTakesEnter && !fleet.IsCommand(instruction) {
-		// End flushes Codex's paste burst so Enter submits instead of adding a newline.
-		submit = "\x1b[F\r"
-	}
-	if err := client.Input([]byte(submit)); err != nil {
+	if err := client.Input([]byte(submitKey(screens, instruction))); err != nil {
 		return nil, fmt.Errorf("spawn: submit the instruction in native terminal %s: %w", record.ID, err)
 	}
 	return atPress, nil
+}
+
+// submitKey is the key that submits instruction in a harness with screens:
+// Enter, after End where the harness reads fast typing as a paste, since End
+// flushes Codex's paste burst so the Enter submits instead of adding a newline.
+func submitKey(screens harness.Screens, instruction string) string {
+	if screens.PasteTakesEnter && !fleet.IsCommand(instruction) {
+		return "\x1b[F\r"
+	}
+	return "\r"
 }
 
 // unsubmitted is how a delivery that typed instruction, which its screen

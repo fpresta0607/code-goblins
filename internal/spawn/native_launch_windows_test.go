@@ -53,9 +53,10 @@ const (
 // the typing starts ("late"), a submitted line can leave it looking idle
 // ("unmoved"), each turn can end a moment after it starts ("turns"), typed
 // text can show only once its console is resized ("undrawn"), an Enter with
-// no End before it can be taken as part of the text ("swallow"), or the first
-// submit key can be taken seconds after it arrived ("slow"), where
-// by default a turn never ends. With "exitmenu", /exit opens the menu Claude
+// no End before it can be taken as part of the text ("swallow"), the first
+// submit key can be taken seconds after it arrived ("slow"), or the first
+// submit key can be lost, the text left in the composer ("lost-enter"), or
+// every one ("enters-lost"), where by default a turn never ends. With "exitmenu", /exit opens the menu Claude
 // Code shows over background work before it exits. With "claude-ready" it is
 // Claude Code's composer, ready at once, and with "claude-lost-enter"
 // it is Claude Code's composer taking the first Enter that ends typed text
@@ -269,6 +270,7 @@ func fakeHarness() {
 	composer("Ask Codex to do anything")
 	var line strings.Builder
 	late, hasPasteEnded, slow := false, false, mode == "slow"
+	lost := 0
 	resized := make(chan struct{}, 1)
 	if mode == "undrawn" {
 		go watchWidth(resized)
@@ -315,6 +317,12 @@ func fakeHarness() {
 				// composer.
 				hasPasteEnded = true
 				record(codexEvent{Event: "swallowed enter"})
+			case key == "\r" && line.Len() > 0 && (mode == "enters-lost" || (mode == "lost-enter" && lost == 0)):
+				// As a resumed Codex did, live, on 2026-10-31, the submit key
+				// is lost: the text stays in the composer as it was, and no
+				// turn starts (#1873).
+				lost++
+				record(codexEvent{Event: "lost enter", Text: line.String()})
 			case key == "\r" && codexMention.MatchString(line.String()):
 				// As Codex 0.160 does, an Enter while the line ends in a $
 				// word picks from its list of skills, and the line stays
