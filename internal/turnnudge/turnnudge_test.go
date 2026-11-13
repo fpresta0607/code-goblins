@@ -44,6 +44,12 @@ func TestPromisesReadsAnActionALastReplyPromises(t *testing.T) {
 		"Getting back to the failing test now.",
 		"Coming back to the lint errors now.",
 		"Checking back on the CI run now.",
+		"Circling back to the lint errors now.",
+		"Writing back the updated lockfile now.",
+		"Let me get back to the failing test and rerun it.",
+		"I'll come back to the lint errors now.",
+		"Let me circle back to the lint errors.",
+		"Let me check back on the CI run.",
 	} {
 		t.Run(reply, func(t *testing.T) {
 			// Act
@@ -89,6 +95,10 @@ func TestPromisesLeavesATurnMeantToEndAlone(t *testing.T) {
 		"I'll sign off here.",
 		"I'll report back.",
 		"Reporting back to the CEO now.",
+		"I'll report back with the results.",
+		"Let me get back to you.",
+		"I'll get back to the CEO on that.",
+		"I'll circle back.",
 		"Let me know if you need anything else.",
 		"I'll keep an eye on CI.",
 		"I'll merge it once CI is green.",

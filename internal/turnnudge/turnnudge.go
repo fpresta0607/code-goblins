@@ -155,9 +155,14 @@ var idleVerbs = []string{
 }
 
 // backVerbs are the verbs that, with "back", say the goblin comes back to
-// this later, and in -ing those that say it reports back: "I'll report
-// back", "Circling back".
-var backVerbs = []string{"report", "reporting", "get", "check", "come", "circle", "circling", "call", "calling", "write", "writing"}
+// this later, and "reporting", the one -ing form that says it reports back:
+// "I'll report back", "Let me get back to you", "Reporting back to the CEO".
+var backVerbs = []string{"report", "reporting", "get", "check", "come", "circle", "call", "write"}
+
+// people are whom a goblin goes back to when it hands off, as in "back to
+// you" or "back to the CEO". Back to or on anything else is back to work:
+// "Let me get back to the failing test", "Let me check back on the CI run".
+var people = []string{"you", "him", "her", "them", "ceo"}
 
 // offVerbs are the verbs, plain or in -ing, that, with "off", end the
 // goblin's work: "Signing off".
@@ -236,8 +241,8 @@ func introduces(words []string) bool {
 }
 
 // waits reports whether words, a clause from its verb on, are a wait: an
-// idle verb, a verb of coming back with "back" or of ending with "off",
-// behind any modals.
+// idle verb, a verb of coming back with "back" but not back to work, or of
+// ending with "off", behind any modals.
 func waits(words []string) bool {
 	for len(words) > 1 && slices.Contains(modals, words[0]) {
 		words = words[1:]
@@ -245,7 +250,20 @@ func waits(words []string) bool {
 	if slices.Contains(idleVerbs, words[0]) {
 		return true
 	}
-	return len(words) > 1 && ((words[1] == "back" && slices.Contains(backVerbs, words[0])) || (words[1] == "off" && slices.Contains(offVerbs, words[0])))
+	return len(words) > 1 && ((words[1] == "back" && slices.Contains(backVerbs, words[0]) && !backToWork(words[2:])) || (words[1] == "off" && slices.Contains(offVerbs, words[0])))
+}
+
+// backToWork reports whether words, a clause after its "back", go back to
+// or on a thing rather than a person: "to the failing test", "on the CI run".
+func backToWork(words []string) bool {
+	if len(words) < 2 || (words[0] != "to" && words[0] != "on") {
+		return false
+	}
+	whom := words[1]
+	if whom == "the" && len(words) > 2 {
+		whom = words[2]
+	}
+	return !slices.Contains(people, whom)
 }
 
 // skipFillers is words after the fillers they open with.
