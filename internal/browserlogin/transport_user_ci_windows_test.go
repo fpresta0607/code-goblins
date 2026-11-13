@@ -119,6 +119,7 @@ func TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner(t *testing.T) {
 	command := windows.StringToUTF16Ptr(syscall.EscapeArg(program) + " -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File " + syscall.EscapeArg(probePath))
 	startup := windows.StartupInfo{Cb: uint32(unsafe.Sizeof(windows.StartupInfo{})), Flags: windows.STARTF_USESHOWWINDOW, ShowWindow: windows.SW_HIDE}
 	var child windows.ProcessInformation
+	started := time.Now()
 	created, _, createErr := windows.NewLazySystemDLL("advapi32.dll").NewProc("CreateProcessWithLogonW").Call(
 		uintptr(unsafe.Pointer(username)), uintptr(unsafe.Pointer(windows.StringToUTF16Ptr("."))), uintptr(unsafe.Pointer(password)), 0,
 		uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(program))), uintptr(unsafe.Pointer(command)), windows.CREATE_NO_WINDOW,
@@ -155,12 +156,16 @@ func TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner(t *testing.T) {
 			t.Fatal("the probe's temporary account has administrator membership")
 		}
 	}
-	if event, err := windows.WaitForSingleObject(child.Process, 30000); err != nil || event != windows.WAIT_OBJECT_0 {
-		t.Fatalf("the second-user probe did not finish: %v", err)
+	// The bound only ends a probe that hangs: the first logon of a fresh
+	// account builds its profile before PowerShell starts, and on a loaded
+	// hosted runner that and the probe's three requests outlasted 30 s
+	// (issue 1699). A probe still running after two minutes is hung.
+	if event, err := windows.WaitForSingleObject(child.Process, uint32((2 * time.Minute).Milliseconds())); err != nil || event != windows.WAIT_OBJECT_0 {
+		t.Fatalf("the second-user probe did not finish in the %s since it started: wait %#x, %v", time.Since(started).Round(time.Millisecond), event, err)
 	}
 	var code uint32
 	if err := windows.GetExitCodeProcess(child.Process, &code); err != nil || code != 0 {
-		t.Fatalf("the second user could reach browser metadata or CDP, or its proof failed: status %d, %v", code, err)
+		t.Fatalf("the second user could reach browser metadata or CDP, or its proof failed: status %d after %s, %v", code, time.Since(started).Round(time.Millisecond), err)
 	}
 }
 
