@@ -19,7 +19,7 @@ import (
 )
 
 // streamMarker tells a view it shows a session on stream-json pipes, which
-// takes no typing but stops a turn on Escape.
+// takes no typing but stops a turn on Escape or Ctrl+C.
 var streamMarker = []byte(`{"type":"stream"}`)
 
 // streamRelay is one view's side of a stream session: the rows the host's
