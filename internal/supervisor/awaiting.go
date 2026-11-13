@@ -507,8 +507,8 @@ func (s *Store) markHandedBack(prompts [][]Action, now time.Time) error {
 
 // lookAtTerminal reads the terminal a delivery waits in: gone when its host
 // no longer answers for it or its goblin restarted or ended, working when its
-// screen shows a turn under way; and the record its harness keeps of the
-// conversation, for the text taken.
+// screen, or a stream session's state, shows a turn under way; and the record
+// its harness keeps of the conversation, for the text taken.
 func (s *Service) lookAtTerminal(a Awaiting) terminalLook {
 	id := a.Host
 	took := false

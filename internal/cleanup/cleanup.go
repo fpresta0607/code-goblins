@@ -845,7 +845,9 @@ func (s Service) requireHerdrInactive(ctx context.Context, meta state.TaskMeta) 
 // terminal has ended. A running terminal is idle only while its harness shows
 // the ready composer with no working marker, and its record is returned so
 // the cleanup closes it. A record or a screen that cannot be read, any other
-// screen, and a harness whose screens goblins cannot read are all refused. Under
+// screen, and a harness whose screens goblins cannot read are all refused. A
+// stream session is idle only while its state shows Claude Code waiting for a
+// line, and one whose state cannot be read is refused. Under
 // LeaveRunningTerminals every running terminal is refused.
 func (s Service) requireNativeIdle(meta state.TaskMeta) (host.Record, error) {
 	record, err := host.ReadRecord(s.StateDir, meta.ID)
