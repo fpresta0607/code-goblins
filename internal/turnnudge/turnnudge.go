@@ -146,17 +146,26 @@ var fillers = []string{"now", "next", "then", "so", "ok", "okay", "alright", "ri
 
 // idleVerbs are the verbs, plain or in -ing, that promise no action of the
 // turn's own: a wait, an end, or words to someone else ("let me know",
-// "Standing by", "Let me recap:").
+// "Standing by").
 var idleVerbs = []string{
 	"wait", "waiting", "await", "awaiting", "stand", "standing", "hold", "holding", "pause", "pausing", "idle", "idling",
 	"sit", "sitting", "sleep", "sleeping", "stop", "stopping", "end", "ending", "leave", "leaving", "be", "know", "hear",
 	"keep", "keeping", "watch", "watching", "monitor", "monitoring", "rest", "resting", "remain", "remaining", "stay", "staying",
-	"let", "letting", "hand", "handing", "sign", "signing", "recap", "recapping", "summarize", "summarizing", "not", "never",
+	"let", "letting", "hand", "handing", "not", "never",
 }
 
-// backVerbs are the verbs, plain or in -ing, that, with "back", say the
-// goblin comes back to this later: "I'll report back", "Circling back".
-var backVerbs = []string{"report", "reporting", "get", "getting", "check", "checking", "come", "coming", "circle", "circling", "call", "calling", "write", "writing"}
+// backVerbs are the verbs that, with "back", say the goblin comes back to
+// this later, and in -ing those that say it reports back: "I'll report
+// back", "Circling back".
+var backVerbs = []string{"report", "reporting", "get", "check", "come", "circle", "circling", "call", "calling", "write", "writing"}
+
+// offVerbs are the verbs, plain or in -ing, that, with "off", end the
+// goblin's work: "Signing off".
+var offVerbs = []string{"sign", "signing"}
+
+// sayingVerbs, alone in their clause, open words the reply itself goes on
+// with, as "Let me recap:" does, and so promise nothing and hold nothing.
+var sayingVerbs = []string{"recap", "recapping", "summarize", "summarizing"}
 
 // modals are the words a clause's verb may stand behind: "I'll have to
 // wait", "Continuing to watch CI".
@@ -204,7 +213,7 @@ func readClause(words []string) (isPromise, isWait bool) {
 	for _, opener := range openers {
 		if len(rest) > len(opener) && slices.Equal(rest[:len(opener)], opener) {
 			action := skipFillers(rest[len(opener):])
-			if len(action) == 0 {
+			if len(action) == 0 || introduces(action) {
 				return false, false
 			}
 			isWait = waits(action)
@@ -212,7 +221,7 @@ func readClause(words []string) (isPromise, isWait bool) {
 		}
 	}
 	switch {
-	case len(rest) == 0 || len(rest[0]) <= 4 || !strings.HasSuffix(rest[0], "ing") || slices.Contains(nonVerbs, rest[0]):
+	case len(rest) == 0 || len(rest[0]) <= 4 || !strings.HasSuffix(rest[0], "ing") || slices.Contains(nonVerbs, rest[0]) || introduces(rest):
 		return false, false
 	case waits(rest):
 		return false, true
@@ -220,13 +229,23 @@ func readClause(words []string) (isPromise, isWait bool) {
 	return slices.Contains(words, "now"), false
 }
 
+// introduces reports whether words, a clause from its verb on, are a verb
+// of saying and nothing more.
+func introduces(words []string) bool {
+	return slices.Contains(sayingVerbs, words[0]) && len(skipFillers(words[1:])) == 0
+}
+
 // waits reports whether words, a clause from its verb on, are a wait: an
-// idle verb, or a verb of coming back with "back", behind any modals.
+// idle verb, a verb of coming back with "back" or of ending with "off",
+// behind any modals.
 func waits(words []string) bool {
 	for len(words) > 1 && slices.Contains(modals, words[0]) {
 		words = words[1:]
 	}
-	return slices.Contains(idleVerbs, words[0]) || (len(words) > 1 && words[1] == "back" && slices.Contains(backVerbs, words[0]))
+	if slices.Contains(idleVerbs, words[0]) {
+		return true
+	}
+	return len(words) > 1 && ((words[1] == "back" && slices.Contains(backVerbs, words[0])) || (words[1] == "off" && slices.Contains(offVerbs, words[0])))
 }
 
 // skipFillers is words after the fillers they open with.

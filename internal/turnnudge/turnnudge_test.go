@@ -37,6 +37,13 @@ func TestPromisesReadsAnActionALastReplyPromises(t *testing.T) {
 		"Having another look at the logs now.",
 		"Now needing to rebase onto main.",
 		"Rolling back the change now.",
+		"I'll continue.",
+		"Let me recap: the fix is in and the tests pass. Next, I'll push the branch.",
+		"Let me summarize the review findings, then fix each one.",
+		"I'll sign the commit and push the branch now.",
+		"Getting back to the failing test now.",
+		"Coming back to the lint errors now.",
+		"Checking back on the CI run now.",
 	} {
 		t.Run(reply, func(t *testing.T) {
 			// Act
@@ -62,6 +69,7 @@ func TestPromisesLeavesATurnMeantToEndAlone(t *testing.T) {
 		"Reported done: PR https://github.com/example/repo/pull/1 is open with Fixes #1.",
 		"Done. The gate and CI are green.",
 		"Let me recap: PR #12 is open and CI is green.",
+		"Summarizing now: PR #12 is open and CI is green.",
 		"I'll wait for CI to finish.",
 		"I will wait for the CEO's answer.",
 		"I'll have to wait for CI to finish.",
@@ -78,6 +86,7 @@ func TestPromisesLeavesATurnMeantToEndAlone(t *testing.T) {
 		"Handing this back to the CEO now.",
 		"Letting the CEO know now.",
 		"Signing off now.",
+		"I'll sign off here.",
 		"I'll report back.",
 		"Reporting back to the CEO now.",
 		"Let me know if you need anything else.",
@@ -96,6 +105,7 @@ func TestPromisesLeavesATurnMeantToEndAlone(t *testing.T) {
 		"I ran the tests and they pass.",
 		"The hook I will add nudges once.",
 		"Nothing to do now.",
+		"Continuing.",
 		"Let me run the tests.\n\nSummary:\n- the hook reads the reply",
 		"Here is the diff:\n```\n-old\n+new\n```",
 	} {
