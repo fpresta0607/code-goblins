@@ -101,7 +101,8 @@ func nativeHookEvent(harnessName, root, dir string, getenv func(string) string, 
 		return 1
 	}
 	// Codex Stop requires a JSON reply. This is also accepted by Claude and
-	// ignored by the Pi notification extension. It never blocks continuation.
+	// ignored by the Pi notification extension. Only a goblin's turn-end nudge
+	// below blocks a Stop.
 	// The role ceo says only that the session is no goblin's, so the CEO's
 	// continuation goes to the CEO's own session alone: a Codex session the
 	// Overlord opens himself is told nothing of the fleet.
