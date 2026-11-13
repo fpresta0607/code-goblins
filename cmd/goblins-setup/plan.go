@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/fpresta0607/code-goblins/internal/cutover"
+	"github.com/fpresta0607/code-goblins/internal/cutover/homesetting"
 	"github.com/fpresta0607/code-goblins/internal/devdrive"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -44,7 +44,7 @@ func findPlan() (Plan, error) {
 	if local == "" {
 		return Plan{}, fmt.Errorf("LOCALAPPDATA is not set, so there is no folder to install Code Goblins in")
 	}
-	target, err := installbase.FindTarget(cutover.HomeSettings{EnvStore: installbase.NewEnvStore(execx.OSRunner{})}, filepath.Join(local, "CodeGoblins"))
+	target, err := installbase.FindTarget(homesetting.Settings{EnvStore: installbase.NewEnvStore(execx.OSRunner{})}, filepath.Join(local, "CodeGoblins"))
 	if err != nil {
 		return Plan{}, err
 	}

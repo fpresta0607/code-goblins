@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/fpresta0607/code-goblins/internal/cutover"
+	"github.com/fpresta0607/code-goblins/internal/cutover/homesetting"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -29,7 +29,7 @@ func ThisMachine() (Machine, error) {
 		return Machine{}, err
 	}
 	env := installbase.NewEnvStore(execx.OSRunner{})
-	target, err := installbase.FindTarget(cutover.HomeSettings{EnvStore: env}, standard)
+	target, err := installbase.FindTarget(homesetting.Settings{EnvStore: env}, standard)
 	if err != nil {
 		return Machine{}, err
 	}

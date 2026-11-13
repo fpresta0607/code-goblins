@@ -16,6 +16,7 @@ import (
 	codegoblins "github.com/fpresta0607/code-goblins"
 	"github.com/fpresta0607/code-goblins/internal/crawler"
 	"github.com/fpresta0607/code-goblins/internal/cutover"
+	"github.com/fpresta0607/code-goblins/internal/cutover/homesetting"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harnessmap"
@@ -364,7 +365,7 @@ func installTarget() (installbase.Target, error) {
 	if err != nil {
 		return installbase.Target{}, fmt.Errorf("goblins install: resolve the per-user home: %w", err)
 	}
-	return installbase.FindTarget(cutover.HomeSettings{EnvStore: installbase.NewEnvStore(execx.OSRunner{})}, standard)
+	return installbase.FindTarget(homesetting.Settings{EnvStore: installbase.NewEnvStore(execx.OSRunner{})}, standard)
 }
 
 // junction links a directory through cmd's mklink /J, which needs no

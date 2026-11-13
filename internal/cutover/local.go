@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/cutover/homesetting"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/githubapi"
 	"github.com/fpresta0607/code-goblins/internal/installbase"
@@ -18,28 +19,12 @@ import (
 // OldSettings are the home and the projects root a build before the rename
 // set in the user's settings, each empty where it set none.
 func OldSettings(env installbase.EnvStore) (root, projects string, err error) {
-	prefix := strings.ToUpper(oldName) + "_"
-	root, _, err = env.Get(prefix + "HOME")
+	root, _, err = env.Get(homesetting.Old)
 	if err != nil {
 		return "", "", err
 	}
-	projects, _, err = env.Get(prefix + "PROJECTS_ROOT")
+	projects, _, err = env.Get(strings.ToUpper(oldName) + "_PROJECTS_ROOT")
 	return root, projects, err
-}
-
-// HomeSettings is the user's settings, where goblins' home setting falls back
-// on the one a build before the rename set, so whatever finds the home by the
-// user's settings, an install, an uninstall or the setup's plan, finds such a
-// home where it is.
-type HomeSettings struct{ installbase.EnvStore }
-
-func (e HomeSettings) Get(name string) (string, bool, error) {
-	value, isSet, err := e.EnvStore.Get(name)
-	if err != nil || isSet || name != installbase.HomeVariable {
-		return value, isSet, err
-	}
-	root, _, err := OldSettings(e.EnvStore)
-	return root, root != "", err
 }
 
 // TaskScheduler is Windows' Task Scheduler, read and written through
