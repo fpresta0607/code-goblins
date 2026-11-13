@@ -374,7 +374,7 @@ It replaced the `!windows` stubs that `internal/proc`, `internal/lock` and `inte
 The tests of `internal/lock` and `internal/supervise` do not yet compile for macOS, since their stand-in programs (`endedProgram`, `lastingProgram`) are per system: M1 makes them `_unix` and deletes the stubs as it ports.
 The portable tests of `internal/proc` already compile for macOS, and its system tests are `_windows_test.go` and `_linux_test.go` files, so M1 adds its macOS tests beside them.
 M1 brings, for macOS: `Lookup`, `Processes`, `Ancestry`, `StartTime`, `WorkingDirectory`, `Arguments`, `Environment`, `Identify`, `TerminateVerified`, `TerminateVerifiedIn`, `Instance` and `runningProcesses`, and the lock's `processStart` and `readInstance`.
-The lock's line of waiters, `fsx.RemoveFileWhen` and supervise's `pidAlive` already hold on macOS and move to `_unix.go` names unchanged.
+The lock's line of waiters and supervise's `pidAlive` already hold on macOS and move to `_unix.go` names unchanged, and `fsx.RemoveFileWhen` already builds there, off Windows.
 The four records the plan names as built from a start alone carry the instance on macOS in the same layers as on Linux.
 
 ### Signing and notarization
