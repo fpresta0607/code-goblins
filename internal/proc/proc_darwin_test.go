@@ -117,6 +117,32 @@ func TestTerminateVerifiedInRefusesAChildThatExitedAfterItWasIdentified(t *testi
 	}
 }
 
+// What identify reads is a process's own only while the process still has
+// the instance it was held by, so a process read under another's instance
+// is refused.
+func TestIdentifyRefusesAProcessReadUnderAnotherInstance(t *testing.T) {
+	// Arrange
+	first, _ := startSleeper(t, t.TempDir())
+	second, _ := startSleeper(t, t.TempDir())
+	firstInstance, firstErr := Instance(first.Process.Pid)
+	secondInstance, secondErr := Instance(second.Process.Pid)
+	if err := errors.Join(firstErr, secondErr); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	_, ownErr := identify(first.Process.Pid, firstInstance)
+	identity, err := identify(first.Process.Pid, secondInstance)
+
+	// Assert
+	if ownErr != nil {
+		t.Fatalf("identify of the first child under its own instance = %v", ownErr)
+	}
+	if err == nil {
+		t.Errorf("identify of the first child under the second child's instance gave %+v, want a refusal", identity)
+	}
+}
+
 // startedWithRecord is what kern.procargs2 gives for a program started from
 // path with arguments and environment, its path padded with zero bytes, and
 // a string after an empty one, which is not the environment's.
