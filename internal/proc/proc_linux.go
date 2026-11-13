@@ -18,6 +18,14 @@ import (
 // builds for, whatever rate the kernel's own timer runs at.
 const ticksPerSecond = 100
 
+// machineStartFile and bootIDFile are the kernel's files that give when the
+// machine started and the ID of that start. Neither is any one process's, and
+// they are variables for a test of a machine where one cannot be read.
+var (
+	machineStartFile = "/proc/stat"
+	bootIDFile       = "/proc/sys/kernel/random/boot_id"
+)
+
 // status is what /proc/<pid>/stat says of a process: its name, which the
 // kernel cuts to 15 bytes, its state, its parent and how many ticks after
 // the machine started it was created.
@@ -85,9 +93,11 @@ func parseStatus(line []byte) (status, error) {
 // TerminateVerified), and what must still know a process after one knows it
 // by its Instance, as the lock does.
 func bootTime() (time.Time, error) {
-	stat, err := fsx.ReadKernelFile("/proc/stat")
+	// A start of the machine that cannot be read says nothing of a process,
+	// so its error is never fs.ErrNotExist.
+	stat, err := fsx.ReadKernelFile(machineStartFile)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("proc: read the machine's start: %w", err)
+		return time.Time{}, fmt.Errorf("proc: read the machine's start: %v", err)
 	}
 	for line := range bytes.Lines(stat) {
 		if value, isBoot := bytes.CutPrefix(line, []byte("btime ")); isBoot {
@@ -117,7 +127,7 @@ func Instance(pid int) (string, error) {
 	}
 	// A boot ID that cannot be read says nothing of the process, so its error
 	// is never fs.ErrNotExist.
-	raw, err := fsx.ReadKernelFile("/proc/sys/kernel/random/boot_id")
+	raw, err := fsx.ReadKernelFile(bootIDFile)
 	if err != nil {
 		return "", fmt.Errorf("proc: read the machine's boot ID: %v", err)
 	}
