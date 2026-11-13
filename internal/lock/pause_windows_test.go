@@ -26,10 +26,12 @@ func TestAWaiterGetsTheLockAcrossAPauseOfTheWholeMachine(t *testing.T) {
 		return
 	}
 	// Arrange: the pause falls once the waiter has found the lock held, and
-	// only then does the holder's time start, so it holds the lock however
-	// late a loaded machine lets the waiter take its first look: a hold
-	// started before the waiter lined up once ran out first, and the waiter
-	// took the lock without ever waiting (#1877).
+	// only then does the holder's time start, so a late first look on a
+	// loaded machine no longer lets the hold run out before the waiter waits:
+	// a hold started before the waiter lined up once did, and the waiter took
+	// the lock without ever waiting (#1877). The wait of 2s leaves a slow
+	// first look room and still runs out in the pause if held to the wall
+	// clock.
 	dir := t.TempDir()
 	if _, err := AcquireNamedOwner(dir, takerLock, os.Getppid(), "holder"); err != nil {
 		t.Fatal(err)
@@ -49,7 +51,7 @@ func TestAWaiterGetsTheLockAcrossAPauseOfTheWholeMachine(t *testing.T) {
 	t.Cleanup(func() { sleep = time.Sleep })
 
 	// Act
-	info, err := AcquireNamedOwnerWithin(dir, takerLock, os.Getpid(), "waiter", time.Second)
+	info, err := AcquireNamedOwnerWithin(dir, takerLock, os.Getpid(), "waiter", 2*time.Second)
 
 	// Assert
 	if !isReady {
