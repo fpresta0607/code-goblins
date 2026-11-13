@@ -62,14 +62,16 @@ export function webLinkName(address: string): string {
 // asker wrote it. An address the board knows reads as a chip with its short
 // name, and a link shown by a name holds the whole address in its tip. A board
 // address opens its place in this page instead, with no reload (#2363).
-export function webLink(address: string, key: number, label?: string): ReactNode {
+// drawn draws the link's words where its place has a way of its own, as
+// terminal text gives a long address the breaks it may wrap at.
+export function webLink(address: string, key: number, label?: string, drawn: (name: string) => ReactNode = (name) => name): ReactNode {
   const name = label ?? webLinkName(address);
   const isChip = label === undefined && name !== address;
   const tip = name !== address ? { title: address } : {};
   if (typeof location !== "undefined" && boardPlace(address, location.origin)) {
-    return createElement("a", { key, className: "message-link", href: address, onClick: (event: MouseEvent) => { event.preventDefault(); openBoardAddress(address); }, ...tip }, name);
+    return createElement("a", { key, className: "message-link", href: address, onClick: (event: MouseEvent) => { event.preventDefault(); openBoardAddress(address); }, ...tip }, drawn(name));
   }
-  return createElement("a", { key, className: isChip ? "message-link message-chip" : "message-link", href: scrawlLink(address), target: "_blank", rel: "noreferrer", ...tip }, name);
+  return createElement("a", { key, className: isChip ? "message-link message-chip" : "message-link", href: scrawlLink(address), target: "_blank", rel: "noreferrer", ...tip }, drawn(name));
 }
 
 // A document link that starts inside a web address is part of the address.

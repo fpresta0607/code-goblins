@@ -1093,7 +1093,7 @@ button.dialogue-portrait:hover::before { background: #12202a; }
 /* A question is read, not scanned: body type at a readable line length, with
    only what its asker marked in bold. */
 .question-body { max-width: 72ch; color: #e3ecef; font: 400 1.1875rem/1.6 var(--font-body); white-space: pre-line; overflow-wrap: anywhere; outline: none; }
-.question-body p, .question-body ul { margin: 0 0 10px; }
+.question-body p, .question-body ul, .question-body .message-code { margin: 0 0 10px; }
 .question-body > :last-child { margin-bottom: 0; }
 .question-body ul { padding-left: 22px; }
 .question-body li + li { margin-top: 4px; }
@@ -1367,17 +1367,9 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .run-state { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; }
 .chip.admin { display: inline-flex; align-items: center; gap: 6px; color: #f6d79e; border-color: #735338; }
 .chip.admin .icon { width: 16px; height: 16px; }
-.run-command { position: relative; }
-.run-command pre, .run-output { margin: 0; border: 1px solid var(--glass-border); border-radius: var(--radius); background: #071015; font-family: var(--font-mono); font-size: 1rem; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; }
-.run-command pre { padding: 14px 56px 14px 16px; max-height: 14rem; }
-.run-command .icon-button { position: absolute; top: 6px; right: 6px; }
-/* The command's output as a terminal shows it, newest at the bottom. */
-.run-terminal { display: grid; gap: 8px; }
-.run-terminal header { display: flex; align-items: center; justify-content: space-between; color: #c4d4df; font-weight: 700; }
 .exit-code { padding: 2px 10px; border: 1px solid var(--glass-border); border-radius: 999px; font-family: var(--font-mono); }
 .exit-code.succeeded { color: var(--mint); }
 .exit-code.failed { color: #f1a39c; border-color: #735338; }
-.run-output { padding: 12px 14px; min-height: 6rem; max-height: 22rem; color: #d8e9e2; }
 .run-cwd { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); font-size: .9375rem; overflow-wrap: anywhere; }
 .run-failure { margin: 0; overflow-wrap: anywhere; }
 .run-cwd .icon { width: 18px; height: 18px; flex: none; }
@@ -1443,7 +1435,8 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .update-result.back { color: #f1c598; }
 .update-output > summary { color: #9fb5c3; font-weight: 700; }
 .update-output > .disclosure-content { padding: 0; }
-.update-output .run-output { margin-top: 8px; min-height: 0; max-height: 12rem; }
+.update-output .message-code { margin-top: 8px; }
+.update-output .terminal-output { max-height: 12rem; }
 .card-actions .update-button { display: inline-flex; align-items: center; gap: 8px; padding: 10px 22px; }
 .card-actions .update-button .icon { width: 20px; height: 20px; }
 /* Its row in the Command Center's list wears the same ring. */

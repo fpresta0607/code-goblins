@@ -37,7 +37,7 @@ test("a goblin's command is a run card named for the goblin, run with one click"
   // Assert: who asks, why, the exact command with its copy button, one button.
   await expect(dialog.locator(".asker")).toContainText(GOBLIN + " asks you to run this");
   await expect(dialog.getByRole("heading", { name: WHY })).toBeVisible();
-  await expect(dialog.locator(".run-command code")).toHaveText("gh auth login --web");
+  await expect(dialog.locator(".terminal-command code")).toHaveText("gh auth login --web");
   await expect(dialog.getByRole("button", { name: "Copy command" })).toBeVisible();
   const run = dialog.getByRole("button", { name: "Run in PowerShell" });
   await expect(run).toBeEnabled();

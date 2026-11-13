@@ -279,9 +279,8 @@ export function App() {
   if (needsQueue && composerTerminal !== terminalKey) setComposerTerminal(terminalKey);
   const [chatStyle, chooseStyle] = useChatStyle();
   // The style the panel switched the session it shows to, apart from the
-  // saved one: a step out of Classic's terminal to read back, or a chat row's
-  // Open in terminal (#2362). It holds while the panel shows that session,
-  // and nothing switches it back by itself.
+  // saved one: a step out of Classic's terminal to read back. It holds while
+  // the panel shows that session, and nothing switches it back by itself.
   const [sessionStyle, setSessionStyle] = useState<{ session: string; style: ChatStyle } | null>(null);
   const styleOf = (key: string): ChatStyle => sessionStyle?.session === key ? sessionStyle.style : chatStyle;
   const isBoxWorking = composerActivity.terminal === terminalKey && composerActivity.isActive && composerTerminal === terminalKey;
@@ -428,16 +427,12 @@ export function App() {
   // conversation stays mounted under the terminal, so the session, its
   // history, an unsent draft and the place he read are kept.
   const readHistory = () => { if (classicInPlace) setSessionStyle({ session: terminalKey, style: "modern" }); setBoxFocus((prior) => prior + 1); };
-  // A chat row opens the view behind it (#2362): a command's row the
-  // session's terminal in the conversation's place, which a goblin that takes
-  // messages has none of, and a browser row the goblin's Screen view while
-  // its browser runs. Each hands that view the keyboard, and the saved style
-  // stays as he chose it.
+  // A chat's browser row opens the view behind it (#2362): its goblin's
+  // Screen view while that goblin's browser runs, which takes the keyboard.
   const hasScreen = views.includes("screen");
   const rowOpener = useMemo<RowOpener>(() => ({
-    terminal: hasTerminalInPlace ? () => { setSessionStyle({ session: terminalKey, style: "classic" }); setSwitchFocus((prior) => prior + 1); } : undefined,
     screen: hasScreen ? () => { setPanelView("screen"); setScreenAsked(terminalKey); } : undefined,
-  }), [hasTerminalInPlace, hasScreen, terminalKey, setSessionStyle, setScreenAsked]);
+  }), [hasScreen, terminalKey, setScreenAsked]);
   // Once offered, the composer stays reachable as input becomes ready so an
   // upload, a Send still landing, a failed Send to retry or its own recording
   // keeps its controls and result.

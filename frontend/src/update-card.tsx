@@ -7,7 +7,8 @@ import { age } from "./presentation";
 import { object, string, type ReleaseOffer, type Run } from "./types";
 import { updateOutcome, updateProgress } from "./update-progress";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
-import { linkedText, literalLinks } from "./messageText";
+import { linkedText } from "./messageText";
+import { TerminalBlock } from "./terminal-block";
 
 // How often the card reads what a running update printed, as a run card does,
 // while the page shows: a page hidden in the tray or a background tab reads
@@ -81,7 +82,7 @@ export function UpdateCard({ run, offer, connected, now, sending, error, onRun, 
     {running && <p className="update-effect">{connected ? "The board restarts and is away for under a minute. This page reconnects by itself." : "The board is restarting. This page reconnects by itself, and a build that does not start is rolled back."}</p>}
     {progress.result && !running && <p className={"update-result " + (updated ? "ok" : "back")}>{updated ? offer.to + " runs. The board reloads on it now." : linkedText(progress.result)}</p>}
     {run.state === "withdrawn" && run.reason && <p className="update-effect">{linkedText(run.reason[0].toUpperCase() + run.reason.slice(1) + ".")}</p>}
-    {(running || output) && <Disclosure kind="disclosure-line update-output" title="Output"><pre className="run-output">{output ? literalLinks(output) : "Waiting for output"}</pre></Disclosure>}
+    {(running || output) && <Disclosure kind="disclosure-line update-output" title="Output">{output ? <TerminalBlock output={output} /> : <p className="muted">Waiting for output</p>}</Disclosure>}
     {(run.state === "ready" || pager || onRetry) && <div className="card-actions">
       <ClickFeedback text={feedback} />
       {pager}

@@ -1,0 +1,65 @@
+/* A code block or terminal text in a rounded card under a quiet header with
+   its name, Copy as its icon alone and Full screen (#2524). A code block
+   shows its first lines and scrolls a long line sideways inside itself; over
+   the whole window it is whole, every line wrapped. */
+.message-code { min-width: 0; margin: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 14px; background: #071015; }
+.message-code > figcaption { display: flex; align-items: center; gap: .25em; min-height: 2em; padding: .15em .35em .15em .85em; border-bottom: 1px solid var(--border); color: var(--muted); font: .75em/1.4 var(--font-mono); }
+.message-code > figcaption > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.message-code > pre { max-height: 16lh; margin: 0; padding: .625em .875em; overflow: auto; color: #d8e9e2; font: .875em/1.55 var(--font-mono); white-space: pre; }
+.message-code code { padding: 0; background: none; color: inherit; font: inherit; }
+.code-copy, .code-expand, .code-run { display: inline-flex; align-items: center; justify-content: center; gap: .35em; width: 2.2em; height: 1.9em; min-height: 1.9em; padding: 0; border: 0; border-radius: 6px; background: transparent; box-shadow: none; color: var(--muted); font: 600 1em/1 var(--font-body); }
+.code-run { width: auto; padding: .1em .55em; }
+:is(.code-copy, .code-expand, .code-run):hover { background: var(--glass-bg-hover); color: var(--bone); }
+:is(.code-copy, .code-expand, .code-run) .icon { width: 1.1em; height: 1.1em; }
+@media (pointer: coarse) { .code-copy, .code-expand, .code-run { min-height: 44px; } .code-copy, .code-expand { width: 44px; height: 44px; } }
+/* Terminal text, drawn one way wherever the board shows any (#2524): the
+   command under its shell's name, what it printed under output, and how it
+   ended, in one card. A line wraps at its spaces and after a long word's
+   separators, its later rows set in so a wrap never reads as a new line, and
+   a word too long for the card scrolls sideways instead of folding. A row's
+   own padding lets an error's ground reach both edges, as a diff's rows do. */
+.terminal-block > figcaption ~ figcaption, .terminal-result { border-top: 1px solid var(--border); }
+.terminal-block > pre { padding-inline: 0; white-space: pre-wrap; overflow-wrap: normal; tab-size: 8; }
+.terminal-line { display: block; padding: 0 .875em 0 calc(.875em + 2ch); text-indent: -2ch; }
+.terminal-line .message-link { overflow-wrap: normal; }
+.terminal-command { color: #eef6f2; }
+.terminal-command .terminal-line::before { content: "  "; }
+.terminal-command .terminal-line:first-child::before { content: "$ "; color: var(--mint); font-weight: 700; }
+.terminal-block.powershell .terminal-command .terminal-line:first-child::before { content: "> "; }
+/* What a line reads as, where its program coloured nothing: an error on a
+   red ground, as a diff's removed line, a warning, a success, and a prompt's
+   question with the choice its terminal points at. */
+.terminal-line.error { background: rgba(255, 107, 128, 0.10); color: #f3c0c8; }
+.terminal-line.warning { color: #f0cf8a; }
+.terminal-line.success { color: #bfe9c9; }
+.terminal-line.question { color: #fff; font-weight: 700; }
+.terminal-line.chosen { color: var(--mint); font-weight: 700; }
+/* A program's own colours, each the board's shade of it, light enough to
+   read on the card's ground. */
+.terminal-red { color: #ff8f9e; }
+.terminal-green { color: #7ddc9c; }
+.terminal-yellow { color: #f0cf8a; }
+.terminal-blue { color: #8fbcff; }
+.terminal-magenta { color: #d9a8ff; }
+.terminal-cyan { color: #7fd6e6; }
+.terminal-gray { color: #8fa3ad; }
+.terminal-bold { font-weight: 700; }
+.terminal-dim { opacity: .75; }
+.terminal-italic { font-style: italic; }
+.terminal-underlined { text-decoration: underline; }
+.terminal-path { color: #9fd0e8; }
+/* How the command ended, in its outcome's colour as a call's mark is. */
+.terminal-result { display: flex; align-items: center; gap: .5em; margin: 0; padding: .4em .875em; color: var(--muted); font: 700 .8125em/1.4 var(--font-body); }
+.terminal-result .icon { width: 1.1em; height: 1.1em; }
+.terminal-result.success { color: rgb(78, 186, 101); }
+.terminal-result.error { color: rgb(255, 107, 128); }
+.terminal-result.warning { color: var(--amber); }
+.terminal-result.running { color: var(--blue); }
+/* A card over the whole window, the board dimmed under it: as wide and as
+   tall as the window, its text whole and wrapped, scrolling inside it. */
+.full-screen { position: fixed; inset: 0; width: 100vw; max-width: none; height: 100dvh; max-height: none; margin: 0; padding: max(.75rem, env(safe-area-inset-top)) .75rem max(.75rem, env(safe-area-inset-bottom)); overflow: hidden; border: 0; background: transparent; color: inherit; }
+.full-screen::backdrop { background: #03050ad9; }
+.full-screen > .message-code { display: flex; flex-direction: column; height: 100%; }
+.full-screen > .message-code > pre { flex: 1 1 auto; min-height: 0; max-height: none; white-space: pre-wrap; overflow-wrap: anywhere; }
+.full-screen > .terminal-block > pre { overflow-wrap: normal; }
+.full-screen > .terminal-block > .terminal-command { flex: 0 1 auto; max-height: 40%; }

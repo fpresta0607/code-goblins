@@ -48,7 +48,7 @@ test("a new release is its own item: the versions, what is new, what the update 
   await expect(card.locator('.update-notes a[href^="javascript:"]')).toHaveCount(0);
   await expect(card.getByRole("link", { name: "What's new" })).toHaveAttribute("href", "https://github.com/fpresta0607/code-goblins/releases/tag/v0.5.0");
   await expect(card.locator(".update-trust")).toContainText("Unsigned release. Update installs it only when each file matches the release's SHA-256, such as goblins.exe 3f9a6c0e…5bc21e.");
-  await expect(card.locator(".run-command")).toHaveCount(0);
+  await expect(card.locator(".terminal-command")).toHaveCount(0);
   await expect(card.locator(".goblin-avatar.persona-releases")).toBeVisible();
 
   // Act
