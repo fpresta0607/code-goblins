@@ -49,8 +49,8 @@ func windowIdentity(stateDir, profile string, userEnv []string) identity {
 // usersOwnState is the state folder of the home userEnv names, as goblins
 // resolves one: GOBLINS_STATE_OVERRIDE, or else the state folder of GOBLINS_HOME, or
 // else of the per-user home under LOCALAPPDATA, each by its old name where a
-// release before the rename set only that. It is empty when userEnv names no
-// home at all.
+// release before the rename set that. It is empty when userEnv names no home
+// at all.
 func usersOwnState(userEnv []string) string {
 	if state := cutover.SettingIn(userEnv, "GOBLINS_STATE_OVERRIDE"); state != "" {
 		return state
