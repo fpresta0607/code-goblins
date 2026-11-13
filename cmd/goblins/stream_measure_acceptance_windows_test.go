@@ -45,7 +45,7 @@ const measuredSends = 3
 // 1+measuredSends model turns a goblin, so it runs only when asked:
 //
 //	GOBLINS_STREAM_REAL=1 GOBLINS_STREAM_BINARY=<goblins.exe built from this tree>
-//	GOBLINS_STREAM_RESULTS=<a directory for the record> [GOBLINS_STREAM_ONLY=terminal|stream]
+//	GOBLINS_STREAM_RESULTS=<a directory for the record>
 func TestAStreamGoblinIsMeasuredBesideATerminalGoblin(t *testing.T) {
 	if os.Getenv("GOBLINS_STREAM_REAL") != "1" {
 		t.Skip("set GOBLINS_STREAM_REAL=1 with GOBLINS_STREAM_BINARY and GOBLINS_STREAM_RESULTS to measure a real stream goblin beside a terminal goblin")
@@ -58,9 +58,6 @@ func TestAStreamGoblinIsMeasuredBesideATerminalGoblin(t *testing.T) {
 		t.Fatalf("this process inherited the fleet home %s (state %s); unset GOBLINS_HOME and GOBLINS_STATE_OVERRIDE first", root, state)
 	}
 	for i, mode := range []string{"terminal", "stream"} {
-		if only := os.Getenv("GOBLINS_STREAM_ONLY"); only != "" && only != mode {
-			continue
-		}
 		t.Run(mode+"-goblin", func(t *testing.T) {
 			root := filepath.Join(results, mode+"-goblin")
 			measureGoblin(t, &wakeProof{binary: binary, root: root, project: filepath.Join(root, "project"), goblin: "claude", port: 4430 + i}, mode == "stream")

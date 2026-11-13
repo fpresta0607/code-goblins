@@ -109,7 +109,7 @@ export class TerminalView {
   // Why typing is held, as the relay last said, or empty while it is free.
   private heldReason = "";
   // Whether the relay said this view shows a session on stream-json pipes,
-  // which takes no typing but stops a turn on Escape.
+  // which takes no typing but stops a turn on Escape or Ctrl+C.
   private isStreamSession = false;
   // What the relay last said of the harness's screen, or null while this
   // view has not been told.
@@ -284,7 +284,7 @@ export class TerminalView {
   }
 
   control(keys: string): boolean {
-    if (!this.isReady || this.heldReason || !this.isSendable()) return false;
+    if (!this.isReady || (this.heldReason && !(this.isStreamSession && keys === "\x03")) || !this.isSendable()) return false;
     this.term.input(keys, true);
     return true;
   }

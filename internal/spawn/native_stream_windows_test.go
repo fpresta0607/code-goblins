@@ -621,46 +621,83 @@ func TestAStreamGoblinSwitchesOnStreamPipes(t *testing.T) {
 }
 
 // A person takes a goblin on stream-json pipes over by restarting it in a
-// terminal, which reports no fallback, since nothing failed; a restart
-// without the terminal hands it back to stream-json pipes (#2374).
+// terminal, which reports no fallback, since nothing failed, even after its
+// stream session ended by itself; a restart without the terminal hands it
+// back to stream-json pipes (#2374).
 func TestAStreamGoblinTakenOverInATerminalIsHandedBackByARestart(t *testing.T) {
-	// Arrange
-	f := newStreamFixture(t, "")
-	f.service.Commands = cleanWorktree{f.service.Worktrees.Commands}
-	f.service.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{harness.Claude: nativeAdapter{kind: harness.Claude, control: harness.Control{StopCommand: "/exit"}}}}
-	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
-		t.Fatalf("Spawn: %v", err)
-	}
-	running := func() host.Record {
-		t.Helper()
-		record, err := host.ReadRecord(f.stateDir, "task-7")
-		if err != nil || !host.Running(record) {
-			t.Fatalf("task-7's host = %+v, %v; want one running", record, err)
-		}
-		return record
-	}
+	for _, testCase := range []struct {
+		name            string
+		isEndedByItself bool
+	}{
+		{name: "while its stream session runs"},
+		{name: "after its stream session ended by itself", isEndedByItself: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			f := newStreamFixture(t, "")
+			f.service.Commands = cleanWorktree{f.service.Worktrees.Commands}
+			f.service.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{harness.Claude: nativeAdapter{kind: harness.Claude, control: harness.Control{StopCommand: "/exit"}}}}
+			if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+				t.Fatalf("Spawn: %v", err)
+			}
+			running := func() host.Record {
+				t.Helper()
+				record, err := host.ReadRecord(f.stateDir, "task-7")
+				if err != nil || !host.Running(record) {
+					t.Fatalf("task-7's host = %+v, %v; want one running", record, err)
+				}
+				return record
+			}
+			if testCase.isEndedByItself {
+				session := running()
+				claude, err := os.FindProcess(session.ChildPID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := claude.Kill(); err != nil {
+					t.Fatal(err)
+				}
+				for deadline := time.Now().Add(time.Minute); ; time.Sleep(50 * time.Millisecond) {
+					if end, err := host.ReadEnd(f.stateDir, "task-7"); err == nil && end.HostPID == session.HostPID {
+						if !end.Stream || end.Closed {
+							t.Fatalf("task-7's end = %+v, want a stream session that ended by itself", end)
+						}
+						break
+					}
+					if time.Now().After(deadline) {
+						t.Fatal("task-7's stream session never recorded its end")
+					}
+				}
+			}
 
-	// Act: take it over.
-	if _, err := f.service.Switch(context.Background(), SwitchRequest{ID: "task-7", Restart: true, InTerminal: true}); err != nil {
-		t.Fatalf("take over: %v", err)
-	}
+			// Act: take it over.
+			if _, err := f.service.Switch(context.Background(), SwitchRequest{ID: "task-7", Restart: true, InTerminal: true}); err != nil {
+				t.Fatalf("take over: %v", err)
+			}
 
-	// Assert
-	if running().Stream {
-		t.Error("task-7 still runs on stream-json pipes after it was taken over, want a terminal")
-	}
-	if lines := statusLines(t, f); slices.ContainsFunc(lines, func(line string) bool { return strings.Contains(line, "rather than on stream-json pipes") }) {
-		t.Errorf("status = %q, want no fallback for a take over", lines)
-	}
+			// Assert
+			if running().Stream {
+				t.Error("task-7 still runs on stream-json pipes after it was taken over, want a terminal")
+			}
+			isFallback := func(line string) bool { return strings.Contains(line, "rather than on stream-json pipes") }
+			if lines := statusLines(t, f); slices.ContainsFunc(lines, isFallback) {
+				t.Errorf("status = %q, want no fallback for a take over", lines)
+			}
+			pending, err := wake.Pending(f.stateDir)
+			if err != nil || slices.ContainsFunc(pending, func(record wake.Record) bool { return record.Kind == "notify" && isFallback(record.Detail) }) {
+				t.Errorf("wake queue = %+v, %v; want no notify of a fallback for a take over", pending, err)
+			}
 
-	// Act: hand it back.
-	if _, err := f.service.Switch(context.Background(), SwitchRequest{ID: "task-7", Restart: true}); err != nil {
-		t.Fatalf("hand back: %v", err)
-	}
+			// Act: hand it back.
+			if _, err := f.service.Switch(context.Background(), SwitchRequest{ID: "task-7", Restart: true}); err != nil {
+				t.Fatalf("hand back: %v", err)
+			}
 
-	// Assert
-	if !running().Stream {
-		t.Error("task-7 runs in a terminal after it was handed back, want stream-json pipes")
+			// Assert
+			if !running().Stream {
+				t.Error("task-7 runs in a terminal after it was handed back, want stream-json pipes")
+			}
+		})
 	}
 }
 

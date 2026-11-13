@@ -54,8 +54,9 @@ func (h *HTTP) streamView(ctx context.Context, view *websocket.Conn, binding nat
 	defer viewer.Close()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	relay := &streamRelay{ctx: ctx, view: view, header: binding.name + " runs Claude Code on stream-json pipes. goblins switch " + binding.id + " --terminal takes it over in a terminal."}
-	held := heldNotice(errors.New(binding.name + " runs on stream-json pipes, so the board sends its messages"))
+	subject := strings.ToUpper(binding.name[:1]) + binding.name[1:]
+	relay := &streamRelay{ctx: ctx, view: view, header: subject + " runs Claude Code on stream-json pipes. goblins switch " + binding.id + " --terminal takes it over in a terminal."}
+	held := heldNotice(errors.New(subject + " runs on stream-json pipes, so the board sends its messages"))
 	for _, message := range [][]byte{streamMarker, []byte(`{"type":"history","bytes":0}`), held} {
 		if !relay.write(websocket.MessageText, message) {
 			return

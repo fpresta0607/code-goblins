@@ -158,12 +158,13 @@ func TakeBack(read func() ([]string, error), write func([]byte) error, screens h
 // A start inTerminal, a person taking the goblin over, runs in the terminal
 // with nothing to report.
 func (s Service) launchNativeHost(id string, kind harness.Kind, launch harness.Launch, userEnv []string, credentials auth.Result, inTerminal bool) (host.Record, error) {
-	isStream, fallback, err := s.onStream(id, kind)
-	if err != nil {
-		return host.Record{}, err
-	}
-	if inTerminal {
-		isStream, fallback = false, ""
+	var isStream bool
+	var fallback string
+	if !inTerminal {
+		var err error
+		if isStream, fallback, err = s.onStream(id, kind); err != nil {
+			return host.Record{}, err
+		}
 	}
 	if isStream {
 		record, err := s.launchHost(id, kind, launch, userEnv, credentials, true)
