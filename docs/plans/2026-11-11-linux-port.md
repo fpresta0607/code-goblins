@@ -118,13 +118,15 @@ The host's protocol (a token handshake, then typed frames) is the same on every 
   It also finds console windows and closes them.
 - **Linux:** `/proc/<pid>/stat` for the parent and start time, `cmdline`, `cwd`, `environ` and `exe` for the rest, `/proc/net/tcp` and `tcp6` matched to socket inodes for the TCP peer, and `pidfd_open` so a process is ended only if it is still the one that was checked.
   Uptime comes from `/proc/uptime`.
+  A start is the machine's start in `/proc/stat` plus the ticks `/proc/<pid>/stat` counts from it, so a step of the clock moves the start of every process read after it.
+  A process that has exited and only waits for its parent to collect it reads as gone.
 - **Not needed:** windows, consoles and integrity levels.
-- **Layer:** 3.
+- **Layer:** 3, and 6 for the TCP peer, whose one caller is the browser sign-in.
 
 ### Locks, files and paths
 
 - **Windows:** the lock keeps a first-come line of waiters with overlapped `LockFileEx` and `CancelIoEx`; the gate's idle lock and the update's hold keep a file open so no one can replace it; `ReplaceFileW` and `MoveFileEx` with write-through replace files; a file another process holds counts as busy.
-- **Linux:** `flock`, with the line of waiters kept in the lock's own file so the first-come order survives; `rename` followed by `fsync` of the file and its folder; an open file is never busy, since unlinking it succeeds.
+- **Linux:** `flock`, with the line of waiters kept in the lock's own file so the first-come order survives: `flock` is held only while a ticket is written, read or struck, since it goes to whichever asker runs first; `rename` followed by `fsync` of the file and its folder; an open file is never busy, since unlinking it succeeds.
 - **Must change, not only port:** code that builds on every system compares paths without regard to case, as Windows does.
   `fsx.SamePath` folds case for its 24 callers in program files, and about 50 more program files compare paths with `strings.EqualFold`, among them `internal/gatehome`, `internal/home`, `internal/harnessmap`, `internal/pipeline`, `internal/update`, `internal/uninstall`, `internal/codexguard`, `internal/fleettree`, `internal/pathguard` and `cmd/goblins`.
   11 more lower a whole path with `strings.ToLower` to compare it or use it as a key: `cmd/goblins/gate_run_end.go`, `internal/lock/lock.go`, `internal/lifecycle/processes.go`, `internal/supervisor/pages.go`, `internal/janitor/worktrees.go`, `internal/watch/janitor.go`, `internal/gatetest/select.go` and `match.go`, `internal/cleanup/outcome.go`, `internal/doctor/fix.go` and `internal/runtime/owner.go`.
@@ -267,7 +269,7 @@ Nothing is dropped in silence: each of these says what it lacks when used, until
 
 ## Pull requests, one layer each
 
-Each layer is one pull request on the latest main, keeps the Windows suite green, and is proved by CI on its Ubuntu runner.
+Each layer is one pull request on the latest main, layer 3 three of them, keeps the Windows suite green, and is proved by CI on its Ubuntu runner.
 A layer's Linux code sits beside the Windows code under a build tag.
 
 1. **This inventory, then the build compiling on Linux.**
@@ -281,6 +283,7 @@ A layer's Linux code sits beside the Windows code under a build tag.
    The Linux job runs `go vet` and `go test` on every package outside a list the job keeps of the packages whose tests wait on product code a later layer ports, such as the lock's line of waiters, process readings, file replacement, path comparison and the native terminal.
 3. **Processes, trees, locks and files.**
    `internal/proc` on `/proc`, `internal/execx` and the gate's executor on process groups, the lock on `flock`, the file replacements, and the default home under `$XDG_DATA_HOME`, kept to the user with mode 0700.
+   It comes in three pull requests: processes and the lock, then trees and the gate's executor, then the files and the home.
 4. **Transport.** Unix sockets for the host, the run requests and the primary transport, in the user's 0700 folder under `/run/user/<uid>` (or `/tmp`), chosen by the user's id and named by a short hash of the home so each path fits `sun_path`, exact path comparison in `fsx.SamePath`, the `strings.EqualFold` calls and the paths lowered with `strings.ToLower`, the code that takes `\` as the separator, and the folders `internal/pathguard` guards.
    Until layer 8 turns lingering on, the socket folder lasts only while the user is signed in.
 5. **The native terminal.** `internal/host` on a pseudo terminal, each host and the supervisor the launcher starts in a transient user scope of its own, the terminal kept off the cores left to the Overlord's own apps with `sched_setaffinity` and the core kinds read from `/sys`, `attach` and the onboarding menu in raw mode, and `spawn` launching on Linux.

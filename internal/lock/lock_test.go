@@ -4,11 +4,9 @@ import (
 	"context"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -96,7 +94,7 @@ func TestAcquireSameProcessDoubleAcquireSucceeds(t *testing.T) {
 
 func TestAcquireStealsFromDeadHolder(t *testing.T) {
 	dir := t.TempDir()
-	cmd := exec.Command("cmd", "/c", "exit 0")
+	cmd := endedProgram()
 	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +131,7 @@ func TestAliveForSelfAndDead(t *testing.T) {
 	if !self.Alive() {
 		t.Error("current process must be alive")
 	}
-	cmd := exec.Command("cmd", "/c", "exit 0")
+	cmd := endedProgram()
 	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +172,7 @@ func TestReleaseAuthorizationWithWrongStart(t *testing.T) {
 func TestReleaseAuthorizationWithDeadPID(t *testing.T) {
 	// Release must fail if the holder is a dead PID.
 	dir := t.TempDir()
-	cmd := exec.Command("cmd", "/c", "exit 0")
+	cmd := endedProgram()
 	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +272,7 @@ func localHostnameForTest(t *testing.T) string {
 
 func TestAcquireOwnerRecordsForeignPID(t *testing.T) {
 	dir := t.TempDir()
-	cmd := exec.Command("ping", "-n", "5", "127.0.0.1")
+	cmd := lastingProgram(5)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +294,7 @@ func TestAcquireOwnerRecordsForeignPID(t *testing.T) {
 
 func TestAcquireOwnerIdempotentAcrossSessions(t *testing.T) {
 	dir := t.TempDir()
-	cmd := exec.Command("ping", "-n", "5", "127.0.0.1")
+	cmd := lastingProgram(5)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -315,7 +313,7 @@ func TestAcquireOwnerIdempotentAcrossSessions(t *testing.T) {
 
 func TestAcquireOwnerContendedByLiveForeignOwner(t *testing.T) {
 	dir := t.TempDir()
-	cmd := exec.Command("ping", "-n", "5", "127.0.0.1")
+	cmd := lastingProgram(5)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +335,7 @@ func TestAcquireOwnerContendedByLiveForeignOwner(t *testing.T) {
 
 func TestAcquireOwnerStealsFromDeadOwner(t *testing.T) {
 	dir := t.TempDir()
-	cmd := exec.Command("cmd", "/c", "exit 0")
+	cmd := endedProgram()
 	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
@@ -366,7 +364,7 @@ func TestHeldByRejectsForeignHostname(t *testing.T) {
 
 func TestHeldByRejectsDeadOwner(t *testing.T) {
 	dir := t.TempDir()
-	cmd := exec.Command("cmd", "/c", "exit 0")
+	cmd := endedProgram()
 	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +380,7 @@ func TestHeldByRejectsDeadOwner(t *testing.T) {
 
 func TestAcquireOwnerRefusesDeadOwner(t *testing.T) {
 	dir := t.TempDir()
-	cmd := exec.Command("cmd", "/c", "exit 0")
+	cmd := endedProgram()
 	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
@@ -586,7 +584,7 @@ func TestAcquireExclusiveNamedReclaimsOnlyAbandonedExclusiveLease(t *testing.T) 
 	t.Run("live foreign process", func(t *testing.T) {
 		dir := t.TempDir()
 		name := ".spawn-task.lock"
-		cmd := exec.Command("ping", "-n", "5", "127.0.0.1")
+		cmd := lastingProgram(5)
 		if err := cmd.Start(); err != nil {
 			t.Fatal(err)
 		}
@@ -612,7 +610,7 @@ func TestAcquireExclusiveNamedTakesALockReleasedBetweenRefusalAndReclaim(t *test
 	// Arrange
 	dir := t.TempDir()
 	name := ".watch.lock"
-	cmd := exec.Command("ping", "-n", "5", "127.0.0.1")
+	cmd := lastingProgram(5)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -706,7 +704,7 @@ func TestStrictAcquireTakesALockWhoseHolderLeftBetweenItsReads(t *testing.T) {
 	// Arrange: a complete record of a holder that has ended, which its holder
 	// removes after the acquire's first read of it.
 	dir, name := t.TempDir(), "slot-1"
-	ended := exec.Command("cmd", "/c", "exit 0")
+	ended := endedProgram()
 	if err := ended.Run(); err != nil {
 		t.Fatal(err)
 	}
@@ -783,7 +781,7 @@ func TestAnAcquireWhoseDeadlinePassesAfterItsCreateTakesTheRecordItMade(t *testi
 // deadHoldersRecord writes dir/name naming a process that has ended.
 func deadHoldersRecord(t *testing.T, dir, name string) string {
 	t.Helper()
-	cmd := exec.Command("cmd", "/c", "exit 0")
+	cmd := endedProgram()
 	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
@@ -830,29 +828,12 @@ func TestAcquireWaitsOutAReaderHoldingADeadHoldersRecord(t *testing.T) {
 	}
 }
 
-// A reader that never lets the dead holder's record go is waited on only a
-// bounded while: the acquire then fails with the sharing violation itself.
-func TestAcquireGivesUpOnAReaderThatNeverLetsADeadHoldersRecordGo(t *testing.T) {
-	dir := t.TempDir()
-	holdOpen(t, deadHoldersRecord(t, dir, ".watch.lock"))
-	began := time.Now()
-
-	_, err := AcquireNamedOwner(dir, ".watch.lock", os.Getpid(), "watch")
-
-	if !errors.Is(err, syscall.Errno(32)) {
-		t.Fatalf("AcquireNamedOwner = %v, want the sharing violation", err)
-	}
-	if waited := time.Since(began); waited > time.Minute {
-		t.Errorf("the acquire waited %s, want it bounded", waited)
-	}
-}
-
 // A live holder that never lets go is waited on only for the wait asked for:
 // past it the acquire returns the holder's ErrHeld.
 func TestAcquireNamedOwnerWithinGivesUpOnALiveHolderAfterItsWait(t *testing.T) {
 	// Arrange
 	dir := t.TempDir()
-	holder := exec.Command("ping", "-n", "30", "127.0.0.1")
+	holder := lastingProgram(30)
 	if err := holder.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -887,7 +868,7 @@ func TestHandOverExclusiveNamedMakesAnotherProcessTheHolder(t *testing.T) {
 	if _, err := AcquireExclusiveNamed(dir, name); err != nil {
 		t.Fatal(err)
 	}
-	next := exec.Command("ping", "-n", "30", "127.0.0.1")
+	next := lastingProgram(30)
 	if err := next.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -925,11 +906,11 @@ func TestHandOverExclusiveNamedMakesAnotherProcessTheHolder(t *testing.T) {
 // lock another process holds, a lock nobody holds and a process that ended
 // are each refused, and the record stays as it was.
 func TestHandOverExclusiveNamedRefusesWhatItCannotHandOver(t *testing.T) {
-	ended := exec.Command("cmd", "/c", "exit 0")
+	ended := endedProgram()
 	if err := ended.Run(); err != nil {
 		t.Fatal(err)
 	}
-	live := exec.Command("ping", "-n", "30", "127.0.0.1")
+	live := lastingProgram(30)
 	if err := live.Start(); err != nil {
 		t.Fatal(err)
 	}
