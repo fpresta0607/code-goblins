@@ -33,23 +33,25 @@ func AdoptOldSettings() {
 }
 
 // SettingIn is the value of goblins' setting name in environment, another
-// process's NAME=value entries, as that process means it: the setting itself
-// where environment sets it, or else the setting a build before the rename
-// named the same way, read as AdoptOldSettings reads it, since a process of
-// such a build holds its home and state only by the old names. It is empty
-// where neither is set.
+// process's NAME=value entries, as that process means it: the setting a build
+// before the rename named the same way, read as AdoptOldSettings reads it,
+// where environment sets it, or else the setting itself. It is empty where
+// neither is set. The old name wins because internal/proc reads a process's
+// live environment, and a build after the rename drops the old names from its
+// own at start, so an environment still holding one is a build's before the
+// rename, which reads only the old name.
 func SettingIn(environment []string, name string) string {
-	fallback := ""
+	current := ""
 	for _, entry := range environment {
 		key, value, _ := strings.Cut(entry, "=")
-		if strings.EqualFold(key, name) {
+		if adopted, value, isOld := adoptedSetting(key, value); isOld && strings.EqualFold(adopted, name) {
 			return value
 		}
-		if adopted, value, isOld := adoptedSetting(key, value); isOld && strings.EqualFold(adopted, name) {
-			fallback = value
+		if strings.EqualFold(key, name) {
+			current = value
 		}
 	}
-	return fallback
+	return current
 }
 
 // adoptedSetting is the name and value goblins reads a setting of a build

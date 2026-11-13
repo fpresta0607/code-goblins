@@ -31,7 +31,7 @@ func TestAdoptOldSettingsReadsEachOldSettingByTheNewNameAndDropsTheOld(t *testin
 	}
 }
 
-func TestSettingInReadsAnotherProcesssSettingByItsOldNameWhereTheNewIsAbsent(t *testing.T) {
+func TestSettingInReadsAnotherProcesssSettingByItsOldNameOverTheNew(t *testing.T) {
 	old := strings.ToUpper(oldName) + "_"
 	cases := []struct {
 		name        string
@@ -41,8 +41,9 @@ func TestSettingInReadsAnotherProcesssSettingByItsOldNameWhereTheNewIsAbsent(t *
 	}{
 		{"the old name only", []string{old + "HOME=" + `D:\elsewhere`}, setting + "HOME", `D:\elsewhere`},
 		{"the old name in another case", []string{strings.ToLower(old) + "state_override=" + `D:\state`}, setting + "STATE_OVERRIDE", `D:\state`},
-		{"the new name over the old, the old first", []string{old + "HOME=" + `D:\old`, setting + "HOME=" + `D:\new`}, setting + "HOME", `D:\new`},
-		{"the new name over the old, the new first", []string{setting + "HOME=" + `D:\new`, old + "HOME=" + `D:\old`}, setting + "HOME", `D:\new`},
+		{"the new name only", []string{setting + "HOME=" + `D:\new`}, setting + "HOME", `D:\new`},
+		{"the old name over the new, the old first", []string{old + "HOME=" + `D:\old`, setting + "HOME=" + `D:\new`}, setting + "HOME", `D:\old`},
+		{"the old name over the new, the new first", []string{setting + "HOME=" + `D:\new`, old + "HOME=" + `D:\old`}, setting + "HOME", `D:\old`},
 		{"another setting's old name", []string{old + "HOMELY=" + `D:\old`}, setting + "HOME", ""},
 		{"neither", []string{`LOCALAPPDATA=C:\local`}, setting + "HOME", ""},
 		{"the CEO's terminal by its old name", []string{old + "HOST_ID=" + oldName}, hostIDSetting, newName},

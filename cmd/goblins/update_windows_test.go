@@ -1037,8 +1037,9 @@ func TestAHomesSupervisorIsKnownByWhereItsRelativeNamesResolve(t *testing.T) {
 // A supervisor a release before the rename started holds its home and state
 // only by the old names, as one of v0.5.18 or earlier does until its update
 // moves the user's settings: an update proves it this home's by those names
-// where the new ones are absent, the new name wins where both are set, and a
-// supervisor of another home is still refused (issue 2539).
+// where the new ones are absent, the old name wins where both are set, as such
+// a supervisor reads only the old names, and a supervisor of another home is
+// still refused (issue 2539).
 func TestASupervisorNamedByTheOldSettingsIsProvedItsHomes(t *testing.T) {
 	local := t.TempDir()
 	parent := t.TempDir()
@@ -1056,9 +1057,9 @@ func TestASupervisorNamedByTheOldSettingsIsProvedItsHomes(t *testing.T) {
 		{"the old home and state names only", movedState, t.TempDir(), []string{cutovertest.HomeSetting + "=" + root, cutovertest.StateSetting + "=" + movedState}, true},
 		{"a relative old home name from the folder that holds it", filepath.Join(root, "state"), parent, []string{cutovertest.HomeSetting + "=my-home"}, true},
 		{"both names for the same home, as the issue's workaround sets them", filepath.Join(root, "state"), t.TempDir(), []string{cutovertest.HomeSetting + "=" + root, "GOBLINS_HOME=" + root}, true},
-		{"the new name naming this home over an old name naming another", filepath.Join(root, "state"), t.TempDir(), []string{cutovertest.HomeSetting + "=" + other, "GOBLINS_HOME=" + root}, true},
-		{"the new name naming another home over an old name naming this one", filepath.Join(root, "state"), t.TempDir(), []string{cutovertest.HomeSetting + "=" + root, "GOBLINS_HOME=" + other}, false},
-		{"the new state name over an old state name", movedState, t.TempDir(), []string{cutovertest.HomeSetting + "=" + root, cutovertest.StateSetting + "=" + movedState, "GOBLINS_STATE_OVERRIDE=" + filepath.Join(root, "state")}, false},
+		{"the old name naming this home over a new name naming another", filepath.Join(root, "state"), t.TempDir(), []string{cutovertest.HomeSetting + "=" + root, "GOBLINS_HOME=" + other}, true},
+		{"the old name naming another home over a new name naming this one", filepath.Join(root, "state"), t.TempDir(), []string{cutovertest.HomeSetting + "=" + other, "GOBLINS_HOME=" + root}, false},
+		{"the old state name over a new state name", movedState, t.TempDir(), []string{cutovertest.HomeSetting + "=" + root, cutovertest.StateSetting + "=" + movedState, "GOBLINS_STATE_OVERRIDE=" + filepath.Join(root, "state")}, true},
 		{"the old home name naming another home", filepath.Join(root, "state"), t.TempDir(), []string{cutovertest.HomeSetting + "=" + other}, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
