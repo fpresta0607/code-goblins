@@ -229,6 +229,7 @@ Continuing retained terminal work requires its supported source-bound continuati
 
 ```powershell
 goblins pipeline run <id> --intent-file intent.md
+goblins pipeline run <id> --intent-file intent.md --closes 1996
 goblins pipeline respond <id> --action fix --findings finding-id --instructions "Concrete guidance"
 goblins pipeline respond <id> --action fix --findings finding-id --scope-decision <answered-notify-sequence>
 goblins pipeline respond <id> --action approve
@@ -251,6 +252,10 @@ no-mistakes keeps that on the run, so a later refresh of the body after CI leave
 no-mistakes never took a closing reference from the intent, so none is lost: its `## Issues` section comes only from `axi run --closes`.
 A no-mistakes before 1.80.0 has no such flag, so on it no run starts, and the command says to update it.
 A run started before this change, without the flag, keeps publishing its intent; reattaching to it passes no flag, since no-mistakes refuses one a running run was not started with.
+Name each issue the run's pull request closes with `--closes`, as `1996` or `owner/repo#1996`, once for each.
+no-mistakes neutralizes the closing words in every text an agent wrote, the intent included, so a `Fixes #N` in the intent closes nothing.
+A no-mistakes before 1.87.0 takes no `--closes`, so a start that names an issue on one starts no run and names the version to update to.
+A reattach to a live run keeps the closing issues it started with.
 A response's `--instructions` still reach no-mistakes on its command line, which is the only way it takes them, so keep them short and plain.
 An approval `--reason` reaches it the same way, and the driver refuses one that is not a single line of plain text.
 
