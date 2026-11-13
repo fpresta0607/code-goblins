@@ -33,6 +33,9 @@ A done report may carry up to three lessons the next goblin in its repository sh
 A fourth lesson, a lesson that spans lines, holds a control character or cites nothing, a cite no status line of the task matches, a `--cites` before any `--lesson` and a lesson on any report but a done are refused before anything is recorded.
 The lessons never join the done line: each is recorded under `state/lessons` as a candidate with the status lines it cites, and the report prints their ids.
 `goblins drain` lists each candidate on one line until the CEO accepts or rejects it with [`goblins memory lesson`](memory.md).
+A `--done` or `--failed` report that wakes the CEO, or reaches a helper's parent, also records what each role of the task's run spent since its previous such report, or its spawn, and prints the roles it recorded and what it could not read.
+A report made again, which wakes nobody, records nothing, and a measurement that fails is said without failing the report.
+[Model routing](../contract/dispatch.md#model-routing) says what a record holds, and `goblins doctor` prints each role's totals.
 A question goes out as `goblins notify <id> --blocked "<one short question> options: <answer> (Recommended) \| <answer>"`: the question in one short sentence, every detail on a line of its own that starts with `- ` and comes before `options:`, and the choices after `options:` on its line, each the answer itself as a short phrase, such as `Fix it next` or `Keep 300 s`.
 Its `- ` lines give the recommendation and what each choice does in plain words, and run IDs, finding codes and other evidence go after a line that reads only `Details:`, which the Command Center folds under Technical details, as the [decisions procedure](../contract/decisions.md#user-decisions-on-the-board) shows.
 `goblins drain` shows it as a decision with those choices listed.
