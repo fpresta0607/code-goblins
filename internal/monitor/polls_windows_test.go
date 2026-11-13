@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/host/hosttest"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
@@ -22,8 +23,10 @@ import (
 // goblins.exe it starts one below itself and prints its pid once that one runs;
 // run busy it keeps a processor busy, the way a build does; run as a gate it
 // is a no-mistakes status call that leaves a process holding its output. A
-// stand-in nobody stops ends on its own after a minute.
+// stand-in nobody stops ends on its own after a minute. Run as
+// hosttest.StreamChild it is a stand-in Claude Code on stream-json pipes.
 func TestMain(m *testing.M) {
+	hosttest.RunStreamChild()
 	switch os.Getenv("GOBLINS_POLL_STANDIN") {
 	case "":
 		os.Exit(m.Run())

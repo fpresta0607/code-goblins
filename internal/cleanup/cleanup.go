@@ -845,7 +845,9 @@ func (s Service) requireHerdrInactive(ctx context.Context, meta state.TaskMeta) 
 // terminal has ended. A running terminal is idle only while its harness shows
 // the ready composer with no working marker, and its record is returned so
 // the cleanup closes it. A record or a screen that cannot be read, any other
-// screen, and a harness whose screens goblins cannot read are all refused. Under
+// screen, and a harness whose screens goblins cannot read are all refused. A
+// stream session is idle only while its state shows Claude Code waiting for a
+// line, and one whose state cannot be read is refused. Under
 // LeaveRunningTerminals every running terminal is refused.
 func (s Service) requireNativeIdle(meta state.TaskMeta) (host.Record, error) {
 	record, err := host.ReadRecord(s.StateDir, meta.ID)
@@ -860,6 +862,16 @@ func (s Service) requireNativeIdle(meta state.TaskMeta) (host.Record, error) {
 	}
 	if s.LeaveRunningTerminals {
 		return host.Record{}, fmt.Errorf("cleanup: native task %s still runs in host pid %d, and this cleanup never ends a process; retire it with goblins cleanup %s, which closes its terminal once its harness is idle", meta.ID, record.HostPID, meta.ID)
+	}
+	if record.Stream {
+		session, err := host.ReadStreamState(record)
+		if err != nil {
+			return host.Record{}, fmt.Errorf("cleanup: stream session %s still runs in host pid %d and its state cannot be read: %w", meta.ID, record.HostPID, err)
+		}
+		if !session.IsIdle() {
+			return host.Record{}, fmt.Errorf("cleanup: stream session %s does not show Claude Code waiting for a line; refusing to return an active endpoint. It shows:\n%s", meta.ID, host.ScreenTail(session.Rows(), 8))
+		}
+		return record, nil
 	}
 	screens, ok := harness.NativeScreens(harness.Kind(meta.Harness))
 	if !ok {

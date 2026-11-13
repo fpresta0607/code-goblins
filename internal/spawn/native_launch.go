@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/claudestream"
 	"github.com/fpresta0607/code-goblins/internal/codexguard"
 	"github.com/fpresta0607/code-goblins/internal/crawler"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
@@ -152,8 +153,30 @@ func TakeBack(read func() ([]string, error), write func([]byte) error, screens h
 // none. It is the last step of a start's turn: from here the host counts as a
 // running terminal, which the next start's admission sees. A goblin's
 // terminal keeps off the cores the fleet's work leaves to the Overlord's own
-// apps.
+// apps. A start onStream puts on stream-json pipes runs in a stream host
+// instead, and in the terminal, with why reported, if that host cannot start.
 func (s Service) launchNativeHost(id string, kind harness.Kind, launch harness.Launch, userEnv []string, credentials auth.Result) (host.Record, error) {
+	isStream, fallback, err := s.onStream(id, kind)
+	if err != nil {
+		return host.Record{}, err
+	}
+	if isStream {
+		record, err := s.launchHost(id, kind, launch, userEnv, credentials, true)
+		if err == nil {
+			return record, nil
+		}
+		fallback = err.Error()
+	}
+	record, err := s.launchHost(id, kind, launch, userEnv, credentials, false)
+	if err != nil || fallback == "" {
+		return record, err
+	}
+	return record, s.reportFallback(id, fallback)
+}
+
+// launchHost starts the harness in a host of its own, the task's id: in a
+// native terminal, or with isStream as claude -p on stream-json pipes.
+func (s Service) launchHost(id string, kind harness.Kind, launch harness.Launch, userEnv []string, credentials auth.Result, isStream bool) (host.Record, error) {
 	if _, ok := harness.NativeScreens(kind); !ok {
 		return host.Record{}, fmt.Errorf("spawn: %s cannot run in a native terminal yet", kind)
 	}
@@ -167,7 +190,15 @@ func (s Service) launchNativeHost(id string, kind harness.Kind, launch harness.L
 	if !filepath.IsAbs(s.HomeRoot) {
 		return host.Record{}, fmt.Errorf("spawn: the home's root %q is not an absolute path, so the goblin's goblins commands could not name the home that spawned it", s.HomeRoot)
 	}
-	record, err := host.Launch(s.StateDir, s.HostCommand, s.nativeHostEnvironment(userEnv, launch, credentials), host.Spec{ID: id, Args: program, Dir: launch.Dir, Cols: nativeCols, Rows: nativeRows, ShouldLeaveCoresForApps: true})
+	env := s.nativeHostEnvironment(userEnv, launch, credentials)
+	if isStream {
+		record, err := host.Launch(s.StateDir, s.HostCommand, env, host.Spec{ID: id, Args: slices.Concat(program, claudestream.Arguments()), Dir: launch.Dir, ShouldLeaveCoresForApps: true, IsStream: true})
+		if err != nil {
+			return host.Record{}, fmt.Errorf("spawn: start the stream session of %s: %w", id, err)
+		}
+		return record, nil
+	}
+	record, err := host.Launch(s.StateDir, s.HostCommand, env, host.Spec{ID: id, Args: program, Dir: launch.Dir, Cols: nativeCols, Rows: nativeRows, ShouldLeaveCoresForApps: true})
 	if err != nil {
 		return host.Record{}, fmt.Errorf("spawn: start native terminal %s: %w", id, err)
 	}
@@ -179,24 +210,47 @@ func (s Service) launchNativeHost(id string, kind harness.Kind, launch harness.L
 // terminal's screen throughout: it answers a startup dialog only once it
 // recognizes it, types the instruction only at the harness's composer, and
 // submits it only once the composer shows it. It runs after the start's turn,
-// so a slow startup holds up no other start.
-func (s Service) briefNativeHarness(ctx context.Context, id string, record host.Record, kind harness.Kind, launch harness.Launch) error {
+// so a slow startup holds up no other start. A stream session is first proved
+// to run on the owner's sign-in with his hooks, skills and CLAUDE.md
+// (proveStream) and given the whole instruction as one line; one that cannot
+// show it is closed and the harness started in its terminal in its place,
+// with why reported. It returns the host the harness runs in.
+func (s Service) briefNativeHarness(ctx context.Context, id string, record host.Record, kind harness.Kind, launch harness.Launch, userEnv []string, credentials auth.Result) (host.Record, error) {
 	screens, ok := harness.NativeScreens(kind)
 	if !ok {
-		return fmt.Errorf("spawn: %s cannot run in a native terminal yet", kind)
+		return record, fmt.Errorf("spawn: %s cannot run in a native terminal yet", kind)
+	}
+	if record.Stream {
+		failure := proveStream(record, launch.Dir, s.nativeHostEnvironment(userEnv, launch, credentials))
+		if failure == nil {
+			failure = s.deliverStream(ctx, record, launch.PromptInstruction())
+			if failure == nil || errors.Is(failure, fleet.ErrQueuedForToolCall) || ctx.Err() != nil {
+				return record, failure
+			}
+		}
+		if err := host.Close(s.StateDir, record, nativeCloseWait); err != nil {
+			return record, fmt.Errorf("spawn: the stream session of %s failed (%w), and could not be closed: %w", id, failure, err)
+		}
+		var err error
+		if record, err = s.launchHost(id, kind, launch, userEnv, credentials, false); err != nil {
+			return record, err
+		}
+		if err := s.reportFallback(id, "its stream session failed: "+failure.Error()); err != nil {
+			return record, err
+		}
 	}
 	untrusted, _, err := s.awaitNativeReady(ctx, record, screens)
 	if err != nil {
-		return err
+		return record, err
 	}
 	if untrusted != "" {
 		if err := s.reportUntrusted(id, kind, launch.Dir, untrusted); err != nil {
-			return err
+			return record, err
 		}
 	}
 	screen, err := s.readNativeScreen(ctx, record)
 	if err != nil {
-		return err
+		return record, err
 	}
 	// Text typed into a composer that holds something lands on top of it, and
 	// the Enter that submits the instruction would submit that draft instead.
@@ -204,13 +258,13 @@ func (s Service) briefNativeHarness(ctx context.Context, id string, record host.
 	// read, proves no draft: the delivery answers the one and types into the
 	// other as it always has.
 	if screens.ComposerHoldsText(screen) {
-		return fmt.Errorf("spawn: native terminal %s holds a draft, so nothing was typed into it", record.ID)
+		return record, fmt.Errorf("spawn: native terminal %s holds a draft, so nothing was typed into it", record.ID)
 	}
 	instruction, err := s.typedInstruction(id, launch.PromptInstruction())
 	if err != nil {
-		return err
+		return record, err
 	}
-	return s.deliverNativeInstruction(ctx, record, screens, state.TaskMeta{ID: id, Harness: string(kind), Worktree: launch.Dir, SpawnGen: launch.Env["GOBLINS_SPAWN_GEN"]}, launch.ResumeSession, instruction, true)
+	return record, s.deliverNativeInstruction(ctx, record, screens, state.TaskMeta{ID: id, Harness: string(kind), Worktree: launch.Dir, SpawnGen: launch.Env["GOBLINS_SPAWN_GEN"]}, launch.ResumeSession, instruction, true)
 }
 
 // DismissOffer reads the terminal's screen and presses the one key a live
@@ -1047,14 +1101,20 @@ func (s Service) nativeHostEnvironment(userEnv []string, launch harness.Launch, 
 }
 
 // hasNativeVariable reports whether env, a native host environment, sets name
-// to a value. Names compare without case, as Windows compares them.
+// to a value.
 func hasNativeVariable(env []string, name string) bool {
+	return nativeVariable(env, name) != ""
+}
+
+// nativeVariable is the value env, a native host environment, gives name.
+// Names compare without case, as Windows compares them.
+func nativeVariable(env []string, name string) string {
 	for _, entry := range env {
 		if entryName, value, _ := strings.Cut(entry, "="); strings.EqualFold(entryName, name) {
-			return value != ""
+			return value
 		}
 	}
-	return false
+	return ""
 }
 
 func (s Service) userEnvironment() ([]string, error) {
