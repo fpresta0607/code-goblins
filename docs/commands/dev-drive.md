@@ -32,6 +32,7 @@ A gate home that is itself a junction to any other folder, or holds a junction i
 `goblins dev-drive` and `goblins doctor` name such a junction at the home's top levels, the home itself, its entries and theirs, instead of offering the move.
 A move whose gate runs stay in flight the whole half hour changes nothing of the gate's home and exits 3, with one line that says whether the daemon was stopped and whether it runs now: `the daemon was never stopped`, or `the daemon was stopped and runs again on <home>`.
 Any other failure exits 1.
+It waits on the gate's own refusal alone, a gate run in flight, a `daemon stop` that no-mistakes refused or a daemon's lock that is held: a `no-mistakes` that could not be run, or a gate database that could not be read, ends the move at once as such a failure, never as a busy gate.
 Once the person asked for a Dev Drive, the supervisor carries the gate's home itself, with no Command Center item and nothing to press: each minute it counts the gate runs in flight, and at the first count of none it runs this command hidden, its output in `state\dev-drive-move.log`, and runs it again whenever it ended because the gate stayed busy.
 The board's Dev Drive row says what it waits on meanwhile, such as `Waiting for 1 gate run to finish, then the gate's home moves by itself.`
 A carry that failed for any other reason is not run again by itself: the row says why and offers **Try again**.

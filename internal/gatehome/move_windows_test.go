@@ -32,6 +32,11 @@ type fakeDaemon struct {
 	busyHolds int
 	// failStart fails Start on the named home.
 	failStart string
+	// inFlightErr, stopErr and holdErr fail the look for runs in flight, the
+	// stop and the hold of the old home for a reason that is not the gate's
+	// own no, such as a database that could not be read or a command that
+	// could not run.
+	inFlightErr, stopErr, holdErr error
 	// onHold runs when the home is held.
 	onHold func()
 	// onStart runs when a daemon is asked to start, before it answers.
@@ -41,18 +46,18 @@ type fakeDaemon struct {
 func (d *fakeDaemon) InFlight(context.Context, string) error {
 	if d.inFlight > 0 {
 		d.inFlight--
-		return errors.New("pipeline busy: it waits for 1 gate run in flight, 01RUN (project fix/a, running), and changed nothing")
+		return Refusal{Err: errors.New("pipeline busy: it waits for 1 gate run in flight, 01RUN (project fix/a, running), and changed nothing")}
 	}
-	return nil
+	return d.inFlightErr
 }
 
 func (d *fakeDaemon) Stop(_ context.Context, root string) error {
 	d.calls = append(d.calls, "stop "+root)
 	if d.refusals > 0 {
 		d.refusals--
-		return errors.New("refusing daemon stop because 1 active pipeline runs are in progress")
+		return Refusal{Err: errors.New("refusing daemon stop because 1 active pipeline runs are in progress")}
 	}
-	return nil
+	return d.stopErr
 }
 
 func (d *fakeDaemon) Forget(_ context.Context, root string) error {
@@ -64,7 +69,10 @@ func (d *fakeDaemon) Hold(_ context.Context, root string) (func() error, error) 
 	d.calls = append(d.calls, "hold "+root)
 	if d.busyHolds > 0 {
 		d.busyHolds--
-		return nil, errors.New("pipeline busy: the no-mistakes daemon is running and no gate run is in flight")
+		return nil, Refusal{Err: errors.New("pipeline busy: the no-mistakes daemon is running and no gate run is in flight")}
+	}
+	if d.holdErr != nil {
+		return nil, d.holdErr
 	}
 	if d.onHold != nil {
 		d.onHold()
@@ -287,6 +295,78 @@ func TestAMoveThatStoppedTheDaemonAndGaveUpStartsItAgain(t *testing.T) {
 		t.Fatalf("err = %v, want a busy gate whose daemon runs again", err)
 	}
 	if want := slices.Repeat([]string{"stop " + s.old, "hold " + s.old, "start " + s.old}, 3); !slices.Equal(s.daemon.calls, want) {
+		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
+	}
+	assertUntouched(t, s)
+}
+
+// A move whose gate could not be asked, for a reason that is not the gate's
+// own no, fails at once and is no busy gate: it does not wait, since waiting
+// mends no such failure, and it says the one true thing about the daemon. A
+// gate run that was in flight a look earlier changes none of it.
+func TestAMoveThatCouldNotAskTheGateFailsAtOnceAndIsNoBusyGate(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		arrange    func(*fakeDaemon, error)
+		wantDaemon string
+		wantCalls  []string
+		wantWaits  int
+	}{
+		{name: "the runs in flight could not be read", arrange: func(d *fakeDaemon, err error) { d.inFlightErr = err }, wantDaemon: "the daemon was never stopped"},
+		{name: "the stop could not be asked", arrange: func(d *fakeDaemon, err error) { d.stopErr = err }, wantDaemon: "the daemon was never stopped", wantCalls: []string{"stop"}},
+		{name: "the stop could not be asked after a wait", arrange: func(d *fakeDaemon, err error) { d.inFlight, d.stopErr = 1, err }, wantDaemon: "the daemon was never stopped", wantCalls: []string{"stop"}, wantWaits: 1},
+		{name: "the hold failed", arrange: func(d *fakeDaemon, err error) { d.holdErr = err }, wantDaemon: "the daemon was stopped and runs again on ", wantCalls: []string{"stop", "hold", "start"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			s := newScratch(t)
+			failure := errors.New("the gate could not be asked")
+			test.arrange(s.daemon, failure)
+			var waits int
+
+			// Act
+			mover := s.mover()
+			mover.Waiting = func(error) { waits++ }
+			_, isCarried, err := mover.Move(context.Background(), s.old, s.devDrive)
+
+			// Assert
+			if !errors.Is(err, failure) || errors.Is(err, ErrGateBusy) || isCarried {
+				t.Fatalf("carried %v, err = %v; want the failure itself and no busy gate", isCarried, err)
+			}
+			if !strings.Contains(err.Error(), "nothing moved, and "+test.wantDaemon) || strings.Contains(err.Error(), "the home moves once no gate run is in flight") {
+				t.Errorf("err = %v, want it to say %q and promise no move by waiting", err, test.wantDaemon)
+			}
+			var want []string
+			for _, call := range test.wantCalls {
+				want = append(want, call+" "+s.old)
+			}
+			if !slices.Equal(s.daemon.calls, want) {
+				t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
+			}
+			if waits != test.wantWaits {
+				t.Errorf("waited %d times, want %d", waits, test.wantWaits)
+			}
+			assertUntouched(t, s)
+		})
+	}
+}
+
+// A daemon the move stopped, could not hold off and could not start again is
+// no busy gate, whatever refused the hold: nothing runs the move again by
+// itself while the daemon is down.
+func TestAStoppedDaemonThatDidNotStartAgainIsNoBusyGate(t *testing.T) {
+	// Arrange
+	s := newScratch(t)
+	s.daemon.busyHolds, s.daemon.failStart = 1, s.old
+
+	// Act
+	_, _, err := s.mover().Move(context.Background(), s.old, s.devDrive)
+
+	// Assert
+	if err == nil || errors.Is(err, ErrGateBusy) || !strings.Contains(err.Error(), "nothing moved, and the daemon was stopped and did not start again on "+s.old) {
+		t.Fatalf("err = %v, want a daemon that did not start again and no busy gate", err)
+	}
+	if want := []string{"stop " + s.old, "hold " + s.old, "start " + s.old}; !slices.Equal(s.daemon.calls, want) {
 		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
 	}
 	assertUntouched(t, s)

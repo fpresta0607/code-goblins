@@ -10,13 +10,30 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/gatedb"
 	"github.com/fpresta0607/code-goblins/internal/gatehome"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
 // gateCarryLog is where the supervisor's own carry of the gate's home writes
 // what it says, in the home's state.
 const gateCarryLog = "dev-drive-move.log"
+
+// boardDevDrive is the Dev Drive setting of the board serving h on this
+// machine: it reads the machine and where the gate's home is as runtime
+// does, counts the gate runs in flight in the database of the gate home it
+// is asked about, read in process, and carries the gate's home with this
+// build's goblins dev-drive move, started through start.
+func boardDevDrive(h home.Home, runtime commandRuntime, start func(executable, dir, logPath string, args ...string) (*exec.Cmd, error)) *supervisor.DevDrive {
+	return &supervisor.DevDrive{Read: runtime.readDevDrive, GateHome: runtime.gateHome,
+		GateRuns: func(ctx context.Context, root string) (int, error) {
+			return pipeline.Reader{Root: root, Commands: gatedb.Runner{Next: execx.OSRunner{}}}.InFlight(ctx)
+		},
+		CarryGateHome: carryGateHomeFromTheBoard(h, start)}
+}
 
 // carryGateHomeFromTheBoard is how the supervisor serving h carries the
 // gate's home into a Dev Drive folder by itself: this build's goblins
@@ -54,8 +71,13 @@ func carryGateHomeFromTheBoard(h home.Home, start func(executable, dir, logPath 
 	}
 }
 
-// lastSaid is the last line a move wrote to its log past offset, without the
-// command's own name, or its exit code when it wrote none.
+// moveSays starts each line goblins dev-drive move says of its own failure.
+const moveSays = "goblins dev-drive move: "
+
+// lastSaid is what a move last said in its log past offset, as one line: all
+// it wrote from the last line it began in its own name, without that name,
+// since what it says of one failure can run over several lines; its last
+// line when it named itself in none; or its exit code when it wrote nothing.
 func lastSaid(logPath string, offset int64, exitCode int) string {
 	said := fmt.Sprintf("goblins dev-drive move exited %d and said nothing", exitCode)
 	log, err := os.Open(logPath)
@@ -71,8 +93,20 @@ func lastSaid(logPath string, offset int64, exitCode int) string {
 		return said
 	}
 	lines := strings.Split(strings.TrimSpace(strings.ReplaceAll(string(written), "\r\n", "\n")), "\n")
-	if last := strings.TrimSpace(lines[len(lines)-1]); last != "" {
-		return strings.TrimPrefix(last, "goblins dev-drive move: ")
+	from := len(lines) - 1
+	for index, line := range lines {
+		if strings.HasPrefix(line, moveSays) {
+			from = index
+		}
 	}
-	return said
+	var last []string
+	for _, line := range lines[from:] {
+		if line = strings.TrimSpace(line); line != "" {
+			last = append(last, line)
+		}
+	}
+	if len(last) == 0 {
+		return said
+	}
+	return strings.TrimPrefix(strings.Join(last, "; "), moveSays)
 }

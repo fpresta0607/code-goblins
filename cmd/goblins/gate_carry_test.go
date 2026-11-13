@@ -15,10 +15,11 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/standin"
 )
 
-// The supervisor's own carry runs goblins dev-drive move for the Dev Drive
-// folder as a process of its own and reads how it ended: done, a gate that
-// stayed busy, which the supervisor carries again by itself, or the move's
-// last words, without what an earlier carry left in the log.
+// The carry the board's Dev Drive setting gives the supervisor runs goblins
+// dev-drive move for the Dev Drive folder as a process of its own and reads
+// how it ended: done, a gate that stayed busy, which the supervisor carries
+// again by itself, or what the move last said of its failure, every line of
+// it as one, without what an earlier carry left in the log.
 func TestTheBoardsCarryReadsHowTheMoveEnded(t *testing.T) {
 	for _, test := range []struct {
 		name     string
@@ -29,6 +30,8 @@ func TestTheBoardsCarryReadsHowTheMoveEnded(t *testing.T) {
 		{name: "the home moved", rule: standin.Rule{Stdout: "gate home: moved\r\n"}},
 		{name: "the gate stayed busy", rule: standin.Rule{Stderr: "goblins dev-drive move: gate home: nothing moved\r\n", Exit: exitGateBusy}, wantBusy: true},
 		{name: "the copy failed", rule: standin.Rule{Stdout: "gate home: waiting\r\n", Stderr: "goblins dev-drive move: gate home: the copy failed, so nothing moved: disk full\r\n", Exit: 1}, wantErr: "gate home: the copy failed, so nothing moved: disk full"},
+		{name: "the stopped daemon did not start again, said over two lines", rule: standin.Rule{Stdout: "gate home: waiting\r\n", Stderr: "goblins dev-drive move: D:\\CodeGoblins is not yet kept to you\r\ngoblins dev-drive move: gate home: nothing moved, and the daemon was stopped and did not start again on C:\\old: the lock is held\r\nno-mistakes daemon start exited 1: no socket\r\n", Exit: 1}, wantErr: "gate home: nothing moved, and the daemon was stopped and did not start again on C:\\old: the lock is held; no-mistakes daemon start exited 1: no socket"},
+		{name: "it failed before it named itself", rule: standin.Rule{Stdout: "asked\r\n", Stderr: "the home could not be read\r\n", Exit: 1}, wantErr: "the home could not be read"},
 		{name: "it said nothing", rule: standin.Rule{Exit: 2}, wantErr: "goblins dev-drive move exited 2 and said nothing"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -63,7 +66,7 @@ func TestTheBoardsCarryReadsHowTheMoveEnded(t *testing.T) {
 			}
 
 			// Act
-			err := carryGateHomeFromTheBoard(h, start)(context.Background(), `D:\CodeGoblins`)
+			err := boardDevDrive(h, defaultCommandRuntime(), start).CarryGateHome(context.Background(), `D:\CodeGoblins`)
 
 			// Assert
 			switch {

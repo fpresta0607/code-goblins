@@ -15,6 +15,8 @@ import (
 )
 
 // Daemon is the gate's daemon for the home at root, as a move needs it.
+// InFlight, Stop and Hold answer the gate's own no as a Refusal, which a move
+// waits on; any other error of theirs ends the move.
 type Daemon interface {
 	// InFlight names the gate runs in flight in root's home, a run parked
 	// on an answer and one in an agent step among them, and is nil when
@@ -39,6 +41,16 @@ type Daemon interface {
 // home. The same move carries the home once the gate rests.
 var ErrGateBusy = errors.New("gate home: the gate stayed busy")
 
+// Refusal is the gate's own no to a move that asks it to rest, in Err's
+// words: a gate run in flight, a daemon that would not stop, or one that
+// holds the home. Waiting mends it, as it mends no other error, such as a
+// command that could not run or a database that could not be read.
+type Refusal struct{ Err error }
+
+func (r Refusal) Error() string { return r.Err.Error() }
+
+func (r Refusal) Unwrap() error { return r.Err }
+
 // Mover moves the gate's home onto the Dev Drive.
 type Mover struct {
 	Daemon Daemon
@@ -53,8 +65,8 @@ type Mover struct {
 	Tries int
 	Every time.Duration
 	Now   func() time.Time
-	// Waiting is told each time a gate run was in flight, or the daemon
-	// refused to stop or to be held off.
+	// Waiting is told each Refusal the move waits on: a gate run in flight,
+	// or a daemon that refused to stop or to be held off.
 	Waiting func(err error)
 }
 
@@ -342,9 +354,10 @@ func (m Mover) setEnv(target string) error {
 // flight it asks the daemon to stop, which the daemon refuses for a run of
 // its own, and then holds it off, until all three hold or the tries run out.
 // It never asks a daemon to stop while a run is in flight, and a daemon it
-// stopped but could not hold off it starts again at once. A move that gives
-// up, or is interrupted while it waits, says whether the daemon was stopped
-// and whether it runs now.
+// stopped but could not hold off it starts again at once. It waits on the
+// gate's own no alone, a Refusal: any other failure ends it at once and is no
+// busy gate. A move that gives up, fails or is interrupted while it waits
+// says whether the daemon was stopped and whether it runs now.
 func (m Mover) rest(ctx context.Context, root string) (func() error, error) {
 	var err error
 	daemon := "the daemon was never stopped"
@@ -368,14 +381,20 @@ func (m Mover) rest(ctx context.Context, root string) (func() error, error) {
 				daemon = "the daemon was stopped and runs again on " + root
 			}
 		}
+		if !errors.As(err, new(Refusal)) {
+			break
+		}
 		if m.Waiting != nil {
 			m.Waiting(err)
 		}
 	}
-	if ctx.Err() != nil {
+	switch {
+	case ctx.Err() != nil:
 		err = ctx.Err()
-	} else {
+	case errors.As(err, new(Refusal)):
 		err = fmt.Errorf("%w: %w", ErrGateBusy, err)
+	default:
+		return nil, fmt.Errorf("gate home: nothing moved, and %s: %w", daemon, err)
 	}
 	return nil, fmt.Errorf("gate home: nothing moved, and %s; the home moves once no gate run is in flight: %w", daemon, err)
 }

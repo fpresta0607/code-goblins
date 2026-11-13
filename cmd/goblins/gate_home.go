@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -33,20 +34,26 @@ type gateDaemon struct {
 }
 
 func (d gateDaemon) InFlight(ctx context.Context, root string) error {
-	return d.reader(root).AtRest(ctx)
+	return gateRefusal(d.reader(root).AtRest(ctx))
 }
 
 // Stop stops root's daemon with daemon stop, which no-mistakes refuses while
-// a gate run is in flight. daemon uninstall is no stop here: off macOS it
-// changes nothing and exits 0, so a move that asked it never waited (#2525).
+// a gate run is in flight: a daemon stop that ran and exited nonzero is that
+// refusal, and one that could not run is not. daemon uninstall is no stop
+// here: off macOS it changes nothing and exits 0, so a move that asked it
+// never waited (#2525).
 func (d gateDaemon) Stop(ctx context.Context, root string) error {
-	return d.run(ctx, root, "daemon", "stop")
+	isRefused, err := d.run(ctx, root, "daemon", "stop")
+	if isRefused {
+		return gatehome.Refusal{Err: err}
+	}
+	return err
 }
 
 // Start starts root's daemon. no-mistakes refuses to start one that runs
 // already, which is the daemon started all the same.
 func (d gateDaemon) Start(ctx context.Context, root string) error {
-	err := d.run(ctx, root, "daemon", "start")
+	_, err := d.run(ctx, root, "daemon", "start")
 	if err == nil {
 		return nil
 	}
@@ -57,7 +64,18 @@ func (d gateDaemon) Start(ctx context.Context, root string) error {
 }
 
 func (d gateDaemon) Hold(ctx context.Context, root string) (func() error, error) {
-	return d.reader(root).Idle(ctx)
+	release, err := d.reader(root).Idle(ctx)
+	return release, gateRefusal(err)
+}
+
+// gateRefusal is err as a move takes it: a gate that is busy, with a run in
+// flight or a daemon holding its lock, is the gate's own no, which the move
+// waits on, and a gate that could not be read is not.
+func gateRefusal(err error) error {
+	if errors.Is(err, pipeline.ErrBusy) {
+		return gatehome.Refusal{Err: err}
+	}
+	return err
 }
 
 func (d gateDaemon) Forget(ctx context.Context, root string) error {
@@ -68,19 +86,22 @@ func (d gateDaemon) reader(root string) pipeline.Reader {
 	return pipeline.Reader{Root: root, Commands: gatedb.Runner{Next: d.commands}}
 }
 
-func (d gateDaemon) run(ctx context.Context, root string, args ...string) error {
+// run runs no-mistakes for root's home, and says whether its error is
+// no-mistakes' own refusal, a command that ran and exited nonzero, and no
+// command that could not run.
+func (d gateDaemon) run(ctx context.Context, root string, args ...string) (bool, error) {
 	result, err := d.commands.Run(ctx, execx.Request{Name: "no-mistakes", Args: args, Env: append(pipeline.NativeEnv(root), "NO_MISTAKES_NO_UPDATE_CHECK=1")})
 	if err != nil {
-		return err
+		return false, err
 	}
 	if result.ExitCode != 0 {
 		said := strings.TrimSpace(string(result.Stderr))
 		if said == "" {
 			said = strings.TrimSpace(string(result.Stdout))
 		}
-		return fmt.Errorf("no-mistakes %s exited %d: %s", strings.Join(args, " "), result.ExitCode, said)
+		return true, fmt.Errorf("no-mistakes %s exited %d: %s", strings.Join(args, " "), result.ExitCode, said)
 	}
-	return nil
+	return false, nil
 }
 
 // gateHomeLine says where the gate's home is against the Dev Drive folder

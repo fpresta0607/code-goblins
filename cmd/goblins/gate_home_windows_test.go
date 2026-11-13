@@ -5,9 +5,11 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"html"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -17,6 +19,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/gatedb"
 	"github.com/fpresta0607/code-goblins/internal/gatehome"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/installbase"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/standin"
@@ -44,10 +47,7 @@ func newGateDaemonScratch(t *testing.T) gateDaemonScratch {
 		}
 	}
 	standin.Put(t, filepath.Join(bin, "no-mistakes.exe"))
-	for _, variable := range standin.Env(s.log) {
-		name, value, _ := strings.Cut(variable, "=")
-		t.Setenv(name, value)
-	}
+	s.answers(t)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(filepath.Join(s.old, "state.sqlite")))
 	if err != nil {
@@ -66,6 +66,53 @@ func newGateDaemonScratch(t *testing.T) gateDaemonScratch {
 		t.Fatal(err)
 	}
 	return s
+}
+
+// answers makes the stand-in no-mistakes do what rules say from now on, each
+// call still recorded; with no rule every call exits 0.
+func (s gateDaemonScratch) answers(t *testing.T, rules ...standin.Rule) {
+	t.Helper()
+	for _, variable := range standin.Env(s.log, rules...) {
+		name, value, _ := strings.Cut(variable, "=")
+		t.Setenv(name, value)
+	}
+}
+
+// putRun puts a gate run with this status in the scratch home's database, in
+// place of a run with the same id.
+func (s gateDaemonScratch) putRun(t *testing.T, id, status string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(filepath.Join(s.old, "state.sqlite")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec("INSERT OR REPLACE INTO runs VALUES (?, 'a1', 'main', ?, 2, ?)", id, status, filepath.Join(s.old, "worktrees", "a1", id)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// assertNothingCarried fails unless nothing was copied to the Dev Drive and
+// the user's NM_HOME is unset.
+func (s gateDaemonScratch) assertNothingCarried(t *testing.T) {
+	t.Helper()
+	if _, err := os.Lstat(gatehome.Target(s.devDrive)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("something was copied to the Dev Drive: %v", err)
+	}
+	if _, isSet, err := installbase.UserVariable(gatehome.Variable); err != nil || isSet {
+		t.Errorf("user NM_HOME set %v (%v), want it unset", isSet, err)
+	}
+}
+
+// noGateRunner is a machine no-mistakes cannot be started on, as where it is
+// not on the PATH of a hidden process; every other program runs for real.
+type noGateRunner struct{}
+
+func (noGateRunner) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
+	if request.Name == "no-mistakes" {
+		return execx.Result{}, &exec.Error{Name: request.Name, Err: exec.ErrNotFound}
+	}
+	return execx.OSRunner{}.Run(ctx, request)
 }
 
 // gateTaskRunner answers schtasks itself, as a machine whose only scheduled
@@ -195,11 +242,151 @@ func TestCarryGateHomeHoldsTheOldHomesDaemonLockBeforeItCopies(t *testing.T) {
 	if len(tasks.calls) != 0 || len(tasks.tasks) != 1 {
 		t.Errorf("schtasks calls = %q with %d task(s) left, want the old home's task untouched", tasks.calls, len(tasks.tasks))
 	}
-	if _, err := os.Lstat(gatehome.Target(s.devDrive)); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("something was copied to the Dev Drive: %v", err)
+	s.assertNothingCarried(t)
+}
+
+// The real carry looks for gate runs in flight in the old home's own database
+// before it asks the daemon anything (#2525): with a run in an agent step, or
+// one parked on an answer, it never asks no-mistakes to stop the daemon, names
+// the run it waits for, and gives up as a busy gate whose daemon was never
+// stopped.
+func TestCarryGateHomeNeverAsksTheDaemonToStopWhileAGateRunIsInFlight(t *testing.T) {
+	for _, status := range []string{"running", "awaiting_approval"} {
+		t.Run(status, func(t *testing.T) {
+			// Arrange
+			s := newGateDaemonScratch(t)
+			s.putRun(t, "r2", status)
+
+			// Act
+			var out bytes.Buffer
+			_, isCarried, err := carryGateHomeWith(context.Background(), &gateTaskRunner{}, s.old, s.devDrive, 1, 0, &out)
+
+			// Assert
+			if !errors.Is(err, gatehome.ErrGateBusy) || isCarried || !strings.Contains(err.Error(), "nothing moved, and the daemon was never stopped") {
+				t.Fatalf("carry = %v, %v; want a busy gate whose daemon was never stopped", isCarried, err)
+			}
+			if calls := s.calls(t); len(calls) != 0 {
+				t.Errorf("no-mistakes calls = %q, want none while a gate run is in flight", calls)
+			}
+			if !strings.Contains(out.String(), "it waits for 1 gate run in flight, r2 ") {
+				t.Errorf("out = %q, want it to name the run it waits for", out.String())
+			}
+			s.assertNothingCarried(t)
+		})
 	}
-	if _, isSet, err := installbase.UserVariable(gatehome.Variable); err != nil || isSet {
-		t.Errorf("user NM_HOME set %v (%v), want it unset", isSet, err)
+}
+
+// The real carry waits on no-mistakes' own refusal to stop the daemon, a
+// daemon stop that ran and exited nonzero, as a busy gate. A no-mistakes that
+// could not be run is no busy gate: the carry fails on it at once, so the
+// board says why in its row and nothing runs the carry again for ever.
+func TestCarryGateHomeWaitsOnARefusedStopAndFailsOnOneThatCouldNotRun(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		commands  execx.Runner
+		wantBusy  bool
+		wantCalls []string
+	}{
+		{name: "no-mistakes refuses the stop", commands: &gateTaskRunner{}, wantBusy: true, wantCalls: []string{"no-mistakes daemon stop", "no-mistakes daemon stop"}},
+		{name: "no-mistakes cannot be run", commands: noGateRunner{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			s := newGateDaemonScratch(t)
+			s.answers(t, standin.Rule{Args: "daemon stop", Stderr: "refusing daemon stop because 1 active pipeline runs are in progress\r\n", Exit: 1})
+
+			// Act
+			var out bytes.Buffer
+			_, isCarried, err := carryGateHomeWith(context.Background(), test.commands, s.old, s.devDrive, 2, 0, &out)
+
+			// Assert
+			if err == nil || isCarried || errors.Is(err, gatehome.ErrGateBusy) != test.wantBusy || !strings.Contains(err.Error(), "nothing moved, and the daemon was never stopped") {
+				t.Fatalf("carry = %v, %v; want nothing moved, the daemon never stopped, and a busy gate %v", isCarried, err, test.wantBusy)
+			}
+			if !test.wantBusy && !errors.Is(err, exec.ErrNotFound) {
+				t.Errorf("err = %v, want why no-mistakes could not be run", err)
+			}
+			if !slices.Equal(s.calls(t), test.wantCalls) {
+				t.Errorf("no-mistakes calls = %q, want %q", s.calls(t), test.wantCalls)
+			}
+			if waits := strings.Count(out.String(), "gate home: waiting for the gate runs in flight to finish before it moves"); waits != len(test.wantCalls) {
+				t.Errorf("out = %q, want it to wait %d time(s)", out.String(), len(test.wantCalls))
+			}
+			s.assertNothingCarried(t)
+		})
+	}
+}
+
+// no-mistakes refuses to start a daemon that runs already, and the gate
+// daemon takes that for started only while the home's daemon does run: a
+// start refused with no daemon running is a daemon that did not start.
+func TestGateDaemonTakesARefusedStartForStartedOnlyWhileTheDaemonRuns(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		isRunning bool
+	}{
+		{name: "the daemon runs", isRunning: true},
+		{name: "no daemon runs"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			s := newGateDaemonScratch(t)
+			s.answers(t, standin.Rule{Args: "daemon start", Stderr: "the daemon did not start\r\n", Exit: 1})
+			if test.isRunning {
+				if err := os.WriteFile(filepath.Join(s.old, "daemon.pid"), []byte(fmt.Sprintf(`{"pid":%d}`, os.Getpid())), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Act
+			err := gateDaemon{commands: execx.OSRunner{}}.Start(context.Background(), s.old)
+
+			// Assert
+			if test.isRunning && err != nil {
+				t.Errorf("start = %v, want a daemon that runs already taken for started", err)
+			}
+			if !test.isRunning && (err == nil || !strings.Contains(err.Error(), "no-mistakes daemon start exited 1: the daemon did not start")) {
+				t.Errorf("start = %v, want no-mistakes' refusal in its own words", err)
+			}
+			if want := []string{"no-mistakes daemon start"}; !slices.Equal(s.calls(t), want) {
+				t.Errorf("no-mistakes calls = %q, want %q", s.calls(t), want)
+			}
+		})
+	}
+}
+
+// The Dev Drive setting the board serves with counts the gate runs in flight
+// in the database of the gate home it is asked about, a run that ended no
+// longer among them, and reads the machine and where the gate's home is as
+// the commands do.
+func TestTheBoardsDevDriveSettingCountsTheGateRunsInFlightInTheGateHome(t *testing.T) {
+	// Arrange
+	s := newGateDaemonScratch(t)
+	noCarry := func(string, string, string, ...string) (*exec.Cmd, error) {
+		return nil, errors.New("this test carries nothing")
+	}
+	setting := boardDevDrive(home.Home{Root: s.devDrive, State: filepath.Join(s.devDrive, "state")}, runtimeOn(t, machineWith()), noCarry)
+	s.putRun(t, "r2", "running")
+
+	// Act
+	inFlight, inFlightErr := setting.GateRuns(context.Background(), s.old)
+	s.putRun(t, "r2", "completed")
+	ended, endedErr := setting.GateRuns(context.Background(), s.old)
+	gateHome, gateHomeErr := setting.GateHome()
+	machine, machineErr := setting.Read(context.Background())
+
+	// Assert
+	if inFlightErr != nil || inFlight != 1 {
+		t.Errorf("gate runs in flight = %d, %v; want the 1 running", inFlight, inFlightErr)
+	}
+	if endedErr != nil || ended != 0 {
+		t.Errorf("gate runs in flight = %d, %v; want none once it completed", ended, endedErr)
+	}
+	if gateHomeErr != nil || gateHome != systemGateHome {
+		t.Errorf("gate home = %q, %v; want the runtime's %s", gateHome, gateHomeErr, systemGateHome)
+	}
+	if machineErr != nil || machine.SystemDrive != "C:" {
+		t.Errorf("machine = %+v, %v; want the runtime's", machine, machineErr)
 	}
 }
 
