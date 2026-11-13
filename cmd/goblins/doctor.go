@@ -23,6 +23,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harnessmap"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/measure"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
@@ -87,9 +88,9 @@ func runDoctor(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 			fmt.Fprintf(stdout, "  %-9s %-24s %-14s %-15s %-10s %5d %9.1f %9.1f\n", r.Agent, r.Model, r.Role, r.Step, r.Outcome, r.Count, r.AvgMin, r.MaxMin)
 		}
 	}
-	fmt.Fprintln(stdout, "telemetry: implementation unmeasured (the gate database records validation agents only)")
 
 	reportRouting(stdout)
+	reportRoleMeasurements(stdout, runtime)
 	reportProjectsRoot(stdout, runtime)
 	reportDictation(stdout)
 	reportCrawler(stdout, runtime)
@@ -425,6 +426,40 @@ func reportRouting(stdout io.Writer) {
 			}
 			fmt.Fprintln(stdout, line)
 		}
+	}
+}
+
+// reportRoleMeasurements prints what each role spent over every run the
+// home measured, summed by role, harness, model and effort: the runs and
+// calls, millions of input and output tokens, hours, review findings and the
+// gate runs whose Test step passed and failed. A role's agent follows it, a
+// session helper's type or a gate step's purpose.
+func reportRoleMeasurements(stdout io.Writer, runtime commandRuntime) {
+	h, err := runtime.resolveHome()
+	if err != nil {
+		return
+	}
+	records, err := measure.Read(h.State)
+	if err != nil {
+		fmt.Fprintf(stdout, "role measurements: unreadable (%v)\n", err)
+		return
+	}
+	if len(records) == 0 {
+		fmt.Fprintln(stdout, "role measurements: none yet; each done or failed report records its run's")
+		return
+	}
+	fmt.Fprintf(stdout, "role measurements: %d runs, from each role's transcripts and the gate's calls; tokens in millions\n", len(records))
+	fmt.Fprintln(stdout, "  role                 harness model                    effort  runs calls  input output  hours findings passed failed")
+	for _, total := range measure.Totals(records) {
+		role := total.Role.Role
+		if total.Agent != "" {
+			role += " " + total.Agent
+		}
+		untallied := ""
+		if total.Untallied > 0 {
+			untallied = fmt.Sprintf(" (%d calls untallied)", total.Untallied)
+		}
+		fmt.Fprintf(stdout, "  %-20s %-7s %-24s %-7s %4d %5d %6.1f %6.1f %6.1f %8d %6d %6d%s\n", role, total.Harness, total.Model, valueOr(total.Effort, "-"), total.Runs, total.Calls, float64(total.InputTokens)/1e6, float64(total.OutputTokens)/1e6, total.WallSeconds/3600, total.Findings, total.Passed, total.Failed, untallied)
 	}
 }
 

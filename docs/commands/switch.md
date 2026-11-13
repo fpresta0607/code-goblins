@@ -1,11 +1,12 @@
 # goblins switch
 
-`goblins switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty] [--restart]`
+`goblins switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty] [--restart] [--terminal]`
 
 Change a running goblin's harness, model, or effort in place: same id, same worktree, a new native terminal under the same id.
 Stops the old harness on its own terms, then relaunches.
 A model-or-effort-only change resumes the harness's own session where the harness has one; otherwise it writes a handoff note and points the new harness at it.
 `--restart`, with none of the others, starts the goblin's own harness, model and effort again the same way, onto an update of its harness installed since it started.
+`--terminal`, with none of the others, starts it again the same way in a native terminal even where its home puts it on stream-json pipes, which takes a stream goblin over so `goblins attach` can show it, and reports no fallback; a later `--restart` hands it back to stream-json pipes (#2374).
 Refuses a dirty worktree unless `--force-dirty`.
 Answers Claude's "Background work is running" menu with Exit and stop tasks.
 A harness that will not exit has its terminal closed, which ends what it started in the terminal, before the new one starts.

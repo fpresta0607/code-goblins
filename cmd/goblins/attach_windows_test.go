@@ -714,8 +714,9 @@ const (
 )
 
 // goblins attach refuses a stream session, which has no terminal to show,
-// says why and names goblins peek, which shows what it is doing (#2374).
-func TestAttachRefusesAStreamSessionAndNamesPeek(t *testing.T) {
+// says why and names goblins switch --terminal, which takes it over in one,
+// and goblins peek, which shows what it is doing (#2374).
+func TestAttachRefusesAStreamSessionAndNamesTakeOverAndPeek(t *testing.T) {
 	// Arrange
 	stateDir := t.TempDir()
 	hosttest.RunStream(t, stateDir, "task-1", false)
@@ -726,8 +727,8 @@ func TestAttachRefusesAStreamSessionAndNamesPeek(t *testing.T) {
 	exit := runAttach([]string{"--state", stateDir, "task-1"}, &stdout, &stderr, runtime)
 
 	// Assert
-	if exit != 1 || !strings.Contains(stderr.String(), "task-1 runs on stream-json pipes") || !strings.Contains(stderr.String(), "goblins peek task-1") {
-		t.Errorf("attach task-1 = exit %d, stderr %q; want a refusal that names goblins peek", exit, stderr.String())
+	if exit != 1 || !strings.Contains(stderr.String(), "task-1 runs on stream-json pipes") || !strings.Contains(stderr.String(), "goblins switch task-1 --terminal takes it over") || !strings.Contains(stderr.String(), "goblins peek task-1") {
+		t.Errorf("attach task-1 = exit %d, stderr %q; want a refusal that names goblins switch --terminal and goblins peek", exit, stderr.String())
 	}
 	if _, err := host.ReadRecord(stateDir, "task-1"); err != nil {
 		t.Errorf("the stream session after the refusal: %v; want it still running", err)

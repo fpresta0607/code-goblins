@@ -9,7 +9,7 @@ import type { ScreenState } from "./terminalStream.ts";
 function terminal(key: string, mode: string, isTaken = true) {
   const sent: string[] = [];
   const link = (named: string): TerminalLink => ({
-    phase: "live", isReconnecting: false, isDictating: false, stopDictation: () => {}, feedback: "", isUnread: false, held: "",
+    phase: "live", isReconnecting: false, isDictating: false, stopDictation: () => {}, feedback: "", isUnread: false, held: "", isStream: false,
     screen: { isAsking: false, isOpen: false, isWorking: false, hasStarted: true, submission: "", panel: null, mode: named, hasDraft: false, doing: "" } satisfies ScreenState,
     send: () => "s1", paste: () => true, escape: () => true, control: (keys) => { sent.push(keys); return isTaken; },
   });
