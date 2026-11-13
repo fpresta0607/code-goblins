@@ -619,3 +619,69 @@ func TestAStreamGoblinSwitchesOnStreamPipes(t *testing.T) {
 		t.Errorf("input closed %d times, want once, the first session's", len(closed))
 	}
 }
+
+// A switch proves its new stream session against the user's environment, as
+// a spawn does, and falls back to a terminal started from that environment
+// and the task's credentials: a Claude Code folder the user named since the
+// spawn is the one asked for, never a stale one in the profile, and a session
+// that starts bare leaves the handoff to a terminal that takes it once.
+func TestAStreamGoblinsSwitchProvesAndFallsBackFromTheUsersEnvironment(t *testing.T) {
+	for _, testCase := range []struct {
+		name          string
+		isFolderNamed bool
+		streamMode    string
+		wantStream    bool
+		wantReason    string
+	}{
+		{name: "a Claude Code folder named since the spawn", isFolderNamed: true, wantStream: true},
+		{name: "a session that starts bare", streamMode: "bare", wantReason: "not signed in to a Claude plan"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			profile := t.TempDir()
+			t.Setenv("USERPROFILE", profile)
+			t.Setenv("CLAUDE_CONFIG_DIR", "")
+			if err := os.MkdirAll(filepath.Join(profile, ".claude"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(profile, ".claude", "CLAUDE.md"), "a stale CLAUDE.md")
+			folder := t.TempDir()
+			writeFile(t, filepath.Join(folder, "CLAUDE.md"), "the user's CLAUDE.md")
+			f := newStreamFixture(t, "")
+			f.service.Commands = cleanWorktree{f.service.Worktrees.Commands}
+			f.service.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{harness.Claude: nativeAdapter{kind: harness.Claude, control: harness.Control{StopCommand: "/exit"}}}}
+			if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+				t.Fatalf("Spawn: %v", err)
+			}
+			if testCase.isFolderNamed {
+				f.userEnv = append(f.userEnv, "CLAUDE_CONFIG_DIR="+folder)
+			}
+			if testCase.streamMode != "" {
+				f.userEnv = append(f.userEnv, fakeStreamMode+"="+testCase.streamMode)
+			}
+
+			// Act
+			result, err := f.service.Switch(context.Background(), SwitchRequest{ID: "task-7", Model: "opus"})
+
+			// Assert
+			if err != nil {
+				t.Fatalf("Switch: %v", err)
+			}
+			record, err := host.ReadRecord(f.stateDir, "task-7")
+			if err != nil || record.Stream != testCase.wantStream || !host.Running(record) {
+				t.Fatalf("task-7's host after the switch = %+v, %v; want a running host, a stream session %v", record, err, testCase.wantStream)
+			}
+			submitted := submittedLines(t, f, 2)
+			if len(submitted) != 2 || result.Handoff == "" || !strings.Contains(delivered(t, submitted[1]), "Read the handoff at "+result.Handoff) {
+				t.Errorf("submitted = %q with handoff %q; want the instruction, then the handoff taken once", submitted, result.Handoff)
+			}
+			if testCase.wantReason == "" {
+				if lines := statusLines(t, f); slices.ContainsFunc(lines, func(line string) bool { return strings.Contains(line, "rather than on stream-json pipes") }) {
+					t.Errorf("status = %q, want no fallback", lines)
+				}
+				return
+			}
+			assertFallbackReported(t, f, testCase.wantReason)
+		})
+	}
+}
