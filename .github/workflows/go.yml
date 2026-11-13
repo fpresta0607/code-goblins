@@ -251,6 +251,11 @@ jobs:
       # serves it rather than the placeholder page.
       - name: Check goblins.exe embeds the board
         run: go test ./internal/boardweb -count=1
+      # With the board built above, the supervisor lets a browser keep every
+      # file the build addresses, by the manifest and the digests the build
+      # writes (#1966). The go jobs build no board, so there the test skips.
+      - name: Check the board lets a browser keep its build's files
+        run: go test ./internal/supervisor -run '^TestTheBuiltBoardLetsABrowserKeepEveryFileItAddresses$' -count=1
       # The crawler connector every goblin carries crawls a made-up site its
       # tests serve on loopback, in the runner's Chrome, headless.
       - name: Test the crawler connector

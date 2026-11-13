@@ -84,7 +84,7 @@ func (h *HTTP) serveAsset(w http.ResponseWriter, r *http.Request) {
 // isDigestOf reports whether version is the digest of the named file, the
 // first 16 hex digits of its SHA-256, as frontend/vite.config.ts writes it.
 func (h *HTTP) isDigestOf(name, version string) bool {
-	if version == "" || !fs.ValidPath(name) {
+	if version == "" {
 		return false
 	}
 	data, err := fs.ReadFile(h.Assets, name)
@@ -103,9 +103,6 @@ func (h *HTTP) gzipped(name string) ([]byte, error) {
 	h.compressedMu.Unlock()
 	if isKept {
 		return body, nil
-	}
-	if !fs.ValidPath(name) {
-		return nil, fs.ErrInvalid
 	}
 	data, err := fs.ReadFile(h.Assets, name)
 	if err != nil {
