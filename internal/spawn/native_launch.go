@@ -679,7 +679,7 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 			// A harness whose composer still holds the instruction and nothing
 			// else a whole window after its submit key, with no turn and no
 			// dialog or list of choices asking over it, lost that key: on
-			// 2026-10-31 a resumed Codex goblin sat that way until the CFO
+			// 2026-10-31 a resumed Codex goblin sat that way until the CEO
 			// pressed Enter by hand (#1873). A launch, whose instruction nobody
 			// else submits, presses the key once more and waits a window again,
 			// unless an Enter was already pressed again for a key taken as a new
