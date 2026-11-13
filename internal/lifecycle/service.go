@@ -416,19 +416,20 @@ func (service Service) writeHandoff(ctx context.Context, meta state.TaskMeta, re
 		record.Problems = append(record.Problems, "Stopping-point deadline reached or request failed; no new handoff was saved")
 		return
 	}
-	note := service.Operations.Handoff(ctx, meta)
-	file, err := fsx.CreateNewContext(ctx, record.Handoff, 0o600)
+	// The handoff is staged beside its place and put there only if nothing
+	// is, so it is there whole or not at all: one created and then written
+	// was left empty by a pause ended between the two, and every later pause
+	// could neither count it nor write over it (#1707).
+	staged, err := fsx.Stage(record.Handoff, service.Operations.Handoff(ctx, meta))
+	if err == nil {
+		defer staged.Discard()
+		writingHandoff()
+		err = staged.CommitNewContext(ctx)
+	}
 	if errors.Is(err, os.ErrExist) {
 		if info, statErr := os.Stat(record.Handoff); statErr == nil && info.Mode().IsRegular() && info.Size() > 0 {
 			record.HandoffSaved = true
 			return
-		}
-	}
-	if err == nil {
-		_, err = file.Write(note)
-		err = errors.Join(err, file.Close())
-		if err != nil {
-			err = errors.Join(err, os.Remove(record.Handoff))
 		}
 	}
 	if err != nil {
@@ -438,6 +439,10 @@ func (service Service) writeHandoff(ctx context.Context, meta state.TaskMeta, re
 	record.HandoffSaved = true
 	record.Problems = append(record.Problems, "the goblin wrote no handoff by its stopping-point deadline, so the pause wrote one for it from the task's record")
 }
+
+// writingHandoff runs as the handoff the pause wrote is about to be put in
+// place, for a test that ends its writer there.
+var writingHandoff = func() {}
 
 // PAUSE_WITHDRAWAL takes back a PauseInstruction whose pause failed while the
 // goblin's session ran on.
