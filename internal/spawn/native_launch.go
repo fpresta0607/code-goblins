@@ -682,8 +682,9 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 			// 2026-10-31 a resumed Codex goblin sat that way until the CFO
 			// pressed Enter by hand (#1873). A launch, whose instruction nobody
 			// else submits, presses the key once more and waits a window again,
-			// unless an Enter was already pressed again, so a harness is never
-			// pressed two after its first.
+			// unless an Enter was already pressed again for a key taken as a new
+			// line, so beside the Enters it turned away as still starting a
+			// harness is never pressed two after its first.
 			if isStartup && presses == 0 && !screens.IsAsking(screen) && screens.ComposerMatches(screen, instruction) {
 				client, err := host.Dial(record)
 				if err != nil {
