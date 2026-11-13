@@ -620,6 +620,50 @@ func TestAStreamGoblinSwitchesOnStreamPipes(t *testing.T) {
 	}
 }
 
+// A person takes a goblin on stream-json pipes over by restarting it in a
+// terminal, which reports no fallback, since nothing failed; a restart
+// without the terminal hands it back to stream-json pipes (#2374).
+func TestAStreamGoblinTakenOverInATerminalIsHandedBackByARestart(t *testing.T) {
+	// Arrange
+	f := newStreamFixture(t, "")
+	f.service.Commands = cleanWorktree{f.service.Worktrees.Commands}
+	f.service.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{harness.Claude: nativeAdapter{kind: harness.Claude, control: harness.Control{StopCommand: "/exit"}}}}
+	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	running := func() host.Record {
+		t.Helper()
+		record, err := host.ReadRecord(f.stateDir, "task-7")
+		if err != nil || !host.Running(record) {
+			t.Fatalf("task-7's host = %+v, %v; want one running", record, err)
+		}
+		return record
+	}
+
+	// Act: take it over.
+	if _, err := f.service.Switch(context.Background(), SwitchRequest{ID: "task-7", Restart: true, InTerminal: true}); err != nil {
+		t.Fatalf("take over: %v", err)
+	}
+
+	// Assert
+	if running().Stream {
+		t.Error("task-7 still runs on stream-json pipes after it was taken over, want a terminal")
+	}
+	if lines := statusLines(t, f); slices.ContainsFunc(lines, func(line string) bool { return strings.Contains(line, "rather than on stream-json pipes") }) {
+		t.Errorf("status = %q, want no fallback for a take over", lines)
+	}
+
+	// Act: hand it back.
+	if _, err := f.service.Switch(context.Background(), SwitchRequest{ID: "task-7", Restart: true}); err != nil {
+		t.Fatalf("hand back: %v", err)
+	}
+
+	// Assert
+	if !running().Stream {
+		t.Error("task-7 runs in a terminal after it was handed back, want stream-json pipes")
+	}
+}
+
 // A switch proves its new stream session against the user's environment, as
 // a spawn does, and falls back to a terminal started from that environment
 // and the task's credentials: a Claude Code folder the user named since the

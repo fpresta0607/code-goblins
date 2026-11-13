@@ -25,7 +25,7 @@ func attachNative(stateDir, id string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if record.Stream {
-		fmt.Fprintf(stderr, "goblins attach: %s runs on stream-json pipes, with no terminal to show; goblins peek %s shows what it is doing\n", id, id)
+		fmt.Fprintf(stderr, "goblins attach: %s runs on stream-json pipes, with no terminal to show; goblins switch %s --terminal takes it over in one, and goblins peek %s shows what it is doing\n", id, id, id)
 		return 1
 	}
 	in, out := windows.Handle(os.Stdin.Fd()), windows.Handle(os.Stdout.Fd())

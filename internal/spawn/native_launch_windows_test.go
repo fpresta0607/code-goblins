@@ -1209,7 +1209,7 @@ func TestANativeSendDismissesALiveInlineOfferBeforeTypingADigit(t *testing.T) {
 	}
 	launch.Dir = f.worktree
 	f.service.nativeEnvironment(launch.Env, meta)
-	terminal, err := f.service.launchNativeHost(meta.ID, harness.Codex, launch, f.userEnv, auth.Result{})
+	terminal, err := f.service.launchNativeHost(meta.ID, harness.Codex, launch, f.userEnv, auth.Result{}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1258,7 +1258,7 @@ func TestANativeSendSettlesALiveInlineOfferBeforeItsEscape(t *testing.T) {
 	}
 	launch.Dir = f.worktree
 	f.service.nativeEnvironment(launch.Env, meta)
-	terminal, err := f.service.launchNativeHost(meta.ID, harness.Codex, launch, f.userEnv, auth.Result{})
+	terminal, err := f.service.launchNativeHost(meta.ID, harness.Codex, launch, f.userEnv, auth.Result{}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
