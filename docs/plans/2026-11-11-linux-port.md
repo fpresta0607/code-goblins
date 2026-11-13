@@ -277,7 +277,8 @@ A layer's Linux code sits beside the Windows code under a build tag.
    The setup window builds only on Windows, and the desktop window and the CI runner's service do too until their own layers.
    A Linux job in CI builds every package (`GOOS=linux go build ./...`), so a change that breaks the Linux build fails there.
 2. **Unit tests on Linux.**
-   Windows-only tests take the `_windows_test.go` name, and the Linux job runs `go vet` and `go test` on every package.
+   Windows-only tests take the `_windows_test.go` name, so every package's tests compile and vet on Linux, and fixtures that named Windows paths build one for the system the test runs on.
+   The Linux job runs `go vet` and `go test` on every package outside a list the job keeps of the packages whose tests wait on product code a later layer ports, such as the lock's line of waiters, process readings, file replacement, path comparison and the native terminal.
 3. **Processes, trees, locks and files.**
    `internal/proc` on `/proc`, `internal/execx` and the gate's executor on process groups, the lock on `flock`, the file replacements, and the default home under `$XDG_DATA_HOME`, kept to the user with mode 0700.
 4. **Transport.** Unix sockets for the host, the run requests and the primary transport, in the user's 0700 folder under `/run/user/<uid>` (or `/tmp`), chosen by the user's id and named by a short hash of the home so each path fits `sun_path`, exact path comparison in `fsx.SamePath`, the `strings.EqualFold` calls and the paths lowered with `strings.ToLower`, the code that takes `\` as the separator, and the folders `internal/pathguard` guards.
