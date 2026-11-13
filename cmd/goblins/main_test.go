@@ -10,6 +10,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/doctor"
 	"github.com/fpresta0607/code-goblins/internal/execx/treetest"
+	"github.com/fpresta0607/code-goblins/internal/gatehome"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/host/hosttest"
@@ -267,6 +268,11 @@ func TestMain(m *testing.M) {
 	// keeps every test that runs a real command off this machine's registry,
 	// and off whichever checkouts its operator happens to keep.
 	if err := os.Setenv(install.ProjectsRootVariable, configDir); err != nil {
+		panic(err)
+	}
+	// Nor does any test read this machine's gate database, as every done
+	// report's measurement does: a test of the gate names a home of its own.
+	if err := os.Setenv(gatehome.Variable, configDir); err != nil {
 		panic(err)
 	}
 	// A test binary an agent runs, as a goblin's or a gate's is, has that
