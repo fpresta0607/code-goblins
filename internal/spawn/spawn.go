@@ -158,7 +158,8 @@ type Service struct {
 	// ShouldRefuseTurn types nothing into a native harness whose screen shows
 	// it in a turn as its text is about to be typed, and says so with
 	// ErrInTurn: the supervisor's wake line, which is never typed mid-turn,
-	// and a board message held until its session's turn ends.
+	// and a board message held until its session's turn ends. SendNative
+	// still types a command its harness runs at once beside a turn.
 	ShouldRefuseTurn bool
 	// ShouldSendNow has a native harness that queued the text, typed during a
 	// turn, take it at once with its own send-now key (harness.Screens

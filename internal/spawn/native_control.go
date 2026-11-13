@@ -60,8 +60,8 @@ func (s Service) SendNative(ctx context.Context, meta state.TaskMeta, text strin
 			return fmt.Errorf("spawn: native terminal %s has the command submitted: %w", record.ID, fleet.ErrQueuedForToolCall)
 		}
 	}
-	// A command typed into a turn waits in the harness's queue, so only one
-	// submitted while no turn ran can show itself taken.
+	// Any other command typed into a turn waits in the harness's queue, so
+	// only one submitted while no turn ran can show itself taken.
 	if !isBusy && s.tookCommand(ctx, record, screens, text) {
 		return nil
 	}
