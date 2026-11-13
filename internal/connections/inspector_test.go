@@ -797,21 +797,27 @@ func TestAServiceNoCheckConfirmedSaysWhy(t *testing.T) {
 }
 
 // A variable the goblin's terminal holds offers Replace from clipboard only
-// when its repository declares it and it is no harness's billing key, as a
-// missing one offers Store, so the board stores only what a manifest names
-// (#2389).
+// when its repository declares it, it is no harness's billing key and the
+// task carries the service that declares it, as a missing one offers Store,
+// so the board stores only what a manifest names, and only for a goblin the
+// store's reload reaches (#2389). A goblin disconnected from that service
+// still holds the value until its next terminal, so it reads Set with
+// nothing to press.
 func TestASetVariableOffersReplaceOnlyWhenItsRepositoryDeclaresIt(t *testing.T) {
 	for _, test := range []struct {
 		name, variable, declared string
+		isDisconnected           bool
 		want                     []string
 	}{
-		{"declared", "FIXTURE_SECRET", "FIXTURE_SECRET", []string{"replace:FIXTURE_SECRET"}},
-		{"undeclared", "FIXTURE_SECRET", "FIXTURE_MISSING_TOKEN", nil},
-		{"billing key", "OPENAI_API_KEY", "OPENAI_API_KEY", nil},
+		{"declared", "FIXTURE_SECRET", "FIXTURE_SECRET", false, []string{"replace:FIXTURE_SECRET"}},
+		{"undeclared", "FIXTURE_SECRET", "FIXTURE_MISSING_TOKEN", false, nil},
+		{"billing key", "OPENAI_API_KEY", "OPENAI_API_KEY", false, nil},
+		{"disconnected", "FIXTURE_SECRET", "FIXTURE_SECRET", true, nil},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			inspector, meta := inspectorFixture(t)
+			meta.HasCredentials = test.isDisconnected
 			writeConnectionFixture(t, auth.ManifestPath(inspector.DataDir, meta.Project), `{"project":"project","services":[{"name":"repo","method":"env","env":["`+test.declared+`"]}]}`)
 			inspector.Runtime = func(context.Context, string, state.TaskMeta) (RuntimeObservation, error) {
 				return RuntimeObservation{Env: []string{"FIXTURE_SECRET=synthetic-value", "OPENAI_API_KEY=synthetic-value"}, Args: []string{"--strict-mcp-config", "--mcp-config", filepath.Join(meta.TaskTmp, "mcp.json")}}, nil
@@ -823,10 +829,10 @@ func TestASetVariableOffersReplaceOnlyWhenItsRepositoryDeclaresIt(t *testing.T) 
 
 			// Assert
 			index := slices.IndexFunc(snapshot.Entries, func(entry Entry) bool { return entry.ID == "credential:"+test.variable })
-			if index < 0 && test.want != nil {
+			if index < 0 {
 				t.Fatalf("%s is not listed: %+v", test.variable, snapshot.Entries)
 			}
-			if index >= 0 && (snapshot.Entries[index].Status != "provided" || !slices.Equal(snapshot.Entries[index].Actions, test.want)) {
+			if snapshot.Entries[index].Status != "provided" || !slices.Equal(snapshot.Entries[index].Actions, test.want) {
 				t.Fatalf("%s offers %v, want %v: %+v", test.variable, snapshot.Entries[index].Actions, test.want, snapshot.Entries[index])
 			}
 			if isOffered := test.want != nil; (err == nil) != isOffered || isOffered && plan != (Repair{Credential: test.variable}) {

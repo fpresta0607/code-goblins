@@ -146,11 +146,15 @@ func (i *Inspector) Check(ctx context.Context, meta state.TaskMeta) (result Snap
 	for _, name := range slices.Compact(credentialNames) {
 		verdict, detail := "missing", ""
 		actions := []string{"store:" + name}
+		grant, isWithheld := withheld[name]
 		if values[strings.ToUpper(name)] != "" {
 			verdict = "provided"
 			actions = []string{"replace:" + name}
-		} else if grant, isWithheld := withheld[name]; isWithheld {
-			verdict, detail, actions = "withheld", grant, nil
+		} else if isWithheld {
+			verdict, detail = "withheld", grant
+		}
+		if isWithheld {
+			actions = nil
 		}
 		result.Entries = append(result.Entries, Entry{ID: "credential:" + name, Name: name, Kind: "credential", Status: verdict, Source: "Goblin environment", Scope: "launch_environment", Detail: detail, Actions: actions, Accounts: declaring(manifest, name), CheckedAt: time.Now().UTC()})
 	}

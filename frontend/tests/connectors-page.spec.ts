@@ -35,7 +35,7 @@ const fleet = () => supervisorWith({
     { id: "credential:SENTRY_AUTH_TOKEN", name: "SENTRY_AUTH_TOKEN", kind: "credential", status: "withheld", detail: "This task does not carry it.", accounts: ["sentry"], checked_at: CHECKED_AT },
   ],
   "cg-other": [SUPABASE, { ...withheld("github"), restart_required: true, restart_reason: "Disconnected. Its variables leave this goblin at its next terminal. The one running still has them." }, withheld("sentry"), CRAWLER,
-    { id: "credential:GITHUB_TOKEN", name: "GITHUB_TOKEN", kind: "credential", status: "withheld", detail: "This task does not carry it.", accounts: ["github"], checked_at: CHECKED_AT }],
+    { id: "credential:GITHUB_TOKEN", name: "GITHUB_TOKEN", kind: "credential", status: "provided", scope: "launch_environment", accounts: ["github"], checked_at: CHECKED_AT }],
 });
 
 // The board, with the Connectors page chosen from its top bar.
@@ -261,10 +261,11 @@ for (const width of [1440, 390]) {
     }
 
     // Assert: it brings its CLI variables, each by name with what each goblin's
-    // terminal holds of it, never a value, and no MCP server.
+    // terminal holds of it, the disconnected one's until its next terminal,
+    // never a value, and no MCP server.
     const variables = github.getByRole("region", { name: "CLI variables" });
     await expect(variables.locator(".connector-part-note")).toHaveText("Command line tools in the goblin's terminal read them. Names only, never values.");
-    await expect(variables.getByRole("listitem")).toHaveText(["GITHUB_TOKEN" + ZEKE + ": Set, " + IVY + ": Not given"]);
+    await expect(variables.getByRole("listitem")).toHaveText(["GITHUB_TOKEN" + "Set"]);
     await expect(github.getByRole("region", { name: "MCP server" })).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath(`connector-github-${width}.png`), fullPage: true });
 
@@ -297,13 +298,15 @@ for (const width of [1440, 390]) {
     // Assert: Replace beside the goblin that holds it, in Store from
     // clipboard's look, its one word on the button and its whole name for a
     // screen reader (the Overlord, 2026-11-12: "i hate this much text on a
-    // button"), none beside the one not given it, and the page says what it
-    // does.
+    // button"), none beside the one disconnected from GitHub, whose running
+    // terminal still holds it but would not load a replaced value, and the
+    // page says what it does.
     const token = main.getByRole("article", { name: "GITHUB_TOKEN" });
     const replace = goblinRow(token, ZEKE).getByRole("button", { name: "Replace GITHUB_TOKEN from clipboard for " + ZEKE, exact: true });
     await expect(replace).toHaveText("Replace");
     await expect(replace).not.toHaveClass(/\bprimary\b/);
     await expect(goblinRow(token, ZEKE).locator(".connector-use")).toHaveText("Set");
+    await expect(goblinRow(token, IVY).locator(".connector-use")).toHaveText("Set");
     await expect(goblinRow(token, IVY).getByRole("button")).toHaveCount(0);
     await expect(token.getByRole("region", { name: "CLI variables" }).locator(".connector-part-note").last()).toHaveText(REPLACE_NOTE);
     await expectFits(page, main);
