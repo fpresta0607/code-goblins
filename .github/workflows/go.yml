@@ -545,19 +545,22 @@ jobs:
       - if: matrix.shard == 'rest'
         run: go build ./cmd/goblins
 
-  # Every package built for Linux, the first system after Windows (#2366), so
-  # a change that breaks the Linux build fails here. It builds and tests
-  # nothing more: the Linux tests come with the port's next layer. It starts
-  # whenever the go jobs do, since it builds every package as the rest job
-  # does, and with cgo off, so the runner needs no C compiler: the desktop
-  # window and the setup window, which Wails builds through cgo on Linux,
-  # build only on Windows.
+  # Every package built and vetted for Linux, the first system after Windows
+  # (#2366), and the tests of every package but those in EXCEPT run there, so
+  # a change that breaks the Linux build, or a test outside the list, fails
+  # here. A package in EXCEPT waits on a later layer of the port, which takes
+  # it out of the list as it lands. It starts whenever the go jobs do, since
+  # it builds every package as the rest job does, and with cgo off, so the
+  # runner needs no C compiler: the desktop window and the setup window,
+  # which Wails builds through cgo on Linux, build only on Windows.
   linux:
     needs: plan
     if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.go != '[]' }}
-    name: linux build
+    name: linux
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
+    env:
+      CGO_ENABLED: '0'
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v5
@@ -565,9 +568,75 @@ jobs:
           go-version: stable
           cache: false
       - name: Build every package for Linux
-        env:
-          CGO_ENABLED: '0'
         run: go build ./...
+      - run: go vet ./...
+      # The fleet runs SQLite's own command line program, which the runner
+      # image carries, and a test that finds no sqlite3 skips itself, so the
+      # job proves it is there before any test runs.
+      - name: Ensure SQLite integration tests can run
+        run: sqlite3 --version
+      - name: Run Go tests with isolated CEO state
+        shell: bash
+        run: |
+          except=$(go list $EXCEPT)
+          packages=$(go list ./... | grep -vxF "$except")
+          # tools/citest runs go test -count=1 on the packages, and runs a
+          # test that failed once more, by its name, as the go jobs do.
+          citest="$RUNNER_TEMP/citest"
+          go build -o "$citest" ./tools/citest
+          "$citest" -job linux -record "$RUNNER_TEMP/failed-once.jsonl" -timeout 20m $packages
+        env:
+          # The packages whose tests wait on a later layer of the port: 3
+          # brings processes, the lock, file replacements and the home, 4
+          # sockets and path comparison, 5 native terminals, 6 watching, 7
+          # hooks without PowerShell and the gate's shell, 8 the installer
+          # and the updater, and 9 dictation.
+          EXCEPT: >-
+            ./cmd/goblins
+            ./internal/cleanup
+            ./internal/codexguard
+            ./internal/connections
+            ./internal/custody
+            ./internal/digest
+            ./internal/doctor
+            ./internal/execx
+            ./internal/fleet
+            ./internal/fleettree
+            ./internal/fsx
+            ./internal/goblinname
+            ./internal/harnessmap
+            ./internal/home
+            ./internal/homemove
+            ./internal/install
+            ./internal/layout
+            ./internal/lifecycle
+            ./internal/lock
+            ./internal/memory
+            ./internal/monitor
+            ./internal/pathguard
+            ./internal/pipeline
+            ./internal/reap
+            ./internal/runtime
+            ./internal/sandbox
+            ./internal/spawn
+            ./internal/startwatch
+            ./internal/supervise
+            ./internal/supervisor
+            ./internal/update
+            ./internal/verify
+            ./internal/voice
+            ./internal/wake
+            ./internal/watch
+          GOBLINS_HOME: ${{ runner.temp }}/ceo-go-tests
+          GOBLINS_STATE_OVERRIDE: ${{ runner.temp }}/ceo-go-tests/state
+      - name: Keep the record of each test that failed once
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed-once-linux
+          path: ${{ runner.temp }}/failed-once.jsonl
+          if-no-files-found: ignore
+          retention-days: 14
 
   # The check branch protection requires. It runs whatever happened above,
   # but in a run of a draft and in one whose event saw a draft and that was

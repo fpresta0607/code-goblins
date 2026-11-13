@@ -11,6 +11,8 @@ type cached struct {
 	at       time.Time
 	checking bool
 	pending  bool
+	// record is the task's record as the latest Read saw it.
+	record string
 }
 type Cache struct {
 	mu             sync.Mutex
@@ -21,15 +23,23 @@ type Cache struct {
 	cancel         context.CancelFunc
 	slots          chan struct{}
 	work           sync.WaitGroup
-	// now is the clock results are dated and judged stale by.
-	now func() time.Time
+	// Now is the clock results are dated and judged stale by, which a test
+	// moves to judge a result's age without waiting it out.
+	Now func() time.Time
 }
 
 func NewCache(ttl, timeout time.Duration, check func(context.Context, string) Snapshot) *Cache {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Cache{entries: map[string]*cached{}, ttl: ttl, timeLimit: timeout, check: check, ctx: ctx, cancel: cancel, slots: make(chan struct{}, 2), now: time.Now}
+	return &Cache{entries: map[string]*cached{}, ttl: ttl, timeLimit: timeout, check: check, ctx: ctx, cancel: cancel, slots: make(chan struct{}, 2), Now: time.Now}
 }
-func (c *Cache) Get(key string, refresh bool) Snapshot {
+func (c *Cache) Get(key string, refresh bool) Snapshot { return c.Read(key, "", refresh) }
+
+// Read is Get for a key whose task's record reads as record now. A record
+// that differs from the one the key was last read with, a grant or revoke
+// made with goblins auth, starts a check as refresh does, while the result
+// read before shows with its age (#2394). An empty record is compared with
+// nothing.
+func (c *Cache) Read(key, record string, refresh bool) Snapshot {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	item := c.entries[key]
@@ -48,10 +58,14 @@ func (c *Cache) Get(key string, refresh bool) Snapshot {
 		item = &cached{result: Snapshot{Entries: []Entry{}}}
 		c.entries[key] = item
 	}
+	if record != "" {
+		refresh = refresh || item.record != "" && item.record != record
+		item.record = record
+	}
 	if item.checking && refresh {
 		item.pending = true
 	}
-	if !item.checking && c.ctx.Err() == nil && (refresh || item.at.IsZero() || c.now().Sub(item.at) >= c.ttl) {
+	if !item.checking && c.ctx.Err() == nil && (refresh || item.at.IsZero() || c.Now().Sub(item.at) >= c.ttl) {
 		item.checking = true
 		c.work.Add(1)
 		go c.run(key, item)
@@ -80,11 +94,15 @@ func (item *cached) snapshot() Snapshot {
 }
 func (c *Cache) run(key string, item *cached) {
 	defer c.work.Done()
-	ctx, cancel := context.WithTimeout(c.ctx, c.timeLimit)
-	defer cancel()
 	result := Snapshot{Entries: []Entry{}}
+	// A check's time limit starts once it has a slot, so the checks a page
+	// asks for at once wait their turn rather than time out unrun (#2394).
+	ctx := c.ctx
 	select {
 	case c.slots <- struct{}{}:
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(c.ctx, c.timeLimit)
+		defer cancel()
 		finished := make(chan Snapshot, 1)
 		go func() { defer func() { <-c.slots }(); finished <- c.check(ctx, key) }()
 		select {
@@ -103,7 +121,7 @@ func (c *Cache) run(key string, item *cached) {
 			result.Entries[i].Detail = "Latest check timed out."
 		}
 	}
-	result.CheckedAt = c.now().UTC()
+	result.CheckedAt = c.Now().UTC()
 	item.result, item.at, item.checking = result, result.CheckedAt, false
 	if item.pending && c.ctx.Err() == nil {
 		item.pending, item.checking = false, true

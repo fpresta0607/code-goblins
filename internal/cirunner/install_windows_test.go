@@ -469,3 +469,42 @@ function Checkpoint-VM { [CmdletBinding()] param([string]$Name, [string]$Snapsho
 		t.Errorf("the checkpoint script = %v, saying %q; want %q", err, output, want)
 	}
 }
+
+// Each script takes its paths from its environment, never from its text, and
+// names the VM, the checkpoint and the service only as the constants they
+// are.
+func TestInstallScriptsTakeTheirPathsFromTheEnvironment(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	commands := &recorder{}
+	options, _ := installOptions(t, dir, commands)
+	options.Dir = filepath.Join(dir, `x'; Remove-VM -Force; '`)
+	steps := InstallSteps(options)
+
+	// Act
+	for _, index := range []int{0, 1, 5, 6, 8, 10} {
+		_ = steps[index].Run(context.Background())
+	}
+
+	// Assert
+	if len(commands.ran) != 6 {
+		t.Fatalf("ran %d scripts; want the 6 steps' scripts", len(commands.ran))
+	}
+	for _, request := range commands.ran {
+		if strings.Contains(script(request), options.Dir) || strings.Contains(script(request), options.Program) {
+			t.Errorf("the script %q holds a path; want every path in its environment", script(request))
+		}
+	}
+	for index, want := range map[int]string{
+		1: "CG_CI_DIR=" + options.Dir,
+		2: "CG_CI_SEED=" + filepath.Join(options.Dir, "vm", "seed.iso"),
+		4: "CG_CI_PROGRAM=" + options.Program,
+	} {
+		if !slices.Contains(commands.ran[index].Env, want) {
+			t.Errorf("script %d's environment lacks %q", index, want)
+		}
+	}
+	if !slices.Contains(commands.ran[1].Env, "CG_CI_SERVICE_SID="+ServiceSID(ServiceName)) {
+		t.Errorf("the folder's script does not name the service's SID")
+	}
+}

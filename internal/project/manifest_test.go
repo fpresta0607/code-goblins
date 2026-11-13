@@ -147,11 +147,19 @@ func TestManifestReadsAReuseDeclaration(t *testing.T) {
 // the worktree, an empty tool command, a variable that is no name, or an age
 // under nothing or past the week a pass is kept is refused.
 func TestManifestRefusesAReuseDeclarationItCannotKeep(t *testing.T) {
+	absolute, err := filepath.Abs("other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	quoted, err := json.Marshal(filepath.ToSlash(absolute))
+	if err != nil {
+		t.Fatal(err)
+	}
 	for name, reuse := range map[string]string{
 		"no tier":                       `{}`,
 		"an unknown tier":               `{"tiers":["nightly"]}`,
 		"an input outside the worktree": `{"tiers":["fast"],"inputs":["../other"]}`,
-		"an input by an absolute path":  `{"tiers":["fast"],"inputs":["C:/other"]}`,
+		"an input by an absolute path":  `{"tiers":["fast"],"inputs":[` + string(quoted) + `]}`,
 		"an empty input":                `{"tiers":["fast"],"inputs":[""]}`,
 		"an empty tool command":         `{"tiers":["fast"],"tools":[[]]}`,
 		"an empty variable":             `{"tiers":["fast"],"environment":[""]}`,

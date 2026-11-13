@@ -1,6 +1,7 @@
 package services
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -32,7 +33,7 @@ func TestLoadManifestReadsTheProjectsDeclaration(t *testing.T) {
 }`)
 
 	// Act
-	manifest, err := LoadManifest(dataDir, `C:\dev\PrecisionDocs-AI`)
+	manifest, err := LoadManifest(dataDir, filepath.Join(t.TempDir(), "PrecisionDocs-AI"))
 
 	// Assert
 	if err != nil {
@@ -53,14 +54,26 @@ func TestLoadManifestReadsTheProjectsDeclaration(t *testing.T) {
 }
 
 func TestLoadManifestRefusesADeclarationItCannotStartFrom(t *testing.T) {
+	absolute, err := filepath.Abs("c.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	absoluteCompose, err := json.Marshal(absolute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outsideEnvFile, err := json.Marshal(filepath.Join("..", ".env"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	cases := []struct {
 		name, body, want string
 	}{
 		{"no project", `{"compose":"c.yml","services":["a"],"memory_estimate_gb":1}`, "project is required"},
 		{"no compose", `{"project":"p","services":["a"],"memory_estimate_gb":1}`, "compose"},
 		{"compose outside the checkout", `{"project":"p","compose":"../c.yml","services":["a"],"memory_estimate_gb":1}`, "inside the checkout"},
-		{"absolute compose", `{"project":"p","compose":"C:\\c.yml","services":["a"],"memory_estimate_gb":1}`, "inside the checkout"},
-		{"env file outside the checkout", `{"project":"p","compose":"c.yml","env_file":"..\\.env","services":["a"],"memory_estimate_gb":1}`, "env_file"},
+		{"absolute compose", `{"project":"p","compose":` + string(absoluteCompose) + `,"services":["a"],"memory_estimate_gb":1}`, "inside the checkout"},
+		{"env file outside the checkout", `{"project":"p","compose":"c.yml","env_file":` + string(outsideEnvFile) + `,"services":["a"],"memory_estimate_gb":1}`, "env_file"},
 		{"no services", `{"project":"p","compose":"c.yml","services":[],"memory_estimate_gb":1}`, "names no compose service"},
 		{"a flag as a service", `{"project":"p","compose":"c.yml","services":["--profile"],"memory_estimate_gb":1}`, "not a compose service name"},
 		{"an empty check", `{"project":"p","compose":"c.yml","services":["a"],"check":[""],"memory_estimate_gb":1}`, "check names no program"},

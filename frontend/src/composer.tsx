@@ -157,7 +157,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   const [attached, setAttached] = useState(() => storedAttached(draftKey));
   useEffect(() => storeAttached(draftKey, attached), [draftKey, attached]);
   // What Send sends: his words, then the path of each file he added.
-  const outgoing = [draft.trim(), ...attached].filter(Boolean).join("\n");
+  const withAttached = (words: string) => [words.trim(), ...attached].filter(Boolean).join("\n");
+  const outgoing = withAttached(draft);
   // A message that starts with ! is shell mode (#2051): the box wears the
   // danger edge while it does, and Send hands it to the board, which runs the
   // rest in Windows PowerShell 5.1 through the harness's own !.
@@ -202,7 +203,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // Which of his earlier messages Up has brought back into the box, if any.
   const [recalled, setRecalled] = useState<number | null>(null);
   // The session's slash commands, read from its harness, the files its @
-  // names, and the option the open list has picked while he types its word.
+  // names, and the option the open list has picked while he types its word,
+  // with the draft he moved that pick on with the arrows, if he did.
   // Escape closes the list until the draft changes. A box that is not on
   // screen reads nothing: its own commands are read when he can see and use
   // it, so a hidden box never reports a refusal.
@@ -210,6 +212,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   sessionQuery.set("token", snapshot.instance);
   const commands = useResource(isShown ? "/api/commands?" + sessionQuery.toString() : null, parseCommands);
   const [pick, setPick] = useState(0);
+  const [pickMovedOn, setPickMovedOn] = useState<string | null>(null);
   const [isListClosed, setListClosed] = useState(false);
   const [caret, setCaret] = useState(0);
   const [found, setFound] = useState<{ start: number | null; query: string; files: string[] }>({ start: null, query: "", files: [] });
@@ -265,6 +268,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
     setUnsent("");
     setListClosed(false);
     setPick(0);
+    setPickMovedOn(null);
     sendID.current = "";
   };
   const attach = (next: (prior: string[]) => string[]) => {
@@ -449,8 +453,11 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
     setAttached([]);
     setUnsent("");
   };
-  const send = async () => {
-    const text = sendable(harness, outgoing);
+  // send sends what the box holds, or words in its place: the command he
+  // picked from the list with Enter, whole, where the box holds only what he
+  // typed of its name.
+  const send = async (words = draft) => {
+    const text = sendable(harness, withAttached(words));
     if (!text || isSending || adding) return;
     // A setting the box has a control for opens the board's own pane, or is
     // set at once with the value typed after it, never the terminal's menu;
@@ -488,7 +495,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
     // The conversation shows it at once as his queued bubble, and the box
     // empties, before the board has answered; a refusal takes the bubble
     // back and returns his words and pictures to the box as he left them.
-    const written = draft, kept = attached;
+    const written = words, kept = attached;
     if (hasConversation) {
       addPendingSend({ id, task: task?.id || "", text });
       setDraft("");
@@ -665,6 +672,15 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // presses (the Overlord, 2026-10-28: "lack of indmepotent click on teh
   // queue"), under the request ID a Cancel of it would use.
   const takenBack = useRef(new Set<string>());
+  // A take-back disables the box while the board answers, and a disabled box
+  // gives up the keyboard. It takes the keyboard back in the commit that
+  // enables it again: asked for a frame later, a key he pressed at once
+  // reached nothing, and asked for in a frame drawn before that commit, while
+  // the box was still disabled, it never came back.
+  const [takeBacksEnded, setTakeBacksEnded] = useState(0);
+  useLayoutEffect(() => {
+    if (takeBacksEnded) field.current?.focus();
+  }, [takeBacksEnded]);
   const unqueue = async (action: Action) => {
     if (takenBack.current.has(action.id)) return;
     takenBack.current.add(action.id);
@@ -681,7 +697,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
       if (!(error instanceof Error && error.cause !== undefined)) reportToCeo("taking back a message to " + name, message(error));
     } finally {
       setSending(false);
-      requestAnimationFrame(() => field.current?.focus());
+      setTakeBacksEnded((count) => count + 1);
     }
   };
   useEffect(() => {
@@ -737,12 +753,25 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
       return;
     }
     if (listOptions.length) {
-      if (event.key === "ArrowDown") { event.preventDefault(); setPick((prior) => (Math.min(prior, listOptions.length - 1) + 1) % listOptions.length); return; }
-      if (event.key === "ArrowUp") { event.preventDefault(); setPick((prior) => (Math.min(prior, listOptions.length - 1) - 1 + listOptions.length) % listOptions.length); return; }
+      if (event.key === "ArrowDown") { event.preventDefault(); setPick((prior) => (Math.min(prior, listOptions.length - 1) + 1) % listOptions.length); setPickMovedOn(draft); return; }
+      if (event.key === "ArrowUp") { event.preventDefault(); setPick((prior) => (Math.min(prior, listOptions.length - 1) - 1 + listOptions.length) % listOptions.length); setPickMovedOn(draft); return; }
       if (event.key === "Escape") { event.preventDefault(); setListClosed(true); return; }
       if ((event.key === "Enter" || event.key === "Tab") && !event.shiftKey && !event.nativeEvent.isComposing) {
         event.preventDefault();
-        choose(picked);
+        // Enter runs the command he picked, as a harness's own list does in
+        // its terminal, where the box only wrote its name and a second Enter
+        // sent it (the Overlord, 2026-11-11: "cant type / commands into
+        // modern chat like terminal", #2372). The pick is his when its name
+        // starts with what he typed or he moved to it with the arrows; one
+        // the list found only by a word it holds is not, and Enter then sends
+        // the box as he typed it. Tab writes the pick into the box for its
+        // arguments, and Enter on a Codex skill or a file completes the
+        // mention, as Codex's own list does.
+        const command = commandOptions[picked];
+        if (event.key === "Enter" && command?.sigil === "/") {
+          const isHis = pickMovedOn === draft || command.name.toLowerCase().startsWith(draft.slice(1).toLowerCase());
+          void send(isHis ? command.sigil + command.name : draft);
+        } else choose(picked);
         return;
       }
     }

@@ -2,7 +2,7 @@ import { CHECKED_AT, play, supervisorWith, type Supervisor } from "./connectors-
 import { expect, test, type Locator, type Page } from "./site";
 
 // What the Connectors page asks the supervisor and when, and every repair
-// the panel it replaced offered (#2303): it reads two goblins at a time,
+// the panel it replaced offered (#2303): it reads every goblin at once,
 // each until its check ends, and then nothing; a repair's card, its sign-in
 // and its recheck; a check that failed; and a project's browser logins. The
 // page stands alone here in the board's canvas, and the supervisor is played.
@@ -21,35 +21,41 @@ async function openConnector(page: Page, name: string) {
   return page.getByRole("article", { name });
 }
 
-test("the page reads two goblins at a time, each until its check has ended, and then asks nothing more", async ({ page }) => {
-  // Arrange
-  await page.clock.install();
-  const second = PROOF + "-2", third = PROOF + "-3";
-  const supervisor = supervisorWith({ [PROOF]: [GITHUB], [second]: [GITHUB], [third]: [GITHUB] });
-  supervisor.checking = { [PROOF]: true, [second]: true, [third]: true };
+// #2394: every open rechecked each goblin, two at a time with the rest
+// waiting their turn, and the page said Checking connectors... for minutes
+// on each one. Reopened, it reads every goblin at once: each one's last
+// result shows at once with how old it is while its recheck runs behind it,
+// and then it asks nothing more.
+test("reopened, the page shows every goblin's last connectors at once with their age while their rechecks run, and then asks nothing more", async ({ page }) => {
+  // Arrange: six goblins, each with a server of its own, last checked twelve
+  // minutes ago but the fourth, checked twenty, and each rechecked now.
+  const checked = Date.parse(CHECKED_AT);
+  await page.clock.install({ time: checked + 12 * 60_000 });
+  const servers = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot"];
+  const ids = servers.map((_, at) => at ? PROOF + "-" + (at + 1) : PROOF);
+  const supervisor = supervisorWith(Object.fromEntries(ids.map((id, at) => [id, [{ ...GITHUB, id: "mcp:" + servers[at], name: servers[at] }]])));
+  supervisor.checking = Object.fromEntries(ids.map((id) => [id, true]));
+  supervisor.checkedAtByTask = { [ids[3]]: new Date(checked - 8 * 60_000).toISOString() };
 
   // Act
-  await open(page, supervisor, 3);
-  await expect(page.getByText("Checking connectors...", { exact: true })).toBeVisible();
+  await open(page, supervisor, ids.length);
 
-  // Assert: the first two are read again and again while their checks run,
-  // and the third waits for one of them to end.
-  await expect.poll(async () => { await page.clock.runFor(2000); return Math.min(supervisor.reads[PROOF] ?? 0, supervisor.reads[second] ?? 0); }).toBeGreaterThan(2);
-  expect(supervisor.reads[third] ?? 0).toBe(0);
+  // Assert: every goblin is read, its server listed, and the page says how
+  // old the oldest result is while it is rechecked, not that it is checking.
+  await expect(page.locator(".connector-row .connector-open")).toHaveText(["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot"]);
+  await expect(page.locator(".connectors-head [role=status]")).toHaveText("Checked 20 minutes ago, rechecking...");
+  expect(ids.filter((id) => !supervisor.reads[id])).toEqual([]);
   await expect(page.getByRole("button", { name: "Recheck connectors" })).toBeDisabled();
 
-  // Act: the first goblin's check ends, which gives the third its turn.
-  supervisor.checking[PROOF] = false;
-
-  // Assert
-  await expect.poll(async () => { await page.clock.runFor(2000); return supervisor.reads[third] ?? 0; }).toBeGreaterThan(0);
-
-  // Act: every check ends.
+  // Act: every recheck ends.
   supervisor.checking = {};
+  supervisor.checkedAt = new Date(checked + 12 * 60_000).toISOString();
+  supervisor.checkedAtByTask = {};
 
   // Assert: the page says so, and a page left open asks nothing.
-  await expect.poll(async () => { await page.clock.runFor(2000); return page.getByText("Checking connectors...", { exact: true }).count(); }).toBe(0);
+  await expect.poll(async () => { await page.clock.runFor(2000); return page.locator(".connectors-head [role=status]").textContent(); }).toBe("Checked just now");
   await expect(page.getByRole("button", { name: "Recheck connectors" })).toBeEnabled();
+  await expect(page.getByText("Checking connectors...", { exact: true })).toHaveCount(0);
   const settled = { ...supervisor.reads };
   await page.clock.runFor(5 * 60 * 1000);
   expect(supervisor.reads).toEqual(settled);
@@ -146,7 +152,7 @@ for (const isFailing of [false, true]) {
     await page.setViewportSize({ width: 390, height: 844 });
     const supervisor = supervisorWith({ [PROOF]: [GITHUB] });
     if (isFailing) supervisor.error = "Connection check timed out.";
-    else supervisor.checking = { [PROOF]: true };
+    else supervisor.unchecked = { [PROOF]: true };
 
     // Act
     await open(page, supervisor);
@@ -189,6 +195,31 @@ test("a check that timed out says Check failed, without the supervisor's words a
   await expect(page.getByText("Check failed", { exact: true })).toBeVisible();
   await expect(page.getByText("Connection check timed out.")).toHaveCount(0);
   await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Recheck connectors" })).toBeEnabled();
+});
+
+// A goblin whose last check failed keeps saying so while its recheck runs,
+// and says it is rechecking, since a recheck can take minutes (#2394).
+test("a check that failed says Check failed, rechecking... while its recheck runs, and Check failed once it ends failed again", async ({ page }) => {
+  // Arrange
+  await page.clock.install();
+  const supervisor = supervisorWith({ [PROOF]: [GITHUB] });
+  supervisor.error = "Connection check timed out.";
+  supervisor.checking = { [PROOF]: true };
+  const status = page.locator(".connectors-head [role=status]");
+
+  // Act
+  await open(page, supervisor);
+
+  // Assert
+  await expect(status).toHaveText("Check failed, rechecking...");
+  await expect(page.getByRole("button", { name: "Recheck connectors" })).toBeDisabled();
+
+  // Act: the recheck ends with the same error.
+  supervisor.checking = {};
+
+  // Assert
+  await expect.poll(async () => { await page.clock.runFor(2000); return status.textContent(); }).toBe("Check failed");
   await expect(page.getByRole("button", { name: "Recheck connectors" })).toBeEnabled();
 });
 

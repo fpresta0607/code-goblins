@@ -25,13 +25,13 @@ import (
 // downloaded, renamed and ran, and those are gone. Take a file out of the
 // list with its copy, and add none.
 var stillCopies = map[string]string{
-	"cmd/goblins/attach_test.go":                    "claude.exe on PATH, answered by this package's TestMain",
-	"cmd/goblins/ceo_restart_test.go":               "claude.exe on PATH, answered by this package's TestMain",
+	"cmd/goblins/attach_windows_test.go":            "claude.exe on PATH, answered by this package's TestMain",
+	"cmd/goblins/ceo_restart_windows_test.go":       "claude.exe on PATH, answered by this package's TestMain",
 	"cmd/goblins/doctor_test.go":                    "claude.exe, answered by this package's TestMain",
 	"cmd/goblins/hook_handover_windows_test.go":     "a watcher lock holder under a program's name",
 	"cmd/goblins/reap_kill_windows_test.go":         "a stand-in Docker Desktop.exe that runs this package's code",
-	"cmd/goblins/serve_herdr_env_test.go":           "herdr.exe on PATH, answered by this package's TestMain",
-	"cmd/goblins/serve_test.go":                     "claude.exe on PATH, answered by this package's TestMain",
+	"cmd/goblins/serve_herdr_env_windows_test.go":   "herdr.exe on PATH, answered by this package's TestMain",
+	"cmd/goblins/serve_windows_test.go":             "claude.exe on PATH, answered by this package's TestMain",
 	"cmd/goblins/session_standin_windows_test.go":   "the session's programs, answered by this package's TestMain",
 	"cmd/goblins/update_standin_windows_test.go":    "reads the build marker at the end of its own file, where it is, and copies nothing",
 	"cmd/goblins/update_windows_test.go":            "builds of goblins told apart by a marker, which run this package's update code",

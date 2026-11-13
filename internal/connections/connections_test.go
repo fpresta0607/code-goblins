@@ -152,6 +152,43 @@ func TestCacheRefreshPreservesEvidenceAndTimeoutIsVisible(t *testing.T) {
 	}
 }
 
+// A check that waits for one of the cache's two slots starts its time limit
+// only once it has one, so a page that asks for every goblin at once queues
+// the checks past the first two instead of timing them out unrun (#2394).
+func TestCheckWaitingForItsSlotIsNotTimedOutByTheWait(t *testing.T) {
+	// Arrange
+	release := make(chan struct{})
+	started := make(chan string, 3)
+	cache := NewCache(time.Minute, 50*time.Millisecond, func(ctx context.Context, key string) Snapshot {
+		started <- key
+		if key != "third" {
+			<-release
+		}
+		return Snapshot{Entries: []Entry{{Name: key, Status: "connected"}}}
+	})
+	defer cache.Close()
+	cache.Get("first", false)
+	cache.Get("second", false)
+	for range 2 {
+		select {
+		case <-started:
+		case <-time.After(time.Minute):
+			t.Fatal("the first two checks never took their slots")
+		}
+	}
+
+	// Act
+	cache.Get("third", false)
+	time.Sleep(150 * time.Millisecond) // Longer than the time limit, which a check waiting for its slot must outlive.
+	close(release)
+	result := waitChecked(t, cache, "third")
+
+	// Assert
+	if result.Error != "" || len(result.Entries) != 1 || result.Entries[0].Status != "connected" {
+		t.Fatalf("queued check = %+v, want its own connected result", result)
+	}
+}
+
 func TestCacheStartsACheckOnReadOnlyAfterItsResultIsStale(t *testing.T) {
 	var calls atomic.Int32
 	cache := NewCache(time.Minute, time.Second, func(context.Context, string) Snapshot {
@@ -162,7 +199,7 @@ func TestCacheStartsACheckOnReadOnlyAfterItsResultIsStale(t *testing.T) {
 	// The cache's clock moves only when the test moves it, so a result is
 	// fresh until then however long a busy machine takes between reads.
 	var ahead atomic.Int64
-	cache.now = func() time.Time { return time.Now().Add(time.Duration(ahead.Load())) } // stall-accepted: the offset the test moves the cache's clock by, not a wait, and a result stays fresh a minute.
+	cache.Now = func() time.Time { return time.Now().Add(time.Duration(ahead.Load())) } // stall-accepted: the offset the test moves the cache's clock by, not a wait, and a result stays fresh a minute.
 	cache.Get("one", false)
 	waitChecked(t, cache, "one")
 	if cache.Get("one", false).Checking || calls.Load() != 1 {
@@ -217,7 +254,7 @@ func TestExpiredObservationKeepsItsVerdictAndAgeWhileItsRecheckRuns(t *testing.T
 				}
 				return Snapshot{Entries: []Entry{{ID: "mcp:tools", Status: verdict, Scope: "separate_probe", LiveStatus: "unknown"}}}
 			})
-			cache.now = func() time.Time { return time.Unix(100, 0).Add(time.Duration(ahead.Load())) }
+			cache.Now = func() time.Time { return time.Unix(100, 0).Add(time.Duration(ahead.Load())) }
 			defer cache.Close()
 			defer close(release)
 			cache.Get("task\ng1", false)
