@@ -19,20 +19,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// appendEntries appends Claude Code entries to the conversation at path, as
-// Claude Code appends them.
-func appendEntries(t *testing.T, path string, entries ...string) {
-	t.Helper()
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer file.Close()
-	if _, err := file.WriteString(strings.Join(entries, "\n") + "\n"); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // The board reads a Claude Code session as messages, a task's goblin of the
 // generation it names or the CEO in the terminal it names, only with the
 // board's token: a page at a time, a picture a message holds, and a stream

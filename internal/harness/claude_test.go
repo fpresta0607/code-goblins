@@ -14,7 +14,7 @@ func TestClaudeBuildsStructuredLaunch(t *testing.T) {
 		t.Fatalf("Get(Claude): %v", err)
 	}
 
-	defaults, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`})
+	defaults, err := adapter.Build(LaunchSpec{BriefPath: testBriefPath, TaskTmp: testTaskTmp, Scratch: testScratch})
 	if err != nil {
 		t.Fatalf("Build defaults: %v", err)
 	}
@@ -24,12 +24,12 @@ func TestClaudeBuildsStructuredLaunch(t *testing.T) {
 			"GOBLINS_ROLE": RoleGoblin,
 			"CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP": "1",
 			"CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION":       "false",
-			"GOTMPDIR":                                   `C:\gotmp\task`,
-			"TEMP":                                       `C:\gotmp\task`,
-			"TMP":                                        `C:\gotmp\.tmp`,
-			"TMPDIR":                                     `C:\gotmp\task`,
+			"GOTMPDIR":                                   testScratch,
+			"TEMP":                                       testScratch,
+			"TMP":                                        absolutePath("gotmp", ".tmp"),
+			"TMPDIR":                                     testScratch,
 		},
-		PromptFile: `C:\briefs\task.md`,
+		PromptFile: testBriefPath,
 	})
 
 	// A goblin draws as the CEO does, in the interface the operator's tui
@@ -41,9 +41,9 @@ func TestClaudeBuildsStructuredLaunch(t *testing.T) {
 	}
 
 	explicit, err := adapter.Build(LaunchSpec{
-		BriefPath: `C:\briefs\task.md`,
-		TaskTmp:   `C:\tasks\task`,
-		Scratch:   `C:\gotmp\task`,
+		BriefPath: testBriefPath,
+		TaskTmp:   testTaskTmp,
+		Scratch:   testScratch,
 		Model:     "sonnet",
 		Effort:    "xhigh",
 	})
@@ -54,7 +54,7 @@ func TestClaudeBuildsStructuredLaunch(t *testing.T) {
 		t.Errorf("Args = %#v, want %#v", got, want)
 	}
 
-	if _, err := adapter.Build(LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`, Effort: "turbo"}); err == nil {
+	if _, err := adapter.Build(LaunchSpec{BriefPath: testBriefPath, TaskTmp: testTaskTmp, Scratch: testScratch, Effort: "turbo"}); err == nil {
 		t.Fatal("Build returned nil error for unsupported effort")
 	}
 }
@@ -74,7 +74,7 @@ func TestClaudeValidateChecksExecutable(t *testing.T) {
 
 func TestOnlyAClaudeGoblinStartsWithTheGoblinHookSettings(t *testing.T) {
 	registry := DefaultRegistry()
-	spec := LaunchSpec{BriefPath: `C:\briefs\task.md`, TaskTmp: `C:\tasks\task`, Scratch: `C:\gotmp\task`, Settings: `C:\ceo\state\goblin-claude-settings.json`}
+	spec := LaunchSpec{BriefPath: testBriefPath, TaskTmp: testTaskTmp, Scratch: testScratch, Settings: `C:\ceo\state\goblin-claude-settings.json`}
 	for _, kind := range []Kind{Claude, Codex} {
 		t.Run(string(kind), func(t *testing.T) {
 			// Arrange

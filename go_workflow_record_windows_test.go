@@ -49,39 +49,55 @@ func recordSteps(t *testing.T, job string) []recordStep {
 func TestGoWorkflowKeepsAndFetchesTheRecordOfEachTestThatFailedOnce(t *testing.T) {
 	// Arrange
 	const record = "${{ runner.temp }}/failed-once.jsonl"
-	writes := map[string]func(recordStep) bool{
-		"go": func(step recordStep) bool {
-			return strings.Contains(step.Run, "& $citest ") && strings.Contains(step.Run, "-record (Join-Path $env:RUNNER_TEMP failed-once.jsonl)")
+	jobs := map[string]struct {
+		writes   func(recordStep) bool
+		artifact string
+	}{
+		"go": {
+			writes: func(step recordStep) bool {
+				return strings.Contains(step.Run, "& $citest ") && strings.Contains(step.Run, "-record (Join-Path $env:RUNNER_TEMP failed-once.jsonl)")
+			},
+			artifact: "failed-once-go-${{ matrix.shard }}",
 		},
-		"browser": func(step recordStep) bool {
-			return strings.Contains(step.Run, "npm run test:browser") && step.Env["FAILED_ONCE_RECORD"] == record && step.Env["FAILED_ONCE_JOB"] != ""
+		"browser": {
+			writes: func(step recordStep) bool {
+				return strings.Contains(step.Run, "npm run test:browser") && step.Env["FAILED_ONCE_RECORD"] == record && step.Env["FAILED_ONCE_JOB"] != ""
+			},
+			artifact: "failed-once-browser-${{ matrix.shard }}",
+		},
+		// The one job of no matrix.
+		"linux": {
+			writes: func(step recordStep) bool {
+				return strings.Contains(step.Run, `"$citest" -job linux `) && strings.Contains(step.Run, `-record "$RUNNER_TEMP/failed-once.jsonl"`)
+			},
+			artifact: "failed-once-linux",
 		},
 	}
 
-	for job, writesRecord := range writes {
-		t.Run(job, func(t *testing.T) {
+	for name, job := range jobs {
+		t.Run(name, func(t *testing.T) {
 			// Act
 			wrote, kept := -1, -1
-			for index, step := range recordSteps(t, job) {
-				if writesRecord(step) {
+			for index, step := range recordSteps(t, name) {
+				if job.writes(step) {
 					wrote = index
 				}
 				if strings.HasPrefix(step.Uses, "actions/upload-artifact@") && step.With["path"] == record {
 					kept = index
-					if want := "failed-once-" + job + "-${{ matrix.shard }}"; step.If != "always()" || step.With["name"] != want || step.With["if-no-files-found"] != "ignore" {
-						t.Errorf("the step that keeps the record runs if %q, as %q, with if-no-files-found %q: want always(), %q and ignore", step.If, step.With["name"], step.With["if-no-files-found"], want)
+					if step.If != "always()" || step.With["name"] != job.artifact || step.With["if-no-files-found"] != "ignore" {
+						t.Errorf("the step that keeps the record runs if %q, as %q, with if-no-files-found %q: want always(), %q and ignore", step.If, step.With["name"], step.With["if-no-files-found"], job.artifact)
 					}
 				}
 				for _, line := range strings.Split(step.Run, "\n") {
-					if job == "go" && strings.HasPrefix(strings.TrimSpace(line), "go test ") {
-						t.Errorf("job go runs go test itself, where a test that fails gets no second try and no record: %s", line)
+					if name != "browser" && strings.HasPrefix(strings.TrimSpace(line), "go test ") {
+						t.Errorf("job %s runs go test itself, where a test that fails gets no second try and no record: %s", name, line)
 					}
 				}
 			}
 
 			// Assert
 			if wrote < 0 || kept < wrote {
-				t.Errorf("job %s writes its record in step %d and keeps %s in step %d, want it written and then kept", job, wrote, record, kept)
+				t.Errorf("job %s writes its record in step %d and keeps %s in step %d, want it written and then kept", name, wrote, record, kept)
 			}
 		})
 	}
