@@ -277,15 +277,14 @@ func (s *Store) followsEarlierMessage(i int) bool {
 // waitBehind gives each queued message to action i's session after it, which
 // waits behind it, what it waits on and whether he may send it now, unless he
 // asked for one now already; a command takes words of its own, with Send now
-// where commandSendsNow says that session's harness can run it at once. The
-// caller holds s.mu.
+// where commandSendsNow says that session's harness can run it at once, and
+// keeps those its own spent Send now gives it. The caller holds s.mu.
 func (s *Store) waitBehind(i int, commandSendsNow bool) {
 	held := s.db.Actions[i]
 	for j := i + 1; j < len(s.db.Actions); j++ {
 		if later := &s.db.Actions[j]; later.Kind == "message" && later.TaskID == held.TaskID && later.Status == "queued" && !later.IsSentNow {
-			was := later.Message
 			later.Message, later.CanSendNow, later.SendNowWhy = held.Message, held.CanSendNow, held.SendNowWhy
-			later.holdCommand(commandSendsNow, was)
+			later.holdCommand(commandSendsNow)
 		}
 	}
 }

@@ -2237,14 +2237,14 @@ func TestASendNowThatCannotRunACommandHeldForAGoblinsTurnIsSpentAndSaysSo(t *tes
 	if kept.IsSentNow || !kept.CanSendNow || kept.Message != "Queued. Send now could not run it at once, so it runs when its turn ends." {
 		t.Errorf("after the next try = %+v; want Send now still offered, and the words that say it could not run the command at once kept", kept)
 	}
-	if pressedAgain.Code != http.StatusAccepted || !renewed.IsSentNow || renewed.Message != "Queued. A command runs when its turn ends. Send now interrupts the turn to run it." {
+	if pressedAgain.Code != http.StatusAccepted || !renewed.IsSentNow || renewed.IsSendNowSpent || renewed.Message != "Queued. A command runs when its turn ends. Send now interrupts the turn to run it." {
 		t.Errorf("a new Send now = %d %s, the command before its try = %+v; want it taken, and words that say what Send now does in place of what the last one could not do", pressedAgain.Code, pressedAgain.Body, renewed)
 	}
 	if !errors.Is(again, ErrDeferred) || spentAgain.IsSentNow || !spentAgain.CanSendNow || spentAgain.Message != "Queued. Send now could not run it at once, so it runs when its turn ends." {
 		t.Errorf("its try = %v, the command = %+v; want it held, its Send now spent, and words that say this one could not run it at once either", again, spentAgain)
 	}
-	if ended != nil || taken.Status != "succeeded" || taken.Message != "Accepted by the goblin in its native terminal." {
-		t.Errorf("once its turn ended, its try = %v, the command = %+v; want it run and read as taken", ended, taken)
+	if ended != nil || taken.Status != "succeeded" || taken.Message != "Accepted by the goblin in its native terminal." || taken.IsSendNowSpent {
+		t.Errorf("once its turn ended, its try = %v, the command = %+v; want it run, read as taken, and no longer marked spent", ended, taken)
 	}
 	if !slices.Equal(input[1:], []string{"queued CEO: " + routing.BoardMessagePrefix + "first words", "interrupted", "cleared", "accepted /compact"}) {
 		t.Errorf("terminal input = %q; want nothing typed or pressed for the command until its turn ended", input)

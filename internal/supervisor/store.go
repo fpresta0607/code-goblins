@@ -155,6 +155,11 @@ type Action struct {
 	// harness to take at once where it has a send-now key, and otherwise at
 	// its next tool call.
 	IsSentNow bool `json:"sent_now,omitempty"`
+	// IsSendNowSpent says a Send now he asked for of this command was tried
+	// and could not run it at once, so it says so whenever it waits with Send
+	// now on. A new Send now ends it, and so does the command leaving the
+	// queue (#1915).
+	IsSendNowSpent bool `json:"send_now_spent,omitempty"`
 	// Advice is what the Overlord should do about a delivery that never
 	// arrived, in his words; the board shows it as written.
 	Advice string `json:"advice,omitempty"`
@@ -259,7 +264,7 @@ func Open(h home.Home) (*Store, error) {
 					a.Status = "queued"
 					a.Message = "Recovered evaluation"
 				} else {
-					a.Status = "uncertain"
+					a.Status, a.IsSendNowSpent = "uncertain", false
 					a.Message = "Supervisor stopped during delivery. Inspect the task before sending again."
 				}
 			}
@@ -702,8 +707,8 @@ func (s *Store) SendQueuedMessageNow(id, task string) (Action, error) {
 	}
 	delete(s.deferredUntil, a.ID)
 	a.IsSentNow = true
-	if isHarnessCommand(a.Text) && a.Message == "Queued. "+commandNotSentNow {
-		a.Message = "Queued. " + commandWaits + " " + commandSendsNow
+	if a.IsSendNowSpent {
+		a.IsSendNowSpent, a.Message = false, "Queued. "+commandWaits+" "+commandSendsNow
 	}
 	a.UpdatedAt = time.Now().UTC()
 	if err := s.save(); err != nil {
@@ -738,16 +743,15 @@ func (s *Store) markTyped(id, task string, awaiting *Awaiting) error {
 // holdCommand gives a queued message that is a command, which waits for its
 // turn to end, words of its own in place of what it was given: that Send now
 // runs it at once, where its session's harness can (sendsNow), and otherwise
-// no Send now. One whose words were, as was says, that a Send now could not
-// run it at once keeps them, with its Send now, while it is given one: until
-// a new Send now or its turn's end (#1915).
-func (a *Action) holdCommand(sendsNow bool, was string) {
+// no Send now. One whose Send now was spent says, with its Send now, that it
+// could not run it at once, whenever it is given one (#1915).
+func (a *Action) holdCommand(sendsNow bool) {
 	if !a.CanSendNow || !isHarnessCommand(a.Text) {
 		return
 	}
 	switch {
-	case was == "Queued. "+commandNotSentNow:
-		a.SendNowWhy, a.Message = "", was
+	case a.IsSendNowSpent:
+		a.SendNowWhy, a.Message = "", "Queued. "+commandNotSentNow
 	case !sendsNow:
 		a.CanSendNow, a.SendNowWhy, a.Message = false, commandWaits, "Queued. "+commandWaits
 	default:
@@ -1175,16 +1179,13 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 			completed.CanSendNow, completed.SendNowWhy = result.CanSendNow, result.SendNowWhy
 			if a.Kind == "message" {
 				s.waitBehind(i, result.CommandSendsNow)
-				completed.holdCommand(result.CommandSendsNow, a.Message)
 				// A Send now of a command is one try, spent by the try it
 				// reaches: one that could not run it says so, and no later turn
 				// is interrupted for it (#1915).
 				if a.IsSentNow && isHarnessCommand(a.Text) {
-					completed.IsSentNow = false
-					if completed.CanSendNow {
-						completed.Message = "Queued. " + commandNotSentNow
-					}
+					completed.IsSentNow, completed.IsSendNowSpent = false, true
 				}
+				completed.holdCommand(result.CommandSendsNow)
 			}
 			if s.deferredUntil == nil {
 				s.deferredUntil = make(map[string]time.Time)
@@ -1193,7 +1194,9 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 			continue
 		}
 		delete(s.deferredUntil, a.ID)
-		completed.CanSendNow, completed.SendNowWhy = false, ""
+		// A try that is not held takes the command out of the queue, which ends
+		// what a spent Send now said of it (#1915).
+		completed.CanSendNow, completed.SendNowWhy, completed.IsSendNowSpent = false, "", false
 		// What markTyped recorded as the submit key went gives way to how the
 		// delivery ended.
 		completed.Awaiting = nil
