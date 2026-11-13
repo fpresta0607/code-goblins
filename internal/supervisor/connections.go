@@ -42,7 +42,7 @@ func (s *Service) connections() (*connections.Cache, *connections.Inspector) {
 	}
 	if s.connectionChecks == nil {
 		inspector := s.connectionInspector
-		s.connectionChecks = connections.NewCache(time.Minute, 45*time.Second, func(ctx context.Context, key string) connections.Snapshot {
+		s.connectionChecks = connections.NewCache(connectionResultLife, 45*time.Second, func(ctx context.Context, key string) connections.Snapshot {
 			task, generation, _ := strings.Cut(key, "\n")
 			meta, err := s.connectionTask(task, generation)
 			if err != nil {
@@ -62,6 +62,22 @@ func (s *Service) connections() (*connections.Cache, *connections.Inspector) {
 	return s.connectionChecks, s.connectionInspector
 }
 
+// connectionResultLife is how long a goblin's connection check stands before
+// the Connectors page's next read rechecks it, behind the result it shows.
+// Each check starts the goblin's harness, so a page that rechecked every
+// goblin a minute after its checks took minutes to settle on each open
+// (#2394). A grant, revoke or finished repair from the board, and Recheck,
+// check at once, a grant or revoke made with goblins auth at the next read,
+// and anything else, such as a sign-in that expired, within this time.
+const connectionResultLife = 10 * time.Minute
+
+// taskRecord is a task's record as a check of its connections reads it, so a
+// change to it, a grant or revoke made with goblins auth, rechecks the task.
+func taskRecord(meta state.TaskMeta) string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%#v", meta)))
+	return hex.EncodeToString(sum[:])
+}
+
 func (s *Service) connectionTask(task, generation string) (state.TaskMeta, error) {
 	meta, err := state.ReadTaskMeta(s.Store.Home.State, task)
 	if err != nil || generation == "" || meta.SpawnGen != generation {
@@ -72,7 +88,7 @@ func (s *Service) connectionTask(task, generation string) (state.TaskMeta, error
 
 func (h *HTTP) connectionResponse(w http.ResponseWriter, meta state.TaskMeta, refresh bool) {
 	checks, _ := h.Service.connections()
-	snapshot := checks.Get(meta.ID+"\n"+meta.SpawnGen, refresh)
+	snapshot := checks.Read(meta.ID+"\n"+meta.SpawnGen, taskRecord(meta), refresh)
 	snapshot.Generation = meta.SpawnGen
 	logins := []browserLoginEntry{}
 	if h.Service.browsers != nil {
@@ -282,7 +298,13 @@ func (h *HTTP) grantConnection(w http.ResponseWriter, r *http.Request) {
 			}
 		}()
 	}
-	h.connectionResponse(w, meta, true)
+	// The check answers for the record the change left, so the page's next
+	// read finds it current rather than check the goblin again.
+	changed := meta
+	if current, err := s.connectionTask(meta.ID, meta.SpawnGen); err == nil {
+		changed = current
+	}
+	h.connectionResponse(w, changed, true)
 }
 
 func (s *Service) connectionRun(meta state.TaskMeta, input connectionRequest, plan connections.Repair) (Run, error) {

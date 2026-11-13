@@ -5,10 +5,6 @@ import type { Task } from "./types";
 
 export type Connections = ReturnType<typeof parseConnections>;
 
-// The supervisor checks two goblins' connections at a time, and a check that
-// waits for its turn can time out, so the page reads no more than that many
-// goblins at once and the rest wait here.
-const AT_ONCE = 2;
 // How often a check that is still running is read again.
 const POLL_MS = 2000;
 
@@ -22,10 +18,12 @@ export interface ConnectorReader {
   stop: () => void;
 }
 
-// connectorReader reads goblins' connections for the Connectors page, each
-// until its check has ended and then no more, so a page left open asks
-// nothing. A goblin asked for while it is being read is read again once that
-// reading ends. onRead is given every reading, and onFailure a read the
+// connectorReader reads goblins' connections for the Connectors page, every
+// goblin at once, each until its check has ended and then no more, so a page
+// left open asks nothing. The supervisor gives each goblin's last result at
+// once and queues the checks past its two at a time without timing them out,
+// so no goblin's list waits behind another's check (#2394). A goblin asked
+// for while it is being read is read again once that reading ends. onRead is given every reading, and onFailure a read the
 // supervisor refused, which ends that goblin's reading until it is asked for
 // again.
 export function connectorReader(instance: string, onRead: (task: Task, connections: Connections) => void, onFailure: (task: Task, error: unknown, isRecheck: boolean) => void): ConnectorReader {
@@ -55,7 +53,7 @@ export function connectorReader(instance: string, onRead: (task: Task, connectio
     }
   };
   const next = () => {
-    while (reading.size < AT_ONCE && !controller.signal.aborted) {
+    while (!controller.signal.aborted) {
       const at = waiting.findIndex((each) => !reading.has(goblinKey(each.task)));
       if (at < 0) return;
       const [{ task, isRecheck }] = waiting.splice(at, 1);
