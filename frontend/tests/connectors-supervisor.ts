@@ -8,9 +8,13 @@ export const CHECKED_AT = "2026-11-10T14:56:12Z";
 export interface Login { id: string; [field: string]: unknown }
 
 export interface Supervisor {
-  // Each goblin's entries and whether its check still runs, by task.
+  // Each goblin's entries and whether its check still runs, by task, and
+  // when its last check ended.
   entries: Record<string, object[]>;
   checking: Record<string, boolean>;
+  checkedAt: string;
+  // The goblins whose first check still runs, which have no result yet.
+  unchecked: Record<string, boolean>;
   // The browser logins every goblin's project may use.
   logins: Login[];
   // What a finished check failed with, and whether connections can be read.
@@ -29,7 +33,7 @@ export interface Supervisor {
 }
 
 export function supervisorWith(entries: Record<string, object[]>): Supervisor {
-  return { entries, checking: {}, logins: [], error: "", isUnreadable: false, refuses: "", repaired: {}, reads: {}, posts: [], reports: [] };
+  return { entries, checking: {}, checkedAt: CHECKED_AT, unchecked: {}, logins: [], error: "", isUnreadable: false, refuses: "", repaired: {}, reads: {}, posts: [], reports: [] };
 }
 
 // play answers the page's requests from the supervisor a test holds.
@@ -43,9 +47,13 @@ export async function play(page: Page, supervisor: Supervisor): Promise<void> {
       return route.fulfill({ status: 202, json: { reported: true } });
     }
     const task = body?.task ?? url.searchParams.get("task") ?? "";
+    // A goblin with no result yet is read as the supervisor gives it: no
+    // entries, checked at Go's zero time, and checking.
+    const isUnchecked = supervisor.unchecked[task] ?? false;
     const connections = () => ({
       instance: "fixture", generation: body?.generation ?? url.searchParams.get("generation"), runtime: { process_id: 42, started_at: "2026-11-10T14:00:00Z", workspace: "C:/scratch/work" },
-      checking: supervisor.checking[task] ?? false, checked_at: CHECKED_AT, error: supervisor.error, entries: supervisor.entries[task] ?? [], browser_logins: supervisor.logins,
+      checking: isUnchecked || (supervisor.checking[task] ?? false), checked_at: isUnchecked ? "0001-01-01T00:00:00Z" : supervisor.checkedAt, error: supervisor.error,
+      entries: isUnchecked ? [] : supervisor.entries[task] ?? [], browser_logins: supervisor.logins,
     });
     const refused = () => route.fulfill({ status: 409, json: { error: supervisor.refuses } });
     if (body) supervisor.posts.push({ path, token: route.request().headers()["x-ceo-token"], body });

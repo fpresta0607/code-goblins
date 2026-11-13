@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { BrowserLoginRow } from "./browser-login-row";
-import { loginName, type BrowserLogin } from "./browser-logins";
+import { ago, loginName, type BrowserLogin } from "./browser-logins";
 import { ClickFeedback } from "./click-feedback";
+import { useNow } from "./clock";
 import { ConnectorDetail } from "./connector-detail";
 import { goblinKey, listConnectors, matchesConnector, type Connector } from "./connector-list";
 import { ConnectorRow } from "./connector-row";
@@ -37,6 +38,7 @@ export function ConnectorsPage({ snapshot, onRepair }: { snapshot: Snapshot; onR
   const [search, setSearch] = useState("");
   const [opened, setOpened] = useState("");
   const [forgetting, setForgetting] = useState<{ login: BrowserLogin; task: Task }>();
+  const now = useNow(60_000);
   const returnFocus = useRef<HTMLElement | null>(null);
   // A connector's page opens with the keyboard on its way back, and the way
   // back hands it to the row it was opened from.
@@ -51,6 +53,13 @@ export function ConnectorsPage({ snapshot, onRepair }: { snapshot: Snapshot; onR
   const read = goblins.map((task) => readings.get(goblinKey(task)));
   const isChecking = read.some((reading) => !reading || !!reading.connections?.checking);
   const hasFailed = read.some((reading) => reading?.hasFailed || !!reading?.connections?.error);
+  // The page shows each goblin's last result at once, and says how old the
+  // oldest is while the rechecks run behind it; only a goblin with no result
+  // yet has the page say it is checking (#2394).
+  const isRechecking = read.some((reading) => !!reading?.connections?.checking);
+  const isUnchecked = read.some((reading) => !!reading?.connections?.checking && !(Date.parse(reading.connections.checkedAt) > 0));
+  const oldest = read.map((reading) => reading?.connections?.checkedAt ?? "").filter((at) => Date.parse(at) > 0).sort((first, second) => Date.parse(first) - Date.parse(second))[0];
+  const checked = oldest ? "Checked " + ago(oldest, now) + (isRechecking ? ", rechecking..." : "") : "";
   // When the page last read a goblin, which a login's times are told from.
   const readAt = Math.max(0, ...read.map((reading) => reading?.readAt ?? 0));
   const found = connectors.filter((connector) => matchesConnector(connector, search));
@@ -72,7 +81,7 @@ export function ConnectorsPage({ snapshot, onRepair }: { snapshot: Snapshot; onR
   return <div className="connectors-page">
     <header className="connectors-head">
       {open ? <button ref={backButton} type="button" className="text-button connector-back" onClick={back}><Icon name="back" />Connectors</button> : <h2>Connectors</h2>}
-      <p role="status">{goblins.length === 0 ? "" : isChecking ? "Checking connectors..." : hasFailed ? "Check failed" : ""}</p>
+      <p role="status">{goblins.length === 0 ? "" : isUnchecked ? "Checking connectors..." : hasFailed ? "Check failed" : checked}</p>
       <button type="button" className="icon-button" aria-label="Recheck connectors" disabled={isBusy || isChecking || goblins.length === 0} onClick={recheck}><Icon name="refresh" /></button>
     </header>
     <ClickFeedback text={feedback} />
