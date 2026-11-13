@@ -28,6 +28,7 @@ import { LocalChecksLink } from "./local-checks-link";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { TaskAdjustment } from "./task-adjustment";
 import type { ChatState } from "./messages-view";
+import vscodeLogo from "/assets/vscode.svg";
 
 // Who the goblin is, what it is doing now and what the Overlord can do about
 // it. The header is one short row, so the conversation gets the room (the
@@ -108,7 +109,7 @@ export function PanelHeader({ task, node, snapshot, isDetails = false, switcher,
     </div>;
   const actions = owner && (!!task.generation || task.ticket || pr || task.local_checks || task.deployment) && <div className="panel-actions">
       {!!task.generation && <>
-        <button className="icon-button raised opens-on-pc" disabled={opening || !snapshot.instance} aria-label="Open in VS Code" onClick={() => void open("vscode")}><img className="brand-icon" src="/assets/vscode.svg" alt="" /></button>
+        <button className="icon-button raised opens-on-pc" disabled={opening || !snapshot.instance} aria-label="Open in VS Code" onClick={() => void open("vscode")}><img className="brand-icon" src={vscodeLogo} alt="" /></button>
         <button className="icon-button raised opens-on-pc" disabled={opening || !snapshot.instance} aria-label="Open folder" onClick={() => void open("folder")}><Icon name="folder" /></button>
       </>}
       {waiting && <button className="icon-button raised pill-link answer" aria-label={"Answer: " + (waiting.kind === "question" ? plainMessage(waiting.question.text) : waiting.kind === "credential" ? credentialAsk(waiting.request) : waiting.kind === "browser-signin" ? signInHeading(waiting.signin) : reviewLine(waiting.review))} onClick={() => onAnswer(waiting.key)}><Icon name="command-center" /><span>Answer</span></button>}

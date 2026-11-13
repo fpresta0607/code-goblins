@@ -4,6 +4,9 @@ import { DictationSetUp, downsample, localRecognizer, Pieces, type Recording, ty
 import { TOUCH_SCREEN } from "./small-screen";
 import { object, string } from "./types";
 import { voiceLevel } from "./voice";
+// The worklet the page records through, which the build copies from
+// public/assets.
+import CAPTURE from "/assets/dictation-capture.js?url";
 
 // Which recognizer dictation runs on in this page. The board's own is the
 // default: it records in the page and has the supervisor on this machine
@@ -12,9 +15,6 @@ import { voiceLevel } from "./voice";
 
 // The speech model hears at this rate, so a recording is brought down to it.
 const RATE = 16000;
-// The worklet the page records through, which the build copies from
-// public/assets.
-const CAPTURE = "/assets/dictation-capture.js";
 const BROWSER_KEY = "ceo-dictation-browser-v1";
 
 // The page's one recorder for dictation: an audio context with the capture
