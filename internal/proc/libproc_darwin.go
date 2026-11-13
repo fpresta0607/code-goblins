@@ -21,14 +21,15 @@ import (
 // "cgo on macOS").
 
 // uniqueID is the ID the kernel gave the process that has pid now, which it
-// never gives another process until the machine starts again. Any process
-// may read it of any other.
+// never gives another process until the machine starts again. The SDK gives
+// it only beside the process's BSD record (PROC_PIDT_BSDINFOWITHUNIQID), so
+// only a process of the same user, or root, may read it.
 func uniqueID(pid int) (uint64, error) {
-	var info C.struct_proc_uniqidentifierinfo
-	if err := pidInfo(pid, C.PROC_PIDUNIQIDENTIFIERINFO, unsafe.Pointer(&info), C.int(unsafe.Sizeof(info))); err != nil {
+	var info C.struct_proc_bsdinfowithuniqid
+	if err := pidInfo(pid, C.PROC_PIDT_BSDINFOWITHUNIQID, unsafe.Pointer(&info), C.int(unsafe.Sizeof(info))); err != nil {
 		return 0, fmt.Errorf("proc: read process %d's unique ID: %w", pid, err)
 	}
-	return uint64(info.p_uniqueid), nil
+	return uint64(info.p_uniqidentifier.p_uniqueid), nil
 }
 
 // workingDirectoryOf is the directory pid runs in, which only a process of
