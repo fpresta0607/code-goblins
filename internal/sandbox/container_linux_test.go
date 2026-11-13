@@ -98,10 +98,12 @@ func containers(t *testing.T, name string) []string {
 }
 
 // isRunning reports whether the container name runs, looked for every
-// 200 ms until within, which an image's first pull fits in.
-func isRunning(t *testing.T, name string, within time.Duration) bool {
+// 200 ms for at most two minutes, which an image's first pull fits in. It
+// returns as soon as it sees the container, so the bound only keeps the look
+// from waiting forever.
+func isRunning(t *testing.T, name string) bool {
 	t.Helper()
-	for deadline := time.Now().Add(within); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
+	for deadline := time.Now().Add(2 * time.Minute); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
 		output, err := exec.Command("docker", "ps", "--quiet", "--filter", "name=^/"+name+"$", "--filter", "status=running").Output()
 		if err != nil {
 			t.Fatalf("docker ps --filter name=%s: %v", name, err)
@@ -191,14 +193,14 @@ func TestRemoveContainerRemovesTheRealContainerOfAnInterruptedDockerRun(t *testi
 	if err := client.Start(); err != nil {
 		t.Fatal(err)
 	}
-	if !isRunning(t, run.Name, 2*time.Minute) {
+	if !isRunning(t, run.Name) {
 		t.Fatalf("the container %s did not run within two minutes", run.Name)
 	}
 	if err := client.Process.Kill(); err != nil {
 		t.Fatal(err)
 	}
 	_ = client.Wait()
-	if !isRunning(t, run.Name, 5*time.Second) {
+	if !isRunning(t, run.Name) {
 		t.Fatalf("the premise failed: the docker run ended by a kill took its container %s with it", run.Name)
 	}
 	engine := services.CLI{Commands: execx.OSRunner{}}
