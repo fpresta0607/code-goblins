@@ -53,14 +53,21 @@ const (
 // the typing starts ("late"), a submitted line can leave it looking idle
 // ("unmoved"), each turn can end a moment after it starts ("turns"), typed
 // text can show only once its console is resized ("undrawn"), an Enter with
-// no End before it can be taken as part of the text ("swallow"), or the first
-// submit key can be taken seconds after it arrived ("slow"), where
-// by default a turn never ends. With "exitmenu", /exit opens the menu Claude
+// no End before it can be taken as part of the text ("swallow"), the first
+// submit key can be taken seconds after it arrived ("slow"), or the first
+// submit key can be lost, the text left in the composer ("lost-enter"), or
+// every one ("enters-lost"), where by default a turn never ends. One that
+// loses its key draws a footer a live Codex drew, with no count of the context
+// left: Codex 0.154's model and folder row ("lost-enter"), or Codex 0.160's
+// model display name row over its shortcuts row ("enters-lost"), and takes an
+// Enter no End came before, since the key it last lost, as part of the text.
+// With "exitmenu", /exit opens the menu Claude
 // Code shows over background work before it exits. With "claude-ready" it is
 // Claude Code's composer, ready at once, and with "claude-lost-enter"
 // it is Claude Code's composer taking the first Enter that ends typed text
 // as a new line, with "claude-enters-lost" every one, with
-// "claude-late-enter" taking the first seconds late, and with
+// "claude-late-enter" taking the first seconds late, with "claude-asks"
+// losing it to a list of choices it then shows under its composer, and with
 // "claude-queues" queueing a line submitted during its turn until Ctrl+X
 // Ctrl+S sends it at once. With "pi-starting" it is
 // pi 0.85.1 at its editor while its startup completes for a few seconds,
@@ -222,12 +229,19 @@ func fakeHarness() {
 		piStartup(startup, mode == "pi-stale", keys, record, draw) // stall-accepted: the stand-in pi's startup refuses the first Enter however short a stall cuts it, so a test that needs a refusal still gets one.
 		return
 	}
-	if mode == "claude-ready" || mode == "claude-lost-enter" || mode == "claude-enters-lost" || mode == "claude-late-enter" || mode == "claude-queues" {
+	if mode == "claude-ready" || mode == "claude-lost-enter" || mode == "claude-enters-lost" || mode == "claude-late-enter" || mode == "claude-asks" || mode == "claude-queues" {
 		claudeComposer(mode, keys, record, draw)
 		return
 	}
+	footer := []string{"  ? for shortcuts                                                                    100% context left"}
+	switch mode {
+	case "lost-enter":
+		footer = []string{"  gpt-6-astra low · ~\\proof"}
+	case "enters-lost":
+		footer = []string{"  GPT-6.1 Sol xhigh · C:\\proof · Resume the task", "  ? for shortcuts"}
+	}
 	composer := func(text string) {
-		draw("", "› "+text, "", "  ? for shortcuts                                                                    100% context left")
+		draw(append([]string{"", "› " + text, ""}, footer...)...)
 	}
 	if strings.HasPrefix(mode, "hooks-during-") || strings.HasPrefix(mode, "hooks-before-") || strings.HasPrefix(mode, "hooks-after-") {
 		lateHookComposer(mode, keys, record, draw, composer)
@@ -269,6 +283,7 @@ func fakeHarness() {
 	composer("Ask Codex to do anything")
 	var line strings.Builder
 	late, hasPasteEnded, slow := false, false, mode == "slow"
+	lost := 0
 	resized := make(chan struct{}, 1)
 	if mode == "undrawn" {
 		go watchWidth(resized)
@@ -309,12 +324,19 @@ func fakeHarness() {
 					record(codexEvent{Event: "entered at a late prompt"})
 				}
 				late = true
-			case key == "\r" && mode == "swallow" && !hasPasteEnded:
+			case key == "\r" && (mode == "swallow" || mode == "lost-enter" || mode == "enters-lost") && !hasPasteEnded:
 				// As Codex 0.154 does, an Enter that no End ended the paste
 				// before is taken as part of it, and the text stays in the
 				// composer.
 				hasPasteEnded = true
 				record(codexEvent{Event: "swallowed enter"})
+			case key == "\r" && line.Len() > 0 && (mode == "enters-lost" || (mode == "lost-enter" && lost == 0)):
+				// As a resumed Codex did, live, on 2026-10-31, the submit key
+				// is lost: the text stays in the composer as it was, and no
+				// turn starts (#1873).
+				lost++
+				hasPasteEnded = false
+				record(codexEvent{Event: "lost enter", Text: line.String()})
 			case key == "\r" && codexMention.MatchString(line.String()):
 				// As Codex 0.160 does, an Enter while the line ends in a $
 				// word picks from its list of skills, and the line stays
@@ -664,8 +686,11 @@ func piStartup(startup time.Duration, isTurnEnding bool, keys <-chan string, rec
 // leaving the text in the composer over an empty row. In
 // "claude-late-enter" the first Enter that ends typed text is taken seconds
 // after it arrived, the text showing in the composer as it was until then,
-// and submits it. An Enter that submits the text starts a turn that never
-// ends. In "claude-queues" that turn goes on showing above the composer, as
+// and submits it. In "claude-asks" every Enter that ends typed text is lost,
+// adding no row, to a focused list of numbered choices that shows from the
+// first one on under the composer, in its footer's place, while the composer
+// holds the text as it was. An Enter that submits the text starts a turn that
+// never ends. In "claude-queues" that turn goes on showing above the composer, as
 // Claude Code 2.1.275's does, and a line submitted during it is queued, shown
 // above the composer, until Ctrl+X Ctrl+S sends what is queued at once. While
 // one waits its empty prompt line shows the hint Claude Code 2.1.314 drew
@@ -714,6 +739,10 @@ func claudeComposer(mode string, keys <-chan string, record func(codexEvent), dr
 			queued = append(queued, line.String())
 			line.Reset()
 			turn(strings.TrimPrefix(above[1], "> "))
+		case key == "\r" && line.Len() > 0 && mode == "claude-asks":
+			record(codexEvent{Event: "enter lost to a list of choices", Text: line.String()})
+			draw("", rule, "> "+line.String(), rule, "> 1. Yes", "  2. No")
+			continue
 		case key == "\r" && line.Len() > 0 && (mode == "claude-enters-lost" || (mode == "claude-lost-enter" && lost == 0)):
 			lost++
 			record(codexEvent{Event: "enter taken as a new line", Text: line.String()})
