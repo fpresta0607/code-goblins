@@ -190,6 +190,7 @@ for (const { width, height, label } of SIZES) {
       expect(card.height, "the card is as tall as the window leaves").toBeGreaterThan(height - 32);
       await expect(over(page).locator(".terminal-command")).toContainText("npx playwright test");
       await expect(over(page).locator(".terminal-output")).toContainText("1 failed");
+      expect(await over(page).locator(".terminal-command").evaluate((command) => command.scrollHeight <= command.clientHeight), "a command of a few lines shows whole, with no scroll of its own").toBe(true);
       expect(await foldedWords(over(page).locator(".terminal-line"))).toEqual([]);
       await page.screenshot({ path: testInfo.outputPath(`full-${label}.png`) });
 

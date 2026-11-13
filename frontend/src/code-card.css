@@ -62,4 +62,4 @@
 .full-screen > .message-code { display: flex; flex-direction: column; height: 100%; }
 .full-screen > .message-code > pre { flex: 1 1 auto; min-height: 0; max-height: none; white-space: pre-wrap; overflow-wrap: anywhere; }
 .full-screen > .terminal-block > pre { overflow-wrap: normal; }
-.full-screen > .terminal-block > .terminal-command { flex: 0 1 auto; max-height: 40%; }
+.full-screen > .terminal-block > .terminal-command { flex: none; max-height: 40%; }
