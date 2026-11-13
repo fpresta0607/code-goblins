@@ -12,6 +12,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/turnnudge"
@@ -162,8 +163,11 @@ type piSettle struct {
 // A pi goblin's extension has a run that ends on a promise of an action it
 // never took go on once with the turn-end nudge, as its message to the model,
 // and lets the same run end the second time it would settle. A run that
-// ends on a question, or that was aborted, ends as it would, as does every
-// run when the hook program cannot run. The extension runs in Node as pi
+// ends on a question, was aborted, already goes on, cannot go on, has a
+// message queued behind it or has no reply ends as it would, as does one
+// whose hook answers nothing, and none of them spends the run's nudge; every
+// run ends as it would when the hook program cannot run. A reply pi holds as
+// plain text is read as one held in parts. The extension runs in Node as pi
 // loads it, with a stand-in for pi's API, and asks this binary as the home's
 // hook program (issue #2364).
 func TestAPiGoblinsExtensionNudgesARunThatEndsOnAPromiseOnce(t *testing.T) {
@@ -188,23 +192,35 @@ const load = (factory) => {
   factory({on: (name, handler) => { handlers[name] = handler; }});
   return handlers;
 };
-const settle = (handlers, text, outcome = "completed") => handlers.agent_before_settle({
-  type: "agent_before_settle", entries: [], continue: false, outcome,
-  context: {canContinue: true, pendingMessages: [], contextMessages: [
-    {role: "user", content: "Fix the bug."},
-    {role: "assistant", content: [{type: "thinking", thinking: "plan"}, {type: "text", text}]},
-  ]},
+const settle = (handlers, text, {
+  outcome = "completed", isContinued = false, canContinue = true, pendingMessages = [],
+  content = [{type: "thinking", thinking: "plan"}, {type: "text", text}],
+  contextMessages = [{role: "user", content: "Fix the bug."}, {role: "assistant", content}],
+} = {}) => handlers.agent_before_settle({
+  type: "agent_before_settle", entries: [], continue: isContinued, outcome,
+  context: {canContinue, pendingMessages, contextMessages},
 }) ?? null;
 const pi = load(extension), piGone = load(extensionGone);
 const promise = "The fix is in. Now let me run the tests.";
+const [roleVariable] = process.argv.slice(2);
+const role = process.env[roleVariable];
 const answers = [];
 pi.before_agent_start({});
 answers.push(settle(pi, promise));
 answers.push(settle(pi, promise));
 pi.before_agent_start({});
 answers.push(settle(pi, "Should I run the tests?"));
-answers.push(settle(pi, promise, "aborted"));
+answers.push(settle(pi, promise, {outcome: "aborted"}));
+answers.push(settle(pi, promise, {isContinued: true}));
+answers.push(settle(pi, promise, {canContinue: false}));
+answers.push(settle(pi, promise, {pendingMessages: [{role: "user", content: "One more thing."}]}));
+answers.push(settle(pi, promise, {contextMessages: [{role: "user", content: "Fix the bug."}]}));
+delete process.env[roleVariable];
 answers.push(settle(pi, promise));
+process.env[roleVariable] = role;
+answers.push(settle(pi, promise));
+pi.before_agent_start({});
+answers.push(settle(pi, promise, {content: promise}));
 piGone.before_agent_start({});
 answers.push(settle(piGone, promise));
 process.stdout.write(JSON.stringify(answers));
@@ -215,7 +231,7 @@ process.stdout.write(JSON.stringify(answers));
 			t.Fatal(err)
 		}
 	}
-	run := exec.Command(node, driver)
+	run := exec.Command(node, driver, harness.RoleVariable)
 	run.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
 	var stderr bytes.Buffer
 	run.Stderr = &stderr
@@ -234,7 +250,7 @@ process.stdout.write(JSON.stringify(answers));
 	isNudged := func(answer *piSettle) bool {
 		return answer != nil && answer.Continue && len(answer.Entries) == 1 && answer.Entries[0].Type == "custom_message" && answer.Entries[0].Content == turnnudge.Message
 	}
-	for at, want := range []bool{true, false, false, false, true, false} {
+	for at, want := range []bool{true, false, false, false, false, false, false, false, false, true, true, false} {
 		if got := isNudged(answers[at]); got != want {
 			t.Errorf("settle %d answered %q, want nudged %v", at+1, output, want)
 		}

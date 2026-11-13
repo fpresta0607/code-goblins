@@ -144,20 +144,26 @@ var openers = [][]string{
 // me", "OK so I'll", "I'll now just".
 var fillers = []string{"now", "next", "then", "so", "ok", "okay", "alright", "right", "first", "great", "good", "also", "and", "but", "finally", "just", "quickly", "immediately", "still"}
 
-// idleVerbs are the verbs after an opener that promise no action of the
-// turn's own: a wait, an end, or words to someone else ("let me know").
-var idleVerbs = []string{"wait", "await", "stand", "hold", "pause", "idle", "sit", "sleep", "stop", "end", "leave", "be", "know", "hear", "keep", "watch", "monitor", "rest", "remain", "stay", "let", "hand", "not", "never"}
+// idleVerbs are the verbs, plain or in -ing, that promise no action of the
+// turn's own: a wait, an end, or words to someone else ("let me know",
+// "Standing by", "Let me recap:").
+var idleVerbs = []string{
+	"wait", "waiting", "await", "awaiting", "stand", "standing", "hold", "holding", "pause", "pausing", "idle", "idling",
+	"sit", "sitting", "sleep", "sleeping", "stop", "stopping", "end", "ending", "leave", "leaving", "be", "know", "hear",
+	"keep", "keeping", "watch", "watching", "monitor", "monitoring", "rest", "resting", "remain", "remaining", "stay", "staying",
+	"let", "letting", "hand", "handing", "sign", "signing", "recap", "recapping", "summarize", "summarizing", "not", "never",
+}
 
-// backVerbs are the verbs that, with "back", say the goblin comes back to
-// this later: "I'll report back", "Let me get back to you".
-var backVerbs = []string{"report", "get", "check", "come", "circle", "call", "write"}
+// backVerbs are the verbs, plain or in -ing, that, with "back", say the
+// goblin comes back to this later: "I'll report back", "Circling back".
+var backVerbs = []string{"report", "reporting", "get", "getting", "check", "checking", "come", "coming", "circle", "circling", "call", "calling", "write", "writing"}
 
-// waitGerunds are a wait in -ing, as "Waiting on CI now" or "Standing by"
-// opens with, and nonVerbs the words ending in -ing that are no verb.
-var (
-	waitGerunds = []string{"waiting", "awaiting", "standing", "holding", "pausing", "idling", "sitting", "sleeping", "stopping", "ending", "leaving", "keeping", "watching", "monitoring", "resting", "remaining", "staying"}
-	nonVerbs    = []string{"nothing", "something", "anything", "everything", "thing", "string", "pending", "being"}
-)
+// modals are the words a clause's verb may stand behind: "I'll have to
+// wait", "Continuing to watch CI".
+var modals = []string{"have", "having", "need", "needing", "continue", "continuing", "to"}
+
+// nonVerbs are the words ending in -ing that are no verb.
+var nonVerbs = []string{"nothing", "something", "anything", "everything", "thing", "string", "pending", "being"}
 
 // askingVerbs ask whether rather than hold an action: "Let me check if it
 // passed" asks, where "I'll merge if it passes" holds the merge.
@@ -201,17 +207,26 @@ func readClause(words []string) (isPromise, isWait bool) {
 			if len(action) == 0 {
 				return false, false
 			}
-			isWait = slices.Contains(idleVerbs, action[0]) || (len(action) > 1 && action[1] == "back" && slices.Contains(backVerbs, action[0]))
+			isWait = waits(action)
 			return !isWait, isWait
 		}
 	}
 	switch {
 	case len(rest) == 0 || len(rest[0]) <= 4 || !strings.HasSuffix(rest[0], "ing") || slices.Contains(nonVerbs, rest[0]):
 		return false, false
-	case slices.Contains(waitGerunds, rest[0]):
+	case waits(rest):
 		return false, true
 	}
 	return slices.Contains(words, "now"), false
+}
+
+// waits reports whether words, a clause from its verb on, are a wait: an
+// idle verb, or a verb of coming back with "back", behind any modals.
+func waits(words []string) bool {
+	for len(words) > 1 && slices.Contains(modals, words[0]) {
+		words = words[1:]
+	}
+	return slices.Contains(idleVerbs, words[0]) || (len(words) > 1 && words[1] == "back" && slices.Contains(backVerbs, words[0]))
 }
 
 // skipFillers is words after the fillers they open with.
