@@ -12,6 +12,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
@@ -138,12 +139,13 @@ func TestPauseWritesTheHandoffOfAGoblinThatAnswersWithTextAlone(t *testing.T) {
 	var deliveryError error
 	var atStop []byte
 	stops := 0
+	commands := handoffCommands{branch: "fix/pause", head: head, pulls: "[]"}
 	service := lifecycle.Service{StateDir: stateDir, PauseWait: time.Second, Operations: lifecycle.Operations{
 		Prepare: func(ctx context.Context, meta state.TaskMeta, handoff string) error {
 			deliveryError = (spawn.Service{StateDir: stateDir}).SendNative(ctx, meta, lifecycle.PauseInstruction(handoff))
 			return deliveryError
 		},
-		Handoff: lifecycle.HandoffWriter{StateDir: stateDir, Commands: handoffCommands{branch: "fix/pause", head: head, pulls: "[]"}, Owner: func(int) string { return "" }}.Handoff,
+		Handoff: lifecycle.HandoffWriter{StateDir: stateDir, Commands: commands, GitHub: githubtest.Client(commands), Owner: func(int) string { return "" }}.Handoff,
 		Stop: func(_ context.Context, _ state.TaskMeta, record *state.Lifecycle) ([]string, error) {
 			stops++
 			atStop, _ = fsx.ReadFile(record.Handoff)

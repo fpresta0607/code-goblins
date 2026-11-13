@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/cirunner"
-	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
 const ciRunnerUsage = "usage: goblins ci-runner job | status | parity --repo <owner/name>"
@@ -26,9 +25,9 @@ const exitNoCIJob = 3
 // runCIRunner runs goblins ci-runner: job runs one job in this machine's desktop
 // CI runner for as long as this process lives, status says what runs, and
 // parity keeps a repository's parity record (ci_runner_parity.go).
-func runCIRunner(args []string, stdout, stderr io.Writer, commands execx.Runner, runtime commandRuntime) int {
+func runCIRunner(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) > 0 && args[0] == "parity" {
-		return runCIRunnerParity(args[1:], stdout, stderr, commands, runtime)
+		return runCIRunnerParity(args[1:], stdout, stderr, runtime)
 	}
 	if len(args) != 1 || args[0] != "job" && args[0] != "status" {
 		fmt.Fprintln(stderr, ciRunnerUsage)

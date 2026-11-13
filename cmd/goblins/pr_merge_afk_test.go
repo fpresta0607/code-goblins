@@ -2,15 +2,18 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 )
 
 const (
@@ -19,10 +22,15 @@ const (
 )
 
 // afkMergeRunner scripts what an AFK merge reads from GitHub and records, in
-// order, everything that happened: each gh call and each line the log took.
+// order, everything that happened: each gh call, each request of GitHub's API
+// and each line the log took. GitHub's API answers the reads of a pull request
+// on github.com, and a gh api started for one fails; gh answers them for a
+// pull request on host, another host, and the API fails them.
 type afkMergeRunner struct {
 	events []string
 	logged []afk.Entry
+
+	host string
 
 	author    string
 	viewer    string
@@ -52,16 +60,14 @@ func (r *afkMergeRunner) Run(_ context.Context, request execx.Request) (execx.Re
 			rollup = `{"__typename":"CheckRun","name":"go","status":"COMPLETED","conclusion":"SUCCESS"}`
 		}
 		return execx.Result{Stdout: []byte(fmt.Sprintf(`{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","reviewDecision":"APPROVED","headRefOid":"%s","statusCheckRollup":[%s],"author":{"login":"%s"},"baseRefName":"main","isCrossRepository":%t}`, prMergeHeadOID, rollup, author, r.cross))}, nil
+	case request.Args[0] == "api" && r.host == "":
+		return execx.Result{}, errors.New("gh started for a read GitHub's API answers: gh " + strings.Join(request.Args, " "))
 	case request.Args[0] == "api" && request.Args[1] == "graphql":
 		return execx.Result{Stdout: []byte(mergeQueueAnswer(r.queue, false))}, nil
 	case request.Args[0] == "api" && request.Args[1] == "user":
-		viewer := r.viewer
-		if viewer == "" {
-			viewer = "fpresta0607"
-		}
-		return execx.Result{Stdout: []byte(viewer + "\n")}, nil
-	case request.Args[0] == "api" && request.Args[1] == "repos/acme/api/compare/main..."+prMergeHeadOID:
-		return execx.Result{Stdout: []byte(fmt.Sprintf(`{"behind_by":%d,"base":"%s"}`, r.behind, afkMergeBase))}, nil
+		return execx.Result{Stdout: []byte(r.login() + "\n")}, nil
+	case request.Args[0] == "api" && request.Args[1] == afkMergeComparison:
+		return execx.Result{Stdout: []byte(r.comparison())}, nil
 	case request.Args[0] == "pr" && request.Args[1] == "merge":
 		if r.mergeExit != 0 {
 			return execx.Result{ExitCode: r.mergeExit, Stderr: []byte("gh: merge refused")}, nil
@@ -69,6 +75,36 @@ func (r *afkMergeRunner) Run(_ context.Context, request execx.Request) (execx.Re
 		return execx.Result{Stdout: []byte("Merged pull request #13")}, nil
 	}
 	return execx.Result{}, errors.New("unexpected gh call: " + strings.Join(request.Args, " "))
+}
+
+// afkMergeComparison is the comparison of the head with its base main.
+const afkMergeComparison = "repos/acme/api/compare/main..." + prMergeHeadOID
+
+// ServeHTTP answers the reads of GitHub's API an AFK merge of a pull request
+// on github.com makes.
+func (r *afkMergeRunner) ServeHTTP(w http.ResponseWriter, request *http.Request) {
+	path := strings.TrimPrefix(request.URL.RequestURI(), "/")
+	r.events = append(r.events, request.Method+" "+path)
+	switch {
+	case r.host != "":
+		githubtest.Refuse(w, http.StatusInternalServerError, "GitHub's API was asked of a pull request on "+r.host)
+	case request.Method == http.MethodPost && path == "graphql":
+		_, _ = w.Write([]byte(mergeQueueAnswer(r.queue, false)))
+	case request.Method == http.MethodGet && path == "user":
+		githubtest.Write(w, http.StatusOK, map[string]string{"login": r.login()})
+	case request.Method == http.MethodGet && path == afkMergeComparison:
+		_, _ = w.Write([]byte(r.comparison()))
+	default:
+		githubtest.Refuse(w, http.StatusNotFound, "Not Found")
+	}
+}
+
+// login is the account gh is signed in as.
+func (r *afkMergeRunner) login() string { return cmp.Or(r.viewer, "fpresta0607") }
+
+// comparison is GitHub's comparison of the head with main, in its own shape.
+func (r *afkMergeRunner) comparison() string {
+	return fmt.Sprintf(`{"behind_by":%d,"base_commit":{"sha":"%s"},"files":[]}`, r.behind, afkMergeBase)
 }
 
 func (r *afkMergeRunner) authority() *afkAuthority {
@@ -88,7 +124,11 @@ func (r *afkMergeRunner) authority() *afkAuthority {
 
 func (r *afkMergeRunner) merge(args ...string) (int, string, string) {
 	var stdout, stderr bytes.Buffer
-	exit := runPRMerge(append([]string{afkMergeURL}, args...), &stdout, &stderr, r, r.authority())
+	pullRequest := afkMergeURL
+	if r.host != "" {
+		pullRequest = "https://" + r.host + "/acme/api/pull/13"
+	}
+	exit := runPRMerge(append([]string{pullRequest}, args...), &stdout, &stderr, r, githubtest.Client(r), r.authority())
 	return exit, stdout.String(), stderr.String()
 }
 
@@ -215,13 +255,50 @@ func TestAMergeWhileAFKModeIsOffReadsAndLogsNothingMore(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 
 	// Act
-	exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch", "--verified", "ignored while off"}, &stdout, &stderr, runner, nil)
+	exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch", "--verified", "ignored while off"}, &stdout, &stderr, runner, githubtest.Client(runner), nil)
 
 	// Assert
 	if exit != 0 || !runner.ran("gh", "api", "--method", "DELETE") {
 		t.Fatalf("exit=%d stderr=%q, want it merged and its branch deleted", exit, stderr.String())
 	}
-	if runner.ran("gh", "api", "user") {
+	if slices.Contains(runner.asked, "GET user") {
 		t.Error("a merge while AFK mode is off asked GitHub who is signed in")
+	}
+}
+
+// An AFK merge reads the account, the merge queue and the comparison of a
+// pull request on github.com through GitHub's API, and starts gh for none of
+// them; gh reads them for a pull request on another host, which the API
+// client does not reach.
+func TestAnAFKMergeReadsGitHubThroughItsAPIAndAnotherHostThroughGh(t *testing.T) {
+	for _, row := range []struct {
+		name  string
+		host  string
+		reads []string
+	}{
+		{"a pull request on github.com", "", []string{"POST graphql", "GET user", "GET " + afkMergeComparison}},
+		{"a pull request on another host", "github.example.com", []string{"gh api graphql", "gh api user", "gh api " + afkMergeComparison}},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			// Arrange
+			runner := &afkMergeRunner{host: row.host}
+
+			// Act
+			exit, _, stderr := runner.merge("--verified", "gate run 41 passed and its test output was read")
+
+			// Assert
+			if exit != 0 || !runner.merged() {
+				t.Fatalf("exit=%d stderr=%q events=%q, want it merged", exit, stderr, runner.events)
+			}
+			var reads []string
+			for _, event := range runner.events {
+				if strings.HasPrefix(event, "gh api") || strings.HasPrefix(event, "GET ") || strings.HasPrefix(event, "POST ") {
+					reads = append(reads, event)
+				}
+			}
+			if !slices.Equal(reads, row.reads) {
+				t.Errorf("reads = %q, want %q", reads, row.reads)
+			}
+		})
 	}
 }
