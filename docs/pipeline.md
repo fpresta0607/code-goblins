@@ -120,6 +120,7 @@ It also appends a `working:` line naming the run, step and findings to the task'
 A Test step whose every open finding is `test-command-no-turn` is not handed back: its test command was given no turn, as by a missing required environment, which is the CEO's to repair, so the driver says nothing of it and the supervisor shows the task blocked on its decision.
 For a Test or Lint failure it moves the task's branch to the run's head when the branch still holds the head the run was submitted from, and keeps that head at `refs/heads/archive/handback-<run>-<head>` in the gate's repository, so the correction carries every commit the run validated.
 A branch the goblin has moved since is left as it is, and the driver says to make the correction on the run's head.
+A Test failure is a failed verification, so it also moves the task's implement worker up one tier of its harness, once for that run, and the driver says where it went and that the goblin implements the correction itself ([Model routing](contract/dispatch.md#model-routing)).
 `respond --action fix` on such a step is refused, since the gate repairs none of it.
 The one fix left is a Test rerun of nothing but `test-command-no-turn`, which asks no repair agent, so a test command refused its turn still runs again once its environment is repaired.
 

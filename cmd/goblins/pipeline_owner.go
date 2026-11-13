@@ -9,6 +9,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -50,7 +51,67 @@ func reportHandback(ctx context.Context, h home.Home, reader pipeline.Reader, me
 		}
 	}
 	fmt.Fprintf(out, "pipeline handback: %s; a correction of anything else is the CEO's to admit\n", correctionCommand(meta.ID, run))
+	if run.Step == "test" && meta.ImplementModel != "" && meta.EscalatedRun != run.RunID {
+		if err := escalateImplement(h, meta.ID, run.RunID, out); err != nil {
+			return err
+		}
+	}
 	return state.AppendStatus(h.State, meta.ID, fmt.Sprintf("working: fixing run %s's %s findings %s, which its gate handed back", run.RunID, run.Step, ids))
+}
+
+// escalateImplement moves task id's implement worker up one tier of its
+// harness, because run's Test step failed and a failed verification escalates
+// the role whose work it checked. The move is recorded on the task with the
+// run that caused it, so reading the same run again moves it no further, and a
+// worker that reaches its lead's tier is retired. The goblin implements the
+// correction and every later slice itself, since its session's worker keeps
+// its old model until a relaunch gives it the new one.
+func escalateImplement(h home.Home, id, runID string, out io.Writer) error {
+	policy, err := routing.Load(h.Data)
+	if err != nil {
+		return err
+	}
+	table, err := policy.LaneTable()
+	if err != nil {
+		return err
+	}
+	var from, to, lead routing.ExecutionLane
+	if err := updateTaskRecord(h.State, id, func(meta *state.TaskMeta) error {
+		if meta.ImplementModel == "" || meta.EscalatedRun == runID {
+			return nil
+		}
+		lead = routing.ExecutionLane{Name: meta.RouteLane, Harness: meta.Harness, Model: meta.Model, Effort: meta.Effort}
+		from = routing.ExecutionLane{Name: meta.ImplementLane, Harness: meta.Harness, Model: meta.ImplementModel, Effort: meta.ImplementEffort}
+		to = table.EscalateRole(from, lead)
+		if to == from {
+			return nil
+		}
+		meta.EscalatedRun = runID
+		if to == lead {
+			meta.ImplementLane, meta.ImplementModel, meta.ImplementEffort = "", "", ""
+		} else {
+			meta.ImplementLane, meta.ImplementModel, meta.ImplementEffort = to.Name, to.Model, to.Effort
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if to == from {
+		return nil
+	}
+	target := fmt.Sprintf("%s %s %s", to.Name, to.Model, to.Effort)
+	if to == lead {
+		target = "the lead " + target
+	}
+	if err := state.AppendStatus(h.State, id, fmt.Sprintf("role-escalated: implement %s %s %s -> %s after run %s's failed test step", from.Name, from.Model, from.Effort, target, runID)); err != nil {
+		return err
+	}
+	if to == lead {
+		fmt.Fprintf(out, "pipeline handback: a failed test step moves the implement role up one tier, to this task's lead %s %s %s, so its worker is retired: implement this correction and every later slice yourself\n", to.Name, to.Model, to.Effort)
+		return nil
+	}
+	fmt.Fprintf(out, "pipeline handback: a failed test step moves the implement role up one tier, to %s %s %s, which the task's next relaunch gives its worker; until then implement this correction and every later slice yourself, since this session's worker stays on %s\n", to.Name, to.Model, to.Effort, from.Model)
+	return nil
 }
 
 // checkOwnerCIResume holds a resume of a CI handback that is not the CEO's to

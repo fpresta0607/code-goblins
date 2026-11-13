@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -316,6 +317,103 @@ func TestPipelineRunHandsAFailedStepBackWithItsFindingsAndLog(t *testing.T) {
 			}
 			if status := strings.Join(lines, "\n"); !strings.Contains(status, fmt.Sprintf("working: fixing run %s's %s findings %s-failure, which its gate handed back", ownerRun, test.step, test.step)) {
 				t.Fatalf("status log %q, want the task working on the findings", lines)
+			}
+		})
+	}
+}
+
+// A failed verification escalates the role whose work it checked: under
+// version 7 a run's failed Test step moves the task's implement worker one
+// tier up its harness, once for that run however often it is read, and
+// retires the worker when that tier is its lead's. A Lint failure moves
+// nothing, nor does a task whose goblin implements its own work.
+func TestAFailedTestStepEscalatesTheImplementWorkerOneTier(t *testing.T) {
+	const table = `{"default_lane":"opus","lanes":{
+		"fable":{"harness":"claude","model":"claude-fable-5-2","effort":"xhigh"},
+		"opus":{"harness":"claude","model":"claude-opus-5-5","effort":"xhigh"},
+		"sonnet":{"harness":"claude","model":"claude-sonnet-5-5","effort":"high"},
+		"haiku":{"harness":"claude","model":"haiku","effort":"medium"}},
+		"tiers":{"claude":["fable","opus","sonnet","haiku"]}}`
+	lanes := map[string][3]string{
+		"fable":  {"fable", "claude-fable-5-2", "xhigh"},
+		"opus":   {"opus", "claude-opus-5-5", "xhigh"},
+		"sonnet": {"sonnet", "claude-sonnet-5-5", "high"},
+		"haiku":  {"haiku", "haiku", "medium"},
+	}
+	for _, test := range []struct {
+		name, step, lead, implement, want, said, recorded string
+	}{
+		{
+			name: "a worker one tier below its lead is retired", step: "test", lead: "opus", implement: "sonnet",
+			said:     "pipeline handback: a failed test step moves the implement role up one tier, to this task's lead opus claude-opus-5-5 xhigh, so its worker is retired: implement this correction and every later slice yourself",
+			recorded: "role-escalated: implement sonnet claude-sonnet-5-5 high -> the lead opus claude-opus-5-5 xhigh after run " + ownerRun + "'s failed test step",
+		},
+		{
+			name: "a worker two tiers below its lead moves up one", step: "test", lead: "fable", implement: "haiku", want: "sonnet",
+			said:     "pipeline handback: a failed test step moves the implement role up one tier, to sonnet claude-sonnet-5-5 high, which the task's next relaunch gives its worker; until then implement this correction and every later slice yourself, since this session's worker stays on haiku",
+			recorded: "role-escalated: implement haiku haiku medium -> sonnet claude-sonnet-5-5 high after run " + ownerRun + "'s failed test step",
+		},
+		{name: "a lint failure moves nothing", step: "lint", lead: "opus", implement: "sonnet", want: "sonnet"},
+		{name: "a goblin implementing its own work has no worker to move", step: "test", lead: "opus"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h, nm, _, _, native := ownerStage(t, test.step, 7)
+			if err := os.WriteFile(filepath.Join(h.Data, "routing.json"), []byte(table), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			meta, err := state.ReadTaskMeta(h.State, "task")
+			if err != nil {
+				t.Fatal(err)
+			}
+			lead := lanes[test.lead]
+			meta.RouteLane, meta.Model, meta.Effort = lead[0], lead[1], lead[2]
+			if test.implement != "" {
+				implement := lanes[test.implement]
+				meta.ImplementLane, meta.ImplementModel, meta.ImplementEffort = implement[0], implement[1], implement[2]
+			}
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			var out bytes.Buffer
+
+			// Act: the goblin reads the parked run, then reattaches to it.
+			for range 2 {
+				if err := pipelineCommand(context.Background(), h, nm, native, []string{"run", "task", "--intent", ownerIntent}, &out); err != nil {
+					t.Fatalf("run: %v\n%s", err, out.String())
+				}
+			}
+
+			// Assert
+			after, err := state.ReadTaskMeta(h.State, "task")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := lanes[test.want]; after.ImplementLane != want[0] || after.ImplementModel != want[1] || after.ImplementEffort != want[2] {
+				t.Errorf("implement worker = %s %s %s, want %q", after.ImplementLane, after.ImplementModel, after.ImplementEffort, test.want)
+			}
+			lines, err := state.TailStatus(h.State, "task", 20)
+			if err != nil {
+				t.Fatal(err)
+			}
+			status := strings.Join(lines, "\n")
+			if test.recorded == "" {
+				if strings.Contains(status, "role-escalated") || strings.Contains(out.String(), "moves the implement role") {
+					t.Fatalf("a role moved:\n%s\n%s", out.String(), status)
+				}
+				return
+			}
+			if strings.Count(status, test.recorded) != 1 || strings.Count(status, "role-escalated") != 1 {
+				t.Errorf("status log %q, want the move recorded once: %q", lines, test.recorded)
+			}
+			if strings.Count(out.String(), test.said) != 1 {
+				t.Errorf("output lacks, or repeats, %q:\n%s", test.said, out.String())
+			}
+			if after.EscalatedRun != ownerRun {
+				t.Errorf("escalated run = %q, want %s", after.EscalatedRun, ownerRun)
+			}
+			if verb, _ := crewstate.LatestVerb(lines); verb != "working" {
+				t.Errorf("latest verb = %q, want the task still working on its findings", verb)
 			}
 		})
 	}

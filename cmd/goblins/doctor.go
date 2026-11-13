@@ -389,6 +389,23 @@ func reportRouting(stdout io.Writer) {
 		lane := table.Lanes[name]
 		fmt.Fprintf(stdout, "  %-11s %-7s %-8s %-7s %s\n", name, lane.Harness, valueOr(lane.Model, "default"), valueOr(lane.Effort, "default"), lane.Note)
 	}
+	if len(table.Tiers) == 0 {
+		fmt.Fprintln(stdout, "routing: no tiers, so a role whose work failed verification goes back to its lead")
+	} else {
+		fmt.Fprintln(stdout, "routing: tiers, strongest first, that a role moves up one at a time after its work failed verification")
+		harnesses := make([]string, 0, len(table.Tiers))
+		for harness := range table.Tiers {
+			harnesses = append(harnesses, harness)
+		}
+		sort.Strings(harnesses)
+		for _, harness := range harnesses {
+			tiers := make([]string, 0, len(table.Tiers[harness]))
+			for _, lane := range table.Tiers[harness] {
+				tiers = append(tiers, lane.Name)
+			}
+			fmt.Fprintf(stdout, "  %-7s %s\n", harness, strings.Join(tiers, " > "))
+		}
+	}
 	if len(table.Roles) == 0 {
 		fmt.Fprintln(stdout, "routing: no roles per lane, so each goblin leads, implements, reviews, verifies and fixes on its own lane")
 		return
