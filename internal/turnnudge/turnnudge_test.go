@@ -32,11 +32,11 @@ func TestPromisesReadsAnActionALastReplyPromises(t *testing.T) {
 	} {
 		t.Run(reply, func(t *testing.T) {
 			// Act
-			isPromise := Promises(reply)
+			isPromise := promises(reply)
 
 			// Assert
 			if !isPromise {
-				t.Fatalf("Promises(%q) = false, want true", reply)
+				t.Fatalf("promises(%q) = false, want true", reply)
 			}
 		})
 	}
@@ -80,11 +80,11 @@ func TestPromisesLeavesATurnMeantToEndAlone(t *testing.T) {
 	} {
 		t.Run(reply, func(t *testing.T) {
 			// Act
-			isPromise := Promises(reply)
+			isPromise := promises(reply)
 
 			// Assert
 			if isPromise {
-				t.Fatalf("Promises(%q) = true, want false", reply)
+				t.Fatalf("promises(%q) = true, want false", reply)
 			}
 		})
 	}
@@ -96,24 +96,24 @@ func TestPromisesLeavesATurnMeantToEndAlone(t *testing.T) {
 func TestShouldNudgeComesOnceATurnAndNotWhileWorkWillWakeTheSession(t *testing.T) {
 	promise := "I will now run the tests."
 	for _, test := range []struct {
-		name string
-		stop Stop
-		want bool
+		name  string
+		event stop
+		want  bool
 	}{
-		{"a turn's own end on a promise", Stop{Event: "Stop", LastAssistantMessage: promise}, true},
-		{"a turn a Stop hook already continued", Stop{Event: "Stop", LastAssistantMessage: promise, IsStopHookActive: true}, false},
-		{"a turn with background work in flight", Stop{Event: "Stop", LastAssistantMessage: promise, BackgroundTasks: []json.RawMessage{json.RawMessage(`{"id":"b1"}`)}}, false},
-		{"a turn a session timer will wake", Stop{Event: "Stop", LastAssistantMessage: promise, SessionCrons: []json.RawMessage{json.RawMessage(`{"id":"c1"}`)}}, false},
-		{"a subagent's stop", Stop{Event: "SubagentStop", LastAssistantMessage: promise}, false},
-		{"a turn that ends on a question", Stop{Event: "Stop", LastAssistantMessage: "Should I run the tests?"}, false},
+		{"a turn's own end on a promise", stop{Event: "Stop", LastAssistantMessage: promise}, true},
+		{"a turn a Stop hook already continued", stop{Event: "Stop", LastAssistantMessage: promise, IsStopHookActive: true}, false},
+		{"a turn with background work in flight", stop{Event: "Stop", LastAssistantMessage: promise, BackgroundTasks: []json.RawMessage{json.RawMessage(`{"id":"b1"}`)}}, false},
+		{"a turn a session timer will wake", stop{Event: "Stop", LastAssistantMessage: promise, SessionCrons: []json.RawMessage{json.RawMessage(`{"id":"c1"}`)}}, false},
+		{"a subagent's stop", stop{Event: "SubagentStop", LastAssistantMessage: promise}, false},
+		{"a turn that ends on a question", stop{Event: "Stop", LastAssistantMessage: "Should I run the tests?"}, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Act
-			isNudged := test.stop.ShouldNudge()
+			isNudged := test.event.shouldNudge()
 
 			// Assert
 			if isNudged != test.want {
-				t.Fatalf("ShouldNudge() = %v, want %v", isNudged, test.want)
+				t.Fatalf("shouldNudge() = %v, want %v", isNudged, test.want)
 			}
 		})
 	}

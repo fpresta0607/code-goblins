@@ -23,12 +23,12 @@ const Message = "Your turn ended on a promise to act, with no tool call after it
 	"If you meant to do it, do it now. " +
 	"If this turn is meant to end here, as on a question to the CEO, a done report or a wait your brief asked for, end it again in one line: this reminder comes once a turn."
 
-// Stop is the part of a harness's Stop hook payload the nudge reads. Claude
+// stop is the part of a harness's Stop hook payload the nudge reads. Claude
 // Code and Codex both write last_assistant_message and stop_hook_active, the
 // latter true while the turn already goes on because a Stop hook blocked its
 // end; Claude Code also names the background work and session timers that
 // will wake the session, which Codex has none of.
-type Stop struct {
+type stop struct {
 	Event                string            `json:"hook_event_name"`
 	LastAssistantMessage string            `json:"last_assistant_message"`
 	IsStopHookActive     bool              `json:"stop_hook_active"`
@@ -36,11 +36,11 @@ type Stop struct {
 	SessionCrons         []json.RawMessage `json:"session_crons"`
 }
 
-// ShouldNudge reports whether the turn this Stop ends is told Message: a
+// shouldNudge reports whether the turn this Stop ends is told Message: a
 // turn's own end, not one a Stop hook already continued, with nothing in
 // the background to wake the session, whose last reply promises an action.
-func (s Stop) ShouldNudge() bool {
-	return s.Event == "Stop" && !s.IsStopHookActive && len(s.BackgroundTasks) == 0 && len(s.SessionCrons) == 0 && Promises(s.LastAssistantMessage)
+func (s stop) shouldNudge() bool {
+	return s.Event == "Stop" && !s.IsStopHookActive && len(s.BackgroundTasks) == 0 && len(s.SessionCrons) == 0 && promises(s.LastAssistantMessage)
 }
 
 // block is the Stop hook answer that keeps a turn going with reason as its
@@ -54,14 +54,11 @@ type block struct {
 // a block carrying Message when the Stop is nudged, and otherwise an empty
 // object, which lets the turn end. A payload that cannot be read lets it end.
 func Reply(payload []byte) string {
-	var stop Stop
-	if json.Unmarshal(payload, &stop) != nil || !stop.ShouldNudge() {
+	var event stop
+	if json.Unmarshal(payload, &event) != nil || !event.shouldNudge() {
 		return "{}"
 	}
-	data, err := json.Marshal(block{Decision: "block", Reason: Message})
-	if err != nil {
-		return "{}"
-	}
+	data, _ := json.Marshal(block{Decision: "block", Reason: Message})
 	return string(data)
 }
 
@@ -78,7 +75,7 @@ var (
 	goAhead     = regexp.MustCompile(`(?i)\bgo ahead and\s`)
 )
 
-// Promises reports whether reply, the last words of a turn, end on a promise
+// promises reports whether reply, the last words of a turn, end on a promise
 // of an action: a clause of its last paragraph that opens with "I will",
 // "I'll", "I'm going to", "I am about to", "Let me", "Let's" or "Time to" and
 // a verb of doing, as in "Now let me run the tests", or a clause such as
@@ -89,7 +86,7 @@ var (
 // green", "when the CEO answers", "later"), and what follows either in the
 // paragraph is held by it: "I'll wait for CI. Then I'll merge." promises
 // nothing of this turn.
-func Promises(reply string) bool {
+func promises(reply string) bool {
 	paragraph := lastParagraph(reply)
 	if paragraph == "" || strings.Contains(paragraph, "?") {
 		return false
