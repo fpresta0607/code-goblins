@@ -307,8 +307,8 @@ func TestOSRunnerStartSurvivesRequestContextCancellation(t *testing.T) {
 				// The helper's working directory, which t.TempDir removes, and
 				// the test executable, which go test removes, stay in use until
 				// the helper has ended, and Start reports no end. The helper is
-				// opened before it is released, so the pid waited on is still
-				// the helper's.
+				// held before it is released (holdHelper), so the end waited
+				// for is the helper's.
 				data, err := os.ReadFile(marker + ".pid")
 				if err != nil {
 					t.Fatal(err)
@@ -317,16 +317,11 @@ func TestOSRunnerStartSurvivesRequestContextCancellation(t *testing.T) {
 				if err != nil {
 					t.Fatalf("helper pid = %q: %v", data, err)
 				}
-				helper, err := os.FindProcess(pid)
-				if err != nil {
-					t.Fatalf("FindProcess(%d): %v", pid, err)
-				}
+				awaitEnd := holdHelper(t, pid)
 				if err := os.WriteFile(marker+".release", nil, 0o600); err != nil {
 					t.Fatal(err)
 				}
-				if _, err := helper.Wait(); err != nil {
-					t.Fatalf("waiting for helper %d to end: %v", pid, err)
-				}
+				awaitEnd()
 				return
 			case "":
 				// os.WriteFile creates the marker before writing its contents.

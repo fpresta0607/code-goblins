@@ -251,6 +251,20 @@ jobs:
       # serves it rather than the placeholder page.
       - name: Check goblins.exe embeds the board
         run: go test ./internal/boardweb -count=1
+      # With the board built above, the supervisor lets a browser keep every
+      # file the build addresses, by the manifest and the digests the build
+      # writes (#1966). The go jobs build no board, so there the test skips.
+      # go test also passes when its -run names no test or the test skips, so
+      # the step asks for the test's own PASS line.
+      - name: Check the board lets a browser keep its build's files
+        shell: pwsh
+        run: |
+          $output = go test ./internal/supervisor -run '^TestTheBuiltBoardLetsABrowserKeepEveryFileItAddresses$' -count=1 -v
+          $output
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not ($output -match '^--- PASS: TestTheBuiltBoardLetsABrowserKeepEveryFileItAddresses ')) {
+            throw 'TestTheBuiltBoardLetsABrowserKeepEveryFileItAddresses did not run and pass on the built board.'
+          }
       # The crawler connector every goblin carries crawls a made-up site its
       # tests serve on loopback, in the runner's Chrome, headless.
       - name: Test the crawler connector
@@ -587,7 +601,7 @@ jobs:
           "$citest" -job linux -record "$RUNNER_TEMP/failed-once.jsonl" -timeout 20m $packages
         env:
           # The packages whose tests wait on a later layer of the port: 3
-          # brings processes, the lock, file replacements and the home, 4
+          # brings process trees, file replacements and the home, 4
           # sockets and path comparison, 5 native terminals, 6 watching, 7
           # hooks without PowerShell and the gate's shell, 8 the installer
           # and the updater, and 9 dictation.
@@ -596,21 +610,16 @@ jobs:
             ./internal/cleanup
             ./internal/codexguard
             ./internal/connections
-            ./internal/custody
             ./internal/digest
             ./internal/doctor
-            ./internal/execx
             ./internal/fleet
             ./internal/fleettree
             ./internal/fsx
-            ./internal/goblinname
             ./internal/harnessmap
             ./internal/home
             ./internal/homemove
             ./internal/install
             ./internal/layout
-            ./internal/lifecycle
-            ./internal/lock
             ./internal/memory
             ./internal/monitor
             ./internal/pathguard
@@ -620,12 +629,10 @@ jobs:
             ./internal/sandbox
             ./internal/spawn
             ./internal/startwatch
-            ./internal/supervise
             ./internal/supervisor
             ./internal/update
             ./internal/verify
             ./internal/voice
-            ./internal/wake
             ./internal/watch
           GOBLINS_HOME: ${{ runner.temp }}/ceo-go-tests
           GOBLINS_STATE_OVERRIDE: ${{ runner.temp }}/ceo-go-tests/state

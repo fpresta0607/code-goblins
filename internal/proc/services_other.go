@@ -1,8 +1,9 @@
-//go:build !windows
+//go:build !windows && !linux
 
 package proc
 
-// ProcessTree refuses: reading a process tree is not ported yet.
-func ProcessTree(pid int) ([]ServiceProcess, map[int]Service, error) {
-	return nil, nil, notPorted("reading a process tree")
+// runningProcesses refuses: listing the machine's processes is not ported
+// yet, so ProcessTree and RunningServicesAmong refuse with it.
+func runningProcesses() ([]ServiceProcess, error) {
+	return nil, notPorted("listing processes")
 }

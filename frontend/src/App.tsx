@@ -58,6 +58,7 @@ import { AfkOnDialog } from "./afk-on-dialog";
 import { LinkFallback } from "./link-fallback";
 import { useAfkToggle } from "./useAfkToggle";
 import { useBoardAddress } from "./use-board-address";
+import goblinApp from "/assets/goblin-app.png";
 
 // The terminals load xterm, so the deck arrives the first time one is shown.
 const TerminalDeck = boardPage(() => import("./TerminalDeck").then((module) => module.TerminalDeck), "terminals");
@@ -581,7 +582,7 @@ export function App() {
   }}>
     <header className="topbar" hidden={fillsPhone}>
       <a className="brand" href="/" aria-label="Code Goblins home">
-        <img src="/assets/goblin-app.png" width="48" height="48" alt="" /><h1>Code Goblins</h1>
+        <img src={goblinApp} width="48" height="48" alt="" /><h1>Code Goblins</h1>
         {snapshot?.example && <span className="example-label">Example workspace</span>}
       </a>
       <div className="view-switch" role="group" aria-label="Workspace view">

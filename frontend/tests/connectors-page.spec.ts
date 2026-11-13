@@ -79,10 +79,10 @@ for (const width of [1440, 390]) {
     await expect(yours.locator(".connector-open")).toHaveText(["Acme Internal", "Chrome DevTools", "Context7", "Crawler", "GitHub", "GITHUB_TOKEN", "Supabase"]);
     await expect(yours.locator(".connector-type")).toHaveText(["MCP server", "MCP server", "MCP server", "Built in", "Repository service", "CLI variable", "Claude MCP connector"]);
     const logo = row(main, "Supabase").locator(".connector-logo img");
-    await expect(logo).toHaveAttribute("src", "/assets/connectors/supabase.svg");
+    await expect(logo).toHaveAttribute("src", /^\/assets\/supabase-[\w-]{8}\.svg$/);
     await expect(logo).toHaveAttribute("loading", "lazy");
     await expect.poll(() => logo.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
-    await expect(row(main, "GITHUB_TOKEN").locator(".connector-logo img")).toHaveAttribute("src", "/assets/connectors/github.svg");
+    await expect(row(main, "GITHUB_TOKEN").locator(".connector-logo img")).toHaveAttribute("src", /^\/assets\/github-[\w-]{8}\.svg$/);
     await expect(row(main, "Acme Internal").locator(".connector-initial")).toHaveText("A");
     await expect(row(main, "Acme Internal").locator("img")).toHaveCount(0);
 
@@ -157,7 +157,7 @@ for (const width of [1440, 390]) {
     await expect(main.getByRole("button", { name: "Connectors", exact: true })).toBeFocused();
     await expect(detail.getByRole("heading", { name: "Supabase", exact: true })).toBeVisible();
     await expect(detail.locator(".connector-head .connector-type")).toHaveText("Claude MCP connector");
-    await expect(detail.locator(".connector-head .connector-logo img")).toHaveAttribute("src", "/assets/connectors/supabase.svg");
+    await expect(detail.locator(".connector-head .connector-logo img")).toHaveAttribute("src", /^\/assets\/supabase-[\w-]{8}\.svg$/);
     await expect(detail.locator(".connector-about")).toHaveText("Supabase database, auth and storage");
     await expect(main.getByRole("list", { name: "Your connectors" })).toBeHidden();
 

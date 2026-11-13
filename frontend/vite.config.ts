@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { defineConfig } from "vite";
 
 // BOARD_DEV_PORT moves the dev server off 5173, which Docker and WSL also
@@ -12,6 +14,21 @@ export default defineConfig({
     outDir: "../internal/boardweb/dist/board",
     emptyOutDir: true,
     sourcemap: false,
+    // The supervisor reads from it which files Vite named by their content,
+    // which a browser may keep a year (#1966).
+    manifest: true,
+  },
+  experimental: {
+    // A file the build copies from public/assets keeps its name, so each
+    // address of one the build writes, in the page, a style or a script
+    // importing it, carries the digest of its content that the supervisor
+    // checks before it lets a browser keep the file a year (#1966).
+    renderBuiltUrl(filename, { type }) {
+      if (type !== "public" || !filename.startsWith("assets/")) return undefined;
+      const file = filename.split("?")[0];
+      const content = readFileSync(new URL("public/" + file, import.meta.url));
+      return "/" + file + "?v=" + createHash("sha256").update(content).digest("hex").slice(0, 16);
+    },
   },
   server: {
     host: "127.0.0.1",

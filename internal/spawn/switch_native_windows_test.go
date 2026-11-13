@@ -698,15 +698,18 @@ func closeCurrentTerminal(t *testing.T, f *nativeFixture) {
 // window, having pressed it only once more. A Claude Code that takes its
 // Enter seconds late shows the text in its composer as it was until then,
 // over no new row, and is pressed no Enter that would reach it after the
-// instruction (#1232).
+// instruction (#1232). One that lost its Enter and shows a list of choices
+// under its composer as the window runs out is pressed no Enter into that
+// list, and the resume fails (#1873).
 func TestAResumeSubmitsOnceMoreOnlyWhenItsFirstEnterWasLost(t *testing.T) {
 	for _, test := range []struct {
-		mode, wantPhase string
-		wantLost        int
+		mode, wantPhase      string
+		wantLost, wantAtList int
 	}{
 		{mode: "claude-lost-enter", wantPhase: "running", wantLost: 1},
 		{mode: "claude-enters-lost", wantPhase: "failed", wantLost: 2},
 		{mode: "claude-late-enter", wantPhase: "running", wantLost: 0},
+		{mode: "claude-asks", wantPhase: "failed", wantAtList: 1},
 	} {
 		t.Run(test.mode, func(t *testing.T) {
 			// Arrange
@@ -739,8 +742,79 @@ func TestAResumeSubmitsOnceMoreOnlyWhenItsFirstEnterWasLost(t *testing.T) {
 			if lost := named(events, "enter taken as a new line"); len(lost) != test.wantLost {
 				t.Errorf("Enters taken as a new line = %+v, want %d", lost, test.wantLost)
 			}
+			if atList := named(events, "enter lost to a list of choices"); len(atList) != test.wantAtList {
+				t.Errorf("Enters lost to a list of choices = %+v, want %d", atList, test.wantAtList)
+			}
 			if empty := named(events, "enter on an empty composer"); len(empty) != 0 {
 				t.Errorf("Enters on an empty composer = %+v, want none after the instruction", empty)
+			}
+			submitted := named(events, "submitted")
+			if test.wantPhase == "failed" {
+				if len(submitted) != 0 || !strings.Contains(err.Error(), "never showed its harness working") {
+					t.Errorf("submitted = %+v after %v, want nothing taken and the window's error", submitted, err)
+				}
+				return
+			}
+			if len(submitted) != 1 || !strings.Contains(delivered(t, submitted[0].Text), "Your session was restarted") {
+				t.Errorf("submitted = %+v, want the resume instruction once", submitted)
+			}
+		})
+	}
+}
+
+// On 2026-10-31 a paused Codex goblin's resume typed its instruction into
+// Codex's composer and pressed its submit key, which Codex lost: the
+// instruction sat unsent, with no turn, until the resume's window ran out,
+// and the resume was recorded failed while the goblin waited on one Enter
+// (#1873). A resume whose window runs out while its harness's composer holds
+// the instruction and nothing else, with no turn, presses the submit key once
+// more and gives it a window of its own, so the goblin resumes; one whose
+// second key is lost too fails, having pressed it only once more. A Codex
+// that takes its submit key seconds late, within the window, is pressed
+// nothing more that would reach it after the instruction.
+func TestAResumeSubmitsOnceMoreALaunchInstructionItsCodexLeftUnsent(t *testing.T) {
+	for _, test := range []struct {
+		mode, wantPhase string
+		window          time.Duration
+		wantLost        int
+	}{
+		{mode: "lost-enter", window: 5 * time.Second, wantPhase: "running", wantLost: 1},
+		{mode: "enters-lost", window: 5 * time.Second, wantPhase: "failed", wantLost: 2},
+		{mode: "slow", window: 30 * time.Second, wantPhase: "running", wantLost: 0},
+	} {
+		t.Run(test.mode, func(t *testing.T) {
+			// Arrange
+			previous := nativeAccepted
+			nativeAccepted = test.window
+			t.Cleanup(func() { nativeAccepted = previous })
+			f := newSwitchFixtureOf(t, harness.Codex, harness.Control{})
+			f.userEnv = append(f.userEnv, fakeCodexMode+"="+test.mode)
+			paused := state.Lifecycle{ID: f.meta.ID, Generation: f.meta.SpawnGen, RequestGeneration: f.meta.SpawnGen, Operation: "pause-1", Action: "pause", Phase: "paused", Session: "owned-session", Started: time.Now().UTC()}
+			if err := state.WriteLifecycle(f.stateDir, paused); err != nil {
+				t.Fatal(err)
+			}
+			controller := lifecycle.Service{StateDir: f.stateDir, Operations: lifecycle.Operations{
+				Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
+				Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
+					_, err := f.service.Switch(ctx, SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, IsResume: true, ResumeSession: prior.Session})
+					return err
+				},
+				Notify: func(state.Lifecycle) error { return nil },
+			}}
+
+			// Act
+			result, err := controller.Run(t.Context(), lifecycle.Request{ID: f.meta.ID, Generation: f.meta.SpawnGen, Operation: "resume-1", Action: "resume"})
+
+			// Assert
+			if result.Phase != test.wantPhase || (err == nil) != (test.wantPhase == "running") {
+				t.Fatalf("resume = %+v, %v; want it %s", result, err, test.wantPhase)
+			}
+			events := f.events(t)
+			if lost := named(events, "lost enter"); len(lost) != test.wantLost {
+				t.Errorf("submit keys lost = %+v, want %d", lost, test.wantLost)
+			}
+			if swallowed := named(events, "swallowed enter"); len(swallowed) != 0 {
+				t.Errorf("Enters with no End before them = %+v, want none", swallowed)
 			}
 			submitted := named(events, "submitted")
 			if test.wantPhase == "failed" {

@@ -343,7 +343,7 @@ for (const viewport of [{ width: 1280, height: 1400 }, { width: 390, height: 844
     await expect(list.getByRole("listitem")).toHaveCount(2);
     const precision = list.getByRole("listitem").filter({ hasText: "Stripe · PrecisionDocs" });
     const siqstack = list.getByRole("listitem").filter({ hasText: "Stripe · SIQstack" });
-    await expect(precision.locator(".connector-logo img")).toHaveAttribute("src", "/assets/connectors/stripe.svg");
+    await expect(precision.locator(".connector-logo img")).toHaveAttribute("src", /^\/assets\/stripe-[\w-]{8}\.svg$/);
     await expect(precision.getByText("Signed in", { exact: true })).toBeVisible();
     await expect(precision.getByText("For code-goblins. You signed in 2 hours ago, last used 5 minutes ago.", { exact: true })).toBeVisible();
     await expect(siqstack.getByText("Signed out", { exact: true })).toBeVisible();
