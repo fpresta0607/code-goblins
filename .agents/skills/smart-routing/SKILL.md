@@ -20,7 +20,7 @@ This command takes task text, not a brief filename; include material complexity 
 Use `--attempts <count>` before the task text for prior failures.
 The preview checks classification and quota, not model entitlement or model-specific effort support.
 It also previews each role's lane (lead, implement, review, verify and fix) from the lead lane's `roles`, which `goblins doctor` also prints.
-Nothing launches on a role yet: the worker still implements, reviews, verifies and fixes on its own lane, so arrange independent verification as below rather than counting on a previewed role.
+A routed spawn with no explicit `--model` or `--effort` gives the goblin its lane's implement worker, named on its route line, which edits each bounded slice while the goblin reviews the diff and commits; review, verification and fixes do not launch on their roles yet, so arrange independent verification as below rather than counting on a previewed role.
 
 Consult the installed harness and account's current catalog, using the configuration roots recorded in `state/harnesses.json`:
 
@@ -55,6 +55,7 @@ These are starting judgments, not claims of measured speed; use only supported e
 
 Do not lower effort to compensate for an incapable model.
 Reassess on new complexity or failed verification before spending another attempt; retain the task's existing repair budget.
+A handed-back Test failure already moves the task's implement worker up one tier of the table's `tiers` by rule, recorded as a `role-escalated:` status line, so reassess the lead's own lane rather than the worker's.
 
 ## Express and verify the decision
 

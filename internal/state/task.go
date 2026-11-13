@@ -72,6 +72,17 @@ type TaskMeta struct {
 	// supervisor for it, whose branch its own is cut from and to which it
 	// reports. Empty for every task the CEO dispatched.
 	Parent string
+	// ImplementLane, ImplementModel and ImplementEffort are the lane, on the
+	// task's own harness, of the native worker its goblin hands implementation
+	// slices to, chosen from its route lane's implement role at spawn so a
+	// later table edit never changes it. All three are empty when the goblin
+	// implements its own work.
+	ImplementLane   string
+	ImplementModel  string
+	ImplementEffort string
+	// EscalatedRun is the gate run whose failed verification last moved the
+	// implement role up a tier, so reading that run again moves it no further.
+	EscalatedRun string
 	// Credentials names the services of the project's auth manifest whose
 	// credentials the task's terminal carries: what its spawn gave it, plus
 	// what goblins auth grant added since and less what goblins auth revoke took
@@ -341,6 +352,10 @@ func ReadTaskMeta(stateDir, id string) (TaskMeta, error) {
 		Model:            kv["model"],
 		RouteLane:        kv["route_lane"],
 		RouteReason:      kv["route_reason"],
+		ImplementLane:    kv["implement_lane"],
+		ImplementModel:   kv["implement_model"],
+		ImplementEffort:  kv["implement_effort"],
+		EscalatedRun:     kv["escalated_run"],
 		Effort:           kv["effort"],
 		SpawnGen:         kv["spawn_gen"],
 		FirstGen:         kv["first_gen"],
@@ -445,6 +460,10 @@ func WriteTaskMeta(stateDir string, meta TaskMeta) error {
 		"model":              meta.Model,
 		"route_lane":         meta.RouteLane,
 		"route_reason":       meta.RouteReason,
+		"implement_lane":     meta.ImplementLane,
+		"implement_model":    meta.ImplementModel,
+		"implement_effort":   meta.ImplementEffort,
+		"escalated_run":      meta.EscalatedRun,
 		"effort":             meta.Effort,
 		"spawn_gen":          meta.SpawnGen,
 		"first_gen":          meta.FirstGen,
@@ -588,6 +607,10 @@ func validateTaskMetaValues(meta TaskMeta) error {
 		{"model", meta.Model},
 		{"route_lane", meta.RouteLane},
 		{"route_reason", meta.RouteReason},
+		{"implement_lane", meta.ImplementLane},
+		{"implement_model", meta.ImplementModel},
+		{"implement_effort", meta.ImplementEffort},
+		{"escalated_run", meta.EscalatedRun},
 		{"effort", meta.Effort},
 		{"spawn_gen", meta.SpawnGen},
 		{"first_gen", meta.FirstGen},

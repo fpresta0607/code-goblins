@@ -170,6 +170,8 @@ func (s *Service) sendHeldNow(id, task string) (bool, error) {
 	switch {
 	case !isLive:
 		return true, errors.New(subject + "'s terminal does not answer, so its send-now key was not pressed.")
+	case record.Stream:
+		return true, errors.New(subject + " runs on stream-json pipes, where Claude Code holds the message itself. It takes it at its next tool call, or as its turn ends.")
 	case screens.SendNow == "":
 		return true, errors.New(subject + "'s harness has no send-now key. It takes the message at its next tool call, or as its turn ends.")
 	}
@@ -236,6 +238,8 @@ func (s *Service) takeBackHeld(withdraw Action) (Action, bool, error) {
 	switch {
 	case !isLive:
 		return Action{}, true, errors.New(subject + "'s terminal does not answer, so its queue was left as it is.")
+	case record.Stream:
+		return Action{}, true, errors.New("It waits in " + who + "'s own queue on stream-json pipes, which Claude Code gives back to nothing. It takes it at its next tool call, or as its turn ends.")
 	case screens.EditQueue == "":
 		return Action{}, true, errors.New("It waits in " + who + "'s own queue, which its harness gives back to no key. Send now has it taken at once.")
 	case slices.ContainsFunc(held, func(a Action) bool { return a.Kind != "message" }):

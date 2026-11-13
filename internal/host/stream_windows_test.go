@@ -27,11 +27,12 @@ func streamChild() {
 	lines := bufio.NewScanner(os.Stdin)
 	for lines.Scan() {
 		var request struct {
-			Say    string `json:"say"`
-			Ask    string `json:"ask"`
-			Exit   *int   `json:"exit"`
-			Garble bool   `json:"garble"`
-			Linger bool   `json:"linger"`
+			Say    string          `json:"say"`
+			Ask    string          `json:"ask"`
+			Exit   *int            `json:"exit"`
+			Garble bool            `json:"garble"`
+			Linger bool            `json:"linger"`
+			Emit   json.RawMessage `json:"emit"`
 		}
 		if err := json.Unmarshal(lines.Bytes(), &request); err != nil {
 			emit(map[string]any{"type": "unreadable", "error": err.Error()})
@@ -55,6 +56,8 @@ func streamChild() {
 		case request.Linger:
 			isLingering = true
 			emit(map[string]any{"type": "lingering"})
+		case request.Emit != nil:
+			fmt.Println(string(request.Emit))
 		default:
 			emit(map[string]any{"type": "said", "text": request.Say})
 		}
@@ -369,6 +372,7 @@ func TestEachKindOfHostRefusesTheOtherKindsClient(t *testing.T) {
 		{"a terminal's viewer of a stream host", func() error { _, err := Dial(stream); return err }, "runs a stream session, not a terminal"},
 		{"a stream viewer of a terminal's host", func() error { _, err := WatchStream(terminal); return err }, "runs a terminal, not a stream session"},
 		{"a stream writer of a terminal's host", func() error { _, err := DialStreamWriter(terminal); return err }, "runs a terminal, not a stream session"},
+		{"a state read of a terminal's host", func() error { _, err := ReadStreamState(terminal); return err }, "runs a terminal, not a stream session"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			// Act
@@ -427,8 +431,8 @@ func TestAStreamSessionEndsWithItsProgramAndRecordsHow(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ReadEnd: %v", err)
 			}
-			if ended.HostPID != record.HostPID || ended.ChildPID != record.ChildPID || ended.Closed != testCase.wantClosed || !testCase.wantClosed && ended.Code != testCase.wantCode {
-				t.Errorf("end = %+v, want host %d, program %d, closed %v, code %d", ended, record.HostPID, record.ChildPID, testCase.wantClosed, testCase.wantCode)
+			if ended.HostPID != record.HostPID || ended.ChildPID != record.ChildPID || ended.Closed != testCase.wantClosed || !ended.Stream || !testCase.wantClosed && ended.Code != testCase.wantCode {
+				t.Errorf("end = %+v, want a stream's, host %d, program %d, closed %v, code %d", ended, record.HostPID, record.ChildPID, testCase.wantClosed, testCase.wantCode)
 			}
 			if _, err := ReadRecord(stateDir, "s1"); !errors.Is(err, os.ErrNotExist) {
 				t.Errorf("the record is still there: %v", err)
@@ -488,5 +492,58 @@ func closeSession(t *testing.T, writer *StreamWriter) {
 	t.Helper()
 	if err := writer.CloseSession(); err != nil {
 		t.Fatalf("CloseSession: %v", err)
+	}
+}
+
+// A stream host keeps what its session's lines say, the lines its program
+// writes and those written to it, and a state read is told it: a turn that
+// runs from the echo of a line to its result, and each line's lifecycle.
+func TestAStreamHostTellsAStateReadWhatItsSessionsLinesSay(t *testing.T) {
+	// Arrange
+	_, record := launchStream(t)
+	watch := watchStream(t, record)
+	watch.waitFor(t, "ready")
+	writer := dialWriter(t, record)
+	writeLine(t, writer, `{"emit":{"type":"user","message":{"role":"user","content":"go"},"parent_tool_use_id":null,"isReplay":true,"uuid":"c1"}}`)
+	writeLine(t, writer, `{"emit":{"type":"command_lifecycle","command_uuid":"c1","state":"started"}}`)
+	watch.waitFor(t, "command_lifecycle")
+
+	// Act
+	working, workingErr := ReadStreamState(record)
+	writeLine(t, writer, `{"emit":{"type":"result","subtype":"success","is_error":false,"result":"done"}}`)
+	watch.waitFor(t, "result")
+	ended, endedErr := ReadStreamState(record)
+
+	// Assert
+	if workingErr != nil || !working.IsWorking || working.Commands["c1"] != "started" {
+		t.Errorf("state during the turn = %+v, %v; want it working with c1 started", working, workingErr)
+	}
+	if endedErr != nil || ended.IsWorking || ended.Result == nil || ended.Result.Text != "done" {
+		t.Errorf("state after the turn = %+v, %v; want its result and no turn running", ended, endedErr)
+	}
+}
+
+// A check that a task's host still answers, as a stop proves its resources
+// and a lifecycle proves a task runs, reaches a stream session's host as it
+// does a terminal's, whose own handshake a stream host refuses.
+func TestAnAnswerComesFromATerminalsHostAndAStreamSessionsAlike(t *testing.T) {
+	// Arrange
+	_, terminal, _ := hostHere(t)
+	_, stream := launchStream(t)
+	if client, err := Dial(stream); err == nil {
+		_ = client.Close()
+		t.Fatal("the premise fails: a terminal's handshake reached a stream session's host")
+	}
+
+	for name, record := range map[string]Record{"a terminal": terminal, "a stream session": stream} {
+		t.Run(name, func(t *testing.T) {
+			// Act
+			err := Answer(record)
+
+			// Assert
+			if err != nil {
+				t.Errorf("Answer = %v, want the host's answer", err)
+			}
+		})
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/claudestream"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -29,6 +30,9 @@ type NativeProber struct {
 	StateDir string
 	// ReadScreen reads a host's console; nil reads it through the host.
 	ReadScreen func(host.Record) ([]string, error)
+	// ReadState reads what a stream session's lines say of it; nil reads it
+	// through its host.
+	ReadState func(host.Record) (claudestream.Session, error)
 	// Dial checks that a host answers on its pipe; nil dials it.
 	Dial func(host.Record) error
 }
@@ -68,6 +72,20 @@ func (p NativeProber) Inspect(ctx context.Context, meta state.TaskMeta) (Endpoin
 	if read == nil {
 		read = host.ReadScreen
 	}
+	// A stream session has no screen: its rows are what its lines say, and
+	// its status is Claude Code's own.
+	var session claudestream.Session
+	if record.Stream {
+		readState := p.ReadState
+		if readState == nil {
+			readState = host.ReadStreamState
+		}
+		read = func(record host.Record) ([]string, error) {
+			var err error
+			session, err = readState(record)
+			return session.Rows(), err
+		}
+	}
 	// A read can fail while the terminal is alive and working, as one that
 	// times out on a loaded machine does, so a failed read is read again
 	// before anything is concluded from it.
@@ -85,7 +103,7 @@ func (p NativeProber) Inspect(ctx context.Context, meta state.TaskMeta) (Endpoin
 		// on its pipe says the terminal still runs.
 		dial := p.Dial
 		if dial == nil {
-			dial = dialHost
+			dial = host.Answer
 		}
 		if dialErr := dial(record); dialErr != nil {
 			return EndpointSample{Verdict: ProbeMissing, Detail: fmt.Sprintf("native terminal %s's host does not answer (%v); %s", meta.ID, dialErr, resume), IsComingBack: isComingBack}, nil
@@ -102,6 +120,19 @@ func (p NativeProber) Inspect(ctx context.Context, meta state.TaskMeta) (Endpoin
 		Harness:             meta.Harness,
 		CountersUnavailable: true,
 	}
+	if record.Stream {
+		switch {
+		case session.IsExited:
+			sample.Status, sample.Busy = herdr.AgentUnknown, herdr.BusyUnknown
+		case len(session.Asks) > 0:
+			sample.Status, sample.Busy = herdr.AgentBlocked, herdr.BusyIdle
+		case session.IsWorking:
+			sample.Status, sample.Busy = herdr.AgentWorking, herdr.BusyWorking
+		default:
+			sample.Status, sample.Busy, sample.InteractiveReady = herdr.AgentDone, herdr.BusyIdle, true
+		}
+		return sample, nil
+	}
 	_, dialog := screens.Dialog(screen)
 	switch {
 	case screens.IsWorking(screen):
@@ -114,14 +145,6 @@ func (p NativeProber) Inspect(ctx context.Context, meta state.TaskMeta) (Endpoin
 		sample.Status, sample.Busy = herdr.AgentUnknown, herdr.BusyUnknown
 	}
 	return sample, nil
-}
-
-func dialHost(record host.Record) error {
-	client, err := host.Dial(record)
-	if err != nil {
-		return err
-	}
-	return client.Close()
 }
 
 // BackendProber inspects each task with the prober of the terminal backend

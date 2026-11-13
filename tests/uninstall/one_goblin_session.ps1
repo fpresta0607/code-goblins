@@ -162,12 +162,9 @@ if (Test-Path -LiteralPath $settingsFile) {
 $settings["defaultProvider"] = "stand-in"
 $settings["defaultModel"] = "stand-in"
 [IO.File]::WriteAllText($settingsFile, (ConvertTo-Json -InputObject $settings -Depth 6))
-$standIn = Start-Process -FilePath python -ArgumentList (Join-Path $PSScriptRoot "stand_in_model.py"), $port -WindowStyle Hidden -PassThru
-$deadline = (Get-Date).AddSeconds(30)
-while ($true) {
-    try { Invoke-WebRequest "http://127.0.0.1:$port/v1/models" -UseBasicParsing | Out-Null; break }
-    catch { if ((Get-Date) -gt $deadline) { throw "the stand-in model did not answer within 30 seconds" }; Start-Sleep -Milliseconds 250 }
-}
+. (Join-Path $PSScriptRoot "..\hidden_server.ps1")
+$standIn = Start-HiddenServer -Name "stand-in model" -ArgumentList (Join-Path $PSScriptRoot "stand_in_model.py"), $port `
+    -Url "http://127.0.0.1:$port/v1/models" -Log (Join-Path $env:RUNNER_TEMP "session-stand-in")
 
 # A build that selects delivery at intake reads the demo project's record, a
 # local-only posture with a check it can run, as the CEO records it. An

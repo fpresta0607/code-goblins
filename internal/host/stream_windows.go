@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/awake"
+	"github.com/fpresta0607/code-goblins/internal/claudestream"
 	"github.com/fpresta0607/code-goblins/internal/conpty"
 )
 
@@ -38,6 +39,24 @@ func runStream(stateDir string, spec Spec, proof string, processors uintptr) err
 	defer removeRecord(stateDir, spec.ID, record.HostPID)
 
 	lines := newLineHistory()
+	// session is what the lines say of the session, kept as they pass, which
+	// a state read answers with as a terminal's host answers a screen read.
+	var (
+		folding sync.Mutex
+		session claudestream.Session
+	)
+	fold := func(line json.RawMessage, isWritten bool) {
+		folding.Lock()
+		defer folding.Unlock()
+		if err := session.Apply(line, isWritten); err != nil {
+			fmt.Fprintf(os.Stderr, "%s host: %v\n", time.Now().UTC().Format(time.RFC3339Nano), err)
+		}
+	}
+	state := func() ([]byte, error) {
+		folding.Lock()
+		defer folding.Unlock()
+		return json.Marshal(streamState{Session: session})
+	}
 	outputEnded := make(chan struct{})
 	go func() {
 		defer close(outputEnded)
@@ -61,6 +80,7 @@ func runStream(stateDir string, spec Spec, proof string, processors uintptr) err
 				continue
 			}
 			lines.add(object, false)
+			fold(object, false)
 		}
 	}()
 	closing := make(chan struct{}, 1)
@@ -74,6 +94,7 @@ func runStream(stateDir string, spec Spec, proof string, processors uintptr) err
 		writing.Lock()
 		defer writing.Unlock()
 		lines.add(line, true)
+		fold(line, true)
 		_, err := program.Write(append(line, '\n'))
 		return err
 	}
@@ -90,7 +111,7 @@ func runStream(stateDir string, spec Spec, proof string, processors uintptr) err
 			clients.Add(1)
 			go func() {
 				defer clients.Done()
-				serveStream(connection, record.Token, program, lines, write, closing)
+				serveStream(connection, record.Token, program, lines, write, state, closing)
 			}()
 		}
 	}()
@@ -110,7 +131,10 @@ func runStream(stateDir string, spec Spec, proof string, processors uintptr) err
 	}
 	closeErr := program.Close()
 	<-outputEnded
-	end := End{ID: spec.ID, HostPID: record.HostPID, ChildPID: record.ChildPID, ChildStart: record.ChildStart, Ended: time.Now().UTC(), Code: program.ExitCode(), Closed: isClosed}
+	folding.Lock()
+	session.Exit(program.ExitCode())
+	folding.Unlock()
+	end := End{ID: spec.ID, HostPID: record.HostPID, ChildPID: record.ChildPID, ChildStart: record.ChildStart, Ended: time.Now().UTC(), Code: program.ExitCode(), Closed: isClosed, Stream: true}
 	if err := writeEnd(stateDir, end); err != nil {
 		fmt.Fprintf(os.Stderr, "%s host: record how session %s ended: %v\n", time.Now().UTC().Format(time.RFC3339Nano), spec.ID, err)
 	}
@@ -131,8 +155,9 @@ func runStream(stateDir string, spec Spec, proof string, processors uintptr) err
 // serveStream is one client's connection to a stream session. A viewer is
 // sent the lines kept, then each line as it comes, then how the program
 // ended. A writer's lines are written to the program, each acknowledged
-// once written or with why not. Either may close the session.
-func serveStream(connection *os.File, token string, program *conpty.Piped, lines *lineHistory, write func(json.RawMessage) error, closing chan<- struct{}) {
+// once written or with why not. Either may close the session. A state read
+// is sent what the lines say of the session, from state, and let go.
+func serveStream(connection *os.File, token string, program *conpty.Piped, lines *lineHistory, write func(json.RawMessage) error, state func() ([]byte, error), closing chan<- struct{}) {
 	defer connection.Close()
 	greeting, ok := greet(connection, token, true)
 	if !ok {
@@ -144,7 +169,15 @@ func serveStream(connection *os.File, token string, program *conpty.Piped, lines
 		default:
 		}
 	}
-	if writeHello(connection, hello{Version: Version, Stream: true, Deliver: greeting.Deliver}) != nil {
+	if writeHello(connection, hello{Version: Version, Stream: true, Deliver: greeting.Deliver, Screen: greeting.Screen}) != nil {
+		return
+	}
+	if greeting.Screen {
+		answer, err := state()
+		if err != nil {
+			answer, _ = json.Marshal(streamState{Error: err.Error()})
+		}
+		_ = writeFrame(connection, frameScreen, answer)
 		return
 	}
 	if greeting.Deliver {
@@ -234,14 +267,6 @@ func serveStream(connection *os.File, token string, program *conpty.Piped, lines
 type StreamViewer struct {
 	pipe    *os.File
 	sending sync.Mutex
-}
-
-// StreamEvent is a line of the session, or its program's end with its exit
-// code.
-type StreamEvent struct {
-	Line     StreamLine
-	IsExited bool
-	Code     uint32
 }
 
 // WatchStream connects to the stream host record names as a viewer.
@@ -346,4 +371,52 @@ func (w *StreamWriter) CloseSession() error {
 // Close disconnects this writer and leaves the session running.
 func (w *StreamWriter) Close() error {
 	return w.pipe.Close()
+}
+
+// streamState is a state read's answer: what a stream session's lines say
+// of it, or why its host could not say.
+type streamState struct {
+	Session claudestream.Session `json:"session"`
+	Error   string               `json:"error,omitempty"`
+}
+
+// ReadStreamState reads what the lines of the stream session record's host
+// runs say of it, as its host keeps it: whether a turn runs, the reply being
+// written, how the last turn ended, each line's lifecycle, and whether the
+// program ended. A read that fails is an error naming the session, never an
+// idle one.
+func ReadStreamState(record Record) (claudestream.Session, error) {
+	session, err := requestStreamState(record)
+	if err != nil {
+		return claudestream.Session{}, fmt.Errorf("host: read the state of stream session %s: %w", record.ID, err)
+	}
+	return session, nil
+}
+
+func requestStreamState(record Record) (claudestream.Session, error) {
+	client, answer, err := dial(record, hello{Version: Version, Token: record.Token, Stream: true, Screen: true})
+	if err != nil {
+		return claudestream.Session{}, err
+	}
+	defer client.Close()
+	if !answer.Stream || !answer.Screen {
+		return claudestream.Session{}, errors.New("its host was started by a goblins that cannot report a session's state")
+	}
+	lift := awake.Deadline(client.pipe.SetReadDeadline, screenTimeout+handshakeTimeout)
+	kind, payload, err := readFrame(client.pipe)
+	lift()
+	if err != nil {
+		return claudestream.Session{}, err
+	}
+	if kind != frameScreen {
+		return claudestream.Session{}, fmt.Errorf("its host answered with frame %q, not a state", kind)
+	}
+	var state streamState
+	if err := json.Unmarshal(payload, &state); err != nil {
+		return claudestream.Session{}, err
+	}
+	if state.Error != "" {
+		return claudestream.Session{}, errors.New(state.Error)
+	}
+	return state.Session, nil
 }

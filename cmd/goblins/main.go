@@ -89,7 +89,7 @@ commands:
   dev-drive say whether the home's worktrees, scratch and package caches are on a Dev Drive, a drive Windows 11 formats for developer work that Defender scans in performance mode (not an exclusion), whether this machine has or can have one, and why not; setup: ask for the next step, which the board puts in the Command Center as one item to run; move --to <folder>: put new goblins' worktrees, scratch and caches in <folder> on a trusted Dev Drive, keeping every started goblin's folders where they are
   defender  [--since <time|day|length>] [--json]: list what Microsoft Defender recorded under the fleet's folders since then, its detections and the samples it sent to Microsoft, each file with the task and test that made it; it only reads Defender's own records
   doctor    check the tools goblins needs (git, gh, claude, herdr, codex, pi, tasks-axi, quota-axi, no-mistakes, gh-axi, chrome-devtools-axi) and each harness's version beside its newest; --fix installs the newest Codex and pi once each starts to its composer in a terminal of its own, while nothing runs from its install
-  pipeline  config-drift | config-apply | migrate <id> | run <id> [--branch <b>] --intent-file <file> | respond <id> [--branch <b> | --run <run>] --action <fix|approve> [--findings <ids>] [--instructions <text>] [--scope-decision <answered-notify-sequence>] | recover <id> [--branch <b> | --run <run>] | terminal-preflight <id> --run <predecessor> | validate-authored <id> [--branch <b>] --admission-file <file> | validate-authored <id> --run <run> --findings <ids> | validate-terminal <id> [--branch <b>] --admission-file <file>; validation admission requires the registered primary CEO, except a goblin's own correction of a handed-back failure
+  pipeline  config-drift | config-apply | migrate <id> | run <id> [--branch <b>] --intent-file <file> [--closes <issue>]... | respond <id> [--branch <b> | --run <run>] --action <fix|approve> [--findings <ids>] [--instructions <text>] [--scope-decision <answered-notify-sequence>] | recover <id> [--branch <b> | --run <run>] | terminal-preflight <id> --run <predecessor> | validate-authored <id> [--branch <b>] --admission-file <file> | validate-authored <id> --run <run> --findings <ids> | validate-terminal <id> [--branch <b>] --admission-file <file>; validation admission requires the registered primary CEO, except a goblin's own correction of a handed-back failure
   drain     print or acknowledge the wake queue and recovery episode, and list the lessons waiting for the CEO's word
   watch     run one triage cycle by hand (manual diagnostics; the hooks are the production entry)
   session-start  print the full session-start digest by hand (manual diagnostics; the SessionStart hook is the production entry)
@@ -184,8 +184,9 @@ type commandRuntime struct {
 	sendKey       func(home.Home, string, string) error
 	authRefresher func(home.Home) spawn.AuthRefresher
 	peek          func(home.Home, string, int) (string, error)
-	// screen reads the rows a native terminal shows now.
-	screen        func(stateDir, id string) ([]string, error)
+	// idle reports whether the harness in a native terminal, whose screens
+	// are screens, or in a stream session waits for input now.
+	idle          func(stateDir, id string, screens harness.Screens) (bool, error)
 	snapshot      func(context.Context, home.Home) (fleet.Snapshot, error)
 	localRuntime  func(context.Context, home.Home) (runtime.Inventory, error)
 	cleanup       func(context.Context, home.Home, string, bool) (string, error)
@@ -477,12 +478,17 @@ func defaultCommandRuntime() commandRuntime {
 			}
 		},
 		peek: peekTerminal,
-		screen: func(stateDir, id string) ([]string, error) {
+		idle: func(stateDir, id string, screens harness.Screens) (bool, error) {
 			record, err := host.ReadRecord(stateDir, id)
 			if err != nil {
-				return nil, err
+				return false, err
 			}
-			return host.ReadScreen(record)
+			if record.Stream {
+				session, err := host.ReadStreamState(record)
+				return err == nil && session.IsIdle(), err
+			}
+			screen, err := host.ReadScreen(record)
+			return err == nil && screens.IsIdleAtEmptyComposer(screen), err
 		},
 		snapshot: func(ctx context.Context, h home.Home) (fleet.Snapshot, error) {
 			return fleet.BuildSnapshot(ctx, h, fleet.NewTerminalEndpoint(h.State, &herdr.Client{Commands: execx.OSRunner{}}))
@@ -709,7 +715,7 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 	case "gate":
 		return runGate(args[1:], stdout, stderr, runtime)
 	case "ci-runner":
-		return runCIRunner(args[1:], stdout, stderr, execx.OSRunner{}, runtime)
+		return runCIRunner(args[1:], stdout, stderr, runtime)
 	case "deploy":
 		return runDeploy(args[1:], stdout, stderr, runtime)
 	case "evidence":

@@ -31,17 +31,6 @@ const (
 // terminal no supervisor closes ends by itself after it.
 const runnerLinger = 60
 
-// OSRunLauncher starts a run item in a native terminal hosted the way a
-// goblin's is, HostCommand being what runs a host (goblins.exe host), so the
-// item's card draws it and no window opens. An admin item's host starts
-// through Windows UAC: a hidden Windows PowerShell helper asks Windows to
-// start it elevated and out of sight, so Windows itself asks the Overlord,
-// and then waits for it, so the helper lives as long as the run. An Update
-// item runs with no terminal at all.
-type OSRunLauncher struct {
-	HostCommand []string
-}
-
 func (o OSRunLauncher) Launch(_ context.Context, l RunLaunch) (RunStarted, error) {
 	exists := func(path string) bool {
 		info, err := os.Stat(path)

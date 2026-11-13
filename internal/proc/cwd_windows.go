@@ -61,16 +61,6 @@ var (
 	procReadProcessMemory     = kernel32.NewProc("ReadProcessMemory")
 )
 
-// ErrDirectoryUnreadable reports that a process's working directory could not
-// be read: it exited mid-walk, or it runs at a privilege this process cannot
-// open. Callers report the process without its directory rather than dropping
-// it, because a listening port with an unknown directory is still a finding.
-var ErrDirectoryUnreadable = errors.New("proc: working directory is unreadable")
-
-// ErrCommandLineUnreadable reports that a process's command line could not
-// be read, for the same reasons as its working directory.
-var ErrCommandLineUnreadable = errors.New("proc: command line is unreadable")
-
 // WorkingDirectory returns the directory pid is currently running in.
 //
 // It exists for the one question a command line cannot answer. A dev server

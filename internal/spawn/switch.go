@@ -17,6 +17,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/routing"
+	"github.com/fpresta0607/code-goblins/internal/sandbox"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
@@ -267,6 +269,13 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	if err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: %w", err)
 	}
+	// A relaunch on the task's own engine keeps the implement worker its
+	// spawn chose; an engine the CEO changes leaves the goblin implementing
+	// its own work, as publishSwitch records.
+	var implement routing.ExecutionLane
+	if target.same(meta) && meta.ImplementModel != "" {
+		implement = routing.ExecutionLane{Name: meta.ImplementLane, Harness: meta.Harness, Model: meta.ImplementModel, Effort: meta.ImplementEffort}
+	}
 	launch, err := adapter.Build(harness.LaunchSpec{
 		BriefPath:       briefPath,
 		TaskTmp:         meta.TaskTmp,
@@ -279,6 +288,7 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 		CodexMCPServers: codexServers,
 		CodexHooks:      codexHooks,
 		Subagents:       subagents,
+		Implement:       implement,
 	})
 	if err != nil {
 		return SwitchResult{}, fmt.Errorf("switch: build harness launch: %w; task %s was left running as it was", err, req.ID)
@@ -529,14 +539,16 @@ func (s Service) returnHarnessStrays(ctx context.Context, git worktree.Git, proj
 	return worktree.StrayNote(returned, "relaunch")
 }
 
-// relaunchHarness injects credentials into the target's launch, writes the
-// resume instruction or handoff, and starts the new harness, ending the
-// relaunch's turn once its host runs. Every step after the old harness has
-// stopped lives here, so any failure returns through the same empty-terminal
-// recovery. Anything knowable before the stop is resolved by Switch and handed
-// in: the built launch, the project's redirects, the release cooldown, its
-// credentials, the user's environment and the MCP servers withheld from the
-// task.
+// relaunchHarness injects credentials into the target's launch, has a
+// sandbox task's next host command walk its worktree for a .git again
+// (sandbox.ForgetNestedGitWalk), since a Codex goblin's apply_patch writes
+// outside its path boundary, writes the resume instruction or handoff, and
+// starts the new harness, ending the relaunch's turn once its host runs.
+// Every step after the old harness has stopped lives here, so any failure
+// returns through the same empty-terminal recovery. Anything knowable before
+// the stop is resolved by Switch and handed in: the built launch, the
+// project's redirects, the release cooldown, its credentials, the user's
+// environment and the MCP servers withheld from the task.
 func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, target switchTarget, adapter harness.Adapter, launch harness.Launch, worktreePath, briefPath, dirty, id string, redirects, cooldown map[string]string, preflight auth.Result, userEnv, mcpHeld []string, request SwitchRequest, endTurn func() error) (handoff string, resumed bool, nativeHost host.Record, packNote string, err error) {
 	resumed = target.Harness == harness.Kind(meta.Harness) && len(adapter.Control().ResumeArgs) > 0 && request.ResumeSession != ""
 	// Claude Code, Codex and pi each resume a recorded conversation, so the
@@ -559,6 +571,11 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	mergeProvisionEnv(launch.Env, cooldown)
 	if err := containEnvironment(launch.Env, meta); err != nil {
 		return "", false, host.Record{}, "", err
+	}
+	if meta.SandboxImage != "" {
+		if err := sandbox.ForgetNestedGitWalk(meta.TaskTmp); err != nil {
+			return "", false, host.Record{}, "", err
+		}
 	}
 	s.nativeEnvironment(launch.Env, meta)
 
@@ -617,7 +634,7 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	}
 	// Its release error, if any, reaches Switch's caller with the result.
 	_ = endTurn()
-	if err := s.briefNativeHarness(ctx, id, nativeHost, target.Harness, launch); err != nil {
+	if nativeHost, err = s.briefNativeHarness(ctx, id, nativeHost, target.Harness, launch, userEnv, preflight); err != nil {
 		return handoff, resumed, nativeHost, "", err
 	}
 	// The harness runs and holds its instruction, so a record that cannot be
@@ -672,6 +689,7 @@ func requestedTarget(meta state.TaskMeta, req SwitchRequest) switchTarget {
 func (s Service) publishSwitch(meta *state.TaskMeta, target switchTarget) error {
 	if !target.same(*meta) {
 		meta.RouteLane, meta.RouteReason = "explicit", "engine changed by the CEO"
+		meta.ImplementLane, meta.ImplementModel, meta.ImplementEffort = "", "", ""
 	}
 	meta.Harness = string(target.Harness)
 	meta.Model = valueOrDefault(target.Model)

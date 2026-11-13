@@ -60,7 +60,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			return reachHelpers(ctx, h, meta, record, runtime.taskLifecycle)
 		},
 		Prepare:  pauseInstruction(runtime, h),
-		Handoff:  lifecycle.HandoffWriter{StateDir: h.State, Commands: commands, Owner: lifecycle.OwnerOf(h)}.Handoff,
+		Handoff:  lifecycle.HandoffWriter{StateDir: h.State, Commands: commands, GitHub: runtime.githubAPI, Owner: lifecycle.OwnerOf(h)}.Handoff,
 		Withdraw: pauseWithdrawal(runtime, h),
 		Stop: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) ([]string, error) {
 			var stopped []string
@@ -96,11 +96,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 				if err != nil || !host.Running(record) {
 					return false, err
 				}
-				client, err := host.Dial(record)
-				if err != nil {
-					return false, err
-				}
-				if err := client.Close(); err != nil {
+				if err := host.Answer(record); err != nil {
 					return false, err
 				}
 				return host.Running(record), nil

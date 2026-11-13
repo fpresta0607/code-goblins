@@ -35,34 +35,6 @@ var (
 	farewellTimeout  = 2 * time.Second
 )
 
-// IDVariable tells the program in a host's terminal which terminal it runs
-// in, so it can register as reachable through that host.
-const IDVariable = "GOBLINS_HOST_ID"
-
-// ProofVariable carries a value the host makes for its terminal alone, which
-// every process in the terminal inherits and the host's record keeps only as
-// a digest, so a process can prove it runs in the terminal when its chain of
-// parents stops short of the program.
-const ProofVariable = "GOBLINS_HOST_PROOF"
-
-// Spec is one terminal for a host to run.
-type Spec struct {
-	ID string
-	// Args is the command and its arguments; the caller resolves Args[0] to
-	// a program CreateProcess can run.
-	Args       []string
-	Dir        string
-	Cols, Rows int
-	// ShouldLeaveCoresForApps keeps the terminal's process and everything it
-	// starts off the performance cores the fleet's work leaves to the
-	// Overlord's own apps (processor.MachineFleetThreads).
-	ShouldLeaveCoresForApps bool
-	// IsStream runs the command on pipes rather than in a terminal, for a
-	// program that speaks one JSON object a line both ways, as Claude Code
-	// does with stream-json; Cols and Rows are not used.
-	IsStream bool
-}
-
 // RunArgs runs a host from its command line: --state, --id, --dir, --cols,
 // --rows, --leave-cores-for-apps and --stream, then -- and the command to run.
 func RunArgs(args []string) error {
@@ -256,14 +228,20 @@ func reach(record Record) (*Client, error) {
 	return client, err
 }
 
-// isServing reports whether the host record names answers.
-func isServing(record Record) bool {
+// Answer connects to the host record names, a terminal's or a stream
+// session's, and leaves, which proves the host answers, or says why it did
+// not.
+func Answer(record Record) error {
 	client, err := reach(record)
 	if err != nil {
-		return false
+		return err
 	}
-	_ = client.Close()
-	return true
+	return client.Close()
+}
+
+// isServing reports whether the host record names answers.
+func isServing(record Record) bool {
+	return Answer(record) == nil
 }
 
 // announce opens the host's pipe and records where to find it, with when the

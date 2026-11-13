@@ -48,7 +48,13 @@ func (start Start) Close() {
 // kept on the run, and every step but the pull request's drafting still reads
 // the whole intent. A no-mistakes before 1.80.0 has no such flag, so no run
 // starts on it.
-func StartOf(ctx context.Context, commands execx.Runner, dir string, env []string, intent string) (Start, error) {
+//
+// Each issue in closes, which the run's pull request closes when it merges,
+// goes to no-mistakes as --closes, the one place it writes a live closing
+// reference from, since it neutralizes a closing keyword in every text an
+// agent wrote, the intent included. A no-mistakes before 1.87.0 takes no
+// --closes, so a start that names an issue on one starts no run.
+func StartOf(ctx context.Context, commands execx.Runner, dir string, env []string, intent string, closes []string) (Start, error) {
 	help, err := commands.Run(ctx, execx.Request{Dir: dir, Env: env, Name: "no-mistakes", Args: []string{"help", "axi", "run"}})
 	if err != nil {
 		return Start{}, err
@@ -56,8 +62,15 @@ func StartOf(ctx context.Context, commands execx.Runner, dir string, env []strin
 	if !bytes.Contains(help.Stdout, []byte(noPublishIntent)) {
 		return Start{}, errors.New("this no-mistakes has no " + noPublishIntent + ", so it would publish the gate's intent, the task's private brief, in the pull request it opens; no run starts. Update no-mistakes to 1.80.0 or later")
 	}
+	if len(closes) > 0 && !bytes.Contains(help.Stdout, []byte("--closes")) {
+		return Start{}, errors.New("this no-mistakes takes no --closes, so the pull request its gate opened would close no issue, and no run starts: update no-mistakes to 1.87.0 or later")
+	}
+	var closing []string
+	for _, issue := range closes {
+		closing = append(closing, "--closes", issue)
+	}
 	if !bytes.Contains(help.Stdout, []byte("--intent-file")) {
-		return Start{Args: []string{"axi", "run", "--intent", intent, noPublishIntent}, IsOnCommandLine: true}, nil
+		return Start{Args: append([]string{"axi", "run", "--intent", intent, noPublishIntent}, closing...), IsOnCommandLine: true}, nil
 	}
 	file, err := os.CreateTemp("", "goblins-gate-intent-*.txt")
 	if err != nil {
@@ -72,5 +85,5 @@ func StartOf(ctx context.Context, commands execx.Runner, dir string, env []strin
 		_ = os.Remove(file.Name())
 		return Start{}, err
 	}
-	return Start{Args: []string{"axi", "run", "--intent-file", file.Name(), noPublishIntent}, file: file.Name()}, nil
+	return Start{Args: append([]string{"axi", "run", "--intent-file", file.Name(), noPublishIntent}, closing...), file: file.Name()}, nil
 }

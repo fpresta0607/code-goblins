@@ -21,6 +21,7 @@ import (
 	"unicode"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/claudestream"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -31,6 +32,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/project"
+	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/services"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
@@ -59,6 +61,10 @@ type Request struct {
 	Class       string
 	RouteLane   string
 	RouteReason string
+	// Implement is the lane of the native worker the goblin hands bounded
+	// implementation slices to, on the goblin's own harness, and the zero lane
+	// when the goblin implements its own work.
+	Implement routing.ExecutionLane
 	// Title is the task's short title, given with --title or taken from its
 	// backlog row, kept on the task so the board names it once the row leaves
 	// the queue.
@@ -143,6 +149,9 @@ type Service struct {
 	// ReadScreen reads a native terminal's screen. Nil reads it through its
 	// host.
 	ReadScreen func(host.Record) ([]string, error)
+	// ReadStreamState reads what a stream session's lines say of it. Nil
+	// reads it through its host.
+	ReadStreamState func(host.Record) (claudestream.Session, error)
 	// PromptSince reports whether a native task's harness, in a spawn
 	// generation, reported through its native hooks taking a prompt at or
 	// after a time: supervisor.NativePromptSince in production. Nil proves a
@@ -545,6 +554,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		CodexMCPServers: codexServers,
 		CodexHooks:      codexHooks,
 		Subagents:       subagents,
+		Implement:       req.Implement,
 	})
 	if err != nil {
 		return fail(result, fmt.Errorf("spawn: build harness launch: %w", err))
@@ -610,7 +620,8 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// Its release error, if any, is returned with the result once the brief
 	// is delivered: the goblin is running either way.
 	_ = endTurn()
-	if err := s.briefNativeHarness(ctx, req.ID, nativeHost, req.Harness, launch); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
+	nativeHost, err = s.briefNativeHarness(ctx, req.ID, nativeHost, req.Harness, launch, userEnv, preflight)
+	if err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
 		if host.Running(nativeHost) {
 			launchKept = true
 			return result, recordLaunchFailure(req.ID, fmt.Errorf("%w; the native terminal is still running and its task and worktree are kept; inspect it with goblins peek %s before recovering it", err, req.ID))
@@ -903,6 +914,9 @@ func validateRequestLineValues(req Request) error {
 		"request title", req.Title,
 		"request route lane", req.RouteLane,
 		"request route reason", req.RouteReason,
+		"request implement lane", req.Implement.Name,
+		"request implement model", req.Implement.Model,
+		"request implement effort", req.Implement.Effort,
 	)
 }
 
@@ -950,6 +964,7 @@ func partialResult(req Request, project, taskTmp, worktree, scratch string) Resu
 		RouteLane:      req.RouteLane,
 		RouteReason:    req.RouteReason,
 	}
+	meta.ImplementLane, meta.ImplementModel, meta.ImplementEffort = req.Implement.Name, req.Implement.Model, req.Implement.Effort
 	if req.Kind == "ship" {
 		meta.Mode = req.Mode
 		meta.Yolo = yoloString(req.Yolo)

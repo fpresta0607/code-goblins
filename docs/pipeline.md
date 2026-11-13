@@ -120,6 +120,7 @@ It also appends a `working:` line naming the run, step and findings to the task'
 A Test step whose every open finding is `test-command-no-turn` is not handed back: its test command was given no turn, as by a missing required environment, which is the CEO's to repair, so the driver says nothing of it and the supervisor shows the task blocked on its decision.
 For a Test or Lint failure it moves the task's branch to the run's head when the branch still holds the head the run was submitted from, and keeps that head at `refs/heads/archive/handback-<run>-<head>` in the gate's repository, so the correction carries every commit the run validated.
 A branch the goblin has moved since is left as it is, and the driver says to make the correction on the run's head.
+A Test failure is a failed verification, so it also moves the task's implement worker up one tier of its harness, once for that run, and every read of that run says where it went and that the goblin implements the correction itself ([Model routing](contract/dispatch.md#model-routing)).
 `respond --action fix` on such a step is refused, since the gate repairs none of it.
 The one fix left is a Test rerun of nothing but `test-command-no-turn`, which asks no repair agent, so a test command refused its turn still runs again once its environment is repaired.
 
@@ -229,6 +230,7 @@ Continuing retained terminal work requires its supported source-bound continuati
 
 ```powershell
 goblins pipeline run <id> --intent-file intent.md
+goblins pipeline run <id> --intent-file intent.md --closes 1996
 goblins pipeline respond <id> --action fix --findings finding-id --instructions "Concrete guidance"
 goblins pipeline respond <id> --action fix --findings finding-id --scope-decision <answered-notify-sequence>
 goblins pipeline respond <id> --action approve
@@ -251,6 +253,10 @@ no-mistakes keeps that on the run, so a later refresh of the body after CI leave
 no-mistakes never took a closing reference from the intent, so none is lost: its `## Issues` section comes only from `axi run --closes`.
 A no-mistakes before 1.80.0 has no such flag, so on it no run starts, and the command says to update it.
 A run started before this change, without the flag, keeps publishing its intent; reattaching to it passes no flag, since no-mistakes refuses one a running run was not started with.
+Name each issue the run's pull request closes with `--closes`, as `1996` or `owner/repo#1996`, once for each.
+no-mistakes neutralizes the closing words in every text an agent wrote, the intent included, so a `Fixes #N` in the intent closes nothing.
+A no-mistakes before 1.87.0 takes no `--closes`, so a start that names an issue on one starts no run and names the version to update to.
+A reattach to a live run keeps the closing issues it started with.
 A response's `--instructions` still reach no-mistakes on its command line, which is the only way it takes them, so keep them short and plain.
 An approval `--reason` reaches it the same way, and the driver refuses one that is not a single line of plain text.
 

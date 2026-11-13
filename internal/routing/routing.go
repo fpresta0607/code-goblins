@@ -556,6 +556,8 @@ type Policy struct {
 	Subagents         map[string]map[string][]string `json:"subagents,omitempty"`
 	// Roles maps a lane to the lanes each of its roles runs on (roles.go).
 	Roles map[string]map[string][]string `json:"roles,omitempty"`
+	// Tiers orders each harness's lanes strongest first (tiers.go).
+	Tiers map[string][]string `json:"tiers,omitempty"`
 	// Path is where it was loaded from; not serialized.
 	Path string `json:"-"`
 }
@@ -599,6 +601,9 @@ type Table struct {
 	// Roles holds each lane's roles with their lanes resolved, so a spawn's
 	// own change to its lanes leaves them as the table names them.
 	Roles map[string]map[string][]ExecutionLane
+	// Tiers holds each harness's lanes, strongest first, that a role moves
+	// up once its work failed verification.
+	Tiers map[string][]ExecutionLane
 	// Source says where the table came from, for the spawn report.
 	Source string
 }
@@ -639,7 +644,11 @@ func (p Policy) LaneTable() (Table, error) {
 	if err != nil {
 		return Table{}, err
 	}
-	t := Table{Lanes: map[string]ExecutionLane{}, DefaultLane: p.DefaultLane, EscalateTo: p.EscalateTo, Fallbacks: p.Fallbacks, StartFloorPercent: p.StartFloorPercent, Roles: roles, Source: "fleet table " + p.Path}
+	tiers, err := p.tierTable()
+	if err != nil {
+		return Table{}, err
+	}
+	t := Table{Lanes: map[string]ExecutionLane{}, DefaultLane: p.DefaultLane, EscalateTo: p.EscalateTo, Fallbacks: p.Fallbacks, StartFloorPercent: p.StartFloorPercent, Roles: roles, Tiers: tiers, Source: "fleet table " + p.Path}
 	for name, lane := range p.Lanes {
 		t.Lanes[name] = ExecutionLane{Name: name, Harness: lane.Harness, Model: lane.Model, Effort: lane.Effort, Note: lane.Note}
 	}

@@ -964,26 +964,34 @@ func TestExecutorReadsTheEndOfASharedRunPastAnInterrupt(t *testing.T) {
 	defer cancel()
 	var endRead error
 	reads := 0
-	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Headroom: plentyOfMemory}, IsConsoleShared: true}
+	// The interrupt comes at the first sample of the running command (issue
+	// 1692): a timer from the start read could fire before a slow start, and
+	// a shared run refuses an interrupt that came before its command started.
+	interrupt := func(Measurement) error {
+		cancel()
+		return nil
+	}
+	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Headroom: plentyOfMemory, Observe: interrupt}, IsConsoleShared: true}
 	executor.Source = func(read context.Context, dir string) (Source, error) {
 		reads++
-		if reads == 1 {
-			time.AfterFunc(200*time.Millisecond, cancel) // stall-accepted: the test means this timer to fire while the command runs, and a command that ends first still passes.
-		} else {
+		if reads == 2 {
 			endRead = read.Err()
 		}
 		return Source{Commit: "c1", Tree: "t1", IsComplete: true}, nil
 	}
 
 	// Act
-	_, path, _ := executor.RunWithin(ctx, execx.Request{Dir: root, Name: os.Args[0], Args: []string{"-test.run=^TestExecutorReadsTheEndOfASharedRunPastAnInterrupt$"}, Env: append(os.Environ(), limitsRole+"=ends-a-moment-later")}, 0)
+	_, path, runError := executor.RunWithin(ctx, execx.Request{Dir: root, Name: os.Args[0], Args: []string{"-test.run=^TestExecutorReadsTheEndOfASharedRunPastAnInterrupt$"}, Env: append(os.Environ(), limitsRole+"=ends-a-moment-later")}, 0)
 
 	// Assert
+	if ctx.Err() == nil {
+		t.Fatalf("the run ended with %v and never sampled its running command, so no interrupt came; want one while it ran", runError)
+	}
 	record, err := LoadExecution(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if reads != 2 || endRead != nil || record.Source.End == nil {
-		t.Errorf("reads = %d, the end read's context said %v, record reads = %+v; want the end read made on a context no interrupt ended", reads, endRead, record.Source)
+		t.Errorf("reads = %d, the end read's context said %v, record reads = %+v, the run ended with %v; want the end read made on a context no interrupt ended", reads, endRead, record.Source, runError)
 	}
 }

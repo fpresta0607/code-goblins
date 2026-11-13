@@ -19,6 +19,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/project"
+	"github.com/fpresta0607/code-goblins/internal/routing"
+	"github.com/fpresta0607/code-goblins/internal/sandbox"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
@@ -282,6 +284,50 @@ func TestPausedResumeUsesTheSavedSessionInsteadOfTheLatestSession(t *testing.T) 
 	launches := named(f.events(t), "env")
 	if !result.Resumed || len(launches) != 1 || !strings.HasPrefix(launches[0].Text, "resume saved-session-42 ") || strings.Contains(launches[0].Text, "--last") {
 		t.Fatalf("result = %+v, launches = %+v; want the saved session resumed", result, launches)
+	}
+}
+
+// A goblin keeps the implement worker its spawn chose across a resume on its
+// own engine, and implements its own work once the CEO changes that engine,
+// as its route lane becomes explicit.
+func TestARelaunchKeepsTheImplementWorkerOnlyOnTheTasksOwnEngine(t *testing.T) {
+	recorded := routing.ExecutionLane{Name: "light-codex", Harness: "codex", Model: "gpt-6.1-sol", Effort: "high"}
+	for _, test := range []struct {
+		name    string
+		request SwitchRequest
+		want    routing.ExecutionLane
+	}{
+		{"the resume of its pause", SwitchRequest{IsResume: true, ResumeSession: "saved-session-42"}, recorded},
+		{"a switch to another model", SwitchRequest{Model: "gpt-9", ResumeSession: "saved-session-42"}, routing.ExecutionLane{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			f := newSwitchFixture(t, harness.Control{StopCommand: "/exit", ResumeArgs: []string{"resume", "--last"}})
+			f.meta.RouteLane, f.meta.ImplementLane, f.meta.ImplementModel, f.meta.ImplementEffort = "build", recorded.Name, recorded.Model, recorded.Effort
+			if err := state.WriteTaskMeta(f.stateDir, f.meta); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.WriteLifecycle(f.stateDir, state.Lifecycle{ID: f.meta.ID, Generation: f.meta.SpawnGen, Operation: "resume-1", Action: "resume", Phase: "resuming"}); err != nil {
+				t.Fatal(err)
+			}
+			request := test.request
+			request.ID, request.Generation = f.meta.ID, f.meta.SpawnGen
+
+			// Act
+			_, err := f.service.Switch(context.Background(), request)
+
+			// Assert
+			if err != nil {
+				t.Fatalf("Switch: %v", err)
+			}
+			if len(f.specs) != 1 || f.specs[0].Implement != test.want {
+				t.Fatalf("launches = %+v, want one with implement %+v", f.specs, test.want)
+			}
+			after, err := state.ReadTaskMeta(f.stateDir, f.meta.ID)
+			if err != nil || after.ImplementLane != test.want.Name || after.ImplementModel != test.want.Model || after.ImplementEffort != test.want.Effort {
+				t.Errorf("record = %+v, %v; want implement %+v", after, err, test.want)
+			}
+		})
 	}
 }
 
@@ -572,6 +618,43 @@ func TestARestartStartsTheSameHarnessAgainOnItsOwnConversation(t *testing.T) {
 	}
 	if current, err := host.ReadRecord(f.stateDir, "task-7"); err != nil || current.HostPID == terminal.HostPID {
 		t.Errorf("the terminal is %+v, %v; want a new host in place of %d", current, err, terminal.HostPID)
+	}
+}
+
+// A relaunch of a sandbox task has its next host command walk the worktree
+// again, since a Codex goblin's apply_patch writes outside its path boundary
+// (issue 2255): a .git it wrote after a walk found the worktree clean holds
+// back the host git of the goblin the switch starts, naming it.
+func TestASwitchOfASandboxTaskTrustsNoWalkFromBeforeIt(t *testing.T) {
+	// Arrange
+	f := newSwitchFixture(t, harness.Control{StopCommand: "/exit"})
+	f.meta.SandboxImage = "node:22"
+	if err := state.WriteTaskMeta(f.stateDir, f.meta); err != nil {
+		t.Fatal(err)
+	}
+	if err := sandbox.WalkForNestedGit(f.meta.TaskTmp, f.worktree); err != nil {
+		t.Fatal(err)
+	}
+	plant := filepath.Join(f.worktree, "vendor", "x", ".git")
+	if err := os.MkdirAll(plant, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(plant, "config"), []byte("[core]\n\tfsmonitor = planted.exe\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := sandbox.NestedGitCheck(f.meta.TaskTmp, f.worktree); err != nil {
+		t.Fatalf("NestedGitCheck before the switch = %v, want the clean walk trusted", err)
+	}
+
+	// Act
+	_, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Model: "gpt-9"})
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+	if err := sandbox.NestedGitCheck(f.meta.TaskTmp, f.worktree); err == nil || !strings.Contains(err.Error(), plant) {
+		t.Fatalf("NestedGitCheck after the switch = %v, want a walk that names %s", err, plant)
 	}
 }
 

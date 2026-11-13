@@ -457,6 +457,13 @@ func (s *Service) engineTaskIdle(ctx context.Context, meta state.TaskMeta) (bool
 	if err != nil {
 		return false, err
 	}
+	if record.Stream {
+		session, err := host.ReadStreamState(record)
+		if err != nil {
+			return false, err
+		}
+		return session.IsIdle(), nil
+	}
 	screen, err := host.ReadScreen(record)
 	if err != nil {
 		return false, err

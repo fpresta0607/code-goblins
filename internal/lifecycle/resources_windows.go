@@ -130,11 +130,9 @@ func ownResources(ctx context.Context, h home.Home, meta state.TaskMeta, command
 			if !exists {
 				return resources, errors.New("task host ended before identifying its resources")
 			}
-			client, err := host.Dial(record)
-			if err != nil {
+			if err := host.Answer(record); err != nil {
 				return resources, fmt.Errorf("prove native task host: %w", err)
 			}
-			_ = client.Close()
 			current, exists := proc.StartTime(record.HostPID)
 			if !exists || !current.Equal(started) {
 				return resources, errors.New("task host changed while identifying its resources")
