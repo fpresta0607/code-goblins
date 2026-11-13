@@ -490,7 +490,11 @@ export function App() {
   // opens while a panel fills a phone, as when a focus on an item that no
   // longer waits falls back to it, steps the panel back to the board, where
   // he sees it (#1816).
-  const showInbox = () => { if (fillsPhone) close(); };
+  const showInbox = () => {
+    if (!fillsPhone) return;
+    setPaneOpen(false);
+    requestAnimationFrame(() => returnFocus.current?.isConnected && returnFocus.current.focus({ preventScroll: true }));
+  };
   // Back, on the panel of anything but the CEO, returns the panel to the
   // CEO's, still maximized if it was, and hands
   // the keyboard back to where the panel was opened from, or to the panel

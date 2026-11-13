@@ -1854,7 +1854,31 @@ test.describe("Run on a phone whose run no longer waits", () => {
 
     // Assert
     await expect(page.locator(".topbar")).toBeVisible();
+    await expect(page.getByRole("region", { name: "Waiting on you" })).toBeInViewport();
+  });
+});
+
+// On a desktop the header banner stays beside the CEO's panel, so the same
+// Run opens the inbox there and the panel stays as it was.
+test.describe("Run on a desktop whose run no longer waits", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("the Command Center's inbox opens and the CEO's panel stays open beside the board", async ({ page }) => {
+    // Arrange
+    await open(page);
+    await page.evaluate((talk) => Object.assign(window, { fixtureCeoPage: talk }), CODE_TALK);
+    await page.route("**/api/code-run", (route) => route.fulfill({ json: { run_id: CODE_RUN.id } }));
+    await openCeo(page);
+    const run = list(page, "CEO").locator(".message-code").filter({ hasText: "Get-Date" }).getByRole("button", { name: "Run", exact: true });
+
+    // Act
+    await run.click();
+
+    // Assert: once the board has drawn what the inbox's opening changed.
     await expect(page.getByRole("region", { name: "Waiting on you" })).toBeVisible();
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    await expect(page.locator("#panel-title")).toHaveText("CEO");
+    await expect(page.getByRole("button", { name: "Close panel", exact: true })).toBeVisible();
   });
 });
 
