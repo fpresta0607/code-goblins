@@ -443,7 +443,7 @@ func boardStartAtLogin(h home.Home) install.Service {
 
 // serveDispatch reads the machine for the supervisor's starts and wakes.
 func serveDispatch(h home.Home) *supervisor.Dispatch {
-	return &supervisor.Dispatch{Memory: supervisor.MachineMemory, Disk: func() (supervisor.Disk, error) { return supervisor.MachineDisk(h) }, CommitHolders: supervisor.CommitHolders, Processors: supervisor.MachineProcessors, GPU: supervisor.MachineGPU, HeavyLine: supervisor.MachineHeavyLine, LineStall: supervisor.MachineLineStall, PoolTags: supervisor.PoolTags, Spawn: spawnFromBoard}
+	return &supervisor.Dispatch{Memory: supervisor.MachineMemory, Disk: func() (supervisor.Disk, error) { return supervisor.MachineDisk(h) }, CommitHolders: supervisor.CommitHolders, TopHandleHolder: supervisor.TopHandleHolder, Processors: supervisor.MachineProcessors, GPU: supervisor.MachineGPU, HeavyLine: supervisor.MachineHeavyLine, LineStall: supervisor.MachineLineStall, PoolTags: supervisor.PoolTags, Spawn: spawnFromBoard}
 }
 
 // spawnFromBoard runs this goblins binary with args, as a queued task's Start

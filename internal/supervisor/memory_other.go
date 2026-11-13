@@ -28,3 +28,8 @@ func PoolTags() ([]PoolTag, error) {
 func CommitHolders() ([]CommitHolder, error) {
 	return nil, errors.New("commit is read only on Windows")
 }
+
+// TopHandleHolder is read only on Windows, the fleet's platform.
+func TopHandleHolder() (HandleHolder, error) {
+	return HandleHolder{}, errors.New("handles are read only on Windows")
+}

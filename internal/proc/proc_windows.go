@@ -39,6 +39,7 @@ type snapshotEntry struct {
 	parentPID uint32
 	exeBase   string
 	start     time.Time
+	handles   uint32
 }
 
 // lists counts the system process lists this process has taken.
@@ -76,6 +77,7 @@ func snapshotProcesses() (map[uint32]snapshotEntry, error) {
 			parentPID: uint32(entry.InheritedFromUniqueProcessID),
 			exeBase:   entry.ImageName.String(),
 			start:     time.Unix(0, created.Nanoseconds()).UTC(),
+			handles:   entry.HandleCount,
 		}
 		if entry.NextEntryOffset == 0 {
 			break
@@ -98,6 +100,32 @@ func Processes() ([]Entry, error) {
 		entries = append(entries, Entry{PID: int(pid), ParentPID: int(process.parentPID), ExeBase: process.exeBase, Start: process.start})
 	}
 	return entries, nil
+}
+
+// HandleHolder is a process, as one system process list read it, and how
+// many handles it holds open.
+type HandleHolder struct {
+	Entry
+	Handles uint32
+}
+
+// TopHandleHolder is the process that holds the most handles open, from one
+// system process list, which counts each process's handles without opening
+// the process or any handle it holds. One process that leaks handles fills
+// the machine's handle table alone: a recursive search of the whole drive
+// held 6.7 million of the 6.9 million open on 2026-11-11.
+func TopHandleHolder() (HandleHolder, error) {
+	processes, err := snapshotProcesses()
+	if err != nil {
+		return HandleHolder{}, err
+	}
+	var top HandleHolder
+	for pid, process := range processes {
+		if process.handles > top.Handles {
+			top = HandleHolder{Entry: Entry{PID: int(pid), ParentPID: int(process.parentPID), ExeBase: process.exeBase, Start: process.start}, Handles: process.handles}
+		}
+	}
+	return top, nil
 }
 
 // Ancestry walks the parent chain starting at pid (included as the first
