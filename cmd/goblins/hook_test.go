@@ -874,17 +874,6 @@ func asCEOSession(t *testing.T, state string, pid int) {
 	t.Setenv(host.IDVariable, supervisor.NativeCEOTerminal)
 }
 
-// programIsThisProcess makes record name this test process as its terminal's
-// program, by pid and creation time, as a host names the harness it started.
-func programIsThisProcess(t *testing.T, record *host.Record) {
-	t.Helper()
-	started, ok := proc.StartTime(os.Getpid())
-	if !ok {
-		t.Fatal("this process has no start time")
-	}
-	record.ChildPID, record.ChildStart = os.Getpid(), started
-}
-
 // thisProcess is this test process as the hooks' prologue hands a hook the
 // harness of the CEO's own session.
 func thisProcess(t *testing.T) proc.Entry {

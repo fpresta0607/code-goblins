@@ -27,6 +27,15 @@ type Process struct {
 	Memory uint64
 }
 
+// unixEpochFiletime is 1970-01-01 in Windows' units, 100 ns intervals since
+// 1601.
+const unixEpochFiletime = 116444736000000000
+
+// filetime is the instant a Windows time names.
+func filetime(value int64) time.Time {
+	return time.Unix(0, (value-unixEpochFiletime)*100).UTC()
+}
+
 // HarnessLaunch is how long after a harness starts the processes it starts
 // still belong to launching it: its MCP servers, or the real binary a shim
 // runs. A process it starts later is work it was asked to do.

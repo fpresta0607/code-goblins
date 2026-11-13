@@ -44,12 +44,3 @@ func Processes() ([]Process, error) {
 	}
 	return processes, nil
 }
-
-// unixEpochFiletime is 1970-01-01 in Windows' units, 100 ns intervals since
-// 1601.
-const unixEpochFiletime = 116444736000000000
-
-// filetime is the instant a Windows time names.
-func filetime(value int64) time.Time {
-	return time.Unix(0, (value-unixEpochFiletime)*100).UTC()
-}

@@ -14,11 +14,11 @@ import (
 
 func TestProjectNameReducesEveryWayAProjectIsNamed(t *testing.T) {
 	cases := map[string]string{
-		"projects/clock-in":                          "clock-in",
-		"projects/clock-in/":                         "clock-in",
-		`C:\dev\code-goblins\projects\precisiondocs`: "precisiondocs",
-		"homescout":                                  "homescout",
-		"":                                           "",
+		"projects/clock-in":  "clock-in",
+		"projects/clock-in/": "clock-in",
+		filepath.Join(t.TempDir(), "code-goblins", "projects", "precisiondocs"): "precisiondocs",
+		"homescout": "homescout",
+		"":          "",
 	}
 	for input, want := range cases {
 		if got := ProjectName(input); got != want {

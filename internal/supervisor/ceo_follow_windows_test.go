@@ -16,32 +16,8 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/connections"
 	"github.com/fpresta0607/code-goblins/internal/host"
-	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
-
-// closedCEO registers, in native terminal ceo, a CEO process that is no
-// longer running, as a CEO that was closed leaves its registration, and
-// returns that registration's identity.
-func closedCEO(t *testing.T, stateDir string) string {
-	t.Helper()
-	hostname, err := os.Hostname()
-	if err != nil {
-		t.Fatal(err)
-	}
-	data, err := json.Marshal(primaryRegistration{Host: NativeCEOTerminal, Agent: "claude", Process: lock.Info{PID: 37680, OwnerPID: 37680, Start: time.Date(2026, 9, 15, 9, 0, 0, 0, time.UTC), Hostname: hostname}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(stateDir, "primary.json"), data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	_, identity, err := decodePrimary(bytes.NewReader(data))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return identity
-}
 
 // reopenCEO opens native terminal ceo again with a program that registers as
 // the CEO and reports each line it takes through its native prompt hook, as
