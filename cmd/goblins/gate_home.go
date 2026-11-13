@@ -26,6 +26,11 @@ const (
 	gateHomeEvery = 30 * time.Second
 )
 
+// gateHomeMoveLock is the file in the home's state that one move of the
+// gate's home holds for its whole run, whichever gate home it reads, so a
+// move the board or a terminal starts while another runs waits on it.
+const gateHomeMoveLock = "gate-home-move.lock"
+
 // gateDaemon is no-mistakes' daemon of one gate home, each command run with
 // that home as NM_HOME and without no-mistakes' own update check, which runs
 // a program of its own in the background.
@@ -114,34 +119,34 @@ func gateHomeLine(runtime commandRuntime, devDrive string) string {
 	return "gate home: " + gatehome.Read(root, devDrive).Line()
 }
 
-// placeGateHome puts the gate's home on the Dev Drive the home at root has its
+// placeGateHome puts the gate's home on the Dev Drive the home h has its
 // heavy folders on, for goblins install, which runs before no-mistakes is
 // installed: on a machine whose gate has no home yet it is named there from
 // the start, and one elsewhere moves there unless a gate run is in flight,
 // which it does not wait for. A home without a Dev Drive changes nothing.
-func placeGateHome(root string, stdout io.Writer, runtime commandRuntime) {
-	config, err := home.ReadDevDriveConfig(root)
+func placeGateHome(h home.Home, stdout io.Writer, runtime commandRuntime) {
+	config, err := home.ReadDevDriveConfig(h.Root)
 	if err != nil || config.Root == "" {
 		return
 	}
-	if _, err := carryGateHomeOnto(config.Root, stdout, runtime, 1, 0); err != nil {
+	if _, err := carryGateHomeOnto(config.Root, h.State, stdout, runtime, 1, 0); err != nil {
 		fmt.Fprintf(stdout, "%s The gate's home did not move to the Dev Drive (%v); the board's Dev Drive row says what it waits on.\n", notePrefix, err)
 	}
 }
 
 // carryGateHome moves the gate's home at old into the Dev Drive folder
-// devDrive, asking the daemon to stop and be held off up to tries times,
-// every apart, and saying on out each time it waits. It says whether the
-// gate's home moved or was placed there.
-func carryGateHome(ctx context.Context, old, devDrive string, tries int, every time.Duration, out io.Writer) (string, bool, error) {
-	return carryGateHomeWith(ctx, execx.OSRunner{}, old, devDrive, tries, every, out)
+// devDrive, holding the move's lock file lock and asking the daemon to stop
+// and be held off up to tries times each, every apart, and saying on out each
+// time it waits. It says whether the gate's home moved or was placed there.
+func carryGateHome(ctx context.Context, old, devDrive, lock string, tries int, every time.Duration, out io.Writer) (string, bool, error) {
+	return carryGateHomeWith(ctx, execx.OSRunner{}, old, devDrive, lock, tries, every, out)
 }
 
 // carryGateHomeWith is carryGateHome running every program through commands.
-func carryGateHomeWith(ctx context.Context, commands execx.Runner, old, devDrive string, tries int, every time.Duration, out io.Writer) (string, bool, error) {
-	mover := gatehome.Mover{Daemon: gateDaemon{commands: commands}, Env: installbase.NewEnvStore(commands), Git: commands, Tries: tries, Every: every, Now: time.Now,
+func carryGateHomeWith(ctx context.Context, commands execx.Runner, old, devDrive, lock string, tries int, every time.Duration, out io.Writer) (string, bool, error) {
+	mover := gatehome.Mover{Daemon: gateDaemon{commands: commands}, Lock: lock, Env: installbase.NewEnvStore(commands), Git: commands, Tries: tries, Every: every, Now: time.Now,
 		Waiting: func(err error) {
-			fmt.Fprintf(out, "gate home: waiting for the gate runs in flight to finish before it moves (%v)\n", err)
+			fmt.Fprintf(out, "gate home: waiting for the gate to rest before it moves (%v)\n", err)
 		}}
 	return mover.Move(ctx, old, devDrive)
 }

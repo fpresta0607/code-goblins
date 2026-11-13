@@ -124,7 +124,7 @@ func runInstall(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 			return 1
 		}
 	}
-	placeGateHome(root, stdout, runtime)
+	placeGateHome(h, stdout, runtime)
 	if serving {
 		board.restart(h, stdout)
 	}

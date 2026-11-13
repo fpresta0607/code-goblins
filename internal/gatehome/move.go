@@ -37,8 +37,9 @@ type Daemon interface {
 }
 
 // ErrGateBusy is a move that changed nothing because the gate never came to
-// rest while it waited: gate runs stayed in flight, or a daemon held the
-// home. The same move carries the home once the gate rests.
+// rest while it waited: gate runs stayed in flight, a daemon held the home,
+// or another move of it ran all the while. The same move carries the home
+// once the gate rests.
 var ErrGateBusy = errors.New("gate home: the gate stayed busy")
 
 // Refusal is the gate's own no to a move that asks it to rest, in Err's
@@ -54,6 +55,10 @@ func (r Refusal) Unwrap() error { return r.Err }
 // Mover moves the gate's home onto the Dev Drive.
 type Mover struct {
 	Daemon Daemon
+	// Lock is the file one move of the gate's home holds for its whole run,
+	// outside every gate home, so a move started while another runs waits on
+	// it as on a busy gate and asks the daemon nothing until it frees.
+	Lock string
 	// Env is the user's persistent environment, where NM_HOME is set.
 	Env installbase.EnvStore
 	// Git runs git, to point each gated checkout's no-mistakes remote at
@@ -65,14 +70,16 @@ type Mover struct {
 	Tries int
 	Every time.Duration
 	Now   func() time.Time
-	// Waiting is told each Refusal the move waits on: a gate run in flight,
-	// or a daemon that refused to stop or to be held off.
+	// Waiting is told each Refusal the move waits on: another move that
+	// holds Lock, a gate run in flight, or a daemon that refused to stop or
+	// to be held off.
 	Waiting func(err error)
 }
 
 // Move moves the gate's home at old into the Dev Drive folder devDrive
-// through one path. It waits until no gate run is in flight and the daemon
-// stops by its own consent, never a forced stop, and holds it off; copies the
+// through one path. It holds Lock from before it reads either home until it
+// ends, waiting first on another move that holds it. It waits until no gate
+// run is in flight and the daemon stops by its own consent, never a forced stop, and holds it off; copies the
 // home and proves every copied file holds the same bytes; points the copy's
 // own records at its new place; then switches: the user's NM_HOME names the
 // copy, each gated checkout's no-mistakes remote names its moved repository,
@@ -92,10 +99,15 @@ type Mover struct {
 // one, as the copy makes its links. It returns what it did, in a line for the person, and whether the user's
 // NM_HOME names the Dev Drive by this call, which an error after the switch
 // does not undo.
-func (m Mover) Move(ctx context.Context, old, devDrive string) (string, bool, error) {
+func (m Mover) Move(ctx context.Context, old, devDrive string) (line string, isCarried bool, err error) {
 	if devDrive == "" {
 		return "", false, errors.New("gate home: the fleet has no Dev Drive folder to move it to")
 	}
+	unlock, err := m.lock(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	defer func() { err = errors.Join(err, unlock()) }()
 	target := Target(devDrive)
 	if isUnder(old, devDrive) {
 		return "already on the Dev Drive: the gate's home is " + old + ", named by NM_HOME; nothing changed", false, nil
@@ -341,6 +353,32 @@ func (m *moving) unlink(repositories []string) (string, error) {
 		return "", fmt.Errorf("gate home: the junction %s is gone, but the gate's home %s lacks %s", m.old, m.target, strings.Join(missing, ", "))
 	}
 	return fmt.Sprintf("moved: the gate's home is %s on the Dev Drive, named by NM_HOME for every program started from now on, and its daemon runs there; %d gated checkout(s) push to it; the junction %s is gone, removed as a link", m.target, len(m.remotes), m.old), nil
+}
+
+// lock takes Lock, waiting on another move that holds it as on a busy gate,
+// up to Tries times Every apart. It asks the daemon nothing.
+func (m Mover) lock(ctx context.Context) (func() error, error) {
+	held := Refusal{Err: fmt.Errorf("another move of the gate's home runs and holds %s", m.Lock)}
+	for try := 0; try < max(1, m.Tries); try++ {
+		if try > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("gate home: nothing moved, and the daemon was never stopped: %w", ctx.Err())
+			case <-time.After(m.Every):
+			}
+		}
+		unlock, isTaken, err := lockFile(m.Lock)
+		if err != nil {
+			return nil, fmt.Errorf("gate home: nothing moved, and the daemon was never stopped: the move's lock %s could not be taken: %w", m.Lock, err)
+		}
+		if isTaken {
+			return unlock, nil
+		}
+		if m.Waiting != nil {
+			m.Waiting(held)
+		}
+	}
+	return nil, fmt.Errorf("gate home: nothing moved, and the daemon was never stopped; the home moves once no other move of it runs: %w: %w", ErrGateBusy, held)
 }
 
 func (m Mover) setEnv(target string) error {

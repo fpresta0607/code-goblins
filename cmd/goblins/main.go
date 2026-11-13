@@ -265,7 +265,7 @@ type commandRuntime struct {
 	// carryGateHome moves it into a Dev Drive folder (carryGateHome), for
 	// goblins dev-drive, goblins doctor, goblins install and the board's gate step.
 	gateHome      func() (string, error)
-	carryGateHome func(ctx context.Context, old, devDrive string, tries int, every time.Duration, out io.Writer) (string, bool, error)
+	carryGateHome func(ctx context.Context, old, devDrive, lock string, tries int, every time.Duration, out io.Writer) (string, bool, error)
 	// restartBoard restarts the supervisor serving a home onto what goblins
 	// dev-drive move changed (restartBoardOntoTheDrive).
 	restartBoard func(h home.Home, stdout io.Writer)

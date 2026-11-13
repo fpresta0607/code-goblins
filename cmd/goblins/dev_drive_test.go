@@ -36,7 +36,7 @@ func runtimeOn(t *testing.T, m devdrive.Machine) commandRuntime {
 	runtime := defaultCommandRuntime()
 	runtime.readDevDrive = func(context.Context) (devdrive.Machine, error) { return m, nil }
 	runtime.gateHome = func() (string, error) { return systemGateHome, nil }
-	runtime.carryGateHome = func(_ context.Context, _, devDrive string, _ int, _ time.Duration, _ io.Writer) (string, bool, error) {
+	runtime.carryGateHome = func(_ context.Context, _, devDrive, _ string, _ int, _ time.Duration, _ io.Writer) (string, bool, error) {
 		return "moved: the gate's home is " + gatehome.Target(devDrive), true, nil
 	}
 	runtime.restartBoard = func(home.Home, io.Writer) {}
@@ -67,8 +67,9 @@ func TestDevDriveMoveCarriesTheGateHome(t *testing.T) {
 			runtime := runtimeOn(t, machineWith(devdrive.Volume{Root: filepath.VolumeName(folder) + `\`, FileSystem: "ReFS", Dev: true, Trust: devdrive.Trusted}))
 			var carried []string
 			var tries int
-			runtime.carryGateHome = func(_ context.Context, old, devDrive string, gotTries int, _ time.Duration, _ io.Writer) (string, bool, error) {
-				carried, tries = append(carried, old+" -> "+devDrive), gotTries
+			var lock string
+			runtime.carryGateHome = func(_ context.Context, old, devDrive, gotLock string, gotTries int, _ time.Duration, _ io.Writer) (string, bool, error) {
+				carried, tries, lock = append(carried, old+" -> "+devDrive), gotTries, gotLock
 				return "moved: the gate's home is " + gatehome.Target(devDrive), test.carryErr == nil, test.carryErr
 			}
 
@@ -82,6 +83,9 @@ func TestDevDriveMoveCarriesTheGateHome(t *testing.T) {
 			}
 			if len(carried) != 1 || carried[0] != systemGateHome+" -> "+folder || tries != gateHomeTries {
 				t.Errorf("carried %q with %d tries, want %s into %s with %d", carried, tries, systemGateHome, folder, gateHomeTries)
+			}
+			if want := filepath.Join(os.Getenv("GOBLINS_HOME"), "state", "gate-home-move.lock"); lock != want {
+				t.Errorf("the move's lock = %s, want %s in the home's state", lock, want)
 			}
 			if h, err := home.Resolve(); err != nil || h.DevDrive != folder {
 				t.Errorf("home = %+v, %v; want the heavy folders moved all the same", h, err)
@@ -159,8 +163,11 @@ func TestInstallPlacesTheGateHomeOnTheHomesDevDrive(t *testing.T) {
 			}
 			runtime := runtimeOn(t, machineWith())
 			var tries []int
-			runtime.carryGateHome = func(_ context.Context, _, devDrive string, gotTries int, _ time.Duration, _ io.Writer) (string, bool, error) {
+			runtime.carryGateHome = func(_ context.Context, _, devDrive, lock string, gotTries int, _ time.Duration, _ io.Writer) (string, bool, error) {
 				tries = append(tries, gotTries)
+				if want := filepath.Join(root, "state", "gate-home-move.lock"); lock != want {
+					t.Errorf("the move's lock = %s, want %s in the home's state", lock, want)
+				}
 				if devDrive != folder {
 					t.Errorf("carried into %s, want %s", devDrive, folder)
 				}
@@ -169,7 +176,7 @@ func TestInstallPlacesTheGateHomeOnTheHomesDevDrive(t *testing.T) {
 
 			// Act
 			var stdout bytes.Buffer
-			placeGateHome(root, &stdout, runtime)
+			placeGateHome(home.Home{Root: root, State: filepath.Join(root, "state")}, &stdout, runtime)
 
 			// Assert
 			if test.wantCarry != (len(tries) == 1) || test.wantCarry && tries[0] != 1 {
@@ -219,7 +226,7 @@ func TestDevDriveMoveRestartsTheBoardAfterTheGateHomeMoves(t *testing.T) {
 				t.Setenv(gatehome.Variable, "")
 			}
 			var steps []string
-			runtime.carryGateHome = func(context.Context, string, string, int, time.Duration, io.Writer) (string, bool, error) {
+			runtime.carryGateHome = func(context.Context, string, string, string, int, time.Duration, io.Writer) (string, bool, error) {
 				steps = append(steps, "carry")
 				return "moved", test.isCarried, test.carryErr
 			}

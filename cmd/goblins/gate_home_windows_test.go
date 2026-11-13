@@ -29,13 +29,13 @@ import (
 // reads, a scratch Dev Drive folder, a scratch user environment, and a
 // stand-in no-mistakes.exe first on PATH that records each call's arguments.
 type gateDaemonScratch struct {
-	old, devDrive, log string
+	old, devDrive, log, lock string
 }
 
 func newGateDaemonScratch(t *testing.T) gateDaemonScratch {
 	t.Helper()
 	root := t.TempDir()
-	s := gateDaemonScratch{old: filepath.Join(root, "profile", ".no-mistakes"), devDrive: filepath.Join(root, "dev"), log: filepath.Join(root, "no-mistakes-calls.log")}
+	s := gateDaemonScratch{old: filepath.Join(root, "profile", ".no-mistakes"), devDrive: filepath.Join(root, "dev"), log: filepath.Join(root, "no-mistakes-calls.log"), lock: filepath.Join(root, gateHomeMoveLock)}
 	t.Setenv("GOBLINS_HOME", filepath.Join(root, "ceo-home"))
 	t.Setenv("GOBLINS_STATE_OVERRIDE", "")
 	t.Setenv(installbase.UserEnvFileVariable, filepath.Join(root, "user-env.json"))
@@ -187,7 +187,7 @@ func TestCarryGateHomeStopsTheOldDaemonAndStartsItOnTheMovedHome(t *testing.T) {
 
 	// Act
 	var out bytes.Buffer
-	line, isCarried, err := carryGateHomeWith(context.Background(), tasks, s.old, s.devDrive, 1, 0, &out)
+	line, isCarried, err := carryGateHomeWith(context.Background(), tasks, s.old, s.devDrive, s.lock, 1, 0, &out)
 
 	// Assert
 	if err != nil || !isCarried || !strings.HasPrefix(line, "moved: the gate's home is "+target) {
@@ -224,7 +224,7 @@ func TestCarryGateHomeHoldsTheOldHomesDaemonLockBeforeItCopies(t *testing.T) {
 	// Act
 	var out bytes.Buffer
 	tasks := &gateTaskRunner{tasks: map[string]string{`\no-mistakes-daemon-0a0a0a0a`: gateDaemonTask(s.old)}}
-	_, isCarried, err := carryGateHomeWith(context.Background(), tasks, s.old, s.devDrive, 2, 0, &out)
+	_, isCarried, err := carryGateHomeWith(context.Background(), tasks, s.old, s.devDrive, s.lock, 2, 0, &out)
 
 	// Assert
 	if !errors.Is(err, pipeline.ErrBusy) || !errors.Is(err, gatehome.ErrGateBusy) || isCarried {
@@ -236,7 +236,7 @@ func TestCarryGateHomeHoldsTheOldHomesDaemonLockBeforeItCopies(t *testing.T) {
 	if want := slices.Repeat([]string{"no-mistakes daemon stop", "no-mistakes daemon start"}, 2); !slices.Equal(s.calls(t), want) {
 		t.Errorf("no-mistakes calls = %q, want %q", s.calls(t), want)
 	}
-	if strings.Count(out.String(), "gate home: waiting for the gate runs in flight to finish before it moves") != 2 {
+	if strings.Count(out.String(), "gate home: waiting for the gate to rest before it moves") != 2 {
 		t.Errorf("out = %q, want it to say it waits at each try", out.String())
 	}
 	if len(tasks.calls) != 0 || len(tasks.tasks) != 1 {
@@ -259,7 +259,7 @@ func TestCarryGateHomeNeverAsksTheDaemonToStopWhileAGateRunIsInFlight(t *testing
 
 			// Act
 			var out bytes.Buffer
-			_, isCarried, err := carryGateHomeWith(context.Background(), &gateTaskRunner{}, s.old, s.devDrive, 1, 0, &out)
+			_, isCarried, err := carryGateHomeWith(context.Background(), &gateTaskRunner{}, s.old, s.devDrive, s.lock, 1, 0, &out)
 
 			// Assert
 			if !errors.Is(err, gatehome.ErrGateBusy) || isCarried || !strings.Contains(err.Error(), "nothing moved, and the daemon was never stopped") {
@@ -297,7 +297,7 @@ func TestCarryGateHomeWaitsOnARefusedStopAndFailsOnOneThatCouldNotRun(t *testing
 
 			// Act
 			var out bytes.Buffer
-			_, isCarried, err := carryGateHomeWith(context.Background(), test.commands, s.old, s.devDrive, 2, 0, &out)
+			_, isCarried, err := carryGateHomeWith(context.Background(), test.commands, s.old, s.devDrive, s.lock, 2, 0, &out)
 
 			// Assert
 			if err == nil || isCarried || errors.Is(err, gatehome.ErrGateBusy) != test.wantBusy || !strings.Contains(err.Error(), "nothing moved, and the daemon was never stopped") {
@@ -309,7 +309,7 @@ func TestCarryGateHomeWaitsOnARefusedStopAndFailsOnOneThatCouldNotRun(t *testing
 			if !slices.Equal(s.calls(t), test.wantCalls) {
 				t.Errorf("no-mistakes calls = %q, want %q", s.calls(t), test.wantCalls)
 			}
-			if waits := strings.Count(out.String(), "gate home: waiting for the gate runs in flight to finish before it moves"); waits != len(test.wantCalls) {
+			if waits := strings.Count(out.String(), "gate home: waiting for the gate to rest before it moves"); waits != len(test.wantCalls) {
 				t.Errorf("out = %q, want it to wait %d time(s)", out.String(), len(test.wantCalls))
 			}
 			s.assertNothingCarried(t)
@@ -387,6 +387,42 @@ func TestTheBoardsDevDriveSettingCountsTheGateRunsInFlightInTheGateHome(t *testi
 	}
 	if machineErr != nil || machine.SystemDrive != "C:" {
 		t.Errorf("machine = %+v, %v; want the runtime's", machine, machineErr)
+	}
+}
+
+// A gate home no-mistakes has not made yet, or made without its database,
+// holds no gate run, so the board's setting counts none in it and the carry
+// places the home on the Dev Drive, rather than waiting on a database that
+// is not there.
+func TestTheBoardsDevDriveSettingCountsNoGateRunsInAGateHomeWithNoDatabase(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		isRootMade bool
+	}{
+		{name: "no home"},
+		{name: "a home with no database", isRootMade: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			root := filepath.Join(t.TempDir(), ".no-mistakes")
+			if test.isRootMade {
+				if err := os.MkdirAll(root, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			noCarry := func(string, string, string, ...string) (*exec.Cmd, error) {
+				return nil, errors.New("this test carries nothing")
+			}
+			setting := boardDevDrive(home.Home{Root: t.TempDir()}, runtimeOn(t, machineWith()), noCarry)
+
+			// Act
+			runs, err := setting.GateRuns(context.Background(), root)
+
+			// Assert
+			if err != nil || runs != 0 {
+				t.Errorf("gate runs in flight = %d, %v; want none", runs, err)
+			}
+		})
 	}
 }
 

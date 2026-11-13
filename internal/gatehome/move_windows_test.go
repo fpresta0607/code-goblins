@@ -95,9 +95,9 @@ func (d *fakeDaemon) Start(_ context.Context, root string) error {
 // config, one gated bare repository, the daemon's runtime files, and one
 // checkout that pushes to it; and a Dev Drive folder.
 type scratch struct {
-	old, devDrive, target, checkout, repository string
-	env                                         installbase.EnvStore
-	daemon                                      *fakeDaemon
+	old, devDrive, target, checkout, repository, lock string
+	env                                               installbase.EnvStore
+	daemon                                            *fakeDaemon
 }
 
 func newScratch(t *testing.T) scratch {
@@ -105,6 +105,7 @@ func newScratch(t *testing.T) scratch {
 	root := t.TempDir()
 	s := scratch{old: filepath.Join(root, "profile", ".no-mistakes"), devDrive: filepath.Join(root, "dev"), checkout: filepath.Join(root, "project")}
 	s.target = filepath.Join(s.devDrive, "no-mistakes")
+	s.lock = filepath.Join(root, "gate-home-move.lock")
 	s.repository = filepath.Join(s.old, "repos", "a1.git")
 	t.Setenv(installbase.UserEnvFileVariable, filepath.Join(root, "user-env.json"))
 	s.env = installbase.NewEnvStore(nil)
@@ -142,7 +143,7 @@ func newScratch(t *testing.T) scratch {
 }
 
 func (s scratch) mover() Mover {
-	return Mover{Daemon: s.daemon, Env: s.env, Git: execx.OSRunner{}, Tries: 3, Now: func() time.Time { return time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC) }}
+	return Mover{Daemon: s.daemon, Lock: s.lock, Env: s.env, Git: execx.OSRunner{}, Tries: 3, Now: func() time.Time { return time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC) }}
 }
 
 func TestMoveCarriesTheHomeAndPointsEveryRecordAtIt(t *testing.T) {
@@ -277,6 +278,93 @@ func TestMoveWaitsForTheGateToRestAndThenCarriesTheHome(t *testing.T) {
 	}
 	if _, err := os.Lstat(s.old); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the old home is still there: %v", err)
+	}
+}
+
+// A move started while another move of the gate's home holds the move's lock
+// waits on it as on a busy gate and asks the daemon nothing, so it never
+// starts the old home's daemon while the other copies that home, and carries
+// the home once the lock frees.
+func TestAMoveWaitsWhileAnotherMoveHoldsTheLockAndThenCarriesTheHome(t *testing.T) {
+	// Arrange
+	s := newScratch(t)
+	unlock, isTaken, err := lockFile(s.lock)
+	if err != nil || !isTaken {
+		t.Fatalf("the other move's lock: taken %v, %v", isTaken, err)
+	}
+	mover := s.mover()
+	var waits []string
+
+	// Act
+	mover.Waiting = func(err error) {
+		waits = append(waits, err.Error())
+		if len(s.daemon.calls) != 0 {
+			t.Errorf("daemon calls while another move held the lock = %q, want none", s.daemon.calls)
+		}
+		if err := unlock(); err != nil {
+			t.Error(err)
+		}
+	}
+	line, isCarried, err := mover.Move(context.Background(), s.old, s.devDrive)
+
+	// Assert
+	if err != nil || !isCarried || !strings.HasPrefix(line, "moved: the gate's home is "+s.target) {
+		t.Fatalf("move = %q, %v, %v; want the home carried once the lock freed", line, isCarried, err)
+	}
+	if len(waits) != 1 || !strings.Contains(waits[0], "another move of the gate's home runs") {
+		t.Errorf("waited on %q, want the other move once", waits)
+	}
+	if want := []string{"stop " + s.old, "hold " + s.old, "release " + s.old, "start " + s.target, "forget " + s.old}; !slices.Equal(s.daemon.calls, want) {
+		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
+	}
+	assertLockFree(t, s.lock)
+}
+
+// A move whose lock another move holds through every try changes nothing, is
+// a busy gate, and never asked the daemon anything; a move that failed frees
+// the lock as one that moved does.
+func TestAMoveWhoseLockStaysHeldGivesUpAsABusyGate(t *testing.T) {
+	// Arrange
+	s := newScratch(t)
+	unlock, isTaken, err := lockFile(s.lock)
+	if err != nil || !isTaken {
+		t.Fatalf("the other move's lock: taken %v, %v", isTaken, err)
+	}
+	var waits int
+	mover := s.mover()
+	mover.Waiting = func(error) { waits++ }
+
+	// Act
+	_, isCarried, err := mover.Move(context.Background(), s.old, s.devDrive)
+
+	// Assert
+	if !errors.Is(err, ErrGateBusy) || isCarried || !strings.Contains(err.Error(), "nothing moved, and the daemon was never stopped") {
+		t.Fatalf("move = %v, %v; want a busy gate whose daemon was never stopped", isCarried, err)
+	}
+	if len(s.daemon.calls) != 0 || waits != 3 {
+		t.Errorf("daemon calls = %q after %d waits, want none after 3", s.daemon.calls, waits)
+	}
+	assertUntouched(t, s)
+	if err := unlock(); err != nil {
+		t.Fatal(err)
+	}
+	s.daemon.busyHolds = 99
+	if _, _, err := mover.Move(context.Background(), s.old, s.devDrive); !errors.Is(err, ErrGateBusy) {
+		t.Fatalf("the busy move = %v, want a busy gate", err)
+	}
+	assertLockFree(t, s.lock)
+}
+
+// assertLockFree fails unless the move's lock at path is free, as a move
+// leaves it however it ended.
+func assertLockFree(t *testing.T, path string) {
+	t.Helper()
+	unlock, isTaken, err := lockFile(path)
+	if err != nil || !isTaken {
+		t.Fatalf("the move's lock: taken %v, %v; want it free", isTaken, err)
+	}
+	if err := unlock(); err != nil {
+		t.Fatal(err)
 	}
 }
 
