@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 )
 
 const queuedPRURL = "https://github.com/o/r/pull/13"
@@ -40,7 +42,7 @@ func TestPRMergeAddsThePullRequestToARequiredMergeQueue(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 
 			// Act
-			exit := runPRMerge([]string{queuedPRURL}, &stdout, &stderr, runner, nil)
+			exit := runPRMerge([]string{queuedPRURL}, &stdout, &stderr, runner, githubtest.Client(runner), nil)
 
 			// Assert
 			calls := mergeCalls(runner)
@@ -73,7 +75,7 @@ func TestPRMergeMergesNothingAroundAMergeQueue(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 
 			// Act
-			exit := runPRMerge(append([]string{queuedPRURL}, test.args...), &stdout, &stderr, test.runner, nil)
+			exit := runPRMerge(append([]string{queuedPRURL}, test.args...), &stdout, &stderr, test.runner, githubtest.Client(test.runner), nil)
 
 			// Assert
 			if exit != test.exit || !strings.Contains(stdout.String()+stderr.String(), test.says) {
@@ -114,7 +116,7 @@ func TestAnAFKMergeIntoAQueueLeavesTheTestOfTheMergeToTheQueue(t *testing.T) {
 	if outcome := runner.logged[1].Outcome; outcome != "added to the merge queue" {
 		t.Errorf("the outcome is %q, want that it joined the merge queue", outcome)
 	}
-	if slices.ContainsFunc(runner.events, func(event string) bool { return strings.HasPrefix(event, "gh api repos/") }) {
+	if slices.ContainsFunc(runner.events, func(event string) bool { return strings.HasPrefix(event, "GET repos/") }) {
 		t.Errorf("events = %q, want no comparison of the head with its base", runner.events)
 	}
 }

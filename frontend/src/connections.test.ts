@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { connectionEvidence, connectionStatus, connectionTrouble, parseConnections } from "./connections.ts";
+import { connectionAction, connectionEvidence, connectionStatus, connectionTrouble, parseConnections } from "./connections.ts";
 
 const entry = (status: string, detail = "") => parseConnections({ entries: [{ id: "service:repo", name: "repo", kind: "service", status, detail, grant: "revoke" }] }).entries[0];
 const UNSEEN = "Not checked: whether the goblin's own session can use it, or which account and project it reaches.";
@@ -31,6 +31,16 @@ test("each entry keeps what its card offers and the service that declares it", (
   assert.equal(parseConnections({ entries: [{ id: "x", grant: "anything else" }] }).entries[0].grant, "");
   assert.deepEqual(parseConnections({ entries: [{ id: "credential:REPO_TOKEN", accounts: ["repo", "other"] }] }).entries[0].accounts, ["repo", "other"]);
   assert.deepEqual(parseConnections({ entries: [{ id: "credential:LOOSE_TOKEN" }] }).entries[0].accounts, []);
+});
+
+test("a repair says what it does, and a clipboard one names the variable it stores or replaces", () => {
+  const cases: [string, string][] = [
+    ["store:REPO_TOKEN", "Store REPO_TOKEN from clipboard"],
+    ["replace:REPO_TOKEN", "Replace REPO_TOKEN from clipboard"],
+    ["login", "Sign in to repo"],
+    ["cli", "Open CLI sign-in for repo"],
+  ];
+  for (const [action, want] of cases) assert.equal(connectionAction(action, "repo"), want, action);
 });
 
 test("a successful separate probe leaves session and account identity unknown", () => {
