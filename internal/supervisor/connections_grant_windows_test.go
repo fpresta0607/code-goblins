@@ -2,12 +2,14 @@ package supervisor
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,8 +23,9 @@ import (
 
 // grantBoard is a supervisor whose task-1 is in project work, whose manifest
 // declares the services sample and other and whose .mcp.json defines docs,
-// with its credential store and its connection checks kept in the test.
-func grantBoard(t *testing.T) (*Service, string) {
+// with its credential store and its connection checks kept in the test, which
+// counts the checks.
+func grantBoard(t *testing.T) (*Service, string, *atomic.Int32) {
 	t.Helper()
 	t.Setenv(auth.StoreDirEnv, t.TempDir())
 	store, h := testStore(t)
@@ -49,11 +52,13 @@ func grantBoard(t *testing.T) (*Service, string) {
 		t.Fatal(err)
 	}
 	s := boardService(store)
+	checks := &atomic.Int32{}
 	s.connectionChecks = connections.NewCache(time.Minute, time.Second, func(context.Context, string) connections.Snapshot {
+		checks.Add(1)
 		return connections.Snapshot{Entries: []connections.Entry{}}
 	})
 	t.Cleanup(s.connectionChecks.Close)
-	return s, h.State
+	return s, h.State, checks
 }
 
 // A connector's Connect gives the task the service or MCP server, and its
@@ -71,7 +76,7 @@ func TestAConnectorPressGivesAndTakesBackAServiceOrAnMCPServer(t *testing.T) {
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			s, stateDir := grantBoard(t)
+			s, stateDir, checks := grantBoard(t)
 			asOverlordsBoard(s)
 			name := test.connection[strings.Index(test.connection, ":")+1:]
 
@@ -96,6 +101,19 @@ func TestAConnectorPressGivesAndTakesBackAServiceOrAnMCPServer(t *testing.T) {
 					return strings.Contains(record.Detail, "connections: the Overlord "+step.done+" "+name+" from his own board")
 				}) {
 					t.Fatalf("wakes = %+v (%v), want the CEO told of the %s", pending, err, step.action)
+				}
+
+				// Act: the page reads the goblin once the press's check has ended.
+				waitForConnectionCheck(t, s.connectionChecks, "task-1\ng1")
+				before := checks.Load()
+				code, body = askTheBoard(t, s, "GET", "/api/connections?task=task-1&generation=g1", "", nil)
+
+				// Assert: the press's check answered for the record the press
+				// left, so the read shows it without checking the goblin again
+				// (#2394).
+				var read connections.Snapshot
+				if code != http.StatusOK || json.Unmarshal([]byte(body), &read) != nil || read.Checking || checks.Load() != before {
+					t.Fatalf("read after the %s = %d %s with %d more checks, want its result and no check", step.action, code, body, checks.Load()-before)
 				}
 			}
 		})
@@ -136,7 +154,7 @@ func TestAConnectorPressChangesNothingForAnotherCallerOrConnector(t *testing.T) 
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			s, stateDir := grantBoard(t)
+			s, stateDir, _ := grantBoard(t)
 			asOverlordsBoard(s)
 			if test.caller != nil {
 				s.inspectCaller = test.caller
@@ -160,7 +178,7 @@ func TestAConnectorPressChangesNothingForAnotherCallerOrConnector(t *testing.T) 
 // the CEO is told of the grant and of what failed after it.
 func TestAConnectorGrantThatStandsIsToldAsOneWhateverFailedAfterIt(t *testing.T) {
 	// Arrange
-	s, stateDir := grantBoard(t)
+	s, stateDir, _ := grantBoard(t)
 	asOverlordsBoard(s)
 	meta, err := state.ReadTaskMeta(stateDir, "task-1")
 	if err != nil {
@@ -190,7 +208,7 @@ func TestAConnectorGrantThatStandsIsToldAsOneWhateverFailedAfterIt(t *testing.T)
 // minute at most, and each press is still refused.
 func TestARefusedConnectorPressRepeatedWakesTheCEOOnce(t *testing.T) {
 	// Arrange
-	s, stateDir := grantBoard(t)
+	s, stateDir, _ := grantBoard(t)
 	asOverlordsBoard(s)
 	s.inspectCaller = func(pid int) ([]proc.Entry, []string, error) {
 		started := time.Now().Add(-time.Hour)

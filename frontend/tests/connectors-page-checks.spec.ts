@@ -28,27 +28,29 @@ async function openConnector(page: Page, name: string) {
 // and then it asks nothing more.
 test("reopened, the page shows every goblin's last connectors at once with their age while their rechecks run, and then asks nothing more", async ({ page }) => {
   // Arrange: six goblins, each with a server of its own, last checked twelve
-  // minutes ago and each rechecked now.
+  // minutes ago but the fourth, checked twenty, and each rechecked now.
   const checked = Date.parse(CHECKED_AT);
   await page.clock.install({ time: checked + 12 * 60_000 });
   const servers = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot"];
   const ids = servers.map((_, at) => at ? PROOF + "-" + (at + 1) : PROOF);
   const supervisor = supervisorWith(Object.fromEntries(ids.map((id, at) => [id, [{ ...GITHUB, id: "mcp:" + servers[at], name: servers[at] }]])));
   supervisor.checking = Object.fromEntries(ids.map((id) => [id, true]));
+  supervisor.checkedAtByTask = { [ids[3]]: new Date(checked - 8 * 60_000).toISOString() };
 
   // Act
   await open(page, supervisor, ids.length);
 
   // Assert: every goblin is read, its server listed, and the page says how
-  // old the list is while it is rechecked, not that it is checking.
+  // old the oldest result is while it is rechecked, not that it is checking.
   await expect(page.locator(".connector-row .connector-open")).toHaveText(["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot"]);
-  await expect(page.locator(".connectors-head [role=status]")).toHaveText("Checked 12 minutes ago, rechecking...");
+  await expect(page.locator(".connectors-head [role=status]")).toHaveText("Checked 20 minutes ago, rechecking...");
   expect(ids.filter((id) => !supervisor.reads[id])).toEqual([]);
   await expect(page.getByRole("button", { name: "Recheck connectors" })).toBeDisabled();
 
   // Act: every recheck ends.
   supervisor.checking = {};
   supervisor.checkedAt = new Date(checked + 12 * 60_000).toISOString();
+  supervisor.checkedAtByTask = {};
 
   // Assert: the page says so, and a page left open asks nothing.
   await expect.poll(async () => { await page.clock.runFor(2000); return page.locator(".connectors-head [role=status]").textContent(); }).toBe("Checked just now");
@@ -193,6 +195,31 @@ test("a check that timed out says Check failed, without the supervisor's words a
   await expect(page.getByText("Check failed", { exact: true })).toBeVisible();
   await expect(page.getByText("Connection check timed out.")).toHaveCount(0);
   await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Recheck connectors" })).toBeEnabled();
+});
+
+// A goblin whose last check failed keeps saying so while its recheck runs,
+// and says it is rechecking, since a recheck can take minutes (#2394).
+test("a check that failed says Check failed, rechecking... while its recheck runs, and Check failed once it ends failed again", async ({ page }) => {
+  // Arrange
+  await page.clock.install();
+  const supervisor = supervisorWith({ [PROOF]: [GITHUB] });
+  supervisor.error = "Connection check timed out.";
+  supervisor.checking = { [PROOF]: true };
+  const status = page.locator(".connectors-head [role=status]");
+
+  // Act
+  await open(page, supervisor);
+
+  // Assert
+  await expect(status).toHaveText("Check failed, rechecking...");
+  await expect(page.getByRole("button", { name: "Recheck connectors" })).toBeDisabled();
+
+  // Act: the recheck ends with the same error.
+  supervisor.checking = {};
+
+  // Assert
+  await expect.poll(async () => { await page.clock.runFor(2000); return status.textContent(); }).toBe("Check failed");
   await expect(page.getByRole("button", { name: "Recheck connectors" })).toBeEnabled();
 });
 

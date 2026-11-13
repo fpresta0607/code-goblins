@@ -179,7 +179,7 @@ func TestCheckWaitingForItsSlotIsNotTimedOutByTheWait(t *testing.T) {
 
 	// Act
 	cache.Get("third", false)
-	time.Sleep(150 * time.Millisecond) // stall-accepted: longer than the time limit, which a check waiting for its slot must outlive.
+	time.Sleep(150 * time.Millisecond) // Longer than the time limit, which a check waiting for its slot must outlive.
 	close(release)
 	result := waitChecked(t, cache, "third")
 

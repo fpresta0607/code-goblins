@@ -159,7 +159,7 @@ func TestConnectorsPageOpenStartsHarnessesOnlyForOldResultsAndChangedRecords(t *
 				if time.Now().After(deadline) {
 					t.Fatalf("the check of %s did not end", meta.ID)
 				}
-				time.Sleep(time.Millisecond) // stall-accepted: a pause between polls, whose running out only starts the next poll.
+				time.Sleep(time.Millisecond)
 			}
 		}
 		return shown
