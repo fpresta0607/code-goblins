@@ -10,17 +10,18 @@ import (
 
 // Start is what a stream session says of itself before it is given any work:
 // the Claude Code that runs it, the Claude plan it is signed in to, how many
-// of its SessionStart hooks ran, the CLAUDE.md files it loaded and whether it
-// loaded skills. Claude Code's docs say --bare "will become the default for
-// -p in a future release", and a bare session never reads the sign-in and
-// skips hooks, skills, plugins, MCP servers, auto memory and CLAUDE.md, each
-// of which a goblin runs on. So a goblin's stream session proves it is not
-// bare before its instruction is written (ProveStart), and one that cannot
-// starts in the terminal instead.
+// of its SessionStart hooks ran and succeeded and how each other one failed,
+// the CLAUDE.md files it loaded and whether it loaded skills. Claude Code's
+// docs say --bare "will become the default for -p in a future release", and
+// a bare session never reads the sign-in and skips hooks, skills, plugins,
+// MCP servers, auto memory and CLAUDE.md, each of which a goblin runs on. So
+// a goblin's stream session proves it is not bare before its instruction is
+// written (ProveStart), and one that cannot starts in the terminal instead.
 type Start struct {
 	Version           string
 	Subscription      string
 	SessionStartHooks int
+	FailedHooks       []string
 	MemoryFiles       []string
 	HasSkills         bool
 }
@@ -36,10 +37,12 @@ const (
 // which starts a model turn, and checks the answers: next returns each line
 // the session writes, in order, and an error once it can read none. It
 // returns what the session said and why it is not one a goblin can run on,
-// nil when it is: one signed in to a Claude plan, at least one SessionStart
-// hook of which ran, that included at least one skill and that loaded every
-// CLAUDE.md of expected, each a path that exists. A Claude Code that starts
-// -p sessions bare fails here, never silently later.
+// nil when it is: one signed in to a Claude plan, whose SessionStart hooks
+// all succeeded, at least one of them, that included at least one skill and
+// that loaded every CLAUDE.md of expected, each a path that exists. A Claude
+// Code that starts -p sessions bare fails here, never silently later, and so
+// does a session whose goblin hook could not run, which the supervisor would
+// never learn of, while the person's own hooks run beside it.
 func ProveStart(write func(json.RawMessage) error, next func() (json.RawMessage, error), expected []string) (Start, error) {
 	var start Start
 	for _, request := range []struct{ id, subtype string }{{initializeID, "initialize"}, {contextUsageID, "get_context_usage"}} {
@@ -64,6 +67,8 @@ type startLine struct {
 	Type      string `json:"type"`
 	Subtype   string `json:"subtype"`
 	HookEvent string `json:"hook_event"`
+	Outcome   string `json:"outcome"`
+	Stderr    string `json:"stderr"`
 	Response  struct {
 		Subtype   string `json:"subtype"`
 		RequestID string `json:"request_id"`
@@ -89,8 +94,16 @@ func (s *Start) read(line json.RawMessage, requestID string) (bool, error) {
 	if err := json.Unmarshal(line, &read); err != nil {
 		return false, fmt.Errorf("claudestream: read a %d-byte line: %w", len(line), err)
 	}
+	// Claude Code reports each hook's end as its outcome: a hook it could not
+	// start, or one that exited with an error, is an outcome of error with
+	// what it wrote to stderr.
 	if read.Type == "system" && read.Subtype == "hook_response" && read.HookEvent == "SessionStart" {
-		s.SessionStartHooks++
+		if read.Outcome == "success" {
+			s.SessionStartHooks++
+		} else {
+			why, _, _ := strings.Cut(strings.TrimSpace(read.Stderr), "\n")
+			s.FailedHooks = append(s.FailedHooks, strings.TrimSpace(read.Outcome+" "+why))
+		}
 	}
 	if read.Type != "control_response" || read.Response.RequestID != requestID {
 		return false, nil
@@ -120,6 +133,9 @@ func (s Start) check(expected []string) error {
 	}
 	if s.SessionStartHooks == 0 {
 		missing = append(missing, "no SessionStart hook ran")
+	}
+	for _, failed := range s.FailedHooks {
+		missing = append(missing, "a SessionStart hook failed: "+failed)
 	}
 	if !s.HasSkills {
 		missing = append(missing, "it loaded no skills")

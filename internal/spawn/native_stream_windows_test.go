@@ -96,9 +96,8 @@ func fakeStreamClaude(record func(codexEvent)) {
 		case line.Request.Subtype == "initialize" && mode == "bare":
 			answer(line.RequestID, map[string]any{"claude_code_version": "2.1.322", "account": map[string]any{"tokenSource": "none"}})
 		case line.Request.Subtype == "initialize":
-			for _, subtype := range []string{"hook_started", "hook_response"} {
-				emit(map[string]any{"type": "system", "subtype": subtype, "hook_event": "SessionStart", "hook_name": "SessionStart:startup"})
-			}
+			emit(map[string]any{"type": "system", "subtype": "hook_started", "hook_event": "SessionStart", "hook_name": "SessionStart:startup"})
+			emit(map[string]any{"type": "system", "subtype": "hook_response", "hook_event": "SessionStart", "hook_name": "SessionStart:startup", "stderr": "", "exit_code": 0, "outcome": "success"})
 			answer(line.RequestID, map[string]any{"claude_code_version": "2.1.322", "account": map[string]any{"subscriptionType": "Claude Max"}})
 		case line.Request.Subtype == "get_context_usage" && mode == "bare":
 			answer(line.RequestID, map[string]any{"memoryFiles": []any{}})

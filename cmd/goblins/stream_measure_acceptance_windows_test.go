@@ -90,11 +90,15 @@ func measureGoblin(t *testing.T, p *wakeProof, isStream bool) {
 	defer logFile.Close()
 	p.log = logFile
 	p.home = home.Home{Root: filepath.Join(p.root, "home"), State: filepath.Join(p.root, "home", "state"), Data: filepath.Join(p.root, "home", "data")}
-	for _, dir := range []string{p.home.State, p.home.Data} {
+	for _, dir := range []string{p.home.State, p.home.Data, filepath.Join(p.home.Root, home.BinDir)} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
+	// A goblin's hooks run the home's own goblins, as an installed home
+	// holds it: without it its SessionStart, prompt and Stop hooks cannot
+	// start, and the supervisor never learns of the session.
+	copyFile(t, p.binary, filepath.Join(p.home.Root, home.BinDir, "goblins.exe"))
 	writeProofFile(t, filepath.Join(p.home.Root, "AGENTS.md"), "# Scratch CEO home for the stream measurement\n")
 	writeProofFile(t, filepath.Join(p.home.Root, home.InstalledMarker), "")
 	writeProofFile(t, filepath.Join(p.home.Root, "config", "fleet.json"), fmt.Sprintf(`{"claude_goblins_on_stream": %t}`+"\n", isStream))
