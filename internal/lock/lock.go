@@ -48,10 +48,38 @@ type Info struct {
 	// as "the start of pp-open-work", so whoever finds it held can say what
 	// it waits on.
 	Purpose string `json:"purpose,omitempty"`
+	// Instance names the holder's run of its program exactly, where the
+	// system reads one: on Linux (proc.Instance), whose reading of a start
+	// moves when the clock is stepped. It is empty on Windows, where the
+	// start alone knows the process.
+	Instance string `json:"instance,omitempty"`
 }
 
-// Alive reports whether the holder's process still runs. FILETIME rounding
-// means creation times can differ by a tick, so match within one second.
+// isProcess reports whether the process read now, started at start and
+// running as instance, is the one the record names. An instance on either
+// side is compared exactly, and no clock is in it. With none on either, as
+// on Windows, FILETIME rounding means creation times can differ by a tick,
+// so the starts match within one second.
+func (i *Info) isProcess(start time.Time, instance string) bool {
+	if i.Instance != "" || instance != "" {
+		return i.Instance == instance
+	}
+	diff := start.Sub(i.Start)
+	return diff > -time.Second && diff < time.Second
+}
+
+// isSameRun reports whether two records with one PID name one process: by
+// their instances, exactly, when either has one, and by their starts when
+// neither does, as no Windows record does.
+func (i *Info) isSameRun(other *Info) bool {
+	if i.Instance != "" || other.Instance != "" {
+		return i.Instance == other.Instance
+	}
+	return i.Start.Equal(other.Start)
+}
+
+// Alive reports whether the holder's process still runs, and is the process
+// the record names (isProcess).
 // Fail closed: if the holder cannot be verified (foreign hostname, unknown process state),
 // return true (assume alive) to avoid stealing a lock that might be legitimately held.
 func (i *Info) Alive() bool {
@@ -62,7 +90,7 @@ func (i *Info) Alive() bool {
 		return true
 	}
 
-	start, status := processStart(i.PID)
+	start, instance, status := readProcess(i.PID)
 	// If status is unknown (e.g., access denied), fail closed: assume alive.
 	if status == statusUnknown {
 		return true
@@ -71,9 +99,8 @@ func (i *Info) Alive() bool {
 	if status == statusDead {
 		return false
 	}
-	// status is alive; check creation time match (within 1 second).
-	diff := start.Sub(i.Start)
-	return diff > -time.Second && diff < time.Second
+	// status is alive; check it is the process the record names.
+	return i.isProcess(start, instance)
 }
 
 // VerifiedAlive is the positive identity proof needed before routing input.
@@ -83,20 +110,30 @@ func (i *Info) VerifiedAlive() bool {
 	if err != nil || i.Hostname != hostname || i.PID <= 0 || i.Start.IsZero() {
 		return false
 	}
-	start, status := processStart(i.PID)
-	diff := start.Sub(i.Start)
-	return status == statusAlive && diff > -time.Second && diff < time.Second
+	start, instance, status := readProcess(i.PID)
+	return status == statusAlive && i.isProcess(start, instance)
 }
 
 // ownerInfo builds the Info record for pid, the process taking custody of
 // the lock (the harness ancestor for a hook-driven acquire, or the calling
 // process itself for a plain Acquire), with session recorded verbatim. The
-// returned status is processStart's verdict on pid, for callers that must
+// returned status is readProcess's verdict on pid, for callers that must
 // refuse a verifiably dead owner before writing a record for it.
 func ownerInfo(pid int, session string) (*Info, processStatus) {
-	start, status := processStart(pid)
+	start, instance, status := readProcess(pid)
 	hostname, _ := os.Hostname()
-	return &Info{PID: pid, OwnerPID: pid, Session: session, Start: start, Hostname: hostname, Acquired: time.Now().UTC()}, status
+	return &Info{PID: pid, OwnerPID: pid, Session: session, Start: start, Instance: instance, Hostname: hostname, Acquired: time.Now().UTC()}, status
+}
+
+// provable refuses a record that could never prove its own holder: on a
+// system that knows a process by its instance, a record without one reads
+// as another program to every reader that can read the instance, so the
+// next acquirer would remove a live holder's record.
+func (i *Info) provable() error {
+	if processInstance != nil && i.Instance == "" {
+		return fmt.Errorf("lock: cannot read which run of its program owner pid %d is, so no record of it could prove it holds the lock", i.PID)
+	}
+	return nil
 }
 
 // writeInfo puts info at path as its holder record only if none is there.
@@ -270,7 +307,7 @@ func acquireExclusiveNamed(dir, name, purpose string, isStrict bool) (*Info, err
 			return nil, fmt.Errorf("lock: cannot verify owner pid %d", self.PID)
 		}
 	}
-	if holder, readErr := read(dir, name); readErr == nil && holder.PID == self.PID && holder.OwnerPID == self.PID && holder.Start.Equal(self.Start) && holder.Hostname == self.Hostname && holder.Alive() {
+	if holder, readErr := read(dir, name); readErr == nil && holder.PID == self.PID && holder.OwnerPID == self.PID && holder.isSameRun(self) && holder.Hostname == self.Hostname && holder.Alive() {
 		if isStrict || holder.Session != exclusiveSpawnSession {
 			return nil, heldError(holder)
 		}
@@ -303,7 +340,10 @@ func acquireExclusiveNamed(dir, name, purpose string, isStrict bool) (*Info, err
 // contention: a resumed session keeps custody.
 // A verifiably dead ownerPID is refused with ErrOwnerDead before any file is
 // created or touched; an unverifiable ownerPID (statusUnknown) still
-// proceeds, fail closed to alive exactly as Alive() does.
+// proceeds, fail closed to alive exactly as Alive() does, except on a
+// system that knows a process by its instance (Linux), where an owner whose
+// instance cannot be read writes no record (provable): it is refused when
+// the lock is free, and answered ErrHeld when a live holder keeps it.
 // Strategy: exclusive create with read-back verification, grace period for
 // mid-write files, and a create that waits out another process's hold on
 // the record, as fsx does for every fleet file.
@@ -337,10 +377,18 @@ func acquireReading(ctx context.Context, dir, name string, self *Info, allowReac
 	unreadableStart := time.Time{}
 
 	for attempt := 0; attempt < acquireAttempts; attempt++ {
-		err := writeInfo(ctx, path, self)
+		// A record that could not prove its holder is never written, but a
+		// record already there is read as any asker reads it, so a lock a
+		// live holder keeps still answers ErrHeld.
+		err := self.provable()
+		if err == nil {
+			err = writeInfo(ctx, path, self)
+		} else if _, statErr := os.Lstat(path); statErr == nil {
+			err = os.ErrExist
+		}
 		if err == nil {
 			// Verify we won the race: read back the file and confirm it records us.
-			if verified, verr := read(context.WithoutCancel(ctx), dir, name); verr == nil && verified.PID == self.PID && verified.Start.Equal(self.Start) {
+			if verified, verr := read(context.WithoutCancel(ctx), dir, name); verr == nil && verified.PID == self.PID && verified.isSameRun(self) {
 				return self, nil
 			}
 			// Either we lost the race (another acquirer wrote after us) or the
@@ -400,7 +448,7 @@ func acquireReading(ctx context.Context, dir, name string, self *Info, allowReac
 		// lock instead recognizes only the exact record this invocation wrote,
 		// preserving a transient failed read-back without admitting another
 		// concurrent call from the same process.
-		if holder.PID == self.PID && holder.Start.Equal(self.Start) && holder.Hostname == self.Hostname {
+		if holder.PID == self.PID && holder.isSameRun(self) && holder.Hostname == self.Hostname {
 			if allowReacquire || holder.Acquired.Equal(self.Acquired) {
 				return self, nil
 			}
@@ -435,7 +483,7 @@ func acquireReading(ctx context.Context, dir, name string, self *Info, allowReac
 			continue
 		}
 
-		if holder2.PID != holder.PID || holder2.Start != holder.Start || (isStrict && *holder2 != *holder) {
+		if holder2.PID != holder.PID || holder2.Start != holder.Start || holder2.Instance != holder.Instance || (isStrict && *holder2 != *holder) {
 			// The file changed; continue without removing (let the race winner handle cleanup).
 			continue
 		}
@@ -580,7 +628,7 @@ func HandOverExclusiveNamed(dir, name string, pid int) error {
 		return fmt.Errorf("lock: hand over %s: %w", name, err)
 	}
 	self, _ := ownerInfo(os.Getpid(), exclusiveSpawnSession)
-	if holder.PID != self.PID || !holder.Start.Equal(self.Start) || holder.Hostname != self.Hostname {
+	if holder.PID != self.PID || !holder.isSameRun(self) || holder.Hostname != self.Hostname {
 		return fmt.Errorf("lock: hand over %s: it is held by pid %d, not this process", name, holder.PID)
 	}
 	next, status := ownerInfo(pid, exclusiveSpawnSession)
@@ -652,7 +700,7 @@ func reclaimAbandonedExclusiveLease(dir, name string, self *Info) error {
 	if err != nil {
 		return err
 	}
-	if holder.PID != self.PID || holder.OwnerPID != self.PID || !holder.Start.Equal(self.Start) || holder.Hostname != self.Hostname || holder.Session != exclusiveSpawnSession || !holder.Alive() {
+	if holder.PID != self.PID || holder.OwnerPID != self.PID || !holder.isSameRun(self) || holder.Hostname != self.Hostname || holder.Session != exclusiveSpawnSession || !holder.Alive() {
 		return heldError(holder)
 	}
 	return releaseNamed(dir, name, os.Remove, time.Sleep)
