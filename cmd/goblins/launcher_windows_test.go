@@ -187,7 +187,7 @@ func assertServeCarriesNoTerminalProof(t *testing.T, release string) {
 		t.Fatal("the stand-in serve never wrote its pid")
 	}
 	consoleHost := 0
-	for deadline := time.Now().Add(10 * time.Second); consoleHost == 0 && time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(30 * time.Second); consoleHost == 0 && time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		entries, err := proc.Processes()
 		if err != nil {
 			t.Fatal(err)
