@@ -213,30 +213,34 @@ func TestCodexWorkersReadsTheChildrenOfTheLeadsThread(t *testing.T) {
 	}
 }
 
-// Codex files a child by the date it started on where it ran, so every
-// date of the window is read, with a date either side, whatever times of
-// day the window starts and ends at; a window with no start of its own
-// starts where the lead's thread started, which no child of it predates.
+// Codex files a child by the date it started on where it ran, and a child
+// spawned before the window may spend in it, so every date from the lead's
+// own start, which no child of it predates, to the window's end is read,
+// with a date either side, whatever times of day the window starts and ends
+// at.
 func TestCodexWorkersReadsEveryDateOfTheWindow(t *testing.T) {
 	cases := []struct {
-		name     string
-		from, to time.Time
-		filed    string
-		spawned  int
+		name        string
+		leadStarted int
+		from, to    time.Time
+		filed       string
+		spawned     int
+		spent       int
 	}{
-		{name: "a window that ends earlier in its day than it starts, on a machine east of UTC", from: at(17*60 + 30), to: at(41 * 60), filed: "2026/11/15", spawned: 41*60 - 30},
-		{name: "a window with no start, on a machine west of UTC", to: windowTo, filed: "2026/11/12", spawned: 20},
+		{name: "a window that ends earlier in its day than it starts, on a machine east of UTC", from: at(17*60 + 30), to: at(41 * 60), filed: "2026/11/15", spawned: 41*60 - 30, spent: 41*60 - 25},
+		{name: "a window with no start, on a machine west of UTC", to: windowTo, filed: "2026/11/12", spawned: 20, spent: 25},
+		{name: "a child spawned dates before the window that spends in it", leadStarted: -4 * 24 * 60, from: at(-36 * 60), to: windowTo, filed: "2026/11/09", spawned: -4*24*60 + 60, spent: 60},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			// Arrange
 			home := t.TempDir()
-			lead := filepath.Join(home, codexSessions, "2026", "11", "13", "rollout-lead.jsonl")
-			writeLines(t, lead, `{"timestamp":"`+at(0).Format(time.RFC3339Nano)+`","type":"session_meta","payload":{"id":"lead-thread","source":"cli"}}`)
+			lead := filepath.Join(home, codexSessions, at(testCase.leadStarted).Format("2006/01/02"), "rollout-lead.jsonl")
+			writeLines(t, lead, `{"timestamp":"`+at(testCase.leadStarted).Format(time.RFC3339Nano)+`","type":"session_meta","payload":{"id":"lead-thread","source":"cli"}}`)
 			writeLines(t, filepath.Join(home, codexSessions, testCase.filed, "rollout-child.jsonl"),
 				`{"timestamp":"`+at(testCase.spawned).Format(time.RFC3339Nano)+`","type":"session_meta","payload":{"id":"child","source":{"subagent":{"thread_spawn":{"parent_thread_id":"lead-thread","agent_role":"worker"}}}}}`,
 				codexTurn(testCase.spawned, "gpt-6.1-luna", "medium"),
-				codexCount(testCase.spawned+5, `{"input_tokens":40,"cached_input_tokens":0,"output_tokens":4}`),
+				codexCount(testCase.spent, `{"input_tokens":40,"cached_input_tokens":0,"output_tokens":4}`),
 			)
 
 			// Act
@@ -246,7 +250,7 @@ func TestCodexWorkersReadsEveryDateOfTheWindow(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := []Worker{{Agent: "worker", Spends: []Spend{{Model: "gpt-6.1-luna", Effort: "medium", Usage: Usage{InputTokens: 40, OutputTokens: 4}, First: at(testCase.spawned + 5), Last: at(testCase.spawned + 5)}}}}
+			want := []Worker{{Agent: "worker", Spends: []Spend{{Model: "gpt-6.1-luna", Effort: "medium", Usage: Usage{InputTokens: 40, OutputTokens: 4}, First: at(testCase.spent), Last: at(testCase.spent)}}}}
 			if !reflect.DeepEqual(workers, want) {
 				t.Errorf("workers =\n%+v\nwant\n%+v", workers, want)
 			}

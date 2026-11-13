@@ -248,10 +248,11 @@ var codexSessions = filepath.Join(".codex", "sessions")
 // CodexWorkers reads what each child agent of the Codex conversation whose
 // rollout is at path spent after from and by to. Codex writes a child's own
 // rollout, opening on the thread that spawned it and the role it spawned it
-// in, filed in home's sessions by the date it started on, so only the dates
-// of the window are read, from the later of from and the lead's own start,
-// since no child starts before the thread that spawns it, and a date either
-// side for the time zone it was filed in.
+// in, filed in home's sessions by the date it started on. A child spawned
+// before the window may spend in it, and none starts before the thread that
+// spawns it, so the dates from the lead's own start to to are read, from
+// from when the lead names no start, and a date either side for the time
+// zone it was filed in.
 func CodexWorkers(home, path string, from, to time.Time) ([]Worker, error) {
 	lead, err := readCodexMeta(path)
 	if err != nil {
@@ -260,9 +261,9 @@ func CodexWorkers(home, path string, from, to time.Time) ([]Worker, error) {
 	if lead.id == "" {
 		return nil, errors.New("measure: " + path + " names no thread")
 	}
-	start := from
-	if lead.started.After(start) {
-		start = lead.started
+	start := lead.started
+	if start.IsZero() {
+		start = from
 	}
 	date := func(at time.Time) time.Time {
 		year, month, day := at.UTC().Date()
