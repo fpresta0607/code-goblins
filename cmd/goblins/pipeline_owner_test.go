@@ -361,7 +361,7 @@ func TestAFailedTestStepEscalatesTheImplementWorkerOneTier(t *testing.T) {
 		{
 			name: "a table that does not load moves nothing", step: "test", lead: "opus", implement: "sonnet", want: "sonnet",
 			routing: `{"default_lane":`,
-			said:    "pipeline handback: no role moved, since the implement role's escalation failed: routing: ",
+			said:    "pipeline handback: the implement role's escalation failed: routing: ",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
