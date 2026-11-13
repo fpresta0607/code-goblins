@@ -698,15 +698,18 @@ func closeCurrentTerminal(t *testing.T, f *nativeFixture) {
 // window, having pressed it only once more. A Claude Code that takes its
 // Enter seconds late shows the text in its composer as it was until then,
 // over no new row, and is pressed no Enter that would reach it after the
-// instruction (#1232).
+// instruction (#1232). One that lost its Enter and shows a list of choices
+// under its composer as the window runs out is pressed no Enter into that
+// list, and the resume fails (#1873).
 func TestAResumeSubmitsOnceMoreOnlyWhenItsFirstEnterWasLost(t *testing.T) {
 	for _, test := range []struct {
-		mode, wantPhase string
-		wantLost        int
+		mode, wantPhase      string
+		wantLost, wantAtList int
 	}{
 		{mode: "claude-lost-enter", wantPhase: "running", wantLost: 1},
 		{mode: "claude-enters-lost", wantPhase: "failed", wantLost: 2},
 		{mode: "claude-late-enter", wantPhase: "running", wantLost: 0},
+		{mode: "claude-asks", wantPhase: "failed", wantAtList: 1},
 	} {
 		t.Run(test.mode, func(t *testing.T) {
 			// Arrange
@@ -738,6 +741,9 @@ func TestAResumeSubmitsOnceMoreOnlyWhenItsFirstEnterWasLost(t *testing.T) {
 			events := f.events(t)
 			if lost := named(events, "enter taken as a new line"); len(lost) != test.wantLost {
 				t.Errorf("Enters taken as a new line = %+v, want %d", lost, test.wantLost)
+			}
+			if atList := named(events, "enter lost to a list of choices"); len(atList) != test.wantAtList {
+				t.Errorf("Enters lost to a list of choices = %+v, want %d", atList, test.wantAtList)
 			}
 			if empty := named(events, "enter on an empty composer"); len(empty) != 0 {
 				t.Errorf("Enters on an empty composer = %+v, want none after the instruction", empty)
@@ -806,6 +812,9 @@ func TestAResumeSubmitsOnceMoreALaunchInstructionItsCodexLeftUnsent(t *testing.T
 			events := f.events(t)
 			if lost := named(events, "lost enter"); len(lost) != test.wantLost {
 				t.Errorf("submit keys lost = %+v, want %d", lost, test.wantLost)
+			}
+			if swallowed := named(events, "swallowed enter"); len(swallowed) != 0 {
+				t.Errorf("Enters with no End before them = %+v, want none", swallowed)
 			}
 			submitted := named(events, "submitted")
 			if test.wantPhase == "failed" {
