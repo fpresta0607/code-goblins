@@ -2127,7 +2127,7 @@ A machine service, with what runs under it: Docker Desktop, the no-mistakes daem
 A gate's agent, which carries the mark of whichever goblin started the daemon while it works for any gate. It is a task's only while it works in that task's own gate run.
 And a desktop program, with what it started: a program that shows a window, a browser no tool drives (one started with none of `--headless`, `--remote-debugging-pipe`, `--remote-debugging-port`, `--enable-automation` or Firefox's `-headless` and `--marionette`), a packaged desktop app and Explorer.
 A goblin can start one for the Overlord, as when a sign-in opens his browser, and it is still his to close.
-When the desktop's windows cannot be read, nothing is a task's by its mark or its parent, only by its job and its place.
+When the desktop's windows cannot be read, or the desktop shows none, as a hidden desktop a process started on shows none, nothing is a task's by its mark or its parent, only by its job and its place.
 
 The janitor's hourly sweep applies the same rule to what no pause or stop ended.
 For each terminal the home gave a proof since the machine started, it reads which processes are that terminal's own.

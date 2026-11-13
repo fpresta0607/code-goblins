@@ -1,6 +1,7 @@
 package proc
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"syscall"
@@ -38,12 +39,16 @@ var (
 )
 
 // topLevelWindows lists the top-level windows on this process's desktop,
-// shown or not, without their class or title.
+// shown or not, without their class or title. EnumWindows on a desktop that
+// holds no window, as the hidden desktop a gate's test step starts its agents
+// on held none, returns FALSE and sets no error, which x/sys/windows reports
+// as EINVAL: that is an empty listing, and only a failure with an error of
+// its own is one (#1799).
 func topLevelWindows() ([]Window, error) {
 	windowListing.Lock()
 	defer windowListing.Unlock()
 	found = nil
-	if err := windows.EnumWindows(windowCallback(), nil); err != nil {
+	if err := windows.EnumWindows(windowCallback(), nil); err != nil && !(errors.Is(err, syscall.EINVAL) && len(found) == 0) {
 		return nil, fmt.Errorf("proc: list the desktop's windows: %w", err)
 	}
 	listed := found
