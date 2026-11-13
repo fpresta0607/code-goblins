@@ -7,7 +7,7 @@ import { CEO_DOOR, expect, holdStream, type Locator, openChat, openTaskList, typ
 // The supervisor is played here: one snapshot on a held stream.
 const NOTE = "An optional drive that Defender scans in performance mode, so files open faster.";
 const EXPLAIN = "A Dev Drive is a drive Windows 11 formats for developer work: Microsoft Defender keeps scanning it, in performance mode, so opening a file no longer waits for the scan. It is not a Defender exclusion.";
-const LINE = "absent: this machine can have one (A Dev Drive is a drive Windows 11 formats for developer work: Microsoft Defender keeps scanning it, in performance mode, so opening a file no longer waits for the scan. It is not a Defender exclusion), and it is optional; Set up under Dev Drive in the board's Workspace panel puts each step in the Command Center";
+const LINE = "absent: this machine can have one (A Dev Drive is a drive Windows 11 formats for developer work: Microsoft Defender keeps scanning it, in performance mode, so opening a file no longer waits for the scan. It is not a Defender exclusion), and it is optional; Set up under Dev Drive in the board's Workspace panel puts each step that needs you in the Command Center and takes the rest by itself";
 const drive = (fields: Record<string, unknown> = {}) => ({ state: "absent", line: LINE, explain: EXPLAIN, note: NOTE, action: "set-up", ...fields });
 const snapshot = (fields: Record<string, unknown> = {}) => ({
   healthy: true, instance: "fixture", revision: 1, attention: [], tasks: [], afk: { state: "off" },

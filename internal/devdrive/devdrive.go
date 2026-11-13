@@ -199,7 +199,7 @@ func (r Report) Untrusted() bool {
 
 // BoardSteps says where a person sets a Dev Drive up: every step that needs
 // him is a Command Center item, made once the board's setting is pressed.
-const BoardSteps = "Set up under Dev Drive in the board's Workspace panel puts each step in the Command Center"
+const BoardSteps = "Set up under Dev Drive in the board's Workspace panel puts each step that needs you in the Command Center and takes the rest by itself"
 
 // Explain is the sentence every surface uses to say what a Dev Drive is.
 const Explain = "A Dev Drive is a drive Windows 11 formats for developer work: Microsoft Defender keeps scanning it, in performance mode, so opening a file no longer waits for the scan. It is not a Defender exclusion."
