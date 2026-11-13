@@ -2068,6 +2068,53 @@ func TestACommandToAGoblinInATurnWaitsForTheTurnToEnd(t *testing.T) {
 	}
 }
 
+// The Overlord, 2026-11-11: "cant type / commands into modern chat like
+// terminal" (#2372). A command a goblin's harness runs at once beside a turn,
+// as Codex 0.160 runs /status, is typed into its turn by the board, as he
+// types it in the terminal, and reads delivered once its prompt line shows
+// it ran. One its harness would queue still waits on the board for the
+// turn's end, with nothing typed.
+func TestACommandAGoblinsHarnessRunsBesideATurnIsTypedIntoThatTurn(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		command string
+		ran     bool
+	}{
+		{name: "one it runs beside a turn", command: "/status", ran: true},
+		{name: "one it would queue", command: "/compact"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			useConversations(t)
+			store, h := testStore(t)
+			meta := makeNative(t, h.State, "task-1")
+			meta.Harness = "codex"
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			gitWorktree(t, meta.Worktree)
+			terminal := nativeComposer(t, h.State, meta.ID, "busy")
+			service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+			messageTo(t, store, meta, "message-1", test.command)
+
+			// Act
+			err := store.ProcessOne(t.Context(), service.execute)
+
+			// Assert
+			sent := actionOf(store, "message-1")
+			if !test.ran {
+				if lines := terminal.lines(t); !errors.Is(err, ErrDeferred) || sent.Status != "queued" || len(lines) != 1 {
+					t.Errorf("delivery = %v, action = %+v, terminal input %q; want it held for the turn's end, nothing typed", err, sent, lines)
+				}
+				return
+			}
+			if lines := terminal.waitForLines(t, 2); err != nil || sent.Status != "succeeded" || len(lines) != 2 || lines[1] != "ran "+test.command {
+				t.Errorf("delivery = %v, action = %+v, terminal input %q; want it typed into the turn once and delivered", err, sent, lines)
+			}
+		})
+	}
+}
+
 // Send now types a message waiting behind a command held for a goblin's turn
 // into that turn and has its harness take it at once, as its own send-now key
 // does in its terminal (the Overlord, 2026-10-30: "when sent now it actually
