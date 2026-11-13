@@ -78,7 +78,7 @@ func SeizeNamedOwner(dir, name string, ownerPID int, session, why string, isRepl
 		}
 		// A record a reader held open is still there on the next attempt, and
 		// its takeover is already recorded.
-		if replaced == nil || replaced.PID != holder.PID || !replaced.Start.Equal(holder.Start) || !replaced.Acquired.Equal(holder.Acquired) {
+		if replaced == nil || replaced.PID != holder.PID || !replaced.isSameRun(holder) || !replaced.Acquired.Equal(holder.Acquired) {
 			self, _ := ownerInfo(ownerPID, session)
 			if err := appendTakeover(dir, Takeover{At: self.Acquired, Lock: name, From: *holder, To: *self, Why: why}); err != nil {
 				return nil, replaced, fmt.Errorf("lock: %s is held by pid %d, and the takeover could not be recorded in %s, so it was not made: %w", name, holder.PID, AuditFile, err)

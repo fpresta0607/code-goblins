@@ -31,7 +31,7 @@ type status struct {
 // readStatus reads pid's line of /proc. A process that is gone, or that has
 // exited and only waits for its parent to collect it, is fs.ErrNotExist.
 func readStatus(pid int) (status, error) {
-	line, err := fsx.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	line, err := fsx.ReadKernelFile(fmt.Sprintf("/proc/%d/stat", pid))
 	if err != nil {
 		// A process that exits between the open and the read fails the read
 		// with ESRCH.
@@ -77,11 +77,15 @@ func parseStatus(line []byte) (status, error) {
 // bootTime is when the machine started, as /proc/stat gives it in whole
 // seconds. Every process's start is counted from it, so two readings of one
 // process agree to the tick. The kernel works it out from the clock as it
-// stands, so a step of the clock moves it, and with it the start of every
-// process read after the step: a start recorded before a step of a second or
-// more no longer matches its process, which then reads as another program.
+// stands and cuts it to the second, so any step of the clock that carries it
+// across a second, however small the step, moves it, and with it the start
+// of every process read after the step: a start recorded before the step no
+// longer matches its process, which then reads as another program. A check
+// by start therefore only ever refuses after a step (Identify,
+// TerminateVerified), and what must still know a process after one knows it
+// by its Instance, as the lock does.
 func bootTime() (time.Time, error) {
-	stat, err := fsx.ReadFile("/proc/stat")
+	stat, err := fsx.ReadKernelFile("/proc/stat")
 	if err != nil {
 		return time.Time{}, fmt.Errorf("proc: read the machine's start: %w", err)
 	}
@@ -95,6 +99,33 @@ func bootTime() (time.Time, error) {
 		}
 	}
 	return time.Time{}, errors.New("proc: /proc/stat names no start of the machine")
+}
+
+// Instance names the one run of a program that has pid now, as
+// "<boot>/<ticks>": the ID the kernel gave this start of the machine, and how
+// many ticks after it the process was created. Both are fixed when the
+// process is made and neither is worked out from the clock, so every reading
+// of one process gives the same instance whatever the clock was stepped to in
+// between, and a process that took the ID later, on this start of the machine
+// or another, gives a different one. A process that is gone or has exited is
+// fs.ErrNotExist, and any other error says only that the process could not
+// be read, never that it is gone.
+func Instance(pid int) (string, error) {
+	read, err := readStatus(pid)
+	if err != nil {
+		return "", err
+	}
+	// A boot ID that cannot be read says nothing of the process, so its error
+	// is never fs.ErrNotExist.
+	raw, err := fsx.ReadKernelFile("/proc/sys/kernel/random/boot_id")
+	if err != nil {
+		return "", fmt.Errorf("proc: read the machine's boot ID: %v", err)
+	}
+	boot := string(bytes.TrimSpace(raw))
+	if boot == "" {
+		return "", errors.New("proc: the machine's boot ID is empty")
+	}
+	return boot + "/" + strconv.FormatUint(read.started, 10), nil
 }
 
 // entry is pid as read, started that long after boot.

@@ -118,7 +118,11 @@ The host's protocol (a token handshake, then typed frames) is the same on every 
   It also finds console windows and closes them.
 - **Linux:** `/proc/<pid>/stat` for the parent and start time, `cmdline`, `cwd`, `environ` and `exe` for the rest, `/proc/net/tcp` and `tcp6` matched to socket inodes for the TCP peer, and `pidfd_open` so a process is ended only if it is still the one that was checked.
   Uptime comes from `/proc/uptime`.
-  A start is the machine's start in `/proc/stat` plus the ticks `/proc/<pid>/stat` counts from it, so a step of the clock moves the start of every process read after it.
+  A start is the machine's start in `/proc/stat` plus the ticks `/proc/<pid>/stat` counts from it.
+  The kernel works the machine's start out from the clock and cuts it to the second, so any step of the clock that carries it across a second, however small, moves the start of every process read after it.
+  A check by start, as the one before a process is ended, therefore only ever refuses after a step.
+  The lock does not rest on a start: its record and its waiters' tickets name a process by its instance, the boot ID in `/proc/sys/kernel/random/boot_id` and the raw ticks, compared exactly, with no clock in it.
+  A record made from a start alone proves no process on Linux.
   A process that has exited and only waits for its parent to collect it reads as gone.
 - **Not needed:** windows, consoles and integrity levels.
 - **Layer:** 3, and 6 for the TCP peer, whose one caller is the browser sign-in.

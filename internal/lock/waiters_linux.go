@@ -20,8 +20,8 @@ import (
 )
 
 // place is a waiter's place in a line: its ticket in the line's file, which
-// names its process, by ID and start, and which of that process's waiters it
-// is.
+// names its process, by ID and instance, and which of that process's waiters
+// it is.
 type place struct {
 	path   string
 	ticket string
@@ -57,11 +57,11 @@ const longestLook = 10 * time.Millisecond
 // longestLook: its place cannot be taken between two looks. A process that
 // dies leaves its tickets behind, and the next look strikes them.
 func lineUp(path string, waiting context.Context) (place, error) {
-	start, status := processStart(os.Getpid())
+	instance, status := readInstance(os.Getpid())
 	if status != statusAlive {
-		return place{}, fmt.Errorf("lock: this process could not read its own start to line up at %s", path)
+		return place{}, fmt.Errorf("lock: this process could not read which run it is to line up at %s", path)
 	}
-	at := place{path: path, ticket: fmt.Sprintf("%d %d %d", os.Getpid(), start.UnixNano(), tickets.Add(1))}
+	at := place{path: path, ticket: fmt.Sprintf("%d %s %d", os.Getpid(), instance, tickets.Add(1))}
 	// A ticket struck from the line, as every ticket is when the file is
 	// removed, is put back at its end on the next look.
 	join := func(line []string) []string {
@@ -165,23 +165,19 @@ func readLine(file *os.File, how int) (text string, line []string, err error) {
 }
 
 // processRuns reports whether the process a ticket names still runs: the
-// one with that ID that started at that time, in nanoseconds since 1970. A
-// process that cannot be read counts as running, as a lock's holder does.
-func processRuns(id, started string) bool {
+// one with that ID that is that instance, exactly, which no step of the
+// clock changes. A process that cannot be read counts as running, as a
+// lock's holder does.
+func processRuns(id, instance string) bool {
 	pid, err := strconv.Atoi(id)
 	if err != nil {
 		return false
 	}
-	nanoseconds, err := strconv.ParseInt(started, 10, 64)
-	if err != nil {
-		return false
-	}
-	start, status := processStart(pid)
+	running, status := readInstance(pid)
 	if status != statusAlive {
 		return status == statusUnknown
 	}
-	difference := start.Sub(time.Unix(0, nanoseconds))
-	return difference > -time.Second && difference < time.Second
+	return running == instance
 }
 
 // keepPlace records at as the place this process stands at while it holds

@@ -3,6 +3,7 @@ package proc
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -12,6 +13,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // startSleeper starts a program that only sleeps, as a child of this
@@ -158,6 +161,9 @@ func TestAChildThatExitedReadsAsGoneBeforeItIsCollected(t *testing.T) {
 	if _, isFound := StartTime(child.Process.Pid); isFound {
 		t.Error("StartTime found an exited child running")
 	}
+	if _, err := Instance(child.Process.Pid); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("Instance of an exited child = %v, want fs.ErrNotExist", err)
+	}
 }
 
 func TestIdentifyReadsAChildsImageArgumentsDirectoryAndEnvironment(t *testing.T) {
@@ -259,5 +265,88 @@ func TestProcessTreeListsAChildUnderItsParent(t *testing.T) {
 	}
 	if len(services) != 0 {
 		t.Errorf("a test and a sleeping child read as machine services: %v", services)
+	}
+}
+
+// A start is pinned to the clock around the spawn, which no reading of
+// /proc gives: the machine's start is cut to the second and a process's
+// ticks to the tick, so a start reads early by less than a second and a
+// tick, and never late.
+func TestAChildsStartLiesBetweenTheSecondBeforeItsSpawnAndTheMomentAfterIt(t *testing.T) {
+	// Arrange
+	before := time.Now()
+	child, _ := startSleeper(t, t.TempDir())
+	after := time.Now()
+
+	// Act
+	start, isFound := StartTime(child.Process.Pid)
+
+	// Assert
+	if !isFound {
+		t.Fatal("the child's start could not be read")
+	}
+	if earliest := before.Add(-time.Second - time.Second/ticksPerSecond); start.Before(earliest) || start.After(after) {
+		t.Errorf("the child reads as started at %s, want between %s and %s", start.Format(time.RFC3339Nano), earliest.Format(time.RFC3339Nano), after.Format(time.RFC3339Nano))
+	}
+}
+
+// An instance is the machine's boot ID and the process's start in ticks, as
+// the kernel gives them, with no clock in either. proc(5) counts the start
+// as the 22nd field of a process's line, and a program named sleep has no
+// space in its name to move the count.
+func TestAnInstanceIsTheBootIDAndTheStartTicksOfItsProcess(t *testing.T) {
+	// Arrange
+	child, _ := startSleeper(t, t.TempDir())
+	boot, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	line, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", child.Process.Pid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields := strings.Fields(string(line))
+	if len(fields) < 22 {
+		t.Fatalf("the child's line %q has no 22nd field", line)
+	}
+	want := strings.TrimSpace(string(boot)) + "/" + fields[21]
+
+	// Act
+	instance, err := Instance(child.Process.Pid)
+	again, againErr := Instance(child.Process.Pid)
+
+	// Assert
+	if err != nil || againErr != nil {
+		t.Fatalf("Instance = %v, then %v", err, againErr)
+	}
+	if instance != want || again != want {
+		t.Errorf("two readings of the child's instance gave %q and %q, want %q", instance, again, want)
+	}
+	if strings.ContainsAny(instance, " \t\r\n") {
+		t.Errorf("the instance %q holds a space, and a waiter's ticket parts its fields at one", instance)
+	}
+}
+
+// A fleet command is held to a budget of the files it opens (fsx.Opens),
+// and what it reads of a process is no fleet file: the kernel makes it up
+// as it is read. A lock that reads its holder must cost none of the budget.
+func TestReadingAProcessCountsAsNoFleetOpen(t *testing.T) {
+	// Arrange
+	pid := os.Getpid()
+	before := fsx.Opens()
+
+	// Act
+	_, lookupErr := Lookup(pid)
+	_, instanceErr := Instance(pid)
+	_, argumentsErr := Arguments(pid)
+	_, environmentErr := Environment(pid)
+	_, processesErr := Processes()
+
+	// Assert
+	if err := errors.Join(lookupErr, instanceErr, argumentsErr, environmentErr, processesErr); err != nil {
+		t.Fatal(err)
+	}
+	if opened := fsx.Opens() - before; opened != 0 {
+		t.Errorf("reading a process counted %d fleet open(s), want none", opened)
 	}
 }

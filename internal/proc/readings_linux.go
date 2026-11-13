@@ -43,7 +43,7 @@ func Environment(pid int) ([]string, error) {
 // readList reads a file of /proc/<pid> that holds strings each ended by a
 // zero byte.
 func readList(pid int, name string) ([]string, error) {
-	raw, err := fsx.ReadFile(fmt.Sprintf("/proc/%d/%s", pid, name))
+	raw, err := fsx.ReadKernelFile(fmt.Sprintf("/proc/%d/%s", pid, name))
 	if err != nil {
 		return nil, err
 	}
