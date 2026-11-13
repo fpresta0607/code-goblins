@@ -74,6 +74,9 @@ type HostProgress struct {
 	// session_meta names, by path, for the rollouts that still exist. A
 	// rollout never rewrites its first entry, so each is read once.
 	rolloutCwds map[string]string
+	// searched holds how far into its record each search for a text taken
+	// has read, so its next look reads only what the record gained.
+	searched map[recordSearch]int64
 }
 
 // tree is the reader the prober reads through.
@@ -247,5 +250,6 @@ func rolloutCwd(path string) (string, bool) {
 
 // transcriptEntryReach bounds how much of a transcript's end is read for its
 // last entry, since one entry holding a large tool result can run to
-// megabytes.
+// megabytes. A search for text taken reads its record back that much at a
+// time, and stops by what one such read holds (tookIn).
 const transcriptEntryReach = 4 << 20

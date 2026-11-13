@@ -354,6 +354,17 @@ func TestDecodeProcesses(t *testing.T) {
 			t.Fatalf("decoded %+v", processes)
 		}
 	})
+	t.Run("handles and processor time", func(t *testing.T) {
+		// Win32_Process counts KernelModeTime and UserModeTime in units of
+		// 100 nanoseconds: 52,200,000,000 of them are 87 minutes.
+		processes, err := decodeProcesses([]byte(`[{"pid":4,"ppid":1,"name":"grep.exe","cmd":"grep","handles":6680532,"cpu":52200000000,"start":""}]`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(processes) != 1 || processes[0].Handles != 6680532 || processes[0].Processor != 87*time.Minute {
+			t.Fatalf("decoded %+v, want 6680532 handles and 87m of processor time", processes)
+		}
+	})
 	t.Run("empty output is an error", func(t *testing.T) {
 		if _, err := decodeProcesses([]byte("  \n")); err == nil {
 			t.Fatal("empty output decoded without error")
