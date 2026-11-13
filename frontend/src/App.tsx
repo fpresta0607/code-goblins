@@ -489,7 +489,9 @@ export function App() {
   // The Command Center's inbox sits in that header banner, so an inbox that
   // opens while a panel fills a phone, as when a focus on an item that no
   // longer waits falls back to it, steps the panel back to the board, where
-  // he sees it (#1816).
+  // he sees it (#1816). It closes as Back does but returns the keyboard
+  // without scrolling: on a phone the page scrolls, and focusing a card below
+  // the first screen would carry the banner and its inbox out of sight.
   const showInbox = () => {
     if (!fillsPhone) return;
     setPaneOpen(false);
