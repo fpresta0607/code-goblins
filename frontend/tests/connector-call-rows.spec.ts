@@ -34,7 +34,7 @@ const CONVERSATION = { conversation: "fixture-conversation", more: false, messag
 // The logo a row draws: a bundled file that loaded, never a broken picture.
 async function expectLogo(row: Locator, file: string) {
   const logo = row.locator("summary .call-icon img");
-  await expect(logo).toHaveAttribute("src", "/assets/connectors/" + file + ".svg");
+  await expect(logo).toHaveAttribute("src", new RegExp("^/assets/" + file + "-[\\w-]{8}\\.svg$"));
   await expect(logo).toHaveAttribute("loading", "lazy");
   await expect.poll(() => logo.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
   await expect(row.locator("summary .call-icon .icon")).toHaveCount(0);

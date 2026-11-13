@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useRuntimeStream } from "./stream";
 import { goblinName } from "./task-words";
 import { ScreenView } from "./screen-view";
+import goblinApp from "/assets/goblin-app.png";
 
 // ScreenPage is a goblin's Screen view at full size in a tab of its own, the
 // address its card's Browser active opens (screenAddress): the same view as
@@ -14,7 +15,7 @@ export function ScreenPage({ task: id }: { task: string }) {
   useEffect(() => { document.title = name + "'s browser · Code Goblins"; }, [name]);
   return <div className="screen-page-shell">
     <header>
-      <a className="brand-mark" href="/" aria-label="Code Goblins board"><img src="/assets/goblin-app.png" width="32" height="32" alt="" /></a>
+      <a className="brand-mark" href="/" aria-label="Code Goblins board"><img src={goblinApp} width="32" height="32" alt="" /></a>
       <h1>{name}'s browser</h1>
     </header>
     <main aria-label={name + "'s browser"}>
