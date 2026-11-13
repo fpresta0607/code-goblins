@@ -203,7 +203,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // Which of his earlier messages Up has brought back into the box, if any.
   const [recalled, setRecalled] = useState<number | null>(null);
   // The session's slash commands, read from its harness, the files its @
-  // names, and the option the open list has picked while he types its word.
+  // names, and the option the open list has picked while he types its word,
+  // with the draft he moved that pick on with the arrows, if he did.
   // Escape closes the list until the draft changes. A box that is not on
   // screen reads nothing: its own commands are read when he can see and use
   // it, so a hidden box never reports a refusal.
@@ -211,6 +212,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   sessionQuery.set("token", snapshot.instance);
   const commands = useResource(isShown ? "/api/commands?" + sessionQuery.toString() : null, parseCommands);
   const [pick, setPick] = useState(0);
+  const [pickMovedOn, setPickMovedOn] = useState<string | null>(null);
   const [isListClosed, setListClosed] = useState(false);
   const [caret, setCaret] = useState(0);
   const [found, setFound] = useState<{ start: number | null; query: string; files: string[] }>({ start: null, query: "", files: [] });
@@ -266,6 +268,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
     setUnsent("");
     setListClosed(false);
     setPick(0);
+    setPickMovedOn(null);
     sendID.current = "";
   };
   const attach = (next: (prior: string[]) => string[]) => {
@@ -741,20 +744,25 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
       return;
     }
     if (listOptions.length) {
-      if (event.key === "ArrowDown") { event.preventDefault(); setPick((prior) => (Math.min(prior, listOptions.length - 1) + 1) % listOptions.length); return; }
-      if (event.key === "ArrowUp") { event.preventDefault(); setPick((prior) => (Math.min(prior, listOptions.length - 1) - 1 + listOptions.length) % listOptions.length); return; }
+      if (event.key === "ArrowDown") { event.preventDefault(); setPick((prior) => (Math.min(prior, listOptions.length - 1) + 1) % listOptions.length); setPickMovedOn(draft); return; }
+      if (event.key === "ArrowUp") { event.preventDefault(); setPick((prior) => (Math.min(prior, listOptions.length - 1) - 1 + listOptions.length) % listOptions.length); setPickMovedOn(draft); return; }
       if (event.key === "Escape") { event.preventDefault(); setListClosed(true); return; }
       if ((event.key === "Enter" || event.key === "Tab") && !event.shiftKey && !event.nativeEvent.isComposing) {
         event.preventDefault();
         // Enter runs the command he picked, as a harness's own list does in
         // its terminal, where the box only wrote its name and a second Enter
         // sent it (the Overlord, 2026-11-11: "cant type / commands into
-        // modern chat like terminal", #2372). Tab writes it into the box for
-        // its arguments, and Enter on a Codex skill or a file completes the
+        // modern chat like terminal", #2372). The pick is his when its name
+        // starts with what he typed or he moved to it with the arrows; one
+        // the list found only by a word it holds is not, and Enter then sends
+        // the box as he typed it. Tab writes the pick into the box for its
+        // arguments, and Enter on a Codex skill or a file completes the
         // mention, as Codex's own list does.
         const command = commandOptions[picked];
-        if (event.key === "Enter" && command?.sigil === "/") void send(command.sigil + command.name);
-        else choose(picked);
+        if (event.key === "Enter" && command?.sigil === "/") {
+          const isHis = pickMovedOn === draft || command.name.toLowerCase().startsWith(draft.slice(1).toLowerCase());
+          void send(isHis ? command.sigil + command.name : draft);
+        } else choose(picked);
         return;
       }
     }
