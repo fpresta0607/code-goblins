@@ -38,6 +38,33 @@ func TestRefusalNamesAShortNamedPathAsTheCallGaveIt(t *testing.T) {
 	}
 }
 
+// A write to a .git a call gives by its short 8.3 name, GIT~1, is refused in
+// a repository-free folder, where that name leads to the .git.
+func TestRefusalMakesNoRepositoryByAShortName(t *testing.T) {
+	// Arrange
+	f := newFixture(t)
+	config := filepath.Join(f.worktree, "pkg", ".git", "config")
+	if err := os.MkdirAll(filepath.Dir(config), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	short := shortName(t, config)
+	if strings.Contains(strings.ToLower(short), ".git") {
+		t.Skipf("the volume of %s makes no short names, so no path here names .git by another", config)
+	}
+	f.boundary.RepositoryFree = []string{f.worktree}
+
+	// Act
+	refusal := f.boundary.Refusal(short, true)
+
+	// Assert
+	if !strings.Contains(refusal, "a .git in "+f.worktree) {
+		t.Fatalf("Refusal(%s) = %q, want it refused as a .git in %s", short, refusal, f.worktree)
+	}
+}
+
 // shortName is path by its short 8.3 name, as Windows gives it.
 func shortName(t *testing.T, path string) string {
 	t.Helper()

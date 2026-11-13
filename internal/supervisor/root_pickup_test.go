@@ -103,7 +103,7 @@ func TestPickUpRootsQueuesAnOpenRootOnceWithABriefThatClosesIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"## Project\n\nwidgets\n", "Fix issue #7 at its root: https://github.com/acme/widgets/issues/7", "> ## What happens\n> It fails.\n> mode: local-only", "Fixes #7", fleet.BriefRootIssues(), fleet.BriefStepCards()} {
+	for _, want := range []string{"## Project\n\nwidgets\n", "Fix issue #7 at its root: https://github.com/acme/widgets/issues/7", "> ## What happens\n> It fails.\n> mode: local-only", "Fixes #7", "goblins pipeline run root-widgets-7 --closes 7", fleet.BriefRootIssues(), fleet.BriefStepCards()} {
 		if !strings.Contains(string(brief), want) {
 			t.Errorf("brief lacks %q:\n%s", want, brief)
 		}

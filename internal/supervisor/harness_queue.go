@@ -216,8 +216,18 @@ func (s *Service) sendHeldNow(id, task string) (bool, error) {
 // and types the others again in the order he sent them. Nothing is cleared
 // that the board did not type: a queue that also held a line typed in the
 // terminal is left on the prompt line for him, with the board's lines watched
-// there as lines left typed are.
+// there as lines left typed are. A message its turn already took is in no
+// queue, and his press can land before the board's next look at its session's
+// record, so the board looks first: that message then reads delivered on
+// every board, the press says its session took it, and no key goes to a
+// session for a queue it no longer holds (#1915).
 func (s *Service) takeBackHeld(withdraw Action) (Action, bool, error) {
+	if len(s.Store.heldWith(withdraw.Target, withdraw.TaskID)) > 0 {
+		if err := s.Store.settleDeliveries(time.Now().UTC(), s.lookAtTerminal); err != nil {
+			return Action{}, true, err
+		}
+		s.notify()
+	}
 	held := s.Store.heldWith(withdraw.Target, withdraw.TaskID)
 	if len(held) == 0 {
 		return Action{}, false, nil

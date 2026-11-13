@@ -507,20 +507,34 @@ func TestTreeEndAndWaitWaitsUntilTheJobCountsNothingBeyondItsList(t *testing.T) 
 		// process beyond the list.
 		unlistedReads int
 		isConfirmed   bool
-		limit         time.Duration
 	}{
-		{name: "an exit that finishes within the end", unlistedReads: 3, isConfirmed: true, limit: time.Minute},
-		{name: "an exit that outlasts the end", unlistedReads: 1 << 30, limit: 2 * time.Second},
+		{name: "an exit that finishes within the end", unlistedReads: 3, isConfirmed: true},
+		{name: "an exit that outlasts the end", unlistedReads: 1 << 30},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			tree, _, pids, held := serviceTree(t, "")
 			// An end that confirms nothing leaves the job to the strict end.
 			t.Cleanup(func() { _, _ = tree.TerminateAndWait(context.Background()) })
-			execx.CountUnlistedForTest(t, test.unlistedReads)
-			// stall-accepted: the row whose exit finishes is given a minute, and the row whose exit outlasts the end means its two seconds to run out.
-			ctx, cancel := context.WithTimeout(context.Background(), test.limit)
+			// The worker is ended and gone before the end starts, so the end's
+			// own bound covers only reading the job and the wait the row
+			// checks: a loaded machine once spent a two-second deadline
+			// ending the worker (issue 1760).
+			if err := windows.TerminateProcess(held["worker"], 1); err != nil {
+				t.Fatal(err)
+			}
+			if event, err := windows.WaitForSingleObject(held["worker"], 60000); err != nil || event != windows.WAIT_OBJECT_0 {
+				t.Fatal("the worker still runs after it was ended")
+			}
+			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
+			counted := func() {}
+			if !test.isConfirmed {
+				// The caller's deadline runs out at the first read that counts
+				// a process beyond the list, so it runs out in that wait.
+				counted = cancel
+			}
+			execx.CountUnlistedForTest(t, test.unlistedReads, counted)
 
 			// Act
 			_, spared, err := tree.EndAndWait(ctx)

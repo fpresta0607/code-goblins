@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -49,7 +50,7 @@ func TestAGateStartHandsItsIntentOverInAFile(t *testing.T) {
 	runner := &helpRunner{help: currentHelp}
 
 	// Act
-	start, err := StartOf(context.Background(), runner, t.TempDir(), nil, longIntent)
+	start, err := StartOf(context.Background(), runner, t.TempDir(), nil, longIntent, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +85,7 @@ func TestAGateStartOnANoMistakesWithoutIntentFileKeepsTheCommandLineAndSaysSo(t 
 	runner := &helpRunner{help: "Flags:\n      --intent string        what the user set out to accomplish\n      --no-publish-intent    keep the generated Intent section out of the PR body\n"}
 
 	// Act
-	start, err := StartOf(context.Background(), runner, t.TempDir(), nil, "ship safely")
+	start, err := StartOf(context.Background(), runner, t.TempDir(), nil, "ship safely", nil)
 	defer start.Close()
 
 	// Assert
@@ -108,7 +109,7 @@ func TestAGateStartKeepsItsPrivateIntentOutOfThePullRequest(t *testing.T) {
 	runner := &helpRunner{help: currentHelp}
 
 	// Act
-	start, err := StartOf(context.Background(), runner, t.TempDir(), nil, intent)
+	start, err := StartOf(context.Background(), runner, t.TempDir(), nil, intent, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +145,7 @@ func TestAGateStartOnANoMistakesThatWouldPublishItsIntentStartsNothing(t *testin
 			t.Setenv("TEMP", temp)
 
 			// Act
-			start, err := StartOf(context.Background(), runner, t.TempDir(), nil, "ship safely")
+			start, err := StartOf(context.Background(), runner, t.TempDir(), nil, "ship safely", nil)
 			defer start.Close()
 
 			// Assert
@@ -155,5 +156,50 @@ func TestAGateStartOnANoMistakesThatWouldPublishItsIntentStartsNothing(t *testin
 				t.Errorf("the refused start left %d files in the temporary folder", len(left))
 			}
 		})
+	}
+}
+
+// A gate start hands no-mistakes each issue the run's pull request closes,
+// which is the one place no-mistakes writes a live closing reference from:
+// it neutralizes Fixes #N in every text an agent wrote, the intent included.
+func TestAGateStartHandsNoMistakesTheIssuesItsPullRequestCloses(t *testing.T) {
+	// Arrange
+	runner := &helpRunner{help: "Flags:\n      --closes stringArray   issue this PR closes when merged\n      --intent-file string   read intent from this file\n      --no-publish-intent    keep the generated Intent section out of the PR body\n"}
+
+	// Act
+	start, err := StartOf(context.Background(), runner, t.TempDir(), nil, "ship safely", []string{"1996", "fpresta0607/code-goblins#1998"})
+	defer start.Close()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(start.Args) != 9 || strings.Join(start.Args[:3], " ") != "axi run --intent-file" || strings.Join(start.Args[4:], " ") != "--no-publish-intent --closes 1996 --closes fpresta0607/code-goblins#1998" {
+		t.Fatalf("the run starts as %q, want the intent file, the intent kept out of the pull request and one --closes for each issue", start.Args)
+	}
+}
+
+// A no-mistakes before 1.87.0 takes no --closes, so a run it started would
+// open a pull request that closes nothing: a start that names an issue to
+// close starts no run and leaves no intent file behind.
+func TestAGateStartThatClosesAnIssueOnANoMistakesWithoutClosesStartsNothing(t *testing.T) {
+	// Arrange
+	runner := &helpRunner{help: "Flags:\n      --intent-file string   read intent from this file\n      --no-publish-intent    keep the generated Intent section out of the PR body\n"}
+	before, err := filepath.Glob(filepath.Join(os.TempDir(), "goblins-gate-intent-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	start, err := StartOf(context.Background(), runner, t.TempDir(), nil, "ship safely", []string{"1996"})
+	defer start.Close()
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "no run starts") || !strings.Contains(err.Error(), "1.87.0") || len(start.Args) != 0 {
+		t.Fatalf("StartOf = %q, %v; want no start and the version that takes --closes named", start.Args, err)
+	}
+	after, err := filepath.Glob(filepath.Join(os.TempDir(), "goblins-gate-intent-*"))
+	if err != nil || len(after) != len(before) {
+		t.Fatalf("intent files %v after the refusal, want the %d there before it", after, len(before))
 	}
 }

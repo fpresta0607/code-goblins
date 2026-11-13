@@ -200,3 +200,59 @@ func TestToolRefusalRefusesArgumentsItCannotRead(t *testing.T) {
 		t.Fatal("a Write whose arguments could not be read went on")
 	}
 }
+
+// A write that would make a .git in a repository-free folder is refused in
+// every form Windows opens as .git, while a read of one, a name that only
+// holds .git, and the same write where the folder is not repository-free go
+// on.
+func TestToolRefusalMakesNoRepositoryInARepositoryFreeFolder(t *testing.T) {
+	f := newFixture(t)
+	existing := filepath.Join(f.worktree, "pkg", ".git")
+	if err := os.MkdirAll(existing, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(existing, "config"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, tool       string
+		input            map[string]string
+		isRepositoryFree bool
+		isRefused        bool
+	}{
+		{"a nested repository's config", "Write", map[string]string{"file_path": filepath.Join(f.worktree, "vendor", "x", ".git", "config")}, true, true},
+		{"a link file of a repository", "Write", map[string]string{"file_path": filepath.Join(f.worktree, "vendor", "x", ".git")}, true, true},
+		{"in another case", "Edit", map[string]string{"file_path": filepath.Join(f.worktree, "src", ".GIT", "HEAD")}, true, true},
+		{"with a dot Windows drops", "Write", map[string]string{"file_path": filepath.Join(f.worktree, "src", ".git.", "HEAD")}, true, true},
+		{"with a space Windows drops", "Write", map[string]string{"file_path": filepath.Join(f.worktree, "src", ".git ", "HEAD")}, true, true},
+		{"as a folder's stream", "Write", map[string]string{"file_path": filepath.Join(f.worktree, "src", ".git::$INDEX_ALLOCATION", "HEAD")}, true, true},
+		{"by a relative path", "MultiEdit", map[string]string{"file_path": "lib/.git/hooks/pre-commit"}, true, true},
+		{"the worktree's own link", "Write", map[string]string{"file_path": filepath.Join(f.worktree, ".git")}, true, true},
+		{"a pi write", "write", map[string]string{"path": filepath.Join(f.worktree, "a", ".git", "config")}, true, true},
+		{"a read of one", "Read", map[string]string{"file_path": filepath.Join(existing, "config")}, true, false},
+		{"a name that only starts with .git", "Write", map[string]string{"file_path": filepath.Join(f.worktree, ".github", "workflows", "ci.yml")}, true, false},
+		{"a name that only ends with .git", "Write", map[string]string{"file_path": filepath.Join(f.worktree, "fixtures", "bare.git", "HEAD")}, true, false},
+		{"a .gitignore", "Write", map[string]string{"file_path": filepath.Join(f.worktree, ".gitignore")}, true, false},
+		{"a .git in the scratch folder", "Write", map[string]string{"file_path": filepath.Join(f.scratch, "clone", ".git", "config")}, true, false},
+		{"where the folder is not repository-free", "Write", map[string]string{"file_path": filepath.Join(f.worktree, "vendor", "x", ".git", "config")}, false, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			boundary := f.boundary
+			if test.isRepositoryFree {
+				boundary.RepositoryFree = []string{f.worktree}
+			}
+
+			// Act
+			refusal := boundary.ToolRefusal(test.tool, toolInput(t, test.input))
+
+			// Assert
+			if test.isRefused && !strings.Contains(refusal, "a .git in "+f.worktree) {
+				t.Fatalf("%s %v gave %q, want it refused as a .git in %s", test.tool, test.input, refusal, f.worktree)
+			}
+			if !test.isRefused && refusal != "" {
+				t.Fatalf("%s %v was refused: %s", test.tool, test.input, refusal)
+			}
+		})
+	}
+}

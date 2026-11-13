@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/claudehook"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/sandbox"
@@ -178,6 +179,61 @@ func TestEverySealHoldsASandboxTasksShellToItsHostRule(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// A sandbox task's goblin writes no .git in its worktree with its file tools,
+// since its host commands trust the walk its last container run ended with,
+// while every other goblin's write there goes on.
+func TestASandboxGoblinsFileToolsMakeNoRepositoryInItsWorktree(t *testing.T) {
+	for _, test := range []struct {
+		name, image string
+		isRefused   bool
+	}{
+		{name: "a sandbox task's", image: "node:22", isRefused: true},
+		{name: "an ordinary task's"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			runtime, meta := sandboxHome(t, test.image, &fakeSandboxEngine{})
+			h, err := runtime.resolveHome()
+			if err != nil {
+				t.Fatal(err)
+			}
+			config := filepath.Join(meta.Worktree, "vendor", "x", ".git", "config")
+			input, err := json.Marshal(map[string]string{"file_path": config})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			refusal := goblinPathRefusal(h, meta, claudehook.Payload{ToolName: "Write", ToolInput: string(input), Cwd: meta.Worktree})
+
+			// Assert
+			if test.isRefused && !strings.Contains(refusal, "a .git in "+meta.Worktree) {
+				t.Fatalf("refusal = %q, want the write of %s refused as a .git in the worktree", refusal, config)
+			}
+			if !test.isRefused && refusal != "" {
+				t.Fatalf("the write of %s was refused: %s", config, refusal)
+			}
+		})
+	}
+}
+
+// A goblins command of a sandbox task that may write a .git, one that runs
+// no host git among them, waits while the task's record names no tasktmp
+// folder, where it would have the next host command walk the worktree.
+func TestAGoblinsCommandWaitsWhileItsTaskCannotRecordTheNextWalk(t *testing.T) {
+	// Arrange
+	_, meta := sandboxHome(t, "node:22", &fakeSandboxEngine{})
+	meta.TaskTmp = ""
+
+	// Act
+	refusal := sandboxRefusal(meta, claudehook.Payload{ToolName: "Bash", Command: "goblins sandbox run -- npm test", Cwd: meta.Worktree})
+
+	// Assert
+	if !strings.HasPrefix(refusal, "[sandbox] ") || !strings.Contains(refusal, "it may write a .git") {
+		t.Fatalf("refusal = %q, want a [sandbox] refusal saying it may write a .git", refusal)
 	}
 }
 

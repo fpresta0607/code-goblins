@@ -9,7 +9,8 @@ import (
 // tool's arguments as its harness hands them to a hook, which is refused
 // before it runs, or empty when it may go on. The file tools, Claude Code's
 // and pi's, are read by the paths they name, and a shell tool, Bash, PowerShell, Monitor or pi's bash,
-// by its command (ShellRefusal). A tool that names no path goes on.
+// by its command (ShellRefusal), which is also refused when it runs a
+// recursive find or grep of a whole drive. A tool that names no path goes on.
 func (b Boundary) ToolRefusal(tool string, input json.RawMessage) string {
 	var arguments struct {
 		FilePath     string `json:"file_path"`
@@ -43,6 +44,9 @@ func (b Boundary) ToolRefusal(tool string, input json.RawMessage) string {
 		}
 	case "Bash", "bash", "PowerShell", "Monitor":
 		reason = b.ShellRefusal(arguments.Command)
+		if search := driveRootSearch(arguments.Command, tool == "PowerShell"); reason == "" && search != "" {
+			return "[drive-root-search] this " + tool + " call is refused before it ran: " + search + " recursively, the whole drive, which walks every file on it for hours and holds millions of handles open, and goes on after the shell that started it ends. Name the folder to search instead, such as your worktree."
+		}
 	}
 	if reason == "" {
 		return ""

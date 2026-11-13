@@ -52,4 +52,8 @@ class StandIn(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), StandIn).serve_forever()
+    server = ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), StandIn)
+    # A wait that fails prints what the stand-in printed, so this line tells a
+    # stand-in that listened from one that never got this far.
+    print(f"listening on 127.0.0.1 port {sys.argv[1]}")
+    server.serve_forever()

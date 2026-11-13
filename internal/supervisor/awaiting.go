@@ -86,6 +86,31 @@ type terminalLook struct {
 	Took    bool
 }
 
+// digests are the names the text of a can carry in its harness's record: the
+// one its words as typed have now, then the one stored with it where that is
+// another. A build before #1915's fix named text character for character, so
+// a delivery it stored whose text held a character that draws nothing carries
+// a name no record of the text has, and is found by its words as typed
+// instead. Lines a stopped turn handed back went as one prompt and carry that
+// prompt's name (markHandedBack). A delivery stored with no name has none.
+func (a Awaiting) digests() []string {
+	if a.Digest == "" {
+		return nil
+	}
+	if a.Typed == "" {
+		return []string{a.Digest}
+	}
+	return slices.Compact([]string{monitor.TextDigest(a.Typed), a.Digest})
+}
+
+// tookIn reports whether the record conversation names shows the text of a
+// taken since its submit.
+func (a Awaiting) tookIn(ctx context.Context, conversation monitor.Conversation) bool {
+	return slices.ContainsFunc(a.digests(), func(digest string) bool {
+		return conversations().Took(ctx, conversation, digest, a.Since)
+	})
+}
+
 // recipient is who a delivery waits on, as the Overlord reads it.
 func (a Awaiting) recipient() string {
 	if a.Task != "" {
@@ -493,7 +518,7 @@ func (s *Service) lookAtTerminal(a Awaiting) terminalLook {
 			return terminalLook{Gone: true}
 		}
 		id = meta.ID
-		took = a.Digest != "" && conversations().Took(context.Background(), goblinConversation(meta), a.Digest, a.Since)
+		took = a.tookIn(context.Background(), goblinConversation(meta))
 	} else {
 		took = ceoConversationTook(context.Background(), s.Store.Home.State, a)
 	}
@@ -518,15 +543,12 @@ func (s *Service) lookAtTerminal(a Awaiting) terminalLook {
 // live primary holds now, since a clear, compact or resume moves the
 // conversation to a new session after the submit.
 func ceoConversationTook(ctx context.Context, stateDir string, a Awaiting) bool {
-	if a.Digest == "" {
-		return false
-	}
 	sessions := []string{a.Session}
 	if primary, live := livePrimary(stateDir); live && primary.Host == a.Host {
 		sessions = append(sessions, ceoSession(stateDir, primary))
 	}
 	for _, session := range slices.Compact(sessions) {
-		if session != "" && conversations().Took(ctx, monitor.Conversation{Harness: a.Harness, Session: session}, a.Digest, a.Since) {
+		if session != "" && a.tookIn(ctx, monitor.Conversation{Harness: a.Harness, Session: session}) {
 			return true
 		}
 	}
