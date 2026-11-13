@@ -266,7 +266,7 @@ func TestRunDoctorSaysWhatTheDevDriveIs(t *testing.T) {
 		"a machine that can": {machineWith(), "dev drive: absent: this machine can have one"},
 		"an untrusted one":   {machineWith(devdrive.Volume{Root: `E:\`, FileSystem: "ReFS", Dev: true, Trust: devdrive.Untrusted}), "dev drive: present, not used yet: E: is a Dev Drive Windows does not trust"},
 		"one in a file": {machineWith(devdrive.Volume{Root: `E:\`, FileSystem: "ReFS", Dev: true, Trust: devdrive.Trusted, Image: devdrive.Image{Path: `C:\DevDrives\CodeGoblins.vhdx`, Unread: "only a process run as administrator may read it"}}),
-			`Command Center (file: C:\DevDrives\CodeGoblins.vhdx holds space on C: that stays taken when goblins free space on E:, and how much could not be read: only a process run as administrator may read it)` + "\n"},
+			`Command Center and takes the rest by itself (file: C:\DevDrives\CodeGoblins.vhdx holds space on C: that stays taken when goblins free space on E:, and how much could not be read: only a process run as administrator may read it)` + "\n"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/gatedb"
 	"github.com/fpresta0607/code-goblins/internal/gatehome"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -84,7 +85,7 @@ const moveSays = "goblins dev-drive move: "
 // line when it named itself in none; or its exit code when it wrote nothing.
 func lastSaid(logPath string, offset int64, exitCode int) string {
 	said := fmt.Sprintf("goblins dev-drive move exited %d and said nothing", exitCode)
-	log, err := os.Open(logPath)
+	log, err := fsx.Open(logPath)
 	if err != nil {
 		return said
 	}

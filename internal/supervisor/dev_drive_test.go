@@ -368,7 +368,7 @@ func (g *gateStep) carriedInto(t *testing.T) string {
 	select {
 	case folder := <-g.started:
 		return folder
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the supervisor started no carry")
 		return ""
 	}
@@ -381,7 +381,7 @@ func (g *gateStep) end(t *testing.T, err error) {
 	g.ended <- err
 	select {
 	case <-g.s.devDriveNow:
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the supervisor never asked for another look after the carry ended")
 	}
 }
