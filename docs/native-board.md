@@ -1715,6 +1715,7 @@ Terminal text reads one way wherever the board shows any: a row's command and wh
 One card holds the command under its shell's name, each of its lines as written after the prompt's mark, `$` or PowerShell's `>`, then what it printed under output, then how it ended on a line of its own under the row's own mark: Running, Completed, Failed, Denied or Interrupted.
 A program's colour codes colour its text in the board's own shades of them, every other escape is dropped, and a line its program redrew, as a progress bar does, shows as its terminal left it.
 Where a program coloured nothing, a line that starts as an error, a warning or a success reads as one, a path wears a quiet colour and a web address is a link.
+A path from a drive reads whole, as a card names one for its link ([Deliberate CEO questions](#deliberate-ceo-questions)), with the line and column a tool may add after it.
 A prompt's question and its numbered choices read as written, the mark its terminal points with included, and none is drawn as picked, so a card's own choices are the one place to choose (the Overlord, 2026-11-13, reviewing a question that quoted one: "fix two option confirm on radio button or panel to just make it simple and intuitive").
 A long line wraps at its spaces and after the separators of a long word, such as a path's folders, its later rows set in, and never inside a word; a word with no separator that is wider than the card scrolls sideways inside it.
 The command and what it printed each have Copy, which takes that part whole with no colour code among it, and Full screen opens the card over the window as a code card's does (`frontend/tests/terminal-text.spec.ts`).
@@ -2213,7 +2214,7 @@ What follows a line that reads only `Details:` is its evidence, such as run IDs,
 A question without that line, or with nothing on one side of it, shows whole as its asker wrote it; nothing guesses where its evidence starts.
 A block a question fences between lines of three backticks reads as terminal text does in [The Messages view](#the-messages-view), on either side of that line (#2524).
 One whose fence names a shell, `powershell`, `pwsh`, `cmd`, `bash`, `sh` or `zsh` in any case, is a command under that shell's name, and any other, such as what a command printed or the prompt it stopped at, is output.
-A local path in either is a link, as one in the question's words is.
+A local path in either is a link to the whole path, as one in the question's words is, drawn in its line's own type with its underline and folder and wrapping after its separators as the block's words do.
 `--message-file <file>`, on `goblins question` or a goblin's `--blocked` question with choices, gives the question a message he sends himself, such as an email, which the question holds as `mail` and its card shows under its text as a [step card](#step-cards) does.
 The inbox and history list each question on at most two lines, with the marks dropped.
 No choice is preselected and written text is sent only when Other is selected.
@@ -2577,7 +2578,7 @@ The card never shows the exit code; the inbox's history keeps it beside how the 
 A command that completes or is stopped, or that expires or is withdrawn while its card is on screen, finishes the card as an answered item's does: its check with Complete or Stopped, or Expired or Withdrawn, then the next open item or You're all done.
 A command that failed keeps its card on screen with what its terminal showed, which is trouble he may need to read, until he moves on; an Update item keeps its own card.
 What its terminal showed reads as terminal text under the command, in the same block (#2524).
-The block's last line follows how the item ended, never its exit code: Completed once it completed, and Failed once it failed, a command that never exited included, such as one whose terminal closed first or whose Windows prompt was declined.
+The block ends in Failed once the command failed, never with its exit code, a command that never exited included, such as one whose terminal closed first or whose Windows prompt was declined.
 A goblin's wait on the Overlord himself (`goblins notify --waiting-on overlord`, a review item whose id is `waiting-<task>-<n>`) shows as a status card: who waits and what for, in the goblin's own words, and no answer box; it stays until he answers or clears it, the goblin withdraws it, its task is gone or the CEO answers it, whatever the goblin reports meanwhile.
 Its words show once: a wait with a page opens it from the card's one Open review button and shows no page preview, which would repeat them and open the page a second time.
 The goblin's words keep their lines and read formatted, never as raw markup: the first line heads the card, `**bold**` is bold, `- ` lines are bullets, a value in backticks is code with a copy button beside it, drawn as a link when the value is an address, and an address in the words is a link with no copy button.

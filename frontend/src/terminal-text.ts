@@ -1,5 +1,5 @@
 import type { IconName } from "./Icon.tsx";
-import { webAddresses } from "./messageText.ts";
+import { drivePaths, webAddresses } from "./messageText.ts";
 
 // Terminal text as the board reads it everywhere it shows any (#2524): what a
 // command printed in a chat row, what a Command Center command left on its
@@ -123,13 +123,17 @@ function cellRows(text: string): Cell[][] {
 
 const styleKey = (style: Style) => [style.color, style.isBold, style.isDim, style.isItalic, style.isUnderlined].join();
 
-// A path: one that starts at a drive, the folder it is in, its parent, a
-// home or the root, or a relative one that ends in a file's extension, each
-// with the line and column a tool may add.
-const PATH = /(?<![\w.@+~\\/-])(?:(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|~[\\/])(?:[\w.@+-]+[\\/])*[\w.@+-]*[\w@+-]|[\\/](?:[\w.@+-]+[\\/])+[\w.@+-]*[\w@+-]|(?:[\w.@+-]+[\\/])+[\w.@+-]+\.[A-Za-z]\w{0,7}|[\w@+-][\w.@+-]*\.[A-Za-z]\w{0,7}(?=:\d))(?::\d+(?::\d+)?)?/g;
+// Any other path: one that starts at the folder it is in, its parent, a home
+// or the root, or a relative one that ends in a file's extension, each with
+// the line and column a tool may add.
+const PATH = /(?<![\w.@+~\\/-])(?:(?:\.{1,2}[\\/]|~[\\/])(?:[\w.@+-]+[\\/])*[\w.@+-]*[\w@+-]|[\\/](?:[\w.@+-]+[\\/])+[\w.@+-]*[\w@+-]|(?:[\w.@+-]+[\\/])+[\w.@+-]+\.[A-Za-z]\w{0,7}|[\w@+-][\w.@+-]*\.[A-Za-z]\w{0,7}(?=:\d))(?::\d+(?::\d+)?)?/g;
+// The line and column a tool may add after a path, as in main.go:42:7.
+const LINE = /^:\d+(?::\d+)?/;
 
 // named tells the web addresses and the paths in an uncoloured span apart
-// from its words, an address first, so no path is read out of one.
+// from its words: an address first, so no path is read out of one, then a
+// path from a drive, whole as a card's text names it (drivePaths) with the
+// line and column a tool may add, then any other path.
 function named(span: TerminalSpan): TerminalSpan[] {
   if (span.color) return [span];
   const { text, ...style } = span;
@@ -144,13 +148,24 @@ function named(span: TerminalSpan): TerminalSpan[] {
     }
     if (at < to) out.push({ text: text.slice(at, to), ...style });
   };
+  const paths = (from: number, to: number) => {
+    let at = from;
+    for (const found of drivePaths(text.slice(from, to))) {
+      const start = from + found.start;
+      const end = from + found.end + (LINE.exec(text.slice(from + found.end, to))?.[0].length ?? 0);
+      words(at, start);
+      out.push({ text: text.slice(start, end), ...style, kind: "path" });
+      at = end;
+    }
+    words(at, to);
+  };
   let at = 0;
   for (const { start, end, address } of webAddresses(text)) {
-    words(at, start);
+    paths(at, start);
     out.push({ text: address, ...style, kind: "link" });
     at = end;
   }
-  words(at, text.length);
+  paths(at, text.length);
   return out;
 }
 

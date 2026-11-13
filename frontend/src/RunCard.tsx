@@ -41,7 +41,7 @@ export function RunCard({ run, goblin, connected, now, instance, sending, error,
   const mark = runMark(run);
   const failure = runFailure(run);
   const asker = run.task ? goblin ? goblinName(goblin) : run.task : "the CEO";
-  const ending: TerminalResult | null = run.state === "succeeded" ? { tone: "success", text: "Completed", icon: mark.icon } : run.state === "failed" ? { tone: "error", text: "Failed", icon: mark.icon } : null;
+  const ending: TerminalResult | null = run.state === "failed" ? { tone: "error", text: "Failed", icon: mark.icon } : null;
   const card: PathCard = { kind: "run", id: run.id, instance };
   return <article className={"run-card" + (running && run.terminal ? " live" : "")} aria-labelledby={"run-" + run.id}>
     {run.task && <p className="asker"><Avatar persona={personaFor(goblin)} small /><span><strong>{asker}</strong> asks you to run this · {run.state === "ready" ? "waiting " + age(run.created_at, now).replace(/ ago$/, "") : "asked " + age(run.created_at, now)}</span></p>}

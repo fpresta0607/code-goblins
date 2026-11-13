@@ -189,6 +189,26 @@ test("a path and a web address in plain text are told apart from the words aroun
   ]);
 });
 
+// A path from a drive reads whole, as the supervisor names one in a card's
+// text before it opens it (internal/supervisor/card_paths.go): up to a space
+// or a character no Windows path holds, so a short name's tilde, an
+// ampersand, a bracket and an accented letter stay in it.
+test("a drive path reads whole with the line and column a tool adds, a tilde, an ampersand, brackets and an accented letter in it", () => {
+  // Arrange
+  const path = String.raw`C:\Users\RUNNER~1\Temp\a&b\Café\build(1).log:12:3`;
+
+  // Act
+  const spans = terminalLines("error: cannot open " + path)[0].spans;
+
+  // Assert
+  assert.deepEqual(spans, [{ text: "error: cannot open " }, { text: path, kind: "path" }]);
+});
+
+test("a drive path that closes a bracketed phrase stops before the bracket", () => {
+  // Act and Assert
+  assert.deepEqual(terminalLines(String.raw`(see C:\work\a.ts)`)[0].spans, [{ text: "(see " }, { text: String.raw`C:\work\a.ts`, kind: "path" }, { text: ")" }]);
+});
+
 for (const text of ["and/or", "12/24 done", "use /compact now", "version 1.2.3", "TCP/IP"]) {
   test(`"${text}" names no path`, () => {
     // Act and Assert

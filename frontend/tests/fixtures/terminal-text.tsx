@@ -29,7 +29,7 @@ const question = {
 };
 const cleanup = {
   id: "remove-old-build", identity: "e".repeat(64), task: "", status: "pending", created_at: created,
-  text: "Should the old build be removed? Removing it runs:\n\n```powershell\nRemove-Item C:\\work\\old -Recurse\n```\n\nDetails:\n\nThe last build stopped at:\n\n```\nerror: cannot open C:\\work\\old\\config.json\n```",
+  text: "Should the old build be removed? Removing it runs:\n\n```powershell\nRemove-Item C:\\work\\old -Recurse\n```\n\nDetails:\n\nThe last build stopped at:\n\n```\nerror: cannot open C:\\work\\old\\config.json\nlog kept in C:\\Users\\RUNNER~1\\Temp\\a&b\\Café\\build(1).log\nwrote C:\\work\\site\\dist\\release\\artifacts\\windows-x64\\installer-with-a-long-name\\setup.exe\n```",
   options: ["Remove it", "Keep it"], recommended: "Remove it",
 };
 const base = { healthy: true, instance: "fixture", ceo_runs: true, tasks: [], questions: [question, cleanup] };

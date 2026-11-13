@@ -10,9 +10,9 @@ import "./code-card.css";
 const wrapping = (text: string): ReactNode => softBreaks(text).map((piece, at) => <Fragment key={at}>{at > 0 && <wbr />}{piece}</Fragment>);
 
 // linked draws text as wrapping does and, given path, each local path in it
-// by path, as a question's words draw one.
+// by path, as a question's words draw one, its words wrapping as well.
 const linked = (text: string, path?: PathRenderer): ReactNode => path
-  ? pathElements(text, path).map((piece, at) => typeof piece === "string" ? <Fragment key={at}>{wrapping(piece)}</Fragment> : piece)
+  ? pathElements(text, path, wrapping).map((piece, at) => typeof piece === "string" ? <Fragment key={at}>{wrapping(piece)}</Fragment> : piece)
   : wrapping(text);
 
 function drawn(span: TerminalSpan, key: number, path?: PathRenderer): ReactNode {

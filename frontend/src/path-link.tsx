@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { message, request } from "./api";
 import { copyText } from "./clipboard";
 import { inDesktopApp } from "./dictation";
@@ -21,8 +21,9 @@ export interface PathCard { kind: "credential" | "question" | "review" | "run"; 
 // link copies the path instead. A click that worked turns its folder into a
 // check for a moment, and one that failed says why in a few muted words
 // beside it. Beside a code value, which copies itself, it is the folder icon
-// alone.
-export function PathLink({ path, card, isIcon = false }: { path: string; card: PathCard; isIcon?: boolean }) {
+// alone. drawn draws its words, as in terminal text with the breaks a long
+// path may wrap at.
+export function PathLink({ path, card, isIcon = false, drawn = (words) => words }: { path: string; card: PathCard; isIcon?: boolean; drawn?: (path: string) => ReactNode }) {
   const [said, setSaid] = useState({ text: "", isFailure: false });
   const isDesktop = inDesktopApp();
   const say = (text: string, isFailure = false) => {
@@ -37,8 +38,8 @@ export function PathLink({ path, card, isIcon = false }: { path: string; card: P
     } catch (error: unknown) { say(message(error), true); }
   };
   return <><button type="button" className={"path-link" + (isIcon ? " icon" : "")} aria-label={isDesktop ? "Open " + path + " in File Explorer" : "Copy the path " + path} onClick={() => void open()}>
-    <Icon name={said.text && !said.isFailure ? "check" : "folder"} />{!isIcon && <span>{path}</span>}
+    <Icon name={said.text && !said.isFailure ? "check" : "folder"} />{!isIcon && <span>{drawn(path)}</span>}
   </button>{said.text && <span className={said.isFailure ? "path-link-said" : "sr-only"} role="status">{said.text}</span>}</>;
 }
 
-export const pathLinks = (card: PathCard): PathRenderer => (path, key, isIcon) => <PathLink key={key} path={path} card={card} isIcon={isIcon} />;
+export const pathLinks = (card: PathCard): PathRenderer => (path, key, isIcon, drawn) => <PathLink key={key} path={path} card={card} isIcon={isIcon} drawn={drawn} />;

@@ -22,6 +22,9 @@
 .terminal-block > pre { padding-inline: 0; white-space: pre-wrap; overflow-wrap: normal; tab-size: 8; }
 .terminal-line { display: block; padding: 0 .875em 0 calc(.875em + 2ch); text-indent: -2ch; }
 .terminal-line .message-link { overflow-wrap: normal; }
+/* A path that is a link reads as the text around it, in its type, size and
+   colour, with its underline and folder, and wraps where the line does. */
+.terminal-line .path-link { overflow-wrap: normal; color: inherit; font: inherit; text-indent: 0; }
 .terminal-command { color: #eef6f2; }
 .terminal-command .terminal-line::before { content: "  "; }
 .terminal-command .terminal-line:first-child::before { content: "$ "; color: var(--mint); font-weight: 700; }

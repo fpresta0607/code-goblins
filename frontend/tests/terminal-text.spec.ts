@@ -30,6 +30,11 @@ const OUTPUT = printed((code, text) => `${ESC}[${code}m${text}${ESC}[39m`);
 const PLAIN = printed((_, text) => text);
 const DIGEST = "0123456789abcdef".repeat(14);
 const NOTES = Array.from({ length: 24 }, (_, line) => "note " + (line + 1) + " of the release checklist").join("\n");
+// Paths the fixture question's block names: one with a short name's tilde,
+// an ampersand, a bracket and an accented letter, and one wider than a
+// phone's card.
+const KEPT = String.raw`C:\Users\RUNNER~1\Temp\a&b\Café\build(1).log`;
+const BUILT = String.raw`C:\work\site\dist\release\artifacts\windows-x64\installer-with-a-long-name\setup.exe`;
 
 const call = (id: string, tool: string, subject: string, fields: object) => ({ kind: "call", call_id: id, tool, subject, state: "done", ...fields });
 const ROWS = { conversation: "fixture-conversation", more: false, messages: [
@@ -326,6 +331,58 @@ for (const { width, height, label } of SIZES) {
       expect(await fitsWidth(page)).toBe(true);
       await page.screenshot({ path: testInfo.outputPath(`question-${label}.png`) });
     });
+
+    // A question can fence a command it would run, which reads as a command
+    // under its shell's name, where what a command printed reads as output,
+    // and a local path either names is a link, as one in the question's words
+    // is: the whole path the card names, in the type of the line it is on,
+    // wrapping only after its separators.
+    test("a question's fence that names a shell reads as a command, its other fences as output, and a local path in either is a link", async ({ page, context }) => {
+      // Arrange
+      await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+      await page.goto("/tests/fixtures/terminal-text.html");
+      await page.waitForFunction(() => "terminalStep" in window);
+
+      // Act
+      await openItem(page, "Should the old build be removed?");
+      const card = page.locator("dialog.question-modal .question-card");
+      const command = card.locator(".question-decision .terminal-block");
+
+      // Assert: the command under its shell's name and the prompt's mark, with
+      // no output.
+      await expect(command.locator("figcaption")).toHaveText(["powershell"]);
+      await expect(command.locator(".terminal-command .terminal-line")).toHaveText(["Remove-Item C:\\work\\old -Recurse"]);
+      expect(await command.locator(".terminal-line").first().evaluate((line) => getComputedStyle(line, "::before").content)).toBe('"> "');
+      await expect(command.locator(".terminal-output")).toHaveCount(0);
+      await expect(command.getByRole("button", { name: "Copy the path C:\\work\\old", exact: true })).toBeVisible();
+
+      // Act
+      const details = card.locator(".question-details");
+      await details.locator("> summary").click();
+      const evidence = details.locator(".question-evidence .terminal-block");
+
+      // Assert: what the build printed as output, with no fence left as text,
+      // and each path in it a link to the whole path.
+      await expect(evidence.locator(".terminal-line")).toHaveText(["error: cannot open C:\\work\\old\\config.json", "log kept in " + KEPT, "wrote " + BUILT]);
+      await expect(evidence.locator("figcaption")).toHaveText(["output"]);
+      await expect(details.locator(".question-evidence")).not.toContainText("```");
+      await expect(evidence.getByRole("button", { name: "Copy the path C:\\work\\old\\config.json", exact: true })).toBeVisible();
+
+      // Assert: the long path wraps after its separators, never inside a
+      // folder's name, in the size of the line it is on.
+      expect(await foldedWords(card.locator(".terminal-block .terminal-line"))).toEqual([]);
+      const built = evidence.getByRole("button", { name: "Copy the path " + BUILT, exact: true });
+      const [linkSize, lineSize] = await built.evaluate((link) => [getComputedStyle(link).fontSize, getComputedStyle(link.closest(".terminal-line")!).fontSize]);
+      expect(linkSize, "the link's type is its line's").toBe(lineSize);
+      expect(await fitsWidth(page)).toBe(true);
+
+      // Act
+      await evidence.getByRole("button", { name: "Copy the path " + KEPT, exact: true }).click();
+
+      // Assert: the link names the path whole, a tilde, an ampersand, a
+      // bracket and an accented letter included, and copies it in a browser.
+      await expect.poll(() => clipboard(page)).toBe(KEPT);
+    });
   });
 }
 
@@ -352,45 +409,6 @@ test("an open command row ends in how it ended, in that ending's colour and unde
     marks.push(mark ?? "");
   }
   expect(new Set(marks).size, "each ending has a mark of its own").toBe(ENDINGS.length);
-});
-
-// A question can fence a command it would run, which reads as a command under
-// its shell's name, where what a command printed reads as output, and a
-// local path either names is a link, as one in the question's words is.
-test("a question's fence that names a shell reads as a command, its other fences as output, and a local path in either is a link", async ({ page, context }) => {
-  // Arrange
-  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-  await page.goto("/tests/fixtures/terminal-text.html");
-  await page.waitForFunction(() => "terminalStep" in window);
-
-  // Act
-  await openItem(page, "Should the old build be removed?");
-  const card = page.locator("dialog.question-modal .question-card");
-  const command = card.locator(".question-decision .terminal-block");
-
-  // Assert: the command under its shell's name and the prompt's mark, with
-  // no output.
-  await expect(command.locator("figcaption")).toHaveText(["powershell"]);
-  await expect(command.locator(".terminal-command .terminal-line")).toHaveText(["Remove-Item C:\\work\\old -Recurse"]);
-  expect(await command.locator(".terminal-line").first().evaluate((line) => getComputedStyle(line, "::before").content)).toBe('"> "');
-  await expect(command.locator(".terminal-output")).toHaveCount(0);
-  await expect(command.getByRole("button", { name: "Copy the path C:\\work\\old", exact: true })).toBeVisible();
-
-  // Act
-  const details = card.locator(".question-details");
-  await details.locator("> summary").click();
-  const printed = details.locator(".question-evidence .terminal-block");
-
-  // Assert: what the build printed as output, with no fence left as text.
-  await expect(printed.locator(".terminal-line")).toHaveText(["error: cannot open C:\\work\\old\\config.json"]);
-  await expect(printed.locator("figcaption")).toHaveText(["output"]);
-  await expect(details.locator(".question-evidence")).not.toContainText("```");
-
-  // Act
-  await printed.getByRole("button", { name: "Copy the path C:\\work\\old\\config.json", exact: true }).click();
-
-  // Assert: the path is the card's own link, which copies it in a browser.
-  await expect.poll(() => clipboard(page)).toBe("C:\\work\\old\\config.json");
 });
 
 // A command can fail without exiting, as one whose terminal closed before it
