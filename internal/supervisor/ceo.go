@@ -731,8 +731,10 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 	}
 	// The submit key sends all the prompt line holds, so it goes only over
 	// the board's words alone: on 2026-11-13 it sent a message of his with
-	// words after it that the board never typed (#2541).
-	if _, shown := screens.Dialog(screen); shown || !screens.Shows(screen, instruction) || !screens.ComposerHoldsPartOf(screen, instruction) {
+	// words after it that the board never typed (#2541). Only a prompt line
+	// the screen reads can show words beside them, so one it cannot read is
+	// submitted on the words showing, as before.
+	if _, shown := screens.Dialog(screen); shown || !screens.Shows(screen, instruction) || screens.ComposerHoldsText(screen) && !screens.ComposerHoldsPartOf(screen, instruction) {
 		return Evaluation{LeftTyped: waiting}, errors.New("The CEO's input changed before submission. Inspect its terminal; nothing was submitted.")
 	}
 	submit := "\r"
@@ -796,30 +798,35 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 			}
 			return Evaluation{Reason: heldByCEO, Awaiting: waiting}, nil
 		}
-		// His words are in the turn's queue only once they leave its prompt
-		// line, so words still alone on it once the wait for them to show would
-		// have ended are taken back off it.
-		left, cancelLeft := awake.WithTimeout(context.Background(), nativeShown)
-		defer cancelLeft()
-		for {
-			screen, err := read(record)
-			if err != nil {
-				return Evaluation{Awaiting: waiting}, fmt.Errorf("the message was submitted into the CEO's turn, and its input cannot be read: %w", err)
-			}
-			if !screens.ComposerHoldsPartOf(screen, instruction) {
-				break
-			}
-			isPressed, err := pressAgain(screen)
-			if err != nil {
-				return Evaluation{Awaiting: waiting}, fmt.Errorf("the message was typed into the CEO's turn, and whether its submit key pressed again reached it is unknown: %w", err)
-			}
-			if !isPressed && left.Err() != nil {
-				return unsent("The message stayed on the CEO's prompt line after its submit key, so the CEO's turn never queued it.")
-			}
-			select {
-			case <-time.After(nativeConfirmPoll):
-			case <-ctx.Done():
-				return unsent("The message was typed into the CEO's turn, and the wait to see it leave the prompt line ended before it did.")
+		// Where a harness can take the submit key as a new line, as Claude
+		// Code can, his words are in the turn's queue only once they leave its
+		// prompt line, so words still alone on it once the wait for them to
+		// show would have ended are taken back off it. Any other harness queued
+		// them as the key went, as before: a Codex can take its key late with
+		// them still showing.
+		if screens.Resubmits > 0 {
+			left, cancelLeft := awake.WithTimeout(context.Background(), nativeShown)
+			defer cancelLeft()
+			for {
+				screen, err := read(record)
+				if err != nil {
+					return Evaluation{Awaiting: waiting}, fmt.Errorf("the message was submitted into the CEO's turn, and its input cannot be read: %w", err)
+				}
+				if !screens.ComposerHoldsPartOf(screen, instruction) {
+					break
+				}
+				isPressed, err := pressAgain(screen)
+				if err != nil {
+					return Evaluation{Awaiting: waiting}, fmt.Errorf("the message was typed into the CEO's turn, and whether its submit key pressed again reached it is unknown: %w", err)
+				}
+				if !isPressed && left.Err() != nil {
+					return unsent("The message stayed on the CEO's prompt line after its submit key, so the CEO's turn never queued it.")
+				}
+				select {
+				case <-time.After(nativeConfirmPoll):
+				case <-ctx.Done():
+					return unsent("The message was typed into the CEO's turn, and the wait to see it leave the prompt line ended before it did.")
+				}
 			}
 		}
 		// A Send now he asked for interrupts the turn through the key the

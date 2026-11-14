@@ -863,6 +863,34 @@ func TestHisMessageInTheCEOsTurnIsQueuedOnlyOnceItLeavesThePromptLine(t *testing
 	}
 }
 
+// A Codex inside a turn queues what is typed into it as its submit key goes,
+// and can take that key late with the words still showing, so the wait for
+// his words to leave the prompt line is Claude Code's alone (#2541): a Codex
+// CEO's message in a turn reads Queued once its submit key went, as before,
+// and its words are never taken back off the prompt line, here where they
+// still show after every Enter.
+func TestHisMessageInACodexCEOsTurnIsQueuedAsItsSubmitKeyGoes(t *testing.T) {
+	previous := nativeShown
+	nativeShown = 2 * time.Second
+	t.Cleanup(func() { nativeShown = previous })
+	// Arrange
+	useConversations(t)
+	store, home := testStore(t)
+	terminal := nativeCEOComposer(t, home.State, "busy-enters-lost")
+	service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: home.State}}}
+
+	// Act
+	result, err := service.deliverMessage(context.Background(), Action{Kind: "message", Text: "stop and rebase"})
+
+	// Assert
+	if err != nil || result.Reason != heldByCEO || result.Awaiting == nil || result.Awaiting.Typed != "stop and rebase" {
+		t.Fatalf("deliverMessage = %+v, %v; want it queued in the CEO's session as its submit key went", result, err)
+	}
+	if input := strings.Join(terminal.lines(t), "\n"); strings.Contains(input, "cleared") {
+		t.Errorf("terminal input = %q; want his words left on the prompt line for the Codex to take", input)
+	}
+}
+
 // The Overlord's message of 2026-11-13 19:02Z reached the CEO's turn with
 // words after it that the board never typed, and the board's Enter sent them
 // with his: it checked only that his words ended on the prompt line. Its take
