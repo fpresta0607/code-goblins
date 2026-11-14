@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type KeyboardEvent, type PointerEvent } from "react";
 import type { BoardActivity, FleetTree, Snapshot, Task, TreeNode } from "./types";
-import { activityDisplay, EFFECT_MS, playFrom, presentationShownOn, type ActivityEffect } from "./activity";
+import { activityDisplay, EFFECT_MS, playFrom, presentationShownOn, presentedPage, type ActivityEffect } from "./activity";
+import { BrowserActive } from "./browser-active";
 import { Chevron } from "./Chevron";
 import { Icon } from "./Icon";
 import { ownsTaskSession, taskSessionDetails } from "./lineageTree";
@@ -428,6 +429,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
           const children = nodes.some((child) => child.parent === node.id) || !!trees[node.id];
           const hasCeoFacts = (!!node.ceo || node.session?.role === "ceo") && snapshot.ceo_runs && !snapshot.ceo_closed;
           const handlers = cardHandlers(node.id);
+          const page = owner && node.task ? "" : presentedPage(presentations, (presentation) => presentationShownOn(presentation, node.session, node.task));
           return <article key={node.id} className={"flow-node" + (owner && node.task ? " has-task" : "") + (WORKING.has(phase || "") ? " is-working" : "") + (activity.created ? " node-enter" : "") + (selected === node.id ? " selected" : "")} style={{ left: p.x, top: p.y, width: NODE_WIDTH, height: NODE_HEIGHT }} {...lights(node.id)}>
             {effect && <span key={effect.id} ref={playFrom(effect.expires - EFFECT_MS)} className="activity-glow" aria-hidden="true" />}
             {owner && node.task ? <>
@@ -437,10 +439,9 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
               onClick={(event) => handlers.onSelect(event.currentTarget)} aria-pressed={selected === node.id}
               aria-label={node.title + ". " + status + ". " + (parent ? "Parent: " + parent.title : node.relation)}>
               <OrchestrationCard title={node.title} status={status} phase={phase} persona={node.ceo ? "ceo" : personaFor(node.task, node.session)}
-                project={node.task?.project || ""} relation={!node.parent && node.session?.role !== "ceo" && !node.ceo ? node.relation : ""}
-                isPresenting={presentations.some((presentation) => presentationShownOn(presentation, node.session, node.task))} />
+                project={node.task?.project || ""} relation={!node.parent && node.session?.role !== "ceo" && !node.ceo ? node.relation : ""} />
             </button>}
-            {hasCeoFacts && <div className="flow-node-foot"><CeoCardFacts snapshot={snapshot} now={freshNow} afkToggle={afkToggle} onOpenCeo={onOpenCeo} /></div>}
+            {(page || hasCeoFacts) && <div className="flow-node-foot"><BrowserActive name={node.title} screen="" page={page} />{hasCeoFacts && <CeoCardFacts snapshot={snapshot} now={freshNow} afkToggle={afkToggle} onOpenCeo={onOpenCeo} />}</div>}
             {children && <button className="node-disclosure" aria-label={(collapsed.has(node.id) ? "Expand" : "Collapse") + " descendants of " + node.title} aria-expanded={!collapsed.has(node.id)} onClick={() => toggle(node.id)}><Chevron collapsed={collapsed.has(node.id)} /></button>}
           </article>;
         })}

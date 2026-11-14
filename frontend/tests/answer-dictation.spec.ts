@@ -1,4 +1,5 @@
 import { expect, openItem, test, type Locator, type Page } from "./site";
+import { recordingBegins } from "./dictation-hold";
 
 // The Overlord, 2026-10-13 about 14:30Z, of a Command Center question with
 // Other chosen and his answer typed in its box: "In the Command Center, if I
@@ -52,8 +53,10 @@ async function open(page: Page, { card, choose, box }: (typeof BOXES)[number]) {
 // dictate holds the microphone for a moment, as he does.
 async function dictate(page: Page, microphone: Locator) {
   await microphone.hover();
+  const begun = recordingBegins(page);
   await page.mouse.down();
   await expect(page.getByRole("button", { name: "Listening" })).toHaveClass(/recording/);
+  await begun;
   await page.waitForTimeout(1200);
   await page.mouse.up();
 }
@@ -93,10 +96,12 @@ for (const target of BOXES) {
     expect(await page.evaluate(() => !!document.activeElement?.closest(".question-card")), "the keyboard is in the card").toBe(true);
 
     // Act
+    const begun = recordingBegins(page);
     await page.keyboard.down("Control");
     await page.keyboard.down("Shift");
     await page.keyboard.down("Space");
     await expect(page.getByRole("button", { name: "Listening" })).toHaveClass(/recording/);
+    await begun;
     await page.waitForTimeout(1200);
     await page.keyboard.up("Space");
     await page.keyboard.up("Shift");

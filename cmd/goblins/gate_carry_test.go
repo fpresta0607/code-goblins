@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -89,5 +90,22 @@ func TestTheBoardsCarryReadsHowTheMoveEnded(t *testing.T) {
 				t.Errorf("ran %q (%v), want %q", called, readErr, want)
 			}
 		})
+	}
+}
+
+// The board's Dev Drive setting reads when the machine started, starts the
+// drive's startup task and reads whether the task is this build's. Without
+// them a missing drive gets the Attach item at once with no start of its
+// task, and an old task is never renewed.
+func TestTheBoardsDevDriveSettingLooksAfterTheStartupTask(t *testing.T) {
+	// Act
+	setting := boardDevDrive(home.Home{Root: t.TempDir()}, defaultCommandRuntime(), nil)
+
+	// Assert
+	if setting.Boot == nil || setting.StartTask == nil || setting.TaskCurrent == nil {
+		t.Fatalf("Boot %v, StartTask %v, TaskCurrent %v; want each set", setting.Boot != nil, setting.StartTask != nil, setting.TaskCurrent != nil)
+	}
+	if boot := setting.Boot(); !boot.Before(time.Now()) {
+		t.Errorf("Boot() = %s, want a time before now", boot)
 	}
 }

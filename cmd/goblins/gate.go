@@ -107,6 +107,19 @@ func runGatePrepare(dir string, stdout, stderr io.Writer, runtime commandRuntime
 		fmt.Fprintln(stdout, "goblins gate prepare: no frontend change; no dependencies installed")
 		return 0
 	}
+	// The locked install is as heavy as the tests after it, so it waits for
+	// its turn and the memory floor as they do (#2367).
+	const label = "goblins gate prepare"
+	task, _ := gateTask(plan.Root, runtime)
+	who := fmt.Sprintf("%s at %.8s, preparation, in %s", path.Base(plan.Module), plan.Commit, plan.Root)
+	if task != "" {
+		who += ", task " + taskLabel(task, runtime)
+	}
+	turn, err := takeGateTurn(context.Background(), label, stdout, stderr, runtime.availableMemory, who, taskPriority(label, task, stderr, runtime), runtime.gateBudget(plan.Level), runtime.gateWaitLimit, gateLineLimit(runtime, os.Getenv, false), 0)
+	if err != nil {
+		return 1
+	}
+	defer turn.Release()
 	start := time.Now()
 	fmt.Fprintln(stdout, "goblins gate prepare: npm ci in this worktree's frontend")
 	command := []string{"npm", "ci"}
@@ -193,7 +206,7 @@ func runGateChecks(kind string, args []string, dir string, stdout, stderr io.Wri
 	var note string
 	var err error
 	if *isFocused {
-		plan, note, err = gatetest.ReadFocused(ctx, execx.OSRunner{}, dir, os.Getenv("NO_MISTAKES_TEST_FOCUS"))
+		plan, note, err = gatetest.ReadFocused(ctx, execx.OSRunner{}, dir, os.Getenv("NO_MISTAKES_TEST_FOCUS"), asked)
 		defaulted = false
 	} else {
 		plan, err = gatetest.Read(ctx, execx.OSRunner{}, dir, asked)

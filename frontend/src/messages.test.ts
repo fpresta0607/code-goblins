@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isHarnessHeld, isNotSent, isPendingMessage, isUndelivered, messageState, messagesTo, sameWords, takesMessages, withTakenCommands } from "./messages.ts";
-import type { SessionMessage } from "./session-messages.ts";
+import { isHarnessHeld, isNotSent, isPendingMessage, isUndelivered, messageState, messagesTo, sameWords, takesMessages, withTakenCommands, withUndelivered } from "./messages.ts";
+import { turnEnds, type SessionMessage } from "./session-messages.ts";
 import { parseSnapshot, type Snapshot, type Task } from "./types.ts";
 
 const action = (fields: Record<string, unknown>) => ({ id: "m1", kind: "message", task_id: "goblin-one", generation: "", status: "queued", message: "", text: "use staging", updated_at: "2026-10-08T12:00:00Z", ...fields });
@@ -122,6 +122,30 @@ test("a slash command a harness records nothing of is drawn where it was taken",
   assert.deepEqual(drawn([taken], "pi", [...conversation, row("m4", "2026-11-09T14:01:01Z", "/status")]).filter((each) => each.endsWith("/status")), ["m4 /status"]);
   assert.deepEqual(drawn([{ ...taken, created_at: "2026-11-09T13:00:00Z", updated_at: "2026-11-09T13:00:02Z" }], "codex"), ["m1 check the build", "m2 It builds.", "m3 now the tests"]);
   assert.deepEqual(drawn([taken], "pi", []), []);
+});
+
+// The Overlord, 2026-11-13, of two messages of his drawn Not confirmed under
+// the newest turn hours after he sent them: "Stale old messages that appear
+// randomly when memory gets low" (#2541). A message whose delivery ended with
+// no take seen is drawn where he sent it, before the first row written after
+// it, or after every row when none was, and one sent before the first loaded
+// row only once no older page is left, since it belongs to that page. Drawn
+// among the rows, it ends no turn.
+test("a message that ended with no take seen is drawn where he sent it", () => {
+  // Arrange
+  const conversation = [row("r0", "2026-11-13T18:00:00Z", "Merged it.", "reply"), row("r1", "2026-11-13T19:30:00Z", "Rebased.", "reply")];
+  const ended = (id: string, at: string) => action({ id, status: "uncertain", text: "words of " + id, created_at: at, updated_at: at });
+  const old = ended("a0", "2026-11-13T17:00:00Z"), middle = ended("a1", "2026-11-13T19:00:00Z"), newest = ended("a2", "2026-11-13T20:00:00Z");
+  const placed = (actions: Record<string, unknown>[], hasOlder: boolean, messages = conversation) => withUndelivered(messages, snapshot(actions).actions, hasOlder);
+  const drawn = (actions: Record<string, unknown>[], hasOlder: boolean, messages = conversation) => placed(actions, hasOlder, messages).map((message) => message.id + " " + message.text);
+
+  // Act and Assert
+  assert.deepEqual(drawn([newest, middle], true), ["r0 Merged it.", "undelivered-a1 words of a1", "r1 Rebased.", "undelivered-a2 words of a2"]);
+  assert.deepEqual(drawn([old], true), ["r0 Merged it.", "r1 Rebased."], "one sent before the rows loaded belongs to an older page");
+  assert.deepEqual(drawn([old, middle], false), ["undelivered-a0 words of a0", "r0 Merged it.", "undelivered-a1 words of a1", "r1 Rebased."]);
+  assert.deepEqual(drawn([middle], true, []), ["undelivered-a1 words of a1"]);
+  assert.deepEqual(turnEnds(placed([middle], true), false), turnEnds(conversation, false), "drawn among the rows, it ends no turn");
+  assert.equal(withUndelivered(conversation, [], true), conversation, "with none, the rows are the same rows");
 });
 
 test("a ! command is the same words with or without a space after its !, and never its words alone", () => {

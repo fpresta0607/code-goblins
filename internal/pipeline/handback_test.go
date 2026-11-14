@@ -33,6 +33,7 @@ func TestHandbackReadsTheExactPersistedPublicationAndReceipt(t *testing.T) {
 		{name: "wrong repository", run: "original-run", project: "other", refusal: "exactly one latest published run"},
 		{name: "stale run", run: "earlier-run", refusal: "no longer the latest run"},
 		{name: "unknown checkpoint", run: "original-run", receipt: "unknown-receipt", refusal: "exactly one latest published run"},
+		{name: "a run that never published", run: "original-run", extraSQL: "UPDATE runs SET last_pushed_sha=NULL,push_generation=0 WHERE id='original-run';", refusal: "run original-run never published, so handback, which returns a published run's failed CI, does not apply to it; a run that failed before it published, such as one Review approved whose Test step then failed preparing, has no route on from its reviewed head that keeps its review until fpresta0607/no-mistakes#323 lands"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange

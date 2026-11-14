@@ -212,9 +212,9 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 .composer-dock .composer { padding: 0; border-top: 0; background: transparent; }
 .composer-dock .composer-input { background: var(--box-fill); backdrop-filter: blur(14px); }
 .composer-dock .composer-sent { max-height: 10rem; overflow: auto; padding: 8px 10px; border: 1px solid var(--glass-border); border-radius: 14px; background: #0b171ce6; }
-/* His messages not yet in the session's record, at the conversation's end
-   as wide as his sent ones: dimmed while they wait, whole, with a few words
-   under each, and solid once sent. */
+/* His messages not yet in the session's record, as wide as his sent ones:
+   dimmed while they wait, whole, with a few words under each, and solid once
+   sent. */
 .queued-message.pane { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: end; align-self: flex-end; gap: .35em; max-width: min(80%, 40em); }
 .queued-bubble { white-space: pre-wrap; }
 .queued-bubble.waiting { opacity: .55; }

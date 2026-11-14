@@ -2,7 +2,7 @@
 
 `goblins gate turns [--json]`
 
-Show the line `goblins gate test`, `goblins gate prepush` and `goblins gate turn` runs take their turns in: which run holds the turn, for how long and under what budget, what that run says it is doing (how many packages are done, which tests are running and for how long, its last line of output), which runs wait, in order, and the machine's memory when a run would wait for it.
+Show the line `goblins gate test`, `goblins gate prepare`, `goblins gate prepush` and `goblins gate turn` runs take their turns in: which run holds the turn, for how long and under what budget, what that run says it is doing (how many packages are done, which tests are running and for how long, its last line of output), which runs wait, in order, and the machine's memory when a run would wait for it.
 On a line of two slots it also shows what each run is expected to use and what each holder uses now.
 Each light run, which goes beside the slots, is shown apart from the slots' holders, with its bound and the memory it uses of what it is expected to use.
 When memory and commit, less the about 1 GB a new goblin's session takes, are short of the floor for the line's next run, its last line says the supervisor starts and resumes no goblin by itself, keeping the test slots open.

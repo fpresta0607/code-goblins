@@ -53,7 +53,6 @@ var (
 	archivedStatusFile = regexp.MustCompile(`^(.+)\.status\.(\d{8}T\d{6}Z)$`)
 	archivedTaskDir    = regexp.MustCompile(`^(.+)\.(\d{8}T\d{6}Z)$`)
 	mergeSubject       = regexp.MustCompile(`^Merge pull request #(\d+) from [^/\s]+/(\S+)`)
-	githubSlug         = regexp.MustCompile(`^[\w.-]+/[\w.-]+$`)
 	githubPullRequest  = regexp.MustCompile(`^https://github\.com/[\w.-]+/[\w.-]+/pull/\d+$`)
 )
 
@@ -206,7 +205,7 @@ func gitMergedPRs(repos []string, heads func(ctx context.Context, repo string) (
 			// The stamp is taken first, so a fetch during the read is seen next time.
 			known.stamp = refStamp(known.common)
 			remote, err := (Git{}).run(ctx, repo, "remote", "get-url", "origin")
-			slug, isGitHub := githubRepository(strings.TrimSpace(remote))
+			slug, isGitHub := githubapi.RemoteRepository(strings.TrimSpace(remote))
 			if err != nil || !isGitHub {
 				return known, nil // Only a GitHub remote gives a pull request a link.
 			}

@@ -42,7 +42,7 @@ func TestNextStepsAreCreateThenMoveOnAMachineWithoutADevDrive(t *testing.T) {
 	h := home.Home{Root: `C:\Users\op\AppData\Local\CodeGoblins`}
 
 	// Act
-	plan, ok := Next(m, h, home.DevDriveConfig{}, false)
+	plan, ok := Next(m, h, home.DevDriveConfig{}, false, false)
 
 	// Assert
 	if !ok || plan.Step != StepCreate || !plan.Admin || plan.VHD != `C:\DevDrives\CodeGoblins.vhdx` {
@@ -54,13 +54,13 @@ func TestNextStepsAreCreateThenMoveOnAMachineWithoutADevDrive(t *testing.T) {
 		}
 	}
 	m.Letters = lettersCD
-	if plan, _ := Next(m, h, home.DevDriveConfig{}, false); !strings.Contains(plan.Title, "Dev Drive E:") || !strings.Contains(plan.Script, "$letter = 'E'") {
+	if plan, _ := Next(m, h, home.DevDriveConfig{}, false, false); !strings.Contains(plan.Title, "Dev Drive E:") || !strings.Contains(plan.Script, "$letter = 'E'") {
 		t.Errorf("with D: taken the plan is %q, want E:", plan.Title)
 	}
 
 	// Once the create step made D:, the move is next.
 	m.Volumes = append(m.Volumes, Volume{Root: `D:\`, FileSystem: "ReFS", Dev: true, Trust: Trusted, Free: 199 * gigabyte})
-	plan, ok = Next(m, h, home.DevDriveConfig{VHD: `C:\DevDrives\CodeGoblins.vhdx`}, false)
+	plan, ok = Next(m, h, home.DevDriveConfig{VHD: `C:\DevDrives\CodeGoblins.vhdx`}, false, false)
 	if !ok || plan.Step != StepMove || plan.Admin || plan.Folder != `D:\CodeGoblins` || !strings.Contains(plan.Title, `the gate's home moves to D:\CodeGoblins\no-mistakes once no gate run is in flight`) {
 		t.Fatalf("plan = %+v, %v; want the move to D:\\CodeGoblins, without administrator", plan, ok)
 	}
@@ -73,7 +73,7 @@ func TestAnUntrustedDevDriveIsTrustedFirst(t *testing.T) {
 		"before the move": {Root: `C:\home`},
 		"after the move":  {Root: `C:\home`, DevDrive: `E:\CodeGoblins`},
 	} {
-		plan, ok := Next(m, h, home.DevDriveConfig{}, false)
+		plan, ok := Next(m, h, home.DevDriveConfig{}, false, false)
 		if !ok || plan.Step != StepTrust || !plan.Admin || !strings.Contains(plan.Script, "fsutil devdrv trust E:") || !strings.Contains(plan.Title, "Trust the Dev Drive E:") {
 			t.Errorf("%s: plan = %+v, %v; want the trust step for E:", name, plan, ok)
 		}
@@ -85,11 +85,11 @@ func TestAHomeOnItsDevDriveNeedsNothingUntilTheDriveGoesMissing(t *testing.T) {
 	m.Volumes = append(m.Volumes, Volume{Root: `D:\`, FileSystem: "ReFS", Dev: true, Trust: Trusted})
 	moved := home.Home{Root: `C:\home`, DevDrive: `D:\CodeGoblins`}
 	config := home.DevDriveConfig{VHD: `C:\DevDrives\CodeGoblins.vhdx`}
-	if plan, ok := Next(m, moved, config, false); ok {
+	if plan, ok := Next(m, moved, config, false, false); ok {
 		t.Errorf("a home on its trusted Dev Drive got %+v", plan)
 	}
 	m.Volumes = m.Volumes[:1]
-	plan, ok := Next(m, moved, config, false)
+	plan, ok := Next(m, moved, config, false, false)
 	if !ok || plan.Step != StepAttach || !strings.Contains(plan.Title, "Attach the Code Goblins Dev Drive D: again") || !strings.Contains(plan.Script, `$vhd = 'C:\DevDrives\CodeGoblins.vhdx'`) {
 		t.Errorf("plan = %+v, %v; want the attach step for D:", plan, ok)
 	}
@@ -108,7 +108,7 @@ func TestAHomeOnItsDevDriveGetsTheGateStepWhileTheGateHomeIsNotThere(t *testing.
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Act
-			plan, ok := Next(m, moved, home.DevDriveConfig{}, test.shouldMoveGateHome)
+			plan, ok := Next(m, moved, home.DevDriveConfig{}, test.shouldMoveGateHome, false)
 
 			// Assert
 			if ok != test.shouldMoveGateHome {

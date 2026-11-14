@@ -262,7 +262,7 @@ test.describe("his messages in the chat's one scroll", () => {
     await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })), { messages: [], conversation: "empty-conversation", more: false });
 
     // Assert
-    await expect(log(page).locator("[data-message]")).toHaveCount(0);
+    await expect(log(page).locator("[data-message]:not([data-queued])")).toHaveCount(0);
     await expect(entry(page)).toBeVisible();
     await expect(page.locator(".messages-view:not([hidden])").getByText("No messages yet", { exact: true })).toHaveCount(0);
   });

@@ -137,8 +137,8 @@ type Options struct {
 	// fleet's folders. It only reads.
 	Defender func(ctx context.Context, since time.Time) (defender.Report, error)
 	// Shared reads the services every goblin shares, the gate daemon, the
-	// heavy-run line and the Docker engine, for the record goblins shared reads;
-	// without it no shared service is checked.
+	// heavy-run line, the Docker engine and the Scrawl server, for the record
+	// goblins shared reads; without it no shared service is checked.
 	Shared *SharedProbes
 	// Credentials opens the credential store goblins auth store writes, which a
 	// credential request's card saves into; without it the board takes no
@@ -328,8 +328,13 @@ type Service struct {
 	// minute, and a test sets it shorter.
 	devDriveTick   time.Duration
 	devDriveConfig sync.Mutex
-	devDriveViewMu sync.Mutex
-	devDriveView   *DevDriveView
+	// devDriveStarted is when the watch last started the Dev Drive's startup
+	// task, and isDevDriveStartRefused says Windows refused it, both under
+	// devDriveConfig.
+	devDriveStarted        time.Time
+	isDevDriveStartRefused bool
+	devDriveViewMu         sync.Mutex
+	devDriveView           *DevDriveView
 	// gateCarry is the supervisor's own carry of the gate's home.
 	gateCarry gateCarry
 	// trains are the merge trains the board shows, as keepTrains last read

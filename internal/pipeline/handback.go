@@ -47,6 +47,9 @@ func (reader Reader) Handback(ctx context.Context, project, worktree, branch, ru
 		return execx.Result{}, errors.New("pipeline: expected exactly one latest published run and, for continuation, its exact native receipt")
 	}
 	binding := rows[0]
+	if receipt == "" && gateIdentity.MatchString(binding.RunID) && binding.PublishedHead == "" && binding.PushGeneration == 0 {
+		return execx.Result{}, fmt.Errorf("pipeline: run %s never published, so handback, which returns a published run's failed CI, does not apply to it; a run that failed before it published, such as one Review approved whose Test step then failed preparing, has no route on from its reviewed head that keeps its review until fpresta0607/no-mistakes#323 lands, and until then a new run from the task's branch reviews it again", binding.RunID)
+	}
 	if !gateIdentity.MatchString(binding.RunID) || !gateIdentity.MatchString(binding.RepoID) || binding.Branch != branch || !gateCommit.MatchString(binding.CurrentHead) || !gateCommit.MatchString(binding.PublishedHead) || binding.PushGeneration <= 0 {
 		return execx.Result{}, errors.New("pipeline: handback publication identity could not be verified")
 	}
