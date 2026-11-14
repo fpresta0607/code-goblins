@@ -680,7 +680,7 @@ func (s *Store) SendQueuedMessageNow(id, task string) (Action, error) {
 		return unsent.ID == id && unsent.TaskID == task && isNotSent(unsent)
 	}); at >= 0 {
 		a := &s.db.Actions[at]
-		a.Status, a.Message, a.IsSentNow, a.UpdatedAt = "queued", "", true, time.Now().UTC()
+		a.Status, a.Message, a.IsSentNow, a.Awaiting, a.LeftTyped, a.UpdatedAt = "queued", "", true, nil, nil, time.Now().UTC()
 		if err := s.save(); err != nil {
 			return Action{}, err
 		}

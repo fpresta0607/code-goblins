@@ -685,6 +685,52 @@ func TestLinesHandedBackTogetherAreTakenFromTheOnePromptTheyWentAs(t *testing.T)
 	}
 }
 
+// Claude Code puts a mark in place of the path of a picture it takes into a
+// prompt that starts a turn, as the lines a turn he stopped handed back go
+// (#2541). Lines handed back together, one of them naming a picture the board
+// kept for it, are each taken once the CEO's record shows that prompt with the
+// mark in the path's place, rather than read Queued and then Not confirmed.
+func TestLinesHandedBackWithAPictureAreTakenFromThePromptThatHoldsItsMark(t *testing.T) {
+	// Arrange
+	records := useConversations(t)
+	store, home := testStore(t)
+	terminal := nativeCEOComposer(t, home.State, "claude-ready")
+	service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: home.State}}}
+	pictured := `see this row C:\home\composer-files\pasted-4f2a.png`
+	at := time.Now().UTC()
+	for n, typed := range []string{pictured, "stop and rebase"} {
+		// Each was typed into the CEO's turn after it started, in this order.
+		since := at.Add(time.Duration(n) * time.Millisecond)
+		store.db.Actions = append(store.db.Actions, Action{ID: fmt.Sprintf("m%d", n), Kind: "message", Text: typed, Status: "running", Message: heldByCEO, CreatedAt: since, UpdatedAt: since,
+			Awaiting: &Awaiting{Host: "ceo", Harness: "claude", Since: since, QuietSince: since, Digest: monitor.TextDigest(typed), Session: "session-1", Typed: typed, IsHeld: true}})
+	}
+	if err := store.save(); err != nil {
+		t.Fatal(err)
+	}
+	typeIntoCEO(t, home.State, pictured+" stop and rebase", "pasted-4f2a.png stop and rebase")
+	ceoShows(t, home.State, "bypass permissions on")
+
+	// Act
+	err := service.submitHandedBack(context.Background())
+	lines := terminal.waitForLines(t, 2)
+	picture := map[string]any{"type": "image", "source": map[string]any{"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo="}}
+	writeRecord(t, filepath.Join(records, ".claude", "projects", "C--ceo-home", "session-1.jsonl"), map[string]any{"type": "user", "timestamp": time.Now().UTC().Format(time.RFC3339Nano), "message": map[string]any{"role": "user", "content": []map[string]any{{"type": "text", "text": "see this row [Image #3]\nstop and rebase"}, picture}}})
+	settled := store.settleDeliveries(time.Now().UTC(), service.lookAtTerminal)
+
+	// Assert
+	if err != nil || settled != nil {
+		t.Fatalf("submitHandedBack = %v, settleDeliveries = %v; want no error", err, settled)
+	}
+	if !slices.Equal(lines[1:], []string{"accepted " + pictured + " stop and rebase"}) {
+		t.Errorf("terminal input = %q; want the two lines submitted as one prompt", lines)
+	}
+	for _, id := range []string{"m0", "m1"} {
+		if taken := actionOf(store, id); taken.Status != "succeeded" {
+			t.Errorf("%s = %+v; want it taken from the one prompt it went in", id, taken)
+		}
+	}
+}
+
 // Words of his own on the CEO's prompt line are never submitted for him, even
 // while a message of his typed into a turn awaits the CEO.
 func TestHisOwnWordsOnTheCEOsPromptLineAreNeverSubmittedForHim(t *testing.T) {
@@ -864,6 +910,69 @@ func TestHisMessageInTheCEOsTurnIsQueuedOnlyOnceItLeavesThePromptLine(t *testing
 	}
 }
 
+// A Claude Code CEO slow to read, as on a loaded machine, can read his
+// message's submit key only as the board takes his words back off its prompt
+// line, once they stayed there after it: its turn queues them before the keys
+// that take them back reach it, and those keys find the prompt line empty.
+// The prompt hook it runs as it queues them says so, so the message reads
+// Queued with its watch, never Not sent with nothing watching it, which his
+// Send now would type a second time (#2541). It does whether the wait for the
+// words to leave the prompt line ended or the delivery itself did.
+func TestHisMessageTheCEOsTurnQueuesAsItIsTakenBackReadsQueued(t *testing.T) {
+	previous := nativeShown
+	nativeShown = 2 * time.Second
+	t.Cleanup(func() { nativeShown = previous })
+	for _, tc := range []struct {
+		name string
+		// endsAt is the read that shows his words at which the delivery's own
+		// context ends: the third is the first look after the submit key.
+		endsAt int
+	}{
+		{name: "once the wait for it to leave the prompt line ended"},
+		{name: "once its delivery ended", endsAt: 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			useConversations(t)
+			store, home := testStore(t)
+			terminal := nativeCEOComposer(t, home.State, "claude-busy-late-enter-hooks-queued")
+			screens, _ := harness.NativeScreens(harness.Claude)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			shown := 0
+			connection := &CEOConnection{State: home.State, ReadScreen: func(record host.Record) ([]string, error) {
+				screen, err := host.ReadScreen(record)
+				if err == nil && screens.Shows(screen, "stop and rebase") {
+					if shown++; shown == tc.endsAt {
+						cancel()
+					}
+				}
+				return screen, err
+			}}
+			service := &Service{Store: store, Options: Options{CEO: connection}}
+			if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: "stop and rebase"}); err != nil {
+				t.Fatal(err)
+			}
+			pastUndoWindow(t, store)
+
+			// Act
+			processed := store.ProcessOne(ctx, service.execute)
+			queued := actionOf(store, "m1")
+
+			// Assert
+			if processed != nil {
+				t.Fatal(processed)
+			}
+			if queued.Status != "running" || queued.Awaiting == nil || !queued.Awaiting.IsHeld || queued.Message != heldByCEO || queued.LeftTyped != nil {
+				t.Errorf("once the CEO's turn queued it = %s %q, awaiting %+v, left typed %+v; want it Queued in the CEO's turn, watched for its take", queued.Status, queued.Message, queued.Awaiting, queued.LeftTyped)
+			}
+			if input := strings.Join(terminal.lines(t), "\n"); strings.Count(input, "queued stop and rebase") != 1 || strings.Contains(input, "cleared") {
+				t.Errorf("terminal input = %q; want it queued in the turn once and nothing of it taken back", input)
+			}
+		})
+	}
+}
+
 // A Codex inside a turn queues what is typed into it as its submit key goes,
 // and can take that key late with the words still showing, so the wait for
 // his words to leave the prompt line is Claude Code's alone (#2541): a Codex
@@ -974,6 +1083,96 @@ func TestAMessageWhoseScreenCouldNotBeReadAfterItsSubmitKeyIsSettledByItsTake(t 
 	}
 }
 
+// A delivery that ended in an error once his message's submit key went, a key
+// that could not be written into the CEO's terminal or a wait to see the CEO
+// take it that ended, dropped every watch on the message, so one the CEO took
+// read Not confirmed for good (#2541). It is still watched, and its take
+// settles it as Sent.
+func TestAMessageWhoseDeliveryEndedOnceItsSubmitKeyWentIsSettledByItsTake(t *testing.T) {
+	for _, tc := range []struct {
+		name, mode string
+		// atShown is what befalls the delivery as the CEO's screen shows his
+		// words for the nth time: the second is the read just before the
+		// submit key, and the third the first look for the CEO's take.
+		atShown func(t *testing.T, terminal hostedTerminal, nth int, cancel context.CancelFunc)
+	}{
+		{name: "its submit key could not be written", mode: "claude-ready", atShown: func(t *testing.T, terminal hostedTerminal, nth int, _ context.CancelFunc) {
+			if nth != 2 {
+				return
+			}
+			record, err := host.ReadRecord(terminal.stateDir, terminal.id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			client, err := host.Dial(record)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := errors.Join(client.CloseTerminal(), client.Close()); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-terminal.ended:
+			case <-time.After(time.Minute):
+				t.Fatal("the CEO's terminal did not end")
+			}
+		}},
+		{name: "the wait to see it taken ended", mode: "claude-ready-stalls", atShown: func(t *testing.T, terminal hostedTerminal, nth int, cancel context.CancelFunc) {
+			switch nth {
+			case 1:
+				// The harness reads no key after the words it drew.
+				if err := os.WriteFile(terminal.typed+".stall", nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			case 3:
+				cancel()
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			records := useConversations(t)
+			store, home := testStore(t)
+			terminal := nativeCEOComposer(t, home.State, tc.mode)
+			screens, _ := harness.NativeScreens(harness.Claude)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			shown := 0
+			connection := &CEOConnection{State: home.State, ReadScreen: func(record host.Record) ([]string, error) {
+				screen, err := host.ReadScreen(record)
+				if err == nil && screens.Shows(screen, "stop and rebase") {
+					shown++
+					tc.atShown(t, terminal, shown, cancel)
+				}
+				return screen, err
+			}}
+			service := &Service{Store: store, Options: Options{CEO: connection}}
+			if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: "stop and rebase"}); err != nil {
+				t.Fatal(err)
+			}
+			pastUndoWindow(t, store)
+
+			// Act
+			processed := store.ProcessOne(ctx, service.execute)
+			doubted := actionOf(store, "m1")
+			takenInRecord(t, records, "claude", "session-1", "", "stop and rebase")
+			settled := store.settleDeliveries(time.Now(), service.lookAtTerminal)
+			sent := actionOf(store, "m1")
+
+			// Assert
+			if processed != nil || settled != nil {
+				t.Fatal(processed, settled)
+			}
+			if doubted.Status != "uncertain" || doubted.Awaiting == nil {
+				t.Errorf("once its delivery ended = %s %q, awaiting %v; want it in doubt and still watched for its take", doubted.Status, doubted.Message, doubted.Awaiting)
+			}
+			if sent.Status != "succeeded" || sent.Awaiting != nil {
+				t.Errorf("once the CEO's record shows it taken = %s %q, awaiting %v; want it Sent", sent.Status, sent.Message, sent.Awaiting)
+			}
+		})
+	}
+}
+
 // A read that failed once his words were typed, before their submit key, left
 // them on the CEO's prompt line with nothing watching them, where they held
 // back every message after them. They are watched where they were typed, to be
@@ -1027,16 +1226,21 @@ func TestHisWordsTypedBeforeAFailedReadAreWatchedWhereTheyWereTyped(t *testing.T
 // and, slow to read on a loaded machine, took the submit key as a new line, as
 // a resumed goblin's Claude Code did on 2026-10-20; one whose turn ended as his
 // words reached it; and one whose stop hook opened its next turn as they did,
-// as the CEO's did for a wake through that evening. It reads Sent once the
-// CEO's record shows it taken.
+// as the CEO's did for a wake through that evening. That turn only queues
+// them, though its prompt hook runs as it does, so the message reads Queued
+// there until the CEO takes it, rather than Sent with nothing watching it. It
+// reads Sent once the CEO's record shows it taken.
 func TestHisMessageIsTakenByACEOThatIsNotInATurn(t *testing.T) {
 	for _, tc := range []struct {
 		name, mode string
 		input      []string
+		// isHeld says a turn holds it in its queue until the CEO takes it, so
+		// it reads Queued until then, and otherwise Sent at once.
+		isHeld bool
 	}{
 		{name: "one that just started and took its submit key as a new line", mode: "claude-ready-lost-enter", input: []string{"enter taken as a new line", "accepted stop and rebase"}},
-		{name: "one whose turn ended as his words reached it", mode: "claude-busy-ends", input: []string{"turn ended", "accepted stop and rebase"}},
-		{name: "one whose stop hook opened its next turn as his words reached it", mode: "claude-ready-reopens", input: []string{"turn opened by its stop hook", "queued stop and rebase", "accepted stop and rebase"}},
+		{name: "one whose turn ended as his words reached it", mode: "claude-busy-ends", input: []string{"turn ended", "accepted stop and rebase"}, isHeld: true},
+		{name: "one whose stop hook opened its next turn as his words reached it", mode: "claude-ready-reopens-hooks-queued", input: []string{"turn opened by its stop hook", "queued stop and rebase", "accepted stop and rebase"}, isHeld: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
@@ -1051,6 +1255,7 @@ func TestHisMessageIsTakenByACEOThatIsNotInATurn(t *testing.T) {
 
 			// Act
 			processed := store.ProcessOne(context.Background(), service.execute)
+			before := actionOf(store, "m1")
 			if err := os.WriteFile(terminal.typed+".accept", nil, 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -1065,6 +1270,14 @@ func TestHisMessageIsTakenByACEOThatIsNotInATurn(t *testing.T) {
 			}
 			if !slices.Equal(input, tc.input) {
 				t.Errorf("terminal input = %q; want %q", input, tc.input)
+			}
+			isQueued := before.Status == "running" && before.Awaiting != nil && before.Awaiting.IsHeld && before.Message == heldByCEO
+			if tc.isHeld && !isQueued || !tc.isHeld && before.Status != "succeeded" {
+				want := "Sent"
+				if tc.isHeld {
+					want = "Queued in the CEO's turn, watched for its take"
+				}
+				t.Errorf("before the CEO's record shows it taken = %s %q, awaiting %+v; want it %s", before.Status, before.Message, before.Awaiting, want)
 			}
 			if sent.Status != "succeeded" || sent.Awaiting != nil {
 				t.Errorf("once the CEO's record shows it taken = %s %q, awaiting %v; want it Sent", sent.Status, sent.Message, sent.Awaiting)

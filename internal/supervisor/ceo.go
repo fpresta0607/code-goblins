@@ -805,6 +805,17 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 		// them as the key went, as before: a Codex can take its key late with
 		// them still showing.
 		if screens.Resubmits > 0 {
+			// A turn that reads the submit key only as its words are taken
+			// back queues them before the keys that take them back reach it,
+			// and Claude Code runs its prompt hook as it queues a line, so
+			// words its hook reports by then are held in that turn (#2541).
+			heldOrUnsent := func(why string) (Evaluation, error) {
+				result, err := unsent(why)
+				if isReported, hookErr := NativeHostPromptSince(c.State, primary.Host, submitted); hookErr == nil && isReported {
+					return Evaluation{Reason: heldByCEO, Awaiting: waiting}, nil
+				}
+				return result, err
+			}
 			left, cancelLeft := awake.WithTimeout(context.Background(), nativeShown)
 			defer cancelLeft()
 			for {
@@ -820,12 +831,12 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 					return Evaluation{Awaiting: waiting}, fmt.Errorf("the message was typed into the CEO's turn, and whether its submit key pressed again reached it is unknown: %w", err)
 				}
 				if !isPressed && left.Err() != nil {
-					return unsent("The message stayed on the CEO's prompt line after its submit key, so the CEO's turn never queued it.")
+					return heldOrUnsent("The message stayed on the CEO's prompt line after its submit key, so the CEO's turn never queued it.")
 				}
 				select {
 				case <-time.After(nativeConfirmPoll):
 				case <-ctx.Done():
-					return unsent("The message was typed into the CEO's turn, and the wait to see it leave the prompt line ended before it did.")
+					return heldOrUnsent("The message was typed into the CEO's turn, and the wait to see it leave the prompt line ended before it did.")
 				}
 			}
 		}
@@ -862,18 +873,34 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 	}
 	taken, cancelTaken := awake.WithTimeout(context.Background(), nativeConfirm)
 	defer cancelTaken()
-	for {
-		if taken, err := NativeHostPromptSince(c.State, primary.Host, submitted); err == nil && taken {
-			return Evaluation{Reason: "Taken by the CEO in its native terminal, as its hook reported."}, nil
+	// took is how an idle CEO's screen and prompt hook show it took the
+	// words, and false while they show neither. A stop hook can open a turn
+	// as the words reach it, which then only queues them, and Claude Code
+	// runs its prompt hook as it queues a line, so a turn whose prompt line
+	// offers its queue holds them, and the hook counts as their take only
+	// once they have left the prompt line (#2541).
+	took := func(screen []string) (Evaluation, bool) {
+		if screens.IsWorking(screen) && screens.OffersQueue(screen) {
+			waiting.IsHeld = true
+			return Evaluation{Reason: heldByCEO, Awaiting: waiting}, true
 		}
+		if isReported, err := NativeHostPromptSince(c.State, primary.Host, submitted); err == nil && isReported && !screens.ComposerHoldsPartOf(screen, instruction) {
+			return Evaluation{Reason: "Taken by the CEO in its native terminal, as its hook reported."}, true
+		}
+		if _, dialog := screens.Dialog(screen); !dialog && screens.IsWorking(screen) && screens.ComposerEmpty(screen) {
+			return Evaluation{Reason: "Taken by the CEO in its native terminal, which started working on your answer."}, true
+		}
+		return Evaluation{}, false
+	}
+	for {
 		screen, err := read(record)
 		if err != nil {
 			return Evaluation{Awaiting: waiting}, fmt.Errorf("the answer was submitted but the CEO's screen cannot be read: %w", err)
 		}
-		_, dialog := screens.Dialog(screen)
-		if !dialog && screens.IsWorking(screen) && screens.ComposerEmpty(screen) {
-			return Evaluation{Reason: "Taken by the CEO in its native terminal, which started working on your answer."}, nil
+		if result, isTaken := took(screen); isTaken {
+			return result, nil
 		}
+		_, dialog := screens.Dialog(screen)
 		if isHarnessCommand(instruction) && screens.TookCommand(screen, instruction) {
 			return Evaluation{Reason: "Taken by the CEO in its native terminal, which ran your command."}, nil
 		}
@@ -887,14 +914,13 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 			}
 			if !screens.IsWorking(screen) && !screens.ComposerEmpty(screen) {
 				// Its submit key was not taken, so the words are taken back.
-				// A harness that took the key late shows a turn or reports
-				// the prompt by then, and has the answer after all.
+				// A harness that took the key late shows where they went or
+				// reports the prompt by then, and has the answer after all;
+				// a screen that cannot be read leaves that to its hook.
 				left, failure := unsent("The answer remained in the CEO's input after its submit key.")
-				if taken, err := NativeHostPromptSince(c.State, primary.Host, submitted); err == nil && taken {
-					return Evaluation{Reason: "Taken by the CEO in its native terminal, as its hook reported."}, nil
-				}
-				if screen, err := read(record); err == nil && screens.IsWorking(screen) && screens.ComposerEmpty(screen) {
-					return Evaluation{Reason: "Taken by the CEO in its native terminal, which started working on your answer."}, nil
+				screen, _ := read(record)
+				if result, isTaken := took(screen); isTaken {
+					return result, nil
 				}
 				return left, failure
 			}

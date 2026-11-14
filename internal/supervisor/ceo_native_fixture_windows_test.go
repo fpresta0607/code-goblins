@@ -37,6 +37,17 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 	if isManual {
 		mode = strings.TrimPrefix(strings.TrimPrefix(mode, "manual"), "-")
 	}
+	// A harness that hooks what it queues runs its prompt hook as it queues a
+	// line typed into its turn, as Claude Code 2.1.292 does, before it takes
+	// the line at its next tool call.
+	isHookedOnQueue := strings.HasSuffix(mode, "-hooks-queued")
+	mode = strings.TrimSuffix(mode, "-hooks-queued")
+	// A harness that reads its Enter late takes the first one that ends typed
+	// text only once the key after it reaches it, as a Claude Code stalled on
+	// a loaded machine takes a submit key among the keys that take its words
+	// back (#2541).
+	isEnterLate := strings.HasSuffix(mode, "-late-enter")
+	mode = strings.TrimSuffix(mode, "-late-enter")
 	// A harness that stalls reads nothing typed into it while the file
 	// beside its events, named .stall, exists, as the live CEO's Claude Code
 	// left typed input unread for seconds on 2026-11-10 (#2306).
@@ -296,6 +307,12 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 				record("ignored-enter")
 				continue
 			}
+			if isEnterLate && composer() != "" {
+				isEnterLate = false
+				if _, _, err := reader.ReadRune(); err != nil || reader.UnreadRune() != nil {
+					return
+				}
+			}
 			if composer() != "" && (areEntersLost || isEnterLost && lost == 0) {
 				lost++
 				record("enter taken as a new line")
@@ -335,6 +352,9 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 				queued := typedBefore + paste + line
 				record("queued " + queued)
 				hasQueued, held, queue = true, queued, append(queue, queued)
+				if isHookedOnQueue {
+					promptEvent("UserPromptSubmit")
+				}
 				go func(text string) {
 					for {
 						if _, err := os.Stat(events + ".accept"); err == nil {

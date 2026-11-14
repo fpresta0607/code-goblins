@@ -31,6 +31,13 @@ type Awaiting struct {
 	// Digest is the monitor.TextDigest of the text typed, which the
 	// harness's record of the conversation is searched for.
 	Digest string `json:"digest,omitempty"`
+	// WordsDigest is, for lines a stopped turn handed back as one prompt,
+	// the monitor.TextDigest of that prompt without the paths of the
+	// pictures the board kept for them (keptPicture), as Claude Code records
+	// a prompt that starts a turn with a picture's mark in place of its path
+	// (#2541). It is empty for any other delivery, and where it would be
+	// Digest again or no word would be left.
+	WordsDigest string `json:"words_digest,omitempty"`
 	// Session is the CEO's harness session, whose record is searched; a
 	// goblin's record is the one its harness keeps for its worktree.
 	Session string `json:"session,omitempty"`
@@ -101,7 +108,8 @@ type terminalLook struct {
 // a delivery it stored whose text held a character that draws nothing carries
 // a name no record of the text has, and is found by its words as typed
 // instead. Lines a stopped turn handed back went as one prompt and carry that
-// prompt's name (markHandedBack). A delivery stored with no name has none.
+// prompt's name (markHandedBack), and its name without their pictures' paths
+// (WordsDigest). A delivery stored with no name has none.
 // Claude Code 2.1.323 put a mark in place of the path of a picture it took
 // into a prompt that started a turn (#2541), so words that name a kept picture
 // also carry the name they have without its path, unless no word is left.
@@ -113,6 +121,9 @@ func (a Awaiting) digests() []string {
 		return []string{a.Digest}
 	}
 	digests := []string{monitor.TextDigest(a.Typed), a.Digest}
+	if a.WordsDigest != "" {
+		digests = append(digests, a.WordsDigest)
+	}
 	if words := keptPicture.ReplaceAllString(a.Typed, ""); words != a.Typed && strings.TrimSpace(words) != "" {
 		digests = append(digests, monitor.TextDigest(words))
 	}
@@ -511,7 +522,9 @@ func (s *Service) submitOnto(ctx context.Context, deliveries []Action) []Action 
 // together as one prompt, submitted again at now, so it waits anew for its
 // harness to take it and is not called unarrived for the quiet of the turn
 // that was stopped. Each then awaits its prompt's text, which its harness's
-// record shows as one prompt, rather than its own line.
+// record shows as one prompt, rather than its own line, and that text without
+// the paths of the pictures kept for it, as a prompt that starts a turn is
+// recorded with a picture's mark in place of its path.
 func (s *Store) markHandedBack(prompts [][]Action, now time.Time) error {
 	if len(prompts) == 0 {
 		return nil
@@ -523,6 +536,10 @@ func (s *Store) markHandedBack(prompts [][]Action, now time.Time) error {
 		for _, delivery := range prompt {
 			joined += delivery.Awaiting.Typed + "\n"
 		}
+		digest, wordsDigest := monitor.TextDigest(joined), ""
+		if words := keptPicture.ReplaceAllString(joined, ""); strings.TrimSpace(words) != "" && monitor.TextDigest(words) != digest {
+			wordsDigest = monitor.TextDigest(words)
+		}
 		for _, delivery := range prompt {
 			at := slices.IndexFunc(s.db.Actions, func(a Action) bool { return a.ID == delivery.ID && a.TaskID == delivery.TaskID })
 			if at < 0 || s.db.Actions[at].Status != "running" || s.db.Actions[at].Awaiting == nil {
@@ -530,7 +547,7 @@ func (s *Store) markHandedBack(prompts [][]Action, now time.Time) error {
 			}
 			a := &s.db.Actions[at]
 			waiting := *a.Awaiting
-			waiting.QuietSince, waiting.Digest = now, monitor.TextDigest(joined)
+			waiting.QuietSince, waiting.Digest, waiting.WordsDigest = now, digest, wordsDigest
 			a.Awaiting, a.Message, a.UpdatedAt = &waiting, "Its turn was stopped, so it was submitted as the next prompt.", now
 		}
 	}

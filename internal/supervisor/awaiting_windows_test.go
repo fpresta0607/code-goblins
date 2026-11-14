@@ -439,24 +439,29 @@ func TestAnAnswerTheCEOTakesInTheSessionItMovedToIsDelivered(t *testing.T) {
 // path when it takes the message into a running turn, and with the mark in
 // place of the path when the message starts a turn, as one held for a turn he
 // stopped does. A message of his with a picture is found taken either way,
-// and another message with the same picture is not his.
+// and another message with the same picture is not his, nor is another
+// picture sent alone his own picture sent alone.
 func TestAMessageWithAPictureIsFoundTakenHoweverItsHarnessTookIt(t *testing.T) {
-	words := "The list draws this row twice, see the picture"
-	typed := words + ` C:\goblins\state\composer-files\pasted-4f2a91c7.png`
+	words, path := "The list draws this row twice, see the picture", `C:\goblins\state\composer-files\pasted-4f2a91c7.png`
+	typed := words + " " + path
 	picture := map[string]any{"type": "image", "source": map[string]any{"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo="}}
 	for _, tc := range []struct {
 		name  string
+		typed string
 		entry func(at string) map[string]any
 		want  bool
 	}{
-		{name: "into a running turn", entry: func(at string) map[string]any {
+		{name: "into a running turn", typed: typed, entry: func(at string) map[string]any {
 			return map[string]any{"type": "attachment", "timestamp": at, "attachment": map[string]any{"type": "queued_command", "prompt": []map[string]any{{"type": "text", "text": typed + "[Image #50]"}, picture}}}
 		}, want: true},
-		{name: "as the turn it started", entry: func(at string) map[string]any {
+		{name: "as the turn it started", typed: typed, entry: func(at string) map[string]any {
 			return map[string]any{"type": "user", "timestamp": at, "message": map[string]any{"role": "user", "content": []map[string]any{{"type": "text", "text": words + " [Image #3]"}, picture}}}
 		}, want: true},
-		{name: "another message with the picture", entry: func(at string) map[string]any {
+		{name: "another message with the picture", typed: typed, entry: func(at string) map[string]any {
 			return map[string]any{"type": "user", "timestamp": at, "message": map[string]any{"role": "user", "content": []map[string]any{{"type": "text", "text": "Another row [Image #3]"}, picture}}}
+		}, want: false},
+		{name: "another picture sent alone", typed: path, entry: func(at string) map[string]any {
+			return map[string]any{"type": "user", "timestamp": at, "message": map[string]any{"role": "user", "content": []map[string]any{{"type": "text", "text": "[Image #3]"}, picture}}}
 		}, want: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -468,7 +473,7 @@ func TestAMessageWithAPictureIsFoundTakenHoweverItsHarnessTookIt(t *testing.T) {
 			writeRecord(t, filepath.Join(records, ".claude", "projects", "C--ceo-home", session+".jsonl"), tc.entry(time.Now().UTC().Format(time.RFC3339Nano)))
 
 			// Act
-			look := (&Service{Store: store}).lookAtTerminal(Awaiting{Host: "ceo", Harness: "claude", Since: since, Digest: monitor.TextDigest(typed), Typed: typed, Session: session})
+			look := (&Service{Store: store}).lookAtTerminal(Awaiting{Host: "ceo", Harness: "claude", Since: since, Digest: monitor.TextDigest(tc.typed), Typed: tc.typed, Session: session})
 
 			// Assert
 			if look.Took != tc.want {
