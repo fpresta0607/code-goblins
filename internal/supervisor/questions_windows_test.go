@@ -454,7 +454,9 @@ func TestASendToABusyAskerSaysItWaitsBehindItsTurn(t *testing.T) {
 			} else {
 				_, identity, ceo, connection := primaryFixture(t, store)
 				terminal = ceo
-				send = func() (Evaluation, error) { return connection.Send(context.Background(), identity, "Run finished") }
+				send = func() (Evaluation, error) {
+					return connection.Send(context.Background(), identity, "The run finished and its checks passed")
+				}
 			}
 			terminal.startTurn(t)
 

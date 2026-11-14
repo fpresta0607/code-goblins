@@ -87,7 +87,9 @@ type Evaluation struct {
 	// overlord, ci or deploy.
 	WaitingOn string `json:"waiting_on,omitempty"`
 	// Awaiting is set by a delivery that was typed and submitted and now
-	// waits for its harness to report taking it; its action keeps it.
+	// waits for its harness to report taking it; its action keeps it. A
+	// delivery that failed after its submit key may have gone sets it too,
+	// which only a message left uncertain keeps (#2541).
 	Awaiting *Awaiting `json:"-"`
 	// LeftTyped is set by a delivery that ended with its words typed into a
 	// terminal whose harness took no submit key for them, and never saw them
@@ -681,7 +683,7 @@ func (s *Store) SendQueuedMessageNow(id, task string) (Action, error) {
 		return unsent.ID == id && unsent.TaskID == task && isNotSent(unsent)
 	}); at >= 0 {
 		a := &s.db.Actions[at]
-		a.Status, a.Message, a.IsSentNow, a.UpdatedAt = "queued", "", true, time.Now().UTC()
+		a.Status, a.Message, a.IsSentNow, a.Awaiting, a.LeftTyped, a.UpdatedAt = "queued", "", true, nil, nil, time.Now().UTC()
 		if err := s.save(); err != nil {
 			return Action{}, err
 		}
@@ -1218,6 +1220,17 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 			}
 			completed.Message = bounded(runErr.Error(), 1200)
 			completed.LeftTyped = result.LeftTyped
+			// A message whose submit key went before its delivery failed may
+			// have been taken after all, as one whose screen could no longer be
+			// read on a loaded machine was, so it is watched for that as one
+			// typed and submitted is (#2541).
+			if result.Awaiting != nil && a.Kind == "message" && completed.Status == "uncertain" {
+				awaiting := *result.Awaiting
+				if awaiting.QuietSince.IsZero() {
+					awaiting.QuietSince = awaiting.Since
+				}
+				completed.Awaiting = &awaiting
+			}
 			if a.Kind == "evaluate" && (a.EventID == "" || s.db.Sessions[a.Session].LastEventID == a.EventID) {
 				prior := s.db.Tasks[a.TaskID]
 				base := ""

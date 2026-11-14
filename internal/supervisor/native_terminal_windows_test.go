@@ -134,6 +134,10 @@ func TestNativeTerminalProgram(t *testing.T) {
 		prompt, column := 0, 0
 		switch composer {
 		case "codex":
+			// Typed keys are echoed over the placeholder, which a real Codex
+			// replaces as they come, so words shorter than it leave its tail on
+			// the prompt line beside them, where the CEO's delivery reads words
+			// it never typed and submits nothing: a test types at least as much.
 			prompt, column = len(rows), 3+len([]rune(text))
 			if text == "" {
 				text = "Ask Codex to do anything"
