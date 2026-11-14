@@ -104,9 +104,11 @@ The host's protocol (a token handshake, then typed frames) is the same on every 
 - **Windows:** `internal/execx` starts a child suspended, puts it in a job object that ends everything in it when closed, and resumes it.
   The gate's executor (`internal/verify`) runs each command in a named job, stops it with Ctrl+Break and finds a run's processes again after a restart by the job's name.
   `internal/lifecycle` and `internal/proc` adopt the jobs of processes the fleet did not start, through the system's handle list.
-- **Linux:** each tree in its own process group, ended with `kill(-pgid)`, with `PR_SET_CHILD_SUBREAPER` so a child that leaves its group still comes back to its parent.
+- **Linux:** every process of a tree inherits the tree's mark in its environment (`GOBLINS_TREE`), the gate's command runs in a process group of its own, and a tree is its marked processes, its group and everything they started, by their parent chain, as on macOS.
+  Each member is ended by its ID through a `pidfd` once its start is checked, so a reused ID is never reached.
+  `PR_SET_CHILD_SUBREAPER` is not used: it would hand an orphan back to this process, which would then have to collect it, without saying which tree it left, and after a restart only the mark finds a run's processes.
   A tree's memory and processor use is the sum over its members in `/proc`.
-  The gate's run is found again by the group id it records; Ctrl+Break becomes `SIGINT`, then `SIGTERM`.
+  The gate's run is found again by the mark it started under, its job's name; Ctrl+Break becomes `SIGINT` to the group, and the end after the grace asks each member to end with `SIGTERM` for a second, then ends it with `SIGKILL`.
   Process groups work the same on macOS, which is why they come before cgroups; a cgroup per tree stays an option if the memory floor needs a hard limit.
 - **Not needed:** starting suspended and adopting another process's job; the host and the supervisor, which break away from their launcher's job on Windows, take a scope of their own on Linux instead (see [The native terminal](#the-native-terminal)).
 - **Layer:** 3.
@@ -128,6 +130,7 @@ The host's protocol (a token handshake, then typed frames) is the same on every 
   The terminal binding in `internal/supervisor/terminal.go`, which is the `lock.Info` of a `terminalBinding`: layer 5, with the native terminal.
   The watcher's handover request in `internal/watch/handover.go`, which is `handoverRequest` and `liveRequester`: layer 6, with watching.
   The updater's wait for the supervisor to exit in `cmd/goblins/update.go`, which is `serveProcess` and `processIs`: layer 8, with the updater.
+  A fifth, the gate's custody record of the process that controls a run (`currentController` in `internal/verify/recover.go`), carries its instance from layer 3 part 2, with the gate's executor: without it, the next admission read a live run's controller as gone and ended the run.
   A process that has exited and only waits for its parent to collect it reads as gone.
 - **Not needed:** windows, consoles and integrity levels.
 - **Layer:** 3, and 6 for the TCP peer, whose one caller is the browser sign-in.
@@ -271,10 +274,11 @@ The host's protocol (a token handshake, then typed frames) is the same on every 
 
 ## Left out on Linux at first
 
-Nothing is dropped in silence: each of these says what it lacks when used, until its own pull request lands.
+Nothing is dropped in silence: each of these but the last says what it lacks when used, until its own pull request lands, and the last is named here, since nothing can say it when it happens.
 
 - GPU readings: no vendor-neutral source.
 - The desktop window: the board opens in the browser instead.
+- A process that clears or replaces its environment, leaves its tree's process group and leaves the parent chain, because a process between it and the fleet has exited, is not found: it outlives the run, as on macOS.
 
 ## Pull requests, one layer each
 
@@ -328,7 +332,8 @@ It differs where Linux reads `/proc` and `/sys`, and where the Linux layers call
 - No `pidfd_open`: a process is ended by its ID after its identity is checked, so a few microseconds stay between the check and the end in which the ID could pass to another program.
   A child the fleet started cannot lose its ID that way, since its parent has not collected it.
 - No `PR_SET_CHILD_SUBREAPER`: a child whose parent exits passes to launchd, so its parent chain no longer leads back to the fleet.
-  `internal/execx` and the gate's executor mark each tree they start with an environment marker, and a tree is found by its parent chain and by that marker, read through `kern.procargs2`, which M1 ports.
+  `internal/execx` and the gate's executor mark each tree they start with an environment marker, and a tree is found by that marker, read through `kern.procargs2`, which M1 ports, by its process group and by its parent chain.
+  Linux finds a tree the same way, so the code is written once.
 - No `sched_setaffinity`: the terminal is kept off the performance cores by its priority, and the cores' kinds come from `sysctl hw.perflevel*`.
   Background priority (`PRIO_DARWIN_BG`) runs it on the efficiency cores of Apple silicon, but it also gives the lowest scheduling priority and throttles disk and network, which the Windows thread mask and Linux affinity do not.
   Spawn always passes `--leave-cores-for-apps`, so every goblin's work would be throttled.
@@ -358,11 +363,11 @@ The sizes are added lines, measured against layer 3 part 1, which added 985 prog
 | --- | --- | --- | --- | --- |
 | 1 and 2, build and unit tests | the build constraints, the `_windows_test.go` split, the EXCEPT list | a `macos` CI job that builds, vets and runs the tests of every package outside its own EXCEPT list; Windows-only test programs (`cmd`, `ping`) that are not yet per system | M1, macOS catches up, right after this plan | about 150 program lines, 100 test lines, the job (a workflow change for the CEO) |
 | 3 part 1, processes and the lock | the lock's line of waiters, its instance rule, `fsx.RemoveFileWhen`, supervise's liveness check, the stand-in programs (`true`, `sleep`) | `internal/proc` on `sysctl` and `libproc`; the instance from the boot session and the process's start in absolute-clock ticks; ending a process without a `pidfd` | M1 | about 350 program lines, 300 test lines |
-| 3 part 2, trees and the gate's executor | process groups, signals, Ctrl+Break as `SIGINT` then `SIGTERM` | an environment marker on each tree `internal/execx` and the gate's executor start, and the tree found by its parent chain and by that marker through `kern.procargs2`, since no subreaper holds it | 3 part 2 | about 100 program lines, 80 test lines |
+| 3 part 2, trees and the gate's executor | process groups, signals, Ctrl+Break as `SIGINT` then `SIGTERM` and `SIGKILL`, the environment marker on each tree `internal/execx` and the gate's executor start, and the tree found by that marker, its group and its parent chain | the marker read through `kern.procargs2`; each process's memory and processor time from `libproc`'s `proc_pid_rusage` | 3 part 2 | about 100 program lines, 80 test lines |
 | 3 part 3, files and the home | `rename`, the hold on a file, the home under `$XDG_DATA_HOME`, mode 0700, `access.IsNarrow` by mode, the durable write through `File.Sync` | nothing of its own | 3 part 3 | nothing |
 | 4, transport and paths | Unix sockets, the peer check, `flock` on the primary transport, `pathguard` reading a path as written | `LOCAL_PEERPID`; sockets under `/tmp`; path comparison by the volume's case and normalization | 4 | about 150 program lines, 150 test lines |
 | 5, the native terminal | the pseudo terminal, raw mode, `SIGWINCH`, the host's emulator | the pty from `/dev/ptmx`, the launchd agent's `AbandonProcessGroup` in place of a systemd scope, background priority or the utility class in place of affinity, chosen by measuring both on the macOS runner, the cores' kinds from `sysctl` | 5 | about 200 program lines, 120 test lines |
-| 6, watching and readings | the reader's shape, `setpriority`, Chrome over DevTools | `kqueue`; memory and processors from the Mach host calls; each process's memory from `libproc`; the birth time; `setiopolicy_np`; Chrome in `/Applications`; `pbcopy` | 6 | about 350 program lines, 200 test lines |
+| 6, watching and readings | the reader's shape, `setpriority`, Chrome over DevTools | `kqueue`; memory and processors from the Mach host calls; the birth time; `setiopolicy_np`; Chrome in `/Applications`; `pbcopy` | 6 | about 350 program lines, 200 test lines |
 | 7, end to end | the hooks calling `goblins`, the run on CI under Claude Code, Codex and pi | cards in `sh`, `!` in the user's shell, folders opened with `open` | 7 | about 40 program lines, and the macOS runner in the end-to-end job |
 | 8 for macOS, installer, window and updater | the release's checksums, update by rename | one universal disk image for Apple silicon and Intel holding the app with the window and the CLI, signed and notarized; start at sign-in as a launch agent; the Keychain; update and uninstall of the app | 8m, its own pull request, ahead of the Linux installer | about 600 program lines, 200 test lines, and the release job on a macOS runner |
 | 8 for Linux | | | 8, after 8m | nothing |
@@ -401,7 +406,7 @@ Nothing is dropped in silence: each of these but the last says what it lacks whe
 - GPU readings: macOS gives them only to root (`powermetrics`).
 - The desktop CI runner: a Mac sends private repositories' CI to GitHub's runners until a runner on the Virtualization framework is planned.
 - Intel Macs are built into the universal image and run in CI only while GitHub offers an Intel macOS runner.
-- A process that clears or replaces its environment and leaves the parent chain, because a process between it and the fleet has exited, is not found: it outlives the run.
+- A process that clears or replaces its environment, leaves its tree's process group and leaves the parent chain, because a process between it and the fleet has exited, is not found: it outlives the run.
 
 ### The order
 

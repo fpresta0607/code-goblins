@@ -5,6 +5,7 @@ package proc
 /*
 #include <stdint.h>
 #include <libproc.h>
+#include <mach/mach_time.h>
 #include <sys/proc_info.h>
 #include <sys/resource.h>
 
@@ -18,6 +19,32 @@ static int start_ticks(int pid, uint64_t *ticks) {
 	*ticks = info.ri_proc_start_abstime;
 	return 0;
 }
+
+// use_of sets used to the processor time pid and the children it collected
+// used, in the ticks of the machine's absolute clock, and private to its
+// memory footprint, the memory no other process shares, and fails with errno
+// as proc_pid_rusage leaves it.
+static int use_of(int pid, uint64_t *used, uint64_t *private) {
+	struct rusage_info_v2 info;
+	if (proc_pid_rusage(pid, RUSAGE_INFO_V2, (rusage_info_t *)&info) != 0) {
+		return -1;
+	}
+	*used = info.ri_user_time + info.ri_system_time + info.ri_child_user_time + info.ri_child_system_time;
+	*private = info.ri_phys_footprint;
+	return 0;
+}
+
+// nanoseconds_per_tick sets numer and denom to the fraction that turns the
+// absolute clock's ticks into nanoseconds.
+static int nanoseconds_per_tick(uint32_t *numer, uint32_t *denom) {
+	mach_timebase_info_data_t base;
+	if (mach_timebase_info(&base) != KERN_SUCCESS || base.denom == 0) {
+		return -1;
+	}
+	*numer = base.numer;
+	*denom = base.denom;
+	return 0;
+}
 */
 import "C"
 
@@ -26,6 +53,7 @@ import (
 	"fmt"
 	"io/fs"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -46,6 +74,24 @@ func startTicks(pid int) (uint64, error) {
 		return 0, fmt.Errorf("proc: read process %d's start: %w", pid, readError(err))
 	}
 	return uint64(ticks), nil
+}
+
+// useOf is what the process that has pid uses now: the processor time it
+// and the children it collected used, and its memory footprint, which only a
+// process of the same user, or root, may read.
+func useOf(pid int) (Use, error) {
+	var used, private C.uint64_t
+	if failed, err := C.use_of(C.int(pid), &used, &private); failed != 0 {
+		return Use{}, fmt.Errorf("proc: read what process %d uses: %w", pid, readError(err))
+	}
+	var numer, denom C.uint32_t
+	if C.nanoseconds_per_tick(&numer, &denom) != 0 {
+		return Use{}, errors.New("proc: read the machine's absolute clock rate")
+	}
+	// Divided first, so the product with the rate stays within 64 bits.
+	ticks, over, base := uint64(used), uint64(numer), uint64(denom)
+	nanoseconds := ticks/base*over + ticks%base*over/base
+	return Use{CPU: time.Duration(nanoseconds), PrivateBytes: uint64(private)}, nil
 }
 
 // workingDirectoryOf is the directory pid runs in, which only a process of

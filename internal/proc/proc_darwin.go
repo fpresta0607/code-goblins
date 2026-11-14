@@ -39,6 +39,7 @@ func entryOf(process unix.KinfoProc) Entry {
 	return Entry{
 		PID:       int(process.Proc.P_pid),
 		ParentPID: int(process.Eproc.Ppid),
+		Group:     int(process.Eproc.Pgid),
 		ExeBase:   unix.ByteSliceToString(process.Proc.P_comm[:]),
 		Start:     time.Unix(started.Sec, int64(started.Usec)*int64(time.Microsecond)).UTC(),
 	}
@@ -72,6 +73,17 @@ func Instance(pid int) (string, error) {
 		return "", errors.New("proc: the machine's boot session is empty")
 	}
 	return boot + "/" + strconv.FormatUint(ticks, 10), nil
+}
+
+// UseOf reads what the running process pid uses now: the processor time it
+// and the children it collected used, and its memory footprint, the memory
+// no other process shares. A process that is gone or has exited is
+// fs.ErrNotExist.
+func UseOf(pid int) (Use, error) {
+	if _, err := readProcess(pid); err != nil {
+		return Use{}, err
+	}
+	return useOf(pid)
 }
 
 // Lookup reads one running process: its parent, its name, which the kernel
