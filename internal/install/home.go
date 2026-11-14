@@ -70,7 +70,8 @@ func (s Service) writeHome(report *reporter) error {
 		if info, err := os.Stat(path); err == nil && info.IsDir() {
 			continue
 		}
-		if err := os.MkdirAll(path, 0o755); err != nil {
+		// Only the user may open them off Windows; Windows reads no mode.
+		if err := os.MkdirAll(path, 0o700); err != nil {
 			return fmt.Errorf("install: create %s: %w", path, err)
 		}
 		created = append(created, folder)
@@ -171,18 +172,18 @@ func (s Service) narrowFolders(report *reporter) error {
 			return fmt.Errorf("install: read who may open %s: %w", folder, err)
 		}
 		if isNarrow {
-			report.same("access", folder+"'s own access list admits only you, SYSTEM and Administrators")
+			report.same("access", folder+"'s own access list admits only "+access.Admitted)
 			continue
 		}
 		report.detail("narrowing " + folder + " and everything in it, which takes minutes for a folder holding many files")
 		var unchanged *access.Unchanged
 		switch err := access.Narrow(folder); {
 		case errors.As(err, &unchanged):
-			report.change("access", folder+" now open only to you, SYSTEM and Administrators, but "+unchanged.Error()+"; the next install tries them again, once an administrator lets you change their access")
+			report.change("access", folder+" now open only to "+access.Admitted+", but "+unchanged.Error()+"; the next install tries them again, once an administrator lets you change their access")
 		case err != nil:
-			return fmt.Errorf("install: keep %s to you, SYSTEM and Administrators: %w", folder, err)
+			return fmt.Errorf("install: keep %s to %s: %w", folder, access.Admitted, err)
 		default:
-			report.change("access", folder+" and everything in it that takes its access from it now open only to you, SYSTEM and Administrators")
+			report.change("access", folder+" and everything in it that takes its access from it now open only to "+access.Admitted)
 		}
 	}
 	return nil
