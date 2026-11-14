@@ -506,15 +506,24 @@ func MachineSharedLine() (SharedLine, error) {
 }
 
 // MachineScrawl reads the Scrawl server's process and the processor time it
-// has used. Only one server holds its port, so of two the earlier started is
-// read.
+// has used.
 func MachineScrawl() (ScrawlServer, bool, error) {
 	servers, err := proc.PageServers()
-	if err != nil || len(servers) == 0 {
+	if err != nil {
 		return ScrawlServer{}, false, err
 	}
+	return readPageServer(servers, proc.CPUTime)
+}
+
+// readPageServer reads the processor time of the Scrawl server among the
+// running page servers. Only one server holds its port, so of two the earlier
+// started is read.
+func readPageServer(servers []proc.ServiceProcess, cpuTime func(pid int) (time.Duration, bool)) (ScrawlServer, bool, error) {
+	if len(servers) == 0 {
+		return ScrawlServer{}, false, nil
+	}
 	server := slices.MinFunc(servers, func(a, b proc.ServiceProcess) int { return a.Start.Compare(b.Start) })
-	used, isMeasured := proc.CPUTime(server.PID)
+	used, isMeasured := cpuTime(server.PID)
 	if !isMeasured {
 		return ScrawlServer{}, false, fmt.Errorf("the processor time of pid %d cannot be read", server.PID)
 	}

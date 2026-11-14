@@ -10,6 +10,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/services"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/verify"
@@ -809,6 +810,61 @@ func TestTheScrawlServerIsReadAgainstItsOwnLife(t *testing.T) {
 			}
 			if len(woke) != 0 {
 				t.Fatalf("wakes = %+v, want none", woke)
+			}
+		})
+	}
+}
+
+// Only one Scrawl server holds its port, the one started first, so of two
+// page servers listed out of start order the earlier started is measured; no
+// page server is no server, and one whose processor time cannot be read is
+// an error the shared check reads as unknown.
+func TestTheEarliestStartedPageServerIsTheScrawlServer(t *testing.T) {
+	started := time.Date(2026, 11, 13, 10, 0, 0, 0, time.UTC)
+	later := proc.ServiceProcess{PID: 31000, ExeBase: "node.exe", Start: started.Add(time.Hour)}
+	earlier := proc.ServiceProcess{PID: 20764, ExeBase: "node.exe", Start: started}
+	cpuTimes := map[int]time.Duration{31000: 2 * time.Second, 20764: 10293 * time.Second}
+	for _, c := range []struct {
+		name          string
+		servers       []proc.ServiceProcess
+		isMeasured    bool
+		wantServer    ScrawlServer
+		wantIsRunning bool
+		wantErr       string
+	}{
+		{"two servers out of start order", []proc.ServiceProcess{later, earlier}, true, ScrawlServer{PID: 20764, Start: started, CPU: 10293 * time.Second}, true, ""},
+		{"no page server", nil, true, ScrawlServer{}, false, ""},
+		{"a server whose processor time cannot be read", []proc.ServiceProcess{later, earlier}, false, ScrawlServer{}, false, "the processor time of pid 20764 cannot be read"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			var asked []int
+			cpuTime := func(pid int) (time.Duration, bool) {
+				asked = append(asked, pid)
+				return cpuTimes[pid], c.isMeasured
+			}
+
+			// Act
+			server, isRunning, err := readPageServer(c.servers, cpuTime)
+
+			// Assert
+			if c.wantErr != "" {
+				if err == nil || err.Error() != c.wantErr || isRunning {
+					t.Fatalf("read = %+v, running %t, error %v, want the error %q", server, isRunning, err, c.wantErr)
+				}
+				return
+			}
+			if err != nil || isRunning != c.wantIsRunning {
+				t.Fatalf("read = %+v, running %t, error %v, want running %t and no error", server, isRunning, err, c.wantIsRunning)
+			}
+			if !c.wantIsRunning {
+				if len(asked) != 0 {
+					t.Fatalf("processor times asked of %v, want none", asked)
+				}
+				return
+			}
+			if server.PID != c.wantServer.PID || !server.Start.Equal(c.wantServer.Start) || server.CPU != c.wantServer.CPU || server.ReadAt.IsZero() || !slices.Equal(asked, []int{20764}) {
+				t.Fatalf("read = %+v after asking %v, want %+v read now, asking pid 20764 only", server, asked, c.wantServer)
 			}
 		})
 	}

@@ -237,7 +237,4 @@ func TestOnlyARealServeReadsTheMachinesSharedServices(t *testing.T) {
 	if machine.Scrawl == nil {
 		t.Fatal("a real serve's shared probes read no Scrawl server")
 	}
-	if _, _, err := machine.Scrawl(); err != nil {
-		t.Fatalf("a real serve's Scrawl probe failed on this machine: %v", err)
-	}
 }
