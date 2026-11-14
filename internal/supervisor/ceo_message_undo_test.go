@@ -115,18 +115,23 @@ func TestSendNowAndCancelActOnHisMessageInItsUndoWindow(t *testing.T) {
 func TestAPressOnAMessageTheBoardNoLongerHoldsSaysWhereItWent(t *testing.T) {
 	since := time.Now().UTC()
 	for _, test := range []struct {
-		name   string
-		action *Action
-		want   string
+		name          string
+		action        *Action
+		want          string
+		isSendNowOnly bool
 	}{
 		{name: "being tried", action: &Action{TaskID: "", Status: "running"}, want: "The board is trying it with the CEO right now. Press again in a moment."},
 		{name: "typed into the CEO's turn", action: &Action{Status: "running", Awaiting: &Awaiting{Host: "ceo", Since: since, QuietSince: since}}, want: "It was already typed into the CEO's turn."},
 		{name: "typed into a goblin's turn", action: &Action{TaskID: "task-1", Status: "running", Awaiting: &Awaiting{Task: "task-1", Since: since, QuietSince: since}}, want: "It was already typed into task-1's turn."},
 		{name: "taken by the CEO", action: &Action{Status: "succeeded"}, want: "The CEO already took it."},
-		{name: "never seen taken", action: &Action{Status: "uncertain"}, want: "It already left the board."},
+		// His Cancel takes one never seen taken off the board (#2541).
+		{name: "never seen taken", action: &Action{Status: "uncertain"}, want: "It already left the board.", isSendNowOnly: true},
 		{name: "gone", want: "That message is no longer on the board."},
 	} {
 		for _, press := range []string{"Send now", "Cancel"} {
+			if test.isSendNowOnly && press == "Cancel" {
+				continue
+			}
 			t.Run(test.name+" "+press, func(t *testing.T) {
 				// Arrange
 				store, _ := testStore(t)
