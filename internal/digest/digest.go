@@ -650,6 +650,10 @@ func writeShared(stateDir string, now time.Time, ew *werr) {
 			if len(service.Holders) > 0 {
 				part += " (held by " + strings.Join(service.Holders, ", ") + ")"
 			}
+		case supervisor.SharedScrawl:
+			if service.PID > 0 {
+				part += fmt.Sprintf(" (pid %d, %d%% of a core)", service.PID, service.CorePercent)
+			}
 		}
 		if waiting := len(service.Waiting); waiting > 0 {
 			part += fmt.Sprintf(", %d goblin(s) waiting", waiting)

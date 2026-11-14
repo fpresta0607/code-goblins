@@ -18,13 +18,16 @@ import (
 
 // sharedMachine stands in for the machine's shared services: the gate
 // daemon's process and whether it answers its health check, the heavy line,
-// and whether the Docker engine answers.
+// whether the Docker engine answers, and the Scrawl server's process.
 type sharedMachine struct {
-	daemon         pipeline.Daemon
-	isAnswering    bool
-	line           SharedLine
-	isDockerUp     bool
-	healthAskCount int
+	daemon          pipeline.Daemon
+	isAnswering     bool
+	line            SharedLine
+	isDockerUp      bool
+	healthAskCount  int
+	scrawl          ScrawlServer
+	isScrawlRunning bool
+	scrawlErr       error
 }
 
 func (m *sharedMachine) probes() *SharedProbes {
@@ -36,16 +39,20 @@ func (m *sharedMachine) probes() *SharedProbes {
 		},
 		Line:   func() (SharedLine, error) { return m.line, nil },
 		Docker: func(context.Context) (bool, error) { return m.isDockerUp, nil },
+		Scrawl: func() (ScrawlServer, bool, error) { return m.scrawl, m.isScrawlRunning, m.scrawlErr },
 	}
 }
 
 // busyDaemonMachine is a live gate daemon serving three runs that misses its
-// short health reply, with a free heavy line and a running engine.
+// short health reply, with a free heavy line, a running engine and a quiet
+// Scrawl server.
 func busyDaemonMachine() *sharedMachine {
 	return &sharedMachine{
-		daemon:     pipeline.Daemon{State: pipeline.DaemonAlive, PID: 276, LiveRuns: 3},
-		line:       SharedLine{Capacity: 1, FloorBytes: 5 * gigabyte, Memory: Memory{Available: 10 * gigabyte, CommitAvailable: 12 * gigabyte}},
-		isDockerUp: true,
+		daemon:          pipeline.Daemon{State: pipeline.DaemonAlive, PID: 276, LiveRuns: 3},
+		line:            SharedLine{Capacity: 1, FloorBytes: 5 * gigabyte, Memory: Memory{Available: 10 * gigabyte, CommitAvailable: 12 * gigabyte}},
+		isDockerUp:      true,
+		scrawl:          ScrawlServer{PID: 4120, Start: time.Date(2026, 11, 11, 10, 0, 0, 0, time.UTC), CPU: time.Minute},
+		isScrawlRunning: true,
 	}
 }
 
@@ -708,5 +715,89 @@ func TestAnUnreadableServiceIsUnknownAndTheOthersAreStillRead(t *testing.T) {
 	}
 	if sharedByName(t, record, SharedGateDaemon).State != "busy" || sharedByName(t, record, SharedHeavyLine).State != "free" {
 		t.Fatalf("shared services = %+v, want the gate daemon and heavy line still read", record.Services)
+	}
+}
+
+// Issue 2380: on 2026-11-13 the Scrawl server had used 10,293 s of processor
+// time in four hours of life and read 112 percent of one core, and nothing
+// the fleet reads said so. The shared check reads its share of one core over
+// the minute since the last check, so a server that spins is seen at the next
+// check and wakes the CEO once for the spin, and once more for a later one.
+func TestASpinningScrawlServerIsSeenAndWakesTheCEOOnceASpin(t *testing.T) {
+	// Arrange
+	s, h, machine := sharedService(t)
+	now := time.Date(2026, 11, 13, 13, 59, 0, 0, time.UTC)
+	machine.scrawl = ScrawlServer{PID: 20764, Start: now.Add(time.Minute - 4*time.Hour), CPU: 10293 * time.Second}
+	for _, c := range []struct {
+		name        string
+		used        time.Duration
+		wantState   string
+		wantPercent int
+		wantWakes   int
+	}{
+		{"its first reading, against its four hours of life", 0, "spinning", 71, 1},
+		{"a minute at 112 percent", 67200 * time.Millisecond, "spinning", 112, 0},
+		{"a quiet minute", 600 * time.Millisecond, "running", 1, 0},
+		{"a later spin", 54 * time.Second, "spinning", 90, 1},
+	} {
+		machine.scrawl.CPU += c.used
+
+		// Act
+		woke, record := checkShared(t, s, h, &now)
+
+		// Assert
+		scrawl := sharedByName(t, record, SharedScrawl)
+		if scrawl.State != c.wantState || scrawl.CorePercent != c.wantPercent || scrawl.PID != 20764 || !scrawl.IsUsable || scrawl.Next != SharedGo {
+			t.Fatalf("%s: scrawl = %+v, want %s at %d percent of one core, pid 20764, usable", c.name, scrawl, c.wantState, c.wantPercent)
+		}
+		if len(woke) != c.wantWakes {
+			t.Fatalf("%s: wakes = %+v, want %d", c.name, woke, c.wantWakes)
+		}
+		if c.wantWakes == 1 && (woke[0].Key != SharedScrawl || !strings.Contains(woke[0].Detail, "Scrawl server is spinning") || !strings.Contains(woke[0].Detail, "the CEO's to decide")) {
+			t.Fatalf("%s: wake = %+v, want the Scrawl server spinning, the CEO's to decide", c.name, woke[0])
+		}
+	}
+}
+
+// A Scrawl server is judged against its own life: one that restarted is not
+// measured against the one before it, one only seconds old is not judged by
+// the processor its start took, a stopped one starts with the next review,
+// and one that cannot be read is the CEO's to ask about.
+func TestTheScrawlServerIsReadAgainstItsOwnLife(t *testing.T) {
+	now := time.Date(2026, 11, 13, 14, 0, 0, 0, time.UTC)
+	for _, c := range []struct {
+		name        string
+		server      ScrawlServer
+		isRunning   bool
+		err         error
+		wantState   string
+		wantNext    string
+		wantPercent int
+		wantDetail  string
+	}{
+		{"a restarted server", ScrawlServer{PID: 31000, Start: now.Add(-10 * time.Minute), CPU: 6 * time.Second}, true, nil, "running", SharedGo, 1, "since it started"},
+		{"a server seconds old", ScrawlServer{PID: 31000, Start: now.Add(-5 * time.Second), CPU: 4 * time.Second}, true, nil, "running", SharedGo, 80, "since it started"},
+		{"no server", ScrawlServer{}, false, nil, "stopped", SharedGo, 0, "no Scrawl server runs"},
+		{"an unreadable server", ScrawlServer{}, false, errors.New("access denied"), "unknown", SharedAsk, 0, "access denied"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			s, h, machine := sharedService(t)
+			clock := now.Add(-2 * time.Minute)
+			checkShared(t, s, h, &clock)
+			machine.scrawl, machine.isScrawlRunning, machine.scrawlErr = c.server, c.isRunning, c.err
+
+			// Act
+			woke, record := checkShared(t, s, h, &clock)
+
+			// Assert
+			scrawl := sharedByName(t, record, SharedScrawl)
+			if scrawl.State != c.wantState || scrawl.Next != c.wantNext || scrawl.CorePercent != c.wantPercent || !strings.Contains(scrawl.Detail, c.wantDetail) {
+				t.Fatalf("scrawl = %+v, want %s, next %s, %d percent, detail with %q", scrawl, c.wantState, c.wantNext, c.wantPercent, c.wantDetail)
+			}
+			if len(woke) != 0 {
+				t.Fatalf("wakes = %+v, want none", woke)
+			}
+		})
 	}
 }

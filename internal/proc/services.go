@@ -2,6 +2,7 @@ package proc
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -53,6 +54,15 @@ type ServiceProcess struct {
 	ExeBase   string
 	Arguments []string
 	Start     time.Time
+}
+
+// PageServers lists the running Scrawl servers: node running lavish-axi's
+// server script with its server command.
+func PageServers() ([]ServiceProcess, error) {
+	running, err := runningProcesses()
+	return slices.DeleteFunc(running, func(process ServiceProcess) bool {
+		return ServiceOf(process.ExeBase, process.Arguments) != PageServer
+	}), err
 }
 
 // ServicesOf maps the ID of each process that is a machine service, or runs
