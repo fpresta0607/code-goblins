@@ -100,26 +100,26 @@ func TestUninstallWithNoStartAtLoginEntryChangesNothing(t *testing.T) {
 // home's, since Start at login is on unless it is turned off.
 func TestInstallMakesStartAtLoginStartThisHomeInTheEarlierWindowsPlace(t *testing.T) {
 	for name, test := range map[string]struct {
-		command func(earlier string) string
+		command func(earlier, elsewhere string) string
 		adopted bool
 	}{
-		"the earlier window": {func(earlier string) string {
+		"the earlier window": {func(earlier, _ string) string {
 			return `"` + filepath.Join(earlier, "goblins-window.exe") + `" --board http://127.0.0.1:4310 --state "C:\home\state" --background`
 		}, true},
-		"a window in a folder beside the earlier one": {func(earlier string) string {
+		"a window in a folder beside the earlier one": {func(earlier, _ string) string {
 			return `"` + filepath.Join(earlier+"Other", "goblins-window.exe") + `" --board http://127.0.0.1:4310 --state "C:\home\state" --background`
 		}, false},
-		"another home's goblins": {func(string) string {
-			return `"C:\elsewhere\CodeGoblins\goblins.exe" --window --background`
+		"another home's goblins": {func(_, elsewhere string) string {
+			return `"` + elsewhere + `" --window --background`
 		}, false},
-		"no entry": {func(string) string { return "" }, false},
+		"no entry": {func(string, string) string { return "" }, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			f := installedFixture(t, nil, codegoblins.Contract, codegoblins.Policy)
 			earlier := earlierWindow(t, f)
 			key := ownStartAtLogin(t, f)
-			command := test.command(earlier)
+			command := test.command(earlier, anotherHomesPrograms(t, earlier))
 			if command != "" {
 				if err := key.SetStringValue(startAtLoginValue, command); err != nil {
 					t.Fatal(err)
@@ -142,6 +142,62 @@ func TestInstallMakesStartAtLoginStartThisHomeInTheEarlierWindowsPlace(t *testin
 			}
 		})
 	}
+}
+
+// An entry whose program is gone, such as one naming the window of a home
+// that moved or was removed, starts no home, so an install makes Start at
+// login start this home in its place; an entry whose program is there and
+// starts another home is left as it is (issue 2539).
+func TestInstallReplacesAStartAtLoginEntryWhoseProgramIsGone(t *testing.T) {
+	for name, test := range map[string]struct {
+		isThere  bool
+		replaced bool
+	}{
+		"another home's window that is gone":  {false, true},
+		"another home's window that is there": {true, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			f := installedFixture(t, nil, codegoblins.Contract, codegoblins.Policy)
+			writeFile(t, filepath.Join(filepath.Dir(f.service.Binary), windowName), "window 1")
+			key := ownStartAtLogin(t, f)
+			program := filepath.Join(t.TempDir(), "CodeGoblins", "bin", windowName)
+			if test.isThere {
+				writeFile(t, program, "another home's window")
+			}
+			command := `"` + program + `" --background`
+			if err := key.SetStringValue(startAtLoginValue, command); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			output := f.install()
+
+			// Assert
+			want := command
+			if test.replaced {
+				want = `"` + filepath.Join(f.bin, windowName) + `" --background`
+			}
+			if got, _, err := key.GetStringValue(startAtLoginValue); err != nil || got != want {
+				t.Errorf("Start at login runs %q (%v), want %s", got, err, want)
+			}
+			if reported := strings.Contains(output, "Windows starts Code Goblins at login, in the tray: "+want); reported != test.replaced {
+				t.Errorf("the install reports Start at login changed: %v, want %v:\n%s", reported, test.replaced, output)
+			}
+		})
+	}
+}
+
+// anotherHomesPrograms puts the programs of other Code Goblins installs, a
+// window in the folder beside the earlier window's and another home's goblins,
+// where the Start at login entries naming them find them, and returns that
+// home's goblins.
+func anotherHomesPrograms(t *testing.T, earlier string) string {
+	t.Helper()
+	writeFile(t, filepath.Join(earlier+"Other", windowName), "another window")
+	elsewhere := filepath.Join(t.TempDir(), "CodeGoblins", "goblins.exe")
+	writeFile(t, elsewhere, "another home's goblins")
+	return elsewhere
 }
 
 // earlierWindowAtLogin gives the fixture an earlier copy of the desktop window
@@ -232,22 +288,22 @@ func TestInstallStartsAtLoginTheWindowItSuppliedAndGoblinsForOneItKept(t *testin
 func TestInstallThatKeptTheHomesWindowStartsItsSupervisorAtLoginAndLeavesOtherEntries(t *testing.T) {
 	const kept = "a window from before"
 	for name, test := range map[string]struct {
-		command  func(bin, earlier string) string
+		command  func(bin, earlier, elsewhere string) string
 		replaced bool
 	}{
-		"a window in a folder beside the earlier one": {func(_, earlier string) string {
+		"a window in a folder beside the earlier one": {func(_, earlier, _ string) string {
 			return `"` + filepath.Join(earlier+"Other", windowName) + `" --board http://127.0.0.1:4310 --state "C:\home\state" --background`
 		}, false},
-		"another home's goblins": {func(string, string) string {
-			return `"C:\elsewhere\CodeGoblins\goblins.exe" --window --background`
+		"another home's goblins": {func(_, _, elsewhere string) string {
+			return `"` + elsewhere + `" --window --background`
 		}, false},
-		"this home's window on its own": {func(bin, _ string) string {
+		"this home's window on its own": {func(bin, _, _ string) string {
 			return `"` + filepath.Join(bin, windowName) + `" --board http://127.0.0.1:4310 --state "` + filepath.Join(filepath.Dir(bin), "state") + `" --background`
 		}, true},
-		"this home's window alone": {func(bin, _ string) string {
+		"this home's window alone": {func(bin, _, _ string) string {
 			return `"` + filepath.Join(bin, windowName) + `" --background`
 		}, false},
-		"no entry": {func(string, string) string { return "" }, true},
+		"no entry": {func(string, string, string) string { return "" }, true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -255,7 +311,7 @@ func TestInstallThatKeptTheHomesWindowStartsItsSupervisorAtLoginAndLeavesOtherEn
 			writeFile(t, filepath.Join(f.bin, windowName), kept)
 			earlierWindowAtLogin(t, f)
 			key := ownStartAtLogin(t, f)
-			command := test.command(f.bin, f.service.EarlierWindow)
+			command := test.command(f.bin, f.service.EarlierWindow, anotherHomesPrograms(t, f.service.EarlierWindow))
 			if command != "" {
 				if err := key.SetStringValue(startAtLoginValue, command); err != nil {
 					t.Fatal(err)

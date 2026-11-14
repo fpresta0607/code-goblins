@@ -636,7 +636,7 @@ jobs:
   # dictation ready, or the update's own download recorded as the same
   # environment result.
   update:
-    name: ${{ matrix.by }} from ${{ matrix.from }}
+    name: ${{ matrix.by }} from ${{ matrix.from }}${{ matrix.home == 'elsewhere' && ', home outside the default folder' || '' }}
     needs: [draft, reuse]
     if: ${{ !cancelled() && needs.draft.outputs.draft != 'true' && needs.reuse.outputs.run == '' && !inputs.release }}
     strategy:
@@ -647,9 +647,16 @@ jobs:
         # one-line install run over the latest, which does the same.
         from: [v0.5.18, v0.5.16]
         by: [update]
+        home: [default]
         include:
           - from: v0.5.18
             by: install
+          # The latest release's home in a folder outside the default, which
+          # only the release's own home setting names, as issue 2539's was:
+          # the update proves its supervisor by that setting and moves it.
+          - from: v0.5.18
+            by: update
+            home: elsewhere
     runs-on: windows-latest
     # The published install runs the same third-party installers as the
     # one-line install, and the update to a newer dictation model fetches it.
@@ -679,6 +686,18 @@ jobs:
           npm --prefix frontend run build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./tests/update/stage_releases.ps1 -Version v0.5.99 -Folder $env:RELEASES -Port 8765
+      - name: Name a home outside the default folder by the release's own home setting
+        if: ${{ matrix.home == 'elsewhere' }}
+        run: |
+          # The release's install keeps a home its home setting names that
+          # holds a state folder, so the home it sets up sits outside the
+          # default folder and only that setting, from before the rename,
+          # names it.
+          . ./tests/pre_rename_build.ps1
+          $elsewhere = Join-Path $env:USERPROFILE "CodeGoblins"
+          New-Item -ItemType Directory -Force -Path (Join-Path $elsewhere "state") | Out-Null
+          [Environment]::SetEnvironmentVariable("${PreRenameSettingPrefix}HOME", $elsewhere, "User")
+          "ELSEWHERE=$elsewhere" >> $env:GITHUB_ENV
       - name: Install ${{ matrix.from }} from its published release
         shell: powershell
         env:
@@ -712,6 +731,7 @@ jobs:
             }
           }
           $installed = Join-Path $env:LOCALAPPDATA "CodeGoblins\bin\goblins.exe"
+          if ($env:ELSEWHERE) { $installed = Join-Path $env:ELSEWHERE "bin\goblins.exe" }
           foreach ($attempt in 1..3) {
             Get-Content -Raw -LiteralPath $installer | Invoke-Expression
             # Through Invoke-Expression a failed install leaves LASTEXITCODE 1
@@ -755,6 +775,29 @@ jobs:
       - name: Update to this commit, which moves the home to goblins by itself
         if: ${{ matrix.by == 'update' }}
         run: ./tests/update/update_and_check.ps1 -Api http://127.0.0.1:8765/good/latest -Release "$env:RELEASES\good" -Want installed -Project (Join-Path $env:USERPROFILE "source\demo") -Facts $env:FACTS -PreRename
+      - name: Check the home outside the default folder by its setting, its board and its start at login
+        if: ${{ matrix.home == 'elsewhere' }}
+        run: |
+          # Issue 2539: after the update the user setting names the home by
+          # goblins' name, the board serves from that home, and Windows starts
+          # that home's window at login. Each is said, then checked.
+          . ./tests/pre_rename_build.ps1
+          $problems = @()
+          $named = [Environment]::GetEnvironmentVariable("GOBLINS_HOME", "User")
+          $old = [Environment]::GetEnvironmentVariable("${PreRenameSettingPrefix}HOME", "User")
+          Write-Host "the user setting GOBLINS_HOME: $named; the release's own home setting: $(if ($null -eq $old) { 'not set' } else { $old })"
+          if ($named -ne $env:ELSEWHERE -or $null -ne $old) { $problems += "the user setting names the home as '$named' (and the old setting '$old'), want only GOBLINS_HOME=$env:ELSEWHERE" }
+          $board = Get-Content -Raw -LiteralPath (Join-Path $env:ELSEWHERE "state\board.json") | ConvertFrom-Json
+          $alive = Invoke-RestMethod -Uri "$($board.url)/api/alive" -TimeoutSec 10
+          $served = (Get-Process -Id $alive.pid).Path
+          Write-Host "the board at $($board.url) is pid $($alive.pid), serving from $served"
+          if (-not [string]::Equals((Split-Path -Parent $served), (Join-Path $env:ELSEWHERE "bin"), [StringComparison]::OrdinalIgnoreCase)) { $problems += "the board serves from $served, want a program in $env:ELSEWHERE\bin" }
+          $login = (Get-ItemProperty -LiteralPath "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name CodeGoblins -ErrorAction SilentlyContinue).CodeGoblins
+          Write-Host "start at login runs: $login"
+          $window = Join-Path $env:ELSEWHERE "bin\goblins-window.exe"
+          if (-not $login -or -not $login.StartsWith("`"$window`"", [StringComparison]::OrdinalIgnoreCase) -or -not (Test-Path -LiteralPath $window)) { $problems += "start at login runs '$login', want the home's window $window" }
+          if ($problems.Count -gt 0) { throw "the home outside the default folder is not as the update must leave it:`n- $($problems -join "`n- ")" }
+          Write-Host "the home $env:ELSEWHERE is named by GOBLINS_HOME, its board serves from its bin, and start at login runs its window"
       - name: Install this commit over the release, which moves the home to goblins by itself
         if: ${{ matrix.by == 'install' }}
         run: ./tests/update/update_and_check.ps1 -InstallFrom http://127.0.0.1:8765/good -Release "$env:RELEASES\good" -Want installed -Project (Join-Path $env:USERPROFILE "source\demo") -Facts $env:FACTS -PreRename
@@ -770,7 +813,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.by }}-logs-${{ matrix.from }}
+          name: ${{ matrix.by }}-logs-${{ matrix.from }}-${{ matrix.home || 'default' }}
           path: |
             ${{ runner.temp }}/update-*.log
             ${{ runner.temp }}/install-over-*.log
@@ -781,9 +824,11 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.by }}-home-logs-${{ matrix.from }}
+          name: ${{ matrix.by }}-home-logs-${{ matrix.from }}-${{ matrix.home || 'default' }}
           path: |
             ~/AppData/Local/Temp/CodeGoblinsInstall.log
+            ~/CodeGoblins/state/serve.log
+            ~/CodeGoblins/state/update
             ~/AppData/Local/CodeGoblins/state/serve.log
             ~/AppData/Local/CodeGoblins/state/update
             ~/AppData/Local/CodeGoblins/state/primary.json

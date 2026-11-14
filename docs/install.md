@@ -210,6 +210,13 @@ The copies under the old names are removed once no terminal from before the upda
 The GitHub labels of the goblins' tickets take the new names once the updated board starts, as part of the same undo.
 The way back is the command the board and the update name, `goblins cutover --undo '<folder>'`, run with the fleet paused.
 
+A home outside `%LOCALAPPDATA%\CodeGoblins`, which such a release names by its own home setting, updates the same way, with nothing set by hand.
+The new build proves the running board that home's own by the home and state settings the board was started with, under the old names or goblins', and still stops only that home's board.
+The move then names the home by `GOBLINS_HOME` at user scope and removes the old setting, as it does every setting of yours; where both names were set, `GOBLINS_HOME` takes the old setting's value.
+The board starts again from the same home, and Start at login stays as it was.
+The release's own last step still reads its own home setting, which the move has just renamed, so it notes that this machine's install names `%LOCALAPPDATA%\CodeGoblins`, not this home, and leaves the contract, skills and hooks as the move wrote them.
+Run `goblins install` once in a new terminal afterwards to bring them up to date; it also sets Start at login to this home's window where the entry named a window that is gone, such as one left by a home that moved.
+
 ### What an update keeps
 
 An update replaces the programs and brings the home's contract, skills and hooks up to date, and keeps everything else as it was, apart from the move of a home from a release before the rename, [above](#updating-from-a-release-before-the-rename):

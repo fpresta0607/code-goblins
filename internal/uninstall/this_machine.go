@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/fpresta0607/code-goblins/internal/cutover/homesetting"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -15,7 +16,8 @@ import (
 )
 
 // ThisMachine is this machine, with the home an install wires in: the one
-// GOBLINS_HOME names where a fleet lives there, and otherwise the per-user home.
+// GOBLINS_HOME names where a fleet lives there, or the old home setting where
+// a build before the rename set only that, and otherwise the per-user home.
 // goblins uninstall and the window Installed apps opens both uninstall it.
 func ThisMachine() (Machine, error) {
 	local := os.Getenv("LOCALAPPDATA")
@@ -27,7 +29,7 @@ func ThisMachine() (Machine, error) {
 		return Machine{}, err
 	}
 	env := installbase.NewEnvStore(execx.OSRunner{})
-	target, err := installbase.FindTarget(env, standard)
+	target, err := installbase.FindTarget(homesetting.Settings{EnvStore: env}, standard)
 	if err != nil {
 		return Machine{}, err
 	}

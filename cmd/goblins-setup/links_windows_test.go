@@ -12,6 +12,7 @@ import (
 // reads and what those read, and nothing more.
 var linkedPackages = []string{
 	"internal/awake",
+	"internal/cutover/homesetting",
 	"internal/devdrive",
 	"internal/disk",
 	"internal/execx",
