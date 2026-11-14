@@ -95,8 +95,23 @@ func TestAGoblinsBrowserIsAHeadlessChromeOf1280By800OnItsTasksProfile(t *testing
 // A click the goblin sends through its own browser session, the board's
 // DevTools route that its chrome-devtools-axi reaches, shows in its Screen
 // view as a pointer at that place on the page it clicked, and reads as use
-// of its browser (#2537).
+// of its browser, whether the session attached to that page itself or, as
+// chrome-devtools-axi's puppeteer does, by auto-attach (#2537).
 func TestAGoblinsClickThroughItsOwnSessionShowsItsPointerInTheScreenView(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		isAutoAttach bool
+	}{
+		{"an attach of its own", false},
+		{"an auto-attach", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			clickShowsItsPointer(t, test.isAutoAttach)
+		})
+	}
+}
+
+func clickShowsItsPointer(t *testing.T, isAutoAttach bool) {
 	// Arrange
 	store, _ := testStore(t)
 	meta, err := state.ReadTaskMeta(store.Home.State, "task-1")
@@ -123,6 +138,30 @@ func TestAGoblinsClickThroughItsOwnSessionShowsItsPointerInTheScreenView(t *test
 	}
 	t.Cleanup(func() { goblin.CloseNow() })
 	sent := int64(0)
+	autoAttached := ""
+	type devToolsReply struct {
+		ID     int64           `json:"id"`
+		Result json.RawMessage `json:"result"`
+		Error  json.RawMessage `json:"error"`
+	}
+	read := func() devToolsReply {
+		t.Helper()
+		var message struct {
+			devToolsReply
+			Method string `json:"method"`
+			Params struct {
+				Session string     `json:"sessionId"`
+				Info    targetInfo `json:"targetInfo"`
+			} `json:"params"`
+		}
+		if err := wsjson.Read(ctx, goblin, &message); err != nil {
+			t.Fatal(err)
+		}
+		if message.Method == "Target.attachedToTarget" && message.Params.Info.Type == "page" {
+			autoAttached = message.Params.Session
+		}
+		return message.devToolsReply
+	}
 	call := func(session, method string, params, result any) {
 		t.Helper()
 		sent++
@@ -134,14 +173,7 @@ func TestAGoblinsClickThroughItsOwnSessionShowsItsPointerInTheScreenView(t *test
 			t.Fatal(err)
 		}
 		for {
-			var reply struct {
-				ID     int64           `json:"id"`
-				Result json.RawMessage `json:"result"`
-				Error  json.RawMessage `json:"error"`
-			}
-			if err := wsjson.Read(ctx, goblin, &reply); err != nil {
-				t.Fatal(err)
-			}
+			reply := read()
 			if reply.ID != sent {
 				continue
 			}
@@ -156,20 +188,28 @@ func TestAGoblinsClickThroughItsOwnSessionShowsItsPointerInTheScreenView(t *test
 			return
 		}
 	}
-	var targets struct {
-		Infos []targetInfo `json:"targetInfos"`
-	}
-	call("", "Target.getTargets", nil, &targets)
-	page := ""
-	for _, info := range targets.Infos {
-		if info.Type == "page" {
-			page = info.ID
-		}
-	}
 	var attached struct {
 		Session string `json:"sessionId"`
 	}
-	call("", "Target.attachToTarget", map[string]any{"targetId": page, "flatten": true}, &attached)
+	if isAutoAttach {
+		call("", "Target.setAutoAttach", map[string]any{"autoAttach": true, "flatten": true, "waitForDebuggerOnStart": false}, nil)
+		for autoAttached == "" {
+			read()
+		}
+		attached.Session = autoAttached
+	} else {
+		var targets struct {
+			Infos []targetInfo `json:"targetInfos"`
+		}
+		call("", "Target.getTargets", nil, &targets)
+		page := ""
+		for _, info := range targets.Infos {
+			if info.Type == "page" {
+				page = info.ID
+			}
+		}
+		call("", "Target.attachToTarget", map[string]any{"targetId": page, "flatten": true}, &attached)
+	}
 	call(attached.Session, "Page.navigate", map[string]string{"url": "data:text/html,<title>Shop</title><button>Buy</button>"}, nil)
 	view, _, err := websocket.Dial(ctx, socket+"/api/screen?task=task-1&generation=g1&token=test-instance", &websocket.DialOptions{HTTPHeader: http.Header{"Origin": {server.URL}}})
 	if err != nil {

@@ -346,7 +346,7 @@ func (s *screenView) tell(ctx context.Context) error {
 		page = s.pages[at]
 	}
 	told := browserScreenState{Type: "state", IsDriven: isDriven, CanDrive: s.isLocal, Title: page.title, Host: page.address, HasPage: s.target != ""}
-	if pointer := s.h.Service.screens.pointerOf(s.b); pointer.seq > 0 && pointer.target == s.target && s.target != "" {
+	if pointer := s.h.Service.screens.pointerOf(s.b); pointer.target == s.target && s.target != "" {
 		told.Pointer = &screenPlace{X: pointer.x, Y: pointer.y}
 	}
 	if !s.isLocal {

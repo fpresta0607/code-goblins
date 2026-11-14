@@ -409,6 +409,58 @@ func TestAGoblinsBrowserItsSessionHoldsClosesOnceUnused(t *testing.T) {
 	}
 }
 
+// A browser its goblin's session holds stays open its unused while after a
+// view closes, a person hands it back or its session connects again, however
+// long ago its goblin's last command was, so a sign-in he finished on its
+// screen is still there for the goblin (#2537).
+func TestAHeldBrowserStaysOpenAWhileAfterItWasLastWatchedDrivenOrConnected(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		// hold keeps the browser from closing until its returned let go.
+		hold func(*taskBrowsers, *taskBrowser) (letGo func())
+	}{
+		{"a view closes", func(browsers *taskBrowsers, b *taskBrowser) func() {
+			browsers.connect(b)
+			_, release := browsers.watch(b)
+			return release
+		}},
+		{"he hands it back", func(browsers *taskBrowsers, b *taskBrowser) func() {
+			browsers.connect(b)
+			browsers.drive(b, true)
+			return func() { browsers.drive(b, false) }
+		}},
+		{"its session connects again", func(browsers *taskBrowsers, b *taskBrowser) func() {
+			browsers.connect(b)()
+			return func() { browsers.connect(b) }
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			chrome := &fakeGoblinChrome{browser: newFakeBrowser()}
+			browsers := newFakeBrowsers(t, chrome)
+			browsers.unused = 300 * time.Millisecond
+			b, err := browsers.ensure(context.Background(), state.TaskMeta{ID: "task-1", SpawnGen: "g1"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			browsers.use(b, browserlogin.Command{Method: "Page.navigate", Target: "shop", Params: json.RawMessage(`{"url":"https://shop.example.com/"}`)})
+			letGo := test.hold(browsers, b)
+			time.Sleep(3 * browsers.unused)
+
+			// Act
+			letGo()
+			time.Sleep(browsers.unused / 3)
+			_, endedSoonAfter := chrome.counts()
+
+			// Assert
+			if endedSoonAfter != 0 {
+				t.Fatal("the browser closed as soon as nothing watched or drove it")
+			}
+			eventually(t, "the unused browser's end", func() bool { _, ended := chrome.counts(); return ended == 1 })
+		})
+	}
+}
+
 // A goblin's browser reads as in use, which its card shows as Browser
 // active, after its goblin's navigation, click or typed text through its
 // DevTools route, never after a page's setup alone nor for its start, and
@@ -434,25 +486,36 @@ func TestAGoblinsBrowserReadsInUseOnlyAfterItsGoblinUsesIt(t *testing.T) {
 			browsers.inUse = 500 * time.Millisecond
 			var told atomic.Int32
 			browsers.notify = func() { told.Add(1) }
-			hear := goblinCommands(t, &Service{Store: store, Instance: "test-instance", screens: browsers}, chrome)
+			service := &Service{Store: store, Instance: "test-instance", screens: browsers}
+			hear := goblinCommands(t, service, chrome)
 			eventually(t, "the board's word of the browser's start", func() bool { return told.Load() == 1 })
-			isInUseAtStart := browsers.isInUse("task-1", "g1")
+			atStart := snapshotTask(t, service, "task-1")
 
 			// Act
 			refusal := hear(test.command)
-			isInUse, toldOfUse := browsers.isInUse("task-1", "g1"), told.Load()
+			afterCommand, toldOfUse := snapshotTask(t, service, "task-1"), told.Load()
 
 			// Assert
-			if refusal != "" || isInUseAtStart || isInUse != test.isUse || (toldOfUse == 2) != test.isUse {
-				t.Fatalf("refusal %q, in use at start %v and after %v, the board told %d times", refusal, isInUseAtStart, isInUse, toldOfUse)
+			if refusal != "" || !atStart.Browser || atStart.BrowserInUse || !afterCommand.Browser || afterCommand.BrowserInUse != test.isUse || (toldOfUse == 2) != test.isUse {
+				t.Fatalf("refusal %q, the task at start %+v and after %+v, the board told %d times", refusal, atStart, afterCommand, toldOfUse)
+			}
+			encoded, err := json.Marshal(afterCommand)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(encoded), `"browser_in_use":true`) != test.isUse {
+				t.Fatalf("the snapshot's task reads %s, want browser_in_use %v", encoded, test.isUse)
 			}
 			if !test.isUse {
 				return
 			}
-			eventually(t, "the use's lapse", func() bool { return !browsers.isInUse("task-1", "g1") && told.Load() == 3 })
+			eventually(t, "the use's lapse", func() bool { return told.Load() == 3 })
+			if lapsed := snapshotTask(t, service, "task-1"); !lapsed.Browser || lapsed.BrowserInUse {
+				t.Fatalf("after the lapse the task reads %+v, want its browser running and not in use", lapsed)
+			}
 			hear(test.command)
-			if !browsers.isInUse("task-1", "g1") || told.Load() != 4 {
-				t.Fatalf("after the next use it reads in use %v, the board told %d times", browsers.isInUse("task-1", "g1"), told.Load())
+			if again := snapshotTask(t, service, "task-1"); !again.BrowserInUse || told.Load() != 4 {
+				t.Fatalf("after the next use the task reads %+v, the board told %d times", again, told.Load())
 			}
 		})
 	}

@@ -23,9 +23,11 @@ const (
 	// a session's stop and start again.
 	taskBrowserIdle = 2 * time.Minute
 	// taskBrowserUnused is how long it stays open while its session still
-	// holds it but sends it no command, and nobody watches or drives it: a
-	// goblin's chrome-devtools-axi bridge holds its DevTools connection for
-	// as long as it runs, so a held connection alone is no use (#2537).
+	// holds it but sends it no command, and nobody watches or drives it,
+	// counted from its goblin's last command, its session's connection, a
+	// view's close or control's return, whichever came last: a goblin's
+	// chrome-devtools-axi bridge holds its DevTools connection for as long
+	// as it runs, so a held connection alone is no use (#2537).
 	taskBrowserUnused = 10 * time.Minute
 	// taskBrowserInUse is how long after its goblin's last command a browser
 	// reads as in use, which its card's Browser active shows (#2537).
@@ -128,11 +130,11 @@ type taskBrowser struct {
 	clients  int
 	viewers  map[chan struct{}]struct{}
 	isDriven bool
-	// startedAt is when it started, and usedAt when its goblin last sent it
-	// a command that does more than set up a page; lapse tells the board once
-	// that is taskBrowserInUse ago, when its card stops reading Browser active.
-	startedAt, usedAt time.Time
-	lapse             *time.Timer
+	// usedAt is when its goblin last sent it a command that does more than
+	// set up a page; lapse tells the board once that is taskBrowserInUse ago,
+	// when its card stops reading Browser active.
+	usedAt time.Time
+	lapse  *time.Timer
 	// pointer is where the goblin last pressed its mouse, for its views.
 	pointer screenPointer
 	// idle closes the browser once nobody uses it, and unwatched hands it
@@ -142,11 +144,10 @@ type taskBrowser struct {
 }
 
 // screenPointer is where a goblin pressed its mouse on a page: the page and
-// the place, nothing else, with seq counting the presses.
+// the place, nothing else.
 type screenPointer struct {
 	target string
 	x, y   float64
-	seq    int
 }
 
 // taskBrowsers runs each goblin's browser: a Chrome the supervisor starts,
@@ -255,7 +256,7 @@ func (t *taskBrowsers) start(b *taskBrowser, meta state.TaskMeta) {
 	source, end, err := t.launch(ctx, meta)
 	cancel()
 	t.mu.Lock()
-	b.source, b.end, b.err, b.startedAt = source, end, err, time.Now()
+	b.source, b.end, b.err = source, end, err
 	if err != nil {
 		if t.running[b.task] == b {
 			delete(t.running, b.task)
@@ -331,7 +332,7 @@ func (t *taskBrowsers) use(b *taskBrowser, command browserlogin.Command) {
 	}
 	b.lapse = time.AfterFunc(t.inUse, t.notify)
 	if isPress {
-		b.pointer = screenPointer{target: command.Target, x: press.X, y: press.Y, seq: b.pointer.seq + 1}
+		b.pointer = screenPointer{target: command.Target, x: press.X, y: press.Y}
 		for wake := range b.viewers {
 			select {
 			case wake <- struct{}{}:
@@ -434,9 +435,10 @@ func (t *taskBrowsers) handBack(task string) {
 }
 
 // settleLocked arms b's timers for what uses it now: a browser nobody holds,
-// watches or drives closes after t.idle, one its goblin holds but sends no
-// command t.unused after its last, and control nobody watches goes back
-// after t.unwatched.
+// watches or drives closes after t.idle, one its goblin holds but nobody
+// watches or drives t.unused after this, its goblin's last command or the
+// last change of who holds, watches or drives it, and control nobody
+// watches goes back after t.unwatched.
 func (t *taskBrowsers) settleLocked(b *taskBrowser) {
 	if b.idle != nil {
 		b.idle.Stop()
@@ -453,20 +455,19 @@ func (t *taskBrowsers) settleLocked(b *taskBrowser) {
 		b.unwatched = time.AfterFunc(t.unwatched, func() { t.drive(b, false) })
 	}
 	if len(b.viewers) == 0 && !b.isDriven {
-		wait, usedAt := t.idle, b.usedAt
+		wait := t.idle
 		if b.clients > 0 {
-			wait = t.unused - time.Since(b.startedAt)
-			if usedAt.After(b.startedAt) {
-				wait = t.unused - time.Since(usedAt)
-			}
+			wait = t.unused
 		}
-		b.idle = time.AfterFunc(wait, func() {
+		var idle *time.Timer
+		idle = time.AfterFunc(wait, func() {
 			t.mu.Lock()
-			if len(b.viewers) == 0 && !b.isDriven && (b.clients == 0 || b.usedAt.Equal(usedAt)) {
+			if b.idle == idle {
 				t.closeLocked(b)
 			}
 			t.mu.Unlock()
 		})
+		b.idle = idle
 	}
 }
 
