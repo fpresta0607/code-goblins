@@ -1,4 +1,5 @@
 import { expect, test } from "./site";
+import { recordingBegins } from "./dictation-hold";
 import { box, card, field, GOBLIN, NAME, open, openGoblin, pickStyle, send, snapshot, typed } from "./session-board";
 
 test.use({ permissions: ["microphone"], launchOptions: { ignoreDefaultArgs: ["--hide-scrollbars"], args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--autoplay-policy=no-user-gesture-required"] } });
@@ -291,6 +292,7 @@ for (const style of ["modern"]) {
         await field(page).fill("please");
 
         // Act: release custody while the composer is recording.
+        const begun = recordingBegins(page);
         if (width === 390) await box(page).getByRole("button", { name: "Dictate", exact: true }).tap();
         else {
           await box(page).getByRole("button", { name: "Hold to dictate", exact: true }).hover();
@@ -305,6 +307,7 @@ for (const style of ["modern"]) {
           await expect(recording).toBeVisible();
           await expect(field(page)).toBeFocused();
         }
+        await begun;
         await page.waitForTimeout(1200);
         if (width === 390) await recording.tap();
         else await page.mouse.up();

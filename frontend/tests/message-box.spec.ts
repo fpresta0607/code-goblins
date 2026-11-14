@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "./site";
+import { recordingBegins } from "./dictation-hold";
 
 // The Overlord, 2026-10-09, of Bernie's paused panel, his message "i can
 // message?" marked Kept for resume: "why is there no delete button for paused
@@ -126,8 +127,10 @@ test("holding the microphone dictates into the box for a paused goblin, through 
 
   // Act
   await microphone.hover();
+  const begun = recordingBegins(page);
   await page.mouse.down();
   await expect(box.getByRole("button", { name: "Listening" })).toHaveClass(/recording/);
+  await begun;
   await page.waitForTimeout(1200);
   await page.mouse.up();
 
@@ -156,8 +159,10 @@ async function hearSilence(page: Page) {
 // holdMicrophone holds the box's microphone for a moment and lets it go.
 async function holdMicrophone(page: Page, box: ReturnType<Page["locator"]>) {
   await box.getByRole("button", { name: "Hold to dictate" }).hover();
+  const begun = recordingBegins(page);
   await page.mouse.down();
   await expect(box.getByRole("button", { name: "Listening" })).toHaveClass(/recording/);
+  await begun;
   await page.waitForTimeout(1200);
   await page.mouse.up();
 }

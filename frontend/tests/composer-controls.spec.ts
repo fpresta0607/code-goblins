@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "./site";
+import { recordingBegins } from "./dictation-hold";
 import { box, field, GOBLIN, NAME, open, openGoblin, PAGE, pasted, pickStyle, pressRow, snapshot, typed, type Relay } from "./session-board";
 
 // A fake microphone, so the box can dictate.
@@ -212,9 +213,11 @@ test.describe("while he dictates", () => {
 
         for (const times of [1, 2, 3]) {
           // Act: a dictation.
+          const begun = recordingBegins(page);
           await composer.getByRole("button", { name: "Dictate", exact: true }).tap();
           const stop = composer.getByRole("button", { name: "Stop dictating", exact: true });
           await expect(stop.locator(".voice-bars")).toBeVisible();
+          await begun;
           await page.waitForTimeout(1200);
           await stop.tap();
 
