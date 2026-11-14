@@ -22,28 +22,58 @@ import (
 // fakeDaemon stands in for no-mistakes' daemon and records each call.
 type fakeDaemon struct {
 	calls []string
-	// refusals is how many Uninstall calls of the old home refuse, as
-	// no-mistakes does while a gate run is in flight.
+	// inFlight is how many looks find a gate run in flight.
+	inFlight int
+	// refusals is how many Stop calls of the old home refuse, as
+	// no-mistakes does while a gate run of its own is in flight.
 	refusals int
+	// busyHolds is how many Hold calls refuse, as the daemon's lock does
+	// while a daemon holds it.
+	busyHolds int
 	// failStart fails Start on the named home.
 	failStart string
+	// inFlightErr, stopErr and holdErr fail the look for runs in flight, the
+	// stop and the hold of the old home for a reason that is not the gate's
+	// own no, such as a database that could not be read or a command that
+	// could not run.
+	inFlightErr, stopErr, holdErr error
 	// onHold runs when the home is held.
 	onHold func()
 	// onStart runs when a daemon is asked to start, before it answers.
 	onStart func(root string)
 }
 
-func (d *fakeDaemon) Uninstall(_ context.Context, root string) error {
-	d.calls = append(d.calls, "uninstall "+root)
+func (d *fakeDaemon) InFlight(context.Context, string) error {
+	if d.inFlight > 0 {
+		d.inFlight--
+		return Refusal{Err: errors.New("pipeline busy: it waits for 1 gate run in flight, 01RUN (project fix/a, running), and changed nothing")}
+	}
+	return d.inFlightErr
+}
+
+func (d *fakeDaemon) Stop(_ context.Context, root string) error {
+	d.calls = append(d.calls, "stop "+root)
 	if d.refusals > 0 {
 		d.refusals--
-		return errors.New("refusing daemon uninstall: 1 pipeline run is active")
+		return Refusal{Err: errors.New("refusing daemon stop because 1 active pipeline runs are in progress")}
 	}
+	return d.stopErr
+}
+
+func (d *fakeDaemon) Forget(_ context.Context, root string) error {
+	d.calls = append(d.calls, "forget "+root)
 	return nil
 }
 
 func (d *fakeDaemon) Hold(_ context.Context, root string) (func() error, error) {
 	d.calls = append(d.calls, "hold "+root)
+	if d.busyHolds > 0 {
+		d.busyHolds--
+		return nil, Refusal{Err: errors.New("pipeline busy: the no-mistakes daemon is running and no gate run is in flight")}
+	}
+	if d.holdErr != nil {
+		return nil, d.holdErr
+	}
 	if d.onHold != nil {
 		d.onHold()
 	}
@@ -65,9 +95,9 @@ func (d *fakeDaemon) Start(_ context.Context, root string) error {
 // config, one gated bare repository, the daemon's runtime files, and one
 // checkout that pushes to it; and a Dev Drive folder.
 type scratch struct {
-	old, devDrive, target, checkout, repository string
-	env                                         installbase.EnvStore
-	daemon                                      *fakeDaemon
+	old, devDrive, target, checkout, repository, lock string
+	env                                               installbase.EnvStore
+	daemon                                            *fakeDaemon
 }
 
 func newScratch(t *testing.T) scratch {
@@ -75,6 +105,7 @@ func newScratch(t *testing.T) scratch {
 	root := t.TempDir()
 	s := scratch{old: filepath.Join(root, "profile", ".no-mistakes"), devDrive: filepath.Join(root, "dev"), checkout: filepath.Join(root, "project")}
 	s.target = filepath.Join(s.devDrive, "no-mistakes")
+	s.lock = filepath.Join(root, "gate-home-move.lock")
 	s.repository = filepath.Join(s.old, "repos", "a1.git")
 	t.Setenv(installbase.UserEnvFileVariable, filepath.Join(root, "user-env.json"))
 	s.env = installbase.NewEnvStore(nil)
@@ -112,7 +143,7 @@ func newScratch(t *testing.T) scratch {
 }
 
 func (s scratch) mover() Mover {
-	return Mover{Daemon: s.daemon, Env: s.env, Git: execx.OSRunner{}, Tries: 3, Now: func() time.Time { return time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC) }}
+	return Mover{Daemon: s.daemon, Lock: s.lock, Env: s.env, Git: execx.OSRunner{}, Tries: 3, Now: func() time.Time { return time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC) }}
 }
 
 func TestMoveCarriesTheHomeAndPointsEveryRecordAtIt(t *testing.T) {
@@ -129,7 +160,7 @@ func TestMoveCarriesTheHomeAndPointsEveryRecordAtIt(t *testing.T) {
 	if !strings.HasPrefix(line, "moved: the gate's home is "+s.target) {
 		t.Errorf("line = %q", line)
 	}
-	if want := []string{"uninstall " + s.old, "hold " + s.old, "release " + s.old, "start " + s.target}; !slices.Equal(s.daemon.calls, want) {
+	if want := []string{"stop " + s.old, "hold " + s.old, "release " + s.old, "start " + s.target, "forget " + s.old}; !slices.Equal(s.daemon.calls, want) {
 		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
 	}
 	if value, isSet, _ := s.env.Get(Variable); !isSet || value != s.target {
@@ -177,10 +208,28 @@ func TestMoveCarriesTheHomeAndPointsEveryRecordAtIt(t *testing.T) {
 	}
 }
 
+// A move whose gate runs stay in flight through every try changes nothing
+// and says the one true thing about the daemon: it was never stopped, and
+// was never asked to, whether the fleet or the daemon itself counts the run.
 func TestMoveIsRefusedWhileAGateRunIsInFlight(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		arrange   func(*fakeDaemon)
+		wantCalls int
+	}{
+		{name: "a run the fleet counts", arrange: func(d *fakeDaemon) { d.inFlight = 99 }},
+		{name: "a run only the daemon counts", arrange: func(d *fakeDaemon) { d.refusals = 99 }, wantCalls: 3},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			testMoveIsRefusedWhileAGateRunIsInFlight(t, test.arrange, test.wantCalls)
+		})
+	}
+}
+
+func testMoveIsRefusedWhileAGateRunIsInFlight(t *testing.T, arrange func(*fakeDaemon), wantStops int) {
 	// Arrange
 	s := newScratch(t)
-	s.daemon.refusals = 99
+	arrange(s.daemon)
 	var waits int
 
 	// Act
@@ -189,14 +238,259 @@ func TestMoveIsRefusedWhileAGateRunIsInFlight(t *testing.T) {
 	_, _, err := mover.Move(context.Background(), s.old, s.devDrive)
 
 	// Assert
-	if err == nil || !strings.Contains(err.Error(), "while gate runs stay in flight") {
-		t.Fatalf("err = %v, want a refusal while runs are in flight", err)
+	if !errors.Is(err, ErrGateBusy) || !strings.Contains(err.Error(), "nothing moved, and the daemon was never stopped") {
+		t.Fatalf("err = %v, want a busy gate whose daemon was never stopped", err)
 	}
-	if want := slices.Repeat([]string{"uninstall " + s.old}, 3); !slices.Equal(s.daemon.calls, want) {
+	if want := slices.Repeat([]string{"stop " + s.old}, wantStops); !slices.Equal(s.daemon.calls, want) {
 		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
 	}
 	if waits != 3 {
 		t.Errorf("waited %d times, want 3", waits)
+	}
+	assertUntouched(t, s)
+}
+
+// A move started while a gate run is in flight waits, and carries the home
+// once the run ended (#2525): it asks the daemon to stop only once no run is
+// in flight, and a daemon it stopped but could not hold off it starts again
+// before it waits on.
+func TestMoveWaitsForTheGateToRestAndThenCarriesTheHome(t *testing.T) {
+	// Arrange
+	s := newScratch(t)
+	s.daemon.inFlight, s.daemon.refusals, s.daemon.busyHolds = 1, 1, 1
+	mover := s.mover()
+	mover.Tries = 4
+	var waits []string
+
+	// Act
+	mover.Waiting = func(err error) { waits = append(waits, err.Error()) }
+	line, isCarried, err := mover.Move(context.Background(), s.old, s.devDrive)
+
+	// Assert
+	if err != nil || !isCarried || !strings.HasPrefix(line, "moved: the gate's home is "+s.target) {
+		t.Fatalf("move = %q, %v, %v; want the home carried once the gate rested", line, isCarried, err)
+	}
+	if want := []string{"stop " + s.old, "stop " + s.old, "hold " + s.old, "start " + s.old, "stop " + s.old, "hold " + s.old, "release " + s.old, "start " + s.target, "forget " + s.old}; !slices.Equal(s.daemon.calls, want) {
+		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
+	}
+	if len(waits) != 3 || !strings.Contains(waits[0], "it waits for 1 gate run in flight") {
+		t.Errorf("waited on %q, want the run in flight, the refused stop and the busy hold", waits)
+	}
+	if _, err := os.Lstat(s.old); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the old home is still there: %v", err)
+	}
+}
+
+// A move started while another move of the gate's home holds the move's lock
+// waits on it as on a busy gate and asks the daemon nothing, so it never
+// starts the old home's daemon while the other copies that home, and carries
+// the home once the lock frees.
+func TestAMoveWaitsWhileAnotherMoveHoldsTheLockAndThenCarriesTheHome(t *testing.T) {
+	// Arrange
+	s := newScratch(t)
+	unlock, isTaken, err := lockFile(s.lock)
+	if err != nil || !isTaken {
+		t.Fatalf("the other move's lock: taken %v, %v", isTaken, err)
+	}
+	mover := s.mover()
+	var waits []string
+
+	// Act
+	mover.Waiting = func(err error) {
+		waits = append(waits, err.Error())
+		if len(s.daemon.calls) != 0 {
+			t.Errorf("daemon calls while another move held the lock = %q, want none", s.daemon.calls)
+		}
+		if err := unlock(); err != nil {
+			t.Error(err)
+		}
+	}
+	line, isCarried, err := mover.Move(context.Background(), s.old, s.devDrive)
+
+	// Assert
+	if err != nil || !isCarried || !strings.HasPrefix(line, "moved: the gate's home is "+s.target) {
+		t.Fatalf("move = %q, %v, %v; want the home carried once the lock freed", line, isCarried, err)
+	}
+	if len(waits) != 1 || !strings.Contains(waits[0], "another move of the gate's home runs") {
+		t.Errorf("waited on %q, want the other move once", waits)
+	}
+	if want := []string{"stop " + s.old, "hold " + s.old, "release " + s.old, "start " + s.target, "forget " + s.old}; !slices.Equal(s.daemon.calls, want) {
+		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
+	}
+	assertLockFree(t, s.lock)
+}
+
+// A move that waited on another move which carried the home meanwhile finds
+// the home already on the Dev Drive, named by NM_HOME, and changes nothing:
+// it neither says it placed a home it did not, nor asks the daemon anything.
+func TestAMoveThatWaitedWhileAnotherCarriedTheHomeFindsItAlreadyThere(t *testing.T) {
+	// Arrange
+	s := newScratch(t)
+	unlock, isTaken, err := lockFile(s.lock)
+	if err != nil || !isTaken {
+		t.Fatalf("the other move's lock: taken %v, %v", isTaken, err)
+	}
+	mover := s.mover()
+	var otherCalls int
+	mover.Waiting = func(error) {
+		if err := unlock(); err != nil {
+			t.Fatal(err)
+		}
+		if _, isCarried, err := s.mover().Move(context.Background(), s.old, s.devDrive); err != nil || !isCarried {
+			t.Fatalf("the other move: carried %v, %v", isCarried, err)
+		}
+		otherCalls = len(s.daemon.calls)
+	}
+
+	// Act
+	line, isCarried, err := mover.Move(context.Background(), s.old, s.devDrive)
+
+	// Assert
+	if err != nil || isCarried || line != "already on the Dev Drive: the gate's home is "+s.target+", named by NM_HOME; nothing changed" {
+		t.Fatalf("move = %q, %v, %v; want the home found already there", line, isCarried, err)
+	}
+	if len(s.daemon.calls) != otherCalls {
+		t.Errorf("daemon calls after the other move = %q, want none", s.daemon.calls[otherCalls:])
+	}
+	assertLockFree(t, s.lock)
+}
+
+// A move whose lock another move holds through every try changes nothing, is
+// a busy gate, and never asked the daemon anything; a move that failed frees
+// the lock as one that moved does.
+func TestAMoveWhoseLockStaysHeldGivesUpAsABusyGate(t *testing.T) {
+	// Arrange
+	s := newScratch(t)
+	unlock, isTaken, err := lockFile(s.lock)
+	if err != nil || !isTaken {
+		t.Fatalf("the other move's lock: taken %v, %v", isTaken, err)
+	}
+	var waits int
+	mover := s.mover()
+	mover.Waiting = func(error) { waits++ }
+
+	// Act
+	_, isCarried, err := mover.Move(context.Background(), s.old, s.devDrive)
+
+	// Assert
+	if !errors.Is(err, ErrGateBusy) || isCarried || !strings.Contains(err.Error(), "nothing moved, and the daemon was never stopped") {
+		t.Fatalf("move = %v, %v; want a busy gate whose daemon was never stopped", isCarried, err)
+	}
+	if len(s.daemon.calls) != 0 || waits != 3 {
+		t.Errorf("daemon calls = %q after %d waits, want none after 3", s.daemon.calls, waits)
+	}
+	assertUntouched(t, s)
+	if err := unlock(); err != nil {
+		t.Fatal(err)
+	}
+	s.daemon.busyHolds = 99
+	if _, _, err := mover.Move(context.Background(), s.old, s.devDrive); !errors.Is(err, ErrGateBusy) {
+		t.Fatalf("the busy move = %v, want a busy gate", err)
+	}
+	assertLockFree(t, s.lock)
+}
+
+// assertLockFree fails unless the move's lock at path is free, as a move
+// leaves it however it ended.
+func assertLockFree(t *testing.T, path string) {
+	t.Helper()
+	unlock, isTaken, err := lockFile(path)
+	if err != nil || !isTaken {
+		t.Fatalf("the move's lock: taken %v, %v; want it free", isTaken, err)
+	}
+	if err := unlock(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A move that stopped the daemon but never held it off starts it again on
+// the old home, which it never changed, each time, and says so.
+func TestAMoveThatStoppedTheDaemonAndGaveUpStartsItAgain(t *testing.T) {
+	// Arrange
+	s := newScratch(t)
+	s.daemon.busyHolds = 99
+
+	// Act
+	_, _, err := s.mover().Move(context.Background(), s.old, s.devDrive)
+
+	// Assert
+	if !errors.Is(err, ErrGateBusy) || !strings.Contains(err.Error(), "nothing moved, and the daemon was stopped and runs again on "+s.old) {
+		t.Fatalf("err = %v, want a busy gate whose daemon runs again", err)
+	}
+	if want := slices.Repeat([]string{"stop " + s.old, "hold " + s.old, "start " + s.old}, 3); !slices.Equal(s.daemon.calls, want) {
+		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
+	}
+	assertUntouched(t, s)
+}
+
+// A move whose gate could not be asked, for a reason that is not the gate's
+// own no, fails at once and is no busy gate: it does not wait, since waiting
+// mends no such failure, and it says the one true thing about the daemon. A
+// gate run that was in flight a look earlier changes none of it.
+func TestAMoveThatCouldNotAskTheGateFailsAtOnceAndIsNoBusyGate(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		arrange    func(*fakeDaemon, error)
+		wantDaemon string
+		wantCalls  []string
+		wantWaits  int
+	}{
+		{name: "the runs in flight could not be read", arrange: func(d *fakeDaemon, err error) { d.inFlightErr = err }, wantDaemon: "the daemon was never stopped"},
+		{name: "the stop could not be asked", arrange: func(d *fakeDaemon, err error) { d.stopErr = err }, wantDaemon: "the daemon was never stopped", wantCalls: []string{"stop"}},
+		{name: "the stop could not be asked after a wait", arrange: func(d *fakeDaemon, err error) { d.inFlight, d.stopErr = 1, err }, wantDaemon: "the daemon was never stopped", wantCalls: []string{"stop"}, wantWaits: 1},
+		{name: "the hold failed", arrange: func(d *fakeDaemon, err error) { d.holdErr = err }, wantDaemon: "the daemon was stopped and runs again on ", wantCalls: []string{"stop", "hold", "start"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			s := newScratch(t)
+			failure := errors.New("the gate could not be asked")
+			test.arrange(s.daemon, failure)
+			var waits int
+
+			// Act
+			mover := s.mover()
+			mover.Waiting = func(error) { waits++ }
+			_, isCarried, err := mover.Move(context.Background(), s.old, s.devDrive)
+
+			// Assert
+			if !errors.Is(err, failure) || errors.Is(err, ErrGateBusy) || isCarried {
+				t.Fatalf("carried %v, err = %v; want the failure itself and no busy gate", isCarried, err)
+			}
+			if !strings.Contains(err.Error(), "nothing moved, and "+test.wantDaemon) || strings.Contains(err.Error(), "the home moves once no gate run is in flight") {
+				t.Errorf("err = %v, want it to say %q and promise no move by waiting", err, test.wantDaemon)
+			}
+			var want []string
+			for _, call := range test.wantCalls {
+				want = append(want, call+" "+s.old)
+			}
+			if !slices.Equal(s.daemon.calls, want) {
+				t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
+			}
+			if waits != test.wantWaits {
+				t.Errorf("waited %d times, want %d", waits, test.wantWaits)
+			}
+			assertUntouched(t, s)
+		})
+	}
+}
+
+// A daemon the move stopped, could not hold off and could not start again is
+// no busy gate, whatever refused the hold: nothing runs the move again by
+// itself while the daemon is down.
+func TestAStoppedDaemonThatDidNotStartAgainIsNoBusyGate(t *testing.T) {
+	// Arrange
+	s := newScratch(t)
+	s.daemon.busyHolds, s.daemon.failStart = 1, s.old
+
+	// Act
+	_, _, err := s.mover().Move(context.Background(), s.old, s.devDrive)
+
+	// Assert
+	if err == nil || errors.Is(err, ErrGateBusy) || !strings.Contains(err.Error(), "nothing moved, and the daemon was stopped and did not start again on "+s.old) {
+		t.Fatalf("err = %v, want a daemon that did not start again and no busy gate", err)
+	}
+	if want := []string{"stop " + s.old, "hold " + s.old, "start " + s.old}; !slices.Equal(s.daemon.calls, want) {
+		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
 	}
 	assertUntouched(t, s)
 }
@@ -213,7 +507,7 @@ func TestAnInterruptedCopyUndoesTheMove(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want the copy's interruption", err)
 	}
-	if want := []string{"uninstall " + s.old, "hold " + s.old, "release " + s.old, "start " + s.old}; !slices.Equal(s.daemon.calls, want) {
+	if want := []string{"stop " + s.old, "hold " + s.old, "release " + s.old, "start " + s.old}; !slices.Equal(s.daemon.calls, want) {
 		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
 	}
 	assertUntouched(t, s)
@@ -234,7 +528,7 @@ func TestAFailedStartOnTheCopyUndoesTheSwitch(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "did not start on "+s.target) {
 		t.Fatalf("err = %v, want the failed start", err)
 	}
-	if want := []string{"uninstall " + s.old, "hold " + s.old, "release " + s.old, "start " + s.target, "uninstall " + s.target, "start " + s.old}; !slices.Equal(s.daemon.calls, want) {
+	if want := []string{"stop " + s.old, "hold " + s.old, "release " + s.old, "start " + s.target, "stop " + s.target, "forget " + s.target, "start " + s.old}; !slices.Equal(s.daemon.calls, want) {
 		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
 	}
 	if value, _, _ := s.env.Get(Variable); value != s.old {
@@ -473,7 +767,7 @@ func TestMoveCarriesAHomeThatIsItselfAJunctionToTheDevDriveInPlace(t *testing.T)
 	if err != nil || !isCarried || !strings.Contains(line, "the junction "+s.old+" is gone, removed as a link") {
 		t.Fatalf("line = %q, carried %v, err = %v", line, isCarried, err)
 	}
-	if want := []string{"uninstall " + s.old, "hold " + s.old, "release " + s.old, "start " + s.target}; !slices.Equal(s.daemon.calls, want) {
+	if want := []string{"stop " + s.old, "hold " + s.old, "release " + s.old, "start " + s.target, "forget " + s.old}; !slices.Equal(s.daemon.calls, want) {
 		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
 	}
 	if _, err := os.Lstat(s.old); !errors.Is(err, os.ErrNotExist) {
@@ -521,7 +815,7 @@ func TestAFailedStartOfAHomeThatIsAJunctionLeavesItAsItWas(t *testing.T) {
 	if err == nil || isCarried || !strings.Contains(err.Error(), "did not start on "+s.target) {
 		t.Fatalf("carried %v, err = %v; want the failed start", isCarried, err)
 	}
-	if want := []string{"uninstall " + s.old, "hold " + s.old, "release " + s.old, "start " + s.target, "uninstall " + s.target, "start " + s.old}; !slices.Equal(s.daemon.calls, want) {
+	if want := []string{"stop " + s.old, "hold " + s.old, "release " + s.old, "start " + s.target, "stop " + s.target, "forget " + s.target, "start " + s.old}; !slices.Equal(s.daemon.calls, want) {
 		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
 	}
 	if linked, isLink := linkTarget(s.old); !isLink || !sameFolder(linked, s.target) {
@@ -664,7 +958,7 @@ func TestALinkThatCannotBeMadeAgainUndoesTheMove(t *testing.T) {
 	if err == nil || isCarried || !strings.Contains(err.Error(), "the link "+refused) || !strings.Contains(err.Error(), "refused for the test") {
 		t.Fatalf("carried %v, err = %v; want the link %s named", isCarried, err, refused)
 	}
-	if want := []string{"uninstall " + s.old, "hold " + s.old, "release " + s.old, "start " + s.old}; !slices.Equal(s.daemon.calls, want) {
+	if want := []string{"stop " + s.old, "hold " + s.old, "release " + s.old, "start " + s.old}; !slices.Equal(s.daemon.calls, want) {
 		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
 	}
 	assertUntouched(t, s)
