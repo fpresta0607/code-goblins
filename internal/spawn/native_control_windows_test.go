@@ -482,6 +482,142 @@ func TestACommandTypedIntoATurnReadsRanOnlyOnceItsPromptLineIsEmptyTwiceInARow(t
 	}
 }
 
+// Send now on a command held for a Claude Code turn presses its send-now key
+// once, as soon as the prompt line shows the command gone into the turn's
+// queue, however often the line reads so after, and the command ran only once
+// that line shows it gone with no queue offered on two reads in a row; one
+// that never queued ran beside the turn with no key pressed (#1915). A case
+// that waits out the window is read for a second of it.
+func TestSendNowOnACommandInATurnsQueuePressesItsKeyOnceAndReadsItRanOnceTheQueueIsGone(t *testing.T) {
+	rule := strings.Repeat("─", 80)
+	screen := func(prompt string) []string {
+		return []string{"✽ Reticulating… (esc to interrupt)", rule, prompt, rule, "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}
+	}
+	empty, typed, offersQueue := screen(">"), screen("> /compact"), screen("> Press up to edit queued messages")
+	errGone := errors.New("the terminal is gone")
+	for _, test := range []struct {
+		name        string
+		reads       [][]string
+		isWaitedOut bool
+		pressErr    error
+		wantRan     bool
+		wantPressed bool
+		wantPresses int
+		wantErr     error
+	}{
+		{name: "queued, then gone with no queue twice", reads: [][]string{typed, offersQueue, offersQueue, empty, empty}, wantRan: true, wantPressed: true, wantPresses: 1},
+		{name: "empty once before its queue shows", reads: [][]string{typed, empty, offersQueue, empty, empty}, wantRan: true, wantPressed: true, wantPresses: 1},
+		{name: "never queued, gone twice", reads: [][]string{typed, empty, empty}, wantRan: true},
+		{name: "still queued after its key", reads: [][]string{offersQueue}, isWaitedOut: true, wantPressed: true, wantPresses: 1},
+		{name: "its key cannot be pressed", reads: [][]string{offersQueue}, pressErr: errGone, wantPresses: 1, wantErr: errGone},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			screens, _ := harness.NativeScreens(harness.Claude)
+			ctx := t.Context()
+			if test.isWaitedOut {
+				// stall-accepted: the case means this context to run out, and a stall only ends it sooner, after the one press it checks.
+				waited, cancel := context.WithTimeout(ctx, time.Second)
+				defer cancel()
+				ctx = waited
+			}
+			read, presses := 0, 0
+			next := func(context.Context) ([]string, error) {
+				shown := test.reads[min(read, len(test.reads)-1)]
+				read++
+				return shown, nil
+			}
+			press := func() error {
+				presses++
+				return test.pressErr
+			}
+
+			// Act
+			ran, isPressed, err := RanNow(ctx, next, press, screens, "/compact")
+
+			// Assert
+			if ran != test.wantRan || isPressed != test.wantPressed || presses != test.wantPresses || !errors.Is(err, test.wantErr) {
+				t.Errorf("RanNow = ran %t, pressed %t, %v with %d presses after %d reads; want ran %t, pressed %t, %v with %d presses", ran, isPressed, err, presses, read, test.wantRan, test.wantPressed, test.wantErr, test.wantPresses)
+			}
+		})
+	}
+}
+
+// Send now on a command held for a Codex's or a pi's turn presses the Escape
+// that ends the turn once, and only over an empty prompt line, so words left
+// there keep their own; the command then goes at the empty, ready prompt line
+// the turn's end leaves, read so twice in a row, and a turn that goes on, one
+// whose line reads so only once before a turn of its own, or one whose harness
+// hands its queue back onto that line, leaves none (#1915). The rows are Codex
+// 0.160's and pi 0.85.1's full screens, read live on 2026-10-17
+// (TestFullScreenCodexAndPiReadAsReadyOnlyWhileNoTurnRuns). A case that waits
+// out the window is read for a second of it.
+func TestSendNowEndsATurnForACommandOnlyOverAnEmptyPromptLineAndWaitsForTheLineItLeaves(t *testing.T) {
+	codexFooter := "  ? for shortcuts                                    ⚠ 5 warnings · f2 to view"
+	codexTurn := []string{"› Count from 1 to 300, one number per line, nothing else.", "", "", "Working (2s • esc to interrupt)", "", "", "› Ask Codex to do anything", "", `  GPT-6-Astra low · ~\work\task · ⠋`, codexFooter}
+	codexAfter := []string{"• done", "", "  Worked for 10s • 10:28 PM", "", "", "› Ask Codex to do anything", "", `  GPT-6-Astra low · ~\work\task · Count to 300`, codexFooter}
+	codexWords := slices.Clone(codexTurn)
+	codexWords[6] = "› run the tests"
+	rule := strings.Repeat("─", 40)
+	piFooter := "↑8.4k ↓357 R15k CH91.8% $0.001 0.8%/1.0M (auto)             (openrouter) deepseek/deepseek-v4.1-flash • high"
+	piTurn := []string{" Reply from 127.0.0.1: bytes=32 time<1ms TTL=128", " Elapsed 2.0s", "", "", "── ⠸ Working " + rule, "", rule, `~\work\task`, piFooter}
+	piAfter := []string{" Took 5.7s", "", " done", "", rule, "", rule, `~\work\task`, piFooter}
+	piHandedBack := slices.Clone(piAfter)
+	piHandedBack[5] = "run the tests"
+	errGone := errors.New("the terminal is gone")
+	for _, test := range []struct {
+		name        string
+		kind        harness.Kind
+		screen      []string
+		reads       [][]string
+		isWaitedOut bool
+		pressErr    error
+		wantPresses int
+		want        []string
+	}{
+		{name: "codex's turn ends", kind: harness.Codex, screen: codexTurn, reads: [][]string{codexTurn, codexAfter}, wantPresses: 1, want: codexAfter},
+		{name: "pi's turn ends", kind: harness.Pi, screen: piTurn, reads: [][]string{piTurn, piAfter}, wantPresses: 1, want: piAfter},
+		{name: "words on codex's prompt line", kind: harness.Codex, screen: codexWords, reads: [][]string{codexAfter}},
+		{name: "codex's turn goes on", kind: harness.Codex, screen: codexTurn, reads: [][]string{codexTurn}, isWaitedOut: true, wantPresses: 1},
+		{name: "one idle read between codex's turns", kind: harness.Codex, screen: codexTurn, reads: [][]string{codexTurn, codexAfter, codexTurn}, isWaitedOut: true, wantPresses: 1},
+		{name: "pi hands its queue back onto its prompt line", kind: harness.Pi, screen: piTurn, reads: [][]string{piHandedBack}, isWaitedOut: true, wantPresses: 1},
+		{name: "its key cannot be pressed", kind: harness.Codex, screen: codexTurn, reads: [][]string{codexAfter}, pressErr: errGone, wantPresses: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			screens, _ := harness.NativeScreens(test.kind)
+			if !screens.IsWorking(test.screen) {
+				t.Fatalf("%q reads as no turn", test.screen)
+			}
+			ctx := t.Context()
+			if test.isWaitedOut {
+				// stall-accepted: the case means this context to run out, and a stall only ends it sooner, after the one press it checks.
+				waited, cancel := context.WithTimeout(ctx, time.Second)
+				defer cancel()
+				ctx = waited
+			}
+			read, presses := 0, 0
+			next := func(context.Context) ([]string, error) {
+				shown := test.reads[min(read, len(test.reads)-1)]
+				read++
+				return shown, nil
+			}
+			press := func() error {
+				presses++
+				return test.pressErr
+			}
+
+			// Act
+			idle := InterruptTurn(ctx, next, press, screens, test.screen)
+
+			// Assert
+			if !slices.Equal(idle, test.want) || presses != test.wantPresses {
+				t.Errorf("InterruptTurn = %q with %d presses after %d reads; want %q with %d presses", idle, presses, read, test.want, test.wantPresses)
+			}
+		})
+	}
+}
+
 // A board message he asked for now reaches a Claude Code in a turn the way
 // its terminal sends one now: typed and queued, then Ctrl+X Ctrl+S once its
 // composer shows the line gone into that queue, so it takes the line at once

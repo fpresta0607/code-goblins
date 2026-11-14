@@ -146,6 +146,30 @@ func TestCompletionWriteFailureNeverResendsExternalDeliveryAfterRestart(t *testi
 	}
 }
 
+// A spent Send now marks a command only while it waits in the queue, so one
+// whose try a stopped supervisor left in doubt reads uncertain, and no longer
+// spent (#1915).
+func TestACommandLeftInDoubtByARestartIsNoLongerMarkedSpent(t *testing.T) {
+	// Arrange
+	s, h := testStore(t)
+	now := time.Now().UTC()
+	s.db.Actions = append(s.db.Actions, Action{ID: "m1", Kind: "message", Text: "/compact", Status: "running", CanSendNow: true, IsSendNowSpent: true, CreatedAt: now, UpdatedAt: now})
+	if err := s.save(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	reopened, err := Open(h)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered := reopened.Snapshot().Actions[0]; recovered.Status != "uncertain" || recovered.IsSendNowSpent {
+		t.Errorf("after the restart = %+v; want it uncertain and no longer marked spent", recovered)
+	}
+}
+
 func TestEvaluationFailureInvalidatesPriorReadyEvidence(t *testing.T) {
 	s, h := testStore(t)
 	s.db.Tasks["task-1"] = Evaluation{Phase: "ready", Base: strings.Repeat("a", 40), Verified: true, Generation: "g1"}

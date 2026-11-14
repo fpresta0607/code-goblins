@@ -25,7 +25,10 @@ import (
 // refused one, since the Overlord types it into a turn in the terminal and it
 // runs there (2026-11-11: "cant type / commands into modern chat like
 // terminal", #2372): it is delivered once the prompt line shows it ran, and
-// reported queued if its harness queued it after all.
+// reported queued if its harness queued it after all. With ShouldSendNow, a
+// command a refused turn would hold is run at once instead where its
+// harness's send-now key can (RanNow, InterruptTurn), and is refused as
+// before where it cannot.
 // Text nobody says is the Overlord's own, a wake line, a notice or a key,
 // clears the terminal's mark of his input. A stream session is written the
 // text, a command too, as one line, and proves it took it by its own report
@@ -51,14 +54,40 @@ func (s Service) SendNative(ctx context.Context, meta state.TaskMeta, text strin
 	}
 	isBusy := screens.IsWorking(before)
 	isBesideTurn := isBusy && harness.RunsBesideTurn(harness.Kind(meta.Harness), text)
-	if isBusy && !isBesideTurn && s.ShouldRefuseTurn {
+	read := func(ctx context.Context) ([]string, error) { return s.readNativeScreen(ctx, record) }
+	press := func() error { return s.pressNativeKeys(record, "send now", screens.SendNow) }
+	// Send now on a command its harness would queue reaches the turn through
+	// that harness's send-now key, once (#1915). Claude Code takes the command
+	// into its turn's queue and runs it at once with the key, but only while
+	// nothing else waits there, since the key takes that queue from its head.
+	// Codex refuses such a command in a turn and pi expands one into a steer,
+	// so their key, which ends the turn, goes first, and the command goes at
+	// the prompt line the turn's end leaves.
+	isSentNow := isBusy && !isBesideTurn && s.ShouldSendNow && screens.SendNow != ""
+	if isSentNow && screens.Queued == nil {
+		isBusy = InterruptTurn(ctx, read, press, screens, before) == nil
+	}
+	isRunNow := isSentNow && screens.Queued != nil && !screens.OffersQueue(before)
+	if isBusy && !isBesideTurn && !isRunNow && s.ShouldRefuseTurn {
 		return fmt.Errorf("spawn: native terminal %s: %w: %w", record.ID, fleet.ErrNotTyped, ErrInTurn)
 	}
 	if _, err := s.submitNative(ctx, record, screens, text, fleet.TypeSettleFor(text), false); err != nil {
 		return err
 	}
+	if isRunNow {
+		ran, isPressed, err := RanNow(ctx, read, press, screens, text)
+		switch {
+		case err != nil:
+			return fmt.Errorf("spawn: native terminal %s has the command submitted, and its send-now key could not be pressed: %w: %w", record.ID, err, fleet.ErrQueuedForToolCall)
+		case ran:
+			return nil
+		case isPressed:
+			return fmt.Errorf("spawn: native terminal %s has the command submitted: %w", record.ID, ErrSentNow)
+		}
+		return fmt.Errorf("spawn: native terminal %s has the command submitted: %w", record.ID, fleet.ErrQueuedForToolCall)
+	}
 	if isBesideTurn {
-		ran, isQueued := RanBesideTurn(ctx, func(ctx context.Context) ([]string, error) { return s.readNativeScreen(ctx, record) }, screens, text, screens.OffersQueue(before))
+		ran, isQueued := RanBesideTurn(ctx, read, screens, text, screens.OffersQueue(before))
 		if ran {
 			return nil
 		}
@@ -128,6 +157,80 @@ func RanBesideTurn(ctx context.Context, read func(context.Context) ([]string, er
 		case <-time.After(nativePoll):
 		case <-ctx.Done():
 			return false, false
+		}
+	}
+}
+
+// RanNow reports whether a harness in a turn ran command, submitted into that
+// turn's queue while it held nothing else, at once with its send-now key,
+// which press presses: the key goes once, as soon as the prompt line shows
+// the command gone into the queue with no screen of the harness's own open
+// over it, and the command ran once that line shows it gone with no queue
+// offered on two reads in a row, within nativeCommandTaken, as
+// RanBesideTurn reads it. isPressed says whether the key went, and a
+// harness that ran the command beside its turn after all, never queueing it,
+// reads ran with no key pressed.
+func RanNow(ctx context.Context, read func(context.Context) ([]string, error), press func() error, screens harness.Screens, command string) (ran, isPressed bool, err error) {
+	ctx, cancel := context.WithTimeout(ctx, nativeCommandTaken)
+	defer cancel()
+	for gone := 0; ; {
+		screen, err := read(ctx)
+		switch {
+		case err != nil:
+			return false, isPressed, nil
+		case !screens.TookCommand(screen, command):
+			gone = 0
+		case screens.OffersQueue(screen):
+			gone = 0
+			if !isPressed && !screens.IsOpen(screen) {
+				if err := press(); err != nil {
+					return false, false, err
+				}
+				isPressed = true
+			}
+		default:
+			if gone++; gone == 2 {
+				return true, isPressed, nil
+			}
+		}
+		select {
+		case <-time.After(nativePoll):
+		case <-ctx.Done():
+			return false, isPressed, nil
+		}
+	}
+}
+
+// InterruptTurn presses, with press, the send-now key of a harness in a turn,
+// the Escape that ends a Codex's or a pi's turn, once over screen, its empty
+// prompt line with no screen of its own open, and returns the screen that
+// shows the turn over at an empty, ready prompt line on two reads in a row
+// within nativeCommandTaken, as RanBesideTurn reads a prompt line. It returns
+// none when screen took no key, the key could not be pressed, or the turn did
+// not end in that time: a Codex's own queue then starts a turn of its own,
+// and a pi's comes back onto its prompt line.
+func InterruptTurn(ctx context.Context, read func(context.Context) ([]string, error), press func() error, screens harness.Screens, screen []string) []string {
+	if screens.IsOpen(screen) || !screens.ComposerEmpty(screen) || press() != nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, nativeCommandTaken)
+	defer cancel()
+	for idle := 0; ; {
+		select {
+		case <-time.After(nativePoll):
+		case <-ctx.Done():
+			return nil
+		}
+		screen, err := read(ctx)
+		if err != nil {
+			return nil
+		}
+		if !screens.IsReady(screen) || !screens.ComposerEmpty(screen) || screens.IsOpen(screen) {
+			idle = 0
+			continue
+		}
+		if idle++; idle == 2 {
+			return screen
 		}
 	}
 }

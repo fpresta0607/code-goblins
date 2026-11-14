@@ -60,8 +60,16 @@ const (
 	sentNowInTurn = "Typed while it was working and sent now."
 )
 
-// commandWaits is why a slash or bang command offers no Send now.
-const commandWaits = "A command runs when its turn ends."
+// commandWaits is why a slash or bang command waits for its turn to end, and
+// why one offers no Send now where nothing can run it sooner; commandSendsNow
+// is what Send now does for one held for a turn its harness's send-now key
+// reaches, and commandNotSentNow what one says once a Send now could not run
+// it at once (#1915).
+const (
+	commandWaits      = "A command runs when its turn ends."
+	commandSendsNow   = "Send now interrupts the turn to run it."
+	commandNotSentNow = "Send now could not run it at once, so it runs when its turn ends."
+)
 
 const (
 	// deliveryQuiet is how long a terminal may show no turn, with no report

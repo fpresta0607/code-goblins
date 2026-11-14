@@ -173,7 +173,9 @@ type Service struct {
 	// ShouldSendNow has a native harness that queued the text, typed during a
 	// turn, take it at once with its own send-now key (harness.Screens
 	// SendNow) once its composer shows it gone into that queue: a board
-	// message he asked for now.
+	// message he asked for now. A command ShouldRefuseTurn would hold for the
+	// turn's end is run at once with that key instead, where it can be
+	// (SendNative).
 	ShouldSendNow bool
 	// His says the text this delivery types is the Overlord's own, so a screen
 	// his harness draws from it is his to answer: a board message, not a

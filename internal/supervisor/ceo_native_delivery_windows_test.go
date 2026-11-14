@@ -1215,7 +1215,7 @@ func TestASlashCommandReachesTheCEOInItsTrueState(t *testing.T) {
 func TestACommandRunBesideTheCEOsTurnReadsTakenWithHisWordsInItsQueue(t *testing.T) {
 	// Arrange
 	_, service, terminal, _, _ := heldQueue(t, false, "claude-busy", "use staging")
-	promptLineEmpties(t, terminal)
+	promptLineEmpties(t, terminal, "claude")
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 

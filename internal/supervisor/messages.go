@@ -204,15 +204,16 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 				return result, nil
 			}
 			// A command held for the goblin's turn waits where he can edit or
-			// cancel it, and holdCommand takes Send now off it. What it says
-			// here is for the words queued behind it, which wait after it unless
-			// Send now types them into the turn.
+			// cancel it, and holdCommand gives it words of its own, with a Send
+			// now that runs it at once through its harness's send-now key
+			// (#1915). What it says here is for the words queued behind it,
+			// which wait after it unless Send now types them into the turn.
 			if errors.Is(err, spawn.ErrInTurn) {
 				sendNow := "Send now types it for the goblin to take at its next tool call."
 				if screens.SendNow != "" {
 					sendNow = "Send now has it take the message at once."
 				}
-				return Evaluation{Reason: "Queued until " + a.TaskID + "'s turn ends. " + sendNow, CanSendNow: true}, ErrDeferred
+				return Evaluation{Reason: "Queued until " + a.TaskID + "'s turn ends. " + sendNow, CanSendNow: true, CommandSendsNow: screens.SendNow != ""}, ErrDeferred
 			}
 			if errors.Is(err, spawn.ErrUnsentWords) {
 				return Evaluation{Reason: "Queued until " + a.TaskID + "'s prompt line is empty. It holds words that were never sent, and nothing is typed onto them.", SendNowWhy: "Its prompt line holds words that were never sent."}, ErrDeferred

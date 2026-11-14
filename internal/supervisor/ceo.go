@@ -637,18 +637,33 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 	// a turn of its own that leaves his message behind it queued: the CEO's
 	// did with three ahead of his message on 2026-11-10 (#2332). A message
 	// behind it can be sent now, which types it into the turn ahead of it:
-	// holdCommand takes Send now off the command, and what is said here is
-	// for the words queued behind it. A command the harness runs at once
+	// holdCommand gives the command words of its own, and what is said here
+	// is for the words queued behind it. A command the harness runs at once
 	// beside a turn waits for nothing: he types it into a turn in the terminal
 	// and it runs there, so the board types it into the turn too (the
 	// Overlord, 2026-11-11: "cant type / commands into modern chat like
 	// terminal", #2372).
-	if busy && isHarnessCommand(instruction) && !harness.RunsBesideTurn(harness.Kind(primary.Agent), instruction) {
+	// Send now on a held command runs it at once with the harness's send-now
+	// key, as a goblin's does (#1915): Claude Code's takes the command typed
+	// into its turn's queue while nothing else waits there, and Codex's and
+	// pi's Escape ends the turn first, so the command goes at the prompt line
+	// that leaves.
+	isHeldCommand := busy && isHarnessCommand(instruction) && !harness.RunsBesideTurn(harness.Kind(primary.Agent), instruction)
+	readScreen := func(context.Context) ([]string, error) { return read(record) }
+	press := func() error { return spawn.PressKeys(delivery.Write, screens.SendNow) }
+	isSentNow := isHeldCommand && sendsNow && screens.SendNow != ""
+	if isSentNow && screens.Queued == nil {
+		if idle := spawn.InterruptTurn(ctx, readScreen, press, screens, before); idle != nil {
+			before, busy, isHeldCommand = idle, false, false
+		}
+	}
+	isRunNow := isSentNow && screens.Queued != nil && !screens.OffersQueue(before)
+	if isHeldCommand && !isRunNow {
 		sendNow := "Send now types it for the CEO to take at its next tool call."
 		if screens.SendNow != "" {
 			sendNow = "Send now has it take the message at once."
 		}
-		return Evaluation{Reason: "Queued until the CEO's turn ends. " + sendNow, CanSendNow: true}, ErrDeferred
+		return Evaluation{Reason: "Queued until the CEO's turn ends. " + sendNow, CanSendNow: true, CommandSendsNow: screens.SendNow != ""}, ErrDeferred
 	}
 	typed := screens.Submittable(instruction)
 	// A "?" typed at an empty prompt line opens Claude Code's and Codex's
@@ -726,12 +741,28 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 	// only its own record of the conversation proves it taken: the answer is
 	// sent once its submit key went, and settleDeliveries reads that record.
 	if busy {
-		// Only a command the CEO's harness runs at once beside a turn is typed
-		// into one. It starts no turn and can leave no record, so its prompt
-		// line is what shows it ran; one its harness queued after all waits
-		// there as his words do, for the CEO's record to show it taken.
+		// Only a command the CEO's harness runs at once beside a turn, or one
+		// Send now runs at once with its send-now key, is typed into one, and
+		// its prompt line is what shows it ran. One run beside the turn starts
+		// no turn and can leave no record, and one the send-now key ran has
+		// left the turn's queue once that line reads empty with no queue
+		// offered (spawn.RanNow). One its harness queued after all, or still
+		// holds queued, waits there as his words do, for the CEO's record to
+		// show it taken.
+		if isRunNow {
+			ran, isPressed, err := spawn.RanNow(ctx, readScreen, press, screens, instruction)
+			switch {
+			case err != nil:
+				return Evaluation{}, fmt.Errorf("the CEO's send-now key could not be pressed: %w", err)
+			case ran:
+				return Evaluation{Reason: "Taken by the CEO in its native terminal, which ran your command at once."}, nil
+			case isPressed:
+				return Evaluation{Reason: sentNowInTurn, Awaiting: waiting}, nil
+			}
+			return Evaluation{Reason: heldByCEO, Awaiting: waiting}, nil
+		}
 		if isHarnessCommand(instruction) {
-			if ran, _ := spawn.RanBesideTurn(ctx, func(context.Context) ([]string, error) { return read(record) }, screens, instruction, screens.OffersQueue(before)); ran {
+			if ran, _ := spawn.RanBesideTurn(ctx, readScreen, screens, instruction, screens.OffersQueue(before)); ran {
 				return Evaluation{Reason: "Taken by the CEO in its native terminal, which ran your command beside its turn."}, nil
 			}
 			return Evaluation{Reason: heldByCEO, Awaiting: waiting}, nil
