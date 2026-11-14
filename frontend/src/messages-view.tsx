@@ -20,7 +20,7 @@ import { usageReadings } from "./session-usage";
 import { UsageBar } from "./usage-bar";
 import { harnessInk } from "./harness-ink";
 import { QueuedMessage } from "./queued-message";
-import { isUndelivered, sameWords, withTakenCommands } from "./messages";
+import { isUndelivered, sameWords, UNDELIVERED_ROW, withTakenCommands, withUndelivered } from "./messages";
 import { usePendingSends, type PendingSend } from "./pending-sends";
 import { linkedText } from "./messageText";
 import "./messages-view.css";
@@ -501,9 +501,40 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
 
   // The rows drawn: those within reach of where he reads, or of the end while
   // he follows it, each row not measured yet taken at an estimate.
-  // The rows are the session's messages and the commands the board saw its
-  // harness take that the harness keeps no row of.
-  const conversation = useMemo(() => withTakenCommands(held.messages, held.sent, harness), [held.messages, held.sent, harness]);
+  // The rows are the session's messages, the commands the board saw its
+  // harness take that the harness keeps no row of, and his messages whose
+  // delivery ended with no take seen, each where he sent it (#2541).
+  const taken = useMemo(() => withTakenCommands(held.messages, held.sent, harness), [held.messages, held.sent, harness]);
+  // Once the session's record shows his words, written since the board took
+  // them, its row is his message, and the board's copy goes, so it shows once
+  // whichever of the two arrives first. Each row of his is one message, the
+  // oldest the board took of the same words, settled or still waiting, so a
+  // second message of the same words waits for its own row; a row the CEO or
+  // the fleet wrote is never his. One the board settled had its row before it
+  // settled, as the board settles a message only once it has seen the harness
+  // take it, so a later row is never an older message's whose own row is not
+  // loaded. A send the board has not taken yet names no time, so an earlier
+  // message of the same words never hides it.
+  const { read, undelivered } = useMemo(() => {
+    const rows = ownPrompts(taken);
+    const read = new Set<string>();
+    const owners = held.sent.filter((action) => action.created_at && (action.status === "queued" || action.status === "running" || action.status === "succeeded"));
+    for (const action of owners.sort((one, other) => Date.parse(one.created_at) - Date.parse(other.created_at))) {
+      const row = rows.findIndex((each) => Date.parse(each.at) >= Date.parse(action.created_at) && (action.status !== "succeeded" || Date.parse(each.at) <= Date.parse(action.updated_at)) && sameWords(each.text, action.text));
+      if (row < 0) continue;
+      rows.splice(row, 1);
+      read.add(action.id);
+    }
+    // His messages whose delivery ended with no take seen, failed or typed
+    // and never seen taken, stay where he sent them with what happened and
+    // Send again until something he sent after them lands, a message of the
+    // board's whose row or take was seen, by when he sent it, or a row of his
+    // no board message owns, so none reads as on its way for ever (#2242).
+    const hasLandedSince = (sentAt: number) => rows.some((row) => Date.parse(row.at) > sentAt)
+      || held.sent.some((other) => (other.status === "succeeded" || read.has(other.id)) && Date.parse(other.created_at) > sentAt);
+    return { read, undelivered: held.sent.filter((action) => isUndelivered(action) && !hasLandedSince(Date.parse(action.created_at))) };
+  }, [taken, held.sent]);
+  const conversation = useMemo(() => withUndelivered(taken, undelivered, held.more), [taken, undelivered, held.more]);
   const rowIndices = useMemo(() => new Map(conversation.map((message, index) => [message.id, index])), [conversation]);
   const offsets = useMemo(() => {
     const offsets = [0];
@@ -849,39 +880,11 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     return () => document.removeEventListener("pointerdown", away);
   }, []);
   const readings = usageReadings(harness, composing.usage, subscriptions, spend);
-  const his = ownPrompts(conversation);
   const ends = turnEnds(conversation, held.isWorking);
   const reachesEnd = spans[spans.length - 1].end === conversation.length;
-  // Once the session's record shows his words, written since the board took
-  // them, its row is his message, and the board's copy goes, so it shows once
-  // whichever of the two arrives first. Each row of his is one message, the
-  // oldest the board took of the same words, settled or still waiting, so a
-  // second message of the same words waits for its own row; a row the CEO or
-  // the fleet wrote is never his. One the board settled had its row before it
-  // settled, as the board settles a message only once it has seen the harness
-  // take it, so a later row is never an older message's whose own row is not
-  // loaded. A send the board has not taken yet names no time, so an earlier
-  // message of the same words never hides it.
-  const rows = [...his];
   const waiting = [...held.pending, ...held.sending.filter((send) => send.task === (held.task?.id ?? "") && !held.pending.some((action) => action.id === send.id)).map((send) =>
     parseAction({ id: send.id, kind: "message", task_id: send.task, text: send.text, status: "running", message: "Reaching the board.", send_now_why: "It is still reaching the board." }))];
-  const read = new Set<string>();
-  const owners = held.sent.filter((action) => action.created_at && (action.status === "queued" || action.status === "running" || action.status === "succeeded"));
-  for (const action of owners.sort((one, other) => Date.parse(one.created_at) - Date.parse(other.created_at))) {
-    const row = rows.findIndex((each) => Date.parse(each.at) >= Date.parse(action.created_at) && (action.status !== "succeeded" || Date.parse(each.at) <= Date.parse(action.updated_at)) && sameWords(each.text, action.text));
-    if (row < 0) continue;
-    rows.splice(row, 1);
-    read.add(action.id);
-  }
   const queued = waiting.filter((action) => !read.has(action.id));
-  // His messages whose delivery ended with no take seen, failed or typed and
-  // never seen taken, stay at the end with what happened and Send again until
-  // something he sent after them lands, a message of the board's whose row
-  // or take was seen, by when he sent it, or a row of his no board message
-  // owns, so none reads as on its way for ever (#2242).
-  const hasLandedSince = (sentAt: number) => rows.some((row) => Date.parse(row.at) > sentAt)
-    || held.sent.some((other) => (other.status === "succeeded" || read.has(other.id)) && Date.parse(other.created_at) > sentAt);
-  const undelivered = held.sent.filter((action) => isUndelivered(action) && !hasLandedSince(Date.parse(action.created_at)));
   // A prompt its harness holds that names the board message which typed it
   // is that message's one row, whichever of the two the board drew first,
   // its send still reaching the board included, since a send keeps the id of
@@ -914,9 +917,14 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
               page, its DOM and any selection in it as the window moves. */}
           <PictureOpener value={setViewed}>{spans.flatMap((span, at) => [
             ...at > 0 ? [<div key="room-between" className="conversation-room" style={{ height: heightOf(spans[at - 1].end, span.start) }} />] : [],
-            ...conversation.slice(span.start, span.end).map((message) => <MessageRow key={message.id} message={message} openFolds={openFolds.get(message.id) ?? NO_FOLDS} onFold={foldRow}
-              harness={harness} isTurnEnd={ends.has(message.id)} onRun={isWrittenReply(message, held.messages, held.isWorking) ? runCode : undefined}
-              task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? held.task : undefined} picture={picture} keptPicture={keptPicture} onChild={openChild} />),
+            ...conversation.slice(span.start, span.end).map((message) => {
+              const ended = undelivered.find((action) => UNDELIVERED_ROW + action.id === message.id);
+              return ended
+                ? <QueuedMessage key={message.id} action={ended} liveAction={ended} instance={instance} name={name} variant="pane" row={message.id} />
+                : <MessageRow key={message.id} message={message} openFolds={openFolds.get(message.id) ?? NO_FOLDS} onFold={foldRow}
+                  harness={harness} isTurnEnd={ends.has(message.id)} onRun={isWrittenReply(message, held.messages, held.isWorking) ? runCode : undefined}
+                  task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? held.task : undefined} picture={picture} keptPicture={keptPicture} onChild={openChild} />;
+            }),
           ])}</PictureOpener>
           <div className="conversation-room" style={{ height: heightOf(spans[spans.length - 1].end, conversation.length) }} />
           {/* While the view connects it shows nothing that waits on the
@@ -941,14 +949,13 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
               </div>;
           })}
           {queued.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} liveAction={pending.find((each) => each.id === action.id) ?? null} instance={instance} name={name} variant="pane" />)}
-          {undelivered.map((action) => <QueuedMessage key={"undelivered-" + action.id} action={action} liveAction={action} instance={instance} name={name} variant="pane" />)}
           {/* What the harness's own screen asks, a question, a permission prompt
               or a picker, is the conversation's last message, right above the
               box that answers it, and never a popup over the box (#2223). */}
           {onAskSlot && <div ref={onAskSlot} className="conversation-ask" />}
         </div>
       </div>
-      {phase === "live" && !conversation.length && !queued.length && !held.waiting.length && !undelivered.length && <p className="messages-empty" role="status">No messages yet</p>}
+      {phase === "live" && !conversation.length && !queued.length && !held.waiting.length && <p className="messages-empty" role="status">No messages yet</p>}
       {/* A touch that stops the conversation gliding after a flick is one
           the browser gives no click, and the button shows the moment he
           leaves the end, while it glides, so a touch's lift takes him there

@@ -40,7 +40,10 @@ export const QUEUED_NOTICE = "ceo-queued-notice";
 // messages"): one that cannot go now says why over the box when pressed, as
 // whatever else a press could not do does, and a press that comes after the
 // board let it go says where it went.
-export const QueuedMessage = memo(function QueuedMessage({ action, harnessState, liveAction, instance, name, variant, onDeleted }: QueuedProps) {
+// row names the conversation's row it is drawn as, one whose delivery ended
+// with no take seen being drawn where he sent it, so the list measures it and
+// keeps his place by it as by the session's own rows (#2541).
+export const QueuedMessage = memo(function QueuedMessage({ action, harnessState, liveAction, instance, name, variant, row, onDeleted }: QueuedProps) {
   const [isSending, setSending] = useState(false);
   // What he already asked of this message, so a second press asks nothing
   // more (the Overlord, 2026-10-28: "lack of indmepotent click on teh
@@ -72,11 +75,12 @@ export const QueuedMessage = memo(function QueuedMessage({ action, harnessState,
     finally { setSending(false); }
   };
   // A message typed and never seen taken may have arrived, so it says so and
-  // offers Send again, which sends its words as a new message; once sent
-  // again its row gives way to the new one's (#2242). One that was not sent
-  // reached nobody and is still the board's: it says so, why as its
-  // description, with Send now, which sends that same message, and Cancel,
-  // which takes it off the board (#2306).
+  // offers Send again, which sends its words as a new message, once sent
+  // again its row giving way to the new one's (#2242), and Dismiss, which
+  // takes it off the board (the Overlord, 2026-11-13: "There's no way to
+  // clear em out.", #2541). One that was not sent reached nobody and is still
+  // the board's: it says so, why as its description, with Send now, which
+  // sends that same message, and Cancel, which takes it off the board (#2306).
   const sendAgain = async () => {
     if (isSending) return;
     setSending(true);
@@ -113,7 +117,7 @@ export const QueuedMessage = memo(function QueuedMessage({ action, harnessState,
   const reason = harnessState ?? (isHeld || isTyped || isUnsent ? action.message : "");
   const kept = keptPictures(action.text);
   const why = "queued-why-" + action.id;
-  return <div className={"queued-message " + variant} data-queued={action.id}>
+  return <div className={"queued-message " + variant} data-queued={action.id} data-message={row}>
     {variant === "pane" && <MessagePictures sources={kept.paths.map((path) => keptFileAddress(instance, action.task_id || undefined, path))} />}
     {variant === "pane" && kept.text && <div className={"message-bubble queued-bubble" + (isHeld ? " waiting" : "")} aria-describedby={why}>{linkedText(kept.text)}</div>}
     {variant === "pane" && <p className="queued-state">{state}</p>}
@@ -139,13 +143,15 @@ export const QueuedMessage = memo(function QueuedMessage({ action, harnessState,
       <button type="button" className="icon-button" aria-label="Cancel" disabled={isSending}
         onClick={() => void act({ kind: "message_withdraw", text: action.text }, () => { setAsked("withdrawn"); onDeleted?.(); })}><Icon name="close" /></button>
     </div>}
-    {!harnessState && action.status === "uncertain" && <div className="queued-actions">
+    {!harnessState && action.status === "uncertain" && asked !== "withdrawn" && <div className="queued-actions">
       <button type="button" className="icon-button" aria-label="Send again" disabled={isSending} onClick={() => void sendAgain()}><Icon name="arrow-up" /></button>
+      <button type="button" className="icon-button" aria-label="Dismiss" disabled={isSending}
+        onClick={() => void act({ kind: "message_withdraw", text: action.text }, () => { setAsked("withdrawn"); onDeleted?.(); })}><Icon name="close" /></button>
     </div>}
   </div>;
 }, isSameQueued);
 
-type QueuedProps = { action: Action; harnessState?: "Queued" | "Sending"; liveAction?: Action | null; instance: string; name: string; variant: "pane" | "queue"; onDeleted?: () => void };
+type QueuedProps = { action: Action; harnessState?: "Queued" | "Sending"; liveAction?: Action | null; instance: string; name: string; variant: "pane" | "queue"; row?: string; onDeleted?: () => void };
 
 // Each snapshot parses every action anew, so a comparison by identity drew
 // every queued message again on every snapshot, 315 times in 120 s of a live
@@ -158,5 +164,5 @@ function isSameAction(was: Action | null | undefined, is: Action | null | undefi
 
 function isSameQueued(prior: QueuedProps, next: QueuedProps): boolean {
   return isSameAction(prior.action, next.action) && isSameAction(prior.liveAction, next.liveAction)
-    && prior.harnessState === next.harnessState && prior.instance === next.instance && prior.name === next.name && prior.variant === next.variant && prior.onDeleted === next.onDeleted;
+    && prior.harnessState === next.harnessState && prior.instance === next.instance && prior.name === next.name && prior.variant === next.variant && prior.row === next.row && prior.onDeleted === next.onDeleted;
 }

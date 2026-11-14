@@ -778,6 +778,61 @@ for (const [status, label, press, asks, rowsLeft] of [
   });
 }
 
+// The Overlord, 2026-11-13, of messages that read Not confirmed with nothing
+// that clears them: "There's no way to clear em out." (#2541). Dismiss on one
+// asks the board to take its record away, by the message's own ID, and leaves
+// nothing more to press on it.
+test("Dismiss on a message never seen taken asks the board to take it away", async ({ page }) => {
+  // Arrange
+  const posted: object[] = [];
+  await open(page);
+  await page.route("**/api/actions", (route) => { posted.push(route.request().postDataJSON() as object); return route.fulfill({ status: 202, json: {} }); });
+  await openGoblin(page);
+  const later = "2026-10-22T09:05:00Z";
+  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [{ id: "a1", kind: "message", task_id: "cg-touch", text: "claude doctor", status: "uncertain", message: "The terminal closed before it took it.", awaiting: "", created_at: later, updated_at: later }] });
+  const bubble = list(page, "Zeke - Touch Wrangler").locator(".queued-message.pane").filter({ hasText: "claude doctor" });
+  await expect(bubble).toContainText("Not confirmed");
+
+  // Act
+  await bubble.getByRole("button", { name: "Dismiss" }).click();
+
+  // Assert
+  await expect.poll(() => posted.length).toBe(1);
+  expect(posted[0]).toEqual({ id: "withdraw-a1", kind: "message_withdraw", task_id: "cg-touch", target: "a1", text: "claude doctor" });
+  await expect(bubble.getByRole("button")).toHaveCount(0);
+});
+
+// The Overlord, 2026-11-13, of two messages of his drawn Not confirmed under
+// the newest turn hours after he sent them: "Stale old messages that appear
+// randomly when memory gets low" (#2541). A message whose delivery ended with
+// no take seen, Not confirmed or Not sent, is drawn among the session's rows
+// where he sent it, never under the turns that came after it.
+test("a message that ended with no take seen is drawn where he sent it, never under later turns", async ({ page }) => {
+  // Arrange
+  await open(page);
+  await openGoblin(page);
+  const talk = list(page, "Zeke - Touch Wrangler");
+  await send(page, "page", { conversation: "fixture-conversation", more: false, messages: [
+    message(0, { source: "ceo", text: "Read the brief." }),
+    { ...reply(1, { kind: "text", text: "An earlier answer." }), at: "2026-10-22T09:00:05Z" },
+    { ...reply(2, { kind: "text", text: "A later answer." }), at: "2026-10-22T09:30:00Z" },
+  ] });
+  await expect(talk.getByText("A later answer.")).toBeVisible();
+  const ended = { kind: "message", task_id: "cg-touch", message: "The terminal closed before it took it.", awaiting: "" };
+  const drawn = () => talk.evaluate((element) => [...element.querySelectorAll<HTMLElement>(".conversation-items > [data-message], .conversation-items > [data-queued]")].map((row) => row.dataset.queued ?? row.dataset.message));
+
+  // Act
+  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [
+    { ...ended, id: "a1", text: "the middle one", status: "uncertain", created_at: "2026-10-22T09:10:00Z", updated_at: "2026-10-22T09:10:00Z" },
+    { ...ended, id: "a2", text: "the newest one", status: "failed", created_at: "2026-10-22T09:40:00Z", updated_at: "2026-10-22T09:40:00Z" },
+  ] });
+
+  // Assert
+  await expect(talk.locator('[data-queued="a1"]')).toContainText("Not confirmed");
+  await expect(talk.locator('[data-queued="a2"]')).toContainText("Not sent");
+  await expect.poll(drawn).toEqual(["m0", "m1", "a1", "m2", "a2"]);
+});
+
 // What he sent after a message that ended with no take seen and saw land puts
 // that message away, by when he sent it, whenever the board last touched its
 // record and whether or not the row that landed is in the page loaded, and a
