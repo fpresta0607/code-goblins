@@ -1645,8 +1645,10 @@ type Task struct {
 	// whose latest report is its done, which leaves nothing to verify of it.
 	KeptReport string `json:"kept_report,omitempty"`
 	// Browser says the goblin's own browser runs, which the board shows on
-	// its Screen view.
-	Browser bool `json:"browser,omitempty"`
+	// its Screen view, and BrowserInUse that the goblin sent it a command a
+	// short time ago, which its card shows as Browser active (#2537).
+	Browser      bool `json:"browser,omitempty"`
+	BrowserInUse bool `json:"browser_in_use,omitempty"`
 	// ReportedAt is when the goblin wrote its latest report, so the board
 	// can tell whether it reported since an answer it was given.
 	ReportedAt time.Time `json:"reported_at"`
@@ -2124,7 +2126,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			title = id
 			untitled[id] = true
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, RouteLane: meta.RouteLane, RouteReason: meta.RouteReason, Mode: meta.Mode, Generation: meta.SpawnGen, Session: named.ID, Runtime: runtime, Activity: activity, LastReport: lastReport, ClosedIssue: state.DoneClosed(lastReport), KeptReport: state.DoneReport(lastReport), ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), isBackAtWork: isBackAtWork, parkedBeforeReport: parkedBeforeReport, Evaluation: evaluation, Browser: s.screens.isRunning(id, meta.SpawnGen)})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, RouteLane: meta.RouteLane, RouteReason: meta.RouteReason, Mode: meta.Mode, Generation: meta.SpawnGen, Session: named.ID, Runtime: runtime, Activity: activity, LastReport: lastReport, ClosedIssue: state.DoneClosed(lastReport), KeptReport: state.DoneReport(lastReport), ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), isBackAtWork: isBackAtWork, parkedBeforeReport: parkedBeforeReport, Evaluation: evaluation, Browser: s.screens.isRunning(id, meta.SpawnGen), BrowserInUse: s.screens.isInUse(id, meta.SpawnGen)})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}

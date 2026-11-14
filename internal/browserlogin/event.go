@@ -9,3 +9,11 @@ type Event struct {
 	Method  string
 	Params  json.RawMessage
 }
+
+// Command is a DevTools command a relayed client sent: its method, its
+// parameters and the page target it acts on, empty for the browser itself.
+type Command struct {
+	Method string
+	Target string
+	Params json.RawMessage
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/fpresta0607/code-goblins/internal/browserlogin"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -237,6 +239,42 @@ func TestScreenViewFollowsThePageTheGoblinNavigated(t *testing.T) {
 	starts := chrome.browser.named("Page.startScreencast")
 	if navigated.Title != "Sign in" || retitled.Title != "Sign in" || len(starts) != 2 || starts[0].session != "session-shop" || starts[1].session != "session-docs" {
 		t.Fatalf("told %s then %s after starts %+v", navigated.raw, retitled.raw, starts)
+	}
+}
+
+// A press of the goblin's mouse through its DevTools route on the page a view
+// shows reaches that view as the place it pressed and nothing else, as each
+// later word of the browser's state does; a press on another page, its
+// release and its typed text do not (#2537).
+func TestScreenViewShowsWhereTheGoblinPressedOnThePageItShows(t *testing.T) {
+	// Arrange
+	chrome := &fakeGoblinChrome{browser: newFakeBrowser(targetInfo{ID: "docs", Type: "page", Title: "Docs", URL: "https://docs.example.com/"}, targetInfo{ID: "shop", Type: "page", Title: "Shop", URL: "https://example.com/"})}
+	board := newScreenBoard(t, screenService(t), chrome, false)
+	view := board.open(t)
+	opened := view.next(t)
+	hear := goblinCommands(t, board.service, chrome)
+	press := func(target string, kind string, x, y float64) {
+		hear(browserlogin.Command{Method: "Input.dispatchMouseEvent", Target: target, Params: json.RawMessage(fmt.Sprintf(`{"type":%q,"x":%v,"y":%v,"button":"left","clickCount":1}`, kind, x, y))})
+	}
+
+	// Act
+	press("docs", "mousePressed", 5, 6)
+	elsewhere := view.next(t)
+	press("shop", "mouseReleased", 7, 8)
+	hear(browserlogin.Command{Method: "Input.insertText", Target: "shop", Params: json.RawMessage(`{"text":"made-up words"}`)})
+	press("shop", "mousePressed", 120.5, 64)
+	pressed := view.next(t)
+	board.service.screens.drive(board.browser, true)
+	driven := view.next(t)
+
+	// Assert
+	if opened.Pointer != nil || elsewhere.Pointer != nil {
+		t.Fatalf("told %s as it opened and %s after a press on another page, want no pointer", opened.raw, elsewhere.raw)
+	}
+	for _, told := range []screenSaid{pressed, driven} {
+		if told.Pointer == nil || *told.Pointer != (screenPlace{X: 120.5, Y: 64}) || !strings.Contains(told.raw, `"pointer":{"x":120.5,"y":64}`) || strings.Contains(told.raw, "made-up words") {
+			t.Fatalf("told %s, want the pointer at 120.5,64 and nothing typed", told.raw)
+		}
 	}
 }
 

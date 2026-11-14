@@ -75,7 +75,7 @@ export const TaskCard = memo(function TaskCard({ task, status, phase, repository
     {task.project && <span className="card-repo">{task.project}{repositoryLink && <a className="card-repo-link" href={repositoryLink} target="_blank" rel="noreferrer" aria-label={"Open " + repository + " on GitHub"} data-tip={repository}><BrandGlyph brand="github" /></a>}</span>}
     <CardClock task={task} now={now} />
     <div className="card-icons">
-      <BrowserActive name={name} screen={task.browser ? task.id : ""} page={page} />
+      <BrowserActive name={name} screen={task.browser_in_use ? task.id : ""} page={page} />
       {task.ticket && <TicketLink ticket={task.ticket} className="card-ticket" isIconOnly />}
       <CardPullRequest task={task} isIconOnly />
       <SameAreaAvatars overlaps={task.overlaps} />

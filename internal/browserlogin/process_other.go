@@ -30,7 +30,7 @@ func Start(ctx context.Context, launch Launch) (Process, error) {
 
 // ServeClient refuses the client, since no login's Chrome runs on this system
 // yet.
-func (process Process) ServeClient(w http.ResponseWriter, r *http.Request, refuse func(method string) string) {
+func (process Process) ServeClient(w http.ResponseWriter, r *http.Request, hear func(Command) string) {
 	http.Error(w, errNotPorted.Error(), http.StatusNotImplemented)
 }
 
