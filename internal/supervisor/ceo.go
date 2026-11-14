@@ -742,11 +742,13 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 	// sent once its submit key went, and settleDeliveries reads that record.
 	if busy {
 		// Only a command the CEO's harness runs at once beside a turn, or one
-		// Send now runs at once with its send-now key, is typed into one. It
-		// starts no turn and can leave no record, so its prompt line is what
-		// shows it ran; one its harness queued after all, or still holds
-		// queued, waits there as his words do, for the CEO's record to show it
-		// taken.
+		// Send now runs at once with its send-now key, is typed into one, and
+		// its prompt line is what shows it ran. One run beside the turn starts
+		// no turn and can leave no record, and one the send-now key ran has
+		// left the turn's queue once that line reads empty with no queue
+		// offered (spawn.RanNow). One its harness queued after all, or still
+		// holds queued, waits there as his words do, for the CEO's record to
+		// show it taken.
 		if isRunNow {
 			ran, isPressed, err := spawn.RanNow(ctx, readScreen, press, screens, instruction)
 			switch {

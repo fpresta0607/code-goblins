@@ -2256,7 +2256,10 @@ func TestASendNowThatCannotRunACommandHeldForAGoblinsTurnIsSpentAndSaysSo(t *tes
 // the line it queued back onto its prompt line leaves no empty prompt line, so
 // the command is never typed and the Send now is spent and says so. A Claude
 // Code that takes no Ctrl+X Ctrl+S leaves the command in its turn's queue,
-// typed and sent now, for the goblin to take from there.
+// typed and sent now, for the goblin to take from there. One whose turn asks
+// a question of its own as the command goes into its queue is pressed no key
+// at all, since the key would go to that question, and the command waits in
+// the turn's queue, typed and not sent now, as his words there do.
 func TestASendNowWhoseKeyDidNotRunAGoblinsCommandSaysWhereItWaits(t *testing.T) {
 	for _, test := range []struct {
 		name, harness, mode string
@@ -2269,6 +2272,7 @@ func TestASendNowWhoseKeyDidNotRunAGoblinsCommandSaysWhereItWaits(t *testing.T) 
 	}{
 		{name: "a Codex that hands its queue back onto its prompt line", harness: "codex", mode: "busy", before: []string{"first words"}, wantErr: ErrDeferred, wantStatus: "queued", wantMessage: "Queued. Send now could not run it at once, so it runs when its turn ends.", wantInput: []string{"queued CEO: " + routing.BoardMessagePrefix + "first words", "interrupted"}},
 		{name: "a Claude Code that ignores its send-now chord", harness: "claude", mode: "claude-busy-ignores-send-now", wantStatus: "running", wantMessage: "Typed while it was working and sent now.", isAwaited: true, wantInput: []string{"queued /compact", "send now ignored"}},
+		{name: "a Claude Code whose turn asks a question over its queue", harness: "claude", mode: "claude-busy-asks", wantStatus: "running", wantMessage: heldByGoblin, isAwaited: true, wantInput: []string{"queued /compact"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange

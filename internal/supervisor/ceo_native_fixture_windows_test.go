@@ -47,6 +47,12 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 	// would.
 	isSendNowIgnored := strings.HasSuffix(mode, "-ignores-send-now")
 	mode = strings.TrimSuffix(mode, "-ignores-send-now")
+	// A harness that asks has its turn ask permission for a call once a line
+	// waits in its queue, the question drawn under its prompt line in its
+	// footer's place, not in the prompt line's place as Claude Code 2.1.302
+	// draws one, so the line still reads queued under a screen of its own.
+	isAsking := strings.HasSuffix(mode, "-asks")
+	mode = strings.TrimSuffix(mode, "-asks")
 	isHelp := false
 	record := func(value string) {
 		file, err := os.OpenFile(events, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
@@ -145,7 +151,12 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 			case isManual:
 				footer = "⏸ manual mode on · ? for shortcuts"
 			}
-			rows = append(rows, rule, "❯ "+strings.ReplaceAll(shown, "\n", "\r\n  "), rule, footer)
+			rows = append(rows, rule, "❯ "+strings.ReplaceAll(shown, "\n", "\r\n  "), rule)
+			if isAsking && hasQueued {
+				rows = append(rows, " Do you want to create nine.txt?", " ❯ 1. Yes", "   2. No")
+			} else {
+				rows = append(rows, footer)
+			}
 		} else {
 			text := typedBefore + line
 			if text == "" {

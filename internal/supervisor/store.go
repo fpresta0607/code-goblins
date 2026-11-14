@@ -967,9 +967,17 @@ func (s *Store) queue(a Action) (Action, error) {
 	}
 	s.db.Actions = append(s.db.Actions, a)
 	if message {
-		s.waitBehind(slices.IndexFunc(s.db.Actions, func(queued Action) bool {
+		// The message reads at once what the first one queued for its session
+		// waits on, as a try gives those behind it, and a command has no Send
+		// now until a try finds whether its harness can run it at once. Those
+		// queued before it keep what their last try gave them, a held
+		// command's Send now with it (#1915).
+		held := s.db.Actions[slices.IndexFunc(s.db.Actions, func(queued Action) bool {
 			return queued.Kind == "message" && queued.TaskID == a.TaskID && queued.Status == "queued"
-		}), false)
+		})]
+		added := &s.db.Actions[len(s.db.Actions)-1]
+		added.Message, added.CanSendNow, added.SendNowWhy = held.Message, held.CanSendNow, held.SendNowWhy
+		added.holdCommand(false)
 	}
 	if answer {
 		for i := range s.db.Questions {
