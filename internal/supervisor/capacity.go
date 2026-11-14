@@ -145,7 +145,6 @@ func (s *Service) heavyLineRoom(w *fleetWakes, memory Memory) (LineRoom, error) 
 	}
 	room, err := dispatch.HeavyLine(memory)
 	if err != nil {
-		room = LineRoom{}
 		err = fmt.Errorf("the machine's heavy line cannot be read, so no start waits on it: %w", err)
 	}
 	return room, w.failing("heavy-line", err)
