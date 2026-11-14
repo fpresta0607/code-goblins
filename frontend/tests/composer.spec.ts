@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "./site";
+import { recordingBegins, slowMicrophone } from "./dictation-hold";
 import { at, box, card, field, GOBLIN, NAME, open, openGoblin, pasted, send, snapshot, typed } from "./session-board";
 
 test.describe("phone speech history", () => {
@@ -373,8 +374,10 @@ test.describe("dictation into the box", () => {
     await field(page).fill("please");
 
     await box(page).getByRole("button", { name: "Hold to dictate", exact: true }).hover();
+    const begun = recordingBegins(page);
     await page.mouse.down();
     await expect(box(page).getByRole("button", { name: "Listening", exact: true })).toHaveClass(/recording/);
+    await begun;
     await page.waitForTimeout(1200);
     await page.mouse.up();
 
@@ -388,9 +391,11 @@ test.describe("dictation into the box", () => {
     await field(page).fill("please");
     await field(page).focus();
 
+    const begun = recordingBegins(page);
     await page.keyboard.down("Control");
     await page.keyboard.down("Shift");
     await page.keyboard.down("Space");
+    await begun;
     await page.waitForTimeout(1200);
     await page.keyboard.up("Space");
     await page.keyboard.up("Shift");
@@ -404,12 +409,15 @@ test.describe("dictation into the box", () => {
     test.use({ viewport: { width: 412, height: 915 }, hasTouch: true, isMobile: true });
 
     test("a tap on the box's microphone starts dictating, and the next adds what was said, sending nothing by itself", async ({ page }) => {
+      await slowMicrophone(page);
       const relay = await open(page);
       await card(page, NAME).tap();
       await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
 
+      const begun = recordingBegins(page);
       await box(page).getByRole("button", { name: "Dictate" }).tap();
       await expect(box(page).getByRole("button", { name: "Stop dictating" })).toHaveClass(/recording/);
+      await begun;
       await page.waitForTimeout(1200);
       await box(page).getByRole("button", { name: "Stop dictating" }).tap();
 

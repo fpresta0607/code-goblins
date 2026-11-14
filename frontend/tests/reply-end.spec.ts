@@ -694,6 +694,33 @@ for (const [what, first] of [
   });
 }
 
+// The Overlord, 2026-11-14, during a compaction: "it renders not confirmed old
+// stale messages as if its queued or being sent" (#2541). While the session
+// compacts, a message of his whose delivery ended with no take seen stays
+// where he sent it, above Compacting, and only what still waits for the
+// session is drawn under it.
+test("while the session compacts a message never seen taken stays above Compacting, apart from what waits", async ({ page }) => {
+  // Arrange
+  const session = "claude/goblin-session";
+  const compacting = (revision: number, actions: object[]) => snapshot({ revision, actions, sessions: [{ id: session, native_id: "goblin-session", harness: "claude", role: "goblin", task_id: GOBLIN.id, generation: GOBLIN.generation, phase: "settled", updated_at: minute(5), is_compacting: true }] }, { phase: "settled", harness: "claude", session });
+  const relay = await open(page, compacting(1, []), "", TALK);
+  await openGoblin(page);
+  const ended = { id: "a1", kind: "message", task_id: GOBLIN.id, text: "check the phone spec", status: "uncertain", message: "The terminal closed before it took it.", awaiting: "", created_at: minute(6), updated_at: minute(6) };
+  const waits = { id: "a2", kind: "message", task_id: GOBLIN.id, text: "then the tablet", status: "queued", message: "Queued.", created_at: minute(7), updated_at: minute(7) };
+
+  // Act
+  relay.say(screen(true, "Tinkering"));
+  await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), compacting(2, [ended, waits]));
+
+  // Assert
+  await expect(working(page).locator(".working-word")).toHaveText(["Compacting…"]);
+  await expect(page.getByRole("log").locator('[data-queued="a1"]')).toContainText("Not confirmed");
+  await expect(page.getByRole("log").locator('[data-queued="a2"]')).toContainText("Queued");
+  expect(await follows(page, '[data-message="r5"]', '[data-queued="a1"]'), "it comes after the rows before it").toBe(true);
+  expect(await follows(page, '[data-queued="a1"]', ".reply-working"), "it stays above Compacting").toBe(true);
+  expect(await follows(page, ".reply-working", '[data-queued="a2"]'), "what waits stays under Compacting").toBe(true);
+});
+
 // The Overlord, 2026-11-04: a compaction showed whimsical verbs as if the
 // session were at work on his ask. While the session's own hooks say it
 // compacts, in a turn or between turns, the dither's words say Compacting…

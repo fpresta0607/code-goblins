@@ -1,4 +1,5 @@
 import { devices, expect, openItem, test, type Page } from "./site";
+import { recordingBegins } from "./dictation-hold";
 import type { Recognizer } from "../src/dictation";
 
 // The Overlord, 2026-10-21, on his phone: "the mobile dictation button ...
@@ -64,10 +65,12 @@ for (const backend of ["native", "herdr"] as const) {
     const terminal = await openTerminal(page, backend);
 
     // Act: one tap, a moment's speech, a second tap.
+    const begun = recordingBegins(page);
     await page.getByRole("button", { name: "Dictate", exact: true }).tap();
     const listening = page.getByRole("button", { name: "Stop and send", exact: true });
     await expect(listening).toHaveClass(/recording/);
     await expect(listening).toHaveAttribute("aria-pressed", "true");
+    await begun;
     await page.waitForTimeout(1200);
     await listening.tap();
 

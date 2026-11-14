@@ -95,8 +95,8 @@ func runShared(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 
 // sharedProbes are the machine's reads of the shared services for the
 // supervisor's check: the gate daemon by its pid file, process and one health
-// question, the heavy line and memory, and whether the Docker engine answers,
-// each through commands. An example home shows no machine's shared services,
+// question, the heavy line and memory, whether the Docker engine answers,
+// each through commands, and the Scrawl server's process. An example home shows no machine's shared services,
 // so it has none.
 func sharedProbes(isExample bool, commands execx.Runner) *supervisor.SharedProbes {
 	if isExample {
@@ -122,5 +122,6 @@ func sharedProbes(isExample bool, commands execx.Runner) *supervisor.SharedProbe
 		},
 		Line:   supervisor.MachineSharedLine,
 		Docker: services.CLI{Commands: commands}.EngineRunning,
+		Scrawl: supervisor.MachineScrawl,
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/githubtest"
@@ -364,5 +365,40 @@ func TestCEOWaitsReadsTheWaitsTheSweepWakesFor(t *testing.T) {
 	}
 	if got := waits[0]; got.Who() != "Jerry (cg-waits)" || !got.Since.Equal(ceoWaitStarted) || got.Minutes(now) != 2 || !strings.Contains(got.What, "it is a draft") {
 		t.Fatalf("CEOWaits[0] = %+v, want Jerry's wait on its draft since %s", got, ceoWaitStarted)
+	}
+}
+
+// A wait quotes at most ceoWaitTextWidth bytes of the goblin's report and of
+// a backlog row's title, cut short with "..." and never inside a character
+// (#1954): each text here holds a two-byte character from its 200th byte on,
+// so the quote ends on the 199 bytes before it.
+func TestCEOWaitsCutsALongReportOrRowTitleBeforeACharacter(t *testing.T) {
+	longReport := "waiting on ceo: " + strings.Repeat("x", 183) + "\u00e9 and the rest"
+	longTitle := strings.Repeat("y", 199) + "\u00e9 and the rest"
+	for _, test := range []struct {
+		name   string
+		report string
+		want   string
+	}{
+		{name: "a long report", report: longReport, want: longReport[:199] + "..."},
+		{name: "a long row title", report: "waiting on ceo-long: the title first", want: "waiting on ceo-long: the title first; ceo-long is the CEO's own backlog row ceo-long (" + longTitle[:199] + "...)"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			_, h, _ := waitingFleet(t, "[]")
+			writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n- [ ] ceo-long - "+longTitle+" (kind: ceo)\n")
+			report(t, h, ceoWaitStarted, test.report)
+
+			// Act
+			waits, err := CEOWaits(h)
+
+			// Assert
+			if err != nil || len(waits) != 1 {
+				t.Fatalf("CEOWaits = %+v, %v, want the one goblin", waits, err)
+			}
+			if got := waits[0].What; got != test.want || !utf8.ValidString(got) {
+				t.Fatalf("CEOWaits[0].What = %q, want %q, valid UTF-8", got, test.want)
+			}
+		})
 	}
 }
