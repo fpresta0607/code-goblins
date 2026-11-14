@@ -1,5 +1,5 @@
-import { expect, test } from "./site";
-import { at, box, card, field, GOBLIN, NAME, open, PAGE, pasted, pickStyle, snapshot, typed } from "./session-board";
+import { expect, test, type Page } from "./site";
+import { at, box, card, field, GOBLIN, NAME, open, PAGE, pasted, pickStyle, snapshot, typed, type Relay } from "./session-board";
 
 test.use({ launchOptions: { args: ["--disable-webgl"] } });
 
@@ -152,39 +152,66 @@ test("Classic full-screen Codex zooms on a right-button wheel up while ended and
   expect(await page.evaluate(() => localStorage.getItem("ceo-chat-style"))).toBe("classic");
 });
 
+// settled waits until the view has its font and stops asking for sizes. It
+// asks again once its Connecting line leaves and once its font loads, and the
+// relay repaints the program's first screen for each, so output written
+// before the last repaint ends up above it, out of the line he reads (#1989).
+async function settled(page: Page, relay: Relay): Promise<void> {
+  await page.evaluate(() => document.fonts.load('16px "JetBrains Mono"'));
+  let seen = -1;
+  await expect.poll(() => {
+    const isQuiet = relay.resizes.length > 0 && relay.resizes.length === seen;
+    seen = relay.resizes.length;
+    return isQuiet;
+  }, { intervals: [400] }).toBe(true);
+}
+
 // A view that connects again replays the terminal's history before its
 // repaint, as the supervisor's relay does, so the line he reads in output
-// written after the last repaint is still there to return to (#1566).
-test("Classic keeps the line it reads in later output through a reconnect", async ({ page }) => {
-  // Arrange
-  await page.addInitScript(() => localStorage.setItem("ceo-chat-style", "classic"));
-  const relay = await open(page, snapshot({}, { harness: "codex" }), "", PAGE, HISTORY);
-  await card(page, NAME).click();
-  const rows = page.locator(".terminal-view:not(.staged) > .xterm .xterm-rows");
-  await expect(rows).toContainText("> ready");
-  relay.write(Array.from({ length: 200 }, (_, index) => "\r\nCodex later " + index).join(""));
-  await expect(rows).toContainText("Codex later 199");
-  await page.getByRole("textbox", { name: "Terminal input", exact: true }).press("Shift+PageUp");
-  await expect(page.getByRole("button", { name: "Jump to bottom", exact: true })).toBeVisible();
-  // A row the panel gains while he reads moves the first line, so the line
-  // is read once it holds.
-  const top = rows.locator("> div").first();
-  let reading = "";
-  await expect.poll(async () => {
-    const prior = reading;
-    reading = await top.textContent() ?? "";
-    return reading === prior;
-  }).toBe(true);
-  expect(reading).toContain("Codex later");
+// written after the last repaint is still there to return to (#1566). The
+// font's load can answer after the new view's connection opens, which then
+// takes its first size; the view starts on the loaded font all the same, so
+// that size is its last and the line stays (#1989).
+for (const font of ["answering at once", "answering late"] as const) {
+  test(`Classic keeps the line it reads in later output through a reconnect, its font's load ${font}`, async ({ page }) => {
+    // Arrange
+    if (font === "answering late") {
+      await page.addInitScript(() => {
+        const load = document.fonts.load.bind(document.fonts);
+        document.fonts.load = (font, text) => load(font, text).then((faces) => new Promise((resolve) => setTimeout(() => resolve(faces), 1500)));
+      });
+    }
+    await page.addInitScript(() => localStorage.setItem("ceo-chat-style", "classic"));
+    const relay = await open(page, snapshot({}, { harness: "codex" }), "", PAGE, HISTORY);
+    await card(page, NAME).click();
+    const rows = page.locator(".terminal-view:not(.staged) > .xterm .xterm-rows");
+    await expect(rows).toContainText("> ready");
+    await settled(page, relay);
+    relay.write(Array.from({ length: 200 }, (_, index) => "\r\nCodex later " + index).join(""));
+    await expect(rows).toContainText("Codex later 199");
+    await page.getByRole("textbox", { name: "Terminal input", exact: true }).press("Shift+PageUp");
+    await expect(page.getByRole("button", { name: "Jump to bottom", exact: true })).toBeVisible();
+    // A row the panel gains while he reads moves the first line, so the line
+    // is read once it holds.
+    const top = rows.locator("> div").first();
+    let reading = "";
+    await expect.poll(async () => {
+      const prior = reading;
+      reading = await top.textContent() ?? "";
+      return reading === prior;
+    }).toBe(true);
+    expect(reading).toContain("Codex later");
 
-  // Act
-  relay.drop();
-  await expect.poll(() => relay.views).toBe(2);
-  await expect(page.locator(".terminal-view.staged")).toHaveCount(0);
+    // Act
+    relay.drop();
+    await expect.poll(() => relay.views).toBe(2);
+    await expect(page.locator(".terminal-view.staged")).toHaveCount(0);
+    await settled(page, relay);
 
-  // Assert
-  await expect(top).toHaveText(reading);
-});
+    // Assert
+    await expect(top).toHaveText(reading);
+  });
+}
 
 for (const style of ["classic", "modern"] as const) {
   test(`${style} follows an ended CEO host into Codex without reload or losing its draft`, async ({ page }) => {
