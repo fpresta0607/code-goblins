@@ -48,7 +48,9 @@ type Tree struct {
 	ended   []EndedProcess
 	doneErr error
 	// marks says of each process read whether it started with the tree's
-	// mark. What a process started with never changes, so each is read once.
+	// mark. What a process started with never changes, so each is read once,
+	// but a read that failed or came back empty, as one of a process part-way
+	// through exec does on Linux, is tried again on the next.
 	marks map[run]bool
 	// seen holds every process of the tree read, which TotalProcesses counts.
 	seen map[run]bool
@@ -156,9 +158,12 @@ func (t *Tree) members() ([]proc.Entry, error) {
 		hasMark, isKnown := t.marks[key]
 		if !isKnown {
 			environment, err := proc.Environment(process.PID)
-			hasMark = err == nil && isMarked(environment, t.mark)
+			isKnown = err == nil && len(environment) > 0
+			hasMark = isKnown && isMarked(environment, t.mark)
 		}
-		marks[key] = hasMark
+		if isKnown {
+			marks[key] = hasMark
+		}
 		if hasMark || (t.group != 0 && process.Group == t.group) {
 			isMember[process.PID] = true
 		}
@@ -336,11 +341,13 @@ func (t *Tree) endAndWait(ctx context.Context, shouldSpareServices, isGentle boo
 // again until nothing else is left, within ctx or five seconds, and returns
 // what it ended and the services it spared. Each is ended only while it is
 // still the process that was read (proc.Signal), so a reused pid never ends
-// another process. When isGentle, each is asked to end for gentleFor first.
+// another process. When isGentle, each is asked to end, once, for gentleFor
+// first.
 func (t *Tree) endMembers(ctx context.Context, shouldSpareServices, isGentle bool) (ended, spared []proc.Entry, err error) {
 	ctx, cancel := awake.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	began := time.Now()
+	isSignaled := map[run]bool{}
 	for {
 		members, err := t.members()
 		if err != nil {
@@ -364,7 +371,12 @@ func (t *Tree) endMembers(ctx context.Context, shouldSpareServices, isGentle boo
 				continue
 			}
 			rest = append(rest, member.PID)
-			if proc.Signal(member.PID, member.Start, signal) == nil && !slices.Contains(ended, member) {
+			key := run{member.PID, member.Start}
+			if signal == syscall.SIGTERM && isSignaled[key] {
+				continue
+			}
+			if proc.Signal(member.PID, member.Start, signal) == nil && !isSignaled[key] {
+				isSignaled[key] = true
 				ended = append(ended, member)
 			}
 		}

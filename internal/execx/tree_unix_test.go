@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -62,6 +63,19 @@ func awaitGone(t *testing.T, pid int) {
 		}
 	}
 	t.Fatalf("process %d still runs", pid)
+}
+
+// awaitWritten waits until a helper has written path.
+func awaitWritten(t *testing.T, path string) {
+	t.Helper()
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("a helper did not write %s within a minute", path)
+		}
+	}
 }
 
 func isAmong(processes []EndedProcess, pid int) bool {
@@ -138,14 +152,7 @@ func TestUsageCountsATreesProcessesAndEndAndWaitLeavesNoneRunning(t *testing.T) 
 	// Linux may read a process as small as sleep to hold none yet.
 	ready := filepath.Join(t.TempDir(), "ready")
 	tree, helper := startLeaving(t, fmt.Sprintf("EXECX_TEST_READY='%s' '%s' -test.run='^TestUsageCountsATreesProcessesAndEndAndWaitLeavesNoneRunning$'", ready, os.Args[0]), true, StartTree)
-	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
-		if _, err := os.Stat(ready); err == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("the helper did not touch its memory within a minute")
-		}
-	}
+	awaitWritten(t, ready)
 
 	// Act
 	running, err := tree.Usage()
@@ -196,27 +203,65 @@ func TestANamedTreeIsFoundAgainByItsNameOnceItsStarterLetItGo(t *testing.T) {
 	}
 }
 
-func TestATreeStartedInsideAnotherCarriesBothMarks(t *testing.T) {
-	cases := []struct {
-		name        string
-		environment []string
-		want        string
-	}{
-		{"outside any tree", []string{"HOME=/home/a"}, TreeVariable + "=inner"},
-		{"inside one tree", []string{TreeVariable + "=outer", "HOME=/home/a"}, TreeVariable + "=outer inner"},
+func TestEndAndWaitAsksEachProcessToEndOnlyOnce(t *testing.T) {
+	if cleaned := os.Getenv("EXECX_TEST_CLEANED"); cleaned != "" {
+		terminate := make(chan os.Signal, 1)
+		signal.Notify(terminate, syscall.SIGTERM)
+		if err := os.WriteFile(cleaned+".ready", nil, 0o600); err != nil {
+			os.Exit(7)
+		}
+		<-terminate
+		signal.Reset(syscall.SIGTERM)
+		time.Sleep(300 * time.Millisecond)
+		if err := os.WriteFile(cleaned, nil, 0o600); err != nil {
+			os.Exit(7)
+		}
+		os.Exit(0)
 	}
-	for _, test := range cases {
-		t.Run(test.name, func(t *testing.T) {
-			// Act
-			environment := withMark(test.environment, "inner")
+	// Arrange: the helper cleans up for 300ms on its first SIGTERM and ends
+	// at once on a second, as a program using signal.NotifyContext does once
+	// it stops.
+	cleaned := filepath.Join(t.TempDir(), "cleaned")
+	tree, helper := startLeaving(t, fmt.Sprintf("EXECX_TEST_CLEANED='%s' '%s' -test.run='^TestEndAndWaitAsksEachProcessToEndOnlyOnce$'", cleaned, os.Args[0]), false, StartTree)
+	awaitWritten(t, cleaned+".ready")
 
-			// Assert
-			if !slices.Contains(environment, test.want) || !slices.Contains(environment, "HOME=/home/a") || len(environment) != 2 {
-				t.Fatalf("withMark = %q, want %q beside HOME", environment, test.want)
-			}
-			if !isMarked(environment, "inner") || (len(test.environment) == 2) != isMarked(environment, "outer") || isMarked(environment, "inn") {
-				t.Fatalf("isMarked reads %q wrong", environment)
-			}
-		})
+	// Act
+	_, spared, err := tree.EndAndWait(context.Background())
+
+	// Assert
+	if err != nil || len(spared) != 0 {
+		t.Fatalf("EndAndWait spared %v: %v", spared, err)
 	}
+	if _, err := os.Stat(cleaned); err != nil {
+		t.Fatalf("the helper was ended before it cleaned up, so it was asked to end more than once: %v", err)
+	}
+	awaitGone(t, helper)
+}
+
+func TestATreeStartedInsideAnotherStaysInBoth(t *testing.T) {
+	// Arrange: the command starts inside a tree named outer, as a step under
+	// the gate's executor does, and its parent exits, so only the marks find
+	// the helper.
+	outer := fmt.Sprintf("goblins-outer-test-%d-%d", os.Getpid(), time.Now().UnixNano())
+	tree, helper := startLeaving(t, "sleep 600", false, func(cmd *exec.Cmd) (*Tree, error) {
+		cmd.Env = append(cmd.Environ(), TreeVariable+"="+outer)
+		return StartTree(cmd)
+	})
+
+	// Act
+	members, membersErr := tree.Members()
+	_, isPrefixFound, prefixErr := EndNamedJob(context.Background(), outer[:len(outer)-1])
+	usage, isFound, err := EndNamedJob(context.Background(), outer)
+
+	// Assert
+	if membersErr != nil || !isAmong(members, helper) {
+		t.Fatalf("the inner tree lists %v, without the helper %d: %v", members, helper, membersErr)
+	}
+	if prefixErr != nil || isPrefixFound {
+		t.Fatalf("EndNamedJob of a name the helper carries only part of = found %t, %v", isPrefixFound, prefixErr)
+	}
+	if err != nil || !isFound || usage.TotalProcesses != 1 {
+		t.Fatalf("EndNamedJob of the outer tree = %+v, found %t, %v", usage, isFound, err)
+	}
+	awaitGone(t, helper)
 }
