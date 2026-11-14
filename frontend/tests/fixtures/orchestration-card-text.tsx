@@ -78,7 +78,7 @@ const snapshot = parseSnapshot({ healthy: true, instance: "fixture", at, ceo_run
   ], sessions: [
     { id: "s-plumbing", native_id: "n-plumbing", harness: "claude", role: "goblin", task_id: "cg-plumbing", generation: "g-plumbing", phase: "working" },
   ] });
-const presentations = ["cg-plumbing", "cg-dispatch"].map((task) => ({ id: "p-" + task, kind: "browser", task_id: task, generation: "g-" + task.slice(3), source: "", target: "", state: "active", url: "", at: "", until: "" }));
+const presentations = ["cg-plumbing", "cg-dispatch"].map((task) => ({ id: "p-" + task, kind: "browser", task_id: task, generation: "g-" + task.slice(3), source: "", target: "", state: "active", url: "https://pages.example.com/walkthrough", at: "", until: "" }));
 const now = Date.parse(at);
 // How often the CEO's card asked for its terminal, which the test reads.
 const opened = window as Window & { ceoOpened?: number };
