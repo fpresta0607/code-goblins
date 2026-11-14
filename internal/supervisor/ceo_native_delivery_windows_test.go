@@ -689,45 +689,68 @@ func TestLinesHandedBackTogetherAreTakenFromTheOnePromptTheyWentAs(t *testing.T)
 // prompt that starts a turn, as the lines a turn he stopped handed back go
 // (#2541). Lines handed back together, one of them naming a picture the board
 // kept for it, are each taken once the CEO's record shows that prompt with the
-// mark in the path's place, rather than read Queued and then Not confirmed.
+// mark in the path's place, rather than read Queued and then Not confirmed. A
+// line that is only a kept picture's path leaves no word to find, so a prompt
+// that is only a picture's mark, as another picture sent alone starts, never
+// settles it as taken: it stays watched for its own words.
 func TestLinesHandedBackWithAPictureAreTakenFromThePromptThatHoldsItsMark(t *testing.T) {
-	// Arrange
-	records := useConversations(t)
-	store, home := testStore(t)
-	terminal := nativeCEOComposer(t, home.State, "claude-ready")
-	service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: home.State}}}
-	pictured := `see this row C:\home\composer-files\pasted-4f2a.png`
-	at := time.Now().UTC()
-	for n, typed := range []string{pictured, "stop and rebase"} {
-		// Each was typed into the CEO's turn after it started, in this order.
-		since := at.Add(time.Duration(n) * time.Millisecond)
-		store.db.Actions = append(store.db.Actions, Action{ID: fmt.Sprintf("m%d", n), Kind: "message", Text: typed, Status: "running", Message: heldByCEO, CreatedAt: since, UpdatedAt: since,
-			Awaiting: &Awaiting{Host: "ceo", Harness: "claude", Since: since, QuietSince: since, Digest: monitor.TextDigest(typed), Session: "session-1", Typed: typed, IsHeld: true}})
-	}
-	if err := store.save(); err != nil {
-		t.Fatal(err)
-	}
-	typeIntoCEO(t, home.State, pictured+" stop and rebase", "pasted-4f2a.png stop and rebase")
-	ceoShows(t, home.State, "bypass permissions on")
+	for _, tc := range []struct {
+		name string
+		// lines are the deliveries a stopped turn handed back, in the order
+		// they were typed, and prompt the text of the prompt that started the
+		// turn the CEO's record shows taken.
+		lines   []string
+		prompt  string
+		isTaken bool
+	}{
+		{name: "words with a picture, then words", lines: []string{`see this row C:\home\composer-files\pasted-4f2a.png`, "stop and rebase"}, prompt: "see this row [Image #3]\nstop and rebase", isTaken: true},
+		{name: "a picture alone, beside another picture alone", lines: []string{`C:\home\composer-files\pasted-4f2a.png`}, prompt: "[Image #3]"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			records := useConversations(t)
+			store, home := testStore(t)
+			terminal := nativeCEOComposer(t, home.State, "claude-ready")
+			service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: home.State}}}
+			at := time.Now().UTC()
+			for n, typed := range tc.lines {
+				// Each was typed into the CEO's turn after it started, in this order.
+				since := at.Add(time.Duration(n) * time.Millisecond)
+				store.db.Actions = append(store.db.Actions, Action{ID: fmt.Sprintf("m%d", n), Kind: "message", Text: typed, Status: "running", Message: heldByCEO, CreatedAt: since, UpdatedAt: since,
+					Awaiting: &Awaiting{Host: "ceo", Harness: "claude", Since: since, QuietSince: since, Digest: monitor.TextDigest(typed), Session: "session-1", Typed: typed, IsHeld: true}})
+			}
+			if err := store.save(); err != nil {
+				t.Fatal(err)
+			}
+			handedBack := strings.Join(tc.lines, " ")
+			typeIntoCEO(t, home.State, handedBack, "❯ "+handedBack)
+			ceoShows(t, home.State, "bypass permissions on")
 
-	// Act
-	err := service.submitHandedBack(context.Background())
-	lines := terminal.waitForLines(t, 2)
-	picture := map[string]any{"type": "image", "source": map[string]any{"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo="}}
-	writeRecord(t, filepath.Join(records, ".claude", "projects", "C--ceo-home", "session-1.jsonl"), map[string]any{"type": "user", "timestamp": time.Now().UTC().Format(time.RFC3339Nano), "message": map[string]any{"role": "user", "content": []map[string]any{{"type": "text", "text": "see this row [Image #3]\nstop and rebase"}, picture}}})
-	settled := store.settleDeliveries(time.Now().UTC(), service.lookAtTerminal)
+			// Act
+			err := service.submitHandedBack(context.Background())
+			lines := terminal.waitForLines(t, 2)
+			picture := map[string]any{"type": "image", "source": map[string]any{"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo="}}
+			writeRecord(t, filepath.Join(records, ".claude", "projects", "C--ceo-home", "session-1.jsonl"), map[string]any{"type": "user", "timestamp": time.Now().UTC().Format(time.RFC3339Nano), "message": map[string]any{"role": "user", "content": []map[string]any{{"type": "text", "text": tc.prompt}, picture}}})
+			settled := store.settleDeliveries(time.Now().UTC(), service.lookAtTerminal)
 
-	// Assert
-	if err != nil || settled != nil {
-		t.Fatalf("submitHandedBack = %v, settleDeliveries = %v; want no error", err, settled)
-	}
-	if !slices.Equal(lines[1:], []string{"accepted " + pictured + " stop and rebase"}) {
-		t.Errorf("terminal input = %q; want the two lines submitted as one prompt", lines)
-	}
-	for _, id := range []string{"m0", "m1"} {
-		if taken := actionOf(store, id); taken.Status != "succeeded" {
-			t.Errorf("%s = %+v; want it taken from the one prompt it went in", id, taken)
-		}
+			// Assert
+			if err != nil || settled != nil {
+				t.Fatalf("submitHandedBack = %v, settleDeliveries = %v; want no error", err, settled)
+			}
+			if !slices.Equal(lines[1:], []string{"accepted " + handedBack}) {
+				t.Errorf("terminal input = %q; want the lines submitted as one prompt", lines)
+			}
+			for n := range tc.lines {
+				id := fmt.Sprintf("m%d", n)
+				taken := actionOf(store, id)
+				if tc.isTaken && taken.Status != "succeeded" {
+					t.Errorf("%s = %+v; want it taken from the one prompt it went in", id, taken)
+				}
+				if !tc.isTaken && (taken.Status != "running" || taken.Awaiting == nil) {
+					t.Errorf("%s = %+v; want it still watched for its own words, never taken by a picture's mark alone", id, taken)
+				}
+			}
+		})
 	}
 }
 
