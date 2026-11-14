@@ -103,9 +103,10 @@ type fleetWakes struct {
 	// floor, where every read slows and a slow one tells nothing of what
 	// it reads.
 	MemoryLow bool `json:"memory_low,omitempty"`
-	// ProgressUnreadSince is when the passes began on which every goblin's
-	// progress read ran out of time together, zero once a pass reads one or
-	// has none to read, or after a gap in the passes, and ProgressUnreadWoke
+	// ProgressUnreadSince is when the passes began on which most goblins'
+	// progress reads ran out of time together, zero once a pass reads one
+	// and finishes at least half its reads in time, or has none to read, or
+	// after a gap in the passes, and ProgressUnreadWoke
 	// says the CEO was told of those passes. ProgressPassAt is when the latest
 	// reading that read progress ended, which tells that gap.
 	ProgressUnreadSince time.Time `json:"progress_unread_since,omitzero"`
