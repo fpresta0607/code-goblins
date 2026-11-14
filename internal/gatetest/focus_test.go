@@ -1,6 +1,7 @@
 package gatetest
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -14,7 +15,7 @@ func TestFocusedRepairIncludesFailuresAndTransitiveRepairChecks(t *testing.T) {
 	found.policy = `{"version":1,"slow_packages":["b"],"guards":[{"package":"c","tests":["TestGuard"],"why":"required guard"}]}`
 
 	// Act
-	plan, note, err := focused(found, "test example.com/repo/c --- FAIL: TestBroken/subtest (0.01s)\npath a/a.go\n", Fast)
+	plan, note, err := focused(context.Background(), nil, found, "test example.com/repo/c --- FAIL: TestBroken/subtest (0.01s)\npath a/a.go\n", Fast)
 
 	// Assert
 	if err != nil || note != "" {
@@ -30,7 +31,7 @@ func TestFocusedRepairIncludesFailuresAndTransitiveRepairChecks(t *testing.T) {
 
 func TestFocusedRepairDoesNotRepeatTestsCoveredByItsRepairPlan(t *testing.T) {
 	// Act
-	plan, _, err := focused(branch("c/c.go"), "test example.com/repo/b --- FAIL: TestBroken (0.01s)\npath a/a.go\n", Fast)
+	plan, _, err := focused(context.Background(), nil, branch("c/c.go"), "test example.com/repo/b --- FAIL: TestBroken (0.01s)\npath a/a.go\n", Fast)
 
 	// Assert
 	if err != nil || len(plan.Named) != 0 || len(plan.Failures) != 1 || !slices.Contains(plan.Tests, "example.com/repo/b") {
@@ -66,7 +67,7 @@ func TestAFocusedCheckThatCannotNarrowRunsTheConfiguredLevelAndNamesWhatCIIsLeft
 			found.hasPolicy, found.policy = true, `{"version":1,"outside":[]}`
 
 			// Act
-			plan, note, err := focused(found, test.focus, test.configured)
+			plan, note, err := focused(context.Background(), nil, found, test.focus, test.configured)
 
 			// Assert
 			if err != nil || plan.Level != test.configured || slices.Contains(plan.Tests, "./...") {
@@ -92,7 +93,7 @@ func TestAFocusedCheckThatCannotNarrowStillRunsTheFailedTestsItMaps(t *testing.T
 	found.hasPolicy, found.policy = true, `{"version":1,"outside":[]}`
 
 	// Act
-	plan, note, err := focused(found, "test example.com/repo/c --- FAIL: TestBroken (0.01s)\npath a/a.go\npath strange.input\n", Fast)
+	plan, note, err := focused(context.Background(), nil, found, "test example.com/repo/c --- FAIL: TestBroken (0.01s)\npath a/a.go\npath strange.input\n", Fast)
 
 	// Assert
 	if err != nil || note == "" || len(plan.Named) != 1 || !slices.Equal(plan.Named[0].Command, append(slices.Clone(StepTestArgs), "-run", "^(TestBroken)$", "example.com/repo/c")) {
@@ -102,7 +103,7 @@ func TestAFocusedCheckThatCannotNarrowStillRunsTheFailedTestsItMaps(t *testing.T
 
 func TestFocusedRepairBroadensUnmappedPathsWithoutAClassifyingPolicy(t *testing.T) {
 	// Act
-	plan, note, err := focused(branch("a/a.go"), "test example.com/repo/a --- FAIL: TestBroken (0.01s)\npath a/a.go\npath unknown.input\n", Fast)
+	plan, note, err := focused(context.Background(), nil, branch("a/a.go"), "test example.com/repo/a --- FAIL: TestBroken (0.01s)\npath a/a.go\npath unknown.input\n", Fast)
 
 	// Assert
 	if err != nil || !strings.Contains(note, "not the full level") || plan.Level != Fast {
@@ -118,7 +119,7 @@ func TestFocusedRepairRetainsUnmappedFailureObligations(t *testing.T) {
 			text := "test example.com/repo/gone --- FAIL: TestBroken/subtest (0.01s)\n" +
 				"test example.com/repo/gone --- FAIL: TestBroken (0.01s)\npath a/a.go\n"
 
-			plan, note, err := focused(found, text, Fast)
+			plan, note, err := focused(context.Background(), nil, found, text, Fast)
 
 			if err != nil || plan.Level != Fast || !strings.Contains(note, "unmappable") || !slices.Equal(plan.Failures, []FailedTest{{Package: "example.com/repo/gone", Name: "TestBroken"}}) || len(plan.Named) != 0 {
 				t.Fatalf("unmapped failure obligation lost: %+v, %q, %v", plan, note, err)
@@ -131,7 +132,7 @@ func TestFocusedRepairRejectsUnsafePathsAndEncoding(t *testing.T) {
 	for _, value := range []string{"..", "../a/a.go", "/a/a.go", `C:\a\a.go`, `a\na.go`, "a/../b.go", "a/a.go\x00", "a/\xff.go"} {
 		t.Run(value, func(t *testing.T) {
 			// Act
-			_, _, err := focused(branch("a/a.go"), "test example.com/repo/a --- FAIL: TestBroken (0.01s)\npath "+value+"\n", Fast)
+			_, _, err := focused(context.Background(), nil, branch("a/a.go"), "test example.com/repo/a --- FAIL: TestBroken (0.01s)\npath "+value+"\n", Fast)
 
 			// Assert
 			if err == nil {
@@ -143,7 +144,7 @@ func TestFocusedRepairRejectsUnsafePathsAndEncoding(t *testing.T) {
 
 func TestFocusedRepairTreatsShellTextAsUnrecognizedData(t *testing.T) {
 	// Act
-	plan, note, err := focused(branch("a/a.go"), "test $(touch injected)\npath a/a.go\n", Fast)
+	plan, note, err := focused(context.Background(), nil, branch("a/a.go"), "test $(touch injected)\npath a/a.go\n", Fast)
 
 	// Assert
 	if err != nil || !strings.Contains(note, `"$(touch injected)"`) || plan.Level != Fast || len(plan.Named) != 0 {
@@ -160,7 +161,7 @@ func TestFocusedRepairGroupsDistinctFailuresAndKeepsAlonePackagesSerial(t *testi
 		"test example.com/repo/c --- FAIL: TestSecond (0.01s)\npath a/a.go\n"
 
 	// Act
-	plan, note, err := focused(found, text, Fast)
+	plan, note, err := focused(context.Background(), nil, found, text, Fast)
 
 	// Assert
 	if err != nil || note != "" || len(plan.Named) != 1 || len(plan.Failures) != 2 {

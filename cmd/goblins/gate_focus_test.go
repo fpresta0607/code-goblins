@@ -59,6 +59,90 @@ func TestGateFocusedRepairRecordsOnlyItsSelectedCommands(t *testing.T) {
 	t.Logf("synthetic selected commands=%v; recorded duration_seconds=%.6f (fake check executor, real planner)", want, report.DurationSeconds)
 }
 
+// A repair round that cannot narrow, here a review repair that names a path
+// and no failed test, runs the step's configured level, never every package,
+// says so in one line, and its report carries that level (#2176). On a project
+// whose hosted CI is its test evidence that level is changed, which still
+// runs, by name, the test the repair added.
+func TestGateFocusedRepairThatCannotNarrowRunsAndReportsTheConfiguredLevel(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		evidence string
+		change   map[string]string
+		repair   string
+		level    string
+		named    []string
+	}{
+		{name: "fast", change: map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"}, repair: "a/a.go", level: "fast"},
+		{
+			name:     "hosted CI",
+			evidence: "hosted-ci",
+			change: map[string]string{
+				"b/regression_test.go": "package b\n\nimport \"testing\"\n\nfunc TestRegression(t *testing.T) {}\n",
+				"c/c_test.go":          "package c\n\nimport \"testing\"\n\nfunc TestC(t *testing.T) {}\n",
+			},
+			repair: "b/regression_test.go",
+			level:  "changed",
+			named:  []string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "45m", "-run", "^(TestRegression)$", "example.com/m/b"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			t.Setenv("GOBLINS_TEST_EVIDENCE", test.evidence)
+			dir := testStepModule(t, nil, test.change)
+			t.Chdir(dir)
+			focus := filepath.Join(t.TempDir(), "focus.txt")
+			if err := os.WriteFile(focus, []byte("path "+test.repair+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("NO_MISTAKES_TEST_FOCUS", focus)
+			runtime := standIn()
+			var commands [][]string
+			runtime.gateRun = func(command []string, _ string, _ []string, stdout, _ io.Writer) (int, error) {
+				commands = append(commands, command)
+				if command[1] != "test" {
+					return 0, nil
+				}
+				for _, target := range command {
+					if !strings.HasPrefix(target, "example.com/m/") {
+						continue
+					}
+					if run := slices.Index(command, "-run"); run >= 0 {
+						name := strings.Trim(command[run+1], "^()$")
+						fmt.Fprintf(stdout, "{\"Action\":\"run\",\"Package\":%q,\"Test\":%q}\n{\"Action\":\"pass\",\"Package\":%q,\"Test\":%q}\n", target, name, target, name)
+					}
+					fmt.Fprintf(stdout, "{\"Action\":\"pass\",\"Package\":%q}\n", target)
+				}
+				return 0, nil
+			}
+
+			// Act
+			var stdout, stderr bytes.Buffer
+			exit := gateTestWith(runtime, &stdout, &stderr, "--focused")
+
+			// Assert
+			if exit != 0 {
+				t.Fatalf("exit=%d stdout=%s stderr=%s", exit, &stdout, &stderr)
+			}
+			report, _ := lastReport(t)
+			if report.Level != test.level {
+				t.Errorf("report level = %q; want the configured level %q", report.Level, test.level)
+			}
+			if want := "focused check runs the configured level " + test.level + " over the repaired paths, not the full level, since the repair named no failed test"; !strings.Contains(stdout.String(), want) {
+				t.Errorf("stdout = %s; want the line %q", &stdout, want)
+			}
+			for _, command := range commands {
+				if slices.Contains(command, "./...") || slices.Contains(command, "example.com/m/c") {
+					t.Errorf("ran %v; want neither every package nor the unrepaired package c", command)
+				}
+			}
+			if test.named != nil && !slices.ContainsFunc(commands, func(command []string) bool { return slices.Equal(command, test.named) }) {
+				t.Errorf("commands = %v; want the repaired test run by name, %v", commands, test.named)
+			}
+		})
+	}
+}
+
 func TestGateFocusedRepairRunsNamedFailureAndRepairDependents(t *testing.T) {
 	// Arrange
 	dir := testStepModule(t, nil, map[string]string{"c/c.go": "package c\n\nconst Changed = true\n"})

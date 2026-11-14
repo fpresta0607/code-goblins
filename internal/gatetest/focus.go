@@ -43,7 +43,7 @@ func ReadFocused(ctx context.Context, runner execx.Runner, dir, filename string,
 	if err != nil {
 		return Plan{}, "", err
 	}
-	return focused(found, string(data), configured)
+	return focused(ctx, runner, found, string(data), configured)
 }
 
 // focused plans a repair round's check: the repair's own reach and its failed
@@ -53,7 +53,7 @@ func ReadFocused(ctx context.Context, runner execx.Runner, dir, filename string,
 // the repaired paths instead of the full level, which once held the machine's
 // heavy line for hours (#2176). Its one line says why, and what it leaves to
 // CI, which runs every package, a failed test it could not map by name.
-func focused(found findings, text string, configured Level) (Plan, string, error) {
+func focused(ctx context.Context, runner execx.Runner, found findings, text string, configured Level) (Plan, string, error) {
 	if !utf8.ValidString(text) {
 		return Plan{}, "", errors.New("gatetest: focus file is not UTF-8")
 	}
@@ -118,6 +118,13 @@ func focused(found findings, text string, configured Level) (Plan, string, error
 	}
 	note := ""
 	if reason != "" {
+		if configured == Changed {
+			edited, err := editedTests(ctx, runner, found)
+			if err != nil {
+				return Plan{}, "", err
+			}
+			found.edited = edited
+		}
 		plan = build(found, configured)
 		note = fmt.Sprintf("focused check runs the configured level %s over %s, not the full level, since %s; left to CI, which runs every package: the %s level this repair requires (%s)", configured, over, reason, plan.Required, plan.Why)
 		if len(unmapped) > 0 {
@@ -127,7 +134,7 @@ func focused(found findings, text string, configured Level) (Plan, string, error
 	plan.Failures = failures
 	byPackage := map[string][]string{}
 	for _, failure := range mapped {
-		if slices.Contains(plan.Tests, "./...") || slices.Contains(plan.Tests, failure.Package) || slices.Contains(plan.Alone, failure.Package) {
+		if slices.Contains(plan.Tests, failure.Package) || slices.Contains(plan.Alone, failure.Package) {
 			continue
 		}
 		byPackage[failure.Package] = append(byPackage[failure.Package], regexp.QuoteMeta(failure.Name))
