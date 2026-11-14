@@ -802,6 +802,11 @@ test("Dismiss on a message never seen taken asks the board to take it away", asy
   await expect(bubble.getByRole("button")).toHaveCount(0);
 });
 
+// conversationRows lists the conversation's rows in the list's order, those
+// the list measures and keeps his place by, each by its message, or by the
+// board's message drawn as one.
+const conversationRows = (box: Locator) => box.evaluate((element) => [...element.querySelectorAll<HTMLElement>(".conversation-items > [data-message]")].map((row) => row.dataset.queued ?? row.dataset.message));
+
 // The Overlord, 2026-11-13, of two messages of his drawn Not confirmed under
 // the newest turn hours after he sent them: "Stale old messages that appear
 // randomly when memory gets low" (#2541). A message whose delivery ended with
@@ -819,7 +824,6 @@ test("a message that ended with no take seen is drawn where he sent it, never un
   ] });
   await expect(talk.getByText("A later answer.")).toBeVisible();
   const ended = { kind: "message", task_id: "cg-touch", message: "The terminal closed before it took it.", awaiting: "" };
-  const drawn = () => talk.evaluate((element) => [...element.querySelectorAll<HTMLElement>(".conversation-items > [data-message], .conversation-items > [data-queued]")].map((row) => row.dataset.queued ?? row.dataset.message));
 
   // Act
   await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [
@@ -830,7 +834,48 @@ test("a message that ended with no take seen is drawn where he sent it, never un
   // Assert
   await expect(talk.locator('[data-queued="a1"]')).toContainText("Not confirmed");
   await expect(talk.locator('[data-queued="a2"]')).toContainText("Not sent");
-  await expect.poll(drawn).toEqual(["m0", "m1", "a1", "m2", "a2"]);
+  await expect.poll(() => conversationRows(talk)).toEqual(["m0", "m1", "a1", "m2", "a2"]);
+});
+
+// One sent before the first row of the page loaded belongs to the older page,
+// so it is drawn once that page is read in, before the first row written after
+// it, and never above the newest page's rows meanwhile (#2541).
+test("a message that ended with no take seen before the page loaded is drawn only once its own page is read", async ({ page }) => {
+  // Arrange
+  await open(page);
+  let release = () => {};
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  await page.route(olderPage, async (route) => {
+    await held;
+    await route.fulfill({ json: { conversation: "fixture-conversation", more: false, messages: [
+      message(18, { source: "ceo", text: "Read the brief." }),
+      { ...reply(19, { kind: "text", text: "An earlier answer." }), at: "2026-10-22T09:05:00Z" },
+    ] } });
+  });
+  await openGoblin(page);
+  const talk = list(page, "Zeke - Touch Wrangler");
+  await send(page, "page", { conversation: "fixture-conversation", more: true, messages: [
+    { ...reply(20, { kind: "text", text: "An answer after it." }), at: "2026-10-22T09:30:00Z" },
+    { ...reply(21, { kind: "text", text: "A later answer." }), at: "2026-10-22T09:31:00Z" },
+  ] });
+  await expect(talk.getByText("A later answer.")).toBeVisible();
+  const ended = { kind: "message", task_id: "cg-touch", status: "uncertain", message: "The terminal closed before it took it.", awaiting: "" };
+
+  // Act
+  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [
+    { ...ended, id: "a1", text: "the older one", created_at: "2026-10-22T09:10:00Z", updated_at: "2026-10-22T09:10:00Z" },
+    { ...ended, id: "a2", text: "the newest one", created_at: "2026-10-22T09:40:00Z", updated_at: "2026-10-22T09:40:00Z" },
+  ] });
+
+  // Assert
+  await expect(talk.locator('[data-queued="a2"]')).toContainText("Not confirmed");
+  await expect(talk.locator('[data-queued="a1"]'), "it belongs to the page not read yet").toHaveCount(0);
+
+  // Act
+  release();
+
+  // Assert
+  await expect.poll(() => conversationRows(talk)).toEqual(["m18", "m19", "a1", "m20", "m21", "a2"]);
 });
 
 // What he sent after a message that ended with no take seen and saw land puts

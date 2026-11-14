@@ -452,7 +452,7 @@ func TestSendNowOnAHeldMessageWhoseTerminalStartedAgainPressesNoKey(t *testing.T
 			if lines := replacement.waitForLines(t, 2); len(lines) != 2 || lines[1] != "queued his own words" {
 				t.Fatalf("the new terminal's input = %q; want his own words queued in its turn", lines)
 			}
-			promptLineEmpties(t, replacement)
+			promptLineEmpties(t, replacement, "claude")
 
 			// Act
 			pressed := sendNow(service, task, "m1")
