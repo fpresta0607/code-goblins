@@ -69,11 +69,11 @@ type Dispatch struct {
 	// GPU reads the machine's graphics adapters and how busy each is; nil
 	// reads none.
 	GPU func() (GPU, error)
-	// HeavyLine says why no goblin starts or resumes by itself at the given
-	// reading of memory, to keep memory for the machine's heavy line, as
-	// SlotHold says it, or "" when one may; nil reads none, and nothing waits
-	// on it.
-	HeavyLine func(Memory) (string, error)
+	// HeavyLine reads the room the machine's heavy line keeps at the given
+	// reading of memory, whose Hold says why no goblin starts or resumes by
+	// itself, as SlotHold says it, or "" when one may; nil reads none, and
+	// nothing waits on it.
+	HeavyLine func(Memory) (LineRoom, error)
 	// LineStall says how the machine's heavy line stands still at the given
 	// reading of memory, a turn free, runs waiting and memory enough for the
 	// one at its head, as MachineLineStall says it, or "" when it does not;

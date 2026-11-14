@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 )
@@ -586,6 +587,31 @@ func ceoShows(t *testing.T, stateDir, shown string) {
 	}
 }
 
+// ceoShowsReady waits until the CEO's screen shows prompt and its harness's
+// own rules read that screen as ready, which is what one look at it needs to
+// press the key.
+func ceoShowsReady(t *testing.T, stateDir string, kind harness.Kind, prompt string) {
+	t.Helper()
+	record, err := host.ReadRecord(stateDir, "ceo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	screens, isReadable := harness.NativeScreens(kind)
+	if !isReadable {
+		t.Fatalf("harness %q has no native screen rules", kind)
+	}
+	var screen []string
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		screen, err = host.ReadScreen(record)
+		if err == nil && screens.IsReady(screen) && strings.Contains(strings.Join(screen, "\n"), prompt) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the CEO's screen never showed %q ready: %q, %v", prompt, screen, err)
+		}
+	}
+}
+
 // The Overlord, 2026-11-02: "nor do they work with interrupts". Claude Code,
 // Codex and pi put the lines typed into a turn back on the prompt line when
 // the turn is interrupted, so his message typed into the CEO's turn, which he
@@ -593,9 +619,14 @@ func ceoShows(t *testing.T, stateDir, shown string) {
 // sitting there unsent while its bubble says Sent. While the turn runs it is
 // left in the harness's queue.
 func TestHisMessageInATurnHeStoppedGoesAsTheCEOsNextPrompt(t *testing.T) {
-	for _, test := range []struct{ mode, prompt, ready string }{
-		{mode: "claude-busy", prompt: "❯ stop and rebase", ready: "bypass permissions on"},
-		{mode: "busy", prompt: "› stop and rebase", ready: "100% context left"},
+	for _, test := range []struct {
+		mode, prompt string
+		kind         harness.Kind
+	}{
+		{mode: "claude-busy", prompt: "❯ stop and rebase", kind: harness.Claude},
+		{mode: "busy", prompt: "› stop and rebase", kind: harness.Codex},
+		{mode: "claude-busy-draws-late", prompt: "❯ stop and rebase", kind: harness.Claude},
+		{mode: "busy-draws-late", prompt: "› stop and rebase", kind: harness.Codex},
 	} {
 		t.Run(test.mode, func(t *testing.T) {
 			// Arrange
@@ -613,9 +644,11 @@ func TestHisMessageInATurnHeStoppedGoesAsTheCEOsNextPrompt(t *testing.T) {
 			inTurn := terminal.waitForLines(t, 2)
 			inTurnErr := service.submitHandedBack(context.Background())
 			typeIntoCEO(t, home.State, "\x1b", test.prompt)
-			// The prompt line is drawn before the row that shows the harness
-			// ready, so the one look below waits for the whole screen.
-			ceoShows(t, home.State, test.ready)
+			// The line typed into the turn shows on the prompt line while the
+			// turn still runs, so a screen drawn late after the interrupt
+			// still holds it then. The one look below waits for the screen
+			// the harness reads as ready.
+			ceoShowsReady(t, home.State, test.kind, test.prompt)
 
 			// Act
 			err := service.submitHandedBack(context.Background())
