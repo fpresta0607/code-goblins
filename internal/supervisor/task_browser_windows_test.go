@@ -210,7 +210,10 @@ func clickShowsItsPointer(t *testing.T, isAutoAttach bool) {
 		}
 		call("", "Target.attachToTarget", map[string]any{"targetId": page, "flatten": true}, &attached)
 	}
-	call(attached.Session, "Page.navigate", map[string]string{"url": "data:text/html,<title>Shop</title><button>Buy</button>"}, nil)
+	// The goblin clicks on the page its browser opened with, as no navigation
+	// may be under way while the view attaches to it: a view that opens
+	// while a page's navigation swaps its renderer is told the browser did
+	// not answer.
 	view, _, err := websocket.Dial(ctx, socket+"/api/screen?task=task-1&generation=g1&token=test-instance", &websocket.DialOptions{HTTPHeader: http.Header{"Origin": {server.URL}}})
 	if err != nil {
 		t.Fatal(err)
