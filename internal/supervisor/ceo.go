@@ -684,10 +684,17 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 	// takes them back off it: left there, they would join whatever is typed
 	// next, or hold it back for good. It says they were not sent once it saw
 	// them leave, and otherwise leaves them to be taken back when they show.
+	// Words whose submit key went are watched for their take as well: a
+	// harness that reads its keys late, as one on a machine short of memory
+	// does, takes that key once the delivery gave up on it (#2541).
 	waiting := &Awaiting{Host: primary.Host, Harness: primary.Agent, Since: submitted, Digest: monitor.TextDigest(instruction), Session: ceoSession(c.State, primary), Typed: instruction, Pasted: isPasted, IsHeld: busy}
+	isSubmitted := false
 	unsent := func(why string) (Evaluation, error) {
 		if spawn.TakeBack(func() ([]string, error) { return read(record) }, delivery.Write, screens, instruction) {
 			return Evaluation{}, fmt.Errorf("%w. %s It was taken back off the CEO's prompt line, so nothing of it is left typed there.", ErrNotSent, why)
+		}
+		if isSubmitted {
+			return Evaluation{Awaiting: waiting, LeftTyped: waiting}, errors.New(why + " It is taken back off the CEO's prompt line if it shows there, and reads Sent if the CEO takes it yet.")
 		}
 		return Evaluation{LeftTyped: waiting}, errors.New(why + " Nothing was submitted, and it is taken back off the CEO's prompt line if it shows there.")
 	}
@@ -696,7 +703,7 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 	for {
 		screen, err := read(record)
 		if err != nil {
-			return Evaluation{}, fmt.Errorf("the message was typed but the CEO's input cannot be read: %w", err)
+			return Evaluation{LeftTyped: waiting}, fmt.Errorf("the message was typed but the CEO's input cannot be read: %w", err)
 		}
 		if _, shown := screens.Dialog(screen); shown {
 			return unsent("The answer was typed but a dialog opened before submission.")
@@ -720,9 +727,12 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 	}
 	screen, err := read(record)
 	if err != nil {
-		return Evaluation{}, fmt.Errorf("the message was typed but the CEO's input cannot be read: %w", err)
+		return Evaluation{LeftTyped: waiting}, fmt.Errorf("the message was typed but the CEO's input cannot be read: %w", err)
 	}
-	if _, shown := screens.Dialog(screen); shown || !screens.Shows(screen, instruction) {
+	// The submit key sends all the prompt line holds, so it goes only over
+	// the board's words alone: on 2026-11-13 it sent a message of his with
+	// words after it that the board never typed (#2541).
+	if _, shown := screens.Dialog(screen); shown || !screens.Shows(screen, instruction) || !screens.ComposerHoldsPartOf(screen, instruction) {
 		return Evaluation{LeftTyped: waiting}, errors.New("The CEO's input changed before submission. Inspect its terminal; nothing was submitted.")
 	}
 	submit := "\r"
@@ -734,7 +744,26 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 		submit = "\x1b[F\r"
 	}
 	if err := delivery.Write([]byte(submit)); err != nil {
-		return Evaluation{}, fmt.Errorf("the message was typed into the CEO's native terminal, and whether its submit key reached it is unknown: %w", err)
+		return Evaluation{Awaiting: waiting}, fmt.Errorf("the message was typed into the CEO's native terminal, and whether its submit key reached it is unknown: %w", err)
+	}
+	isSubmitted = true
+	// A Claude Code slow to read, as on a loaded machine, takes the submit key
+	// as a new line and leaves the words on its prompt line unsent, in a turn
+	// or not (the Overlord, 2026-11-13: "just queues the message and puts it
+	// into the chat input, but doesn't actually fire the message and then
+	// start the turn", #2541). The key is pressed again as often as its
+	// harness's screens allow while the words show alone over the row it
+	// added, as for a goblin.
+	atPress, presses := screen, 0
+	pressAgain := func(screen []string) (bool, error) {
+		if presses >= screens.Resubmits || !screens.ComposerHoldsPartOf(screen, instruction) || !screens.TookEnterAsNewLine(atPress, screen) {
+			return false, nil
+		}
+		if err := delivery.Write([]byte(submit)); err != nil {
+			return false, err
+		}
+		atPress, presses = screen, presses+1
+		return true, nil
 	}
 	// A CEO in a turn takes the answer at its next tool call, and its prompt
 	// hook runs as its harness queues the answer, before the CEO has it, so
@@ -753,7 +782,7 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 			ran, isPressed, err := spawn.RanNow(ctx, readScreen, press, screens, instruction)
 			switch {
 			case err != nil:
-				return Evaluation{}, fmt.Errorf("the CEO's send-now key could not be pressed: %w", err)
+				return Evaluation{Awaiting: waiting}, fmt.Errorf("the CEO's send-now key could not be pressed: %w", err)
 			case ran:
 				return Evaluation{Reason: "Taken by the CEO in its native terminal, which ran your command at once."}, nil
 			case isPressed:
@@ -766,6 +795,32 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 				return Evaluation{Reason: "Taken by the CEO in its native terminal, which ran your command beside its turn."}, nil
 			}
 			return Evaluation{Reason: heldByCEO, Awaiting: waiting}, nil
+		}
+		// His words are in the turn's queue only once they leave its prompt
+		// line, so words still alone on it once the wait for them to show would
+		// have ended are taken back off it.
+		left, cancelLeft := awake.WithTimeout(context.Background(), nativeShown)
+		defer cancelLeft()
+		for {
+			screen, err := read(record)
+			if err != nil {
+				return Evaluation{Awaiting: waiting}, fmt.Errorf("the message was submitted into the CEO's turn, and its input cannot be read: %w", err)
+			}
+			if !screens.ComposerHoldsPartOf(screen, instruction) {
+				break
+			}
+			isPressed, err := pressAgain(screen)
+			if err != nil {
+				return Evaluation{Awaiting: waiting}, fmt.Errorf("the message was typed into the CEO's turn, and whether its submit key pressed again reached it is unknown: %w", err)
+			}
+			if !isPressed && left.Err() != nil {
+				return unsent("The message stayed on the CEO's prompt line after its submit key, so the CEO's turn never queued it.")
+			}
+			select {
+			case <-time.After(nativeConfirmPoll):
+			case <-ctx.Done():
+				return unsent("The message was typed into the CEO's turn, and the wait to see it leave the prompt line ended before it did.")
+			}
 		}
 		// A Send now he asked for interrupts the turn through the key the
 		// CEO's own harness binds to that, as a goblin's does, once its
@@ -782,7 +837,7 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 				screen, readErr := read(record)
 				if readErr == nil && !screens.IsOpen(screen) && screens.ComposerEmpty(screen) {
 					if err := spawn.PressKeys(delivery.Write, screens.SendNow); err != nil {
-						return Evaluation{}, fmt.Errorf("the CEO's send-now key could not be pressed: %w", err)
+						return Evaluation{Awaiting: waiting}, fmt.Errorf("the CEO's send-now key could not be pressed: %w", err)
 					}
 					return Evaluation{Reason: sentNowInTurn, Awaiting: waiting}, nil
 				}
@@ -792,7 +847,7 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 				select {
 				case <-time.After(nativeConfirmPoll):
 				case <-ctx.Done():
-					return Evaluation{}, fmt.Errorf("the CEO's send-now key was not pressed: %w", ctx.Err())
+					return Evaluation{Awaiting: waiting}, fmt.Errorf("the CEO's send-now key was not pressed: %w", ctx.Err())
 				}
 			}
 		}
@@ -806,7 +861,7 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 		}
 		screen, err := read(record)
 		if err != nil {
-			return Evaluation{}, fmt.Errorf("the answer was submitted but the CEO's screen cannot be read: %w", err)
+			return Evaluation{Awaiting: waiting}, fmt.Errorf("the answer was submitted but the CEO's screen cannot be read: %w", err)
 		}
 		_, dialog := screens.Dialog(screen)
 		if !dialog && screens.IsWorking(screen) && screens.ComposerEmpty(screen) {
@@ -815,7 +870,11 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 		if isHarnessCommand(instruction) && screens.TookCommand(screen, instruction) {
 			return Evaluation{Reason: "Taken by the CEO in its native terminal, which ran your command."}, nil
 		}
-		if taken.Err() != nil {
+		isPressed, err := pressAgain(screen)
+		if err != nil {
+			return Evaluation{Awaiting: waiting}, fmt.Errorf("the message was typed into the CEO's native terminal, and whether its submit key pressed again reached it is unknown: %w", err)
+		}
+		if !isPressed && taken.Err() != nil {
 			if dialog {
 				return Evaluation{LeftTyped: waiting}, errors.New("The answer remains in the CEO's input without confirmation that it was submitted. Inspect its terminal before sending again.")
 			}
@@ -837,7 +896,7 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 		select {
 		case <-time.After(nativeConfirmPoll):
 		case <-ctx.Done():
-			return Evaluation{}, fmt.Errorf("the message was typed into the CEO's native terminal and submitted, and the wait to see it taken ended: %w", ctx.Err())
+			return Evaluation{Awaiting: waiting}, fmt.Errorf("the message was typed into the CEO's native terminal and submitted, and the wait to see it taken ended: %w", ctx.Err())
 		}
 	}
 }

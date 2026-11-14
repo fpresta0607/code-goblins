@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -101,6 +102,9 @@ type terminalLook struct {
 // a name no record of the text has, and is found by its words as typed
 // instead. Lines a stopped turn handed back went as one prompt and carry that
 // prompt's name (markHandedBack). A delivery stored with no name has none.
+// Claude Code 2.1.323 put a mark in place of the path of a picture it took
+// into a prompt that started a turn (#2541), so words that name a kept picture
+// also carry the name they have without its path, unless no word is left.
 func (a Awaiting) digests() []string {
 	if a.Digest == "" {
 		return nil
@@ -108,7 +112,11 @@ func (a Awaiting) digests() []string {
 	if a.Typed == "" {
 		return []string{a.Digest}
 	}
-	return slices.Compact([]string{monitor.TextDigest(a.Typed), a.Digest})
+	digests := []string{monitor.TextDigest(a.Typed), a.Digest}
+	if words := keptPicture.ReplaceAllString(a.Typed, ""); words != a.Typed && strings.TrimSpace(words) != "" {
+		digests = append(digests, monitor.TextDigest(words))
+	}
+	return slices.Compact(digests)
 }
 
 // tookIn reports whether the record conversation names shows the text of a
@@ -163,7 +171,8 @@ func (s *Store) settleDeliveries(now time.Time, look func(Awaiting) terminalLook
 		case !looked:
 			continue
 		case seen.Took:
-			a.Status, a.Awaiting, a.Advice = "succeeded", nil, ""
+			// Words taken leave nothing on a prompt line to take back.
+			a.Status, a.Awaiting, a.LeftTyped, a.Advice = "succeeded", nil, nil, ""
 			a.Message = "Taken by " + who + ", as its own record of the conversation shows."
 			s.deliveredReview(a.ID, waiting.Task)
 		case a.Status != "running":

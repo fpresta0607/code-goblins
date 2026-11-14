@@ -16,8 +16,8 @@ const steer = "CEO: stop the steps now and run no more of them. Reply with exact
 
 // The entries below are the shapes each harness wrote live on 2026-10-06,
 // when a steer typed during a tool call reached a goblin at its next one.
-func claudeQueued(at, text string) map[string]any {
-	return map[string]any{"type": "attachment", "timestamp": at, "attachment": map[string]any{"type": "queued_command", "prompt": text, "commandMode": "prompt", "origin": map[string]any{"kind": "human"}}}
+func claudeQueued(at string, prompt any) map[string]any {
+	return map[string]any{"type": "attachment", "timestamp": at, "attachment": map[string]any{"type": "queued_command", "prompt": prompt, "commandMode": "prompt", "origin": map[string]any{"kind": "human"}}}
 }
 
 func claudeEnqueued(at, text string) map[string]any {
@@ -112,6 +112,54 @@ func TestTextItsHarnessClearedOfWhatDrawsNothingIsStillTaken(t *testing.T) {
 		{name: "a character that draws nothing between two spaces", typed: "Level\terror: the search for \u2060 project=fa1 failed", entry: claudeQueued(after, recorded), want: true},
 		{name: "another letter", typed: "Level\terror: the search for project=f\u2060a1 failed", entry: claudeQueued(after, strings.Replace(recorded, "=fa1", "=fb1", 1)), want: false},
 		{name: "words run together", typed: "Level\terror: the search for project=f\u2060a1 failed", entry: claudeQueued(after, strings.Replace(recorded, "search for", "searchfor", 1)), want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			home, worktree := t.TempDir(), t.TempDir()
+			transcriptLines(t, filepath.Join(claudeProjectFolder(home, worktree), "conversation.jsonl"), time.Now(), tc.entry)
+
+			// Act
+			took := (&HostProgress{Home: home}).Took(context.Background(), Conversation{Harness: "claude", Dir: worktree}, TextDigest(tc.typed), sent)
+
+			// Assert
+			if took != tc.want {
+				t.Errorf("Took = %t, want %t", took, tc.want)
+			}
+		})
+	}
+}
+
+// The Overlord, 2026-11-13: "img egettign latency delay and synch isseus in
+// modern terminal" (#2541). A message of his with a picture, typed for the CEO
+// during a turn, read Queued for hours after the CEO's session took it.
+// Claude Code 2.1.323 hands its model the picture a path in typed text names:
+// a line it took into a running turn had a list of a text block and the
+// picture for its prompt, with [Image #50] right after the path, and a prompt
+// that started a turn held [Image #3] where the path was, live on 2026-11-13
+// and 2026-11-12. The board read a queued line's prompt only as one text, so
+// it skipped that line. Text taken is his words with each mark left out, the
+// mark a word of his own he typed is still his, and other words are not. The
+// board names a message by its words without the picture's path too
+// (internal/supervisor/awaiting.go), which the next turn's case types.
+func TestAMessageWithAPictureItsHarnessTookIsTaken(t *testing.T) {
+	sent := time.Date(2026, 11, 13, 18, 11, 55, 0, time.UTC)
+	after := "2026-11-13T18:12:13.645Z"
+	words := "The list draws this row twice, see the picture"
+	first, second := `C:\goblins\state\composer-files\pasted-4f2a91c7.png`, `C:\goblins\state\composer-files\pasted-0b8e3d52.jpg`
+	picture := map[string]any{"type": "image", "source": map[string]any{"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo="}}
+	text := func(text string) map[string]any { return map[string]any{"type": "text", "text": text} }
+	for _, tc := range []struct {
+		name  string
+		typed string
+		entry map[string]any
+		want  bool
+	}{
+		{name: "taken into the running turn", typed: words + " " + first, entry: claudeQueued(after, []map[string]any{text(words + " " + first + "[Image #50]"), picture}), want: true},
+		{name: "two taken into the running turn", typed: words + " " + first + " " + second, entry: claudeQueued(after, []map[string]any{text(words + " " + first + "[Image #50] " + second + "[Image #51]"), picture, picture}), want: true},
+		{name: "taken as the next turn", typed: words, entry: claudePrompt(after, []map[string]any{text(words + " [Image #3]"), picture}), want: true},
+		{name: "a mark he typed himself", typed: words + " [Image #3]", entry: claudeQueued(after, words+" [Image #3]"), want: true},
+		{name: "other words with a picture", typed: words + " " + first, entry: claudeQueued(after, []map[string]any{text("Another row " + first + "[Image #50]"), picture}), want: false},
+		{name: "a picture alone", typed: words + " " + first, entry: claudeQueued(after, []map[string]any{picture}), want: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange

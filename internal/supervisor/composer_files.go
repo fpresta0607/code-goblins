@@ -19,6 +19,10 @@ import (
 // names.
 const composerFilesDir = "composer-files"
 
+// keptPicture is the path a message names for a picture keepComposerFile kept
+// for it, as the board's message box reads one (frontend/src/kept-files.ts).
+var keptPicture = regexp.MustCompile(`(?i)(?:[A-Za-z]:[\\/]|[\\/])\S*[\\/]` + composerFilesDir + `[\\/]pasted-[^\\/\s]+\.(?:png|jpe?g|gif|webp)`)
+
 // composerExtension accepts only an extension a file name may carry, so a
 // name he chose never adds a path segment.
 var composerExtension = regexp.MustCompile(`^\.[A-Za-z0-9]{1,10}$`)

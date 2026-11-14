@@ -57,6 +57,12 @@ func takenInRecordAt(t *testing.T, home, harness, session, dir, text string, at 
 	default:
 		t.Fatalf("no record for harness %q", harness)
 	}
+	writeRecord(t, path, entries...)
+}
+
+// writeRecord writes entries as the record of a conversation at path.
+func writeRecord(t *testing.T, path string, entries ...map[string]any) {
+	t.Helper()
 	var data []byte
 	for _, entry := range entries {
 		line, err := json.Marshal(entry)

@@ -1217,6 +1217,17 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 			}
 			completed.Message = bounded(runErr.Error(), 1200)
 			completed.LeftTyped = result.LeftTyped
+			// A message whose submit key went before its delivery failed may
+			// have been taken after all, as one whose screen could no longer be
+			// read on a loaded machine was, so it is watched for that as one
+			// typed and submitted is (#2541).
+			if result.Awaiting != nil && a.Kind == "message" && completed.Status == "uncertain" {
+				awaiting := *result.Awaiting
+				if awaiting.QuietSince.IsZero() {
+					awaiting.QuietSince = awaiting.Since
+				}
+				completed.Awaiting = &awaiting
+			}
 			if a.Kind == "evaluate" && (a.EventID == "" || s.db.Sessions[a.Session].LastEventID == a.EventID) {
 				prior := s.db.Tasks[a.TaskID]
 				base := ""

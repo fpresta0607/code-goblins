@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 )
@@ -814,6 +815,344 @@ func TestADeliveryToACEOInATurnReturnsOnceItsSubmitKeyWent(t *testing.T) {
 			}
 			if lines := terminal.waitForLines(t, 2); len(lines) != 2 || lines[1] != "queued stop and rebase" {
 				t.Errorf("terminal input = %q; want the message queued in the turn once", lines)
+			}
+		})
+	}
+}
+
+// The Overlord, 2026-11-13: "the CEO just queues the message and puts it into
+// the chat input, but doesn't actually fire the message" (#2541). A message
+// typed into the CEO's turn read Queued in the CEO's session once its submit
+// key went, though a Claude Code slow to read, as on a loaded machine, takes
+// that key as a new line and leaves the words on its prompt line unsent. The
+// key is pressed again while the words show over the row it added, and words
+// that never leave the prompt line are taken back off it and read Not sent.
+func TestHisMessageInTheCEOsTurnIsQueuedOnlyOnceItLeavesThePromptLine(t *testing.T) {
+	previous := nativeShown
+	nativeShown = 2 * time.Second
+	t.Cleanup(func() { nativeShown = previous })
+	for _, tc := range []struct {
+		mode     string
+		isQueued bool
+	}{
+		{mode: "claude-busy-lost-enter", isQueued: true},
+		{mode: "claude-busy-enters-lost", isQueued: false},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			// Arrange
+			useConversations(t)
+			store, home := testStore(t)
+			terminal := nativeCEOComposer(t, home.State, tc.mode)
+			service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: home.State}}}
+
+			// Act
+			result, err := service.deliverMessage(context.Background(), Action{Kind: "message", Text: "stop and rebase"})
+
+			// Assert
+			input := strings.Join(terminal.lines(t), "\n")
+			if tc.isQueued {
+				if err != nil || result.Reason != heldByCEO || result.Awaiting == nil || strings.Count(input, "queued stop and rebase") != 1 {
+					t.Errorf("deliverMessage = %+v, %v with terminal input %q; want it queued in the turn once, after its submit key was pressed again", result, err, input)
+				}
+				return
+			}
+			if !errors.Is(err, ErrNotSent) || result.Awaiting != nil || strings.Contains(input, "queued ") || !strings.Contains(input, "cleared") {
+				t.Errorf("deliverMessage = %+v, %v with terminal input %q; want it taken back off the prompt line and Not sent", result, err, input)
+			}
+		})
+	}
+}
+
+// The Overlord's message of 2026-11-13 19:02Z reached the CEO's turn with
+// words after it that the board never typed, and the board's Enter sent them
+// with his: it checked only that his words ended on the prompt line. Its take
+// search looks for the words it typed, so the message read Queued for hours
+// (#2541). Words beside his on the prompt line are never submitted with them:
+// the line is left as it is, and his words are watched where they were typed.
+func TestWordsBesideHisMessageOnTheCEOsPromptLineAreNeverSubmittedWithIt(t *testing.T) {
+	for _, mode := range []string{"claude-busy-joined", "claude-ready-joined"} {
+		t.Run(mode, func(t *testing.T) {
+			// Arrange
+			useConversations(t)
+			store, home := testStore(t)
+			terminal := nativeCEOComposer(t, home.State, mode)
+			service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: home.State}}}
+
+			// Act
+			result, err := service.deliverMessage(context.Background(), Action{Kind: "message", Text: "stop and rebase"})
+
+			// Assert
+			if err == nil || result.Awaiting != nil || result.LeftTyped == nil || result.LeftTyped.Typed != "stop and rebase" {
+				t.Errorf("deliverMessage = %+v, %v; want nothing submitted and his words watched where they were typed", result, err)
+			}
+			if input := strings.Join(terminal.lines(t), "\n"); strings.Contains(input, "queued ") || strings.Contains(input, "accepted ") {
+				t.Errorf("terminal input = %q; want nothing submitted", input)
+			}
+		})
+	}
+}
+
+// The Overlord, 2026-11-13: "Stale old messages that appear randomly when
+// memory gets low" (#2541). A machine short of memory reads a terminal slowly,
+// and a read that failed once a message's submit key went ended its delivery
+// in doubt with nothing left watching for its take, so a message the CEO took
+// read Not confirmed for good. One whose submit key went is still watched, and
+// its take settles it as Sent.
+func TestAMessageWhoseScreenCouldNotBeReadAfterItsSubmitKeyIsSettledByItsTake(t *testing.T) {
+	for _, mode := range []string{"claude-ready", "claude-busy"} {
+		t.Run(mode, func(t *testing.T) {
+			// Arrange
+			records := useConversations(t)
+			store, home := testStore(t)
+			nativeCEOComposer(t, home.State, mode)
+			screens, _ := harness.NativeScreens(harness.Claude)
+			hasShown := false
+			connection := &CEOConnection{State: home.State, ReadScreen: func(record host.Record) ([]string, error) {
+				screen, err := host.ReadScreen(record)
+				if err != nil {
+					return nil, err
+				}
+				hasShown = hasShown || screens.Shows(screen, "stop and rebase")
+				if hasShown && !screens.Shows(screen, "stop and rebase") {
+					return nil, errors.New("the read of the screen timed out")
+				}
+				return screen, nil
+			}}
+			service := &Service{Store: store, Options: Options{CEO: connection}}
+			if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: "stop and rebase"}); err != nil {
+				t.Fatal(err)
+			}
+			pastUndoWindow(t, store)
+
+			// Act
+			processed := store.ProcessOne(context.Background(), service.execute)
+			doubted := actionOf(store, "m1")
+			takenInRecord(t, records, "claude", "session-1", "", "stop and rebase")
+			settled := store.settleDeliveries(time.Now(), service.lookAtTerminal)
+			sent := actionOf(store, "m1")
+
+			// Assert
+			if processed != nil || settled != nil {
+				t.Fatal(processed, settled)
+			}
+			if doubted.Status != "uncertain" || doubted.Awaiting == nil {
+				t.Errorf("after the failed read = %s %q, awaiting %v; want it in doubt and still watched for its take", doubted.Status, doubted.Message, doubted.Awaiting)
+			}
+			if sent.Status != "succeeded" {
+				t.Errorf("after its take = %s %q; want it Sent", sent.Status, sent.Message)
+			}
+		})
+	}
+}
+
+// A read that failed once his words were typed, before their submit key, left
+// them on the CEO's prompt line with nothing watching them, where they held
+// back every message after them. They are watched where they were typed, to be
+// taken back off the prompt line once they show there alone, as words left
+// typed for any other reason are (#2306, #2541).
+func TestHisWordsTypedBeforeAFailedReadAreWatchedWhereTheyWereTyped(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		failing int
+	}{
+		{name: "the read that looked for them", failing: 1},
+		{name: "the read before their submit key", failing: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			useConversations(t)
+			store, home := testStore(t)
+			terminal := nativeCEOComposer(t, home.State, "claude-ready")
+			screens, _ := harness.NativeScreens(harness.Claude)
+			shown := 0
+			connection := &CEOConnection{State: home.State, ReadScreen: func(record host.Record) ([]string, error) {
+				screen, err := host.ReadScreen(record)
+				if err == nil && screens.Shows(screen, "stop and rebase") {
+					if shown++; shown == tc.failing {
+						return nil, errors.New("the read of the screen timed out")
+					}
+				}
+				return screen, err
+			}}
+			service := &Service{Store: store, Options: Options{CEO: connection}}
+
+			// Act
+			result, err := service.deliverMessage(context.Background(), Action{Kind: "message", Text: "stop and rebase"})
+
+			// Assert
+			if err == nil || result.Awaiting != nil || result.LeftTyped == nil || result.LeftTyped.Typed != "stop and rebase" {
+				t.Errorf("deliverMessage = %+v, %v; want nothing submitted and his words watched where they were typed", result, err)
+			}
+			if input := strings.Join(terminal.lines(t), "\n"); strings.Contains(input, "accepted ") {
+				t.Errorf("terminal input = %q; want nothing submitted", input)
+			}
+		})
+	}
+}
+
+// The Overlord, 2026-11-13: "when a chat is not turning or it's not running.
+// The CEO, it just queues the message and puts it into the chat input, but
+// doesn't actually fire the message and then start the turn. From scrap, um,
+// from a startup, fix that." (#2541). His message reaches a CEO that is not in
+// a turn, whatever its screen said as the board typed: one that just started
+// and, slow to read on a loaded machine, took the submit key as a new line, as
+// a resumed goblin's Claude Code did on 2026-10-20; one whose turn ended as his
+// words reached it; and one whose stop hook opened its next turn as they did,
+// as the CEO's did for a wake through that evening. It reads Sent once the
+// CEO's record shows it taken.
+func TestHisMessageIsTakenByACEOThatIsNotInATurn(t *testing.T) {
+	for _, tc := range []struct {
+		name, mode string
+		input      []string
+	}{
+		{name: "one that just started and took its submit key as a new line", mode: "claude-ready-lost-enter", input: []string{"enter taken as a new line", "accepted stop and rebase"}},
+		{name: "one whose turn ended as his words reached it", mode: "claude-busy-ends", input: []string{"turn ended", "accepted stop and rebase"}},
+		{name: "one whose stop hook opened its next turn as his words reached it", mode: "claude-ready-reopens", input: []string{"turn opened by its stop hook", "queued stop and rebase", "accepted stop and rebase"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			records := useConversations(t)
+			store, home := testStore(t)
+			terminal := nativeCEOComposer(t, home.State, tc.mode)
+			service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: home.State}}}
+			if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: "stop and rebase"}); err != nil {
+				t.Fatal(err)
+			}
+			pastUndoWindow(t, store)
+
+			// Act
+			processed := store.ProcessOne(context.Background(), service.execute)
+			if err := os.WriteFile(terminal.typed+".accept", nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			input := terminal.waitForLines(t, len(tc.input)+1)[1:]
+			takenInRecord(t, records, "claude", "session-1", "", "stop and rebase")
+			settled := store.settleDeliveries(time.Now(), service.lookAtTerminal)
+			sent := actionOf(store, "m1")
+
+			// Assert
+			if processed != nil || settled != nil {
+				t.Fatal(processed, settled)
+			}
+			if !slices.Equal(input, tc.input) {
+				t.Errorf("terminal input = %q; want %q", input, tc.input)
+			}
+			if sent.Status != "succeeded" || sent.Awaiting != nil {
+				t.Errorf("once the CEO's record shows it taken = %s %q, awaiting %v; want it Sent", sent.Status, sent.Message, sent.Awaiting)
+			}
+		})
+	}
+}
+
+// The Overlord, 2026-11-14 01:09Z: "again fix modernt erminal durign
+// compaction it renders not confirmed old stale messages as if its queued or
+// being sent" (#2541). The CEO's Claude Code queued his two messages while it
+// compacted and took them once it was back. One sent while the CEO compacts
+// reads Queued in its turn and Sent once taken, never dropped.
+func TestHisMessageToACEOThatIsCompactingIsTakenOnceItIsBack(t *testing.T) {
+	// Arrange
+	records := useConversations(t)
+	store, home := testStore(t)
+	terminal := nativeCEOComposer(t, home.State, "claude-busy-compacting")
+	service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: home.State}}}
+	if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: "stop and rebase"}); err != nil {
+		t.Fatal(err)
+	}
+	pastUndoWindow(t, store)
+
+	// Act
+	processed := store.ProcessOne(context.Background(), service.execute)
+	queued := actionOf(store, "m1")
+	if err := os.WriteFile(terminal.typed+".accept", nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	input := terminal.waitForLines(t, 3)[1:]
+	takenInRecord(t, records, "claude", "session-1", "", "stop and rebase")
+	settled := store.settleDeliveries(time.Now(), service.lookAtTerminal)
+	sent := actionOf(store, "m1")
+
+	// Assert
+	if processed != nil || settled != nil {
+		t.Fatal(processed, settled)
+	}
+	if queued.Status != "running" || queued.Awaiting == nil || !queued.Awaiting.IsHeld || queued.Message != heldByCEO {
+		t.Errorf("while the CEO compacts = %s %q, awaiting %+v; want it queued in the CEO's turn", queued.Status, queued.Message, queued.Awaiting)
+	}
+	if want := []string{"queued stop and rebase", "accepted stop and rebase"}; !slices.Equal(input, want) {
+		t.Errorf("terminal input = %q; want %q", input, want)
+	}
+	if sent.Status != "succeeded" || sent.Awaiting != nil {
+		t.Errorf("once the CEO's record shows it taken = %s %q, awaiting %v; want it Sent", sent.Status, sent.Message, sent.Awaiting)
+	}
+}
+
+// A harness that reads its keys late, as a Claude Code on a machine short of
+// memory does, can take his message's submit key only after its delivery gave
+// up on it with his words still on the prompt line, where they could not be
+// taken back either. The message read Not confirmed for good, though the CEO
+// had it. Its take settles it as Sent, and nothing of it is left to take back
+// (#2541).
+func TestHisMessageTheCEOTakesAfterItsDeliveryGaveUpReadsSentOnceTaken(t *testing.T) {
+	previous := nativeShown
+	nativeShown = 2 * time.Second
+	t.Cleanup(func() { nativeShown = previous })
+	for _, tc := range []struct {
+		mode  string
+		input []string
+	}{
+		{mode: "claude-ready-stalls", input: []string{"accepted stop and rebase"}},
+		{mode: "claude-busy-stalls", input: []string{"queued stop and rebase", "accepted stop and rebase"}},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			// Arrange
+			records := useConversations(t)
+			store, home := testStore(t)
+			terminal := nativeCEOComposer(t, home.State, tc.mode)
+			screens, _ := harness.NativeScreens(harness.Claude)
+			stall, hasStalled := terminal.typed+".stall", false
+			connection := &CEOConnection{State: home.State, ReadScreen: func(record host.Record) ([]string, error) {
+				screen, err := host.ReadScreen(record)
+				// The harness reads no key after the words it drew.
+				if err == nil && !hasStalled && screens.Shows(screen, "stop and rebase") {
+					hasStalled = true
+					if err := os.WriteFile(stall, nil, 0o600); err != nil {
+						return nil, err
+					}
+				}
+				return screen, err
+			}}
+			service := &Service{Store: store, Options: Options{CEO: connection}}
+			if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: "stop and rebase"}); err != nil {
+				t.Fatal(err)
+			}
+			pastUndoWindow(t, store)
+
+			// Act
+			processed := store.ProcessOne(context.Background(), service.execute)
+			doubted := actionOf(store, "m1")
+			if err := os.Remove(stall); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(terminal.typed+".accept", nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			input := terminal.waitForLines(t, len(tc.input)+1)[1:]
+			takenInRecord(t, records, "claude", "session-1", "", "stop and rebase")
+			settled := store.settleDeliveries(time.Now(), service.lookAtTerminal)
+			sent := actionOf(store, "m1")
+
+			// Assert
+			if processed != nil || settled != nil {
+				t.Fatal(processed, settled)
+			}
+			if doubted.Status != "uncertain" || doubted.Awaiting == nil || doubted.LeftTyped == nil {
+				t.Errorf("once its delivery gave up = %s %q, awaiting %v, left typed %v; want it in doubt, watched for its take and where it was typed", doubted.Status, doubted.Message, doubted.Awaiting, doubted.LeftTyped)
+			}
+			if !slices.Equal(input, tc.input) {
+				t.Errorf("terminal input = %q; want %q", input, tc.input)
+			}
+			if sent.Status != "succeeded" || sent.Awaiting != nil || sent.LeftTyped != nil {
+				t.Errorf("once the CEO's record shows it taken = %s %q, awaiting %v, left typed %v; want it Sent with nothing left to take back", sent.Status, sent.Message, sent.Awaiting, sent.LeftTyped)
 			}
 		})
 	}
