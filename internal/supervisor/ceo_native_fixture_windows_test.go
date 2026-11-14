@@ -64,6 +64,12 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 	// draws one, so the line still reads queued under a screen of its own.
 	isAsking := strings.HasSuffix(mode, "-asks")
 	mode = strings.TrimSuffix(mode, "-asks")
+	// A harness joined at its Enter has words land on its prompt line after
+	// all the board typed, just ahead of an Enter it takes as a new line
+	// (-lost-enter), as words somebody else typed then would reach a harness
+	// slow to read its keys (#2541).
+	isJoinedAtEnter := strings.HasSuffix(mode, "-joined-at-enter")
+	mode = strings.TrimSuffix(mode, "-joined-at-enter")
 	// A joined harness has words land on its prompt line right after the
 	// first keys typed into it, as words somebody else typed then would: on
 	// 2026-11-13 the CEO's Claude Code took a line of the board's with words
@@ -316,6 +322,9 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 			if composer() != "" && (areEntersLost || isEnterLost && lost == 0) {
 				lost++
 				record("enter taken as a new line")
+				if isJoinedAtEnter {
+					line += " and the line beside it"
+				}
 				line += "\n"
 				draw(false)
 				continue

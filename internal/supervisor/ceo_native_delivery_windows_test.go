@@ -1423,6 +1423,134 @@ func TestHisMessageTheCEOTakesAfterItsDeliveryGaveUpReadsSentOnceTaken(t *testin
 	}
 }
 
+// Only a message to the CEO is watched for its take once its delivery gave up
+// after its submit key, so only a message can still turn Sent then. An answer
+// left so on the CEO's prompt line, which nothing watches for its take, was
+// told on its question card that it "reads Sent if the CEO takes it yet", a
+// Sent that never came (#2541).
+func TestAnAnswerItsDeliveryGaveUpOnAfterItsSubmitKeyIsPromisedNoSent(t *testing.T) {
+	// Arrange
+	useConversations(t)
+	store, home := testStore(t)
+	terminal := nativeCEOComposer(t, home.State, "claude-ready-stalls")
+	identity := registrationIdentity(t, home.State)
+	question := Question{ID: "stalled-question", Identity: identity, Text: "Choose", CreatedAt: time.Now().UTC()}
+	answer := Action{ID: "stalled-answer", Kind: "ceo_answer", Generation: identity, QuestionID: question.ID, Text: "Reply received"}
+	typed := stampedForCEO(answerToCEO(question, answer))
+	screens, _ := harness.NativeScreens(harness.Claude)
+	stall, hasStalled := terminal.typed+".stall", false
+	connection := &CEOConnection{State: home.State, ReadScreen: func(record host.Record) ([]string, error) {
+		screen, err := host.ReadScreen(record)
+		// The harness reads no key after the words it drew.
+		if err == nil && !hasStalled && screens.Shows(screen, typed) {
+			hasStalled = true
+			if err := os.WriteFile(stall, nil, 0o600); err != nil {
+				return nil, err
+			}
+		}
+		return screen, err
+	}}
+	service := &Service{Store: store, Options: Options{CEO: connection}}
+	if err := store.acceptQuestion(question); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Queue(answer); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	processed := store.ProcessOne(context.Background(), service.execute)
+	if err := os.Remove(stall); err != nil {
+		t.Fatal(err)
+	}
+	given, card := actionOf(store, answer.ID), store.Snapshot().Questions[0]
+
+	// Assert
+	if processed != nil {
+		t.Fatal(processed)
+	}
+	if given.Status != "uncertain" || given.Awaiting != nil || given.LeftTyped == nil || card.Message != given.Message {
+		t.Fatalf("once its delivery gave up = %s %q, awaiting %v, left typed %v, its card %q; want it in doubt, watched only where it was typed, its card saying so", given.Status, given.Message, given.Awaiting, given.LeftTyped, card.Message)
+	}
+	if strings.Contains(card.Message, "reads Sent") {
+		t.Errorf("its card = %q; want no Sent promised to an answer nothing watches for its take", card.Message)
+	}
+}
+
+// An idle Claude Code slow to read its keys can find words somebody else typed
+// on its prompt line after his message, ahead of its submit key, which it then
+// takes as a new line. The submit key pressed once more goes only over the
+// board's words alone, so it never sends those words with his, as on
+// 2026-11-13 his message went out with words after it (#2541): his message
+// stays beside them, in doubt and watched both for its take and where it was
+// typed. A screen is read a row at a time, so one read can join the prompt
+// row drawn before those words came to the rows under it drawn after, and
+// show his words alone over the row the Enter added: one read like that never
+// presses the key again either.
+func TestASecondSubmitKeyNeverSendsWordsThatLandedBesideHisMessage(t *testing.T) {
+	const beside = " and the line beside it"
+	for _, tc := range []struct {
+		name   string
+		isTorn bool
+	}{
+		{name: "each read as the host gives it"},
+		{name: "one read torn across the redraw", isTorn: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			useConversations(t)
+			store, home := testStore(t)
+			terminal := nativeCEOComposer(t, home.State, "claude-ready-lost-enter-joined-at-enter")
+			connection := &CEOConnection{State: home.State}
+			sightings, hasTorn := 0, false
+			if tc.isTorn {
+				connection.ReadScreen = func(record host.Record) ([]string, error) {
+					screen, err := host.ReadScreen(record)
+					if err != nil || !slices.ContainsFunc(screen, func(row string) bool { return strings.Contains(row, beside) }) {
+						return screen, err
+					}
+					// The second read to show those words is torn, so the
+					// read before it showed them and only this one shows his
+					// words alone over the new row, whatever the reads before
+					// caught of the redraw.
+					if sightings++; sightings != 2 {
+						return screen, nil
+					}
+					hasTorn = true
+					torn := slices.Clone(screen)
+					for at, row := range torn {
+						torn[at] = strings.Replace(row, beside, strings.Repeat(" ", len(beside)), 1)
+					}
+					return torn, nil
+				}
+			}
+			service := &Service{Store: store, Options: Options{CEO: connection}}
+			if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: "stop and rebase"}); err != nil {
+				t.Fatal(err)
+			}
+			pastUndoWindow(t, store)
+
+			// Act
+			processed := store.ProcessOne(context.Background(), service.execute)
+			doubted := actionOf(store, "m1")
+
+			// Assert
+			if processed != nil {
+				t.Fatal(processed)
+			}
+			if tc.isTorn && !hasTorn {
+				t.Fatal("no read showed the words beside his a second time, so none was torn")
+			}
+			if input := terminal.lines(t)[1:]; !slices.Equal(input, []string{"enter taken as a new line"}) {
+				t.Errorf("terminal input = %q; want only its submit key taken as a new line, nothing sent", input)
+			}
+			if doubted.Status != "uncertain" || doubted.Awaiting == nil || doubted.LeftTyped == nil {
+				t.Errorf("once other words landed beside his = %s %q, awaiting %v, left typed %v; want it in doubt, watched for its take and where it was typed", doubted.Status, doubted.Message, doubted.Awaiting, doubted.LeftTyped)
+			}
+		})
+	}
+}
+
 func TestNativeCEOAnswerPathsPreserveRepliesWhileItIsTyping(t *testing.T) {
 	for _, harness := range []string{"codex", "claude"} {
 		for _, kind := range []string{"ceo_answer", "review_answer", "question_clear", "run_result"} {

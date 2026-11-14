@@ -696,7 +696,7 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 			return Evaluation{}, fmt.Errorf("%w. %s It was taken back off the CEO's prompt line, so nothing of it is left typed there.", ErrNotSent, why)
 		}
 		if isSubmitted {
-			return Evaluation{Awaiting: waiting, LeftTyped: waiting}, errors.New(why + " It is taken back off the CEO's prompt line if it shows there, and reads Sent if the CEO takes it yet.")
+			return Evaluation{Awaiting: waiting, LeftTyped: waiting}, errors.New(why + " It is taken back off the CEO's prompt line if it shows there.")
 		}
 		return Evaluation{LeftTyped: waiting}, errors.New(why + " Nothing was submitted, and it is taken back off the CEO's prompt line if it shows there.")
 	}
@@ -756,17 +756,22 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 	// or not (the Overlord, 2026-11-13: "just queues the message and puts it
 	// into the chat input, but doesn't actually fire the message and then
 	// start the turn", #2541). The key is pressed again as often as its
-	// harness's screens allow while the words show alone over the row it
-	// added, as for a goblin.
-	atPress, presses := screen, 0
+	// harness's screens allow once two reads in a row show the words alone
+	// over the row it added, as for a goblin: a screen is read a row at a
+	// time, so one read can join the prompt row drawn before a redraw to the
+	// rows under it drawn after, and show his words alone over that row though
+	// words beside them came in the same redraw.
+	atPress, presses, isOverNewRow := screen, 0, false
 	pressAgain := func(screen []string) (bool, error) {
-		if presses >= screens.Resubmits || !screens.ComposerHoldsPartOf(screen, instruction) || !screens.TookEnterAsNewLine(atPress, screen) {
+		wasOverNewRow := isOverNewRow
+		isOverNewRow = screens.ComposerHoldsPartOf(screen, instruction) && screens.TookEnterAsNewLine(atPress, screen)
+		if presses >= screens.Resubmits || !isOverNewRow || !wasOverNewRow {
 			return false, nil
 		}
 		if err := delivery.Write([]byte(submit)); err != nil {
 			return false, err
 		}
-		atPress, presses = screen, presses+1
+		atPress, presses, isOverNewRow = screen, presses+1, false
 		return true, nil
 	}
 	// A CEO in a turn takes the answer at its next tool call, and its prompt
