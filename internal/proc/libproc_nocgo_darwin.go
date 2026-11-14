@@ -16,6 +16,10 @@ func startTicks(pid int) (uint64, error) {
 	return 0, withoutCgo("a process's start in ticks")
 }
 
+func useOf(pid int) (Use, error) {
+	return Use{}, withoutCgo("what a process uses")
+}
+
 func workingDirectoryOf(pid int) (string, error) {
 	return "", withoutCgo("a process's working directory")
 }

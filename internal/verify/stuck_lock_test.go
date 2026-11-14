@@ -142,8 +142,13 @@ func recordLineLock(t *testing.T, dir string, isDead bool) *lock.Info {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = lock.ReleaseExclusiveNamed(other, custodyMutationName) })
+	// A dead owner is an earlier run of this pid: Windows knows a run by
+	// its start, Linux and macOS by its instance.
 	if isDead {
 		owner.Start = owner.Start.Add(-time.Hour)
+		if owner.Instance != "" {
+			owner.Instance += "0"
+		}
 	}
 	data, err := json.Marshal(owner)
 	if err != nil {
