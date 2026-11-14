@@ -817,7 +817,7 @@ func (r Reader) requireCommit(ctx context.Context, repo, head string, bare bool)
 // reviewed, the head Review approved: the shape of an unverified head native
 // recovery verifies in place, since the gate branch then holds submitted.
 func (r Reader) extendsThroughReviewed(ctx context.Context, repo, submitted, reviewed, recorded string) (bool, error) {
-	if reviewed == "" || submitted == recorded {
+	if reviewed == "" {
 		return false, nil
 	}
 	for _, pair := range [][2]string{{submitted, reviewed}, {reviewed, recorded}} {

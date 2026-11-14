@@ -745,18 +745,20 @@ func TestRecoverKeepLocalReturnsCustodyAtARebasedAndFixedRecordedHead(t *testing
 	// reviewed head: on 2026-11-11 a docs run failed at Document that way and
 	// recovery refused it (#2376). Any other unverified head stays refused.
 	for _, test := range []struct {
-		name          string
-		isGateMoved   bool
-		isUnverified  bool
-		isOnSubmitted bool
-		isUnreviewed  bool
-		refusal       string
+		name                   string
+		isGateMoved            bool
+		isUnverified           bool
+		isOnSubmitted          bool
+		isUnreviewed           bool
+		isReviewedBeforeRebase bool
+		refusal                string
 	}{
 		{name: "gate branch at the submitted head"},
 		{name: "gate branch moved off the submitted head", isGateMoved: true, refusal: "preserved gate branch is unsafe"},
 		{name: "recorded head the engine never verified", isUnverified: true, refusal: "never verified the run's recorded head"},
 		{name: "unverified fix commit on the submitted head", isUnverified: true, isOnSubmitted: true},
 		{name: "unverified fix commit on the submitted head with no reviewed head", isUnverified: true, isOnSubmitted: true, isUnreviewed: true, refusal: "never verified the run's recorded head"},
+		{name: "unverified rebased head after a review fix on the submitted head", isUnverified: true, isReviewedBeforeRebase: true, refusal: "never verified the run's recorded head"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange: the gate rebased the submitted head onto a newer main, or
@@ -782,6 +784,10 @@ func TestRecoverKeepLocalReturnsCustodyAtARebasedAndFixedRecordedHead(t *testing
 			runPipelineGit(t, work, "switch", "--quiet", "main")
 			upstream := commit("upstream.txt", "upstream\n")
 			runPipelineGit(t, work, "switch", "--quiet", branch)
+			reviewedHead := ""
+			if test.isReviewedBeforeRebase {
+				reviewedHead = commit("early-review-fix.txt", "early review fix\n")
+			}
 			if !test.isOnSubmitted {
 				runPipelineGit(t, work, "rebase", "--quiet", "main")
 			}
@@ -795,8 +801,14 @@ func TestRecoverKeepLocalReturnsCustodyAtARebasedAndFixedRecordedHead(t *testing
 			if test.isGateMoved {
 				gate = upstream
 			}
-			runPipelineGit(t, work, "push", "--quiet", bare, gate+":refs/heads/"+branch, submitted+":refs/fixture/submitted", recorded+":refs/fixture/run", upstream+":refs/remotes/origin/main")
-			verifiedAt, reviewed := "1", sqlString(recorded)
+			refspecs := []string{gate + ":refs/heads/" + branch, submitted + ":refs/fixture/submitted", recorded + ":refs/fixture/run", upstream + ":refs/remotes/origin/main"}
+			reviewed := sqlString(recorded)
+			if reviewedHead != "" {
+				refspecs = append(refspecs, reviewedHead+":refs/fixture/reviewed")
+				reviewed = sqlString(reviewedHead)
+			}
+			runPipelineGit(t, work, append([]string{"push", "--quiet", bare}, refspecs...)...)
+			verifiedAt := "1"
 			if test.isUnverified {
 				verifiedAt = "NULL"
 			}
