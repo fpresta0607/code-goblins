@@ -383,7 +383,9 @@ test("the goblin's click shows as a ring at its place on the page, drawn once as
   await openScreen(page, relay);
   relay.frame({ data: await aFrame(page, 1280, 800), width: 1280, height: 800 });
   await expect.poll(() => acks(relay)).toBe(1);
-  const ring = [[211, 120], [189, 120], [200, 131], [200, 109]];
+  // The ring's radius is 11 pixels of the screen as shown, in the frame's own.
+  const radius = await screen(page).locator("canvas").evaluate((canvas: HTMLCanvasElement) => Math.round(11 * canvas.width / canvas.clientWidth));
+  const ring = [[200 + radius, 120], [200 - radius, 120], [200, 120 + radius], [200, 120 - radius]];
   const isRingShown = async () => (await Promise.all(ring.map(([x, y]) => pixel(page, x, y)))).every(isMark);
   expect(await isRingShown()).toBe(false);
   const drawnBefore = await drawn();
@@ -403,7 +405,7 @@ test("the goblin's click shows as a ring at its place on the page, drawn once as
   relay.tell({ is_driven: true });
 
   // Assert
-  await expect.poll(async () => isMark(await pixel(page, 211, 120))).toBe(false);
+  await expect.poll(async () => isMark(await pixel(page, 200 + radius, 120))).toBe(false);
 });
 
 // A goblin's card reads Browser active only while its goblin uses its

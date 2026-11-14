@@ -33,8 +33,9 @@ const modifiers = (event: { altKey: boolean; ctrlKey: boolean; metaKey: boolean;
 const MAX_PASTE = 4000;
 // A touch that moves less than this is a tap, which clicks.
 const TAP_SLOP = 8;
-// The goblin's pointer mark: a ring of this radius and stroke, in the page's
-// CSS pixels, drawn in fixed colours since it sits on the page's own.
+// The goblin's pointer mark: a ring of this radius and stroke, in pixels of
+// the screen as it is shown, so it reads alike at any size of the view, drawn
+// in fixed colours since it sits on the page's own.
 const POINTER_RADIUS = 11;
 const POINTER_STROKE = 3;
 
@@ -100,13 +101,13 @@ export function ScreenView({ task, generation, name, instance, connected, isFull
       context.drawImage(bitmap, 0, 0);
       const place = pointer.current, size = page.current;
       if (!place || size.width <= 0 || size.height <= 0) return;
-      const scale = element.width / size.width;
+      const shownScale = element.clientWidth > 0 ? element.width / element.clientWidth : 1;
       context.beginPath();
-      context.arc(place.x * scale, place.y * element.height / size.height, POINTER_RADIUS * scale, 0, 2 * Math.PI);
-      context.lineWidth = (POINTER_STROKE + 2) * scale;
+      context.arc(place.x * element.width / size.width, place.y * element.height / size.height, POINTER_RADIUS * shownScale, 0, 2 * Math.PI);
+      context.lineWidth = (POINTER_STROKE + 2) * shownScale;
       context.strokeStyle = "#ffffff";
       context.stroke();
-      context.lineWidth = POINTER_STROKE * scale;
+      context.lineWidth = POINTER_STROKE * shownScale;
       context.strokeStyle = "#d9480f";
       context.stroke();
     };
