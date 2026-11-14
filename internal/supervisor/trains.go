@@ -47,7 +47,7 @@ func TrainRepository(ctx context.Context, runner execx.Runner, dataDir, checkout
 	if err != nil {
 		return train.Repository{}, fmt.Errorf("merge train: read the origin of %s: %w", checkout, err)
 	}
-	slug, isGitHub := githubRepository(origin)
+	slug, isGitHub := githubapi.RemoteRepository(origin)
 	if !isGitHub {
 		return train.Repository{}, fmt.Errorf("merge train: the origin of %s is not on GitHub", checkout)
 	}

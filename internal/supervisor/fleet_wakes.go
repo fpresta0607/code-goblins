@@ -821,21 +821,21 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 			continue
 		}
 		remote := strings.TrimSpace(string(origin.Stdout))
-		host, _, hasRemote := splitRemote(remote)
+		host, _, hasRemote := githubapi.SplitRemote(remote)
 		// A repository with no origin, one kept on this machine and one hosted
 		// outside GitHub have no CI here to read, so GitHub is asked nothing
 		// about them and gh's sign-in advice is never given for one of them. An
 		// origin git reads as none of its forms but whose host is GitHub's is a
 		// broken origin of this monitor's own, reported below rather than
 		// forgotten as a repository kept elsewhere.
-		if !isGitHubHost(host) && (hasRemote || !namesGitHubHost(remote)) {
+		if !githubapi.IsGitHubHost(host) && (hasRemote || !namesGitHubHost(remote)) {
 			forgetUnreadable(w, repo)
 			continue
 		}
 		// A remote that names a GitHub host but no repository is a checkout
 		// whose origin is broken, which is reported rather than read as a
 		// repository that is merely somewhere else.
-		slug, isSlug := githubRepository(remote)
+		slug, isSlug := githubapi.RemoteRepository(remote)
 		if !isSlug {
 			failure := fmt.Errorf("ci wakes: the origin of %s names no repository", repo)
 			errs = errors.Join(errs, reportUnreadable(s.Store.Home.State, w, repo, failure, "set origin to the repository's own URL", now))
@@ -947,56 +947,6 @@ func forgetUnreadable(w *fleetWakes, repo string) {
 	delete(w.OverlapUnread, repo)
 }
 
-// splitRemote reads the host and the repository path of a Git remote in any
-// of the forms git takes: a URL with a scheme, and the scp-like user@host:path
-// form. A remote kept on this machine, as an absolute or relative path or a
-// file URL, names no host.
-func splitRemote(remote string) (host, repository string, ok bool) {
-	if remote == "" || filepath.IsAbs(remote) || path.IsAbs(remote) || strings.HasPrefix(remote, ".") {
-		return "", "", false
-	}
-	if _, rest, hasScheme := strings.Cut(remote, "://"); hasScheme {
-		return splitAuthority(rest)
-	}
-	if scheme, rest, found := strings.Cut(remote, ":/"); found && isSchemeName(scheme) {
-		return splitAuthority(rest)
-	}
-	hostAndPath := remote
-	if _, after, found := strings.Cut(hostAndPath, "@"); found {
-		hostAndPath = after
-	}
-	host, repository, found := strings.Cut(hostAndPath, ":")
-	if !found || strings.ContainsAny(host, `/\`) {
-		return "", "", false
-	}
-	return host, repository, host != ""
-}
-
-// splitAuthority reads the host and the repository path of a remote from its
-// authority and path, whichever scheme carried them.
-func splitAuthority(rest string) (host, repository string, ok bool) {
-	authority, after, _ := strings.Cut(rest, "/")
-	if _, userinfo, found := strings.Cut(authority, "@"); found {
-		authority = userinfo
-	}
-	host, _, _ = strings.Cut(authority, ":")
-	return host, after, host != ""
-}
-
-// isSchemeName reports whether name is a URL scheme: a letter followed by
-// letters, digits, '+', '-' or '.'.
-func isSchemeName(name string) bool {
-	for i, r := range name {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z':
-		case i > 0 && (r >= '0' && r <= '9' || r == '+' || r == '-' || r == '.'):
-		default:
-			return false
-		}
-	}
-	return name != ""
-}
-
 // namesGitHubHost reports whether remote names a GitHub host where its host
 // belongs, even when git reads the address as none of its forms: GitHub
 // spelled wrongly is a broken origin of a repository this monitor reads, not a
@@ -1011,28 +961,7 @@ func namesGitHubHost(remote string) bool {
 		return false
 	}
 	host, _, _ = strings.Cut(host, ":")
-	return isGitHubHost(host)
-}
-
-// isGitHubHost reports whether host is one GitHub serves. The fleet reads a
-// repository's pull requests, tickets, trains and task evidence on github.com
-// only, so a checkout kept elsewhere is hosted somewhere this monitor does not
-// read and is asked of GitHub nothing.
-func isGitHubHost(host string) bool {
-	return strings.EqualFold(host, "github.com") || strings.EqualFold(host, "ssh.github.com")
-}
-
-// githubRepository reads the owner/name of the GitHub repository remote is,
-// in each form splitRemote reads on each host isGitHubHost serves, so a
-// checkout the CI poll reads as GitHub's is read as the same repository
-// wherever else its origin is read.
-func githubRepository(remote string) (slug string, ok bool) {
-	host, repository, hasRemote := splitRemote(remote)
-	if !hasRemote || !isGitHubHost(host) {
-		return "", false
-	}
-	slug = strings.TrimSuffix(strings.Trim(repository, "/"), ".git")
-	return slug, githubSlug.MatchString(slug)
+	return githubapi.IsGitHubHost(host)
 }
 
 // reportUnreadable remembers why repo's CI could not be read and raises
