@@ -114,7 +114,7 @@ func TestAHomeOnItsDevDriveGetsTheGateStepWhileTheGateHomeIsNotThere(t *testing.
 			if ok != test.shouldMoveGateHome {
 				t.Fatalf("plan = %+v, %v; want a gate step %v", plan, ok, test.shouldMoveGateHome)
 			}
-			if test.shouldMoveGateHome && (plan.Step != StepGate || plan.Admin || plan.Folder != `D:\CodeGoblins` || !strings.Contains(plan.Title, `Move the gate's home to D:\CodeGoblins\no-mistakes on the Dev Drive D:`)) {
+			if test.shouldMoveGateHome && (plan.Step != StepGate || plan.Admin || plan.Folder != `D:\CodeGoblins` || plan.Title != "") {
 				t.Errorf("plan = %+v; want the gate step into D:\\CodeGoblins", plan)
 			}
 		})

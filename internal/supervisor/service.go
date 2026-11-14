@@ -330,6 +330,8 @@ type Service struct {
 	devDriveConfig sync.Mutex
 	devDriveViewMu sync.Mutex
 	devDriveView   *DevDriveView
+	// gateCarry is the supervisor's own carry of the gate's home.
+	gateCarry gateCarry
 	// trains are the merge trains the board shows, as keepTrains last read
 	// them.
 	trains []MergeTrainView
