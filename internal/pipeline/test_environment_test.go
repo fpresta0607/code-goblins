@@ -145,8 +145,26 @@ func TestProjectTestEnvironmentReportsAProbeTimeoutAsATimeout(t *testing.T) {
 	if err == nil || variables != nil {
 		t.Fatalf("variables=%q error=%v; want a timeout refusal", variables, err)
 	}
-	if message := err.Error(); !strings.Contains(message, "timed out after "+pythonProbeLimit.String()) || strings.Contains(message, ".venv") {
+	if message := err.Error(); !strings.Contains(message, "timed out after 2m0s") || strings.Contains(message, ".venv") {
 		t.Fatalf("error=%v; want the timeout and how long it waited, not the environment blamed", err)
+	}
+}
+
+func TestProjectTestEnvironmentDoesNotReportAnEndedCallerAsAProbeTimeout(t *testing.T) {
+	// Arrange
+	data, checkout, worktree, python := existingEnvironmentFixture(t)
+	caller, cancel := context.WithDeadline(t.Context(), time.Now())
+	defer cancel()
+
+	// Act
+	variables, err := ProjectTestEnvironment(caller, slowProbe(t, time.Hour, python, checkout), data, checkout, worktree)
+
+	// Assert
+	if err == nil || variables != nil || !strings.Contains(err.Error(), "required test environment") {
+		t.Fatalf("variables=%q error=%v; want a refusal", variables, err)
+	}
+	if strings.Contains(err.Error(), "timed out after") {
+		t.Fatalf("error=%v; the caller's own deadline ended the probe, not the probe's limit", err)
 	}
 }
 
