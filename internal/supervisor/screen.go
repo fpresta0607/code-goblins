@@ -84,16 +84,24 @@ type screenMessage struct {
 }
 
 // browserScreenState is what a view is told of the browser: who drives it, whether
-// this view may, and the page shown, by its title and its host alone, since
-// an address can carry a sign-in's code.
+// this view may, the page shown, by its title and its host alone, since an
+// address can carry a sign-in's code, and where on that page its goblin last
+// pressed its mouse, a place and nothing else (#2537).
 type browserScreenState struct {
-	Type      string `json:"type"`
-	IsDriven  bool   `json:"is_driven"`
-	CanDrive  bool   `json:"can_drive"`
-	Title     string `json:"title"`
-	Host      string `json:"host"`
-	HasPage   bool   `json:"has_page"`
-	DriveNote string `json:"drive_note,omitempty"`
+	Type      string       `json:"type"`
+	IsDriven  bool         `json:"is_driven"`
+	CanDrive  bool         `json:"can_drive"`
+	Title     string       `json:"title"`
+	Host      string       `json:"host"`
+	HasPage   bool         `json:"has_page"`
+	DriveNote string       `json:"drive_note,omitempty"`
+	Pointer   *screenPlace `json:"pointer,omitempty"`
+}
+
+// screenPlace is a place on a page, in its CSS pixels.
+type screenPlace struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
 }
 
 // screen serves a Screen view of a goblin's browser, which the board opens
@@ -338,6 +346,9 @@ func (s *screenView) tell(ctx context.Context) error {
 		page = s.pages[at]
 	}
 	told := browserScreenState{Type: "state", IsDriven: isDriven, CanDrive: s.isLocal, Title: page.title, Host: page.address, HasPage: s.target != ""}
+	if pointer := s.h.Service.screens.pointerOf(s.b); pointer.target == s.target && s.target != "" {
+		told.Pointer = &screenPlace{X: pointer.x, Y: pointer.y}
+	}
 	if !s.isLocal {
 		told.DriveNote = "Take control from the board on this PC."
 	}

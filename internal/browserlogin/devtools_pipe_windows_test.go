@@ -62,11 +62,11 @@ func TestPrivateDevToolsPipeKeepsClientIDsAndNestedSessionsSeparate(t *testing.T
 	pipe := &devToolsPipe{pending: map[int64]devToolsPending{
 		1: {id: 7, method: "Target.attachToTarget", client: first},
 		2: {id: 7, session: "second-child", client: second},
-	}, sessions: map[string]*devToolsClient{"first-root": first, "second-root": second}}
+	}, sessions: map[string]*devToolsClient{"first-root": first, "second-root": second}, targets: map[string]string{}}
 
 	pipe.deliver(devToolsMessage{ID: 1, Result: json.RawMessage(`{"sessionId":"first-child"}`)})
 	pipe.deliver(devToolsMessage{ID: 2, Result: json.RawMessage(`{}`)})
-	pipe.deliver(devToolsMessage{Session: "first-root", Method: "Target.attachedToTarget", Params: json.RawMessage(`{"sessionId":"nested"}`)})
+	pipe.deliver(devToolsMessage{Session: "first-root", Method: "Target.attachedToTarget", Params: json.RawMessage(`{"sessionId":"nested","targetInfo":{"targetId":"shop-page"}}`)})
 	pipe.deliver(devToolsMessage{Session: "nested", Method: "Runtime.consoleAPICalled"})
 	pipe.deliver(devToolsMessage{Session: "unknown", Method: "must-not-arrive"})
 
@@ -82,7 +82,7 @@ func TestPrivateDevToolsPipeKeepsClientIDsAndNestedSessionsSeparate(t *testing.T
 	if event := <-first.messages; event.Session != "nested" {
 		t.Fatalf("nested event = %+v", event)
 	}
-	if len(first.messages) != 0 || len(second.messages) != 0 || pipe.sessions["first-child"] != first {
+	if len(first.messages) != 0 || len(second.messages) != 0 || pipe.sessions["first-child"] != first || pipe.targets["nested"] != "shop-page" {
 		t.Fatal("a message crossed client sessions")
 	}
 }

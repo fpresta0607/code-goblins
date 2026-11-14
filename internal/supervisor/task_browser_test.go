@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,8 +26,8 @@ type fakeBrowser struct {
 	pages  []targetInfo
 	calls  []fakeCall
 	events chan browserlogin.Event
-	// refuse is what the goblin's last DevTools connection was served with.
-	refuse                 func(method string) string
+	// hear is what the goblin's last DevTools connection was served with.
+	hear                   func(browserlogin.Command) string
 	clients, closedClients int
 	hasExited              bool
 }
@@ -40,9 +41,9 @@ func newFakeBrowser(pages ...targetInfo) *fakeBrowser {
 	return &fakeBrowser{pages: pages, events: make(chan browserlogin.Event, 16)}
 }
 
-func (f *fakeBrowser) ServeClient(w http.ResponseWriter, _ *http.Request, refuse func(string) string) {
+func (f *fakeBrowser) ServeClient(w http.ResponseWriter, _ *http.Request, hear func(browserlogin.Command) string) {
 	f.mu.Lock()
-	f.refuse = refuse
+	f.hear = hear
 	f.mu.Unlock()
 	w.WriteHeader(http.StatusOK)
 }
@@ -186,10 +187,30 @@ func newFakeBrowsers(t *testing.T, chrome *fakeGoblinChrome) *taskBrowsers {
 		ended:     func(string, string) {},
 		report:    func(err error) { t.Errorf("a browser reported %v", err) },
 		idle:      time.Hour,
+		unused:    time.Hour,
+		inUse:     time.Hour,
 		unwatched: time.Hour,
 	}
 	t.Cleanup(browsers.closeAll)
 	return browsers
+}
+
+// goblinCommands opens task-1's DevTools route for its current session as its
+// goblin's tool does and returns what hears each command it sends.
+func goblinCommands(t *testing.T, service *Service, chrome *fakeGoblinChrome) func(browserlogin.Command) string {
+	t.Helper()
+	handler := NewHTTP(service, credentialBoardHost, nil)
+	handler.devToolsGuard = func(next http.Handler) http.Handler { return next }
+	request := httptest.NewRequest("GET", "http://"+credentialBoardHost+"/api/browser/devtools?task=task-1&generation=g1", nil)
+	request.RemoteAddr = "127.0.0.1:50000"
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("devtools = %d %s, want it served", response.Code, response.Body)
+	}
+	chrome.browser.mu.Lock()
+	defer chrome.browser.mu.Unlock()
+	return chrome.browser.hear
 }
 
 // eventually fails the test unless isTrue holds within thirty seconds.
@@ -352,6 +373,155 @@ func TestAGoblinsBrowserClosesOnceNobodyUsesIt(t *testing.T) {
 	}
 }
 
+// A browser its goblin's session holds but sends no command closes once it
+// was unused for its while, since a goblin's chrome-devtools-axi bridge holds
+// its connection for as long as it runs, but never while its goblin uses it,
+// and a page's setup is no use (#2537).
+func TestAGoblinsBrowserItsSessionHoldsClosesOnceUnused(t *testing.T) {
+	// Arrange
+	chrome := &fakeGoblinChrome{browser: newFakeBrowser()}
+	browsers := newFakeBrowsers(t, chrome)
+	browsers.unused = time.Second
+	b, err := browsers.ensure(context.Background(), state.TaskMeta{ID: "task-1", SpawnGen: "g1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := browsers.connect(b)
+	defer release()
+
+	// Act
+	for range 30 {
+		browsers.use(b, browserlogin.Command{Method: "Page.navigate", Target: "shop", Params: json.RawMessage(`{"url":"https://shop.example.com/"}`)})
+		time.Sleep(browsers.unused / 10)
+	}
+	_, endedWhileUsed := chrome.counts()
+
+	// Assert
+	if endedWhileUsed != 0 {
+		t.Fatal("the browser closed while its goblin used it")
+	}
+	eventually(t, "the unused browser's end", func() bool {
+		browsers.use(b, browserlogin.Command{Method: "Page.enable", Target: "shop"})
+		_, ended := chrome.counts()
+		return ended == 1
+	})
+	if browsers.isRunning("task-1", "g1") {
+		t.Fatal("the closed browser still shows")
+	}
+}
+
+// A browser its goblin's session holds stays open its unused while after a
+// view closes, a person hands it back or its session connects again, however
+// long ago its goblin's last command was, so a sign-in he finished on its
+// screen is still there for the goblin (#2537).
+func TestAHeldBrowserStaysOpenAWhileAfterItWasLastWatchedDrivenOrConnected(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		// hold keeps the browser from closing until its returned let go.
+		hold func(*taskBrowsers, *taskBrowser) (letGo func())
+	}{
+		{"a view closes", func(browsers *taskBrowsers, b *taskBrowser) func() {
+			browsers.connect(b)
+			_, release := browsers.watch(b)
+			return release
+		}},
+		{"he hands it back", func(browsers *taskBrowsers, b *taskBrowser) func() {
+			browsers.connect(b)
+			browsers.drive(b, true)
+			return func() { browsers.drive(b, false) }
+		}},
+		{"its session connects again", func(browsers *taskBrowsers, b *taskBrowser) func() {
+			browsers.connect(b)()
+			return func() { browsers.connect(b) }
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			chrome := &fakeGoblinChrome{browser: newFakeBrowser()}
+			browsers := newFakeBrowsers(t, chrome)
+			browsers.unused = 300 * time.Millisecond
+			b, err := browsers.ensure(context.Background(), state.TaskMeta{ID: "task-1", SpawnGen: "g1"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			browsers.use(b, browserlogin.Command{Method: "Page.navigate", Target: "shop", Params: json.RawMessage(`{"url":"https://shop.example.com/"}`)})
+			letGo := test.hold(browsers, b)
+			time.Sleep(3 * browsers.unused)
+
+			// Act
+			letGo()
+			time.Sleep(browsers.unused / 3)
+			_, endedSoonAfter := chrome.counts()
+
+			// Assert
+			if endedSoonAfter != 0 {
+				t.Fatal("the browser closed as soon as nothing watched or drove it")
+			}
+			eventually(t, "the unused browser's end", func() bool { _, ended := chrome.counts(); return ended == 1 })
+		})
+	}
+}
+
+// A goblin's browser reads as in use, which its card shows as Browser
+// active, after its goblin's navigation, click or typed text through its
+// DevTools route, never after a page's setup alone nor for its start, and
+// stops a while after its goblin's last command; the board hears of each
+// change (#2537).
+func TestAGoblinsBrowserReadsInUseOnlyAfterItsGoblinUsesIt(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		command browserlogin.Command
+		isUse   bool
+	}{
+		{"a navigation", browserlogin.Command{Method: "Page.navigate", Target: "shop", Params: json.RawMessage(`{"url":"https://shop.example.com/"}`)}, true},
+		{"a click", browserlogin.Command{Method: "Input.dispatchMouseEvent", Target: "shop", Params: json.RawMessage(`{"type":"mousePressed","x":40,"y":30,"button":"left","clickCount":1}`)}, true},
+		{"typed text", browserlogin.Command{Method: "Input.insertText", Target: "shop", Params: json.RawMessage(`{"text":"made-up words"}`)}, true},
+		{"a page's setup", browserlogin.Command{Method: "Page.enable", Target: "shop"}, false},
+		{"a look at its pages", browserlogin.Command{Method: "Target.getTargets"}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			store, _ := testStore(t)
+			chrome := &fakeGoblinChrome{browser: newFakeBrowser()}
+			browsers := newFakeBrowsers(t, chrome)
+			browsers.inUse = 500 * time.Millisecond
+			var told atomic.Int32
+			browsers.notify = func() { told.Add(1) }
+			service := &Service{Store: store, Instance: "test-instance", screens: browsers}
+			hear := goblinCommands(t, service, chrome)
+			eventually(t, "the board's word of the browser's start", func() bool { return told.Load() == 1 })
+			atStart := snapshotTask(t, service, "task-1")
+
+			// Act
+			refusal := hear(test.command)
+			afterCommand, toldOfUse := snapshotTask(t, service, "task-1"), told.Load()
+
+			// Assert
+			if refusal != "" || !atStart.Browser || atStart.BrowserInUse || !afterCommand.Browser || afterCommand.BrowserInUse != test.isUse || (toldOfUse == 2) != test.isUse {
+				t.Fatalf("refusal %q, the task at start %+v and after %+v, the board told %d times", refusal, atStart, afterCommand, toldOfUse)
+			}
+			encoded, err := json.Marshal(afterCommand)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(encoded), `"browser_in_use":true`) != test.isUse {
+				t.Fatalf("the snapshot's task reads %s, want browser_in_use %v", encoded, test.isUse)
+			}
+			if !test.isUse {
+				return
+			}
+			eventually(t, "the use's lapse", func() bool { return told.Load() == 3 })
+			if lapsed := snapshotTask(t, service, "task-1"); !lapsed.Browser || lapsed.BrowserInUse {
+				t.Fatalf("after the lapse the task reads %+v, want its browser running and not in use", lapsed)
+			}
+			hear(test.command)
+			if again := snapshotTask(t, service, "task-1"); !again.BrowserInUse || told.Load() != 4 {
+				t.Fatalf("after the next use the task reads %+v, the board told %d times", again, told.Load())
+			}
+		})
+	}
+}
+
 // Control nobody watches goes back to the goblin, so a tab closed mid-step
 // never holds its browser for good, and every view hears of it.
 func TestControlNobodyWatchesGoesBackToTheGoblin(t *testing.T) {
@@ -473,8 +643,9 @@ func TestAGoblinsDevToolsReachItsBrowserOnlyFromItsOwnSession(t *testing.T) {
 			}
 			b := service.screens.shown("task-1", "g1")
 			chrome.browser.mu.Lock()
-			refuse := chrome.browser.refuse
+			hear := chrome.browser.hear
 			chrome.browser.mu.Unlock()
+			refuse := func(method string) string { return hear(browserlogin.Command{Method: method}) }
 			beforeDriving := refuse("Page.navigate")
 			service.screens.drive(b, true)
 			if beforeDriving != "" || refuse("Page.navigate") != drivingRefusal {
