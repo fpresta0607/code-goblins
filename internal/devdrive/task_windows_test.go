@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -107,17 +108,92 @@ func TestTheAttachScriptRunsInWindowsPowerShell(t *testing.T) {
 	}
 }
 
-// The settings the startup task is registered with, as Windows PowerShell
-// builds them: it starts on battery power, is never stopped for going on
-// battery or by a time limit, and never runs twice at once.
-func TestTheStartupTaskSettingsNeverStopIt(t *testing.T) {
+// taskStandIns take the place of the Storage cmdlets, fsutil,
+// Register-ScheduledTask and the Schedule.Service COM object in a run of the
+// create script on a drive already attached, and each says what it was given
+// on standard output. New-ScheduledTaskAction, New-ScheduledTaskTrigger and
+// New-ScheduledTaskSettingsSet are Windows' own, which build objects and
+// change nothing. Their module is imported first, so its own
+// Register-ScheduledTask does not replace the stand-in.
+const taskStandIns = `Import-Module ScheduledTasks
+function Get-DiskImage { [CmdletBinding()] param($ImagePath) [pscustomobject]@{ Attached = $true; Number = 7 } }
+function Get-Disk { param([Parameter(ValueFromPipeline = $true)]$InputObject) process { [pscustomobject]@{ Number = 7; PartitionStyle = 'GPT' } } }
+function Get-Partition { param($DiskNumber) [pscustomobject]@{ Type = 'Basic'; DriveLetter = 'D' } }
+function fsutil { Write-Host "fsutil $args" }
+function Register-ScheduledTask {
+    param($TaskName, $Trigger, $Action, $Settings, $User, $RunLevel, [switch]$Force)
+    Write-Host "registered $TaskName"
+    Write-Host "trigger $($Trigger.CimClass.CimClassName)"
+    Write-Host "action $($Action.Execute) $($Action.Arguments)"
+    Write-Host "settings $($Settings.DisallowStartIfOnBatteries) $($Settings.StopIfGoingOnBatteries) $($Settings.ExecutionTimeLimit) $($Settings.MultipleInstances)"
+    Write-Host "runs as $User at $RunLevel"
+}
+function New-Object {
+    param([string]$ComObject)
+    Write-Host "com $ComObject"
+    $task = [pscustomobject]@{}
+    $task | Add-Member -MemberType ScriptMethod -Name SetSecurityDescriptor -Value { param($sddl, $flags) Write-Host "security $sddl $flags" }
+    $folder = [pscustomobject]@{ Task = $task }
+    $folder | Add-Member -MemberType ScriptMethod -Name GetTask -Value { param($name) Write-Host "security of $name"; $this.Task }
+    $service = [pscustomobject]@{ Folder = $folder }
+    $service | Add-Member -MemberType ScriptMethod -Name Connect -Value { }
+    $service | Add-Member -MemberType ScriptMethod -Name GetFolder -Value { param($path) $this.Folder }
+    $service
+}
+`
+
+// The create script, run in Windows PowerShell 5.1 on a drive already
+// attached, writes the attach script beside the drive's file, where it
+// parses, and registers the startup task to run that file as SYSTEM at boot,
+// with the settings Windows builds read back: it starts on battery power, is
+// never stopped for going on battery or by a time limit, and never runs twice
+// at once. Then it lets administrators and Windows change the task and
+// Authenticated Users only read and start it. A task registered without the
+// settings, or before the script is written, fails here.
+func TestTheCreateScriptRegistersATaskThatRunsTheAttachScriptOnBatteryWithNoTimeLimit(t *testing.T) {
+	// Arrange
+	folder := t.TempDir()
+	vhd := filepath.Join(folder, "CodeGoblins.vhdx")
+	attachScript := filepath.Join(folder, AttachScriptName)
+	postamble := "$parseErrors = $null\r\n[System.Management.Automation.Language.Parser]::ParseFile($attachScript, [ref]$null, [ref]$parseErrors) | Out-Null\r\nWrite-Host \"parse errors $($parseErrors.Count)\"\r\n"
+	path := filepath.Join(t.TempDir(), "create.ps1")
+	if err := os.WriteFile(path, append([]byte("\xef\xbb\xbf"), taskStandIns+CreateScript(vhd, "D:", 0)+postamble...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
 	// Act
-	output, err := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
-		"$s = "+taskSettings+"; \"$($s.DisallowStartIfOnBatteries) $($s.StopIfGoingOnBatteries) $($s.ExecutionTimeLimit) $($s.MultipleInstances)\"").CombinedOutput()
+	output, err := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", path).CombinedOutput()
 
 	// Assert
-	if err != nil || strings.TrimSpace(string(output)) != "False False PT0S IgnoreNew" {
-		t.Errorf("settings = %q, %v; want False False PT0S IgnoreNew", output, err)
+	said := string(output)
+	if err != nil {
+		t.Fatalf("the create script failed: %v\n%s", err, said)
+	}
+	var lines []string
+	for _, line := range strings.Split(said, "\n") {
+		lines = append(lines, strings.TrimSpace(line))
+	}
+	next := 0
+	for _, want := range []string{
+		"registered " + TaskName,
+		"trigger MSFT_TaskBootTrigger",
+		`action powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "` + attachScript + `"`,
+		"settings False False PT0S IgnoreNew",
+		`runs as NT AUTHORITY\SYSTEM at Highest`,
+		"com Schedule.Service",
+		"security of " + TaskName,
+		"security D:(A;;FA;;;BA)(A;;FA;;;SY)(A;;GRGX;;;AU) 0",
+		"parse errors 0",
+	} {
+		found := slices.Index(lines[next:], want)
+		if found < 0 {
+			t.Fatalf("the create script did not say %q after what came before:\n%s", want, said)
+		}
+		next += found + 1
+	}
+	written, err := os.ReadFile(attachScript)
+	if err != nil || string(written) != "\xef\xbb\xbf"+AttachScript(vhd, "D:") {
+		t.Errorf("%s = %q, %v; want the attach script the startup task runs", attachScript, written, err)
 	}
 }
 
@@ -135,7 +211,7 @@ func TestAnOldStartupTaskIsRenewedWhileTheDriveIsAttached(t *testing.T) {
 	plan, ok := Next(m, moved, config, false, true)
 
 	// Assert
-	if !ok || plan.Step != StepTask || !plan.Admin || !strings.Contains(plan.Script, AttachScriptName) || !strings.Contains(plan.Title, "Renew the startup task of the Code Goblins Dev Drive D:") || strings.Contains(plan.Title, ";") {
+	if !ok || plan.Step != StepTask || !plan.Admin || plan.Script != CreateScript(config.VHD, "D:", 0) || !strings.Contains(plan.Title, "Renew the startup task of the Code Goblins Dev Drive D:") || strings.Contains(plan.Title, ";") {
 		t.Fatalf("plan = %+v, %v; want the renew item for D:", plan, ok)
 	}
 	if plan, ok := Next(m, moved, config, false, false); ok {

@@ -88,7 +88,7 @@ func TestAMissingDriveAfterABootIsLookedAfterAtOnce(t *testing.T) {
 func TestATaskTheBoardMayNotStartGetsTheAttachItemOnce(t *testing.T) {
 	// Arrange
 	var starts int
-	s, machine, _ := devDriveMissingService(t, time.Minute, time.Hour, func(context.Context) error {
+	s, machine, vhd := devDriveMissingService(t, time.Minute, time.Hour, func(context.Context) error {
 		starts++
 		return errors.New("schtasks /Run: ERROR: Access is denied.")
 	})
@@ -98,8 +98,8 @@ func TestATaskTheBoardMayNotStartGetsTheAttachItemOnce(t *testing.T) {
 
 	// Assert
 	items := devDriveItems(s)
-	if starts != 1 || len(items) != 1 || items[0].DevDrive != "attach" || !strings.Contains(items[0].Command, devdrive.AttachScriptName) || !strings.Contains(items[0].Command, "SetSecurityDescriptor") {
-		t.Fatalf("starts = %d, items = %+v; want one attach item that registers this build's task", starts, items)
+	if starts != 1 || len(items) != 1 || items[0].DevDrive != "attach" || items[0].Command != devdrive.CreateScript(vhd, "D:", 0) {
+		t.Fatalf("starts = %d, items = %+v; want one attach item that runs the create script, which registers this build's task", starts, items)
 	}
 
 	// Act: it is not run, and the board looks again.
@@ -195,7 +195,7 @@ func TestAnAttachedDriveOffersNothing(t *testing.T) {
 func TestAnOldStartupTaskGetsOneRenewItemOnce(t *testing.T) {
 	// Arrange
 	var reads int
-	s, machine, _ := devDriveMissingService(t, time.Hour, time.Hour, func(context.Context) error { return nil })
+	s, machine, vhd := devDriveMissingService(t, time.Hour, time.Hour, func(context.Context) error { return nil })
 	machine.Volumes = append(machine.Volumes, devdrive.Volume{Root: `D:\`, FileSystem: "ReFS", Dev: true, Trust: devdrive.Trusted})
 	s.Options.DevDrive.TaskCurrent = func(context.Context) (bool, error) { reads++; return false, nil }
 
@@ -204,8 +204,8 @@ func TestAnOldStartupTaskGetsOneRenewItemOnce(t *testing.T) {
 
 	// Assert
 	items := devDriveItems(s)
-	if len(items) != 1 || items[0].DevDrive != "task" || !items[0].Admin || !strings.Contains(items[0].Command, "SetSecurityDescriptor") || !strings.Contains(items[0].Title, "Renew the startup task") {
-		t.Fatalf("items = %+v, want one renew item", items)
+	if len(items) != 1 || items[0].DevDrive != "task" || !items[0].Admin || items[0].Command != devdrive.CreateScript(vhd, "D:", 0) || !strings.Contains(items[0].Title, "Renew the startup task") {
+		t.Fatalf("items = %+v, want one renew item that runs the create script", items)
 	}
 
 	// Act: it expires unrun, and the board looks again and again.
@@ -217,6 +217,45 @@ func TestAnOldStartupTaskGetsOneRenewItemOnce(t *testing.T) {
 	// Assert
 	if items := devDriveItems(s); len(items) != 1 || reads != 1 {
 		t.Errorf("items = %+v after %d task reads; want the renew item offered once", items, reads)
+	}
+}
+
+// A drive that goes missing while the renew item waits, as after a restart
+// before the person ran it, is attached by that item: the line names it, and
+// the board neither starts the old task nor offers an attach item beside
+// it. Once it ended unrun, the board looks after the drive as after a boot.
+func TestAMissingDriveWhileTheRenewItemWaitsNamesThatItem(t *testing.T) {
+	// Arrange
+	var starts int
+	s, machine, _ := devDriveMissingService(t, time.Hour, time.Hour, func(context.Context) error { starts++; return nil })
+	machine.Volumes = append(machine.Volumes, devdrive.Volume{Root: `D:\`, FileSystem: "ReFS", Dev: true, Trust: devdrive.Trusted})
+	s.Options.DevDrive.TaskCurrent = func(context.Context) (bool, error) { return false, nil }
+	s.keepDevDrive(context.Background())
+	if items := devDriveItems(s); len(items) != 1 || items[0].DevDrive != "task" {
+		t.Fatalf("items = %+v, want the renew item", items)
+	}
+
+	// Act: D: goes missing while the renew item waits.
+	machine.Volumes = machine.Volumes[:1]
+	s.keepDevDrive(context.Background())
+
+	// Assert
+	items := devDriveItems(s)
+	view := s.devDriveViewNow()
+	if starts != 0 || len(items) != 1 || items[0].DevDrive != "task" || view.Waiting != "task" || view.Action != "" || view.Line != devdrive.MissingLine(`D:\CodeGoblins`, devdrive.AttachByRenew) {
+		t.Fatalf("starts = %d, items = %+v, view = %+v; want only the renew item, named by the line", starts, items, view)
+	}
+	if strings.Contains(items[0].Title, "stays attached") || !strings.Contains(items[0].Title, "if it is not attached") {
+		t.Errorf("the renew item's title = %q, want it true of a missing drive", items[0].Title)
+	}
+
+	// Act: it ends unrun.
+	endDevDriveItem(t, s, 1)
+	s.keepDevDrive(context.Background())
+
+	// Assert
+	if view := s.devDriveViewNow(); starts != 1 || len(devDriveItems(s)) != 1 || view.Line != devdrive.MissingLine(`D:\CodeGoblins`, devdrive.AttachByTask) {
+		t.Errorf("starts = %d, items = %+v, view = %+v; want the startup task started and no new item yet", starts, devDriveItems(s), view)
 	}
 }
 

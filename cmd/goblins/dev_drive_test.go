@@ -333,6 +333,52 @@ func TestDevDriveSaysHowMuchOfTheSystemDriveItsFileHolds(t *testing.T) {
 	}
 }
 
+// goblins doctor and goblins dev-drive end a missing drive's line with who
+// attaches it: the board, through its startup task and then Attach, for a
+// drive Code Goblins made, whose file the home's config\dev-drive.json
+// names, and the person, by hand, for one it did not. Neither names an item.
+func TestDoctorAndDevDriveSayWhoAttachesAMissingDrive(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		isMade bool
+		how    string
+	}{
+		{name: "made by Code Goblins", isMade: true, how: devdrive.AttachByBoard},
+		{name: "one the person had", how: devdrive.AttachByHand},
+	} {
+		for _, command := range []string{"doctor", "dev-drive"} {
+			t.Run(test.name+"/"+command, func(t *testing.T) {
+				// Arrange
+				root := t.TempDir()
+				t.Setenv("GOBLINS_HOME", root)
+				t.Setenv("GOBLINS_STATE_OVERRIDE", "")
+				config := home.DevDriveConfig{Root: `Q:\CodeGoblins`}
+				if test.isMade {
+					config.VHD = filepath.Join(t.TempDir(), "CodeGoblins.vhdx")
+				}
+				if err := home.WriteDevDriveConfig(root, config); err != nil {
+					t.Fatal(err)
+				}
+
+				// Act
+				var stdout, stderr bytes.Buffer
+				runWithRuntime([]string{command}, &stdout, &stderr, runtimeOn(t, machineWith()))
+
+				// Assert
+				var line string
+				for _, said := range strings.Split(strings.ReplaceAll(stdout.String(), "\r\n", "\n"), "\n") {
+					if strings.HasPrefix(said, "dev drive: ") {
+						line = said
+					}
+				}
+				if !strings.Contains(line, `Q: is not there`) || !strings.HasSuffix(line, test.how) || strings.Contains(line, "item") {
+					t.Errorf("dev drive line = %q, want it to end %q and name no item\n%s", line, test.how, stdout.String())
+				}
+			})
+		}
+	}
+}
+
 // goblins dev-drive says what the drive's startup task did since the boot,
 // from the result it writes beside the drive's file, which is where the
 // person reads whether the last restart attached the drive by itself.

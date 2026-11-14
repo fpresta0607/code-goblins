@@ -9,62 +9,12 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
-// The startup task the create and attach items register runs the attach
-// script from the drive's own folder, on battery power too, with no time
-// limit, and anyone signed in may start it, never change it. The task
-// registered before ran Mount-DiskImage alone with its error hidden and the
-// default settings, which stop it on battery power and after 72 hours.
-func TestTheStartupTaskRunsTheAttachScriptOnBatteryWithNoTimeLimit(t *testing.T) {
-	// Arrange
-	vhd := `C:\DevDrives\CodeGoblins.vhdx`
-
-	// Act
-	script := CreateScript(vhd, "D:", 0)
-
-	// Assert
-	for _, says := range []string{
-		"$attachScript = Join-Path $folder 'CodeGoblins-attach.ps1'",
-		"Set-Content -LiteralPath $attachScript -Encoding UTF8 -Value @'\r\n" + AttachScript(vhd, "D:") + "'@\r\n",
-		"-ExecutionPolicy Bypass -File `\"$attachScript`\"",
-		"-Settings (New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan) -MultipleInstances IgnoreNew)",
-		"-User 'NT AUTHORITY\\SYSTEM' -RunLevel Highest -Force",
-		".GetTask('Code Goblins Dev Drive').SetSecurityDescriptor('D:(A;;FA;;;BA)(A;;FA;;;SY)(A;;GRGX;;;AU)', 0)",
-	} {
-		if !strings.Contains(script, says) {
-			t.Errorf("the create script lacks %q:\n%s", says, script)
-		}
-	}
-	if strings.Contains(script, "-ErrorAction SilentlyContinue\"") {
-		t.Errorf("the startup task still hides its error:\n%s", script)
-	}
-}
-
-// The attach script's tries are bounded, and what it did reaches a file
-// anyone signed in may read, beside the drive's own.
-func TestTheAttachScriptIsBoundedAndWritesItsResult(t *testing.T) {
-	// Act
-	script := AttachScript(`C:\DevDrives\CodeGoblins.vhdx`, "D:")
-
-	// Assert
-	for _, says := range []string{
-		"$vhd = 'C:\\DevDrives\\CodeGoblins.vhdx'",
-		"$letter = 'D'",
-		"$tries = 12",
-		"Start-Sleep -Seconds 10",
-		"Set-Partition -NewDriveLetter $letter",
-		"$result = Join-Path (Split-Path -Parent $vhd) 'CodeGoblins-attach.json'",
-		"icacls $result /grant '*S-1-5-11:R'",
-		"if (-not $attached) { exit 1 }",
-	} {
-		if !strings.Contains(script, says) {
-			t.Errorf("the attach script lacks %q:\n%s", says, script)
-		}
-	}
+// The board waits for the startup task it started for every try and every
+// pause the task takes and a minute more, which is the 3 minutes the board
+// is told to wait at most before it offers the Attach item.
+func TestTheBoardWaitsForTheStartupTaskThreeMinutesAtMost(t *testing.T) {
 	if AttachBound != 3*time.Minute {
 		t.Errorf("AttachBound = %s, want every try and pause and a minute: 3m", AttachBound)
-	}
-	if got := AttachResultPath(`C:\DevDrives\CodeGoblins.vhdx`); !strings.HasSuffix(got, "CodeGoblins-attach.json") {
-		t.Errorf("AttachResultPath = %q", got)
 	}
 }
 

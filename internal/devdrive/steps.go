@@ -120,7 +120,7 @@ func renew(vhd, letter string) Plan {
 		Admin:  true,
 		VHD:    vhd,
 		Script: CreateScript(vhd, letter, 0),
-		Title:  fmt.Sprintf("Renew the startup task of the Code Goblins Dev Drive %s (administrator): from the next restart it attaches %s by itself, tries again while Windows is not ready and gives it back its letter, and the board can start it with no click. %s stays attached and nothing else changes", letter, vhd, letter),
+		Title:  fmt.Sprintf("Renew the startup task of the Code Goblins Dev Drive %s (administrator): it attaches %s if it is not attached, gives it back its letter and renews its startup task, which from the next restart attaches it by itself and tries again while Windows is not ready, and which the board can start with no click. Nothing else changes", letter, vhd),
 	}
 }
 

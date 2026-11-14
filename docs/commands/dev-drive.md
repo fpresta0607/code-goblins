@@ -51,4 +51,5 @@ Anyone signed in may start the task, never change it, so when the board finds th
 Only when Windows refuses to start the task, or the task wrote that it could not attach the drive, or wrote nothing within 3 minutes, does an **Attach** item come, at once, made once for each boot and each press of **Attach**, whatever the age of the last one: there is no 12 hour rule.
 The line under the Dev Drive names the Attach item only while one waits, and otherwise names **Attach** in the panel, which starts the task again before any item.
 An install made before this has a task only administrators may read or start, which ran `Mount-DiskImage` alone with its error hidden and was stopped on battery power: while its drive is attached it gets one **Renew the startup task** item, made once and never again, and a boot that finds its drive missing gets the Attach item at once, since the board may not start that task.
+The Renew item attaches the drive too when it is not attached, so a drive that goes missing while it waits gets no Attach item beside it, and the line names the Renew item instead.
 Either item registers the new task, so the restarts after it need no click.

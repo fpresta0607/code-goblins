@@ -214,6 +214,9 @@ const (
 	AttachByPanel = "Attach under Dev Drive in the board's Workspace panel attaches it again"
 	// AttachByItem is the Attach item, while one waits.
 	AttachByItem = "the Attach item waiting in the Command Center attaches it again"
+	// AttachByRenew is the Renew item, while one waits: it attaches the
+	// drive too, so no Attach item comes beside it.
+	AttachByRenew = "the Renew item waiting in the Command Center attaches it again"
 	// AttachByTask is the startup task the board started and waits for.
 	AttachByTask = "its startup task is attaching it now, with no click"
 	// AttachByHand is a drive Code Goblins did not make.

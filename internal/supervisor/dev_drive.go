@@ -182,8 +182,13 @@ func (s *Service) devDriveStep(ctx context.Context) (*DevDriveView, bool, error)
 	view := &DevDriveView{State: string(report.State), Line: report.Line, Note: report.Note, Explain: devdrive.Explain, Choice: config.Choice}
 	done := devDriveDone(report, m, h)
 	waiting := s.devDriveWaiting()
-	if waiting == string(devdrive.StepAttach) && report.State == devdrive.StateMissing {
-		view.Line = devdrive.MissingLine(config.Root, devdrive.AttachByItem)
+	if report.State == devdrive.StateMissing {
+		switch devdrive.Step(waiting) {
+		case devdrive.StepAttach:
+			view.Line = devdrive.MissingLine(config.Root, devdrive.AttachByItem)
+		case devdrive.StepTask:
+			view.Line = devdrive.MissingLine(config.Root, devdrive.AttachByRenew)
+		}
 	}
 	if waiting != "" {
 		view.Waiting = waiting
