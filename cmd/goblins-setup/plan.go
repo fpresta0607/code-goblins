@@ -76,7 +76,7 @@ func devDriveOffer(machine devdrive.Machine, config home.DevDriveConfig, root st
 	if config.Choice != "" || config.Root != "" {
 		return false, ""
 	}
-	report := devdrive.Describe(machine, home.Home{Root: root})
+	report := devdrive.Describe(machine, home.Home{Root: root}, "")
 	switch report.State {
 	case devdrive.StateAbsent, devdrive.StatePresent:
 		return true, ""

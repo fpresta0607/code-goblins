@@ -31,7 +31,7 @@ func TestAMachineThatCannotHaveADevDriveIsToldWhy(t *testing.T) {
 			test.change(&m)
 
 			// Act
-			report := Describe(m, home.Home{Root: `C:\Users\op\AppData\Local\CodeGoblins`})
+			report := Describe(m, home.Home{Root: `C:\Users\op\AppData\Local\CodeGoblins`}, "")
 
 			// Assert
 			if report.State != StateUnavailable || !strings.Contains(report.Line, test.says) || !strings.Contains(report.Line, "keeps its worktrees and caches in the home, as always") {
@@ -42,7 +42,7 @@ func TestAMachineThatCannotHaveADevDriveIsToldWhy(t *testing.T) {
 }
 
 func TestAMachineThatCanHaveOneHearsItIsOptionalAndNoExclusion(t *testing.T) {
-	report := Describe(ready(), home.Home{Root: `C:\Users\op\AppData\Local\CodeGoblins`})
+	report := Describe(ready(), home.Home{Root: `C:\Users\op\AppData\Local\CodeGoblins`}, "")
 	if report.State != StateAbsent || !strings.Contains(report.Line, "optional") || !strings.Contains(report.Line, "not a Defender exclusion") {
 		t.Errorf("report = %+v, want absent, optional and not an exclusion", report)
 	}
