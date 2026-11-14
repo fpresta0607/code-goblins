@@ -433,15 +433,27 @@ func (r Reader) returnCustodyAtRecordedHead(ctx context.Context, worktree, branc
 	}
 	// Native recovery verifies an unverified head against the gate branch
 	// first, and the head it then takes can fast-forward or replace the branch.
+	// It takes the recorded head itself only when that head extends the gate
+	// branch, which holds the submitted head, through the reviewed head, as a
+	// run that failed in an ordinary step after the gate committed its review
+	// fixes does (#2376).
 	var verified []struct {
-		At int64 `json:"terminal_head_verified_at"`
+		At       int64  `json:"terminal_head_verified_at"`
+		Reviewed string `json:"review_approved_head_sha"`
 	}
-	query := `SELECT COALESCE(terminal_head_verified_at,0) AS terminal_head_verified_at FROM runs WHERE id=` + sqlString(run.RunID) + ` AND head_sha=` + sqlString(run.RecordedHead)
+	query := `SELECT COALESCE(terminal_head_verified_at,0) AS terminal_head_verified_at, COALESCE(review_approved_head_sha,'') AS review_approved_head_sha FROM runs WHERE id=` + sqlString(run.RunID) + ` AND head_sha=` + sqlString(run.RecordedHead)
 	if err := r.query(ctx, query, &verified); err != nil {
 		return err
 	}
-	if len(verified) != 1 || verified[0].At == 0 {
-		return errors.New("pipeline: the engine never verified the run's recorded head, and native recovery of an unverified head can move the task branch")
+	isHeadKept := len(verified) == 1 && verified[0].At != 0
+	if len(verified) == 1 && !isHeadKept {
+		var err error
+		if isHeadKept, err = r.extendsThroughReviewed(ctx, bare, run.SubmittedHead, verified[0].Reviewed, run.RecordedHead); err != nil {
+			return err
+		}
+	}
+	if !isHeadKept {
+		return errors.New("pipeline: the engine never verified the run's recorded head, and native recovery of an unverified head that does not extend the gate branch through its reviewed head can move the task branch")
 	}
 	// The gate alignment after native recovery needs the submitted head here,
 	// and a custody return it cannot finish would refuse every retry.
@@ -799,6 +811,29 @@ func (r Reader) requireCommit(ctx context.Context, repo, head string, bare bool)
 		return errors.New(head)
 	}
 	return nil
+}
+
+// extendsThroughReviewed reports whether recorded extends submitted through
+// reviewed, the head Review approved: the shape of an unverified head native
+// recovery verifies in place, since the gate branch then holds submitted.
+func (r Reader) extendsThroughReviewed(ctx context.Context, repo, submitted, reviewed, recorded string) (bool, error) {
+	if reviewed == "" {
+		return false, nil
+	}
+	for _, pair := range [][2]string{{submitted, reviewed}, {reviewed, recorded}} {
+		ancestry, err := r.runGit(ctx, repo, true, "merge-base", "--is-ancestor", pair[0], pair[1])
+		if err != nil {
+			return false, err
+		}
+		switch ancestry.ExitCode {
+		case 0:
+		case 1:
+			return false, nil
+		default:
+			return false, errors.New("pipeline: could not establish recovery ancestry")
+		}
+	}
+	return true, nil
 }
 
 func (r Reader) safeRecoveryRelation(ctx context.Context, repo, recorded, submitted string) (bool, error) {

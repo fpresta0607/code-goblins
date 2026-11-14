@@ -738,19 +738,31 @@ func TestRecoverKeepLocalReturnsCustodyAtARebasedAndFixedRecordedHead(t *testing
 		repo   = "ab81b9a3460e"
 		branch = "fix/gate-rebase-recovery"
 	)
+	// A run that failed in an ordinary step after the gate committed its
+	// review fixes on the submitted head carries no verification stamp, which
+	// only a restart's crash recovery writes, and native verifies its recorded
+	// head in place, since that head extends the gate branch through the
+	// reviewed head: on 2026-11-11 a docs run failed at Document that way and
+	// recovery refused it (#2376). Any other unverified head stays refused.
 	for _, test := range []struct {
-		name         string
-		isGateMoved  bool
-		isUnverified bool
-		refusal      string
+		name                   string
+		isGateMoved            bool
+		isUnverified           bool
+		isOnSubmitted          bool
+		isUnreviewed           bool
+		isReviewedBeforeRebase bool
+		refusal                string
 	}{
 		{name: "gate branch at the submitted head"},
 		{name: "gate branch moved off the submitted head", isGateMoved: true, refusal: "preserved gate branch is unsafe"},
 		{name: "recorded head the engine never verified", isUnverified: true, refusal: "never verified the run's recorded head"},
+		{name: "unverified fix commit on the submitted head", isUnverified: true, isOnSubmitted: true},
+		{name: "unverified fix commit on the submitted head with no reviewed head", isUnverified: true, isOnSubmitted: true, isUnreviewed: true, refusal: "never verified the run's recorded head"},
+		{name: "unverified rebased head after a review fix on the submitted head", isUnverified: true, isReviewedBeforeRebase: true, refusal: "never verified the run's recorded head"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			// Arrange: the gate rebased the submitted head onto a newer main and
-			// added a review fix commit, a restart ended the run, and the task
+			// Arrange: the gate rebased the submitted head onto a newer main, or
+			// kept it, and added a review fix commit, the run ended, and the task
 			// branch was put at the recorded head while the gate branch kept the
 			// submitted head.
 			work := filepath.Join(t.TempDir(), "work")
@@ -772,7 +784,13 @@ func TestRecoverKeepLocalReturnsCustodyAtARebasedAndFixedRecordedHead(t *testing
 			runPipelineGit(t, work, "switch", "--quiet", "main")
 			upstream := commit("upstream.txt", "upstream\n")
 			runPipelineGit(t, work, "switch", "--quiet", branch)
-			runPipelineGit(t, work, "rebase", "--quiet", "main")
+			reviewedHead := ""
+			if test.isReviewedBeforeRebase {
+				reviewedHead = commit("early-review-fix.txt", "early review fix\n")
+			}
+			if !test.isOnSubmitted {
+				runPipelineGit(t, work, "rebase", "--quiet", "main")
+			}
 			recorded := commit("review-fix.txt", "review fix\n")
 
 			root := t.TempDir()
@@ -783,15 +801,24 @@ func TestRecoverKeepLocalReturnsCustodyAtARebasedAndFixedRecordedHead(t *testing
 			if test.isGateMoved {
 				gate = upstream
 			}
-			runPipelineGit(t, work, "push", "--quiet", bare, gate+":refs/heads/"+branch, submitted+":refs/fixture/submitted", recorded+":refs/fixture/run", upstream+":refs/remotes/origin/main")
+			refspecs := []string{gate + ":refs/heads/" + branch, submitted + ":refs/fixture/submitted", recorded + ":refs/fixture/run", upstream + ":refs/remotes/origin/main"}
+			reviewed := sqlString(recorded)
+			if reviewedHead != "" {
+				refspecs = append(refspecs, reviewedHead+":refs/fixture/reviewed")
+				reviewed = sqlString(reviewedHead)
+			}
+			runPipelineGit(t, work, append([]string{"push", "--quiet", bare}, refspecs...)...)
 			verifiedAt := "1"
 			if test.isUnverified {
 				verifiedAt = "NULL"
 			}
+			if test.isUnreviewed {
+				reviewed = "NULL"
+			}
 			sql := `CREATE TABLE repos(id TEXT,working_path TEXT);
-CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,status TEXT,head_sha TEXT,submitted_head_sha TEXT,last_pushed_sha TEXT,custody_returned_at INTEGER,terminal_head_verified_at INTEGER,created_at INTEGER,updated_at INTEGER);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,status TEXT,head_sha TEXT,submitted_head_sha TEXT,review_approved_head_sha TEXT,last_pushed_sha TEXT,custody_returned_at INTEGER,terminal_head_verified_at INTEGER,created_at INTEGER,updated_at INTEGER);
 INSERT INTO repos VALUES(` + sqlString(repo) + `,` + sqlString(filepath.ToSlash(work)) + `);
-INSERT INTO runs VALUES(` + sqlString(run) + `,` + sqlString(repo) + `,` + sqlString(branch) + `,'failed',` + sqlString(recorded) + `,` + sqlString(submitted) + `,NULL,NULL,` + verifiedAt + `,1,1);`
+INSERT INTO runs VALUES(` + sqlString(run) + `,` + sqlString(repo) + `,` + sqlString(branch) + `,'failed',` + sqlString(recorded) + `,` + sqlString(submitted) + `,` + reviewed + `,NULL,NULL,` + verifiedAt + `,1,1);`
 			if out, err := exec.Command("sqlite3", database, sql).CombinedOutput(); err != nil {
 				t.Fatalf("fixture: %s %v", out, err)
 			}
