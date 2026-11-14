@@ -240,6 +240,11 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     if (folds.size) next.set(message, folds); else next.delete(message);
     return next;
   }), []);
+  // His messages drawn where he sent them that he sent again or took off the
+  // board, kept here so a row that leaves the window and comes back never
+  // offers that press again (#2541).
+  const [putAway, setPutAway] = useState<ReadonlySet<string>>(() => new Set());
+  const putAwayRow = useCallback((id: string) => setPutAway((prior) => new Set(prior).add(id)), []);
   // The message whose row holds the keyboard, so the keyboard goes to the
   // list when that row leaves the window and the list's keys keep working.
   const focusedRow = useRef("");
@@ -529,11 +534,12 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     // and never seen taken, stay where he sent them with what happened and
     // Send again until something he sent after them lands, a message of the
     // board's whose row or take was seen, by when he sent it, or a row of his
-    // no board message owns, so none reads as on its way for ever (#2242).
+    // no board message owns, so none reads as on its way for ever (#2242),
+    // or until he sends one again or takes it off the board.
     const hasLandedSince = (sentAt: number) => rows.some((row) => Date.parse(row.at) > sentAt)
       || held.sent.some((other) => (other.status === "succeeded" || read.has(other.id)) && Date.parse(other.created_at) > sentAt);
-    return { read, undelivered: held.sent.filter((action) => isUndelivered(action) && !hasLandedSince(Date.parse(action.created_at))) };
-  }, [taken, held.sent]);
+    return { read, undelivered: held.sent.filter((action) => isUndelivered(action) && !putAway.has(action.id) && !hasLandedSince(Date.parse(action.created_at))) };
+  }, [taken, held.sent, putAway]);
   const conversation = useMemo(() => withUndelivered(taken, undelivered, held.more), [taken, undelivered, held.more]);
   const rowIndices = useMemo(() => new Map(conversation.map((message, index) => [message.id, index])), [conversation]);
   const offsets = useMemo(() => {
@@ -920,7 +926,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
             ...conversation.slice(span.start, span.end).map((message) => {
               const ended = undelivered.find((action) => UNDELIVERED_ROW + action.id === message.id);
               return ended
-                ? <QueuedMessage key={message.id} action={ended} liveAction={ended} instance={instance} name={name} variant="pane" row={message.id} />
+                ? <QueuedMessage key={message.id} action={ended} liveAction={ended} instance={instance} name={name} variant="pane" row={message.id} onPutAway={putAwayRow} />
                 : <MessageRow key={message.id} message={message} openFolds={openFolds.get(message.id) ?? NO_FOLDS} onFold={foldRow}
                   harness={harness} isTurnEnd={ends.has(message.id)} onRun={isWrittenReply(message, held.messages, held.isWorking) ? runCode : undefined}
                   task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? held.task : undefined} picture={picture} keptPicture={keptPicture} onChild={openChild} />;

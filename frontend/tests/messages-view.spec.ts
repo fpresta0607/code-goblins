@@ -802,10 +802,9 @@ test("Dismiss on a message never seen taken asks the board to take it away", asy
   await expect(bubble.getByRole("button")).toHaveCount(0);
 });
 
-// conversationRows lists the conversation's rows in the list's order, those
-// the list measures and keeps his place by, each by its message, or by the
-// board's message drawn as one.
-const conversationRows = (box: Locator) => box.evaluate((element) => [...element.querySelectorAll<HTMLElement>(".conversation-items > [data-message]")].map((row) => row.dataset.queued ?? row.dataset.message));
+// conversationRows lists the conversation's rows in the list's order, by the
+// IDs the list measures them and keeps his place by.
+const conversationRows = (box: Locator) => box.evaluate((element) => [...element.querySelectorAll<HTMLElement>(".conversation-items > [data-message]")].map((row) => row.dataset.message));
 
 // The Overlord, 2026-11-13, of two messages of his drawn Not confirmed under
 // the newest turn hours after he sent them: "Stale old messages that appear
@@ -834,7 +833,7 @@ test("a message that ended with no take seen is drawn where he sent it, never un
   // Assert
   await expect(talk.locator('[data-queued="a1"]')).toContainText("Not confirmed");
   await expect(talk.locator('[data-queued="a2"]')).toContainText("Not sent");
-  await expect.poll(() => conversationRows(talk)).toEqual(["m0", "m1", "a1", "m2", "a2"]);
+  await expect.poll(() => conversationRows(talk)).toEqual(["m0", "m1", "undelivered-a1", "m2", "undelivered-a2"]);
 });
 
 // One sent before the first row of the page loaded belongs to the older page,
@@ -875,8 +874,47 @@ test("a message that ended with no take seen before the page loaded is drawn onl
   release();
 
   // Assert
-  await expect.poll(() => conversationRows(talk)).toEqual(["m18", "m19", "a1", "m20", "m21", "a2"]);
+  await expect.poll(() => conversationRows(talk)).toEqual(["m18", "m19", "undelivered-a1", "m20", "m21", "undelivered-a2"]);
 });
+
+// A press that takes a message drawn where he sent it away keeps it away
+// however often reading up and down draws its place again, so its words are
+// never sent twice nor his press offered again (the Overlord, 2026-10-28:
+// "lack of indmepotent click on teh queue", #2541).
+for (const [status, press, kind] of [
+  ["uncertain", "Send again", "message"],
+  ["uncertain", "Dismiss", "message_withdraw"],
+  ["failed", "Cancel", "message_withdraw"],
+] as const) {
+  test(`a message drawn where he sent it stays away after his ${press} once reading draws its place again`, async ({ page }) => {
+    // Arrange
+    const posted: { kind: string }[] = [];
+    await open(page);
+    await page.route("**/api/actions", (route) => { posted.push(route.request().postDataJSON() as { kind: string }); return route.fulfill({ status: 202, json: {} }); });
+    await openGoblin(page);
+    const talk = list(page, "Zeke - Touch Wrangler");
+    const minute = (count: number) => new Date(Date.parse(at) + count * 60_000).toISOString();
+    await send(page, "page", { conversation: "fixture-conversation", more: false, messages: Array.from({ length: 80 }, (_, seq) =>
+      ({ ...reply(seq, { kind: "text", text: `Answer ${seq}\n\nIt runs over a few lines\nso the page has height to read up in.` }), at: minute(seq) })) });
+    await expect(talk.locator('[data-message="m79"]')).toBeVisible();
+    await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [{ id: "a1", kind: "message", task_id: "cg-touch", text: "check the phone spec", status, message: "The terminal closed before it took it.", awaiting: "", created_at: minute(10.5), updated_at: minute(10.5) }] });
+    const ended = talk.locator('[data-queued="a1"]');
+    await scrollTo(talk, 0);
+    await ended.getByRole("button", { name: press, exact: true }).click();
+    await expect.poll(() => posted.map((post) => post.kind)).toEqual([kind]);
+    await expect(ended).toHaveCount(0);
+
+    // Act: he reads on down past where the rows around it are drawn, and up again.
+    await page.getByRole("button", { name: "Jump to latest" }).click();
+    await expect(talk.locator('[data-message="m10"]'), "the rows around it are no longer drawn").toHaveCount(0);
+    await scrollTo(talk, 0);
+    await expect(talk.locator('[data-message="m11"]')).toBeVisible();
+
+    // Assert
+    await expect(ended).toHaveCount(0);
+    expect(posted.map((post) => post.kind)).toEqual([kind]);
+  });
+}
 
 // What he sent after a message that ended with no take seen and saw land puts
 // that message away, by when he sent it, whenever the board last touched its

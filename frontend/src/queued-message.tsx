@@ -42,8 +42,9 @@ export const QUEUED_NOTICE = "ceo-queued-notice";
 // board let it go says where it went.
 // row names the conversation's row it is drawn as, one whose delivery ended
 // with no take seen being drawn where he sent it, so the list measures it and
-// keeps his place by it as by the session's own rows (#2541).
-export const QueuedMessage = memo(function QueuedMessage({ action, harnessState, liveAction, instance, name, variant, row, onDeleted }: QueuedProps) {
+// keeps his place by it as by the session's own rows, and onPutAway hears its
+// ID once he sent it again or took it off the board, so that row goes (#2541).
+export const QueuedMessage = memo(function QueuedMessage({ action, harnessState, liveAction, instance, name, variant, row, onPutAway }: QueuedProps) {
   const [isSending, setSending] = useState(false);
   // What he already asked of this message, so a second press asks nothing
   // more (the Overlord, 2026-10-28: "lack of indmepotent click on teh
@@ -84,7 +85,7 @@ export const QueuedMessage = memo(function QueuedMessage({ action, harnessState,
   const sendAgain = async () => {
     if (isSending) return;
     setSending(true);
-    try { await post({ id: crypto.randomUUID(), kind: "message", task_id: action.task_id, generation: "", text: action.text }); setAsked("again"); }
+    try { await post({ id: crypto.randomUUID(), kind: "message", task_id: action.task_id, generation: "", text: action.text }); setAsked("again"); onPutAway?.(action.id); }
     catch (error: unknown) {
       refuse(message(error));
       if (!(error instanceof Error && error.cause !== undefined)) reportToCeo("a message sent again to " + name, message(error));
@@ -135,23 +136,23 @@ export const QueuedMessage = memo(function QueuedMessage({ action, harnessState,
       <button type="button" className="icon-button" aria-label="Edit" disabled={isSending} aria-disabled={!canActNow}
         onClick={() => { if (canActNow) window.dispatchEvent(new CustomEvent<string>(TAKE_BACK_MESSAGE, { detail: action.id })); else refuse(movedWhy); }}><Icon name="edit" /></button>
       <button type="button" className="icon-button" aria-label="Cancel" disabled={isSending} aria-disabled={!canActNow}
-        onClick={() => { if (canActNow && current) void act({ kind: "message_withdraw", text: current.text }, () => { setAsked("withdrawn"); onDeleted?.(); }); else refuse(movedWhy); }}><Icon name="close" /></button>
+        onClick={() => { if (canActNow && current) void act({ kind: "message_withdraw", text: current.text }, () => { setAsked("withdrawn"); onPutAway?.(action.id); }); else refuse(movedWhy); }}><Icon name="close" /></button>
     </div>}
     {isUnsent && asked !== "withdrawn" && <div className="queued-actions">
       <button type="button" className="icon-button" aria-label="Send now" disabled={isSending || resent === action.updated_at}
         onClick={() => void act({ kind: "message_now" }, () => { setAsked("now"); setResent(action.updated_at); })}><Icon name="arrow-up" /></button>
       <button type="button" className="icon-button" aria-label="Cancel" disabled={isSending}
-        onClick={() => void act({ kind: "message_withdraw", text: action.text }, () => { setAsked("withdrawn"); onDeleted?.(); })}><Icon name="close" /></button>
+        onClick={() => void act({ kind: "message_withdraw", text: action.text }, () => { setAsked("withdrawn"); onPutAway?.(action.id); })}><Icon name="close" /></button>
     </div>}
     {!harnessState && action.status === "uncertain" && asked !== "withdrawn" && <div className="queued-actions">
       <button type="button" className="icon-button" aria-label="Send again" disabled={isSending} onClick={() => void sendAgain()}><Icon name="arrow-up" /></button>
       <button type="button" className="icon-button" aria-label="Dismiss" disabled={isSending}
-        onClick={() => void act({ kind: "message_withdraw", text: action.text }, () => { setAsked("withdrawn"); onDeleted?.(); })}><Icon name="close" /></button>
+        onClick={() => void act({ kind: "message_withdraw", text: action.text }, () => { setAsked("withdrawn"); onPutAway?.(action.id); })}><Icon name="close" /></button>
     </div>}
   </div>;
 }, isSameQueued);
 
-type QueuedProps = { action: Action; harnessState?: "Queued" | "Sending"; liveAction?: Action | null; instance: string; name: string; variant: "pane" | "queue"; row?: string; onDeleted?: () => void };
+type QueuedProps = { action: Action; harnessState?: "Queued" | "Sending"; liveAction?: Action | null; instance: string; name: string; variant: "pane" | "queue"; row?: string; onPutAway?: (id: string) => void };
 
 // Each snapshot parses every action anew, so a comparison by identity drew
 // every queued message again on every snapshot, 315 times in 120 s of a live
@@ -164,5 +165,5 @@ function isSameAction(was: Action | null | undefined, is: Action | null | undefi
 
 function isSameQueued(prior: QueuedProps, next: QueuedProps): boolean {
   return isSameAction(prior.action, next.action) && isSameAction(prior.liveAction, next.liveAction)
-    && prior.harnessState === next.harnessState && prior.instance === next.instance && prior.name === next.name && prior.variant === next.variant && prior.row === next.row && prior.onDeleted === next.onDeleted;
+    && prior.harnessState === next.harnessState && prior.instance === next.instance && prior.name === next.name && prior.variant === next.variant && prior.row === next.row && prior.onPutAway === next.onPutAway;
 }
