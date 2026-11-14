@@ -11,7 +11,12 @@ import (
 
 func preparedFixture(t *testing.T) (string, PreparedInventory) {
 	t.Helper()
-	root := t.TempDir()
+	// macOS keeps temporary folders under /var, a link to /private/var, and
+	// the check refuses every link on the way to the generation.
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	inventory := PreparedInventory{Identity: "headless-shell-1243-fixture"}
 	for _, name := range []string{"runtime/v8_context_snapshot.bin", "runtime/vulkan-1.dll", "runtime/vk_swiftshader.dll"} {
 		path := filepath.Join(root, filepath.FromSlash(name))
