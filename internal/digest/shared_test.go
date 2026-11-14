@@ -22,6 +22,7 @@ func TestTheDigestShowsTheSharedServicesAndWhoWaitsOnThem(t *testing.T) {
 		{Name: supervisor.SharedGateDaemon, State: "busy", PID: 276, Runs: 3, Waiting: []string{"fern", "huey"}},
 		{Name: supervisor.SharedHeavyLine, State: "short", Holders: []string{"wanda"}, Queued: []string{"fern"}, AvailableBytes: 4 << 30, FloorBytes: 5 << 30},
 		{Name: supervisor.SharedDocker, State: "running", Holders: []string{"fern"}},
+		{Name: supervisor.SharedScrawl, State: "spinning", PID: 20764, CorePercent: 112},
 	}}
 	for _, c := range []struct {
 		name       string
@@ -29,7 +30,7 @@ func TestTheDigestShowsTheSharedServicesAndWhoWaitsOnThem(t *testing.T) {
 		age        time.Duration
 		want       string
 	}{
-		{"a fresh record", true, time.Minute, "SHARED: gate-daemon busy (pid 276, 3 runs), 2 goblin(s) waiting; heavy-line short (1 held, 1 in line, 4.0 of 5.0 GB); docker running (held by fern)\n"},
+		{"a fresh record", true, time.Minute, "SHARED: gate-daemon busy (pid 276, 3 runs), 2 goblin(s) waiting; heavy-line short (1 held, 1 in line, 4.0 of 5.0 GB); docker running (held by fern); scrawl spinning (pid 20764, 112% of a core)\n"},
 		{"an old record", true, 10 * time.Minute, "; checked 10m0s ago, so the supervisor may not be checking\n"},
 		{"no record yet", false, 0, ""},
 	} {
