@@ -161,7 +161,7 @@ func ceoWaitOf(stateDir string, meta state.TaskMeta, ceoRow func(id string) (row
 		return wait, false, err
 	}
 	since, report := latestReport(lines, spawnTime(meta.SpawnGen))
-	quoted := cutText(report, ceoWaitTextWidth)
+	quoted := bounded(report, ceoWaitTextWidth)
 	rest, isWait := strings.CutPrefix(report, "waiting on ")
 	target, _, isSeparated := strings.Cut(rest, ": ")
 	isWait = isWait && isSeparated
@@ -203,15 +203,7 @@ func rowName(row fleet.BacklogRow) string {
 	if row.Title == "" {
 		return row.ID
 	}
-	return row.ID + " (" + cutText(row.Title, ceoWaitTextWidth) + ")"
-}
-
-// cutText is text cut to width bytes, never inside a character.
-func cutText(text string, width int) string {
-	if len(text) <= width {
-		return text
-	}
-	return strings.ToValidUTF8(text[:width], "") + "..."
+	return row.ID + " (" + bounded(row.Title, ceoWaitTextWidth) + ")"
 }
 
 // checkCEOWaits wakes the CEO for each goblin that has waited on it for

@@ -18,6 +18,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -1511,9 +1512,13 @@ func (s *Store) wakeForAFillingInbox() error {
 	return nil
 }
 
+// bounded is s cut to n bytes and marked "...", never inside a character.
 func bounded(s string, n int) string {
-	if len(s) > n {
-		return s[:n] + "..."
+	if len(s) <= n {
+		return s
 	}
-	return s
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n] + "..."
 }
