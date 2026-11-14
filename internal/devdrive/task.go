@@ -62,7 +62,7 @@ func AttachResultPath(vhd string) string {
 
 // AttachScript is what the startup task runs, as SYSTEM, at every boot and
 // whenever the board starts it: it attaches vhd unless Windows already did,
-// gives its volume back letter, tries again up to AttachTries times, and
+// gives its volume back its letter, tries again up to AttachTries times, and
 // writes what it did and every error to AttachResultPath, which anyone signed
 // in may read. It exits 1 when the drive is not attached.
 func AttachScript(vhd, letter string) string {
