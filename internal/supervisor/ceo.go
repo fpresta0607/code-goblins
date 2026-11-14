@@ -542,9 +542,11 @@ var ErrNotSent = errors.New("Not sent")
 // sendNative types line, as it is, to the primary CEO identity names. It
 // waits for an empty composer, types once and confirms the text before
 // Enter. A prompt hook or a new working turn proves acceptance by an idle
-// CEO; a line submitted during a turn waits in the harness's own queue, as
-// one typed into its terminal by hand does, and is taken at the CEO's next
-// tool call, which only the CEO's own record of its conversation proves.
+// CEO once the text has left its prompt line, unless the screen shows a
+// turn offering its queue, which holds the text as a turn under way does; a
+// line submitted during a turn waits in the harness's own queue, as one
+// typed into its terminal by hand does, and is taken at the CEO's next tool
+// call, which only the CEO's own record of its conversation proves.
 // With sendsNow, a line that queued into a turn gets the harness's own
 // send-now key once, which interrupts the turn and has the CEO take it at
 // once (the CEO, 2026-11-03, withdrawing the 2026-11-02 rule that

@@ -86,7 +86,9 @@ type Evaluation struct {
 	// overlord, ci or deploy.
 	WaitingOn string `json:"waiting_on,omitempty"`
 	// Awaiting is set by a delivery that was typed and submitted and now
-	// waits for its harness to report taking it; its action keeps it.
+	// waits for its harness to report taking it; its action keeps it. A
+	// delivery that failed after its submit key may have gone sets it too,
+	// which only a message left uncertain keeps (#2541).
 	Awaiting *Awaiting `json:"-"`
 	// LeftTyped is set by a delivery that ended with its words typed into a
 	// terminal whose harness took no submit key for them, and never saw them
