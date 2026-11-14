@@ -134,7 +134,7 @@ func focused(ctx context.Context, runner execx.Runner, found findings, text stri
 	plan.Failures = failures
 	byPackage := map[string][]string{}
 	for _, failure := range mapped {
-		if slices.Contains(plan.Tests, failure.Package) || slices.Contains(plan.Alone, failure.Package) {
+		if slices.Contains(plan.Tests, failure.Package) || slices.Contains(plan.Alone, failure.Package) || slices.Contains(found.edited[failure.Package], failure.Name) {
 			continue
 		}
 		byPackage[failure.Package] = append(byPackage[failure.Package], regexp.QuoteMeta(failure.Name))

@@ -63,27 +63,33 @@ func TestGateFocusedRepairRecordsOnlyItsSelectedCommands(t *testing.T) {
 // and no failed test, runs the step's configured level, never every package,
 // says so in one line, and its report carries that level (#2176). On a project
 // whose hosted CI is its test evidence that level is changed, which still
-// runs, by name, the test the repair added.
+// runs, by name and once, the test the repair added, even when that test is
+// also the failed test the repair names.
 func TestGateFocusedRepairThatCannotNarrowRunsAndReportsTheConfiguredLevel(t *testing.T) {
+	hostedChange := map[string]string{
+		"b/regression_test.go": "package b\n\nimport \"testing\"\n\nfunc TestRegression(t *testing.T) {}\n",
+		"c/c_test.go":          "package c\n\nimport \"testing\"\n\nfunc TestC(t *testing.T) {}\n",
+	}
+	regression := []string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "45m", "-run", "^(TestRegression)$", "example.com/m/b"}
 	for _, test := range []struct {
 		name     string
 		evidence string
 		change   map[string]string
-		repair   string
+		focus    string
 		level    string
+		why      string
 		named    []string
 	}{
-		{name: "fast", change: map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"}, repair: "a/a.go", level: "fast"},
+		{name: "fast", change: map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"}, focus: "path a/a.go\n", level: "fast", why: "the repair named no failed test"},
+		{name: "hosted CI", evidence: "hosted-ci", change: hostedChange, focus: "path b/regression_test.go\n", level: "changed", why: "the repair named no failed test", named: regression},
 		{
-			name:     "hosted CI",
+			name:     "hosted CI with the failed test it edited",
 			evidence: "hosted-ci",
-			change: map[string]string{
-				"b/regression_test.go": "package b\n\nimport \"testing\"\n\nfunc TestRegression(t *testing.T) {}\n",
-				"c/c_test.go":          "package c\n\nimport \"testing\"\n\nfunc TestC(t *testing.T) {}\n",
-			},
-			repair: "b/regression_test.go",
-			level:  "changed",
-			named:  []string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "45m", "-run", "^(TestRegression)$", "example.com/m/b"},
+			change:   hostedChange,
+			focus:    "test example.com/m/b --- FAIL: TestRegression (0.01s)\npath b/regression_test.go\npath strange.input\n",
+			level:    "changed",
+			why:      "a repair path has no mapped check or outside classification",
+			named:    regression,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -92,7 +98,7 @@ func TestGateFocusedRepairThatCannotNarrowRunsAndReportsTheConfiguredLevel(t *te
 			dir := testStepModule(t, nil, test.change)
 			t.Chdir(dir)
 			focus := filepath.Join(t.TempDir(), "focus.txt")
-			if err := os.WriteFile(focus, []byte("path "+test.repair+"\n"), 0o600); err != nil {
+			if err := os.WriteFile(focus, []byte(test.focus), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			t.Setenv("NO_MISTAKES_TEST_FOCUS", focus)
@@ -128,7 +134,7 @@ func TestGateFocusedRepairThatCannotNarrowRunsAndReportsTheConfiguredLevel(t *te
 			if report.Level != test.level {
 				t.Errorf("report level = %q; want the configured level %q", report.Level, test.level)
 			}
-			if want := "focused check runs the configured level " + test.level + " over the repaired paths, not the full level, since the repair named no failed test"; !strings.Contains(stdout.String(), want) {
+			if want := "focused check runs the configured level " + test.level + " over the repaired paths, not the full level, since " + test.why; !strings.Contains(stdout.String(), want) {
 				t.Errorf("stdout = %s; want the line %q", &stdout, want)
 			}
 			for _, command := range commands {
@@ -136,8 +142,14 @@ func TestGateFocusedRepairThatCannotNarrowRunsAndReportsTheConfiguredLevel(t *te
 					t.Errorf("ran %v; want neither every package nor the unrepaired package c", command)
 				}
 			}
-			if test.named != nil && !slices.ContainsFunc(commands, func(command []string) bool { return slices.Equal(command, test.named) }) {
-				t.Errorf("commands = %v; want the repaired test run by name, %v", commands, test.named)
+			runs := 0
+			for _, command := range commands {
+				if slices.Equal(command, test.named) {
+					runs++
+				}
+			}
+			if test.named != nil && runs != 1 {
+				t.Errorf("commands = %v; want the repaired test run by name once, %v", commands, test.named)
 			}
 		})
 	}
