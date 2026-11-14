@@ -177,27 +177,37 @@ test("the pinned line and Jump to bottom meet the screen again when the board's 
 // xterm brings its viewport's scroll position up to a resize only on its next
 // frame, and moves to the bottom from that position, so a jump in between
 // landed short: CI at 2679843 clicked Jump to bottom as the grid refit to the
-// board's font and stayed a line up.
-test("Jump to bottom in the moment the grid changes still reaches the live end", async ({ page }) => {
-  // Arrange
-  const relay = await openTerminal(page, PRINTED);
-  await readHistory(page);
-  await page.locator(".terminal-view > .xterm .xterm-rows").evaluate((rows) => {
-    new MutationObserver((_, observer) => {
-      observer.disconnect();
-      document.querySelector<HTMLButtonElement>(".terminal-jump")!.click();
-    }).observe(rows, { childList: true });
+// board's font and stayed a line up. Typing scrolls to the bottom the same way,
+// and CI on merge train #2429 typed as the grid refit and stayed above the
+// live end (#2432).
+for (const back of ["Jump to bottom", "a typed key"] as const) {
+  test(`${back} in the moment the grid changes still reaches the live end`, async ({ page }) => {
+    // Arrange
+    const relay = await openTerminal(page, PRINTED);
+    await readHistory(page);
+    await page.locator(".terminal-view > .xterm .xterm-rows").evaluate((rows, back) => {
+      new MutationObserver((_, observer) => {
+        observer.disconnect();
+        if (back === "Jump to bottom") { document.querySelector<HTMLButtonElement>(".terminal-jump")!.click(); return; }
+        // A key typed in this frame, where the keyboard types: xterm sends a
+        // lower-case letter on its key down.
+        const key = new KeyboardEvent("keydown", { key: "m", code: "KeyM", bubbles: true, cancelable: true });
+        Object.defineProperty(key, "keyCode", { get: () => 77 });
+        document.activeElement!.dispatchEvent(key);
+      }).observe(rows, { childList: true });
+    }, back);
+
+    // Act: the terminal takes a grid three rows shorter, and he goes back to
+    // the live end as that lands.
+    relay.send(JSON.stringify({ type: "size", cols: relay.size.cols, rows: relay.size.rows - 3 }));
+
+    // Assert
+    if (back === "a typed key") await expect.poll(() => relay.typed.join("")).toBe("m");
+    await expect(pin(page)).toBeHidden();
+    await expect(jump(page)).toHaveCount(0);
+    await expect(screenRows(page).locator("> div").last()).toContainText(PROMPT);
   });
-
-  // Act: the terminal takes a grid three rows shorter, and Jump to bottom is
-  // pressed as that lands.
-  relay.send(JSON.stringify({ type: "size", cols: relay.size.cols, rows: relay.size.rows - 3 }));
-
-  // Assert
-  await expect(pin(page)).toBeHidden();
-  await expect(jump(page)).toHaveCount(0);
-  await expect(screenRows(page).locator("> div").last()).toContainText(PROMPT);
-});
+}
 
 test("a full-screen program, as the CEO's Claude Code runs, keeps its own scrolling", async ({ page }) => {
   // Arrange: the program draws on the alternate screen and takes the mouse.

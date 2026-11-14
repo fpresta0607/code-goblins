@@ -165,6 +165,13 @@ export class TerminalView {
       if (!this.owner) { this.isTaken = false; this.claim(); }
       for (const piece of inputMessages(this.encoder.encode(data))) this.send(piece);
     });
+    // A typed key returns to the live end from where xterm's viewport last
+    // drew, as Jump to bottom does, so a key typed as the grid changes lands
+    // short and goes again once xterm has drawn (#2432).
+    this.term.onKey(() => requestAnimationFrame(() => {
+      const buffer = this.term.buffer.active;
+      if (!this.disposed && buffer.viewportY < buffer.baseY) this.term.scrollToBottom();
+    }));
     this.term.onBinary((data) => this.send(Uint8Array.from(data, (character) => character.charCodeAt(0) & 255)));
     this.element.addEventListener("pointerdown", this.startCopy);
     this.element.addEventListener("paste", this.pasteClipboard, true);
