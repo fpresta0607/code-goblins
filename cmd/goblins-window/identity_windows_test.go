@@ -2,6 +2,8 @@ package main
 
 import (
 	"testing"
+
+	"github.com/fpresta0607/code-goblins/internal/cutover/cutovertest"
 )
 
 const (
@@ -21,6 +23,8 @@ func TestTheUsersOwnHomesWindowKeepsTheOneInstanceAndItsNotifications(t *testing
 		"named by GOBLINS_HOME, spelled in caps":    {[]string{"goblins_home=" + usersHome}, `C:\DEV\Code-Goblins\state\`},
 		"the per-user home":                         {[]string{"LOCALAPPDATA=" + usersLocal}, usersLocal + `\CodeGoblins\state`},
 		"its state named by GOBLINS_STATE_OVERRIDE": {[]string{"GOBLINS_HOME=" + usersHome, `GOBLINS_STATE_OVERRIDE=D:\fleet-state`}, `D:\fleet-state`},
+		"named by the old home setting alone":       {[]string{cutovertest.HomeSetting + "=" + usersHome, "LOCALAPPDATA=" + usersLocal}, usersHome + `\state`},
+		"its state named by the old state setting":  {[]string{cutovertest.HomeSetting + "=" + usersHome, cutovertest.StateSetting + `=D:\fleet-state`}, `D:\fleet-state`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Act

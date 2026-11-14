@@ -16,6 +16,9 @@ func runWindowsTestProgram() (int, bool) {
 	if code, ok := runStandInBuild(); ok {
 		return code, true
 	}
+	if release := os.Getenv(serveConsoleReleaseVariable); release != "" && len(os.Args) > 1 && os.Args[1] == "serve" {
+		return holdServeConsole(release), true
+	}
 	if len(os.Args) > 2 && os.Args[1] == gateTurnTestCtrlC {
 		return sendConsoleCtrlC(os.Args[2]), true
 	}

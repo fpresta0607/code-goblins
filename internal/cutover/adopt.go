@@ -19,21 +19,53 @@ var hostIDSetting = setting + "HOST_ID"
 // a terminal opened before it that names itself by the old one is read as
 // that terminal, as it is now named.
 func AdoptOldSettings() {
-	prefix := strings.ToUpper(oldName) + "_"
 	for _, entry := range os.Environ() {
 		name, value, _ := strings.Cut(entry, "=")
-		if len(name) <= len(prefix) || !strings.EqualFold(name[:len(prefix)], prefix) {
+		adopted, value, isOld := adoptedSetting(name, value)
+		if !isOld {
 			continue
-		}
-		adopted := setting + strings.ToUpper(name[len(prefix):])
-		if adopted == hostIDSetting && strings.EqualFold(value, oldName) {
-			value = newName
 		}
 		if _, isSet := os.LookupEnv(adopted); !isSet {
 			_ = os.Setenv(adopted, value)
 		}
 		_ = os.Unsetenv(name)
 	}
+}
+
+// SettingIn is the value of goblins' setting name in environment, another
+// process's NAME=value entries, as that process means it: the setting a build
+// before the rename named the same way, read as AdoptOldSettings reads it,
+// where environment sets it, or else the setting itself. It is empty where
+// neither is set. The old name wins because internal/proc reads a process's
+// live environment, and a build after the rename drops the old names from its
+// own at start, so an environment still holding one is a build's before the
+// rename, which reads only the old name.
+func SettingIn(environment []string, name string) string {
+	current := ""
+	for _, entry := range environment {
+		key, value, _ := strings.Cut(entry, "=")
+		if adopted, value, isOld := adoptedSetting(key, value); isOld && strings.EqualFold(adopted, name) {
+			return value
+		}
+		if strings.EqualFold(key, name) {
+			current = value
+		}
+	}
+	return current
+}
+
+// adoptedSetting is the name and value goblins reads a setting of a build
+// before the rename by, and false for a setting that is not one.
+func adoptedSetting(name, value string) (string, string, bool) {
+	prefix := strings.ToUpper(oldName) + "_"
+	if len(name) <= len(prefix) || !strings.EqualFold(name[:len(prefix)], prefix) {
+		return "", "", false
+	}
+	adopted := setting + strings.ToUpper(name[len(prefix):])
+	if adopted == hostIDSetting && strings.EqualFold(value, oldName) {
+		value = newName
+	}
+	return adopted, value, true
 }
 
 // HandBackSettings sets each of goblins' settings in this process's
