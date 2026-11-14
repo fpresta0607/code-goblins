@@ -9,11 +9,13 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
 func TestGatePrepareConfiguredCommandReadiesFrontendBeforeTest(t *testing.T) {
@@ -122,6 +124,43 @@ func TestGatePrepareInstallsOnlyForFrontendChanges(t *testing.T) {
 				t.Fatalf("own dependencies ready=%v, want %v", err == nil, test.wantInstalls == 1)
 			}
 		})
+	}
+}
+
+// A gate's preparation installs only once the machine has the memory, as the
+// test after it does, never under the floor (#2367): a locked install under the
+// floor failed an approved run's Test step before any test ran.
+func TestGatePrepareWaitsForTheMemoryFloorBeforeItInstalls(t *testing.T) {
+	// Arrange
+	dir := testStepModule(t, map[string]string{
+		".gitignore":                 "frontend/node_modules/\n",
+		"frontend/package.json":      `{"name":"board","version":"1.0.0"}`,
+		"frontend/package-lock.json": `{"name":"board","lockfileVersion":3,"packages":{}}`,
+	}, map[string]string{"frontend/board.ts": "changed\n"})
+	t.Chdir(dir)
+	var readings atomic.Int32
+	runtime := standIn()
+	runtime.availableMemory = func() (supervisor.Memory, error) {
+		if readings.Add(1) <= 2 {
+			return supervisor.Memory{Available: 1 << 30, CommitAvailable: 16 << 30}, nil
+		}
+		return supervisor.Memory{Available: 16 << 30, CommitAvailable: 16 << 30}, nil
+	}
+	var stdout, stderr bytes.Buffer
+	saidBeforeInstall := ""
+	runtime.gateRun = func([]string, string, []string, io.Writer, io.Writer) (int, error) {
+		saidBeforeInstall = stdout.String()
+		return 0, nil
+	}
+
+	// Act
+	exit := runWithRuntime([]string{"gate", "prepare"}, &stdout, &stderr, runtime)
+
+	// Assert
+	waited := "goblins gate prepare: waiting for its turn (0s so far): 1.0 GB of memory is available and the floor is 4.0 GB"
+	took := "goblins gate prepare: took its turn after "
+	if exit != 0 || !strings.Contains(saidBeforeInstall, waited) || !strings.Contains(saidBeforeInstall, took) {
+		t.Fatalf("exit=%d; said before the install %q, want %q and then %q; stderr=%s", exit, saidBeforeInstall, waited, took, &stderr)
 	}
 }
 

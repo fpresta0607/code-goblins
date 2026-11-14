@@ -314,6 +314,8 @@ Without the flag the existing native eligibility checks apply unchanged.
 The selection preserves historical evidence and spending; it does not certify the published descendant, and receipt-bound `--resume` requires fresh proof of the final source in the same run and pull request.
 Continuation uses the receipt's recorded selection without requiring the flag again.
 Native still verifies source ancestry and publication identity, and a refusal, including one after a native rebase, remains unresolved rather than being relaxed by the wrapper.
+A latest run that never published is refused before native is asked, with a reason of its own: handback returns only a published run's failed CI.
+A run that failed before it published, such as one Review approved whose Test step then failed preparing, has no route on from its reviewed head that keeps its review until fpresta0607/no-mistakes#323 lands, and until then a new run from the task's branch reviews it again.
 Both handback modes refuse a pending or unreadable policy migration journal without changing the journal, frozen policy, task metadata or audit log.
 Recover the migration explicitly with `goblins pipeline migrate <id>` before requesting handback.
 It requires a native build supporting `axi handback --expect` and receipt-bound `--resume`, plus `--revalidate-publication` when explicitly selected, and refuses when that contract is unavailable.
