@@ -29,7 +29,8 @@ import { RESTING_AFK_TOGGLE } from "./resting-afk-toggle";
 // ?fresh puts him in the first minute of his work, when his clock is at its
 // longest, "just started", and gives him two baby goblins in theirs, one
 // working and one in a state the board does not know, the longest a baby
-// goblin's card says.
+// goblin's card says. ?presenting has the CEO present a page too, so its
+// card's foot holds Browser active beside its dials and its switch.
 const at = "2026-10-12T12:00:00Z";
 const ago = (minutes: number) => new Date(Date.parse(at) - minutes * 60_000).toISOString();
 const goblin = (fields: Record<string, unknown>) => ({ project: "code-goblins", harness: "claude", model: "claude-opus-5-5", effort: "xhigh", route_lane: "strong-claude", route_reason: "strong cross-harness fallback", verified: false, since: at, at, ...fields });
@@ -43,11 +44,13 @@ const view = params.get("view") || "canvas";
 const isCrowded = params.has("crowded");
 const terminal = params.get("terminal");
 const isFresh = params.has("fresh");
+const isCeoPresenting = params.has("presenting");
+const CEO = { id: "s-ceo", native_id: "n-ceo", harness: "claude", role: "ceo", task_id: "", generation: "g-ceo", phase: "working" };
 const REPOSITORY = "https://github.com/fpresta0607/code-goblins-infrastructure-observability-monorepo";
 const sameArea = (login: string, pull: number) => ({ login, name: "", avatar_url: "", what: "PR #" + pull, url: REPOSITORY + "/pull/" + pull });
 const everyMark = params.has("marks") ? { ticket: { number: 2373, url: REPOSITORY + "/issues/2373", state: "open" },
   overlaps: [sameArea("ada", 12301), sameArea("grace", 12302), sameArea("edsger", 12303), sameArea("barbara", 12304)] } : {};
-const snapshot = parseSnapshot({ healthy: true, instance: "fixture", at, ceo_runs: true, afk: { state: params.has("unreadable") ? "unreadable" : "off" }, ceo_harness: "claude",
+const snapshot = parseSnapshot({ healthy: true, instance: "fixture", at, ceo_runs: true, ...(isCeoPresenting ? { ceo_session: CEO.id } : {}), afk: { state: params.has("unreadable") ? "unreadable" : "off" }, ceo_harness: "claude",
   subscriptions: [{ provider: "claude", status: "available", percent_remaining: 62, read_at: at, resets_at: "2026-10-16T22:27:42Z", source: "oauth", floor_percent: 5 },
     ...(isCrowded ? [{ provider: "codex", status: "available", percent_remaining: 8, read_at: at, source: "oauth", floor_percent: 5 }] : [])],
   key_spend: isCrowded ? [{ provider: "openrouter", status: "available", spent_usd: 12.5, limit_usd: 50, remaining_usd: 37.5, period: "daily", read_at: at, checked_at: at }] : [],
@@ -77,8 +80,10 @@ const snapshot = parseSnapshot({ healthy: true, instance: "fixture", at, ceo_run
       ...(terminal ? { backend: "native", runtime: { state: terminal, reason: "Native terminal reports " + terminal, at } } : {}) }),
   ], sessions: [
     { id: "s-plumbing", native_id: "n-plumbing", harness: "claude", role: "goblin", task_id: "cg-plumbing", generation: "g-plumbing", phase: "working" },
+    ...(isCeoPresenting ? [CEO] : []),
   ] });
-const presentations = ["cg-plumbing", "cg-dispatch"].map((task) => ({ id: "p-" + task, kind: "browser", task_id: task, generation: "g-" + task.slice(3), source: "", target: "", state: "active", url: "https://pages.example.com/walkthrough", at: "", until: "" }));
+const presentations = [...["cg-plumbing", "cg-dispatch"].map((task) => ({ id: "p-" + task, kind: "browser", task_id: task, generation: "g-" + task.slice(3), source: "", target: "", state: "active", url: "https://pages.example.com/walkthrough", at: "", until: "" })),
+  ...(isCeoPresenting ? [{ id: "p-ceo", kind: "review", task_id: "", generation: CEO.generation, source: "", target: CEO.id, state: "active", url: "https://pages.example.com/review", at: "", until: "" }] : [])];
 const now = Date.parse(at);
 // How often the CEO's card asked for its terminal, which the test reads.
 const opened = window as Window & { ceoOpened?: number };

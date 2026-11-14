@@ -395,6 +395,10 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .flow-node-foot .subscription-ring { width: 28px; height: 28px; }
 .flow-node-foot .subscription-percent { font-size: .9375rem; }
 .flow-node:has(.subscription-dial ~ .subscription-dial) .flow-node-main { padding-bottom: 90px; }
+.flow-node-foot:has(> .screen-open + .subscription-dials) { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px 12px; }
+.flow-node-foot > .screen-open:has(+ .subscription-dials) { grid-column: 1 / -1; justify-self: start; }
+.flow-node:has(.flow-node-foot > .screen-open + .subscription-dials) .flow-node-main { padding-bottom: 78px; }
+.flow-node:has(.flow-node-foot > .screen-open + .subscription-dials .subscription-dial ~ .subscription-dial) .flow-node-main { padding-bottom: 126px; }
 .flow-world.compact-dials .subscription-dials:has(.subscription-dial ~ .subscription-dial) :is(.subscription-percent, .key-spend-budget) { display: none; }
 .flow-node-main:active { cursor: grabbing; }
 .flow-node-main .goblin-avatar { width: 72px; height: 72px; }

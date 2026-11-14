@@ -100,8 +100,8 @@ function fit(card: Element, kinds: [string, string][]): Fit {
 // The screenshot's status carries the time of day in the viewer's zone.
 test.use({ timezoneId: "America/Los_Angeles", locale: "en-US" });
 
-async function open(page: Page, view = "canvas") {
-  await page.goto("/tests/fixtures/orchestration-card-text.html" + (view === "canvas" ? "" : "?view=" + view));
+async function open(page: Page, view = "canvas", query = "") {
+  await page.goto("/tests/fixtures/orchestration-card-text.html?view=" + view + query);
   await expect(page.locator(view === "canvas" ? ".flow-node" : view === "lineage" ? ".workflow-node" : ".task-card-shell").first()).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
   // The pointer rests on empty canvas, where no card lifts under it.
@@ -112,20 +112,22 @@ const baby = (page: Page, name: string): Locator => page.locator(".tree-child").
 const measure = async (cards: Locator) => Promise.all((await cards.all()).map((one) => one.evaluate(fit, PARTS)));
 const describe = (seen: Fit) => seen.parts.map((part) => part.part + ": " + part.text);
 
-for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
-  test(`the CEO's subscription dials and spend never overlap at fit zoom at ${size.width}px`, async ({ page }, testInfo) => {
+// Presenting a page, with one dial or all three, the CEO's card holds
+// Browser active clear of them and of its words too.
+for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) for (const [isCrowded, isCeoPresenting] of [[true, false], [true, true], [false, true]]) {
+  test(`the CEO's subscription dials and spend never overlap at fit zoom at ${size.width}px${isCrowded ? "" : " with one dial"}${isCeoPresenting ? ", presenting a page" : ""}`, async ({ page }, testInfo) => {
     // Arrange
     await page.setViewportSize(size);
     const isPhone = size.width === 390;
-    await page.goto("/tests/fixtures/orchestration-card-text.html?crowded&view=" + (isPhone ? "lineage" : "canvas"));
+    await page.goto("/tests/fixtures/orchestration-card-text.html?view=" + (isPhone ? "lineage" : "canvas") + (isCrowded ? "&crowded" : "") + (isCeoPresenting ? "&presenting" : ""));
     await page.evaluate(() => document.fonts.ready);
     const ceo = page.locator(isPhone ? ".workflow-node.role-ceo" : ".flow-node").filter({ has: page.locator("strong", { hasText: /^CEO$/ }) });
-    await expect(ceo.locator(".subscription-dial")).toHaveCount(3);
+    await expect(ceo.locator(".subscription-dial")).toHaveCount(isCrowded ? 3 : 1);
 
     // Act
     const overlaps = await ceo.evaluate((node) => {
       const frame = node.getBoundingClientRect();
-      const parts = [...node.querySelectorAll(".subscription-ring, .subscription-percent, .key-spend-spent, .key-spend-budget, .card-harness, .icon-button")]
+      const parts = [...node.querySelectorAll("strong, .card-status-text, .node-status, .screen-open, .afk-toggle, .subscription-ring, .subscription-percent, .key-spend-spent, .key-spend-budget, .card-harness, .icon-button")]
         .filter((element) => element.getClientRects().length)
         .map((element) => ({ name: element.classList.value, box: element.getBoundingClientRect() }));
       return parts.flatMap((one, index) => [
@@ -135,8 +137,9 @@ for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) 
     });
 
     // Assert
+    await expect(ceo.locator(".screen-open")).toHaveCount(isCeoPresenting ? 1 : 0);
     expect(overlaps).toEqual([]);
-    await page.screenshot({ path: testInfo.outputPath(`ceo-dials-${size.width}.png`) });
+    await page.screenshot({ path: testInfo.outputPath(`ceo-dials-${size.width}${isCrowded ? "" : "-one-dial"}${isCeoPresenting ? "-presenting" : ""}.png`) });
   });
 }
 
@@ -178,15 +181,17 @@ test("a baby goblin's card holds its whole name, what it runs, its state and its
 
 // Text a card cannot hold may end in an ellipsis, but none of it is painted
 // beyond the card, whatever it says, and no part of it goes unseen.
-for (const [title, parts] of [
-  ["Wilhelmina", ["title", "status", "project", "clock", "browser"]],
-  ["Cornelius", ["title", "status", "project", "clock", "browser", "session"]],
-  ["Bartholomew", ["title", "status", "project", "clock", "session"]],
-  ["CEO", ["title", "status", "dial", "AFK"]],
+for (const [title, parts, query] of [
+  ["Wilhelmina", ["title", "status", "project", "clock", "browser"], ""],
+  ["Cornelius", ["title", "status", "project", "clock", "browser", "session"], ""],
+  ["Bartholomew", ["title", "status", "project", "clock", "session"], ""],
+  ["CEO", ["title", "status", "dial", "AFK"], ""],
+  ["CEO", ["title", "status", "browser", "dial", "AFK"], "&presenting"],
+  ["CEO", ["title", "status", "browser", "dial", "AFK"], "&presenting&crowded"],
 ] as const) {
-  test(`${title}'s card paints none of its text beyond its border`, async ({ page }) => {
+  test(`${title}'s card paints none of its text beyond its border${query && ", with " + query.slice(1).replace("&", " and ")}`, async ({ page }) => {
     // Arrange
-    await open(page);
+    await open(page, "canvas", query);
 
     // Act
     const seen = await card(page, title).evaluate(fit, PARTS);
@@ -356,19 +361,20 @@ for (const view of ["canvas", "lineage"]) {
 
 // A switch that cannot be read says so in words, whatever room the CEO's card
 // has for them: its foot keeps them inside the border, wholly shown and clear
-// of everything else the card draws, with one dial and with all it can hold.
+// of everything else the card draws, with one dial and with all it can hold,
+// Browser active included.
 for (const { view, width, height } of [
   { view: "canvas", width: 1440, height: 1200 },
   { view: "lineage", width: 390, height: 844 },
   { view: "lineage", width: 320, height: 700 },
 ]) {
-  for (const isCrowded of [false, true]) {
-    test(`the CEO's card on the ${view} at ${width}px${isCrowded ? ", crowded," : ""} holds an unreadable switch's words inside its border`, async ({ page }) => {
+  for (const [isCrowded, isCeoPresenting] of [[false, false], [true, false], [true, true]]) {
+    test(`the CEO's card on the ${view} at ${width}px${isCrowded ? ", crowded," : ""}${isCeoPresenting ? " presenting a page," : ""} holds an unreadable switch's words inside its border`, async ({ page }) => {
       // Arrange
       await page.setViewportSize({ width, height });
 
       // Act
-      await page.goto(`/tests/fixtures/orchestration-card-text.html?unreadable&view=${view}${isCrowded ? "&crowded" : ""}`);
+      await page.goto(`/tests/fixtures/orchestration-card-text.html?unreadable&view=${view}${isCrowded ? "&crowded" : ""}${isCeoPresenting ? "&presenting" : ""}`);
       await page.evaluate(() => document.fonts.ready);
       await page.mouse.move(2, 2);
 
@@ -382,7 +388,7 @@ for (const { view, width, height } of [
       expect(words?.whole).toBe(words?.lines);
       const overlaps = await ceo.evaluate((node) => {
         const said = node.querySelector(".afk-header > .muted")!.getBoundingClientRect();
-        return [...node.querySelectorAll("strong, .plain-status, .card-status-text, .subscription-dial, .afk-toggle, .icon-button, .card-harness")]
+        return [...node.querySelectorAll("strong, .plain-status, .card-status-text, .screen-open, .subscription-dial, .afk-toggle, .icon-button, .card-harness")]
           .filter((part) => { const box = part.getBoundingClientRect(); return box.width > 0 && said.left < box.right - .5 && box.left < said.right - .5 && said.top < box.bottom - .5 && box.top < said.bottom - .5; })
           .map((part) => part.className || part.tagName);
       });
