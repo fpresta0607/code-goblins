@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
@@ -33,8 +32,6 @@ const (
 	maxBranchCompares = 30
 )
 
-var githubRemote = regexp.MustCompile(`^(?:https://github\.com/|git@github\.com:)([\w.-]+/[\w.-]+?)(?:\.git)?/?$`)
-
 // ErrNotGitHub says a checkout has no GitHub repository: it has no origin
 // remote, or its origin is somewhere else.
 var ErrNotGitHub = errors.New("not a GitHub repository")
@@ -56,11 +53,11 @@ func (g GitHub) RepositoryOf(ctx context.Context, checkout string) (string, erro
 		return "", fmt.Errorf("read the origin remote of %s: %s", checkout, strings.TrimSpace(string(result.Stderr)))
 	}
 	remote := strings.TrimSpace(string(result.Stdout))
-	match := githubRemote.FindStringSubmatch(remote)
-	if match == nil {
+	repository, isGitHub := githubapi.RemoteRepository(remote)
+	if !isGitHub {
 		return "", fmt.Errorf("origin %s of %s is %w", remote, checkout, ErrNotGitHub)
 	}
-	return match[1], nil
+	return repository, nil
 }
 
 // Remote is a remote of a checkout that fetches from a GitHub repository.
@@ -83,8 +80,8 @@ func (g GitHub) Remotes(ctx context.Context, checkout string) ([]Remote, error) 
 	for _, line := range strings.Split(string(result.Stdout), "\n") {
 		name, address, _ := strings.Cut(line, "\t")
 		address, isFetch := strings.CutSuffix(strings.TrimSpace(address), " (fetch)")
-		if match := githubRemote.FindStringSubmatch(address); isFetch && match != nil {
-			remotes = append(remotes, Remote{Name: name, Repository: match[1]})
+		if repository, isGitHub := githubapi.RemoteRepository(address); isFetch && isGitHub {
+			remotes = append(remotes, Remote{Name: name, Repository: repository})
 		}
 	}
 	return remotes, nil
