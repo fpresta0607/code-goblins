@@ -78,8 +78,15 @@ func runDevDrive(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	return 0
 }
 
+// exitGateBusy is how goblins dev-drive move ends when all it asked moved but
+// the gate's home, which waited for gate runs that stayed in flight: nothing
+// of the gate's home changed, and the same command carries it once the gate
+// rests, as the board does by itself.
+const exitGateBusy = 3
+
 // runDevDriveSetup asks for the next Dev Drive step from a terminal, as Set up
-// on the board does: the board puts it in the Command Center.
+// on the board does: the board puts each step that needs a person in the
+// Command Center and takes the others itself.
 func runDevDriveSetup(stdout, stderr io.Writer, runtime commandRuntime) int {
 	h, err := runtime.resolveHome()
 	if err != nil {
@@ -90,7 +97,7 @@ func runDevDriveSetup(stdout, stderr io.Writer, runtime commandRuntime) int {
 		fmt.Fprintln(stderr, "goblins dev-drive setup: "+err.Error())
 		return 1
 	}
-	fmt.Fprintln(stdout, "asked: the board puts the next Dev Drive step in the Command Center within a minute, each step one item to run")
+	fmt.Fprintln(stdout, "asked: within a minute the board puts the next Dev Drive step that needs you in the Command Center, one item to run, and moves the gate's home itself once no gate run is in flight")
 	return 0
 }
 
@@ -126,7 +133,7 @@ func runDevDriveMove(args []string, stdout, stderr io.Writer, runtime commandRun
 	if narrowErr == nil && !isNarrow {
 		narrowErr = access.Narrow(folder)
 	}
-	isGateCarried, gateErr := carryGateHomeOnto(folder, stdout, runtime, gateHomeTries, gateHomeEvery)
+	isGateCarried, gateErr := carryGateHomeOnto(folder, h.State, stdout, runtime, gateHomeTries, gateHomeEvery)
 	if h.DevDrive == "" || isGateCarried {
 		runtime.restartBoard(h, stdout)
 	}
@@ -136,24 +143,28 @@ func runDevDriveMove(args []string, stdout, stderr io.Writer, runtime commandRun
 	if gateErr != nil {
 		fmt.Fprintln(stderr, "goblins dev-drive move: "+gateErr.Error())
 	}
-	if narrowErr != nil || gateErr != nil {
-		return 1
+	switch {
+	case narrowErr == nil && gateErr == nil:
+		return 0
+	case narrowErr == nil && errors.Is(gateErr, gatehome.ErrGateBusy):
+		return exitGateBusy
 	}
-	return 0
+	return 1
 }
 
 // carryGateHomeOnto moves the gate's home into the Dev Drive folder, which an
-// interrupt such as Ctrl+C stops and undoes, and says where it is. A gate
+// interrupt such as Ctrl+C stops and undoes, holding the move's lock in the
+// home's state folder state, and says where it is. A gate
 // home it moved or placed there is named by NM_HOME in this process too, so a
 // board it starts again gates in the moved home; it says whether it did.
-func carryGateHomeOnto(folder string, stdout io.Writer, runtime commandRuntime, tries int, every time.Duration) (bool, error) {
+func carryGateHomeOnto(folder, state string, stdout io.Writer, runtime commandRuntime, tries int, every time.Duration) (bool, error) {
 	old, err := runtime.gateHome()
 	if err != nil {
 		return false, err
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	line, isCarried, err := runtime.carryGateHome(ctx, old, folder, tries, every, stdout)
+	line, isCarried, err := runtime.carryGateHome(ctx, old, folder, filepath.Join(state, gateHomeMoveLock), tries, every, stdout)
 	if isCarried {
 		if setErr := os.Setenv(gatehome.Variable, gatehome.Target(folder)); setErr != nil {
 			err = errors.Join(err, setErr)

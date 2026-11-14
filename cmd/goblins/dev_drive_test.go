@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -35,7 +36,7 @@ func runtimeOn(t *testing.T, m devdrive.Machine) commandRuntime {
 	runtime := defaultCommandRuntime()
 	runtime.readDevDrive = func(context.Context) (devdrive.Machine, error) { return m, nil }
 	runtime.gateHome = func() (string, error) { return systemGateHome, nil }
-	runtime.carryGateHome = func(_ context.Context, _, devDrive string, _ int, _ time.Duration, _ io.Writer) (string, bool, error) {
+	runtime.carryGateHome = func(_ context.Context, _, devDrive, _ string, _ int, _ time.Duration, _ io.Writer) (string, bool, error) {
 		return "moved: the gate's home is " + gatehome.Target(devDrive), true, nil
 	}
 	runtime.restartBoard = func(home.Home, io.Writer) {}
@@ -44,7 +45,9 @@ func runtimeOn(t *testing.T, m devdrive.Machine) commandRuntime {
 
 // goblins dev-drive move carries the gate's home onto the folder, waiting the
 // half hour for the gate runs in flight, and says where it went; a gate home
-// that does not move fails the command once the heavy folders moved.
+// that does not move fails the command once the heavy folders moved, with an
+// exit code of its own where the gate only stayed busy, which the supervisor
+// reads to carry it again by itself.
 func TestDevDriveMoveCarriesTheGateHome(t *testing.T) {
 	for _, test := range []struct {
 		name     string
@@ -53,7 +56,8 @@ func TestDevDriveMoveCarriesTheGateHome(t *testing.T) {
 		want     string
 	}{
 		{name: "it moves", wantExit: 0, want: "gate home: moved: the gate's home is "},
-		{name: "gate runs stay in flight", carryErr: errors.New("gate home: the daemon did not stop while gate runs stay in flight"), wantExit: 1, want: "goblins dev-drive move: gate home: the daemon did not stop"},
+		{name: "gate runs stay in flight", carryErr: fmt.Errorf("gate home: nothing moved, and the daemon was never stopped: %w", gatehome.ErrGateBusy), wantExit: exitGateBusy, want: "goblins dev-drive move: gate home: nothing moved, and the daemon was never stopped"},
+		{name: "the copy fails", carryErr: errors.New("gate home: the copy failed, so nothing moved"), wantExit: 1, want: "goblins dev-drive move: gate home: the copy failed"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -63,8 +67,9 @@ func TestDevDriveMoveCarriesTheGateHome(t *testing.T) {
 			runtime := runtimeOn(t, machineWith(devdrive.Volume{Root: filepath.VolumeName(folder) + `\`, FileSystem: "ReFS", Dev: true, Trust: devdrive.Trusted}))
 			var carried []string
 			var tries int
-			runtime.carryGateHome = func(_ context.Context, old, devDrive string, gotTries int, _ time.Duration, _ io.Writer) (string, bool, error) {
-				carried, tries = append(carried, old+" -> "+devDrive), gotTries
+			var lock string
+			runtime.carryGateHome = func(_ context.Context, old, devDrive, gotLock string, gotTries int, _ time.Duration, _ io.Writer) (string, bool, error) {
+				carried, tries, lock = append(carried, old+" -> "+devDrive), gotTries, gotLock
 				return "moved: the gate's home is " + gatehome.Target(devDrive), test.carryErr == nil, test.carryErr
 			}
 
@@ -78,6 +83,9 @@ func TestDevDriveMoveCarriesTheGateHome(t *testing.T) {
 			}
 			if len(carried) != 1 || carried[0] != systemGateHome+" -> "+folder || tries != gateHomeTries {
 				t.Errorf("carried %q with %d tries, want %s into %s with %d", carried, tries, systemGateHome, folder, gateHomeTries)
+			}
+			if want := filepath.Join(os.Getenv("GOBLINS_HOME"), "state", "gate-home-move.lock"); lock != want {
+				t.Errorf("the move's lock = %s, want %s in the home's state", lock, want)
 			}
 			if h, err := home.Resolve(); err != nil || h.DevDrive != folder {
 				t.Errorf("home = %+v, %v; want the heavy folders moved all the same", h, err)
@@ -155,8 +163,11 @@ func TestInstallPlacesTheGateHomeOnTheHomesDevDrive(t *testing.T) {
 			}
 			runtime := runtimeOn(t, machineWith())
 			var tries []int
-			runtime.carryGateHome = func(_ context.Context, _, devDrive string, gotTries int, _ time.Duration, _ io.Writer) (string, bool, error) {
+			runtime.carryGateHome = func(_ context.Context, _, devDrive, lock string, gotTries int, _ time.Duration, _ io.Writer) (string, bool, error) {
 				tries = append(tries, gotTries)
+				if want := filepath.Join(root, "state", "gate-home-move.lock"); lock != want {
+					t.Errorf("the move's lock = %s, want %s in the home's state", lock, want)
+				}
 				if devDrive != folder {
 					t.Errorf("carried into %s, want %s", devDrive, folder)
 				}
@@ -165,7 +176,7 @@ func TestInstallPlacesTheGateHomeOnTheHomesDevDrive(t *testing.T) {
 
 			// Act
 			var stdout bytes.Buffer
-			placeGateHome(root, &stdout, runtime)
+			placeGateHome(home.Home{Root: root, State: filepath.Join(root, "state")}, &stdout, runtime)
 
 			// Assert
 			if test.wantCarry != (len(tries) == 1) || test.wantCarry && tries[0] != 1 {
@@ -215,7 +226,7 @@ func TestDevDriveMoveRestartsTheBoardAfterTheGateHomeMoves(t *testing.T) {
 				t.Setenv(gatehome.Variable, "")
 			}
 			var steps []string
-			runtime.carryGateHome = func(context.Context, string, string, int, time.Duration, io.Writer) (string, bool, error) {
+			runtime.carryGateHome = func(context.Context, string, string, string, int, time.Duration, io.Writer) (string, bool, error) {
 				steps = append(steps, "carry")
 				return "moved", test.isCarried, test.carryErr
 			}
@@ -255,7 +266,7 @@ func TestRunDoctorSaysWhatTheDevDriveIs(t *testing.T) {
 		"a machine that can": {machineWith(), "dev drive: absent: this machine can have one"},
 		"an untrusted one":   {machineWith(devdrive.Volume{Root: `E:\`, FileSystem: "ReFS", Dev: true, Trust: devdrive.Untrusted}), "dev drive: present, not used yet: E: is a Dev Drive Windows does not trust"},
 		"one in a file": {machineWith(devdrive.Volume{Root: `E:\`, FileSystem: "ReFS", Dev: true, Trust: devdrive.Trusted, Image: devdrive.Image{Path: `C:\DevDrives\CodeGoblins.vhdx`, Unread: "only a process run as administrator may read it"}}),
-			`Command Center (file: C:\DevDrives\CodeGoblins.vhdx holds space on C: that stays taken when goblins free space on E:, and how much could not be read: only a process run as administrator may read it)` + "\n"},
+			`Command Center and takes the rest by itself (file: C:\DevDrives\CodeGoblins.vhdx holds space on C: that stays taken when goblins free space on E:, and how much could not be read: only a process run as administrator may read it)` + "\n"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange

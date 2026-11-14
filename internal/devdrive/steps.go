@@ -8,8 +8,10 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
-// Step is one thing a person does, with one click in the Command Center, to
-// put a home's heavy folders on a Dev Drive.
+// Step is one thing that puts a home's heavy folders and the gate's home on a
+// Dev Drive: a person does each with one click in the Command Center, but
+// the last, StepGate, which needs nobody and which the supervisor takes
+// itself.
 type Step string
 
 const (
@@ -30,7 +32,8 @@ const (
 	// StepGate moves the gate's home onto the Dev Drive the home's heavy
 	// folders are on, when it did not move with them: gate runs were in
 	// flight all the while the move waited, or the heavy folders moved before
-	// the move carried the gate's home.
+	// the move carried the gate's home. It needs no person and no
+	// administrator, so it is never a Command Center item.
 	StepGate Step = "gate"
 )
 
@@ -39,9 +42,10 @@ const (
 const GateHomeFolder = "no-mistakes"
 
 // Plan is the next step for a home and what it runs: Script for a step that
-// runs as administrator, Folder for the move.
+// runs as administrator, Folder for the move and the gate step.
 type Plan struct {
-	Step   Step
+	Step Step
+	// Title names the step's Command Center item; the gate step has none.
 	Title  string
 	Admin  bool
 	Script string
@@ -71,7 +75,7 @@ func Next(m Machine, h home.Home, config home.DevDriveConfig, shouldMoveGateHome
 		case found && v.Dev && config.VHD != "" && shouldRenewTask:
 			return renew(config.VHD, v.Letter()), true
 		case found && shouldMoveGateHome:
-			return Plan{Step: StepGate, Folder: h.DevDrive, Title: fmt.Sprintf("Move the gate's home to %s on the Dev Drive %s: once no gate run is in flight it stops the gate's daemon, copies the home and checks every file, names it with NM_HOME, starts the daemon there and then removes the old home; a step that fails puts everything back", filepath.Join(h.DevDrive, GateHomeFolder), v.Letter())}, true
+			return Plan{Step: StepGate, Folder: h.DevDrive}, true
 		}
 		return Plan{}, false
 	}

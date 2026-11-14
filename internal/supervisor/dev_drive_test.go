@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/devdrive"
+	"github.com/fpresta0607/code-goblins/internal/gatehome"
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
@@ -305,46 +307,306 @@ func TestTheWatchNoticesAnAnswerGivenElsewhere(t *testing.T) {
 	}
 }
 
-// A home whose heavy folders are on the Dev Drive while the gate's home is
-// not, once the person asked for a Dev Drive, gets the gate step: this build's
-// goblins dev-drive move, which carries the gate's home. Once it is there, no
-// other item comes.
-func TestAHomeOnTheDevDriveGetsTheGateItemUntilTheGateHomeIsThere(t *testing.T) {
-	// Arrange
+// gateStep is a board whose heavy folders are on D:\CodeGoblins while the
+// gate's home is still in the profile, with the gate runs in flight and the
+// carries the supervisor started under the test's hand.
+type gateStep struct {
+	s        *Service
+	gateHome string
+	runs     int
+	runsErr  error
+	// started takes the folder of each carry the supervisor started, and
+	// ended ends the one running with what it came to.
+	started chan string
+	ended   chan error
+}
+
+func newGateStep(t *testing.T, want bool) *gateStep {
+	t.Helper()
 	machine := devDriveMachine()
 	machine.Volumes = append(machine.Volumes, devdrive.Volume{Root: `D:\`, FileSystem: "ReFS", Dev: true, Trust: devdrive.Trusted, Free: 199 << 30})
 	machine.Letters |= 1 << 3
-	s := devDriveService(t, &machine)
-	gateHome := `C:\Users\someone\.no-mistakes`
-	s.Options.DevDrive.GateHome = func() (string, error) { return gateHome, nil }
-	if err := s.askDevDrive(true); err != nil {
-		t.Fatal(err)
+	g := &gateStep{s: devDriveService(t, &machine), gateHome: `C:\Users\someone\.no-mistakes`, started: make(chan string, 8), ended: make(chan error)}
+	g.s.Options.DevDrive.GateHome = func() (string, error) { return g.gateHome, nil }
+	g.s.Options.DevDrive.GateRuns = func(_ context.Context, root string) (int, error) {
+		if root != g.gateHome {
+			t.Errorf("gate runs read in %s, want %s", root, g.gateHome)
+		}
+		return g.runs, g.runsErr
 	}
-	config, err := home.ReadDevDriveConfig(s.Store.Home.Root)
+	g.s.Options.DevDrive.CarryGateHome = func(_ context.Context, folder string) error {
+		g.started <- folder
+		return <-g.ended
+	}
+	if want {
+		if err := g.s.askDevDrive(true); err != nil {
+			t.Fatal(err)
+		}
+		<-g.s.devDriveNow
+	}
+	config, err := home.ReadDevDriveConfig(g.s.Store.Home.Root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	config.Root = `D:\CodeGoblins`
-	if err := home.WriteDevDriveConfig(s.Store.Home.Root, config); err != nil {
+	if err := home.WriteDevDriveConfig(g.s.Store.Home.Root, config); err != nil {
+		t.Fatal(err)
+	}
+	return g
+}
+
+// isCarrying says a carry the supervisor started runs now.
+func (g *gateStep) isCarrying() bool {
+	g.s.gateCarry.mu.Lock()
+	defer g.s.gateCarry.mu.Unlock()
+	return g.s.gateCarry.isRunning
+}
+
+// carriedInto is the folder of the carry the supervisor started.
+func (g *gateStep) carriedInto(t *testing.T) string {
+	t.Helper()
+	select {
+	case folder := <-g.started:
+		return folder
+	case <-time.After(time.Minute):
+		t.Fatal("the supervisor started no carry")
+		return ""
+	}
+}
+
+// end ends the running carry with err and waits until the supervisor took
+// it in, which asks the watch for another look.
+func (g *gateStep) end(t *testing.T, err error) {
+	t.Helper()
+	g.ended <- err
+	select {
+	case <-g.s.devDriveNow:
+	case <-time.After(time.Minute):
+		t.Fatal("the supervisor never asked for another look after the carry ended")
+	}
+}
+
+const gateStepDone = `The worktrees and caches are on D:\CodeGoblins. The gate's home is not there yet.`
+
+// Once the person asked for a Dev Drive, the supervisor carries the gate's
+// home itself: while a gate run is in flight it waits and says so in the row,
+// at the first look that finds none it starts the carry, once, and the row
+// says so; no Command Center item is made and there is nothing to press
+// (#2525). Once the home is there the row goes.
+func TestTheSupervisorCarriesTheGateHomeItselfOnceNoGateRunIsInFlight(t *testing.T) {
+	// Arrange
+	g := newGateStep(t, true)
+	g.runs = 1
+
+	// Act
+	g.s.keepDevDrive(context.Background())
+
+	// Assert
+	if view := g.s.devDriveViewNow(); view.Action != "" || view.Waiting != "" || view.Status != gateStepDone+" Waiting for 1 gate run to finish, then the gate's home moves by itself." {
+		t.Fatalf("view = %+v, want it waiting for the gate run with nothing to press", view)
+	}
+	if g.isCarrying() {
+		t.Fatal("a carry started while a gate run was in flight")
+	}
+
+	// Act: two runs, then none, and a second look while the carry runs.
+	g.runs = 2
+	g.s.keepDevDrive(context.Background())
+	waitingForTwo := g.s.devDriveViewNow().Status
+	g.runs = 0
+	g.s.keepDevDrive(context.Background())
+	g.s.keepDevDrive(context.Background())
+
+	// Assert
+	if waitingForTwo != gateStepDone+" Waiting for 2 gate runs to finish, then the gate's home moves by itself." {
+		t.Errorf("status = %q, want it waiting for 2 gate runs", waitingForTwo)
+	}
+	if view := g.s.devDriveViewNow(); view.Action != "" || view.Status != gateStepDone+" It is moving there now, by itself." {
+		t.Errorf("view = %+v, want it moving with nothing to press", view)
+	}
+
+	if folder := g.carriedInto(t); folder != `D:\CodeGoblins` {
+		t.Errorf("carried into %s, want the Dev Drive folder", folder)
+	}
+
+	// Act: the carry ends with the home on the drive.
+	g.gateHome = `D:\CodeGoblins\no-mistakes`
+	g.end(t, nil)
+	g.s.keepDevDrive(context.Background())
+
+	// Assert
+	if g.isCarrying() || len(g.started) != 0 {
+		t.Errorf("a second carry started: running %v, %d more started", g.isCarrying(), len(g.started))
+	}
+	if view := g.s.devDriveViewNow(); view.Action != "" || view.Status != "" {
+		t.Errorf("view = %+v, want no row once the gate's home is on the drive", view)
+	}
+	if items := devDriveItems(g.s); len(items) != 0 {
+		t.Errorf("items = %+v, want no Command Center item for the gate step", items)
+	}
+}
+
+// A carry that gave up because gate runs stayed in flight is started again
+// by the supervisor, with no item and nothing to press; one that failed for
+// another reason says why in the row and waits for Try again, the one press
+// the supervisor cannot make itself.
+func TestTheSupervisorRetriesABusyCarryAndAFailedOneWaitsForTryAgain(t *testing.T) {
+	// Arrange
+	g := newGateStep(t, true)
+	g.s.keepDevDrive(context.Background())
+	g.carriedInto(t)
+
+	// Act: the gate stayed busy all the while the carry waited.
+	g.end(t, fmt.Errorf("nothing moved: %w", gatehome.ErrGateBusy))
+	g.s.keepDevDrive(context.Background())
+
+	// Assert
+	if !g.isCarrying() {
+		t.Fatal("the busy carry was not started again by itself")
+	}
+	g.carriedInto(t)
+	if view := g.s.devDriveViewNow(); view.Action != "" {
+		t.Errorf("view = %+v, want nothing to press while the supervisor retries", view)
+	}
+
+	// Act: the copy failed.
+	g.end(t, errors.New(`gate home: the copy to D:\CodeGoblins\no-mistakes failed, so nothing moved: disk full`))
+	g.s.keepDevDrive(context.Background())
+	g.s.keepDevDrive(context.Background())
+
+	// Assert
+	if g.isCarrying() {
+		t.Fatal("a failed carry was started again by itself")
+	}
+	if view := g.s.devDriveViewNow(); view.Action != devDriveTryAgain || view.Status != gateStepDone+` It did not move: gate home: the copy to D:\CodeGoblins\no-mistakes failed, so nothing moved: disk full` {
+		t.Errorf("view = %+v, want why it failed and Try again", view)
+	}
+
+	// Act: he presses Try again.
+	if err := g.s.askDevDrive(true); err != nil {
+		t.Fatal(err)
+	}
+	g.s.keepDevDrive(context.Background())
+
+	// Assert
+	if !g.isCarrying() {
+		t.Fatal("Try again started no carry")
+	}
+	g.carriedInto(t)
+	if items := devDriveItems(g.s); len(items) != 0 {
+		t.Errorf("items = %+v, want no Command Center item for the gate step", items)
+	}
+	g.ended <- nil
+}
+
+// The gate step is taken only on the person's word: until he asked for a Dev
+// Drive the row offers Set up and nothing is carried, and gate runs that
+// cannot be read are said in the row and read again.
+func TestTheGateStepWaitsForThePersonsWordAndSaysWhatItCannotRead(t *testing.T) {
+	// Arrange
+	g := newGateStep(t, false)
+
+	// Act
+	g.s.keepDevDrive(context.Background())
+
+	// Assert
+	if view := g.s.devDriveViewNow(); view.Action != devDriveSetUp || view.Status != gateStepDone || g.isCarrying() {
+		t.Fatalf("view = %+v, carrying %v; want Set up and nothing carried", view, g.isCarrying())
+	}
+
+	// Act: he asks, and the gate's database cannot be read.
+	if err := g.s.askDevDrive(true); err != nil {
+		t.Fatal(err)
+	}
+	g.runsErr = errors.New("pipeline: state query timed out")
+	busy := g.s.keepDevDrive(context.Background())
+
+	// Assert
+	if view := g.s.devDriveViewNow(); view.Action != "" || view.Status != gateStepDone+" It moves by itself once the gate's runs can be read: pipeline: state query timed out" || g.isCarrying() {
+		t.Errorf("view = %+v, carrying %v; want the unread runs said and nothing carried", view, g.isCarrying())
+	}
+	if busy != time.Minute {
+		t.Errorf("next look in %s, want a minute while the gate step is under way", busy)
+	}
+}
+
+// A gate item an earlier build left in the Command Center holds nothing up:
+// the supervisor takes the gate step itself.
+func TestAGateItemOfAnEarlierBuildDoesNotHoldTheGateStep(t *testing.T) {
+	// Arrange
+	g := newGateStep(t, true)
+	now := time.Now().UTC()
+	if _, err := g.s.recordBoardRun(Run{ID: "dev-drive-gate-0102030405060708", Identity: strings.Repeat("0a", 32), Title: "Move the gate's home", Shell: "powershell", Command: "exit 1", Cwd: g.s.Store.Home.Root, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime), DevDrive: "gate"}); err != nil {
 		t.Fatal(err)
 	}
 
 	// Act
-	s.keepDevDrive(context.Background())
+	g.s.keepDevDrive(context.Background())
 
 	// Assert
-	items := devDriveItems(s)
-	if len(items) != 1 || items[0].DevDrive != "gate" || items[0].Admin || !strings.Contains(items[0].Command, `dev-drive move --to 'D:\CodeGoblins'`) || !strings.Contains(items[0].Title, `Move the gate's home to D:\CodeGoblins\no-mistakes`) {
-		t.Fatalf("items = %+v, want one gate item that runs goblins dev-drive move", items)
+	if view := g.s.devDriveViewNow(); view.Waiting != "" || !g.isCarrying() {
+		t.Errorf("view = %+v, carrying %v; want the supervisor carrying the home itself", view, g.isCarrying())
 	}
+	g.carriedInto(t)
+	g.ended <- nil
+}
 
-	// Act: it ran, and the gate's home is on the Dev Drive.
-	endDevDriveItem(t, s, 0)
-	gateHome = `D:\CodeGoblins\no-mistakes`
-	s.keepDevDrive(context.Background())
+// The row says in plain words what is done, what is left and what it waits
+// on, and offers a button only where a press does what the supervisor cannot.
+func TestTheDevDriveRowSaysWhatIsDoneAndWhatIsLeft(t *testing.T) {
+	dev := devdrive.Volume{Root: `D:\`, FileSystem: "ReFS", Dev: true, Trust: devdrive.Trusted, Free: 199 << 30}
+	untrusted := dev
+	untrusted.Trust = devdrive.Untrusted
+	moved := home.DevDriveConfig{Root: `D:\CodeGoblins`, VHD: `C:\DevDrives\CodeGoblins.vhdx`, MovedAt: time.Now().Add(-time.Hour)}
+	for _, test := range []struct {
+		name    string
+		volumes []devdrive.Volume
+		config  home.DevDriveConfig
+		// asks is whether the person asked for a Dev Drive, and ends how the
+		// item that made ends: -1 leaves it waiting.
+		asks       bool
+		ends       int
+		wantAction string
+		wantStatus string
+	}{
+		{name: "nothing asked", ends: -1, wantAction: devDriveSetUp, wantStatus: "No Dev Drive is set up yet."},
+		{name: "a drive not used yet", volumes: []devdrive.Volume{dev}, ends: -1, wantAction: devDriveSetUp, wantStatus: "D: is a Dev Drive, not used yet."},
+		{name: "the create item waits", asks: true, ends: -1, wantStatus: "No Dev Drive is set up yet. Creating the drive waits for you in the Command Center."},
+		{name: "the create item failed", asks: true, ends: 1, wantAction: devDriveTryAgain, wantStatus: "No Dev Drive is set up yet. Creating the drive is left: its Command Center item did not finish."},
+		{name: "the trust item waits", volumes: []devdrive.Volume{untrusted}, asks: true, ends: -1, wantStatus: "D: is a Dev Drive, not used yet. Trusting it, which turns on Defender's performance mode there, waits for you in the Command Center."},
+		{name: "the move item waits", volumes: []devdrive.Volume{dev}, asks: true, ends: -1, wantStatus: "D: is a Dev Drive, not used yet. Moving the worktrees and caches onto it waits for you in the Command Center."},
+		{name: "the attach item waits", config: moved, ends: -1, wantStatus: "D: is not attached, so no goblin starts. Attaching it again waits for you in the Command Center."},
+		{name: "the attach item failed", config: moved, ends: 1, wantAction: devDriveAttach, wantStatus: "D: is not attached, so no goblin starts."},
+		{name: "everything is on the drive", volumes: []devdrive.Volume{dev}, config: moved, asks: true, ends: -1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			machine := devDriveMachine()
+			machine.Volumes = append(machine.Volumes, test.volumes...)
+			if len(test.volumes) > 0 {
+				machine.Letters |= 1 << 3
+			}
+			s := devDriveService(t, &machine)
+			if err := home.WriteDevDriveConfig(s.Store.Home.Root, test.config); err != nil {
+				t.Fatal(err)
+			}
+			if test.asks {
+				if err := s.askDevDrive(true); err != nil {
+					t.Fatal(err)
+				}
+			}
 
-	// Assert
-	if items := devDriveItems(s); len(items) != 1 {
-		t.Errorf("items = %+v, want no item past the gate step", items)
+			// Act
+			s.keepDevDrive(context.Background())
+			if test.ends >= 0 {
+				endDevDriveItem(t, s, test.ends)
+				s.keepDevDrive(context.Background())
+			}
+
+			// Assert
+			if view := s.devDriveViewNow(); view.Action != test.wantAction || view.Status != test.wantStatus {
+				t.Errorf("row = %q with the button %q, want %q with %q", view.Status, view.Action, test.wantStatus, test.wantAction)
+			}
+		})
 	}
 }
