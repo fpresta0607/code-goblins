@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page, type Route } from "./site";
+import { recordingBegins, slowMicrophone } from "./dictation-hold";
 
 // The Overlord, 2026-10-15: "again theres no way for me to answer this
 // command with a skip or other", and then where: at the bottom beside the
@@ -106,10 +107,12 @@ for (const card of CARDS) {
     await expect(note).toBeFocused();
 
     // Act
+    const begun = recordingBegins(page);
     await page.keyboard.down("Control");
     await page.keyboard.down("Shift");
     await page.keyboard.down("Space");
     await expect(noteWindow(page).getByRole("button", { name: "Listening" })).toHaveClass(/recording/);
+    await begun;
     await page.waitForTimeout(1200);
     await page.keyboard.up("Space");
     await page.keyboard.up("Shift");
@@ -153,6 +156,7 @@ test("the pencil entry and its dialog say Something else? and Send uses the boar
 
 for (const viewport of [{ width: 1707, height: 1067 }, { width: 390, height: 844 }]) {
   test(`dictation in the question's own answer box works at ${viewport.width}`, async ({ page }, testInfo) => {
+    await slowMicrophone(page);
     const sent = await record(page);
     await page.setViewportSize(viewport);
     await page.route("**/api/dictation/warm", (route) => route.fulfill({ status: 202 }));
@@ -163,10 +167,12 @@ for (const viewport of [{ width: 1707, height: 1067 }, { width: 390, height: 844
     const answer = shown.getByLabel("Your written answer");
     await answer.focus();
 
+    const begun = recordingBegins(page);
     await page.keyboard.down("Control");
     await page.keyboard.down("Shift");
     await page.keyboard.down("Space");
     await expect(shown.getByRole("button", { name: "Listening" })).toHaveClass(/recording/);
+    await begun;
     await page.waitForTimeout(1200);
     await page.keyboard.up("Space");
     await page.keyboard.up("Shift");
@@ -190,6 +196,7 @@ for (const input of ["shortcut from Cancel", "microphone"] as const) {
     const note = noteWindow(page).getByLabel("Your note");
     await note.fill("Use this account");
 
+    const begun = recordingBegins(page);
     if (input === "shortcut from Cancel") {
       await noteWindow(page).getByRole("button", { name: "Cancel" }).focus();
       await page.keyboard.down("Control");
@@ -200,6 +207,7 @@ for (const input of ["shortcut from Cancel", "microphone"] as const) {
       await page.mouse.down();
     }
     await expect(noteWindow(page).getByRole("button", { name: "Listening" })).toHaveClass(/recording/);
+    await begun;
     await page.waitForTimeout(1200);
     if (input === "shortcut from Cancel") {
       await page.keyboard.up("Space");

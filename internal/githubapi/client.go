@@ -2,7 +2,8 @@
 // process, as the account gh is signed in with, for the reads the board
 // repeats. Each gh start costs gh, a console host and two tzutil.exe, and on
 // 2026-11-03 the board's CI poll alone started gh 686 times in 95 minutes
-// (#1610). It reads github.com repositories only.
+// (#1610). It reads github.com repositories only, and is the one reading of
+// which of them a Git remote names (remote.go).
 package githubapi
 
 import (

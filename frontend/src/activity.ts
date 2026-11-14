@@ -81,6 +81,12 @@ export function presentationShownOn(presentation:BoardActivity,session:Session|u
   return presentation.target?presentation.target===session?.id:!!task&&presentation.task_id===task.id&&ownsTaskSession(session,task);
 }
 
+// presentedPage is the address of the latest presentation shown, for a card's
+// Browser active to open, empty when there is none.
+export function presentedPage(presentations:BoardActivity[],isShown:(presentation:BoardActivity)=>boolean):string {
+  return presentations.filter(isShown).reduce<BoardActivity|undefined>((latest,event)=>!latest||Date.parse(event.at)>Date.parse(latest.at)?event:latest,undefined)?.url||"";
+}
+
 export function livePresentations(snapshot:Snapshot,now:number):BoardActivity[] {
   return (snapshot.activity||[]).filter(event=>{
     if(!["browser","review"].includes(event.kind)||event.state!=="active"||!safePresentationURL(event.url)||Date.parse(event.until)<=now||Date.parse(event.at)>now) return false;

@@ -16,6 +16,12 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/project"
 )
 
+// pythonProbeLimit bounds only an interpreter that hangs. Under memory
+// pressure Windows pages out a venv's interpreter and its DLLs, and a correct
+// cold start was measured at 20.3 s (issue 2032), so the limit leaves room
+// for several times that.
+const pythonProbeLimit = 2 * time.Minute
+
 const pythonEnvironmentProbe = `import json,sys; print(json.dumps({"executable":sys.executable,"prefix":sys.prefix,"base_prefix":sys.base_prefix,"version":".".join(map(str,sys.version_info[:3])),"releaselevel":sys.version_info.releaselevel,"serial":sys.version_info.serial}))`
 
 // ProjectTestEnvironment binds only the registered source task's existing
@@ -56,9 +62,12 @@ func ProjectTestEnvironment(ctx context.Context, commands execx.Runner, data, ch
 	if info, err := os.Stat(python); err != nil || !info.Mode().IsRegular() {
 		return refuse("the existing environment's Python interpreter is unavailable")
 	}
-	probeContext, cancel := context.WithTimeout(ctx, 15*time.Second)
+	probeContext, cancel := context.WithTimeout(ctx, pythonProbeLimit)
 	defer cancel()
 	result, err := commands.Run(probeContext, execx.Request{Dir: source, Name: python, Args: []string{"-I", "-c", pythonEnvironmentProbe}, KillTree: true})
+	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+		return nil, fmt.Errorf("pipeline: required test environment: the existing Python interpreter's isolated identity probe timed out after %s, so the environment was not judged; a machine short of memory can start an interpreter this slowly, and a later run or reattach can succeed once memory is free; no dependency installation or command execution was attempted", pythonProbeLimit)
+	}
 	if err != nil || result.ExitCode != 0 {
 		return refuse("the existing Python interpreter could not complete its isolated identity probe")
 	}

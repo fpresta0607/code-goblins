@@ -11,43 +11,65 @@ const ActionsSpendPanel = boardPage(() => import("./actions-spend-panel").then((
 const DOLLARS = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const REFRESH_INTERVAL_MS = 3_600_000;
 
+interface KeptReading { reading: ActionsSpend; instance: string; refreshAt: number }
+
+// keeping sets month's reading among the ones a device asked for itself.
+const keeping = (month: string, reading: ActionsSpend, instance: string, refreshAt: number) => (kept: Record<string, KeptReading>) => ({ ...kept, [month]: { reading, instance, refreshAt } });
+
 export const ActionsSpendHeader = memo(function ActionsSpendHeader({ usage, month, instance, now }: { usage?: ActionsSpend; month: string; instance: string; now: number }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isLastMonth, setIsLastMonth] = useState(false);
   const [isRepairing, setIsRepairing] = useState(false);
   const [repairError, showRepairError] = useClickFeedback();
   const repair = useRef<AbortController | null>(null);
-  const [selected, setSelected] = useState<{ reading: ActionsSpend; instance: string; refreshAt: number }>();
-  const cached = selected?.instance === instance && selected.reading.month === month ? selected : undefined;
-  const shouldRequest = !!usage && usage.month !== month && (!cached || now >= cached.refreshAt);
+  // Each month's reading this device asked for itself, by month. The bar's
+  // billed figure stays this month's; the window shows last month only while
+  // it is chosen there (#2536).
+  const [kept, setKept] = useState<Record<string, KeptReading>>({});
+  const [year, monthNumber] = month.split("-").map(Number);
+  const before = new Date(year, monthNumber - 2, 1);
+  const lastMonth = `${before.getFullYear()}-${String(before.getMonth() + 1).padStart(2, "0")}`;
+  const shownMonth = isOpen && isLastMonth ? lastMonth : month;
+  const keptFor = (wanted: string) => kept[wanted]?.instance === instance ? kept[wanted] : undefined;
+  const isDue = (wanted: string) => !!usage && usage.month !== wanted && now >= (keptFor(wanted)?.refreshAt ?? 0);
+  const requested = [...new Set([month, shownMonth])].filter(isDue).join(" ");
   useEffect(() => {
-    if (!shouldRequest) return;
+    if (!requested) return;
     const controller = new AbortController();
-    request("/api/actions-spend?month=" + month, controller.signal, { headers: { "X-CEO-Token": instance } })
-      .then(parseActionsSpend)
-      .then((reading) => {
-        if (controller.signal.aborted) return;
-        // checked_at is on the supervisor's clock, so the next check is kept
-        // between this device's next whole minute and an hour from now: a
-        // device clock ahead neither asks again on every update, nor one
-        // behind keeps a reading for hours.
-        const receivedAt = Date.now();
-        const checkedAt = Date.parse(reading.checked_at);
-        const nextCheck = (checkedAt > 0 ? checkedAt : receivedAt) + REFRESH_INTERVAL_MS;
-        const nextMinute = receivedAt - (receivedAt % 60_000) + 60_000;
-        setSelected({ reading, instance, refreshAt: Math.min(Math.max(nextCheck, nextMinute), receivedAt + REFRESH_INTERVAL_MS) });
-      })
-      .catch((error: unknown) => {
-        if (controller.signal.aborted) return;
-        reportToCeo("reading GitHub Actions usage", message(error));
-        setSelected({ reading: { status: "unavailable", month, total: null, repositories: [], read_at: "", checked_at: "", detail: "Could not read this month's GitHub Actions usage." }, instance, refreshAt: Date.now() + REFRESH_INTERVAL_MS });
-      });
+    for (const wanted of requested.split(" ")) {
+      request("/api/actions-spend?month=" + wanted, controller.signal, { headers: { "X-CEO-Token": instance } })
+        .then(parseActionsSpend)
+        .then((reading) => {
+          if (controller.signal.aborted) return;
+          // checked_at is on the supervisor's clock, so the next check is kept
+          // between this device's next whole minute and an hour from now: a
+          // device clock ahead neither asks again on every update, nor one
+          // behind keeps a reading for hours.
+          const receivedAt = Date.now();
+          const checkedAt = Date.parse(reading.checked_at);
+          const nextCheck = (checkedAt > 0 ? checkedAt : receivedAt) + REFRESH_INTERVAL_MS;
+          const nextMinute = receivedAt - (receivedAt % 60_000) + 60_000;
+          setKept(keeping(wanted, reading, instance, Math.min(Math.max(nextCheck, nextMinute), receivedAt + REFRESH_INTERVAL_MS)));
+        })
+        .catch((error: unknown) => {
+          if (controller.signal.aborted) return;
+          reportToCeo("reading GitHub Actions usage", message(error));
+          const detail = "Could not read " + (wanted === month ? "this" : "last") + " month's GitHub Actions usage.";
+          setKept(keeping(wanted, { status: "unavailable", month: wanted, total: null, repositories: [], read_at: "", checked_at: "", detail }, instance, Date.now() + REFRESH_INTERVAL_MS));
+        });
+    }
     return () => controller.abort();
-  }, [shouldRequest, month, instance, now]);
+  }, [requested, month, instance, now]);
   useEffect(() => () => repair.current?.abort(), []);
-  const supplied = usage?.month === month ? usage : undefined;
-  const reading = cached && (!supplied || Date.parse(cached.reading.checked_at) >= Date.parse(supplied.checked_at)) ? cached.reading : supplied;
-  const isPending = reading?.recovery?.state === "ready" || reading?.recovery?.state === "running";
-  const pendingRun = reading?.recovery?.run_id;
+  const readingOf = (wanted: string) => {
+    const cached = keptFor(wanted);
+    const supplied = usage?.month === wanted ? usage : undefined;
+    return cached && (!supplied || Date.parse(cached.reading.checked_at) >= Date.parse(supplied.checked_at)) ? cached.reading : supplied;
+  };
+  const reading = readingOf(month);
+  const shown = readingOf(shownMonth);
+  const isPending = shown?.recovery?.state === "ready" || shown?.recovery?.state === "running";
+  const pendingRun = shown?.recovery?.run_id;
   useEffect(() => {
     if (!isOpen || !isPending) return;
     const controller = new AbortController();
@@ -57,8 +79,8 @@ export const ActionsSpendHeader = memo(function ActionsSpendHeader({ usage, mont
         for (let attempt = 0; attempt < 150 && !controller.signal.aborted; attempt++) {
           await new Promise((resolve) => setTimeout(resolve, 2000));
           if (controller.signal.aborted) return;
-          const updated = parseActionsSpend(await request("/api/actions-spend?month=" + month, controller.signal, { headers: { "X-CEO-Token": instance } }));
-          setSelected({ reading: updated, instance, refreshAt: Date.now() + REFRESH_INTERVAL_MS });
+          const updated = parseActionsSpend(await request("/api/actions-spend?month=" + shownMonth, controller.signal, { headers: { "X-CEO-Token": instance } }));
+          setKept(keeping(shownMonth, updated, instance, Date.now() + REFRESH_INTERVAL_MS));
           if (updated.recovery?.state !== "ready" && updated.recovery?.state !== "running") return;
         }
       } catch (error: unknown) {
@@ -67,17 +89,18 @@ export const ActionsSpendHeader = memo(function ActionsSpendHeader({ usage, mont
     }
     void followConsent();
     return () => { controller.abort(); clearTimeout(deadline); };
-  }, [isOpen, isPending, pendingRun, instance, month]);
+  }, [isOpen, isPending, pendingRun, instance, shownMonth]);
   async function recover(action: string) {
     if (repair.current) return;
+    const repaired = shownMonth;
     const controller = new AbortController();
     repair.current = controller;
     const deadline = setTimeout(() => controller.abort(), 40_000);
     setIsRepairing(true);
     showRepairError("");
     try {
-      const updated = parseActionsSpend(await request("/api/actions-spend/repair", controller.signal, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance }, body: JSON.stringify({ month, action }) }));
-      if (!controller.signal.aborted) setSelected({ reading: updated, instance, refreshAt: Date.now() + REFRESH_INTERVAL_MS });
+      const updated = parseActionsSpend(await request("/api/actions-spend/repair", controller.signal, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance }, body: JSON.stringify({ month: repaired, action }) }));
+      if (!controller.signal.aborted) setKept(keeping(repaired, updated, instance, Date.now() + REFRESH_INTERVAL_MS));
     } catch (error: unknown) {
       showRepairError(controller.signal.aborted ? "Billing request timed out. Reopen the panel." : message(error));
     } finally {
@@ -97,7 +120,7 @@ export const ActionsSpendHeader = memo(function ActionsSpendHeader({ usage, mont
       <span className={total ? "actions-spend-billed" : undefined}>{billed}</span>{isOld && <span className="actions-spend-old">Old</span>}
     </button>
     {isOpen && createPortal(<Suspense fallback={<p role="status" className="actions-spend-loading">Opening Actions spend...</p>}>
-      <ActionsSpendPanel usage={reading} month={month} onClose={() => setIsOpen(false)} onRepair={(action) => { void recover(action); }} isRepairing={isRepairing} repairError={repairError} />
+      <ActionsSpendPanel usage={shown} month={shownMonth} months={[month, lastMonth]} onMonth={(chosen) => setIsLastMonth(chosen === lastMonth)} onClose={() => { setIsOpen(false); setIsLastMonth(false); }} onRepair={(action) => { void recover(action); }} isRepairing={isRepairing} repairError={repairError} />
     </Suspense>, document.body)}
   </>;
 });

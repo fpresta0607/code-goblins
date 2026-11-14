@@ -247,36 +247,43 @@ measuring:
 		return problems
 	}
 	// Every read of a pass starts at once against its one deadline, so when
-	// every read ran out together the machine was slow, not any goblin: on
+	// most reads ran out together the machine was slow, not any goblin: on
 	// 2026-11-04 at 01:10Z ten goblins' reads ran out in one pass while two
-	// test runs held the machine (#1630). Such a pass tells nothing of any
-	// goblin, so it neither counts nor ends a goblin's run of failed passes,
-	// and the CEO hears of it once, when it has lasted as long as a stall
-	// takes to tell: no goblin that went quiet during it can be stalled
-	// before then, and one that went quiet before it keeps its clock, so its
-	// stall is raised by the first pass that reads it. One read alone cannot
-	// tell the machine from its goblin and stays the goblin's.
-	if len(ranOut) > 1 && len(ranOut) == reads {
+	// test runs held the machine (#1630). The reads are not the same size: a
+	// no-mistakes goblin's also asks the gate for its run, so on a loaded
+	// machine those run out while a plain goblin's finishes (#2039). A read
+	// that ran out counts against its goblin only when at least half the
+	// pass's reads finished in time. Any other pass tells nothing of the
+	// goblins whose reads ran out, so it neither counts nor ends their runs
+	// of failed passes, and the CEO hears of it once, when such passes have
+	// lasted as long as a stall takes to tell: no goblin that went quiet
+	// during them can be stalled before then, and one that went quiet before
+	// them keeps its clock, so its stall is raised by the first pass that
+	// reads it. One read alone cannot tell the machine from its goblin and
+	// stays the goblin's.
+	isMachineSlow := reads > 1 && (reads-len(ranOut))*2 < reads
+	if isMachineSlow {
 		if watched.ProgressUnreadSince.IsZero() {
 			watched.ProgressUnreadSince = now
 		}
 		if lasted := now.Sub(watched.ProgressUnreadSince); lasted >= PROGRESS_THRESHOLD && !watched.ProgressUnreadWoke {
-			detail := fmt.Sprintf("progress_unread: every live goblin's progress read has run out of time together on every pass for %d minutes, since %s, so the machine is too slow to read any of them, not any one goblin, and no stall has been judged since; next: see what holds the machine with goblins gate turns and goblins runtime", int(lasted/time.Minute), watched.ProgressUnreadSince.UTC().Format("15:04Z"))
+			detail := fmt.Sprintf("progress_unread: most live goblins' progress reads have run out of time together on every pass for %d minutes, since %s, so the machine is too slow to read them, not any one goblin, and no stall has been judged since for a goblin whose read ran out; next: see what holds the machine with goblins gate turns and goblins runtime", int(lasted/time.Minute), watched.ProgressUnreadSince.UTC().Format("15:04Z"))
 			if err := raiseFleetWake(s.Store.Home.State, "check", "progress", detail); err != nil {
 				problems = errors.Join(problems, err)
 			} else {
 				watched.ProgressUnreadWoke = true
 			}
 		}
-		return problems
-	}
-	if len(measured) > 0 || reads == 0 {
+		for id := range ranOut {
+			failed[id] = true
+		}
+	} else if len(measured) > 0 || reads == 0 {
 		watched.ProgressUnreadSince, watched.ProgressUnreadWoke = time.Time{}, false
 	}
 	// A memory low slows every read at once: on 2026-10-08 the supervisor
 	// woke the CEO with every goblin's read run out of time while 1.9 GB was
 	// free. Those goblins wait for a reading that can see them.
-	if !watched.MemoryLow {
+	if !isMachineSlow && !watched.MemoryLow {
 		for _, id := range slices.Sorted(maps.Keys(ranOut)) {
 			failed[id] = true
 			problems = errors.Join(problems, watched.failing("progress:"+id, ranOut[id]))

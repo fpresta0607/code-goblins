@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ActivityBuffer, activityDisplay, activityTransition, livePresentations, mergeActivityEffects, presentationShownOn, safePresentationURL } from "./activity.ts";
+import { ActivityBuffer, activityDisplay, activityTransition, livePresentations, mergeActivityEffects, presentationShownOn, presentedPage, safePresentationURL } from "./activity.ts";
 import { parseSnapshot } from "./types.ts";
 
 test("live receipts animate once on actual recursive links, never initial load or reconnect", () => {
@@ -109,4 +109,12 @@ test("a presentation naming a session marks only that card, and a pane-proven on
   assert.equal(presentationShownOn(named,child,work),true);
   assert.equal(presentationShownOn(named,owner,work),false);
   assert.equal(presentationShownOn(named,undefined,work),false);
+});
+
+test("a card's Browser active opens the latest page shown, by instant, whatever length the backend's fraction of a second", () => {
+  const shown=(id:string,at:string)=>({id,kind:"review",task_id:"work",generation:"g1",source:"",target:"",state:"active",url:"https://pages.example.com/"+id,at,until:""});
+  for (const [earlier,later] of [["2026-11-13T10:00:05.12Z","2026-11-13T10:00:05.1234567Z"],["2026-11-13T10:00:05Z","2026-11-13T10:00:05.4Z"]]) {
+    for (const order of [[shown("earlier",earlier),shown("later",later)],[shown("later",later),shown("earlier",earlier)]]) assert.equal(presentedPage(order,()=>true),"https://pages.example.com/later",earlier+" then "+later);
+  }
+  assert.equal(presentedPage([shown("other","2026-11-13T10:00:05Z")],(event)=>event.task_id!=="work"),"");
 });

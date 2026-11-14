@@ -314,6 +314,8 @@ Without the flag the existing native eligibility checks apply unchanged.
 The selection preserves historical evidence and spending; it does not certify the published descendant, and receipt-bound `--resume` requires fresh proof of the final source in the same run and pull request.
 Continuation uses the receipt's recorded selection without requiring the flag again.
 Native still verifies source ancestry and publication identity, and a refusal, including one after a native rebase, remains unresolved rather than being relaxed by the wrapper.
+A latest run that never published is refused before native is asked, with a reason of its own: handback returns only a published run's failed CI.
+A run that failed before it published, such as one Review approved whose Test step then failed preparing, has no route on from its reviewed head that keeps its review until fpresta0607/no-mistakes#323 lands, and until then a new run from the task's branch reviews it again.
 Both handback modes refuse a pending or unreadable policy migration journal without changing the journal, frozen policy, task metadata or audit log.
 Recover the migration explicitly with `goblins pipeline migrate <id>` before requesting handback.
 It requires a native build supporting `axi handback --expect` and receipt-bound `--resume`, plus `--revalidate-publication` when explicitly selected, and refuses when that contract is unavailable.
@@ -979,7 +981,7 @@ So this repository's own `goblins gate test` runs behind `goblins gate turn` und
 A repository whose `.no-mistakes.yaml` names no `commands.test` gives the fork nothing to wrap: its test step logs `no test command configured` and asks the test agent to run the tests, which it does outside the line.
 So every gated repository names its suite there, on its default branch.
 The string runs as `cmd.exe /c <string>`, so it is in `cmd.exe` syntax, with `&&` between commands.
-A gate's worktree holds tracked files only, so `commands.prepare` installs what the suite needs, outside the line, before the baseline and first Test agent invocation.
+A gate's worktree holds tracked files only, so `commands.prepare` installs what the suite needs, outside the wrapper, before the baseline and first Test agent invocation.
 This repository configures:
 
 ```yaml
@@ -988,14 +990,7 @@ commands:
   test: "goblins gate test"
 ```
 
-`goblins gate prepare` reads the existing scoped change plan and runs `npm ci` in the validation worktree's own `frontend` directory only when the plan contains a path under `frontend/`, including source and lockfile changes.
-Go-only and documentation-only changes install nothing.
-An existing `node_modules` directory does not authorize reuse: every frontend-affected preparation runs the locked install, without sharing materialized dependencies between worktrees or adding a receipt or cache.
-On Windows it invokes npm through `cmd.exe /d /c npm ci`, so standard `npm.cmd` installations work.
-An unreadable plan fails preparation before an installer starts; missing tooling and installer failures also fail preparation, with no fallback to an unlocked install.
-Missing or invalid lockfiles are rejected by `npm ci`, not independently validated by this command.
-The command reports the locked install's elapsed time; its isolated regression fixtures are in `cmd/goblins/gate_prepare_test.go`.
-Activation requires this configuration on the default branch, from which the gate trusts it, and a reviewed installed goblins build supporting both `goblins gate prepare` and `goblins gate test`.
+[`goblins gate prepare`](commands/gate/prepare.md) says what it installs, how it takes its own turn in the line, how it fails and what activates it.
 
 An existing verified Python environment can be required by the project's machine-local `data/projects/<checkout folder>/project.json`:
 
@@ -1013,6 +1008,8 @@ The managed checkout must have the run's recorded HEAD and canonical native repo
 The command must run there or in a separate base clone whose top level, local origin and HEAD match the managed checkout and the supplied native Test comparison.
 It never selects an environment from a client variable or another project's record.
 The interpreter must already exist, and an isolated Python probe must report that executable, the selected environment prefix, a distinct existing base prefix and the exact configured version.
+The probe has two minutes, since a machine short of memory can take tens of seconds to start a correct interpreter whose files were paged out.
+A probe that runs out of that time is refused as a timeout that names its limit, not as a wrong environment, and a later run or reattach can succeed once memory is free.
 The environment directory must resolve inside the registered source worktree.
 Python environments with system site packages are supported.
 

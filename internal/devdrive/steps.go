@@ -20,6 +20,10 @@ const (
 	// StepAttach attaches the Dev Drive a home's heavy folders are on again,
 	// when Windows did not.
 	StepAttach Step = "attach"
+	// StepTask registers the startup task again on a drive that is
+	// attached, where the task was registered before it attached the drive
+	// by itself and the board could start it.
+	StepTask Step = "task"
 	// StepTrust trusts a Dev Drive Windows does not trust.
 	StepTrust Step = "trust"
 	// StepMove moves the home's heavy folders onto it, and the gate's home
@@ -54,9 +58,10 @@ type Plan struct {
 // its heavy folders and the gate's home are on a Dev Drive Windows does not
 // distrust, or this machine can have no Dev Drive Code Goblins would use.
 // config is the home's config\dev-drive.json, which names the file a create
-// step made, and shouldMoveGateHome says the gate's home is not yet in h's
-// Dev Drive folder and a move would carry it there.
-func Next(m Machine, h home.Home, config home.DevDriveConfig, shouldMoveGateHome bool) (Plan, bool) {
+// step made, shouldMoveGateHome says the gate's home is not yet in h's Dev
+// Drive folder and a move would carry it there, and shouldRenewTask says the
+// startup task of the drive config names is not the one this build registers.
+func Next(m Machine, h home.Home, config home.DevDriveConfig, shouldMoveGateHome, shouldRenewTask bool) (Plan, bool) {
 	if m.Unavailable() != "" {
 		return Plan{}, false
 	}
@@ -67,6 +72,8 @@ func Next(m Machine, h home.Home, config home.DevDriveConfig, shouldMoveGateHome
 			return attach(config.VHD, filepath.VolumeName(h.DevDrive)), true
 		case found && v.Dev && v.Trust == Untrusted:
 			return trust(v), true
+		case found && v.Dev && config.VHD != "" && shouldRenewTask:
+			return renew(config.VHD, v.Letter()), true
 		case found && shouldMoveGateHome:
 			return Plan{Step: StepGate, Folder: h.DevDrive}, true
 		}
@@ -103,7 +110,17 @@ func attach(vhd, letter string) Plan {
 		Admin:  true,
 		VHD:    vhd,
 		Script: CreateScript(vhd, letter, 0),
-		Title:  fmt.Sprintf("Attach the Code Goblins Dev Drive %s again (administrator): it attaches %s and gives it back its letter, so goblins can start; nothing else changes", letter, vhd),
+		Title:  fmt.Sprintf("Attach the Code Goblins Dev Drive %s again (administrator): it attaches %s, gives it back its letter and renews its startup task, so goblins can start and the next restart attaches it by itself. Nothing else changes", letter, vhd),
+	}
+}
+
+func renew(vhd, letter string) Plan {
+	return Plan{
+		Step:   StepTask,
+		Admin:  true,
+		VHD:    vhd,
+		Script: CreateScript(vhd, letter, 0),
+		Title:  fmt.Sprintf("Renew the startup task of the Code Goblins Dev Drive %s (administrator): it attaches %s if it is not attached, gives it back its letter and renews its startup task, which from the next restart attaches it by itself and tries again while Windows is not ready, and which the board can start with no click. Nothing else changes", letter, vhd),
 	}
 }
 
@@ -139,7 +156,10 @@ func quote(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'
 // once the file exists, attaches it and gives it back its letter. It uses
 // diskpart and the Storage cmdlets every edition has, not the Hyper-V module,
 // and registers a startup task that attaches the file at every boot, because
-// Windows does not attach a VHD again after a restart. The file's folder is
+// Windows does not attach a VHD again after a restart: it writes
+// AttachScript beside the file for the task to run, as SYSTEM, at startup,
+// on battery power too and with no time limit, and lets anyone signed in
+// start the task, never change it. The file's folder is
 // left to administrators and Windows alone, since Windows attaches what is in
 // it as SYSTEM. It never touches Defender. Run twice, it changes nothing.
 func CreateScript(vhd, letter string, sizeGB int) string {
@@ -173,8 +193,15 @@ func CreateScript(vhd, letter string, sizeGB int) string {
 		"    $partition = Get-Partition -DiskNumber $disk.Number | Where-Object { $_.Type -eq 'Basic' } | Select-Object -First 1\r\n" +
 		"    if ($partition.DriveLetter -ne $letter) { $partition | Set-Partition -NewDriveLetter $letter }\r\n" +
 		"}\r\n" +
-		"$attach = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument (\"-NoProfile -NonInteractive -Command \"\"Mount-DiskImage -ImagePath '\" + $vhd + \"' -ErrorAction SilentlyContinue\"\"\")\r\n" +
-		"Register-ScheduledTask -TaskName 'Code Goblins Dev Drive' -Trigger (New-ScheduledTaskTrigger -AtStartup) -Action $attach -User 'NT AUTHORITY\\SYSTEM' -RunLevel Highest -Force | Out-Null\r\n" +
+		"# The startup task runs this script as SYSTEM at every boot, from the folder only administrators and Windows may change.\r\n" +
+		"$attachScript = Join-Path $folder " + quote(AttachScriptName) + "\r\n" +
+		"Set-Content -LiteralPath $attachScript -Encoding UTF8 -Value @'\r\n" + AttachScript(vhd, letter) + "'@\r\n" +
+		"$attach = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument \"-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `\"$attachScript`\"\"\r\n" +
+		"Register-ScheduledTask -TaskName " + quote(TaskName) + " -Trigger (New-ScheduledTaskTrigger -AtStartup) -Action $attach -Settings (" + taskSettings + ") -User 'NT AUTHORITY\\SYSTEM' -RunLevel Highest -Force | Out-Null\r\n" +
+		"# Anyone signed in may read the task and start it, never change it, so the board starts it without elevation when the drive is missing.\r\n" +
+		"$scheduler = New-Object -ComObject Schedule.Service\r\n" +
+		"$scheduler.Connect()\r\n" +
+		"$scheduler.GetFolder('\\').GetTask(" + quote(TaskName) + ").SetSecurityDescriptor(" + quote(taskSecurity) + ", 0)\r\n" +
 		"fsutil devdrv query \"$($letter):\"\r\n"
 }
 

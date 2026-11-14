@@ -361,7 +361,13 @@ func TestRepositoryOfReadsTheOriginRemote(t *testing.T) {
 		{remote: "https://github.com/fpresta0607/northwind-api.git", want: "fpresta0607/northwind-api"},
 		{remote: "https://github.com/fpresta0607/code-goblins", want: "fpresta0607/code-goblins"},
 		{remote: "git@github.com:fpresta0607/northwind-web.git", want: "fpresta0607/northwind-web"},
+		// Every form the CI poll reads as GitHub's is GitHub's here too (#1697).
+		{remote: "ssh://git@github.com/owner/repository.git", want: "owner/repository"},
+		{remote: "ssh://git@ssh.github.com:443/owner/repository.git", want: "owner/repository"},
+		{remote: "git+ssh://git@github.com/owner/repository.git", want: "owner/repository"},
+		{remote: "https://GitHub.com/owner/repository", want: "owner/repository"},
 		{remote: "https://gitlab.com/someone/project.git", wantErr: "not a GitHub repository"},
+		{remote: "ssh://git@gitlab.com/someone/project.git", wantErr: "not a GitHub repository"},
 		{remote: "", wantErr: "No such remote"},
 	}
 	for _, tc := range cases {
@@ -377,6 +383,29 @@ func TestRepositoryOfReadsTheOriginRemote(t *testing.T) {
 				t.Fatalf("repository = %q, %v, want %q", got, err, tc.want)
 			}
 		})
+	}
+}
+
+// Remotes names a remote that fetches from GitHub over ssh as GitHub's, as
+// the CI poll reads it, and leaves out one kept elsewhere (#1697).
+func TestRemotesNamesAGitHubRemoteInEachFormTheCIPollReads(t *testing.T) {
+	// Arrange
+	listing := strings.Join([]string{
+		"origin\tssh://git@ssh.github.com:443/owner/repository.git (fetch)",
+		"origin\tssh://git@ssh.github.com:443/owner/repository.git (push)",
+		"fork\tgit+ssh://git@github.com/someone/repository.git (fetch)",
+		"fork\tgit+ssh://git@github.com/someone/repository.git (push)",
+		"mirror\tssh://git@gitlab.com/someone/repository.git (fetch)",
+		"mirror\tssh://git@gitlab.com/someone/repository.git (push)",
+	}, "\n")
+
+	// Act
+	remotes, err := GitHub{Commands: &fakeGitHub{remote: listing}}.Remotes(context.Background(), "checkout")
+
+	// Assert
+	want := []Remote{{Name: "origin", Repository: "owner/repository"}, {Name: "fork", Repository: "someone/repository"}}
+	if err != nil || !slices.Equal(remotes, want) {
+		t.Fatalf("remotes = %+v, %v; want %+v", remotes, err, want)
 	}
 }
 
