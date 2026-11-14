@@ -220,22 +220,27 @@ for (const { wide, clock, isUnderClock } of [
 // The Overlord, 2026-11-12: a narrow card's marks move under its clock only
 // when they would overlap it. On a phone 320px wide every card is narrow, and
 // a card with a pull request and its harness mark, or its harness mark alone,
-// has room for them beside its clock, so it keeps the row it had.
+// has room for them beside its clock, so it keeps the row it had. Wilhelmina
+// and Cornelius present a page, so their marks begin with Browser active,
+// which has no room beside the clock, and take the row under it.
 test("a narrow list card whose marks fit beside its clock keeps them on the clock's row", async ({ page }) => {
   // Arrange
   await page.setViewportSize({ width: 320, height: 844 });
   await open(page, "lineage", "&marks&browser");
   const others = page.locator(".workflow-node.has-task").filter({ hasNot: page.locator(".card-title", { hasText: "Bartholomew" }) });
+  const isPresenting = (title: string) => title.startsWith("Wilhelmina") || title.startsWith("Cornelius");
 
   // Act
   const widths = await others.evaluateAll((nodes: HTMLElement[]) => nodes.map((node) => node.offsetWidth));
   const marks = await Promise.all((await others.all()).map((card) => card.evaluate(marksOf)));
   const goblins = await measureAll(others, GOBLIN);
+  const titles = await others.locator(".card-title").allInnerTexts();
 
   // Assert: every other goblin was measured, each in a narrow card.
   expect(marks).toHaveLength(6);
   expect(Math.max(...widths), "the widest of the cards").toBeLessThanOrEqual(260);
-  expect(marks.map((one) => one.isUnderClock), "cards whose marks start under the clock").toEqual(marks.map(() => false));
+  expect(titles.filter(isPresenting), "the cards that present a page").toHaveLength(2);
+  expect(marks.map((one) => one.isUnderClock), "cards whose marks start under the clock").toEqual(titles.map(isPresenting));
   expect(marks.flatMap((one) => one.overClock), "marks drawn over a clock").toEqual([]);
   goblins.forEach((seen, i) => expectOneGroup(seen, "goblin card " + (i + 1), false));
 });

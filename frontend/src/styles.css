@@ -253,7 +253,10 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .task-card-shell { --card-text-edge: 56px; position: relative; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "card time" "repo icons"; align-items: start; column-gap: 12px; padding: 10px 12px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
 .task-card-shell > .task-card { grid-area: card; }
 .task-card-shell > .card-clock { grid-area: time; justify-self: end; white-space: nowrap; }
-.task-card-shell > .card-icons { grid-area: icons; justify-self: end; align-self: end; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px 10px; }
+/* Beside the card's text its marks take at most half the list's width and
+   wrap under one another past it, so Browser active, the one mark no line
+   can break, never squeezes the name and status into a sliver. */
+.task-card-shell > .card-icons { grid-area: icons; justify-self: end; align-self: end; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px 10px; max-width: 50cqi; }
 .card-icons .icon { width: 18px; height: 18px; }
 .card-harness .mark { width: 40px; height: 40px; }
 .card-harness .mark svg, .card-harness .mark .icon { width: 22px; height: 22px; }
@@ -272,20 +275,22 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 @container (max-width: 360px) {
   .task-card-shell { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "card card" "repo repo" "time icons"; align-items: center; }
   .task-card-shell > .card-clock { justify-self: start; margin-top: 6px; }
-  .task-card-shell > .card-icons { margin-top: 6px; }
+  .task-card-shell > .card-icons { margin-top: 6px; max-width: none; }
   /* In Orchestration no card is numbered, so its clock has room at the
      left edge its name, status and project share, right under them. */
   .flow-node.has-task .card-clock, .workflow-node.has-task .card-clock { align-self: start; margin: 0 0 0 var(--card-text-edge); }
   .flow-node.has-task .card-icons, .workflow-node.has-task .card-icons { margin-top: 0; }
-  /* A card of the phone's list is as wide as the phone leaves it, and
-     Browser active is one mark no line can break. So the card's parts wrap
-     there as words do: its marks end the clock's row while the widest of
-     them has room beside the clock, and take the row under it when it has
-     none, 6px under the clock, so no mark is ever drawn over the clock. */
-  .workflow-node.has-task .task-card-shell { display: flex; flex-wrap: wrap; align-items: start; }
-  .workflow-node.has-task .card-repo { width: calc(100% - var(--card-text-edge)); }
+  /* A card of the phone's list, or of a list as narrow on the board, is as
+     wide as the list leaves it, and Browser active is one mark no line can
+     break. So the card's parts wrap there as words do: its marks end the
+     clock's row while the widest of them has room beside the clock, and take
+     the row under it when it has none, 6px under the clock, so no mark is
+     ever drawn over the clock. */
+  .task-cards .task-card-shell, .workflow-node.has-task .task-card-shell { display: flex; flex-wrap: wrap; align-items: center; }
+  .workflow-node.has-task .task-card-shell { align-items: start; }
+  .task-cards .task-card-shell > .card-repo, .workflow-node.has-task .card-repo { width: calc(100% - var(--card-text-edge)); }
   .workflow-node.has-task .card-clock { margin-bottom: 6px; }
-  .workflow-node.has-task .card-icons { flex: 1 1 auto; width: min-content; }
+  .task-cards .task-card-shell > .card-icons, .workflow-node.has-task .card-icons { flex: 1 1 auto; width: min-content; }
 }
 .card-pr { display: inline-flex; align-items: center; gap: 6px; font-size: 1rem; font-weight: 700; color: #6bf0cc; text-decoration: none; }
 .card-pr .icon { width: 18px; height: 18px; }
