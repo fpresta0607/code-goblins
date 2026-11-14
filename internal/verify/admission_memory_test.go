@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/lock"
 )
@@ -76,9 +77,11 @@ func TestASecondRunWaitsBesideAHolderShortOfItsEstimate(t *testing.T) {
 	}
 }
 
-// The run at the head is never passed by a smaller run behind it, however
-// well the smaller one would fit.
-func TestTheHeadIsNeverPassedByASmallerRunBehindIt(t *testing.T) {
+// A run that fits the memory free goes past a run ahead of it that does not,
+// which takes its turn once the memory is there: on 2026-10-29 a waiter
+// expecting 8 GB with 7.1 GB free held eight runs that fit for 28 minutes
+// while the turn sat free (#1743).
+func TestARunThatFitsGoesPastARunAheadThatDoesNot(t *testing.T) {
 	// Arrange
 	var free atomic.Uint64
 	free.Store(8 * gigabyte)
@@ -95,20 +98,72 @@ func TestTheHeadIsNeverPassedByASmallerRunBehindIt(t *testing.T) {
 	largeSays.waits(t, takenLarge, "a run needing 0 + 7 + 2 GiB of 8")
 	small := holding
 	small.Estimate = 0
-	takenSmall := take(t, small)
 
 	// Act
-	notYet(t, takenSmall, "a run behind the head")
-	free.Store(9 * gigabyte)
+	turn := within(t, take(t, small), "a run needing 0 + 2.5 + 2 GiB of 8, behind one that does not fit")
 
 	// Assert
-	turn := within(t, takenLarge, "the head, once 9 GiB is free")
+	notYet(t, takenLarge, "the run that does not fit")
 	if err := turn.Release(); err != nil {
 		t.Fatal(err)
 	}
-	if err := within(t, takenSmall, "the run behind it, once the head went").Release(); err != nil {
+	free.Store(9 * gigabyte)
+	if err := within(t, takenLarge, "the run that did not fit, once 9 GiB is free").Release(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// A run that has waited the line's limit is never passed, even by a run that
+// fits when it does not, so a run expected to use more than is free waits for
+// its turn no longer than that limit.
+func TestAnOverdueRunIsNeverPassedByARunThatFits(t *testing.T) {
+	// Arrange
+	var free atomic.Uint64
+	free.Store(8 * gigabyte)
+	holding := twoSlots(t, &free)
+	holding.Estimate = gigabyte
+	holder := within(t, take(t, holding), "the holder")
+	defer holder.Release()
+	holder.Measure(gigabyte)
+	large := holding
+	large.Estimate, large.overdueAfter = 7*gigabyte, 50*time.Millisecond
+	takenLarge := take(t, large)
+	for deadline := time.Now().Add(time.Minute); !hasOverduePlace(t, holding.Dir); time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the large run never moved to the overdue place")
+		}
+	}
+	small := holding
+	small.Estimate = 0
+	takenSmall := take(t, small)
+
+	// Act
+	notYet(t, takenSmall, "a run behind an overdue one")
+	free.Store(9 * gigabyte)
+
+	// Assert
+	if err := within(t, takenLarge, "the overdue run, once 9 GiB is free").Release(); err != nil {
+		t.Fatal(err)
+	}
+	if err := within(t, takenSmall, "the run behind it, once it went").Release(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// hasOverduePlace says a run in the line kept in dir stands at the overdue
+// place.
+func hasOverduePlace(t *testing.T, dir string) bool {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(dir, "line"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), overduePlace) && !strings.HasSuffix(entry.Name(), ".run") {
+			return true
+		}
+	}
+	return false
 }
 
 // What a holder may still use is its estimate less what it commits now,

@@ -637,7 +637,8 @@ A command also waits while either physical or commit availability is under the s
 At capacity one the floor is 4 GiB.
 At capacity two it is weighed for the run at the head of the line: what each run holding a slot may still use, its expected memory less what it commits now, then the head's own expected memory and the desktop reserve, and never under 4 GiB.
 A run's expected memory is what `goblins gate turn --memory` declares, or 2.5 GiB without it, and a run's card in the line carries it with what the run commits, measured as it runs.
-A run behind the head never passes it, however well a smaller run would fit.
+At capacity two a run that fits the memory free goes past a run ahead of it that does not fit for its own expected memory, so a run that expects more than the machine has free holds back no run behind it.
+No run passes one that has waited the line's two-hour limit, so a run that expects more than is free still takes its turn within that limit.
 An unavailable reading or an hour of floor waiting refuses admission and starts no command.
 
 #### Light runs beside the line

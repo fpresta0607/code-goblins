@@ -615,7 +615,11 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 			}
 			place, owner = overduePlace+arrival, moved
 		}
-		ahead, err := inFront(line, place)
+		passed, err := a.passing(line, capacity, floor)
+		if err != nil {
+			return Turn{Waited: time.Since(start)}, err
+		}
+		ahead, err := inFront(line, place, passed)
 		if err != nil {
 			return Turn{Waited: time.Since(start)}, err
 		}
@@ -727,9 +731,38 @@ func standing(ahead int) string {
 	return fmt.Sprintf("%d runs are ahead of this one in line", ahead)
 }
 
-// inFront counts the runs whose places come before place and still wait.
-// A run whose process is gone is taken out of the line.
-func inFront(line, place string) (int, error) {
+// passing says which waiting runs this run goes past, for inFront: in a line
+// of two slots, while this run fits the memory free, a run ahead of it that
+// does not fit for its own expected memory holds it back no longer, unless
+// that run has waited the line's limit and stands at overduePlace, which no
+// run passes, so it still has its turn within the limit. On 2026-10-29 a
+// waiter expecting 8 GB with 7.1 GB free held eight runs that fit for 28
+// minutes while the turn sat free (#1743). A line of one slot asks every run
+// the same floor, so no run there fits where the one ahead does not, and it
+// passes none.
+func (a Admission) passing(line string, capacity int, floor uint64) (func(name string) (bool, error), error) {
+	if capacity != 2 {
+		return nil, nil
+	}
+	short, err := a.headShort(capacity, floor)
+	if err != nil || short != "" {
+		return nil, err
+	}
+	return func(name string) (bool, error) {
+		if strings.HasPrefix(name, overduePlace) {
+			return false, nil
+		}
+		ahead := a
+		ahead.Estimate = readCard(filepath.Join(line, name)).EstimateBytes
+		short, err := ahead.headShort(capacity, floor)
+		return short != "", err
+	}, nil
+}
+
+// inFront counts the runs whose places come before place and still wait,
+// leaving out each one passed says this run goes past, when it is given. A
+// run whose process is gone is taken out of the line.
+func inFront(line, place string, passed func(name string) (bool, error)) (int, error) {
 	entries, err := os.ReadDir(line)
 	if err != nil {
 		return 0, err
@@ -761,6 +794,15 @@ func inFront(line, place string) (int, error) {
 				return 0, err
 			}
 			continue
+		}
+		if err == nil && passed != nil {
+			isPassed, err := passed(name)
+			if err != nil {
+				return 0, err
+			}
+			if isPassed {
+				continue
+			}
 		}
 		ahead++
 	}
