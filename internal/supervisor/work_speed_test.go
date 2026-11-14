@@ -92,8 +92,9 @@ func TestProgressWatchMeasuresLaterGoblinsPastAStalledWorktree(t *testing.T) {
 }
 
 // One deadline covers every goblin's read in a pass. The goblins it ran out
-// on are read again on the next pass, and are the supervisor's error once
-// the deadline ran out on them failingPasses passes in a row.
+// on, while at least half the reads finished, are read again on the next
+// pass, and are the supervisor's error once the deadline ran out on them
+// failingPasses passes in a row.
 func TestProgressPassUsesOneDeadlineForAllStalledGoblins(t *testing.T) {
 	for _, test := range []struct {
 		name            string
@@ -105,12 +106,12 @@ func TestProgressPassUsesOneDeadlineForAllStalledGoblins(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			service, h := fleetService(t)
 			var stalledDirectories []string
-			for _, id := range []string{"a-stalled", "b-stalled", "c-stalled"} {
+			for _, id := range []string{"a-stalled", "b-stalled"} {
 				liveGoblin(t, h, id, h.Root)
 				stalledDirectories = append(stalledDirectories, filepath.Join(h.Root, ".worktrees", "gb-"+id))
 			}
 			if test.hasFailedBefore {
-				failedBefore(t, h, "progress:a-stalled", "progress:b-stalled", "progress:c-stalled")
+				failedBefore(t, h, "progress:a-stalled", "progress:b-stalled")
 			}
 			liveGoblin(t, h, "d-healthy", h.Root)
 			head := strings.Repeat("a", 40)
@@ -1158,6 +1159,104 @@ func TestAGoblinWhoseReadKeepsRunningOutWhileOthersAreReadWakesTheCEO(t *testing
 				t.Fatalf("wake %q, want it to name the slow goblin alone", detail)
 			}
 		}
+	}
+}
+
+// slowGate is a gate whose every run progress read runs out of time, as the
+// gate's own process starts do on a loaded machine.
+type slowGate struct{}
+
+func (slowGate) Progress(context.Context, string, string) (pipeline.Progress, error) {
+	return pipeline.Progress{}, context.DeadlineExceeded
+}
+
+func (slowGate) CanSteer(context.Context, string, string, string) error { return nil }
+
+func (slowGate) CanTypeFreshDetached(context.Context, string) error { return nil }
+
+// A no-mistakes goblin's progress read asks the gate for its run after its two
+// git calls, so on a loaded machine those reads run out while a plain
+// goblin's finishes (#2039). A pass where most reads ran out says the machine
+// was slow: it counts against no goblin and keeps each one's run of failed
+// passes. A pass where at least half the reads finished in time still counts
+// each read that ran out against its goblin.
+func TestAPassWhereMostReadsRanOutIsNoGoblinsError(t *testing.T) {
+	head := strings.Repeat("a", 40)
+	for _, test := range []struct {
+		name                   string
+		noMistakes, plain      []string
+		isGoblinsError         bool
+		isBlindSpellStartedNow bool
+	}{
+		{"the no-mistakes goblins' reads ran out and a plain goblin's finished", []string{"a-gated"}, []string{"b-plain"}, false, true},
+		{"as many reads finished as ran out", []string{"a-gated"}, []string{"b-plain", "c-plain"}, true, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			service, h := fleetService(t)
+			for _, id := range test.noMistakes {
+				meta := state.TaskMeta{ID: id, Project: h.Root, Worktree: filepath.Join(h.Root, ".worktrees", "gb-"+id), Harness: "claude", Mode: "no-mistakes", Backend: "native", SpawnGen: "s1"}
+				if err := state.WriteTaskMeta(h.State, meta); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, id := range test.plain {
+				liveGoblin(t, h, id, h.Root)
+			}
+			var gated []string
+			for _, meta := range liveTasks(h.State) {
+				if meta.Mode == "no-mistakes" {
+					gated = append(gated, "progress:"+meta.ID)
+				}
+			}
+			reads := len(liveTasks(h.State))
+			if isMostRanOut := len(gated)*2 > reads; isMostRanOut == test.isGoblinsError {
+				t.Fatalf("%d of %d goblins in no-mistakes mode, want most of them %t", len(gated), reads, !test.isGoblinsError)
+			}
+			failedBefore(t, h, gated...)
+			service.Options.Progress = &progressGit{head: head, pushed: head}
+			service.Options.Gate = slowGate{}
+			at := time.Date(2026, 11, 4, 8, 20, 0, 0, time.UTC)
+
+			// Act
+			err := service.checkFleet(t.Context(), at)
+
+			// Assert
+			if isError := errors.Is(err, context.DeadlineExceeded); isError != test.isGoblinsError {
+				t.Fatalf("errors = %v, want the gated goblins' deadline an error %t", err, test.isGoblinsError)
+			}
+			for _, read := range gated {
+				if isNamed := err != nil && strings.Contains(err.Error(), strings.TrimPrefix(read, "progress:")); isNamed != test.isGoblinsError {
+					t.Errorf("errors = %v, want %s named %t", err, read, test.isGoblinsError)
+				}
+			}
+			for _, id := range test.plain {
+				if err != nil && strings.Contains(err.Error(), id) {
+					t.Errorf("errors = %v, want the plain goblin %s, whose read finished, unnamed", err, id)
+				}
+			}
+			watched, err := readFleetWakes(h.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, read := range gated {
+				want := failingPasses - 1
+				if test.isGoblinsError {
+					want = failingPasses
+				}
+				if watched.Failing[read] != want {
+					t.Errorf("%s failed passes = %d, want %d", read, watched.Failing[read], want)
+				}
+			}
+			for _, id := range test.plain {
+				if got := watched.Progress[id].Head; got != head {
+					t.Errorf("plain goblin %s head = %q, want it measured within the pass", id, got)
+				}
+			}
+			if isStarted := watched.ProgressUnreadSince.Equal(at); isStarted != test.isBlindSpellStartedNow {
+				t.Errorf("blind spell since %s, want it started at this pass %t", watched.ProgressUnreadSince, test.isBlindSpellStartedNow)
+			}
+		})
 	}
 }
 
