@@ -457,16 +457,22 @@ func (s *Store) withdrawMessage(a Action) (Action, error) {
 	// A message waiting for a gate to let go is withdrawn from the queue it
 	// waits in, by the identity the board named, so two messages with the same
 	// words are told apart and no other message is ever taken in its place.
+	// One that reads Not sent or Not confirmed is taken off the board the same
+	// way, so no bubble stays that neither he nor time can clear (the
+	// Overlord, 2026-11-13: "There's no way to clear em out.", #2541).
 	if a.Target != "" {
 		at := slices.IndexFunc(s.db.Actions, func(queued Action) bool {
-			return queued.ID == a.Target && queued.Kind == "message" && (queued.Status == "queued" || isNotSent(queued)) && queued.TaskID == a.TaskID
+			return queued.ID == a.Target && queued.Kind == "message" && (queued.Status == "queued" || queued.Status == "uncertain" || isNotSent(queued)) && queued.TaskID == a.TaskID
 		})
 		if at < 0 {
 			return Action{}, s.noLongerHeld(a.Target, a.TaskID)
 		}
 		deleted := "Deleted before its gate let go."
-		if isNotSent(s.db.Actions[at]) {
+		switch {
+		case isNotSent(s.db.Actions[at]):
 			deleted = "Deleted unsent."
+		case s.db.Actions[at].Status == "uncertain":
+			deleted = "Dismissed, never seen taken."
 		}
 		delete(s.deferredUntil, s.db.Actions[at].ID)
 		s.db.Actions = slices.Delete(s.db.Actions, at, at+1)

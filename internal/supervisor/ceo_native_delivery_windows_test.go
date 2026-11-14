@@ -650,7 +650,8 @@ func TestLinesHandedBackTogetherAreTakenFromTheOnePromptTheyWentAs(t *testing.T)
 	service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: home.State}}}
 	at := time.Now().UTC()
 	for n, typed := range []string{"an earlier one", "check the tests", "stop and rebase"} {
-		since := at.Add(time.Duration(n-3) * time.Second)
+		// Each was typed into the terminal after it started, in this order.
+		since := at.Add(time.Duration(n) * time.Millisecond)
 		store.db.Actions = append(store.db.Actions, Action{ID: fmt.Sprintf("m%d", n), Kind: "message", Text: typed, Status: "running", Message: sentToCEO, CreatedAt: since, UpdatedAt: since,
 			Awaiting: &Awaiting{Host: "ceo", Harness: "claude", Since: since, QuietSince: since, Digest: monitor.TextDigest(typed), Session: "session-1", Typed: typed}})
 	}
