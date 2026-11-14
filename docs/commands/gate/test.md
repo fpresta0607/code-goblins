@@ -13,9 +13,11 @@ With no `--level` it is the level of a project whose hosted CI is its test evide
 `--focused`, the repository's `commands.test_focused`, reads `NO_MISTAKES_TEST_FOCUS` as an absolute path to a UTF-8 file, never as shell code.
 Its `test <package> --- FAIL: TestName/subtest (0.01s)` and `path <relative/path>` records select each failed top-level test and every check the repository-relative repair paths reach under the same trusted affected-level planner, including transitive dependents and required guards.
 A named failure already covered by a selected whole package is not run twice.
-Every recognized package/test pair must finish without skipping across the run, including a full fallback; removing or renaming its package or test does not discharge that requirement.
-Missing failure or repair-path records and unrecognized or unmappable data widen the existing planner to full with an explicit reason; unsafe or escaped paths and invalid UTF-8 fail explicitly.
-A narrowed repair report uses `focused` scope; a full fallback uses `full`.
+Every recognized package/test pair must finish without skipping across the run, including a run that could not narrow; removing or renaming its package or test does not discharge that requirement.
+A repair it cannot narrow so, for missing failure or repair-path records, unrecognized or unmappable data, an unclassified repair path or a repair that requires the full level, runs the step's configured level over the repaired paths, or over the branch's change when the repair names no path, never the full level, which once held the machine's heavy line for hours.
+Its one line says why and what it leaves to CI, which runs every package: the level the repair requires, and each failed test it could not map, by name; the failed tests it can map still run by name.
+Unsafe or escaped paths and invalid UTF-8 fail explicitly.
+A narrowed repair report uses `focused` scope; one that could not narrow uses the configured level.
 `--focused` cannot be combined with `--level`.
 
 `goblins gate lint [--plan]` uses the same trusted planner's vet selection at the required level, with full-tree vet for unknown changes, module changes or an unreadable policy.
