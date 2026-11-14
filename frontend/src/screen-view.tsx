@@ -6,15 +6,22 @@ import { isLeaveKey, isPasteKey, keyMessage, mouseMessage, pagePoint, wheelMessa
 import "./screen-view.css";
 
 // ScreenState is what the supervisor tells a view of the browser: who drives
-// it, whether this view may take it, and its page by title and host alone.
-interface ScreenState { isDriven: boolean; canDrive: boolean; title: string; host: string; hasPage: boolean; driveNote: string }
+// it, whether this view may take it, its page by title and host alone, and
+// where on that page its goblin last pressed its mouse (#2537).
+interface ScreenState { isDriven: boolean; canDrive: boolean; title: string; host: string; hasPage: boolean; driveNote: string; pointer: PagePlace | null }
+
+// PagePlace is a place on the goblin's page, in its CSS pixels.
+interface PagePlace { x: number; y: number }
 
 type Said = { kind: "state"; state: ScreenState } | { kind: "frame"; data: string; size: FrameSize };
 
 function parseSaid(text: string): Said | null {
   try {
     const said = object(JSON.parse(text));
-    if (said.type === "state") return { kind: "state", state: { isDriven: boolean(said.is_driven), canDrive: boolean(said.can_drive), title: string(said.title), host: string(said.host), hasPage: boolean(said.has_page), driveNote: string(said.drive_note) } };
+    if (said.type === "state") {
+      const pointer = said.pointer == null ? null : object(said.pointer);
+      return { kind: "state", state: { isDriven: boolean(said.is_driven), canDrive: boolean(said.can_drive), title: string(said.title), host: string(said.host), hasPage: boolean(said.has_page), driveNote: string(said.drive_note), pointer: pointer && { x: number(pointer.x), y: number(pointer.y) } } };
+    }
     if (said.type === "frame") return { kind: "frame", data: string(said.data), size: { width: number(said.width), height: number(said.height) } };
   } catch { /* a message of no shape the view knows is passed by */ }
   return null;
@@ -26,6 +33,10 @@ const modifiers = (event: { altKey: boolean; ctrlKey: boolean; metaKey: boolean;
 const MAX_PASTE = 4000;
 // A touch that moves less than this is a tap, which clicks.
 const TAP_SLOP = 8;
+// The goblin's pointer mark: a ring of this radius and stroke, in the page's
+// CSS pixels, drawn in fixed colours since it sits on the page's own.
+const POINTER_RADIUS = 11;
+const POINTER_STROKE = 3;
 
 const watchVisibility = (changed: () => void) => {
   document.addEventListener("visibilitychange", changed);
@@ -41,7 +52,10 @@ const isPageVisible = () => document.visibilityState === "visible";
 // closed or in a tab out of sight closes its connection, so the browser
 // sends no frame nobody sees. Nothing typed on the screen is kept or shown by
 // the board: it goes to the page alone. A view that shouldFocus takes the
-// keyboard as it opens, as one a chat row opened does (#2362).
+// keyboard as it opens, as one a chat row opened does (#2362). Where the
+// goblin last pressed its mouse is marked on its page, a ring drawn over the
+// frame as a state or a frame arrives and at no other time, and not while
+// he drives (#2537).
 export function ScreenView({ task, generation, name, instance, connected, isFull = false, shouldFocus = false }: {
   task: string; generation: string; name: string; instance: string; connected: boolean; isFull?: boolean; shouldFocus?: boolean;
 }) {
@@ -50,6 +64,8 @@ export function ScreenView({ task, generation, name, instance, connected, isFull
   const handBackWords = useRef<HTMLInputElement>(null);
   const link = useRef<WebSocket | null>(null);
   const page = useRef<FrameSize>({ width: 0, height: 0 });
+  const shown = useRef<ImageBitmap | null>(null);
+  const pointer = useRef<PagePlace | null>(null);
   const isVisible = useSyncExternalStore(watchVisibility, isPageVisible);
   const [isOnScreen, setOnScreen] = useState(false);
   const [state, setState] = useState<ScreenState | null>(null);
@@ -77,6 +93,23 @@ export function ScreenView({ task, generation, name, instance, connected, isFull
     const socket = new WebSocket(url);
     link.current = socket;
     socket.onopen = () => { if (isActive) setClosedWhy(""); };
+    // paint draws the last frame and, over it, the goblin's pointer.
+    const paint = () => {
+      const element = canvas.current, bitmap = shown.current, context = element?.getContext("2d");
+      if (!element || !bitmap || !context) return;
+      context.drawImage(bitmap, 0, 0);
+      const place = pointer.current, size = page.current;
+      if (!place || size.width <= 0 || size.height <= 0) return;
+      const scale = element.width / size.width;
+      context.beginPath();
+      context.arc(place.x * scale, place.y * element.height / size.height, POINTER_RADIUS * scale, 0, 2 * Math.PI);
+      context.lineWidth = (POINTER_STROKE + 2) * scale;
+      context.strokeStyle = "#ffffff";
+      context.stroke();
+      context.lineWidth = POINTER_STROKE * scale;
+      context.strokeStyle = "#d9480f";
+      context.stroke();
+    };
     // Each frame is drawn before the view asks for the next, so a slow
     // board is sent no more than it draws.
     const draw = async (data: string, size: FrameSize) => {
@@ -87,19 +120,23 @@ export function ScreenView({ task, generation, name, instance, connected, isFull
         if (isActive && element) {
           if (element.width !== bitmap.width) element.width = bitmap.width;
           if (element.height !== bitmap.height) element.height = bitmap.height;
-          element.getContext("2d")?.drawImage(bitmap, 0, 0);
+          shown.current?.close();
+          shown.current = bitmap;
           page.current = { width: size.width || bitmap.width, height: size.height || bitmap.height };
+          paint();
           setHasFrame(true);
-        }
-        bitmap.close();
+        } else bitmap.close();
       } catch { /* a frame that does not decode is passed by */ }
       if (isActive && socket.readyState === WebSocket.OPEN) socket.send('{"type":"ack"}');
     };
     socket.onmessage = (event: MessageEvent<unknown>) => {
       if (!isActive || typeof event.data !== "string") return;
       const said = parseSaid(event.data);
-      if (said?.kind === "state") setState(said.state);
-      else if (said?.kind === "frame") void draw(said.data, said.size);
+      if (said?.kind === "state") {
+        setState(said.state);
+        pointer.current = said.state.isDriven ? null : said.state.pointer;
+        paint();
+      } else if (said?.kind === "frame") void draw(said.data, said.size);
     };
     socket.onclose = (event) => {
       if (!isActive) return;
@@ -111,6 +148,9 @@ export function ScreenView({ task, generation, name, instance, connected, isFull
       isActive = false;
       link.current = null;
       socket.close();
+      shown.current?.close();
+      shown.current = null;
+      pointer.current = null;
     };
   }, [isLive, task, generation, instance, attempt]);
   const send = (message: object) => {

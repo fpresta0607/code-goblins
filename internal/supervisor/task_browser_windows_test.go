@@ -2,20 +2,28 @@ package supervisor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
+
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 // A goblin's browser is the supervisor's own headless Chrome, its window 1280
 // by 800, on a profile in its task's scratch folder; it closes once its
-// goblin's terminal no longer answers, after two minutes unused, and hands
-// back control nobody watches after 30 minutes, as the board's docs say.
+// goblin's terminal no longer answers, after two minutes with nothing holding
+// it or ten minutes with no command from its goblin's session, reads as in
+// use for a minute after such a command, and hands back control nobody
+// watches after 30 minutes, as the board's docs say.
 func TestAGoblinsBrowserIsAHeadlessChromeOf1280By800OnItsTasksProfile(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
@@ -79,7 +87,133 @@ func TestAGoblinsBrowserIsAHeadlessChromeOf1280By800OnItsTasksProfile(t *testing
 	if b.source.IsRunning() {
 		t.Fatal("Chrome still runs after the supervisor closed it")
 	}
-	if browsers.idle != 2*time.Minute || browsers.unwatched != 30*time.Minute {
-		t.Fatalf("the browser closes after %v unused and hands back after %v unwatched, want 2m and 30m", browsers.idle, browsers.unwatched)
+	if browsers.idle != 2*time.Minute || browsers.unused != 10*time.Minute || browsers.inUse != time.Minute || browsers.unwatched != 30*time.Minute {
+		t.Fatalf("the browser closes after %v let go or %v unused, reads in use for %v and hands back after %v unwatched, want 2m, 10m, 1m and 30m", browsers.idle, browsers.unused, browsers.inUse, browsers.unwatched)
+	}
+}
+
+// A click the goblin sends through its own browser session, the board's
+// DevTools route that its chrome-devtools-axi reaches, shows in its Screen
+// view as a pointer at that place on the page it clicked, and reads as use
+// of its browser (#2537).
+func TestAGoblinsClickThroughItsOwnSessionShowsItsPointerInTheScreenView(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	meta, err := state.ReadTaskMeta(store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.TaskTmp = t.TempDir()
+	if err := state.WriteTaskMeta(store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: store, Instance: "test-instance"}
+	service.screens = newTaskBrowsers(store.Home.State, func() {}, func(string, string) {}, func(err error) { t.Errorf("a browser reported %v", err) })
+	t.Cleanup(service.screens.closeAll)
+	handler := NewHTTP(service, "", nil)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	handler.Host = server.Listener.Addr().String()
+	socket := "ws" + strings.TrimPrefix(server.URL, "http")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	goblin, _, err := websocket.Dial(ctx, socket+"/api/browser/devtools?task=task-1&generation=g1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { goblin.CloseNow() })
+	sent := int64(0)
+	call := func(session, method string, params, result any) {
+		t.Helper()
+		sent++
+		command := map[string]any{"id": sent, "method": method, "params": params}
+		if session != "" {
+			command["sessionId"] = session
+		}
+		if err := wsjson.Write(ctx, goblin, command); err != nil {
+			t.Fatal(err)
+		}
+		for {
+			var reply struct {
+				ID     int64           `json:"id"`
+				Result json.RawMessage `json:"result"`
+				Error  json.RawMessage `json:"error"`
+			}
+			if err := wsjson.Read(ctx, goblin, &reply); err != nil {
+				t.Fatal(err)
+			}
+			if reply.ID != sent {
+				continue
+			}
+			if len(reply.Error) != 0 {
+				t.Fatalf("%s = %s", method, reply.Error)
+			}
+			if result != nil {
+				if err := json.Unmarshal(reply.Result, result); err != nil {
+					t.Fatal(err)
+				}
+			}
+			return
+		}
+	}
+	var targets struct {
+		Infos []targetInfo `json:"targetInfos"`
+	}
+	call("", "Target.getTargets", nil, &targets)
+	page := ""
+	for _, info := range targets.Infos {
+		if info.Type == "page" {
+			page = info.ID
+		}
+	}
+	var attached struct {
+		Session string `json:"sessionId"`
+	}
+	call("", "Target.attachToTarget", map[string]any{"targetId": page, "flatten": true}, &attached)
+	call(attached.Session, "Page.navigate", map[string]string{"url": "data:text/html,<title>Shop</title><button>Buy</button>"}, nil)
+	view, _, err := websocket.Dial(ctx, socket+"/api/screen?task=task-1&generation=g1&token=test-instance", &websocket.DialOptions{HTTPHeader: http.Header{"Origin": {server.URL}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { view.CloseNow() })
+	told := func(isWanted func(screenSaid) bool) screenSaid {
+		t.Helper()
+		last := "nothing"
+		for {
+			_, data, err := view.Read(ctx)
+			if err != nil {
+				t.Fatalf("the view was never told what it waits for, its last state %s: %v", last, err)
+			}
+			var said screenSaid
+			if err := json.Unmarshal(data, &said); err != nil {
+				t.Fatal(err)
+			}
+			said.raw = string(data)
+			if said.Type != "state" {
+				continue
+			}
+			if isWanted(said) {
+				return said
+			}
+			last = said.raw
+		}
+	}
+	opened := told(func(said screenSaid) bool { return said.HasPage })
+
+	// Act
+	for _, kind := range []string{"mousePressed", "mouseReleased"} {
+		call(attached.Session, "Input.dispatchMouseEvent", map[string]any{"type": kind, "x": 40, "y": 30, "button": "left", "clickCount": 1}, nil)
+	}
+	clicked := told(func(said screenSaid) bool { return said.Pointer != nil })
+
+	// Assert
+	if opened.Pointer != nil {
+		t.Fatalf("the view opened told %s, want no pointer before a click", opened.raw)
+	}
+	if *clicked.Pointer != (screenPlace{X: 40, Y: 30}) {
+		t.Fatalf("told %s after the goblin's click at 40,30", clicked.raw)
+	}
+	if !service.screens.isInUse("task-1", "g1") {
+		t.Fatal("the browser the goblin just clicked in does not read as in use")
 	}
 }

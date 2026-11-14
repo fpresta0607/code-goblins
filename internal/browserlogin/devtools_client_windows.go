@@ -58,6 +58,7 @@ func (p *devToolsPipe) detachClient(client *devToolsClient) {
 	for session, owner := range p.sessions {
 		if owner == client {
 			delete(p.sessions, session)
+			delete(p.targets, session)
 		}
 	}
 	for id, pending := range p.pending {
@@ -71,10 +72,11 @@ func (p *devToolsPipe) detachClient(client *devToolsClient) {
 	_ = p.call(closed, "Target.detachFromTarget", map[string]string{"sessionId": client.root}, nil)
 }
 
-// serveClient relays one WebSocket client to target. A command refuse gives
-// a reason for is answered with that reason as the browser's refusal and
-// never reaches the browser; a nil refuse passes every command on.
-func (p *devToolsPipe) serveClient(w http.ResponseWriter, r *http.Request, target string, refuse func(method string) string) {
+// serveClient relays one WebSocket client to target. Each command the
+// client sends is first heard, with the page it acts on: one hear gives a
+// reason for is answered with that reason as the browser's refusal and never
+// reaches the browser; a nil hear passes every command on.
+func (p *devToolsPipe) serveClient(w http.ResponseWriter, r *http.Request, target string, hear func(Command) string) {
 	connection, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return
@@ -118,8 +120,11 @@ func (p *devToolsPipe) serveClient(w http.ResponseWriter, r *http.Request, targe
 		if json.Unmarshal(data, &message) != nil || message.ID <= 0 || message.Method == "" {
 			return
 		}
-		if refuse != nil {
-			if reason := refuse(message.Method); reason != "" {
+		if hear != nil {
+			p.mu.Lock()
+			page := p.targets[message.Session]
+			p.mu.Unlock()
+			if reason := hear(Command{Method: message.Method, Target: page, Params: message.Params}); reason != "" {
 				refusal, _ := json.Marshal(map[string]any{"code": refusalCode, "message": reason})
 				select {
 				case client.messages <- devToolsMessage{ID: message.ID, Session: message.Session, Error: refusal}:
@@ -130,6 +135,14 @@ func (p *devToolsPipe) serveClient(w http.ResponseWriter, r *http.Request, targe
 			}
 		}
 		pending := devToolsPending{id: message.ID, session: message.Session, method: message.Method, client: client}
+		if message.Method == "Target.attachToTarget" {
+			var attach struct {
+				Target string `json:"targetId"`
+			}
+			if json.Unmarshal(message.Params, &attach) == nil {
+				pending.target = attach.Target
+			}
+		}
 		if message.Session == "" {
 			message.Session = client.root
 		} else {

@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -21,6 +22,14 @@ const (
 	// session has let go of it and nobody watches or drives it, which covers
 	// a session's stop and start again.
 	taskBrowserIdle = 2 * time.Minute
+	// taskBrowserUnused is how long it stays open while its session still
+	// holds it but sends it no command, and nobody watches or drives it: a
+	// goblin's chrome-devtools-axi bridge holds its DevTools connection for
+	// as long as it runs, so a held connection alone is no use (#2537).
+	taskBrowserUnused = 10 * time.Minute
+	// taskBrowserInUse is how long after its goblin's last command a browser
+	// reads as in use, which its card's Browser active shows (#2537).
+	taskBrowserInUse = time.Minute
 	// taskBrowserStart bounds a goblin's browser's start, as a login's is.
 	taskBrowserStart = 90 * time.Second
 	// unwatchedControl is how long a person keeps control of a browser that
@@ -60,17 +69,24 @@ var setupMethods = []string{
 // refusedWhileDriven is the refusal a goblin's command method meets while
 // isDriven, and empty when it runs.
 func refusedWhileDriven(isDriven bool, method string) string {
-	if !isDriven || strings.HasSuffix(method, ".enable") || strings.HasSuffix(method, ".disable") || slices.Contains(setupMethods, method) {
+	if !isDriven || isSetup(method) {
 		return ""
 	}
 	return drivingRefusal
 }
 
+// isSetup says method only sets up a page the goblin's session attached to,
+// as its tool does on its own, which is no use of the browser.
+func isSetup(method string) bool {
+	return strings.HasSuffix(method, ".enable") || strings.HasSuffix(method, ".disable") || slices.Contains(setupMethods, method)
+}
+
 // screenSource is a browser a goblin's session drives and the board shows.
 type screenSource interface {
 	// ServeClient relays a DevTools WebSocket client to the browser,
-	// answering each command refuse gives a reason for with that reason.
-	ServeClient(w http.ResponseWriter, r *http.Request, refuse func(method string) string)
+	// hearing each command first and answering each one hear gives a
+	// reason for with that reason.
+	ServeClient(w http.ResponseWriter, r *http.Request, hear func(browserlogin.Command) string)
 	// Open attaches a DevTools client of the supervisor's own.
 	Open(ctx context.Context) (screenClient, error)
 	// IsRunning says the browser has not exited.
@@ -87,8 +103,8 @@ type screenClient interface {
 // chromeScreen is a Chrome the supervisor started.
 type chromeScreen struct{ process browserlogin.Process }
 
-func (c chromeScreen) ServeClient(w http.ResponseWriter, r *http.Request, refuse func(string) string) {
-	c.process.ServeClient(w, r, refuse)
+func (c chromeScreen) ServeClient(w http.ResponseWriter, r *http.Request, hear func(browserlogin.Command) string) {
+	c.process.ServeClient(w, r, hear)
 }
 
 func (c chromeScreen) Open(ctx context.Context) (screenClient, error) {
@@ -112,10 +128,25 @@ type taskBrowser struct {
 	clients  int
 	viewers  map[chan struct{}]struct{}
 	isDriven bool
+	// startedAt is when it started, and usedAt when its goblin last sent it
+	// a command that does more than set up a page; lapse tells the board once
+	// that is taskBrowserInUse ago, when its card stops reading Browser active.
+	startedAt, usedAt time.Time
+	lapse             *time.Timer
+	// pointer is where the goblin last pressed its mouse, for its views.
+	pointer screenPointer
 	// idle closes the browser once nobody uses it, and unwatched hands it
 	// back once a person drove it with no view open for unwatchedControl.
 	idle, unwatched *time.Timer
 	isClosed        bool
+}
+
+// screenPointer is where a goblin pressed its mouse on a page: the page and
+// the place, nothing else, with seq counting the presses.
+type screenPointer struct {
+	target string
+	x, y   float64
+	seq    int
 }
 
 // taskBrowsers runs each goblin's browser: a Chrome the supervisor starts,
@@ -135,6 +166,9 @@ type taskBrowsers struct {
 	ended  func(task, generation string)
 	report func(error)
 	idle   time.Duration
+	// unused is how long a browser its goblin holds but sends no command
+	// stays open, and inUse how long after a command it reads as in use.
+	unused, inUse time.Duration
 	// unwatched is how long a person keeps control nobody watches.
 	unwatched time.Duration
 	work      sync.WaitGroup
@@ -150,6 +184,8 @@ func newTaskBrowsers(stateDir string, notify func(), ended func(task, generation
 		ended:     ended,
 		report:    report,
 		idle:      taskBrowserIdle,
+		unused:    taskBrowserUnused,
+		inUse:     taskBrowserInUse,
 		unwatched: unwatchedControl,
 	}
 }
@@ -219,7 +255,7 @@ func (t *taskBrowsers) start(b *taskBrowser, meta state.TaskMeta) {
 	source, end, err := t.launch(ctx, meta)
 	cancel()
 	t.mu.Lock()
-	b.source, b.end, b.err = source, end, err
+	b.source, b.end, b.err, b.startedAt = source, end, err, time.Now()
 	if err != nil {
 		if t.running[b.task] == b {
 			delete(t.running, b.task)
@@ -252,6 +288,69 @@ func (t *taskBrowsers) shown(task, generation string) *taskBrowser {
 // A supervisor that was never started runs none.
 func (t *taskBrowsers) isRunning(task, generation string) bool {
 	return t != nil && t.shown(task, generation) != nil
+}
+
+// isInUse says task's browser runs for generation and its goblin sent it a
+// command within t.inUse, which its card shows as Browser active.
+func (t *taskBrowsers) isInUse(task, generation string) bool {
+	if t == nil {
+		return false
+	}
+	b := t.shown(task, generation)
+	if b == nil {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return time.Since(b.usedAt) < t.inUse
+}
+
+// use hears a command of b's goblin. One that does more than set up a page
+// is use: the browser reads as in use for t.inUse, which the board hears of
+// as it starts and as it lapses, and its unused close counts from it. A
+// press of its mouse is where its views show its pointer.
+func (t *taskBrowsers) use(b *taskBrowser, command browserlogin.Command) {
+	if isSetup(command.Method) {
+		return
+	}
+	var press struct {
+		Type string  `json:"type"`
+		X    float64 `json:"x"`
+		Y    float64 `json:"y"`
+	}
+	isPress := command.Method == "Input.dispatchMouseEvent" && command.Target != "" && json.Unmarshal(command.Params, &press) == nil && press.Type == "mousePressed"
+	t.mu.Lock()
+	if b.isClosed {
+		t.mu.Unlock()
+		return
+	}
+	wasInUse := time.Since(b.usedAt) < t.inUse
+	b.usedAt = time.Now()
+	if b.lapse != nil {
+		b.lapse.Stop()
+	}
+	b.lapse = time.AfterFunc(t.inUse, t.notify)
+	if isPress {
+		b.pointer = screenPointer{target: command.Target, x: press.X, y: press.Y, seq: b.pointer.seq + 1}
+		for wake := range b.viewers {
+			select {
+			case wake <- struct{}{}:
+			default:
+			}
+		}
+	}
+	t.settleLocked(b)
+	t.mu.Unlock()
+	if !wasInUse {
+		t.notify()
+	}
+}
+
+// pointerOf is where b's goblin last pressed its mouse.
+func (t *taskBrowsers) pointerOf(b *taskBrowser) screenPointer {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return b.pointer
 }
 
 // isDriven says a person drives b now.
@@ -334,8 +433,10 @@ func (t *taskBrowsers) handBack(task string) {
 	}
 }
 
-// settleLocked arms b's timers for what uses it now: an idle browser closes
-// after t.idle, and control nobody watches goes back after t.unwatched.
+// settleLocked arms b's timers for what uses it now: a browser nobody holds,
+// watches or drives closes after t.idle, one its goblin holds but sends no
+// command t.unused after its last, and control nobody watches goes back
+// after t.unwatched.
 func (t *taskBrowsers) settleLocked(b *taskBrowser) {
 	if b.idle != nil {
 		b.idle.Stop()
@@ -351,10 +452,17 @@ func (t *taskBrowsers) settleLocked(b *taskBrowser) {
 	if b.isDriven && len(b.viewers) == 0 {
 		b.unwatched = time.AfterFunc(t.unwatched, func() { t.drive(b, false) })
 	}
-	if b.clients == 0 && len(b.viewers) == 0 && !b.isDriven {
-		b.idle = time.AfterFunc(t.idle, func() {
+	if len(b.viewers) == 0 && !b.isDriven {
+		wait, usedAt := t.idle, b.usedAt
+		if b.clients > 0 {
+			wait = t.unused - time.Since(b.startedAt)
+			if usedAt.After(b.startedAt) {
+				wait = t.unused - time.Since(usedAt)
+			}
+		}
+		b.idle = time.AfterFunc(wait, func() {
 			t.mu.Lock()
-			if b.clients == 0 && len(b.viewers) == 0 && !b.isDriven {
+			if len(b.viewers) == 0 && !b.isDriven && (b.clients == 0 || b.usedAt.Equal(usedAt)) {
 				t.closeLocked(b)
 			}
 			t.mu.Unlock()
@@ -482,8 +590,12 @@ func (h *HTTP) taskDevTools(w http.ResponseWriter, r *http.Request) {
 		}
 		release := h.Service.screens.connect(b)
 		defer release()
-		b.source.ServeClient(w, r, func(method string) string {
-			return refusedWhileDriven(h.Service.screens.isDriven(b), method)
+		b.source.ServeClient(w, r, func(command browserlogin.Command) string {
+			if reason := refusedWhileDriven(h.Service.screens.isDriven(b), command.Method); reason != "" {
+				return reason
+			}
+			h.Service.screens.use(b, command)
+			return ""
 		})
 	})).ServeHTTP(w, r)
 }

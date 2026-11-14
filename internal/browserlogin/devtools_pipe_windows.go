@@ -30,8 +30,10 @@ type devToolsPending struct {
 	id      int64
 	session string
 	method  string
-	client  *devToolsClient
-	answer  chan devToolsMessage
+	// target is the page an attach asks for.
+	target string
+	client *devToolsClient
+	answer chan devToolsMessage
 }
 
 // devToolsPipe multiplexes private commands and each attached client's
@@ -46,14 +48,16 @@ type devToolsPipe struct {
 	next     int64
 	pending  map[int64]devToolsPending
 	sessions map[string]*devToolsClient
-	done     chan struct{}
-	once     sync.Once
+	// targets are the page each client's session is attached to.
+	targets map[string]string
+	done    chan struct{}
+	once    sync.Once
 	// why is what closed the pipe, set before done is closed.
 	why error
 }
 
 func newDevToolsPipe(reader io.ReadCloser, writer io.WriteCloser) *devToolsPipe {
-	pipe := &devToolsPipe{reader: reader, writer: writer, pending: map[int64]devToolsPending{}, sessions: map[string]*devToolsClient{}, done: make(chan struct{}), writing: make(chan struct{}, 1)}
+	pipe := &devToolsPipe{reader: reader, writer: writer, pending: map[int64]devToolsPending{}, sessions: map[string]*devToolsClient{}, targets: map[string]string{}, done: make(chan struct{}), writing: make(chan struct{}, 1)}
 	go pipe.read()
 	return pipe
 }
@@ -216,6 +220,9 @@ func (p *devToolsPipe) deliver(message devToolsMessage) {
 			}
 			if json.Unmarshal(message.Result, &attached) == nil && attached.Session != "" {
 				p.sessions[attached.Session] = client
+				if pending.target != "" {
+					p.targets[attached.Session] = pending.target
+				}
 			}
 		}
 	} else {
@@ -223,13 +230,18 @@ func (p *devToolsPipe) deliver(message devToolsMessage) {
 		if client != nil {
 			var target struct {
 				Session string `json:"sessionId"`
+				Info    struct {
+					ID string `json:"targetId"`
+				} `json:"targetInfo"`
 			}
 			if json.Unmarshal(message.Params, &target) == nil && target.Session != "" {
 				if message.Method == "Target.attachedToTarget" {
 					p.sessions[target.Session] = client
+					p.targets[target.Session] = target.Info.ID
 				}
 				if message.Method == "Target.detachedFromTarget" {
 					delete(p.sessions, target.Session)
+					delete(p.targets, target.Session)
 				}
 			}
 			if message.Session == client.root {

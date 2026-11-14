@@ -62,7 +62,7 @@ export const TaskCard = memo(function TaskCard({ task, status, phase, repository
   const line = cardActivity(task);
   const content = <>
     <Avatar persona={personaFor(task)} />
-    <span className="card-copy"><span className="card-head">{isPresenting && !task.browser && <span className="browser-indicator">Browser active</span>}{nextText && <span className={"next-chip" + (nextTone ? " " + nextTone : "")}>{nextText}</span>}<strong className={"card-title" + (isNamed ? "" : " card-task-title")}>{name}</strong></span>
+    <span className="card-copy"><span className="card-head">{isPresenting && !task.browser_in_use && <span className="browser-indicator">Browser active</span>}{nextText && <span className={"next-chip" + (nextTone ? " " + nextTone : "")}>{nextText}</span>}<strong className={"card-title" + (isNamed ? "" : " card-task-title")}>{name}</strong></span>
       {rank && <span className="sr-only">, {rank}</span>}
       <span className={"plain-status phase-" + phase + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text" data-tip={task.gate_step && task.reason ? task.reason : undefined}>{status}</span></span>
       {line && <span className="card-activity">{line}</span>}
@@ -74,7 +74,7 @@ export const TaskCard = memo(function TaskCard({ task, status, phase, repository
     {task.project && <span className="card-repo">{task.project}{repositoryLink && <a className="card-repo-link" href={repositoryLink} target="_blank" rel="noreferrer" aria-label={"Open " + repository + " on GitHub"} data-tip={repository}><BrandGlyph brand="github" /></a>}</span>}
     <CardClock task={task} now={now} />
     <div className="card-icons">
-      {task.browser && <button type="button" className="browser-indicator screen-open" aria-label={"Browser active: open " + name + "'s screen in a new tab"} data-tip="Open its screen in a new tab"
+      {task.browser_in_use && <button type="button" className="browser-indicator screen-open" aria-label={"Browser active: open " + name + "'s screen in a new tab"} data-tip="Open its screen in a new tab"
         onClick={() => window.open(screenAddress(task.id), "_blank", "noopener")}>Browser active</button>}
       {task.ticket && <TicketLink ticket={task.ticket} className="card-ticket" isIconOnly />}
       <CardPullRequest task={task} isIconOnly />

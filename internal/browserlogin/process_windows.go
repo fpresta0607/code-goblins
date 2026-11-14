@@ -160,10 +160,11 @@ func start(ctx context.Context, launch Launch, await func(context.Context, *devT
 }
 
 // ServeClient relays one DevTools WebSocket client to process's browser, as
-// its bridge does. A command refuse gives a reason for is answered with that
-// reason as the browser's refusal and never reaches the browser.
-func (process Process) ServeClient(w http.ResponseWriter, r *http.Request, refuse func(method string) string) {
-	process.job.transport.pipe.serveClient(w, r, "", refuse)
+// its bridge does, and hears each of its commands first: one hear gives a
+// reason for is answered with that reason as the browser's refusal and never
+// reaches the browser.
+func (process Process) ServeClient(w http.ResponseWriter, r *http.Request, hear func(Command) string) {
+	process.job.transport.pipe.serveClient(w, r, "", hear)
 }
 
 // End closes process: it asks the browser to close over its private pipe,

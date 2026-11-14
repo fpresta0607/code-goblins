@@ -2820,14 +2820,17 @@ A card closed as done, dismissed or withdrawn takes no value, and History lists 
 
 Each goblin's browser session drives a Chrome the supervisor starts for it, headless, 1280 by 800 pixels, on a profile in the task's folder, so a sign-in made there stays with the task.
 Spawn points the session at it: `CHROME_DEVTOOLS_AXI_BROWSER_URL` is `ws://<board>/api/browser/devtools?generation=<generation>&task=<id>`, which the supervisor answers only for the task's current session, only from a process of this PC's own Windows user, and never from a web page, whose WebSocket always names its origin.
-The Chrome starts on the session's first command, closes two minutes after nothing uses it and once its goblin ends, starts again on the next use if it exited, and has no debugging port: its DevTools are on a private pipe, as a login's are.
-While it runs, the snapshot's task carries `browser: true`, the goblin's card shows **Browser active** as a button that opens `/?screen=<task>`, its Screen view full size in a tab of its own, and its panel offers **Screen** beside Chat and Task.
+The Chrome starts on the session's first command, closes two minutes after nothing holds, watches or drives it and once its goblin ends, starts again on the next use if it exited, and has no debugging port: its DevTools are on a private pipe, as a login's are.
+A chrome-devtools-axi bridge holds its connection for as long as it runs, so a browser its session holds but sends no command, with no view open and nobody driving it, closes ten minutes after its goblin's last command, or its start (#2537).
+While it runs, the snapshot's task carries `browser: true` and its panel offers **Screen** beside Chat and Task.
+For a minute after each command of its goblin's that does more than set up a page, such as a navigation, a click or typed text, the task also carries `browser_in_use: true`, and the goblin's card shows **Browser active** as a button that opens `/?screen=<task>`, its Screen view full size in a tab of its own (#2537).
 A browser that closes, or a session with none, gives the panel's Screen view way to Chat, which stays when a browser starts again, so only his pick, from the selector or a chat row's Open screen, shows the Screen view (#2362).
 
 The Screen view is `GET /api/screen?task=<id>&generation=<generation>&token=<instance>`, a WebSocket from the board's own origin.
 It shows the page the goblin or a sign-in opened or sent somewhere last, a blank page only when every page is blank, by its title and host alone, never its address, which can carry a sign-in's code.
 A title that reads as an address, with no space and a scheme's :// or a host followed by a path, query or fragment, as Chrome gives a page with no title of its own or one whose title has not drawn yet, shows as untitled, by its host alone.
 It sends the page's screencast as JPEG frames, each only once the view drew the one before, so a slow board is sent no more than it draws.
+Where the goblin last pressed its mouse on the page shown, the view's state names that place in the page's CSS pixels, `pointer: {x, y}`, and nothing else of the command, and the view draws a ring there over the frame as that state or a frame arrives and at no other time, and not while he drives (#2537).
 A view streams only while it is on screen in a visible tab: one switched away from, scrolled out of sight, in a closed Command Center or in a hidden tab closes its socket, and the supervisor stops the page's screencast as it closes, so no frame is made or sent for nobody.
 At most 16 views are open at once; another is closed with "Too many screens are open."
 On a small screen (40rem or less) the screen's box takes the page's own shape at its full width, so the page never sits small between two bands, and a step card's Screen view draws Take control and Hand back as the Screen tab does (CEO decision 1019951).
