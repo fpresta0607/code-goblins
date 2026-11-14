@@ -679,7 +679,10 @@ jobs:
           "$citest" -job macos -record "$RUNNER_TEMP/failed-once.jsonl" -timeout 20m $packages
         env:
           # The packages whose tests wait on a later layer of the port, as
-          # the linux job's do.
+          # the linux job's do, and internal/gatetest, whose test selection
+          # compares git's folders, with every link resolved, with go list's
+          # as given: macOS's temporary folder is under /var, a link to
+          # /private/var, so it waits on 4, path comparison.
           EXCEPT: >-
             ./cmd/goblins
             ./internal/cleanup
@@ -690,6 +693,7 @@ jobs:
             ./internal/fleet
             ./internal/fleettree
             ./internal/fsx
+            ./internal/gatetest
             ./internal/harnessmap
             ./internal/home
             ./internal/homemove
