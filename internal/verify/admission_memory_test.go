@@ -2,6 +2,7 @@ package verify
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -202,6 +203,66 @@ func TestARunThatDoesNotFitIsPassedOnlyInItsFirstTwentyMinutes(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+// A run that was passed starts its floor wait only once nothing can pass it,
+// so runs that passed it and hold the slots longer than its floor wait has
+// left from when it first found memory short do not use that wait up: it
+// takes its turn once they go.
+func TestARunThatWasPassedWaitsForMemoryFromWhenNothingCanPassIt(t *testing.T) {
+	// Arrange
+	var free atomic.Uint64
+	free.Store(8 * gigabyte)
+	holding := twoSlots(t, &free)
+	large := holding
+	large.Estimate, large.Limit, large.passAfter = 7*gigabyte, 2*time.Second, 15*time.Second
+	var largeSays said
+	large.Waiting = largeSays.waiting
+	takenLarge := take(t, large)
+	largeSays.waits(t, takenLarge, "a run needing 0 + 7 + 2 GiB of 8")
+	firstShort := time.Now()
+	small := holding
+	small.Estimate = 0
+	first := within(t, take(t, small), "the first run that fits, past the one that does not")
+	second := within(t, take(t, small), "the second run that fits, past the one that does not")
+
+	// Act
+	time.Sleep(time.Until(firstShort.Add(large.Limit + time.Second))) // stall-accepted: the passed run's floor wait has 14 s more, so a stall only delays the release it waits behind.
+	if err := first.Release(); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Release(); err != nil {
+		t.Fatal(err)
+	}
+	free.Store(9 * gigabyte)
+
+	// Assert
+	if err := within(t, takenLarge, "the passed run, once the runs past it went").Release(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A run that nothing passes waits for memory from when it first found memory
+// short, as it did before runs that fit could pass it.
+func TestARunThatNothingPassesWaitsForMemoryFromWhenItFirstFoundItShort(t *testing.T) {
+	// Arrange
+	var free atomic.Uint64
+	free.Store(8 * gigabyte)
+	large := twoSlots(t, &free)
+	large.Estimate, large.Limit = 7*gigabyte, time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	// Act
+	turn, err := large.Wait(ctx)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "memory floor wait expired") {
+		t.Fatalf("the run that nothing passes = %+v, %v; want its floor wait expired after its limit, not its pass limit later", turn, err)
+	}
+	if turn.Waited < large.Limit {
+		t.Errorf("the run waited %s; want at least its limit of %s", turn.Waited, large.Limit)
 	}
 }
 
