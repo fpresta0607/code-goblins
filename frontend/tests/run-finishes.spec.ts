@@ -4,8 +4,11 @@ import { doneCards, expect, openItem, recordDoneCards, test, type Page } from ".
 // exit 0 and its card stayed in the Command Center's stack instead of moving
 // to History, as every other item that closes on screen does. A command that
 // ends cleanly, and one the CEO withdraws, finish like any card: the check,
-// then the next item, and History holds how it ended. A command that failed
-// keeps its card, with its output, since that is trouble he may need to read.
+// then the next item, and History holds how it ended. The Overlord,
+// 2026-11-14, of a failed one whose asker already had its output: "wont clos
+// automatically on fail". A command that failed finishes the same way once
+// whoever asked for it has its output; one whose asker could not be told
+// keeps its card, with its output, since nobody else may have read it.
 // How a command ended is its exit code: output that ends in an error line
 // with exit 0 is a clean end.
 const RUN = "Publish release v0.5.2";
@@ -28,7 +31,7 @@ async function runIt(page: Page) {
   await expect(dialog.locator(".run-head .run-state")).toContainText("Running");
   return dialog;
 }
-async function step(page: Page, name: "running" | "finished" | "errorLine" | "failed" | "withdrawn") {
+async function step(page: Page, name: "running" | "finished" | "errorLine" | "failed" | "untold" | "withdrawn") {
   await page.evaluate((to) => (window as unknown as { runEnds: (name: string) => void }).runEnds(to), name);
   await expect(page.locator("main")).toHaveAttribute("data-step", name);
 }
@@ -39,7 +42,7 @@ async function history(page: Page) {
   return disclosure.locator(".inbox-list li");
 }
 
-for (const [outcome, says, kept] of [["finished", "Complete", "Complete · exit 0"], ["errorLine", "Complete", "Complete · exit 0"], ["withdrawn", "Withdrawn by the CEO", "Withdrawn by the CEO"]] as const) {
+for (const [outcome, says, kept] of [["finished", "Complete", "Complete · exit 0"], ["errorLine", "Complete", "Complete · exit 0"], ["failed", "Failed: gh: release v0.5.2 already exists", "Failed: gh: release v0.5.2 already exists · exit 2"], ["withdrawn", "Withdrawn by the CEO", "Withdrawn by the CEO"]] as const) {
   test(`a command that ends without trouble (${outcome}) finishes its card, the next item follows, and History says how it ended`, async ({ page }, testInfo) => {
     // Arrange
     const dialog = await runIt(page);
@@ -59,18 +62,18 @@ for (const [outcome, says, kept] of [["finished", "Complete", "Complete · exit 
   });
 }
 
-test("a command that failed keeps its card on screen with its output, and leaves the stack once he moves on", async ({ page }) => {
+test("a command that failed and whose asker could not be told keeps its card on screen with its output, and leaves the stack once he moves on", async ({ page }) => {
   // Arrange
   const dialog = await runIt(page);
 
   // Act
-  await step(page, "failed");
+  await step(page, "untold");
   await page.waitForTimeout(1500);
 
   // Assert
   await expect(dialog.getByRole("heading", { name: RUN })).toBeVisible();
   await expect(dialog.locator(".run-head .run-state")).toHaveText("Failed");
-  await expect(dialog.locator(".run-failure")).toHaveText("gh: release v0.5.2 already exists. The CEO has its output and takes the next step.");
+  await expect(dialog.locator(".run-failure")).toHaveText("gh: release v0.5.2 already exists. The CEO may not have its output yet: telling it failed.");
   await expect(dialog.locator(".terminal-output")).toContainText("Uploading assets");
   const release = dialog.locator(".terminal-output").getByRole("link", { name: RELEASE_PAGE, exact: true });
   await expect(release).toHaveAttribute("href", RELEASE_PAGE);
