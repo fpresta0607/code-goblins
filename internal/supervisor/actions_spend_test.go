@@ -159,8 +159,8 @@ func TestActionsSpendSharesSelectedMonthReadsWithTheTimer(t *testing.T) {
 	if reads["2026-10"] != 2 || reads["2026-11"] != 2 {
 		t.Fatalf("hourly monthly reads = %v", reads)
 	}
-	service.readActionsSpend(context.Background(), now.Add(24*time.Hour))
-	if len(service.actionsSpendReadings) != 1 || service.actionsSpendReadings["2026-11"] == nil {
+	service.readActionsSpend(context.Background(), now.Add(62*24*time.Hour))
+	if len(service.actionsSpendReadings) != 1 || service.actionsSpendReadings["2027-01"] == nil {
 		t.Fatalf("expired month retained: %+v", service.actionsSpendReadings)
 	}
 }
@@ -279,17 +279,22 @@ func TestActionsSpendLimitsSelectionToPossibleDeviceMonths(t *testing.T) {
 		now, month string
 		isValid    bool
 	}{
+		{"2026-11-01T00:30:00Z", "2026-09", true},
 		{"2026-11-01T00:30:00Z", "2026-10", true},
 		{"2026-11-01T00:30:00Z", "2026-11", true},
-		{"2026-11-01T12:04:59Z", "2026-10", true},
-		{"2026-11-01T12:05:00Z", "2026-10", false},
+		{"2026-11-01T12:04:59Z", "2026-09", true},
+		{"2026-11-01T12:05:00Z", "2026-09", false},
+		{"2026-11-01T12:05:00Z", "2026-10", true},
 		{"2026-12-31T10:00:00Z", "2027-01", true},
 		{"2026-12-31T09:59:59.99Z", "2027-01", true},
 		{"2026-12-31T09:55:00Z", "2027-01", true},
 		{"2026-12-31T09:54:59Z", "2027-01", false},
 		{"2028-02-29T23:30:00Z", "2028-03", true},
 		{"2028-03-01T00:30:00Z", "2028-02", true},
-		{"2026-11-15T00:30:00Z", "2026-10", false},
+		{"2026-11-15T00:30:00Z", "2026-10", true},
+		{"2026-11-15T00:30:00Z", "2026-09", false},
+		{"2027-01-15T12:00:00Z", "2026-12", true},
+		{"2027-01-15T12:00:00Z", "2026-11", false},
 	} {
 		t.Run(test.now+"/"+test.month, func(t *testing.T) {
 			now, err := time.Parse(time.RFC3339, test.now)
@@ -325,6 +330,79 @@ func TestActionsSpendEndpointReadsTheRequestedMonth(t *testing.T) {
 	}
 	if reads != 1 {
 		t.Fatalf("endpoint reads = %d", reads)
+	}
+}
+
+// The window offers last month beside this one (#2536), so both endpoints
+// serve the calendar month before the device's.
+func TestActionsSpendEndpointsServeLastMonth(t *testing.T) {
+	// Arrange
+	now := time.Now().UTC()
+	lastMonth := time.Date(now.Year(), now.Month()-1, 1, 0, 0, 0, 0, time.UTC).Format("2006-01")
+	reads := map[string]int{}
+	service := &Service{Instance: "instance-1", lifetime: context.Background(), Options: Options{ActionsSpend: func(_ context.Context, at time.Time, month string) actionsbilling.Reading {
+		reads[month]++
+		if reads[month] == 1 {
+			return actionsbilling.Reading{Status: "unavailable", Month: month, CheckedAt: at, Detail: "GitHub could not be reached.", Problem: &actionsbilling.Problem{Kind: "transient", Action: "retry"}}
+		}
+		return actionsbilling.Reading{Status: "available", Month: month, ReadAt: at, CheckedAt: at, Total: &actionsbilling.Usage{BilledUSD: 3.25}}
+	}}}
+	handler := NewHTTP(service, "board.local", nil)
+
+	// Act
+	read := boardRequest(handler, "GET", "/api/actions-spend?month="+lastMonth, "")
+	retried := boardRequest(handler, "POST", "/api/actions-spend/repair", `{"month":"`+lastMonth+`","action":"retry"}`)
+
+	// Assert
+	var first, second actionsbilling.Reading
+	if read.Code != http.StatusOK || json.Unmarshal(read.Body.Bytes(), &first) != nil || first.Month != lastMonth || first.Problem == nil {
+		t.Fatalf("read HTTP %d: %s", read.Code, read.Body)
+	}
+	if retried.Code != http.StatusOK || json.Unmarshal(retried.Body.Bytes(), &second) != nil || second.Month != lastMonth || second.Total == nil || second.Total.BilledUSD != 3.25 {
+		t.Fatalf("retry HTTP %d: %s", retried.Code, retried.Body)
+	}
+	if reads[lastMonth] != 2 || len(reads) != 1 {
+		t.Fatalf("reads = %v", reads)
+	}
+}
+
+// A closed month GitHub answered a day after it ended no longer changes: it
+// is read once, never again on the hour and never shown old. One read on its
+// first day after closing may miss its last day's use, so it is read again.
+func TestActionsSpendKeepsASettledMonthAsRead(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		readAt    time.Time
+		isSettled bool
+	}{
+		{name: "read a day after it closed", readAt: time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC), isSettled: true},
+		{name: "read on the day it closed", readAt: time.Date(2026, 11, 1, 6, 0, 0, 0, time.UTC), isSettled: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			reads := 0
+			service := &Service{Options: Options{ActionsSpend: func(_ context.Context, at time.Time, month string) actionsbilling.Reading {
+				if month == "2026-10" {
+					reads++
+				}
+				return actionsbilling.Reading{Status: "available", Month: month, ReadAt: at, CheckedAt: at, Total: &actionsbilling.Usage{BilledUSD: 8.5}}
+			}}}
+			service.readActionsSpendMonth(context.Background(), context.Background(), test.readAt, "2026-10")
+
+			// Act
+			later := test.readAt.Add(3 * time.Hour)
+			service.readActionsSpend(context.Background(), later)
+			reading := service.actionsSpendUsage(later, "2026-10", nil)
+
+			// Assert
+			wantReads, wantStatus := 2, "available"
+			if test.isSettled {
+				wantReads = 1
+			}
+			if reads != wantReads || reading.Status != wantStatus || reading.Total == nil || reading.Total.BilledUSD != 8.5 {
+				t.Fatalf("reads = %d, reading = %+v", reads, reading)
+			}
+		})
 	}
 }
 

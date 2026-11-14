@@ -1013,6 +1013,8 @@ The managed checkout must have the run's recorded HEAD and canonical native repo
 The command must run there or in a separate base clone whose top level, local origin and HEAD match the managed checkout and the supplied native Test comparison.
 It never selects an environment from a client variable or another project's record.
 The interpreter must already exist, and an isolated Python probe must report that executable, the selected environment prefix, a distinct existing base prefix and the exact configured version.
+The probe has two minutes, since a machine short of memory can take tens of seconds to start a correct interpreter whose files were paged out.
+A probe that runs out of that time is refused as a timeout that names its limit, not as a wrong environment, and a later run or reattach can succeed once memory is free.
 The environment directory must resolve inside the registered source worktree.
 Python environments with system site packages are supported.
 
