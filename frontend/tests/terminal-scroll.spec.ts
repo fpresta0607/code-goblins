@@ -117,7 +117,18 @@ test("a key typed while he reads a closed terminal's history leaves him where he
   const relay = await openTerminal(page, PRINTED);
   await readHistory(page);
   await relay.close(1000, "The terminal ended with exit code 0.");
-  await expect(page.getByText("The terminal ended with exit code 0.")).toBeVisible();
+  // The closed notice takes room under the screen, and the grid gives it up a
+  // frame or more later, which moves the history it shows by its rows.
+  const closed = page.locator(".notice", { hasText: "The terminal ended with exit code 0." });
+  await expect(async () => {
+    const screen = (await page.locator(".terminal-view > .xterm .xterm-screen").boundingBox())!;
+    expect(screen.y + screen.height).toBeLessThanOrEqual((await closed.boundingBox())!.y);
+  }).toPass();
+  // He reads on up the closed history, which the wheel scrolls by lines.
+  const closedTop = await screenRows(page).locator("> div").first().textContent();
+  await page.mouse.wheel(0, -240);
+  await expect(screenRows(page).locator("> div").first()).not.toHaveText(closedTop!);
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const top = await screenRows(page).locator("> div").first().textContent();
 
   // Act
