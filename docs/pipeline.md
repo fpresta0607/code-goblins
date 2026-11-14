@@ -640,8 +640,8 @@ A run's expected memory is what `goblins gate turn --memory` declares, or 2.5 Gi
 At capacity two a run that fits the memory free goes past a run ahead of it that does not fit for its own expected memory, so a run that expects more than the machine has free holds back no run behind it.
 A run that fits goes past a run ahead that does not fit only during that run's first 20 minutes in line.
 After those 20 minutes no run passes it, and the slots drain for it.
-A run that was passed starts its hour of floor waiting only once nothing can pass it, so its longest wait for a turn is 20 and 60, 80 minutes.
-That wait comes before its turn, so a gate turn's 90-minute budget, which counts from the turn it takes, is untouched, and 80 minutes is inside the line's two-hour overdue limit.
+A run that was passed starts its hour of floor waiting only once nothing can pass it, so a run past it whose turn ends within that hour leaves it its turn, and its longest wait for a turn is 20 and 60, 80 minutes, inside the line's two-hour overdue limit.
+A run past it whose turn holds its slot longer than that hour, as a gate turn's 90-minute budget allows, still uses up its wait, as a holder with more than an hour left does for any run at the head.
 No run passes one that has waited the line's two-hour limit and stands at the overdue place.
 An unavailable reading or an hour of floor waiting refuses admission and starts no command.
 

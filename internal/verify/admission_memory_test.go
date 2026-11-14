@@ -216,7 +216,7 @@ func TestARunThatWasPassedWaitsForMemoryFromWhenNothingCanPassIt(t *testing.T) {
 	free.Store(8 * gigabyte)
 	holding := twoSlots(t, &free)
 	large := holding
-	large.Estimate, large.Limit, large.passAfter = 7*gigabyte, 2*time.Second, 15*time.Second
+	large.Estimate, large.Limit, large.passAfter = 7*gigabyte, 10*time.Second, 40*time.Second
 	var largeSays said
 	large.Waiting = largeSays.waiting
 	takenLarge := take(t, large)
@@ -228,7 +228,7 @@ func TestARunThatWasPassedWaitsForMemoryFromWhenNothingCanPassIt(t *testing.T) {
 	second := within(t, take(t, small), "the second run that fits, past the one that does not")
 
 	// Act
-	time.Sleep(time.Until(firstShort.Add(large.Limit + time.Second))) // stall-accepted: the passed run's floor wait has 14 s more, so a stall only delays the release it waits behind.
+	time.Sleep(time.Until(firstShort.Add(large.Limit + time.Second))) // stall-accepted: the passed run's floor wait has 39 s more, so a stall only delays the release it waits behind.
 	if err := first.Release(); err != nil {
 		t.Fatal(err)
 	}
@@ -260,6 +260,35 @@ func TestARunThatNothingPassesWaitsForMemoryFromWhenItFirstFoundItShort(t *testi
 	// Assert
 	if err == nil || !strings.Contains(err.Error(), "memory floor wait expired") {
 		t.Fatalf("the run that nothing passes = %+v, %v; want its floor wait expired after its limit, not its pass limit later", turn, err)
+	}
+	if turn.Waited < large.Limit {
+		t.Errorf("the run waited %s; want at least its limit of %s", turn.Waited, large.Limit)
+	}
+}
+
+// The runs a run finds holding the slots when it first finds memory short at
+// the head took their turns before it, so they did not pass it, and it waits
+// for memory from that first look, as it did before runs could pass it.
+func TestARunShortBesideTheHolderItFirstFoundWaitsForMemoryFromThatLook(t *testing.T) {
+	// Arrange
+	var free atomic.Uint64
+	free.Store(8 * gigabyte)
+	holding := twoSlots(t, &free)
+	holding.Estimate = 2 * gigabyte
+	holder := within(t, take(t, holding), "the holder")
+	defer holder.Release()
+	holder.Measure(2 * gigabyte)
+	large := holding
+	large.Estimate, large.Limit, large.passAfter = 7*gigabyte, time.Second, time.Hour
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	// Act
+	turn, err := large.Wait(ctx)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "memory floor wait expired") {
+		t.Fatalf("the run beside the holder it first found = %+v, %v; want its floor wait expired after its limit, not its pass limit later", turn, err)
 	}
 	if turn.Waited < large.Limit {
 		t.Errorf("the run waited %s; want at least its limit of %s", turn.Waited, large.Limit)

@@ -507,11 +507,12 @@ const overdueLimit = 2 * time.Hour
 // by runs that do. A run at the head waits for memory no longer than its
 // floor-wait limit, which every caller sets to an hour (gateWaitLimit in
 // cmd/goblins), and a run that was passed starts that hour only once nothing
-// can pass it, so the turns taken past it cannot use up its wait. Its longest
-// wait for a turn is then passLimit and that hour, 80 minutes, which comes
-// before its turn: a gate turn's 90 minute budget (gateBudget in
-// cmd/goblins/gate.go) counts from the turn it takes, and 80 minutes is inside
-// overdueLimit.
+// can pass it, so a turn taken past it that ends within that hour leaves it
+// its turn. Its longest wait for a turn is then passLimit and that hour, 80
+// minutes, inside overdueLimit. A turn taken past it that holds its slot
+// longer than that hour, as a gate turn's 90 minute budget (gateBudget in
+// cmd/goblins/gate.go) allows, still uses up its wait, as a holder with more
+// than an hour left does for any run at the head.
 const passLimit = 20 * time.Minute
 
 // tier begins the run's place in line.
@@ -784,8 +785,9 @@ func standing(ahead int) string {
 // does not fit for its own expected memory holds it back no longer, unless
 // that run stands at overduePlace or has stood passLimit in line, as the join
 // time its place carries says. A run that was passed starts its floor wait
-// only once nothing can pass it, so it still has its turn within passLimit and
-// its floor-wait limit. A place whose join time cannot be read is not passed.
+// only once nothing can pass it, so turns taken past it that end within its
+// floor-wait limit leave it its turn. A place whose join time cannot be read
+// is not passed.
 // On 2026-10-29 a
 // waiter expecting 8 GB with 7.1 GB free held eight runs that fit for 28
 // minutes while the turn sat free (#1743). A line of one slot asks every run
