@@ -48,10 +48,13 @@ type Tree struct {
 	ended   []EndedProcess
 	doneErr error
 	// marks says of each process read whether it started with the tree's
-	// mark. What a process started with never changes, so each is read once,
-	// but a read that failed or came back empty, as one of a process part-way
-	// through exec does on Linux, is tried again on the next.
-	marks map[run]bool
+	// mark. What a process started with never changes, so what was read is
+	// kept, a failed read as no mark, since a process this one may not read
+	// never becomes readable. Only an empty read is tried again, once, on the
+	// next pass, as a process part-way through exec reads empty on Linux for
+	// a moment; a second empty read is kept as no mark, as a kernel thread's
+	// stays empty.
+	marks map[run]markState
 	// seen holds every process of the tree read, which TotalProcesses counts.
 	seen map[run]bool
 	// peak and cpu are the most the tree was read to commit and to have
@@ -59,6 +62,16 @@ type Tree struct {
 	peak uint64
 	cpu  time.Duration
 }
+
+// markState is what a tree has read of whether a process carries its mark.
+type markState int
+
+const (
+	markUnread markState = iota
+	markReadEmpty
+	markAbsent
+	markCarried
+)
 
 // run is one process, by its pid and its start, so a reused pid is another.
 type run struct {
@@ -150,21 +163,26 @@ func (t *Tree) members() ([]proc.Entry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("execx: list the tree's processes: %w", err)
 	}
-	marks := make(map[run]bool, len(processes))
+	marks := make(map[run]markState, len(processes))
 	isMember := map[int]bool{}
 	children := map[int][]int{}
 	for _, process := range processes {
 		key := run{process.PID, process.Start}
-		hasMark, isKnown := t.marks[key]
-		if !isKnown {
+		state := t.marks[key]
+		if state == markUnread || state == markReadEmpty {
 			environment, err := proc.Environment(process.PID)
-			isKnown = err == nil && len(environment) > 0
-			hasMark = isKnown && isMarked(environment, t.mark)
+			switch {
+			case err == nil && len(environment) == 0 && state == markUnread:
+				// It may be part-way through exec: read it once more next pass.
+				state = markReadEmpty
+			case err == nil && isMarked(environment, t.mark):
+				state = markCarried
+			default:
+				state = markAbsent
+			}
 		}
-		if isKnown {
-			marks[key] = hasMark
-		}
-		if hasMark || (t.group != 0 && process.Group == t.group) {
+		marks[key] = state
+		if state == markCarried || (t.group != 0 && process.Group == t.group) {
 			isMember[process.PID] = true
 		}
 		children[process.ParentPID] = append(children[process.ParentPID], process.PID)
