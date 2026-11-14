@@ -25,9 +25,13 @@ func TestPlacedPlacesWhatEachOwnerStarted(t *testing.T) {
 		Process{PID: 400, ParentPID: 905, Exe: "no-mistakes.exe", Created: 40, Started: later(50)},
 		Process{PID: 401, ParentPID: 400, Exe: "claude.exe", Created: 41, Started: later(55)},
 		Process{PID: 230, ParentPID: 903, Exe: "explorer.exe", Created: 25, Started: later(-600)},
+		Process{PID: 109, ParentPID: 100, Exe: "node.exe", Created: 12, Started: later(45)},
+		Process{PID: 110, ParentPID: 109, Exe: "esbuild.exe", Created: 13, Started: later(45)},
 	)
 	commands := maps.Clone(goblinCommands)
 	commands[400], commands[601] = "no-mistakes.exe daemon", `bash -c "eval 'goblins drain'"`
+	commands[109] = `"C:\Program Files\nodejs\node.exe" "C:\Program Files\nodejs\node_modules\npm\bin\npm-cli.js" run build`
+	commands[110] = `C:\app\node_modules\@esbuild\win32-x64\esbuild.exe --service=0.21.5 --ping`
 	reads := map[int]int{}
 	reader := Reader{
 		Processes:   func() ([]Process, error) { return processes, nil },
@@ -64,6 +68,7 @@ func TestPlacedPlacesWhatEachOwnerStarted(t *testing.T) {
 	want := map[int]standing{
 		102: {"tree", false, false, true, true}, 103: {"tree", false, false, false, true}, 104: {"tree", false, false, false, true},
 		105: {"tree", false, false, true, false}, 106: {"tree", false, false, false, false}, 107: {"tree", false, false, true, false},
+		109: {"tree", false, false, true, true}, 110: {"tree", false, false, false, true},
 		400: {"tree", true, true, false, false}, 401: {"tree", true, true, false, false},
 		601: {"ceo", false, false, true, false},
 	}
