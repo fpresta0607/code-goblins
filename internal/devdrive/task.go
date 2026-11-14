@@ -6,12 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // TaskName is the startup task that attaches the Dev Drive Code Goblins made
@@ -112,7 +112,7 @@ type AttachResult struct {
 // ReadAttachResult reads what the startup task for the drive in vhd last
 // wrote, false when it wrote nothing yet.
 func ReadAttachResult(vhd string) (AttachResult, bool, error) {
-	data, err := os.ReadFile(AttachResultPath(vhd))
+	data, err := fsx.ReadFile(AttachResultPath(vhd))
 	if errors.Is(err, fs.ErrNotExist) {
 		return AttachResult{}, false, nil
 	}
