@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -84,6 +85,8 @@ type Admission struct {
 	IsLight bool
 	// overdueAfter is overdueLimit, which a test shortens.
 	overdueAfter time.Duration
+	// passAfter is passLimit, which a test shortens.
+	passAfter time.Duration
 }
 
 // NoLimit is the Limit of a run that waits for memory for as long as the
@@ -500,6 +503,18 @@ var priorityPlaces = map[string]string{
 // more of its session than a whole turn of the line is worth.
 const overdueLimit = 2 * time.Hour
 
+// passLimit is how long a run that does not fit the memory free may be passed
+// by runs that do. A run at the head waits for memory no longer than its
+// floor-wait limit, which every caller sets to an hour (gateWaitLimit in
+// cmd/goblins), and a run that was passed starts that hour only once nothing
+// can pass it, so a turn taken past it that ends within that hour leaves it
+// its turn. Its longest wait for a turn is then passLimit and that hour, 80
+// minutes, inside overdueLimit. A turn taken past it that holds its slot
+// longer than that hour, as a gate turn's 90 minute budget (gateBudget in
+// cmd/goblins/gate.go) allows, still uses up its wait, as a holder with more
+// than an hour left does for any run at the head.
+const passLimit = 20 * time.Minute
+
 // tier begins the run's place in line.
 func (a Admission) tier() string {
 	switch {
@@ -577,7 +592,8 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 	if err := os.MkdirAll(line, 0o755); err != nil {
 		return Turn{}, err
 	}
-	arrival := fmt.Sprintf("%020d-%d-%d", time.Now().UTC().UnixNano(), os.Getpid(), arrivals.Add(1))
+	joined := time.Now()
+	arrival := fmt.Sprintf("%020d-%d-%d", joined.UTC().UnixNano(), os.Getpid(), arrivals.Add(1))
 	place := a.tier() + arrival
 	owner, err := lock.AcquireExclusiveNamedStrict(line, place)
 	if err != nil {
@@ -593,8 +609,14 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 	var toldAhead int
 	// shortSince is when this run, at the head of the line, first found memory
 	// under the floor, and zero while it is not the head or memory is not
-	// short: the limit is on the wait for memory, not on the time in line.
+	// short: the limit is on the wait for memory, not on the time in line. A
+	// run that was passed waits for memory from when nothing can pass it.
 	var shortSince time.Time
+	// seen is the live holders of the slots this run has seen while at the
+	// head of the line and short, and nil while it is not. A holder it has not
+	// seen there took its turn past this run, which isPassed records.
+	var seen map[lock.Info]bool
+	isPassed := false
 	// busySince is when this run, at the head of the line, first found the
 	// line's lock busy as it took its turn, and zero while it is not.
 	var busySince time.Time
@@ -615,7 +637,11 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 			}
 			place, owner = overduePlace+arrival, moved
 		}
-		ahead, err := inFront(line, place)
+		passed, err := a.passing(line, capacity, floor)
+		if err != nil {
+			return Turn{Waited: time.Since(start)}, err
+		}
+		ahead, err := inFront(line, place, passed)
 		if err != nil {
 			return Turn{Waited: time.Since(start)}, err
 		}
@@ -628,9 +654,36 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 			}
 		}
 		if short == "" {
-			shortSince = time.Time{}
-		} else if shortSince.IsZero() {
-			shortSince = time.Now()
+			shortSince, seen = time.Time{}, nil
+		} else {
+			if shortSince.IsZero() {
+				shortSince = time.Now()
+			}
+			if capacity == 2 {
+				isFirstLook := seen == nil
+				if isFirstLook {
+					seen = map[lock.Info]bool{}
+				}
+				for _, name := range []string{"slot-1", "slot-2"} {
+					holder, err := lock.ReadNamedStrict(a.Dir, name)
+					if errors.Is(err, os.ErrNotExist) {
+						continue
+					}
+					if err != nil {
+						return Turn{Waited: time.Since(start)}, err
+					}
+					if !holder.Alive() || seen[*holder] {
+						continue
+					}
+					seen[*holder] = true
+					if !isFirstLook {
+						isPassed = true
+					}
+				}
+			}
+			if unpassable := joined.Add(cmp.Or(a.passAfter, passLimit)); isPassed && unpassable.After(shortSince) {
+				shortSince = unpassable
+			}
 		}
 		if ahead == 0 {
 			if short != "" && time.Since(shortSince) >= a.Limit {
@@ -727,9 +780,50 @@ func standing(ahead int) string {
 	return fmt.Sprintf("%d runs are ahead of this one in line", ahead)
 }
 
-// inFront counts the runs whose places come before place and still wait.
-// A run whose process is gone is taken out of the line.
-func inFront(line, place string) (int, error) {
+// passing says which waiting runs this run goes past, for inFront: in a line
+// of two slots, while this run fits the memory free, a run ahead of it that
+// does not fit for its own expected memory holds it back no longer, unless
+// that run stands at overduePlace or has stood passLimit in line, as the join
+// time its place carries says. A run that was passed starts its floor wait
+// only once nothing can pass it, so turns taken past it that end within its
+// floor-wait limit leave it its turn. A place whose join time cannot be read
+// is not passed.
+// On 2026-10-29 a
+// waiter expecting 8 GB with 7.1 GB free held eight runs that fit for 28
+// minutes while the turn sat free (#1743). A line of one slot asks every run
+// the same floor, so no run there fits where the one ahead does not, and it
+// passes none.
+func (a Admission) passing(line string, capacity int, floor uint64) (func(name string) (bool, error), error) {
+	if capacity != 2 {
+		return nil, nil
+	}
+	short, err := a.headShort(capacity, floor)
+	if err != nil || short != "" {
+		return nil, err
+	}
+	return func(name string) (bool, error) {
+		if strings.HasPrefix(name, overduePlace) {
+			return false, nil
+		}
+		at := strings.IndexAny(name, "0123456789")
+		if at < 0 || len(name) < at+20 {
+			return false, nil
+		}
+		joined, err := strconv.ParseInt(name[at:at+20], 10, 64)
+		if err != nil || time.Since(time.Unix(0, joined)) >= cmp.Or(a.passAfter, passLimit) {
+			return false, nil
+		}
+		ahead := a
+		ahead.Estimate = readCard(filepath.Join(line, name)).EstimateBytes
+		short, err := ahead.headShort(capacity, floor)
+		return short != "", err
+	}, nil
+}
+
+// inFront counts the runs whose places come before place and still wait,
+// leaving out each one passed says this run goes past, when it is given. A
+// run whose process is gone is taken out of the line.
+func inFront(line, place string, passed func(name string) (bool, error)) (int, error) {
 	entries, err := os.ReadDir(line)
 	if err != nil {
 		return 0, err
@@ -761,6 +855,15 @@ func inFront(line, place string) (int, error) {
 				return 0, err
 			}
 			continue
+		}
+		if err == nil && passed != nil {
+			isPassed, err := passed(name)
+			if err != nil {
+				return 0, err
+			}
+			if isPassed {
+				continue
+			}
 		}
 		ahead++
 	}

@@ -410,7 +410,7 @@ func TestAGoneLowPriorityWaiterLeavesTheLine(t *testing.T) {
 	}
 
 	// Act
-	ahead, err := inFront(line, lowPriorityPlace+"00000000000000000002-11-1")
+	ahead, err := inFront(line, lowPriorityPlace+"00000000000000000002-11-1", nil)
 
 	// Assert
 	if err != nil || ahead != 0 {
