@@ -857,7 +857,7 @@ Any other value, such as one a process kept from a run that has ended, is ignore
 It samples the private working set separately, which is neither commitment nor a measured lifetime peak, and counts apart the members this process may not read, as a sandboxed browser's, which the sample leaves out.
 A member it may not open counts as still running, since nothing shows it has exited.
 These reads are observations, not resource reservations or enforced limits.
-An unreadable job or process measurement returns an error, and platforms without whole-tree support report that accounting is unavailable.
+An unreadable job or process measurement returns an error.
 Windows lists no process that a job nested in a job is ending, from the moment that end begins until the process is done, and counts it either no more or for as long as its threads take to end, so `internal/proc.JobProcessIDs` returns the list with how many more members the job counts than it lists.
 A headless Chrome puts most of its processes each in a job of its own, which ends them once the browser has ended: such a process left its browser's job's list with up to 21 threads not yet ended and was done up to 2.5 s later, while the job counted it beyond the list for up to 474 ms or not at all, and a browser run pinned to four busy processors kept the count above the list for over 250 ms, which once ended its run (issues 1025 and 1066).
 A process that exits, ends itself, or is ended by its handle or by the job it runs in stays listed until it has ended.
@@ -892,7 +892,8 @@ Until the command's process exits the monitor still waits for the whole job, and
 The executor's separate `ExecutionLimit`, used by `goblins gate turn --execution-limit`, begins before startup and remains active through finalization, using the same absolute deadline throughout without changing `RunWithin`'s command-only limit.
 A command its limit ends fails with `verify.ErrLimit` and an interrupted record, which a tier records as timed out, while an internal wait that ran out of time is a failure but no timeout.
 A failed cleanup returns `cleanup_uncertain`, so its caller must retain admission custody, and successful cleanup does not turn an interrupted run into a completed one.
-`internal/verify.Executor` composes admission, per-command worker custody, job measurement and durable lifecycle records on Windows.
+`internal/verify.Executor` composes admission, per-command worker custody, job measurement and durable lifecycle records.
+On Linux and macOS no job holds a tree: the tree is what its environment mark, its process group and its parent chain find, its custody record names that mark in place of the job, and no worker can run outside it, as [the Linux plan](plans/2026-11-11-linux-port.md#process-trees-and-job-objects) says.
 Records under the report store's `executions` folder separate queue time from execution time, preserve the command's actual exit code when available, and require complete measurements and cleanup before recording a pass.
 The record names its complete stdout and stderr logs, while the returned command result holds at most the last 4 MiB of each stream.
 Input is an inherited file handle, so an arbitrary reader cannot leave a blocked I/O pump behind after the command exits, and a command given none reads an empty input.

@@ -332,7 +332,7 @@ It differs where Linux reads `/proc` and `/sys`, and where the Linux layers call
 - No `pidfd_open`: a process is ended by its ID after its identity is checked, so a few microseconds stay between the check and the end in which the ID could pass to another program.
   A child the fleet started cannot lose its ID that way, since its parent has not collected it.
 - No `PR_SET_CHILD_SUBREAPER`: a child whose parent exits passes to launchd, so its parent chain no longer leads back to the fleet.
-  `internal/execx` and the gate's executor mark each tree they start with an environment marker, and a tree is found by its parent chain and by that marker, read through `kern.procargs2`, which M1 ports.
+  `internal/execx` and the gate's executor mark each tree they start with an environment marker, and a tree is found by that marker, read through `kern.procargs2`, which M1 ports, by its process group and by its parent chain.
   Linux finds a tree the same way, so the code is written once.
 - No `sched_setaffinity`: the terminal is kept off the performance cores by its priority, and the cores' kinds come from `sysctl hw.perflevel*`.
   Background priority (`PRIO_DARWIN_BG`) runs it on the efficiency cores of Apple silicon, but it also gives the lowest scheduling priority and throttles disk and network, which the Windows thread mask and Linux affinity do not.
