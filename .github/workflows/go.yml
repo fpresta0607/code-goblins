@@ -645,6 +645,85 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  # Every package built and vetted for macOS (#2535), and the tests of every
+  # package but those in EXCEPT run there, as the linux job does for Linux.
+  # It builds with cgo on, as macOS needs for libproc, with the compiler the
+  # runner carries. Its EXCEPT holds the packages whose macOS port comes with
+  # a later layer of the port, which takes them out as it lands.
+  macos:
+    needs: plan
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.go != '[]' }}
+    name: macos
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      CGO_ENABLED: '1'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+      - name: Build every package for macOS
+        run: go build ./...
+      - run: go vet ./...
+      - name: Ensure SQLite integration tests can run
+        run: sqlite3 --version
+      - name: Run Go tests with isolated CEO state
+        shell: bash
+        run: |
+          except=$(go list $EXCEPT)
+          packages=$(go list ./... | grep -vxF "$except")
+          citest="$RUNNER_TEMP/citest"
+          go build -o "$citest" ./tools/citest
+          "$citest" -job macos -record "$RUNNER_TEMP/failed-once.jsonl" -timeout 20m $packages
+        env:
+          # The packages whose tests wait on a later layer of the port, as
+          # the linux job's do, and internal/gatetest, whose test selection
+          # compares git's folders, with every link resolved, with go list's
+          # as given: macOS's temporary folder is under /var, a link to
+          # /private/var, so it waits on 4, path comparison.
+          EXCEPT: >-
+            ./cmd/goblins
+            ./internal/cleanup
+            ./internal/codexguard
+            ./internal/connections
+            ./internal/digest
+            ./internal/doctor
+            ./internal/fleet
+            ./internal/fleettree
+            ./internal/fsx
+            ./internal/gatetest
+            ./internal/harnessmap
+            ./internal/home
+            ./internal/homemove
+            ./internal/install
+            ./internal/layout
+            ./internal/memory
+            ./internal/monitor
+            ./internal/pathguard
+            ./internal/pipeline
+            ./internal/reap
+            ./internal/runtime
+            ./internal/sandbox
+            ./internal/spawn
+            ./internal/startwatch
+            ./internal/supervisor
+            ./internal/update
+            ./internal/verify
+            ./internal/voice
+            ./internal/watch
+          GOBLINS_HOME: ${{ runner.temp }}/ceo-go-tests
+          GOBLINS_STATE_OVERRIDE: ${{ runner.temp }}/ceo-go-tests/state
+      - name: Keep the record of each test that failed once
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed-once-macos
+          path: ${{ runner.temp }}/failed-once.jsonl
+          if-no-files-found: ignore
+          retention-days: 14
+
   # The check branch protection requires. It runs whatever happened above,
   # but in a run of a draft and in one whose event saw a draft and that was
   # cancelled, which it leaves as it leaves a draft's: such a run has a
@@ -660,7 +739,7 @@ jobs:
   # tree on the same main, which leaves every job out.
   test:
     if: ${{ always() && needs.draft.outputs.draft != 'true' && (needs.draft.result == 'skipped' || !cancelled()) }}
-    needs: [draft, plan, frontend, browser, go, linux]
+    needs: [draft, plan, frontend, browser, go, linux, macos]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -681,7 +760,7 @@ jobs:
           # true or false for each job can say.
           $leftOut = @()
           if ($env:EVENT -eq 'push' -and $plan.result -eq 'success' -and "$($plan.outputs.reused)" -match '^\d+$') {
-            $leftOut = @('frontend', 'browser', 'go', 'linux')
+            $leftOut = @('frontend', 'browser', 'go', 'linux', 'macos')
             "every job was left out: pull request run $($plan.outputs.reused) passed this tree on this main"
           }
           if ($env:OWN_RUN -eq 'true' -and $plan.result -eq 'success') {
@@ -691,8 +770,8 @@ jobs:
             }
             if ($said.frontend -eq 'false') { $leftOut += 'frontend' }
             if ($said.browser -eq 'false') { $leftOut += 'browser' }
-            # The Linux build starts when the go jobs do.
-            if ($said.go -eq '[]') { $leftOut += 'go', 'linux' }
+            # The Linux and macOS builds start when the go jobs do.
+            if ($said.go -eq '[]') { $leftOut += 'go', 'linux', 'macos' }
             "left out by the plan: $($leftOut -join ', ')"
           }
           $notPassed = @($jobs | Where-Object { $_.Value.result -ne 'success' -and -not ($_.Value.result -eq 'skipped' -and $leftOut -contains $_.Name) })

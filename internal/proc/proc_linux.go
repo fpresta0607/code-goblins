@@ -216,9 +216,3 @@ func Ancestry(pid int, maxHops int) ([]Entry, error) {
 	}
 	return entries, nil
 }
-
-// StartTime returns pid's start, and whether the process was found running.
-func StartTime(pid int) (time.Time, bool) {
-	entry, err := Lookup(pid)
-	return entry.Start, err == nil
-}

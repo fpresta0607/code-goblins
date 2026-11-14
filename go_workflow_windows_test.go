@@ -719,19 +719,19 @@ func TestGoWorkflowsRequiredCheckPassesOnlyWhenEveryJobSucceeded(t *testing.T) {
 	step := workflowStep(t, filepath.Join(".github", "workflows", "go.yml"), "test", "Require every job to have passed")
 	// needs is the needs context as GitHub hands it to the step: the plan
 	// with what it said, and each other job's result.
-	// The Linux build starts when the go jobs do, so it ends as they did
-	// unless a case says otherwise (withLinux).
+	// The Linux and macOS builds start when the go jobs do, so they end as
+	// they did unless a case says otherwise (withBuild).
 	needs := func(plan, frontend, browser, goJobs, saidFrontend, saidBrowser, saidGo string) string {
 		outputs, _ := json.Marshal(map[string]string{"frontend": saidFrontend, "browser": saidBrowser, "go": saidGo})
-		return fmt.Sprintf(`{"plan":{"result":%q,"outputs":%s},"frontend":{"result":%q,"outputs":{}},"browser":{"result":%q,"outputs":{}},"go":{"result":%q,"outputs":{}},"linux":{"result":%q,"outputs":{}}}`, plan, outputs, frontend, browser, goJobs, goJobs)
+		return fmt.Sprintf(`{"plan":{"result":%q,"outputs":%s},"frontend":{"result":%q,"outputs":{}},"browser":{"result":%q,"outputs":{}},"go":{"result":%q,"outputs":{}},"linux":{"result":%q,"outputs":{}},"macos":{"result":%q,"outputs":{}}}`, plan, outputs, frontend, browser, goJobs, goJobs, goJobs)
 	}
-	// withLinux gives the Linux build of results its own result.
-	withLinux := func(result, results string) string {
+	// withBuild gives the build job of results its own result.
+	withBuild := func(job, result, results string) string {
 		var parsed map[string]any
 		if err := json.Unmarshal([]byte(results), &parsed); err != nil {
 			t.Fatal(err)
 		}
-		parsed["linux"] = map[string]any{"result": result, "outputs": map[string]any{}}
+		parsed[job] = map[string]any{"result": result, "outputs": map[string]any{}}
 		changed, err := json.Marshal(parsed)
 		if err != nil {
 			t.Fatal(err)
@@ -769,10 +769,14 @@ func TestGoWorkflowsRequiredCheckPassesOnlyWhenEveryJobSucceeded(t *testing.T) {
 		"the draft job could not read and every job passed":      {withDraft("failure", needs("success", "success", "success", "success", "true", "true", all)), true, true},
 		"the draft job was skipped and every job passed":         {withDraft("skipped", needs("success", "success", "success", "success", "true", "true", all)), true, true},
 		"the draft job could not read and a job failed":          {withDraft("failure", needs("success", "success", "success", "failure", "true", "true", all)), true, false},
-		"the Linux build failed":                                 {withLinux("failure", needs("success", "success", "success", "success", "true", "true", all)), true, false},
-		"the Linux build was skipped while the go jobs ran":      {withLinux("skipped", needs("success", "success", "success", "success", "true", "true", all)), true, false},
-		"the Linux build was left out with the go jobs":          {withLinux("skipped", needs("success", "success", "success", "skipped", "true", "true", "[]")), true, true},
-		"the Linux build was left out of a train's run":          {withLinux("skipped", needs("success", "success", "success", "success", "true", "true", all)), false, false},
+		"the Linux build failed":                                 {withBuild("linux", "failure", needs("success", "success", "success", "success", "true", "true", all)), true, false},
+		"the Linux build was skipped while the go jobs ran":      {withBuild("linux", "skipped", needs("success", "success", "success", "success", "true", "true", all)), true, false},
+		"the Linux build was left out with the go jobs":          {withBuild("linux", "skipped", needs("success", "success", "success", "skipped", "true", "true", "[]")), true, true},
+		"the Linux build was left out of a train's run":          {withBuild("linux", "skipped", needs("success", "success", "success", "success", "true", "true", all)), false, false},
+		"the macOS build failed":                                 {withBuild("macos", "failure", needs("success", "success", "success", "success", "true", "true", all)), true, false},
+		"the macOS build was skipped while the go jobs ran":      {withBuild("macos", "skipped", needs("success", "success", "success", "success", "true", "true", all)), true, false},
+		"the macOS build was left out with the go jobs":          {withBuild("macos", "skipped", needs("success", "success", "success", "skipped", "true", "true", "[]")), true, true},
+		"the macOS build was left out of a train's run":          {withBuild("macos", "skipped", needs("success", "success", "success", "success", "true", "true", all)), false, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange: as GitHub Actions runs a pwsh step, which stops on
@@ -979,7 +983,7 @@ func TestGoWorkflowsRequiredCheckPassesAPushWhoseTreeAPullRequestRunPassed(t *te
 	step := workflowStep(t, filepath.Join(".github", "workflows", "go.yml"), "test", "Require every job to have passed")
 	reused := func(plan, run string) string {
 		outputs, _ := json.Marshal(map[string]string{"frontend": "false", "browser": "false", "go": "[]", "everything": "false", "reused": run})
-		return fmt.Sprintf(`{"plan":{"result":%q,"outputs":%s},"frontend":{"result":"skipped","outputs":{}},"browser":{"result":"skipped","outputs":{}},"go":{"result":"skipped","outputs":{}},"linux":{"result":"skipped","outputs":{}}}`, plan, outputs)
+		return fmt.Sprintf(`{"plan":{"result":%q,"outputs":%s},"frontend":{"result":"skipped","outputs":{}},"browser":{"result":"skipped","outputs":{}},"go":{"result":"skipped","outputs":{}},"linux":{"result":"skipped","outputs":{}},"macos":{"result":"skipped","outputs":{}}}`, plan, outputs)
 	}
 	for name, test := range map[string]struct {
 		results, event string

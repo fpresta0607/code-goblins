@@ -323,7 +323,8 @@ A durable write is shared too: `fsync` alone does not reach the disk on macOS, b
 It differs where Linux reads `/proc` and `/sys`, and where the Linux layers call what only Linux has:
 
 - Process identity comes from `sysctl` (`kern.proc` for the parent, name and start, `kern.procargs2` for the arguments and environment) and from `libproc` for the working folder, the image and each process's memory.
-- A process is named by the boot session's UUID (`kern.bootsessionuuid`) and the kernel's unique ID for it (`p_uniqueid`, from `libproc`), which is never given twice in one boot, so no clock is in it, as none is in the Linux instance.
+- A process is named by the boot session's UUID (`kern.bootsessionuuid`) and its start in the ticks of the machine's absolute clock (`ri_proc_start_abstime`, from `libproc`'s `proc_pid_rusage`), which counts from the machine's start and is never stepped, so no wall clock is in it, as none is in the Linux instance.
+  The kernel's own unique ID of a process (`p_uniqueid`) would serve too, but the public SDK does not declare the flavors that read it.
 - No `pidfd_open`: a process is ended by its ID after its identity is checked, so a few microseconds stay between the check and the end in which the ID could pass to another program.
   A child the fleet started cannot lose its ID that way, since its parent has not collected it.
 - No `PR_SET_CHILD_SUBREAPER`: a child whose parent exits passes to launchd, so its parent chain no longer leads back to the fleet.
@@ -356,7 +357,7 @@ The sizes are added lines, measured against layer 3 part 1, which added 985 prog
 | Layer | macOS shares with Linux | macOS needs of its own | Pull request | What macOS adds to it |
 | --- | --- | --- | --- | --- |
 | 1 and 2, build and unit tests | the build constraints, the `_windows_test.go` split, the EXCEPT list | a `macos` CI job that builds, vets and runs the tests of every package outside its own EXCEPT list; Windows-only test programs (`cmd`, `ping`) that are not yet per system | M1, macOS catches up, right after this plan | about 150 program lines, 100 test lines, the job (a workflow change for the CEO) |
-| 3 part 1, processes and the lock | the lock's line of waiters, its instance rule, `fsx.RemoveFileWhen`, supervise's liveness check, the stand-in programs (`true`, `sleep`) | `internal/proc` on `sysctl` and `libproc`; the instance from the boot session and the process's unique ID; ending a process without a `pidfd` | M1 | about 350 program lines, 300 test lines |
+| 3 part 1, processes and the lock | the lock's line of waiters, its instance rule, `fsx.RemoveFileWhen`, supervise's liveness check, the stand-in programs (`true`, `sleep`) | `internal/proc` on `sysctl` and `libproc`; the instance from the boot session and the process's start in absolute-clock ticks; ending a process without a `pidfd` | M1 | about 350 program lines, 300 test lines |
 | 3 part 2, trees and the gate's executor | process groups, signals, Ctrl+Break as `SIGINT` then `SIGTERM` | an environment marker on each tree `internal/execx` and the gate's executor start, and the tree found by its parent chain and by that marker through `kern.procargs2`, since no subreaper holds it | 3 part 2 | about 100 program lines, 80 test lines |
 | 3 part 3, files and the home | `rename`, the hold on a file, the home under `$XDG_DATA_HOME`, mode 0700, `access.IsNarrow` by mode, the durable write through `File.Sync` | nothing of its own | 3 part 3 | nothing |
 | 4, transport and paths | Unix sockets, the peer check, `flock` on the primary transport, `pathguard` reading a path as written | `LOCAL_PEERPID`; sockets under `/tmp`; path comparison by the volume's case and normalization | 4 | about 150 program lines, 150 test lines |
@@ -374,7 +375,7 @@ It replaced the `!windows` stubs that `internal/proc`, `internal/lock` and `inte
 The tests of `internal/lock` and `internal/supervise` do not yet compile for macOS, since their stand-in programs (`endedProgram`, `lastingProgram`) are per system: M1 makes them `_unix` and deletes the stubs as it ports.
 The portable tests of `internal/proc` already compile for macOS, and its system tests are `_windows_test.go` and `_linux_test.go` files, so M1 adds its macOS tests beside them.
 M1 brings, for macOS: `Lookup`, `Processes`, `Ancestry`, `StartTime`, `WorkingDirectory`, `Arguments`, `Environment`, `Identify`, `TerminateVerified`, `TerminateVerifiedIn`, `Instance` and `runningProcesses`, and the lock's `processStart` and `readInstance`.
-The lock's line of waiters, `fsx.RemoveFileWhen` and supervise's `pidAlive` already hold on macOS and move to `_unix.go` names unchanged.
+The lock's line of waiters and supervise's `pidAlive` already hold on macOS and move to `_unix.go` names unchanged, and `fsx.RemoveFileWhen` already builds there, off Windows.
 The four records the plan names as built from a start alone carry the instance on macOS in the same layers as on Linux.
 
 ### Signing and notarization
