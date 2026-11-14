@@ -112,7 +112,7 @@ The native terminal keeps the harness's own keyboard controls and prompts.
 
 To change direction, send a short follow-up to the relevant conversation.
 A message reads **Queued** at the end of the chat while the board holds it, as it holds one to the CEO for a short undo window and, until its turn ends, a command to a busy goblin that its harness would not run mid-turn: **Edit** takes it back into the composer and **Cancel** withdraws it.
-**Send now** is available according to the message's delivery state and harness, and presses the harness's own send-now key once the message is in its queue, which interrupts a working turn; a request that cannot proceed explains why.
+**Send now** is available according to the message's delivery state and harness, and presses the harness's own send-now key, which interrupts a working turn; a request that cannot proceed explains why.
 After handoff, the harness's [delivery states](docs/native-board.md#the-message-box) determine the label and available controls.
 Use the native Terminal for the harness's other interruption controls; **Pause** and **Stop** in Task control the task's session.
 See [conversations, terminal navigation and controls](docs/native-board.md).

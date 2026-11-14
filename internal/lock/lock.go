@@ -49,9 +49,9 @@ type Info struct {
 	// it waits on.
 	Purpose string `json:"purpose,omitempty"`
 	// Instance names the holder's run of its program exactly, where the
-	// system reads one: on Linux (proc.Instance), whose reading of a start
-	// moves when the clock is stepped. It is empty on Windows, where the
-	// start alone knows the process.
+	// system reads one: on Linux, whose reading of a start moves when the
+	// clock is stepped, and on macOS (proc.Instance). It is empty on
+	// Windows, where the start alone knows the process.
 	Instance string `json:"instance,omitempty"`
 }
 
@@ -341,8 +341,8 @@ func acquireExclusiveNamed(dir, name, purpose string, isStrict bool) (*Info, err
 // A verifiably dead ownerPID is refused with ErrOwnerDead before any file is
 // created or touched; an unverifiable ownerPID (statusUnknown) still
 // proceeds, fail closed to alive exactly as Alive() does, except on a
-// system that knows a process by its instance (Linux), where an owner whose
-// instance cannot be read writes no record (provable): it is refused when
+// system that knows a process by its instance (Linux, macOS), where an owner
+// whose instance cannot be read writes no record (provable): it is refused when
 // the lock is free, and answered ErrHeld when a live holder keeps it.
 // Strategy: exclusive create with read-back verification, grace period for
 // mid-write files, and a create that waits out another process's hold on

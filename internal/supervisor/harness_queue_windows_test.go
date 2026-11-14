@@ -74,14 +74,14 @@ func heldQueue(t *testing.T, isGoblin bool, mode string, texts ...string) (*Stor
 }
 
 // promptLineEmpties waits until terminal's prompt line reads empty to the
-// screens of Claude Code.
-func promptLineEmpties(t *testing.T, terminal hostedTerminal) {
+// screens of its harness, name.
+func promptLineEmpties(t *testing.T, terminal hostedTerminal, name string) {
 	t.Helper()
 	record, err := host.ReadRecord(terminal.stateDir, terminal.id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	screens, _ := harness.NativeScreens(harness.Claude)
+	screens, _ := harness.NativeScreens(harness.Kind(name))
 	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(20 * time.Millisecond) {
 		screen, err := host.ReadScreen(record)
 		if err == nil && screens.ComposerEmpty(screen) {
@@ -91,6 +91,20 @@ func promptLineEmpties(t *testing.T, terminal hostedTerminal) {
 			t.Fatalf("the prompt line never read empty: %v\n%s", err, host.ScreenTail(screen, 8))
 		}
 	}
+}
+
+// tryNext has the board's worker try the next message for the CEO, then waits
+// until the prompt line of his harness, name, reads empty. A line typed into
+// his turn is held as soon as its submit key goes, before his harness has
+// taken it off its prompt line, so a try right after it can read that line
+// still there and hold the next message as one his words block, with no Send
+// now, until the worker tries that message again.
+func tryNext(t *testing.T, store *Store, service *Service, terminal hostedTerminal, name string) {
+	t.Helper()
+	if err := store.ProcessOne(context.Background(), service.execute); err != nil && !errors.Is(err, ErrDeferred) {
+		t.Fatal(err)
+	}
+	promptLineEmpties(t, terminal, name)
 }
 
 // The Overlord, 2026-11-10: "a message the harness still holds queued reads
@@ -246,7 +260,7 @@ func TestCancelOfAMessageItsSessionAlreadyTookSaysSoAndLeavesItDelivered(t *test
 			// Arrange: its turn took the message at his Send now, and its
 			// record shows that before the board's next look.
 			store, service, terminal, task, typed := heldQueue(t, test.isGoblin, "claude-busy", "stop and rebase")
-			promptLineEmpties(t, terminal)
+			promptLineEmpties(t, terminal, "claude")
 			if pressed := sendNow(service, task, "m1"); pressed.Code != 202 {
 				t.Fatalf("Send now = %d %s", pressed.Code, pressed.Body)
 			}
@@ -340,7 +354,7 @@ func TestCancelOfAMessageItsHarnessHoldsTakesItOutOfThatQueueAndKeepsTheOthers(t
 			// Act
 			cancel := pressOnQueued(service, "message_withdraw", task, "m2", "second words")
 			kept := []string{actionOf(store, "m1").Status, actionOf(store, "m3").Status}
-			promptLineEmpties(t, terminal)
+			promptLineEmpties(t, terminal, "claude")
 			if !test.isGoblin {
 				// The worker tries a delivery its terminal put off again, as here.
 				for deadline := time.Now().Add(30 * time.Second); !(isHarnessHeld(actionOf(store, "m1")) && isHarnessHeld(actionOf(store, "m3"))) && time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
@@ -619,8 +633,9 @@ func TestAQueueTheBoardCannotTakeBackAloneIsNeverCleared(t *testing.T) {
 // Code's send-now key takes a slash command at the head of its queue alone,
 // as a turn of its own, and left his message behind three such commands
 // queued on 2026-11-10. So a command to a CEO in a turn waits on the board,
-// whatever its harness, and Send now on the message behind it types that
-// message into the turn ahead of it and presses the key over it alone.
+// whatever its harness, with a Send now of its own (#1915), and Send now on
+// the message behind it types that message into the turn ahead of it and
+// presses the key over it alone.
 func TestSendNowOnAMessageBehindACommandForTheCEOsTurnHasThatMessageTakenFirst(t *testing.T) {
 	for _, test := range []struct{ name, mode, wantKey string }{
 		{name: "Claude Code", mode: "claude-busy", wantKey: "sent now"},
@@ -650,8 +665,8 @@ func TestSendNowOnAMessageBehindACommandForTheCEOsTurnHasThatMessageTakenFirst(t
 			sent := actionOf(store, "m2")
 
 			// Assert
-			if command.Status != "queued" || command.CanSendNow || command.Message != "Queued. "+commandWaits {
-				t.Errorf("the command = %+v; want it waiting on the board for the turn's end, with no Send now", command)
+			if command.Status != "queued" || !command.CanSendNow || command.Message != "Queued. A command runs when its turn ends. Send now interrupts the turn to run it." {
+				t.Errorf("the command = %+v; want it waiting on the board for the turn's end, with a Send now of its own", command)
 			}
 			if behind.Status != "queued" || !behind.CanSendNow || behind.Message != "Queued until the CEO's turn ends. Send now has it take the message at once." {
 				t.Errorf("the message behind it = %+v; want it waiting with Send now", behind)
@@ -664,6 +679,345 @@ func TestSendNowOnAMessageBehindACommandForTheCEOsTurnHasThatMessageTakenFirst(t
 			}
 			if still := actionOf(store, "m1"); still.Status != "queued" {
 				t.Errorf("the command after Send now = %+v; want it still waiting for the turn's end", still)
+			}
+		})
+	}
+}
+
+// Send now on a command held for the CEO's turn has its harness run it at
+// once, as a goblin's does (#1915): Claude Code takes the command into its
+// turn's queue and runs it at once with its send-now chord, and Codex, which
+// refuses such a command in a turn, ends its turn on Escape, so the command
+// goes at the prompt line the turn's end leaves.
+func TestSendNowRunsACommandHeldForTheCEOsTurnAtOnce(t *testing.T) {
+	for _, test := range []struct {
+		name, mode string
+		wantInput  []string
+	}{
+		{name: "Claude Code", mode: "claude-busy", wantInput: []string{"queued /compact", "sent now"}},
+		{name: "Codex", mode: "busy", wantInput: []string{"interrupted", "accepted /compact"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			useConversations(t)
+			store, home := testStore(t)
+			terminal := nativeCEOComposer(t, home.State, test.mode)
+			service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: home.State}}}
+			if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: "/compact"}); err != nil {
+				t.Fatal(err)
+			}
+			pastUndoWindow(t, store)
+			if err := store.ProcessOne(context.Background(), service.execute); !errors.Is(err, ErrDeferred) {
+				t.Fatalf("the command's delivery = %v; want it held for the turn's end", err)
+			}
+			held := actionOf(store, "m1")
+
+			// Act
+			pressed := sendNow(service, "", "m1")
+			err := store.ProcessOne(context.Background(), service.execute)
+			input := terminal.waitForLines(t, 1+len(test.wantInput))
+			sent := actionOf(store, "m1")
+
+			// Assert
+			if !held.CanSendNow || held.Message != "Queued. A command runs when its turn ends. Send now interrupts the turn to run it." {
+				t.Errorf("the held command = %+v; want Send now offered, saying it interrupts the turn to run the command", held)
+			}
+			if pressed.Code != 202 || err != nil || sent.Status != "succeeded" {
+				t.Errorf("Send now = %d %s, delivery = %v, command = %+v; want the command run at once", pressed.Code, pressed.Body, err, sent)
+			}
+			if !slices.Equal(input[1:], test.wantInput) {
+				t.Errorf("terminal input = %q; want %q after its registration", input, test.wantInput)
+			}
+		})
+	}
+}
+
+// Claude Code's send-now chord takes its turn's queue from the head, so the
+// board presses it over a command only while that queue holds nothing else.
+// A Send now that finds lines queued ahead of the command is spent by that
+// try, which says it could not run it at once, and the board presses nothing
+// for it at a later try: one press of his is one try, never a standing order
+// to interrupt whatever turn runs next (#1915). Those words stay until a new
+// Send now, whose try says how it went, or until the turn ends and the
+// command runs. The fixture's turn ends only on Escape, which hands his words
+// back onto its prompt line, so he ends it here as he can in its terminal,
+// with Escape and then Ctrl+U over those words, which leaves the board the
+// empty, ready prompt line it finds at any turn's end.
+func TestASendNowThatCannotRunAHeldCommandAtOnceIsSpentAndSaysSo(t *testing.T) {
+	// Arrange
+	useConversations(t)
+	store, home := testStore(t)
+	terminal := nativeCEOComposer(t, home.State, "claude-busy")
+	service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: home.State}}}
+	for _, message := range []Action{{ID: "m1", Kind: "message", Text: "first words"}, {ID: "m2", Kind: "message", Text: "/compact"}} {
+		if _, err := store.Queue(message); err != nil {
+			t.Fatal(err)
+		}
+		pastUndoWindow(t, store)
+		tryNext(t, store, service, terminal, "claude")
+	}
+	if words, command := actionOf(store, "m1"), actionOf(store, "m2"); !isHarnessHeld(words) || command.Status != "queued" {
+		t.Fatalf("his words = %+v, the command = %+v; want the words in the turn's queue and the command held on the board", words, command)
+	}
+	retry := func() error {
+		store.mu.Lock()
+		store.deferredUntil["m2"] = time.Now().Add(-time.Second)
+		store.mu.Unlock()
+		return store.ProcessOne(context.Background(), service.execute)
+	}
+
+	// Act
+	pressed := sendNow(service, "", "m2")
+	err := store.ProcessOne(context.Background(), service.execute)
+	spent := actionOf(store, "m2")
+	later := retry()
+	kept := actionOf(store, "m2")
+	pressedAgain := sendNow(service, "", "m2")
+	renewed := actionOf(store, "m2")
+	again := store.ProcessOne(context.Background(), service.execute)
+	spentAgain := actionOf(store, "m2")
+	terminal.typeKeys(t, "\x1b")
+	terminal.waitForLines(t, 3)
+	terminal.typeKeys(t, "\x15")
+	terminal.waitForLines(t, 4)
+	terminal.showsComposer(t, "claude")
+	ended := retry()
+	taken := actionOf(store, "m2")
+	input := terminal.waitForLines(t, 5)
+
+	// Assert
+	if pressed.Code != 202 || !errors.Is(err, ErrDeferred) || !errors.Is(later, ErrDeferred) {
+		t.Fatalf("Send now = %d %s, its try = %v, the next try = %v; want it taken, and the command held at each try", pressed.Code, pressed.Body, err, later)
+	}
+	if spent.IsSentNow || !spent.CanSendNow || spent.Message != "Queued. Send now could not run it at once, so it runs when its turn ends." {
+		t.Errorf("after its try = %+v; want Send now spent, offered again, and words that say it could not run the command at once", spent)
+	}
+	if kept.IsSentNow || !kept.CanSendNow || kept.Message != "Queued. Send now could not run it at once, so it runs when its turn ends." {
+		t.Errorf("after the next try = %+v; want Send now still offered, and the words that say it could not run the command at once kept", kept)
+	}
+	if pressedAgain.Code != 202 || !renewed.IsSentNow || renewed.IsSendNowSpent || renewed.Message != "Queued. A command runs when its turn ends. Send now interrupts the turn to run it." {
+		t.Errorf("a new Send now = %d %s, the command before its try = %+v; want it taken, and words that say what Send now does in place of what the last one could not do", pressedAgain.Code, pressedAgain.Body, renewed)
+	}
+	if !errors.Is(again, ErrDeferred) || spentAgain.IsSentNow || !spentAgain.CanSendNow || spentAgain.Message != "Queued. Send now could not run it at once, so it runs when its turn ends." {
+		t.Errorf("its try = %v, the command = %+v; want it held, its Send now spent, and words that say this one could not run it at once either", again, spentAgain)
+	}
+	if ended != nil || taken.Status != "succeeded" || taken.Message != "Taken by the CEO in its native terminal, which ran your command." || taken.IsSendNowSpent {
+		t.Errorf("once its turn ended, its try = %v, the command = %+v; want it run, read as taken, and no longer marked spent", ended, taken)
+	}
+	if !slices.Equal(input[1:], []string{"queued first words", "interrupted", "cleared", "accepted /compact"}) {
+		t.Errorf("terminal input = %q; want nothing typed or pressed for the command until its turn ended", input)
+	}
+}
+
+// A command held for the CEO's turn behind another keeps saying that his
+// spent Send now could not run it at once, with its Send now offered,
+// whenever the board gives it words again: at the next try of the command
+// ahead of it, and when he queues another message (#1915).
+func TestACommandWaitingBehindAnotherKeepsTheWordsOfItsSpentSendNow(t *testing.T) {
+	// Arrange
+	useConversations(t)
+	store, home := testStore(t)
+	terminal := nativeCEOComposer(t, home.State, "claude-busy")
+	service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: home.State}}}
+	for _, message := range []Action{{ID: "m1", Kind: "message", Text: "first words"}, {ID: "m2", Kind: "message", Text: "/compact"}, {ID: "m3", Kind: "message", Text: "/clear"}} {
+		if _, err := store.Queue(message); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pastUndoWindow(t, store)
+	for range 2 {
+		tryNext(t, store, service, terminal, "claude")
+	}
+	if words, ahead, behind := actionOf(store, "m1"), actionOf(store, "m2"), actionOf(store, "m3"); !isHarnessHeld(words) || ahead.Status != "queued" || behind.Status != "queued" || !behind.CanSendNow {
+		t.Fatalf("his words = %+v, the command ahead = %+v, the one behind it = %+v; want the words in the turn's queue and both commands held on the board, the one behind with Send now", words, ahead, behind)
+	}
+	deferAhead := func(until time.Time) {
+		store.mu.Lock()
+		store.deferredUntil["m2"] = until
+		store.mu.Unlock()
+	}
+
+	// Act
+	deferAhead(time.Now().Add(time.Hour))
+	pressed := sendNow(service, "", "m3")
+	err := store.ProcessOne(context.Background(), service.execute)
+	spent := actionOf(store, "m3")
+	deferAhead(time.Now().Add(-time.Second))
+	aheadTried := store.ProcessOne(context.Background(), service.execute)
+	afterAhead := actionOf(store, "m3")
+	if _, queueErr := store.Queue(Action{ID: "m4", Kind: "message", Text: "more words"}); queueErr != nil {
+		t.Fatal(queueErr)
+	}
+	afterQueued := actionOf(store, "m3")
+
+	// Assert
+	if pressed.Code != 202 || !errors.Is(err, ErrDeferred) || !errors.Is(aheadTried, ErrDeferred) {
+		t.Fatalf("Send now = %d %s, its try = %v, the try of the command ahead = %v; want it taken, and both commands held", pressed.Code, pressed.Body, err, aheadTried)
+	}
+	for _, step := range []struct {
+		name    string
+		command Action
+	}{{"after its try", spent}, {"after the try of the command ahead", afterAhead}, {"after another message was queued", afterQueued}} {
+		if step.command.IsSentNow || !step.command.CanSendNow || step.command.Message != "Queued. Send now could not run it at once, so it runs when its turn ends." {
+			t.Errorf("%s, the command behind = %+v; want Send now offered, and words that say his could not run it at once", step.name, step.command)
+		}
+	}
+	if input := terminal.lines(t); !slices.Equal(input[1:], []string{"queued first words"}) {
+		t.Errorf("terminal input = %q; want nothing typed or pressed for either command", input)
+	}
+}
+
+// A command held for the CEO's turn behind another keeps its Send now and its
+// words when he queues another message, which takes words of its own and gives
+// none to those queued before it, so a Send now he presses on the command then
+// is taken, never refused as a command that runs when its turn ends (#1915).
+func TestACommandHeldBehindAnotherKeepsItsSendNowWhenHeQueuesAnotherMessage(t *testing.T) {
+	// Arrange
+	useConversations(t)
+	store, home := testStore(t)
+	terminal := nativeCEOComposer(t, home.State, "claude-busy")
+	service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: home.State}}}
+	for _, message := range []Action{{ID: "m1", Kind: "message", Text: "first words"}, {ID: "m2", Kind: "message", Text: "/compact"}, {ID: "m3", Kind: "message", Text: "/clear"}} {
+		if _, err := store.Queue(message); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pastUndoWindow(t, store)
+	for range 2 {
+		tryNext(t, store, service, terminal, "claude")
+	}
+	if behind := actionOf(store, "m3"); behind.Status != "queued" || !behind.CanSendNow || behind.Message != "Queued. A command runs when its turn ends. Send now interrupts the turn to run it." {
+		t.Fatalf("the command behind = %+v; want it held on the board for the turn's end, with a Send now of its own", behind)
+	}
+
+	// Act
+	_, queueErr := store.Queue(Action{ID: "m4", Kind: "message", Text: "more words"})
+	kept := actionOf(store, "m3")
+	pressed := sendNow(service, "", "m3")
+
+	// Assert
+	if queueErr != nil {
+		t.Fatal(queueErr)
+	}
+	if !kept.CanSendNow || kept.SendNowWhy != "" || kept.Message != "Queued. A command runs when its turn ends. Send now interrupts the turn to run it." {
+		t.Errorf("after another message was queued, the command behind = %+v; want its Send now and its words kept", kept)
+	}
+	if pressed.Code != 202 {
+		t.Errorf("Send now = %d %s; want it taken", pressed.Code, pressed.Body)
+	}
+}
+
+// A spent Send now's words give way to another reason a command held for the
+// CEO's turn cannot go now only while that reason lasts (#1915): words he
+// types onto the CEO's prompt line hold it with no Send now, and once he
+// clears them it waits for the turn with Send now on again, saying again that
+// his Send now could not run it at once.
+func TestAnotherReasonAHeldCommandCannotGoShowsInPlaceOfItsSpentSendNowOnlyWhileItLasts(t *testing.T) {
+	// Arrange
+	useConversations(t)
+	store, home := testStore(t)
+	terminal := nativeCEOComposer(t, home.State, "claude-busy")
+	service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: home.State}}}
+	for _, message := range []Action{{ID: "m1", Kind: "message", Text: "first words"}, {ID: "m2", Kind: "message", Text: "/compact"}} {
+		if _, err := store.Queue(message); err != nil {
+			t.Fatal(err)
+		}
+		pastUndoWindow(t, store)
+		tryNext(t, store, service, terminal, "claude")
+	}
+	if pressed := sendNow(service, "", "m2"); pressed.Code != 202 {
+		t.Fatalf("Send now = %d %s; want it taken", pressed.Code, pressed.Body)
+	}
+	if err := store.ProcessOne(context.Background(), service.execute); !errors.Is(err, ErrDeferred) {
+		t.Fatalf("its try = %v; want the command held", err)
+	}
+	if spent := actionOf(store, "m2"); spent.Message != "Queued. Send now could not run it at once, so it runs when its turn ends." {
+		t.Fatalf("after its try = %+v; want words that say his Send now could not run it at once", spent)
+	}
+	retry := func() error {
+		store.mu.Lock()
+		store.deferredUntil["m2"] = time.Now().Add(-time.Second)
+		store.mu.Unlock()
+		return store.ProcessOne(context.Background(), service.execute)
+	}
+
+	// Act
+	typeIntoCEO(t, home.State, "a draft", "a draft")
+	blocked := retry()
+	held := actionOf(store, "m2")
+	typeIntoCEO(t, home.State, "\x15", "Press up to edit queued messages")
+	back := retry()
+	again := actionOf(store, "m2")
+
+	// Assert
+	if !errors.Is(blocked, ErrDeferred) || held.CanSendNow || held.SendNowWhy != "Its terminal is not ready to take it yet." || held.Message != "The CEO's input is not empty and ready. Your answer is queued; nothing was sent." {
+		t.Errorf("its try over his words = %v, the command = %+v; want it held with no Send now, saying why", blocked, held)
+	}
+	if !errors.Is(back, ErrDeferred) || !again.CanSendNow || again.Message != "Queued. Send now could not run it at once, so it runs when its turn ends." {
+		t.Errorf("its try once he cleared them = %v, the command = %+v; want Send now offered, and words that say his could not run it at once", back, again)
+	}
+	if input := terminal.lines(t); !slices.Equal(input[1:], []string{"queued first words", "cleared"}) {
+		t.Errorf("terminal input = %q; want nothing typed or pressed for the command", input)
+	}
+}
+
+// Send now on a command held for the CEO's turn reads as run only once its
+// harness's key ran it (#1915). A Codex whose Escape ended its turn by handing
+// the line it queued back onto its prompt line leaves no empty prompt line, so
+// the command is never typed and the Send now is spent and says so. A Claude
+// Code that takes no Ctrl+X Ctrl+S leaves the command in its turn's queue,
+// typed and sent now, for the CEO's record to show it taken. One whose turn
+// asks a question of its own as the command goes into its queue is pressed no
+// key at all, since the key would go to that question, and the command waits
+// in the turn's queue, typed and not sent now, as his words there do.
+func TestASendNowWhoseKeyDidNotRunTheCEOsCommandSaysWhereItWaits(t *testing.T) {
+	for _, test := range []struct {
+		name, mode  string
+		harness     string
+		before      []string
+		wantErr     error
+		wantStatus  string
+		wantMessage string
+		isAwaited   bool
+		wantInput   []string
+	}{
+		{name: "a Codex that hands its queue back onto its prompt line", mode: "busy", harness: "codex", before: []string{"first words"}, wantErr: ErrDeferred, wantStatus: "queued", wantMessage: "Queued. Send now could not run it at once, so it runs when its turn ends.", wantInput: []string{"queued first words", "interrupted"}},
+		{name: "a Claude Code that ignores its send-now chord", mode: "claude-busy-ignores-send-now", harness: "claude", wantStatus: "running", wantMessage: "Typed while it was working and sent now.", isAwaited: true, wantInput: []string{"queued /compact", "send now ignored"}},
+		{name: "a Claude Code whose turn asks a question over its queue", mode: "claude-busy-asks", harness: "claude", wantStatus: "running", wantMessage: heldByCEO, isAwaited: true, wantInput: []string{"queued /compact"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			useConversations(t)
+			store, home := testStore(t)
+			terminal := nativeCEOComposer(t, home.State, test.mode)
+			service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: home.State}}}
+			command := fmt.Sprintf("m%d", len(test.before)+1)
+			for i, text := range append(test.before, "/compact") {
+				if _, err := store.Queue(Action{ID: fmt.Sprintf("m%d", i+1), Kind: "message", Text: text}); err != nil {
+					t.Fatal(err)
+				}
+				pastUndoWindow(t, store)
+				tryNext(t, store, service, terminal, test.harness)
+			}
+			if held := actionOf(store, command); held.Status != "queued" || !held.CanSendNow {
+				t.Fatalf("the command = %+v; want it held on the board with Send now", held)
+			}
+
+			// Act
+			pressed := sendNow(service, "", command)
+			err := store.ProcessOne(context.Background(), service.execute)
+			sent := actionOf(store, command)
+			input := terminal.lines(t)
+
+			// Assert
+			if pressed.Code != 202 || !errors.Is(err, test.wantErr) {
+				t.Fatalf("Send now = %d %s, its try = %v; want it taken, and its try to end with %v", pressed.Code, pressed.Body, err, test.wantErr)
+			}
+			if sent.Status != test.wantStatus || (sent.Awaiting != nil) != test.isAwaited || sent.Message != test.wantMessage {
+				t.Errorf("after its try = %+v; want it %s, awaited %t, reading %q", sent, test.wantStatus, test.isAwaited, test.wantMessage)
+			}
+			if !slices.Equal(input[1:], test.wantInput) {
+				t.Errorf("terminal input = %q; want %q after its registration", input, test.wantInput)
 			}
 		})
 	}

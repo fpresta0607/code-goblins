@@ -42,6 +42,17 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 	// left typed input unread for seconds on 2026-11-10 (#2306).
 	isStalling := strings.HasSuffix(mode, "-stalls")
 	mode = strings.TrimSuffix(mode, "-stalls")
+	// A harness that ignores its send-now chord leaves what its turn queued
+	// where it was, as a Claude Code with chat:sendNow bound to other keys
+	// would.
+	isSendNowIgnored := strings.HasSuffix(mode, "-ignores-send-now")
+	mode = strings.TrimSuffix(mode, "-ignores-send-now")
+	// A harness that asks has its turn ask permission for a call once a line
+	// waits in its queue, the question drawn under its prompt line in its
+	// footer's place, not in the prompt line's place as Claude Code 2.1.302
+	// draws one, so the line still reads queued under a screen of its own.
+	isAsking := strings.HasSuffix(mode, "-asks")
+	mode = strings.TrimSuffix(mode, "-asks")
 	isHelp := false
 	record := func(value string) {
 		file, err := os.OpenFile(events, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
@@ -140,7 +151,12 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 			case isManual:
 				footer = "⏸ manual mode on · ? for shortcuts"
 			}
-			rows = append(rows, rule, "❯ "+strings.ReplaceAll(shown, "\n", "\r\n  "), rule, footer)
+			rows = append(rows, rule, "❯ "+strings.ReplaceAll(shown, "\n", "\r\n  "), rule)
+			if isAsking && hasQueued {
+				rows = append(rows, " Do you want to create nine.txt?", " ❯ 1. Yes", "   2. No")
+			} else {
+				rows = append(rows, footer)
+			}
 		} else {
 			text := typedBefore + line
 			if text == "" {
@@ -197,6 +213,10 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 			// Claude Code's chat:sendNow chord, Ctrl+X Ctrl+S, sends what its
 			// turn has queued at once.
 			if next, _, err := reader.ReadRune(); err == nil && next == '\x13' {
+				if isSendNowIgnored {
+					record("send now ignored")
+					continue
+				}
 				record("sent now")
 				hasQueued, queue = false, nil
 				draw(false)
@@ -237,7 +257,7 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 				}
 				continue
 			}
-			if isBusy && hasQueued {
+			if isBusy {
 				record("interrupted")
 				isBusy, hasQueued, line, held, queue = false, false, held, "", nil
 				draw(false)

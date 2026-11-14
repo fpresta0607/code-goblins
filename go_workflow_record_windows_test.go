@@ -65,12 +65,18 @@ func TestGoWorkflowKeepsAndFetchesTheRecordOfEachTestThatFailedOnce(t *testing.T
 			},
 			artifact: "failed-once-browser-${{ matrix.shard }}",
 		},
-		// The one job of no matrix.
+		// The jobs of no matrix.
 		"linux": {
 			writes: func(step recordStep) bool {
 				return strings.Contains(step.Run, `"$citest" -job linux `) && strings.Contains(step.Run, `-record "$RUNNER_TEMP/failed-once.jsonl"`)
 			},
 			artifact: "failed-once-linux",
+		},
+		"macos": {
+			writes: func(step recordStep) bool {
+				return strings.Contains(step.Run, `"$citest" -job macos `) && strings.Contains(step.Run, `-record "$RUNNER_TEMP/failed-once.jsonl"`)
+			},
+			artifact: "failed-once-macos",
 		},
 	}
 

@@ -1,3 +1,5 @@
+//go:build linux || darwin
+
 package proc
 
 // runningProcesses reads every running process. Only no-mistakes and node
