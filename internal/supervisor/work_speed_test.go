@@ -1260,6 +1260,50 @@ func TestAPassWhereMostReadsRanOutIsNoGoblinsError(t *testing.T) {
 	}
 }
 
+// A pass where most reads ran out tells nothing of the goblins whose reads ran
+// out, but the goblins it did read are still judged: a plain goblin that shows
+// nothing new for a stall's length while the no-mistakes goblins' gate reads
+// keep running out is still raised.
+func TestAPassWhereMostReadsRanOutStillJudgesTheGoblinsItRead(t *testing.T) {
+	// Arrange
+	service, h := fleetService(t)
+	meta := state.TaskMeta{ID: "a-gated", Project: h.Root, Worktree: filepath.Join(h.Root, ".worktrees", "gb-a-gated"), Harness: "claude", Mode: "no-mistakes", Backend: "native", SpawnGen: "s1"}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	liveGoblin(t, h, "b-plain", h.Root)
+	var gated []string
+	for _, meta := range liveTasks(h.State) {
+		if meta.Mode == "no-mistakes" {
+			gated = append(gated, meta.ID)
+		}
+	}
+	if reads := len(liveTasks(h.State)); len(gated)*2 <= reads {
+		t.Fatalf("%d of %d goblins in no-mistakes mode, want most of them", len(gated), reads)
+	}
+	head := strings.Repeat("a", 40)
+	service.Options.Progress = &progressGit{head: head, pushed: head}
+	service.Options.Gate = slowGate{}
+	at := time.Date(2026, 11, 4, 8, 20, 0, 0, time.UTC)
+
+	// Act
+	for _, pass := range []time.Time{at, at.Add(PROGRESS_THRESHOLD + time.Minute)} {
+		if err := service.checkFleet(t.Context(), pass); err != nil {
+			t.Fatalf("pass at %s: %v, want no goblin's error", pass, err)
+		}
+	}
+
+	// Assert
+	if got := stallWakes(t, service, "b-plain"); got != 1 {
+		t.Errorf("b-plain progress_stalled wakes = %d, want 1", got)
+	}
+	for _, id := range gated {
+		if got := stallWakes(t, service, id); got != 0 {
+			t.Errorf("%s, whose reads ran out, progress_stalled wakes = %d, want none", id, got)
+		}
+	}
+}
+
 // While memory reads under the floor the monitor's look at a screen and the
 // board's reading of a family tree go stale as every read slows, and a goblin
 // working through it would read as still. A goblin whose evidence went unread
