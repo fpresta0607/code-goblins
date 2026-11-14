@@ -87,6 +87,30 @@ export function withTakenCommands(messages: SessionMessage[], sent: Action[], ha
   return rows;
 }
 
+// UNDELIVERED_ROW opens the ID of the row withUndelivered gives a message of
+// his whose delivery ended with no take seen.
+export const UNDELIVERED_ROW = "undelivered-";
+
+// withUndelivered is messages with a row for each of undelivered, his messages
+// whose delivery ended with no take seen, where he sent it: before the first
+// row written after it, or after every row when none was, so it is never drawn
+// under turns that came after it, nor among what still waits at the end (the
+// Overlord, 2026-11-13: "Stale old messages that appear randomly when memory
+// gets low", and 2026-11-14, during a compaction: "it renders not confirmed
+// old stale messages as if its queued or being sent", #2541). One sent before
+// the first loaded row is drawn only once no older page is left, since it
+// belongs to that page. Its row is a prompt still queued, which ends no turn.
+export function withUndelivered(messages: SessionMessage[], undelivered: Action[], hasOlder: boolean): SessionMessage[] {
+  if (!undelivered.length) return messages;
+  const rows = [...messages];
+  for (const action of [...undelivered].sort((one, other) => Date.parse(one.created_at) - Date.parse(other.created_at))) {
+    const later = rows.findIndex((message) => Date.parse(message.at) > Date.parse(action.created_at));
+    if (later === 0 && hasOlder) continue;
+    rows.splice(later < 0 ? rows.length : later, 0, { id: UNDELIVERED_ROW + action.id, seq: -1, kind: "prompt", at: action.created_at, source: "", queued: true, text: action.text, output: "", errors: "", trigger: "", blocks: [], pictures: [] });
+  }
+  return rows;
+}
+
 // sameWords says two texts are the same words, however each is spaced, a !
 // command's ! included: Claude Code runs "! X" and "!X" alike, and its row
 // reads "!X" (#2242).

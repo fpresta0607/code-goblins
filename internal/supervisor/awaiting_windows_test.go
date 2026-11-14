@@ -188,6 +188,46 @@ func TestAnAnswerWhoseTerminalClosedWarnsAtOnce(t *testing.T) {
 	}
 }
 
+// A change of answer typed into a turn, which its harness held in its own
+// queue, reached nobody once that terminal closed. It warns as an answer does
+// and is watched no longer, since a change still watched reads as answered, so
+// a question none of whose answers was seen taken never reads answered (#2541).
+func TestAChangeOfAnswerHeldInATurnWhoseTerminalClosedWarnsAndAnswersNothing(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	since := time.Now().UTC().Add(-time.Minute)
+	sentAnswer(t, store, since)
+	if err := store.settleDeliveries(since.Add(10*time.Second), gone); err != nil {
+		t.Fatal(err)
+	}
+	_, unconfirmed := outcome(store)
+	if _, err := change(store, "change-1", unconfirmed, "Two"); err != nil {
+		t.Fatal(err)
+	}
+	intoTurn := func(context.Context, Action) (Evaluation, error) {
+		return Evaluation{Reason: heldByCEO, Awaiting: &Awaiting{Host: "ceo-host", Since: since.Add(20 * time.Second), IsHeld: true}}, nil
+	}
+	if err := store.ProcessOne(context.Background(), intoTurn); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	err := store.settleDeliveries(since.Add(30*time.Second), gone)
+	changed := actionOf(store, "change-1")
+	_, asked := outcome(store)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed.Status != "uncertain" || changed.Awaiting != nil || !strings.Contains(changed.Advice, "closed before it took your answer") {
+		t.Errorf("the change = %+v; want it Not confirmed, saying its terminal closed before it took it, and watched no longer", changed)
+	}
+	if asked.Status == "succeeded" {
+		t.Errorf("question = %+v; want it not answered, as no answer to it was seen taken", asked)
+	}
+}
+
 // A supervisor restart interrupts nothing of an answer already typed and
 // submitted: it stays sent and is settled as before.
 func TestARestartKeepsASentAnswerSent(t *testing.T) {

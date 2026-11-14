@@ -444,7 +444,7 @@ test("a presentation reported since the clock's last minute shows at once", asyn
   await push(page, { ...snapshot, revision: 2, tasks: [presenting, ...WORKING.slice(1), ...RESTING], activity: [presentation] });
 
   // Assert
-  await expect(page.locator(".task-card", { hasText: "working-1" }).getByText("Browser active")).toBeVisible();
+  await expect(page.locator(".task-card-shell", { hasText: "working-1" }).getByText("Browser active")).toBeVisible();
 });
 
 test("a board with no goblin at work asks for no animation frame and runs no animation", async ({ page }) => {

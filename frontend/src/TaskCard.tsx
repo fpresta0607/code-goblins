@@ -12,7 +12,8 @@ import { CardClock } from "./card-clock";
 import { CardPullRequest } from "./card-pull-request";
 import { BrandGlyph } from "./brand-glyph";
 import { safeGitHubLink } from "./people";
-import { screenAddress } from "./screen-address";
+import { BrowserActive } from "./browser-active";
+import { presentedPage } from "./activity";
 
 // A task's card on the board is one row, like a conversation in a list (the
 // Overlord, 2026-10-17: "minimal cards are better like an imessage history
@@ -38,9 +39,9 @@ import { screenAddress } from "./screen-address";
 // A card is given what it shows as plain values (cardFacts) and is drawn
 // again only when one of them changed, so a snapshot that changed another
 // goblin, or only the meters, leaves it as it is (#1599). While the goblin's
-// own browser runs, its Browser active is a button of its own beside the
-// card's, which opens the browser's Screen view full size in a new tab.
-export const TaskCard = memo(function TaskCard({ task, status, phase, repository, isPresenting, selected, now, rank, nextText, nextTone, onSelect, buttonProps }: CardFacts & {
+// own browser runs or it presents a page, its Browser active is a button of
+// its own beside the card's, which opens what is active in a new tab.
+export const TaskCard = memo(function TaskCard({ task, status, phase, repository, page, selected, now, rank, nextText, nextTone, onSelect, buttonProps }: CardFacts & {
   task: Task; selected: boolean; now: number; rank?: string;
   nextText?: string; nextTone?: NextUp["tone"];
   onSelect: (task: Task, source: HTMLElement) => void;
@@ -62,7 +63,7 @@ export const TaskCard = memo(function TaskCard({ task, status, phase, repository
   const line = cardActivity(task);
   const content = <>
     <Avatar persona={personaFor(task)} />
-    <span className="card-copy"><span className="card-head">{isPresenting && !task.browser_in_use && <span className="browser-indicator">Browser active</span>}{nextText && <span className={"next-chip" + (nextTone ? " " + nextTone : "")}>{nextText}</span>}<strong className={"card-title" + (isNamed ? "" : " card-task-title")}>{name}</strong></span>
+    <span className="card-copy"><span className="card-head">{nextText && <span className={"next-chip" + (nextTone ? " " + nextTone : "")}>{nextText}</span>}<strong className={"card-title" + (isNamed ? "" : " card-task-title")}>{name}</strong></span>
       {rank && <span className="sr-only">, {rank}</span>}
       <span className={"plain-status phase-" + phase + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text" data-tip={task.gate_step && task.reason ? task.reason : undefined}>{status}</span></span>
       {line && <span className="card-activity">{line}</span>}
@@ -74,8 +75,7 @@ export const TaskCard = memo(function TaskCard({ task, status, phase, repository
     {task.project && <span className="card-repo">{task.project}{repositoryLink && <a className="card-repo-link" href={repositoryLink} target="_blank" rel="noreferrer" aria-label={"Open " + repository + " on GitHub"} data-tip={repository}><BrandGlyph brand="github" /></a>}</span>}
     <CardClock task={task} now={now} />
     <div className="card-icons">
-      {task.browser_in_use && <button type="button" className="browser-indicator screen-open" aria-label={"Browser active: open " + name + "'s screen in a new tab"} data-tip="Open its screen in a new tab"
-        onClick={() => window.open(screenAddress(task.id), "_blank", "noopener")}>Browser active</button>}
+      <BrowserActive name={name} screen={task.browser_in_use ? task.id : ""} page={page} />
       {task.ticket && <TicketLink ticket={task.ticket} className="card-ticket" isIconOnly />}
       <CardPullRequest task={task} isIconOnly />
       <SameAreaAvatars overlaps={task.overlaps} />
@@ -84,12 +84,13 @@ export const TaskCard = memo(function TaskCard({ task, status, phase, repository
   </div>;
 });
 
-// CardFacts are what a card shows that it reads beyond its own task.
-export interface CardFacts { status: string; phase: string; repository: string; isPresenting: boolean }
+// CardFacts are what a card shows that it reads beyond its own task, page
+// the address of the page its goblin presents.
+export interface CardFacts { status: string; phase: string; repository: string; page: string }
 
 // cardFacts reads them from the snapshot for task, once a render of the list
 // that holds its card.
 export function cardFacts(task: Task, snapshot: Snapshot, presentations: BoardActivity[]): CardFacts {
   const { text: status, phase } = taskStatus(task, snapshot);
-  return { status, phase, repository: snapshot.projects.find((project) => project.name === task.project)?.repository || "", isPresenting: presentations.some((event) => event.task_id === task.id) };
+  return { status, phase, repository: snapshot.projects.find((project) => project.name === task.project)?.repository || "", page: presentedPage(presentations, (event) => event.task_id === task.id) };
 }

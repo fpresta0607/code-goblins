@@ -1,4 +1,5 @@
 import { doneCards, expect, openItem, recordDoneCards, test, type Page, type WebSocketRoute } from "./site";
+import { recordingBegins } from "./dictation-hold";
 
 // The Overlord, 2026-10-08, on a run card that said "It runs in its own
 // window": "why can we not render terminal right in command center in place
@@ -282,11 +283,13 @@ test.describe("dictating into a running command's terminal", () => {
     const before = await surface.boundingBox();
 
     // Act
+    const begun = recordingBegins(page);
     await page.keyboard.down("Control");
     await page.keyboard.down("Shift");
     await page.keyboard.down("Space");
     await expect(dialog.locator(".run-live .voice-bubble")).toHaveClass(/recording/);
     const held = await surface.boundingBox();
+    await begun;
     await page.waitForTimeout(1200);
     await page.keyboard.up("Space");
     await page.keyboard.up("Shift");

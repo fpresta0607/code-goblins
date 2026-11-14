@@ -1,4 +1,5 @@
 import { CEO_DOOR, expect, openItem, servePages, test, type Browser, type Page } from "./site";
+import { recordingBegins } from "./dictation-hold";
 
 // The Overlord, 2026-10-15 about 00:10Z: "dictation in command center never
 // pasted nor did it save to recent messgaes in main dictaiton they hsould all
@@ -70,17 +71,21 @@ async function openWindow(browser: Browser, serve: (page: Page) => Promise<void>
 // hold presses on the microphone for a moment, as he does.
 async function hold(page: Page, microphone: ReturnType<Page["getByRole"]>) {
   await microphone.hover();
+  const begun = recordingBegins(page);
   await page.mouse.down();
   await expect(page.getByRole("button", { name: "Listening" })).toHaveClass(/recording/);
+  await begun;
   await page.waitForTimeout(1200);
   await page.mouse.up();
 }
 
 // shortcut holds Ctrl+Shift+Space where the keyboard is.
 async function shortcut(page: Page) {
+  const begun = recordingBegins(page);
   await page.keyboard.down("Control");
   await page.keyboard.down("Shift");
   await page.keyboard.down("Space");
+  await begun;
   await page.waitForTimeout(1200);
   await page.keyboard.up("Space");
   await page.keyboard.up("Shift");

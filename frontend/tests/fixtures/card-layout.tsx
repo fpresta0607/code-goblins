@@ -49,7 +49,7 @@ const snapshot = parseSnapshot({
 // the app's panel does.
 const search = new URLSearchParams(location.search);
 const width = Number(search.get("board")) || undefined;
-const presentations = [{ id: "p1", kind: "browser", task_id: "cg-board-kill-with-a-long-goblin-name", generation: "g1", source: "", target: "", state: "active", url: "", at: "", until: "" }];
+const presentations = [{ id: "p1", kind: "browser", task_id: "cg-board-kill-with-a-long-goblin-name", generation: "g1", source: "", target: "", state: "active", url: "https://pages.example.com/walkthrough", at: "", until: "" }];
 function Fixture() {
   const [selected, setSelected] = useState<string>();
   const returnFocus = useRef<HTMLElement>(null);

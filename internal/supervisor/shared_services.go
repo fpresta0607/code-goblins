@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -14,17 +15,20 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/services"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
 // The services every goblin shares, by the name a goblin reads them under and
 // reports a wait on with goblins notify --waiting-on. A wait on the heavy line is
-// reported as a wait on memory, the word goblins already use for it.
+// reported as a wait on memory, the word goblins already use for it. No goblin
+// waits on the Scrawl server, which the next review starts.
 const (
 	SharedGateDaemon = "gate-daemon"
 	SharedHeavyLine  = "heavy-line"
 	SharedDocker     = "docker"
+	SharedScrawl     = "scrawl"
 )
 
 // sharedWaitTargets is the --waiting-on target that names each service.
@@ -46,6 +50,15 @@ const dockerStartLimit = 5 * time.Minute
 // sharedProbeTimeout bounds each read of a shared service, so a wedged engine
 // or a stalled daemon holds up no other fleet wake.
 const sharedProbeTimeout = 10 * time.Second
+
+// scrawlSpinShare is the share of one processor core at which the Scrawl
+// server reads spinning: an idle server with a few long polls uses a few
+// percent, and on 2026-11-13 a spinning one used 112.
+const scrawlSpinShare = 0.5
+
+// scrawlSpinWindow is the shortest reading a spin is judged by, so the
+// processor a server's start takes is not read as a spin.
+const scrawlSpinWindow = 30 * time.Second
 
 // SharedServices is the state of every service the fleet shares, as the
 // supervisor last checked it.
@@ -83,6 +96,18 @@ type SharedService struct {
 	Runs           int    `json:"runs,omitempty"`
 	AvailableBytes uint64 `json:"available_bytes,omitempty"`
 	FloorBytes     uint64 `json:"floor_bytes,omitempty"`
+	// CorePercent is the share of one processor core the Scrawl server used
+	// since the last check, in percent.
+	CorePercent int `json:"core_percent,omitempty"`
+}
+
+// ScrawlServer is the Scrawl server's process and the processor time it has
+// used since it started, as read at ReadAt.
+type ScrawlServer struct {
+	PID    int           `json:"pid"`
+	Start  time.Time     `json:"start"`
+	CPU    time.Duration `json:"cpu"`
+	ReadAt time.Time     `json:"read_at"`
 }
 
 // SharedLine is the machine's heavy line as the shared check reads it.
@@ -105,6 +130,8 @@ type SharedProbes struct {
 	Line          func() (SharedLine, error)
 	// Docker reports whether the engine answers.
 	Docker func(ctx context.Context) (bool, error)
+	// Scrawl reads the Scrawl server's process, and whether one runs.
+	Scrawl func() (ScrawlServer, bool, error)
 }
 
 func sharedServicesPath(stateDir string) string {
@@ -138,11 +165,17 @@ func (s *Service) checkSharedServices(ctx context.Context, w *fleetWakes, now ti
 		readGateDaemon(ctx, probes, now),
 		readHeavyLine(probes, now),
 		readDocker(ctx, probes, h.State, now),
+		readScrawl(probes, w, now),
 	}}
 	var err error
 	for index := range record.Services {
 		service := &record.Services[index]
-		service.Waiting = sharedWaiting(h, sharedWaitTargets[service.Name])
+		target, isWaitedOn := sharedWaitTargets[service.Name]
+		if !isWaitedOn {
+			err = errors.Join(err, s.wakeScrawlSpin(w, *service))
+			continue
+		}
+		service.Waiting = sharedWaiting(h, target)
 		if service.Name != SharedHeavyLine {
 			// A wait on the heavy line is a wait on memory, which the
 			// memory_ready wake already tells.
@@ -274,6 +307,65 @@ func readDocker(ctx context.Context, probes *SharedProbes, stateDir string, now 
 	return service
 }
 
+// readScrawl reads the share of one processor core the Scrawl server used
+// since the last check, or since it started when the last check read no
+// server or another one, and keeps this reading for the next check.
+func readScrawl(probes *SharedProbes, w *fleetWakes, now time.Time) SharedService {
+	service := SharedService{Name: SharedScrawl, CheckedAt: now, Holders: []string{}, Queued: []string{}, Waiting: []string{}}
+	never := "It serves every goblin's review page, so never end or restart it yourself."
+	server, isRunning, err := probes.Scrawl()
+	last := w.Scrawl
+	w.Scrawl = ScrawlServer{}
+	switch {
+	case err != nil:
+		service.State, service.Detail = "unknown", "the Scrawl server's process cannot be read: "+err.Error()
+		service.Next, service.NextDetail = SharedAsk, "Ask the CEO. "+never
+		return service
+	case !isRunning:
+		service.State, service.Detail = "stopped", "no Scrawl server runs"
+		service.Next, service.NextDetail = SharedGo, "It starts with the next review."
+		return service
+	}
+	w.Scrawl = server
+	used, over, window := server.CPU, server.ReadAt.Sub(server.Start), "since it started"
+	if last.PID == server.PID && last.Start.Equal(server.Start) && last.ReadAt.Before(server.ReadAt) {
+		used, over, window = server.CPU-last.CPU, server.ReadAt.Sub(last.ReadAt), "since the last check"
+	}
+	share := 0.0
+	if over > 0 {
+		share = used.Seconds() / over.Seconds()
+	}
+	service.PID, service.CorePercent, service.IsUsable, service.Next = server.PID, int(math.Round(share*100)), true, SharedGo
+	service.Detail = fmt.Sprintf("pid %d used %d percent of one processor core in the %s %s", server.PID, service.CorePercent, over.Round(time.Second), window)
+	if over >= scrawlSpinWindow && share >= scrawlSpinShare {
+		service.State = "spinning"
+		service.Detail += fmt.Sprintf(", at or over the %.0f percent a spinning server reads", scrawlSpinShare*100)
+		service.NextDetail = "It still serves reviews; whether to restart it is the CEO's. " + never
+		return service
+	}
+	service.State, service.NextDetail = "running", "Use it for reviews."
+	return service
+}
+
+// wakeScrawlSpin wakes the CEO once when the Scrawl server reads spinning,
+// and again for a later spin once a reading finds it quiet or stopped.
+func (s *Service) wakeScrawlSpin(w *fleetWakes, service SharedService) error {
+	switch service.State {
+	case "running", "stopped":
+		w.ScrawlSpinning = false
+	case "spinning":
+		if w.ScrawlSpinning {
+			return nil
+		}
+		detail := fmt.Sprintf("shared_busy: the Scrawl server is spinning: %s. It still serves reviews and each check measures it again; whether to restart it is the CEO's to decide, never a goblin's.", service.Detail)
+		if err := raiseFleetWake(s.Store.Home.State, "shared", service.Name, detail); err != nil {
+			return err
+		}
+		w.ScrawlSpinning = true
+	}
+	return nil
+}
+
 // sharedWaiting names the live goblins that wait on target now, in name
 // order.
 func sharedWaiting(h home.Home, target string) []string {
@@ -368,6 +460,8 @@ func sharedName(name string) string {
 		return "heavy-run line"
 	case SharedDocker:
 		return "Docker engine"
+	case SharedScrawl:
+		return "Scrawl server"
 	}
 	return name
 }
@@ -409,4 +503,29 @@ func MachineSharedLine() (SharedLine, error) {
 		return SharedLine{}, err
 	}
 	return SharedLine{Capacity: capacity, Holding: holding, Waiting: waiting, FloorBytes: floor, Memory: memory}, nil
+}
+
+// MachineScrawl reads the Scrawl server's process and the processor time it
+// has used.
+func MachineScrawl() (ScrawlServer, bool, error) {
+	servers, err := proc.PageServers()
+	if err != nil {
+		return ScrawlServer{}, false, err
+	}
+	return readPageServer(servers, proc.CPUTime)
+}
+
+// readPageServer reads the processor time of the Scrawl server among the
+// running page servers. Only one server holds its port, so of two the earlier
+// started is read.
+func readPageServer(servers []proc.ServiceProcess, cpuTime func(pid int) (time.Duration, bool)) (ScrawlServer, bool, error) {
+	if len(servers) == 0 {
+		return ScrawlServer{}, false, nil
+	}
+	server := slices.MinFunc(servers, func(a, b proc.ServiceProcess) int { return a.Start.Compare(b.Start) })
+	used, isMeasured := cpuTime(server.PID)
+	if !isMeasured {
+		return ScrawlServer{}, false, fmt.Errorf("the processor time of pid %d cannot be read", server.PID)
+	}
+	return ScrawlServer{PID: server.PID, Start: server.Start, CPU: used, ReadAt: time.Now().UTC()}, true, nil
 }
