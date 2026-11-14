@@ -193,7 +193,7 @@ func runGateChecks(kind string, args []string, dir string, stdout, stderr io.Wri
 	var note string
 	var err error
 	if *isFocused {
-		plan, note, err = gatetest.ReadFocused(ctx, execx.OSRunner{}, dir, os.Getenv("NO_MISTAKES_TEST_FOCUS"))
+		plan, note, err = gatetest.ReadFocused(ctx, execx.OSRunner{}, dir, os.Getenv("NO_MISTAKES_TEST_FOCUS"), asked)
 		defaulted = false
 	} else {
 		plan, err = gatetest.Read(ctx, execx.OSRunner{}, dir, asked)

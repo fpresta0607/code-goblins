@@ -1471,7 +1471,7 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .panel-style-button { display: grid; place-items: center; width: 44px; height: 44px; min-height: 44px; padding: 0; border: 0; border-radius: 50%; background: none; }
 .panel-style-button:focus-visible { outline-offset: -3px; }
 .panel-style-menu { right: auto; left: 8px; top: calc(100% - 2px); }
-.panel-style-menu .labelled-button[aria-checked="true"] { color: var(--mint); border-color: var(--accent-green); background: var(--glass-bg); }
+.panel-more-menu .labelled-button[aria-checked="true"] { color: var(--mint); border-color: var(--accent-green); background: var(--glass-bg); }
 .one-row > .panel-identity { display: flex; flex: 1 1 0; align-items: center; gap: 6px; min-width: 32px; overflow: hidden; }
 .one-row > .panel-identity:has(> .panel-style) { min-width: 44px; }
 .one-row h2 { flex: 0 1 auto; min-width: 0; padding-block: 4px; font-size: 1.25rem; line-height: 1.2; overflow-wrap: break-word; }

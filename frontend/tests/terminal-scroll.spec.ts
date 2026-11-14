@@ -53,6 +53,22 @@ async function readHistory(page: Page) {
   }).toPass();
 }
 
+// The pinned line sits over the screen's last row, with Jump to bottom above
+// it. The font refits the grid in two steps, the cells first and the terminal's
+// rows once it takes the new size, and the pinned line follows each a frame or
+// more later, so the check waits for them to meet: CI at ebcb697 measured the
+// pinned line 62 px off the screen's bottom in between.
+async function expectPinnedTogether(page: Page) {
+  await expect(async () => {
+    const screen = (await page.locator(".terminal-view > .xterm .xterm-screen").boundingBox())!;
+    const pinned = (await pin(page).boundingBox())!;
+    const button = (await jump(page).boundingBox())!;
+    expect(Math.abs(pinned.y + pinned.height - (screen.y + screen.height))).toBeLessThan(2);
+    expect(Math.abs(pinned.x - screen.x)).toBeLessThan(2);
+    expect(button.y + button.height).toBeLessThanOrEqual(pinned.y);
+  }).toPass();
+}
+
 test("reading the history keeps the line he types on pinned at the bottom, and new output leaves him where he reads", async ({ page }) => {
   // Arrange
   const relay = await openTerminal(page, PRINTED);
@@ -66,12 +82,7 @@ test("reading the history keeps the line he types on pinned at the bottom, and n
   await expect(pin(page)).toContainText(PROMPT);
   await expect(pin(page).locator(".xterm-cursor")).toHaveCount(1);
   await expect(jump(page)).toBeVisible();
-  const screen = (await page.locator(".terminal-view > .xterm .xterm-screen").boundingBox())!;
-  const pinned = (await pin(page).boundingBox())!;
-  expect(Math.abs(pinned.y + pinned.height - (screen.y + screen.height))).toBeLessThan(2);
-  expect(Math.abs(pinned.x - screen.x)).toBeLessThan(2);
-  const button = (await jump(page).boundingBox())!;
-  expect(button.y + button.height).toBeLessThanOrEqual(pinned.y);
+  await expectPinnedTogether(page);
   await expect(page.locator(".host-terminal")).not.toContainText("History");
 
   // Act: the program prints more while he reads.
@@ -139,11 +150,28 @@ test("the panel never scrolls, so the pinned line and Jump to bottom stay togeth
 
   // Assert
   expect(scrolled).toEqual({ top: 0, left: 0 });
-  const screen = (await page.locator(".terminal-view > .xterm .xterm-screen").boundingBox())!;
-  const pinned = (await pin(page).boundingBox())!;
-  const button = (await jump(page).boundingBox())!;
-  expect(Math.abs(pinned.y + pinned.height - (screen.y + screen.height))).toBeLessThan(2);
-  expect(button.y + button.height).toBeLessThanOrEqual(pinned.y);
+  await expectPinnedTogether(page);
+});
+
+test("the pinned line and Jump to bottom meet the screen again when the board's font arrives while he reads", async ({ page }) => {
+  // Arrange: the font is held until he reads the history.
+  let release = () => {};
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/assets/fonts/jetbrains-mono*.woff2", async (route) => { await held; await route.fallback(); });
+  await openTerminal(page, PRINTED);
+  await readHistory(page);
+  const screen = page.locator(".terminal-view > .xterm .xterm-screen");
+  const before = await screen.evaluate((element) => element.getBoundingClientRect().bottom);
+
+  // Act: the font arrives and the screen moves.
+  release();
+  await screen.evaluate((element, bottom) => new Promise<void>((resolve) => {
+    const moved = () => { if (element.getBoundingClientRect().bottom !== bottom) resolve(); else requestAnimationFrame(moved); };
+    moved();
+  }), before);
+
+  // Assert
+  await expectPinnedTogether(page);
 });
 
 // xterm brings its viewport's scroll position up to a resize only on its next

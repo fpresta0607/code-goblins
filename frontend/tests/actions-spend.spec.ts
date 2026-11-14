@@ -64,6 +64,107 @@ test("transient billing failure retries once and displays the refreshed reading"
   expect(repairs).toBe(1);
 });
 
+// A retry is one icon in the title row with no words beside it, which turns
+// only while the read runs, and no progress text shows meanwhile (#2536).
+test("a retry is one icon in the title row that turns only while the read runs", async ({ page }, testInfo) => {
+  await page.clock.install({ time: new Date(NOW) });
+  await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, ceo_runs: true,
+    actions_spend: reading({ status: "unavailable", total: null, repositories: [], detail: "GitHub billing is temporarily unavailable.", problem: { kind: "transient", action: "retry", account: "example-user", credential: "gh" } }) });
+  let release: () => void = () => { throw new Error("the retry has not started"); };
+  await page.route("**/api/actions-spend/repair", async (route) => {
+    await new Promise<void>((resolve) => { release = resolve; });
+    await route.fulfill({ json: reading({ checked_at: "2026-10-15T12:00:01Z" }) });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Board", exact: true }).click();
+  await page.getByRole("button", { name: "GitHub Actions spend: unavailable", exact: true }).click();
+  const panel = page.getByRole("dialog", { name: "GitHub Actions" });
+  const retry = panel.getByRole("button", { name: "Retry", exact: true });
+  await expect(retry).toHaveCount(1);
+  await expect(panel.locator("header").getByRole("button", { name: "Retry", exact: true })).toBeVisible();
+  await expect(retry).toHaveText("");
+  const turning = () => retry.locator("svg").evaluate((icon) => getComputedStyle(icon).animationName);
+  expect(await turning()).toBe("none");
+  await retry.click();
+  await expect(retry).toHaveAttribute("aria-busy", "true");
+  expect(await turning()).toBe("terminal-spin");
+  await expect(panel).not.toContainText("Checking billing");
+  await expect(panel).not.toContainText("Reading GitHub billing");
+  await panel.screenshot({ path: testInfo.outputPath("actions-retry-running.png") });
+  release();
+  await expect(panel.locator("dl > div")).toHaveText(["Used$12.00", "Covered$3.50", "Billed$8.50"]);
+  await expect(retry).toHaveCount(0);
+});
+
+// The month beside the title opens this month and last month, and each shows
+// its own figures and rows in the same window while the bar keeps this
+// month's bill (#2536).
+test("the month opens a menu of this month and last month, each with its own figures", async ({ page }, testInfo) => {
+  await page.clock.install({ time: new Date(NOW) });
+  await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, ceo_runs: true, actions_spend: reading() });
+  const months: string[] = [];
+  await page.route("**/api/actions-spend?*", (route) => {
+    const month = new URL(route.request().url()).searchParams.get("month")!;
+    months.push(month);
+    expect(route.request().headers()["x-ceo-token"]).toBe("actions-fixture");
+    return route.fulfill({ json: reading({ month, total: { minutes: 90, used_usd: 4.25, billed_usd: 1.25 }, repositories: [{ name: "reed", minutes: 90, used_usd: 4.25, billed_usd: 1.25 }],
+      read_at: "2026-10-02T09:00:00Z", checked_at: "2026-10-02T09:00:00Z" }) });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Board", exact: true }).click();
+  const header = page.getByRole("button", { name: `GitHub Actions spend: ${spent(8.5)}`, exact: true });
+  await header.click();
+  const panel = page.getByRole("dialog", { name: "GitHub Actions" });
+  const month = panel.getByRole("button", { name: "Month: October 2026", exact: true });
+  await expect(month).toHaveAttribute("aria-expanded", "false");
+  await month.click();
+  const menu = panel.getByRole("menu", { name: "Month" });
+  await expect(menu.getByRole("menuitemradio")).toHaveText(["October 2026", "September 2026"]);
+  await expect(menu.getByRole("menuitemradio", { name: "October 2026" })).toBeFocused();
+  await expect(menu.getByRole("menuitemradio", { name: "October 2026" })).toHaveAttribute("aria-checked", "true");
+  await page.keyboard.press("ArrowDown");
+  await expect(menu.getByRole("menuitemradio", { name: "September 2026" })).toBeFocused();
+  await panel.screenshot({ path: testInfo.outputPath("actions-month-menu.png") });
+  await page.keyboard.press("Enter");
+  await expect(menu).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: "Month: September 2026", exact: true })).toBeFocused();
+  await expect(panel.locator("dl > div")).toHaveText(["Used$4.25", "Covered$3.00", "Billed$1.25"]);
+  await expect(panel.locator("tbody tr")).toHaveText(["reed90$4.25$1.25"]);
+  expect(months).toEqual(["2026-09"]);
+  await expect(header).toBeAttached();
+  await panel.getByRole("button", { name: "Month: September 2026", exact: true }).click();
+  await expect(menu.getByRole("menuitemradio", { name: "September 2026" })).toBeFocused();
+  await page.keyboard.press("ArrowUp");
+  await expect(menu.getByRole("menuitemradio", { name: "October 2026" })).toBeFocused();
+  await page.keyboard.press("ArrowUp");
+  await expect(menu.getByRole("menuitemradio", { name: "September 2026" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(panel.getByRole("menu")).toHaveCount(0);
+  await expect(panel).toBeVisible();
+  await panel.getByRole("button", { name: "Month: September 2026", exact: true }).click();
+  await panel.getByRole("menuitemradio", { name: "October 2026" }).click();
+  await expect(panel.locator("dl > div")).toHaveText(["Used$12.00", "Covered$3.50", "Billed$8.50"]);
+  await expect(panel.locator("tbody tr")).toHaveText(["moss400$7.00$5.00", "fern300$5.00$3.50"]);
+  expect(months).toEqual(["2026-09"]);
+  await panel.getByRole("button", { name: "Month: October 2026", exact: true }).click();
+  await expect(menu).toBeVisible();
+  await panel.getByRole("heading", { name: "GitHub Actions" }).click();
+  await expect(menu).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: "Month: October 2026", exact: true })).toHaveAttribute("aria-expanded", "false");
+  await panel.getByRole("button", { name: "Month: October 2026", exact: true }).click();
+  await panel.getByRole("menuitemradio", { name: "September 2026" }).click();
+  await expect(panel.locator("dl > div")).toHaveText(["Used$4.25", "Covered$3.00", "Billed$1.25"]);
+  await page.keyboard.press("Escape");
+  await expect(panel).toHaveCount(0);
+  await header.click();
+  await expect(panel.getByRole("button", { name: "Month: October 2026", exact: true })).toBeVisible();
+  await expect(panel.locator("dl > div")).toHaveText(["Used$12.00", "Covered$3.50", "Billed$8.50"]);
+  await expect(panel.locator("tbody tr")).toHaveText(["moss400$7.00$5.00", "fern300$5.00$3.50"]);
+  await page.keyboard.press("Escape");
+  await expect(panel).toHaveCount(0);
+  await expect(page.getByRole("button", { name: `GitHub Actions spend: ${spent(8.5)}`, exact: true })).toBeVisible();
+});
+
 test("environment billing credential offers update guidance without CLI consent", async ({ page }) => {
   await page.clock.install({ time: new Date(NOW) });
   await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, ceo_runs: true,
@@ -133,8 +234,9 @@ test("billing repair shows loading and a recoverable owner refusal", async ({ pa
   const panel = page.getByRole("dialog", { name: "GitHub Actions" });
   await expect(panel.getByRole("button", { name: "Close Actions spend" })).toBeFocused();
   await panel.getByRole("button", { name: "Allow billing access", exact: true }).click();
-  await expect(panel.getByRole("button", { name: "Checking billing...", exact: true })).toBeDisabled();
+  await expect(panel.getByRole("button", { name: "Allow billing access", exact: true })).toBeDisabled();
   await expect(panel.getByRole("region", { name: "Billing recovery" })).toHaveAttribute("aria-busy", "true");
+  await expect(panel).not.toContainText("Checking billing");
   release();
   await expect(panel.locator(".notice")).toContainText("on this PC");
   await expect(panel.getByRole("button", { name: "Allow billing access", exact: true })).toBeEnabled();

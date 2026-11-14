@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -105,6 +106,65 @@ func TestProjectTestEnvironmentRefusesInvalidOrUnavailableBindings(t *testing.T)
 				t.Fatal("started a probe for a missing environment")
 			}
 		})
+	}
+}
+
+// A probe the runner cut at its context's deadline returns that deadline's
+// error, as execx.OSRunner does, so a slow probe is simulated without waiting.
+func slowProbe(t *testing.T, duration time.Duration, python, checkout string) runnerFunc {
+	serial := 0
+	return func(ctx context.Context, _ execx.Request) (execx.Result, error) {
+		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < duration {
+			return execx.Result{}, &execx.Ended{Err: context.DeadlineExceeded}
+		}
+		return execx.Result{Stdout: environmentIdentity(t, python, filepath.Dir(filepath.Dir(python)), checkout, "3.12.10", "final", &serial)}, nil
+	}
+}
+
+func TestProjectTestEnvironmentAcceptsAnInterpreterSlowToStartUnderMemoryPressure(t *testing.T) {
+	// Arrange: issue 2032 measured a cold start of 20.3 s on a loaded machine.
+	data, checkout, worktree, python := existingEnvironmentFixture(t)
+
+	// Act
+	variables, err := ProjectTestEnvironment(t.Context(), slowProbe(t, 20300*time.Millisecond, python, checkout), data, checkout, worktree)
+
+	// Assert
+	if err != nil || len(variables) == 0 {
+		t.Fatalf("variables=%q error=%v; want a correct environment bound after a slow cold start", variables, err)
+	}
+}
+
+func TestProjectTestEnvironmentReportsAProbeTimeoutAsATimeout(t *testing.T) {
+	// Arrange
+	data, checkout, worktree, python := existingEnvironmentFixture(t)
+
+	// Act
+	variables, err := ProjectTestEnvironment(t.Context(), slowProbe(t, time.Hour, python, checkout), data, checkout, worktree)
+
+	// Assert
+	if err == nil || variables != nil {
+		t.Fatalf("variables=%q error=%v; want a timeout refusal", variables, err)
+	}
+	if message := err.Error(); !strings.Contains(message, "timed out after 2m0s") || strings.Contains(message, ".venv") {
+		t.Fatalf("error=%v; want the timeout and how long it waited, not the environment blamed", err)
+	}
+}
+
+func TestProjectTestEnvironmentDoesNotReportAnEndedCallerAsAProbeTimeout(t *testing.T) {
+	// Arrange
+	data, checkout, worktree, python := existingEnvironmentFixture(t)
+	caller, cancel := context.WithDeadline(t.Context(), time.Now())
+	defer cancel()
+
+	// Act
+	variables, err := ProjectTestEnvironment(caller, slowProbe(t, time.Hour, python, checkout), data, checkout, worktree)
+
+	// Assert
+	if err == nil || variables != nil || !strings.Contains(err.Error(), "required test environment") {
+		t.Fatalf("variables=%q error=%v; want a refusal", variables, err)
+	}
+	if strings.Contains(err.Error(), "timed out after") {
+		t.Fatalf("error=%v; the caller's own deadline ended the probe, not the probe's limit", err)
 	}
 }
 
