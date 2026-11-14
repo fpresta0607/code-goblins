@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -500,6 +501,14 @@ var priorityPlaces = map[string]string{
 // more of its session than a whole turn of the line is worth.
 const overdueLimit = 2 * time.Hour
 
+// passLimit is how long a run that does not fit the memory free may be passed
+// by runs that do. A run at the head waits for memory no longer than its
+// floor-wait limit, which every caller sets to an hour (gateWaitLimit in
+// cmd/goblins), and overdueLimit comes too late to protect it. After passLimit
+// no run passes it, the slots drain for it as they did before #1743, and it
+// takes its turn inside that hour.
+const passLimit = 20 * time.Minute
+
 // tier begins the run's place in line.
 func (a Admission) tier() string {
 	switch {
@@ -734,8 +743,9 @@ func standing(ahead int) string {
 // passing says which waiting runs this run goes past, for inFront: in a line
 // of two slots, while this run fits the memory free, a run ahead of it that
 // does not fit for its own expected memory holds it back no longer, unless
-// that run has waited the line's limit and stands at overduePlace, which no
-// run passes, so it still has its turn within the limit. On 2026-10-29 a
+// that run stands at overduePlace or has stood passLimit in line, as the join
+// time its place carries says, so it still has its turn within its floor-wait
+// limit. A place whose join time cannot be read is not passed. On 2026-10-29 a
 // waiter expecting 8 GB with 7.1 GB free held eight runs that fit for 28
 // minutes while the turn sat free (#1743). A line of one slot asks every run
 // the same floor, so no run there fits where the one ahead does not, and it
@@ -750,6 +760,14 @@ func (a Admission) passing(line string, capacity int, floor uint64) (func(name s
 	}
 	return func(name string) (bool, error) {
 		if strings.HasPrefix(name, overduePlace) {
+			return false, nil
+		}
+		at := strings.IndexAny(name, "0123456789")
+		if at < 0 || len(name) < at+20 {
+			return false, nil
+		}
+		joined, err := strconv.ParseInt(name[at:at+20], 10, 64)
+		if err != nil || time.Since(time.Unix(0, joined)) >= passLimit {
 			return false, nil
 		}
 		ahead := a

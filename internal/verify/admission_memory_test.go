@@ -3,6 +3,7 @@ package verify
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -147,6 +148,60 @@ func TestAnOverdueRunIsNeverPassedByARunThatFits(t *testing.T) {
 	}
 	if err := within(t, takenSmall, "the run behind it, once it went").Release(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A run that does not fit is passed by a run that fits only during its first
+// 20 minutes in line: its floor wait ends after an hour, and a run passed for
+// all of that hour would be refused before its turn ever came.
+func TestARunThatDoesNotFitIsPassedOnlyInItsFirstTwentyMinutes(t *testing.T) {
+	cases := []struct {
+		name     string
+		age      time.Duration
+		isPassed bool
+	}{
+		{name: "19 minutes in line", age: 19 * time.Minute, isPassed: true},
+		{name: "21 minutes in line", age: 21 * time.Minute, isPassed: false},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			var free atomic.Uint64
+			free.Store(8 * gigabyte)
+			holding := twoSlots(t, &free)
+			holding.Estimate = gigabyte
+			holder := within(t, take(t, holding), "the holder")
+			defer holder.Release()
+			holder.Measure(gigabyte)
+			line := filepath.Join(holding.Dir, "line")
+			place := fmt.Sprintf("%020d-%d-%d", time.Now().Add(-testCase.age).UTC().UnixNano(), os.Getpid(), 1)
+			owner, err := lock.AcquireExclusiveNamedStrict(line, place)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := holding.remove(line, place, owner); err != nil {
+					t.Error(err)
+				}
+			})
+			if err := holding.leave(line, place, card{Who: "a run needing 0 + 7 + 2 GiB of 8", EstimateBytes: 7 * gigabyte}); err != nil {
+				t.Fatal(err)
+			}
+			small := holding
+			small.Estimate = 0
+
+			// Act
+			takenSmall := take(t, small)
+
+			// Assert
+			if !testCase.isPassed {
+				notYet(t, takenSmall, "a run that fits, behind one that has stood 21 minutes in line")
+				return
+			}
+			if err := within(t, takenSmall, "a run that fits, behind one that has stood 19 minutes in line").Release(); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 
