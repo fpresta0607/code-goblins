@@ -386,6 +386,35 @@ for (const { state, first, says } of [
   });
 }
 
+// The Overlord, 2026-10-28: "lack of indmepotent click on teh queue". With no
+// conversation to draw his messages, as while the CEO is closed, the box lists
+// them itself, and a press on one asks once while the board still holds it:
+// Send again on one never seen taken takes its entry away, and Dismiss on it
+// (#2541), as Cancel on one not sent, leaves nothing more to press on it.
+for (const { status, label, press, asks, isGone } of [
+  { status: "uncertain", label: "Not confirmed", press: "Send again", asks: { kind: "message", task_id: "", generation: "", text: "check the train" }, isGone: true },
+  { status: "uncertain", label: "Not confirmed", press: "Dismiss", asks: { id: "withdraw-m1", kind: "message_withdraw", task_id: "", target: "m1", text: "check the train" }, isGone: false },
+  { status: "failed", label: "Not sent", press: "Cancel", asks: { id: "withdraw-m1", kind: "message_withdraw", task_id: "", target: "m1", text: "check the train" }, isGone: false },
+] as const) {
+  test(`${press} on a message to the CEO that reads ${label} in the box's own list asks once and leaves nothing more to press`, async ({ page }) => {
+    // Arrange
+    const ended = { id: "m1", kind: "message", task_id: "", generation: "", status, message: "The terminal closed before it took it.", text: "check the train", created_at: "2026-11-13T19:02:00Z", updated_at: "2026-11-13T19:03:00Z" };
+    const { posted } = await open(page, { ...CLOSED_CEO, actions: [ended] });
+    await page.getByRole("button", { name: "Orchestration", exact: true }).click();
+    const entry = page.locator(".terminal-deck").getByRole("region", { name: "Messages to CEO" }).locator(".queued-message.queue").filter({ hasText: "check the train" });
+    await expect(entry).toContainText(label);
+
+    // Act
+    await entry.getByRole("button", { name: press, exact: true }).click();
+
+    // Assert
+    await expect.poll(() => posted.length).toBe(1);
+    expect(posted[0].body).toMatchObject(asks);
+    if (isGone) await expect(entry).toHaveCount(0);
+    else await expect(entry.getByRole("button")).toHaveCount(0);
+  });
+}
+
 test("a message a paused goblin's resume carries reads Starting while that resume waits its turn and while it runs", async ({ page }) => {
   // Arrange
   const first = bernie(["i can message?"]);
