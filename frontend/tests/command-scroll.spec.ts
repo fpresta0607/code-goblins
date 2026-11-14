@@ -1,10 +1,25 @@
-import { expect, test, type Locator } from "./site";
+import { expect, test, type Locator, type Page } from "./site";
 
 // The Overlord, 2026-09-30: "when command center notification opens make sure
 // its scrolled to top by default". Each opening starts at the top of its item;
 // within one visit the scroll stays where he puts it, and moving to another
 // item shows that item from its top.
 const scrollTop = (content: Locator) => content.evaluate((element) => element.scrollTop);
+
+// He opens the Command Center over a page he scrolled. Under load the first
+// try at Open can miss, and Playwright then scrolls Open into view on its own
+// before trying again, which moves the page these tests watch (#1971). So
+// each opening here misses once and is retried where Open already shows.
+async function openAfterAMiss(page: Page, opener: Locator, how: "click" | "tap") {
+  const box = (await opener.boundingBox())!;
+  await page.evaluate((rect) => {
+    const cover = document.createElement("div");
+    cover.style.cssText = `position: fixed; left: ${rect.x}px; top: ${rect.y}px; width: ${rect.width}px; height: ${rect.height}px;`;
+    document.body.append(cover);
+    setTimeout(() => cover.remove(), 500);
+  }, box);
+  await opener[how]({ scroll: "none" });
+}
 
 test.use({ viewport: { width: 1280, height: 720 } });
 
@@ -57,7 +72,7 @@ test("desktop scrolling stays inside the content and closing restores focus and 
   await page.evaluate(() => window.scrollTo(0, 400));
   const background = await page.evaluate(() => ({ top: window.scrollY, root: document.documentElement.style.cssText, body: document.body.style.cssText }));
   const opener = page.getByRole("button", { name: "Open", exact: true });
-  await opener.click();
+  await openAfterAMiss(page, opener, "click");
   const dialog = page.getByRole("dialog");
   const content = dialog.locator(".command-center-content");
   const heading = dialog.locator(".command-center-heading");
@@ -92,7 +107,7 @@ for (const ending of ["completion", "unmount"]) {
     });
     const before = await page.evaluate(() => ({ top: window.scrollY, root: document.documentElement.style.cssText, body: document.body.style.cssText }));
     const opener = page.getByRole("button", { name: "Open", exact: true });
-    await opener.click();
+    await openAfterAMiss(page, opener, "click");
     const dialog = page.getByRole("dialog");
 
     // Act
@@ -129,7 +144,7 @@ test.describe("mobile touch scrolling", () => {
     await page.goto("/tests/fixtures/command-scroll.html");
     await page.evaluate(() => window.scrollTo(0, 400));
     const background = await page.evaluate(() => window.scrollY);
-    await page.getByRole("button", { name: "Open", exact: true }).tap();
+    await openAfterAMiss(page, page.getByRole("button", { name: "Open", exact: true }), "tap");
     const dialog = page.getByRole("dialog");
     const content = dialog.locator(".command-center-content");
     const header = await dialog.locator(".command-center-heading").boundingBox();
