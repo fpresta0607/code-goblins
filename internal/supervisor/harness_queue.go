@@ -169,7 +169,7 @@ func (s *Service) sendHeldNow(id, task string) (bool, error) {
 	record, screens, isLive := s.deliveryTerminal(waiting)
 	switch {
 	case !isLive:
-		return true, errors.New(subject + "'s terminal does not answer, so its send-now key was not pressed.")
+		return true, errors.New(subject + "'s terminal it was typed into has ended or started again, so its send-now key was not pressed.")
 	case record.Stream:
 		return true, errors.New(subject + " runs on stream-json pipes, where Claude Code holds the message itself. It takes it at its next tool call, or as its turn ends.")
 	case screens.SendNow == "":

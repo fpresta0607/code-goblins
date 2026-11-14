@@ -172,8 +172,22 @@ func (s *Store) settleDeliveries(now time.Time, look func(Awaiting) terminalLook
 				continue
 			}
 			a.Awaiting = nil
+		case seen.Gone && waiting.IsHeld && a.Kind == "message":
+			// Its harness held it in a queue that ended with that terminal, so
+			// it reached nobody and is the board's again: Not sent, which his
+			// Cancel takes off the board and Send now types afresh (#2541).
+			a.Status, a.Awaiting = "failed", nil
+			a.Message = ErrNotSent.Error() + ". It waited in the queue of " + who + "'s terminal, which ended or started again before taking it."
 		case seen.Gone:
-			a.Status, a.Awaiting = "uncertain", nil
+			// A message was submitted, so its session may have taken it: it
+			// stays watched, and a record that shows the take late, as one
+			// written on a loaded machine does, settles it as taken (#2541).
+			// An answer's is not, since a change of answer still watched reads
+			// as answered.
+			a.Status = "uncertain"
+			if a.Kind != "message" {
+				a.Awaiting = nil
+			}
 			a.Advice = "The terminal of " + who + " closed before it took your answer. Give " + who + " your answer once it is running again."
 			a.Message = a.Advice
 		case seen.Working:
@@ -267,8 +281,9 @@ func (s *Service) submitHandedBack(ctx context.Context) error {
 }
 
 // deliveryTerminal returns the running terminal delivery a was typed into
-// and its harness's screens, and false once that terminal is gone, its goblin
-// restarted or ended, or its screens cannot be read.
+// and its harness's screens, and false once that terminal is gone or was
+// started again since, its goblin restarted or ended, or its screens cannot
+// be read.
 func (s *Service) deliveryTerminal(a Awaiting) (host.Record, harness.Screens, bool) {
 	terminal := a.Host
 	if a.Task != "" {
@@ -279,7 +294,7 @@ func (s *Service) deliveryTerminal(a Awaiting) (host.Record, harness.Screens, bo
 	}
 	screens, readable := harness.NativeScreens(harness.Kind(a.Harness))
 	record, err := host.ReadRecord(s.Store.Home.State, terminal)
-	return record, screens, readable && err == nil && host.Running(record)
+	return record, screens, readable && err == nil && host.Running(record) && !record.Started.After(a.Since)
 }
 
 // promptLineHolds finds the run of typed, deliveries typed into one terminal
@@ -338,7 +353,7 @@ func (s *Service) takeBackLeftTyped(ctx context.Context) error {
 		var screens harness.Screens
 		for _, a := range deliveries {
 			live, read, isLive := s.deliveryTerminal(*a.LeftTyped)
-			if !isLive || a.LeftTyped.Since.Before(live.Started) || now.Sub(a.LeftTyped.Since) >= deliveryForget {
+			if !isLive || now.Sub(a.LeftTyped.Since) >= deliveryForget {
 				dropped = append(dropped, a)
 				continue
 			}
@@ -514,9 +529,11 @@ func (s *Store) markHandedBack(prompts [][]Action, now time.Time) error {
 }
 
 // lookAtTerminal reads the terminal a delivery waits in: gone when its host
-// no longer answers for it or its goblin restarted or ended, working when its
-// screen, or a stream session's state, shows a turn under way; and the record
-// its harness keeps of the conversation, for the text taken.
+// no longer answers for it, its goblin restarted or ended, or it was started
+// again since the delivery was typed into it, which ended the queue the
+// delivery waited in; working when its screen, or a stream session's state,
+// shows a turn under way; and the record its harness keeps of the
+// conversation, for the text taken.
 func (s *Service) lookAtTerminal(a Awaiting) terminalLook {
 	id := a.Host
 	took := false
@@ -531,7 +548,7 @@ func (s *Service) lookAtTerminal(a Awaiting) terminalLook {
 		took = ceoConversationTook(context.Background(), s.Store.Home.State, a)
 	}
 	record, err := host.ReadRecord(s.Store.Home.State, id)
-	if err != nil || !host.Running(record) {
+	if err != nil || !host.Running(record) || record.Started.After(a.Since) {
 		return terminalLook{Gone: true, Took: took}
 	}
 	if record.Stream {

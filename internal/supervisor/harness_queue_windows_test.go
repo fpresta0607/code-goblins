@@ -390,6 +390,183 @@ func TestCancelOfAMessageItsHarnessHoldsTakesItOutOfThatQueueAndKeepsTheOthers(t
 	}
 }
 
+// The Overlord, 2026-11-13, of a message held in the CEO's queue when the
+// machine restarted, whose Cancel the board refused again and again: "clear
+// out this garbage message" (#2541). A terminal started again since the board
+// typed a message into its turn, the CEO's after a restart as a goblin's after
+// a switch, holds no queue with the message in it, so the message reads Not
+// sent, saying so, and his Cancel takes it off the board with no key pressed
+// in the new terminal.
+func TestAHeldMessageWhoseTerminalStartedAgainReadsNotSentAndHisCancelRemovesIt(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		isGoblin bool
+	}{
+		{name: "the CEO's"},
+		{name: "a goblin's", isGoblin: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			store, service, terminal, task, _ := heldQueue(t, test.isGoblin, "claude-busy", "first words")
+			replacement := startedAgain(t, terminal, task, "claude-busy")
+
+			// Act
+			settleErr := store.settleDeliveries(time.Now().UTC(), service.lookAtTerminal)
+			lost := actionOf(store, "m1")
+			cancel := pressOnQueued(service, "message_withdraw", task, "m1", "first words")
+
+			// Assert
+			if settleErr != nil {
+				t.Fatal(settleErr)
+			}
+			if lost.Status != "failed" || !strings.HasPrefix(lost.Message, "Not sent.") || !strings.Contains(lost.Message, "started again") {
+				t.Errorf("after its terminal started again, the message = %+v; want it Not sent, saying the restart lost it", lost)
+			}
+			if cancel.Code != 202 || slices.ContainsFunc(store.Snapshot().Actions, func(a Action) bool { return a.ID == "m1" }) {
+				t.Errorf("Cancel = %d %s, actions = %+v; want the message taken off the board", cancel.Code, cancel.Body, store.Snapshot().Actions)
+			}
+			if input := replacement.lines(t); len(input) != 1 {
+				t.Errorf("the new terminal's input = %q; want no key pressed in it", input)
+			}
+		})
+	}
+}
+
+// Send now on a held message presses its harness's send-now key only in the
+// terminal the board typed the message into (#2541). One started again since
+// holds no queue with the message in it, and the key there would send at once
+// what he queued in it himself.
+func TestSendNowOnAHeldMessageWhoseTerminalStartedAgainPressesNoKey(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		isGoblin bool
+	}{
+		{name: "the CEO's"},
+		{name: "a goblin's", isGoblin: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			_, service, terminal, task, _ := heldQueue(t, test.isGoblin, "claude-busy", "first words")
+			replacement := startedAgain(t, terminal, task, "claude-busy")
+			replacement.typeLine(t, "his own words")
+			if lines := replacement.waitForLines(t, 2); len(lines) != 2 || lines[1] != "queued his own words" {
+				t.Fatalf("the new terminal's input = %q; want his own words queued in its turn", lines)
+			}
+			promptLineEmpties(t, replacement, "claude")
+
+			// Act
+			pressed := sendNow(service, task, "m1")
+
+			// Assert
+			if pressed.Code != 409 || !strings.Contains(pressed.Body.String(), "send-now key was not pressed") {
+				t.Errorf("Send now = %d %s; want it refused, saying no send-now key went", pressed.Code, pressed.Body)
+			}
+			if input := replacement.lines(t); slices.Contains(input, "sent now") {
+				t.Errorf("the new terminal's input = %q; want no send-now key pressed in it", input)
+			}
+		})
+	}
+}
+
+// The Overlord, 2026-11-13, of two of his messages that read Not confirmed
+// for hours after the CEO's session had taken them: "Stale old messages that
+// appear randomly when memory gets low. Why do they exist? They should be
+// deleted." (#2541). A message submitted to a session reads Not confirmed once
+// its terminal is gone before the session's record shows it taken, and stays
+// watched, so a record that shows the take later, as one written late on a
+// loaded machine does, settles it as Sent.
+func TestANotConfirmedMessageWhoseRecordShowsItTakenLaterReadsSent(t *testing.T) {
+	// Arrange
+	records := useConversations(t)
+	store, _ := testStore(t)
+	since := time.Now().UTC().Add(-time.Minute)
+	text := "rebase onto main"
+	store.db.Actions = append(store.db.Actions, Action{ID: "m1", Kind: "message", Text: text, Status: "running", CreatedAt: since, UpdatedAt: since,
+		Awaiting: &Awaiting{Host: "ceo", Harness: "claude", Since: since, QuietSince: since, Digest: monitor.TextDigest(text), Session: "session-1", Typed: text}})
+	if err := store.save(); err != nil {
+		t.Fatal(err)
+	}
+	look := (&Service{Store: store}).lookAtTerminal
+	if err := store.settleDeliveries(time.Now().UTC(), look); err != nil {
+		t.Fatal(err)
+	}
+	if gone := actionOf(store, "m1"); gone.Status != "uncertain" {
+		t.Fatalf("with its terminal gone, the message = %+v; want it Not confirmed", gone)
+	}
+	takenInRecord(t, records, "claude", "session-1", "", text)
+
+	// Act
+	err := store.settleDeliveries(time.Now().UTC(), look)
+	after := actionOf(store, "m1")
+
+	// Assert
+	if err != nil || after.Status != "succeeded" {
+		t.Errorf("settle = %v, the message = %+v; want it Sent once its record shows it taken", err, after)
+	}
+}
+
+// The Overlord, 2026-11-13, of messages that read Not confirmed with no
+// control that clears them: "There's no way to clear em out." (#2541). Cancel
+// on a message that reads Not confirmed takes it off the board, the CEO's and
+// a goblin's alike, as it takes one that reads Not sent.
+func TestCancelOfANotConfirmedMessageTakesItOffTheBoard(t *testing.T) {
+	for _, task := range []string{"", "task-1"} {
+		t.Run(cmp.Or(task, "the CEO"), func(t *testing.T) {
+			// Arrange
+			store, home := testStore(t)
+			service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: home.State}}}
+			since := time.Now().UTC().Add(-time.Hour)
+			store.db.Actions = append(store.db.Actions, Action{ID: "m1", Kind: "message", TaskID: task, Text: "stop and rebase", Status: "uncertain", Message: "Supervisor stopped during delivery. Inspect the task before sending again.", CreatedAt: since, UpdatedAt: since})
+			if err := store.save(); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			cancel := pressOnQueued(service, "message_withdraw", task, "m1", "stop and rebase")
+
+			// Assert
+			if cancel.Code != 202 || slices.ContainsFunc(store.Snapshot().Actions, func(a Action) bool { return a.ID == "m1" }) {
+				t.Errorf("Cancel = %d %s, actions = %+v; want the message taken off the board", cancel.Code, cancel.Body, store.Snapshot().Actions)
+			}
+		})
+	}
+}
+
+// startedAgain ends terminal, whose harness holds the board's messages to task,
+// or to the CEO for none, and starts the fixture harness of mode in its place:
+// a restart of the machine starts the CEO's terminal again, and a switch a
+// goblin's, in a spawn generation of its own.
+func startedAgain(t *testing.T, terminal hostedTerminal, task, mode string) hostedTerminal {
+	t.Helper()
+	record, err := host.ReadRecord(terminal.stateDir, terminal.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := host.Dial(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := errors.Join(client.CloseTerminal(), client.Close()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-terminal.ended:
+	case <-time.After(time.Minute):
+		t.Fatal("the terminal did not end")
+	}
+	if task != "" {
+		meta, err := state.ReadTaskMeta(terminal.stateDir, task)
+		if err != nil {
+			t.Fatal(err)
+		}
+		meta.SpawnGen = "g2"
+		if err := state.WriteTaskMeta(terminal.stateDir, meta); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return nativeComposer(t, terminal.stateDir, terminal.id, mode)
+}
+
 // A queue the board cannot take back whole and alone is left as it is, and
 // the press says why: a harness with no key for it, a prompt line that holds
 // his own draft, and a queue that also holds a line typed in the terminal,
