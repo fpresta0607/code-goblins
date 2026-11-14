@@ -51,7 +51,7 @@ func busyDaemonMachine() *sharedMachine {
 		daemon:          pipeline.Daemon{State: pipeline.DaemonAlive, PID: 276, LiveRuns: 3},
 		line:            SharedLine{Capacity: 1, FloorBytes: 5 * gigabyte, Memory: Memory{Available: 10 * gigabyte, CommitAvailable: 12 * gigabyte}},
 		isDockerUp:      true,
-		scrawl:          ScrawlServer{PID: 4120, Start: time.Date(2026, 11, 11, 10, 0, 0, 0, time.UTC), CPU: time.Minute},
+		scrawl:          ScrawlServer{PID: 4120, Start: time.Date(2026, 11, 11, 10, 0, 0, 0, time.UTC), CPU: time.Minute, ReadAt: time.Date(2026, 11, 11, 10, 30, 0, 0, time.UTC)},
 		isScrawlRunning: true,
 	}
 }
@@ -723,6 +723,9 @@ func TestAnUnreadableServiceIsUnknownAndTheOthersAreStillRead(t *testing.T) {
 // the fleet reads said so. The shared check reads its share of one core over
 // the minute since the last check, so a server that spins is seen at the next
 // check and wakes the CEO once for the spin, and once more for a later one.
+// Each share is measured between the server's reads, so a check whose read
+// lands late, behind a slow CI poll or probe, neither reads a quiet server as
+// spinning nor the next one as quieter than it is.
 func TestASpinningScrawlServerIsSeenAndWakesTheCEOOnceASpin(t *testing.T) {
 	// Arrange
 	s, h, machine := sharedService(t)
@@ -731,16 +734,20 @@ func TestASpinningScrawlServerIsSeenAndWakesTheCEOOnceASpin(t *testing.T) {
 	for _, c := range []struct {
 		name        string
 		used        time.Duration
+		late        time.Duration
 		wantState   string
 		wantPercent int
 		wantWakes   int
 	}{
-		{"its first reading, against its four hours of life", 0, "spinning", 71, 1},
-		{"a minute at 112 percent", 67200 * time.Millisecond, "spinning", 112, 0},
-		{"a quiet minute", 600 * time.Millisecond, "running", 1, 0},
-		{"a later spin", 54 * time.Second, "spinning", 90, 1},
+		{"its first reading, against its four hours of life", 0, 0, "spinning", 71, 1},
+		{"a minute at 112 percent", 67200 * time.Millisecond, 0, "spinning", 112, 0},
+		{"a quiet minute", 600 * time.Millisecond, 0, "running", 1, 0},
+		{"75 s at 40 percent, read 15 s late", 30 * time.Second, 15 * time.Second, "running", 40, 0},
+		{"45 s at 40 percent, read on time after a late read", 18 * time.Second, 0, "running", 40, 0},
+		{"a later spin", 54 * time.Second, 0, "spinning", 90, 1},
 	} {
 		machine.scrawl.CPU += c.used
+		machine.scrawl.ReadAt = now.Add(time.Minute + c.late)
 
 		// Act
 		woke, record := checkShared(t, s, h, &now)
@@ -761,8 +768,10 @@ func TestASpinningScrawlServerIsSeenAndWakesTheCEOOnceASpin(t *testing.T) {
 
 // A Scrawl server is judged against its own life: one that restarted is not
 // measured against the one before it, one only seconds old is not judged by
-// the processor its start took, a stopped one starts with the next review,
-// and one that cannot be read is the CEO's to ask about.
+// the processor its start took, one whose pid Windows gave to a new server is
+// measured since the new one started, one read no later than the last read is
+// measured since it started, a stopped one starts with the next review, and
+// one that cannot be read is the CEO's to ask about.
 func TestTheScrawlServerIsReadAgainstItsOwnLife(t *testing.T) {
 	now := time.Date(2026, 11, 13, 14, 0, 0, 0, time.UTC)
 	for _, c := range []struct {
@@ -775,8 +784,10 @@ func TestTheScrawlServerIsReadAgainstItsOwnLife(t *testing.T) {
 		wantPercent int
 		wantDetail  string
 	}{
-		{"a restarted server", ScrawlServer{PID: 31000, Start: now.Add(-10 * time.Minute), CPU: 6 * time.Second}, true, nil, "running", SharedGo, 1, "since it started"},
-		{"a server seconds old", ScrawlServer{PID: 31000, Start: now.Add(-5 * time.Second), CPU: 4 * time.Second}, true, nil, "running", SharedGo, 80, "since it started"},
+		{"a restarted server", ScrawlServer{PID: 31000, Start: now.Add(-10 * time.Minute), CPU: 6 * time.Second, ReadAt: now}, true, nil, "running", SharedGo, 1, "since it started"},
+		{"a server seconds old", ScrawlServer{PID: 31000, Start: now.Add(-5 * time.Second), CPU: 4 * time.Second, ReadAt: now}, true, nil, "running", SharedGo, 80, "since it started"},
+		{"a new server on the old one's pid", ScrawlServer{PID: 4120, Start: now.Add(-10 * time.Minute), CPU: 90 * time.Second, ReadAt: now}, true, nil, "running", SharedGo, 15, "in the 10m0s since it started"},
+		{"a read no later than the last", ScrawlServer{PID: 4120, Start: time.Date(2026, 11, 11, 10, 0, 0, 0, time.UTC), CPU: 7 * time.Minute, ReadAt: now.Add(-time.Minute)}, true, nil, "running", SharedGo, 0, "since it started"},
 		{"no server", ScrawlServer{}, false, nil, "stopped", SharedGo, 0, "no Scrawl server runs"},
 		{"an unreadable server", ScrawlServer{}, false, errors.New("access denied"), "unknown", SharedAsk, 0, "access denied"},
 	} {
@@ -784,6 +795,7 @@ func TestTheScrawlServerIsReadAgainstItsOwnLife(t *testing.T) {
 			// Arrange
 			s, h, machine := sharedService(t)
 			clock := now.Add(-2 * time.Minute)
+			machine.scrawl.ReadAt = now.Add(-time.Minute)
 			checkShared(t, s, h, &clock)
 			machine.scrawl, machine.isScrawlRunning, machine.scrawlErr = c.server, c.isRunning, c.err
 

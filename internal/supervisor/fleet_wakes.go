@@ -126,11 +126,10 @@ type fleetWakes struct {
 	// HandleHolder names the process past the handle line the CEO was woken
 	// for, by its pid and start, until a reading finds none past it.
 	HandleHolder string `json:"handle_holder,omitempty"`
-	// Scrawl is the Scrawl server as the latest reading found it, at
-	// ScrawlAt, which the next reading measures its processor use against,
-	// and ScrawlSpinning says the CEO was woken for the spin it reads.
+	// Scrawl is the Scrawl server as the latest reading found it, which the
+	// next reading measures its processor use against, and ScrawlSpinning
+	// says the CEO was woken for the spin it reads.
 	Scrawl         ScrawlServer `json:"scrawl,omitzero"`
-	ScrawlAt       time.Time    `json:"scrawl_at,omitzero"`
 	ScrawlSpinning bool         `json:"scrawl_spinning,omitempty"`
 	// DefenderSince is the time Microsoft Defender's records are read from:
 	// when the watch began, then an hour back of each reading.

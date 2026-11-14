@@ -234,4 +234,10 @@ func TestOnlyARealServeReadsTheMachinesSharedServices(t *testing.T) {
 	if machine == nil || !machine.DaemonAnswers(t.Context()) || len(commands.requests) != 1 || strings.Join(commands.requests[0].Args, " ") != "daemon status" {
 		t.Fatalf("a real serve's shared probes ran %+v, want them to ask no-mistakes daemon status", commands.requests)
 	}
+	if machine.Scrawl == nil {
+		t.Fatal("a real serve's shared probes read no Scrawl server")
+	}
+	if _, _, err := machine.Scrawl(); err != nil {
+		t.Fatalf("a real serve's Scrawl probe failed on this machine: %v", err)
+	}
 }

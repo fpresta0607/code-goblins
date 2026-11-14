@@ -102,11 +102,12 @@ type SharedService struct {
 }
 
 // ScrawlServer is the Scrawl server's process and the processor time it has
-// used since it started.
+// used since it started, as read at ReadAt.
 type ScrawlServer struct {
-	PID   int           `json:"pid"`
-	Start time.Time     `json:"start"`
-	CPU   time.Duration `json:"cpu"`
+	PID    int           `json:"pid"`
+	Start  time.Time     `json:"start"`
+	CPU    time.Duration `json:"cpu"`
+	ReadAt time.Time     `json:"read_at"`
 }
 
 // SharedLine is the machine's heavy line as the shared check reads it.
@@ -313,8 +314,8 @@ func readScrawl(probes *SharedProbes, w *fleetWakes, now time.Time) SharedServic
 	service := SharedService{Name: SharedScrawl, CheckedAt: now, Holders: []string{}, Queued: []string{}, Waiting: []string{}}
 	never := "It serves every goblin's review page, so never end or restart it yourself."
 	server, isRunning, err := probes.Scrawl()
-	last, lastAt := w.Scrawl, w.ScrawlAt
-	w.Scrawl, w.ScrawlAt = ScrawlServer{}, time.Time{}
+	last := w.Scrawl
+	w.Scrawl = ScrawlServer{}
 	switch {
 	case err != nil:
 		service.State, service.Detail = "unknown", "the Scrawl server's process cannot be read: "+err.Error()
@@ -325,10 +326,10 @@ func readScrawl(probes *SharedProbes, w *fleetWakes, now time.Time) SharedServic
 		service.Next, service.NextDetail = SharedGo, "It starts with the next review."
 		return service
 	}
-	w.Scrawl, w.ScrawlAt = server, now
-	used, over, window := server.CPU, now.Sub(server.Start), "since it started"
-	if last.PID == server.PID && last.Start.Equal(server.Start) && lastAt.Before(now) && last.CPU <= server.CPU {
-		used, over, window = server.CPU-last.CPU, now.Sub(lastAt), "since the last check"
+	w.Scrawl = server
+	used, over, window := server.CPU, server.ReadAt.Sub(server.Start), "since it started"
+	if last.PID == server.PID && last.Start.Equal(server.Start) && last.ReadAt.Before(server.ReadAt) {
+		used, over, window = server.CPU-last.CPU, server.ReadAt.Sub(last.ReadAt), "since the last check"
 	}
 	share := 0.0
 	if over > 0 {
@@ -517,5 +518,5 @@ func MachineScrawl() (ScrawlServer, bool, error) {
 	if !isMeasured {
 		return ScrawlServer{}, false, fmt.Errorf("the processor time of pid %d cannot be read", server.PID)
 	}
-	return ScrawlServer{PID: server.PID, Start: server.Start, CPU: used}, true, nil
+	return ScrawlServer{PID: server.PID, Start: server.Start, CPU: used, ReadAt: time.Now().UTC()}, true, nil
 }
