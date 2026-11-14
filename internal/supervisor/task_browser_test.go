@@ -390,8 +390,9 @@ func TestAGoblinsBrowserItsSessionHoldsClosesOnceUnused(t *testing.T) {
 	defer release()
 
 	// Act
-	for deadline := time.Now().Add(3 * browsers.unused); time.Now().Before(deadline); time.Sleep(browsers.unused / 10) {
+	for range 30 {
 		browsers.use(b, browserlogin.Command{Method: "Page.navigate", Target: "shop", Params: json.RawMessage(`{"url":"https://shop.example.com/"}`)})
+		time.Sleep(browsers.unused / 10)
 	}
 	_, endedWhileUsed := chrome.counts()
 
