@@ -3,6 +3,7 @@ package proc
 import (
 	"fmt"
 	"os"
+	"syscall"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -46,6 +47,19 @@ func TerminateVerifiedIn(pid int, start time.Time, accept func(Identity) error) 
 		return err
 	}
 	return unix.PidfdSendSignal(handle, unix.SIGKILL, nil, 0)
+}
+
+// Signal sends signal to pid only once the process behind the one handle it
+// is sent through has proved to be the one created at start, to within the
+// second a recorded start time is rounded to, so a program that took the ID
+// since is never reached.
+func Signal(pid int, start time.Time, signal syscall.Signal) error {
+	handle, err := hold(pid, start)
+	if err != nil {
+		return err
+	}
+	defer unix.Close(handle)
+	return unix.PidfdSendSignal(handle, signal, nil, 0)
 }
 
 // hold opens a handle on the process that has pid now and proves that
