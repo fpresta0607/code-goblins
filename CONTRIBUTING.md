@@ -40,7 +40,8 @@ See [Verification levels](docs/pipeline.md#verification-levels) for its required
 
 CI runs the same steps on `windows-latest` for every push to `main` and every pull request, as parallel jobs defined in [.github/workflows/go.yml](.github/workflows/go.yml).
 The `linux` job builds and vets every package on `ubuntu-latest` and tests every package outside its `EXCEPT` list, whose packages wait on a later layer of the Linux port ([#2366](https://github.com/fpresta0607/code-goblins/issues/2366)) and leave the list as that layer lands.
-A test that is about Windows itself, such as one of consoles, junctions or drive letters, takes a `_windows_test.go` name, so it runs only on Windows, and a test of anything else holds on both systems.
+The `macos` job does the same on `macos-latest`, with cgo on, for the macOS port ([#2535](https://github.com/fpresta0607/code-goblins/issues/2535)), with its own `EXCEPT` list.
+A test that is about Windows itself, such as one of consoles, junctions or drive letters, takes a `_windows_test.go` name, so it runs only on Windows, and a test of anything else holds on every system.
 A pull request's own run starts only the jobs its change can alter, which the `plan` job chooses with `tools/ciplan`, and a merge train's run and a run on `main` start every job.
 A pull request must keep green every job its run starts: the one required check, `test`, passes only when the plan and every job it started passed.
 A test that fails in CI runs once more in its job (`tools/citest` for Go, Playwright's own retry for the browser tests): one that passes then is named as a Failed once warning on the `test` check, and one that fails twice fails the job, so fix a test named there rather than leaning on its second try.

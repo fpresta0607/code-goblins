@@ -107,7 +107,13 @@ func helperRequest(dir string, env []string, args ...string) Request {
 }
 
 func TestOSRunnerPreservesRequestExecutionDetails(t *testing.T) {
-	dir := t.TempDir()
+	// The child reports the folder it runs in with every link in it
+	// resolved, as macOS's temporary folder, under /var, is a link to
+	// /private/var.
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	req := helperRequest(dir, []string{"EXECX_HELPER=1", "EXECX_SENTINEL=provided"}, "one", "two words")
 
 	result, err := (OSRunner{}).Run(context.Background(), req)

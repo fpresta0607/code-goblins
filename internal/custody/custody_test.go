@@ -3,7 +3,6 @@ package custody
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 
@@ -15,7 +14,7 @@ import (
 // this one, under session, and returns that process.
 func heldByAnother(t *testing.T, dir, session string) int {
 	t.Helper()
-	other := exec.Command("ping", "-n", "30", "127.0.0.1")
+	other := lastingProgram(30)
 	if err := other.Start(); err != nil {
 		t.Fatal(err)
 	}

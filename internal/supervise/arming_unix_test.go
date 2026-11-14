@@ -1,3 +1,5 @@
+//go:build linux || darwin
+
 package supervise
 
 import (
@@ -9,7 +11,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
-// A firing that is killed takes no sign down: on Linux its ticket stays in
+// A firing that is killed takes no sign down: off Windows its ticket stays in
 // the arming file, which nothing but the next look at it reads past. The
 // turn-end guard waits for a firing only while that firing runs.
 func TestAFiringThatEndedWithItsSignUpIsNotArming(t *testing.T) {
@@ -27,7 +29,7 @@ func TestAFiringThatEndedWithItsSignUpIsNotArming(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The sign's file is the line of tickets lock.Show keeps on Linux, one
+	// The sign's file is the line of tickets lock.Show keeps off Windows, one
 	// "<pid> <instance> <serial>" to a line.
 	ticket := fmt.Sprintf("%d %s 1\n", firing.Process.Pid, instance)
 	if err := os.WriteFile(filepath.Join(dir, armingFile), []byte(ticket), 0o644); err != nil {
