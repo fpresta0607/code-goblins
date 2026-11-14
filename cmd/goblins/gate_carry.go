@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/fpresta0607/code-goblins/internal/devdrive"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/gatedb"
@@ -30,7 +31,9 @@ const gateCarryLog = "dev-drive-move.log"
 // (hasGateDatabase), and carries the gate's home with this
 // build's goblins dev-drive move, started through start.
 func boardDevDrive(h home.Home, runtime commandRuntime, start func(executable, dir, logPath string, args ...string) (*exec.Cmd, error)) *supervisor.DevDrive {
-	return &supervisor.DevDrive{Read: runtime.readDevDrive, GateHome: runtime.gateHome,
+	return &supervisor.DevDrive{Read: runtime.readDevDrive, GateHome: runtime.gateHome, Boot: devdrive.BootTime,
+		StartTask:   func(ctx context.Context) error { return devdrive.StartTask(ctx, execx.OSRunner{}) },
+		TaskCurrent: func(ctx context.Context) (bool, error) { return devdrive.TaskCurrent(ctx, execx.OSRunner{}) },
 		GateRuns: func(ctx context.Context, root string) (int, error) {
 			if !hasGateDatabase(root) {
 				return 0, nil

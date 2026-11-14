@@ -48,10 +48,23 @@ func runDevDrive(args []string, stdout, stderr io.Writer, runtime commandRuntime
 		fmt.Fprintln(stderr, "goblins dev-drive: "+err.Error())
 		return 1
 	}
-	report := devdrive.Describe(m, h)
+	config, err := home.ReadDevDriveConfig(h.Root)
+	if err != nil {
+		fmt.Fprintln(stderr, "goblins dev-drive: "+err.Error())
+		return 1
+	}
+	report := devdrive.Describe(m, h, config.VHD)
 	fmt.Fprintln(stdout, "dev drive: "+report.Line)
 	if report.File != "" {
 		fmt.Fprintln(stdout, "file: "+report.File)
+	}
+	if config.VHD != "" {
+		result, isWritten, err := devdrive.ReadAttachResult(config.VHD)
+		if err != nil {
+			fmt.Fprintln(stdout, "startup task: its result could not be read: "+err.Error())
+		} else {
+			fmt.Fprintln(stdout, "startup task: "+devdrive.DescribeAttach(config.VHD, result, isWritten, devdrive.BootTime()))
+		}
 	}
 	fmt.Fprintln(stdout, gateHomeLine(runtime, h.DevDrive))
 	fmt.Fprintln(stdout, devdrive.Explain)

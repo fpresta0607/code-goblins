@@ -15,7 +15,7 @@ func TestAMachineThatCannotHaveOneGetsNoStep(t *testing.T) {
 	} {
 		m := ready()
 		change(&m)
-		if plan, ok := Next(m, home.Home{Root: `C:\home`}, home.DevDriveConfig{}, false); ok {
+		if plan, ok := Next(m, home.Home{Root: `C:\home`}, home.DevDriveConfig{}, false, false); ok {
 			t.Errorf("%s: plan = %+v, want none", name, plan)
 		}
 	}

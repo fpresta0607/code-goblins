@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/fpresta0607/code-goblins/internal/devdrive"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
@@ -70,9 +71,14 @@ func (m Machine) devDrive(ctx context.Context) ([]Item, error) {
 	items = append(items, Item{Action: Remove, Group: GroupDevDrive, Admin: true, What: "the Dev Drive " + letter, Where: config.VHD,
 		Fix:    "restart the PC first if another program has the drive open, then run the uninstall again",
 		Script: devDriveScript(vhd, quote(strings.TrimSuffix(letter, ":")))})
-	items = append(items, Item{Action: Remove, Group: GroupDevDrive, Admin: true, What: "its startup task, " + devDriveTask, Where: `\` + devDriveTask,
+	taskFiles := quote(devdrive.AttachScriptPath(config.VHD)) + ", " + quote(devdrive.AttachResultPath(config.VHD))
+	items = append(items, Item{Action: Remove, Group: GroupDevDrive, Admin: true, What: "its startup task, " + devDriveTask + ", with the script it runs and the result it writes", Where: `\` + devDriveTask,
 		Script: "Unregister-ScheduledTask -TaskName " + quote(devDriveTask) + " -Confirm:$false -ErrorAction SilentlyContinue\r\n" +
-			"if (Get-ScheduledTask -TaskName " + quote(devDriveTask) + " -ErrorAction SilentlyContinue) { $still += " + quote(`\`+devDriveTask) + " }"})
+			"if (Get-ScheduledTask -TaskName " + quote(devDriveTask) + " -ErrorAction SilentlyContinue) { $still += " + quote(`\`+devDriveTask) + " }\r\n" +
+			"foreach ($file in " + taskFiles + ") {\r\n" +
+			"    Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue\r\n" +
+			"    if (Test-Path -LiteralPath $file) { $still += $file }\r\n" +
+			"}"})
 	parent := filepath.Dir(config.VHD)
 	items = append(items, Item{Action: Remove, Group: GroupDevDrive, Admin: true, What: "its folder, once nothing else is in it", Where: parent,
 		Script: "$folder = " + quote(parent) + "\r\n" +

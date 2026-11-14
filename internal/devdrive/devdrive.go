@@ -204,9 +204,36 @@ const BoardSteps = "Set up under Dev Drive in the board's Workspace panel puts e
 // Explain is the sentence every surface uses to say what a Dev Drive is.
 const Explain = "A Dev Drive is a drive Windows 11 formats for developer work: Microsoft Defender keeps scanning it, in performance mode, so opening a file no longer waits for the scan. It is not a Defender exclusion."
 
-// Describe reports h's Dev Drive on machine m.
-func Describe(m Machine, h home.Home) Report {
-	report := describe(m, h)
+// What a person can do for a home whose Dev Drive is missing, which its line
+// ends with: the board's own words while it looks after the drive, and
+// otherwise what is true without it.
+const (
+	// AttachByBoard is a drive Code Goblins made, as a command says it.
+	AttachByBoard = "the board starts its startup task, and offers Attach when that does not attach it"
+	// AttachByPanel is the panel's Attach, while no item waits.
+	AttachByPanel = "Attach under Dev Drive in the board's Workspace panel attaches it again"
+	// AttachByItem is the Attach item, while one waits.
+	AttachByItem = "the Attach item waiting in the Command Center attaches it again"
+	// AttachByRenew is the Renew item, while one waits: it attaches the
+	// drive too, so no Attach item comes beside it.
+	AttachByRenew = "the Renew item waiting in the Command Center attaches it again"
+	// AttachByTask is the startup task the board started and waits for.
+	AttachByTask = "its startup task is attaching it now, with no click"
+	// AttachByHand is a drive Code Goblins did not make.
+	AttachByHand = "attaching the disk it is on again lets goblins start"
+)
+
+// MissingLine is the line for a home whose heavy folders are set to folder
+// on a drive that is not there, ending with how, one of the Attach phrases.
+func MissingLine(folder, how string) string {
+	return fmt.Sprintf("the home's worktrees, scratch and caches are set to %s, but %s is not there, so no goblin starts, and %s", folder, filepath.VolumeName(folder), how)
+}
+
+// Describe reports h's Dev Drive on machine m. vhd is the file the create
+// step made the drive in, from the home's config\dev-drive.json, "" for a
+// drive Code Goblins did not make.
+func Describe(m Machine, h home.Home, vhd string) Report {
+	report := describe(m, h, vhd)
 	if report.File = describeImage(report.Volume); report.File != "" {
 		report.Note += " " + strings.ToUpper(report.File[:1]) + report.File[1:] + "."
 	}
@@ -228,13 +255,16 @@ func describeImage(v Volume) string {
 	return fmt.Sprintf("%s holds %.1f GB of %s, and stays that size when goblins free space on %s", image.Path, disk.GB(image.Size), filepath.VolumeName(image.Path), v.Letter())
 }
 
-func describe(m Machine, h home.Home) Report {
+func describe(m Machine, h home.Home, vhd string) Report {
 	if h.DevDrive != "" {
 		v, found := m.VolumeOf(h.DevDrive)
 		switch {
 		case !found:
-			return Report{State: StateMissing, Line: fmt.Sprintf("the home's worktrees, scratch and caches are set to %s, but %s is not there, so no goblin starts; the Attach item in the Command Center attaches it again", h.DevDrive, filepath.VolumeName(h.DevDrive)),
-				Note: filepath.VolumeName(h.DevDrive) + " is not attached, so no goblin starts."}
+			how := AttachByBoard
+			if vhd == "" {
+				how = AttachByHand
+			}
+			return Report{State: StateMissing, Line: MissingLine(h.DevDrive, how), Note: filepath.VolumeName(h.DevDrive) + " is not attached, so no goblin starts."}
 		case !v.Dev:
 			return Report{State: StateOn, Volume: v, Line: fmt.Sprintf("the home's worktrees, scratch and caches are on %s, but %s is not a Dev Drive, so Defender scans it as any drive", h.DevDrive, v.Letter()),
 				Note: "The worktrees and caches are on " + v.Letter() + ", which is not a Dev Drive."}

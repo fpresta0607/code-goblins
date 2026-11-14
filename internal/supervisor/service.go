@@ -328,8 +328,13 @@ type Service struct {
 	// minute, and a test sets it shorter.
 	devDriveTick   time.Duration
 	devDriveConfig sync.Mutex
-	devDriveViewMu sync.Mutex
-	devDriveView   *DevDriveView
+	// devDriveStarted is when the watch last started the Dev Drive's startup
+	// task, and isDevDriveStartRefused says Windows refused it, both under
+	// devDriveConfig.
+	devDriveStarted        time.Time
+	isDevDriveStartRefused bool
+	devDriveViewMu         sync.Mutex
+	devDriveView           *DevDriveView
 	// gateCarry is the supervisor's own carry of the gate's home.
 	gateCarry gateCarry
 	// trains are the merge trains the board shows, as keepTrains last read
