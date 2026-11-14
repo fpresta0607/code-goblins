@@ -1,6 +1,7 @@
 package proc
 
 import (
+	"fmt"
 	"os"
 	"runtime"
 	"slices"
@@ -152,5 +153,99 @@ func pump() {
 			return
 		}
 		procDispatch.Call(uintptr(unsafe.Pointer(&message)))
+	}
+}
+
+var (
+	procCreateDesktop    = user32.NewProc("CreateDesktopW")
+	procCloseDesktop     = user32.NewProc("CloseDesktop")
+	procGetThreadDesktop = user32.NewProc("GetThreadDesktop")
+	procSetThreadDesktop = user32.NewProc("SetThreadDesktop")
+)
+
+// onEmptyDesktop runs act on a thread of its own placed on a desktop made
+// for it, which holds no window until act makes one, as the hidden desktop
+// a gate's test step starts its agents on held none (#1799).
+func onEmptyDesktop(t *testing.T, act func()) {
+	t.Helper()
+	const desktopAll = 0x01ff
+	name, err := windows.UTF16PtrFromString(fmt.Sprintf("cg-proc-test-%d-%d", os.Getpid(), time.Now().UnixNano()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	desktop, _, createErr := procCreateDesktop.Call(uintptr(unsafe.Pointer(name)), 0, 0, 0, desktopAll, 0)
+	if desktop == 0 {
+		t.Skipf("this session cannot make a desktop: %v", createErr)
+	}
+	defer procCloseDesktop.Call(desktop)
+	placed := make(chan error, 1)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		own, _, _ := procGetThreadDesktop.Call(uintptr(windows.GetCurrentThreadId()))
+		if ok, _, setErr := procSetThreadDesktop.Call(desktop); ok == 0 {
+			placed <- setErr
+			return
+		}
+		defer procSetThreadDesktop.Call(own)
+		placed <- nil
+		act()
+	}()
+	if err := <-placed; err != nil {
+		t.Fatalf("the test's thread could not be placed on its desktop: %v", err)
+	}
+	<-done
+}
+
+// A desktop that holds no window, as the hidden desktop a gate's test step
+// starts its agents on held none, has no window owners and lists no window
+// of this process: an empty listing, not a failure (#1799). A window made
+// there is still listed, so the listing reads that desktop.
+func TestWindowsListNothingOnADesktopWithNoWindows(t *testing.T) {
+	// Arrange
+	class, err := windows.UTF16PtrFromString("STATIC")
+	if err != nil {
+		t.Fatal(err)
+	}
+	title, err := windows.UTF16PtrFromString(hiddenWindowTitle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var (
+		owners          map[int]bool
+		ownersErr       error
+		listed, withOne []Window
+		listedErr       error
+		withOneErr      error
+		createErr       error
+	)
+	onEmptyDesktop(t, func() {
+		// Act
+		owners, ownersErr = WindowOwners()
+		listed, listedErr = Windows(os.Getpid())
+		// A window made there, never shown, as hiddenWindow makes one.
+		window, _, err := procCreateWindow.Call(0, uintptr(unsafe.Pointer(class)), uintptr(unsafe.Pointer(title)), 0x80000000, 0, 0, 1, 1, 0, 0, 0, 0)
+		if window == 0 {
+			createErr = err
+			return
+		}
+		defer procDestroyWindow.Call(window)
+		withOne, withOneErr = Windows(os.Getpid())
+	})
+
+	// Assert
+	if ownersErr != nil || len(owners) != 0 {
+		t.Errorf("WindowOwners() on an empty desktop = %v, %v; want no owners and no error", owners, ownersErr)
+	}
+	if listedErr != nil || len(listed) != 0 {
+		t.Errorf("Windows(this process) on an empty desktop = %+v, %v; want none and no error", listed, listedErr)
+	}
+	if createErr != nil {
+		t.Fatalf("no window could be made on the test's desktop: %v", createErr)
+	}
+	if withOneErr != nil || !slices.ContainsFunc(withOne, func(window Window) bool { return window.Title == hiddenWindowTitle }) {
+		t.Errorf("Windows(this process) with a window made there = %+v, %v; want that window among them", withOne, withOneErr)
 	}
 }

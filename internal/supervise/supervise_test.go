@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -19,7 +18,7 @@ import (
 // verifiably-dead owner without going through the real acquire/steal path.
 func deadPID(t *testing.T) int {
 	t.Helper()
-	cmd := exec.Command("cmd", "/c", "exit 0")
+	cmd := endedProgram()
 	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
@@ -485,7 +484,7 @@ func TestChargeBudgetStealsDeadLockHolder(t *testing.T) {
 func TestChargeBudgetWaitsOutALiveLockHolder(t *testing.T) {
 	// Arrange
 	dir := t.TempDir()
-	holder := exec.Command("ping", "-n", "30", "127.0.0.1")
+	holder := lastingProgram(30)
 	if err := holder.Start(); err != nil {
 		t.Fatal(err)
 	}

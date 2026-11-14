@@ -59,16 +59,16 @@ for (const width of [360, 393, 430, 1440]) {
     expect(Math.abs(await height(summary) - await height(toolRow(page, "src/touch.ts").locator("summary"))), "as tall as a short row").toBeLessThanOrEqual(1);
     await expect(summary.locator(".call-subject")).toHaveCSS("text-overflow", "ellipsis");
     expect(await summary.locator(".call-subject").evaluate((element) => element.scrollWidth > element.clientWidth), "the command is cut").toBe(true);
-    await expect(command.locator(".call-result")).toHaveCount(0);
+    await expect(command.locator(".terminal-output")).toHaveCount(0);
 
     // Act
     await summary.click();
 
     // Assert: the whole command in its card, then what it printed.
-    const card = command.locator(".message-code").first();
-    await expect(card.locator("figcaption")).toContainText("powershell");
-    await expect(card.locator("pre")).toHaveText(COMMAND);
-    await expect(command.locator(".call-result")).toHaveText(OUTPUT);
+    const card = command.locator(".terminal-block");
+    await expect(card.locator("figcaption").first()).toContainText("powershell");
+    await expect(card.locator(".terminal-command")).toHaveText(COMMAND);
+    await expect(card.locator(".terminal-output")).toHaveText(OUTPUT);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "no sideways scroll").toBe(true);
   });
 }
@@ -101,7 +101,7 @@ for (const width of [360, 393, 430]) {
     const thinking = row(page, "r1").locator(".message-thinking");
 
     // Assert: each folded.
-    await expect(log(page).locator(".call-result")).toHaveCount(0);
+    await expect(log(page).locator(".terminal-output")).toHaveCount(0);
     await expect(thinking.locator(".disclosure-content")).toHaveCount(0);
     expect(await height(thinking.locator("summary")), "thinking is one line").toBeLessThan(40);
     await expect(bubble.locator(".long-text")).toHaveClass(/folded/);
@@ -115,7 +115,7 @@ for (const width of [360, 393, 430]) {
     await more.click();
 
     // Assert: each open, and Show more opened the message, not its row.
-    await expect(toolRow(page, "src/touch.ts").locator(".call-result")).toHaveText("1\texport const swipe = true;");
+    await expect(toolRow(page, "src/touch.ts").locator(".terminal-output")).toHaveText("1\texport const swipe = true;");
     await expect(thinking.locator(".message-words")).toContainText("The heartbeat file is fresh");
     await expect(bubble.locator(".long-text")).not.toHaveClass(/folded/);
     await expect(bubble.getByRole("button", { name: "Show less" })).toHaveAttribute("aria-expanded", "true");
@@ -154,7 +154,7 @@ test("a long message he opened stays open after its row leaves the window and co
 });
 
 for (const width of [360, 393, 430]) {
-  test(`at ${width} px a code card scrolls its long line inside itself, and Expand opens it whole`, async ({ page }) => {
+  test(`at ${width} px a code card scrolls its long line inside itself, and Full screen opens it whole over the window`, async ({ page }) => {
     // Arrange
     await openTalk(page, width);
     const card = row(page, "r1").locator(".message-words .message-code");
@@ -169,12 +169,23 @@ for (const width of [360, 393, 430]) {
 
     // Act
     await text.evaluate((element) => { element.scrollLeft = element.scrollWidth; });
-    await card.getByRole("button", { name: "Expand" }).click();
+    await card.getByRole("button", { name: "Full screen", exact: true }).click();
 
-    // Assert: whole, with nothing left to scroll.
-    await expect(card.getByRole("button", { name: "Collapse" })).toHaveAttribute("aria-expanded", "true");
-    expect(await text.evaluate((element) => element.scrollWidth <= element.clientWidth + 1), "every line wraps").toBe(true);
-    await expect(text).toHaveText(CODE);
+    // Assert: whole over the window, with nothing left to scroll sideways.
+    const over = page.getByRole("dialog", { name: "bash code", exact: true });
+    const whole = over.locator("pre");
+    const window = page.viewportSize()!;
+    expect(await over.boundingBox(), "it fills the window").toEqual({ x: 0, y: 0, width: window.width, height: window.height });
+    expect(await whole.evaluate((element) => element.scrollWidth <= element.clientWidth + 1), "every line wraps").toBe(true);
+    await expect(whole).toHaveText(CODE);
+
+    // Act
+    await page.keyboard.press("Escape");
+
+    // Assert: Escape leaves it, and the card is as it was.
+    await expect(over).toHaveCount(0);
+    await expect(card.getByRole("button", { name: "Full screen", exact: true })).toBeFocused();
+    await expect(log(page)).toBeVisible();
   });
 }
 
@@ -189,7 +200,7 @@ for (const width of [360, 393, 430]) {
     await row(page, "r1").locator(".message-thinking summary").click();
 
     // Assert
-    await expect(toolRow(page, "Get-ChildItem").locator(".call-result")).toBeVisible();
+    await expect(toolRow(page, "Get-ChildItem").locator(".terminal-output")).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "no sideways scroll").toBe(true);
     const widths = await log(page).evaluate((element) => ({
       list: element.clientWidth, overflow: element.scrollWidth - element.clientWidth,
@@ -217,6 +228,6 @@ test("the 01:52Z conversation at 393 px", async ({ page }, testInfo) => {
   await picture("phone-text-393");
   await toolRow(page, "Get-ChildItem").locator("summary").click();
   await toolRow(page, "Get-ChildItem").evaluate((element) => element.scrollIntoView({ block: "start" }));
-  await expect(toolRow(page, "Get-ChildItem").locator(".call-result")).toBeInViewport();
+  await expect(toolRow(page, "Get-ChildItem").locator(".terminal-output")).toBeInViewport();
   await picture("phone-text-393-opened");
 });

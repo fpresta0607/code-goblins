@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/cutover/homesetting"
 )
 
 const (
@@ -14,7 +16,10 @@ const (
 	// home's bin, beside goblins.exe, by which such a home is known.
 	Program = "cfo.exe"
 	// HomeSetting is the setting such a build finds its home by.
-	HomeSetting = "CFO_HOME"
+	HomeSetting = homesetting.Old
+	// StateSetting is the setting such a build finds its state folder by,
+	// where it is not the home's own.
+	StateSetting = "CFO_STATE_OVERRIDE"
 	// WakeLine is a wake line such a build's board typed into a Codex or pi
 	// CEO's terminal, as v0.5.16's left one on a CEO's prompt line unsent.
 	WakeLine = "cfo watcher wake: 1 queued wake (check supervisor); run cfo drain, handle what it shows and ack it with the WAKE_ACK_REQUIRED command it prints"

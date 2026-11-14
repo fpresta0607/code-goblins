@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/cutover/homesetting"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/githubapi"
 	"github.com/fpresta0607/code-goblins/internal/installbase"
@@ -18,12 +19,11 @@ import (
 // OldSettings are the home and the projects root a build before the rename
 // set in the user's settings, each empty where it set none.
 func OldSettings(env installbase.EnvStore) (root, projects string, err error) {
-	prefix := strings.ToUpper(oldName) + "_"
-	root, _, err = env.Get(prefix + "HOME")
+	root, _, err = env.Get(homesetting.Old)
 	if err != nil {
 		return "", "", err
 	}
-	projects, _, err = env.Get(prefix + "PROJECTS_ROOT")
+	projects, _, err = env.Get(strings.ToUpper(oldName) + "_PROJECTS_ROOT")
 	return root, projects, err
 }
 

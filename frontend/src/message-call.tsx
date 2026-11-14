@@ -2,7 +2,6 @@ import { BabyGoblin } from "./BabyGoblin";
 import { CallOpens } from "./call-opens";
 import { CallPictures } from "./call-pictures";
 import { callWords, commandLanguage } from "./call-words";
-import { CodeBlock } from "./code-block";
 import { ConnectorLogo } from "./connector-logo";
 import { callPictures } from "./conversation-pictures";
 import { Disclosure } from "./Disclosure";
@@ -11,11 +10,16 @@ import { Icon, type IconName } from "./Icon";
 import { MessagePictures } from "./message-pictures";
 import { PlanCard } from "./plan-card";
 import type { CallState, MessageBlock } from "./session-messages";
+import { TerminalBlock } from "./terminal-block";
+import type { TerminalResult } from "./terminal-text";
 import type { Task, TreeNode } from "./types";
 import { literalLinks } from "./messageText";
 
 const STATE_WORDS: Record<CallState, string> = { running: "Running", done: "", failed: "Failed", denied: "Denied", interrupted: "Interrupted", "": "" };
 const STATE_MARKS: Partial<Record<CallState, IconName>> = { running: "clock", done: "check", failed: "warning", denied: "lock", interrupted: "pause" };
+// How a command ended, or that it still runs, as its open row's last line
+// says under the row's own mark.
+const RESULTS: Partial<Record<CallState, Omit<TerminalResult, "icon">>> = { running: { tone: "running", text: "Running" }, done: { tone: "success", text: "Completed" }, failed: { tone: "error", text: "Failed" }, denied: { tone: "warning", text: "Denied" }, interrupted: { tone: "warning", text: "Interrupted" } };
 
 // A tool call in a reply, as one quiet line: its tool's icon, the verb it is
 // told by (Read, Edited, Ran, Searched), what it was called on cut with an
@@ -28,9 +32,10 @@ const STATE_MARKS: Partial<Record<CallState, IconName>> = { running: "clock", do
 // wears a wrench and says how many tools it loaded (#2302). The line opens in
 // the board's one Disclosure, which mounts what it holds only while it is
 // open: a connector's tool as its harness names it, the tools a search
-// loaded, all it was called on, a command in a code
-// card, then what came back in one, an edit's diff and its pictures, and
-// under a command the views it opens (CallOpens). A call that started a
+// loaded, all it was called on, a command with what it printed and how it
+// ended in one terminal block (#2524), what any other call brought back in
+// one, an edit's diff and its pictures, and under a command that drove the
+// goblin's browser its Screen view (CallOpens). A call that started a
 // sub-agent is its baby goblin's row instead, whose Open shows that baby
 // goblin's terminal while its goblin's tree holds it, and a call that wrote
 // a plan is that plan's checklist card. Whether its fold is open is the
@@ -68,13 +73,16 @@ export function MessageCall({ call, task, picture, onChild, open, onOpenChange }
   if (!words.connector && !call.subject && !call.input && !call.result && !call.edit?.diff.length && !call.pictures.length) return <div className="message-call">{head}</div>;
   const language = commandLanguage(call.tool);
   const input = call.input || call.subject;
+  const hasDiff = !!call.edit?.diff.length;
+  const ending = RESULTS[call.state];
   return <Disclosure kind="disclosure-line message-call" title={head} open={open} onOpenChange={onOpenChange}>
     {words.connector && <p className="call-full call-raw">{call.tool}</p>}
     {words.loaded && words.loaded.length > 0 && <ul className="call-loaded">{words.loaded.map((name, at) => <li key={at}>{name}</li>)}</ul>}
-    {input && (language ? <CodeBlock text={input} language={language} /> : <p className="call-full">{literalLinks(input)}</p>)}
-    {call.edit?.diff.length
+    {language ? <TerminalBlock shell={language} command={input} output={hasDiff ? "" : call.result} result={ending && mark && { ...ending, icon: mark }} />
+      : input && <p className="call-full">{literalLinks(input)}</p>}
+    {call.edit && hasDiff
       ? <div className="message-diff">{call.edit.diff.map((line, at) => <div key={at} className={line.startsWith("+") ? "line-added" : line.startsWith("-") ? "line-removed" : undefined}>{line}</div>)}</div>
-      : call.result && <CodeBlock text={call.result} language="output" textClass="call-result" />}
+      : !language && call.result && <TerminalBlock output={call.result} />}
     <MessagePictures sources={call.pictures.map((each) => picture(each.id))} />
     {language && <CallOpens command={input} />}
   </Disclosure>;

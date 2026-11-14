@@ -461,7 +461,7 @@ func startDetachedServe(h home.Home) (<-chan struct{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	command, err := startDetached(executable, h.Root, serveLogPath(h.State), "serve", "--listen", address)
+	command, err := startServe(nil, executable, h, address)
 	if err != nil {
 		return nil, errors.Join(errors.New("start goblins serve"), err)
 	}
@@ -561,7 +561,17 @@ func boardAddressFree(ctx context.Context, address string) error {
 // refuses that flag, so the start is retried inside the job rather than not
 // made.
 func startDetached(executable, dir, logPath string, args ...string) (*exec.Cmd, error) {
-	return startDetachedAfter(nil, executable, dir, logPath, args...)
+	return startDetachedAfter(nil, nil, executable, dir, logPath, args...)
+}
+
+// startServe starts program's serve in h on address, detached, as
+// startDetachedAfter does with before, and without the id and proof value of
+// the native terminal goblins ran in. Windows makes the hidden console's host
+// from the environment serve starts with, before serve forgets them itself,
+// and a process that carries a terminal's proof reads as that terminal's own
+// (#1717).
+func startServe(before func(pid int) error, program string, h home.Home, address string) (*exec.Cmd, error) {
+	return startDetachedAfter(before, withoutNativeTerminal(os.Environ()), program, h.Root, serveLogPath(h.State), "serve", "--listen", address)
 }
 
 // errNoWindow says no desktop window sits beside this binary, as in a build
@@ -583,11 +593,16 @@ const windowLauncherVariable = "CODE_GOBLINS_LAUNCHER"
 // and the proof value proves a process runs in it, so the window forgets both
 // as the supervisor does.
 func windowEnvironment(environment []string, launcher string) []string {
-	kept := slices.DeleteFunc(slices.Clone(environment), func(entry string) bool {
+	return append(withoutNativeTerminal(environment), windowLauncherVariable+"="+launcher)
+}
+
+// withoutNativeTerminal is environment without the id and proof value of a
+// native terminal.
+func withoutNativeTerminal(environment []string) []string {
+	return slices.DeleteFunc(slices.Clone(environment), func(entry string) bool {
 		name, _, _ := strings.Cut(entry, "=")
 		return strings.EqualFold(name, host.IDVariable) || strings.EqualFold(name, host.ProofVariable)
 	})
-	return append(kept, windowLauncherVariable+"="+launcher)
 }
 
 // openInBrowser opens url in the default browser through the URL protocol

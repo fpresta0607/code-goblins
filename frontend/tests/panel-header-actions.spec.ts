@@ -7,7 +7,7 @@ import { CEO_DOOR, expect, holdStream, type Locator, openChat, openTaskList, typ
 // The supervisor is played here: one snapshot on a held stream.
 const NOTE = "An optional drive that Defender scans in performance mode, so files open faster.";
 const EXPLAIN = "A Dev Drive is a drive Windows 11 formats for developer work: Microsoft Defender keeps scanning it, in performance mode, so opening a file no longer waits for the scan. It is not a Defender exclusion.";
-const LINE = "absent: this machine can have one (A Dev Drive is a drive Windows 11 formats for developer work: Microsoft Defender keeps scanning it, in performance mode, so opening a file no longer waits for the scan. It is not a Defender exclusion), and it is optional; Set up under Dev Drive in the board's Workspace panel puts each step in the Command Center";
+const LINE = "absent: this machine can have one (A Dev Drive is a drive Windows 11 formats for developer work: Microsoft Defender keeps scanning it, in performance mode, so opening a file no longer waits for the scan. It is not a Defender exclusion), and it is optional; Set up under Dev Drive in the board's Workspace panel puts each step that needs you in the Command Center and takes the rest by itself";
 const drive = (fields: Record<string, unknown> = {}) => ({ state: "absent", line: LINE, explain: EXPLAIN, note: NOTE, action: "set-up", ...fields });
 const snapshot = (fields: Record<string, unknown> = {}) => ({
   healthy: true, instance: "fixture", revision: 1, attention: [], tasks: [], afk: { state: "off" },
@@ -210,10 +210,14 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
       await page.locator(".goblin-panel").screenshot({ path: testInfo.outputPath(`ceo-panel-trimmed-${size}.png`) });
     });
 
-    for (const [action, label] of [["set-up", "Set up"], ["try-again", "Try again"], ["attach", "Attach"]] as const) {
-      test(`the Dev Drive ${label} action stays available without explanatory copy`, async ({ page }) => {
+    for (const [action, label, status] of [
+      ["set-up", "Set up", "No Dev Drive is set up yet."],
+      ["try-again", "Try again", "No Dev Drive is set up yet. Creating the drive is left: its Command Center item did not finish."],
+      ["attach", "Attach", "D: is not attached, so no goblin starts."],
+    ] as const) {
+      test(`the Dev Drive ${label} action says what is left, without explanatory copy`, async ({ page }) => {
         const requests: { token: string | null; body: string | null }[] = [];
-        await open(page, snapshot({ dev_drive: drive({ action }) }));
+        await open(page, snapshot({ dev_drive: drive({ action, status }) }));
         await page.route("**/api/dev-drive", async (route) => {
           requests.push({ token: await route.request().headerValue("X-CEO-Token"), body: route.request().postData() });
           await route.fulfill({ json: { wanted: true } });
@@ -221,7 +225,8 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
         await page.locator(".panel-content > .disclosure.workspace-details > summary").click();
         const row = page.locator(".dev-drive-setting");
         const button = row.getByRole("button", { name: label, exact: true });
-        await expect(row.locator("p")).toHaveCount(0);
+        await expect(row.locator("p")).toHaveText([status]);
+        await expect(row).not.toContainText(NOTE);
         const nameBox = await box(row.getByText("Dev Drive", { exact: true })), buttonBox = await box(button), rowBox = await box(row);
         expect(nameBox.y + nameBox.height / 2).toBeGreaterThan(buttonBox.y);
         expect(nameBox.y + nameBox.height / 2).toBeLessThan(buttonBox.y + buttonBox.height);
@@ -233,14 +238,25 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
       });
     }
 
-    test("Dev Drive keeps its waiting status without explanatory copy", async ({ page }) => {
-      await open(page, snapshot({ dev_drive: drive({ waiting: "create", action: "" }) }));
-      await page.locator(".panel-content > .disclosure.workspace-details > summary").click();
-      const row = page.locator(".dev-drive-setting");
-      await expect(row.getByRole("status")).toHaveText("Its next step waits for you in the Command Center.");
-      await expect(row.getByRole("button")).toHaveCount(0);
-      await expect(row).not.toContainText(NOTE);
-    });
+    // The Overlord, 2026-11-13 about 12:32Z, of a Dev Drive row that held
+    // only Try again while the gate's home waited on a gate run: "this is
+    // ugly why do i ahve to try agina and then command center runs a
+    // script??" (#2525). The row says what it waits on, and offers a button
+    // only where a press does what the supervisor cannot do alone.
+    for (const [name, fields] of [
+      ["a step that waits for him", { waiting: "create", status: "No Dev Drive is set up yet. Creating the drive waits for you in the Command Center." }],
+      ["the gate's home the supervisor carries itself", { state: "on", choice: "wanted", status: "The worktrees and caches are on D:\\CodeGoblins. The gate's home is not there yet. Waiting for 1 gate run to finish, then the gate's home moves by itself." }],
+    ] as const) {
+      test(`Dev Drive says what it waits on with nothing to press: ${name}`, async ({ page }) => {
+        await open(page, snapshot({ dev_drive: drive({ action: "", ...fields }) }));
+        await page.locator(".panel-content > .disclosure.workspace-details > summary").click();
+        const row = page.locator(".dev-drive-setting");
+        await expect(row.getByRole("status")).toHaveText(fields.status);
+        await expect(row.getByRole("button")).toHaveCount(0);
+        await expect(row).not.toContainText(NOTE);
+        expect(await pageScroll(page)).toBe(0);
+      });
+    }
 
     test("Dev Drive keeps failed request feedback and allows retry", async ({ page }) => {
       await open(page, snapshot({ dev_drive: drive({ action: "try-again" }) }));

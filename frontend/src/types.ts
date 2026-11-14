@@ -188,11 +188,13 @@ export interface CrossingView { at: string; undo: string; waiting: string[]; pro
 // StartAtLoginView is whether Windows starts this home at login, or why it
 // cannot be started at login.
 export interface StartAtLoginView { on: boolean; unavailable: string }
-// DevDriveView is the home's Dev Drive: its state and the line saying it, the
-// short note the Workspace panel shows under its row, the sentence explaining
-// what one is, the person's answer to the offer, the step whose Command
-// Center item waits, and the button to press, if any.
-export interface DevDriveView { state: string; line: string; note: string; explain: string; choice: string; waiting: string; action: "" | "set-up" | "try-again" | "attach" }
+// DevDriveView is the home's Dev Drive: its state and the line saying it, its
+// short note, the sentence explaining what one is, the person's answer to the
+// offer, the step whose Command Center item waits, the button to press, if a
+// press does anything the supervisor does not do alone, and the Workspace
+// panel's row in plain words: what is done, what is left and what it waits
+// on, empty when nothing is left.
+export interface DevDriveView { state: string; line: string; note: string; explain: string; choice: string; waiting: string; action: "" | "set-up" | "try-again" | "attach"; status: string }
 // HostedChecks is a pull request's hosted checks at its head: state is
 // pending while one runs and none has failed, failed as soon as one has,
 // cancelled when they ended with one cancelled, and passed when all passed;
@@ -956,6 +958,7 @@ function parseDevDrive(drive: Record<string, unknown>): DevDriveView {
   return {
     state: string(drive.state), line: string(drive.line), note: string(drive.note), explain: string(drive.explain), choice: optional(drive.choice), waiting: optional(drive.waiting),
     action: action === "set-up" || action === "try-again" || action === "attach" ? action : "",
+    status: optional(drive.status),
   };
 }
 // parseKeySpend reads one key's spend. Money that is not a measured dollar

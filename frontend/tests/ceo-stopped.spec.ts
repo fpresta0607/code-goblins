@@ -36,7 +36,7 @@ test("a CEO that kept ending reaches the Overlord as one plain item whose action
   // Assert: plain words and one action, no command to run.
   await expect(card.getByRole("heading", { name: TITLE })).toBeVisible();
   await expect(card.getByRole("button", { name: /PowerShell|Run/ })).toHaveCount(0);
-  await expect(card.locator(".run-command")).toHaveCount(0);
+  await expect(card.locator(".terminal-command")).toHaveCount(0);
 
   // Act: he reopens the CEO.
   await card.getByRole("button", { name: "Reopen the CEO" }).click();

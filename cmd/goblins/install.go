@@ -16,6 +16,7 @@ import (
 	codegoblins "github.com/fpresta0607/code-goblins"
 	"github.com/fpresta0607/code-goblins/internal/crawler"
 	"github.com/fpresta0607/code-goblins/internal/cutover"
+	"github.com/fpresta0607/code-goblins/internal/cutover/homesetting"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harnessmap"
@@ -124,7 +125,7 @@ func runInstall(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 			return 1
 		}
 	}
-	placeGateHome(root, stdout, runtime)
+	placeGateHome(h, stdout, runtime)
 	if serving {
 		board.restart(h, stdout)
 	}
@@ -364,21 +365,7 @@ func installTarget() (installbase.Target, error) {
 	if err != nil {
 		return installbase.Target{}, fmt.Errorf("goblins install: resolve the per-user home: %w", err)
 	}
-	return installbase.FindTarget(oldHomeSetting{installbase.NewEnvStore(execx.OSRunner{})}, standard)
-}
-
-// oldHomeSetting is the user's settings, where goblins' home setting falls
-// back on the one a release before the rename set, so an install over such
-// a home finds it where it is.
-type oldHomeSetting struct{ installbase.EnvStore }
-
-func (e oldHomeSetting) Get(name string) (string, bool, error) {
-	value, isSet, err := e.EnvStore.Get(name)
-	if err != nil || isSet || name != installbase.HomeVariable {
-		return value, isSet, err
-	}
-	root, _, err := cutover.OldSettings(e.EnvStore)
-	return root, root != "", err
+	return installbase.FindTarget(homesetting.Settings{EnvStore: installbase.NewEnvStore(execx.OSRunner{})}, standard)
 }
 
 // junction links a directory through cmd's mklink /J, which needs no

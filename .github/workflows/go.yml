@@ -601,7 +601,7 @@ jobs:
           "$citest" -job linux -record "$RUNNER_TEMP/failed-once.jsonl" -timeout 20m $packages
         env:
           # The packages whose tests wait on a later layer of the port: 3
-          # brings processes, the lock, file replacements and the home, 4
+          # brings process trees, file replacements and the home, 4
           # sockets and path comparison, 5 native terminals, 6 watching, 7
           # hooks without PowerShell and the gate's shell, 8 the installer
           # and the updater, and 9 dictation.
@@ -610,21 +610,16 @@ jobs:
             ./internal/cleanup
             ./internal/codexguard
             ./internal/connections
-            ./internal/custody
             ./internal/digest
             ./internal/doctor
-            ./internal/execx
             ./internal/fleet
             ./internal/fleettree
             ./internal/fsx
-            ./internal/goblinname
             ./internal/harnessmap
             ./internal/home
             ./internal/homemove
             ./internal/install
             ./internal/layout
-            ./internal/lifecycle
-            ./internal/lock
             ./internal/memory
             ./internal/monitor
             ./internal/pathguard
@@ -634,12 +629,10 @@ jobs:
             ./internal/sandbox
             ./internal/spawn
             ./internal/startwatch
-            ./internal/supervise
             ./internal/supervisor
             ./internal/update
             ./internal/verify
             ./internal/voice
-            ./internal/wake
             ./internal/watch
           GOBLINS_HOME: ${{ runner.temp }}/ceo-go-tests
           GOBLINS_STATE_OVERRIDE: ${{ runner.temp }}/ceo-go-tests/state
