@@ -137,8 +137,8 @@ type Options struct {
 	// fleet's folders. It only reads.
 	Defender func(ctx context.Context, since time.Time) (defender.Report, error)
 	// Shared reads the services every goblin shares, the gate daemon, the
-	// heavy-run line and the Docker engine, for the record goblins shared reads;
-	// without it no shared service is checked.
+	// heavy-run line, the Docker engine and the Scrawl server, for the record
+	// goblins shared reads; without it no shared service is checked.
 	Shared *SharedProbes
 	// Credentials opens the credential store goblins auth store writes, which a
 	// credential request's card saves into; without it the board takes no

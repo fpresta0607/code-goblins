@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BoardActivity, Session, Snapshot, Task } from "./types";
-import { activityDisplay, EFFECT_MS, playFrom, presentationShownOn, type ActivityEffect } from "./activity";
+import { activityDisplay, EFFECT_MS, playFrom, presentationShownOn, presentedPage, type ActivityEffect } from "./activity";
+import { BrowserActive } from "./browser-active";
 import { CEO_ROOT, isHelperHeld, isInProgress, lineageFamily, nodeStatus } from "./workflow";
 import { Avatar } from "./Avatar";
 import { Chevron } from "./Chevron";
@@ -74,6 +75,8 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCeo, afkT
     const activity = activityDisplay(effects,node.id,node.parent);
     const glow = activity.received || activity.created;
     const isCollapsed = collapsed.has(node.id);
+    const page = owner && task ? "" : presentedPage(presentations, (presentation) => presentationShownOn(presentation, node, task));
+    const hasCeoFacts = node.role === "ceo" && snapshot.ceo_runs && !snapshot.ceo_closed;
     return <li key={node.id} className="workflow-branch">
       {activity.communication && <span key={activity.communication.id} ref={playFrom(activity.communication.expires - EFFECT_MS)} className="compact-communication-pulse" style={{ animationDuration: EFFECT_MS + "ms" }} aria-hidden="true" />}
       {activity.creation && <span key={activity.creation.id} ref={playFrom(activity.creation.expires - EFFECT_MS)} className="compact-creation-highlight" style={{ animationDuration: EFFECT_MS + "ms" }} aria-hidden="true" />}
@@ -84,11 +87,11 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCeo, afkT
             onSelect={selectTask} /> : <button className="node-select" aria-pressed={selected?.session === node.id}
             onClick={(event) => onSelect(node.id === CEO_ROOT ? {} : { session: node.id }, event.currentTarget)}>
             <Avatar persona={personaFor(task, node)} small /><span className="node-role">{sessionRole(node)}</span>
-            <strong>{title}</strong>{presentations.some(a=>presentationShownOn(a,node,task))&&<span className="browser-indicator">Browser active</span>}{task?.project && <span className="project-label">{task.project}</span>}
+            <strong>{title}</strong>{task?.project && <span className="project-label">{task.project}</span>}
             {(!owner || task?.goblin_name) && node.role !== "ceo" && task?.title && <span className="node-task">Task: {withoutHarness(task.title)}</span>}
             <span className="node-status">{nodeStatus(node.id === CEO_ROOT && family.ceo ? family.ceo : { id: node.id, title, task, session: node, relation: node.relation }, false, snapshot.tasks, snapshot.merge_trains)}</span>
           </button>}
-          {node.role === "ceo" && snapshot.ceo_runs && !snapshot.ceo_closed && <div className="node-facts"><CeoCardFacts snapshot={snapshot} now={freshNow} afkToggle={afkToggle} onOpenCeo={onOpenCeo} /></div>}
+          {(page || hasCeoFacts) && <div className="node-facts"><BrowserActive name={title} screen="" page={page} />{hasCeoFacts && <CeoCardFacts snapshot={snapshot} now={freshNow} afkToggle={afkToggle} onOpenCeo={onOpenCeo} />}</div>}
           {descendants.length > 0 && <button className="node-disclosure" aria-expanded={!isCollapsed}
             aria-label={(isCollapsed ? "Expand" : "Collapse") + " children of " + title} onClick={() => toggle(node.id)}>
             <Chevron collapsed={isCollapsed} />
