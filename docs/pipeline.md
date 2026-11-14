@@ -893,7 +893,7 @@ The executor's separate `ExecutionLimit`, used by `goblins gate turn --execution
 A command its limit ends fails with `verify.ErrLimit` and an interrupted record, which a tier records as timed out, while an internal wait that ran out of time is a failure but no timeout.
 A failed cleanup returns `cleanup_uncertain`, so its caller must retain admission custody, and successful cleanup does not turn an interrupted run into a completed one.
 `internal/verify.Executor` composes admission, per-command worker custody, job measurement and durable lifecycle records.
-On Linux and macOS no job holds a tree: the tree is what its environment mark, its process group and its parent chain find, its custody record names that mark in place of the job, and no worker can run outside it, as [the Linux plan](plans/2026-11-11-linux-port.md#process-trees-and-job-objects) says.
+On Linux and macOS no job holds a tree: the tree is what its environment mark, its process group and its parent chain find, its custody record names that mark in place of the job, and no worker can run outside it, as the Linux port plan says.
 Records under the report store's `executions` folder separate queue time from execution time, preserve the command's actual exit code when available, and require complete measurements and cleanup before recording a pass.
 The record names its complete stdout and stderr logs, while the returned command result holds at most the last 4 MiB of each stream.
 Input is an inherited file handle, so an arbitrary reader cannot leave a blocked I/O pump behind after the command exits, and a command given none reads an empty input.

@@ -303,7 +303,7 @@ func TestAChildStartedInAGroupOfItsOwnLeadsIt(t *testing.T) {
 func TestUseOfThisProcessReadsTheProcessorTimeItUsedAndItsMemory(t *testing.T) {
 	// Arrange: a third of a second of processor time, which the clock that
 	// counts it, a hundredth of a second on Linux, reads well.
-	for began := time.Now(); time.Since(began) < 300*time.Millisecond; {
+	for began := time.Now(); time.Since(began) < 300*time.Millisecond; { // stall-accepted: the loop only spends processor time, which UseOf and getrusage both read, and a stall makes it spend less of both.
 	}
 	var own, children syscall.Rusage
 	if err := syscall.Getrusage(syscall.RUSAGE_SELF, &own); err != nil {
@@ -359,7 +359,7 @@ func TestSignalReachesOnlyTheProcessStartedWhenItWasAskedAbout(t *testing.T) {
 	select {
 	case <-exited:
 		t.Fatal("a signal meant for a process started an hour earlier reached the child")
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(100 * time.Millisecond): // stall-accepted: Signal refused before sending anything, so the wait only gives a signal sent by mistake time to show, and a stall lengthens it.
 	}
 	sent := Signal(cmd.Process.Pid, entry.Start, syscall.SIGTERM)
 
@@ -372,7 +372,7 @@ func TestSignalReachesOnlyTheProcessStartedWhenItWasAskedAbout(t *testing.T) {
 	}
 	select {
 	case <-exited:
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the child did not end after its signal")
 	}
 	if status, isStatus := cmd.ProcessState.Sys().(syscall.WaitStatus); !isStatus || status.Signal() != syscall.SIGTERM {

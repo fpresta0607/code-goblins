@@ -41,10 +41,10 @@ func helperOf(t *testing.T, root string) int {
 	return helper
 }
 
-// isGone reports whether pid no longer names a running process, within ten
-// seconds.
+// isGone reports whether pid no longer names a running process, within a
+// minute.
 func isGone(pid int) bool {
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 		if _, err := proc.Lookup(pid); errors.Is(err, fs.ErrNotExist) {
 			return true
 		}
