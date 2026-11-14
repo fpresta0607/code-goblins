@@ -271,6 +271,13 @@ func TestClassifyNamesWhatAJobIsDoing(t *testing.T) {
 		"pnpm's script":                        {[]string{"node.exe"}, []string{`node C:\npm\node_modules\pnpm\bin\pnpm.cjs test`}, nil, GroupTest, "Test run"},
 		"playwright's script showing a report": {[]string{"node.exe"}, []string{`node node_modules\@playwright\test\cli.js show-report`}, []int{9323}, GroupDevServer, "Dev server :9323"},
 		"another script in npm's folder":       {[]string{"node.exe"}, []string{`node C:\npm\node_modules\eslint\bin\eslint.js test`}, nil, GroupOther, `node C:\npm\node_modules\eslint\bin\eslint.js test`},
+		// #2042: a builder's own script, which node runs, reads as the builder.
+		"npm's script building":           {[]string{"node.exe"}, []string{`"C:\Program Files\nodejs\node.exe" "C:\Program Files\nodejs\node_modules\npm\bin\npm-cli.js" run build`}, nil, GroupBuild, "Build"},
+		"pnpm's script building":          {[]string{"node.exe"}, []string{`node C:\npm\node_modules\pnpm\bin\pnpm.cjs build`}, nil, GroupBuild, "Build"},
+		"yarn's script building":          {[]string{"node.exe"}, []string{`node C:\npm\node_modules\yarn\bin\yarn.js run build`}, nil, GroupBuild, "Build"},
+		"vite's script building":          {[]string{"node.exe", "esbuild.exe"}, []string{`node.exe D:\app\frontend\node_modules\vite\bin\vite.js build`, ""}, nil, GroupBuild, "Build"},
+		"vite's script serving":           {[]string{"node.exe"}, []string{`node.exe frontend\node_modules\vite\bin\vite.js`}, []int{5173}, GroupDevServer, "Dev server :5173"},
+		"another script in vite's folder": {[]string{"node.exe"}, []string{`node frontend\node_modules\vite\bin\other.js build`}, nil, GroupOther, `node frontend\node_modules\vite\bin\other.js build`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
