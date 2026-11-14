@@ -13,15 +13,16 @@ const PROMPT = "Your fly.io email:";
 // A program that printed 500 lines and waits for input on the line under them.
 const PRINTED = Array.from({ length: 500 }, (_, index) => "line " + (index + 1)).join("\r\n") + "\r\n" + PROMPT + " ";
 
-interface Relay { typed: string[]; size: { cols: number; rows: number }; send: (...messages: (string | Buffer)[]) => void }
+interface Relay { typed: string[]; size: { cols: number; rows: number }; send: (...messages: (string | Buffer)[]) => void; close: (code: number, reason: string) => Promise<void> }
 
 // openTerminal stands in for the board's relay: the terminal takes each size
 // the view claims, and after the first prints output.
 async function openTerminal(page: Page, output: string): Promise<Relay> {
-  const relay: Relay = { typed: [], size: { cols: 0, rows: 0 }, send: () => {} };
+  const relay: Relay = { typed: [], size: { cols: 0, rows: 0 }, send: () => {}, close: async () => {} };
   await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
     let isPrinted = false;
     relay.send = (...messages) => { for (const message of messages) socket.send(message); };
+    relay.close = (code, reason) => socket.close({ code, reason });
     socket.send(JSON.stringify({ type: "history", bytes: 0 }));
     socket.onMessage((data) => {
       if (typeof data !== "string") { relay.typed.push(data.toString("utf8")); return; }
@@ -109,6 +110,25 @@ test("typing while he reads the history types on the line and returns to the liv
   await expect(pin(page)).toBeHidden();
   await expect(jump(page)).toHaveCount(0);
   await expect(screenRows(page)).toContainText(PROMPT);
+});
+
+test("a key typed while he reads a closed terminal's history leaves him where he reads", async ({ page }) => {
+  // Arrange
+  const relay = await openTerminal(page, PRINTED);
+  await readHistory(page);
+  await relay.close(1000, "The terminal ended with exit code 0.");
+  await expect(page.getByText("The terminal ended with exit code 0.")).toBeVisible();
+  const top = await screenRows(page).locator("> div").first().textContent();
+
+  // Act
+  await page.keyboard.type("m");
+
+  // Assert: the key is not sent, and the view stays on the history.
+  await expect(page.getByText("Not sent. The terminal is closed.")).toBeVisible();
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  expect(relay.typed).toEqual([]);
+  await expect(pin(page)).toBeVisible();
+  await expect(screenRows(page).locator("> div").first()).toHaveText(top!);
 });
 
 test("Jump to bottom returns to the live end with the keyboard in the terminal", async ({ page }) => {
