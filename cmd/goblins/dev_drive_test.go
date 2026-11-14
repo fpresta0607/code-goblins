@@ -322,6 +322,36 @@ func TestDevDriveSaysHowMuchOfTheSystemDriveItsFileHolds(t *testing.T) {
 	}
 }
 
+// goblins dev-drive says what the drive's startup task did since the boot,
+// from the result it writes beside the drive's file, which is where the
+// person reads whether the last restart attached the drive by itself.
+func TestDevDriveSaysWhatTheStartupTaskDid(t *testing.T) {
+	// Arrange
+	root := t.TempDir()
+	t.Setenv("GOBLINS_HOME", root)
+	t.Setenv("GOBLINS_STATE_OVERRIDE", "")
+	vhd := filepath.Join(t.TempDir(), "CodeGoblins.vhdx")
+	if err := home.WriteDevDriveConfig(root, home.DevDriveConfig{Root: `E:\CodeGoblins`, VHD: vhd}); err != nil {
+		t.Fatal(err)
+	}
+	runtime := runtimeOn(t, machineWith(devdrive.Volume{Root: `E:\`, FileSystem: "ReFS", Dev: true, Trust: devdrive.Trusted}))
+	finished := time.Now().UTC().Truncate(time.Second)
+	result := `{"started": "` + finished.Add(-time.Second).Format(time.RFC3339) + `", "finished": "` + finished.Format(time.RFC3339) + `", "attached": true, "letter": "E:", "tries": 2, "errors": ["try 1: The device is not ready."]}`
+	if err := os.WriteFile(devdrive.AttachResultPath(vhd), []byte(result), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"dev-drive"}, &stdout, &stderr, runtime)
+
+	// Assert
+	want := "it attached E: at " + finished.Format(time.RFC3339) + ", on try 2 of 12"
+	if exit != 0 || !strings.Contains(stdout.String(), "\nstartup task: since this boot at ") || !strings.Contains(stdout.String(), want) {
+		t.Errorf("goblins dev-drive = %d, %q, %q; want the startup task line saying %q", exit, stdout.String(), stderr.String(), want)
+	}
+}
+
 // A refused move changes nothing and says why.
 func TestDevDriveMoveRefusesADriveThatIsNoDevDrive(t *testing.T) {
 	root := t.TempDir()

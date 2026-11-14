@@ -18,14 +18,14 @@ func TestAnExistingDevDriveIsReusedTrustedFirstThenTheRoomiest(t *testing.T) {
 		Volume{Root: `H:\`, FileSystem: "ReFS", Free: 900 * gigabyte})
 
 	// Act
-	report := Describe(m, home.Home{Root: `C:\Users\op\AppData\Local\CodeGoblins`})
+	report := Describe(m, home.Home{Root: `C:\Users\op\AppData\Local\CodeGoblins`}, "")
 
 	// Assert: room on C: does not matter when no new drive is made.
 	if report.State != StatePresent || report.Volume.Root != `G:\` || report.Untrusted() || !strings.Contains(report.Line, `G:\CodeGoblins`) {
 		t.Errorf("report = %+v, want G:, the roomiest trusted Dev Drive", report)
 	}
 	m.Volumes = m.Volumes[:2]
-	if report := Describe(m, home.Home{}); report.Volume.Root != `E:\` || !report.Untrusted() || !strings.Contains(report.Line, "does not trust") {
+	if report := Describe(m, home.Home{}, ""); report.Volume.Root != `E:\` || !report.Untrusted() || !strings.Contains(report.Line, "does not trust") {
 		t.Errorf("report = %+v, want the untrusted E: named as untrusted", report)
 	}
 }
@@ -44,7 +44,7 @@ func TestAHomeOnItsDevDriveIsOnOrMissing(t *testing.T) {
 		"on a plain drive":       {home.Home{Root: moved.Root, DevDrive: `C:\CodeGoblins`}, StateOn, "not a Dev Drive"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if report := Describe(m, test.home); report.State != test.state || !strings.Contains(report.Line, test.says) {
+			if report := Describe(m, test.home, ""); report.State != test.state || !strings.Contains(report.Line, test.says) {
 				t.Errorf("report = %+v, want %s saying %q", report, test.state, test.says)
 			}
 		})
@@ -86,7 +86,7 @@ func TestEveryStateHasOneShortNoteForTheBoard(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Act
-			report := Describe(test.machine, test.home)
+			report := Describe(test.machine, test.home, "")
 
 			// Assert
 			if report.Note != test.note {
@@ -120,7 +120,7 @@ func TestADevDriveInAFileSaysHowMuchOfItsDriveTheFileHolds(t *testing.T) {
 			moved := home.Home{Root: `C:\Users\op\AppData\Local\CodeGoblins`, DevDrive: `D:\CodeGoblins`}
 
 			// Act
-			report := Describe(m, moved)
+			report := Describe(m, moved, "")
 
 			// Assert
 			note := `The worktrees and caches are on D:\CodeGoblins.`

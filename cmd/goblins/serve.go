@@ -19,6 +19,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/boardweb"
+	"github.com/fpresta0607/code-goblins/internal/devdrive"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/gatedb"
@@ -211,7 +212,9 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		restartWindows = supervisor.RestartWindows
 		// The board's Dev Drive setting reads this machine; an example board
 		// shows none.
-		devDrive = &supervisor.DevDrive{Read: runtime.readDevDrive, GateHome: runtime.gateHome}
+		devDrive = &supervisor.DevDrive{Read: runtime.readDevDrive, GateHome: runtime.gateHome, Boot: devdrive.BootTime,
+			StartTask:   func(ctx context.Context) error { return devdrive.StartTask(ctx, execx.OSRunner{}) },
+			TaskCurrent: func(ctx context.Context) (bool, error) { return devdrive.TaskCurrent(ctx, execx.OSRunner{}) }}
 		// The board's Start at login is the setting the install, the setup
 		// and the desktop window's tray change.
 		login := boardStartAtLogin(h)

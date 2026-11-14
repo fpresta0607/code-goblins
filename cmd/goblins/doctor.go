@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -249,10 +250,12 @@ func reportDevDrive(stdout io.Writer, runtime commandRuntime) {
 	if err != nil {
 		return
 	}
-	if m, err := runtime.readDevDrive(context.Background()); err != nil {
+	m, err := runtime.readDevDrive(context.Background())
+	config, configErr := home.ReadDevDriveConfig(h.Root)
+	if err = errors.Join(err, configErr); err != nil {
 		fmt.Fprintf(stdout, "dev drive: unreadable (%v)\n", err)
 	} else {
-		report := devdrive.Describe(m, h)
+		report := devdrive.Describe(m, h, config.VHD)
 		line := "dev drive: " + report.Line
 		if report.File != "" {
 			line += " (file: " + report.File + ")"

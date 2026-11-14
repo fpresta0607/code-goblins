@@ -20,7 +20,14 @@ import (
 var (
 	getCompressedFileSize           = windows.NewLazySystemDLL("kernel32.dll").NewProc("GetCompressedFileSizeW")
 	getStorageDependencyInformation = windows.NewLazySystemDLL("virtdisk.dll").NewProc("GetStorageDependencyInformation")
+	getTickCount64                  = windows.NewLazySystemDLL("kernel32.dll").NewProc("GetTickCount64")
 )
+
+// BootTime is when Windows last started: now less the time it has run.
+func BootTime() time.Time {
+	milliseconds, _, _ := getTickCount64.Call()
+	return time.Now().Add(-time.Duration(milliseconds) * time.Millisecond)
+}
 
 // Read reads this machine without administrator rights: the Windows build
 // from the registry, Defender's real-time protection from Get-MpComputerStatus,

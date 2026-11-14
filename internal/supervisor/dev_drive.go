@@ -20,13 +20,23 @@ import (
 // set one up; without it the board shows neither. Every step that needs a
 // person is one of those items, made here, in order, one at a time: create
 // the drive, trust it, move the home's heavy folders onto it, and attach it
-// again whenever Windows did not.
+// again whenever its startup task did not.
 type DevDrive struct {
 	// Read reads what this machine says about Dev Drives.
 	Read func(context.Context) (devdrive.Machine, error)
 	// GateHome is where the gate's home is now (gatehome.Root); without it
 	// the board offers no step for the gate's home.
 	GateHome func() (string, error)
+	// Boot is when the machine last started (devdrive.BootTime); without it
+	// the attach item comes once, until the person asks again.
+	Boot func() time.Time
+	// StartTask starts the drive's startup task without elevation
+	// (devdrive.StartTask); without it a missing drive gets the attach item
+	// at once.
+	StartTask func(context.Context) error
+	// TaskCurrent says whether the startup task is the one this build
+	// registers (devdrive.TaskCurrent); without it no item renews the task.
+	TaskCurrent func(context.Context) (bool, error)
 }
 
 // DevDriveView is the Dev Drive as the board's Workspace panel shows it.
@@ -50,10 +60,6 @@ const (
 	devDriveTryAgain = "try-again"
 	devDriveAttach   = "attach"
 )
-
-// devDriveAttachEvery is how often the attach item comes back by itself while
-// the drive stays missing and nobody ran the last one.
-const devDriveAttachEvery = 12 * time.Hour
 
 // watchDevDrive keeps the Dev Drive's view and items to the machine: now,
 // every minute while a step is under way and every half hour otherwise,
@@ -142,9 +148,13 @@ func (s *Service) devDriveStep(ctx context.Context) (*DevDriveView, bool, error)
 	}
 	h := s.Store.Home
 	h.DevDrive = config.Root
-	report := devdrive.Describe(m, h)
+	report := devdrive.Describe(m, h, config.VHD)
 	view := &DevDriveView{State: string(report.State), Line: report.Line, Note: report.Note, Explain: devdrive.Explain, Choice: config.Choice}
-	if waiting := s.devDriveWaiting(); waiting != "" {
+	waiting := s.devDriveWaiting()
+	if waiting == string(devdrive.StepAttach) && report.State == devdrive.StateMissing {
+		view.Line = devdrive.MissingLine(config.Root, devdrive.AttachByItem)
+	}
+	if waiting != "" {
 		view.Waiting = waiting
 		return view, true, nil
 	}
@@ -156,20 +166,45 @@ func (s *Service) devDriveStep(ctx context.Context) (*DevDriveView, bool, error)
 		}
 		shouldMoveGateHome = gatehome.Read(gateRoot, config.Root).ShouldMove()
 	}
-	plan, needed := devdrive.Next(m, h, config, shouldMoveGateHome)
+	// A startup task registered before this build's is renewed by one item,
+	// made once: from then on the task attaches the drive at boot and the
+	// board may start it.
+	var shouldRenewTask bool
+	if _, isAttached := m.VolumeOf(config.Root); config.Root != "" && isAttached && config.VHD != "" && config.Offered[string(devdrive.StepTask)].IsZero() && s.Options.DevDrive.TaskCurrent != nil {
+		isCurrent, err := s.Options.DevDrive.TaskCurrent(ctx)
+		if err != nil {
+			return nil, false, err
+		}
+		shouldRenewTask = !isCurrent
+	}
+	plan, needed := devdrive.Next(m, h, config, shouldMoveGateHome, shouldRenewTask)
 	if !needed {
 		return view, false, nil
 	}
 	now := time.Now().UTC()
 	offered := config.Offered[string(plan.Step)]
 	due := config.Choice == home.DevDriveWanted && offered.Before(config.AskedAt)
-	if plan.Step == devdrive.StepAttach {
-		due = offered.Before(config.AskedAt) || offered.Before(now.Add(-devDriveAttachEvery))
+	switch plan.Step {
+	case devdrive.StepTask:
+		due = true
+	case devdrive.StepAttach:
+		// A missing drive is looked after once for each boot and each ask:
+		// its startup task first, which needs no click, then one item.
+		since := s.devDriveBoot()
+		if config.AskedAt.After(since) {
+			since = config.AskedAt
+		}
+		due = offered.IsZero() || offered.Before(since)
+		if due && s.attachingDevDrive(ctx, config.VHD, since, now) {
+			view.Line = devdrive.MissingLine(config.Root, devdrive.AttachByTask)
+			return view, true, nil
+		}
 	}
 	if !due {
 		switch {
 		case plan.Step == devdrive.StepAttach:
 			view.Action = devDriveAttach
+			view.Line = devdrive.MissingLine(config.Root, devdrive.AttachByPanel)
 		case config.Choice == home.DevDriveWanted:
 			view.Action = devDriveTryAgain
 		default:
@@ -191,7 +226,41 @@ func (s *Service) devDriveStep(ctx context.Context) (*DevDriveView, bool, error)
 		return nil, false, err
 	}
 	view.Waiting = string(plan.Step)
+	if plan.Step == devdrive.StepAttach {
+		view.Line = devdrive.MissingLine(config.Root, devdrive.AttachByItem)
+	}
 	return view, true, nil
+}
+
+// devDriveBoot is when the machine last started, the zero time without Boot.
+func (s *Service) devDriveBoot() time.Time {
+	if s.Options.DevDrive.Boot == nil {
+		return time.Time{}
+	}
+	return s.Options.DevDrive.Boot()
+}
+
+// attachingDevDrive starts the missing drive's startup task once since since,
+// the boot or the person's last ask, and says whether the task is attaching
+// it still: started, with no result written since and AttachBound not yet
+// past. A task the board may not start, as one registered before this build
+// is, attaches nothing, so its item comes at once. A result that cannot be
+// read is waited for until the bound.
+func (s *Service) attachingDevDrive(ctx context.Context, vhd string, since, now time.Time) bool {
+	if s.Options.DevDrive.StartTask == nil {
+		return false
+	}
+	if s.devDriveStarted.Before(since) {
+		s.devDriveStarted = now
+		err := s.Options.DevDrive.StartTask(ctx)
+		s.isDevDriveStartRefused = err != nil
+		return err == nil
+	}
+	if s.isDevDriveStartRefused || now.Sub(s.devDriveStarted) >= devdrive.AttachBound {
+		return false
+	}
+	result, isWritten, err := devdrive.ReadAttachResult(vhd)
+	return err != nil || !isWritten || result.Finished.Before(s.devDriveStarted)
 }
 
 // devDriveWaiting is the step of the Dev Drive item that waits or runs, or "".

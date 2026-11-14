@@ -30,6 +30,9 @@ func TestADevDriveCodeGoblinsMadeGoesAsAdministratorAndOneThePersonHadKeepsAllBu
 				t.Errorf("%s is not an administrator's part that reads itself back: %q", item.What, item.Script)
 			}
 		}
+		if !strings.Contains(items[1].Script, "CodeGoblins-attach.ps1") || !strings.Contains(items[1].Script, "CodeGoblins-attach.json") {
+			t.Errorf("the task's part leaves the script it runs and the result it writes, so its folder never empties:\n%s", items[1].Script)
+		}
 		if !strings.Contains(items[0].Script, "Dismount-DiskImage") || !strings.Contains(items[0].Script, "mountvol.exe") || !strings.Contains(items[1].Script, "Unregister-ScheduledTask") {
 			t.Errorf("the scripts do not detach the drive, free its letter and remove its task:\n%s\n%s", items[0].Script, items[1].Script)
 		}
