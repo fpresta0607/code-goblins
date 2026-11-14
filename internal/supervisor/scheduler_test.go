@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -182,7 +183,7 @@ func TestMemoryReadyWaitsWhileANewGoblinWouldTakeTheTestSlotsMemory(t *testing.T
 	s, h := fleetService(t)
 	meter := &memoryReadings{}
 	hold := "6.0 GB of memory and commit is free; the next test run needs 8.0 GB and a new goblin 1 GB"
-	s.Options.Dispatch = &Dispatch{Memory: meter.read, HeavyLine: func(Memory) (string, error) { return hold, nil }}
+	s.Options.Dispatch = &Dispatch{Memory: meter.read, HeavyLine: func(Memory) (LineRoom, error) { return LineRoom{Hold: hold}, nil }}
 	queueBriefedTask(t, h, "- **next-task** - Ship it (repo: code-goblins)", plainBrief)
 	now := time.Date(2026, 11, 2, 19, 38, 0, 0, time.UTC)
 	over := [2]float64{6, 6}
@@ -195,5 +196,33 @@ func TestMemoryReadyWaitsWhileANewGoblinWouldTakeTheTestSlotsMemory(t *testing.T
 	// Assert
 	if wokeHeld != 0 || wokeClear != 1 {
 		t.Fatalf("memory_ready woke %d times while a new goblin would take the test slots' memory and %d once it would not, want none and then one", wokeHeld, wokeClear)
+	}
+}
+
+// memory_ready names the floor it kept for the heavy line's next test run and
+// how many runs wait there, which is the rule it woke by, so it never reads as
+// a start at the 5 GB mark while the line refuses one (#2369).
+func TestMemoryReadyNamesTheFloorItKeptAndTheRunsWaiting(t *testing.T) {
+	// Arrange
+	s, h := fleetService(t)
+	meter := &memoryReadings{}
+	s.Options.Dispatch = &Dispatch{Memory: meter.read, HeavyLine: MachineHeavyLine}
+	heavyLine(t, 2, 6*gigabyte)
+	queueBriefedTask(t, h, "- **next-task** - Ship it (repo: code-goblins)", plainBrief)
+	now := time.Date(2026, 11, 11, 16, 0, 0, 0, time.UTC)
+	over := [2]float64{9.5, 10}
+
+	// Act
+	woke := readMemory(t, s, h, meter, &now, over, over)
+
+	// Assert
+	if woke != 1 {
+		t.Fatalf("memory_ready woke %d times, want one", woke)
+	}
+	detail := fleetWakeRecords(t, h, "memory")[0].Detail
+	for _, want := range []string{"9.5 GB of memory and 10.0 GB of commit are free", "keep the next test run's 8.0 GB floor and 1 GB for a new goblin, with 1 run waiting in the test line", "next: dispatch the next queued task, next-task"} {
+		if !strings.Contains(detail, want) {
+			t.Errorf("memory wake %q lacks %q", detail, want)
+		}
 	}
 }

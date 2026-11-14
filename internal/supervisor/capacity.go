@@ -60,17 +60,27 @@ func SlotHold(floor uint64, memory Memory) string {
 	return fmt.Sprintf("%.1f GB of memory and commit is free; the next test run needs %.1f GB and a new goblin 1 GB", gigabytes(free), gigabytes(floor))
 }
 
-// MachineHeavyLine is SlotHold at the reading memory for the next run of the
-// machine's heavy line: the run at its head, or one of the default estimate
-// when none waits.
-func MachineHeavyLine(memory Memory) (string, error) {
+// LineRoom is the room the machine's heavy line keeps at a reading of
+// memory: Hold, as SlotHold says it, the Floor its next test run needs free,
+// which is zero when the line is not read, and how many runs are Waiting in
+// it.
+type LineRoom struct {
+	Hold    string
+	Floor   uint64
+	Waiting int
+}
+
+// MachineHeavyLine is the room the machine's heavy line keeps at the reading
+// memory for its next run: the run at its head, or one of the default
+// estimate when none waits.
+func MachineHeavyLine(memory Memory) (LineRoom, error) {
 	dir, err := verify.AdmissionDir()
 	if err != nil {
-		return "", err
+		return LineRoom{}, err
 	}
 	_, waiting, err := verify.Line(dir)
 	if err != nil {
-		return "", err
+		return LineRoom{}, err
 	}
 	var estimate uint64
 	if len(waiting) > 0 {
@@ -78,9 +88,9 @@ func MachineHeavyLine(memory Memory) (string, error) {
 	}
 	floor, err := verify.HeadFloor(dir, estimate, 0)
 	if err != nil {
-		return "", err
+		return LineRoom{}, err
 	}
-	return SlotHold(floor, memory), nil
+	return LineRoom{Hold: SlotHold(floor, memory), Floor: floor, Waiting: len(waiting)}, nil
 }
 
 // MachineLineStall says how the machine's heavy line stands still at the
@@ -122,19 +132,21 @@ func MachineLineStall(memory Memory) (string, error) {
 	return stall, nil
 }
 
-// heavyLineHold says why the supervisor starts and resumes no goblin by
-// itself at this reading, as SlotHold says it, or "" when it may or the line
-// is not read. A line that cannot be read holds nothing, as processors that
-// cannot be read hold nothing, and is reported once it stays unread
-// failingPasses readings in a row.
-func (s *Service) heavyLineHold(w *fleetWakes, memory Memory) (string, error) {
+// heavyLineRoom is the room the machine's heavy line keeps at this reading,
+// whose Hold says why the supervisor starts and resumes no goblin by itself,
+// as SlotHold says it, or is "" when it may or the line is not read. A line
+// that cannot be read holds nothing, as processors that cannot be read hold
+// nothing, and is reported once it stays unread failingPasses readings in a
+// row.
+func (s *Service) heavyLineRoom(w *fleetWakes, memory Memory) (LineRoom, error) {
 	dispatch := s.Options.Dispatch
 	if dispatch == nil || dispatch.HeavyLine == nil {
-		return "", nil
+		return LineRoom{}, nil
 	}
-	hold, err := dispatch.HeavyLine(memory)
+	room, err := dispatch.HeavyLine(memory)
 	if err != nil {
+		room = LineRoom{}
 		err = fmt.Errorf("the machine's heavy line cannot be read, so no start waits on it: %w", err)
 	}
-	return hold, w.failing("heavy-line", err)
+	return room, w.failing("heavy-line", err)
 }

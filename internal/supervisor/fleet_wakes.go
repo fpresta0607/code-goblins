@@ -446,7 +446,8 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	if update.Installing(s.Store.Home.State) {
 		return errors.Join(planningErr, stallErr)
 	}
-	hold, lineErr := s.heavyLineHold(w, memory)
+	room, lineErr := s.heavyLineRoom(w, memory)
+	hold := room.Hold
 	// What a restart ended comes back before anything else starts by itself, and no
 	// memory wake offers its room to other work while it does.
 	if planningErr == nil {
@@ -475,7 +476,7 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	if len(queued) == 0 && len(waiting) == 0 {
 		return planningErr
 	}
-	if err := raiseFleetWake(s.Store.Home.State, "memory", "memory", memoryReadyDetail(memory, queued, waiting)); err != nil {
+	if err := raiseFleetWake(s.Store.Home.State, "memory", "memory", memoryReadyDetail(memory, room, queued, waiting)); err != nil {
 		return errors.Join(planningErr, err)
 	}
 	w.MemorySpent = true
@@ -681,8 +682,11 @@ func inProgressOrder(h home.Home) ([]state.TaskMeta, error) {
 	return tasks, err
 }
 
-// memoryReadyDetail is the memory_ready wake, which says what to do next.
-func memoryReadyDetail(memory Memory, queued, waiting []string) string {
+// memoryReadyDetail is the memory_ready wake, which names the floor it kept
+// for the heavy line's next test run and how many runs wait there, the rule
+// it woke by, and says what to do next. On 2026-11-11 a wake that named only
+// the 5 GB mark read as a start the line refused (#2369).
+func memoryReadyDetail(memory Memory, room LineRoom, queued, waiting []string) string {
 	var next []string
 	if len(queued) > 0 {
 		step := "dispatch the next queued task, " + queued[0]
@@ -694,8 +698,16 @@ func memoryReadyDetail(memory Memory, queued, waiting []string) string {
 	if len(waiting) > 0 {
 		next = append(next, "tell "+strings.Join(waiting, ", ")+" that the memory its heavy work waits on is free")
 	}
-	return fmt.Sprintf("memory_ready: %.1f GB of memory and %.1f GB of commit are free, both at or above the 5 GB mark on two readings in a row; next: %s",
-		gigabytes(memory.Available), gigabytes(memory.CommitAvailable), strings.Join(next, ", and "))
+	kept := ""
+	if room.Floor > 0 {
+		runs := fmt.Sprintf("%d runs", room.Waiting)
+		if room.Waiting == 1 {
+			runs = "1 run"
+		}
+		kept = fmt.Sprintf(", and they keep the next test run's %.1f GB floor and 1 GB for a new goblin, with %s waiting in the test line", gigabytes(room.Floor), runs)
+	}
+	return fmt.Sprintf("memory_ready: %.1f GB of memory and %.1f GB of commit are free, both at or above the 5 GB mark on two readings in a row%s; next: %s",
+		gigabytes(memory.Available), gigabytes(memory.CommitAvailable), kept, strings.Join(next, ", and "))
 }
 
 // gigabytes rounds bytes down to a tenth of a gigabyte, so memory just under
