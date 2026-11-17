@@ -91,3 +91,45 @@ func TestAnInstanceIsTheBootIDAndTheStartTicksOfItsProcess(t *testing.T) {
 		t.Errorf("the instance %q holds a space, and a waiter's ticket parts its fields at one", instance)
 	}
 }
+
+// A process whose exec has not yet set up its environment shows its end as
+// 0, as a kernel thread does, which never has one; a kernel older than 3.5
+// shows no end at all.
+func TestParseStatusTellsAnExecSettingUpItsEnvironmentFromAKernelThread(t *testing.T) {
+	for _, test := range []struct {
+		name            string
+		flags, end      string
+		fields          int
+		shouldBePending bool
+	}{
+		{"exec in progress", "4194560", "0", 49, true},
+		{"environment set up, empty or not", "4194560", "140735", 49, false},
+		{"kernel thread", "2129984", "0", 49, false},
+		{"kernel before 3.5", "4194560", "", 41, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange: the fields after the name, the state first.
+			fields := make([]string, test.fields)
+			for index := range fields {
+				fields[index] = "0"
+			}
+			fields[0] = "R"
+			fields[6] = test.flags
+			if test.end != "" {
+				fields[48] = test.end
+			}
+			line := []byte("42 (a (name) here) " + strings.Join(fields, " ") + "\n")
+
+			// Act
+			read, err := parseStatus(line)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if read.isEnvironmentPending != test.shouldBePending {
+				t.Errorf("isEnvironmentPending = %t, want %t", read.isEnvironmentPending, test.shouldBePending)
+			}
+		})
+	}
+}

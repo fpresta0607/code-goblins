@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
@@ -32,12 +33,24 @@ func Arguments(pid int) ([]string, error) {
 // set for itself since is in its own memory, which /proc does not show.
 // Environment is private input to a scoped connection check. Callers must
 // verify process ownership and must never serialize or log this value.
+// /proc shows a process part-way through its exec, whose new program has no
+// environment yet, as started with none, so such a process is read again
+// until its exec has set the environment up, for at most a second.
 func Environment(pid int) ([]string, error) {
-	environment, err := readList(pid, "environ")
-	if err != nil {
-		return nil, fmt.Errorf("process environment unavailable: %v", err)
+	deadline := time.Now().Add(time.Second)
+	for {
+		environment, err := readList(pid, "environ")
+		if err != nil {
+			return nil, fmt.Errorf("process environment unavailable: %v", err)
+		}
+		if len(environment) > 0 || time.Now().After(deadline) {
+			return environment, nil
+		}
+		if read, err := readStatus(pid); err != nil || !read.isEnvironmentPending {
+			return environment, nil
+		}
+		time.Sleep(time.Millisecond)
 	}
-	return environment, nil
 }
 
 // readList reads a file of /proc/<pid> that holds strings each ended by a
