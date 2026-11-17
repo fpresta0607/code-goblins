@@ -9,7 +9,7 @@ const LONGEST_SIDE = 2048;
 // pngOf draws a picture as a PNG of at most LONGEST_SIDE a side, upright as
 // the device shows it, whatever it came as: a photo library's JPEG or a
 // screenshot's PNG.
-async function pngOf(picture: Blob): Promise<Blob> {
+export async function pngOf(picture: Blob): Promise<Blob> {
   const bitmap = await createImageBitmap(picture).catch(() => { throw new Error("That picture could not be read, so nothing was added."); });
   const scale = Math.min(1, LONGEST_SIDE / Math.max(bitmap.width, bitmap.height));
   const canvas = document.createElement("canvas");

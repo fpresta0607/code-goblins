@@ -68,6 +68,19 @@ export function filesOf(data: DataTransfer | null): File[] {
   });
 }
 
+// A picture a paste's HTML holds inline as base64 PNG data, as a selection
+// copied from a conversation holds each of its pictures (#2543).
+const INLINE_PICTURE = /^data:image\/png;base64,((?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?)$/;
+
+// inlinePictures is the pictures a paste's HTML holds inline, in their order.
+export function inlinePictures(html: string): File[] {
+  if (!html.includes("data:image/png;base64,")) return [];
+  return Array.from(new DOMParser().parseFromString(html, "text/html").images).flatMap((image) => {
+    const data = INLINE_PICTURE.exec(image.getAttribute("src") ?? "")?.[1];
+    return data ? [new File([Uint8Array.from(atob(data), (character) => character.charCodeAt(0))], "pasted.png", { type: "image/png" })] : [];
+  });
+}
+
 // clipboardPicture reads the picture the clipboard holds, for a phone's
 // Paste a picture: an iPhone offers its own Paste in a plain text box only
 // for text (WebKit's supportedPasteboardTypesForCurrentSelection), so a
