@@ -253,7 +253,7 @@ The card is `goblins auth request --project <p> --task <its id> --why "<what it 
 - A step that is a click is a `--step`, as few as the step needs.
   A card that asks for nothing has a Done button.
 - A message he sends himself, such as an email, goes in a file named with `--message-file`, never as a step that points at the file.
-  His card shows its body with Copy, and Copy subject when it has a subject.
+  His card shows its body, and its subject when it has one, each with a copy icon.
 - When the step must happen inside the goblin's own browser, such as a sign-in its session keeps, `--window` gives the card Take control, which opens the link in that browser and shows its screen on the card, where he takes the step and hands the browser back with a few words, which the wait prints.
   The browser runs on a profile in the task's folder, so it keeps what he did there.
 
@@ -267,7 +267,7 @@ In the desktop window it opens File Explorer at that folder, with the file selec
 In a plain browser, where that cannot work, the link copies the path instead, and its folder turns into a check once it has.
 Every Command Center card has a way out beside its decision buttons.
 A question, a review with an answer box, or a Scrawl review card, which has no box for words since he answers on its page, has Skip.
-Every other card, a command, a wait with no page, or a credential or step card, has Skip, which tells its goblin to go on without it and wakes you, and a pencil, Something else?, that opens a small window whose green Send gives whoever asked his written or dictated answer, with any pictures he pasted named as `Image: <path>` lines.
+Every other card, a command, a wait with no page, or a credential or step card, has Skip, which tells its goblin to go on without it and wakes you, and a pencil, Something else?, that opens a small window whose green Send gives whoever asked his written or dictated answer, with the path of each file he added on a line of its own; a long answer arrives as `My whole answer is in <path>. It begins: ...`, so read that file whole (see [Deliberate CEO questions](../native-board.md#deliberate-ceo-questions)).
 The card's place then shows one line with the command to give its secret later, `goblins auth store --project <p> <NAME>`, or, for a card with no secret left, `goblins auth request --reopen <card>`, which you or its goblin run to bring it back: the goblin is told to wait on it again.
 
 ### Status words are earned
