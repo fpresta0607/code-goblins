@@ -200,6 +200,8 @@ func (t *Tree) readMembers() (members []proc.Entry, hasProcessEnded bool, err er
 				state = markReadEmpty
 			case err == nil && isMarked(environment, t.mark):
 				state = markCarried
+			case err == nil:
+				state = markAbsent
 			default:
 				if _, lookupErr := proc.Lookup(process.PID); errors.Is(lookupErr, fs.ErrNotExist) {
 					hasProcessEnded = true

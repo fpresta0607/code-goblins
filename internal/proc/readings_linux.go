@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -85,19 +86,28 @@ func isStartingAsThisUser(pid int, read status) bool {
 	if err != nil {
 		return false
 	}
-	seconds, _, _ := bytes.Cut(bytes.TrimSpace(uptime), []byte(" "))
-	now, err := strconv.ParseFloat(string(seconds), 64)
-	if err != nil || now*ticksPerSecond-float64(read.started) >= ticksPerSecond {
-		return false
-	}
 	lines, err := fsx.ReadKernelFile(fmt.Sprintf("/proc/%d/status", pid))
 	if err != nil {
+		return false
+	}
+	return isStartingAs(uptime, lines, read.started, os.Getuid())
+}
+
+// isStartingAs reports whether a process started that many ticks after the
+// machine, whose /proc/<pid>/status reads as lines, started less than a
+// second before the machine's /proc/uptime read as uptime, and runs wholly
+// as user: a setuid program keeps the user's real ID and still refuses its
+// environment for good.
+func isStartingAs(uptime, lines []byte, started uint64, user int) bool {
+	seconds, _, _ := bytes.Cut(bytes.TrimSpace(uptime), []byte(" "))
+	now, err := strconv.ParseFloat(string(seconds), 64)
+	if err != nil || now*ticksPerSecond-float64(started) >= ticksPerSecond {
 		return false
 	}
 	for line := range bytes.Lines(lines) {
 		if value, isUser := bytes.CutPrefix(line, []byte("Uid:")); isUser {
 			users := bytes.Fields(value)
-			return len(users) > 0 && string(users[0]) == strconv.Itoa(os.Getuid())
+			return len(users) > 0 && !slices.ContainsFunc(users, func(id []byte) bool { return string(id) != strconv.Itoa(user) })
 		}
 	}
 	return false

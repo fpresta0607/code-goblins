@@ -133,3 +133,46 @@ func TestParseStatusTellsAnExecSettingUpItsEnvironmentFromAKernelThread(t *testi
 		})
 	}
 }
+
+// A process refused to its own user is read again only while its exec may
+// still be setting it up: when it runs wholly as this user, as proc(5)'s
+// Uid: line gives its real, effective, saved and filesystem IDs, and
+// started under a second before the machine's uptime, both read in
+// hundredths of a second.
+func TestARefusedProcessIsReadAgainOnlyWhileItStartsAsThisUser(t *testing.T) {
+	const (
+		user   = 1000
+		uptime = "1000.50 3000.00\n"
+	)
+	for _, test := range []struct {
+		name          string
+		uptime        string
+		uids          string
+		started       uint64
+		shouldBeRetry bool
+	}{
+		{"young process of this user", uptime, "1000\t1000\t1000\t1000", 100000, true},
+		{"a second old", uptime, "1000\t1000\t1000\t1000", 99950, false},
+		{"another user's", uptime, "1001\t1001\t1001\t1001", 100000, false},
+		{"setuid, its effective user root", uptime, "1000\t0\t0\t0", 100000, false},
+		{"unreadable uptime", "", "1000\t1000\t1000\t1000", 100000, false},
+		{"status with no Uid: line", uptime, "", 100000, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			lines := "Name:\tsh\nState:\tR (running)\n"
+			if test.uids != "" {
+				lines += "Uid:\t" + test.uids + "\n"
+			}
+			lines += "Gid:\t1000\t1000\t1000\t1000\n"
+
+			// Act
+			isRetry := isStartingAs([]byte(test.uptime), []byte(lines), test.started, user)
+
+			// Assert
+			if isRetry != test.shouldBeRetry {
+				t.Errorf("isStartingAs = %t, want %t", isRetry, test.shouldBeRetry)
+			}
+		})
+	}
+}
