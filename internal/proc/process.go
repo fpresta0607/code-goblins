@@ -11,8 +11,11 @@ import (
 type Entry struct {
 	PID       int
 	ParentPID int
-	ExeBase   string
-	Start     time.Time
+	// Group is the process group it is in, off Windows, where a tree of
+	// processes is found by it (execx.StartTree). Windows leaves it 0.
+	Group   int
+	ExeBase string
+	Start   time.Time
 }
 
 // Self returns the current process's PID.

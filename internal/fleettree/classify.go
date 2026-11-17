@@ -17,12 +17,13 @@ var shells = []string{"bash", "sh", "cmd", "powershell", "pwsh", "conhost", "tim
 
 // testCommands and buildCommands are what a job's command lines run when it
 // tests or builds. A Go test binary is also named by its image, pkg.test.exe.
-// A test runner is also named by the script node runs for it, as its shim or
-// a script of the goblin's own starts it: @playwright/test/cli.js test,
-// npm/bin/npm-cli.js test, pnpm.cjs test (#1617).
+// A test runner or builder is also named by the script node runs for it, as
+// its shim or a script of the goblin's own starts it: @playwright/test/cli.js
+// test, npm/bin/npm-cli.js test, pnpm.cjs test (#1617), npm-cli.js run build,
+// vite/bin/vite.js build (#2042).
 var (
 	testCommands  = regexp.MustCompile(`(?i)(\bgo(\.exe)?"?\s+test\b|\bgo(\.exe)?"?\s+vet\b|\bvitest\b|\bjest\b|\bplaywright(\.cmd|([\\/]test)?[\\/]cli\.js)?"?\s+test\b|\bpytest\b|\b(npm|pnpm|yarn)(\.cmd|-cli\.js|\.c?js)?"?\s+(run\s+)?test\b|\bcargo\s+test\b|\bdotnet\s+test\b|\bgoblins(\.exe)?"?\s+gate\s+test\b)`)
-	buildCommands = regexp.MustCompile(`(?i)(\bgo(\.exe)?"?\s+build\b|\b(npm|pnpm|yarn)(\.cmd)?"?\s+(run\s+)?build\b|\bvite(\.cmd)?"?\s+build\b|\btsc(\.cmd)?"?(\s|$)|\bcargo\s+build\b|\bdotnet\s+build\b|\bmsbuild\b|\bwebpack\b)`)
+	buildCommands = regexp.MustCompile(`(?i)(\bgo(\.exe)?"?\s+build\b|\b(npm|pnpm|yarn)(\.cmd|-cli\.js|\.c?js)?"?\s+(run\s+)?build\b|\bvite(\.cmd|\.js)?"?\s+build\b|\btsc(\.cmd)?"?(\s|$)|\bcargo\s+build\b|\bdotnet\s+build\b|\bmsbuild\b|\bwebpack\b)`)
 )
 
 // jobFacts is what a job's processes say about it: their command lines, by

@@ -2,6 +2,7 @@ package proc
 
 import (
 	"fmt"
+	"syscall"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -52,6 +53,18 @@ func TerminateVerifiedIn(pid int, start time.Time, accept func(Identity) error) 
 		return err
 	}
 	return unix.Kill(pid, unix.SIGKILL)
+}
+
+// Signal sends signal to pid only once the process has proved to be the one
+// created at start, to within the second a recorded start time is rounded
+// to. The signal goes to the ID, so a few microseconds stay in which the
+// process could exit and another program take its ID, as in
+// TerminateVerifiedIn.
+func Signal(pid int, start time.Time, signal syscall.Signal) error {
+	if _, err := hold(pid, start); err != nil {
+		return err
+	}
+	return unix.Kill(pid, signal)
 }
 
 // hold reads the instance of the process that has pid now and proves that

@@ -24,7 +24,8 @@ import (
 type Custody struct {
 	RunID string `json:"run_id"`
 	Token string `json:"token"`
-	// Job names the Windows job the execution's workers run in, and
+	// Job names the Windows job the execution's workers run in, or the mark
+	// their tree carries on Linux and macOS (execx.StartNamedTree), and
 	// Controller the process that starts them, so that once that process has
 	// gone a later run can prove its workers gone too.
 	Job        string    `json:"job"`
@@ -45,7 +46,8 @@ type Custody struct {
 // after it is random, so no other run can guess an execution's job.
 const jobNamespace = `Global\goblins-verify-`
 
-// JobName is the name of the Windows job an execution's workers run in.
+// JobName is the name of the Windows job an execution's workers run in, and
+// on Linux and macOS the mark of their tree.
 func JobName(runID string) string {
 	return jobNamespace + runID
 }

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
@@ -1141,5 +1142,34 @@ func TestAProgressCheckPassedOverForNewerActivityChangesThen(t *testing.T) {
 	check := store.Snapshot().Actions[slices.IndexFunc(store.Snapshot().Actions, func(action Action) bool { return action.ID == queued.ID })]
 	if check.Message != "Superseded by newer session activity" || check.UpdatedAt.Before(passed) {
 		t.Errorf("the check reads %q, changed at %s, want superseded and changed no earlier than %s", check.Message, check.UpdatedAt, passed)
+	}
+}
+
+// Issue 1954: bounded cut text on a byte, so a character that straddled the
+// cut was split and the wake detail, reason or question it bounded held
+// invalid UTF-8. A cut never splits a character and always says it cut.
+func TestBoundedNeverSplitsACharacter(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		text  string
+		width int
+		want  string
+	}{
+		{"a cut inside a two-byte character", "ab\u00e9cd", 3, "ab..."},
+		{"a cut inside a three-byte character", "a\u20acbc", 2, "a..."},
+		{"a cut inside a four-byte character", "\U0001F600xyz", 3, "..."},
+		{"a cut on a character's edge", "ab\u00e9cd", 4, "ab\u00e9..."},
+		{"text within the width", "ab\u00e9", 4, "ab\u00e9"},
+		{"empty text", "", 0, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Act
+			got := bounded(c.text, c.width)
+
+			// Assert
+			if got != c.want || !utf8.ValidString(got) {
+				t.Fatalf("bounded(%q, %d) = %q, want %q, valid UTF-8", c.text, c.width, got, c.want)
+			}
+		})
 	}
 }

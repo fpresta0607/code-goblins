@@ -83,7 +83,7 @@ func TestProcessesListsAChildWithItsParentNameAndStart(t *testing.T) {
 	if at < 0 {
 		t.Fatalf("the %d processes listed leave out the child, pid %d", len(processes), child.Process.Pid)
 	}
-	if got, want := processes[at], (Entry{PID: child.Process.Pid, ParentPID: os.Getpid(), ExeBase: "sleep", Start: start}); got != want {
+	if got, want := processes[at], (Entry{PID: child.Process.Pid, ParentPID: os.Getpid(), Group: syscall.Getpgrp(), ExeBase: "sleep", Start: start}); got != want {
 		t.Errorf("the child is listed as %+v, want %+v", got, want)
 	}
 }
@@ -272,5 +272,110 @@ func TestReadingAProcessCountsAsNoFleetOpen(t *testing.T) {
 	}
 	if opened := fsx.Opens() - before; opened != 0 {
 		t.Errorf("reading a process counted %d fleet open(s), want none", opened)
+	}
+}
+
+func TestAChildStartedInAGroupOfItsOwnLeadsIt(t *testing.T) {
+	// Arrange
+	cmd := exec.Command("sleep", "600")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+
+	// Act
+	child, childErr := Lookup(cmd.Process.Pid)
+	self, selfErr := Lookup(os.Getpid())
+
+	// Assert
+	if childErr != nil || selfErr != nil {
+		t.Fatal(childErr, selfErr)
+	}
+	if child.Group != cmd.Process.Pid {
+		t.Errorf("the child is in group %d, want its own, %d", child.Group, cmd.Process.Pid)
+	}
+	if self.Group != syscall.Getpgrp() {
+		t.Errorf("this process is in group %d, want %d", self.Group, syscall.Getpgrp())
+	}
+}
+
+func TestUseOfThisProcessReadsTheProcessorTimeItUsedAndItsMemory(t *testing.T) {
+	// Arrange: a third of a second of processor time, which the clock that
+	// counts it, a hundredth of a second on Linux, reads well.
+	for began := time.Now(); time.Since(began) < 300*time.Millisecond; { // stall-accepted: the loop only spends processor time, which UseOf and getrusage both read, and a stall makes it spend less of both.
+	}
+	var own, children syscall.Rusage
+	if err := syscall.Getrusage(syscall.RUSAGE_SELF, &own); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Getrusage(syscall.RUSAGE_CHILDREN, &children); err != nil {
+		t.Fatal(err)
+	}
+	used := time.Duration(own.Utime.Nano() + own.Stime.Nano() + children.Utime.Nano() + children.Stime.Nano())
+
+	// Act
+	use, err := UseOf(os.Getpid())
+
+	// Assert: a time in another unit, such as the absolute clock's ticks
+	// read as nanoseconds, is many times off.
+	if err != nil {
+		t.Fatal(err)
+	}
+	if use.CPU < used/2 || use.CPU > 2*used+50*time.Millisecond {
+		t.Errorf("UseOf reads %s of processor time, the system counts %s", use.CPU, used)
+	}
+	if use.PrivateBytes == 0 {
+		t.Error("UseOf reads no private memory of a running process")
+	}
+}
+
+func TestUseOfAChildThatExitedReadsAsGone(t *testing.T) {
+	// Arrange
+	cmd := exec.Command("true")
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	_, err := UseOf(cmd.Process.Pid)
+
+	// Assert
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("UseOf of a collected child = %v, want fs.ErrNotExist", err)
+	}
+}
+
+func TestSignalReachesOnlyTheProcessStartedWhenItWasAskedAbout(t *testing.T) {
+	// Arrange
+	cmd, exited := startSleeper(t, t.TempDir())
+	entry, err := Lookup(cmd.Process.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	refused := Signal(cmd.Process.Pid, entry.Start.Add(-time.Hour), syscall.SIGTERM)
+	select {
+	case <-exited:
+		t.Fatal("a signal meant for a process started an hour earlier reached the child")
+	case <-time.After(100 * time.Millisecond): // stall-accepted: Signal refused before sending anything, so the wait only gives a signal sent by mistake time to show, and a stall lengthens it.
+	}
+	sent := Signal(cmd.Process.Pid, entry.Start, syscall.SIGTERM)
+
+	// Assert
+	if refused == nil {
+		t.Error("Signal sent to a process started at another time")
+	}
+	if sent != nil {
+		t.Fatalf("Signal to the child = %v", sent)
+	}
+	select {
+	case <-exited:
+	case <-time.After(time.Minute):
+		t.Fatal("the child did not end after its signal")
+	}
+	if status, isStatus := cmd.ProcessState.Sys().(syscall.WaitStatus); !isStatus || status.Signal() != syscall.SIGTERM {
+		t.Errorf("the child ended with %v, want SIGTERM", cmd.ProcessState)
 	}
 }

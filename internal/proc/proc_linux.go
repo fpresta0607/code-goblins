@@ -27,12 +27,15 @@ var (
 )
 
 // status is what /proc/<pid>/stat says of a process: its name, which the
-// kernel cuts to 15 bytes, its state, its parent and how many ticks after
-// the machine started it was created.
+// kernel cuts to 15 bytes, its state, its parent, its process group, the
+// ticks of processor time it and the children it collected used, and how
+// many ticks after the machine started it was created.
 type status struct {
 	name    string
 	state   byte
 	parent  int
+	group   int
+	used    uint64
 	started uint64
 }
 
@@ -61,7 +64,8 @@ func readStatus(pid int) (status, error) {
 // parseStatus reads a line of /proc/<pid>/stat. The name stands in brackets
 // and may itself hold spaces and brackets, so the fields after it are counted
 // from the last closing bracket: the state is the first, the parent the
-// second and the start the twentieth.
+// second, the group the third, the processor time the twelfth to the
+// fifteenth and the start the twentieth.
 func parseStatus(line []byte) (status, error) {
 	open, shut := bytes.IndexByte(line, '('), bytes.LastIndexByte(line, ')')
 	if open < 0 || shut < open {
@@ -75,11 +79,23 @@ func parseStatus(line []byte) (status, error) {
 	if err != nil {
 		return status{}, fmt.Errorf("its parent %q is no number", fields[1])
 	}
+	group, err := strconv.Atoi(string(fields[2]))
+	if err != nil {
+		return status{}, fmt.Errorf("its process group %q is no number", fields[2])
+	}
+	var used uint64
+	for _, field := range fields[11:15] {
+		ticks, err := strconv.ParseUint(string(field), 10, 64)
+		if err != nil {
+			return status{}, fmt.Errorf("its processor time %q is no number", field)
+		}
+		used += ticks
+	}
 	started, err := strconv.ParseUint(string(fields[19]), 10, 64)
 	if err != nil {
 		return status{}, fmt.Errorf("its start %q is no number", fields[19])
 	}
-	return status{name: string(line[open+1 : shut]), state: fields[0][0], parent: parent, started: started}, nil
+	return status{name: string(line[open+1 : shut]), state: fields[0][0], parent: parent, group: group, used: used, started: started}, nil
 }
 
 // bootTime is when the machine started, as /proc/stat gives it in whole
@@ -140,7 +156,38 @@ func Instance(pid int) (string, error) {
 
 // entry is pid as read, started that long after boot.
 func (s status) entry(pid int, boot time.Time) Entry {
-	return Entry{PID: pid, ParentPID: s.parent, ExeBase: s.name, Start: boot.Add(time.Duration(s.started) * (time.Second / ticksPerSecond))}
+	return Entry{PID: pid, ParentPID: s.parent, Group: s.group, ExeBase: s.name, Start: boot.Add(time.Duration(s.started) * (time.Second / ticksPerSecond))}
+}
+
+// UseOf reads what the running process pid uses now: the processor time it
+// and the children it collected used, and its private memory, the
+// anonymous memory it holds in RAM (RssAnon in /proc/<pid>/status). A
+// process that is gone or has exited is fs.ErrNotExist.
+func UseOf(pid int) (Use, error) {
+	read, err := readStatus(pid)
+	if err != nil {
+		return Use{}, err
+	}
+	lines, err := fsx.ReadKernelFile(fmt.Sprintf("/proc/%d/status", pid))
+	if err != nil {
+		if errors.Is(err, syscall.ESRCH) {
+			err = fs.ErrNotExist
+		}
+		return Use{}, fmt.Errorf("proc: read process %d's memory: %w", pid, err)
+	}
+	use := Use{CPU: time.Duration(read.used) * (time.Second / ticksPerSecond)}
+	for line := range bytes.Lines(lines) {
+		value, isAnonymous := bytes.CutPrefix(line, []byte("RssAnon:"))
+		if !isAnonymous {
+			continue
+		}
+		kilobytes, err := strconv.ParseUint(string(bytes.TrimSuffix(bytes.TrimSpace(value), []byte(" kB"))), 10, 64)
+		if err != nil {
+			return Use{}, fmt.Errorf("proc: process %d's memory %q is no number", pid, bytes.TrimSpace(value))
+		}
+		use.PrivateBytes = kilobytes << 10
+	}
+	return use, nil
 }
 
 // Lookup reads one running process from /proc: its parent, its name and its
