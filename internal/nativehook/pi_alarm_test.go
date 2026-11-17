@@ -305,3 +305,64 @@ func piFailures(t *testing.T, state string) []Failure {
 	}
 	return failures
 }
+
+// A hook program missing for long fails every event, so the extension keeps at
+// most 256 records and drops a failure past them rather than fill the disk.
+func TestPiExtensionKeepsAtMost256FailureRecords(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("Pi requires Node")
+	}
+	for _, c := range []struct {
+		name      string
+		prefilled int
+		want      int
+	}{
+		{name: "one short of the limit", prefilled: 255, want: 256},
+		{name: "at the limit", prefilled: 256, want: 256},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			directory := t.TempDir()
+			state := filepath.Join(directory, "state")
+			extension, err := Install(InstallConfig{Harness: "pi", ConfigDir: directory, Executable: filepath.Join(directory, "hook.exe"), Home: directory, State: state})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(FailureDir(state), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			for index := range c.prefilled {
+				if err := os.WriteFile(filepath.Join(FailureDir(state), fmt.Sprintf("%03d.failure.json", index)), []byte(`{"harness":"pi","event":"agent_settled","outcome":"exited with status 1."}`), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			driver := filepath.Join(directory, "driver.mjs")
+			if err := os.WriteFile(driver, []byte(`import childProcess from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
+import { pathToFileURL } from "node:url";
+childProcess.spawnSync = () => ({status: 3, signal: null});
+syncBuiltinESMExports();
+const extension = (await import(pathToFileURL(process.argv[2]).href)).default;
+const handlers = {};
+extension({on: (name, handler) => {handlers[name] = handler;}});
+const ctx = {cwd: process.cwd(), sessionManager: {getSessionId: () => "fixture-session"}, hasPendingMessages: () => false};
+handlers.agent_settled({}, ctx);
+`), 0600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("GOBLINS_ROLE", "goblin")
+
+			// Act
+			_, diagnostics, err := runPiDriver(piDriverBound, node, driver, extension)
+
+			// Assert
+			if err != nil || diagnostics != "" {
+				t.Fatalf("the extension wrote %q onto the session's terminal (%v), want nothing there", diagnostics, err)
+			}
+			if failures := piFailures(t, state); len(failures) != c.want {
+				t.Fatalf("%d records after one failure with %d kept, want %d", len(failures), c.prefilled, c.want)
+			}
+		})
+	}
+}

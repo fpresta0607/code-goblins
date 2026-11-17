@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -17,11 +18,11 @@ import (
 const hookFailuresNamed = 5
 
 // ingestHookFailures tells the CEO, in one wake, of the native hooks pi
-// sessions could not run since the last cycle, and removes their records. A
-// pi extension writes each into nativehook.FailureDir rather than onto its
-// session's prompt line, where the board read it as unsent text and left the
-// session alone (#2428). A record that cannot be read is still counted, since
-// a hook failed either way.
+// sessions could not run since the last cycle, earliest first, and removes
+// their records. A pi extension writes each into nativehook.FailureDir rather
+// than onto its session's prompt line, where the board read it as unsent text
+// and left the session alone (#2428). A record that cannot be read is still
+// counted, since a hook failed either way.
 func (s *Store) ingestHookFailures() error {
 	dir := nativehook.FailureDir(s.Home.State)
 	entries, err := os.ReadDir(dir)
@@ -31,7 +32,7 @@ func (s *Store) ingestHookFailures() error {
 	if err != nil {
 		return err
 	}
-	var named []string
+	var failures []nativehook.Failure
 	var taken []string
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".failure.json") {
@@ -46,18 +47,23 @@ func (s *Store) ingestHookFailures() error {
 			return err
 		}
 		taken = append(taken, path)
-		if len(named) == hookFailuresNamed {
-			continue
-		}
 		var failure nativehook.Failure
 		if err := json.Unmarshal(data, &failure); err != nil || failure.Event == "" || failure.Outcome == "" {
+			failure = nativehook.Failure{}
+		}
+		failures = append(failures, failure)
+	}
+	if len(taken) == 0 {
+		return nil
+	}
+	slices.SortStableFunc(failures, func(a, b nativehook.Failure) int { return a.At.Compare(b.At) })
+	var named []string
+	for _, failure := range failures[:min(len(failures), hookFailuresNamed)] {
+		if failure.Event == "" {
 			named = append(named, "a failure whose record could not be read")
 			continue
 		}
 		named = append(named, fmt.Sprintf("%s's native hook for %s %s", bounded(failure.Harness, 40), bounded(failure.Event, 80), bounded(failure.Outcome, 200)))
-	}
-	if len(taken) == 0 {
-		return nil
 	}
 	detail := "native_hook_failed: " + strings.Join(named, " | ")
 	if more := len(taken) - len(named); more > 0 {
