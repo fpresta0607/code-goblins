@@ -296,6 +296,7 @@ for (const card of CARDS) {
     const note = noteWindow(page).getByLabel("Your note");
     const long = "Use the shop's bot account, not mine.\n".repeat(527).slice(0, 20000);
     await note.fill(long);
+    await expect(note).toHaveValue(long);
     await pastePicture(note);
     await expect(noteWindow(page).getByRole("img", { name: "Picture 1" })).toBeVisible();
 
@@ -303,7 +304,6 @@ for (const card of CARDS) {
     await noteWindow(page).getByRole("button", { name: "Send", exact: true }).click();
 
     // Assert
-    await expect(note).toHaveValue(long);
     await expect.poll(() => sent.length).toBe(1);
     expect(kept.filter((each) => each.name === "answer.txt")).toEqual([{ task: "shop-signup", name: "answer.txt", type: "application/octet-stream", body: long.trim() }]);
     expect(sent[0].body).toMatchObject({ ...card.other, text: "My whole answer is in " + KEPT_ANSWER + ". It begins: " + long.replace(/\s+/g, " ").slice(0, 300).trim() + "...\n" + KEPT });
