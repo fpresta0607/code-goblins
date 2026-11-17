@@ -132,10 +132,10 @@ func (s *Service) acceptHelper(request HelperRequest) (HelperStart, error) {
 		return HelperStart{}, fmt.Errorf("%s; ask again in ten minutes", busy)
 	}
 	if dispatch.HeavyLine != nil {
-		if hold, err := dispatch.HeavyLine(memory); err != nil {
+		if room, err := dispatch.HeavyLine(memory); err != nil {
 			s.publish(fmt.Errorf("the machine's heavy line cannot be read, so no start waits on it: %w", err))
-		} else if hold != "" {
-			return HelperStart{}, fmt.Errorf("no helper starts, keeping the test slots open: %s; ask again in ten minutes", hold)
+		} else if room.Hold != "" {
+			return HelperStart{}, fmt.Errorf("no helper starts, keeping the test slots open: %s; ask again in ten minutes", room.Hold)
 		}
 	}
 	// The helper's status log is written before its brief, so the brief

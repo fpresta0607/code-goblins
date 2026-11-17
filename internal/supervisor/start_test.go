@@ -731,7 +731,7 @@ func TestSnapshotSaysWhyNothingStartsWhileTheHeavyLineKeepsTheMemory(t *testing.
 			handler.Service.Options.Dispatch.HeavyLine = MachineHeavyLine
 			heavyLine(t, 2, 6*gigabyte)
 			if test.isUnread {
-				handler.Service.Options.Dispatch.HeavyLine = func(Memory) (string, error) { return "", errors.New("the line cannot be read") }
+				handler.Service.Options.Dispatch.HeavyLine = func(Memory) (LineRoom, error) { return LineRoom{}, errors.New("the line cannot be read") }
 			}
 
 			// Act
