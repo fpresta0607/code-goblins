@@ -157,6 +157,44 @@ func startedWithRecord(path string, arguments, environment []string) []byte {
 	return record
 }
 
+// A process that reads as having no environment, or not at all, is read
+// again only while its exec may still be setting it up: when it runs wholly
+// as this user, by its real, saved and effective IDs, and started under a
+// second ago.
+func TestAnUnreadProcessIsReadAgainOnlyWhileItStartsAsThisUser(t *testing.T) {
+	const user = 501
+	now := time.Unix(1_000_000, 500_000_000)
+	for _, test := range []struct {
+		name                   string
+		age                    time.Duration
+		real, saved, effective uint32
+		shouldBeStarting       bool
+	}{
+		{"young process of this user", 100 * time.Millisecond, user, user, user, true},
+		{"a second old", time.Second, user, user, user, false},
+		{"another user's", 100 * time.Millisecond, 502, 502, 502, false},
+		{"setuid, its effective user root", 100 * time.Millisecond, user, 0, 0, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			var process unix.KinfoProc
+			started := now.Add(-test.age)
+			process.Proc.P_starttime = unix.NsecToTimeval(started.UnixNano())
+			process.Eproc.Pcred.P_ruid = test.real
+			process.Eproc.Pcred.P_svuid = test.saved
+			process.Eproc.Ucred.Uid = test.effective
+
+			// Act
+			isStarting := isStartingAs(process, user, now)
+
+			// Assert
+			if isStarting != test.shouldBeStarting {
+				t.Errorf("isStartingAs = %t, want %t", isStarting, test.shouldBeStarting)
+			}
+		})
+	}
+}
+
 func TestParseStartedWithReadsTheArgumentsAndTheEnvironment(t *testing.T) {
 	tests := []struct {
 		name            string
