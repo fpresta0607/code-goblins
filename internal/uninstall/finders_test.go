@@ -208,11 +208,15 @@ func TestTrustEntriesForTheHomesFoldersGoAndTheRestStay(t *testing.T) {
 		t.Fatalf("found\n%s\n%v; want Claude Code's and Codex's entries", whats(items), err)
 	}
 	data, _ := os.ReadFile(claudeFile)
-	if bytes.Contains(data, []byte("g1")) || !bytes.Contains(data, []byte("mine")) || !bytes.Contains(data, []byte("numStartups")) {
+	var left struct {
+		NumStartups int                        `json:"numStartups"`
+		Projects    map[string]json.RawMessage `json:"projects"`
+	}
+	if err := json.Unmarshal(data, &left); err != nil || left.NumStartups != 3 || len(left.Projects) != 1 || left.Projects[filepath.ToSlash(mine)] == nil {
 		t.Errorf(".claude.json = %s, want only the goblin's entry gone", data)
 	}
 	toml, _ := os.ReadFile(codexFile)
-	if strings.Contains(string(toml), "g1") || !strings.Contains(string(toml), "mine") || !strings.Contains(string(toml), "model = \"x\"\r\n") {
+	if strings.Contains(string(toml), "[projects.'"+g1+"']") || !strings.Contains(string(toml), "[projects.'"+mine+"']") || !strings.Contains(string(toml), "model = \"x\"\r\n") {
 		t.Errorf("config.toml = %q, want only the goblin's table gone", toml)
 	}
 	if again, _ := m.trust(); len(again) != 0 {
