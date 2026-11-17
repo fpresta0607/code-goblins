@@ -176,3 +176,43 @@ func TestARefusedProcessIsReadAgainOnlyWhileItStartsAsThisUser(t *testing.T) {
 		})
 	}
 }
+
+// A child this test just started runs as this test's user and is under a
+// second old, so its refusal is read as its exec still setting up; init,
+// pid 1, runs as root since the machine started, so its refusal is for
+// good.
+func TestAJustStartedChildReadsAsStartingAsThisUserAndInitDoesNot(t *testing.T) {
+	for _, test := range []struct {
+		name             string
+		pid              func(t *testing.T) int
+		shouldBeStarting bool
+	}{
+		{"just started child", func(t *testing.T) int {
+			child, _ := startSleeper(t, t.TempDir())
+			return child.Process.Pid
+		}, true},
+		{"init", func(t *testing.T) int {
+			if os.Getuid() == 0 {
+				t.Skip("this test runs as root, as init does")
+			}
+			return 1
+		}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			pid := test.pid(t)
+			read, err := readStatus(pid)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			isStarting := isStartingAsThisUser(pid, read)
+
+			// Assert
+			if isStarting != test.shouldBeStarting {
+				t.Errorf("isStartingAsThisUser(%d) = %t, want %t", pid, isStarting, test.shouldBeStarting)
+			}
+		})
+	}
+}
