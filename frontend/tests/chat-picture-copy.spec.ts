@@ -16,6 +16,8 @@ const PLACES = [
 const FIRST = "Reading the screenshots.";
 const LAST = "The button overlaps the title.";
 const KEPT = "C:\\goblin\\tasktmp\\cg-touch\\composer-files\\pasted-";
+// Another page's picture as its HTML holds it inline: a PNG of one pixel.
+const PLOT = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
 // Every page of a test tells pictures apart the same way: signature draws one,
 // from its address or its bytes, as the colours of an 8 by 8 grid. Each is
@@ -343,6 +345,31 @@ for (const place of PLACES) {
       await expect(field(page)).toHaveValue("");
     });
 
+    for (const key of ["Control+V", "Alt+v"]) {
+      test(`pasting another page's words and inline picture into the chat's box with ${key} keeps the words and attaches no picture`, async ({ page }) => {
+        // Arrange: the clipboard holds words with a picture inline in their
+        // HTML, as a notebook's plot copied with its text holds it, and
+        // nothing a conversation copied.
+        await openPictured(page);
+        const uploads = await keepUploads(page);
+        await page.evaluate(async (plot) => {
+          const html = `<p>A plot</p><img src="data:image/png;base64,${plot}" alt="A plot">`;
+          await navigator.clipboard.write([new ClipboardItem({ "text/plain": new Blob(["A plot"], { type: "text/plain" }), "text/html": new Blob([html], { type: "text/html" }) })]);
+        }, PLOT);
+
+        // Act
+        await field(page).focus();
+        await page.keyboard.press(key);
+
+        // Assert: the words go in, as they did before, and no picture is
+        // kept or attached.
+        await expect(field(page)).toHaveValue("A plot");
+        await expect(box(page).getByRole("button", { name: "Add files" })).toBeEnabled();
+        await expect(box(page).getByRole("list", { name: "Attached files" })).toHaveCount(0);
+        expect(uploads).toEqual([]);
+      });
+    }
+
     for (const fallback of FALLBACKS) {
       test(`a drag across words and pictures ${fallback.name}`, async ({ page }) => {
         // Arrange: the page shows every picture, and the copy reads none of
@@ -364,6 +391,26 @@ for (const place of PLACES) {
         expect(copied.picture ? named([copied.picture], selection.originals) : []).toEqual(fallback.picture);
       });
     }
+
+    test("a copy whose pictures could not be read reads them again for the next copy", async ({ page }) => {
+      // Arrange: the drag's copy could read none of the reply's pictures, so
+      // it holds the words alone, and since then they can be read again.
+      await openPictured(page);
+      let isReadable = false;
+      await page.route((url) => url.pathname === "/api/messages" && url.searchParams.has("picture"),
+        (route) => !isReadable && route.request().resourceType() === "fetch" ? route.fulfill({ status: 404, json: { error: "No such picture is kept" } }) : route.fallback());
+      const selection = await drag(page);
+      await expect(page.getByRole("status").filter({ hasText: "Copied" })).toBeVisible();
+      expect((await clipboardOf(page)).types).toEqual(["text/plain"]);
+      isReadable = true;
+
+      // Act
+      await page.keyboard.press("Control+C");
+
+      // Assert: the words and the pictures, in their order.
+      await expect.poll(async () => (await clipboardOf(page)).types).toEqual(ALL);
+      expect(named((await clipboardOf(page)).shown, selection.originals)).toEqual(IN_ORDER);
+    });
 
     test("a selection with no picture copies its words alone, as it always has, and leaves Ctrl+C to the browser", async ({ page }) => {
       // Arrange

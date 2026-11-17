@@ -563,7 +563,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   };
   // A picture pasted into the box arrives as a file the session can read. Text
   // keeps the browser's own paste, which the textarea takes as it always has.
-  // A selection copied with its pictures, as from a conversation, holds them
+  // A selection copied with its pictures from a conversation holds them
   // inline in its HTML: each arrives as a pasted picture does, in their
   // order, and its words paste as text (#2543).
   const paste = (event: ClipboardEvent<HTMLTextAreaElement>) => {

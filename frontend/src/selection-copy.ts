@@ -1,4 +1,5 @@
 import { copyText } from "./clipboard";
+import { CONVERSATION_PICTURE } from "./kept-files";
 import { pngOf } from "./terminal-image";
 
 // The pictures a conversation's rows draw, each read from its address: those
@@ -81,7 +82,7 @@ function drawing(contents: string, holder: HTMLElement, pictures: HTMLImageEleme
     return { html: htmlOf(holder, each), png };
   });
   const copy: Kept = { contents, drawn, html: "" };
-  drawn.then(({ html }) => { copy.html = html; }, () => {});
+  drawn.then(({ html }) => { copy.html = html; }, () => { if (kept === copy) kept = null; });
   return copy;
 }
 
@@ -111,7 +112,8 @@ function contentsOf(range: Range, pictures: HTMLImageElement[]): HTMLElement {
 }
 
 // htmlOf is a selection's contents, as contentsOf reads them, with each of
-// its pictures inline as drawn, and without one that could not be read.
+// its pictures inline as drawn and marked as a conversation's, and without
+// one that could not be read.
 function htmlOf(holder: HTMLElement, pictures: ({ address: string } | null)[]): string {
   holder.querySelectorAll("img").forEach((clone, at) => {
     const address = pictures[at]?.address;
@@ -122,6 +124,7 @@ function htmlOf(holder: HTMLElement, pictures: ({ address: string } | null)[]): 
     const picture = document.createElement("img");
     picture.src = address;
     picture.alt = clone.alt;
+    picture.setAttribute(CONVERSATION_PICTURE, "");
     clone.replaceWith(picture);
   });
   return holder.innerHTML;

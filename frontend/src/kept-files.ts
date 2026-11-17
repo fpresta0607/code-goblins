@@ -68,14 +68,21 @@ export function filesOf(data: DataTransfer | null): File[] {
   });
 }
 
+// The attribute that marks each picture a selection copied from a
+// conversation holds inline in its HTML (#2543), which no other HTML's
+// pictures carry.
+export const CONVERSATION_PICTURE = "data-conversation-picture";
+
 // A picture a paste's HTML holds inline as base64 PNG data, as a selection
 // copied from a conversation holds each of its pictures (#2543).
 const INLINE_PICTURE = /^data:image\/png;base64,((?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?)$/;
 
-// inlinePictures is the pictures a paste's HTML holds inline, in their order.
+// inlinePictures is the pictures a selection copied from a conversation
+// holds inline in a paste's HTML, in their order, and none of any other
+// HTML's.
 export function inlinePictures(html: string): File[] {
-  if (!html.includes("data:image/png;base64,")) return [];
-  return Array.from(new DOMParser().parseFromString(html, "text/html").images).flatMap((image) => {
+  if (!html.includes(CONVERSATION_PICTURE)) return [];
+  return Array.from(new DOMParser().parseFromString(html, "text/html").querySelectorAll(`img[${CONVERSATION_PICTURE}]`)).flatMap((image) => {
     const data = INLINE_PICTURE.exec(image.getAttribute("src") ?? "")?.[1];
     return data ? [new File([Uint8Array.from(atob(data), (character) => character.charCodeAt(0))], "pasted.png", { type: "image/png" })] : [];
   });
