@@ -447,6 +447,12 @@ The command never resets a branch.
 Pipeline-owned recorded-head repair requires strict ancestry or that proof of a pure gate rebase.
 After native has already returned clean user-owned custody, the registered identity, unpublished-run state, stale-head anchor, and compare-and-swap guards are the authorized boundary, so the driver does not reject legitimate rebases or follow-up commits by comparing them with the stale head.
 
+Two refusals name the state they found and the one way on (issue 2378).
+A run cancelled before it pushed, at its submitted head, stays native branch sync's owner beside a newer run of the same branch that completed and published a head holding it, while `recover` reads the newer run as latest.
+The refusal names both runs and the published head, and says no supported recovery continues it until the engine's owner choice is fixed (no-mistakes issue 335), since native recovery of the older run takes custody at a head the published one has moved past.
+A run whose custody already returned while native branch sync no longer answers for it has no same-run continuation, since native retry refuses a driver-started run (no-mistakes issue 323).
+The refusal says a fresh `goblins pipeline run` is the expected path only when the run spent no repair round, and otherwise names the rounds a fresh run would start over and leaves that choice to the CEO.
+
 A gate's fixer works in the run's worktree, which no-mistakes removes with force once the run is over, so the driver keeps what the fixer left uncommitted before anything takes that worktree away.
 Before unpublished recovery runs any native command, and before a stop aborts a live run, every tracked and untracked change in the run's worktree is committed and pinned under `refs/no-mistakes/recovery/<run>/worktree` in the gate repository, and that commit's parent is the head the run ended at.
 The commit is made from an index of the driver's own, so the goblin's staged and unstaged work is exactly as it left it, and a first capture stands rather than being replaced by a later one a goblin may already be restoring.
