@@ -1015,7 +1015,9 @@ The wrapper's `--gate-run {run}` argument identifies the full native run in the 
 Its `--test-comparison-sha {test_comparison_sha}` argument carries the comparison already selected by native Test, as one full nonzero 40- or 64-character lowercase hexadecimal object ID.
 The consumer uses that value directly and never resolves another base or reads `runs.base_sha`, which records the previous pushed ref and may be zero.
 Without `--gate-run`, `goblins gate turn` keeps the command's existing environment and does not infer a native binding from directory names.
-The wrapper verifies the gate's project and branch through the native run database, finds the owning fleet task through the source repository's worktree list, and checks the task's recorded project and worktree against the home's allowed locations.
+The wrapper verifies the gate's project and branch through the native run database, finds the owning fleet task from the source repository's own worktree records, each worktree's HEAD and gitdir under its common git folder, and checks the task's recorded project and worktree against the home's allowed locations.
+It reads those records rather than running `git worktree list`, which took 12.8 s in a project of 48 worktrees on a loaded host, past the lookup's 5 second budget, and refused every gate run's Test there (issue 2627).
+It finds the common git folder through a `.git` file and the `commondir` it leads to, skips a record that is half made or half removed, as git does, and runs `git worktree list --porcelain -z` within its own 30 second budget only for a repository that keeps its refs in a reftable, whose HEAD files name no branch.
 The managed checkout must have the run's recorded HEAD and canonical native repository.
 The command must run there or in a separate base clone whose top level, local origin and HEAD match the managed checkout and the supplied native Test comparison.
 It never selects an environment from a client variable or another project's record.
