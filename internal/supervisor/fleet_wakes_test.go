@@ -198,6 +198,9 @@ func TestMemoryReadyWakesOnceAndAgainOnlyAfterFallingUnderTheFloor(t *testing.T)
 			t.Errorf("memory wake %q lacks %q", records[0].Detail, want)
 		}
 	}
+	if strings.Contains(records[0].Detail, "floor") {
+		t.Errorf("memory wake %q names a floor though no heavy line was read", records[0].Detail)
+	}
 	if woke := readMemory(t, s, h, meter, &now, [2]float64{4.5, 7}, over, over, over, [2]float64{7, 4.2}, over, over); woke != 0 {
 		t.Fatalf("crossing back without falling under the floor woke %d times, want none", woke)
 	}

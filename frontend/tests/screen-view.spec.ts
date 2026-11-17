@@ -9,6 +9,9 @@ import { card, GOBLIN, NAME, open, openGoblin, OTHER, snapshot } from "./session
 // view sends.
 
 const BROWSING = snapshot({}, { browser: true });
+// IN_USE is a goblin whose browser runs and which it sent a command a short
+// time ago (#2537).
+const IN_USE = snapshot({}, { browser: true, browser_in_use: true });
 const STATE = { type: "state", is_driven: false, can_drive: true, title: "Sign in", host: "shop.example.com", has_page: true };
 
 interface ScreenRelay {
@@ -80,6 +83,11 @@ const screen = (page: Page) => page.getByRole("region", { name: NAME + "'s brows
 interface Rect { x: number; y: number; width: number; height: number }
 const isApart = (a: Rect, b: Rect) => a.x >= b.x + b.width || b.x >= a.x + a.width || a.y >= b.y + b.height || b.y >= a.y + a.height;
 const switchTo = (page: Page, view: "Screen" | "Chat") => page.getByRole("group", { name: "Panel view", exact: true }).getByRole("button", { name: view, exact: true }).click();
+const tellBoard = (page: Page, next: object) => page.evaluate((detail) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail })), next);
+// pixel is the colour the screen's canvas holds at x, y, and isMark says it
+// is the goblin's pointer ring.
+const pixel = (page: Page, x: number, y: number) => screen(page).locator("canvas").evaluate((canvas: HTMLCanvasElement, [x, y]) => Array.from(canvas.getContext("2d")!.getImageData(x, y, 1, 1).data.slice(0, 3)), [x, y]);
+const isMark = ([red, green, blue]: number[]) => red > 170 && green < 120 && blue < 80;
 
 // setHidden plays the tab going out of sight and coming back, as minimizing
 // the window or switching tabs does.
@@ -309,7 +317,7 @@ test("a view on another machine watches the browser, can hand it back, and canno
 test("only a goblin whose browser runs offers its screen, and its card's Browser active opens it full size in a tab of its own", async ({ page, context }) => {
   // Arrange
   const relay = await relayScreens(page);
-  await open(page, BROWSING);
+  await open(page, IN_USE);
   const opener = page.locator(".task-board .task-card-shell").filter({ hasText: NAME }).getByRole("button", { name: "Browser active: open " + NAME + "'s screen in a new tab" });
   const otherShell = page.locator(".task-board .task-card-shell").filter({ hasText: OTHER.goblin_name });
   const clock = page.locator(".task-board .task-card-shell").filter({ hasText: NAME }).locator(".card-clock");
@@ -352,4 +360,81 @@ test("only a goblin whose browser runs offers its screen, and its card's Browser
   expect(drawn.y + drawn.height).toBeLessThanOrEqual(stage.y + stage.height);
   expect(drawn.x + drawn.width).toBeLessThanOrEqual(stage.x + stage.width);
   expect(drawn.width / drawn.height).toBeCloseTo(1.6, 1);
+});
+
+// A goblin's click shows on its screen as a ring at the place it clicked
+// (#2537), drawn over the frame as the board hears of the click and at no
+// other time, so a screen nobody's goblin clicks on costs nothing; it is not
+// drawn while he drives.
+test("the goblin's click shows as a ring at its place on the page, drawn once as it arrives", async ({ page }, testInfo) => {
+  // Arrange
+  await page.addInitScript(() => {
+    const draw = CanvasRenderingContext2D.prototype.drawImage as (...args: unknown[]) => void;
+    const counted = window as unknown as { drawn: number };
+    counted.drawn = 0;
+    CanvasRenderingContext2D.prototype.drawImage = function (this: CanvasRenderingContext2D, ...args: unknown[]) {
+      counted.drawn++;
+      draw.apply(this, args);
+    } as typeof CanvasRenderingContext2D.prototype.drawImage;
+  });
+  const drawn = () => page.evaluate(() => (window as unknown as { drawn: number }).drawn);
+  const relay = await relayScreens(page);
+  await open(page, BROWSING);
+  await openScreen(page, relay);
+  relay.frame({ data: await aFrame(page, 1280, 800), width: 1280, height: 800 });
+  await expect.poll(() => acks(relay)).toBe(1);
+  // The ring's radius is 11 pixels of the screen as shown, in the frame's own.
+  const radius = await screen(page).locator("canvas").evaluate((canvas: HTMLCanvasElement) => Math.round(11 * canvas.width / canvas.clientWidth));
+  const ring = [[200 + radius, 120], [200 - radius, 120], [200, 120 + radius], [200, 120 - radius]];
+  const isRingShown = async () => (await Promise.all(ring.map(([x, y]) => pixel(page, x, y)))).every(isMark);
+  expect(await isRingShown()).toBe(false);
+  const drawnBefore = await drawn();
+
+  // Act
+  relay.tell({ pointer: { x: 200, y: 120 } });
+
+  // Assert: a ring round the place, its middle the page's own.
+  await expect.poll(isRingShown).toBe(true);
+  expect(isMark(await pixel(page, 200, 120))).toBe(false);
+  expect(await drawn()).toBe(drawnBefore + 1);
+  await testInfo.attach("screen-pointer.png", { body: await page.screenshot(), contentType: "image/png" });
+  await page.waitForTimeout(1000);
+  expect(await drawn()).toBe(drawnBefore + 1);
+
+  // Act: he takes control.
+  relay.tell({ is_driven: true });
+
+  // Assert
+  await expect.poll(async () => isMark(await pixel(page, 200 + radius, 120))).toBe(false);
+});
+
+// A goblin's card reads Browser active only while its goblin uses its
+// browser (#2537): a browser it holds but sent no command a short time ago
+// shows on its Screen view and not on its card.
+test("a card reads Browser active only while its goblin uses its browser, and its screen stays while the browser runs", async ({ page }, testInfo) => {
+  // Arrange
+  await open(page, BROWSING);
+  const shell = page.locator(".task-board .task-card-shell").filter({ hasText: NAME });
+  const opener = shell.getByRole("button", { name: "Browser active: open " + NAME + "'s screen in a new tab" });
+  const screenButton = page.getByRole("group", { name: "Panel view", exact: true }).getByRole("button", { name: "Screen", exact: true });
+  await card(page, NAME).click();
+
+  // Assert: its browser runs unused.
+  await expect(screenButton).toBeVisible();
+  await expect(shell.getByText("Browser active")).toHaveCount(0);
+  await testInfo.attach("card-browser-unused.png", { body: await shell.screenshot(), contentType: "image/png" });
+
+  // Act: its goblin uses it.
+  await tellBoard(page, snapshot({ revision: 2 }, { browser: true, browser_in_use: true }));
+
+  // Assert
+  await expect(opener).toBeVisible();
+  await testInfo.attach("card-browser-in-use.png", { body: await shell.screenshot(), contentType: "image/png" });
+
+  // Act: a while passes with no command.
+  await tellBoard(page, snapshot({ revision: 3 }, { browser: true }));
+
+  // Assert
+  await expect(opener).toHaveCount(0);
+  await expect(screenButton).toBeVisible();
 });

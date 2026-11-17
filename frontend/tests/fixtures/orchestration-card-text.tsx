@@ -24,8 +24,8 @@ import { RESTING_AFK_TOGGLE } from "./resting-afk-toggle";
 // ?terminal gives Olive, whose task names no session, a native terminal in
 // that state, such as busy or unknown. ?marks gives Bartholomew every mark a
 // card wears: a ticket and four people in the same area beside his pull
-// request and his harness mark. ?browser opens his browser, so his marks
-// begin with the widest of them, Browser active, which no line can break.
+// request and his harness mark. ?browser has him use his browser, so his
+// marks begin with the widest of them, Browser active, which no line can break.
 // ?fresh puts him in the first minute of his work, when his clock is at its
 // longest, "just started", and gives him two baby goblins in theirs, one
 // working and one in a state the board does not know, the longest a baby
@@ -58,7 +58,7 @@ const snapshot = parseSnapshot({ healthy: true, instance: "fixture", at, ceo_run
     goblin({ id: "cg-tour", title: "Show a visitor around the board", goblin_name: "Woody", goblin_title: "Tour Guide", generation: "g-tour", route_reason: "strong fallback", phase: "waiting", waiting_on: "cg-processes", since: ago(95) }),
     goblin({ id: "cg-plumbing", title: "Fix the reliability of the nightly sync", goblin_name: "Wilhelmina", goblin_title: "Senior Reliability Plumber", generation: "g-plumbing", session: "s-plumbing", phase: "waiting", waiting_on: "cg-archive", since: ago(64) }),
     goblin({ id: "cg-dispatch", title: "Dispatch the nightly builds", goblin_name: "Cornelius", goblin_title: "Senior Dispatcher", generation: "g-dispatch", phase: "waiting", waiting_on: "cg-plumbing", since: ago(52) }),
-    goblin({ id: "cg-archive", title: "Archive the old infrastructure notes", goblin_name: "Bartholomew", goblin_title: "Distinguished Infrastructure Archivist", project: "code-goblins-infrastructure-observability-monorepo", generation: "g-archive", phase: "working", since: ago(isFresh ? 0.5 : 135), pr: REPOSITORY + "/pull/12345", ...everyMark, ...(params.has("browser") ? { browser: true } : {}),
+    goblin({ id: "cg-archive", title: "Archive the old infrastructure notes", goblin_name: "Bartholomew", goblin_title: "Distinguished Infrastructure Archivist", project: "code-goblins-infrastructure-observability-monorepo", generation: "g-archive", phase: "working", since: ago(isFresh ? 0.5 : 135), pr: REPOSITORY + "/pull/12345", ...everyMark, ...(params.has("browser") ? { browser: true, browser_in_use: true } : {}),
       tree: tree("cg-archive", [
         child({ id: "subagent:observability", kind: "subagent", label: "Investigate the infrastructure observability", state: "working", started: ago(42), last_activity: ago(1) }),
         child({ id: "subagent:server", kind: "subagent", label: "Review the development server", state: "working", started: ago(779), last_activity: ago(1), memory: 1.4 * 2 ** 30 }),

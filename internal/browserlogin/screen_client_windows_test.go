@@ -84,8 +84,8 @@ func TestARelayedClientsRefusedCommandIsAnsweredWithItsReason(t *testing.T) {
 	// Arrange
 	process, _ := startChrome(t, nil)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		process.ServeClient(w, r, func(method string) string {
-			if method == "Page.navigate" {
+		process.ServeClient(w, r, func(command Command) string {
+			if command.Method == "Page.navigate" {
 				return "A person is driving this browser."
 			}
 			return ""

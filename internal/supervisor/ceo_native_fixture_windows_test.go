@@ -29,6 +29,13 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 	if strings.HasPrefix(mode, "claude-") {
 		harness, mode = "claude", strings.TrimPrefix(mode, "claude-")
 	}
+	// A harness that draws late leaves the line typed into its turn on its
+	// screen once its turn queues it, and redraws a second after Escape
+	// interrupts the turn, so until then the screen still shows the turn
+	// running with that line on the prompt line, as a loaded machine's
+	// screen did on 2026-11-14 (#1973).
+	isDrawingLate := strings.HasSuffix(mode, "-draws-late")
+	mode = strings.TrimSuffix(mode, "-draws-late")
 	// A manual-mode Claude Code shows "? for shortcuts" in its footer, under a
 	// conversation that asked a question, takes a lone "?" key at an empty
 	// prompt line as its shortcut help rather than words, and does nothing
@@ -260,6 +267,9 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 			if isBusy {
 				record("interrupted")
 				isBusy, hasQueued, line, held, queue = false, false, held, "", nil
+				if isDrawingLate {
+					time.Sleep(time.Second)
+				}
 				draw(false)
 				continue
 			}
@@ -318,7 +328,9 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 			// before its working row draws.
 			isCommand := strings.HasPrefix(composer(), "/")
 			line, paste, readAsPaste, typedBefore = "", "", "", ""
-			draw(!isCommand && mode != "unmoved")
+			if !isDrawingLate || !hasQueued {
+				draw(!isCommand && mode != "unmoved")
+			}
 		default:
 			if offer && composer() == "" {
 				record("typed-under-dialog")
