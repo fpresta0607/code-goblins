@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "./site";
-import { openPictured } from "./chat-pictures";
+import { fold, hoverCard, openPictured } from "./chat-pictures";
 import { WINDOW } from "./desktop-window";
 import { box, field } from "./session-board";
 
@@ -51,10 +51,11 @@ window.shown = async (root) => {
 type Part = string | number[];
 type Readers = { signature: (from: string | Blob) => Promise<number[]>; shown: (root: Node) => Promise<Part[]> };
 
-// originalsOf waits until the reply's three pictures are drawn and answers
-// them by their signatures, in their order.
+// originalsOf waits until the reply's three pictures are drawn where it shows
+// them, at the end of its folded row or in its open calls, and answers them
+// by their signatures, in their order.
 async function originalsOf(page: Page) {
-  const pictures = page.locator('[data-message="m1"] .call-picture img');
+  const pictures = page.locator('[data-message="m1"] .call-picture img').filter({ visible: true });
   await expect(pictures).toHaveCount(3);
   for (const picture of await pictures.all()) await expect.poll(() => picture.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
   return pictures.evaluateAll((images: HTMLImageElement[]) => Promise.all(images.map((image) => (window as unknown as Readers).signature(image.src))));
@@ -115,6 +116,41 @@ function named(parts: Part[], originals: number[][]): string[] {
   });
 }
 const IN_ORDER = [FIRST, "picture 1", "picture 2", "picture 3", LAST];
+const ALL = ["image/png", "text/html", "text/plain"];
+
+// keepUploads has the box keep each picture as the supervisor does, and
+// answers each picture it sent to be kept as PNG data, in the order it sent
+// them.
+async function keepUploads(page: Page): Promise<string[]> {
+  const uploads: string[] = [];
+  await page.route("**/api/composer/file**", (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    uploads.push("data:image/png;base64," + route.request().postDataBuffer()!.toString("base64"));
+    return route.fulfill({ status: 201, json: { path: KEPT + uploads.length + ".png" } });
+  });
+  return uploads;
+}
+
+const attachedFiles = (page: Page) => box(page).getByRole("list", { name: "Attached files" }).getByRole("listitem");
+
+// attached waits until the box has kept every picture it was given, which it
+// shows as attached files, and answers them by their signatures, in their
+// order. Add files is disabled while the box still adds one.
+async function attached(page: Page, uploads: string[]) {
+  await expect(attachedFiles(page).first()).toBeVisible();
+  await expect(box(page).getByRole("button", { name: "Add files" })).toBeEnabled();
+  return page.evaluate((each) => Promise.all(each.map((upload) => (window as unknown as Readers).signature(upload))), uploads);
+}
+
+// The copies that cannot hold every picture of a drag across the reply: with
+// no clipboard for a picture, as a browser offers none over plain HTTP, or
+// with pictures the copy cannot read, which the page showed before and the
+// supervisor no longer serves.
+const FALLBACKS: { name: string; script: string; unread: string[]; types: string[]; shown: string[]; picture: string[] }[] = [
+  { name: "with no clipboard for a picture copies the words alone", script: "delete window.ClipboardItem;", unread: [], types: ["text/plain"], shown: [], picture: [] },
+  { name: "with a picture that cannot be read copies the words and the other pictures", script: "", unread: ["home"], types: ALL, shown: [FIRST, "picture 2", "picture 3", LAST], picture: ["picture 2"] },
+  { name: "with no picture that can be read copies the words alone", script: "", unread: ["home", "team", "page"], types: ["text/plain"], shown: [], picture: [] },
+];
 
 for (const place of PLACES) {
   test.describe(`in ${place.name}`, () => {
@@ -136,7 +172,7 @@ for (const place of PLACES) {
       // Assert: the words as text, as a selection without pictures copies
       // them, HTML with the words and the pictures in their order, each
       // inline, and the first picture as a picture.
-      expect(copied.types).toEqual(["image/png", "text/html", "text/plain"]);
+      expect(copied.types).toEqual(ALL);
       expect(copied.text).toBe(selection.text);
       expect(named(copied.shown, selection.originals)).toEqual(IN_ORDER);
       expect(named([copied.picture ?? []], selection.originals)).toEqual(["picture 1"]);
@@ -155,9 +191,14 @@ for (const place of PLACES) {
       await expect(target.getByLabel("Plain")).toHaveValue(selection.text);
     });
 
-    test("Ctrl+C on words and pictures copies the same, and never a picture's board address", async ({ page }) => {
+    test("Ctrl+C on words and pictures copies the same at once, reads no picture again, and never a picture's board address", async ({ page }) => {
       // Arrange: the drag has copied, and something else was copied since.
       await openPictured(page);
+      const reads: string[] = [];
+      page.on("request", (request) => {
+        const address = new URL(request.url());
+        if (request.resourceType() === "fetch" && address.searchParams.has("picture")) reads.push(address.searchParams.get("picture") ?? "");
+      });
       const selection = await drag(page);
       await expect(page.getByRole("status").filter({ hasText: "Copied" })).toBeVisible();
       await page.evaluate(() => navigator.clipboard.writeText("copied since"));
@@ -169,15 +210,64 @@ for (const place of PLACES) {
       await page.keyboard.up("KeyC");
       await page.keyboard.up("Control");
 
-      // Assert: while the key is down no picture's board address, whose
-      // query carries the board's token, is on the clipboard, and once it is
-      // up the words and the pictures are, in their order.
+      // Assert: while the key is down the words and the pictures are on the
+      // clipboard already, in their order, and no picture's board address,
+      // whose query carries the board's token; once it is up the first
+      // picture is too. The drag's copy read each picture once, and no copy
+      // after it read one again.
       expect(held.html).not.toContain("/api/");
-      expect(named(held.shown, selection.originals)).not.toContain("address /api/messages");
-      await expect.poll(async () => (await clipboardOf(page)).types).toEqual(["image/png", "text/html", "text/plain"]);
+      expect(named(held.shown, selection.originals)).toEqual(IN_ORDER);
+      await expect.poll(async () => (await clipboardOf(page)).types).toEqual(ALL);
       const copied = await clipboardOf(page);
       expect(copied.text).toBe(selection.text);
       expect(named(copied.shown, selection.originals)).toEqual(IN_ORDER);
+      expect([...reads].sort()).toEqual(["home", "page", "team"]);
+    });
+
+    test("Ctrl+C with the pointer on a thumbnail copies the words and pictures without the card it shows", async ({ page }) => {
+      // Arrange: after the drag the pointer rests on the first thumbnail,
+      // whose card shows its picture larger with its verb and its place, and
+      // something else was copied since.
+      await openPictured(page);
+      const selection = await drag(page);
+      await expect(page.getByRole("status").filter({ hasText: "Copied" })).toBeVisible();
+      await fold(page).locator("> summary .call-picture").first().hover();
+      await expect(hoverCard(page)).toBeVisible();
+      await page.evaluate(() => navigator.clipboard.writeText("copied since"));
+
+      // Act
+      await page.keyboard.press("Control+C");
+
+      // Assert: the words and the pictures in their order, each once, and
+      // nothing of the card.
+      await expect.poll(async () => (await clipboardOf(page)).types).toEqual(ALL);
+      const copied = await clipboardOf(page);
+      expect(named(copied.shown, selection.originals)).toEqual(IN_ORDER);
+      expect(copied.html).not.toContain("1 of 3");
+    });
+
+    test("a drag across an open fold copies each picture once, as its calls show it, and a paste into the box attaches each once", async ({ page }) => {
+      // Arrange: the reply's folded row is open, so each of its calls shows
+      // its own picture, and the row's end hides the same three. The list
+      // keeps its end in view, so the reply, now longer, is brought back
+      // into view for the drag.
+      await openPictured(page);
+      const uploads = await keepUploads(page);
+      await fold(page).locator("> summary").click();
+      await expect(fold(page).locator("> summary .call-pictures")).toBeHidden();
+      await page.locator('[data-message="m1"]').scrollIntoViewIfNeeded();
+
+      // Act
+      const selection = await drag(page);
+      await expect(page.getByRole("status").filter({ hasText: "Copied" })).toBeVisible();
+      const copied = await clipboardOf(page);
+      await field(page).focus();
+      await page.keyboard.press("Control+V");
+
+      // Assert
+      expect(named(copied.shown, selection.originals)).toEqual(IN_ORDER);
+      expect(named(await attached(page, uploads), selection.originals)).toEqual(["picture 1", "picture 2", "picture 3"]);
+      await expect(attachedFiles(page)).toHaveCount(3);
     });
 
     test("a selection of a picture alone copies the picture, and never its board address", async ({ page }) => {
@@ -207,46 +297,128 @@ for (const place of PLACES) {
       expect(named([copied.picture ?? []], originals)).toEqual(["picture 1"]);
     });
 
-    test("pasting the selection into the chat's box attaches its pictures in their order and keeps its words", async ({ page }) => {
-      // Arrange: the box keeps each picture as the supervisor does.
-      await openPictured(page);
-      const uploads: string[] = [];
-      await page.route("**/api/composer/file**", (route) => {
-        if (route.request().method() !== "POST") return route.fallback();
-        uploads.push("data:image/png;base64," + route.request().postDataBuffer()!.toString("base64"));
-        return route.fulfill({ status: 201, json: { path: KEPT + uploads.length + ".png" } });
+    for (const key of ["Control+V", "Alt+v"]) {
+      test(`pasting the selection into the chat's box with ${key} attaches its pictures in their order and keeps its words`, async ({ page }) => {
+        // Arrange: the box keeps each picture as the supervisor does.
+        await openPictured(page);
+        const uploads = await keepUploads(page);
+        const selection = await drag(page);
+        await expect(page.getByRole("status").filter({ hasText: "Copied" })).toBeVisible();
+
+        // Act
+        await field(page).focus();
+        await page.keyboard.press(key);
+
+        // Assert: each picture is attached as a pasted picture is, in their
+        // order, and his box holds the words.
+        expect(named(await attached(page, uploads), selection.originals)).toEqual(["picture 1", "picture 2", "picture 3"]);
+        await expect(attachedFiles(page)).toHaveCount(3);
+        await expect(field(page)).toHaveValue(selection.text);
       });
-      const selection = await drag(page);
+    }
+
+    test("Alt+V pastes a selection of pictures alone into the chat's box as each of its pictures", async ({ page }) => {
+      // Arrange: the folded row's three thumbnails and no words are selected
+      // and copied with Ctrl+C.
+      await openPictured(page);
+      const originals = await originalsOf(page);
+      const uploads = await keepUploads(page);
+      await page.getByRole("log", { name: /^Messages of / }).focus();
+      await fold(page).locator("> summary .call-pictures").evaluate((thumbnails) => {
+        const range = document.createRange();
+        range.selectNode(thumbnails);
+        getSelection()?.removeAllRanges();
+        getSelection()?.addRange(range);
+      });
+      await page.keyboard.press("Control+C");
       await expect(page.getByRole("status").filter({ hasText: "Copied" })).toBeVisible();
 
       // Act
       await field(page).focus();
-      await page.keyboard.press("Control+V");
+      await page.keyboard.press("Alt+v");
 
-      // Assert: each picture is attached as a pasted picture is, in their
-      // order, and his box holds the words.
-      const attached = box(page).getByRole("list", { name: "Attached files" }).getByRole("listitem");
-      await expect(attached).toHaveCount(3);
-      const kept = await page.evaluate((each) => Promise.all(each.map((upload) => (window as unknown as Readers).signature(upload))), uploads);
-      expect(named(kept, selection.originals)).toEqual(["picture 1", "picture 2", "picture 3"]);
-      await expect(field(page)).toHaveValue(selection.text);
+      // Assert: each picture is attached, in their order, and no words.
+      expect(named(await attached(page, uploads), originals)).toEqual(["picture 1", "picture 2", "picture 3"]);
+      await expect(attachedFiles(page)).toHaveCount(3);
+      await expect(field(page)).toHaveValue("");
     });
 
-    test("a selection with no picture copies its words alone, as it always has", async ({ page }) => {
+    for (const fallback of FALLBACKS) {
+      test(`a drag across words and pictures ${fallback.name}`, async ({ page }) => {
+        // Arrange: the page shows every picture, and the copy reads none of
+        // those it cannot.
+        if (fallback.script) await page.addInitScript({ content: fallback.script });
+        await openPictured(page);
+        await page.route((url) => url.pathname === "/api/messages" && fallback.unread.includes(url.searchParams.get("picture") ?? ""),
+          (route) => route.request().resourceType() === "fetch" ? route.fulfill({ status: 404, json: { error: "No such picture is kept" } }) : route.fallback());
+
+        // Act
+        const selection = await drag(page);
+        await expect(page.getByRole("status").filter({ hasText: "Copied" })).toBeVisible();
+        const copied = await clipboardOf(page);
+
+        // Assert
+        expect(copied.types).toEqual(fallback.types);
+        expect(copied.text).toBe(selection.text);
+        expect(named(copied.shown, selection.originals)).toEqual(fallback.shown);
+        expect(copied.picture ? named([copied.picture], selection.originals) : []).toEqual(fallback.picture);
+      });
+    }
+
+    test("a selection with no picture copies its words alone, as it always has, and leaves Ctrl+C to the browser", async ({ page }) => {
       // Arrange
       await openPictured(page);
 
-      // Act: a drag across the reply's first words only.
+      // Act: a drag across the reply's first words only, then Ctrl+C on them
+      // once something else was copied.
       await drag(page, FIRST, FIRST);
       await expect(page.getByRole("status").filter({ hasText: "Copied" })).toBeVisible();
       const dragged = await clipboardOf(page);
       await page.evaluate(() => navigator.clipboard.writeText("copied since"));
-      await page.keyboard.press("Control+C");
+      await page.keyboard.down("Control");
+      await page.keyboard.down("KeyC");
+      const held = await clipboardOf(page);
+      await page.keyboard.up("KeyC");
+      await page.keyboard.up("Control");
 
-      // Assert: the drag and Ctrl+C each leave the words alone on it.
+      // Assert: the drag leaves the words alone on the clipboard; while the
+      // key is down the browser's own copy holds them with its HTML, and its
+      // release leaves the words alone again.
       expect(dragged.types).toEqual(["text/plain"]);
       expect(dragged.text).toBe(FIRST);
+      expect(held.types).toEqual(["text/html", "text/plain"]);
+      expect(held.text).toBe(FIRST);
       await expect.poll(async () => { const copied = await clipboardOf(page); return [copied.types, copied.text]; }).toEqual([["text/plain"], FIRST]);
+    });
+
+    test("a selection that reaches past the conversation is left to the browser's own copy, as before", async ({ page }) => {
+      // Arrange: from the reply's first words to past the conversation's
+      // panel, its pictures and its box included, and something else was
+      // copied since.
+      await openPictured(page);
+      await originalsOf(page);
+      await page.getByRole("log", { name: /^Messages of / }).focus();
+      await page.locator('[data-message="m1"]').getByText(FIRST).evaluate((words) => {
+        const range = document.createRange();
+        range.setStart(words, 0);
+        range.setEndAfter(words.closest(".messages-view") ?? words);
+        getSelection()?.removeAllRanges();
+        getSelection()?.addRange(range);
+      });
+      await page.evaluate(() => navigator.clipboard.writeText("copied since"));
+
+      // Act
+      await page.keyboard.down("Control");
+      await page.keyboard.down("KeyC");
+      const held = await clipboardOf(page);
+      await page.keyboard.up("KeyC");
+      await page.keyboard.up("Control");
+      await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+
+      // Assert: the browser's own copy, with its HTML, is on the clipboard
+      // while the key is down and stays there once it is up.
+      expect(held.types).toEqual(["text/html", "text/plain"]);
+      expect((await clipboardOf(page)).types).toEqual(["text/html", "text/plain"]);
     });
   });
 }

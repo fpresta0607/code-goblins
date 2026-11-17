@@ -11,7 +11,7 @@ import { Notice } from "./notice";
 import { PictureOpener } from "./picture-opener";
 import { PictureViewer } from "./picture-viewer";
 import { ReplyWorking } from "./reply-working";
-import { copySelected, picturesIn } from "./selection-copy";
+import { copiedHtml, copySelected, picturesIn } from "./selection-copy";
 import { changeMessages, conversationHead, isWrittenReply, messageFontFor, olderMessages, pageMessages, parseConversation, parseMessages, parsePage, parseSession, parseUsage, parseWaiting, storedMessageFont, storeMessageFont, turnEnds, viewStanding, type ConversationHead, type MessagePage, type SessionReport } from "./session-messages";
 import { attachZoomGesture } from "./terminal-zoom";
 import { object, parseAction, string, type Action, type KeySpend, type SubscriptionUsage, type Task, type TreeNode } from "./types";
@@ -762,12 +762,16 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   // or the menu's Copy makes it, holds each picture's board address, whose
   // query carries the board's token, and never the picture, so such a
   // selection of this list copies itself, as it does once it settles (#2543).
+  // Its text goes on the clipboard at once, and its HTML too where an earlier
+  // copy of it has drawn its pictures.
   const copyPictured = (event: ClipboardEvent<HTMLDivElement>) => {
     const selection = window.getSelection();
     const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
     if (!selection || !range || !list.current?.contains(range.commonAncestorContainer) || !picturesIn(range).length) return;
     event.preventDefault();
     event.clipboardData.setData("text/plain", selection.toString());
+    const html = copiedHtml(range);
+    if (html) event.clipboardData.setData("text/html", html);
     copySelection();
   };
   // Copied ends where the selection does, under its last line, or over it

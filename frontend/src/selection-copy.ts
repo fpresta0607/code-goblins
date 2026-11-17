@@ -13,12 +13,31 @@ const PICTURES = ".message-picture img, .call-picture img";
 // before it has ended.
 let lastCopy: Promise<void> = Promise.resolve();
 
-// picturesIn is the pictures a selection of a conversation takes in, in their
-// order.
-export function picturesIn(range: Range): HTMLImageElement[] {
+// A copy of a selection once its pictures are drawn: its HTML, each picture
+// inline, and its first picture.
+type Drawn = { html: string; png: Blob };
+
+// The copy last made of a selection that takes in pictures: its contents, as
+// contentsOf reads them, that copy once its pictures are drawn, and its HTML
+// once they are. A copy of the same contents, as Ctrl+C and each key's
+// release make of a selection that stands, takes them again rather than
+// reading and drawing each picture anew, and the browser's own copy of it
+// holds that HTML at once (copiedHtml).
+type Kept = { contents: string; drawn: Promise<Drawn>; html: string };
+let kept: Kept | null = null;
+
+// imagesIn is every image a selection's contents hold, shown or not, in their
+// order, as a copy of those contents holds them.
+function imagesIn(range: Range): HTMLImageElement[] {
   const root = range.commonAncestorContainer;
   const scope = root instanceof Element ? root : root.parentElement;
-  return [...scope?.querySelectorAll<HTMLImageElement>(PICTURES) ?? []].filter((image) => range.intersectsNode(image));
+  return [...scope?.querySelectorAll("img") ?? []].filter((image) => range.intersectsNode(image));
+}
+
+// picturesIn is the pictures a selection of a conversation shows, in their
+// order.
+export function picturesIn(range: Range): HTMLImageElement[] {
+  return imagesIn(range).filter((image) => image.matches(PICTURES) && image.getClientRects().length > 0);
 }
 
 // copySelected copies a selection of a conversation, whose text reads as
@@ -33,17 +52,37 @@ export function picturesIn(range: Range): HTMLImageElement[] {
 export function copySelected(range: Range, text: string): Promise<void> {
   const pictures = picturesIn(range);
   if (!pictures.length || !navigator.clipboard?.write || typeof ClipboardItem === "undefined") return inTurn(() => copyText(text));
-  const holder = document.createElement("div");
-  holder.append(range.cloneContents());
-  const sources = pictures.map((image) => image.src);
-  const read = Promise.all(sources.map((source) => fetch(source).then((response) => response.blob()).then(pngOf)
-    .then(async (png) => ({ png, address: await inlined(png) })).catch(() => null)));
+  const holder = contentsOf(range, pictures);
+  const contents = holder.innerHTML;
+  const copy = kept?.contents === contents ? kept : drawing(contents, holder, pictures);
+  kept = copy;
   const item = new ClipboardItem({
     "text/plain": new Blob([text], { type: "text/plain" }),
-    "text/html": read.then((each) => new Blob([htmlOf(holder, sources, each)], { type: "text/html" })),
-    "image/png": read.then((each) => each.find((picture) => picture !== null)?.png ?? Promise.reject(new Error("No picture of the selection could be read."))),
+    "text/html": copy.drawn.then(({ html }) => new Blob([html], { type: "text/html" })),
+    "image/png": copy.drawn.then(({ png }) => png),
   });
   return inTurn(() => navigator.clipboard.write([item]).catch(() => copyText(text)));
+}
+
+// copiedHtml is the HTML a copy of a selection holds, where the copy last
+// made was of the same contents and has drawn its pictures, so the browser's
+// own copy of it can hold that HTML at once; otherwise it is empty.
+export function copiedHtml(range: Range): string {
+  return kept?.contents === contentsOf(range, picturesIn(range)).innerHTML ? kept.html : "";
+}
+
+// drawing reads and draws the pictures of a selection, whose contents holder
+// holds as contentsOf reads them, for its copy.
+function drawing(contents: string, holder: HTMLElement, pictures: HTMLImageElement[]): Kept {
+  const drawn = Promise.all(pictures.map((image) => fetch(image.src).then((response) => response.blob()).then(pngOf)
+    .then(async (png) => ({ png, address: await inlined(png) })).catch(() => null))).then((each) => {
+    const png = each.find((picture) => picture !== null)?.png;
+    if (!png) throw new Error("No picture of the selection could be read.");
+    return { html: htmlOf(holder, each), png };
+  });
+  const copy: Kept = { contents, drawn, html: "" };
+  drawn.then(({ html }) => { copy.html = html; }, () => {});
+  return copy;
 }
 
 // inTurn begins a copy once the copy before it has ended, however it ended.
@@ -53,23 +92,38 @@ function inTurn(copy: () => Promise<void>): Promise<void> {
   return copied;
 }
 
-// htmlOf is a selection's copied contents as HTML, each picture inline in
-// place of the button that opens it, and without the board's other controls
-// and icons, which a target would draw without the board's styles.
-function htmlOf(holder: HTMLElement, sources: string[], pictures: ({ address: string } | null)[]): string {
-  for (const clone of holder.querySelectorAll("img")) {
-    const address = pictures[sources.indexOf(clone.src)]?.address;
+// contentsOf is a selection's contents as its copy holds them: each picture
+// it shows in place of the button that opens it, and none of its other
+// images, the board's controls and icons, or the card a pointer shows over a
+// thumbnail, which a target would draw without the board's styles. Its
+// images pair with the selection's own by their order.
+function contentsOf(range: Range, pictures: HTMLImageElement[]): HTMLElement {
+  const holder = document.createElement("div");
+  holder.append(range.cloneContents());
+  const images = imagesIn(range);
+  holder.querySelectorAll("img").forEach((clone, at) => {
     const place = clone.closest("button") ?? clone;
+    if (!pictures.includes(images[at])) place.remove();
+    else if (place !== clone) place.replaceWith(clone);
+  });
+  for (const control of holder.querySelectorAll("button, svg, .picture-hover-card")) control.remove();
+  return holder;
+}
+
+// htmlOf is a selection's contents, as contentsOf reads them, with each of
+// its pictures inline as drawn, and without one that could not be read.
+function htmlOf(holder: HTMLElement, pictures: ({ address: string } | null)[]): string {
+  holder.querySelectorAll("img").forEach((clone, at) => {
+    const address = pictures[at]?.address;
     if (!address) {
-      place.remove();
-      continue;
+      clone.remove();
+      return;
     }
     const picture = document.createElement("img");
     picture.src = address;
     picture.alt = clone.alt;
-    place.replaceWith(picture);
-  }
-  for (const control of holder.querySelectorAll("button, svg")) control.remove();
+    clone.replaceWith(picture);
+  });
   return holder.innerHTML;
 }
 

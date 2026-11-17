@@ -605,9 +605,14 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   };
   const pasteKey = async () => {
     const input = await readClipboard();
+    if ("error" in input) {
+      refuse(input.error);
+      return;
+    }
+    const inline = inlinePictures(input.html);
     if ("text" in input) insert(input.text);
+    if (inline.length) await add(inline);
     else if ("image" in input) await add([input.image]);
-    else refuse(input.error);
   };
   const pastePicture = async () => {
     const read = await clipboardPicture();
