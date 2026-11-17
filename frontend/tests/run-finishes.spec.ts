@@ -43,7 +43,7 @@ async function history(page: Page) {
 }
 
 for (const [outcome, says, kept] of [["finished", "Complete", "Complete · exit 0"], ["errorLine", "Complete", "Complete · exit 0"], ["failed", "Failed: gh: release v0.5.2 already exists", "Failed: gh: release v0.5.2 already exists · exit 2"], ["withdrawn", "Withdrawn by the CEO", "Withdrawn by the CEO"]] as const) {
-  test(`a command that ends without trouble (${outcome}) finishes its card, the next item follows, and History says how it ended`, async ({ page }, testInfo) => {
+  test(`a command whose asker has how it ended (${outcome}) finishes its card, the next item follows, and History says how it ended`, async ({ page }, testInfo) => {
     // Arrange
     const dialog = await runIt(page);
 
