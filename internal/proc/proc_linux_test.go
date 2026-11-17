@@ -2,6 +2,7 @@ package proc
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -268,5 +269,71 @@ func TestAJustStartedChildReadsAsStartingAsThisUserAndInitDoesNot(t *testing.T) 
 				t.Errorf("isStartingAsThisUser(%d) = %t, want %t", pid, isStarting, test.shouldBeStarting)
 			}
 		})
+	}
+}
+
+// A child that has exited and is not yet collected keeps its ID as a zombie,
+// state Z in its line of /proc (proc(5)), and runs no program, so it has no
+// arguments: Arguments refuses it at once, never reads it as started with
+// none, and does not take it for an exec setting its arguments up.
+func TestArgumentsRefusesAChildThatExitedBeforeItIsCollected(t *testing.T) {
+	// Arrange
+	child := exec.Command("sleep", "600")
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = child.Wait() })
+	if err := child.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	statFile := fmt.Sprintf("/proc/%d/stat", child.Process.Pid)
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(time.Millisecond) {
+		line, err := os.ReadFile(statFile)
+		if err != nil {
+			t.Fatalf("the killed child was gone before the test read it, so the test proves nothing: %v", err)
+		}
+		if fields := strings.Fields(string(line[strings.LastIndexByte(string(line), ')')+1:])); len(fields) > 0 && fields[0] == "Z" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the killed child did not become a zombie within 30 seconds")
+		}
+	}
+
+	// Act
+	started := time.Now()
+	arguments, err := Arguments(child.Process.Pid)
+	took := time.Since(started)
+
+	// Assert
+	if !errors.Is(err, ErrCommandLineUnreadable) {
+		t.Errorf("Arguments of an exited child = %q, %v; want an error that wraps ErrCommandLineUnreadable", arguments, err)
+	}
+	if took >= 500*time.Millisecond {
+		t.Errorf("Arguments of an exited child took %s, want it refused at once", took)
+	}
+}
+
+// A kernel thread runs no program, so it has no arguments and never will:
+// kthreadd, pid 2 where this test sees the machine's own processes, reads
+// as having none at once, not after waiting out an exec that is not there.
+func TestArgumentsReadsAKernelThreadAsHavingNoneAtOnce(t *testing.T) {
+	// Arrange
+	name, err := os.ReadFile("/proc/2/comm")
+	if err != nil || strings.TrimSpace(string(name)) != "kthreadd" {
+		t.Skipf("pid 2 is not kthreadd here (%q, %v), as in a sandbox that hides the kernel's threads", name, err)
+	}
+
+	// Act
+	started := time.Now()
+	arguments, err := Arguments(2)
+	took := time.Since(started)
+
+	// Assert
+	if err != nil || len(arguments) != 0 {
+		t.Errorf("Arguments of kthreadd = %q, %v; want none and no error", arguments, err)
+	}
+	if took >= 500*time.Millisecond {
+		t.Errorf("Arguments of kthreadd took %s, want it read at once", took)
 	}
 }
