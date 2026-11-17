@@ -18,6 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
+	"github.com/fpresta0607/code-goblins/internal/nativehook"
 )
 
 func TestNativeCEOLeavesAnUnreadyComposerUntouched(t *testing.T) {
@@ -617,7 +618,10 @@ func ceoShowsReady(t *testing.T, stateDir string, kind harness.Kind, prompt stri
 // the turn is interrupted, so his message typed into the CEO's turn, which he
 // then stopped with the box's Stop, goes as the CEO's next prompt rather than
 // sitting there unsent while its bubble says Sent. While the turn runs it is
-// left in the harness's queue.
+// left in the harness's queue, and it reads queued as soon as the turn queues
+// it, though a screen drawn late, as a loaded machine's is, still shows it on
+// the prompt line then: Claude Code runs its prompt hook as it queues a line
+// (#2541).
 func TestHisMessageInATurnHeStoppedGoesAsTheCEOsNextPrompt(t *testing.T) {
 	for _, test := range []struct {
 		mode, prompt string
@@ -625,7 +629,7 @@ func TestHisMessageInATurnHeStoppedGoesAsTheCEOsNextPrompt(t *testing.T) {
 	}{
 		{mode: "claude-busy", prompt: "❯ stop and rebase", kind: harness.Claude},
 		{mode: "busy", prompt: "› stop and rebase", kind: harness.Codex},
-		{mode: "claude-busy-draws-late", prompt: "❯ stop and rebase", kind: harness.Claude},
+		{mode: "claude-busy-hooks-queued-draws-late", prompt: "❯ stop and rebase", kind: harness.Claude},
 		{mode: "busy-draws-late", prompt: "› stop and rebase", kind: harness.Codex},
 	} {
 		t.Run(test.mode, func(t *testing.T) {
@@ -638,9 +642,11 @@ func TestHisMessageInATurnHeStoppedGoesAsTheCEOsNextPrompt(t *testing.T) {
 				t.Fatal(err)
 			}
 			pastUndoWindow(t, store)
+			queuing := time.Now()
 			if err := store.ProcessOne(context.Background(), service.execute); err != nil {
 				t.Fatal(err)
 			}
+			queuedIn := time.Since(queuing)
 			inTurn := terminal.waitForLines(t, 2)
 			inTurnErr := service.submitHandedBack(context.Background())
 			typeIntoCEO(t, home.State, "\x1b", test.prompt)
@@ -656,6 +662,9 @@ func TestHisMessageInATurnHeStoppedGoesAsTheCEOsNextPrompt(t *testing.T) {
 			// Assert
 			if inTurnErr != nil || err != nil {
 				t.Fatalf("submitHandedBack = %v in the turn, %v after it; want no error", inTurnErr, err)
+			}
+			if queuedIn >= nativeShown {
+				t.Errorf("his message read queued after %v; want it once its turn queued it, before the %v the board waits for words to leave a prompt line", queuedIn, nativeShown)
 			}
 			if want := []string{"queued stop and rebase"}; !slices.Equal(inTurn[1:], want) {
 				t.Errorf("terminal input in the turn = %q; want %q, nothing pressed", inTurn, want)
@@ -962,6 +971,49 @@ func TestHisMessageInTheCEOsTurnIsQueuedOnlyOnceItLeavesThePromptLine(t *testing
 				t.Errorf("deliverMessage = %+v, %v with terminal input %q; want it taken back off the prompt line and Not sent", result, err, input)
 			}
 		})
+	}
+}
+
+// A prompt hook says a prompt was taken, not which, so the hook of another
+// line, as a line queued earlier raises once it is taken at a tool call, never
+// reads his message queued in the CEO's turn while the screen shows its submit
+// key taken as a new line under his words: the key is pressed again (#2541).
+func TestAnotherLinesPromptHookLeavesHisEnterTakenAsANewLineToBePressedAgain(t *testing.T) {
+	// Arrange
+	useConversations(t)
+	store, home := testStore(t)
+	terminal := nativeCEOComposer(t, home.State, "claude-busy-lost-enter")
+	screens, _ := harness.NativeScreens(harness.Claude)
+	connection := &CEOConnection{State: home.State}
+	var typed []string
+	hookErr := errors.New("no screen showed his submit key taken as a new line")
+	connection.ReadScreen = func(record host.Record) ([]string, error) {
+		screen, err := host.ReadScreen(record)
+		if err != nil || hookErr == nil || !screens.ComposerHoldsPartOf(screen, "stop and rebase") {
+			return screen, err
+		}
+		if typed == nil {
+			typed = screen
+		} else if screens.TookEnterAsNewLine(typed, screen) {
+			data, _ := json.Marshal(map[string]string{"session_id": "session-1", "cwd": home.State, "hook_event_name": "UserPromptSubmit"})
+			var event nativehook.Event
+			if event, hookErr = nativehook.Normalize(strings.NewReader(string(data)), nativehook.Context{Harness: "claude", HostID: "ceo"}); hookErr == nil {
+				hookErr = nativehook.Spool(home.State, event)
+			}
+		}
+		return screen, nil
+	}
+	service := &Service{Store: store, Options: Options{CEO: connection}}
+
+	// Act
+	result, err := service.deliverMessage(context.Background(), Action{Kind: "message", Text: "stop and rebase"})
+
+	// Assert
+	if hookErr != nil {
+		t.Fatalf("the other line's hook never reported: %v", hookErr)
+	}
+	if lines := terminal.waitForLines(t, 3); err != nil || result.Reason != heldByCEO || result.Awaiting == nil || !slices.Equal(lines[1:], []string{"enter taken as a new line", "queued stop and rebase"}) {
+		t.Errorf("deliverMessage = %+v, %v with terminal input %q; want its submit key pressed again and his message queued once", result, err, lines)
 	}
 }
 

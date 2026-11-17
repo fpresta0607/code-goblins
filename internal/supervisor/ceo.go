@@ -807,10 +807,10 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 		}
 		// Where a harness can take the submit key as a new line, as Claude
 		// Code can, his words are in the turn's queue only once they leave its
-		// prompt line, so words still alone on it once the wait for them to
-		// show would have ended are taken back off it. Any other harness queued
-		// them as the key went, as before: a Codex can take its key late with
-		// them still showing.
+		// prompt line or its prompt hook reports them queued, so words still
+		// alone on it once the wait for them to show would have ended are
+		// taken back off it. Any other harness queued them as the key went, as
+		// before: a Codex can take its key late with them still showing.
 		if screens.Resubmits > 0 {
 			// A turn that reads the submit key only as its words are taken
 			// back queues them before the keys that take them back reach it,
@@ -831,6 +831,14 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 					return Evaluation{Awaiting: waiting}, fmt.Errorf("the message was submitted into the CEO's turn, and its input cannot be read: %w", err)
 				}
 				if !screens.ComposerHoldsPartOf(screen, instruction) {
+					break
+				}
+				// Its prompt hook shows the words queued though a screen drawn
+				// late, as a loaded machine's is, still shows them on the
+				// prompt line. The hook does not say which line it reports, so
+				// a screen that shows the submit key taken as a new line under
+				// them still has it pressed again.
+				if isReported, hookErr := NativeHostPromptSince(c.State, primary.Host, submitted); hookErr == nil && isReported && !screens.TookEnterAsNewLine(atPress, screen) {
 					break
 				}
 				isPressed, err := pressAgain(screen)
