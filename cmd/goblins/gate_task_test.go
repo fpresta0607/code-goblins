@@ -296,3 +296,34 @@ func TestAnOlderWorktreeIsNotNamedForANewerTaskSharingItsPrefix(t *testing.T) {
 		t.Fatalf("stderr=%q, log=%q (%v); want the unowned worktree explained and recorded", stderr.String(), log, err)
 	}
 }
+
+// A gate run's task is read from its source project's own worktree records,
+// so a git worktree list that outlasts the lookup's 5 second budget, as one
+// took 12.8 s in a project of 48 worktrees on a loaded host, refuses no
+// run's Test (#2627).
+func TestAGateRunNamesItsOwnerWhileGitWorktreeListOutlastsTheBudget(t *testing.T) {
+	// Arrange
+	project, gateRoot, worktree := gateTaskFixture(t, "cg-example")
+	if err := state.WriteTaskMeta(filepath.Join(os.Getenv("GOBLINS_HOME"), "state"), state.TaskMeta{ID: "cg-example", Project: project, Worktree: filepath.Join(project, ".worktrees", "gb-cg-example")}); err != nil {
+		t.Fatal(err)
+	}
+	writeGateSource(t, gateRoot, project, worktree, "feature")
+	slow := t.TempDir()
+	for name, script := range map[string]string{
+		"git.cmd": "@ping -n 8 127.0.0.1 >nul\r\n@exit /b 1\r\n",
+		"git":     "#!/bin/sh\nsleep 7\nexit 1\n",
+	} {
+		if err := os.WriteFile(filepath.Join(slow, name), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", slow+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	// Act
+	task, err := gateTask(worktree, standIn())
+
+	// Assert
+	if task != "cg-example" || err != nil {
+		t.Fatalf("task=%q, err=%v; want cg-example from the project's worktree records", task, err)
+	}
+}
