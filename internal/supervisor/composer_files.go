@@ -49,8 +49,7 @@ func (h *HTTP) composerDir(task string) (string, bool) {
 // The board's composer, and a card's Something else? window, name the returned
 // path in the message or answer they send, so the session reads the file from
 // there. A long answer kept for a credential card, marked credential, is
-// refused and kept nowhere when it holds a word shaped like a key, as the card
-// refuses such an answer.
+// refused and kept nowhere when it holds a word shaped like a key.
 func (h *HTTP) keepComposerFile(w http.ResponseWriter, r *http.Request) {
 	if media := r.Header.Get("Content-Type"); media != "application/octet-stream" && media != "image/png" {
 		apiError(w, http.StatusBadRequest, "Send the file as binary data.")
@@ -72,7 +71,7 @@ func (h *HTTP) keepComposerFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Query().Get("credential") != "" && holdsKey(string(data)) {
-		apiError(w, http.StatusBadRequest, credentialAnswerRefusal)
+		apiError(w, http.StatusBadRequest, "Your answer holds a word shaped like a key, so nothing was kept or sent.")
 		return
 	}
 	extension := pictureExtensions[http.DetectContentType(data)]

@@ -315,7 +315,7 @@ for (const card of CARDS) {
 
 const REFUSALS = [
   { open: "Open the command", status: 413, error: "A pasted file may be at most 10 MiB." },
-  { open: "Open the credential", status: 400, error: "Your answer goes to the goblin, so it is a few words of at most 4000 characters and holds no key. Nothing was sent." },
+  { open: "Open the credential", status: 400, error: "Your answer holds a word shaped like a key, so nothing was kept or sent." },
 ] as const;
 for (const refusal of REFUSALS) {
   test(`${refusal.open}: a long answer the board does not keep is said in the window, with his words, and nothing is sent`, async ({ page }) => {
@@ -362,30 +362,64 @@ test("Cancel while a long answer is being kept sends nothing", async ({ page }) 
   expect(sent).toEqual([]);
 });
 
-test("files whose paths alone pass the limit hold Send and ask for fewer", async ({ page }) => {
+// A path of length characters in a folder of his files, as the board keeps it.
+const keptPath = (length: number, name: string) => "C:\\" + "d".repeat(length - 19 - name.length) + "\\composer-files\\" + name;
+
+for (const { what, words, length } of [
+  { what: "files whose paths alone pass the limit", words: "", length: 2131 },
+  { what: "a short note with files whose paths are just under the limit", words: "ok", length: 1999 },
+] as const) {
+  test(`${what} hold Send and ask for fewer`, async ({ page }) => {
+    // Arrange
+    const sent = await record(page);
+    let count = 0;
+    await page.route("**/api/composer/file**", (route) => route.request().method() === "POST"
+      ? route.fulfill({ status: 201, json: { path: keptPath(length, "pasted-" + ++count + ".png") } })
+      : route.fulfill({ status: 200, contentType: "image/png", body: Buffer.from(ONE_PIXEL, "base64") }));
+    const shown = await openCard(page, "Open the command");
+    await pencilOf(shown).click();
+    const note = noteWindow(page).getByLabel("Your note");
+    await note.fill(words);
+    await pastePicture(note);
+    await expect(noteWindow(page).getByRole("img", { name: "Picture 1" })).toBeVisible();
+    const isSendOnWithOne = await noteWindow(page).getByRole("button", { name: "Send", exact: true }).isEnabled();
+
+    // Act
+    await pastePicture(note);
+    await expect(noteWindow(page).getByRole("img", { name: "Picture 2" })).toBeVisible();
+
+    // Assert
+    expect(isSendOnWithOne).toBe(true);
+    await expect(noteWindow(page).getByText("Use fewer files.")).toBeVisible();
+    await expect(noteWindow(page).getByRole("button", { name: "Send", exact: true })).toBeDisabled();
+    await note.press("Enter");
+    expect(count).toBe(2);
+    expect(sent).toEqual([]);
+  });
+}
+
+test("a long answer's opening is cut so the answer and his file's path fit in 4000 bytes", async ({ page }) => {
   // Arrange
   const sent = await record(page);
-  let count = 0;
+  const picture = keptPath(1900, "pasted-1.png");
+  const answer = keptPath(1900, "pasted-2.txt");
   await page.route("**/api/composer/file**", (route) => route.request().method() === "POST"
-    ? route.fulfill({ status: 201, json: { path: "C:\\" + "d".repeat(2100) + "\\composer-files\\pasted-" + ++count + ".png" } })
+    ? route.fulfill({ status: 201, json: { path: new URL(route.request().url()).searchParams.get("name") === "answer.txt" ? answer : picture } })
     : route.fulfill({ status: 200, contentType: "image/png", body: Buffer.from(ONE_PIXEL, "base64") }));
   const shown = await openCard(page, "Open the command");
   await pencilOf(shown).click();
   const note = noteWindow(page).getByLabel("Your note");
+  await note.fill("Use the shop's bot account, not mine.\n".repeat(150));
   await pastePicture(note);
   await expect(noteWindow(page).getByRole("img", { name: "Picture 1" })).toBeVisible();
-  const isSendOnWithOne = await noteWindow(page).getByRole("button", { name: "Send", exact: true }).isEnabled();
 
   // Act
-  await pastePicture(note);
-  await expect(noteWindow(page).getByRole("img", { name: "Picture 2" })).toBeVisible();
+  await noteWindow(page).getByRole("button", { name: "Send", exact: true }).click();
 
   // Assert
-  expect(isSendOnWithOne).toBe(true);
-  await expect(noteWindow(page).getByText("Use fewer files.")).toBeVisible();
-  await expect(noteWindow(page).getByRole("button", { name: "Send", exact: true })).toBeDisabled();
-  await note.press("Enter");
-  expect(sent).toEqual([]);
+  await expect.poll(() => sent.length).toBe(1);
+  // 4000 bytes less the two 1900-byte paths and the answer's own 39 leave 161 for the opening.
+  expect(sent[0].body).toMatchObject({ kind: "run_answer", text: "My whole answer is in " + answer + ". It begins: " + "Use the shop's bot account, not mine. ".repeat(4) + "Use the s...\n" + picture });
 });
 
 test("a picture can be taken back out of the pencil's window before Send", async ({ page }) => {

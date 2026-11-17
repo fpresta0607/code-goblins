@@ -2290,9 +2290,10 @@ Every open item also has a way out at the bottom, beside its decision buttons, a
   The window stays open until the board takes his answer, so one the board refuses, such as words shaped like a key, shows why in the window in full with his words still in it, and nothing goes on the card.
   Each picture or file goes to the chat's own `POST /api/composer/file?task=<asker>` as it is added, which keeps it in the asking goblin's task folder, or in the state folder's `composer-files` for the CEO, and shows above his words as the chat shows it; his answer names each kept file's path on a line of its own after his words, for the asker to read.
   An answer longer than 4000 UTF-8 bytes with its paths, which a card's asker would otherwise refuse or take cut on one typed line, is kept the same way as a `.txt` file, line breaks and all, and his answer reads `My whole answer is in <path>. It begins: <its first 300 characters>...`, so the asker reads it whole.
-  On a credential card the route is told so with `credential=1`, and refuses one holding a word shaped like a key anywhere with the card's own refusal, keeping nothing.
+  Its opening is cut to as much as fits, so that line and his files' paths stay within 4000 bytes, since the file holds every word.
+  On a credential card the route is told so with `credential=1`, and refuses one holding a word shaped like a key anywhere, keeping nothing: `Your answer holds a word shaped like a key, so nothing was kept or sent.`
   If it cannot be kept, the window says `Your answer was not sent:` and why, with his words still in it.
-  Files whose paths alone pass 4000 bytes hold Send, with **Use fewer files.**
+  Files whose paths leave no room for that line, its own file's path among them, hold Send, with **Use fewer files.**
   Cancel sends nothing, even while a long answer is being kept.
 - A question, which has its own Other for a written answer, and a review with its own answer box, have a plain **Skip** beside Send: a `question_clear`, which also tells a goblin that asked to go on without it, or a `review_clear`.
 - A Scrawl review card, a review or a goblin's wait with a page, has a plain **Skip** beside its one button that opens the page, and no box for words at all, neither an answer box nor the pencil, since he answers on the page (the Overlord, 2026-10-17: "There does not need to be a text box in when there is a scroll open review page involved").

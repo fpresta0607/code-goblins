@@ -111,9 +111,8 @@ func TestAPastedFileTheBoardCannotKeepSaysWhy(t *testing.T) {
 }
 
 // A long answer kept for a credential card reaches the goblin as his word, so
-// one holding a word shaped like a key anywhere is refused as the card refuses
-// it, kept nowhere and never repeated (#2538). The chat's own files are kept
-// as they are.
+// one holding a word shaped like a key anywhere is refused, kept nowhere and
+// never repeated (#2538). The chat's own files are kept as they are.
 func TestALongCredentialAnswerHoldingAKeyIsKeptNowhere(t *testing.T) {
 	board, meta, _ := composerBoard(t)
 	canary := newCanary(t)
@@ -146,8 +145,8 @@ func TestALongCredentialAnswerHoldingAKeyIsKeptNowhere(t *testing.T) {
 			if strings.Contains(response.Body.String(), canary) {
 				t.Fatal("the answer repeats the key")
 			}
-			if c.code == 400 && !strings.Contains(response.Body.String(), "holds no key") {
-				t.Fatalf("refused with %s, want the card's own refusal", response.Body)
+			if c.code == 400 && !strings.Contains(response.Body.String(), "Your answer holds a word shaped like a key, so nothing was kept or sent.") {
+				t.Fatalf("refused with %s, want it said that nothing was kept or sent", response.Body)
 			}
 			if found := filesHolding(t, meta.TaskTmp, canary); c.code == 400 && len(found) != 0 {
 				t.Fatalf("the key is in %v", found)

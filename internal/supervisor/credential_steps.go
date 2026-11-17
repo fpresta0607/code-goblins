@@ -37,10 +37,6 @@ var credentialWaitRecheck = 10
 // its step.
 const maxCredentialAnswer = 4000
 
-// credentialAnswerRefusal is why the board refuses an answer on a card, or a
-// long one kept for it, without repeating it.
-const credentialAnswerRefusal = "Your answer goes to the goblin, so it is a few words of at most 4000 characters and holds no key. Nothing was sent."
-
 // CredentialStep is what a card's asker, or the CEO, does to it from outside
 // the board: done, once the asker saw the step done; withdraw, once nobody
 // needs it; and reopen, to bring back a card he closed.
@@ -475,7 +471,7 @@ func (h *HTTP) closeCredentialCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if text := strings.TrimSpace(input.Text); closed == "answered" && (text == "" || len(text) > maxCredentialAnswer || holdsKey(text)) {
-		apiError(w, http.StatusBadRequest, credentialAnswerRefusal)
+		apiError(w, http.StatusBadRequest, "Your answer goes to the goblin, so it is a few words of at most 4000 characters and holds no key. Nothing was sent.")
 		return
 	}
 	request, err := h.Service.closeCredential(input.ID, input.Generation, closed, "overlord", strings.TrimSpace(input.Text))

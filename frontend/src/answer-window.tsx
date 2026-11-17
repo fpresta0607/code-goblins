@@ -15,10 +15,18 @@ import "./credential-card.css";
 const LONGEST_WRITTEN = 4000;
 const OPENING = 300;
 
-// The answer that names the file holding a long note, with its opening words.
-function keptAnswer(note: string, path: string): string {
-  const opening = note.replace(/\s+/g, " ").slice(0, OPENING).trim();
-  return "My whole answer is in " + path + ". It begins: " + opening + "...";
+function bytes(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+// The answer that names the file holding a long note, then the paths of his
+// files: as much of the note's opening words as fits in LONGEST_WRITTEN, since
+// the file holds them all.
+function keptAnswer(note: string, path: string, paths: string[]): string {
+  const opening = Array.from(note.replace(/\s+/g, " ").slice(0, OPENING).trim());
+  const answer = () => ["My whole answer is in " + path + ". It begins: " + opening.join("").trim() + "...", ...paths].join("\n");
+  while (opening.length && bytes(answer()) > LONGEST_WRITTEN) opening.pop();
+  return answer();
 }
 
 // His answer in his own words to a card with no answer box of its own, from
@@ -45,17 +53,20 @@ export function AnswerWindow({ asker, task, instance, isCredentialCard = false, 
   }, []);
   const files: AnswerFiles = { paths, adding, task: task || undefined, onChange: setPaths, onAdding: (step) => setAdding((count) => Math.max(0, count + step)) };
   const written = note.trim();
-  const hasTooManyFiles = new TextEncoder().encode(paths.join("\n")).length > LONGEST_WRITTEN;
+  const whole = [written, ...paths].filter(Boolean).join("\n");
+  const isWritten = bytes(whole) <= LONGEST_WRITTEN;
+  const hasTooManyFiles = !isWritten && bytes(keptAnswer("", paths.reduce((longest, path) => path.length > longest.length ? path : longest, ""), paths)) > LONGEST_WRITTEN;
   const canSend = (!!written || paths.length > 0) && !hasTooManyFiles && !adding && !isKeepingNote && !isSending;
   const send = async () => {
     if (!canSend) return;
-    const whole = [written, ...paths].filter(Boolean).join("\n");
-    if (new TextEncoder().encode(whole).length <= LONGEST_WRITTEN) { onSend(whole); return; }
+    if (isWritten) { onSend(whole); return; }
     setKeepingNote(true);
     setRefusal("");
     try {
       const path = await keepFile(new Blob([written], { type: "text/plain" }), "answer.txt", instance, task || undefined, isCredentialCard);
-      if (isOpen.current) onSend([keptAnswer(written, path), ...paths].join("\n"));
+      const answer = keptAnswer(written, path, paths);
+      if (bytes(answer) > LONGEST_WRITTEN) throw new Error("Use fewer files.");
+      if (isOpen.current) onSend(answer);
     } catch (error: unknown) {
       setRefusal("Your answer was not sent: " + message(error));
     } finally {
