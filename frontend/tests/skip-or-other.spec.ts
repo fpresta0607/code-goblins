@@ -230,12 +230,12 @@ const KEPT = String.raw`C:\fleet\state\tasktmp\shop-signup\composer-files\pasted
 const KEPT_ANSWER = KEPT.replace("pasted-1.png", "pasted-2.txt");
 const ONE_PIXEL = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 async function keep(page: Page, wait?: Promise<void>) {
-  const kept: { task: string | null; name: string | null; type: string | undefined; body: string }[] = [];
+  const kept: { task: string | null; name: string | null; credential: string | null; type: string | undefined; body: string }[] = [];
   await page.route("**/api/composer/file**", async (route) => {
     if (route.request().method() !== "POST") return route.fulfill({ status: 200, contentType: "image/png", body: Buffer.from(ONE_PIXEL, "base64") });
     const url = new URL(route.request().url());
     const name = url.searchParams.get("name");
-    kept.push({ task: url.searchParams.get("task"), name, type: route.request().headers()["content-type"], body: route.request().postDataBuffer()?.toString("utf8") ?? "" });
+    kept.push({ task: url.searchParams.get("task"), name, credential: url.searchParams.get("credential"), type: route.request().headers()["content-type"], body: route.request().postDataBuffer()?.toString("utf8") ?? "" });
     await wait;
     await route.fulfill({ status: 201, json: { path: name === "answer.txt" ? KEPT_ANSWER : KEPT } });
   });
@@ -285,7 +285,9 @@ test("a picture pasted into the pencil's window is kept beside the task and sent
 // cap. I should be able to paste like large attachments like I do in the
 // goblins chat" (#2538). A long answer goes whole as a file the asker reads,
 // named with its opening words, so no card's limit refuses it and no line
-// break is lost; a picture goes with it.
+// break is lost; a picture goes with it. A credential card's is marked so the
+// board refuses one holding a key before keeping it.
+const OPENING = "Use the shop's bot account, not mine. ".repeat(7) + "Use the shop's bot account, not mi";
 for (const card of CARDS) {
   test(`${card.open}: an answer of 20,000 characters and a picture reach the asker whole`, async ({ page }) => {
     // Arrange
@@ -305,10 +307,86 @@ for (const card of CARDS) {
 
     // Assert
     await expect.poll(() => sent.length).toBe(1);
-    expect(kept.filter((each) => each.name === "answer.txt")).toEqual([{ task: "shop-signup", name: "answer.txt", type: "application/octet-stream", body: long.trim() }]);
-    expect(sent[0].body).toMatchObject({ ...card.other, text: "My whole answer is in " + KEPT_ANSWER + ". It begins: " + long.replace(/\s+/g, " ").slice(0, 300).trim() + "...\n" + KEPT });
+    const credential = card.open === "Open the credential" ? "1" : null;
+    expect(kept.filter((each) => each.name === "answer.txt")).toEqual([{ task: "shop-signup", name: "answer.txt", credential, type: "application/octet-stream", body: long.trim() }]);
+    expect(sent[0].body).toMatchObject({ ...card.other, text: "My whole answer is in " + KEPT_ANSWER + ". It begins: " + OPENING + "...\n" + KEPT });
   });
 }
+
+const REFUSALS = [
+  { open: "Open the command", status: 413, error: "A pasted file may be at most 10 MiB." },
+  { open: "Open the credential", status: 400, error: "Your answer goes to the goblin, so it is a few words of at most 4000 characters and holds no key. Nothing was sent." },
+] as const;
+for (const refusal of REFUSALS) {
+  test(`${refusal.open}: a long answer the board does not keep is said in the window, with his words, and nothing is sent`, async ({ page }) => {
+    // Arrange
+    const sent = await record(page);
+    await page.route("**/api/composer/file**", (route) => route.fulfill({ status: refusal.status, json: { error: refusal.error } }));
+    const shown = await openCard(page, refusal.open);
+    await pencilOf(shown).click();
+    const note = noteWindow(page).getByLabel("Your note");
+    const long = "Use the shop's bot account, not mine.\n".repeat(150).trim();
+    await note.fill(long);
+
+    // Act
+    await noteWindow(page).getByRole("button", { name: "Send", exact: true }).click();
+
+    // Assert
+    await expect(noteWindow(page).getByRole("status").filter({ hasText: "Your answer was not sent" })).toHaveText("Your answer was not sent: " + refusal.error);
+    await expect(note).toHaveValue(long);
+    await expect(noteWindow(page).getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+    expect(sent).toEqual([]);
+  });
+}
+
+test("Cancel while a long answer is being kept sends nothing", async ({ page }) => {
+  // Arrange
+  const sent = await record(page);
+  let release: () => void = () => {};
+  const kept = await keep(page, new Promise<void>((resolve) => { release = resolve; }));
+  const shown = await openCard(page, "Open the command");
+  await pencilOf(shown).click();
+  await noteWindow(page).getByLabel("Your note").fill("Use the shop's bot account, not mine.\n".repeat(150));
+  await noteWindow(page).getByRole("button", { name: "Send", exact: true }).click();
+  await expect.poll(() => kept.length).toBe(1);
+
+  // Act
+  await noteWindow(page).getByRole("button", { name: "Cancel" }).click();
+  const answered = page.waitForResponse("**/api/composer/file**");
+  release();
+  await answered;
+  await page.waitForTimeout(500);
+
+  // Assert
+  await expect(noteWindow(page)).toHaveCount(0);
+  expect(sent).toEqual([]);
+});
+
+test("files whose paths alone pass the limit hold Send and ask for fewer", async ({ page }) => {
+  // Arrange
+  const sent = await record(page);
+  let count = 0;
+  await page.route("**/api/composer/file**", (route) => route.request().method() === "POST"
+    ? route.fulfill({ status: 201, json: { path: "C:\\" + "d".repeat(2100) + "\\composer-files\\pasted-" + ++count + ".png" } })
+    : route.fulfill({ status: 200, contentType: "image/png", body: Buffer.from(ONE_PIXEL, "base64") }));
+  const shown = await openCard(page, "Open the command");
+  await pencilOf(shown).click();
+  const note = noteWindow(page).getByLabel("Your note");
+  await pastePicture(note);
+  await expect(noteWindow(page).getByRole("img", { name: "Picture 1" })).toBeVisible();
+  const isSendOnWithOne = await noteWindow(page).getByRole("button", { name: "Send", exact: true }).isEnabled();
+
+  // Act
+  await pastePicture(note);
+  await expect(noteWindow(page).getByRole("img", { name: "Picture 2" })).toBeVisible();
+
+  // Assert
+  expect(isSendOnWithOne).toBe(true);
+  await expect(noteWindow(page).getByText("Use fewer files.")).toBeVisible();
+  await expect(noteWindow(page).getByRole("button", { name: "Send", exact: true })).toBeDisabled();
+  await note.press("Enter");
+  expect(sent).toEqual([]);
+});
 
 test("a picture can be taken back out of the pencil's window before Send", async ({ page }) => {
   // Arrange

@@ -32,12 +32,14 @@ export async function putImage(picture: Blob, instance: string): Promise<void> {
 // where the session he writes to reads it, and answers with the path the
 // message names. A picture is drawn as a PNG of at most LONGEST_SIDE a side
 // first, as one on this PC's clipboard is, so a phone's photo arrives small;
-// any other file goes as he chose it.
-export async function keepFile(file: Blob, name: string, instance: string, task?: string): Promise<string> {
+// any other file goes as he chose it. A credential card's long answer is
+// marked so the board refuses it when it holds a word shaped like a key.
+export async function keepFile(file: Blob, name: string, instance: string, task?: string, isCredentialAnswer = false): Promise<string> {
   const picture = file.type.startsWith("image/");
   const body = picture ? await pngOf(file) : file;
   const query = new URLSearchParams({ name: picture ? name.replace(/\.[^.]*$/, "") + ".png" : name });
   if (task) query.set("task", task);
+  if (isCredentialAnswer) query.set("credential", "1");
   return string(object(await request("/api/composer/file?" + query.toString(), undefined, {
     method: "POST",
     headers: { "Content-Type": picture ? "image/png" : "application/octet-stream", "X-CEO-Token": instance },

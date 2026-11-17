@@ -48,7 +48,9 @@ func (h *HTTP) composerDir(task string) (string, bool) {
 // message: the task's folder for a goblin, or the state folder for the CEO.
 // The board's composer, and a card's Something else? window, name the returned
 // path in the message or answer they send, so the session reads the file from
-// there.
+// there. A long answer kept for a credential card, marked credential, is
+// refused and kept nowhere when it holds a word shaped like a key, as the card
+// refuses such an answer.
 func (h *HTTP) keepComposerFile(w http.ResponseWriter, r *http.Request) {
 	if media := r.Header.Get("Content-Type"); media != "application/octet-stream" && media != "image/png" {
 		apiError(w, http.StatusBadRequest, "Send the file as binary data.")
@@ -67,6 +69,10 @@ func (h *HTTP) keepComposerFile(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil || len(data) == 0 {
 		apiError(w, http.StatusBadRequest, "The file could not be read.")
+		return
+	}
+	if r.URL.Query().Get("credential") != "" && holdsKey(string(data)) {
+		apiError(w, http.StatusBadRequest, credentialAnswerRefusal)
 		return
 	}
 	extension := pictureExtensions[http.DetectContentType(data)]

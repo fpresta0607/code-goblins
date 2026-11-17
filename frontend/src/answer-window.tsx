@@ -24,9 +24,11 @@ function keptAnswer(note: string, path: string): string {
 // His answer in his own words to a card with no answer box of its own, from
 // the box the chat's own pictures and files go through: typed, said or pasted,
 // with no cap on its length. isSending holds Send while the board takes the
-// answer, and refusal is why the board refused the last one.
-export function AnswerWindow({ asker, task, instance, isSending = false, refusal: refused = "", onCancel, onSend }: { asker: string; task: string; instance: string; isSending?: boolean; refusal?: string; onCancel: () => void; onSend: (text: string) => void }) {
+// answer, and refusal is why the board refused the last one. A credential
+// card's long answer is kept only when it holds no word shaped like a key.
+export function AnswerWindow({ asker, task, instance, isCredentialCard = false, isSending = false, refusal: refused = "", onCancel, onSend }: { asker: string; task: string; instance: string; isCredentialCard?: boolean; isSending?: boolean; refusal?: string; onCancel: () => void; onSend: (text: string) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const isOpen = useRef(false);
   const title = useId();
   const [note, setNote] = useState("");
   const [paths, setPaths] = useState<string[]>([]);
@@ -36,13 +38,15 @@ export function AnswerWindow({ asker, task, instance, isSending = false, refusal
   useEffect(() => {
     const element = dialog.current;
     const source = document.activeElement;
+    isOpen.current = true;
     element?.showModal();
     element?.querySelector("textarea")?.focus();
-    return () => { element?.close(); if (source instanceof HTMLElement && source.isConnected) source.focus(); };
+    return () => { isOpen.current = false; element?.close(); if (source instanceof HTMLElement && source.isConnected) source.focus(); };
   }, []);
   const files: AnswerFiles = { paths, adding, task: task || undefined, onChange: setPaths, onAdding: (step) => setAdding((count) => Math.max(0, count + step)) };
   const written = note.trim();
-  const canSend = (!!written || paths.length > 0) && !adding && !isKeepingNote && !isSending;
+  const hasTooManyFiles = new TextEncoder().encode(paths.join("\n")).length > LONGEST_WRITTEN;
+  const canSend = (!!written || paths.length > 0) && !hasTooManyFiles && !adding && !isKeepingNote && !isSending;
   const send = async () => {
     if (!canSend) return;
     const whole = [written, ...paths].filter(Boolean).join("\n");
@@ -50,8 +54,8 @@ export function AnswerWindow({ asker, task, instance, isSending = false, refusal
     setKeepingNote(true);
     setRefusal("");
     try {
-      const path = await keepFile(new Blob([written], { type: "text/plain" }), "answer.txt", instance, task || undefined);
-      onSend([keptAnswer(written, path), ...paths].join("\n"));
+      const path = await keepFile(new Blob([written], { type: "text/plain" }), "answer.txt", instance, task || undefined, isCredentialCard);
+      if (isOpen.current) onSend([keptAnswer(written, path), ...paths].join("\n"));
     } catch (error: unknown) {
       setRefusal("Your answer was not sent: " + message(error));
     } finally {
@@ -64,6 +68,7 @@ export function AnswerWindow({ asker, task, instance, isSending = false, refusal
     <p>It goes to {asker} as your word. Type it, say it or paste a picture.</p>
     <DictatedAnswer label="Your note" placeholder={"Tell " + asker + " what to do instead..."} value={note} instance={instance} files={files} onText={setNote} onSubmit={() => void send()} />
     {adding > 0 && <Notice form="box">Saving files...</Notice>}
+    {hasTooManyFiles && <Notice form="box" tone="warning">Use fewer files.</Notice>}
     {refusal && <Notice form="box" tone="warning">{refusal}</Notice>}
     {refused && <Notice form="box" tone="warning">{refused}</Notice>}
     <div className="credential-replace-choices">

@@ -110,6 +110,52 @@ func TestAPastedFileTheBoardCannotKeepSaysWhy(t *testing.T) {
 	}
 }
 
+// A long answer kept for a credential card reaches the goblin as his word, so
+// one holding a word shaped like a key anywhere is refused as the card refuses
+// it, kept nowhere and never repeated (#2538). The chat's own files are kept
+// as they are.
+func TestALongCredentialAnswerHoldingAKeyIsKeptNowhere(t *testing.T) {
+	board, meta, _ := composerBoard(t)
+	canary := newCanary(t)
+	long := strings.Repeat("Use the shop's bot account, not mine.\n", 39) + "my key is " + canary + "\n" + strings.Repeat("Then push.\n", 400)
+	for _, c := range []struct {
+		what, query string
+		body        string
+		code        int
+	}{
+		{"a credential card's answer with a key on line 40", "&credential=1", long, 400},
+		{"a credential card's answer with no key", "&credential=1", strings.ReplaceAll(long, canary, "in the vault"), 201},
+		{"the chat's file with the same words", "", long, 201},
+	} {
+		t.Run(c.what, func(t *testing.T) {
+			// Arrange
+			request := httptest.NewRequest("POST", "http://"+board.Host+"/api/composer/file?task=task-1&name=answer.txt"+c.query, strings.NewReader(c.body))
+			request.Host = board.Host
+			request.Header.Set("Origin", "http://"+board.Host)
+			request.Header.Set("X-CEO-Token", "test-instance")
+			request.Header.Set("Content-Type", "application/octet-stream")
+			response := httptest.NewRecorder()
+
+			// Act
+			board.ServeHTTP(response, request)
+
+			// Assert
+			if response.Code != c.code {
+				t.Fatalf("answered %d %s, want %d", response.Code, response.Body, c.code)
+			}
+			if strings.Contains(response.Body.String(), canary) {
+				t.Fatal("the answer repeats the key")
+			}
+			if c.code == 400 && !strings.Contains(response.Body.String(), "holds no key") {
+				t.Fatalf("refused with %s, want the card's own refusal", response.Body)
+			}
+			if found := filesHolding(t, meta.TaskTmp, canary); c.code == 400 && len(found) != 0 {
+				t.Fatalf("the key is in %v", found)
+			}
+		})
+	}
+}
+
 func TestAFileNameCannotAddAPathSegment(t *testing.T) {
 	board, meta, _ := composerBoard(t)
 
