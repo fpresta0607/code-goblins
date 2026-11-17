@@ -74,7 +74,12 @@ test("a connector shows its service's own bundled logo, or its initial on a plai
     ["claude.ai Supabase", { file: "supabase" }], ["claude_ai_Supabase", { file: "supabase" }], ["plugin_supabase_supabase", { file: "supabase" }],
     ["claude.ai Gmail", { file: "gmail" }], ["claude.ai Google Drive", { file: "google-drive" }], ["claude.ai Google Calendar", { file: "google-calendar" }],
     ["claude.ai Vercel", { file: "vercel" }], ["claude.ai Claude Docs", { file: "anthropic" }],
-    ["claude.ai PrecisionDocs", { initial: "P" }], ["claude.ai Microsoft 365", { initial: "M" }], ["playwright", { initial: "P" }], ["DATABASE_URL", { initial: "D" }],
+    ["claude.ai PrecisionDocs", { file: "precisiondocs" }], ["precisiondocs", { file: "precisiondocs" }], ["claude.ai HubSpot", { file: "hubspot" }], ["claude.ai ElevenLabs", { file: "elevenlabs" }],
+    ["claude.ai Cloudflare Developer Platform", { file: "cloudflare" }], ["CLOUDFLARE_API_TOKEN", { file: "cloudflare" }], ["claude.ai upwork", { file: "upwork" }], ["tailscale", { file: "tailscale" }],
+    ["digitalocean", { file: "digitalocean" }], ["SPOTIFY_CLIENT_SECRET", { file: "spotify" }], ["homeassistant", { file: "home-assistant" }], ["runpod", { file: "runpod" }], ["ghcr-read", { file: "github" }],
+    // Microsoft's and Slack's terms allow no use of their logos here, and
+    // Apple's none outside its licensees, so these keep the plain tile.
+    ["claude.ai Microsoft 365", { initial: "M" }], ["playwright", { initial: "P" }], ["claude.ai Slack", { initial: "S" }], ["apns", { initial: "A" }], ["DATABASE_URL", { initial: "D" }],
     ["acme-internal", { initial: "A" }], ["butterfly", { initial: "B" }], ["ghost-writer", { initial: "G" }], ["", { initial: "?" }],
   ];
   for (const [name, logo] of cases) assert.deepEqual(connectorLogo(name), logo, name);
@@ -83,7 +88,8 @@ test("a connector shows its service's own bundled logo, or its initial on a plai
 test("every logo a connector can name is a file bundled with the board, and no file is left without one", () => {
   // Arrange
   const names = ["github", "chrome-devtools", "context7", "supabase", "sentry", "stripe", "vercel", "fly", "neon", "notion", "openrouter", "openai", "anthropic", "gemini", "gmail",
-    "google-drive", "google-calendar", "google", "kimi", "resend", "upstash", "redis", "qdrant", "railway", "ionos", "postgres"];
+    "google-drive", "google-calendar", "google", "kimi", "resend", "upstash", "redis", "qdrant", "railway", "ionos", "postgres", "precisiondocs", "hubspot", "elevenlabs", "cloudflare",
+    "upwork", "tailscale", "digitalocean", "spotify", "homeassistant", "runpod"];
   const folder = new URL("./connector-logos/", import.meta.url);
 
   for (const name of names) {

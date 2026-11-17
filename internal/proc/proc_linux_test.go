@@ -4,9 +4,14 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // The ticks a process's start is counted in are read as hundredths of a
@@ -89,5 +94,179 @@ func TestAnInstanceIsTheBootIDAndTheStartTicksOfItsProcess(t *testing.T) {
 	}
 	if strings.ContainsAny(instance, " \t\r\n") {
 		t.Errorf("the instance %q holds a space, and a waiter's ticket parts its fields at one", instance)
+	}
+}
+
+// A process whose exec has not yet set up its environment shows its end as
+// 0, as a kernel thread does, which never has one; a kernel older than 3.5
+// shows no end at all.
+func TestParseStatusTellsAnExecSettingUpItsEnvironmentFromAKernelThread(t *testing.T) {
+	for _, test := range []struct {
+		name            string
+		flags, end      string
+		fields          int
+		shouldBePending bool
+	}{
+		{"exec in progress", "4194560", "0", 49, true},
+		{"environment set up, empty or not", "4194560", "140735", 49, false},
+		{"kernel thread", "2129984", "0", 49, false},
+		{"kernel before 3.5", "4194560", "", 41, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange: the fields after the name, the state first.
+			fields := make([]string, test.fields)
+			for index := range fields {
+				fields[index] = "0"
+			}
+			fields[0] = "R"
+			fields[6] = test.flags
+			if test.end != "" {
+				fields[48] = test.end
+			}
+			line := []byte("42 (a (name) here) " + strings.Join(fields, " ") + "\n")
+
+			// Act
+			read, err := parseStatus(line)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if read.isEnvironmentPending != test.shouldBePending {
+				t.Errorf("isEnvironmentPending = %t, want %t", read.isEnvironmentPending, test.shouldBePending)
+			}
+		})
+	}
+}
+
+// A process refused to its own user is read again only while its exec may
+// still be setting it up: when it runs wholly as this user, as proc(5)'s
+// Uid: line gives its real, effective, saved and filesystem IDs, and
+// started under a second before the machine's uptime, both read in
+// hundredths of a second.
+func TestARefusedProcessIsReadAgainOnlyWhileItStartsAsThisUser(t *testing.T) {
+	const (
+		user   = 1000
+		uptime = "1000.50 3000.00\n"
+	)
+	for _, test := range []struct {
+		name          string
+		uptime        string
+		uids          string
+		started       uint64
+		shouldBeRetry bool
+	}{
+		{"young process of this user", uptime, "1000\t1000\t1000\t1000", 100000, true},
+		{"a second old", uptime, "1000\t1000\t1000\t1000", 99950, false},
+		{"another user's", uptime, "1001\t1001\t1001\t1001", 100000, false},
+		{"setuid, its effective user root", uptime, "1000\t0\t0\t0", 100000, false},
+		{"unreadable uptime", "", "1000\t1000\t1000\t1000", 100000, false},
+		{"status with no Uid: line", uptime, "", 100000, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			lines := "Name:\tsh\nState:\tR (running)\n"
+			if test.uids != "" {
+				lines += "Uid:\t" + test.uids + "\n"
+			}
+			lines += "Gid:\t1000\t1000\t1000\t1000\n"
+
+			// Act
+			isRetry := isStartingAs([]byte(test.uptime), []byte(lines), test.started, user)
+
+			// Assert
+			if isRetry != test.shouldBeRetry {
+				t.Errorf("isStartingAs = %t, want %t", isRetry, test.shouldBeRetry)
+			}
+		})
+	}
+}
+
+// A process of this user that refuses its environment to it for a moment
+// after its start, as a process part-way through its exec does, is read
+// once it shows it: Environment reads it again rather than take the refusal
+// for good. The helper is this test binary, which makes itself unreadable
+// (PR_SET_DUMPABLE) for 200ms.
+func TestEnvironmentReadsAProcessThatRefusesItForAMomentAfterItsStart(t *testing.T) {
+	if ready := os.Getenv("PROC_TEST_REFUSING"); ready != "" {
+		if err := unix.Prctl(unix.PR_SET_DUMPABLE, 0, 0, 0, 0); err != nil {
+			os.Exit(7)
+		}
+		if err := os.WriteFile(ready, nil, 0o600); err != nil {
+			os.Exit(7)
+		}
+		time.Sleep(200 * time.Millisecond)
+		if err := unix.Prctl(unix.PR_SET_DUMPABLE, 1, 0, 0, 0); err != nil {
+			os.Exit(7)
+		}
+		time.Sleep(10 * time.Minute)
+		os.Exit(9)
+	}
+	// Arrange
+	ready := filepath.Join(t.TempDir(), "ready")
+	helper := exec.Command(os.Args[0], "-test.run=^TestEnvironmentReadsAProcessThatRefusesItForAMomentAfterItsStart$")
+	helper.Env = append(os.Environ(), "PROC_TEST_REFUSING="+ready, "GOBLINS_PROC_TEST=shown")
+	if err := helper.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = helper.Process.Kill(); _ = helper.Wait() })
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(time.Millisecond) {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the helper did not make itself unreadable within a minute")
+		}
+	}
+
+	// Act
+	environment, err := Environment(helper.Process.Pid)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("the helper's environment, refused for a moment after its start, read as %v", err)
+	}
+	if !slices.Contains(environment, "GOBLINS_PROC_TEST=shown") {
+		t.Errorf("the helper's environment holds %d entries, without GOBLINS_PROC_TEST=shown", len(environment))
+	}
+}
+
+// A child this test just started runs as this test's user and is under a
+// second old, so its refusal is read as its exec still setting up; init,
+// pid 1, runs as root since the machine started, so its refusal is for
+// good.
+func TestAJustStartedChildReadsAsStartingAsThisUserAndInitDoesNot(t *testing.T) {
+	for _, test := range []struct {
+		name             string
+		pid              func(t *testing.T) int
+		shouldBeStarting bool
+	}{
+		{"just started child", func(t *testing.T) int {
+			child, _ := startSleeper(t, t.TempDir())
+			return child.Process.Pid
+		}, true},
+		{"init", func(t *testing.T) int {
+			if os.Getuid() == 0 {
+				t.Skip("this test runs as root, as init does")
+			}
+			return 1
+		}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			pid := test.pid(t)
+			read, err := readStatus(pid)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			isStarting := isStartingAsThisUser(pid, read)
+
+			// Assert
+			if isStarting != test.shouldBeStarting {
+				t.Errorf("isStartingAsThisUser(%d) = %t, want %t", pid, isStarting, test.shouldBeStarting)
+			}
+		})
 	}
 }

@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http/httptest"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -173,6 +175,62 @@ func TestSendNowOnAMessageThatWasNotSentSendsItAgain(t *testing.T) {
 	// Assert
 	if again := actionOf(store, "m1"); pressed.Code != 202 || again.Status != "queued" || !again.IsSentNow {
 		t.Errorf("Send now = %d %s, action = %+v; want the same message queued to go now", pressed.Code, pressed.Body, again)
+	}
+}
+
+// A message that reads Not sent once its words were taken back off the CEO's
+// prompt line can still carry the watch its first try left on them, and its
+// Send now carried that watch into the try that sends it: a look at the CEO's
+// terminal during that try called it never picked up, and the try's own
+// outcome was dropped (#2541). Sent now, it is settled by how that try ends.
+func TestAMessageSentNowOnceItWasNotSentIsSettledByItsNewTry(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		result Evaluation
+		err    error
+		want   string
+	}{
+		{name: "a try the CEO cannot take yet", result: Evaluation{Reason: "The CEO's input is not empty and ready. Your answer is queued; nothing was sent."}, err: ErrDeferred, want: "queued"},
+		{name: "a try the CEO takes", result: Evaluation{Reason: "Taken by the CEO in its native terminal, as its hook reported."}, want: "succeeded"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			store, _ := testStore(t)
+			service := &Service{Store: store, Instance: "instance-1"}
+			first := time.Now().UTC().Add(-time.Hour)
+			watch := &Awaiting{Host: "ceo", Harness: "claude", Since: first, QuietSince: first, Digest: monitor.TextDigest("stop and rebase"), Session: "session-1", Typed: "stop and rebase"}
+			store.db.Actions = append(store.db.Actions, Action{ID: "m1", Kind: "message", Text: "stop and rebase", Status: "uncertain", CreatedAt: first, UpdatedAt: first, Awaiting: watch, LeftTyped: watch})
+			// Its words showed alone on the CEO's prompt line and were taken
+			// back off it.
+			if err := store.settleLeftTyped([]Action{store.db.Actions[0]}, nil, first); err != nil {
+				t.Fatal(err)
+			}
+			if unsent := actionOf(store, "m1"); !isNotSent(unsent) || unsent.Awaiting == nil {
+				t.Fatalf("once its words were taken back = %+v; want it Not sent, its first try's watch still on it", unsent)
+			}
+			if pressed := sendNow(service, "", "m1"); pressed.Code != 202 {
+				t.Fatalf("Send now = %d %s; want it accepted", pressed.Code, pressed.Body)
+			}
+
+			// Act
+			err := store.ProcessOne(context.Background(), func(context.Context, Action) (Evaluation, error) {
+				// The supervisor looks at the CEO's terminal while the try
+				// runs, and finds it idle with nothing taken.
+				if err := store.settleDeliveries(time.Now().UTC(), func(Awaiting) terminalLook { return terminalLook{} }); err != nil {
+					return Evaluation{}, err
+				}
+				return tc.result, tc.err
+			})
+			tried := actionOf(store, "m1")
+
+			// Assert
+			if !errors.Is(err, tc.err) {
+				t.Fatalf("ProcessOne = %v; want %v", err, tc.err)
+			}
+			if tried.Status != tc.want || tried.Message != tc.result.Reason || tried.Awaiting != nil {
+				t.Errorf("after its new try = %s %q, awaiting %+v; want it %s, as that try ended", tried.Status, tried.Message, tried.Awaiting, tc.want)
+			}
+		})
 	}
 }
 

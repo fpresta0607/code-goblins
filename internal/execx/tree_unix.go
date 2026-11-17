@@ -155,13 +155,36 @@ func isMarked(environment []string, mark string) bool {
 	return false
 }
 
+// maxReadings is how many times a tree that reads as empty is read again
+// because a process it listed ended before it was read.
+const maxReadings = 100
+
+// errKeptEnding is a tree that read as empty each of maxReadings times while
+// a process it listed ended before it was read.
+var errKeptEnding = fmt.Errorf("execx: the tree read as empty %d times while a process it listed ended before it was read", maxReadings)
+
 // members reads the processes of the tree now, sorted by pid. A process
 // whose environment this process may not read carries no mark it can see,
-// and is found only by its group or its parent chain.
+// and is found only by its group or its parent chain. A process listed that
+// ended before its mark was read may have started another after the list
+// was taken, which the list does not hold, so a tree read as empty then is
+// read again.
 func (t *Tree) members() ([]proc.Entry, error) {
+	for range maxReadings {
+		members, hasProcessEnded, err := t.readMembers()
+		if err != nil || len(members) > 0 || !hasProcessEnded {
+			return members, err
+		}
+	}
+	return nil, errKeptEnding
+}
+
+// readMembers is one reading of members, which also says whether a process
+// it listed ended before its mark was read.
+func (t *Tree) readMembers() (members []proc.Entry, hasProcessEnded bool, err error) {
 	processes, err := proc.Processes()
 	if err != nil {
-		return nil, fmt.Errorf("execx: list the tree's processes: %w", err)
+		return nil, false, fmt.Errorf("execx: list the tree's processes: %w", err)
 	}
 	marks := make(map[run]markState, len(processes))
 	isMember := map[int]bool{}
@@ -177,7 +200,12 @@ func (t *Tree) members() ([]proc.Entry, error) {
 				state = markReadEmpty
 			case err == nil && isMarked(environment, t.mark):
 				state = markCarried
+			case err == nil:
+				state = markAbsent
 			default:
+				if _, lookupErr := proc.Lookup(process.PID); errors.Is(lookupErr, fs.ErrNotExist) {
+					hasProcessEnded = true
+				}
 				state = markAbsent
 			}
 		}
@@ -202,14 +230,13 @@ func (t *Tree) members() ([]proc.Entry, error) {
 			}
 		}
 	}
-	var members []proc.Entry
 	for _, process := range processes {
 		if isMember[process.PID] {
 			members = append(members, process)
 		}
 	}
 	sort.Slice(members, func(i, j int) bool { return members[i].PID < members[j].PID })
-	return members, nil
+	return members, hasProcessEnded, nil
 }
 
 // Usage reads what the tree's processes use now, found as the tree is, not
@@ -218,36 +245,45 @@ func (t *Tree) members() ([]proc.Entry, error) {
 // they collected, were read to have used together: what a process collected
 // by none of them used goes with it. The memory is their private memory, and
 // its peak the most read. A failed read returns an error, never a zero
-// sample.
+// sample. A member that ended before its use was read may have started a
+// process after the tree was listed, which the list does not hold, so a
+// tree with no member read running then is read again.
 func (t *Tree) Usage() (TreeUsage, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.isDone {
 		return TreeUsage{}, errors.New("execx: tree accounting is closed")
 	}
-	members, err := t.members()
-	if err != nil {
-		return TreeUsage{}, err
+	for range maxReadings {
+		members, err := t.members()
+		if err != nil {
+			return TreeUsage{}, err
+		}
+		usage, hasMemberEnded, err := t.usageOf(members)
+		if err != nil || usage.ActiveProcesses > 0 || !hasMemberEnded {
+			return usage, err
+		}
 	}
-	return t.usageOf(members)
+	return TreeUsage{}, errKeptEnding
 }
 
-// usageOf is Usage over members, as just read.
-func (t *Tree) usageOf(members []proc.Entry) (TreeUsage, error) {
+// usageOf is Usage over members, as just read, and says whether a member
+// ended before its use was read.
+func (t *Tree) usageOf(members []proc.Entry) (usage TreeUsage, hasMemberEnded bool, err error) {
 	if t.seen == nil {
 		t.seen = map[run]bool{}
 	}
-	var usage TreeUsage
 	var cpu time.Duration
 	for _, member := range members {
 		use, err := proc.UseOf(member.PID)
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
-			continue // It has exited since it was listed.
+			hasMemberEnded = true
+			continue
 		case errors.Is(err, fs.ErrPermission):
 			usage.UnreadableMembers++
 		case err != nil:
-			return TreeUsage{}, fmt.Errorf("execx: read what tree member %d uses: %w", member.PID, err)
+			return TreeUsage{}, false, fmt.Errorf("execx: read what tree member %d uses: %w", member.PID, err)
 		}
 		usage.ActiveProcesses++
 		t.seen[run{member.PID, member.Start}] = true
@@ -260,7 +296,7 @@ func (t *Tree) usageOf(members []proc.Entry) (TreeUsage, error) {
 	usage.PeakCommitBytes = t.peak
 	usage.SampledPrivateWorkingSetBytes = usage.CommitBytes
 	usage.TotalProcesses = uint32(len(t.seen))
-	return usage, nil
+	return usage, hasMemberEnded, nil
 }
 
 // Members names the processes still running in the tree, by name and pid,
@@ -346,7 +382,7 @@ func (t *Tree) endAndWait(ctx context.Context, shouldSpareServices, isGentle boo
 	if err != nil {
 		return TreeUsage{}, nil, err
 	}
-	usage, err := t.usageOf(nil)
+	usage, _, err := t.usageOf(nil)
 	if err != nil {
 		return TreeUsage{}, nil, err
 	}
@@ -418,7 +454,7 @@ func EndNamedJob(ctx context.Context, name string) (usage TreeUsage, isFound boo
 	tree.mu.Lock()
 	members, err := tree.members()
 	if err == nil {
-		usage, err = tree.usageOf(members)
+		usage, _, err = tree.usageOf(members)
 	}
 	tree.mu.Unlock()
 	if err != nil {

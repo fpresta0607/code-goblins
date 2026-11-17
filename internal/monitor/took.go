@@ -196,8 +196,8 @@ func handedText(harness string, entry []byte) ([]string, time.Time, bool) {
 		Timestamp   time.Time       `json:"timestamp"`
 		IsSidechain bool            `json:"isSidechain"`
 		Attachment  struct {
-			Type   string `json:"type"`
-			Prompt string `json:"prompt"`
+			Type   string          `json:"type"`
+			Prompt json.RawMessage `json:"prompt"`
 		} `json:"attachment"`
 		Message struct {
 			Role    string          `json:"role"`
@@ -217,11 +217,18 @@ func handedText(harness string, entry []byte) ([]string, time.Time, bool) {
 		if line.IsSidechain {
 			return nil, line.Timestamp, false
 		}
+		// A queued line's prompt is its text, or its blocks when it took a
+		// picture.
 		if line.Type == "attachment" && line.Attachment.Type == "queued_command" {
-			return []string{unpasted(line.Attachment.Prompt)}, line.Timestamp, true
+			texts, ok := promptTexts(line.Attachment.Prompt)
+			for i := range texts {
+				texts[i] = unpasted(texts[i])
+			}
+			return withoutPictureMarks(texts), line.Timestamp, ok
 		}
 		if line.Type == "user" && line.Message.Role == "user" {
 			texts, ok := promptTexts(line.Message.Content)
+			texts = withoutPictureMarks(texts)
 			for i := range texts {
 				texts[i] = unpasted(texts[i])
 				if command, isCommand := fleettree.TypedCommand(texts[i]); isCommand && strings.HasPrefix(texts[i], "<command-") {
@@ -271,6 +278,23 @@ var pastedContent = regexp.MustCompile(`</?pasted_content id="[^"]*">`)
 // taken out.
 func unpasted(text string) string {
 	return pastedContent.ReplaceAllString(text, "")
+}
+
+// pictureMark is where Claude Code 2.1.323 put a picture it took for the path
+// that names it: right after the path in a line taken into a running turn,
+// and in place of the path in a prompt that started one (#2541).
+var pictureMark = regexp.MustCompile(`\[Image #\d+\]`)
+
+// withoutPictureMarks is texts, and after them each of them that holds a
+// picture's mark with its marks left out, so text taken with a picture is
+// his words, and a mark he typed himself is still one of them.
+func withoutPictureMarks(texts []string) []string {
+	for _, text := range texts {
+		if bare := pictureMark.ReplaceAllString(text, ""); bare != text {
+			texts = append(texts, bare)
+		}
+	}
+	return texts
 }
 
 // promptTexts is the text of a user message's content: the string itself,

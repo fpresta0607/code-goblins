@@ -135,8 +135,10 @@ export interface Task extends Evaluation {
   // back: waiting for its turn, or stopped with the reason.
   comeback?: ComebackEntry;
   // browser says the goblin's own browser runs now, which its Screen view
-  // shows.
+  // shows, and browser_in_use that the goblin sent it a command a short time
+  // ago, which its card shows as Browser active (#2537).
   browser?: boolean;
+  browser_in_use?: boolean;
 }
 // FleetTree is a goblin and what runs under it as the supervisor last read
 // it: memory is its harness and everything under it, own_memory the harness
@@ -1141,6 +1143,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         ...(t.parked_runs == null ? {} : { parked_runs: array(t.parked_runs).map((value) => { const r = object(value); return { branch: string(r.branch), run_id: string(r.run_id), step: string(r.step), parked_at: string(r.parked_at), pr: r.pr === undefined ? "" : string(r.pr) }; }) }),
         ...(t.comeback == null ? {} : { comeback: parseComebackEntry(t.comeback) }),
         ...(t.browser === undefined ? {} : { browser: boolean(t.browser) }),
+        ...(t.browser_in_use === undefined ? {} : { browser_in_use: boolean(t.browser_in_use) }),
         ...(t.hosted_checks == null ? {} : { hosted_checks: ((c) => ({ head: string(c.head), state: string(c.state), checks: number(c.checks), failed: strings(c.failed), rate_limited: strings(c.rate_limited), link: string(c.link), approved: c.approved === undefined ? false : boolean(c.approved) }))(object(t.hosted_checks)) }),
         ...(t.tree == null ? {} : { tree: parseTree(t.tree) }),
         ...(t.local_checks == null ? {} : { local_checks: ((c) => ({ commit: string(c.commit), level: string(c.level), required_level: string(c.required_level), status: string(c.status), duration_seconds: number(c.duration_seconds), queue_seconds: number(c.queue_seconds), failed: strings(c.failed), at: string(c.at) }))(object(t.local_checks)) }),

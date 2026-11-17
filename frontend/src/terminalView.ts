@@ -13,6 +13,7 @@ import { attachTouchScroll, terminalText } from "./terminal-touch";
 import { linkTerminalAddresses, openWebAddress } from "./terminal-links";
 
 export const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
+const BOARD_FONT = '"JetBrains Mono", ' + FALLBACK_FONT;
 export const THEME = { background: "#071015", foreground: "#d8e9e2", cursor: "#6ee7b7", selectionBackground: "#286856" };
 // The even space kept between the panel's edges and the terminal's grid.
 export const PADDING = 10;
@@ -137,7 +138,13 @@ export class TerminalView {
     this.element.className = "terminal-view staged";
     container.append(this.element);
     const nonce = document.querySelector<HTMLMetaElement>('meta[name="ceo-style-nonce"]')?.content || "";
-    this.term = new Terminal({ documentOverride: terminalDocument(nonce), fontSize, fontFamily: FALLBACK_FONT, lineHeight: LINE_HEIGHT, scrollback: 5000, cursorBlink: false, theme: THEME, linkHandler: { activate: (_event, address) => openWebAddress(address) } });
+    // A view made once the board's font has loaded starts on it. One that
+    // started on the fallback could size itself when its connection opened,
+    // before the font's load answered, and take the font's smaller grid after
+    // a reconnect put him back on the line he reads, which xterm then moved by
+    // the rows it lost (#1989).
+    const isFontLoaded = document.fonts.check(fontSize + 'px "JetBrains Mono"');
+    this.term = new Terminal({ documentOverride: terminalDocument(nonce), fontSize, fontFamily: isFontLoaded ? BOARD_FONT : FALLBACK_FONT, lineHeight: LINE_HEIGHT, scrollback: 5000, cursorBlink: false, theme: THEME, linkHandler: { activate: (_event, address) => openWebAddress(address) } });
     linkTerminalAddresses(this.term);
     this.term.parser.registerOscHandler(52, () => true);
     this.pin = new PinnedLine(this.element);
@@ -151,8 +158,8 @@ export class TerminalView {
     this.term.onWriteParsed(() => this.repin());
     this.term.onResize(() => this.repin());
     this.frames = new FrameWriter((data, done) => this.term.write(data, done), undefined, () => this.readyIfDrawn());
-    void document.fonts.load(fontSize + 'px "JetBrains Mono"').then(() => {
-      if (!this.disposed && document.fonts.check(fontSize + 'px "JetBrains Mono"')) { this.term.options.fontFamily = '"JetBrains Mono", ' + FALLBACK_FONT; this.refit(); }
+    if (!isFontLoaded) void document.fonts.load(fontSize + 'px "JetBrains Mono"').then(() => {
+      if (!this.disposed && document.fonts.check(fontSize + 'px "JetBrains Mono"')) { this.term.options.fontFamily = BOARD_FONT; this.refit(); }
     }, () => {});
     this.socket = new WebSocket(url);
     this.socket.binaryType = "arraybuffer";
@@ -164,6 +171,17 @@ export class TerminalView {
       // the terminal back all the same.
       if (!this.owner) { this.isTaken = false; this.claim(); }
       for (const piece of inputMessages(this.encoder.encode(data))) this.send(piece);
+    });
+    // A typed key returns to the live end from where xterm's viewport last
+    // drew, as Jump to bottom does, so a key typed as the grid changes lands
+    // short and goes again once xterm has drawn (#2432). A closed view's key
+    // is not sent, and xterm leaves him where he reads.
+    this.term.onKey(() => {
+      if (this.term.options.disableStdin) return;
+      requestAnimationFrame(() => {
+        const buffer = this.term.buffer.active;
+        if (!this.disposed && buffer.viewportY < buffer.baseY) this.term.scrollToBottom();
+      });
     });
     this.term.onBinary((data) => this.send(Uint8Array.from(data, (character) => character.charCodeAt(0) & 255)));
     this.element.addEventListener("pointerdown", this.startCopy);

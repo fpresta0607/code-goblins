@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,31 +22,35 @@ import (
 
 // TestStartHiddenServerSaysWhyItsServerDidNotAnswer starts Python servers as
 // the install jobs' Start-HiddenServer starts theirs. A server that answers is
-// handed back; one that ends first fails the wait at once with its exit code
-// and output; and one that runs but never answers fails it at the deadline
-// with its pid, its last request's error and its output, and is ended. A
-// hidden server's output reaches no log of its own, so these are what a failed
-// wait in a job says. Only the server that never answers waits out its
-// deadline, so only it has a short one, and as Python can take longer than
-// that to start on a busy runner, its case reads nothing Python prints.
+// handed back, with how long it took; one that ends first fails the wait at
+// once with its exit code and output; one that runs but never answers fails it
+// at the deadline with its pid, its last request's error, its output and where
+// it was, and is ended; and one whose Python never reached hidden_server.py
+// says so, whatever an earlier run left at its log. A hidden server's output
+// reaches no log of its own, so these are what a failed wait in a job says.
+// Only the servers that never answer wait out their deadline, so only they
+// have a short one, and as Python can take longer than that to start on a busy
+// runner, the case that runs Python's helper reads nothing Python prints.
 func TestStartHiddenServerSaysWhyItsServerDidNotAnswer(t *testing.T) {
 	// Arrange
 	port := freePort(t)
+	answering := "http://127.0.0.1:" + strconv.Itoa(port) + "/"
 	refused := "http://127.0.0.1:" + strconv.Itoa(freePort(t)) + "/"
 	for _, test := range []struct {
-		name      string
-		script    string
-		arguments string
-		url       string
-		seconds   int
-		want      []string
+		name          string
+		script        string
+		sitecustomize string
+		arguments     string
+		url           string
+		seconds       int
+		want          []string
 	}{
 		{
-			name:      "hands back a server that answers",
+			name:      "hands back a server that answers, saying how long it took",
 			arguments: "'-m', 'http.server', '" + strconv.Itoa(port) + "', '--bind', '127.0.0.1'",
-			url:       "http://127.0.0.1:" + strconv.Itoa(port) + "/",
+			url:       answering,
 			seconds:   30,
-			want:      []string{"answered as pid"},
+			want:      []string{"the test server answered " + answering + " after ", "answered as pid"},
 		},
 		{
 			name:    "names the exit code and output of a server that ended",
@@ -59,7 +64,15 @@ func TestStartHiddenServerSaysWhyItsServerDidNotAnswer(t *testing.T) {
 			script:  "import time\ntime.sleep(3600)\n",
 			url:     refused,
 			seconds: 2,
-			want:    []string{"the test server did not answer within 2 seconds and was ended: it still ran as pid", "its last request to " + refused + " failed: ", "its output:\n", "its errors:\n"},
+			want:    []string{"the test server did not answer within 2 seconds and was ended: it still ran as pid", "its last request to " + refused + " failed: ", "its output:\n", "its errors:\n", "where it was every 5 seconds until it listened:\n"},
+		},
+		{
+			name:          "says a server whose Python never reached hidden_server.py never ran it",
+			script:        "print('this server never runs')\n",
+			sitecustomize: "import time\ntime.sleep(3600)\n",
+			url:           refused,
+			seconds:       2,
+			want:          []string{"the test server did not answer within 2 seconds and was ended", "Python had not yet run hidden_server.py: it made no "},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -73,6 +86,10 @@ func TestStartHiddenServerSaysWhyItsServerDidNotAnswer(t *testing.T) {
 				}
 				arguments = "'" + server + "'"
 			}
+			// An earlier run's output at the same log is not this server's.
+			if err := os.WriteFile(filepath.Join(dir, "server.out"), []byte("output of an earlier run\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
 			script := "$ErrorActionPreference = 'Stop'\n" +
 				". '" + hiddenServerScript(t) + "'\n" +
 				"try {\n" +
@@ -82,6 +99,18 @@ func TestStartHiddenServerSaysWhyItsServerDidNotAnswer(t *testing.T) {
 				"} catch { $_.Exception.Message }\n"
 			command := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)
 			command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			if test.sitecustomize != "" {
+				// Python runs sitecustomize from PYTHONPATH as it starts,
+				// before the script it was given.
+				site := filepath.Join(dir, "site")
+				if err := os.MkdirAll(site, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(site, "sitecustomize.py"), []byte(test.sitecustomize), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				command.Env = append(os.Environ(), "PYTHONPATH="+site)
+			}
 
 			// Act
 			output, err := command.CombinedOutput()
@@ -95,6 +124,9 @@ func TestStartHiddenServerSaysWhyItsServerDidNotAnswer(t *testing.T) {
 				if !strings.Contains(text, want) {
 					t.Errorf("the wait said nothing of %q:\n%s", want, text)
 				}
+			}
+			if strings.Contains(text, "output of an earlier run") {
+				t.Errorf("the wait gave an earlier run's output as this server's:\n%s", text)
 			}
 			found := regexp.MustCompile(`pid (\d+)`).FindStringSubmatch(text)
 			if found == nil {
@@ -164,6 +196,92 @@ func TestStartHiddenServerKeepsTheShellsOutputFromItsServer(t *testing.T) {
 	if !isProcessRunning(t, pid) {
 		t.Errorf("the server, pid %d, did not outlive the shell that started it", pid)
 	}
+}
+
+// TestHiddenServerWritesWhereAServerThatNeverListensIs runs a server that
+// stalls before it listens through hidden_server.py, as Start-HiddenServer
+// does, with a stack each second. Python writes nothing of its own while it
+// is stuck, so the stacks in <log>.stack are what a failed wait can say of
+// where it was.
+func TestHiddenServerWritesWhereAServerThatNeverListensIs(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	standin.RemoveAtCleanup(t, dir)
+	server := filepath.Join(dir, "server.py")
+	if err := os.WriteFile(server, []byte("import time\n\ndef stall_before_listening():\n    time.sleep(3600)\n\nstall_before_listening()\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	log := filepath.Join(dir, "server")
+
+	// Act
+	startHiddenServerPy(t, log, server)
+
+	// Assert
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		stacks, _ := os.ReadFile(log + ".stack")
+		if strings.Contains(string(stacks), "in stall_before_listening") {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("in 30 seconds the stalled server wrote no stack that names where it was:\n%s", stacks)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// TestHiddenServerWritesNoStackAfterItsServerListens runs http.server through
+// hidden_server.py with a stack each second, as the install jobs' release
+// servers run, and lets it run past two of those seconds after it answers. A
+// server runs for its whole job, and none of that is time it was stuck.
+func TestHiddenServerWritesNoStackAfterItsServerListens(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	standin.RemoveAtCleanup(t, dir)
+	port := strconv.Itoa(freePort(t))
+	log := filepath.Join(dir, "server")
+	startHiddenServerPy(t, log, "-m", "http.server", port, "--bind", "127.0.0.1")
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		response, err := http.Get("http://127.0.0.1:" + port + "/")
+		if err == nil {
+			response.Body.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the server did not answer within 30 seconds: %v", err)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	before, _ := os.ReadFile(log + ".stack")
+
+	// Act
+	time.Sleep(2500 * time.Millisecond)
+
+	// Assert
+	after, _ := os.ReadFile(log + ".stack")
+	if len(after) != len(before) {
+		t.Errorf("the server wrote a stack after it listened:\n%s", after[len(before):])
+	}
+}
+
+// startHiddenServerPy starts hidden_server.py with a stack each second and
+// its server's arguments, and ends it when the test ends.
+func startHiddenServerPy(t *testing.T, log string, arguments ...string) {
+	t.Helper()
+	helper, err := filepath.Abs(filepath.Join("tests", "hidden_server.py"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command("python", append([]string{helper, log, "1"}, arguments...)...)
+	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = command.Process.Kill()
+		_ = command.Wait()
+	})
 }
 
 // hiddenServerScript is the absolute path of the script that defines

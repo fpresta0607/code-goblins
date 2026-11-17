@@ -55,9 +55,9 @@ test("a goblin that presents a page and runs no browser of its own has a Browser
   expect(address).toBe(PAGE_ADDRESS);
 });
 
-test("a goblin whose own browser runs opens its screen from Browser active, even while it presents a page", async ({ page }) => {
+test("a goblin using its own browser opens its screen from Browser active, even while it presents a page", async ({ page }) => {
   // Arrange
-  await open(page, presenting({ browser: true }));
+  await open(page, presenting({ browser: true, browser_in_use: true }));
   const shell = page.locator(".task-board .task-card-shell").filter({ hasText: NAME });
 
   // Assert
