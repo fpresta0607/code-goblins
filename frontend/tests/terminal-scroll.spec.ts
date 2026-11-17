@@ -13,15 +13,16 @@ const PROMPT = "Your fly.io email:";
 // A program that printed 500 lines and waits for input on the line under them.
 const PRINTED = Array.from({ length: 500 }, (_, index) => "line " + (index + 1)).join("\r\n") + "\r\n" + PROMPT + " ";
 
-interface Relay { typed: string[]; size: { cols: number; rows: number }; send: (...messages: (string | Buffer)[]) => void }
+interface Relay { typed: string[]; size: { cols: number; rows: number }; send: (...messages: (string | Buffer)[]) => void; close: (code: number, reason: string) => Promise<void> }
 
 // openTerminal stands in for the board's relay: the terminal takes each size
 // the view claims, and after the first prints output.
 async function openTerminal(page: Page, output: string): Promise<Relay> {
-  const relay: Relay = { typed: [], size: { cols: 0, rows: 0 }, send: () => {} };
+  const relay: Relay = { typed: [], size: { cols: 0, rows: 0 }, send: () => {}, close: async () => {} };
   await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
     let isPrinted = false;
     relay.send = (...messages) => { for (const message of messages) socket.send(message); };
+    relay.close = (code, reason) => socket.close({ code, reason });
     socket.send(JSON.stringify({ type: "history", bytes: 0 }));
     socket.onMessage((data) => {
       if (typeof data !== "string") { relay.typed.push(data.toString("utf8")); return; }
@@ -111,6 +112,36 @@ test("typing while he reads the history types on the line and returns to the liv
   await expect(screenRows(page)).toContainText(PROMPT);
 });
 
+test("a key typed while he reads a closed terminal's history leaves him where he reads", async ({ page }) => {
+  // Arrange
+  const relay = await openTerminal(page, PRINTED);
+  await readHistory(page);
+  await relay.close(1000, "The terminal ended with exit code 0.");
+  // The closed notice takes room under the screen, and the grid gives it up a
+  // frame or more later, which moves the history it shows by its rows.
+  const closed = page.locator(".notice", { hasText: "The terminal ended with exit code 0." });
+  await expect(async () => {
+    const screen = (await page.locator(".terminal-view > .xterm .xterm-screen").boundingBox())!;
+    expect(screen.y + screen.height).toBeLessThanOrEqual((await closed.boundingBox())!.y);
+  }).toPass();
+  // He reads on up the closed history, which the wheel scrolls by lines.
+  const closedTop = await screenRows(page).locator("> div").first().textContent();
+  await page.mouse.wheel(0, -240);
+  await expect(screenRows(page).locator("> div").first()).not.toHaveText(closedTop!);
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const top = await screenRows(page).locator("> div").first().textContent();
+
+  // Act
+  await page.keyboard.type("m");
+
+  // Assert: the key is not sent, and the view stays on the history.
+  await expect(page.getByText("Not sent. The terminal is closed.")).toBeVisible();
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  expect(relay.typed).toEqual([]);
+  await expect(pin(page)).toBeVisible();
+  await expect(screenRows(page).locator("> div").first()).toHaveText(top!);
+});
+
 test("Jump to bottom returns to the live end with the keyboard in the terminal", async ({ page }) => {
   // Arrange
   await openTerminal(page, PRINTED);
@@ -177,27 +208,37 @@ test("the pinned line and Jump to bottom meet the screen again when the board's 
 // xterm brings its viewport's scroll position up to a resize only on its next
 // frame, and moves to the bottom from that position, so a jump in between
 // landed short: CI at 2679843 clicked Jump to bottom as the grid refit to the
-// board's font and stayed a line up.
-test("Jump to bottom in the moment the grid changes still reaches the live end", async ({ page }) => {
-  // Arrange
-  const relay = await openTerminal(page, PRINTED);
-  await readHistory(page);
-  await page.locator(".terminal-view > .xterm .xterm-rows").evaluate((rows) => {
-    new MutationObserver((_, observer) => {
-      observer.disconnect();
-      document.querySelector<HTMLButtonElement>(".terminal-jump")!.click();
-    }).observe(rows, { childList: true });
+// board's font and stayed a line up. Typing scrolls to the bottom the same way,
+// and CI on merge train #2429 typed as the grid refit and stayed above the
+// live end (#2432).
+for (const back of ["Jump to bottom", "a typed key"] as const) {
+  test(`${back} in the moment the grid changes still reaches the live end`, async ({ page }) => {
+    // Arrange
+    const relay = await openTerminal(page, PRINTED);
+    await readHistory(page);
+    await page.locator(".terminal-view > .xterm .xterm-rows").evaluate((rows, back) => {
+      new MutationObserver((_, observer) => {
+        observer.disconnect();
+        if (back === "Jump to bottom") { document.querySelector<HTMLButtonElement>(".terminal-jump")!.click(); return; }
+        // A key typed in this frame, where the keyboard types: xterm sends a
+        // lower-case letter on its key down.
+        const key = new KeyboardEvent("keydown", { key: "m", code: "KeyM", bubbles: true, cancelable: true });
+        Object.defineProperty(key, "keyCode", { get: () => 77 });
+        document.activeElement!.dispatchEvent(key);
+      }).observe(rows, { childList: true });
+    }, back);
+
+    // Act: the terminal takes a grid three rows shorter, and he goes back to
+    // the live end as that lands.
+    relay.send(JSON.stringify({ type: "size", cols: relay.size.cols, rows: relay.size.rows - 3 }));
+
+    // Assert
+    if (back === "a typed key") await expect.poll(() => relay.typed.join("")).toBe("m");
+    await expect(pin(page)).toBeHidden();
+    await expect(jump(page)).toHaveCount(0);
+    await expect(screenRows(page).locator("> div").last()).toContainText(PROMPT);
   });
-
-  // Act: the terminal takes a grid three rows shorter, and Jump to bottom is
-  // pressed as that lands.
-  relay.send(JSON.stringify({ type: "size", cols: relay.size.cols, rows: relay.size.rows - 3 }));
-
-  // Assert
-  await expect(pin(page)).toBeHidden();
-  await expect(jump(page)).toHaveCount(0);
-  await expect(screenRows(page).locator("> div").last()).toContainText(PROMPT);
-});
+}
 
 test("a full-screen program, as the CEO's Claude Code runs, keeps its own scrolling", async ({ page }) => {
   // Arrange: the program draws on the alternate screen and takes the mouse.
