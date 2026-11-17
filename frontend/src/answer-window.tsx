@@ -1,77 +1,90 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { message, request } from "./api";
-import { DictatedAnswer } from "./dictated-answer";
+import { message } from "./api";
+import { DictatedAnswer, type AnswerFiles } from "./dictated-answer";
 import { Icon } from "./Icon";
 import { Notice } from "./notice";
-import { object, string } from "./types";
+import { keepFile } from "./terminal-image";
 import "./credential-card.css";
 
-interface Picture { key: number; preview: string; path: string }
+// The most an answer is sent as written, in UTF-8 bytes: a card's answer is
+// typed into its asker's terminal as one line, and a credential card takes no
+// more. A longer one is kept as a text file the asker reads whole, line breaks
+// and all, as the board keeps a picture, and the answer names it with its
+// opening words (the Overlord, 2026-11-13: "It shouldn't have a character
+// cap", #2538).
+const LONGEST_WRITTEN = 4000;
+const OPENING = 300;
 
-// isSending holds Send while the board takes the answer, and refusal is why
-// the board refused the last one.
-export function AnswerWindow({ asker, task, instance, isSending = false, refusal: refused = "", onCancel, onSend }: { asker: string; task: string; instance: string; isSending?: boolean; refusal?: string; onCancel: () => void; onSend: (text: string) => void }) {
+function bytes(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+// The answer that names the file holding a long note, then the paths of his
+// files: as much of the note's opening words as fits in LONGEST_WRITTEN, since
+// the file holds them all.
+function keptAnswer(note: string, path: string, paths: string[]): string {
+  const opening = Array.from(note.replace(/\s+/g, " ").slice(0, OPENING).trim());
+  const answer = () => ["My whole answer is in " + path + ". It begins: " + opening.join("").trim() + "...", ...paths].join("\n");
+  while (opening.length && bytes(answer()) > LONGEST_WRITTEN) opening.pop();
+  return answer();
+}
+
+// His answer in his own words to a card with no answer box of its own, from
+// the box the chat's own pictures and files go through: typed, said or pasted,
+// with no cap on its length. isSending holds Send while the board takes the
+// answer, and refusal is why the board refused the last one. A credential
+// card's long answer is kept only when it holds no word shaped like a key.
+export function AnswerWindow({ asker, task, instance, isCredentialCard = false, isSending = false, refusal: refused = "", onCancel, onSend }: { asker: string; task: string; instance: string; isCredentialCard?: boolean; isSending?: boolean; refusal?: string; onCancel: () => void; onSend: (text: string) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const isOpen = useRef(false);
   const title = useId();
   const [note, setNote] = useState("");
-  const [pictures, setPictures] = useState<Picture[]>([]);
+  const [paths, setPaths] = useState<string[]>([]);
+  const [adding, setAdding] = useState(0);
+  const [isKeepingNote, setKeepingNote] = useState(false);
   const [refusal, setRefusal] = useState("");
-  const pasted = useRef(0);
   useEffect(() => {
     const element = dialog.current;
     const source = document.activeElement;
+    isOpen.current = true;
     element?.showModal();
     element?.querySelector("textarea")?.focus();
-    return () => { element?.close(); if (source instanceof HTMLElement && source.isConnected) source.focus(); };
+    return () => { isOpen.current = false; element?.close(); if (source instanceof HTMLElement && source.isConnected) source.focus(); };
   }, []);
-  const keep = async (file: File) => {
-    const key = ++pasted.current;
+  const files: AnswerFiles = { paths, adding, task: task || undefined, onChange: setPaths, onAdding: (step) => setAdding((count) => Math.max(0, count + step)) };
+  const written = note.trim();
+  const whole = [written, ...paths].filter(Boolean).join("\n");
+  const isWritten = bytes(whole) <= LONGEST_WRITTEN;
+  const hasTooManyFiles = !isWritten && bytes(keptAnswer("", paths.reduce((longest, path) => path.length > longest.length ? path : longest, ""), paths)) > LONGEST_WRITTEN;
+  const canSend = (!!written || paths.length > 0) && !hasTooManyFiles && !adding && !isKeepingNote && !isSending;
+  const send = async () => {
+    if (!canSend) return;
+    if (isWritten) { onSend(whole); return; }
+    setKeepingNote(true);
     setRefusal("");
-    setPictures((prior) => [...prior, { key, preview: "", path: "" }]);
     try {
-      // The board's CSP permits data URLs for images, but not blob URLs.
-      const previewReady = new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result));
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(file);
-      });
-      const [preview, kept] = await Promise.all([previewReady,
-        request("/api/answer-images?task=" + encodeURIComponent(task), undefined, { method: "POST", headers: { "Content-Type": file.type, "X-CEO-Token": instance }, body: file })]);
-      setPictures((prior) => prior.map((each) => each.key === key ? { key, preview, path: string(object(kept).path) } : each));
-    } catch (error) {
-      setRefusal(message(error));
-      setPictures((prior) => prior.filter((each) => each.key !== key));
+      const path = await keepFile(new Blob([written], { type: "text/plain" }), "answer.txt", instance, task || undefined, isCredentialCard);
+      const answer = keptAnswer(written, path, paths);
+      if (bytes(answer) > LONGEST_WRITTEN) throw new Error("Use fewer files.");
+      if (isOpen.current) onSend(answer);
+    } catch (error: unknown) {
+      setRefusal("Your answer was not sent: " + message(error));
+    } finally {
+      setKeepingNote(false);
     }
   };
-  const text = [note.trim(), pictures.map((picture) => "Image: " + picture.path).join("\n")].filter(Boolean).join("\n\n");
-  const isKeeping = pictures.some((picture) => !picture.path);
-  const isTooLong = new TextEncoder().encode(text).length > 4000;
-  const canSend = !!text && !isKeeping && !isTooLong && !isSending;
   return <dialog ref={dialog} className="credential-replace skip-note" aria-labelledby={title}
-    onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }} onCancel={(event) => { event.preventDefault(); onCancel(); }}
-    onPaste={(event) => {
-      const images = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/"));
-      if (!images.length) return;
-      event.preventDefault();
-      images.forEach((file) => void keep(file));
-    }}>
+    onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }} onCancel={(event) => { event.preventDefault(); onCancel(); }}>
     <h2 id={title}>Something else?</h2>
     <p>It goes to {asker} as your word. Type it, say it or paste a picture.</p>
-    <DictatedAnswer label="Your note" placeholder={"Tell " + asker + " what to do instead..."} value={note} instance={instance} onText={setNote} onSubmit={() => { if (canSend) onSend(text); }} />
-    {pictures.length > 0 && <div className="pasted-pictures">
-      {pictures.map((picture, index) => <span key={picture.key} className="pasted-picture">
-        {picture.preview && <img src={picture.preview} alt={"Pasted picture " + (index + 1)} />}
-        <button type="button" className="icon-button" aria-label={"Remove picture " + (index + 1)} onClick={() => setPictures((prior) => prior.filter((each) => each.key !== picture.key))}><Icon name="close" /></button>
-      </span>)}
-    </div>}
-    {isKeeping && <Notice form="box">Saving picture...</Notice>}
+    <DictatedAnswer label="Your note" placeholder={"Tell " + asker + " what to do instead..."} value={note} instance={instance} files={files} onText={setNote} onSubmit={() => void send()} />
+    {adding > 0 && <Notice form="box">Saving files...</Notice>}
+    {hasTooManyFiles && <Notice form="box" tone="warning">Use fewer files.</Notice>}
     {refusal && <Notice form="box" tone="warning">{refusal}</Notice>}
-    {isTooLong && <Notice form="box" tone="warning">Use a shorter answer or fewer pictures.</Notice>}
     {refused && <Notice form="box" tone="warning">{refused}</Notice>}
     <div className="credential-replace-choices">
       <button type="button" className="credential-replace-cancel" onClick={onCancel}><Icon name="close" />Cancel</button>
-      <button type="button" className="primary" disabled={!canSend} onClick={() => onSend(text)}><Icon name="send" />Send</button>
+      <button type="button" className="primary" disabled={!canSend} onClick={() => void send()}><Icon name="send" />Send</button>
     </div>
   </dialog>;
 }
