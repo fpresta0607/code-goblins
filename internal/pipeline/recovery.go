@@ -133,7 +133,7 @@ func (r Reader) recoverRun(ctx context.Context, project, worktree, branch string
 		}
 	}
 	if run.CustodyReturnedAt != 0 {
-		return RecoveryResult{}, errors.New("pipeline: recorded custody return does not match native branch state")
+		return RecoveryResult{}, r.returnedCustodyMismatch(ctx, run)
 	}
 
 	if err := r.requireCleanHead(ctx, worktree, run.SubmittedHead); err != nil {
@@ -211,9 +211,70 @@ func (r Reader) latestRecoveryCandidate(ctx context.Context, project, branch str
 	}
 	run := runs[0]
 	if run.Branch != branch || run.RecordedHead == "" || run.SubmittedHead == "" || run.Status != "failed" && run.Status != "cancelled" {
+		if run.Branch == branch && run.Status == "completed" && run.PushedHead != "" {
+			if err := r.cancelledDuplicate(ctx, run); err != nil {
+				return recoveryRecord{}, err
+			}
+		}
 		return recoveryRecord{}, errors.New("pipeline: latest run is not an unpublished failed or cancelled custody recovery")
 	}
 	return run, nil
+}
+
+// cancelledDuplicate names the older run native branch sync still keeps as
+// the branch's owner beside latest, a newer run that completed and published:
+// one cancelled before it pushed, at its submitted head, which the published
+// head holds. The engine keeps such a run as owner until no-mistakes issue 335
+// is fixed, and its native recovery takes custody at a head the published one
+// has moved past, so it is named and refused rather than recovered (#2378).
+func (r Reader) cancelledDuplicate(ctx context.Context, latest recoveryRecord) error {
+	var runs []recoveryRecord
+	query := `SELECT id AS run_id, head_sha AS recorded_head FROM runs WHERE repo_id=` + sqlString(latest.RepoID) + ` AND branch=` + sqlString(latest.Branch) + ` AND id<>` + sqlString(latest.RunID) + ` AND status='cancelled' AND head_sha=submitted_head_sha AND COALESCE(last_pushed_sha,'')='' AND COALESCE(terminal_head_verified_at,0)=0 AND COALESCE(custody_returned_at,0)=0 ORDER BY created_at DESC,id DESC LIMIT 1`
+	if err := r.query(ctx, query, &runs); err != nil {
+		return err
+	}
+	if len(runs) == 0 {
+		return nil
+	}
+	older := runs[0]
+	ancestry, err := r.runGit(ctx, filepath.Join(r.Root, "repos", latest.RepoID+".git"), true, "merge-base", "--is-ancestor", older.RecordedHead, latest.PushedHead)
+	if err != nil {
+		return err
+	}
+	switch ancestry.ExitCode {
+	case 0:
+	case 1:
+		return nil
+	default:
+		return errors.New("pipeline: could not establish recovery ancestry")
+	}
+	return fmt.Errorf("pipeline: run %s was cancelled before it pushed, and native branch sync keeps it as this branch's owner beside the newer run %s, which completed and published %s, a head that holds it; no supported recovery continues it until https://github.com/fpresta0607/no-mistakes/issues/335 is fixed: do not recover run %s natively, which takes custody at a head the published one has moved past, and report this to the CEO", older.RunID, latest.RunID, latest.PushedHead, older.RunID)
+}
+
+// returnedCustodyMismatch refuses a run whose custody already returned while
+// native branch sync no longer answers for it. A driver-started run has no
+// same-run continuation (no-mistakes issue 323), so the refusal names the
+// fresh run that goes on, unless the run spent repair rounds a fresh run
+// would start over, which is the CEO's to allow (#2378).
+func (r Reader) returnedCustodyMismatch(ctx context.Context, run recoveryRecord) error {
+	var spent []struct {
+		Rounds int `json:"rounds"`
+	}
+	query := `SELECT COUNT(*) AS rounds FROM step_rounds q JOIN step_results s ON s.id=q.step_result_id WHERE s.run_id=` + sqlString(run.RunID) + ` AND q.trigger_type IN ('auto_fix','user_fix')`
+	if err := r.query(ctx, query, &spent); err != nil {
+		return err
+	}
+	if len(spent) != 1 {
+		return errors.New("pipeline: run repair rounds cannot be read")
+	}
+	const refusal = "pipeline: recorded custody return does not match native branch state; run %s already returned custody and a driver-started run has no same-run continuation"
+	switch spent[0].Rounds {
+	case 0:
+		return fmt.Errorf(refusal+", and it spent no repair round, so a fresh goblins pipeline run is the expected path", run.RunID)
+	case 1:
+		return fmt.Errorf(refusal+", but it spent 1 repair round, which a fresh run would start over: ask the CEO before starting one", run.RunID)
+	}
+	return fmt.Errorf(refusal+", but it spent %d repair rounds, which a fresh run would start over: ask the CEO before starting one", run.RunID, spent[0].Rounds)
 }
 
 // agentProcessStatus says whether the process a recorded agent pid names is
