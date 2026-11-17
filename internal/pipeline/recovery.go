@@ -237,7 +237,17 @@ func (r Reader) cancelledDuplicate(ctx context.Context, latest recoveryRecord) e
 		return nil
 	}
 	older := runs[0]
-	ancestry, err := r.runGit(ctx, filepath.Join(r.Root, "repos", latest.RepoID+".git"), true, "merge-base", "--is-ancestor", older.RecordedHead, latest.PushedHead)
+	bare := filepath.Join(r.Root, "repos", latest.RepoID+".git")
+	for _, head := range []string{older.RecordedHead, latest.PushedHead} {
+		present, err := r.runGit(ctx, bare, true, "cat-file", "-e", head+"^{commit}")
+		if err != nil {
+			return err
+		}
+		if present.ExitCode != 0 {
+			return nil
+		}
+	}
+	ancestry, err := r.runGit(ctx, bare, true, "merge-base", "--is-ancestor", older.RecordedHead, latest.PushedHead)
 	if err != nil {
 		return err
 	}

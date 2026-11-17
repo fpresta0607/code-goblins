@@ -51,7 +51,6 @@ type recoveryRunner struct {
 	custodyReturned        bool
 	requireExplicitBare    bool
 	requireMatchingNullOID bool
-	repairRounds           int
 	requests               []execx.Request
 }
 
@@ -210,9 +209,6 @@ func (r *recoveryRunner) Run(_ context.Context, request execx.Request) (execx.Re
 	switch request.Name {
 	case "sqlite3":
 		sql := request.Args[len(request.Args)-1]
-		if strings.Contains(sql, "FROM step_rounds") {
-			return execx.Result{Stdout: []byte(fmt.Sprintf(`[{"rounds":%d}]`, r.repairRounds))}, nil
-		}
 		if strings.Contains(sql, "SELECT changes()") {
 			if r.localHead != "" && strings.Contains(sql, "UPDATE runs SET head_sha='"+r.localHead+"'") {
 				if r.failDatabase {
