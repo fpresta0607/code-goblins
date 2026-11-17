@@ -182,11 +182,14 @@ func TestConversationRecordsAreTheHomesAndNamedByWhoseTheyAre(t *testing.T) {
 	}
 }
 
+// The person's own folder outside the home carries the goblin's name, as a
+// machine's temporary folder may: macOS named one /var/folders/q2/...g1dc...
+// (#2626).
 func TestTrustEntriesForTheHomesFoldersGoAndTheRestStay(t *testing.T) {
 	// Arrange
 	m := testMachine(t)
 	g1 := filepath.Join(m.Home.Root, "worktrees", "demo", "g1")
-	mine := filepath.Join(m.Profile, "source", "mine")
+	mine := filepath.Join(m.Profile, "source", "g1")
 	claudeFile := filepath.Join(m.Profile, ".claude.json")
 	claude, _ := json.Marshal(map[string]any{"numStartups": 3, "projects": map[string]any{filepath.ToSlash(g1): map[string]bool{"hasTrustDialogAccepted": true}, filepath.ToSlash(mine): map[string]bool{"hasTrustDialogAccepted": true}}})
 	write(t, claudeFile, string(claude))
