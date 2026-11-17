@@ -533,10 +533,7 @@ func TestARestartBringsBackAGoblinWhosePromptStillWaitsInTheInbox(t *testing.T) 
 
 	// Act
 	for minute := range 8 {
-		if err := service.checkFleet(t.Context(), thisSignIn.Add(time.Duration(minute)*time.Minute)); err != nil {
-			t.Fatal(err)
-		}
-		awaitComeback(t, service)
+		reading(t, service, minute)
 	}
 
 	// Assert
@@ -545,6 +542,36 @@ func TestARestartBringsBackAGoblinWhosePromptStillWaitsInTheInbox(t *testing.T) 
 	}
 	if came := recorder.came(); !slices.Equal(came, []string{"steered-in-inbox"}) {
 		t.Errorf("came back %v, want steered-in-inbox alone", came)
+	}
+}
+
+// A goblin whose latest report delivered but whose record cannot be read
+// may have taken a prompt since, so a restart brings it back rather than
+// leave it down, and the board says why.
+func TestARestartBringsBackADeliveredGoblinWhoseRecordCannotBeRead(t *testing.T) {
+	// Arrange
+	recorder := &comebackRecorder{}
+	service, h, _ := comebackBoard(t, recorder, [2]float64{8, 8})
+	meta := workingGoblin(t, h, "unreadable-record", lastSignIn.Add(time.Hour))
+	if err := state.AppendStatus(h.State, meta.ID, "done: PR https://github.com/acme/api/pull/7"); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(h.State, ".supervisor.json"), "not a record")
+
+	// Act
+	for minute := range 8 {
+		reading(t, service, minute)
+	}
+
+	// Assert
+	if came := recorder.came(); !slices.Equal(came, []string{"unreadable-record"}) {
+		t.Errorf("came back %v, want unreadable-record", came)
+	}
+	service.mu.Lock()
+	reported := service.lastError
+	service.mu.Unlock()
+	if !strings.Contains(reported, "unreadable-record took a prompt") {
+		t.Errorf("board error %q, want the unreadable record said", reported)
 	}
 }
 
