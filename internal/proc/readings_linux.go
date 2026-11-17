@@ -1,8 +1,12 @@
 package proc
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,23 +38,69 @@ func Arguments(pid int) ([]string, error) {
 // Environment is private input to a scoped connection check. Callers must
 // verify process ownership and must never serialize or log this value.
 // /proc shows a process part-way through its exec, whose new program has no
-// environment yet, as started with none, so such a process is read again
-// until its exec has set the environment up, for at most a second.
+// environment yet, as started with none, or refuses it to its own user, so
+// such a process is read again until its exec has set the environment up,
+// for at most a second. It also shows an exited process as having none,
+// which is therefore an error.
 func Environment(pid int) ([]string, error) {
 	deadline := time.Now().Add(time.Second)
 	for {
-		environment, err := readList(pid, "environ")
+		environment, readErr := readList(pid, "environ")
+		if readErr == nil && len(environment) > 0 {
+			return environment, nil
+		}
+		read, err := readStatus(pid)
 		if err != nil {
 			return nil, fmt.Errorf("process environment unavailable: %v", err)
 		}
-		if len(environment) > 0 || time.Now().After(deadline) {
-			return environment, nil
+		// A process this one may not read shows no environment's end, so
+		// only an empty reading tells an exec by it.
+		isExecPossible := read.isEnvironmentPending
+		if readErr != nil {
+			isExecPossible = errors.Is(readErr, fs.ErrPermission) && isStartingAsThisUser(pid, read)
 		}
-		if read, err := readStatus(pid); err != nil || !read.isEnvironmentPending {
+		if !isExecPossible || time.Now().After(deadline) {
+			if readErr != nil {
+				return nil, fmt.Errorf("process environment unavailable: %v", readErr)
+			}
+			// The exec may have set the environment up after it was read
+			// empty and before its line was read, so it is read once more.
+			environment, err := readList(pid, "environ")
+			if err != nil {
+				return nil, fmt.Errorf("process environment unavailable: %v", err)
+			}
 			return environment, nil
 		}
 		time.Sleep(time.Millisecond)
 	}
+}
+
+// isStartingAsThisUser reports whether pid, whose line of /proc is read,
+// runs as this process's user and started less than a second ago, as a
+// process does whose exec still refuses its environment to its own user: an
+// exec follows its fork at once, and an older refusal, or another user's,
+// is for good.
+func isStartingAsThisUser(pid int, read status) bool {
+	uptime, err := fsx.ReadKernelFile("/proc/uptime")
+	if err != nil {
+		return false
+	}
+	seconds, _, _ := bytes.Cut(bytes.TrimSpace(uptime), []byte(" "))
+	now, err := strconv.ParseFloat(string(seconds), 64)
+	if err != nil || now*ticksPerSecond-float64(read.started) >= ticksPerSecond {
+		return false
+	}
+	lines, err := fsx.ReadKernelFile(fmt.Sprintf("/proc/%d/status", pid))
+	if err != nil {
+		return false
+	}
+	for line := range bytes.Lines(lines) {
+		if value, isUser := bytes.CutPrefix(line, []byte("Uid:")); isUser {
+			users := bytes.Fields(value)
+			return len(users) > 0 && string(users[0]) == strconv.Itoa(os.Getuid())
+		}
+	}
+	return false
 }
 
 // readList reads a file of /proc/<pid> that holds strings each ended by a

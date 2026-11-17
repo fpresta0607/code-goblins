@@ -227,34 +227,49 @@ func Lookup(pid int) (Entry, error) {
 	return read.entry(pid, boot), nil
 }
 
+// maxListings is how many times Processes lists /proc again because a
+// process it listed ended before its line was read.
+const maxListings = 100
+
 // Processes lists every running process from /proc, with its parent, its
-// name and its start, which Identify proves it by.
+// name and its start, which Identify proves it by. /proc is listed first and
+// each process read after, so a process listed that ended before it was read
+// may have started another after the list was taken: /proc is then listed
+// again for the processes not yet read, until none of them ended unread.
 func Processes() ([]Entry, error) {
 	boot, err := bootTime()
 	if err != nil {
 		return nil, err
 	}
-	names, err := os.ReadDir("/proc")
-	if err != nil {
-		return nil, fmt.Errorf("proc: list processes: %w", err)
-	}
-	entries := make([]Entry, 0, len(names))
-	for _, name := range names {
-		pid, err := strconv.Atoi(name.Name())
+	isRead := map[int]bool{}
+	var entries []Entry
+	for range maxListings {
+		names, err := os.ReadDir("/proc")
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("proc: list processes: %w", err)
 		}
-		read, err := readStatus(pid)
-		if errors.Is(err, fs.ErrNotExist) {
-			// It ended while the list was read.
-			continue
+		hasProcessEnded := false
+		for _, name := range names {
+			pid, err := strconv.Atoi(name.Name())
+			if err != nil || isRead[pid] {
+				continue
+			}
+			isRead[pid] = true
+			read, err := readStatus(pid)
+			if errors.Is(err, fs.ErrNotExist) {
+				hasProcessEnded = true
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			entries = append(entries, read.entry(pid, boot))
 		}
-		if err != nil {
-			return nil, err
+		if !hasProcessEnded {
+			return entries, nil
 		}
-		entries = append(entries, read.entry(pid, boot))
 	}
-	return entries, nil
+	return nil, fmt.Errorf("proc: list processes: a process listed ended before it was read in each of %d listings", maxListings)
 }
 
 // Ancestry walks the parent chain starting at pid (included as the first
