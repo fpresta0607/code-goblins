@@ -4,9 +4,14 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // The ticks a process's start is counted in are read as hundredths of a
@@ -174,6 +179,55 @@ func TestARefusedProcessIsReadAgainOnlyWhileItStartsAsThisUser(t *testing.T) {
 				t.Errorf("isStartingAs = %t, want %t", isRetry, test.shouldBeRetry)
 			}
 		})
+	}
+}
+
+// A process of this user that refuses its environment to it for a moment
+// after its start, as a process part-way through its exec does, is read
+// once it shows it: Environment reads it again rather than take the refusal
+// for good. The helper is this test binary, which makes itself unreadable
+// (PR_SET_DUMPABLE) for 200ms.
+func TestEnvironmentReadsAProcessThatRefusesItForAMomentAfterItsStart(t *testing.T) {
+	if ready := os.Getenv("PROC_TEST_REFUSING"); ready != "" {
+		if err := unix.Prctl(unix.PR_SET_DUMPABLE, 0, 0, 0, 0); err != nil {
+			os.Exit(7)
+		}
+		if err := os.WriteFile(ready, nil, 0o600); err != nil {
+			os.Exit(7)
+		}
+		time.Sleep(200 * time.Millisecond)
+		if err := unix.Prctl(unix.PR_SET_DUMPABLE, 1, 0, 0, 0); err != nil {
+			os.Exit(7)
+		}
+		time.Sleep(10 * time.Minute)
+		os.Exit(9)
+	}
+	// Arrange
+	ready := filepath.Join(t.TempDir(), "ready")
+	helper := exec.Command(os.Args[0], "-test.run=^TestEnvironmentReadsAProcessThatRefusesItForAMomentAfterItsStart$")
+	helper.Env = append(os.Environ(), "PROC_TEST_REFUSING="+ready, "GOBLINS_PROC_TEST=shown")
+	if err := helper.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = helper.Process.Kill(); _ = helper.Wait() })
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(time.Millisecond) {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the helper did not make itself unreadable within a minute")
+		}
+	}
+
+	// Act
+	environment, err := Environment(helper.Process.Pid)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("the helper's environment, refused for a moment after its start, read as %v", err)
+	}
+	if !slices.Contains(environment, "GOBLINS_PROC_TEST=shown") {
+		t.Errorf("the helper's environment holds %d entries, without GOBLINS_PROC_TEST=shown", len(environment))
 	}
 }
 
