@@ -97,10 +97,10 @@ func TestAnInstanceIsTheBootIDAndTheStartTicksOfItsProcess(t *testing.T) {
 	}
 }
 
-// A process whose exec has not yet set up its environment shows its end as
-// 0, as a kernel thread does, which never has one; a kernel older than 3.5
-// shows no end at all.
-func TestParseStatusTellsAnExecSettingUpItsEnvironmentFromAKernelThread(t *testing.T) {
+// A process whose exec has not yet set up its arguments and environment
+// shows the environment's end as 0, as a kernel thread does, which never has
+// one; a kernel older than 3.5 shows no end at all.
+func TestParseStatusTellsAnExecSettingUpFromAKernelThread(t *testing.T) {
 	for _, test := range []struct {
 		name            string
 		flags, end      string
@@ -132,8 +132,8 @@ func TestParseStatusTellsAnExecSettingUpItsEnvironmentFromAKernelThread(t *testi
 			if err != nil {
 				t.Fatal(err)
 			}
-			if read.isEnvironmentPending != test.shouldBePending {
-				t.Errorf("isEnvironmentPending = %t, want %t", read.isEnvironmentPending, test.shouldBePending)
+			if read.isExecSettingUp != test.shouldBePending {
+				t.Errorf("isExecSettingUp = %t, want %t", read.isExecSettingUp, test.shouldBePending)
 			}
 		})
 	}
