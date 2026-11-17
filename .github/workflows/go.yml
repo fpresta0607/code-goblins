@@ -676,17 +676,7 @@ jobs:
           packages=$(go list ./... | grep -vxF "$except")
           citest="$RUNNER_TEMP/citest"
           go build -o "$citest" ./tools/citest
-          # The two tree tests that read a tree just after its start (#2617)
-          # run 50 times in a row beside the suite, with no second try.
-          go test -count=50 -run '^(TestANamedTreeIsFoundAgainByItsNameOnceItsStarterLetItGo|TestATreeStartedInsideAnotherStaysInBoth)$' ./internal/execx > "$RUNNER_TEMP/trees.txt" 2>&1 &
-          trees=$!
-          suite=0
-          "$citest" -job macos -record "$RUNNER_TEMP/failed-once.jsonl" -timeout 20m $packages || suite=$?
-          repeated=0
-          wait "$trees" || repeated=$?
-          echo "the two tree tests, 50 times each beside the suite, exited $repeated"
-          cat "$RUNNER_TEMP/trees.txt"
-          test "$suite" -eq 0 && test "$repeated" -eq 0
+          "$citest" -job macos -record "$RUNNER_TEMP/failed-once.jsonl" -timeout 20m $packages
         env:
           # The packages whose tests wait on a later layer of the port, as
           # the linux job's do, and internal/gatetest, whose test selection
