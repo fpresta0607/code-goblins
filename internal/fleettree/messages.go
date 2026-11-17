@@ -803,8 +803,8 @@ func (l *messageLog) entry(line []byte, offset int64) {
 		l.user(entry, id, offset)
 	case entry.Type == "attachment" && entry.Attachment.Type == "queued_command":
 		// A queued prompt is its text, or its blocks when a picture was
-		// pasted into it, whose text alone is read.
-		l.prompt(Message{ID: id, Seq: int(offset), At: entry.Timestamp, IsQueued: true}, resultText(entry.Attachment.Prompt))
+		// pasted into it, whose text alone is read, as typed.
+		l.prompt(Message{ID: id, Seq: int(offset), At: entry.Timestamp, IsQueued: true}, takenPicture.ReplaceAllString(resultText(entry.Attachment.Prompt), "$1"))
 	case entry.Type == "queue-operation":
 		l.queueOperation(entry, id)
 	case entry.Type == "system" && entry.Subtype == "compact_boundary":
@@ -1080,6 +1080,10 @@ var (
 	// pastedContent marks where Claude Code took typed text as a paste, as
 	// the monitor reads it (internal/monitor/took.go).
 	pastedContent = regexp.MustCompile(`</?pasted_content id="[^"]*">`)
+	// takenPicture is a picture's path and the mark Claude Code 2.1.323 put
+	// right after it as it took the picture into a running turn with the
+	// line that names it (#2541).
+	takenPicture  = regexp.MustCompile(`(?i)(\.(?:png|jpe?g|gif|webp))\[Image #\d+\]`)
 	commandName   = regexp.MustCompile(`(?s)<command-name>(.*?)</command-name>`)
 	commandArgs   = regexp.MustCompile(`(?s)<command-args>(.*?)</command-args>`)
 	bashInput     = regexp.MustCompile(`(?s)^<bash-input>(.*?)</bash-input>`)
