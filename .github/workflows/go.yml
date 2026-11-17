@@ -682,6 +682,8 @@ jobs:
           # compares git's folders, with every link resolved, with go list's
           # as given: macOS's temporary folder is under /var, a link to
           # /private/var, so it waits on 4, path comparison.
+          # internal/verify waits on #2617: a process read during its exec
+          # reads as gone there, so the executor ends a run it just started.
           EXCEPT: >-
             ./cmd/goblins
             ./internal/cleanup
@@ -709,6 +711,7 @@ jobs:
             ./internal/startwatch
             ./internal/supervisor
             ./internal/update
+            ./internal/verify
             ./internal/voice
             ./internal/watch
           GOBLINS_HOME: ${{ runner.temp }}/ceo-go-tests
