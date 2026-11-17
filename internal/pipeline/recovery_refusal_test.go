@@ -46,6 +46,8 @@ func TestRecoverKeepLocalNamesACancelledDuplicateBesideTheNewerPublishedRun(t *t
 		isOlderTerminalVerified bool
 		isOlderCustodyReturned  bool
 		isOlderHeadAbsent       bool
+		isOlderOnOtherBranch    bool
+		isOlderInOtherRepo      bool
 		isPublishedHeadAbsent   bool
 		isHeldByNewer           bool
 		isDuplicateMet          bool
@@ -59,6 +61,8 @@ func TestRecoverKeepLocalNamesACancelledDuplicateBesideTheNewerPublishedRun(t *t
 		{name: "older cancelled run whose custody returned", olderStatus: "cancelled", isOlderCustodyReturned: true, isHeldByNewer: true},
 		{name: "cancelled head the gate no longer has", olderStatus: "cancelled", isOlderHeadAbsent: true},
 		{name: "published head the gate no longer has", olderStatus: "cancelled", isPublishedHeadAbsent: true, isHeldByNewer: true},
+		{name: "cancelled run of another branch the published run holds", olderStatus: "cancelled", isOlderOnOtherBranch: true, isHeldByNewer: true},
+		{name: "cancelled run of another repository the published run holds", olderStatus: "cancelled", isOlderInOtherRepo: true, isHeldByNewer: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange: two starts of one branch, the older cancelled at its
@@ -102,6 +106,13 @@ func TestRecoverKeepLocalNamesACancelledDuplicateBesideTheNewerPublishedRun(t *t
 			if test.isOlderHeadMoved {
 				olderHead = base
 			}
+			olderBranch, olderRepo := branch, repo
+			if test.isOlderOnOtherBranch {
+				olderBranch = "fix/stacked-parent"
+			}
+			if test.isOlderInOtherRepo {
+				olderRepo = "0a1b2c3d4e5f"
+			}
 			olderPushed, olderTerminalVerified, olderCustodyReturned := "NULL", "NULL", "NULL"
 			if test.isOlderPushed {
 				olderPushed = sqlString(submitted)
@@ -115,7 +126,7 @@ func TestRecoverKeepLocalNamesACancelledDuplicateBesideTheNewerPublishedRun(t *t
 			sql := `CREATE TABLE repos(id TEXT,working_path TEXT);
 CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,status TEXT,head_sha TEXT,submitted_head_sha TEXT,last_pushed_sha TEXT,custody_returned_at INTEGER,terminal_head_verified_at INTEGER,created_at INTEGER,updated_at INTEGER);
 INSERT INTO repos VALUES(` + sqlString(repo) + `,` + sqlString(filepath.ToSlash(work)) + `);
-INSERT INTO runs VALUES(` + sqlString(older) + `,` + sqlString(repo) + `,` + sqlString(branch) + `,` + sqlString(test.olderStatus) + `,` + sqlString(olderHead) + `,` + sqlString(submitted) + `,` + olderPushed + `,` + olderCustodyReturned + `,` + olderTerminalVerified + `,1,1);
+INSERT INTO runs VALUES(` + sqlString(older) + `,` + sqlString(olderRepo) + `,` + sqlString(olderBranch) + `,` + sqlString(test.olderStatus) + `,` + sqlString(olderHead) + `,` + sqlString(submitted) + `,` + olderPushed + `,` + olderCustodyReturned + `,` + olderTerminalVerified + `,1,1);
 INSERT INTO runs VALUES(` + sqlString(newer) + `,` + sqlString(repo) + `,` + sqlString(branch) + `,'completed',` + sqlString(published) + `,` + sqlString(submitted) + `,` + sqlString(published) + `,NULL,2,2,2);`
 			if out, err := exec.Command("sqlite3", database, sql).CombinedOutput(); err != nil {
 				t.Fatalf("fixture: %s %v", out, err)
