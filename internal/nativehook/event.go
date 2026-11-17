@@ -238,6 +238,26 @@ func (e Event) Validate() error {
 
 func SpoolDir(stateDir string) string { return filepath.Join(stateDir, "native-inbox") }
 
+// FailureDir holds a record of each native hook a pi session could not run.
+// The pi extension writes it there, never onto the session's terminal, where
+// it landed on the prompt line and the board then read the session as holding
+// unsent text (#2428).
+func FailureDir(stateDir string) string { return filepath.Join(stateDir, "native-hook-failures") }
+
+// MaxFailures bounds the records waiting in FailureDir: a hook program missing
+// for an hour fails every event, and the first records say all there is.
+const MaxFailures = 256
+
+// Failure is one record in FailureDir: the harness, the event and what is
+// known of the outcome, never the hook program's output, which may carry a
+// tool result's private data.
+type Failure struct {
+	Harness string    `json:"harness"`
+	Event   string    `json:"event"`
+	Outcome string    `json:"outcome"`
+	At      time.Time `json:"at"`
+}
+
 func Spool(stateDir string, e Event) error {
 	if err := e.Validate(); err != nil {
 		return err

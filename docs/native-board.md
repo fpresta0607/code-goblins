@@ -129,6 +129,8 @@ One Windows filesystem watcher consumes the spool, with a two-second recovery in
 If the native-inbox state folder disappears, ingestion or the next board update recreates it and names the repair on the board; earlier hook events may be missing.
 If that folder cannot be read or recreated, the board reports the folder problem and delayed hook events while other task updates and reconciliation continue, and ingestion resumes when access returns without restarting serve.
 An event moved out of the folder while ingestion reads it, as setting the inbox's events aside in another folder does, has left the inbox: that pass takes the rest and reports no error.
+A native hook a pi session cannot run, because its event cannot be encoded, is over 64 MiB, or its hook program could not start, timed out, was ended or failed, is never written onto that session's terminal, where it landed on the prompt line and the board then read the session as holding unsent text (issue #2428).
+The pi extension records it in the `native-hook-failures` state folder instead, with the event's name and the outcome and never the hook program's output, keeping at most 256 records, and the next reconciliation tells the CEO of them in one `native_hook_failed` notify, naming the first five and counting the rest, and removes them.
 One slow reconciliation pass runs each minute; there is no browser-driven task polling engine.
 Unresolved tasks continue reconciling after SessionEnd, after becoming ready, and after their native session is retired.
 Verified terminal tasks leave that polling path until new session activity supplies a reason to reevaluate.
