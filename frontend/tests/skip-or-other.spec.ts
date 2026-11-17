@@ -223,39 +223,48 @@ for (const input of ["shortcut from Cancel", "microphone"] as const) {
   });
 }
 
+// The pictures and files his answer carries go through the chat's own box and
+// route (#2538), each kept where the asker reads it and named on a line of its
+// own after his words, as the chat names them.
+const KEPT = String.raw`C:\fleet\state\tasktmp\shop-signup\composer-files\pasted-1.png`;
+const KEPT_ANSWER = KEPT.replace("pasted-1.png", "pasted-2.txt");
+const ONE_PIXEL = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+async function keep(page: Page, wait?: Promise<void>) {
+  const kept: { task: string | null; name: string | null; type: string | undefined; body: string }[] = [];
+  await page.route("**/api/composer/file**", async (route) => {
+    if (route.request().method() !== "POST") return route.fulfill({ status: 200, contentType: "image/png", body: Buffer.from(ONE_PIXEL, "base64") });
+    const url = new URL(route.request().url());
+    const name = url.searchParams.get("name");
+    kept.push({ task: url.searchParams.get("task"), name, type: route.request().headers()["content-type"], body: route.request().postDataBuffer()?.toString("utf8") ?? "" });
+    await wait;
+    await route.fulfill({ status: 201, json: { path: name === "answer.txt" ? KEPT_ANSWER : KEPT } });
+  });
+  return kept;
+}
+
 test("Send waits for a pasted picture and accepts a picture without words", async ({ page }) => {
   const sent = await record(page);
   let release: () => void = () => {};
-  const upload = new Promise<void>((resolve) => { release = resolve; });
-  await page.route("**/api/answer-images**", async (route) => {
-    await upload;
-    await route.fulfill({ status: 201, json: { path: "C:\\fleet\\pasted-1.png" } });
-  });
+  await keep(page, new Promise<void>((resolve) => { release = resolve; }));
   const shown = await openCard(page, "Open the command");
   await pencilOf(shown).click();
   await pastePicture(noteWindow(page).getByLabel("Your note"));
 
   const send = noteWindow(page).getByRole("button", { name: "Send", exact: true });
   await expect(send).toBeDisabled();
-  await expect(noteWindow(page).getByRole("status")).toHaveText("Saving picture...");
+  await expect(noteWindow(page).getByRole("status")).toHaveText("Saving files...");
   release();
   await expect(send).toBeEnabled();
   await send.click();
 
   await expect.poll(() => sent.length).toBe(1);
-  expect(sent[0].body).toMatchObject({ kind: "run_answer", text: "Image: C:\\fleet\\pasted-1.png" });
+  expect(sent[0].body).toMatchObject({ kind: "run_answer", text: KEPT });
 });
 
 test("a picture pasted into the pencil's window is kept beside the task and sent with his note", async ({ page }) => {
   // Arrange
   const sent = await record(page);
-  const kept: { task: string | null; type: string | undefined; size: number }[] = [];
-  const saved = "C:\\fleet\\state\\tasktmp\\shop-signup\\answer-images\\pasted-1.png";
-  await page.route("**/api/answer-images**", async (route) => {
-    const url = new URL(route.request().url());
-    kept.push({ task: url.searchParams.get("task"), type: route.request().headers()["content-type"], size: route.request().postDataBuffer()?.length || 0 });
-    await route.fulfill({ status: 201, json: { path: saved } });
-  });
+  const kept = await keep(page);
   const shown = await openCard(page, "Open the command");
   await pencilOf(shown).click();
   const note = noteWindow(page).getByLabel("Your note");
@@ -263,41 +272,48 @@ test("a picture pasted into the pencil's window is kept beside the task and sent
 
   // Act
   await pastePicture(note);
-  await expect(noteWindow(page).getByRole("img", { name: "Pasted picture 1" })).toBeVisible();
+  await expect(noteWindow(page).getByRole("img", { name: "Picture 1" })).toBeVisible();
   await noteWindow(page).getByRole("button", { name: "Send", exact: true }).click();
 
   // Assert
-  expect(kept).toEqual([{ task: "shop-signup", type: "image/png", size: 70 }]);
+  expect(kept.map(({ task, type }) => ({ task, type }))).toEqual([{ task: "shop-signup", type: "image/png" }]);
   await expect.poll(() => sent.length).toBe(1);
-  expect(sent[0].body).toMatchObject({ kind: "run_answer", run_id: "run-shop-signup-7", text: "Like this one\n\nImage: " + saved });
+  expect(sent[0].body).toMatchObject({ kind: "run_answer", run_id: "run-shop-signup-7", text: "Like this one\n" + KEPT });
 });
 
-for (const [description, word] of [["a full note", "word ".repeat(800)], ["an accented note", "é".repeat(1990)]] as const) {
-  test(`a picture cannot make a credential answer exceed the card's limit with ${description}`, async ({ page }) => {
+// The Overlord, 2026-11-13, of this window: "It shouldn't have a character
+// cap. I should be able to paste like large attachments like I do in the
+// goblins chat" (#2538). A long answer goes whole as a file the asker reads,
+// named with its opening words, so no card's limit refuses it and no line
+// break is lost; a picture goes with it.
+for (const card of CARDS) {
+  test(`${card.open}: an answer of 20,000 characters and a picture reach the asker whole`, async ({ page }) => {
+    // Arrange
     const sent = await record(page);
-    await page.route("**/api/answer-images**", (route) => route.fulfill({ status: 201, json: { path: "C:\\fleet\\pasted-1.png" } }));
-    const shown = await openCard(page, "Open the credential");
+    const kept = await keep(page);
+    const shown = await openCard(page, card.open);
     await pencilOf(shown).click();
     const note = noteWindow(page).getByLabel("Your note");
-    await note.fill(word);
+    const long = "Use the shop's bot account, not mine.\n".repeat(527).slice(0, 20000);
+    await note.fill(long);
     await pastePicture(note);
+    await expect(noteWindow(page).getByRole("img", { name: "Picture 1" })).toBeVisible();
 
-    await expect(noteWindow(page).getByRole("img", { name: "Pasted picture 1" })).toBeVisible();
-    await expect(noteWindow(page).getByRole("button", { name: "Send", exact: true })).toBeDisabled();
-    await expect(noteWindow(page).getByRole("status")).toHaveText("Use a shorter answer or fewer pictures.");
-    expect(sent).toEqual([]);
-    await note.fill("Use this one");
+    // Act
     await noteWindow(page).getByRole("button", { name: "Send", exact: true }).click();
 
+    // Assert
+    await expect(note).toHaveValue(long);
     await expect.poll(() => sent.length).toBe(1);
-    expect(sent[0].body).toMatchObject({ action: "answer", text: "Use this one\n\nImage: C:\\fleet\\pasted-1.png" });
+    expect(kept.filter((each) => each.name === "answer.txt")).toEqual([{ task: "shop-signup", name: "answer.txt", type: "application/octet-stream", body: long.trim() }]);
+    expect(sent[0].body).toMatchObject({ ...card.other, text: "My whole answer is in " + KEPT_ANSWER + ". It begins: " + long.replace(/\s+/g, " ").slice(0, 300).trim() + "...\n" + KEPT });
   });
 }
 
 test("a picture can be taken back out of the pencil's window before Send", async ({ page }) => {
   // Arrange
   const sent = await record(page);
-  await page.route("**/api/answer-images**", (route) => route.fulfill({ status: 201, json: { path: "C:\\fleet\\pasted-1.png" } }));
+  await keep(page);
   const shown = await openCard(page, "Open the command");
   await pencilOf(shown).click();
   const note = noteWindow(page).getByLabel("Your note");
@@ -305,7 +321,7 @@ test("a picture can be taken back out of the pencil's window before Send", async
   await pastePicture(note);
 
   // Act
-  await noteWindow(page).getByRole("button", { name: "Remove picture 1" }).click();
+  await noteWindow(page).getByRole("button", { name: "Remove Picture 1" }).click();
   await noteWindow(page).getByRole("button", { name: "Send", exact: true }).click();
 
   // Assert
@@ -316,20 +332,16 @@ test("a picture can be taken back out of the pencil's window before Send", async
 test("a picture the supervisor could not keep is said in the window and nothing is sent", async ({ page }) => {
   // Arrange
   const sent = await record(page);
-  await page.route("**/api/answer-images**", (route) => route.fulfill({ status: 400, json: { error: "Only a PNG, JPEG, GIF or WebP picture can be pasted." } }));
+  await page.route("**/api/composer/file**", (route) => route.fulfill({ status: 413, json: { error: "A pasted file may be at most 10 MiB." } }));
   const shown = await openCard(page, "Open the command");
   await pencilOf(shown).click();
   const note = noteWindow(page).getByLabel("Your note");
 
   // Act
-  await note.evaluate((box) => {
-    const clipboard = new DataTransfer();
-    clipboard.items.add(new File([new Uint8Array([1, 2, 3])], "image.png", { type: "image/png" }));
-    box.dispatchEvent(new ClipboardEvent("paste", { clipboardData: clipboard, bubbles: true, cancelable: true }));
-  });
+  await pastePicture(note);
 
   // Assert
-  await expect(noteWindow(page).getByRole("status")).toHaveText("Only a PNG, JPEG, GIF or WebP picture can be pasted.");
+  await expect(noteWindow(page).getByText("That picture was not added: A pasted file may be at most 10 MiB.")).toBeVisible();
   await expect(noteWindow(page).getByRole("img")).toHaveCount(0);
   await expect(noteWindow(page).getByRole("button", { name: "Send", exact: true })).toBeDisabled();
   expect(sent).toEqual([]);
@@ -385,7 +397,7 @@ for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }
   test(`the pencil and its window fit every card ${where}`, async ({ page }, testInfo) => {
     // Arrange
     await record(page);
-    await page.route("**/api/answer-images**", (route) => route.fulfill({ status: 201, json: { path: "C:\\fleet\\pasted-1.png" } }));
+    await keep(page);
     await page.setViewportSize(viewport);
 
     for (const name of ["Open the command", "Open the wait", "Open the credential"]) {
@@ -400,16 +412,17 @@ for (const [where, viewport] of [["in his window", { width: 1707, height: 1067 }
 
       // Assert
       await expect(shown.locator(".card-actions").getByRole("button", { name: "Skip this card" })).toBeAttached();
-      await expect(noteWindow(page).getByRole("img", { name: "Pasted picture 1" })).toBeVisible();
+      await expect(noteWindow(page).getByRole("img", { name: "Picture 1" })).toBeVisible();
       await expect(noteWindow(page).getByRole("button", { name: "Send", exact: true })).toBeInViewport();
-      const picture = await noteWindow(page).getByRole("img", { name: "Pasted picture 1" }).boundingBox();
+      const picture = await noteWindow(page).getByRole("img", { name: "Picture 1" }).boundingBox();
       const noteBox = await note.boundingBox();
       const send = await noteWindow(page).getByRole("button", { name: "Send", exact: true }).boundingBox();
       expect(picture).not.toBeNull();
       expect(noteBox).not.toBeNull();
       expect(send).not.toBeNull();
-      expect(picture!.y).toBeGreaterThanOrEqual(noteBox!.y + noteBox!.height);
-      expect(picture!.y + picture!.height).toBeLessThanOrEqual(send!.y);
+      // The picture sits above his words, as the chat's box shows it.
+      expect(picture!.y + picture!.height).toBeLessThanOrEqual(noteBox!.y);
+      expect(noteBox!.y + noteBox!.height).toBeLessThanOrEqual(send!.y);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       await page.screenshot({ path: testInfo.outputPath(`skip-or-other-${name.split(" ").pop()}-${viewport.width}-note.png`) });
     }

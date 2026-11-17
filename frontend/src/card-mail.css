@@ -1,12 +1,18 @@
 /* A message a card gives him to send: where it goes and its subject, each a
    labelled line, its body in a box that reads as the email will, scrolling
-   when it is long, and its copy buttons under it. */
+   when it is long, and a copy icon on the subject's line and in the body's
+   bottom corner, which stays there while the body scrolls under it. */
 .card-mail { display: grid; gap: 8px; min-width: 0; max-width: 72ch; margin: 4px 0 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--field-bg); }
 .card-mail-line { display: flex; align-items: center; gap: 10px; min-width: 0; margin: 0; color: #e3ecef; overflow-wrap: anywhere; }
 .card-mail-line a { display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: #dff7ee; }
 .card-mail-line a .icon { width: 15px; height: 15px; flex: none; }
 .card-mail-label { flex: none; min-width: 7ch; color: var(--muted); font-size: .8125rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
-.card-mail-body { max-height: 18em; margin: 0; padding: 10px 12px; border-top: 1px solid var(--border); overflow: auto; color: #e3ecef; font: 400 1rem/1.55 var(--font-body); white-space: pre-wrap; overflow-wrap: anywhere; }
+.card-mail-body { max-height: 18em; margin: 0; padding: 10px 12px 48px; border-top: 1px solid var(--border); overflow: auto; color: #e3ecef; font: 400 1rem/1.55 var(--font-body); white-space: pre-wrap; overflow-wrap: anywhere; }
 .card-mail-body:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
-.card-mail-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
-.card-mail-actions .icon-button { height: 40px; min-height: 40px; }
+.card-mail-subject { flex: 1; min-width: 0; }
+.card-mail-box { position: relative; min-width: 0; }
+.card-mail-copy { width: 36px; height: 36px; min-height: 36px; color: var(--muted); }
+.card-mail-copy .icon { width: 17px; height: 17px; }
+.card-mail-copy:hover { color: #dff7ee; }
+.card-mail-copy.copied { color: var(--mint); }
+.card-mail-box .card-mail-copy { position: absolute; right: 6px; bottom: 6px; background: var(--field-bg); }

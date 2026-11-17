@@ -3,12 +3,16 @@ package supervisor
 import (
 	"bytes"
 	"encoding/json"
+	"image"
+	"image/png"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 // postComposerFile posts body as a file he pasted into, or added to, a
@@ -24,8 +28,35 @@ func postComposerFile(board *HTTP, task, name string, body []byte) *httptest.Res
 	return response
 }
 
+func onePixelPNG(t *testing.T) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 1, 1))); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// composerBoard is a board whose task-1 has a task folder.
+func composerBoard(t *testing.T) (*HTTP, state.TaskMeta, string) {
+	t.Helper()
+	store, h := testStore(t)
+	meta, err := state.ReadTaskMeta(h.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.TaskTmp = filepath.Join(h.State, "tasktmp", "task-1")
+	if err := os.MkdirAll(meta.TaskTmp, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	return NewHTTP(&Service{Store: store, Instance: "test-instance"}, "127.0.0.1:7777", nil), meta, h.State
+}
+
 func TestAPictureOrFilePastedIntoAMessageIsKeptWhereTheSessionReadsIt(t *testing.T) {
-	board, meta, stateDir := answerImageBoard(t)
+	board, meta, stateDir := composerBoard(t)
 	for _, c := range []struct {
 		what, name           string
 		body                 []byte
@@ -56,7 +87,7 @@ func TestAPictureOrFilePastedIntoAMessageIsKeptWhereTheSessionReadsIt(t *testing
 }
 
 func TestAPastedFileTheBoardCannotKeepSaysWhy(t *testing.T) {
-	board, _, _ := answerImageBoard(t)
+	board, _, _ := composerBoard(t)
 	for _, c := range []struct {
 		what, task, name string
 		body             []byte
@@ -80,7 +111,7 @@ func TestAPastedFileTheBoardCannotKeepSaysWhy(t *testing.T) {
 }
 
 func TestAFileNameCannotAddAPathSegment(t *testing.T) {
-	board, meta, _ := answerImageBoard(t)
+	board, meta, _ := composerBoard(t)
 
 	// Act
 	response := postComposerFile(board, "task-1", "../../evil.sh", []byte("#!/bin/sh\n"))
@@ -110,7 +141,7 @@ func getComposerFile(board *HTTP, task, path, token string) *httptest.ResponseRe
 }
 
 func TestAPictureKeptForAMessageIsReadBackForItsPreview(t *testing.T) {
-	board, _, _ := answerImageBoard(t)
+	board, _, _ := composerBoard(t)
 	picture := onePixelPNG(t)
 	for _, task := range []string{"task-1", ""} {
 		t.Run("task "+task, func(t *testing.T) {
@@ -138,7 +169,7 @@ func TestAPictureKeptForAMessageIsReadBackForItsPreview(t *testing.T) {
 }
 
 func TestOnlyAPictureInTheComposerFolderIsReadBack(t *testing.T) {
-	board, meta, stateDir := answerImageBoard(t)
+	board, meta, stateDir := composerBoard(t)
 	var kept struct{ Path string }
 	if response := postComposerFile(board, "task-1", "notes.md", []byte("# notes\n")); json.Unmarshal(response.Body.Bytes(), &kept) != nil {
 		t.Fatalf("not kept: %d %s", response.Code, response.Body)
