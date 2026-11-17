@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -1895,39 +1897,72 @@ func TestCIMonitorReportsGitRefusalInsteadOfCallingTheCheckoutInvalid(t *testing
 // A checkout whose recorded path is now only a folder inside another checkout
 // is not that repository's project: git answers with the enclosing repository's
 // origin, which would poll another project in this one's place.
+// Git names that repository by its resolved path, so one reached through a
+// link, as every test folder is where the temporary folder is a junction as
+// the gate's is (#2422), is named in another spelling than the recorded one.
 func TestCIMonitorReportsACheckoutThatMovedInsideAnotherRepository(t *testing.T) {
-	config := t.TempDir()
-	t.Setenv("GH_CONFIG_DIR", config)
-	t.Setenv("GH_HOST", "")
-	s, h := fleetService(t)
-	outer := t.TempDir()
-	git := execx.OSRunner{}
-	for _, args := range [][]string{{"init"}, {"remote", "add", "origin", "https://github.com/o/outer.git"}} {
-		result, err := git.Run(t.Context(), execx.Request{Dir: outer, Name: "git", Args: args})
-		if err != nil || result.ExitCode != 0 {
-			t.Fatalf("git %v: %v %s", args, err, result.Stderr)
-		}
-	}
-	moved := filepath.Join(outer, "moved-checkout")
-	if err := os.Mkdir(moved, 0700); err != nil {
-		t.Fatal(err)
-	}
-	liveGoblin(t, h, "cg-wakes", moved)
-	forge := forgeFor(moved, "cg-wakes")
-	forge.pulls, forge.runs = "[]", "[]"
-	s.Options.CI = realOriginForge{forge}
-	s.Options.GitHub = githubtest.Client(forge)
-	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
-	for range 4 {
-		_ = s.checkFleet(t.Context(), now)
-		now = now.Add(ciPollEvery)
-	}
-	wakes := fleetWakeRecords(t, h, "ci")
-	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "not a checkout of its own") || !strings.Contains(wakes[0].Detail, "repository at "+filepath.ToSlash(fsx.LongPath(outer))) {
-		t.Fatalf("wakes = %+v, want one naming the repository that encloses it", wakes)
-	}
-	if forge.githubCalls != 0 {
-		t.Fatalf("the enclosing repository was polled %d times, want none", forge.githubCalls)
+	for _, spelling := range []struct {
+		name   string
+		folder func(t *testing.T) string
+	}{
+		{"in a folder as it is", func(t *testing.T) string { return t.TempDir() }},
+		{"in a folder reached through a link", func(t *testing.T) string {
+			link := filepath.Join(t.TempDir(), "linked")
+			if runtime.GOOS != "windows" {
+				if err := os.Symlink(t.TempDir(), link); err != nil {
+					t.Fatal(err)
+				}
+				return link
+			}
+			if output, err := exec.Command("cmd", "/d", "/c", "mklink", "/J", link, t.TempDir()).CombinedOutput(); err != nil {
+				t.Fatalf("mklink /J: %v %s", err, output)
+			}
+			return link
+		}},
+	} {
+		t.Run(spelling.name, func(t *testing.T) {
+			config := t.TempDir()
+			t.Setenv("GH_CONFIG_DIR", config)
+			t.Setenv("GH_HOST", "")
+			s, h := fleetService(t)
+			outer := filepath.Join(spelling.folder(t), "outer")
+			if err := os.Mkdir(outer, 0700); err != nil {
+				t.Fatal(err)
+			}
+			git := execx.OSRunner{}
+			for _, args := range [][]string{{"init"}, {"remote", "add", "origin", "https://github.com/o/outer.git"}} {
+				result, err := git.Run(t.Context(), execx.Request{Dir: outer, Name: "git", Args: args})
+				if err != nil || result.ExitCode != 0 {
+					t.Fatalf("git %v: %v %s", args, err, result.Stderr)
+				}
+			}
+			moved := filepath.Join(outer, "moved-checkout")
+			if err := os.Mkdir(moved, 0700); err != nil {
+				t.Fatal(err)
+			}
+			liveGoblin(t, h, "cg-wakes", moved)
+			forge := forgeFor(moved, "cg-wakes")
+			forge.pulls, forge.runs = "[]", "[]"
+			s.Options.CI = realOriginForge{forge}
+			s.Options.GitHub = githubtest.Client(forge)
+			now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+			for range 4 {
+				_ = s.checkFleet(t.Context(), now)
+				now = now.Add(ciPollEvery)
+			}
+			wakes := fleetWakeRecords(t, h, "ci")
+			if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "not a checkout of its own") {
+				t.Fatalf("wakes = %+v, want one saying the checkout is not one of its own", wakes)
+			}
+			_, named, _ := strings.Cut(wakes[0].Detail, "repository at ")
+			named, _, _ = strings.Cut(named, "; next:")
+			if !fsx.SamePath(named, outer) {
+				t.Fatalf("the wake names the repository at %q, want the one at %s that encloses the checkout: %s", named, outer, wakes[0].Detail)
+			}
+			if forge.githubCalls != 0 {
+				t.Fatalf("the enclosing repository was polled %d times, want none", forge.githubCalls)
+			}
+		})
 	}
 }
 
