@@ -386,7 +386,8 @@ func TestSignalReachesOnlyTheProcessStartedWhenItWasAskedAbout(t *testing.T) {
 // after it starts, while it may still be part-way through its exec: as the
 // direct child cmd.Start has just returned for, and as a child a shell
 // started in the background and left as it exited. Every reading must find
-// it running and carrying the environment it was started with.
+// it running and carrying the arguments and the environment it was started
+// with.
 func TestAProcessReadDuringItsStartReadsAsRunning(t *testing.T) {
 	const starts = 200
 	failed := map[string]int{}
@@ -411,6 +412,12 @@ func TestAProcessReadDuringItsStartReadsAsRunning(t *testing.T) {
 		}
 		if _, err := Instance(pid); err != nil {
 			fail("Instance", pid, err)
+		}
+		// Arguments first: Environment waits for an exec in progress.
+		if arguments, err := Arguments(pid); err != nil {
+			fail("Arguments", pid, err)
+		} else if !slices.Equal(arguments, []string{"sleep", "600"}) {
+			fail("Arguments", pid, fmt.Errorf("read %q", arguments))
 		}
 		if environment, err := Environment(pid); err != nil {
 			fail("Environment", pid, err)
