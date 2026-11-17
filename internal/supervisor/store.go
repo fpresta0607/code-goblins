@@ -358,13 +358,6 @@ func (s *Store) nativeSession(harness, session string) (Session, bool) {
 	return node, ok
 }
 
-// taskSession is the session the store last committed for the task's goblin.
-func (s *Store) taskSession(id string) Session {
-	s.readers.RLock()
-	defer s.readers.RUnlock()
-	return s.committed.Sessions[s.committed.TaskSessions[id]]
-}
-
 func cloneDatabase(d Database) Database {
 	d.Sessions = maps.Clone(d.Sessions)
 	d.Retired = slices.Clone(d.Retired)

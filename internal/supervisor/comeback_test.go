@@ -20,6 +20,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -499,6 +500,51 @@ func TestARestartLeavesAGoblinThatDeliveredItsPullRequestDown(t *testing.T) {
 		if entry.ID == delivered.ID || entry.ID == closed.ID {
 			t.Errorf("the comeback planned %s, which delivered: %+v", entry.ID, entry)
 		}
+	}
+}
+
+// A goblin the CEO steered back to work just before a restart can have its
+// prompt's hook event still waiting in the native inbox when the supervisor
+// plans its comeback: the plan comes at its first memory reading, before a
+// cycle takes the inbox in, and a cycle takes in at most 256 events. That
+// prompt counts as one the store holds does, so the goblin comes back to
+// finish its work. One that took no prompt since stays down.
+func TestARestartBringsBackAGoblinWhosePromptStillWaitsInTheInbox(t *testing.T) {
+	// Arrange
+	recorder := &comebackRecorder{}
+	service, h, _ := comebackBoard(t, recorder, [2]float64{8, 8})
+	for id, report := range map[string]string{"delivered": "done: PR https://github.com/acme/api/pull/7", "steered-in-inbox": "done: PR https://github.com/acme/api/pull/9"} {
+		meta := workingGoblin(t, h, id, lastSignIn.Add(time.Hour))
+		if err := state.AppendStatus(h.State, meta.ID, report); err != nil {
+			t.Fatal(err)
+		}
+	}
+	payload, err := json.Marshal(map[string]string{"hook_event_name": "UserPromptSubmit", "session_id": "inbox-conversation", "cwd": h.Root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt, err := nativehook.Normalize(bytes.NewReader(payload), nativehook.Context{Harness: "claude", Role: "goblin", TaskID: "steered-in-inbox", Generation: "generation-steered-in-inbox", Now: time.Now().UTC().Add(time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := nativehook.Spool(h.State, prompt); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	for minute := range 8 {
+		if err := service.checkFleet(t.Context(), thisSignIn.Add(time.Duration(minute)*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+		awaitComeback(t, service)
+	}
+
+	// Assert
+	if _, err := os.Stat(filepath.Join(nativehook.SpoolDir(h.State), prompt.ID+".event.json")); err != nil {
+		t.Fatalf("the prompt's event left the inbox before the comeback finished: %v", err)
+	}
+	if came := recorder.came(); !slices.Equal(came, []string{"steered-in-inbox"}) {
+		t.Errorf("came back %v, want steered-in-inbox alone", came)
 	}
 }
 
