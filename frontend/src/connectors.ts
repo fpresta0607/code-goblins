@@ -12,7 +12,7 @@ export type Mark = { brand: BrandKey } | { glyph: IconName };
 // shown, or none where the board carries no logo for it, and says in one line
 // what the service does.
 const SERVICES: [RegExp, string, string][] = [
-  [/github|^gh(token|pat)?$/, "github", "Repositories, pull requests and Actions"],
+  [/github|^gh(token|pat)?$|^ghcr/, "github", "Repositories, pull requests and Actions"],
   [/chrome|devtools/, "chrome", "Drives a Chrome browser"],
   [/playwright/, "", "Drives a browser for tests"],
   [/context7/, "context7", "Current library documentation"],
@@ -39,6 +39,16 @@ const SERVICES: [RegExp, string, string][] = [
   [/railway/, "railway", "Railway apps and databases"],
   [/ionos/, "ionos", "IONOS hosting and domains"],
   [/postgres|^pg/, "postgres", "PostgreSQL database"],
+  [/precisiondocs/, "precisiondocs", "PrecisionDocs projects and reports"],
+  [/hubspot/, "hubspot", "HubSpot contacts and deals"],
+  [/elevenlabs/, "elevenlabs", "Voices and speech"],
+  [/cloudflare/, "cloudflare", "Cloudflare DNS, Workers and storage"],
+  [/upwork/, "upwork", "Upwork jobs and contracts"],
+  [/tailscale/, "tailscale", "Private network between machines"],
+  [/digitalocean/, "digitalocean", "DigitalOcean servers and apps"],
+  [/spotify/, "spotify", "Spotify playback and library"],
+  [/homeassistant/, "home-assistant", "Home Assistant devices and automations"],
+  [/runpod/, "runpod", "GPU cloud"],
   [/database|^db/, "", "Database access"],
   [/^crawler$/, "", "Finds and reads every page and file of a site"],
 ];

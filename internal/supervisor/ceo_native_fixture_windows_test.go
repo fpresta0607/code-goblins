@@ -44,6 +44,17 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 	if isManual {
 		mode = strings.TrimPrefix(strings.TrimPrefix(mode, "manual"), "-")
 	}
+	// A harness that hooks what it queues runs its prompt hook as it queues a
+	// line typed into its turn, as Claude Code 2.1.292 does, before it takes
+	// the line at its next tool call.
+	isHookedOnQueue := strings.HasSuffix(mode, "-hooks-queued")
+	mode = strings.TrimSuffix(mode, "-hooks-queued")
+	// A harness that reads its Enter late takes the first one that ends typed
+	// text only once the key after it reaches it, as a Claude Code stalled on
+	// a loaded machine takes a submit key among the keys that take its words
+	// back (#2541).
+	isEnterLate := strings.HasSuffix(mode, "-late-enter")
+	mode = strings.TrimSuffix(mode, "-late-enter")
 	// A harness that stalls reads nothing typed into it while the file
 	// beside its events, named .stall, exists, as the live CEO's Claude Code
 	// left typed input unread for seconds on 2026-11-10 (#2306).
@@ -60,6 +71,37 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 	// draws one, so the line still reads queued under a screen of its own.
 	isAsking := strings.HasSuffix(mode, "-asks")
 	mode = strings.TrimSuffix(mode, "-asks")
+	// A harness joined at its Enter has words land on its prompt line after
+	// all the board typed, just ahead of an Enter it takes as a new line
+	// (-lost-enter), as words somebody else typed then would reach a harness
+	// slow to read its keys (#2541).
+	isJoinedAtEnter := strings.HasSuffix(mode, "-joined-at-enter")
+	mode = strings.TrimSuffix(mode, "-joined-at-enter")
+	// A joined harness has words land on its prompt line right after the
+	// first keys typed into it, as words somebody else typed then would: on
+	// 2026-11-13 the CEO's Claude Code took a line of the board's with words
+	// after them that the board never typed (#2541).
+	isJoined := strings.HasSuffix(mode, "-joined")
+	mode = strings.TrimSuffix(mode, "-joined")
+	// A harness that loses an Enter takes the first one that ends typed text
+	// as a new line, as a loaded Claude Code took a goblin's on 2026-10-20,
+	// and one whose Enters are lost takes every one so.
+	isEnterLost, areEntersLost := strings.HasSuffix(mode, "-lost-enter"), strings.HasSuffix(mode, "-enters-lost")
+	mode = strings.TrimSuffix(strings.TrimSuffix(mode, "-lost-enter"), "-enters-lost")
+	// A turn that ends as typed keys reach it, and a stop hook that opens one
+	// as they reach an idle harness, change what the screen read before them
+	// said, as the CEO's turns ended and its stop hook opened the next for a
+	// wake through 2026-11-13 (#2541).
+	isEnding, isReopening := strings.HasSuffix(mode, "-ends"), strings.HasSuffix(mode, "-reopens")
+	mode = strings.TrimSuffix(strings.TrimSuffix(mode, "-ends"), "-reopens")
+	// A Claude Code compacting its conversation draws that as its turn's row
+	// and queues what is typed meanwhile, as the CEO's did from 01:03Z to
+	// 01:10Z on 2026-11-14 (#2541).
+	working := "✻ Working…"
+	if strings.HasSuffix(mode, "-compacting") {
+		working, mode = "✻ Compacting conversation… (19s)", strings.TrimSuffix(mode, "-compacting")
+	}
+	hasJoined, lost := false, 0
 	isHelp := false
 	record := func(value string) {
 		file, err := os.OpenFile(events, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
@@ -135,7 +177,7 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 		}
 		if isWorking || isBusy {
 			if harness == "claude" {
-				rows = append(rows, "✻ Working…")
+				rows = append(rows, working)
 			} else {
 				rows = append(rows, "• Working (1s • esc to interrupt)")
 			}
@@ -281,6 +323,25 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 				record("ignored-enter")
 				continue
 			}
+			if isEnterLate && composer() != "" {
+				isEnterLate = false
+				if _, _, err := reader.ReadRune(); err != nil || reader.UnreadRune() != nil {
+					return
+				}
+			}
+			if composer() != "" && (areEntersLost || isEnterLost && lost == 0) {
+				lost++
+				record("enter taken as a new line")
+				if isJoinedAtEnter {
+					line += " and the line beside it"
+				}
+				line += "\n"
+				draw(false)
+				continue
+			}
+			// An Enter that submits drops the new lines lost Enters left after
+			// the words, as Claude Code trims what it submits.
+			line = strings.TrimRight(line, "\n")
 			if offer || mode == "late-modal" && composer() != "" {
 				record("dialog-enter")
 				continue
@@ -310,6 +371,9 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 				queued := typedBefore + paste + line
 				record("queued " + queued)
 				hasQueued, held, queue = true, queued, append(queue, queued)
+				if isHookedOnQueue {
+					promptEvent("UserPromptSubmit")
+				}
 				go func(text string) {
 					for {
 						if _, err := os.Stat(events + ".accept"); err == nil {
@@ -335,6 +399,14 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 			if offer && composer() == "" {
 				record("typed-under-dialog")
 			}
+			if isEnding && isBusy {
+				record("turn ended")
+				isBusy, isEnding = false, false
+			}
+			if isReopening && !isBusy {
+				record("turn opened by its stop hook")
+				isBusy, isReopening = true, false
+			}
 			if isPasting {
 				paste += string(key)
 				continue
@@ -354,6 +426,9 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 			// harness draws a paste: a draw for each character of several
 			// answers typed as one message outlasts the wait to see it shown.
 			if reader.Buffered() == 0 {
+				if isJoined && !hasJoined {
+					line, hasJoined = line+" and the line beside it", true
+				}
 				draw(false)
 			}
 		}
