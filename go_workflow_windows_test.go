@@ -6,10 +6,13 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -1016,6 +1019,87 @@ func TestGoWorkflowsRequiredCheckPassesAPushWhoseTreeAPullRequestRunPassed(t *te
 				t.Errorf("the check passed:\n%s", out)
 			}
 		})
+	}
+}
+
+// The install workflow's steps run scripts under tests/, and those run others
+// beside them, such as Start-HiddenServer's. A pull request that changes only
+// one of those runs no install job unless the workflow's paths name it, so its
+// change reaches main untried. Every file under tests/ the workflow names
+// outside a comment, or that a file it reaches names, is in the paths of its
+// pull_request and push triggers. A name that starts at tests/ is the
+// checkout's, as the steps run it, and any other is beside the file that
+// names it, as a script names one by $PSScriptRoot.
+func TestInstallWorkflowRunsWhenAScriptItsStepsReachChanges(t *testing.T) {
+	// Arrange
+	source, err := os.ReadFile(filepath.Join(".github", "workflows", "install.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow struct {
+		On struct {
+			PullRequest struct {
+				Paths []string `yaml:"paths"`
+			} `yaml:"pull_request"`
+			Push struct {
+				Paths []string `yaml:"paths"`
+			} `yaml:"push"`
+		} `yaml:"on"`
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]bool{}
+	if err := filepath.WalkDir("tests", func(file string, entry fs.DirEntry, err error) error {
+		if err == nil && !entry.IsDir() {
+			files[filepath.ToSlash(file)] = true
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	name := regexp.MustCompile(`[\w.\\/-]+`)
+	comment := regexp.MustCompile(`(?m)^\s*#.*$`)
+
+	// Act
+	reached := map[string]bool{}
+	for queue := []string{".github/workflows/install.yml"}; len(queue) > 0; queue = queue[1:] {
+		text, err := os.ReadFile(queue[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, found := range name.FindAllString(comment.ReplaceAllString(string(text), ""), -1) {
+			file := strings.TrimPrefix(strings.ReplaceAll(found, `\`, "/"), "./")
+			if !strings.HasPrefix(file, "tests/") {
+				file = path.Join(path.Dir(queue[0]), file)
+			}
+			if file = path.Clean(file); files[file] && !reached[file] {
+				reached[file] = true
+				queue = append(queue, file)
+			}
+		}
+	}
+
+	// Assert
+	// hidden_server.py is named only by hidden_server.ps1, which the
+	// workflow and the scripts it runs name, so a walk that reached it
+	// followed names through the files.
+	if !reached["tests/hidden_server.py"] {
+		t.Fatalf("the walk from install.yml reached no tests/hidden_server.py, only %v", slices.Sorted(maps.Keys(reached)))
+	}
+	for _, trigger := range []struct {
+		name  string
+		paths []string
+	}{{"pull_request", workflow.On.PullRequest.Paths}, {"push", workflow.On.Push.Paths}} {
+		for _, file := range slices.Sorted(maps.Keys(reached)) {
+			// GitHub reads * within one folder and ** across folders.
+			if !slices.ContainsFunc(trigger.paths, func(pattern string) bool {
+				expression := strings.ReplaceAll(regexp.QuoteMeta(pattern), `\*\*`, ".*")
+				return regexp.MustCompile("^" + strings.ReplaceAll(expression, `\*`, "[^/]*") + "$").MatchString(file)
+			}) {
+				t.Errorf("a change to %s runs no install job on %s: none of its paths matches it", file, trigger.name)
+			}
+		}
 	}
 }
 
