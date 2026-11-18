@@ -11,13 +11,17 @@ const KEPT_PICTURE = /^(?:[A-Za-z]:[\\/]|[\\/]).*[\\/]composer-files[\\/]pasted-
 // them by spaces: a harness's record keeps a message as the board typed it,
 // on one line. Only a path with no space in it can be told from words there.
 const JOINED_PICTURES = /(?:^|\s+)((?:(?:[A-Za-z]:[\\/]|[\\/])\S*[\\/]composer-files[\\/]pasted-[^\\/\s]+\.(?:png|jpe?g|gif|webp)\s*)+)$/i;
+// The path of a file the box kept, from its root to the name the box gave it,
+// through folders whose names may hold a space, as a Windows account's folder
+// may, and never across a pasted text or another path after it on its line.
+const KEPT_PATH = String.raw`(?:[A-Za-z]:[\\/]|[\\/])(?:(?!\s(?:Pasted text, |[A-Za-z]:[\\/]|[\\/])).)*?[\\/]composer-files[\\/]pasted-[^\\/\s]+`;
 // A line that is only a long paste the box kept as a text file, as Send names
 // it (pastedTextLine).
-const PASTED_TEXT = /^Pasted text, (\d{1,3}(?:,\d{3})*) lines?: ((?:[A-Za-z]:[\\/]|[\\/]).*[\\/]composer-files[\\/]pasted-[^\\/]+\.txt)$/i;
+const PASTED_TEXT = new RegExp(String.raw`^Pasted text, (\d{1,3}(?:,\d{3})*) lines?: (${KEPT_PATH}\.txt)$`, "i");
 // The last of the pasted texts and other files the box kept that end a line
 // of his words, joined to them by spaces as a harness's record keeps them: a
 // pasted text by its first two groups, any other kept file by its third.
-const JOINED_KEPT = /(?:^|\s+)(?:Pasted text, (\d{1,3}(?:,\d{3})*) lines?: ((?:[A-Za-z]:[\\/]|[\\/])\S*[\\/]composer-files[\\/]pasted-[^\\/\s]+\.txt)|((?:[A-Za-z]:[\\/]|[\\/])\S*[\\/]composer-files[\\/]pasted-[^\\/\s]+))\s*$/i;
+const JOINED_KEPT = new RegExp(String.raw`(?:^|\s+)(?:Pasted text, (\d{1,3}(?:,\d{3})*) lines?: (${KEPT_PATH}\.txt)|(${KEPT_PATH}))\s*$`, "i");
 
 // A long paste the box kept as a text file the session reads whole (#2404).
 export interface PastedText { path: string; lines: number }
@@ -59,10 +63,8 @@ export function pastedTextLine(path: string, lines: number): string {
 // pastedTexts splits his words from the pasted texts named in them, so his
 // bubble shows each as its chip. A harness's record joins the lines the board
 // typed with spaces, so the pasted texts and other files the box kept are
-// read from the end of each line first, with his words or none before them;
-// each other kept file stays in his words, a picture for keptPictures. A line
-// with no pasted text among them is one when it is one whole, whose path may
-// hold a space.
+// read from the end of each line, with his words or none before them; each
+// other kept file stays in his words, a picture for keptPictures.
 export function pastedTexts(text: string): { text: string; pastes: PastedText[] } {
   if (!text.includes("Pasted text, ")) return { text, pastes: [] };
   const pastes: PastedText[] = [];
@@ -75,12 +77,7 @@ export function pastedTexts(text: string): { text: string; pastes: PastedText[] 
       else found.unshift({ path: kept[2], lines: Number(kept[1].replaceAll(",", "")) });
       rest = rest.slice(0, kept.index);
     }
-    if (!found.length) {
-      const whole = line.trim().match(PASTED_TEXT);
-      if (!whole) return [line];
-      pastes.push({ path: whole[2], lines: Number(whole[1].replaceAll(",", "")) });
-      return [];
-    }
+    if (!found.length) return [line];
     pastes.push(...found);
     const left = [rest.trimEnd(), ...files].filter(Boolean).join(" ");
     return left ? [left] : [];

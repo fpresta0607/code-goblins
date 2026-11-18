@@ -628,9 +628,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
     event.preventDefault();
     void add(dropped);
   };
-  // insert puts words where the caret or the selection is, keeping the rest of
-  // the draft, and separates them from a word they would otherwise run into.
-  const insert = (text: string) => {
+  // inserted is the draft with words put where the caret or the selection is,
+  // keeping the rest of it, and separated from a word they would otherwise run
+  // into, and where the caret lands after them.
+  const inserted = (text: string) => {
     const box = field.current;
     const prior = box?.value ?? draft;
     const heard = text.trim();
@@ -638,8 +639,13 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
     const before = prior.slice(0, start), after = prior.slice(end);
     const lead = heard && before && !/\s$/.test(before) ? " " : "";
     const tail = heard && after && !/^\s/.test(after) ? " " : "";
-    write(() => before + lead + heard + tail + after);
-    const at = start + lead.length + heard.length;
+    return { words: before + lead + heard + tail + after, at: start + lead.length + heard.length };
+  };
+  // insert puts words in the draft where inserted places them.
+  const insert = (text: string) => {
+    const box = field.current;
+    const { words, at } = inserted(text);
+    write(() => words);
     requestAnimationFrame(() => { box?.setSelectionRange(at, at); box?.focus(); });
   };
   const pasteKey = async () => {
@@ -650,8 +656,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
     }
     const inline = inlinePictures(input.html);
     const text = "text" in input ? boxText(input.text) : "";
-    if (isLongPaste(text, draft + text)) await keepPaste(text);
-    else if ("text" in input) insert(input.text);
+    if (isLongPaste(text, inserted(text).words)) await keepPaste(text);
+    else if ("text" in input) insert(text);
     if (inline.length) await add(inline);
     else if ("image" in input) await add([input.image]);
   };

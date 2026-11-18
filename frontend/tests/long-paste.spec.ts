@@ -206,6 +206,57 @@ for (const { what, before, paste, isFile } of SIZES) {
   });
 }
 
+// Alt+V puts a paste in the box as the box holds it, each line break one
+// "\n" where Windows' clipboard holds two, after a space that parts it from
+// a word of his, and measures it so: what Send posts is what the box shows,
+// within the 16,000 bytes one message holds.
+test("Alt+V's paste goes into the box as the box holds it, so Send posts what the box shows, within 16,000 bytes", async ({ page }) => {
+  // Arrange: the goblin works, so Send queues his message through the board.
+  const posts: { text?: string }[] = [];
+  const relay = await open(page);
+  const kept = await keepTexts(page);
+  await page.route("**/api/actions", (route) => {
+    posts.push(route.request().postDataJSON());
+    return route.fulfill({ status: 202, json: { status: "queued" } });
+  });
+  await openGoblin(page);
+  relay.say({ type: "screen", asking: false, open: false, working: true });
+  await expect(page.locator(".reply-working")).toBeVisible();
+  const typedBefore = "w".repeat(12000);
+  const text = Array.from({ length: 99 }, () => "x".repeat(39)).join("\n");
+  await field(page).fill(typedBefore);
+
+  // Act
+  await pasteText(page, text, undefined, "Alt+v");
+  await expect(field(page)).toHaveValue(typedBefore + " " + text);
+  const shown = await field(page).inputValue();
+  await field(page).press("Enter");
+
+  // Assert
+  await expect.poll(() => posts.length).toBe(1);
+  expect(posts[0].text).toBe(shown);
+  expect(Buffer.byteLength(posts[0].text ?? "")).toBeLessThanOrEqual(16000);
+  expect(kept.uploads).toEqual([]);
+});
+
+test("Alt+V's paste that the space before it would take past 16,000 bytes goes as a file", async ({ page }) => {
+  // Arrange
+  await open(page);
+  const kept = await keepTexts(page);
+  await openGoblin(page);
+  const typedBefore = "w".repeat(12000);
+  const text = "x".repeat(4000);
+  await field(page).fill(typedBefore);
+
+  // Act
+  await pasteText(page, text, undefined, "Alt+v");
+
+  // Assert
+  await expect(attachments(page)).toContainText("Pasted text, 1 line");
+  expect(kept.uploads.map((upload) => upload.text)).toEqual([text]);
+  await expect(field(page)).toHaveValue(typedBefore);
+});
+
 // A ! command is run by the shell as he wrote it, so a script pasted into one
 // stays its words, however long.
 test("a long paste into a ! command stays the command's words, which the shell runs", async ({ page }) => {

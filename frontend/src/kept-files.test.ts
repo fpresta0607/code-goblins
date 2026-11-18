@@ -6,10 +6,14 @@ const WINDOWS = "C:\\dev\\code-goblins\\state\\tasktmp\\task-1\\composer-files\\
 const UNIX = "/home/goblin/composer-files/pasted-1.png";
 const TEXT_WINDOWS = "C:\\dev\\code-goblins\\state\\composer-files\\pasted-77.txt";
 const TEXT_UNIX = "/home/goblin/composer-files/pasted-78.txt";
+// The box keeps files in the CEO home under his Windows account's folder,
+// whose name may hold a space.
 const TEXT_SPACED = "C:\\Users\\Jo Smith\\goblins\\state\\composer-files\\pasted-79.txt";
+const TEXT_SPACED_AGAIN = "C:\\Users\\Jo Smith\\goblins\\state\\composer-files\\pasted-82.txt";
 // Files he added to the box, which it keeps under the same names.
 const ADDED_NOTES = "C:\\dev\\code-goblins\\state\\composer-files\\pasted-80.md";
 const ADDED_TEXT = "C:\\dev\\code-goblins\\state\\composer-files\\pasted-81.txt";
+const ADDED_SPACED = "C:\\Users\\Jo Smith\\goblins\\state\\composer-files\\pasted-83.txt";
 
 test("a long paste kept as a file is named with its line count, as Send names it", () => {
   assert.equal(pastedTextLine(TEXT_WINDOWS, 3232), "Pasted text, 3,232 lines: " + TEXT_WINDOWS);
@@ -19,7 +23,8 @@ test("a long paste kept as a file is named with its line count, as Send names it
 // A harness's record joins the lines the board typed with spaces, so a
 // pasted text is found at the end of a line too, after his words or with
 // none, before or after another pasted text or another file the box kept,
-// which his words keep with the rest.
+// which his words keep with the rest, whether or not its folder's path holds
+// a space.
 test("a pasted text on a line of its own or joined on a line of the record becomes its chip, and the other kept files there stay in his words", () => {
   for (const [text, want] of [
     ["look at this\n" + pastedTextLine(TEXT_WINDOWS, 3232), { text: "look at this", pastes: [{ path: TEXT_WINDOWS, lines: 3232 }] }],
@@ -31,6 +36,9 @@ test("a pasted text on a line of its own or joined on a line of the record becom
     ["both " + pastedTextLine(TEXT_UNIX, 12) + " " + WINDOWS, { text: "both " + WINDOWS, pastes: [{ path: TEXT_UNIX, lines: 12 }] }],
     [pastedTextLine(TEXT_WINDOWS, 40) + "\n" + UNIX, { text: UNIX, pastes: [{ path: TEXT_WINDOWS, lines: 40 }] }],
     [pastedTextLine(TEXT_SPACED, 5000), { text: "", pastes: [{ path: TEXT_SPACED, lines: 5000 }] }],
+    ["why does it fail? " + pastedTextLine(TEXT_SPACED, 3), { text: "why does it fail?", pastes: [{ path: TEXT_SPACED, lines: 3 }] }],
+    [pastedTextLine(TEXT_SPACED, 300) + " " + pastedTextLine(TEXT_SPACED_AGAIN, 700), { text: "", pastes: [{ path: TEXT_SPACED, lines: 300 }, { path: TEXT_SPACED_AGAIN, lines: 700 }] }],
+    [pastedTextLine(TEXT_SPACED, 3) + " " + ADDED_SPACED, { text: ADDED_SPACED, pastes: [{ path: TEXT_SPACED, lines: 3 }] }],
   ] as const) assert.deepEqual(pastedTexts(text), want, text);
 });
 
@@ -38,6 +46,7 @@ test("his own words that only look like a pasted text stay words", () => {
   for (const text of [
     "Pasted text, 12 lines: C:\\Users\\me\\notes.txt",
     "Pasted text, 12 lines: " + TEXT_WINDOWS + " is what you sent",
+    "Pasted text, 12 lines: " + TEXT_SPACED + " is what you sent",
     "Pasted text, many lines: " + TEXT_WINDOWS,
     "Pasted text, 12 lines: C:\\x\\composer-files\\pasted-4.md",
     "",
