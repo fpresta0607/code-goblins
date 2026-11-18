@@ -116,6 +116,40 @@ func TestNativeInboxFailureDoesNotStopIndependentReconciliation(t *testing.T) {
 	}
 }
 
+// A recover cycle that meets the whole native-inbox folder moved aside after
+// its intake read it shows the repair line alone: no bare open line naming
+// the folder reaches the board or wakes the CEO. Issue #2062.
+func TestAnInboxMovedAsideDuringARecoverCycleShowsOnlyTheRepair(t *testing.T) {
+	// Arrange
+	store, home := testStore(t)
+	directory := nativehook.SpoolDir(home.State)
+	service := &Service{Store: store, Options: Options{Reconcile: func(context.Context) error {
+		return os.Rename(directory, directory+".moved")
+	}}}
+
+	// Act
+	service.cycle(context.Background(), true)
+	moved := service.lastError
+	service.cycle(context.Background(), false)
+
+	// Assert
+	var lines []string
+	for _, shown := range []string{moved, service.lastError} {
+		lines = append(lines, strings.Split(shown, "\n")...)
+	}
+	for _, wake := range supervisorErrorWakes(t, service) {
+		lines = append(lines, strings.Split(strings.TrimPrefix(wake, "supervisor_error: "), "; ")...)
+	}
+	for _, line := range lines {
+		if strings.HasPrefix(line, "open "+directory) {
+			t.Fatalf("the moved folder reached the CEO as a bare open line: %q", line)
+		}
+	}
+	if !strings.Contains(service.lastError, "native-inbox was missing and has been recreated") {
+		t.Fatalf("board error = %q, want the repair line", service.lastError)
+	}
+}
+
 func TestIngestionRecreatesADeletedNativeInbox(t *testing.T) {
 	store, home := testStore(t)
 	if err := os.Remove(nativehook.SpoolDir(home.State)); err != nil {
