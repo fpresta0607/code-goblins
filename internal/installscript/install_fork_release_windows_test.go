@@ -279,6 +279,9 @@ func TestOneLineInstallReplacesAForkToolThatIsNotItsReleaseOrLater(t *testing.T)
 		{name: "the release's build", tool: "chrome-devtools-axi", version: "0.1.40-codegoblins.4"},
 		{name: "a later build of the fork's", tool: "chrome-devtools-axi", version: "0.1.40-codegoblins.5"},
 		{name: "a later release of the fork's with no build number", tool: "chrome-devtools-axi", version: "0.1.41-codegoblins"},
+		{name: "a later release of the fork's with a suffix after its build number", tool: "chrome-devtools-axi", version: "0.1.41-codegoblins.1-dirty"},
+		{name: "a later build of the fork's with a suffix after its build number", tool: "chrome-devtools-axi", version: "0.1.40-codegoblins.5-dirty"},
+		{name: "an older build of the fork's with a suffix after its build number", tool: "chrome-devtools-axi", version: "0.1.40-codegoblins.3-dirty", isReplaced: true},
 		{name: "a Scrawl build before the release", tool: "lavish-axi", version: "0.1.79-codegoblins.17", isReplaced: true},
 		{name: "the Scrawl release's build", tool: "lavish-axi", version: "0.1.79-codegoblins.19"},
 	} {
