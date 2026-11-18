@@ -474,6 +474,15 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
     setAttached([]);
     setUnsent("");
   };
+  // A send through the board disables the box while the board answers, and a
+  // disabled box gives up the keyboard. A box that had the keyboard when he
+  // sent takes it back in the commit that enables it again, as a take-back
+  // does, when the keyboard is still nowhere: left without it, the next key he
+  // pressed reached nothing (#2085).
+  const [sendsEnded, setSendsEnded] = useState(0);
+  useLayoutEffect(() => {
+    if (sendsEnded && document.activeElement === document.body) field.current?.focus();
+  }, [sendsEnded]);
   // send sends what the box holds, or words in its place: the command he
   // picked from the list with Enter, whole, where the box holds only what he
   // typed of its name.
@@ -523,6 +532,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
       setAttached([]);
       onSend?.();
     }
+    const hadKeyboard = !!composerSection.current?.contains(document.activeElement);
     setSending(true);
     try {
       await post({ id, kind: "message", task_id: task?.id || "", generation: "", text });
@@ -538,6 +548,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
       reportToCeo("a message to " + name, message(error));
     } finally {
       setSending(false);
+      if (hadKeyboard) setSendsEnded((count) => count + 1);
     }
   };
   // Retry on the terminal's notice of a failed update has the supervisor run
