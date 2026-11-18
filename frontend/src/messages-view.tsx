@@ -858,7 +858,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   };
   const picture = useCallback((id: string) => address({ picture: id, conversation: held.conversation }), [address, held.conversation]);
   const taskID = task?.id;
-  const keptPicture = useCallback((path: string) => keptFileAddress(instance, taskID, path), [instance, taskID]);
+  const keptFile = useCallback((path: string) => keptFileAddress(instance, taskID, path), [instance, taskID]);
   // The picture he opened from a row, by the address the row draws it from,
   // shown in the one viewer of the conversation, which steps through every
   // picture of the messages the view holds, drawn in the window or not. The
@@ -866,7 +866,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   // nothing for it.
   const [viewed, setViewed] = useState<string | null>(null);
   const isViewing = viewed !== null;
-  const pictureSources = useMemo(() => isViewing ? conversationPictures(conversation, picture, keptPicture) : [], [isViewing, conversation, picture, keptPicture]);
+  const pictureSources = useMemo(() => isViewing ? conversationPictures(conversation, picture, keptFile) : [], [isViewing, conversation, picture, keptFile]);
   useEffect(() => { onChildValue.current = onChild; }, [onChild]);
   const taskValue = useRef(task);
   useLayoutEffect(() => { taskValue.current = task; }, [task]);
@@ -929,7 +929,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
                 ? <QueuedMessage key={message.id} action={ended} liveAction={ended} instance={instance} name={name} variant="pane" row={message.id} onPutAway={putAwayRow} />
                 : <MessageRow key={message.id} message={message} openFolds={openFolds.get(message.id) ?? NO_FOLDS} onFold={foldRow}
                   harness={harness} isTurnEnd={ends.has(message.id)} onRun={isWrittenReply(message, held.messages, held.isWorking) ? runCode : undefined}
-                  task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? held.task : undefined} picture={picture} keptPicture={keptPicture} onChild={openChild} />;
+                  task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? held.task : undefined} picture={picture} keptFile={keptFile} onChild={openChild} />;
             }),
           ])}</PictureOpener>
           <div className="conversation-room" style={{ height: heightOf(spans[spans.length - 1].end, conversation.length) }} />

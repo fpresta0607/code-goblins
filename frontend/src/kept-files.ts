@@ -11,6 +11,16 @@ const KEPT_PICTURE = /^(?:[A-Za-z]:[\\/]|[\\/]).*[\\/]composer-files[\\/]pasted-
 // them by spaces: a harness's record keeps a message as the board typed it,
 // on one line. Only a path with no space in it can be told from words there.
 const JOINED_PICTURES = /(?:^|\s+)((?:(?:[A-Za-z]:[\\/]|[\\/])\S*[\\/]composer-files[\\/]pasted-[^\\/\s]+\.(?:png|jpe?g|gif|webp)\s*)+)$/i;
+// A line that is only a long paste the box kept as a text file, as Send names
+// it (pastedTextLine).
+const PASTED_TEXT = /^Pasted text, (\d{1,3}(?:,\d{3})*) lines?: ((?:[A-Za-z]:[\\/]|[\\/]).*[\\/]composer-files[\\/]pasted-[^\\/]+\.txt)$/i;
+// The last of the pasted texts and pictures the box kept that end a line of
+// his words, joined to them by spaces as a harness's record keeps them: a
+// pasted text by its first two groups, a picture by its third.
+const JOINED_KEPT = /(?:^|\s+)(?:Pasted text, (\d{1,3}(?:,\d{3})*) lines?: ((?:[A-Za-z]:[\\/]|[\\/])\S*[\\/]composer-files[\\/]pasted-[^\\/\s]+\.txt)|((?:[A-Za-z]:[\\/]|[\\/])\S*[\\/]composer-files[\\/]pasted-[^\\/\s]+\.(?:png|jpe?g|gif|webp)))\s*$/i;
+
+// A long paste the box kept as a text file the session reads whole (#2404).
+export interface PastedText { path: string; lines: number }
 
 export function isPicturePath(path: string): boolean {
   return PICTURE.test(path);
@@ -34,13 +44,55 @@ export function keptPictures(text: string): { text: string; paths: string[] } {
   return paths.length ? { text: words.join("\n").trim(), paths } : { text, paths };
 }
 
-// keptFiles splits his words from every file the box kept for them, so a
-// queued message taken back into the box shows its files as it did.
+// pastedTextName is a pasted text's chip: what it is and how many lines it
+// holds.
+export function pastedTextName(lines: number): string {
+  return "Pasted text, " + lines.toLocaleString("en-US") + (lines === 1 ? " line" : " lines");
+}
+
+// pastedTextLine is how Send names a pasted text, on a line of its own after
+// his words: its file, and its length, so the session reads every line.
+export function pastedTextLine(path: string, lines: number): string {
+  return pastedTextName(lines) + ": " + path;
+}
+
+// pastedTexts splits his words from the pasted texts named in them, so his
+// bubble shows each as its chip: one on a line of its own, or at the end of a
+// line of his words, where it may come before or after a kept picture, which
+// stays in his words for keptPictures.
+export function pastedTexts(text: string): { text: string; pastes: PastedText[] } {
+  if (!text.includes("Pasted text, ")) return { text, pastes: [] };
+  const pastes: PastedText[] = [];
+  const words = text.split("\n").flatMap((line) => {
+    const whole = line.trim().match(PASTED_TEXT);
+    if (whole) {
+      pastes.push({ path: whole[2], lines: Number(whole[1].replaceAll(",", "")) });
+      return [];
+    }
+    const found: PastedText[] = [];
+    const pictures: string[] = [];
+    let rest = line;
+    for (let kept = rest.match(JOINED_KEPT); kept; kept = rest.match(JOINED_KEPT)) {
+      if (kept[3]) pictures.unshift(kept[3]);
+      else found.unshift({ path: kept[2], lines: Number(kept[1].replaceAll(",", "")) });
+      rest = rest.slice(0, kept.index);
+    }
+    if (!found.length) return [line];
+    pastes.push(...found);
+    const left = [rest.trimEnd(), ...pictures].filter(Boolean).join(" ");
+    return left ? [left] : [];
+  });
+  return pastes.length ? { text: words.join("\n").trim(), pastes } : { text, pastes };
+}
+
+// keptFiles splits his words from every file the box kept for them, each by
+// its path, and from each pasted text, by its line as Send named it, so a
+// queued message taken back into the box shows them as it did.
 export function keptFiles(text: string): { text: string; paths: string[] } {
   const paths: string[] = [];
   const words = text.split("\n").filter((line) => {
     const path = line.trim();
-    if (!KEPT_FILE.test(path)) return true;
+    if (!KEPT_FILE.test(path) && !PASTED_TEXT.test(path)) return true;
     paths.push(path);
     return false;
   });

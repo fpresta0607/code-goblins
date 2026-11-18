@@ -869,8 +869,13 @@ func (s *Store) queue(a Action) (Action, error) {
 	if a.Kind != "evaluate" && a.Kind != "review" && !answer && !change && !item && !message {
 		return Action{}, errors.New("unsupported action; task lifecycle cannot be dragged or assigned")
 	}
-	if len(a.Text) > 16000 || len(a.File) > 4096 {
-		return Action{}, errors.New("action exceeds size limit")
+	// The board shows each refusal to him as it is, so each names its limit
+	// (#2404).
+	if len(a.Text) > 16000 {
+		return Action{}, errors.New("Its text is longer than the 16,000 bytes the board takes in one go.")
+	}
+	if len(a.File) > 4096 {
+		return Action{}, errors.New("Its file path is longer than the 4,096 bytes the board takes.")
 	}
 	if item {
 		return s.queueItemAction(a)

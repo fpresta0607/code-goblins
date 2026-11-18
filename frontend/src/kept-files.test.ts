@@ -1,9 +1,51 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { clipboardPicture, filesOf, isPicturePath, keptFileAddress, keptPictures } from "./kept-files.ts";
+import { clipboardPicture, filesOf, isPicturePath, keptFileAddress, keptFiles, keptPictures, pastedTextLine, pastedTexts } from "./kept-files.ts";
 
 const WINDOWS = "C:\\dev\\code-goblins\\state\\tasktmp\\task-1\\composer-files\\pasted-123.png";
 const UNIX = "/home/goblin/composer-files/pasted-1.png";
+const TEXT_WINDOWS = "C:\\dev\\code-goblins\\state\\composer-files\\pasted-77.txt";
+const TEXT_UNIX = "/home/goblin/composer-files/pasted-78.txt";
+const TEXT_SPACED = "C:\\Users\\Jo Smith\\goblins\\state\\composer-files\\pasted-79.txt";
+
+test("a long paste kept as a file is named with its line count, as Send names it", () => {
+  assert.equal(pastedTextLine(TEXT_WINDOWS, 3232), "Pasted text, 3,232 lines: " + TEXT_WINDOWS);
+  assert.equal(pastedTextLine(TEXT_UNIX, 1), "Pasted text, 1 line: " + TEXT_UNIX);
+});
+
+// A harness's record joins the lines the board typed with spaces, so a
+// pasted text is found at the end of his words' line too, before or after
+// the pictures the box kept, and his words keep the rest.
+test("a pasted text on a line of its own or at the end of his words becomes its chip", () => {
+  for (const [text, want] of [
+    ["look at this\n" + pastedTextLine(TEXT_WINDOWS, 3232), { text: "look at this", pastes: [{ path: TEXT_WINDOWS, lines: 3232 }] }],
+    ["look at this " + pastedTextLine(TEXT_WINDOWS, 3232) + " " + pastedTextLine(TEXT_UNIX, 1), { text: "look at this", pastes: [{ path: TEXT_WINDOWS, lines: 3232 }, { path: TEXT_UNIX, lines: 1 }] }],
+    ["both " + pastedTextLine(TEXT_UNIX, 12) + " " + WINDOWS, { text: "both " + WINDOWS, pastes: [{ path: TEXT_UNIX, lines: 12 }] }],
+    [pastedTextLine(TEXT_WINDOWS, 40) + "\n" + UNIX, { text: UNIX, pastes: [{ path: TEXT_WINDOWS, lines: 40 }] }],
+    [pastedTextLine(TEXT_SPACED, 5000), { text: "", pastes: [{ path: TEXT_SPACED, lines: 5000 }] }],
+  ] as const) assert.deepEqual(pastedTexts(text), want, text);
+});
+
+test("his own words that only look like a pasted text stay words", () => {
+  for (const text of [
+    "Pasted text, 12 lines: C:\\Users\\me\\notes.txt",
+    "Pasted text, 12 lines: " + TEXT_WINDOWS + " is what you sent",
+    "Pasted text, many lines: " + TEXT_WINDOWS,
+    "Pasted text, 12 lines: C:\\x\\composer-files\\pasted-4.md",
+    "",
+  ]) assert.deepEqual(pastedTexts(text), { text, pastes: [] }, text);
+});
+
+test("a queued message taken back gives each pasted text back to the box as Send named it", () => {
+  // Arrange
+  const text = "check these\n" + pastedTextLine(TEXT_WINDOWS, 3232) + "\n" + WINDOWS + "\n" + pastedTextLine(TEXT_SPACED, 2);
+
+  // Act
+  const taken = keptFiles(text);
+
+  // Assert
+  assert.deepEqual(taken, { text: "check these", paths: [pastedTextLine(TEXT_WINDOWS, 3232), WINDOWS, pastedTextLine(TEXT_SPACED, 2)] });
+});
 
 test("a picture the box kept is told from a file by its extension", () => {
   for (const path of [WINDOWS, UNIX, "C:\\x\\composer-files\\pasted-2.JPG", "/x/composer-files/pasted-3.webp"]) assert.equal(isPicturePath(path), true, path);

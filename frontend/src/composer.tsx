@@ -12,7 +12,7 @@ import { EnginePane } from "./engine-pane";
 import { HarnessMark } from "./harness-mark";
 import { HarnessPanel } from "./harness-panel";
 import { Icon } from "./Icon";
-import { clipboardPicture, filesOf, keptFiles } from "./kept-files";
+import { clipboardPicture, filesOf, keptFiles, pastedTextLine } from "./kept-files";
 import { isHarnessHeld, isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { mentionAt, mentionedFiles, mentionFile, parseFiles } from "./mentions";
 import { cycleMode, MODE_NOT_SENT } from "./mode-cycle";
@@ -28,7 +28,7 @@ import { useTerminalLink, watchLink } from "./terminal-link";
 import { readClipboard } from "./terminal-keys";
 import { keepFile } from "./terminal-image";
 import { TerminalStatus } from "./terminal-status";
-import { detachedHoldReason } from "./terminalInput";
+import { detachedHoldReason, inputBytes } from "./terminalInput";
 import { appendDictation, useDictation } from "./useDictation";
 import { linkedText } from "./messageText";
 import "./composer.css";
@@ -39,6 +39,13 @@ const SHOWN = 5;
 // How long the @ list waits after a keystroke before it reads the files, so
 // a burst of typing asks once.
 const MENTION_WAIT_MS = 120;
+// A paste longer than LONGEST_PASTE, in UTF-8 bytes, goes as a text file the
+// session reads whole, as a harness's own terminal collapses a long paste,
+// and so does a shorter one that would take his message past LONGEST_MESSAGE,
+// what one message holds (internal/supervisor/store.go), so a paste of any
+// size goes through (the Overlord, 2026-11-17, #2404).
+const LONGEST_PASTE = 4000;
+const LONGEST_MESSAGE = 16000;
 // How long the box waits for Codex's /model picker to show the choice it
 // set out to pick before it closes the picker and says so, for the harness to
 // take a model before the box sets that model's effort, and for its footer to
@@ -80,6 +87,13 @@ function storeAttached(key: string, paths: string[]): void {
     if (paths.length) sessionStorage.setItem(ATTACHED_KEY + key, JSON.stringify(paths));
     else sessionStorage.removeItem(ATTACHED_KEY + key);
   } catch { /* the files stay while the box does */ }
+}
+
+// boxText is a paste as the box holds it, each line break one "\n" where
+// Windows' clipboard holds "\r\n", so a paste is measured and kept as the box
+// would hold it.
+function boxText(text: string): string {
+  return text.replace(/\r\n?/g, "\n");
 }
 
 // The message box under a session's messages, in place of its terminal's
@@ -561,13 +575,40 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
       }
     }
   };
-  // A picture pasted into the box arrives as a file the session can read. Text
-  // keeps the browser's own paste, which the textarea takes as it always has.
+  // isLongPaste says a paste goes as a text file: it is longer than
+  // LONGEST_PASTE, or the message would be longer than LONGEST_MESSAGE with
+  // it, where words is the box's text with the paste in it. A paste into a !
+  // command stays the command's words, which the shell runs.
+  const isLongPaste = (text: string, words: string) => !!text && !words.trimStart().startsWith("!") && (inputBytes(text) > LONGEST_PASTE || inputBytes(withAttached(words)) > LONGEST_MESSAGE);
+  // keepPaste keeps a long paste where the session reads it, as a file he
+  // added is kept, and shows it in the box as a chip that names its lines.
+  const keepPaste = async (text: string) => {
+    const lines = text.replace(/\n$/, "").split("\n").length;
+    setAdding((count) => count + 1);
+    try {
+      const path = await keepFile(new Blob([text], { type: "text/plain" }), "pasted.txt", snapshot.instance, task?.id);
+      attach((prior) => [...prior, pastedTextLine(path, lines)]);
+    } catch (error: unknown) {
+      refuse("That paste was not added: " + message(error));
+    } finally {
+      setAdding((count) => Math.max(0, count - 1));
+    }
+  };
+  // A picture pasted into the box arrives as a file the session can read, and
+  // so does a long paste of text. Other text keeps the browser's own paste,
+  // which the textarea takes as it always has.
   const paste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
     const pictures = filesOf(event.clipboardData).filter((file) => file.type.startsWith("image/"));
-    if (!pictures.length) return;
+    if (pictures.length) {
+      event.preventDefault();
+      void add(pictures);
+      return;
+    }
+    const text = boxText(event.clipboardData.getData("text/plain"));
+    const box = event.currentTarget;
+    if (!isLongPaste(text, box.value.slice(0, box.selectionStart) + text + box.value.slice(box.selectionEnd))) return;
     event.preventDefault();
-    void add(pictures);
+    void keepPaste(text);
   };
   // A file dragged onto the box is added as one chosen with Add files.
   const dragOver = (event: DragEvent<HTMLDivElement>) => {
@@ -597,7 +638,9 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   };
   const pasteKey = async () => {
     const input = await readClipboard();
-    if ("text" in input) insert(input.text);
+    const text = "text" in input ? boxText(input.text) : "";
+    if (isLongPaste(text, draft + text)) await keepPaste(text);
+    else if ("text" in input) insert(input.text);
     else if ("image" in input) await add([input.image]);
     else refuse(input.error);
   };

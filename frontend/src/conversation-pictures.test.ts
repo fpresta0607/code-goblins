@@ -10,6 +10,7 @@ const call = (tool: string, ...ids: string[]) => ({ kind: "call", tool, subject:
 const picture = (id: string) => "id:" + id;
 const keptPicture = (path: string) => "kept:" + path;
 const KEPT = "C:\\goblin\\tasktmp\\cg-touch\\composer-files\\pasted-1.png";
+const PASTED = "Pasted text, 3,232 lines: C:\\goblin\\tasktmp\\cg-touch\\composer-files\\pasted-2.txt";
 
 test("a row's pictures carry the verb of the call that holds each, in the order the calls ran", () => {
   // Arrange
@@ -27,6 +28,7 @@ test("a row's pictures carry the verb of the call that holds each, in the order 
 for (const [name, fields, want] of [
   ["the pictures the transcript holds come before those the box kept by path", { text: "what is wrong here?\n" + KEPT, pictures: [shot("p1")] }, ["id:p1", "kept:" + KEPT]],
   ["a prompt with no picture has none", { text: "Read the brief" }, []],
+  ["a kept picture a pasted text follows on its line of the record still shows", { text: "look at both " + KEPT + " " + PASTED }, ["kept:" + KEPT]],
   ["a command's words are never read as a kept picture", { source: "shell", text: KEPT }, []],
 ] as const) {
   test("a prompt's pictures: " + name, () => {

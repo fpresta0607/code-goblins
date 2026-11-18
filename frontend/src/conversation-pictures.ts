@@ -1,5 +1,5 @@
 import { callWords } from "./call-words.ts";
-import { keptPictures } from "./kept-files.ts";
+import { keptPictures, pastedTexts } from "./kept-files.ts";
 import type { MessageBlock, SessionMessage } from "./session-messages.ts";
 
 // The pictures of a conversation as its rows show them, each by the address
@@ -23,11 +23,12 @@ export function callPictures(calls: MessageBlock[], picture: (id: string) => str
 }
 
 // promptPictures is the pictures he sent with a prompt: those the transcript
-// holds, then those the box kept and his words name by path. A command's
-// words are what he typed, never a kept picture.
+// holds, then those the box kept and his words name by path, a pasted text
+// after them on their line or not. A command's words are what he typed,
+// never a kept picture.
 export function promptPictures(message: SessionMessage, picture: (id: string) => string, keptPicture: (path: string) => string): string[] {
   const isCommand = message.source === "slash" || message.source === "shell";
-  return [...message.pictures.map((each) => picture(each.id)), ...(isCommand ? [] : keptPictures(message.text).paths.map(keptPicture))];
+  return [...message.pictures.map((each) => picture(each.id)), ...(isCommand ? [] : keptPictures(pastedTexts(message.text).text).paths.map(keptPicture))];
 }
 
 // conversationPictures is every picture the conversation's rows show, once
