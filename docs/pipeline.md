@@ -243,6 +243,7 @@ goblins pipeline run <id> --intent-file intent.md
 goblins pipeline run <id> --intent-file intent.md --closes 1996
 goblins pipeline run <id> --intent-file intent.md --size-override "a vendored drop that cannot be split"
 goblins pipeline respond <id> --action fix --findings finding-id --instructions "Concrete guidance"
+goblins pipeline respond <id> --action fix --findings bug-1 --accept ask-2
 goblins pipeline respond <id> --action fix --findings finding-id --scope-decision <answered-notify-sequence>
 goblins pipeline respond <id> --action approve
 goblins pipeline respond <id> --action approve --accept ask-1,bug-2 --reason "the only failure was the sandbox's missing compiler"
@@ -385,7 +386,10 @@ Review remains fail-closed for empty or unknown actions.
 Fix responses name concrete actionable finding IDs; selecting an `ask-user` finding is an explicit decision, never automatic consent.
 When a selected fix has verified `no-op` IDs to ignore, the driver forwards them from the current parked gate through native `--ignore` and binds the recorded run and step with `--run` and `--step`.
 An ID that also names an actionable row is never ignored, and duplicated or malformed ignored IDs are refused.
-There is no arbitrary managed `--ignore` input: unknown or actionable findings cannot be declined through this translation.
+There is no arbitrary managed `--ignore` input: unknown findings are never ignored, and an actionable one is declined only by the CEO's accept below.
+The native gate refuses a fix that leaves an open finding unaddressed, so a mixed decision, such as fixing an `auto-fix` finding while taking an `ask-user` one as it stands, names the declined findings with `respond <id> --action fix --findings <ids> --accept <ids>` (issue 2092).
+`--accept` beside fix must name exactly the open `ask-user` and `auto-fix` findings the fix leaves out, and they reach native `--ignore` beside the verified `no-op` IDs; a finding with an empty action still needs its fix, and a fix that selects every open finding takes no `--accept`.
+It is the registered primary CEO's decision under the authority rule below: no fix is left on a spent review, so a goblin's decline is always refused.
 Native refusal, including an earlier round's applied fix that cannot be declined, stays a refusal without a retry or replacement run.
 The native ordinary-fix API binds run and step but exposes no expected-round assertion; this translation uses the durable current gate and does not claim an atomic round assertion at native dispatch.
 Approval is accepted only when every finding is explicitly `no-op`, or the findings list is empty.
@@ -399,7 +403,7 @@ A configured Test command failure with an empty action can also be explicitly ac
 This exception recognizes only the native `test-command` category, `error` severity and configured-command failure description with a nonzero exit code; unrelated empty actions still need their fix.
 The response names the recorded native run with `--run`, preserves the failed command, findings, evidence and spent budgets, and records a Test exception rather than a successful command.
 Native refusal remains a refusal, including when the installed engine does not support the run binding.
-The task's status log records `pipeline-findings-accepted` with the step, run, round, IDs and who accepted (`by=ceo`, or `by=<task>` for its goblin) before approve reaches the gate.
+The task's status log records `pipeline-findings-accepted` with the step, run, round, IDs and who accepted (`by=ceo`, or `by=<task>` for its goblin) before the approve, or the fix that declines them, reaches the gate.
 A goblin's accept also reaches the CEO's wake queue as a notify with the same words, which asks nothing, so nothing waits on it; one that cannot be queued sends no approve.
 The goblin accepts as they stand only findings that are not correctness, security or regression defects, and a real defect among them goes in one follow-up commit on the same pull request after its first CI, named in its done report.
 An approved Test exception likewise keeps the operator's reason: `respond <id> --action approve --reason "<why>"` hands it to the native `--reason`, which no-mistakes records as the Test step's approval reason, and the task's status log records `pipeline-approval-reason` with the step, run, round and reason before approve reaches the gate.

@@ -2352,6 +2352,51 @@ func TestPipelineAcceptIsHonouredOnlyFromTheRegisteredCEO(t *testing.T) {
 	}
 }
 
+// A mixed decision fixes one open finding and declines the other: the CEO's
+// decline is audited in the task's status log as an accept before the fix
+// reaches the gate, and reaches it as --ignore, so the gate no longer refuses
+// the declined finding as unaddressed. Declining a finding while cycles are
+// left is never a goblin's, so its decline is refused with nothing recorded
+// or sent (#2092).
+func TestPipelineFixCarriesTheCEOsDecline(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the primary CEO registration is verified on Windows only")
+	}
+	gate := pipeline.Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 2, Findings: `{"findings":[{"id":"ask","action":"ask-user"},{"id":"bug","action":"auto-fix"},{"id":"note","action":"no-op"}]}`}
+	arguments := []string{"respond", "task", "--action", "fix", "--findings", "bug", "--accept", "ask"}
+	t.Run("the CEO", func(t *testing.T) {
+		// Arrange
+		h, nm, runner := registeredCEOStage(t, "ceo", gate)
+		outsideGoblinTerminal(t)
+
+		// Act
+		err := pipelineCommand(context.Background(), h, nm, runner, arguments, &bytes.Buffer{})
+
+		// Assert
+		if err != nil || len(runner.native) != 1 || strings.Join(runner.native[0].Args, " ") != "axi respond --step review --action fix --findings bug --ignore ask,note --run run" {
+			t.Fatalf("the CEO's mixed decision: %v %+v, want one fix that ignores the declined finding", err, runner.native)
+		}
+		if lines, _ := state.TailStatus(h.State, "task", 10); len(lines) != 1 || !strings.HasSuffix(lines[0], "pipeline-findings-accepted: step=review run=run round=2 findings=ask by=ceo") {
+			t.Fatalf("status log %q, want the decline audited", lines)
+		}
+	})
+	t.Run("the task's own goblin", func(t *testing.T) {
+		// Arrange
+		h, nm, runner := registeredCEOStage(t, "goblin", gate)
+		inGoblinTerminal(t, h.State, "task")
+
+		// Act
+		err := pipelineCommand(context.Background(), h, nm, runner, arguments, &bytes.Buffer{})
+
+		// Assert
+		lines, _ := state.TailStatus(h.State, "task", 10)
+		pending, _ := wake.Pending(h.State)
+		if err == nil || !strings.Contains(err.Error(), "only once its 2 review repair cycles are spent") || len(runner.native) != 0 || len(lines) != 0 || len(pending) != 0 {
+			t.Fatalf("the goblin declining with cycles left: %v, %d native calls, status %q, wakes %+v; want it refused with nothing recorded or sent", err, len(runner.native), lines, pending)
+		}
+	})
+}
+
 // outsideGoblinTerminal runs the rest of the test as a process in no
 // goblin's terminal, wherever the test itself runs.
 func outsideGoblinTerminal(t *testing.T) {
