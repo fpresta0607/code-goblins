@@ -110,6 +110,89 @@ for (const style of ["modern"]) {
         await expect(box(page).getByRole("alert")).toContainText("The message could not be queued. Try again.");
         await expect(field(page)).toHaveValue("Preserve this failed message");
       });
+      // A send through the board disables the box while the board answers,
+      // and a disabled box gives up the keyboard. The box has it back from the
+      // moment it is enabled again, so the next key he presses lands in it
+      // (#2085).
+      for (const press of ["Enter", "Send"] as const) {
+        test(`${style} keeps the keyboard in the box after ${press} sends through the board at ${width}px`, async ({ page }) => {
+          // Arrange
+          await page.addInitScript((value) => localStorage.setItem("ceo-chat-style", value), style);
+          const relay = await open(page);
+          await card(page, NAME).click();
+          await expect.poll(() => relay.views).toBeGreaterThan(0);
+          relay.say({ type: "held", reason: "pipeline owns this task" });
+          await expect(box(page)).toHaveAttribute("data-queues", "");
+          let answer = () => {};
+          const answered = new Promise<void>((resolve) => { answer = resolve; });
+          await page.route("**/api/actions", async (route) => {
+            await answered;
+            await route.fulfill({ status: 202, json: {} });
+          });
+          await field(page).evaluate((element) => new MutationObserver(() => {
+            if (!element.hasAttribute("disabled")) element.dataset.focusedWhenEnabled = String(document.activeElement === element);
+          }).observe(element, { attributeFilter: ["disabled"] }));
+          await field(page).fill("Queue this for after the gate");
+
+          // Act: he sends, and the board answers once the disabled box has
+          // given up the keyboard.
+          if (press === "Enter") await field(page).press("Enter");
+          else await send(page).click();
+          await expect(field(page)).toBeDisabled();
+          await expect(field(page)).not.toBeFocused();
+          answer();
+
+          // Assert
+          await expect(field(page)).toHaveAttribute("data-focused-when-enabled", "true");
+          await page.keyboard.type("and the next one");
+          await expect(field(page)).toHaveValue("and the next one");
+        });
+      }
+      // The box takes the keyboard back only from nowhere: not from a control
+      // he moved it to while the board answered, in the box or out of it, and
+      // not when the box did not have it as the message went.
+      for (const keyboard of ["moved to the panel's header", "moved to Speech history", "not in the box"] as const) {
+        test(`${style} leaves the keyboard alone after a send through the board when it was ${keyboard} at ${width}px`, async ({ page }) => {
+          // Arrange
+          await page.addInitScript((value) => localStorage.setItem("ceo-chat-style", value), style);
+          const relay = await open(page);
+          await card(page, NAME).click();
+          await expect.poll(() => relay.views).toBeGreaterThan(0);
+          relay.say({ type: "held", reason: "pipeline owns this task" });
+          await expect(box(page)).toHaveAttribute("data-queues", "");
+          let answer = () => {};
+          const answered = new Promise<void>((resolve) => { answer = resolve; });
+          await page.route("**/api/actions", async (route) => {
+            await answered;
+            await route.fulfill({ status: 202, json: {} });
+          });
+          await field(page).evaluate((element) => new MutationObserver(() => {
+            if (!element.hasAttribute("disabled")) element.dataset.focusedWhenEnabled = String(document.activeElement === element);
+          }).observe(element, { attributeFilter: ["disabled"] }));
+          await field(page).fill("Queue this for after the gate");
+          const control = keyboard === "moved to Speech history" ? box(page).getByRole("button", { name: "Speech history", exact: true }) : page.locator(".context-pane .panel-header").getByRole("button", { name: "Chat style", exact: true });
+
+          // Act: he sends, and the keyboard is on a control he moved it to, or
+          // nowhere since before the send, when the board answers.
+          if (keyboard !== "not in the box") {
+            await field(page).press("Enter");
+            await expect(field(page)).toBeDisabled();
+            await control.focus();
+            await expect(control).toBeFocused();
+          } else {
+            await field(page).blur();
+            await send(page).dispatchEvent("click");
+            await expect(field(page)).toBeDisabled();
+          }
+          answer();
+
+          // Assert
+          await expect(field(page)).toHaveAttribute("data-focused-when-enabled", "false");
+          await expect(field(page)).not.toBeFocused();
+          if (keyboard !== "not in the box") await expect(control).toBeFocused();
+          else expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+        });
+      }
       test(`${style} preserves composing and queue safety through busy, reconnecting and ended states at ${width}px`, async ({ page }, testInfo) => {
         test.slow();
         // Arrange
@@ -158,10 +241,6 @@ for (const style of ["modern"]) {
         relay.accept();
         const reconnect = page.locator(".terminal-foot.box").getByRole("button", { name: "Reconnect", exact: true });
         if (await reconnect.count()) await reconnect.click();
-        // The box is disabled while a send is on its way, and focus, unlike
-        // typing, does not wait for it, so a slow answer to the last send
-        // left the focus nowhere.
-        await expect(field(page)).toBeEnabled();
         await field(page).focus();
         await expect(page.locator(".goblin-panel > .panel-header .panel-reconnecting")).toHaveCount(0);
         await expect(field(page)).toBeFocused();

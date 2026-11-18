@@ -40,12 +40,13 @@ function drawn(span: TerminalSpan, key: number, path?: PathRenderer): ReactNode 
 // command and what its terminal showed, and a block a question quotes. In
 // one card it draws the command under its shell's name, each of its lines
 // under the prompt's mark, then what it printed under output, read by
-// terminal-text, then how it ended under its own row's mark. Each part has
-// its own Copy, which takes that part whole, and Full screen opens the card
-// over the window. Given no command, it is the output alone. Given path, as
-// a question's card gives it, each local path the block names is drawn by
-// it.
-export function TerminalBlock({ shell = "", command = "", output = "", result, path }: { shell?: string; command?: string; output?: string; result?: TerminalResult | null; path?: PathRenderer }) {
+// terminal-text, then the lines an edit changed under diff, each as written
+// and read by its mark alone, never by its words (#2534), then how it ended
+// under its own row's mark. Each part has its own Copy, which takes that
+// part whole, and Full screen opens the card over the window. Given no
+// command, it is the output or the diff alone. Given path, as a question's
+// card gives it, each local path the block names is drawn by it.
+export function TerminalBlock({ shell = "", command = "", output = "", diff = [], result, path }: { shell?: string; command?: string; output?: string; diff?: string[]; result?: TerminalResult | null; path?: PathRenderer }) {
   const [isFull, setFull] = useState(false);
   const typed = commandLines(command);
   const lines = useMemo(() => terminalLines(output), [output]);
@@ -54,12 +55,16 @@ export function TerminalBlock({ shell = "", command = "", output = "", result, p
     const full = <button type="button" className="code-expand" aria-label={isOver ? "Exit full screen" : "Full screen"} onClick={() => setFull(!isOver)}><Icon name={isOver ? "restore" : "maximize"} /></button>;
     return <figure className={"message-code terminal-block" + (/^(powershell|pwsh)$/i.test(shell) ? " powershell" : "")}>
       {typed.length > 0 && <>
-        <figcaption><span>{shell || "command"}</span><CodeCopy text={typed.join("\n")} label="Copy command" />{!lines.length && full}</figcaption>
+        <figcaption><span>{shell || "command"}</span><CodeCopy text={typed.join("\n")} label="Copy command" />{!lines.length && !diff.length && full}</figcaption>
         <pre className="terminal-command"><code>{typed.map((line, at) => <span key={at} className="terminal-line">{linked(line, path)}{"\n"}</span>)}</code></pre>
       </>}
       {lines.length > 0 && <>
-        <figcaption><span>output</span><CodeCopy text={printed} label={typed.length ? "Copy output" : "Copy"} />{full}</figcaption>
+        <figcaption><span>output</span><CodeCopy text={printed} label={typed.length ? "Copy output" : "Copy"} />{!diff.length && full}</figcaption>
         <pre className="terminal-output">{lines.map((line, at) => <span key={at} className={"terminal-line" + (line.tone ? " " + line.tone : "")}>{line.spans.map((span, key) => drawn(span, key, path))}{"\n"}</span>)}</pre>
+      </>}
+      {diff.length > 0 && <>
+        <figcaption><span>diff</span><CodeCopy text={diff.join("\n")} label={typed.length ? "Copy diff" : "Copy"} />{full}</figcaption>
+        <pre className="terminal-diff">{diff.map((line, at) => <span key={at} className={"terminal-line" + (line.startsWith("+") ? " addition" : line.startsWith("-") ? " deletion" : "")}>{linked(line, path)}{"\n"}</span>)}</pre>
       </>}
       {result && <p className={"terminal-result " + result.tone}><Icon name={result.icon} />{result.text}</p>}
     </figure>;
