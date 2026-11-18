@@ -327,8 +327,8 @@ test("a call's result, an edit's diff and thinking unfold under their one-line r
   await talk.locator(".message-call").filter({ hasText: "Edit" }).locator("summary").click();
 
   await expect(talk.locator(".terminal-output").first()).toHaveText("1\timport { Terminal } from \"@xterm/xterm\";");
-  await expect(talk.locator(".message-diff > .line-added")).toHaveText("+  this.element.addEventListener(\"touchmove\", this.swipe);");
-  await expect(talk.locator(".message-diff > .line-removed")).toHaveText("-  // A swipe was left to the page.");
+  await expect(talk.locator(".terminal-diff > .terminal-line.addition")).toHaveText("+  this.element.addEventListener(\"touchmove\", this.swipe);");
+  await expect(talk.locator(".terminal-diff > .terminal-line.deletion")).toHaveText("-  // A swipe was left to the page.");
   await talk.locator(".message-thinking summary").click();
   await expect(talk.locator(".message-thinking .message-words")).toHaveText("The swipe lands on the text box.");
   await expect(talk.locator(".message-thinking .thinking-preview")).toBeHidden();

@@ -100,10 +100,6 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 /* The fold's count is cut with an ellipsis where its pictures leave it no
    room, as a row's subject is. */
 .disclosure.message-call-group > summary .call-verb { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.message-diff { max-height: 24em; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: #071015; color: #8fa3ad; font: .8125em/1.5 var(--font-mono); }
-.message-diff > div { min-width: max-content; padding: 0 .75em; white-space: pre; }
-.message-diff > .line-added { background: rgba(78, 186, 101, 0.12); color: #bfe9c9; }
-.message-diff > .line-removed { background: rgba(255, 107, 128, 0.10); color: #f3c0c8; }
 .message-baby { min-width: 0; border: 1px dashed var(--glass-border-hover); border-radius: 8px; font-size: .9375em; }
 .message-baby .text-button { display: inline-flex; align-items: center; gap: .25em; font-size: 1em; }
 /* The view a browser command's row opens, under what it printed, a target a
