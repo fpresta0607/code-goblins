@@ -937,7 +937,8 @@ Recovery preserves failure status, and an executor with pending cleanup must not
 `goblins verify` and `goblins security` run each command of a tier through this executor, as docs/project-runtime.md says.
 They have it read the source the command runs on, once its turn is taken and before it starts and again once it has ended, and the record keeps both reads under `source`.
 `goblins gate test` reads the source of each of its checks the same way and keeps the reads in its report.
-A read cut off by its two-minute limit, as one on a loaded machine is, judged nothing: its check is `unfinished` rather than failed, whatever its command exited, no check after it runs, the report's status is `unfinished`, and the run exits 125 with a last line that starts `go <check> was not judged, since its source read did not finish within its time limit` (issue 1960).
+A read cut off by its two-minute limit, as one on a loaded machine is, judged nothing: its check is `unfinished` rather than failed, no check after it runs, named failures left unrun are not reported missing, the report's status is `unfinished`, and the run exits 125 with a last line that starts `go <check> was not judged, since its source read did not finish within its time limit` (issue 1960).
+A command that itself failed still fails its check and the run exits 1, even when the read once it ended was cut off.
 A read is the commit checked out, its own tree, and the git tree of the files git does not ignore as they were on disk, whatever the worktree's own index held.
 So a commit of exactly those files has that tree, and a worktree that matches its commit has the commit's own.
 The read stages them into an index and an object store of its own, which it removes after, so it leaves the worktree's index as it was and writes nothing into the repository.
