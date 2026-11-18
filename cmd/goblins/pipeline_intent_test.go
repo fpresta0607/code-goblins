@@ -628,6 +628,40 @@ func TestPipelineRunStartsTheGateWithTheTaskWorktreesReleaseCooldown(t *testing.
 	}
 }
 
+// A run started with --branch on an extra worktree takes the cooldown of that
+// worktree, not of the task's own: here the extra tracks a uv.lock and the own
+// worktree does not, so its run carries no UV_EXCLUDE_NEWER.
+func TestPipelineRunOnAnExtraWorktreeStartsWithThatWorktreesReleaseCooldown(t *testing.T) {
+	// Arrange
+	h, nm, branches := extraWorktreeTask(t)
+	extra := filepath.Join(h.Root, "worktrees", "project", "task-connections")
+	start := &pipelineStartRunner{worktree: extra, uvLocks: "uv.lock\x00"}
+	runner := taskWorktreesRunner{Runner: start, branches: branches}
+
+	// Act
+	err := pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--branch", "fix/connections", "--intent", "ship safely"}, &bytes.Buffer{})
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(start.uvLockListings, []string{extra}) {
+		t.Errorf("uv.lock files listed in %q, want only the extra worktree %q", start.uvLockListings, extra)
+	}
+	if len(start.native) != 1 {
+		t.Fatalf("no-mistakes started %d runs, want one", len(start.native))
+	}
+	given := agentEnvGiven(start.native[0].Args)
+	if !slices.Contains(given, "PIP_UPLOADED_PRIOR_TO=P7D") {
+		t.Errorf("the run's agent environment is %q, want PIP_UPLOADED_PRIOR_TO=P7D in it", given)
+	}
+	for _, entry := range given {
+		if strings.HasPrefix(entry, "UV_EXCLUDE_NEWER=") {
+			t.Errorf("the run's agent environment holds %q, which the extra worktree's tracked uv.lock leaves out", entry)
+		}
+	}
+}
+
 // A no-mistakes whose axi run takes no agent environment would start the
 // gate's agents without the release cooldown, so no run starts on it.
 func TestPipelineRunOnANoMistakesWithoutAgentEnvStartsNothing(t *testing.T) {
