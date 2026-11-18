@@ -133,7 +133,11 @@ test("a command's terminal that did not answer is named to the CEO by its comman
   expect(reports.map((report) => report.where)).not.toContain("a goblin's terminal");
 });
 
-test("a command that failed says so in a plain sentence with its last line, and keeps what it showed", async ({ page }) => {
+// The Overlord, 2026-11-14, of a goblin's command that exited 1 and whose card
+// stayed open although the goblin had its output: "wont clos automatically on
+// fail". It finishes by itself, with its terminal, and History keeps how it
+// failed.
+test("a goblin's command that failed finishes its card by itself once the goblin has its output, and History keeps how it failed", async ({ page }) => {
   // Arrange
   await openRunCard(page);
   const dialog = page.locator("dialog.question-modal");
@@ -141,16 +145,16 @@ test("a command that failed says so in a plain sentence with its last line, and 
   await step(page, "running");
 
   // Act
+  await recordDoneCards(page);
   await step(page, "failed");
-  await page.waitForTimeout(1500);
 
   // Assert
-  await expect(dialog.getByRole("heading", { name: RUN })).toBeVisible();
-  await expect(dialog.locator(".run-head .run-state")).toHaveText("Failed");
-  await expect(dialog.locator(".run-failure")).toHaveText("Error: the sign-in was cancelled in the browser. The goblin that asked has its output and takes the next step.");
-  await expect(dialog.locator(".terminal-output")).toContainText("Opening https://fly.io/app/auth/cli");
+  await expect.poll(() => doneCards(page)).toContainEqual(expect.stringContaining("Failed: Error: the sign-in was cancelled in the browser"));
+  expect((await doneCards(page)).join(" ")).toContain("The goblin that asked has its output and takes the next step.");
+  expect((await doneCards(page)).join(" ")).not.toContain("exit 1");
+  await expect(dialog.getByRole("heading", { name: RUN })).toHaveCount(0);
   await expect(dialog.locator(".run-live")).toHaveCount(0);
-  await expect(dialog).not.toContainText("exit 1");
+  await expect(dialog).toContainText(QUESTION);
   await dialog.getByRole("button", { name: "Close the Command Center" }).click();
   await expect((await history(page)).filter({ hasText: RUN })).toContainText("Failed: Error: the sign-in was cancelled in the browser · exit 1");
 });

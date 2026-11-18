@@ -129,6 +129,8 @@ One Windows filesystem watcher consumes the spool, with a two-second recovery in
 If the native-inbox state folder disappears, ingestion or the next board update recreates it and names the repair on the board; earlier hook events may be missing.
 If that folder cannot be read or recreated, the board reports the folder problem and delayed hook events while other task updates and reconciliation continue, and ingestion resumes when access returns without restarting serve.
 An event moved out of the folder while ingestion reads it, as setting the inbox's events aside in another folder does, has left the inbox: that pass takes the rest and reports no error.
+A native hook a pi session cannot run, because its event cannot be encoded, is over 64 MiB, or its hook program could not start, timed out, was ended or failed, is never written onto that session's terminal, where it landed on the prompt line and the board then read the session as holding unsent text (issue #2428).
+The pi extension records it in the `native-hook-failures` state folder instead, with the event's name and the outcome and never the hook program's output, keeping at most 256 records, and the next reconciliation tells the CEO of them in one `native_hook_failed` notify, naming the five earliest and counting the rest, and removes them.
 One slow reconciliation pass runs each minute; there is no browser-driven task polling engine.
 Unresolved tasks continue reconciling after SessionEnd, after becoming ready, and after their native session is retired.
 Verified terminal tasks leave that polling path until new session activity supplies a reason to reevaluate.
@@ -2290,12 +2292,17 @@ Every open item also has a way out at the bottom, beside its decision buttons, a
 
 - A card with no choices or answer box of its own, a command to run, a goblin's wait with no page, or a credential or step card, has **Skip** and a **pencil**.
   Skip clears the item and tells the goblin that asked, in its own terminal, to go on without it: a `review_clear`, a `run_skip`, which closes a command nobody ran in place of running it, or a credential card's close.
-  The pencil, **Something else?**, opens a small window with that title and a box where he types or dictates his answer, with its microphone or Ctrl+Shift+Space held anywhere in the window, and pastes pictures.
-  The board's green **Send**, offered once the window holds words or a picture, sends them to whoever asked as his word: a `review_answer`, a `run_answer`, which closes the command in place of running it, or a credential card's `"action": "answer"`, which closes it as answered.
+  The pencil, **Something else?**, opens a small window with that title and a box where he types or dictates his answer, with its microphone or Ctrl+Shift+Space held anywhere in the window, with no cap on its length, and pastes, drops or adds pictures and files through Add files, as the chat's box takes them (#2538).
+  The board's green **Send**, offered once the window holds words or a file and no file is still being saved, sends them to whoever asked as his word: a `review_answer`, a `run_answer`, which closes the command in place of running it, or a credential card's `"action": "answer"`, which closes it as answered.
   A step card he answers finishes as **Sent** with You wrote: and his words, the line History keeps for it, and closes the goblin's waits on him opened while it was open, as Done does; the goblin hears his words once.
   The window stays open until the board takes his answer, so one the board refuses, such as words shaped like a key, shows why in the window in full with his words still in it, and nothing goes on the card.
-  Each pasted picture goes to `POST /api/answer-images?task=<asker>` as it is pasted, which keeps a PNG, JPEG, GIF or WebP picture of at most 10 MiB in the asking goblin's task folder, or in the state folder's `answer-images` for the CEO, and his answer names each kept picture on a line of its own, `Image: <path>`, for the asker to read.
-  Cancel sends nothing.
+  Each picture or file goes to the chat's own `POST /api/composer/file?task=<asker>` as it is added, which keeps it in the asking goblin's task folder, or in the state folder's `composer-files` for the CEO, and shows above his words as the chat shows it; his answer names each kept file's path on a line of its own after his words, for the asker to read.
+  An answer longer than 4000 UTF-8 bytes with its paths, which a card's asker would otherwise refuse or take cut on one typed line, is kept the same way as a `.txt` file, line breaks and all, and his answer reads `My whole answer is in <path>. It begins: <its first 300 characters>...`, so the asker reads it whole.
+  Its opening is cut to as much as fits, so that line and his files' paths stay within 4000 bytes, since the file holds every word.
+  On a credential card the route is told so with `credential=1`, and refuses one holding a word shaped like a key anywhere, keeping nothing: `Your answer holds a word shaped like a key, so nothing was kept or sent.`
+  If it cannot be kept, the window says `Your answer was not sent:` and why, with his words still in it.
+  Files whose paths leave no room for that line, its own file's path among them, hold Send, with **Use fewer files.**
+  Cancel sends nothing, even while a long answer is being kept.
 - A question, which has its own Other for a written answer, and a review with its own answer box, have a plain **Skip** beside Send: a `question_clear`, which also tells a goblin that asked to go on without it, or a `review_clear`.
 - A Scrawl review card, a review or a goblin's wait with a page, has a plain **Skip** beside its one button that opens the page, and no box for words at all, neither an answer box nor the pencil, since he answers on the page (the Overlord, 2026-10-17: "There does not need to be a text box in when there is a scroll open review page involved").
 
@@ -2614,7 +2621,8 @@ On a phone the terminal fits the card and takes the phone's keyboard when he tap
 When the command exits, the card completes by itself, with no key to press and no window left waiting: **Complete** when it ended without trouble, which its exit code says whatever its last line of output says, or **Failed:** and the last line it printed, or why it never finished, such as its terminal closing first.
 The card never shows the exit code; the inbox's history keeps it beside how the item ended, such as `Complete · exit 0`, and lists an item that expired or was withdrawn with its reason.
 A command that completes or is stopped, or that expires or is withdrawn while its card is on screen, finishes the card as an answered item's does: its check with Complete or Stopped, or Expired or Withdrawn, then the next open item or You're all done.
-A command that failed keeps its card on screen with what its terminal showed, which is trouble he may need to read, until he moves on; an Update item keeps its own card.
+A command that failed finishes its card the same way once the CEO, or the goblin that asked, has its output: its check with Failed: and its last line, over the line that its asker takes the next step, then the next open item, and History keeps it as `Failed: <its last line> · exit <code>` (#2605).
+One whose asker could not be told keeps its card on screen with what its terminal showed until he moves on, since nobody may have read it; an Update item keeps its own card.
 What its terminal showed reads as terminal text under the command, in the same block (#2524).
 The block ends in Failed once the command failed, never with its exit code, a command that never exited included, such as one whose terminal closed first or whose Windows prompt was declined.
 A goblin's wait on the Overlord himself (`goblins notify --waiting-on overlord`, a review item whose id is `waiting-<task>-<n>`) shows as a status card: who waits and what for, in the goblin's own words, and no answer box; it stays until he answers or clears it, the goblin withdraws it, its task is gone or the CEO answers it, whatever the goblin reports meanwhile.
@@ -2820,7 +2828,7 @@ goblins auth request --project acme-shop --task shop-signup --why "Sign in to th
 - A card that asks for no input has a Done button, `POST /api/credentials/close` with `"action": "done"`, and its heading is what it is for.
 - `--message-file <file>` puts a message he sends himself on the card, such as an email, read once when the card is filed: the file's optional `To:` line (an email address, or an https page with no credentials, query or fragment) and `Subject:` line, a blank line, then a body of at most 4000 characters.
   A word of the subject or body shaped like a key is refused without being repeated, as in a step, and an assignment is judged by its value.
-  The record carries it as `mail`, with `to`, `subject` and `body`, and the card shows the address with its copy button or the page as a link, the subject, and the body in a box, with **Copy**, which copies the body exactly, and **Copy subject** when it has one.
+  The record carries it as `mail`, with `to`, `subject` and `body`, and the card shows the address with its copy button or the page as a link, the subject, and the body in a box, with a copy icon on the subject's line and one in the body's bottom corner, each copying exactly its text and named Copy subject and Copy body for a screen reader (#2538).
   A card whose step is only sending that message needs no page, step or input.
 - A goblin's step card is its wait on the Overlord: a `goblins notify --waiting-on overlord` without a page while a card the goblin filed itself is open opens no second item, and the notify names the card and tells the goblin to wait on it in the background with `goblins auth request --wait-on <card> --task <id>`, which ends when the card closes.
   The board reads the goblin as waiting until it reports again, as for a wait on a run card.

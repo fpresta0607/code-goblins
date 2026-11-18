@@ -23,6 +23,9 @@ const composerFilesDir = "composer-files"
 // for it, as the board's message box reads one (frontend/src/kept-files.ts).
 var keptPicture = regexp.MustCompile(`(?i)(?:[A-Za-z]:[\\/]|[\\/])\S*[\\/]` + composerFilesDir + `[\\/]pasted-[^\\/\s]+\.(?:png|jpe?g|gif|webp)`)
 
+// pictureExtensions names a kept picture by its sniffed type.
+var pictureExtensions = map[string]string{"image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp"}
+
 // composerExtension accepts only an extension a file name may carry, so a
 // name he chose never adds a path segment.
 var composerExtension = regexp.MustCompile(`^\.[A-Za-z0-9]{1,10}$`)
@@ -43,9 +46,10 @@ func (h *HTTP) composerDir(task string) (string, bool) {
 
 // keepComposerFile keeps one picture or file he pasted into, or added to, a
 // message: the task's folder for a goblin, or the state folder for the CEO.
-// The board's composer names the returned path in the message it sends, so
-// the session reads the file from there, as answer_images.go does for a
-// picture pasted into an answer.
+// The board's composer, and a card's Something else? window, name the returned
+// path in the message or answer they send, so the session reads the file from
+// there. A long answer kept for a credential card, marked credential, is
+// refused and kept nowhere when it holds a word shaped like a key.
 func (h *HTTP) keepComposerFile(w http.ResponseWriter, r *http.Request) {
 	if media := r.Header.Get("Content-Type"); media != "application/octet-stream" && media != "image/png" {
 		apiError(w, http.StatusBadRequest, "Send the file as binary data.")
@@ -66,7 +70,11 @@ func (h *HTTP) keepComposerFile(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusBadRequest, "The file could not be read.")
 		return
 	}
-	extension := answerImageExtensions[http.DetectContentType(data)]
+	if r.URL.Query().Get("credential") != "" && holdsKey(string(data)) {
+		apiError(w, http.StatusBadRequest, "Your answer holds a word shaped like a key, so nothing was kept or sent.")
+		return
+	}
+	extension := pictureExtensions[http.DetectContentType(data)]
 	if extension == "" {
 		extension = ""
 		if named := composerExtension.FindString(strings.ToLower(filepath.Ext(r.URL.Query().Get("name")))); named != "" {
@@ -133,7 +141,7 @@ func (h *HTTP) composerPicture(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	media := http.DetectContentType(data)
-	if answerImageExtensions[media] == "" || len(data) > maxReviewImage {
+	if pictureExtensions[media] == "" || len(data) > maxReviewImage {
 		apiError(w, http.StatusUnsupportedMediaType, "Only a picture is shown.")
 		return
 	}

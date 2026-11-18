@@ -8,19 +8,22 @@ import "../../src/styles.css";
 // 2026-10-07, beside a question the CEO also has for him. window.runEnds is the
 // supervisor's next snapshot: "running" once he pressed Run and its terminal
 // runs on the card, then how the command ended: "finished" with exit 0, "errorLine" whose output ends in an
-// error line but exits 0, "failed" with exit 2, or "withdrawn" by the CEO.
+// error line but exits 0, "failed" with exit 2, "untold" failed with exit 2
+// and a CEO that could not be told, or "withdrawn" by the CEO.
 const created = "2026-10-07T17:55:00Z";
 const run = { id: "publish-v0.5.2", identity: "c".repeat(64), by: "ceo", task: "", title: "Publish release v0.5.2", shell: "powershell", command: "gh release create v0.5.2 --notes-file notes.md", cwd: "C:\\dev\\code-goblins", state: "ready", created_at: created, expires_at: "2026-10-08T17:55:00Z" };
 const question = { id: "merge-train-20261007", identity: "c".repeat(64), task: "", status: "pending", created_at: "2026-10-07T17:56:00Z", text: "May I merge the release train now?", options: ["Merge it", "Hold it"], recommended: "Merge it" };
 const base = { healthy: true, instance: "fixture", ceo_runs: true, tasks: [], questions: [question] };
 const running = { ...run, state: "running", ran_at: "2026-10-07T17:58:00Z", terminal: true };
 const ended = (fields: Record<string, unknown>) => ({ ...running, finished_at: "2026-10-07T17:58:10Z", ...fields });
+const failedOutput = "Uploading assets\nRelease page: https://github.com/acme/site/releases/tag/v0.5.2\nSkipped: javascript:alert(1)\ngh: release v0.5.2 already exists\n";
 const snapshots = {
   ready: parseSnapshot({ ...base, revision: 1, runs: [run] }),
   running: parseSnapshot({ ...base, revision: 2, runs: [running] }),
   finished: parseSnapshot({ ...base, revision: 3, runs: [ended({ state: "succeeded", exit_code: 0, output: "Uploading assets\nPublished v0.5.2\n" })] }),
   errorLine: parseSnapshot({ ...base, revision: 3, runs: [ended({ state: "succeeded", exit_code: 0, output: "Uploading assets\nERROR: the release notes could not be attached\n" })] }),
-  failed: parseSnapshot({ ...base, revision: 3, runs: [ended({ state: "failed", exit_code: 2, output: "Uploading assets\nRelease page: https://github.com/acme/site/releases/tag/v0.5.2\nSkipped: javascript:alert(1)\ngh: release v0.5.2 already exists\n" })] }),
+  failed: parseSnapshot({ ...base, revision: 3, runs: [ended({ state: "failed", exit_code: 2, output: failedOutput })] }),
+  untold: parseSnapshot({ ...base, revision: 3, runs: [ended({ state: "failed", exit_code: 2, output: failedOutput, reason: "the CEO could not be told: it restarted" })] }),
   withdrawn: parseSnapshot({ ...base, revision: 3, runs: [{ ...run, state: "withdrawn", reason: "the release was published by hand" }] }),
 };
 const ignore = () => {};

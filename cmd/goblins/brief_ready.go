@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -66,7 +68,8 @@ func runBriefReady(args []string, stdout, stderr io.Writer) (code int) {
 			return 1
 		}
 	}
-	if _, err := fleet.ReadQueuedTask(h, id); err != nil {
+	queued, err := fleet.ReadQueuedTask(h, id)
+	if err != nil {
 		fmt.Fprintf(stderr, "goblins brief ready: %v\n", err)
 		return 1
 	}
@@ -91,6 +94,23 @@ func runBriefReady(args []string, stdout, stderr io.Writer) (code int) {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
+	}
+	// goblins brief writes the mode its flags select on the mode: line, which
+	// spawn reads as a request, and the assessment is often recorded after it
+	// (issue 1952). So readiness names the mode the posture and the finished
+	// assessment select when the line asks another, for the line to be kept
+	// or changed on purpose. Spawn reads a missing manifest the same way.
+	manifest, _, err := projectcfg.LoadForCheckout(h.Data, queued.Row.Repo)
+	if err != nil {
+		manifest = projectcfg.Manifest{}
+	}
+	assessed := projectcfg.AssessDelivery(manifest, string(finalized))
+	if line := fleet.BriefDelivery(finalized)["mode"]; line != assessed.Mode {
+		outcome := "or keep " + line + " on purpose"
+		if line != "no-mistakes" {
+			outcome = "since spawn starts no-mistakes without a delivery exception"
+		}
+		fmt.Fprintf(stderr, "goblins brief ready: the brief's mode: line says %s, while the project's delivery posture (%s) and the brief's Delivery assessment select %s: %s. Change the line to %s, %s.\n", line, cmp.Or(assessed.Posture, "unset"), assessed.Mode, assessed.Reason, assessed.Mode, outcome)
 	}
 	fmt.Fprintln(stdout, path)
 	return 0

@@ -31,9 +31,11 @@ export interface AnswerFiles {
 // picked with Add files at its bottom left corner, as the composer does, and
 // shows each above his words with a button that takes it out. On a phone Add
 // files opens Paste a picture, since a phone's own paste offers only text,
-// and Photos or files.
-export function DictatedAnswer({ label, placeholder, value, instance, disabled, files, onText, onSubmit }: {
-  label: string; placeholder: string; value: string; instance: string; disabled?: boolean; files?: AnswerFiles; onText: (text: string) => void; onSubmit: () => void;
+// and Photos or files. maxLength caps what he writes, in characters, where
+// the answer's asker takes no more; with none it has no cap, as the chat's
+// box has none.
+export function DictatedAnswer({ label, placeholder, value, instance, disabled, files, maxLength, onText, onSubmit }: {
+  label: string; placeholder: string; value: string; instance: string; disabled?: boolean; files?: AnswerFiles; maxLength?: number; onText: (text: string) => void; onSubmit: () => void;
 }) {
   const dictation = useDictation((text) => onText(appendDictation(value, text)), instance);
   const box = useRef<HTMLTextAreaElement>(null);
@@ -105,7 +107,7 @@ export function DictatedAnswer({ label, placeholder, value, instance, disabled, 
     {files && files.paths.length > 0 && <ComposerAttachments paths={files.paths} instance={instance} task={files.task}
       onRemove={(path) => { files.onChange((prior) => prior.filter((each) => each !== path)); box.current?.focus(); }} />}
     <div className="dictated-box">
-      <textarea ref={box} aria-label={label} rows={3} maxLength={4000} placeholder={placeholder} value={value} disabled={disabled}
+      <textarea ref={box} aria-label={label} rows={3} maxLength={maxLength} placeholder={placeholder} value={value} disabled={disabled}
         onChange={(event) => onText(event.target.value)} onPaste={paste}
         onKeyDown={(event) => {
           if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;

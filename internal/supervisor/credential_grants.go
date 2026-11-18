@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -83,7 +84,9 @@ func (s *Service) grantSavedCredentials(card CredentialRequest, saved []string) 
 			defer s.credentialWork.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), credentialRefreshTimeout)
 			defer cancel()
-			if _, err := s.Options.CEO.SendGoblin(ctx, meta.ID, goblinIdentity(meta), "credentials refreshed: re-source "+item.Path); err != nil {
+			// A goblin in a turn has its harness hold the notice for its next
+			// tool call, so the notice still arrives (#2015).
+			if _, err := s.Options.CEO.SendGoblin(ctx, meta.ID, goblinIdentity(meta), "credentials refreshed: re-source "+item.Path); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
 				s.credentialNotice(card, "The service was granted, but "+meta.ID+" could not be told to re-source auth.ps1.")
 			}
 		}()

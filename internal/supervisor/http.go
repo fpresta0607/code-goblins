@@ -257,8 +257,6 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.openCardPath(w, r)
 	case r.URL.Path == "/api/actions" && r.Method == "POST":
 		h.action(w, r)
-	case r.URL.Path == "/api/answer-images" && r.Method == "POST":
-		h.keepAnswerImage(w, r)
 	case r.URL.Path == "/api/composer/file" && r.Method == "POST":
 		h.keepComposerFile(w, r)
 	case r.URL.Path == "/api/composer/file" && r.Method == "GET":

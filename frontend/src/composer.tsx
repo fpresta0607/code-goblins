@@ -110,8 +110,8 @@ function storeAttached(key: string, paths: string[]): void {
 // A picture pasted into this box, a file dropped on it or added to it, is kept
 // where the session he writes to reads it and shows in the box as a thumbnail
 // he can remove, and Send names its path on a line of its own after his words,
-// as the answer card's picture is kept for its asker (internal/supervisor/
-// answer_images.go). Each harness reads a picture by its path as an image:
+// as a card's Something else? window keeps one for its asker
+// (answer-window.tsx). Each harness reads a picture by its path as an image:
 // Claude Code with its Read tool, or as an attachment when the message is
 // pictures alone, Codex with view_image and pi with its read tool, which is
 // how pi's own paste of a picture names it too. It takes that road rather

@@ -117,3 +117,21 @@ for (const card of CARDS) {
     expect(sent[0], "the first send is the words, not the empty box").toMatchObject({ text: WORD });
   });
 }
+
+// A question's Other, a change's Other and a review's own box keep the 4000
+// characters their boards take, while Something else?, which keeps a long
+// answer as a file, has no cap (#2538).
+for (const card of CARDS) {
+  const longest = card.name === "Something else window" ? 4001 : 4000;
+  test(`the ${card.name}'s box holds at most ${longest} of 4001 characters`, async ({ page }) => {
+    // Arrange
+    await record(page);
+    const box = await boxOf(page, card);
+
+    // Act
+    await box.fill("a".repeat(4001));
+
+    // Assert
+    await expect(box).toHaveValue("a".repeat(longest));
+  });
+}
