@@ -78,6 +78,7 @@ A worktree that tracks a `uv.lock`, at its root or in a subfolder, gets no `UV_E
 Such a project records its own cutoff as `[tool.uv] exclude-newer = "7 days"` in `pyproject.toml`, which uv keeps in its lock for goblins and CI alike.
 A lock a goblin writes under the terminal's cutoff records it too, and a `uv sync --locked` without it, as in CI, fails until the project records the same cutoff.
 A gate run's agents and step commands get the same variables from the same `worktree.Cooldown` of the task's worktree, which `goblins pipeline run` hands no-mistakes as `axi run --agent-env` when it starts the run.
+A run admitted from it, by `validate-authored`, `validate-terminal` or an owner correction, keeps that run's agent environment in no-mistakes, as a rerun does, so a `validate-terminal` on another branch whose `uv.lock` state differs keeps the first run's `UV_EXCLUDE_NEWER` choice.
 
 ### Code that runs at every Python start
 

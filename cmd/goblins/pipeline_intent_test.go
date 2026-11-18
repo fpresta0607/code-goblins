@@ -602,6 +602,9 @@ func TestPipelineRunStartsTheGateWithTheTaskWorktreesReleaseCooldown(t *testing.
 			if len(runner.started) != 1 {
 				t.Fatalf("no-mistakes started %d runs, want one", len(runner.started))
 			}
+			if wantDir := filepath.Join(h.Root, "project", ".worktrees", "gb-task"); !slices.Equal(runner.uvLockListings, []string{wantDir}) {
+				t.Errorf("uv.lock files listed in %q, want only the task worktree %q", runner.uvLockListings, wantDir)
+			}
 			given := agentEnvGiven(runner.started[0].Args)
 			for _, want := range row.want {
 				if !slices.Contains(given, want) {

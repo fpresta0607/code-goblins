@@ -69,8 +69,10 @@ type pipelineStartRunner struct {
 	// repoConfig, when set, is the .no-mistakes.yaml the task branch holds.
 	repoConfig string
 	// uvLocks is what git ls-files lists of the worktree's uv.lock files,
-	// each ended by a NUL.
+	// each ended by a NUL; another directory tracks none.
 	uvLocks string
+	// uvLockListings is each directory git ls-files listed uv.lock files in.
+	uvLockListings []string
 }
 
 func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Result, error) {
@@ -108,6 +110,10 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 		case "status --porcelain --untracked-files=all":
 			return execx.Result{}, nil
 		case "ls-files -z -- :(glob)**/uv.lock":
+			r.uvLockListings = append(r.uvLockListings, q.Dir)
+			if q.Dir != r.worktree {
+				return execx.Result{}, nil
+			}
 			return execx.Result{Stdout: []byte(r.uvLocks)}, nil
 		case "show HEAD:.no-mistakes.yaml":
 			if r.repoConfig != "" {
