@@ -64,7 +64,7 @@ export function TerminalBlock({ shell = "", command = "", output = "", diff = []
       </>}
       {diff.length > 0 && <>
         <figcaption><span>diff</span><CodeCopy text={diff.join("\n")} label={typed.length ? "Copy diff" : "Copy"} />{full}</figcaption>
-        <pre className="terminal-diff">{diff.map((line, at) => <span key={at} className={"terminal-line" + (line.startsWith("+") ? " added" : line.startsWith("-") ? " removed" : "")}>{linked(line, path)}{"\n"}</span>)}</pre>
+        <pre className="terminal-diff">{diff.map((line, at) => <span key={at} className={"terminal-line" + (line.startsWith("+") ? " addition" : line.startsWith("-") ? " deletion" : "")}>{linked(line, path)}{"\n"}</span>)}</pre>
       </>}
       {result && <p className={"terminal-result " + result.tone}><Icon name={result.icon} />{result.text}</p>}
     </figure>;

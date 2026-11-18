@@ -11,8 +11,9 @@ import { at, NAME, open, openGoblin, snapshot } from "./session-board";
 // the CEO's chat alike.
 
 // An edit as Claude Code records one: the lines around the change, one of
-// them code that reads like an error, a removed line, and two added lines,
-// one longer than any card is wide.
+// them code that reads like an error, a removed line, and three added lines,
+// one longer than any card is wide and one with a web address and a path
+// longer than a phone's card.
 const SWIPE = [
   " export const MESSAGES = {",
   "   error: \"the swipe was lost\",",
@@ -21,6 +22,7 @@ const SWIPE = [
   " export function listen(element: HTMLElement, swipe: (event: TouchEvent) => void) {",
   "-  // A swipe was left to the page.",
   "+  // A vertical swipe scrolls the terminal's history as a mouse wheel does, and a sideways one is left to the page, so the panels still slide under a finger the way a phone's reader expects of a terminal that fills its screen.",
+  "+  // See https://example.com/docs/terminal/swipes in frontend/src/terminal/phone/swipe-handlers/vertical-history.ts",
   "+  element.addEventListener(\"touchmove\", swipe, { passive: false });",
   " }",
 ];
@@ -38,13 +40,15 @@ const ROWS = { conversation: "fixture-conversation", more: false, messages: [
   { id: "prompt-0", seq: 0, at, kind: "prompt", source: "overlord", text: "Let a vertical swipe scroll the phone terminal" },
   { id: "reply-1", seq: 1, at, kind: "reply", blocks: [
     { kind: "text", text: "Handing a vertical swipe to the history." },
-    call("edit-1", "Edit", "frontend/src/terminal-swipe.ts", { edit: { added: 2, removed: 1, diff: SWIPE } }),
+    call("edit-1", "Edit", "frontend/src/terminal-swipe.ts", { result: "The file frontend/src/terminal-swipe.ts has been updated successfully.", edit: { added: 3, removed: 1, diff: SWIPE } }),
     { kind: "text", text: "Writing down how swipes behave." },
-    call("write-1", "Write", "docs/phone-swipes.md", { edit: { added: 4, removed: 0, diff: NOTES } }),
+    call("write-1", "Write", "docs/phone-swipes.md", { result: "File created successfully at: docs/phone-swipes.md", edit: { added: 4, removed: 0, diff: NOTES } }),
     { kind: "text", text: "Renaming what each key sends." },
     call("edit-2", "Edit", "frontend/src/terminal-keys.ts", { edit: { added: 30, removed: 30, diff: KEYS } }),
     { kind: "text", text: "Patching the example." },
     call("exec-1", "exec_command", "apply_patch", { input: PATCH, result: "Success. Updated the following files:\nM src/example.ts", edit: { added: 1, removed: 1, diff: EXAMPLE } }),
+    { kind: "text", text: "Testing the swipe." },
+    call("bash-1", "Bash", "npm test -- swipe", { input: "npm test -- swipe", result: "error: the swipe was lost\n✓ the swipe test passed" }),
     { kind: "text", text: "Done." },
   ] },
 ] };
@@ -72,6 +76,8 @@ async function openRow(page: Page, subject: string, name = NAME) {
 
 // ground is a line's own background as its red, green, blue and alpha.
 const ground = (line: Locator) => line.evaluate((element) => getComputedStyle(element).backgroundColor.match(/[\d.]+/g)!.map(Number));
+// colours is a line's colour and its own background as the browser draws them.
+const colours = (line: Locator) => line.evaluate((element) => ({ color: getComputedStyle(element).color, background: getComputedStyle(element).backgroundColor }));
 
 // contrast is how far a line's text stands out from what is behind it, as
 // WCAG counts it: the line's own ground laid over its card's.
@@ -97,16 +103,20 @@ for (const { width, height, label } of SIZES) {
       const row = await openRow(page, "terminal-swipe.ts");
       const card = row.locator(".terminal-block");
 
-      // Assert: one card, headed by what it holds, with Copy as an icon and Full screen.
+      // Assert: one card, headed by what it holds, with Copy as an icon and
+      // Full screen, its diff in place of what the edit printed.
       await expect(card).toHaveCount(1);
-      await expect(card.locator("figcaption")).toHaveText("diff");
+      await expect(card.locator("figcaption")).toHaveText(["diff"]);
+      await expect(card.locator(".terminal-output"), "what the edit printed gives way to its diff").toHaveCount(0);
       const copy = card.getByRole("button", { name: "Copy", exact: true });
       await expect(copy).toHaveText("");
       await expect(copy.locator("svg")).toBeVisible();
       await expect(card.getByRole("button", { name: "Full screen", exact: true })).toBeVisible();
 
-      // Assert: every line as the diff writes it, each a line of terminal text.
+      // Assert: every line as the diff writes it, each a line of terminal
+      // text, a web address in one a link.
       await expect(card.locator(".terminal-diff > .terminal-line")).toHaveText(SWIPE);
+      await expect(card.getByRole("link", { name: "https://example.com/docs/terminal/swipes", exact: true })).toBeVisible();
 
       // Assert: the card starts where the row does and is as wide.
       const [summary, box] = [await row.locator("> summary").boundingBox(), await card.boundingBox()];
@@ -120,9 +130,13 @@ for (const { width, height, label } of SIZES) {
       await openChat(page);
       const diff = (await openRow(page, "terminal-swipe.ts")).locator(".terminal-diff");
       const long = diff.locator(".terminal-line", { hasText: "A vertical swipe" });
+      const path = diff.locator(".terminal-line", { hasText: "vertical-history.ts" });
+      const short = (await diff.locator(".terminal-line", { hasText: "A swipe was left" }).boundingBox())!.height;
 
-      // Assert: it takes more rows than a short line, inside the card.
-      expect((await long.boundingBox())!.height, "the long line wraps").toBeGreaterThan((await diff.locator(".terminal-line", { hasText: "A swipe was left" }).boundingBox())!.height * 1.5);
+      // Assert: it takes more rows than a short line, as a line whose path is
+      // wider than a phone's card does at the path's folders, inside the card.
+      expect((await long.boundingBox())!.height, "the long line wraps").toBeGreaterThan(short * 1.5);
+      expect((await path.boundingBox())!.height, "the line with a long path wraps").toBeGreaterThan(short * 1.5);
       expect(await diff.evaluate((element) => element.scrollWidth <= element.clientWidth + 1), "nothing scrolls sideways").toBe(true);
       expect(await fitsWidth(page)).toBe(true);
 
@@ -169,25 +183,32 @@ for (const { width, height, label } of SIZES) {
   });
 }
 
-test("each line of an edit reads in its mark's colour, an added one on a green ground and a removed one on a red ground, and none by its words", async ({ page }) => {
+test("each line of an edit reads by its mark, a removed one as an error line on its red ground, an added one in a success's colour on the old green ground, the rest in the old gray, and none by its words", async ({ page }) => {
   // Arrange and Act
   await openChat(page);
   const lines = (await openRow(page, "terminal-swipe.ts")).locator(".terminal-diff > .terminal-line");
   const removed = lines.filter({ hasText: "A swipe was left to the page." });
   const added = lines.filter({ hasText: "addEventListener" });
   const around = lines.filter({ hasText: "the swipe was lost" });
+  const printed = (await openRow(page, "npm test")).locator(".terminal-output > .terminal-line");
+  const [error, success] = [printed.filter({ hasText: "error: the swipe was lost" }), printed.filter({ hasText: "the swipe test passed" })];
 
   // Assert: its mark says what a line is, and a line of code that reads like
   // an error is still a line around the change.
-  await expect(removed).toHaveClass("terminal-line removed");
-  await expect(added).toHaveClass("terminal-line added");
+  await expect(removed).toHaveClass("terminal-line deletion");
+  await expect(added).toHaveClass("terminal-line addition");
   await expect(around).toHaveClass("terminal-line");
 
-  // Assert: an added line on a green ground, a removed one on a red ground,
-  // and a line around them on the card's own.
-  const [addedGround, removedGround] = [await ground(added), await ground(removed)];
-  expect(addedGround[1], "an added line's ground is green").toBeGreaterThan(addedGround[0]);
+  // Assert: a removed line reads as an error line a command printed does, on
+  // a red ground; an added one in a success line's colour on the green ground
+  // the old box gave it; and a line around them in the old box's gray, on
+  // the card's own ground.
+  expect(await colours(removed), "a removed line reads as an error line does").toEqual(await colours(error));
+  const removedGround = await ground(removed);
   expect(removedGround[0], "a removed line's ground is red").toBeGreaterThan(removedGround[1]);
+  expect((await colours(added)).color, "an added line reads in a success line's colour").toBe((await colours(success)).color);
+  expect((await colours(added)).background, "an added line's ground is the old box's green").toBe("rgba(78, 186, 101, 0.12)");
+  expect((await colours(around)).color, "a line around the change reads in the old box's gray").toBe("rgb(143, 163, 173)");
   expect((await ground(around))[3], "a line around the change has no ground of its own").toBe(0);
 
   // Assert: each reads clearly on what is behind it.
@@ -200,9 +221,10 @@ test("a new file opens to its lines, every one of them added", async ({ page }) 
   const card = (await openRow(page, "phone-swipes.md")).locator(".terminal-block");
 
   // Assert
-  await expect(card.locator("figcaption")).toHaveText("diff");
+  await expect(card.locator("figcaption")).toHaveText(["diff"]);
+  await expect(card.locator(".terminal-output"), "what the write printed gives way to its lines").toHaveCount(0);
   await expect(card.locator(".terminal-diff > .terminal-line")).toHaveText(NOTES);
-  await expect(card.locator(".terminal-diff > .terminal-line.added")).toHaveCount(NOTES.length);
+  await expect(card.locator(".terminal-diff > .terminal-line.addition")).toHaveCount(NOTES.length);
 });
 
 test("a command that edited a file reads in one card: its lines, its diff in place of what it printed, and how it ended", async ({ page }) => {
