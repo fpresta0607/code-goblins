@@ -303,6 +303,7 @@ A layer's Linux code sits beside the Windows code under a build tag.
    Until layer 8 turns lingering on, the socket folder lasts only while the user is signed in.
    The primary registration names its process by instance, as the lock's record does (see [Process identity](#process-identity)).
    It comes in three pull requests: the primary transport and the registration by instance, then the run requests on a Unix socket with its peer check, then path comparison and the folders `internal/pathguard` guards.
+   Path comparison comes in two of its own: first the rule, `fsx.EqualPath`, `fsx.HasPathPrefix` and `fsx.PathKey`, which `fsx.SamePath` and `internal/pathguard` take, then the code that compares paths itself and moves to that rule.
    The host's socket comes with the native terminal in layer 5, since no host runs off Windows before it, and uses the run requests' folder and peer check.
 5. **The native terminal.** `internal/host` on a pseudo terminal, each host and the supervisor the launcher starts in a transient user scope of its own, the terminal kept off the cores left to the Overlord's own apps with `sched_setaffinity` and the core kinds read from `/sys`, `attach` and the onboarding menu in raw mode, and `spawn` launching on Linux.
    The terminal binding names its process by instance.
@@ -347,6 +348,7 @@ It differs where Linux reads `/proc` and `/sys`, and where the Linux layers call
 - The socket's peer comes from `LOCAL_PEERPID` instead of `SO_PEERCRED`, and the sockets take the user's 0700 folder under `/tmp`, since the 104-byte `sun_path` leaves no room under `$TMPDIR`.
 - Folder watching uses `kqueue`, memory and processor readings use the Mach host calls, the creation time comes from `stat`'s birth time and the disk priority from `setiopolicy_np`.
 - Its default file system ignores case and Unicode normalization while it keeps both, as Windows ignores case, so layer 4's exact comparison is wrong there: a path compares as its volume does, read with `pathconf(_PC_CASE_SENSITIVE)`.
+  Layer 4 takes the volume's case; its Unicode normalization needs `golang.org/x/text`, which the module does not use yet, so it waits on that choice.
 - The home follows the Linux rule, `$XDG_DATA_HOME/code-goblins` or `~/.local/share/code-goblins`, rather than `~/Library/Application Support`, whose space every hook and card command would have to quote; the app itself sits in `/Applications`.
 - bash is 3.2 on every Mac, and zsh is the user's shell, so a card's command is written for `sh` and a `!` message runs in the user's shell.
 - The credential store is the Keychain, through the Security framework, from the installer's layer on, since the Keychain trusts a signed app; until then the file store Linux uses works.
