@@ -492,7 +492,9 @@ At every level, `goblins gate test` also selects the trusted policy's `guards`, 
 A guard runs separately before vet and package tests, with their `go test` arguments and `-timeout 45m`, only when those package tests do not already cover its whole package, including packages scheduled alone.
 A guard with named `tests` runs exactly those tests, so selecting it does not run unrelated slow tests; without `tests`, it runs its whole package.
 An optional `goos` restricts the guard to that operating system; other platforms list it as deferred with the required and current platforms, never as executed, and its platform's CI remains required.
-`goblins gate prepush` uses the same guard declarations and platform rules, omitting a separate guard run when its selected whole-package tests already cover it.
+`goblins gate prepush` uses the same guard declarations and platform rules.
+It omits a guard's separate run only for a quick package the change itself reaches, which runs whole with the guard among its tests.
+A slow package, or one the change reaches through an import, runs its guard first and its own tests later, so the cheap guard runs before slow packages.
 
 A change reaches the packages that own a changed file, the packages that import one of those directly or transitively from their code or tests, and the packages a contract of the policy names for a changed file.
 A package owns Go build inputs (`.go`, `.s`, `.c`, `.h` or `.syso`) directly in its directory, the files under its `testdata` folder and the files its embed patterns cover, even deleted files, so a doc the binary embeds selects the package that embeds it and a doc nothing embeds selects none.

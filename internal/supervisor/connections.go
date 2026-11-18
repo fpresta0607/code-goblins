@@ -18,6 +18,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/connections"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/remoteaccess"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
@@ -286,14 +287,18 @@ func (h *HTTP) grantConnection(w http.ResponseWriter, r *http.Request) {
 		s.publish(err)
 	}
 	if item.Live && meta.Backend == "native" {
+		s.credentialWork.Add(1)
 		go func() {
+			defer s.credentialWork.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
 			// A task replaced since the press is told nothing of the grant.
 			if current, err := state.ReadTaskMeta(stateDir, meta.ID); err != nil || current.SpawnGen != meta.SpawnGen {
 				return
 			}
-			if err := typeIntoGoblin(ctx, stateDir, meta, goblinLine("credentials refreshed: re-source "+item.Path), false, false, false); err != nil {
+			// A goblin in a turn has its harness hold the notice for its next
+			// tool call, so the notice still arrives (#2015).
+			if err := typeIntoGoblin(ctx, stateDir, meta, goblinLine("credentials refreshed: re-source "+item.Path), false, false, false); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
 				s.publish(fmt.Errorf("telling %s to load the credentials the Overlord granted: %w", meta.ID, err))
 			}
 		}()

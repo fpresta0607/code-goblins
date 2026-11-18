@@ -1059,13 +1059,18 @@ func spawnInstruction(briefPath string, meta state.TaskMeta, install []string, r
 
 // deliveryInstruction names the frozen delivery mode of a task and the one
 // validation owner that mode gives it, over whatever its brief says, and
-// keeps its ask-user findings the CEO's until its run's review repair cycles
-// are spent.
+// keeps its ask-user decisions the CEO's. Only a no-mistakes task has a gate
+// run, so only its instruction names goblins pipeline respond, which refuses
+// every other mode (issue 1952).
 func deliveryInstruction(meta state.TaskMeta) string {
 	if meta.DeliveryHash == "" {
 		return ""
 	}
-	return " Your delivery mode is " + meta.Mode + ", frozen at " + filepath.Join(meta.TaskTmp, "delivery.json") + " before validation: it supersedes the brief's mode line and Verification section. " + fleet.BriefVerification(meta.ID, meta.Mode) + " Follow only this path and its required checks, and add no manual review gate. Until its run's review repair cycles are spent, the implementation worker never decides its own ask-user finding: report it to the CEO and apply the returned decision through goblins pipeline respond."
+	askUser := " The implementation worker never decides an ask-user question of its own: report it to the CEO and follow the returned decision."
+	if meta.Mode == "no-mistakes" {
+		askUser = " Until its run's review repair cycles are spent, the implementation worker never decides its own ask-user finding: report it to the CEO and apply the returned decision through goblins pipeline respond."
+	}
+	return " Your delivery mode is " + meta.Mode + ", frozen at " + filepath.Join(meta.TaskTmp, "delivery.json") + " before validation: it supersedes the brief's mode line and Verification section. " + fleet.BriefVerification(meta.ID, meta.Mode) + " Follow only this path and its required checks, and add no manual review gate." + askUser
 }
 
 // heavyRunInstruction tells a goblin that one heavy run goes at a time on the
@@ -1221,7 +1226,9 @@ func notifyInstruction(meta state.TaskMeta) string {
 		" Ask only for what he must enter: a secret named by itself goes straight to the vault and never to you, and each --plain value comes back to you as NAME=value. A card that asks for nothing gets his Done. When the step must happen in your own browser session, such as a sign-in it keeps, add --window: it gives the card Take control, which opens the link in your own browser on the board's screen; he takes the step there and hands it back with a few words, which your wait prints; while he drives, your browser commands are refused, so wait for the card to close." +
 		" When you see the step done yourself, close the card with " + exe + " auth request --done <card> --task " + id + ", take back one you no longer need with " + exe + " auth request --withdraw <card> --task " + id + " --reason \"<why>\", and wait on it again with --wait-on <card>. Exit 3 means he skipped it: go on without it, and exit 4 means he answered in his own words instead, which it prints: act on them as his word." +
 		" When the Overlord must run a command himself, never paste it into your words: write it to a .ps1 file and run: " + exe + " notify " + id + " --waiting-on overlord \"<why>\" --run <command.ps1>; his card shows the exact command and runs it with one click in a terminal on his card, where he types into it, and you are told how it ended." +
-		" For a successful browser walkthrough or a Scrawl presentation that needs no answer, use lavish-axi --no-open and report its safe URL with goblins present --id <stable-id> --task " + id + " --generation <GOBLINS_SPAWN_GEN> --kind browser|review --url <safe-url>. Refresh only while live and report --state ended when finished. A viewing choice never pauses your work. See docs/native-board.md; do not publish secrets, query parameters or browser history." + offer + ticket
+		" For a successful browser walkthrough or a Scrawl presentation that needs no answer, use lavish-axi --no-open and report its safe URL with goblins present --id <stable-id> --task " + id + " --generation <GOBLINS_SPAWN_GEN> --kind browser|review --url <safe-url>. Refresh only while live and report --state ended when finished. A viewing choice never pauses your work. See docs/native-board.md; do not publish secrets, query parameters or browser history." +
+		" Browsers are for people: what goes straight to an agent needs none, so read a page, a picture or text as a file. Use your browser or computer automation only for an end-to-end live test of a UI the Overlord can oversee, a sign-in or credential step that needs a person, or automating a person's procedure." +
+		" Never open a Scrawl page you wrote in your own browser to read or check it: run " + exe + " page check <html-file>, which draws it in a hidden Chrome at a desktop and a phone width, saves a picture of it at each for you to read, lists the layout issues the Overlord would see and closes." + offer + ticket
 }
 
 func (s Service) releaseTaskLock(dir, name string) error {

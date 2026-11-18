@@ -38,6 +38,32 @@ type DeliverySelection struct {
 // exception may narrow the selected rigor; any other narrower request selects
 // no-mistakes and records why.
 func SelectDelivery(manifest Manifest, brief, requested, exception string) DeliverySelection {
+	selection, modeLine, hasChecks := assessDelivery(manifest, brief)
+	if requested == "" {
+		requested = modeLine
+	}
+	if requested != "" && requested != selection.Mode {
+		if requested == "no-mistakes" {
+			selection.Mode, selection.Reason = requested, "explicit strict delivery: "+selection.Reason
+		} else if strings.TrimSpace(exception) != "" && !strings.ContainsAny(exception, "\r\n") && hasChecks && (requested == "direct-PR" || requested == "local-only") {
+			selection.Mode, selection.Reason = requested, "explicit CEO-authorized exception: "+exception
+		} else {
+			selection.Mode, selection.Reason = "no-mistakes", "requested "+requested+" is not authorized by the posture and assessment or by a CEO exception: "+selection.Reason
+		}
+	}
+	return selection
+}
+
+// AssessDelivery is the mode the project's posture and the brief's Delivery
+// assessment select, before the brief's mode: line or a spawn asks for one.
+func AssessDelivery(manifest Manifest, brief string) DeliverySelection {
+	selection, _, _ := assessDelivery(manifest, brief)
+	return selection
+}
+
+// assessDelivery also returns the brief's mode: line and whether the project
+// defines usable fast checks, which a narrower requested mode needs.
+func assessDelivery(manifest Manifest, brief string) (DeliverySelection, string, bool) {
 	selection := DeliverySelection{
 		Mode: "no-mistakes", Posture: manifest.Delivery.Posture,
 		Surface: "unknown", Risk: "unknown", Reason: "missing or uncertain delivery configuration",
@@ -109,19 +135,7 @@ func SelectDelivery(manifest Manifest, brief, requested, exception string) Deliv
 			}
 		}
 	}
-	if requested == "" {
-		requested = fields["mode"]
-	}
-	if requested != "" && requested != selection.Mode {
-		if requested == "no-mistakes" {
-			selection.Mode, selection.Reason = requested, "explicit strict delivery: "+selection.Reason
-		} else if strings.TrimSpace(exception) != "" && !strings.ContainsAny(exception, "\r\n") && hasChecks && (requested == "direct-PR" || requested == "local-only") {
-			selection.Mode, selection.Reason = requested, "explicit CEO-authorized exception: "+exception
-		} else {
-			selection.Mode, selection.Reason = "no-mistakes", "requested "+requested+" is not authorized by the posture and assessment or by a CEO exception: "+selection.Reason
-		}
-	}
-	return selection
+	return selection, fields["mode"], hasChecks
 }
 
 func (selection DeliverySelection) Encode() (string, string, error) {

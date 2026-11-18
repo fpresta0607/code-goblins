@@ -42,6 +42,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/measure"
 	"github.com/fpresta0607/code-goblins/internal/onboarding"
 	"github.com/fpresta0607/code-goblins/internal/openrouter"
+	"github.com/fpresta0607/code-goblins/internal/pagecheck"
 	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/reap"
@@ -51,6 +52,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/telemetry"
+	"github.com/fpresta0607/code-goblins/internal/testguard"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 	"github.com/fpresta0607/code-goblins/internal/watch"
@@ -124,7 +126,7 @@ commands:
   goblins switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty] [--restart] [--terminal]   change a running goblin's harness/model/effort in place, restart it onto a harness update, or take it over in a terminal
   goblins send <target> [--key <key>] <text...>
   goblins peek <target> [lines]
-  goblins fleet-view [--json]
+  goblins fleet-view [--json] [--name <name>]   the fleet's tasks with each goblin's board name and title; --name finds the tasks the board calls by that name, ignoring case, newest first
   goblins runtime [--json]   what is running on this machine and who owns it: containers by owner, the local services stacks goblins holds for tasks, listening dev servers and whether each is safe to stop, machine headroom, each project's deploy target, and how to run each project locally
   goblins services up <project> --task <id> [--wait <duration>] | down <project> --task <id>   start the local services a project declares for a task's full-stack check, or share them with the tasks that hold them, only while memory and commit stay above the floor with their cost added, waiting up to --wait and saying why. down releases the hold, and the last release stops what goblins started and the engine when goblins started it
   goblins shared [--json]   read the gate daemon, the heavy-run line, the Docker engine and the Scrawl server as the supervisor last checked them: busy, never stopped, for a live daemon that missed a reply, whether to go, wait or ask, and who holds and waits on each; it only reads, under any harness, and starts, stops or restarts nothing
@@ -154,6 +156,7 @@ commands:
   goblins answer <question-id|wake-seq> --option <choice> [--note "<text>"]   registered CEO answers a goblin's blocked question: delivered like goblins send (queued for a working goblin's next tool call counts as delivered), the notify retired, and the choice, who and when recorded for the board
   goblins answer <question-id> --option <choice> [--note "<text>"] --record-only [--in <where>]   registered CEO records on the board a choice already given another way, for a goblin's notify already acknowledged or answered, and sends nothing; --in names where the Overlord gave it, such as chat, which the CEO's own question needs, and the card reads as his answer there
   goblins review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url|html-file> [--reopen]] | --id <stable-id> --withdraw "<reason>" [--task <id>] | --clear <stable-id> --reason "<why>"   report an item that stays in the Command Center until the Overlord answers or clears it, or withdraw your own, or as the registered primary CEO clear any open item, audited; a Scrawl page named by its HTML file is polled by the supervisor, so the Overlord's feedback on it reaches the CEO as a review wake
+  goblins page check <html-file> [--out <folder>]   check a Scrawl page you wrote without your own browser: a hidden Chrome draws its review session at a desktop and a phone width, saves a picture of the page at each beside it, lists every layout issue lavish-axi's gate found, as his Layout issues inbox shows them, and closes; exit 1 when it finds any
   goblins deliver --id <stable-id> --title "<what it is>" --file <path> [--download] [--task <id>]   hand the Overlord a file as a Scrawl page that shows it, presented in the Command Center; what he writes there reaches you as a review wake, and --download offers it to download, for a generated asset or a file he asked to keep
   goblins run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [--admin] [--cwd <dir>] --command-file <path>   registered CEO asks the Overlord to run a command with one click in the Command Center, where it runs in a terminal on its card that he types into; the file is read once and runs as a script file, and the exit code and the end of what its terminal showed come back as his answer; --admin runs it elevated after Windows asks him to confirm
   goblins run-request --withdraw <id> --reason "<why>"   registered CEO takes a run item nobody ran off the Command Center, audited in state/runs.audit; Run on it is refused from then on, and a replacement is a new item under a new ID
@@ -308,6 +311,12 @@ type commandRuntime struct {
 	// crawlerNpm runs npm ci for goblins crawler setup and goblins install; nil runs
 	// the machine's.
 	crawlerNpm execx.Runner
+	// lavish runs lavish-axi for goblins page check; nil runs the machine's.
+	lavish execx.Runner
+	// checkPage draws a page's review session in a hidden Chrome and saves
+	// its pictures in out, for goblins page check; nil is pagecheck.Check in
+	// the machine's Chrome.
+	checkPage func(ctx context.Context, session, out string) (pagecheck.Report, error)
 	// switchAFK asks the supervisor to turn AFK mode on or off, and logAFK to
 	// log a decision made under it; nil is the supervisor's pipe.
 	switchAFK func(h home.Home, on bool, asked string) error
@@ -340,6 +349,9 @@ type commandRuntime struct {
 	gateRun       func(command []string, dir string, env []string, stdout, stderr io.Writer) (int, error)
 	gateProgress  time.Duration
 	gatePlanLimit time.Duration
+	// testsKeptCallLimit is how long each git call goblins gate tests-kept
+	// makes may take (testguard.CallLimit).
+	testsKeptCallLimit time.Duration
 	// agentLineLimit is the longest a run that a gate's agent started waits
 	// in line (gateAgentLineLimit).
 	agentLineLimit time.Duration
@@ -556,21 +568,22 @@ func defaultCommandRuntime() commandRuntime {
 			}
 			return supervisor.CheckLaunch(memory, disk)
 		},
-		setupAgent:      setupAgent,
-		choose:          onboarding.AskConsole,
-		repoActivity:    repositoryActivity(github),
-		repositoryOf:    tickets.GitHub{Commands: execx.OSRunner{}}.RepositoryOf,
-		githubAPI:       github,
-		availableMemory: supervisor.MachineMemory,
-		gateWaitLimit:   time.Hour,
-		agentLineLimit:  gateAgentLineLimit,
-		gateBudget:      gateBudget,
-		gateRun:         runGateCommand,
-		gateProgress:    5 * time.Second,
-		gatePlanLimit:   planLimit,
-		pushRun:         runPushCommand,
-		pushMemoryPoll:  2 * time.Second,
-		pushAgain:       5 * time.Minute,
+		setupAgent:         setupAgent,
+		choose:             onboarding.AskConsole,
+		repoActivity:       repositoryActivity(github),
+		repositoryOf:       tickets.GitHub{Commands: execx.OSRunner{}}.RepositoryOf,
+		githubAPI:          github,
+		availableMemory:    supervisor.MachineMemory,
+		gateWaitLimit:      time.Hour,
+		agentLineLimit:     gateAgentLineLimit,
+		gateBudget:         gateBudget,
+		gateRun:            runGateCommand,
+		gateProgress:       5 * time.Second,
+		gatePlanLimit:      planLimit,
+		testsKeptCallLimit: testguard.CallLimit,
+		pushRun:            runPushCommand,
+		pushMemoryPoll:     2 * time.Second,
+		pushAgain:          5 * time.Minute,
 		askCIRunner: func(ctx context.Context, request cirunner.Request, reply func(cirunner.Reply)) error {
 			return cirunner.Ask(ctx, cirunner.PipeName, request, reply)
 		},
@@ -787,6 +800,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runPresent(args[1:], stdout, stderr, runtime)
 	case "review":
 		return runReview(args[1:], stdout, stderr, runtime)
+	case "page":
+		return runPage(args[1:], stdout, stderr, runtime)
 	case "deliver":
 		return runDeliver(args[1:], stdout, stderr, runtime)
 	case "run-request":

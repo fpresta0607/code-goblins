@@ -12,7 +12,7 @@ import { EnginePane } from "./engine-pane";
 import { HarnessMark } from "./harness-mark";
 import { HarnessPanel } from "./harness-panel";
 import { Icon } from "./Icon";
-import { clipboardPicture, filesOf, keptFiles } from "./kept-files";
+import { clipboardPicture, filesOf, inlinePictures, keptFiles, pastedPictures } from "./kept-files";
 import { isHarnessHeld, isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { mentionAt, mentionedFiles, mentionFile, parseFiles } from "./mentions";
 import { cycleMode, MODE_NOT_SENT } from "./mode-cycle";
@@ -110,8 +110,8 @@ function storeAttached(key: string, paths: string[]): void {
 // A picture pasted into this box, a file dropped on it or added to it, is kept
 // where the session he writes to reads it and shows in the box as a thumbnail
 // he can remove, and Send names its path on a line of its own after his words,
-// as the answer card's picture is kept for its asker (internal/supervisor/
-// answer_images.go). Each harness reads a picture by its path as an image:
+// as a card's Something else? window keeps one for its asker
+// (answer-window.tsx). Each harness reads a picture by its path as an image:
 // Claude Code with its Read tool, or as an attachment when the message is
 // pictures alone, Codex with view_image and pi with its read tool, which is
 // how pi's own paste of a picture names it too. It takes that road rather
@@ -563,10 +563,13 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   };
   // A picture pasted into the box arrives as a file the session can read. Text
   // keeps the browser's own paste, which the textarea takes as it always has.
+  // A selection copied with its pictures from a conversation holds them
+  // inline in its HTML: each arrives as a pasted picture does, in their
+  // order, and its words paste as text (#2543).
   const paste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
-    const pictures = filesOf(event.clipboardData).filter((file) => file.type.startsWith("image/"));
+    const { pictures, shouldKeepWords } = pastedPictures(event.clipboardData);
     if (!pictures.length) return;
-    event.preventDefault();
+    if (!shouldKeepWords) event.preventDefault();
     void add(pictures);
   };
   // A file dragged onto the box is added as one chosen with Add files.
@@ -597,9 +600,14 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   };
   const pasteKey = async () => {
     const input = await readClipboard();
+    if ("error" in input) {
+      refuse(input.error);
+      return;
+    }
+    const inline = inlinePictures(input.html);
     if ("text" in input) insert(input.text);
+    if (inline.length) await add(inline);
     else if ("image" in input) await add([input.image]);
-    else refuse(input.error);
   };
   const pastePicture = async () => {
     const read = await clipboardPicture();

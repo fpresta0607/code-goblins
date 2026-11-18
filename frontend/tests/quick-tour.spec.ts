@@ -139,6 +139,10 @@ for (const [name, viewport, scale] of [
       // box under the CEO's messages, which types into its terminal.
       await expect(tour(page)).toHaveCount(0);
       await expect(ceoBox(page)).toBeFocused();
+      // Until its terminal's link is live the box saves what he sends through
+      // the board, which this fixture does not answer, and a tour that ends
+      // fast can end first (#2435).
+      await expect(page.getByRole("region", { name: "Messages to CEO", exact: true })).not.toHaveAttribute("data-queues", "");
       await page.keyboard.type("help");
       await page.keyboard.press("Enter");
       await expect.poll(() => typed.join("")).toBe("help\r");

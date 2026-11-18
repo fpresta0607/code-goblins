@@ -71,7 +71,7 @@ export function ReviewCard({ review, snapshot, connected, now, draft, onDraft, o
         {missing.has(src) ? <span className="image-missing"><Icon name="images" /></span> : <img src={src} alt="" onError={() => setMissing((prior) => new Set([...prior, src]))} />}<span>{index + 1}</span>
       </button>)}
     </div>}
-    {answersHere && <DictatedAnswer label="Your answer" placeholder={"Tell " + (review.task ? asker : "the CEO") + " what you think..."} value={draft.written} instance={snapshot.instance} disabled={draft.sending} onText={(written) => onDraft({ written, error: "", receipt: undefined })} onSubmit={() => { if (canSend) onSend(); }} />}
+    {answersHere && <DictatedAnswer maxLength={4000} label="Your answer" placeholder={"Tell " + (review.task ? asker : "the CEO") + " what you think..."} value={draft.written} instance={snapshot.instance} disabled={draft.sending} onText={(written) => onDraft({ written, error: "", receipt: undefined })} onSubmit={() => { if (canSend) onSend(); }} />}
     {review.state !== "open" ? <p className={"question-outcome delivery " + settled.tone} role="status"><Icon name={settled.icon} />{linkedText(settledLabel(item, snapshot.actions))}</p>
       : mark && <p className={"question-outcome delivery " + outcome?.status} role="status"><Icon name={mark.icon} />{mark.label}</p>}
     <div className="card-actions">

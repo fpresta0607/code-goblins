@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { message as errorText, reportToCeo, request } from "./api";
-import { copyText } from "./clipboard";
 import { conversationPictures } from "./conversation-pictures";
 import { Icon } from "./Icon";
 import { keptFileAddress } from "./kept-files";
@@ -12,6 +11,7 @@ import { Notice } from "./notice";
 import { PictureOpener } from "./picture-opener";
 import { PictureViewer } from "./picture-viewer";
 import { ReplyWorking } from "./reply-working";
+import { copiedHtml, copySelected, picturesIn } from "./selection-copy";
 import { changeMessages, conversationHead, isWrittenReply, messageFontFor, olderMessages, pageMessages, parseConversation, parseMessages, parsePage, parseSession, parseUsage, parseWaiting, storedMessageFont, storeMessageFont, turnEnds, viewStanding, type ConversationHead, type MessagePage, type SessionReport } from "./session-messages";
 import { attachZoomGesture } from "./terminal-zoom";
 import { object, parseAction, string, type Action, type KeySpend, type SubscriptionUsage, type Task, type TreeNode } from "./types";
@@ -750,14 +750,30 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     if (!shownValue.current || !box || !selection || selection.isCollapsed || selection.rangeCount === 0) return;
     const text = selection.toString();
     const range = selection.getRangeAt(0);
-    if (!text.trim() || !box.contains(range.commonAncestorContainer)) return;
+    if ((!text.trim() && !picturesIn(range).length) || !box.contains(range.commonAncestorContainer)) return;
     const end = [...range.getClientRects()].at(-1) ?? range.getBoundingClientRect();
-    copyText(text).then(() => {
+    copySelected(range, text).then(() => {
       clearTimeout(copiedTimer.current);
       setCopiedAt(end);
       copiedTimer.current = setTimeout(() => setCopiedAt(null), 1400);
     }, () => {});
   }, []);
+  // The browser's own copy of a selection that takes in a picture, as Ctrl+C
+  // or the menu's Copy makes it, holds each picture's board address, whose
+  // query carries the board's token, and never the picture, so such a
+  // selection of this list copies itself, as it does once it settles (#2543).
+  // Its text goes on the clipboard at once, and its HTML too where an earlier
+  // copy of it has drawn its pictures.
+  const copyPictured = (event: ClipboardEvent<HTMLDivElement>) => {
+    const selection = window.getSelection();
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+    if (!selection || !range || !list.current?.contains(range.commonAncestorContainer) || !picturesIn(range).length) return;
+    event.preventDefault();
+    event.clipboardData.setData("text/plain", selection.toString());
+    const html = copiedHtml(range);
+    if (html) event.clipboardData.setData("text/html", html);
+    copySelection();
+  };
   // Copied ends where the selection does, under its last line, or over it
   // where the frame has no room below, and inside the frame.
   useLayoutEffect(() => {
@@ -912,7 +928,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
         the box he types into. */}
     {phase === "connecting" && <p className="terminal-connecting" role="status"><span className="terminal-spinner" aria-hidden="true" />Connecting to the messages</p>}
     <div className="conversation-frame">
-      <div ref={list} className="conversation" role="log" aria-label={"Messages of " + name} tabIndex={0} style={{ fontSize: font }} onScroll={remember}
+      <div ref={list} className="conversation" role="log" aria-label={"Messages of " + name} tabIndex={0} style={{ fontSize: font }} onScroll={remember} onCopy={copyPictured}
         onPointerDown={(event) => { if (event.pointerType !== "touch" && event.button === 0) isPressed.current = true; }}
         onTouchStart={() => { isTouching.current = true; }}
         onFocus={(event) => { focusedRow.current = event.target.closest<HTMLElement>("[data-message]")?.dataset.message ?? ""; }}

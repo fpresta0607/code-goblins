@@ -512,6 +512,36 @@ func TestAGoblinIsToldWhatItStartsIsItsOwnToEnd(t *testing.T) {
 	}
 }
 
+// Issue 1952: goblins pipeline respond answers only a no-mistakes task's gate,
+// so only that task's instruction names it; a direct-PR or local-only task
+// reports its ask-user question to the CEO and follows the answer.
+func TestDeliveryInstructionNamesThePipelineOnlyForAGatedTask(t *testing.T) {
+	for _, test := range []struct {
+		mode        string
+		isPipelined bool
+	}{
+		{mode: "no-mistakes", isPipelined: true},
+		{mode: "direct-PR"},
+		{mode: "local-only"},
+	} {
+		t.Run(test.mode, func(t *testing.T) {
+			// Arrange
+			meta := state.TaskMeta{ID: "task-7", Mode: test.mode, TaskTmp: t.TempDir(), DeliveryHash: "frozen"}
+
+			// Act
+			instruction := deliveryInstruction(meta)
+
+			// Assert
+			if !strings.Contains(instruction, "report it to the CEO") {
+				t.Errorf("instruction = %q, want an ask-user question reported to the CEO", instruction)
+			}
+			if isPipelined := strings.Contains(instruction, "goblins pipeline respond"); isPipelined != test.isPipelined {
+				t.Errorf("instruction names goblins pipeline respond = %t, want %t: %q", isPipelined, test.isPipelined, instruction)
+			}
+		})
+	}
+}
+
 func TestNotifyInstructionTeachesWorkingAndWaitingReports(t *testing.T) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -596,6 +626,29 @@ func TestNotifyInstructionCallsTheReviewPageScrawl(t *testing.T) {
 	}
 	if strings.Contains(instruction, "Lavish") {
 		t.Errorf("instruction = %q, want the page named Scrawl, never Lavish", instruction)
+	}
+}
+
+// The Overlord, 2026-11-13: "anything that's going direct to agent, we don't
+// need to use browser. Browsers are for humans" (#2542). A goblin reads what
+// is meant for it as files, checks its own Scrawl page without its browser,
+// and keeps its browser for the three uses he named.
+func TestNotifyInstructionKeepsTheBrowserForPeopleAndChecksAPageWithoutIt(t *testing.T) {
+	// Act
+	instruction := notifyInstruction(state.TaskMeta{ID: "task-7"})
+
+	// Assert
+	for _, want := range []string{
+		"Browsers are for people: what goes straight to an agent needs none, so read a page, a picture or text as a file.",
+		"an end-to-end live test of a UI the Overlord can oversee",
+		"a sign-in or credential step that needs a person",
+		"automating a person's procedure",
+		"Never open a Scrawl page you wrote in your own browser to read or check it",
+		"page check <html-file>",
+	} {
+		if !strings.Contains(instruction, want) {
+			t.Errorf("instruction = %q, want %q", instruction, want)
+		}
 	}
 }
 

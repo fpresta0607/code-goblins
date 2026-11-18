@@ -104,38 +104,55 @@ func TestOtherOnACommandSendsHisWordToTheGoblinInsteadOfRunningIt(t *testing.T) 
 	}
 }
 
-func TestAPastedPictureReachesTheGoblinWithHisAnswer(t *testing.T) {
-	s, meta, run, told := skipBoard(t)
-	meta.TaskTmp = filepath.Join(s.Store.Home.State, "tasktmp", meta.ID)
-	if err := os.MkdirAll(meta.TaskTmp, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := state.WriteTaskMeta(s.Store.Home.State, meta); err != nil {
-		t.Fatal(err)
-	}
-	s.Instance = "test-instance"
-	board := NewHTTP(s, "127.0.0.1:7777", nil)
-	picture := onePixelPNG(t)
-	response := pastePicture(board, meta.ID, picture)
-	var kept struct{ Path string }
-	if response.Code != 201 || json.Unmarshal(response.Body.Bytes(), &kept) != nil {
-		t.Fatalf("upload answered %d %s", response.Code, response.Body)
-	}
-	word := "Use this account\n\nImage: " + kept.Path
+// What his Something else? window keeps through the composer's own route, a
+// picture or an answer too long to type as one line (#2538), reaches the
+// goblin as a path its answer names, and the file there holds it whole.
+func TestAKeptPictureOrLongAnswerReachesTheGoblinWithHisAnswer(t *testing.T) {
+	long := strings.Repeat("Use the shop's bot account, not mine.\n", 527)[:20000]
+	for _, c := range []struct {
+		what, name string
+		body       []byte
+		answer     func(path string) string
+	}{
+		{"a picture", "shot.png", nil, func(path string) string { return "Use this account\n" + path }},
+		{"a 20,000-character answer", "answer.txt", []byte(long), func(path string) string {
+			return "My whole answer is in " + path + ". It begins: Use the shop's bot account..."
+		}},
+	} {
+		t.Run(c.what, func(t *testing.T) {
+			s, meta, run, told := skipBoard(t)
+			meta.TaskTmp = filepath.Join(s.Store.Home.State, "tasktmp", meta.ID)
+			if err := os.MkdirAll(meta.TaskTmp, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.WriteTaskMeta(s.Store.Home.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			s.Instance = "test-instance"
+			board := NewHTTP(s, "127.0.0.1:7777", nil)
+			body := c.body
+			if body == nil {
+				body = onePixelPNG(t)
+			}
+			response := postComposerFile(board, meta.ID, c.name, body)
+			var kept struct{ Path string }
+			if response.Code != 201 || json.Unmarshal(response.Body.Bytes(), &kept) != nil {
+				t.Fatalf("keeping it answered %d %s", response.Code, response.Body)
+			}
+			word := c.answer(kept.Path)
 
-	err := pressOnRun(t, s, Action{ID: "picture-answer", Kind: "run_answer", RunID: run.ID, Generation: run.Identity, Text: word})
+			err := pressOnRun(t, s, Action{ID: "kept-answer", Kind: "run_answer", RunID: run.ID, Generation: run.Identity, Text: word})
 
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(*told) != 1 || !strings.Contains((*told)[0], "Use this account") || !strings.Contains((*told)[0], "Image: "+kept.Path) {
-		t.Fatalf("the goblin was told %q, want the note and picture path", *told)
-	}
-	if data, err := os.ReadFile(kept.Path); err != nil || string(data) != string(picture) {
-		t.Fatalf("the goblin's picture cannot be read intact: %v", err)
-	}
-	if answered := s.Store.Snapshot().Runs[0]; answered.State != "withdrawn" || !strings.Contains(answered.Reason, word) {
-		t.Fatalf("run = %s %q, want it closed with the answer", answered.State, answered.Reason)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(*told) != 1 || !strings.Contains((*told)[0], kept.Path) {
+				t.Fatalf("the goblin was told %q, want the path it reads", *told)
+			}
+			if data, err := os.ReadFile(kept.Path); err != nil || string(data) != string(body) {
+				t.Fatalf("the goblin cannot read what he gave intact: %v", err)
+			}
+		})
 	}
 }
 

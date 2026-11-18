@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,7 +16,9 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/connections"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/harness"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -239,5 +242,81 @@ func TestARefusedConnectorPressRepeatedWakesTheCEOOnce(t *testing.T) {
 	}
 	if !slices.Equal(codes, []int{http.StatusForbidden, http.StatusForbidden, http.StatusForbidden}) || err != nil || refusals != 1 {
 		t.Fatalf("presses = %v, CEO woken %d times (%v), want every press refused and one wake", codes, refusals, err)
+	}
+}
+
+// liveNativeGoblin makes the task a native goblin whose terminal's host is
+// this test's own process, so a grant's re-source notice is sent to it.
+func liveNativeGoblin(t *testing.T, stateDir, id string) {
+	t.Helper()
+	meta, err := state.ReadTaskMeta(stateDir, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Backend = "native"
+	if err := state.WriteTaskMeta(stateDir, meta); err != nil {
+		t.Fatal(err)
+	}
+	// stall-accepted: a record's start time, compared only with this process's start, never by a wait.
+	data, err := json.Marshal(host.Record{ID: id, HostPID: os.Getpid(), Started: time.Now().Add(time.Second), Pipe: "fixture", Token: "fixture"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(stateDir, "hosts", id+".json"), string(data))
+}
+
+// deliverNotices answers every notice typed into a goblin with delivery and
+// returns the notices it was handed.
+func deliverNotices(t *testing.T, delivery error) *[]string {
+	t.Helper()
+	previous := typeIntoGoblin
+	t.Cleanup(func() { typeIntoGoblin = previous })
+	notices := &[]string{}
+	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _, _, _ bool) error {
+		*notices = append(*notices, text)
+		return delivery
+	}
+	return notices
+}
+
+// noticeDeliveries are a re-source notice a goblin in a turn holds for its next
+// tool call, which still reaches it, and one that reached no terminal.
+var noticeDeliveries = []struct {
+	name         string
+	delivery     error
+	isReportable bool
+}{
+	{name: "queued for the goblin's next tool call", delivery: fmt.Errorf("spawn: native terminal task-1 has the text submitted: %w", fleet.ErrQueuedForToolCall), isReportable: false},
+	{name: "typed into no terminal", delivery: fmt.Errorf("spawn: native terminal task-1: %w", fleet.ErrNotTyped), isReportable: true},
+}
+
+// A connector's grant to a goblin in a turn has its re-source notice held for
+// the goblin's next tool call, a delivery that worked, so it raises no
+// supervisor error; a notice that reached no terminal still raises one
+// (#2015).
+func TestAConnectorGrantReportsOnlyANoticeThatDidNotReachTheGoblin(t *testing.T) {
+	for _, test := range noticeDeliveries {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			s, stateDir, _ := grantBoard(t)
+			asOverlordsBoard(s)
+			liveNativeGoblin(t, stateDir, "task-1")
+			notices := deliverNotices(t, test.delivery)
+
+			// Act
+			code, body := askTheBoard(t, s, "POST", "/api/connections/grant", `{"task":"task-1","generation":"g1","connection":"service:sample","action":"grant"}`, nil)
+			s.credentialWork.Wait()
+
+			// Assert
+			if code != http.StatusOK || len(*notices) != 1 || !strings.Contains((*notices)[0], "credentials refreshed: re-source") {
+				t.Fatalf("grant = %d %s, notices %q, want one re-source notice", code, body, *notices)
+			}
+			s.mu.Lock()
+			lastError := s.lastError
+			s.mu.Unlock()
+			if reported := strings.Contains(lastError, "telling task-1 to load the credentials the Overlord granted"); reported != test.isReportable {
+				t.Fatalf("supervisor error = %q, want it reported: %v", lastError, test.isReportable)
+			}
+		})
 	}
 }
