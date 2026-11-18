@@ -6,6 +6,13 @@ import { pngOf } from "./terminal-image";
 // of his prompts and of a call's result, and a call's thumbnails.
 const PICTURES = ".message-picture img, .call-picture img";
 
+// The most pictures one copy carries. Each is drawn as a PNG up to 2048 px a
+// side and held inline in one HTML string, and none of the copy, not even its
+// words, reaches the clipboard until every one is drawn, so a selection that
+// takes in more, as a drag across a long run of screenshots does, copies its
+// words alone, as it did before #2543.
+const MOST_PICTURES = 10;
+
 // The copy of a selection before this one. Chromium fills the clipboard from
 // a page's writes one kind of data at a time and puts what it holds on at the
 // end of each, so two writes at once split their data between them: the copy
@@ -48,11 +55,14 @@ export function picturesIn(range: Range): HTMLImageElement[] {
 // so a rich target shows both and no picture's board address, whose query
 // carries the board's token, leaves the board, and its first picture as a
 // picture, for a target that takes only that. A picture that cannot be read
-// is left out; where none can be, or the browser offers no clipboard for a
-// picture, as over plain HTTP, the text is copied alone.
+// is left out; where none can be, where the selection takes in more pictures
+// than one copy carries, or where the browser offers no clipboard for a
+// picture, as over plain HTTP, the text is copied alone, and a selection with
+// no words copies nothing and fails, so the clipboard keeps what it held.
 export function copySelected(range: Range, text: string): Promise<void> {
   const pictures = picturesIn(range);
-  if (!pictures.length || !navigator.clipboard?.write || typeof ClipboardItem === "undefined") return inTurn(() => copyText(text));
+  const copyWordsAlone = () => text.trim() ? copyText(text) : Promise.reject(new Error("The selection holds no words to copy without its pictures."));
+  if (!pictures.length || pictures.length > MOST_PICTURES || !navigator.clipboard?.write || typeof ClipboardItem === "undefined") return inTurn(copyWordsAlone);
   const holder = contentsOf(range, pictures);
   const contents = holder.innerHTML;
   const copy = kept?.contents === contents ? kept : drawing(contents, holder, pictures);
@@ -62,7 +72,7 @@ export function copySelected(range: Range, text: string): Promise<void> {
     "text/html": copy.drawn.then(({ html }) => new Blob([html], { type: "text/html" })),
     "image/png": copy.drawn.then(({ png }) => png),
   });
-  return inTurn(() => navigator.clipboard.write([item]).catch(() => copyText(text)));
+  return inTurn(() => navigator.clipboard.write([item]).catch(copyWordsAlone));
 }
 
 // copiedHtml is the HTML a copy of a selection holds, where the copy last

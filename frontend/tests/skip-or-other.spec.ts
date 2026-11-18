@@ -272,6 +272,36 @@ test("a picture pasted into the pencil's window is kept beside the task and sent
   expect(sent[0].body).toMatchObject({ kind: "run_answer", run_id: "run-shop-signup-7", text: "Like this one\n\nImage: " + saved });
 });
 
+test("a selection copied from a conversation and pasted into the pencil's window keeps each of its pictures and its words", async ({ page, context }) => {
+  // Arrange: the clipboard holds what the board's copy of a chat selection
+  // holds (#2543): its words, HTML with its two pictures inline, each marked
+  // as a conversation's, and its first picture as a picture.
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await record(page);
+  await page.route("**/api/answer-images**", (route) => route.fulfill({ status: 201, json: { path: "C:\\fleet\\pasted-1.png" } }));
+  const shown = await openCard(page, "Open the command");
+  await pencilOf(shown).click();
+  const note = noteWindow(page).getByLabel("Your note");
+  await page.evaluate(async () => {
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    const picture = `<img data-conversation-picture src="data:image/png;base64,${png}" alt="">`;
+    await navigator.clipboard.write([new ClipboardItem({
+      "text/plain": new Blob(["Like these two"], { type: "text/plain" }),
+      "text/html": new Blob([`<p>Like these</p>${picture}${picture}<p>two</p>`], { type: "text/html" }),
+      "image/png": new Blob([Uint8Array.from(atob(png), (character) => character.charCodeAt(0))], { type: "image/png" }),
+    })]);
+  });
+
+  // Act
+  await note.focus();
+  await page.keyboard.press("Control+V");
+
+  // Assert: both pictures are kept and shown, and his words are in the note.
+  await expect(noteWindow(page).getByRole("img", { name: "Pasted picture 2" })).toBeVisible();
+  await expect(noteWindow(page).getByRole("img", { name: /^Pasted picture/ })).toHaveCount(2);
+  await expect(note).toHaveValue("Like these two");
+});
+
 for (const [description, word] of [["a full note", "word ".repeat(800)], ["an accented note", "é".repeat(1990)]] as const) {
   test(`a picture cannot make a credential answer exceed the card's limit with ${description}`, async ({ page }) => {
     const sent = await record(page);

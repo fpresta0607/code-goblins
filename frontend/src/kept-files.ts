@@ -88,6 +88,17 @@ export function inlinePictures(html: string): File[] {
   });
 }
 
+// pastedPictures is the pictures a paste brings a box, in their order, and
+// whether the box takes the paste's words as text too: a selection copied from
+// a conversation brings each picture it holds inline, with its words (#2543),
+// and otherwise the picture files the clipboard holds are the paste, which the
+// box takes alone.
+export function pastedPictures(clipboard: DataTransfer): { pictures: File[]; shouldKeepWords: boolean } {
+  const inline = inlinePictures(clipboard.getData("text/html"));
+  if (inline.length) return { pictures: inline, shouldKeepWords: true };
+  return { pictures: filesOf(clipboard).filter((file) => file.type.startsWith("image/")), shouldKeepWords: false };
+}
+
 // clipboardPicture reads the picture the clipboard holds, for a phone's
 // Paste a picture: an iPhone offers its own Paste in a plain text box only
 // for text (WebKit's supportedPasteboardTypesForCurrentSelection), so a

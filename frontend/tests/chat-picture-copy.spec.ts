@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "./site";
-import { fold, hoverCard, openPictured } from "./chat-pictures";
+import { fold, hoverCard, openPictured, PICTURED, servePictures } from "./chat-pictures";
 import { WINDOW } from "./desktop-window";
-import { box, field } from "./session-board";
+import { at, box, field, open, openGoblin } from "./session-board";
 
 // The Overlord, 2026-11-17 (#2543): "When I click and drag In, like, a
 // terminal or a window inside Co-Goblins in the chat window, and it selects an
@@ -153,6 +153,34 @@ const FALLBACKS: { name: string; script: string; unread: string[]; types: string
   { name: "with a picture that cannot be read copies the words and the other pictures", script: "", unread: ["home"], types: ALL, shown: [FIRST, "picture 2", "picture 3", LAST], picture: ["picture 2"] },
   { name: "with no picture that can be read copies the words alone", script: "", unread: ["home", "team", "page"], types: ["text/plain"], shown: [], picture: [] },
 ];
+// The copies that cannot hold a selection of a picture alone, which has no
+// words to copy in its place: with no clipboard for a picture, or with that
+// picture unreadable.
+const UNHELD: { name: string; script: string; unread: string[] }[] = [
+  { name: "with no clipboard for a picture", script: "delete window.ClipboardItem;", unread: [] },
+  { name: "whose picture cannot be read", script: "", unread: ["home"] },
+];
+// The ways such a selection is copied, and the words the clipboard then holds:
+// settled, by any key's release, it leaves what was copied before, and Ctrl+C
+// puts its text, which holds no words, on the clipboard.
+const TRIGGERS = [
+  { name: "settled", key: "Shift", outcome: "leaves the clipboard as it was", text: "copied since" },
+  { name: "copied with Ctrl+C", key: "Control+C", outcome: "holds no words", text: "" },
+];
+
+// A conversation of four replies whose calls each read three pictures, so a
+// selection from its first words to its last takes in twelve, more than one
+// copy carries.
+const MANY = { ...PICTURED, messages: [0, 1, 2, 3].map((seq) => ({ id: "r" + seq, seq, at, kind: "reply", blocks: [
+  { kind: "text", text: `Reading set ${seq}.` },
+  { kind: "call", call_id: "read-" + seq, tool: "Read", subject: `shots/set-${seq}`, state: "done", result: "", pictures: ["s1", "s2", "s3"].map((id) => ({ id, media_type: "image/png", bytes: 1024 })) },
+  { kind: "text", text: `Read set ${seq}.` },
+] })) };
+// A conversation of one prompt of his that holds eleven pictures and no
+// words: ten the transcript holds and one the message box kept, which his
+// text names by its path alone.
+const WORDLESS = { ...PICTURED, messages: [{ id: "p0", seq: 0, at, kind: "prompt", source: "overlord", text: KEPT + "1.png",
+  pictures: ["sent", "home", "team", "page", "babies", "s1", "s2", "s3", "s4", "s5"].map((id) => ({ id, media_type: "image/png", bytes: 1024 })) }] };
 
 for (const place of PLACES) {
   test.describe(`in ${place.name}`, () => {
@@ -391,6 +419,110 @@ for (const place of PLACES) {
         expect(copied.picture ? named([copied.picture], selection.originals) : []).toEqual(fallback.picture);
       });
     }
+
+    for (const unheld of UNHELD) {
+      for (const trigger of TRIGGERS) {
+        test(`a selection of a picture alone ${unheld.name}, ${trigger.name}, ${trigger.outcome} and never says Copied`, async ({ page }) => {
+          // Arrange: the first call's thumbnail and no words are selected,
+          // the copy cannot hold that picture, and something else was copied
+          // since.
+          if (unheld.script) await page.addInitScript({ content: unheld.script });
+          await openPictured(page);
+          await page.route((url) => url.pathname === "/api/messages" && unheld.unread.includes(url.searchParams.get("picture") ?? ""),
+            (route) => route.request().resourceType() === "fetch" ? route.fulfill({ status: 404, json: { error: "No such picture is kept" } }) : route.fallback());
+          await originalsOf(page);
+          await page.evaluate(() => navigator.clipboard.writeText("copied since"));
+          await page.getByRole("log", { name: /^Messages of / }).focus();
+          await page.locator('[data-message="m1"] .call-picture').first().evaluate((thumbnail) => {
+            const range = document.createRange();
+            range.selectNode(thumbnail);
+            getSelection()?.removeAllRanges();
+            getSelection()?.addRange(range);
+          });
+          const refused = unheld.unread.length
+            ? page.waitForResponse((response) => response.status() === 404 && unheld.unread.includes(new URL(response.url()).searchParams.get("picture") ?? ""))
+            : Promise.resolve(null);
+
+          // Act: then the copy has its time to land, once the picture's read
+          // is refused where it cannot be read.
+          await page.keyboard.press(trigger.key);
+          await refused;
+          await page.waitForTimeout(500);
+
+          // Assert: each read once, not waited for, since a Copied that was
+          // said goes again after a while.
+          expect(await page.getByRole("status").filter({ hasText: "Copied" }).count()).toBe(0);
+          expect((await page.evaluate(() => navigator.clipboard.readText())).trim()).toBe(trigger.text);
+        });
+      }
+    }
+
+    test("a selection of more pictures than one copy carries copies its words alone, as it did before", async ({ page }) => {
+      // Arrange: a conversation whose twelve pictures are drawn, and a
+      // selection from its first words to its last that takes in every one.
+      await open(page, undefined, undefined, MANY);
+      await servePictures(page);
+      await openGoblin(page);
+      const pictures = page.locator(".call-picture img").filter({ visible: true });
+      await expect(pictures).toHaveCount(12);
+      for (const picture of await pictures.all()) await expect.poll(() => picture.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
+      await page.getByRole("log", { name: /^Messages of / }).focus();
+      const last = await page.getByText("Read set 3.", { exact: true }).elementHandle();
+      await page.getByText("Reading set 0.", { exact: true }).evaluate((first, end) => {
+        const range = document.createRange();
+        range.setStart(first, 0);
+        range.setEndAfter(end!);
+        getSelection()?.removeAllRanges();
+        getSelection()?.addRange(range);
+      }, last);
+      const selected = await page.evaluate(() => ({
+        pictures: [...document.querySelectorAll(".call-picture img")].filter((image) => getSelection()!.getRangeAt(0).intersectsNode(image)).length,
+        text: getSelection()?.toString() ?? "",
+      }));
+      expect(selected.pictures).toBe(12);
+
+      // Act: a key's release settles it.
+      await page.keyboard.press("Shift");
+      await expect(page.getByRole("status").filter({ hasText: "Copied" })).toBeVisible();
+
+      // Assert: its words alone, as a selection without pictures copies them.
+      const copied = await clipboardOf(page);
+      expect(copied.types).toEqual(["text/plain"]);
+      expect(copied.text).toBe(selected.text);
+    });
+
+    test("a selection of more pictures than one copy carries and no words reads none of them, copies nothing and never says Copied", async ({ page }) => {
+      // Arrange: his prompt's eleven pictures alone are selected, and
+      // something else was copied since.
+      await open(page, undefined, undefined, WORDLESS);
+      await servePictures(page);
+      await openGoblin(page);
+      await expect(page.locator('[data-message="p0"] .message-picture img')).toHaveCount(11);
+      await page.evaluate(() => navigator.clipboard.writeText("copied since"));
+      await page.getByRole("log", { name: /^Messages of / }).focus();
+      await page.locator('[data-message="p0"] .message-pictures').evaluate((pictures) => {
+        const range = document.createRange();
+        range.selectNode(pictures);
+        getSelection()?.removeAllRanges();
+        getSelection()?.addRange(range);
+      });
+      const reads: string[] = [];
+      page.on("request", (request) => {
+        const url = new URL(request.url());
+        if (request.resourceType() === "fetch" && (url.searchParams.has("picture") || url.pathname === "/api/composer/file")) reads.push(url.pathname);
+      });
+
+      // Act: a key's release settles it, and the copy has its time to begin
+      // reading the pictures, as a copy that carries them does at once.
+      await page.keyboard.press("Shift");
+      await page.waitForTimeout(500);
+
+      // Assert: each read once, as a Copied that was said goes again after a
+      // while.
+      expect(reads).toEqual([]);
+      expect(await page.getByRole("status").filter({ hasText: "Copied" }).count()).toBe(0);
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("copied since");
+    });
 
     test("a copy whose pictures could not be read reads them again for the next copy", async ({ page }) => {
       // Arrange: the drag's copy could read none of the reply's pictures, so

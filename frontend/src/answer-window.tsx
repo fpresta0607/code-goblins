@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { message, request } from "./api";
 import { DictatedAnswer } from "./dictated-answer";
 import { Icon } from "./Icon";
+import { pastedPictures } from "./kept-files";
 import { Notice } from "./notice";
 import { object, string } from "./types";
 import "./credential-card.css";
@@ -51,9 +52,9 @@ export function AnswerWindow({ asker, task, instance, isSending = false, refusal
   return <dialog ref={dialog} className="credential-replace skip-note" aria-labelledby={title}
     onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }} onCancel={(event) => { event.preventDefault(); onCancel(); }}
     onPaste={(event) => {
-      const images = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/"));
+      const { pictures: images, shouldKeepWords } = pastedPictures(event.clipboardData);
       if (!images.length) return;
-      event.preventDefault();
+      if (!shouldKeepWords) event.preventDefault();
       images.forEach((file) => void keep(file));
     }}>
     <h2 id={title}>Something else?</h2>

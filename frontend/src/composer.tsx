@@ -12,7 +12,7 @@ import { EnginePane } from "./engine-pane";
 import { HarnessMark } from "./harness-mark";
 import { HarnessPanel } from "./harness-panel";
 import { Icon } from "./Icon";
-import { clipboardPicture, filesOf, inlinePictures, keptFiles } from "./kept-files";
+import { clipboardPicture, filesOf, inlinePictures, keptFiles, pastedPictures } from "./kept-files";
 import { isHarnessHeld, isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { mentionAt, mentionedFiles, mentionFile, parseFiles } from "./mentions";
 import { cycleMode, MODE_NOT_SENT } from "./mode-cycle";
@@ -567,14 +567,9 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // inline in its HTML: each arrives as a pasted picture does, in their
   // order, and its words paste as text (#2543).
   const paste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
-    const inline = inlinePictures(event.clipboardData.getData("text/html"));
-    if (inline.length) {
-      void add(inline);
-      return;
-    }
-    const pictures = filesOf(event.clipboardData).filter((file) => file.type.startsWith("image/"));
+    const { pictures, shouldKeepWords } = pastedPictures(event.clipboardData);
     if (!pictures.length) return;
-    event.preventDefault();
+    if (!shouldKeepWords) event.preventDefault();
     void add(pictures);
   };
   // A file dragged onto the box is added as one chosen with Add files.
