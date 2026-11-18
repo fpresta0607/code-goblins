@@ -519,8 +519,9 @@ func TestFleetViewNamesAHelpersParent(t *testing.T) {
 	}
 }
 
-// fleet-view names each goblin as "Name (id)", live or completed, so the CEO
-// can talk about it by name, and keeps the bare id for one with no name.
+// fleet-view names each goblin as "Name - Title (id)", live or completed, so
+// the CEO can talk about it by name, and keeps the bare id for one with no
+// name.
 func TestFleetViewNamesEachGoblinByNameAndID(t *testing.T) {
 	// Arrange
 	h := snapshotHome(t)
@@ -543,7 +544,7 @@ func TestFleetViewNamesEachGoblinByNameAndID(t *testing.T) {
 	if err != nil || markdownErr != nil || jsonErr != nil {
 		t.Fatalf("snapshot %v, markdown %v, json %v", err, markdownErr, jsonErr)
 	}
-	for _, want := range []string{"| Jerry (g1) |", "| g2 |", "| Mabel (g0) | Shipped work |"} {
+	for _, want := range []string{"| Jerry - Code Designer (g1) |", "| g2 |", "| Mabel - Bug Hunter (g0) | Shipped work |"} {
 		if !strings.Contains(markdown.String(), want) {
 			t.Errorf("fleet view lacks %q:\n%s", want, markdown.String())
 		}
