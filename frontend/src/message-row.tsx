@@ -3,13 +3,14 @@ import { promptPictures } from "./conversation-pictures";
 import { Disclosure } from "./Disclosure";
 import { HarnessMark } from "./harness-mark";
 import { Icon } from "./Icon";
-import { keptPictures } from "./kept-files";
+import { keptPictures, pastedTexts } from "./kept-files";
 import { LongText } from "./long-text";
 import { MessageCalls } from "./message-calls";
 import { MessageCopy } from "./message-copy";
 import { MessagePictures } from "./message-pictures";
 import { MessageText } from "./message-text";
 import { inlineElements, isLongText, linkedText, literalLinks } from "./messageText";
+import { PastedTexts } from "./pasted-texts";
 import { copyText, replyParts, type SessionMessage } from "./session-messages";
 import type { Task, TreeNode } from "./types";
 
@@ -43,7 +44,7 @@ function sentAt(at: string): string {
 // (the Overlord, 2026-10-28: "see how claude includes pictures when pasted"):
 // those the transcript holds, read back by id (picture), and those the
 // message box kept and named by path, which show in place of the path
-// (keptPicture), never the path itself. A reply shows when it arrived only
+// (keptFile), never the path itself. A reply shows when it arrived only
 // where it ends its turn (isTurnEnd), once the turn has ended, its time, then
 // its last text's Copy, then the mark of the session's harness (the Overlord,
 // 2026-10-28: "Copy should come after the timestamp. The icon should come
@@ -51,13 +52,15 @@ function sentAt(at: string): string {
 // it, shown without a pointer over it, while the turn still runs, since the
 // transcript holds each text whole once it shows (#2048: a text section of a
 // reply had no copy button on a phone).
+// A long paste the box kept as text shows above his words as the chip that
+// opens to it (PastedTexts), read back as a kept picture is (keptFile).
 // openFolds are the folds of this message he opened, kept by the view so
 // they stay open when the row leaves the window and comes back, and onFold is
 // told of each one he opens or closes.
 // onRun, given for a reply whose words are written, runs a PowerShell block
 // of its text by the reply, the text block and the block's place in it.
-export const MessageRow = memo(function MessageRow({ message, task, harness, picture, keptPicture, onChild, openFolds, onFold, isTurnEnd, onRun }: {
-  message: SessionMessage; task?: Task; harness: string; picture: (id: string) => string; keptPicture: (path: string) => string; onChild: (child: TreeNode, source: HTMLElement) => void;
+export const MessageRow = memo(function MessageRow({ message, task, harness, picture, keptFile, onChild, openFolds, onFold, isTurnEnd, onRun }: {
+  message: SessionMessage; task?: Task; harness: string; picture: (id: string) => string; keptFile: (path: string) => string; onChild: (child: TreeNode, source: HTMLElement) => void;
   openFolds: ReadonlySet<string>; onFold: (message: string, fold: string, isOpen: boolean) => void; isTurnEnd: boolean;
   onRun?: (message: string, block: number, fence: number) => Promise<void>;
 }) {
@@ -104,11 +107,13 @@ export const MessageRow = memo(function MessageRow({ message, task, harness, pic
   if (message.source === "notice") return <p className="message-notice" data-message={message.id}>{message.text !== HOOK_FEEDBACK && copy}{linkedText(message.text)}</p>;
   const command = message.source === "slash" || message.source === "shell";
   const printed = [message.output, message.errors].filter(Boolean).join("\n");
-  const kept = command ? { text: message.text, paths: [] } : keptPictures(message.text);
-  const pictures = promptPictures(message, picture, keptPicture);
+  const pasted = command ? { text: message.text, pastes: [] } : pastedTexts(message.text);
+  const kept = command ? { text: message.text, paths: [] } : keptPictures(pasted.text);
+  const pictures = promptPictures(message, picture, keptFile);
   return <article ref={row} className={"message message-prompt " + message.source + (isActionsOpen ? " actions-open" : "")} data-message={message.id}
     onClick={() => { if (!window.getSelection()?.toString()) setActionsOpen((prior) => !prior); }}>
     <MessagePictures sources={pictures} />
+    <PastedTexts pastes={pasted.pastes} source={keptFile} />
     {kept.text && <div className="message-bubble"><LongText isLong={isLongText(kept.text)} {...fold("more")}>
       {command ? <code>{literalLinks((message.source === "shell" ? "!" : "") + kept.text)}</code> : <MessageText text={kept.text} />}
     </LongText></div>}
