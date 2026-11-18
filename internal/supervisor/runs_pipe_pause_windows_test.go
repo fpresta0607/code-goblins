@@ -79,14 +79,6 @@ func TestTheRunPipeIsServedOnceTheSupervisorBeforeLetsGoAcrossAPauseOfTheWholeMa
 	}
 }
 
-// shorten sets *wait to length for the test.
-func shorten(t *testing.T, wait *time.Duration, length time.Duration) {
-	t.Helper()
-	previous := *wait
-	*wait = length
-	t.Cleanup(func() { *wait = previous })
-}
-
 // A client that connected sends its request across a pause, since the pause
 // stopped it with the supervisor, and is answered (#1247).
 func TestARunRequestSentAfterAPauseOfTheWholeMachineIsAnswered(t *testing.T) {
