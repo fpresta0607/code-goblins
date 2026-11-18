@@ -1,6 +1,6 @@
 # Orchestrator patterns adopted in Code Goblins
 
-This V1 borrows mechanisms, not control planes. Code Goblins remains a local, Windows-native Go program using Herdr and git worktrees.
+This V1 borrows mechanisms, not control planes. Code Goblins remains a local Go program using Herdr and git worktrees.
 
 | System | Mechanism inspected | Code Goblins decision |
 |---|---|---|
