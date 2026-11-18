@@ -231,9 +231,9 @@ func (r Reader) CheckStart(ctx context.Context, project, worktree, branch, inten
 	if err := r.query(ctx, `SELECT runs.id AS id, runs.status AS status, runs.head_sha AS head, COALESCE(runs.submitted_head_sha,'') AS submitted_head, COALESCE(runs.intent,'') AS intent FROM runs JOIN repos ON repos.id=runs.repo_id WHERE lower(replace(repos.working_path,char(92),'/'))=lower(`+sqlString(filepath.ToSlash(project))+`) AND runs.branch=`+sqlString(branch)+` ORDER BY runs.created_at DESC,runs.id DESC LIMIT 1`, &previous); err != nil {
 		return StartCheck{}, err
 	}
-	// A failed or cancelled run that spent repair rounds, as a pause that ends
-	// a gate's live agent can leave one, would have them begin again in a new
-	// run (issue 2060). Its continuation is the CEO's terminal admission, which
+	// A failed or cancelled run that spent repair rounds, as a daemon restart
+	// or crash leaves one whose step was executing, would have them begin again
+	// in a new run (issue 2060). Its continuation is the CEO's terminal admission, which
 	// keeps that spending. One whose admission chain spent none loses nothing
 	// to a new run.
 	if len(previous) > 0 && (previous[0].Status == "failed" || previous[0].Status == "cancelled") {

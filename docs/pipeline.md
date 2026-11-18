@@ -230,7 +230,7 @@ A still-live original run is named in the contributor's resume instruction, so i
 A run that ended while its goblin was paused, as a daemon restart ends a run whose step was executing, is named with its terminal status.
 Resume does not select validation agents or migrate the frozen policy; an older policy alone does not block contributor restoration.
 Actual validation requires an explicit supported pipeline command, which still enforces the frozen policy and launch selection.
-A pause that ends a gate's live agent leaves its run failed or cancelled before it pushed, where neither `handback`, which needs a published head, nor `respond`, which needs a parked gate, applies (issue 2060).
+A pause keeps its goblin's gate run running, but a daemon restart or crash ends a run whose step was executing, so a goblin can come back from a pause to its run failed or cancelled before it pushed, where neither `handback`, which needs a published head, nor `respond`, which needs a parked gate, applies (issue 2060).
 The resume note of such a run names its continuation, so the goblin need not ask what it is.
 It reads the run with `goblins pipeline terminal-preflight <id> --run <run>`.
 A run that spent no repair round, counting every predecessor a terminal admission made it continue, loses nothing to a new run, so `goblins pipeline run` starts one.
