@@ -231,8 +231,27 @@ func (r Reader) CheckStart(ctx context.Context, project, worktree, branch, inten
 	if err := r.query(ctx, `SELECT runs.id AS id, runs.status AS status, runs.head_sha AS head, COALESCE(runs.submitted_head_sha,'') AS submitted_head, COALESCE(runs.intent,'') AS intent FROM runs JOIN repos ON repos.id=runs.repo_id WHERE lower(replace(repos.working_path,char(92),'/'))=lower(`+sqlString(filepath.ToSlash(project))+`) AND runs.branch=`+sqlString(branch)+` ORDER BY runs.created_at DESC,runs.id DESC LIMIT 1`, &previous); err != nil {
 		return StartCheck{}, err
 	}
-	// A terminal run has no budget left to reset, so only a still-live one
-	// can block a new run. The set matches Idle's.
+	// A failed or cancelled run that spent repair rounds, as a pause that ends
+	// a gate's live agent can leave one, would have them begin again in a new
+	// run (issue 2060). Its continuation is the CEO's terminal admission, which
+	// keeps that spending. One that spent none loses nothing to a new run, as
+	// recovery's returned-custody refusal counts it (#2378).
+	if len(previous) > 0 && (previous[0].Status == "failed" || previous[0].Status == "cancelled") {
+		run := previous[0]
+		var spent []struct {
+			Rounds int `json:"rounds"`
+		}
+		if err := r.query(ctx, `SELECT COUNT(*) AS rounds FROM step_rounds q JOIN step_results s ON s.id=q.step_result_id WHERE s.run_id=`+sqlString(run.ID)+` AND q.trigger_type IN ('auto_fix','user_fix')`, &spent); err != nil {
+			return StartCheck{}, err
+		}
+		if len(spent) != 1 {
+			return StartCheck{}, errors.New("pipeline: run repair rounds cannot be read")
+		}
+		if spent[0].Rounds > 0 {
+			return StartCheck{}, fmt.Errorf("%w; run %s is %s on %s after %d repair rounds, which a new run would begin again: read it with goblins pipeline terminal-preflight <task> --run %s, and its continuation is the CEO's terminal admission, goblins pipeline validate-terminal for its unchanged head or validate-authored for a corrected one, which keeps that spending", ErrUnresolved, run.ID, run.Status, branch, spent[0].Rounds, run.ID)
+		}
+	}
+	// A live run blocks a new one. The set matches Idle's.
 	if len(previous) > 0 && !terminalRunStatus[previous[0].Status] {
 		run := previous[0]
 		// Native reattachment keeps the run's own intent, so a start may only

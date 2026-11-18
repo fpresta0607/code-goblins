@@ -161,10 +161,17 @@ func TestResumeTellsAGoblinWhichGateRunIsStillRunning(t *testing.T) {
 		name, status, pausedRun, refusal string
 		queryError                       error
 		isTold                           bool
+		// continuation is the command the note names to continue the run.
+		continuation string
 	}{
 		{name: "a run a memory pause left alone", status: "running", pausedRun: "run-1", isTold: true},
 		{name: "a run its pause could not abort", status: "running", pausedRun: "run-1", isTold: true},
 		{name: "a run that finished while it was paused", status: "completed", pausedRun: "run-1", isTold: true},
+		// A pause that ends a gate's live agent leaves its run failed or
+		// cancelled, and the note names the continuation that keeps its spent
+		// review rounds, never a vague one the goblin must ask about (issue 2060).
+		{name: "a run its pause ended", status: "failed", pausedRun: "run-1", isTold: true, continuation: "goblins pipeline terminal-preflight task --run run-1"},
+		{name: "a run its pause cancelled", status: "cancelled", pausedRun: "run-1", isTold: true, continuation: "goblins pipeline terminal-preflight task --run run-1"},
 		{name: "an unbound live run", status: "running", refusal: "no saved validation identity"},
 		{name: "an unbound terminal run", status: "failed", refusal: "no saved validation identity"},
 		{name: "unreadable unbound validation", queryError: errors.New("database locked"), refusal: "state query failed"},
@@ -207,6 +214,9 @@ func TestResumeTellsAGoblinWhichGateRunIsStillRunning(t *testing.T) {
 			}
 			if testCase.isTold && strings.ContainsAny(strings.TrimPrefix(received.ResumeNote, prior.ResumeNote+"\n"), "\r\n") {
 				t.Errorf("resume note = %q, want the run named on one line of its own", received.ResumeNote)
+			}
+			if testCase.continuation != "" && (!strings.Contains(received.ResumeNote, testCase.continuation) || !strings.Contains(received.ResumeNote, "goblins pipeline validate-terminal") || !strings.Contains(received.ResumeNote, "goblins notify task --blocked")) {
+				t.Errorf("resume note = %q, want it to name %q and the CEO's terminal admission", received.ResumeNote, testCase.continuation)
 			}
 		})
 	}

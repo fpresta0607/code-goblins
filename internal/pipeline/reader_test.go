@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -438,30 +439,46 @@ INSERT INTO runs VALUES('previous','repo','feature',1,'running','` + primaryRout
 	}
 }
 
-func TestCheckStartRefusesOnlyANonTerminalPreviousRun(t *testing.T) {
+// A failed or cancelled run that spent repair rounds would have them begin
+// again in a new run, as a pause that ends a gate's live agent can leave one
+// (issue 2060), so it is refused like a live run; its continuation is the
+// CEO's terminal admission. One that spent none, even after Review approved
+// it, loses nothing to a new run.
+func TestCheckStartRefusesALiveRunAndAStoppedOneThatSpentRepairs(t *testing.T) {
 	sqlite, err := exec.LookPath("sqlite3")
 	if err != nil {
 		t.Skip("sqlite3 CLI not available")
 	}
 	for _, c := range []struct {
-		status     string
-		unresolved bool
+		status       string
+		repairRounds int
+		unresolved   bool
 	}{
-		{"completed", false},
-		{"failed", false},
-		{"cancelled", false},
-		{"ci_monitor_interrupted", false},
-		{"running", true},
-		{"pending", true},
-		{"awaiting_approval", true},
-		{"unknown", true},
+		{"completed", 2, false},
+		{"failed", 0, false},
+		{"cancelled", 0, false},
+		{"failed", 1, true},
+		{"cancelled", 2, true},
+		{"ci_monitor_interrupted", 2, false},
+		{"running", 0, true},
+		{"pending", 0, true},
+		{"awaiting_approval", 0, true},
+		{"unknown", 0, true},
 	} {
-		t.Run(c.status, func(t *testing.T) {
+		t.Run(fmt.Sprintf("%s after %d repair rounds", c.status, c.repairRounds), func(t *testing.T) {
+			// Arrange
 			dir := t.TempDir()
 			sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
 CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,created_at INTEGER,status TEXT,head_sha TEXT,submitted_head_sha TEXT,intent TEXT);
+CREATE TABLE step_results(id TEXT,run_id TEXT,step_name TEXT);
+CREATE TABLE step_rounds(step_result_id TEXT,round INTEGER,trigger_type TEXT);
 INSERT INTO repos VALUES('repo','C:\project','main');
-INSERT INTO runs VALUES('previous','repo','feat',1,'` + c.status + `','` + primaryRoutingSHA + `','` + primaryRoutingSHA + `','ship safely');`
+INSERT INTO runs VALUES('previous','repo','feat',1,'` + c.status + `','` + primaryRoutingSHA + `','` + primaryRoutingSHA + `','ship safely');
+INSERT INTO step_results VALUES('intent','previous','intent'),('review','previous','review'),('test','previous','test');
+INSERT INTO step_rounds VALUES('intent',1,'initial'),('review',1,'initial'),('test',1,'initial');`
+			for round := 2; round <= c.repairRounds+1; round++ {
+				sql += fmt.Sprintf("\nINSERT INTO step_rounds VALUES('review',%d,'auto_fix');", round)
+			}
 			if out, err := exec.Command(sqlite, filepath.Join(dir, "state.sqlite"), sql).CombinedOutput(); err != nil {
 				t.Fatalf("fixture: %s %v", out, err)
 			}
@@ -474,9 +491,16 @@ INSERT INTO runs VALUES('previous','repo','feat',1,'` + c.status + `','` + prima
 			runPipelineGit(t, worktree, "-c", "user.name=Pipeline Test", "-c", "user.email=pipeline@example.com", "commit", "--allow-empty", "-m", "work")
 			t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(worktree))
 			reader := Reader{Root: dir, Commands: pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}}
+
+			// Act
 			_, err := reader.CheckStart(context.Background(), "C:/project", worktree, "feat", "ship safely", testPolicy(t))
+
+			// Assert
 			if errors.Is(err, ErrUnresolved) != c.unresolved {
-				t.Fatalf("status %q: %v", c.status, err)
+				t.Fatalf("status %q after %d repair rounds: %v", c.status, c.repairRounds, err)
+			}
+			if c.unresolved && c.repairRounds > 0 && !strings.Contains(err.Error(), "goblins pipeline terminal-preflight <task> --run previous") {
+				t.Fatalf("refusal names no continuation: %v", err)
 			}
 		})
 	}
