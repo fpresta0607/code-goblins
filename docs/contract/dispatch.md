@@ -107,7 +107,8 @@ A subject word another live or queued goblin's title already names is passed ove
 A task that gives no word a title can use gets a generic title, such as Code Designer.
 `goblins spawn` prints the pair on a `goblin:` line, the task's record keeps it, and the supervisor gives one to any live goblin that has none, the pair it was queued with where it has one.
 The board, the merge train and the orchestration canvas show the name, title and harness icon in place of the task id, a queued task's card included, and the task sits in the panel and the hover tooltip.
-`goblins fleet-view`, the wake queue and a merge train's pull request name each goblin as `Name (id)`.
+`goblins fleet-view` names each goblin as `Name - Title (id)`, and the wake queue and a merge train's pull request as `Name (id)`.
+`goblins fleet-view --name <name>` finds the task the board calls by a name.
 Call goblins by name when you tell the Supreme Overlord about them.
 The id stays the handle every `goblins` command takes.
 
