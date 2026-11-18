@@ -24,7 +24,7 @@ export function callPictures(calls: MessageBlock[], picture: (id: string) => str
 
 // promptPictures is the pictures he sent with a prompt: those the transcript
 // holds, then those the box kept and his words name by path, a pasted text
-// after them on their line or not. A command's words are what he typed,
+// beside them on their line or not. A command's words are what he typed,
 // never a kept picture.
 export function promptPictures(message: SessionMessage, picture: (id: string) => string, keptPicture: (path: string) => string): string[] {
   const isCommand = message.source === "slash" || message.source === "shell";

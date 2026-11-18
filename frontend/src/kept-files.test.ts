@@ -7,6 +7,9 @@ const UNIX = "/home/goblin/composer-files/pasted-1.png";
 const TEXT_WINDOWS = "C:\\dev\\code-goblins\\state\\composer-files\\pasted-77.txt";
 const TEXT_UNIX = "/home/goblin/composer-files/pasted-78.txt";
 const TEXT_SPACED = "C:\\Users\\Jo Smith\\goblins\\state\\composer-files\\pasted-79.txt";
+// Files he added to the box, which it keeps under the same names.
+const ADDED_NOTES = "C:\\dev\\code-goblins\\state\\composer-files\\pasted-80.md";
+const ADDED_TEXT = "C:\\dev\\code-goblins\\state\\composer-files\\pasted-81.txt";
 
 test("a long paste kept as a file is named with its line count, as Send names it", () => {
   assert.equal(pastedTextLine(TEXT_WINDOWS, 3232), "Pasted text, 3,232 lines: " + TEXT_WINDOWS);
@@ -14,12 +17,17 @@ test("a long paste kept as a file is named with its line count, as Send names it
 });
 
 // A harness's record joins the lines the board typed with spaces, so a
-// pasted text is found at the end of his words' line too, before or after
-// the pictures the box kept, and his words keep the rest.
-test("a pasted text on a line of its own or at the end of his words becomes its chip", () => {
+// pasted text is found at the end of a line too, after his words or with
+// none, before or after another pasted text or another file the box kept,
+// which his words keep with the rest.
+test("a pasted text on a line of its own or joined on a line of the record becomes its chip, and the other kept files there stay in his words", () => {
   for (const [text, want] of [
     ["look at this\n" + pastedTextLine(TEXT_WINDOWS, 3232), { text: "look at this", pastes: [{ path: TEXT_WINDOWS, lines: 3232 }] }],
     ["look at this " + pastedTextLine(TEXT_WINDOWS, 3232) + " " + pastedTextLine(TEXT_UNIX, 1), { text: "look at this", pastes: [{ path: TEXT_WINDOWS, lines: 3232 }, { path: TEXT_UNIX, lines: 1 }] }],
+    [pastedTextLine(TEXT_WINDOWS, 300) + " " + pastedTextLine(TEXT_UNIX, 700), { text: "", pastes: [{ path: TEXT_WINDOWS, lines: 300 }, { path: TEXT_UNIX, lines: 700 }] }],
+    [pastedTextLine(TEXT_WINDOWS, 3) + " " + WINDOWS + " " + pastedTextLine(TEXT_UNIX, 5), { text: WINDOWS, pastes: [{ path: TEXT_WINDOWS, lines: 3 }, { path: TEXT_UNIX, lines: 5 }] }],
+    ["see " + pastedTextLine(TEXT_WINDOWS, 3) + " " + ADDED_NOTES, { text: "see " + ADDED_NOTES, pastes: [{ path: TEXT_WINDOWS, lines: 3 }] }],
+    [pastedTextLine(TEXT_WINDOWS, 3) + " " + ADDED_TEXT, { text: ADDED_TEXT, pastes: [{ path: TEXT_WINDOWS, lines: 3 }] }],
     ["both " + pastedTextLine(TEXT_UNIX, 12) + " " + WINDOWS, { text: "both " + WINDOWS, pastes: [{ path: TEXT_UNIX, lines: 12 }] }],
     [pastedTextLine(TEXT_WINDOWS, 40) + "\n" + UNIX, { text: UNIX, pastes: [{ path: TEXT_WINDOWS, lines: 40 }] }],
     [pastedTextLine(TEXT_SPACED, 5000), { text: "", pastes: [{ path: TEXT_SPACED, lines: 5000 }] }],

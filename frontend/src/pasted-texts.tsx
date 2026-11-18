@@ -1,19 +1,18 @@
-import { useState } from "react";
+import { useContext } from "react";
 import { Icon } from "./Icon";
 import { pastedTextName, type PastedText } from "./kept-files";
-import { PastedTextWindow } from "./pasted-text-window";
+import { PastedTextOpener } from "./pasted-text-opener";
 import "./pasted-texts.css";
 
 // The long pastes a message carries as text files (#2404), each as a chip
 // that names its lines, as the box showed it before Send. A click opens its
-// text in a window (PastedTextWindow), read back from the address source
-// gives for its path.
+// text in the conversation's window for it (PastedTextOpener), read back from
+// the address source gives for its path.
 export function PastedTexts({ pastes, source }: { pastes: PastedText[]; source: (path: string) => string }) {
-  const [shown, setShown] = useState<PastedText | null>(null);
+  const open = useContext(PastedTextOpener);
   if (!pastes.length) return null;
   return <div className="pasted-texts">
     {pastes.map((paste) => <button key={paste.path} type="button" className="pasted-text"
-      onClick={(event) => { event.stopPropagation(); setShown(paste); }}><Icon name="file" />{pastedTextName(paste.lines)}</button>)}
-    {shown && <PastedTextWindow name={pastedTextName(shown.lines)} source={source(shown.path)} onClose={() => setShown(null)} />}
+      onClick={(event) => { event.stopPropagation(); open({ name: pastedTextName(paste.lines), source: source(paste.path) }); }}><Icon name="file" />{pastedTextName(paste.lines)}</button>)}
   </div>;
 }

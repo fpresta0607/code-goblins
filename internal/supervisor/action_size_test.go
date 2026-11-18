@@ -7,22 +7,23 @@ import (
 )
 
 // A message too long for the board, as a long paste into the chat's box was
-// before the box kept one as a file, is refused in plain words that name the
-// limit it passed, never "Invalid action JSON" or "action exceeds size
-// limit", and nothing is queued (#2404).
+// before the box kept one as a file, or one that names too long a file path,
+// is refused in plain words that name the limit it passed, never "Invalid
+// action JSON" or "action exceeds size limit", and nothing is queued (#2404).
 func TestAnActionTooLongForTheBoardIsRefusedInPlainWordsThatNameItsLimit(t *testing.T) {
 	for _, c := range []struct {
-		what, text, want string
-		code             int
+		what, text, file, want string
+		code                   int
 	}{
-		{"a body over the 24 KiB the board reads", strings.Repeat("x", 30000), "It is longer than the 24 KiB the board takes in one go.", 413},
-		{"text over 16,000 bytes in a body the board reads", strings.Repeat("x", 16001), "Its text is longer than the 16,000 bytes the board takes in one go.", 409},
+		{"a body over the 24 KiB the board reads", strings.Repeat("x", 30000), "", "It is longer than the 24 KiB the board takes in one go.", 413},
+		{"text over 16,000 bytes in a body the board reads", strings.Repeat("x", 16001), "", "Its text is longer than the 16,000 bytes the board takes in one go.", 409},
+		{"a file path over 4,096 bytes in a body the board reads", "see this file", "docs/" + strings.Repeat("x", 4092), "Its file path is longer than the 4,096 bytes the board takes.", 409},
 	} {
 		t.Run(c.what, func(t *testing.T) {
 			// Arrange
 			store, _ := testStore(t)
 			handler := NewHTTP(&Service{Store: store, Instance: "instance-1"}, "board.local", nil)
-			body, err := json.Marshal(map[string]string{"id": "long-1", "kind": "message", "text": c.text})
+			body, err := json.Marshal(map[string]string{"id": "long-1", "kind": "message", "text": c.text, "file": c.file})
 			if err != nil {
 				t.Fatal(err)
 			}

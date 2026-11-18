@@ -14,10 +14,10 @@ const JOINED_PICTURES = /(?:^|\s+)((?:(?:[A-Za-z]:[\\/]|[\\/])\S*[\\/]composer-f
 // A line that is only a long paste the box kept as a text file, as Send names
 // it (pastedTextLine).
 const PASTED_TEXT = /^Pasted text, (\d{1,3}(?:,\d{3})*) lines?: ((?:[A-Za-z]:[\\/]|[\\/]).*[\\/]composer-files[\\/]pasted-[^\\/]+\.txt)$/i;
-// The last of the pasted texts and pictures the box kept that end a line of
-// his words, joined to them by spaces as a harness's record keeps them: a
-// pasted text by its first two groups, a picture by its third.
-const JOINED_KEPT = /(?:^|\s+)(?:Pasted text, (\d{1,3}(?:,\d{3})*) lines?: ((?:[A-Za-z]:[\\/]|[\\/])\S*[\\/]composer-files[\\/]pasted-[^\\/\s]+\.txt)|((?:[A-Za-z]:[\\/]|[\\/])\S*[\\/]composer-files[\\/]pasted-[^\\/\s]+\.(?:png|jpe?g|gif|webp)))\s*$/i;
+// The last of the pasted texts and other files the box kept that end a line
+// of his words, joined to them by spaces as a harness's record keeps them: a
+// pasted text by its first two groups, any other kept file by its third.
+const JOINED_KEPT = /(?:^|\s+)(?:Pasted text, (\d{1,3}(?:,\d{3})*) lines?: ((?:[A-Za-z]:[\\/]|[\\/])\S*[\\/]composer-files[\\/]pasted-[^\\/\s]+\.txt)|((?:[A-Za-z]:[\\/]|[\\/])\S*[\\/]composer-files[\\/]pasted-[^\\/\s]+))\s*$/i;
 
 // A long paste the box kept as a text file the session reads whole (#2404).
 export interface PastedText { path: string; lines: number }
@@ -57,29 +57,32 @@ export function pastedTextLine(path: string, lines: number): string {
 }
 
 // pastedTexts splits his words from the pasted texts named in them, so his
-// bubble shows each as its chip: one on a line of its own, or at the end of a
-// line of his words, where it may come before or after a kept picture, which
-// stays in his words for keptPictures.
+// bubble shows each as its chip. A harness's record joins the lines the board
+// typed with spaces, so the pasted texts and other files the box kept are
+// read from the end of each line first, with his words or none before them;
+// each other kept file stays in his words, a picture for keptPictures. A line
+// with no pasted text among them is one when it is one whole, whose path may
+// hold a space.
 export function pastedTexts(text: string): { text: string; pastes: PastedText[] } {
   if (!text.includes("Pasted text, ")) return { text, pastes: [] };
   const pastes: PastedText[] = [];
   const words = text.split("\n").flatMap((line) => {
-    const whole = line.trim().match(PASTED_TEXT);
-    if (whole) {
-      pastes.push({ path: whole[2], lines: Number(whole[1].replaceAll(",", "")) });
-      return [];
-    }
     const found: PastedText[] = [];
-    const pictures: string[] = [];
+    const files: string[] = [];
     let rest = line;
     for (let kept = rest.match(JOINED_KEPT); kept; kept = rest.match(JOINED_KEPT)) {
-      if (kept[3]) pictures.unshift(kept[3]);
+      if (kept[3]) files.unshift(kept[3]);
       else found.unshift({ path: kept[2], lines: Number(kept[1].replaceAll(",", "")) });
       rest = rest.slice(0, kept.index);
     }
-    if (!found.length) return [line];
+    if (!found.length) {
+      const whole = line.trim().match(PASTED_TEXT);
+      if (!whole) return [line];
+      pastes.push({ path: whole[2], lines: Number(whole[1].replaceAll(",", "")) });
+      return [];
+    }
     pastes.push(...found);
-    const left = [rest.trimEnd(), ...pictures].filter(Boolean).join(" ");
+    const left = [rest.trimEnd(), ...files].filter(Boolean).join(" ");
     return left ? [left] : [];
   });
   return pastes.length ? { text: words.join("\n").trim(), pastes } : { text, pastes };
