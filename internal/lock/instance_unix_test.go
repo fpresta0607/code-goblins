@@ -5,7 +5,9 @@ package lock
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -154,5 +156,22 @@ func TestARecordNamesItsHoldersInstance(t *testing.T) {
 	}
 	if err := Release(dir); err != nil {
 		t.Errorf("the lock could not be let go: %v", err)
+	}
+}
+
+// A process that has ended has no instance to name.
+func TestInstanceOfAnEndedProcessIsNotFound(t *testing.T) {
+	// Arrange
+	command := exec.Command("true")
+	if err := command.Run(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	_, err := InstanceOf(command.Process.Pid)
+
+	// Assert
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("InstanceOf of an ended process = %v, want fs.ErrNotExist", err)
 	}
 }

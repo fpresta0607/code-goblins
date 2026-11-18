@@ -1,6 +1,10 @@
 package lock
 
-import "time"
+import (
+	"fmt"
+	"io/fs"
+	"time"
+)
 
 // processStatus indicates whether a process is verifiably alive, dead, or unknown.
 type processStatus int
@@ -28,4 +32,23 @@ func readProcess(pid int) (start time.Time, instance string, status processStatu
 		instance, status = processInstance(pid)
 	}
 	return start, instance, status
+}
+
+// InstanceOf is which run of its program the process with pid is now, where
+// the system reads one (Info.Instance), so a record another package writes
+// names its process as the lock's own records do. It is "" on Windows, where
+// the start alone knows the process.
+func InstanceOf(pid int) (string, error) {
+	if processInstance == nil {
+		return "", nil
+	}
+	instance, status := processInstance(pid)
+	switch status {
+	case statusAlive:
+		return instance, nil
+	case statusDead:
+		return "", fmt.Errorf("process %d: %w", pid, fs.ErrNotExist)
+	default:
+		return "", fmt.Errorf("cannot read which run of its program process %d is", pid)
+	}
 }

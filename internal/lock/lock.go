@@ -55,12 +55,12 @@ type Info struct {
 	Instance string `json:"instance,omitempty"`
 }
 
-// isProcess reports whether the process read now, started at start and
+// IsProcess reports whether the process read now, started at start and
 // running as instance, is the one the record names. An instance on either
 // side is compared exactly, and no clock is in it. With none on either, as
 // on Windows, FILETIME rounding means creation times can differ by a tick,
 // so the starts match within one second.
-func (i *Info) isProcess(start time.Time, instance string) bool {
+func (i *Info) IsProcess(start time.Time, instance string) bool {
 	if i.Instance != "" || instance != "" {
 		return i.Instance == instance
 	}
@@ -100,7 +100,7 @@ func (i *Info) Alive() bool {
 		return false
 	}
 	// status is alive; check it is the process the record names.
-	return i.isProcess(start, instance)
+	return i.IsProcess(start, instance)
 }
 
 // VerifiedAlive is the positive identity proof needed before routing input.
@@ -111,7 +111,7 @@ func (i *Info) VerifiedAlive() bool {
 		return false
 	}
 	start, instance, status := readProcess(i.PID)
-	return status == statusAlive && i.isProcess(start, instance)
+	return status == statusAlive && i.IsProcess(start, instance)
 }
 
 // ownerInfo builds the Info record for pid, the process taking custody of
