@@ -379,6 +379,122 @@ func TestPipelineRunStartsATasksGateOnItsOwnHarness(t *testing.T) {
 	}
 }
 
+// A task's gate reviews, verifies and fixes on the lanes its spawn chose for
+// those roles: the reviewer and the fixer are pinned apart from the primary,
+// which runs the Test step on the verify role's lane, and a role its spawn
+// chose no lane for stays on the task's own model.
+func TestPipelineRunLaunchesEachGateRoleOnTheLaneItsSpawnChose(t *testing.T) {
+	sonnet := map[string]string{"harness": "claude", "model": "claude-sonnet-5-5", "effort": "high"}
+	fable := map[string]string{"harness": "claude", "model": "claude-fable-5-2", "effort": "xhigh"}
+	opus := map[string]string{"harness": "claude", "model": "claude-opus-5-5", "effort": "high"}
+	own := map[string]string{"harness": "claude", "model": claudeGoblin.Model, "effort": claudeGoblin.Effort}
+	codex := map[string]string{"harness": "codex", "model": codexGoblin.Model, "effort": codexGoblin.Effort, "service_tier": "default"}
+	for _, test := range []struct {
+		name       string
+		roles      func(*state.TaskMeta)
+		fallback   pipeline.Reviewer
+		want       map[string][]map[string]string
+		wantOutput []string
+		wantNot    string
+	}{
+		{
+			name: "every role on its lane, with a signed-in fallback",
+			roles: func(meta *state.TaskMeta) {
+				meta.ReviewLane, meta.ReviewModel, meta.ReviewEffort = "fable-claude", "claude-fable-5-2", "xhigh"
+				meta.VerifyLane, meta.VerifyModel, meta.VerifyEffort = "light-claude", "claude-sonnet-5-5", "high"
+				meta.FixLane, meta.FixModel, meta.FixEffort = "opus-build", "claude-opus-5-5", "high"
+			},
+			fallback: codexGoblin,
+			want:     map[string][]map[string]string{"primary": {sonnet, codex}, "reviewer": {fable, codex}, "fixer": {opus}},
+			wantOutput: []string{
+				"pipeline gate agent: claude claude-sonnet-5-5 high, the task's own harness, on its verify lane light-claude, then the named fallback codex gpt-6.1-sol high\n",
+				"pipeline gate reviewer: claude claude-fable-5-2 xhigh, its lane fable-claude\n",
+				"pipeline gate fixer: claude claude-opus-5-5 high, its lane opus-build, alone, since no-mistakes gives a pinned fixer no fallback\n",
+			},
+		},
+		{
+			name: "a review lane alone",
+			roles: func(meta *state.TaskMeta) {
+				meta.ReviewLane, meta.ReviewModel, meta.ReviewEffort = "fable-claude", "claude-fable-5-2", "xhigh"
+			},
+			want: map[string][]map[string]string{"primary": {own}, "reviewer": {fable}, "fixer": {own}},
+			wantOutput: []string{
+				"pipeline gate agent: claude claude-opus-5-5 xhigh, the task's own harness, with no fallback named\n",
+				"pipeline gate reviewer: claude claude-fable-5-2 xhigh, its lane fable-claude\n",
+			},
+			wantNot: "pipeline gate fixer:",
+		},
+		{
+			name: "a verify lane alone",
+			roles: func(meta *state.TaskMeta) {
+				meta.VerifyLane, meta.VerifyModel, meta.VerifyEffort = "light-claude", "claude-sonnet-5-5", "high"
+			},
+			want: map[string][]map[string]string{"primary": {sonnet}, "reviewer": {own}, "fixer": {own}},
+			wantOutput: []string{
+				"pipeline gate agent: claude claude-sonnet-5-5 high, the task's own harness, on its verify lane light-claude, with no fallback named\n",
+				"pipeline gate reviewer: claude claude-opus-5-5 xhigh, the task's own model\n",
+				"pipeline gate fixer: claude claude-opus-5-5 xhigh, the task's own model\n",
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			policy := versionSixPolicy(t, test.fallback)
+			h, nm := gateHome(t, policy, operatorMachineConfig)
+			wt, _ := gatedTask(t, h, "task", policy, claudeGoblin)
+			meta, err := state.ReadTaskMeta(h.State, "task")
+			if err != nil {
+				t.Fatal(err)
+			}
+			test.roles(&meta)
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			runner := &gateStartRunner{pipelineStartRunner: pipelineStartRunner{worktree: wt}, signedIn: map[string]bool{"codex": true}}
+			var out bytes.Buffer
+
+			// Act
+			err = pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &out)
+
+			// Assert
+			if err != nil {
+				t.Fatalf("pipelineCommand: %v", err)
+			}
+			selection, raw, _, _ := launchedSelection(t, runner.native)
+			if !reflect.DeepEqual(selection.Profiles, test.want) {
+				t.Fatalf("launch selection = %s, want profiles %v", raw, test.want)
+			}
+			if test.fallback != (pipeline.Reviewer{}) && !reflect.DeepEqual(runner.probes, []string{"codex"}) {
+				t.Fatalf("sign-in asked of %v, want the fallback once", runner.probes)
+			}
+			for _, want := range test.wantOutput {
+				if !strings.Contains(out.String(), want) {
+					t.Fatalf("output %q does not say %q", out.String(), want)
+				}
+			}
+			if test.wantNot != "" && strings.Contains(out.String(), test.wantNot) {
+				t.Fatalf("output %q says %q", out.String(), test.wantNot)
+			}
+		})
+	}
+}
+
+// A no-mistakes build before pull request 310 runs every gate role on one
+// chain, and the refusal of a pinned reviewer or fixer names that build.
+func TestPipelineRunNamesTheBuildAGateRoleNeeds(t *testing.T) {
+	policy := versionSixPolicy(t, pipeline.Reviewer{})
+	h, nm := gateHome(t, policy, operatorMachineConfig)
+	wt, _ := gatedTask(t, h, "task", policy, claudeGoblin)
+	refusal := "Error: launch assertion: launch selection names one agent chain for the primary, reviewer and fixer roles\n"
+	runner := &gateStartRunner{pipelineStartRunner: pipelineStartRunner{worktree: wt}, nativeResult: execx.Result{ExitCode: 1, Stderr: []byte(refusal)}}
+
+	err := pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{})
+
+	if err == nil || !strings.Contains(err.Error(), "runs every gate role on one chain") || !strings.Contains(err.Error(), "pull request 310") || !strings.Contains(err.Error(), "task task") {
+		t.Fatalf("error = %v, want the build a gate role needs named", err)
+	}
+}
+
 func TestPipelineRunRefusesAGateForAHarnessItCannotProve(t *testing.T) {
 	policy := versionSixPolicy(t, codexGoblin)
 	h, nm := gateHome(t, policy, operatorMachineConfig)

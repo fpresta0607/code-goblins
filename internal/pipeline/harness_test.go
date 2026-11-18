@@ -157,7 +157,7 @@ func TestLaunchSelectionRendersTheTasksHarnessForEveryRole(t *testing.T) {
 		{piTask, "codex", `{"harness":"pi","model":"openrouter/deepseek/deepseek-v4.1-flash","effort":"high"}`},
 	} {
 		t.Run(test.own.Harness, func(t *testing.T) {
-			data, err := LaunchSelection(trusted, []Reviewer{test.own})
+			data, err := LaunchSelection(trusted, GateRoles{Primary: []Reviewer{test.own}, Reviewer: []Reviewer{test.own}, Fixer: []Reviewer{test.own}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -173,7 +173,8 @@ func TestLaunchSelectionRendersTheTasksHarnessForEveryRole(t *testing.T) {
 }
 
 func TestLaunchSelectionKeepsANamedFallbackInOrderForEveryRole(t *testing.T) {
-	data, err := LaunchSelection("0123456789abcdef0123456789abcdef01234567", []Reviewer{claudeTask, codexTask})
+	chain := []Reviewer{claudeTask, codexTask}
+	data, err := LaunchSelection("0123456789abcdef0123456789abcdef01234567", GateRoles{Primary: chain, Reviewer: chain, Fixer: chain})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +198,7 @@ func TestLaunchSelectionKeepsANamedFallbackInOrderForEveryRole(t *testing.T) {
 func TestLaunchSelectionRefusesAnUnreadableSourceOrChain(t *testing.T) {
 	const trusted = "0123456789abcdef0123456789abcdef01234567"
 	for name, sha := range map[string]string{"short": "0123abc", "upper case": strings.ToUpper(trusted), "empty": ""} {
-		if _, err := LaunchSelection(sha, []Reviewer{claudeTask}); err == nil {
+		if _, err := LaunchSelection(sha, GateRoles{Primary: []Reviewer{claudeTask}, Reviewer: []Reviewer{claudeTask}, Fixer: []Reviewer{claudeTask}}); err == nil {
 			t.Fatalf("a %s trusted commit was accepted", name)
 		}
 	}
@@ -206,9 +207,75 @@ func TestLaunchSelectionRefusesAnUnreadableSourceOrChain(t *testing.T) {
 		"repeated":            {claudeTask, claudeTask},
 		"pi without provider": {{Harness: "pi", Model: "m", Effort: "high"}},
 	} {
-		if _, err := LaunchSelection(trusted, chain); err == nil {
+		if _, err := LaunchSelection(trusted, GateRoles{Primary: chain, Reviewer: chain, Fixer: chain}); err == nil {
 			t.Fatalf("a %s chain was accepted", name)
 		}
+	}
+	// no-mistakes takes no fallback for a fixer pinned apart from the primary.
+	primary := []Reviewer{verifyLane, codexTask}
+	if _, err := LaunchSelection(trusted, GateRoles{Primary: primary, Reviewer: primary, Fixer: []Reviewer{fixLane, codexTask}}); err == nil || !strings.Contains(err.Error(), "one fixer agent") {
+		t.Fatalf("error = %v, want a pinned fixer with a fallback refused", err)
+	}
+}
+
+var (
+	verifyLane = Reviewer{Harness: "claude", Model: "claude-sonnet-5-5", Effort: "high"}
+	reviewLane = Reviewer{Harness: "claude", Model: "claude-fable-5-2", Effort: "xhigh"}
+	fixLane    = Reviewer{Harness: "claude", Model: "claude-opus-5-5", Effort: "high"}
+)
+
+func TestGateRoleChainsRunsEachRoleOnItsOwnLane(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		fix        Reviewer
+		fallback   Reviewer
+		isSignedIn bool
+		want       GateRoles
+		wantAsked  int
+	}{
+		{"no fallback named", fixLane, Reviewer{}, false, GateRoles{Primary: []Reviewer{verifyLane}, Reviewer: []Reviewer{reviewLane}, Fixer: []Reviewer{fixLane}}, 0},
+		{"a signed-in fallback", fixLane, codexTask, true, GateRoles{Primary: []Reviewer{verifyLane, codexTask}, Reviewer: []Reviewer{reviewLane, codexTask}, Fixer: []Reviewer{fixLane}}, 1},
+		{"a signed-out fallback", fixLane, codexTask, false, GateRoles{Primary: []Reviewer{verifyLane}, Reviewer: []Reviewer{reviewLane}, Fixer: []Reviewer{fixLane}}, 1},
+		{"a fixer on the primary's lane", verifyLane, codexTask, true, GateRoles{Primary: []Reviewer{verifyLane, codexTask}, Reviewer: []Reviewer{reviewLane, codexTask}, Fixer: []Reviewer{verifyLane, codexTask}}, 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			asked := 0
+			policy := versionSix(t, test.fallback)
+
+			// Act
+			roles, err := policy.GateRoleChains(verifyLane, reviewLane, test.fix, func(Reviewer) bool {
+				asked++
+				return test.isSignedIn
+			})
+
+			// Assert
+			if err != nil || !reflect.DeepEqual(roles, test.want) {
+				t.Fatalf("roles = %+v, %v, want %+v", roles, err, test.want)
+			}
+			if asked != test.wantAsked {
+				t.Fatalf("the fallback's sign-in was asked %d times, want %d", asked, test.wantAsked)
+			}
+		})
+	}
+}
+
+func TestLaunchSelectionPinsEachRoleToItsOwnChain(t *testing.T) {
+	const trusted = "0123456789abcdef0123456789abcdef01234567"
+	roles := GateRoles{Primary: []Reviewer{verifyLane, codexTask}, Reviewer: []Reviewer{reviewLane, codexTask}, Fixer: []Reviewer{fixLane}}
+
+	data, err := LaunchSelection(trusted, roles)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	codex := `{"harness":"codex","model":"gpt-6.1-sol","effort":"high","service_tier":"default"}`
+	want := `{"trusted_sha":"` + trusted + `","profiles":{` +
+		`"fixer":[{"harness":"claude","model":"claude-opus-5-5","effort":"high"}],` +
+		`"primary":[{"harness":"claude","model":"claude-sonnet-5-5","effort":"high"},` + codex + `],` +
+		`"reviewer":[{"harness":"claude","model":"claude-fable-5-2","effort":"xhigh"},` + codex + `]},"apply":true}`
+	if string(data) != want {
+		t.Fatalf("launch selection = %s\nwant %s", data, want)
 	}
 }
 

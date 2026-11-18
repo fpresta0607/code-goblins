@@ -287,10 +287,11 @@ func TestPausedResumeUsesTheSavedSessionInsteadOfTheLatestSession(t *testing.T) 
 	}
 }
 
-// A goblin keeps the implement worker its spawn chose across a resume on its
-// own engine, and implements its own work once the CEO changes that engine,
-// as its route lane becomes explicit.
-func TestARelaunchKeepsTheImplementWorkerOnlyOnTheTasksOwnEngine(t *testing.T) {
+// A goblin keeps the implement worker and the gate role lanes its spawn chose
+// across a resume on its own engine, and implements, reviews, verifies and
+// fixes on its own model once the CEO changes that engine, as its route lane
+// becomes explicit.
+func TestARelaunchKeepsTheRoleLanesOnlyOnTheTasksOwnEngine(t *testing.T) {
 	recorded := routing.ExecutionLane{Name: "light-codex", Harness: "codex", Model: "gpt-6.1-sol", Effort: "high"}
 	for _, test := range []struct {
 		name    string
@@ -304,6 +305,9 @@ func TestARelaunchKeepsTheImplementWorkerOnlyOnTheTasksOwnEngine(t *testing.T) {
 			// Arrange
 			f := newSwitchFixture(t, harness.Control{StopCommand: "/exit", ResumeArgs: []string{"resume", "--last"}})
 			f.meta.RouteLane, f.meta.ImplementLane, f.meta.ImplementModel, f.meta.ImplementEffort = "build", recorded.Name, recorded.Model, recorded.Effort
+			f.meta.ReviewLane, f.meta.ReviewModel, f.meta.ReviewEffort = "deep", "gpt-6-astra", "xhigh"
+			f.meta.VerifyLane, f.meta.VerifyModel, f.meta.VerifyEffort = "verification", "gpt-6-sol", "high"
+			f.meta.FixLane, f.meta.FixModel, f.meta.FixEffort = "mechanical", "gpt-6-luna", "medium"
 			if err := state.WriteTaskMeta(f.stateDir, f.meta); err != nil {
 				t.Fatal(err)
 			}
@@ -326,6 +330,14 @@ func TestARelaunchKeepsTheImplementWorkerOnlyOnTheTasksOwnEngine(t *testing.T) {
 			after, err := state.ReadTaskMeta(f.stateDir, f.meta.ID)
 			if err != nil || after.ImplementLane != test.want.Name || after.ImplementModel != test.want.Model || after.ImplementEffort != test.want.Effort {
 				t.Errorf("record = %+v, %v; want implement %+v", after, err, test.want)
+			}
+			roles := []string{after.ReviewLane, after.ReviewModel, after.ReviewEffort, after.VerifyLane, after.VerifyModel, after.VerifyEffort, after.FixLane, after.FixModel, after.FixEffort}
+			wantRoles := []string{"deep", "gpt-6-astra", "xhigh", "verification", "gpt-6-sol", "high", "mechanical", "gpt-6-luna", "medium"}
+			if test.want == (routing.ExecutionLane{}) {
+				wantRoles = make([]string, len(roles))
+			}
+			if !slices.Equal(roles, wantRoles) {
+				t.Errorf("gate role lanes on the record = %q, want %q", roles, wantRoles)
 			}
 		})
 	}

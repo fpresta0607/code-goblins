@@ -395,7 +395,11 @@ The worker edits and runs the slice's tests but never stages, commits or pushes;
 `goblins spawn` names the lane on its route line as `implement=<lane>`.
 A resume on the task's own engine keeps the worker, and an engine the CEO changes leaves the goblin implementing its own work, as an explicit `--harness`, `--model` or `--effort` at spawn does.
 A Pi goblin has no native subagent to hand a slice to, so while a Pi lane names an implement role the whole lane table is refused, and every routed spawn, `goblins route` and `goblins doctor` table and every Claude or Codex spawn or switch with native helpers fails, until the role is removed and the Pi lead implements its own work.
-Review, verification and fixes do not launch on their roles yet: `goblins route` previews each role's lane after the quota check, or says why a role is refused, and `goblins doctor` prints each lane's roles, while every goblin's gate still reviews, verifies and fixes on its own model.
+The same spawn chooses the review, verify and fix roles' first usable lanes and records them on the task, and its route line names each that is not the lead's own as `review=<lane>`, `verify=<lane>` or `fix=<lane>`.
+A review or verify role with no usable lane apart from the lead's model refuses the spawn and says why, rather than run on that model.
+The goblin's gate then launches on those lanes (docs/pipeline.md): its reviewer on the review lane, its fixer on the fix lane, and its primary agent, which runs the Test step with document and lint, on the verify lane.
+A role with no lane recorded runs on the goblin's own model, as does every role after the CEO changes the goblin's engine, and a resume on its own engine keeps the lanes.
+`goblins route` previews each role's lane after the same quota check, or says why a role is refused, and `goblins doctor` prints each lane's roles.
 A project's `routing` block carries no roles, so its lanes keep every role on the lead.
 
 `tiers` orders each harness's lanes strongest first, one lane for each model, and every lane it names runs on that harness with an explicit model.

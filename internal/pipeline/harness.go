@@ -87,6 +87,46 @@ func (p Policy) GateChain(own Reviewer, isSignedIn func(fallback Reviewer) bool)
 	return chain, nil
 }
 
+// GateRoles are the chains one run's gate roles start. The primary runs the
+// Test step and every other step but review and its fixes, the reviewer
+// reviews and the fixer applies the review's findings.
+type GateRoles struct {
+	Primary  []Reviewer
+	Reviewer []Reviewer
+	Fixer    []Reviewer
+}
+
+// GateRoleChains gives each gate role the GateChain of the profile it runs
+// on: the primary the verify role's, since the Test step is the primary's,
+// the reviewer the review role's and the fixer the fix role's. A fixer apart
+// from the primary runs its own profile alone, because no-mistakes takes no
+// fallback for a pinned fixer. The fallback's sign-in is asked once.
+func (p Policy) GateRoleChains(verify, review, fix Reviewer, isSignedIn func(fallback Reviewer) bool) (GateRoles, error) {
+	isAsked, isFallbackSignedIn := false, false
+	askOnce := func(fallback Reviewer) bool {
+		if !isAsked {
+			isAsked, isFallbackSignedIn = true, isSignedIn(fallback)
+		}
+		return isFallbackSignedIn
+	}
+	primary, err := p.GateChain(verify, askOnce)
+	if err != nil {
+		return GateRoles{}, err
+	}
+	reviewer, err := p.GateChain(review, askOnce)
+	if err != nil {
+		return GateRoles{}, err
+	}
+	fixer, err := p.GateChain(fix, askOnce)
+	if err != nil {
+		return GateRoles{}, err
+	}
+	if !slices.Equal(fixer, primary) {
+		fixer = fixer[:1]
+	}
+	return GateRoles{Primary: primary, Reviewer: reviewer, Fixer: fixer}, nil
+}
+
 type launchProfile struct {
 	Harness     string `json:"harness"`
 	Model       string `json:"model"`
@@ -95,35 +135,46 @@ type launchProfile struct {
 }
 
 // LaunchSelection is how one run carries its own agents: a no-mistakes launch
-// assertion that the daemon applies to that run alone, giving every gate role
-// the chain, and then proves against the trusted commit before any agent
-// starts. A build that cannot apply it refuses the launch.
-func LaunchSelection(trustedSHA string, chain []Reviewer) ([]byte, error) {
+// assertion that the daemon applies to that run alone, giving each gate role
+// its chain, and then proves against the trusted commit before any agent
+// starts. A reviewer or fixer chain equal to the primary runs that role on
+// the primary chain; one that differs pins the role, which only a build with
+// no-mistakes pull request 310 applies. A build that cannot apply it refuses
+// the launch.
+func LaunchSelection(trustedSHA string, roles GateRoles) ([]byte, error) {
 	if len(trustedSHA) != 40 || strings.Trim(trustedSHA, "0123456789abcdef") != "" {
 		return nil, errors.New("pipeline: a launch selection names the trusted commit by its full lowercase SHA")
 	}
-	if len(chain) == 0 {
-		return nil, errors.New("pipeline: a launch selection names at least one gate agent")
+	if len(roles.Fixer) > 1 && !slices.Equal(roles.Fixer, roles.Primary) {
+		return nil, errors.New("pipeline: a launch selection names one fixer agent unless the fixer runs the primary chain")
 	}
-	profiles := make([]launchProfile, 0, len(chain))
-	for _, agent := range chain {
-		if err := gateProfile(agent); err != nil {
-			return nil, err
+	profiles := make(map[string][]launchProfile, 3)
+	for _, role := range []struct {
+		name  string
+		chain []Reviewer
+	}{{"primary", roles.Primary}, {"reviewer", roles.Reviewer}, {"fixer", roles.Fixer}} {
+		if len(role.chain) == 0 {
+			return nil, fmt.Errorf("pipeline: a launch selection names at least one %s agent", role.name)
 		}
-		if slices.ContainsFunc(profiles, func(named launchProfile) bool { return named.Harness == agent.Harness }) {
-			return nil, fmt.Errorf("pipeline: a launch selection names %s twice", agent.Harness)
+		for _, agent := range role.chain {
+			if err := gateProfile(agent); err != nil {
+				return nil, err
+			}
+			if slices.ContainsFunc(profiles[role.name], func(named launchProfile) bool { return named.Harness == agent.Harness }) {
+				return nil, fmt.Errorf("pipeline: a launch selection's %s chain names %s twice", role.name, agent.Harness)
+			}
+			profile := launchProfile{Harness: agent.Harness, Model: agent.Model, Effort: agent.Effort}
+			if agent.Harness == "codex" {
+				profile.ServiceTier = codexServiceTier
+			}
+			profiles[role.name] = append(profiles[role.name], profile)
 		}
-		profile := launchProfile{Harness: agent.Harness, Model: agent.Model, Effort: agent.Effort}
-		if agent.Harness == "codex" {
-			profile.ServiceTier = codexServiceTier
-		}
-		profiles = append(profiles, profile)
 	}
 	return json.Marshal(struct {
 		TrustedSHA string                     `json:"trusted_sha"`
 		Profiles   map[string][]launchProfile `json:"profiles"`
 		Apply      bool                       `json:"apply"`
-	}{trustedSHA, map[string][]launchProfile{"primary": profiles, "reviewer": profiles, "fixer": profiles}, true})
+	}{trustedSHA, profiles, true})
 }
 
 // MachineProfile is the model and effort the machine config's agent_config
