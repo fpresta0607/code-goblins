@@ -4,7 +4,7 @@ import { appendDictation, useDictation } from "./useDictation";
 import { ComposerAttachments } from "./composer-attachments";
 import { DictationButton } from "./dictation-button";
 import { Icon } from "./Icon";
-import { clipboardPicture, filesOf } from "./kept-files";
+import { clipboardPicture, filesOf, pastedPictures } from "./kept-files";
 import { Notice } from "./notice";
 import { TOUCH_SCREEN } from "./small-screen";
 import { keepFile } from "./terminal-image";
@@ -80,9 +80,10 @@ export function DictatedAnswer({ label, placeholder, value, instance, disabled, 
     }
   };
   const paste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
-    const pictures = filesOf(event.clipboardData).filter((file) => file.type.startsWith("image/"));
-    if (!files || !pictures.length) return;
-    event.preventDefault();
+    if (!files) return;
+    const { pictures, shouldKeepWords } = pastedPictures(event.clipboardData);
+    if (!pictures.length) return;
+    if (!shouldKeepWords) event.preventDefault();
     void add(pictures);
   };
   const dragOver = (event: DragEvent<HTMLDivElement>) => {

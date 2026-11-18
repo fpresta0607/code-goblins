@@ -94,7 +94,7 @@ const withClipboard = (read: () => Promise<unknown[]>) => {
 test("Alt+V's read hands on the clipboard's text", async () => {
   withClipboard(async () => [item(["text/plain"], new Blob(["pasted words"], { type: "text/plain" }))]);
 
-  assert.deepEqual(await readClipboard(), { text: "pasted words" });
+  assert.deepEqual(await readClipboard(), { text: "pasted words", html: "" });
 });
 
 test("Alt+V's read hands on a picture in the clipboard", async () => {

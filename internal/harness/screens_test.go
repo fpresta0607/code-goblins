@@ -640,6 +640,51 @@ func TestAPromptLineIsADeliverysOwnOnlyWhileItHoldsNothingButItsWords(t *testing
 	}
 }
 
+// A delivery's words are still on a prompt line while every one of them, or
+// the placeholder its harness shows for them as a paste, shows there,
+// whatever shows beside them: his words, or a second copy of the line in a
+// read that joins two frames of a redraw (#2642). Part of them, an empty line
+// and one that cannot be read do not hold them all.
+func TestAPromptLineHoldsADeliverysWordsWhileEveryOneShowsOnIt(t *testing.T) {
+	rule := strings.Repeat("─", 80)
+	claudeFooter := "⏵⏵ bypass permissions on (shift+tab to cycle)"
+	codexFooter := "100% context left"
+	piFooter := "↑8.4k ↓357 R15k CH91.8% $0.001 0.8%/1.0M (auto)"
+	for name, test := range map[string]struct {
+		kind      Kind
+		screen    []string
+		typed     string
+		isHolding bool
+	}{
+		"claude every word":            {Claude, []string{rule, "❯ stop and rebase", rule, claudeFooter}, "stop and rebase", true},
+		"claude every word read twice": {Claude, []string{rule, "❯ stop and rebase", "❯ stop and rebase", rule, claudeFooter}, "stop and rebase", true},
+		"claude his words after":       {Claude, []string{rule, "❯ stop and rebase and the", rule, claudeFooter}, "stop and rebase", true},
+		"claude every row wrapped":     {Claude, []string{rule, "❯ check the tests", "  stop and rebase", rule, claudeFooter}, "check the tests stop and rebase", true},
+		"claude a paste read twice":    {Claude, []string{rule, "❯ [Pasted text #1 +3 lines]", "❯ [Pasted text #1 +3 lines]", rule, claudeFooter}, "stop\nand\nrebase\nnow", true},
+		"claude a paste, his after":    {Claude, []string{rule, "❯ [Pasted text #1 +3 lines] and the", rule, claudeFooter}, "stop\nand\nrebase\nnow", true},
+		"claude a paste, part typed":   {Claude, []string{rule, "❯ [Pasted text #1]rebase", rule, claudeFooter}, "stop and rebase", true},
+		"claude the part read so far":  {Claude, []string{rule, "❯ stop and re", rule, claudeFooter}, "stop and rebase", false},
+		"claude his words alone":       {Claude, []string{rule, "❯ wait for me", rule, claudeFooter}, "stop and rebase", false},
+		"claude an empty line":         {Claude, []string{rule, "❯ ", rule, claudeFooter}, "stop and rebase", false},
+		"claude composer unreadable":   {Claude, []string{"❯ stop and rebase"}, "stop and rebase", false},
+		"codex every word":             {Codex, []string{"› stop and rebase", "", codexFooter}, "stop and rebase", true},
+		"pi every word":                {Pi, []string{rule, "stop and rebase", rule, piFooter}, "stop and rebase", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			screens, _ := NativeScreens(test.kind)
+
+			// Act
+			isHolding := screens.ComposerHoldsAllOf(test.screen, test.typed)
+
+			// Assert
+			if isHolding != test.isHolding {
+				t.Errorf("ComposerHoldsAllOf(%q, %q) = %v, want %v", test.screen, test.typed, isHolding, test.isHolding)
+			}
+		})
+	}
+}
+
 // A line typed as a paste can come back as its harness's placeholder, which
 // is handed back only while that one placeholder is all the composer holds:
 // words or a second paste beside it are somebody else's.

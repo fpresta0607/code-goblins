@@ -64,3 +64,43 @@ func TestRunFleetRejectsUnknownFlagsWithoutState(t *testing.T) {
 		t.Errorf("stdout=%q stderr=%q, want flag diagnostic only", stdout.String(), stderr.String())
 	}
 }
+
+func TestRunFleetFindsAGoblinByItsBoardName(t *testing.T) {
+	snapshot := fleet.Snapshot{
+		Tasks: []fleet.TaskRow{{ID: "live-task", Title: "Speed up the cache", GoblinName: "Wanda", GoblinTitle: "Cache Keeper"}},
+		Backlog: fleet.BacklogRows{Queued: []fleet.BacklogRow{
+			{Structured: true, ID: "queued-task", Title: "Tidy the export page", Repo: "example", GoblinName: "Sonny", GoblinTitle: "Export Elf"},
+		}},
+	}
+	cases := []struct {
+		name       string
+		args       []string
+		wantExit   int
+		wantStdout string
+		wantStderr string
+	}{
+		{"queued", []string{"--name", "sonny"}, 0, "| queued-task | Sonny - Export Elf | queued | example | Tidy the export page | - |\n", ""},
+		{"json", []string{"--name", "WANDA", "--json"}, 0, `[{"id":"live-task","goblin_name":"Wanda","goblin_title":"Cache Keeper","state":"","project":"","title":"Speed up the cache","waits_on":""}]` + "\n", ""},
+		{"unknown", []string{"--name", "Nobody"}, 1, "", "goblins fleet-view: no goblin has the name \"Nobody\"\n"},
+		{"empty", []string{"--name", " "}, 2, "", "goblins fleet-view: --name needs a goblin's name\n"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			deps := testCommandRuntimeForHome(testHome(t))
+			deps.snapshot = func(context.Context, home.Home) (fleet.Snapshot, error) { return snapshot, nil }
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runWithRuntime(append([]string{"fleet-view"}, testCase.args...), &stdout, &stderr, deps)
+
+			// Assert
+			if exit != testCase.wantExit || !strings.HasSuffix(stdout.String(), testCase.wantStdout) || stderr.String() != testCase.wantStderr {
+				t.Errorf("exit %d, stdout %q, stderr %q; want exit %d, stdout ending %q, stderr %q", exit, stdout.String(), stderr.String(), testCase.wantExit, testCase.wantStdout, testCase.wantStderr)
+			}
+			if testCase.wantStdout == "" && stdout.Len() != 0 {
+				t.Errorf("stdout = %q, want nothing", stdout.String())
+			}
+		})
+	}
+}

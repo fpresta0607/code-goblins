@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/crewstate"
+	"github.com/fpresta0607/code-goblins/internal/goblinname"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
@@ -102,6 +103,8 @@ type TaskRow struct {
 	Pause    *state.PauseCondition `json:"pause,omitempty"`
 	// Parent is the goblin a helper works for; empty for every other task.
 	Parent string `json:"parent,omitempty"`
+	// Title is the task's short title, the one its board card shows.
+	Title string `json:"title"`
 	// GoblinName and GoblinTitle are the goblin's fun name and title.
 	GoblinName  string `json:"goblin_name,omitempty"`
 	GoblinTitle string `json:"goblin_title,omitempty"`
@@ -147,6 +150,17 @@ func BuildSnapshot(ctx context.Context, h home.Home, endpoint EndpointReader) (S
 	backlog, err := ReadCurrentBacklog(h)
 	if err != nil {
 		return Snapshot{}, err
+	}
+	// The board names each queued task in its own store, and only the board
+	// writes it: fleet-view reads the names it gave.
+	queuedNames, err := goblinname.ReadQueued(h.State)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("fleet: %w", err)
+	}
+	for i, row := range backlog.Queued {
+		if pair, isNamed := queuedNames[row.ID]; isNamed && row.Structured {
+			backlog.Queued[i].GoblinName, backlog.Queued[i].GoblinTitle = pair.Name, pair.Title
+		}
 	}
 	snapshot := Snapshot{
 		Schema:      snapshotSchema,
@@ -214,6 +228,7 @@ func BuildSnapshot(ctx context.Context, h home.Home, endpoint EndpointReader) (S
 		}
 		snapshot.Tasks = append(snapshot.Tasks, TaskRow{
 			ID:          meta.ID,
+			Title:       meta.Title,
 			Current:     current,
 			Monitor:     monitorSummary,
 			Kind:        meta.Kind,

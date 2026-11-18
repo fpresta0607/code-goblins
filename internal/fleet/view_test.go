@@ -85,10 +85,10 @@ func TestRenderersProjectOneTypedSnapshot(t *testing.T) {
 		"## Queued",
 		"## Done",
 		"## Secondmates",
-		"| ID | Current | Health | Stale | Last Seen | Escalation | Deep Inspection | Kind | Project | Credentials | Backend | Endpoint | Artifact | Path | Peek |",
-		"| active | working / endpoint | active | - | 2026-08-13T12:00:00Z | 0 | no | ship | C:\\project | github, stripe | herdr | fleet:pane-active (present) | C:\\fleet\\data\\active\\report.md | C:\\work\\active | goblins peek gb-active |",
-		"| stale | done / status | stale | 12s | 2026-08-13T12:00:00Z | 2 | yes | scout | - | none | herdr | unknown | - | - | goblins peek gb-stale |",
-		"| unknown | unknown / none | unknown | - | - | 0 | no | - | - | - | - | unknown | - | - | goblins peek gb-unknown |",
+		"| ID | Title | Current | Health | Stale | Last Seen | Escalation | Deep Inspection | Kind | Project | Credentials | Backend | Endpoint | Artifact | Path | Peek |",
+		"| active | - | working / endpoint | active | - | 2026-08-13T12:00:00Z | 0 | no | ship | C:\\project | github, stripe | herdr | fleet:pane-active (present) | C:\\fleet\\data\\active\\report.md | C:\\work\\active | goblins peek gb-active |",
+		"| stale | - | done / status | stale | 12s | 2026-08-13T12:00:00Z | 2 | yes | scout | - | none | herdr | unknown | - | - | goblins peek gb-stale |",
+		"| unknown | - | unknown / none | unknown | - | - | 0 | no | - | - | - | - | unknown | - | - | goblins peek gb-unknown |",
 		"| q1 | Queued work | - | - | prep - wait | - |",
 		"- manual queued note",
 		"Secondmates are not supported in Plan 3.",
@@ -124,9 +124,9 @@ func TestRenderMarkdownUsesSnapshotMonitorValuesWithoutFurtherReads(t *testing.T
 		`"stale_seconds":90`,
 		`"escalation":3`,
 		`"demand_deep_inspection":true`,
-		"| active | - / - | active | - | 2026-08-13T14:30:00Z | 0 | no |",
-		"| stale | - / - | stale | 1m30s | 2026-08-13T14:30:00Z | 3 | yes |",
-		"| unknown | - / - | unknown | - | - | 0 | no |",
+		"| active | - | - / - | active | - | 2026-08-13T14:30:00Z | 0 | no |",
+		"| stale | - | - / - | stale | 1m30s | 2026-08-13T14:30:00Z | 3 | yes |",
+		"| unknown | - | - / - | unknown | - | - | 0 | no |",
 	} {
 		if !strings.Contains(jsonOutput.String(), want) && !strings.Contains(markdown.String(), want) {
 			t.Errorf("rendered projections omit %q:\nJSON:\n%s\nMarkdown:\n%s", want, jsonOutput.String(), markdown.String())
