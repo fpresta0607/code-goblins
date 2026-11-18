@@ -142,7 +142,7 @@ func TestCheckCountsASkipOnlyWhenItIsCode(t *testing.T) {
 			git("commit", "-qam", "no-mistakes(review): adjust the test")
 
 			// Act
-			result, err := Check(context.Background(), execx.OSRunner{}, dir, nil)
+			result, err := Check(context.Background(), execx.OSRunner{}, dir, nil, CallLimit)
 
 			// Assert
 			if err != nil {

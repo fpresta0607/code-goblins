@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // gateRepo is a branch off main in a fresh repository, the shape a
@@ -68,6 +69,51 @@ func TestGateTestsKeptPassesWhenTheGateKeptEveryTest(t *testing.T) {
 
 	if exit != 0 || !strings.Contains(stdout.String(), "1 gate commit(s)") {
 		t.Fatalf("exit=%d stdout=%q stderr=%q, want a pass that counts the one gate commit read", exit, stdout.String(), stderr.String())
+	}
+}
+
+// Issue 1959: tests-kept gave its whole check one deadline, so on a loaded
+// machine a branch whose git calls together outlasted it failed the check,
+// though no one call was stuck. Each call gets the limit, so git calls held
+// 3 s each, two together outlasting a 5 s limit, finish the check.
+func TestGateTestsKeptFinishesWhenItsGitCallsTogetherOutlastOneCallsLimit(t *testing.T) {
+	// Arrange
+	dir, commit := gateRepo(t)
+	commit("no-mistakes(review): tighten the guard", "package x\n\nfunc TestGuardHolds(t *testing.T) { t.Log(1) }\n")
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	slow, held := t.TempDir(), t.TempDir()
+	first, second := filepath.Join(held, "1"), filepath.Join(held, "2")
+	for name, script := range map[string]string{
+		"git.cmd": `@if not exist "` + first + `" (type nul > "` + first + `" & ping -n 4 127.0.0.1 >nul) else if not exist "` + second + `" (type nul > "` + second + `" & ping -n 4 127.0.0.1 >nul)` + "\r\n" +
+			`@"` + realGit + `" %*` + "\r\n",
+		"git": "#!/bin/sh\n" +
+			"if [ ! -e '" + first + "' ]; then : > '" + first + "'; sleep 3\n" +
+			"elif [ ! -e '" + second + "' ]; then : > '" + second + "'; sleep 3\n" +
+			"fi\n" +
+			"exec '" + realGit + "' \"$@\"\n",
+	} {
+		if err := os.WriteFile(filepath.Join(slow, name), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", slow+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Chdir(dir)
+	runtime := defaultCommandRuntime()
+	runtime.testsKeptCallLimit = 5 * time.Second
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"gate", "tests-kept"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if _, err := os.Stat(second); err != nil {
+		t.Fatalf("premise: the stand-in held fewer than two git calls (%v), so they did not together outlast the limit", err)
+	}
+	if exit != 0 || !strings.Contains(stdout.String(), "tests kept: 1 gate commit(s) since") || !strings.Contains(stdout.String(), "checked, and none deleted or skipped a test") {
+		t.Fatalf("exit=%d stdout=%q stderr=%q, want the check to finish and count the one gate commit read", exit, stdout.String(), stderr.String())
 	}
 }
 
