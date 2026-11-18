@@ -708,10 +708,12 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
 
     # Get-ForkBuildOrder orders a version of a Code Goblins fork's build, such
     # as 0.1.40-codegoblins.3, by its release and then its build, one with no
-    # build number first within its release, and gives $null for a version
-    # that names no such build, as an upstream release's does.
+    # build number first within its release, whatever suffix follows the build,
+    # such as a local build's -dirty, as goblins doctor orders it, and gives
+    # $null for a version that names no such build, as an upstream release's
+    # does.
     function Get-ForkBuildOrder([string]$Version) {
-        $parts = [regex]::Match($Version, '^v?(\d+)\.(\d+)\.(\d+)-codegoblins(?:\.(\d+))?$')
+        $parts = [regex]::Match($Version, '^v?(\d+)\.(\d+)\.(\d+)-codegoblins(?:\.(\d+))?(?:-.*)?$')
         if (-not $parts.Success) {
             return $null
         }
