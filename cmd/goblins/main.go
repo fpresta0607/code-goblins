@@ -154,6 +154,7 @@ commands:
   goblins answer <question-id|wake-seq> --option <choice> [--note "<text>"]   registered CEO answers a goblin's blocked question: delivered like goblins send (queued for a working goblin's next tool call counts as delivered), the notify retired, and the choice, who and when recorded for the board
   goblins answer <question-id> --option <choice> [--note "<text>"] --record-only [--in <where>]   registered CEO records on the board a choice already given another way, for a goblin's notify already acknowledged or answered, and sends nothing; --in names where the Overlord gave it, such as chat, which the CEO's own question needs, and the card reads as his answer there
   goblins review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url|html-file> [--reopen]] | --id <stable-id> --withdraw "<reason>" [--task <id>] | --clear <stable-id> --reason "<why>"   report an item that stays in the Command Center until the Overlord answers or clears it, or withdraw your own, or as the registered primary CEO clear any open item, audited; a Scrawl page named by its HTML file is polled by the supervisor, so the Overlord's feedback on it reaches the CEO as a review wake
+  goblins page check <html-file> [--out <folder>]   check a Scrawl page you wrote without your own browser: a hidden Chrome draws its review session at a desktop and a phone width, saves a picture of the page at each beside it, lists every layout issue lavish-axi's gate found, as his Layout issues inbox shows them, and closes; exit 1 when it finds any
   goblins deliver --id <stable-id> --title "<what it is>" --file <path> [--download] [--task <id>]   hand the Overlord a file as a Scrawl page that shows it, presented in the Command Center; what he writes there reaches you as a review wake, and --download offers it to download, for a generated asset or a file he asked to keep
   goblins run-request --id <stable-id> --title "<why>" --shell powershell|pwsh|bash [--admin] [--cwd <dir>] --command-file <path>   registered CEO asks the Overlord to run a command with one click in the Command Center, where it runs in a terminal on its card that he types into; the file is read once and runs as a script file, and the exit code and the end of what its terminal showed come back as his answer; --admin runs it elevated after Windows asks him to confirm
   goblins run-request --withdraw <id> --reason "<why>"   registered CEO takes a run item nobody ran off the Command Center, audited in state/runs.audit; Run on it is refused from then on, and a replacement is a new item under a new ID
@@ -787,6 +788,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runPresent(args[1:], stdout, stderr, runtime)
 	case "review":
 		return runReview(args[1:], stdout, stderr, runtime)
+	case "page":
+		return runPage(args[1:], stdout, stderr)
 	case "deliver":
 		return runDeliver(args[1:], stdout, stderr, runtime)
 	case "run-request":
