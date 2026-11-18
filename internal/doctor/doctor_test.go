@@ -323,6 +323,11 @@ func TestMeetsFloorTreatsAMissingComponentAsZero(t *testing.T) {
 		{versionLine: "0.1.79-other.9", floor: "0.1.79-codegoblins.3"},
 		{versionLine: "lavish-axi v0.2.0-codegoblins.1", floor: "0.1.79-codegoblins.3", want: true},
 		{versionLine: "0.1.78-codegoblins.9", floor: "0.1.79-codegoblins.3"},
+		{versionLine: "0.1.79-codegoblins.4-dirty", floor: "0.1.79-codegoblins.3", want: true},
+		{versionLine: "0.1.79-codegoblins.3-dirty", floor: "0.1.79-codegoblins.3", want: true},
+		{versionLine: "0.1.79-codegoblins.2-dirty", floor: "0.1.79-codegoblins.3"},
+		{versionLine: "0.1.79-codegoblins-dirty", floor: "0.1.79-codegoblins.3"},
+		{versionLine: "0.1.80-codegoblins.1-dirty", floor: "0.1.79-codegoblins.3", want: true},
 		{versionLine: "dev", floor: "0.1.71"},
 		{versionLine: "", floor: "0.1.71"},
 	} {
