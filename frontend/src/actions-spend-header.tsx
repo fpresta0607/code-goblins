@@ -58,8 +58,11 @@ export const ActionsSpendHeader = memo(function ActionsSpendHeader({ usage, mont
           setKept(keeping(wanted, { status: "unavailable", month: wanted, total: null, repositories: [], read_at: "", checked_at: "", detail }, instance, Date.now() + REFRESH_INTERVAL_MS));
         });
     }
+    // now is not a dependency: every snapshot moves it, and one that landed
+    // while a read was on its way aborted that read and asked again (#2086).
+    // requested still changes whenever a month falls due.
     return () => controller.abort();
-  }, [requested, month, instance, now]);
+  }, [requested, month, instance]);
   useEffect(() => () => repair.current?.abort(), []);
   const readingOf = (wanted: string) => {
     const cached = keptFor(wanted);
