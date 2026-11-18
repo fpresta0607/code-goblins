@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/disk"
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/gatetest"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
@@ -1783,5 +1784,68 @@ func TestGateTestStartsNothingWhenItCanTakeNoTurn(t *testing.T) {
 	// Assert
 	if exit != 1 || strings.Contains(stdout.String(), "ran go ") || !strings.Contains(stderr.String(), "goblins gate test: this run takes no turn") {
 		t.Fatalf("exit=%d stdout=%q stderr=%q, want failed admission before any command", exit, stdout.String(), stderr.String())
+	}
+}
+
+// Issue 1960: a source read that runs out its time limit, as one under memory
+// pressure did on 2026-11-03, judged nothing, yet the check it was read for
+// was marked failed though go vet exited 0, and the step parked as a test
+// failure. Such a check is unfinished, no check after it runs, and the run
+// exits with no result, saying why on its last line.
+func TestGateTestCallsACheckWhoseSourceReadRanOutItsLimitUnfinished(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		stalledAt  int
+		isVetFirst bool
+	}{
+		{name: "the read once go vet ended", stalledAt: 2, isVetFirst: true},
+		{name: "the read as go vet started", stalledAt: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			dir := testStepModule(t, nil, map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
+			t.Chdir(dir)
+			t.Setenv("NO_MISTAKES_GATE", "")
+			runtime := standIn()
+			var ran []string
+			runtime.gateRun = func(command []string, _ string, _ []string, _, _ io.Writer) (int, error) {
+				ran = append(ran, command[1])
+				return 0, nil
+			}
+			reads := 0
+			runtime.gateReadSource = func(ctx context.Context, dir string) (verify.Source, error) {
+				reads++
+				if reads == test.stalledAt {
+					// The real read, under a context already past its limit.
+					expired, cancel := context.WithTimeout(ctx, 0)
+					defer cancel()
+					return verify.ReadSource(expired, execx.OSRunner{}, dir)
+				}
+				return verify.ReadSource(ctx, execx.OSRunner{}, dir)
+			}
+
+			// Act
+			var stdout, stderr bytes.Buffer
+			exit := gateTestWith(runtime, &stdout, &stderr)
+
+			// Assert
+			report, _ := lastReport(t)
+			if exit != exitNoTurn || report.Status != "unfinished" || len(report.Checks) != 2 || report.Checks[0].Status != "unfinished" || report.Checks[1].Status != "not_run" {
+				t.Fatalf("exit = %d, report = %+v; want exit %d, go vet unfinished and go test not run", exit, report, exitNoTurn)
+			}
+			if wantRan := map[bool][]string{true: {"vet"}, false: nil}[test.isVetFirst]; !slices.Equal(ran, wantRan) {
+				t.Errorf("ran %q, want %q: a check whose first read stalled runs nothing", ran, wantRan)
+			}
+			if strings.Contains(stderr.String(), "go vet: exit") {
+				t.Errorf("stderr = %q; want no failure said of go vet", stderr.String())
+			}
+			const want = "goblins gate test: go vet was not judged, since its source read did not finish within its time limit"
+			for name, said := range map[string]string{"stdout": stdout.String(), "stderr": stderr.String()} {
+				lines := strings.Split(strings.TrimSpace(said), "\n")
+				if !strings.HasPrefix(lines[len(lines)-1], want) || !strings.Contains(lines[len(lines)-1], "context deadline exceeded") {
+					t.Errorf("the last line of %s is %q, want it to start %q and name the read's error", name, lines[len(lines)-1], want)
+				}
+			}
+		})
 	}
 }

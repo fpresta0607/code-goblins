@@ -348,6 +348,9 @@ type commandRuntime struct {
 	gateRun       func(command []string, dir string, env []string, stdout, stderr io.Writer) (int, error)
 	gateProgress  time.Duration
 	gatePlanLimit time.Duration
+	// gateReadSource reads the source a gate check runs on, with its turn
+	// held, as the check starts and once it has ended.
+	gateReadSource func(ctx context.Context, dir string) (verify.Source, error)
 	// agentLineLimit is the longest a run that a gate's agent started waits
 	// in line (gateAgentLineLimit).
 	agentLineLimit time.Duration
@@ -576,9 +579,12 @@ func defaultCommandRuntime() commandRuntime {
 		gateRun:         runGateCommand,
 		gateProgress:    5 * time.Second,
 		gatePlanLimit:   planLimit,
-		pushRun:         runPushCommand,
-		pushMemoryPoll:  2 * time.Second,
-		pushAgain:       5 * time.Minute,
+		gateReadSource: func(ctx context.Context, dir string) (verify.Source, error) {
+			return verify.ReadSource(ctx, execx.OSRunner{}, dir)
+		},
+		pushRun:        runPushCommand,
+		pushMemoryPoll: 2 * time.Second,
+		pushAgain:      5 * time.Minute,
 		askCIRunner: func(ctx context.Context, request cirunner.Request, reply func(cirunner.Reply)) error {
 			return cirunner.Ask(ctx, cirunner.PipeName, request, reply)
 		},
