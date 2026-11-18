@@ -11,6 +11,9 @@ export function parseConnections(value: unknown) {
     checking: result.checking === true,
     error: string(result.error),
     checkedAt: string(result.checked_at),
+    // Why a goblin was not checked: it is paused or stopped, so its last
+    // result shows as it was (#2547).
+    notRunning: string(result.not_running),
     entries: array(result.entries).map((value) => {
       const entry = object(value);
       const grant = string(entry.grant);

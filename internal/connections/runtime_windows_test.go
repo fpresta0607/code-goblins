@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -84,5 +85,38 @@ func TestConnectionRuntimeRequiresMatchingOwnerFolderAndGeneration(t *testing.T)
 	}
 	if _, err := nativeRuntime(context.Background(), stateDir, meta); err == nil {
 		t.Fatal("accepted another process owner")
+	}
+}
+
+// #2547: a goblin whose harness has exited read "Goblin runtime changed.
+// Refresh connections.", which no refresh mends. Its check says plainly
+// that the harness is not running.
+func TestConnectionRuntimeSaysAHarnessThatExitedIsNotRunning(t *testing.T) {
+	// Arrange: a harness that started and exited.
+	directory := t.TempDir()
+	stateDir := t.TempDir()
+	command := execx.Command(os.Args[0], "-test.run=^TestConnectionRuntimeChild$")
+	command.Dir = directory
+	command.Env = append(os.Environ(), "CONNECTION_RUNTIME_FIXTURE=1", "GOBLINS_SPAWN_GEN=proof")
+	command.Stdin = strings.NewReader("x")
+	command.Stdout, command.Stderr = io.Discard, io.Discard
+	if err := command.Run(); err != nil {
+		t.Fatal(err)
+	}
+	record := host.Record{ID: "proof", Pipe: "scratch", Token: "synthetic", HostPID: os.Getpid(), ChildPID: command.Process.Pid, Started: time.Now().UTC()}
+	data, _ := json.Marshal(record)
+	if err := os.MkdirAll(filepath.Join(stateDir, "hosts"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "hosts", "proof.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	_, err := nativeRuntime(context.Background(), stateDir, state.TaskMeta{ID: "proof", SpawnGen: "proof", Backend: "native", Worktree: directory})
+
+	// Assert
+	if err == nil || err.Error() != "The goblin's harness is not running, so its connections could not be checked." {
+		t.Fatalf("err = %v, want the harness named not running", err)
 	}
 }

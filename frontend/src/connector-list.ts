@@ -42,7 +42,14 @@ export interface Connector {
   word: string;
   // Whether a Connect or Disconnect waits for a goblin's next terminal.
   isWaiting: boolean;
+  // Why the check of the goblin whose check says least could not confirm
+  // it, in plain words, which its row says (#2547).
+  reason: string;
 }
+
+// The states of a check that could not confirm a connector, whose reason its
+// row says.
+const UNCONFIRMED = ["unchecked", "unverified", "unknown", "failed", "unreachable"];
 
 // goblinKey names a goblin's running session: its task and its generation.
 export const goblinKey = (task: { id: string; generation: string }): string => task.id + "\n" + task.generation;
@@ -103,7 +110,7 @@ export function listConnectors(readings: GoblinReading[], asked: ReadonlyMap<str
       const key = entry.kind + ":" + entry.name.toLowerCase();
       const connector = found.get(key) ?? {
         key, name: entry.kind === "credential" ? entry.name : connectorName(entry.name), reported: entry.name, kind: entry.kind, type: connectorType(entry),
-        uses: [], status: "available" as ConnectorStatus, word: "", isWaiting: false,
+        uses: [], status: "available" as ConnectorStatus, word: "", isWaiting: false, reason: "",
       };
       connector.uses.push({ goblin, entry, isCarried: isCarried(entry, asked.get(askKey(goblin, entry.id))) });
       found.set(key, connector);
@@ -118,6 +125,7 @@ export function listConnectors(readings: GoblinReading[], asked: ReadonlyMap<str
     const { tone, word } = entryState(least.entry);
     connector.status = isSignIn(least.entry) ? "sign-in" : tone;
     connector.word = word;
+    connector.reason = UNCONFIRMED.includes(least.entry.status) ? least.entry.detail.replace(/^Not checked: /, "") : "";
   }
   return connectors.sort((first, second) => first.name.localeCompare(second.name) || first.type.localeCompare(second.type));
 }

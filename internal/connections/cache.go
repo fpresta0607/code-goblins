@@ -2,9 +2,27 @@ package connections
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
 	"sync"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
+
+// keptFor is how long a check's result is kept across a restart of the
+// supervisor: a result older than it is left out when the cache reads its
+// file back, since a goblin that ran all that time was checked again since.
+const keptFor = 24 * time.Hour
+
+// keptCheck is one key's result as the cache's file keeps it.
+type keptCheck struct {
+	Result Snapshot  `json:"result"`
+	At     time.Time `json:"at"`
+	Record string    `json:"record,omitempty"`
+}
 
 type cached struct {
 	result   Snapshot
@@ -26,6 +44,11 @@ type Cache struct {
 	// Now is the clock results are dated and judged stale by, which a test
 	// moves to judge a result's age without waiting it out.
 	Now func() time.Time
+	// path is the file Keep named, which every finished check is written to,
+	// one write at a time; Failed is given a failure to write it.
+	path   string
+	saving sync.Mutex
+	Failed func(error)
 }
 
 func NewCache(ttl, timeout time.Duration, check func(context.Context, string) Snapshot) *Cache {
@@ -111,6 +134,7 @@ func (c *Cache) run(key string, item *cached) {
 		}
 	case <-ctx.Done():
 	}
+	defer c.save()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if ctx.Err() != nil {
@@ -129,6 +153,67 @@ func (c *Cache) run(key string, item *cached) {
 		go c.run(key, item)
 	}
 }
+// Keep reads back the results path holds, each with the time it was checked,
+// and writes every later result to it, so a restarted supervisor shows each
+// goblin's last result at once and rechecks it behind as an old result is
+// (#2547). A missing file holds nothing; an unreadable one is an error, and
+// is written over by the next result.
+func (c *Cache) Keep(path string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.path = path
+	data, err := fsx.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var kept map[string]keptCheck
+	if err := json.Unmarshal(data, &kept); err != nil {
+		return fmt.Errorf("connection checks kept in %s are unreadable: %w", path, err)
+	}
+	for key, check := range kept {
+		if c.Now().Sub(check.At) >= keptFor || len(c.entries) >= 128 || c.entries[key] != nil {
+			continue
+		}
+		check.Result.Checking = false
+		c.entries[key] = &cached{result: check.Result, at: check.At, record: check.Record}
+	}
+	return nil
+}
+
+// save writes every finished result to the file Keep named.
+func (c *Cache) save() {
+	c.saving.Lock()
+	defer c.saving.Unlock()
+	c.mu.Lock()
+	// A check the supervisor's close cut short proved nothing, so the file
+	// keeps the result before it for the next supervisor.
+	if c.ctx.Err() != nil {
+		c.mu.Unlock()
+		return
+	}
+	path, failed := c.path, c.Failed
+	kept := map[string]keptCheck{}
+	for key, item := range c.entries {
+		if !item.at.IsZero() {
+			kept[key] = keptCheck{Result: item.result, At: item.at, Record: item.record}
+		}
+	}
+	c.mu.Unlock()
+	if path == "" {
+		return
+	}
+	data, err := json.Marshal(kept)
+	if err == nil {
+		err = fsx.AtomicWriteFile(path, data)
+	}
+	if err != nil && failed != nil {
+		failed(fmt.Errorf("connection checks could not be kept in %s: %w", path, err))
+	}
+}
+
 func (c *Cache) Close() {
 	c.mu.Lock()
 	c.cancel()

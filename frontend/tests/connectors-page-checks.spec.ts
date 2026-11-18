@@ -183,6 +183,47 @@ for (const isFailing of [false, true]) {
 
 // The Overlord, 2026-10-08: "everything error wise goes to cfo". A check that
 // timed out says so in two words where the page says what it is doing.
+// #2547, measured on the live board: 15 of 28 goblins' checks failed, 14 of
+// them paused goblins, each row saying only Not checked and the page Check
+// failed. A goblin whose harness is not running says why in its rows, and a
+// paused goblin, which the supervisor does not check, shows its last result
+// without a failed check and without its age being the page's.
+test("a check that could not run says why in its rows, and a paused goblin's last result shows without a failed check", async ({ page }) => {
+  // Arrange: one goblin whose harness exited, checked just now.
+  const checked = Date.parse(CHECKED_AT);
+  await page.clock.install({ time: checked + 60_000 });
+  const why = "The goblin's harness is not running, so its connections could not be checked.";
+  const exited = supervisorWith({ [PROOF]: [{ id: "mcp:delta", name: "delta", kind: "mcp", status: "unchecked", detail: "Not checked: " + why, checked_at: CHECKED_AT }] });
+  exited.error = why;
+
+  // Act
+  await open(page, exited);
+
+  // Assert
+  const delta = page.locator(".connector-row").filter({ hasText: "Delta" });
+  await expect(delta.locator(".connector-state")).toHaveText("Not checked");
+  await expect(delta.locator(".connector-reason")).toHaveText(why);
+  await expect(page.locator(".connectors-head [role=status]")).toHaveText("Check failed");
+
+  // Arrange: a running goblin checked a minute ago, and a paused one whose
+  // last result is three days old.
+  const paused = supervisorWith({ [PROOF]: [GITHUB], [PROOF + "-2"]: [{ ...GITHUB, id: "mcp:echo", name: "echo" }] });
+  paused.checkedAtByTask = { [PROOF + "-2"]: new Date(checked - 3 * 86_400_000).toISOString() };
+  paused.notRunning = { [PROOF + "-2"]: "This goblin is paused, so its connections are checked again when it resumes." };
+
+  // Act
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await open(page, paused, 2);
+
+  // Assert: both listed, verified, the page's age the running goblin's, and
+  // no failed check or reason.
+  await expect(page.locator(".connector-row .connector-open")).toHaveText(["Echo", "GitHub"]);
+  await expect(page.locator(".connector-row .connector-state")).toHaveText(["Verified", "Verified"]);
+  await expect(page.locator(".connectors-head [role=status]")).toHaveText("Checked 1 minute ago");
+  await expect(page.locator(".connector-reason")).toHaveCount(0);
+  expect(paused.reads).toEqual({ [PROOF]: 1, [PROOF + "-2"]: 1 });
+});
+
 test("a check that timed out says Check failed, without the supervisor's words and without an alert", async ({ page }) => {
   // Arrange
   const supervisor = supervisorWith({ [PROOF]: [] });

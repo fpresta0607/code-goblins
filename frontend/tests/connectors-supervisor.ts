@@ -16,6 +16,8 @@ export interface Supervisor {
   checkedAtByTask: Record<string, string>;
   // The goblins whose first check still runs, which have no result yet.
   unchecked: Record<string, boolean>;
+  // Why a goblin is not checked, by task: it is paused or stopped.
+  notRunning: Record<string, string>;
   // The browser logins every goblin's project may use.
   logins: Login[];
   // What a finished check failed with, and whether connections can be read.
@@ -34,7 +36,7 @@ export interface Supervisor {
 }
 
 export function supervisorWith(entries: Record<string, object[]>): Supervisor {
-  return { entries, checking: {}, checkedAt: CHECKED_AT, checkedAtByTask: {}, unchecked: {}, logins: [], error: "", isUnreadable: false, refuses: "", repaired: {}, reads: {}, posts: [], reports: [] };
+  return { entries, checking: {}, checkedAt: CHECKED_AT, checkedAtByTask: {}, unchecked: {}, notRunning: {}, logins: [], error: "", isUnreadable: false, refuses: "", repaired: {}, reads: {}, posts: [], reports: [] };
 }
 
 // play answers the page's requests from the supervisor a test holds.
@@ -54,7 +56,7 @@ export async function play(page: Page, supervisor: Supervisor): Promise<void> {
     const connections = () => ({
       instance: "fixture", generation: body?.generation ?? url.searchParams.get("generation"), runtime: { process_id: 42, started_at: "2026-11-10T14:00:00Z", workspace: "C:/scratch/work" },
       checking: isUnchecked || (supervisor.checking[task] ?? false), checked_at: isUnchecked ? "0001-01-01T00:00:00Z" : supervisor.checkedAtByTask[task] ?? supervisor.checkedAt, error: supervisor.error,
-      entries: isUnchecked ? [] : supervisor.entries[task] ?? [], browser_logins: supervisor.logins,
+      entries: isUnchecked ? [] : supervisor.entries[task] ?? [], browser_logins: supervisor.logins, not_running: supervisor.notRunning[task] ?? "",
     });
     const refused = () => route.fulfill({ status: 409, json: { error: supervisor.refuses } });
     if (body) supervisor.posts.push({ path, token: route.request().headers()["x-ceo-token"], body });
