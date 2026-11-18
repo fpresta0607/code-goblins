@@ -417,9 +417,9 @@ func (s *startRecorder) Run(_ context.Context, req execx.Request) (execx.Result,
 	return execx.Result{}, errors.New("no program may start")
 }
 
-// The CEO takes a gate's open findings as they stand only with approve and by
-// naming exactly the open ask-user and auto-fix findings; every other shape
-// is refused for its own reason or stays unresolved.
+// The CEO approves a gate's open findings as they stand only by naming
+// exactly the open ask-user and auto-fix findings; every other shape is
+// refused for its own reason or stays unresolved.
 func TestApproveAcceptsExactlyTheOpenFindings(t *testing.T) {
 	selection, err := testPolicy(t).Select("ordinary")
 	if err != nil {
@@ -444,7 +444,6 @@ func TestApproveAcceptsExactlyTheOpenFindings(t *testing.T) {
 		{"a no-op finding named", review, Response{Action: "approve", Accept: "ask,bug,note"}, "exactly the open ask-user and auto-fix findings: ask,bug", false},
 		{"an absent finding named", review, Response{Action: "approve", Accept: "ask,bug,other"}, "exactly the open ask-user and auto-fix findings: ask,bug", false},
 		{"a finding named twice", review, Response{Action: "approve", Accept: "ask,bug,bug"}, "exactly the open ask-user and auto-fix findings: ask,bug", false},
-		{"accept with fix", review, Response{Action: "fix", Findings: "bug", Accept: "ask,bug"}, "never with fix", false},
 		{"nothing open to accept", quiet, Response{Action: "approve", Accept: "note"}, "no open ask-user or auto-fix finding", false},
 		{"approve without accept", review, Response{Action: "approve"}, "", true},
 		{"a finding with no action still needs its fix", blank, Response{Action: "approve", Accept: "ask"}, "", true},
@@ -464,6 +463,66 @@ func TestApproveAcceptsExactlyTheOpenFindings(t *testing.T) {
 			default:
 				if err != nil || strings.Join(args, " ") != "axi respond --step review --action approve" {
 					t.Fatalf("got %v %q, want the gate approved", err, args)
+				}
+			}
+		})
+	}
+}
+
+// A mixed decision fixes some open findings and declines the rest: the CEO
+// names exactly the ones the fix leaves out with --accept, and they reach the
+// native gate as --ignore beside the verified no-ops, since it refuses a fix
+// that leaves an open finding unaddressed (#2092).
+func TestFixDeclinesExactlyTheOpenFindingsItLeavesOut(t *testing.T) {
+	selection, err := testPolicy(t).Select("ordinary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	limit := 1
+	review := Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 1, Findings: `{"findings":[{"id":"ask","action":"ask-user"},{"id":"bug","action":"auto-fix"},{"id":"note","action":"no-op"},{"id":"nit","action":"auto-fix"}]}`}
+	spent := review
+	spent.Round = 3
+	blank := Gate{RunID: "run", StepID: "step", Step: "rebase", Status: "awaiting_approval", Round: 1, AutoFixLimit: &limit, Findings: `{"findings":[{"id":"ask","action":"ask-user"},{"id":"conflict","action":""}]}`}
+	for _, c := range []struct {
+		name     string
+		gate     Gate
+		response Response
+		// want is the exact argv handed to the native engine.
+		want string
+		// refusal is the rule a refused answer must name; unresolved means it
+		// stays a decision instead.
+		refusal    string
+		unresolved bool
+	}{
+		{name: "one fixed, the rest declined", gate: review, response: Response{Action: "fix", Findings: "bug", Accept: "nit,ask"}, want: "axi respond --step review --action fix --findings bug --ignore nit,ask,note --run run"},
+		{name: "a decline beside instructions", gate: review, response: Response{Action: "fix", Findings: "bug,nit", Accept: "ask", Instructions: "Keep the change small"}, want: "axi respond --step review --action fix --findings bug,nit --ignore ask,note --run run --instructions Keep the change small"},
+		{name: "a finding with no action is fixed beside a decline", gate: blank, response: Response{Action: "fix", Findings: "conflict", Accept: "ask"}, want: "axi respond --step rebase --action fix --findings conflict --ignore ask --run run"},
+		{name: "a left-out finding not declined", gate: review, response: Response{Action: "fix", Findings: "bug", Accept: "ask"}, refusal: "exactly the open ask-user and auto-fix findings the fix leaves out: ask,nit"},
+		{name: "a selected finding also declined", gate: review, response: Response{Action: "fix", Findings: "bug", Accept: "ask,bug,nit"}, refusal: "the fix leaves out: ask,nit"},
+		{name: "a no-op finding declined", gate: review, response: Response{Action: "fix", Findings: "bug", Accept: "ask,nit,note"}, refusal: "the fix leaves out: ask,nit"},
+		{name: "an absent finding declined", gate: review, response: Response{Action: "fix", Findings: "bug", Accept: "ask,nit,other"}, refusal: "the fix leaves out: ask,nit"},
+		{name: "a finding declined twice", gate: review, response: Response{Action: "fix", Findings: "bug", Accept: "ask,nit,nit"}, refusal: "the fix leaves out: ask,nit"},
+		{name: "nothing left to decline", gate: review, response: Response{Action: "fix", Findings: "bug,nit,ask", Accept: "ask"}, refusal: "none is left to accept"},
+		{name: "a finding with no action left out", gate: blank, response: Response{Action: "fix", Findings: "ask", Accept: "conflict"}, unresolved: true},
+		{name: "a spent review starts no fix", gate: spent, response: Response{Action: "fix", Findings: "bug", Accept: "nit,ask"}, unresolved: true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Act
+			args, err := ResponseArgs(selection, c.gate, c.response)
+
+			// Assert
+			switch {
+			case c.unresolved:
+				if !errors.Is(err, ErrUnresolved) || len(args) != 0 {
+					t.Fatalf("got %v %q, want it unresolved", err, args)
+				}
+			case c.refusal != "":
+				if err == nil || errors.Is(err, ErrUnresolved) || !strings.Contains(err.Error(), c.refusal) || len(args) != 0 {
+					t.Fatalf("got %v %q, want a refusal naming %q", err, args, c.refusal)
+				}
+			default:
+				if err != nil || strings.Join(args, " ") != c.want {
+					t.Fatalf("got %v %q, want %q", err, args, c.want)
 				}
 			}
 		})
