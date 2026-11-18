@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/browserlogin"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // View is one window size the page is checked and pictured at.
@@ -102,7 +103,7 @@ func Check(ctx context.Context, executable, session, out string) (report Report,
 				return
 			}
 		}
-		failure = errors.Join(failure, os.RemoveAll(profile))
+		failure = errors.Join(failure, fsx.RemoveAll(profile))
 	}()
 	if err != nil {
 		return Report{}, fmt.Errorf("start a hidden Chrome: %w", err)

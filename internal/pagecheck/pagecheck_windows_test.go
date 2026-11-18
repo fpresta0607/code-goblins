@@ -21,6 +21,8 @@ import (
 // reviewServer stands in for lavish-axi's server: a review window holding
 // the page in a sandboxed frame, whose stand-in layout gate reports how far
 // the page scrolls sideways at its width, recorded as lavish-axi records it.
+// It measures once Chrome has given the frame a width: a CI runner's Chrome
+// can lay the frame out after the page's first timer runs.
 type reviewServer struct {
 	page     string
 	mu       sync.Mutex
@@ -36,7 +38,7 @@ func (s *reviewServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			`<iframe src="/artifact/k7/index.html?token=1" sandbox="allow-scripts" style="display:block;width:100vw;height:calc(100vh - 60px);border:0"></iframe>`+
 			`<script>addEventListener("message", (event) => fetch("/api/k7/layout-diagnostics", { method: "POST", body: JSON.stringify(event.data) }));</script></body></html>`)
 	case r.URL.Path == "/artifact/k7/index.html":
-		fmt.Fprint(w, s.page+`<script>setTimeout(() => parent.postMessage({ overflow: document.documentElement.scrollWidth - innerWidth, width: innerWidth }, "*"), 100);</script>`)
+		fmt.Fprint(w, s.page+`<script>let tries = 0; const measure = () => innerWidth === 0 && ++tries < 200 ? setTimeout(measure, 50) : parent.postMessage({ overflow: document.documentElement.scrollWidth - innerWidth, width: innerWidth }, "*"); setTimeout(measure, 100);</script>`)
 	case r.URL.Path == "/api/k7/layout-diagnostics" && r.Method == http.MethodPost:
 		var measured struct{ Overflow, Width int }
 		if err := json.NewDecoder(r.Body).Decode(&measured); err != nil {
