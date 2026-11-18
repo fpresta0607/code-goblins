@@ -94,7 +94,7 @@ The extraction preserves the existing obligations, including gate budgets, merge
 | `goblins gate tests-kept` | [goblins help gate tests-kept](../commands/gate/tests-kept.md) |
 | `goblins gate test [--level changed\|fast\|affected\|full \| --focused] [--plan]`, `goblins gate lint [--plan]` | [goblins help gate test](../commands/gate/test.md) |
 | `goblins gate prepush [--plan] [--limit <duration>]` | [goblins help gate prepush](../commands/gate/prepush.md) |
-| `goblins gate turn [--as <name>] [--wait <duration>] [--memory <size>] [--low-priority] [--light] [--detach <log-file>] -- <program> [<argument>...]` | [goblins help gate turn](../commands/gate/turn.md) |
+| `goblins gate turn [--as <name>] [--wait <duration>] [--execution-limit <duration>] [--memory <size>] [--low-priority] [--light] [--detach <log-file>] -- <program> [<argument>...]` | [goblins help gate turn](../commands/gate/turn.md) |
 | `goblins gate turns [--json]` | [goblins help gate turns](../commands/gate/turns.md) |
 | `goblins ci-runner job \| status \| parity --repo <owner/name>` | [goblins help ci-runner](../commands/ci-runner.md) |
 | `goblins send <target> <text>` | [goblins help send](../commands/send.md) |
