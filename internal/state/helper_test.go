@@ -29,7 +29,6 @@ func TestHelperParentRefusesEachCapAndSaysWhenToAskAgain(t *testing.T) {
 		{"a task that is not live", nil, "g1", []string{"g1 is not a live task"}},
 		{"a helper asking for a helper", []TaskMeta{{ID: "g1"}, {ID: "g1-h1", Parent: "g1"}}, "g1-h1", []string{"a helper cannot start helpers", "ask g1"}},
 		{"a second helper", []TaskMeta{{ID: "g1"}, {ID: "g1-h1", Parent: "g1"}}, "g1", []string{"already has a helper, g1-h1", "one helper at a time", "goblins helper merge g1", "goblins kill g1-h1"}},
-		{"a second helper named in another case", []TaskMeta{{ID: "g1"}, {ID: "g1-h1", Parent: "G1"}}, "g1", []string{"already has a helper, g1-h1"}},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -68,6 +67,34 @@ func TestHelperParentAdmitsALiveGoblinWhoseHelpersAreGone(t *testing.T) {
 	// Assert
 	if err != nil || parent.ID != "g1" || parent.Title != "Parent" {
 		t.Errorf("HelperParent = %+v, %v; want g1's record", parent, err)
+	}
+}
+
+// A live helper whose record names its parent in another case is the helper
+// of that parent exactly where the file system reads the two names as one,
+// as Windows does; elsewhere it is the helper of another task.
+func TestHelperParentCountsAHelperOfAParentSpelledInAnotherCaseByTheFileSystemsCase(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "probe"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, statErr := os.Stat(filepath.Join(dir, "PROBE"))
+	isOnePath := statErr == nil
+	writeHelperFixture(t, dir, TaskMeta{ID: "g1"}, TaskMeta{ID: "G1-h1", Parent: "G1"})
+	if !isOnePath {
+		writeHelperFixture(t, dir, TaskMeta{ID: "G1"})
+	}
+
+	// Act
+	parent, err := HelperParent(dir, "g1")
+
+	// Assert
+	if isOnePath && (err == nil || !strings.Contains(err.Error(), "already has a helper, G1-h1")) {
+		t.Fatalf("HelperParent(g1) = %+v, %v; want refused for G1-h1, where g1 and G1 are one task", parent, err)
+	}
+	if !isOnePath && (err != nil || parent.ID != "g1") {
+		t.Fatalf("HelperParent(g1) = %+v, %v; want g1's record, where G1-h1 is the helper of another task G1", parent, err)
 	}
 }
 

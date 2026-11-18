@@ -51,7 +51,7 @@ func HelpersOf(stateDir, parent string) ([]TaskMeta, error) {
 		if err != nil {
 			return nil, err
 		}
-		if meta.Parent != "" && strings.EqualFold(meta.Parent, parent) {
+		if meta.Parent != "" && fsx.EqualPath(filepath.Join(stateDir, meta.Parent), filepath.Join(stateDir, parent)) {
 			helpers = append(helpers, meta)
 		}
 	}

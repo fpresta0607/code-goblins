@@ -138,8 +138,6 @@ func TestLiveTempsPassesOverProgramsThatAreNoMsysRuntimes(t *testing.T) {
 	}
 }
 
-// A runtime that runs and cannot be asked may have any folder as its /tmp, so
-// it is an error, never a runtime passed over.
 // Two programs in folders whose names differ only in case run from one
 // runtime exactly where the file system reads the names as one folder, so it
 // is asked once there, and each is a runtime of its own elsewhere.
@@ -187,6 +185,8 @@ func TestLiveTempInComparesTheNamesOfFoldersThatAreGoneByTheFileSystemsCase(t *t
 	}
 }
 
+// A runtime that runs and cannot be asked may have any folder as its /tmp, so
+// it is an error, never a runtime passed over.
 func TestLiveTempsRefusesARunningRuntimeItCannotAsk(t *testing.T) {
 	runtime := filepath.Join(t.TempDir(), "usr", "bin")
 	if err := os.MkdirAll(runtime, 0o755); err != nil {
