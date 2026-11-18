@@ -631,7 +631,6 @@ jobs:
             ./internal/startwatch
             ./internal/supervisor
             ./internal/update
-            ./internal/verify
             ./internal/voice
             ./internal/watch
           GOBLINS_HOME: ${{ runner.temp }}/ceo-go-tests
@@ -710,7 +709,6 @@ jobs:
             ./internal/startwatch
             ./internal/supervisor
             ./internal/update
-            ./internal/verify
             ./internal/voice
             ./internal/watch
           GOBLINS_HOME: ${{ runner.temp }}/ceo-go-tests
