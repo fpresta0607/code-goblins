@@ -887,6 +887,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestActivity())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestReviews())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestGoblinRuns())
+	reconcileErr = errors.Join(reconcileErr, s.Store.ingestHookFailures())
 	reconcileErr = errors.Join(reconcileErr, s.ingestCredentialRequests())
 	reconcileErr = errors.Join(reconcileErr, s.expireCredentials(time.Now()))
 	reconcileErr = errors.Join(reconcileErr, s.Store.expireRuns(time.Now()))

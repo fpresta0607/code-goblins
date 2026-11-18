@@ -468,3 +468,51 @@ func TestTaskCredentialTerminalGrantsOnlyAfterItStoredTheRequestedName(t *testin
 		t.Fatal("the terminal's card did not record its stored name")
 	}
 }
+
+// A saved card's grant to a goblin in a turn has its re-source notice held for
+// the goblin's next tool call, which still reaches it, so the Overlord is not
+// told the goblin could not be told; a notice that reached no terminal still
+// tells him (#2015).
+func TestTaskCredentialGrantReportsOnlyANoticeThatDidNotReachTheGoblin(t *testing.T) {
+	for _, test := range noticeDeliveries {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			s, stateDir, _ := grantBoard(t)
+			s.Options.Credentials = auth.OpenStore
+			s.Options.CEO = &CEOConnection{State: stateDir}
+			liveNativeGoblin(t, stateDir, "task-1")
+			notices := deliverNotices(t, test.delivery)
+			card, err := s.acceptCredentialRequest(CredentialRequest{ID: "cred-0123456789abcdef", By: "ceo", Identity: strings.Repeat("c", 64), Task: "task-1", Project: "work", Names: []string{"SAMPLE_TOKEN"}, Why: "Read the test service"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			store, err := auth.OpenStore()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Set(auth.Key{Project: "work", Name: "SAMPLE_TOKEN"}, newCanary(t)); err != nil {
+				t.Fatal(err)
+			}
+			code := 0
+
+			// Act
+			s.credentialTerminalEnded(Run{CredentialRequest: card.ID, CredentialNames: []string{"SAMPLE_TOKEN"}}, &code)
+			s.credentialWork.Wait()
+
+			// Assert
+			if len(*notices) != 1 || !strings.Contains((*notices)[0], "credentials refreshed: re-source") {
+				t.Fatalf("notices = %q, want one re-source notice", *notices)
+			}
+			pending, err := wake.Pending(stateDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			told := slices.ContainsFunc(pending, func(record wake.Record) bool {
+				return strings.Contains(record.Detail, "could not be told to re-source auth.ps1")
+			})
+			if told != test.isReportable {
+				t.Fatalf("wakes = %+v, want the failed notice told: %v", pending, test.isReportable)
+			}
+		})
+	}
+}
