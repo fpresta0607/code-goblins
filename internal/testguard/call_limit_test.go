@@ -57,7 +57,7 @@ func TestCheckFinishesWhenItsGitCallsTogetherOutlastOneCallsLimit(t *testing.T) 
 	slow := &slowGit{pause: 3 * time.Second, slowCalls: 2}
 
 	// Act
-	result, err := check(context.Background(), slow, dir, nil, limit)
+	result, err := Check(context.Background(), slow, dir, nil, limit)
 
 	// Assert
 	if err != nil {
@@ -81,7 +81,7 @@ func TestCheckFailsOnAGitCallThatNeverReturnsAndNamesIt(t *testing.T) {
 	const limit = time.Second
 
 	// Act
-	_, err := check(context.Background(), hungGit{}, dir, nil, limit)
+	_, err := Check(context.Background(), hungGit{}, dir, nil, limit)
 
 	// Assert
 	if !errors.Is(err, context.DeadlineExceeded) {

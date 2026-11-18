@@ -51,6 +51,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/telemetry"
+	"github.com/fpresta0607/code-goblins/internal/testguard"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 	"github.com/fpresta0607/code-goblins/internal/watch"
@@ -340,6 +341,9 @@ type commandRuntime struct {
 	gateRun       func(command []string, dir string, env []string, stdout, stderr io.Writer) (int, error)
 	gateProgress  time.Duration
 	gatePlanLimit time.Duration
+	// testsKeptCallLimit is how long each git call goblins gate tests-kept
+	// makes may take (testguard.CallLimit).
+	testsKeptCallLimit time.Duration
 	// agentLineLimit is the longest a run that a gate's agent started waits
 	// in line (gateAgentLineLimit).
 	agentLineLimit time.Duration
@@ -556,21 +560,22 @@ func defaultCommandRuntime() commandRuntime {
 			}
 			return supervisor.CheckLaunch(memory, disk)
 		},
-		setupAgent:      setupAgent,
-		choose:          onboarding.AskConsole,
-		repoActivity:    repositoryActivity(github),
-		repositoryOf:    tickets.GitHub{Commands: execx.OSRunner{}}.RepositoryOf,
-		githubAPI:       github,
-		availableMemory: supervisor.MachineMemory,
-		gateWaitLimit:   time.Hour,
-		agentLineLimit:  gateAgentLineLimit,
-		gateBudget:      gateBudget,
-		gateRun:         runGateCommand,
-		gateProgress:    5 * time.Second,
-		gatePlanLimit:   planLimit,
-		pushRun:         runPushCommand,
-		pushMemoryPoll:  2 * time.Second,
-		pushAgain:       5 * time.Minute,
+		setupAgent:         setupAgent,
+		choose:             onboarding.AskConsole,
+		repoActivity:       repositoryActivity(github),
+		repositoryOf:       tickets.GitHub{Commands: execx.OSRunner{}}.RepositoryOf,
+		githubAPI:          github,
+		availableMemory:    supervisor.MachineMemory,
+		gateWaitLimit:      time.Hour,
+		agentLineLimit:     gateAgentLineLimit,
+		gateBudget:         gateBudget,
+		gateRun:            runGateCommand,
+		gateProgress:       5 * time.Second,
+		gatePlanLimit:      planLimit,
+		testsKeptCallLimit: testguard.CallLimit,
+		pushRun:            runPushCommand,
+		pushMemoryPoll:     2 * time.Second,
+		pushAgain:          5 * time.Minute,
 		askCIRunner: func(ctx context.Context, request cirunner.Request, reply func(cirunner.Reply)) error {
 			return cirunner.Ask(ctx, cirunner.PipeName, request, reply)
 		},

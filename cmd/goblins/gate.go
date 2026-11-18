@@ -74,7 +74,7 @@ func runGate(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 	approvalsCtx, cancel := context.WithTimeout(context.Background(), testguard.CallLimit)
 	approved, approvalsErr := approvedHeads(approvalsCtx)
 	cancel()
-	result, err := testguard.Check(context.Background(), execx.OSRunner{}, dir, approved)
+	result, err := testguard.Check(context.Background(), execx.OSRunner{}, dir, approved, runtime.testsKeptCallLimit)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
