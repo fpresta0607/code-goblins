@@ -33,13 +33,19 @@ func TestToolRefusalReadsAPathAsItIsWrittenOffWindows(t *testing.T) {
 		})
 	}
 	t.Run("a backslash before a name", func(t *testing.T) {
-		// Act: \note.txt is a file of that name in the worktree, not a
-		// path from a drive's root.
-		refusal := f.boundary.ToolRefusal("Write", toolInput(t, map[string]string{"file_path": `\note.txt`}))
+		// Arrange: \note.txt is a file of that name in the shell's folder,
+		// not a path from a drive's root that names nothing here, so in a
+		// folder the goblin was not given it is a write outside.
+		boundary := f.boundary
+		boundary.Cwd = f.outside
+		want := filepath.Join(f.outside, `\note.txt`)
+
+		// Act
+		refusal := boundary.ToolRefusal("Write", toolInput(t, map[string]string{"file_path": `\note.txt`}))
 
 		// Assert
-		if refusal != "" {
-			t.Fatalf("a write to %s in the worktree was refused: %s", filepath.Join(f.worktree, `\note.txt`), refusal)
+		if !strings.Contains(refusal, "it writes "+want) {
+			t.Fatalf("a write to %s gave %q, want it refused as a write outside", want, refusal)
 		}
 	})
 }
