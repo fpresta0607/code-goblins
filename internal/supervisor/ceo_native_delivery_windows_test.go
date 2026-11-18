@@ -963,7 +963,7 @@ func TestHisMessageInTheCEOsTurnIsQueuedOnlyOnceItLeavesThePromptLine(t *testing
 			terminal := nativeCEOComposer(t, home.State, tc.mode)
 			connection := &CEOConnection{State: home.State}
 			if tc.isTorn {
-				connection.ReadScreen = tornOnce(host.ReadScreen, func() bool { return len(terminal.lines(t)) > 1 })
+				connection.ReadScreen = tornOnce(host.ReadScreen, ruleOverRowAbove, func() bool { return len(terminal.lines(t)) > 1 })
 			}
 			service := &Service{Store: store, Options: Options{CEO: connection}}
 
@@ -1002,7 +1002,7 @@ func TestAnotherLinesPromptHookLeavesHisEnterTakenAsANewLineToBePressedAgain(t *
 			connection := &CEOConnection{State: home.State}
 			read := host.ReadScreen
 			if isTorn {
-				read = tornOnce(host.ReadScreen, func() bool { return len(terminal.lines(t)) > 1 })
+				read = tornOnce(host.ReadScreen, ruleOverRowAbove, func() bool { return len(terminal.lines(t)) > 1 })
 			}
 			var typed []string
 			hookErr := errors.New("no screen showed his submit key taken as a new line")

@@ -623,13 +623,14 @@ func TestADeliveryToANativeCEOWhoseScreenTurnsToWorkWithoutItsHookIsSentNotDeliv
 		// it takes on its prompt line under a working row, and, hooked, whose
 		// prompt hook reports each line it takes.
 		lines []string
-		// isTorn has the first screen read after the hook reported join two
-		// frames.
-		isTorn bool
+		// tear, when set, joins two frames in the first screen read after
+		// the hook reported.
+		tear func([]string) ([]string, bool)
 	}{
 		{name: "its hook silent", lines: []string{"harness", "keep"}},
 		{name: "its hook reporting it", lines: []string{"harness", "keep", "hooked"}},
-		{name: "its hook reporting it, read torn", lines: []string{"harness", "keep", "hooked"}, isTorn: true},
+		{name: "its hook reporting it, its prompt line read as a rule", lines: []string{"harness", "keep", "hooked"}, tear: ruleOverRowAbove},
+		{name: "its hook reporting it, its prompt line read twice", lines: []string{"harness", "keep", "hooked"}, tear: promptLineTwice},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -644,9 +645,9 @@ func TestADeliveryToANativeCEOWhoseScreenTurnsToWorkWithoutItsHookIsSentNotDeliv
 			}
 			ceo.showsComposer(t, "claude")
 			connection := &CEOConnection{State: stateDir}
-			if test.isTorn {
+			if test.tear != nil {
 				started := time.Now()
-				connection.ReadScreen = tornOnce(host.ReadScreen, func() bool {
+				connection.ReadScreen = tornOnce(host.ReadScreen, test.tear, func() bool {
 					isReported, err := NativeHostPromptSince(stateDir, "ceo", started)
 					return err == nil && isReported
 				})
