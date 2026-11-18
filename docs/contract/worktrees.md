@@ -1,6 +1,6 @@
 ## Project worktree environment
 
-Every goblin works in a git worktree of the project at `$GOBLINS_HOME\worktrees\<project folder>\<id>`, detached from the project's default branch, and an extra worktree it asks for with `goblins worktree add` sits beside it.
+Every goblin works in a git worktree of the project at `$GOBLINS_HOME\worktrees\<project folder>\<id>`, detached from the project's default branch, and an extra worktree it asks for with `goblins worktree add` sits beside it, or with `--project` beside the worktrees of that other project.
 goblins' own git commands there turn `core.longpaths` on, because a worktree under the home is a few folders deeper than one inside the checkout; `goblins doctor` says whether it is on for the goblin's own git.
 A worktree starts as the files git tracks and nothing else of the checkout.
 An env file holds the project's production values, so none reaches a worktree by silence: with no worktree manifest, or with one that names no `link`, a goblin's worktree is given no file of the checkout.
