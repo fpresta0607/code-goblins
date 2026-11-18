@@ -32,11 +32,11 @@ export const ActionsSpendHeader = memo(function ActionsSpendHeader({ usage, mont
   const shownMonth = isOpen && isLastMonth ? lastMonth : month;
   const keptFor = (wanted: string) => kept[wanted]?.instance === instance ? kept[wanted] : undefined;
   const isDue = (wanted: string) => !!usage && usage.month !== wanted && now >= (keptFor(wanted)?.refreshAt ?? 0);
-  const requested = [...new Set([month, shownMonth])].filter(isDue).join(" ");
+  const requested = [...new Set([month, shownMonth])].filter(isDue).map((wanted) => wanted + "@" + (keptFor(wanted)?.refreshAt ?? 0)).join(" ");
   useEffect(() => {
     if (!requested) return;
     const controller = new AbortController();
-    for (const wanted of requested.split(" ")) {
+    for (const [wanted] of requested.split(" ").map((entry) => entry.split("@"))) {
       request("/api/actions-spend?month=" + wanted, controller.signal, { headers: { "X-CEO-Token": instance } })
         .then(parseActionsSpend)
         .then((reading) => {
@@ -58,8 +58,11 @@ export const ActionsSpendHeader = memo(function ActionsSpendHeader({ usage, mont
           setKept(keeping(wanted, { status: "unavailable", month: wanted, total: null, repositories: [], read_at: "", checked_at: "", detail }, instance, Date.now() + REFRESH_INTERVAL_MS));
         });
     }
+    // now is not a dependency: every snapshot moves it, and one that landed
+    // while a read was on its way aborted that read and asked again (#2086).
+    // requested still changes whenever a month falls due.
     return () => controller.abort();
-  }, [requested, month, instance, now]);
+  }, [requested, month, instance]);
   useEffect(() => () => repair.current?.abort(), []);
   const readingOf = (wanted: string) => {
     const cached = keptFor(wanted);
