@@ -273,7 +273,7 @@ func TestAHelperStartsWhenTheHeavyLineCannotBeReadAndTheBoardSaysSo(t *testing.T
 	// Arrange
 	spawner := &spawnRecorder{output: "spawned g1-h1 harness=claude kind=ship"}
 	s, _ := helperBoard(t, 6*gigabyte, spawner)
-	s.Options.Dispatch.HeavyLine = func(Memory) (string, error) { return "", errors.New("the slots' records are locked") }
+	s.Options.Dispatch.HeavyLine = func(Memory) (LineRoom, error) { return LineRoom{}, errors.New("the slots' records are locked") }
 
 	// Act
 	_, err := s.acceptHelper(HelperRequest{Parent: "g1", Brief: helperBrief})

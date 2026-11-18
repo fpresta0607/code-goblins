@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -40,16 +41,125 @@ func gateTask(root string, runtime commandRuntime) (string, error) {
 	if slices.ContainsFunc(h.WorktreeRoots(), func(root string) bool { return fsx.SamePath(worktrees, root) }) {
 		return taskID(os.Getenv), nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	const budget = 5 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	defer cancel()
 	reader := pipeline.Reader{Root: filepath.Dir(worktrees), Commands: gatedb.Runner{Next: execx.OSRunner{}}}
 	source, err := reader.WorktreeSource(ctx, root)
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "", fmt.Errorf("the gate's database gave no answer about this run within %s: %w", budget, err)
+	}
 	if err != nil {
 		return "", err
 	}
-	result, err := reader.Commands.Run(ctx, execx.Request{Name: "git", Args: []string{"worktree", "list", "--porcelain", "-z"}, Dir: source.Project})
-	if err != nil || result.ExitCode != 0 {
-		return "", errors.New("cannot inspect the gate's source worktrees")
+	worktree, err := branchWorktree(source.Project, source.Branch)
+	if err != nil {
+		return "", fmt.Errorf("cannot inspect the gate's source worktrees: %w", err)
+	}
+	if worktree == "" {
+		return "", fmt.Errorf("%w: no source worktree holds the gate's branch %q", errNoFleetTask, source.Branch)
+	}
+	return gateWorktreeTask(h, source.Project, worktree)
+}
+
+// branchWorktree is the worktree of project that has branch checked out, or
+// empty when none has. It reads git's own records, the main worktree's HEAD
+// and each linked worktree's HEAD and gitdir under the common git folder,
+// since git worktree list took 12.8 s in a project of 48 worktrees on a
+// loaded host, past any budget a gate turn can wait (#2627). A record that
+// is half made or half removed is skipped, as git skips it. A project whose
+// .git is a file has its common folder where that file and the commondir it
+// leads to say, and one that keeps its refs in a reftable, whose HEAD files
+// name no branch, is read by git (listedWorktree).
+func branchWorktree(project, branch string) (string, error) {
+	main, common := project, filepath.Join(project, ".git")
+	info, err := os.Stat(common)
+	if err != nil {
+		return "", err
+	}
+	if info.Mode().IsRegular() {
+		content, err := fsx.ReadFile(common)
+		if err != nil {
+			return "", err
+		}
+		link, isLink := strings.CutPrefix(strings.TrimSpace(string(content)), "gitdir: ")
+		if !isLink || link == "" {
+			return "", fmt.Errorf("%s names no git folder", common)
+		}
+		common = recordedPath(project, link)
+		content, err = fsx.ReadFile(filepath.Join(common, "commondir"))
+		if err == nil {
+			common = recordedPath(common, string(content))
+			main = filepath.Dir(common)
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return "", err
+		}
+	}
+	if _, err := os.Stat(filepath.Join(common, "reftable")); !errors.Is(err, fs.ErrNotExist) {
+		return listedWorktree(project, branch)
+	}
+	want := "ref: refs/heads/" + branch
+	head, err := fsx.ReadFile(filepath.Join(common, "HEAD"))
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(string(head)) == want {
+		return main, nil
+	}
+	records := filepath.Join(common, "worktrees")
+	entries, err := os.ReadDir(records)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	for _, entry := range entries {
+		record := filepath.Join(records, entry.Name())
+		head, err := fsx.ReadFile(filepath.Join(record, "HEAD"))
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		if strings.TrimSpace(string(head)) != want {
+			continue
+		}
+		link, err := fsx.ReadFile(filepath.Join(record, "gitdir"))
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		return filepath.Dir(recordedPath(record, string(link))), nil
+	}
+	return "", nil
+}
+
+// recordedPath is the path a git record holds, read relative to dir when it
+// is relative, as git writes it under worktree.useRelativePaths.
+func recordedPath(dir, recorded string) string {
+	path := filepath.FromSlash(strings.TrimSpace(recorded))
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(dir, path)
+	}
+	return filepath.Clean(path)
+}
+
+// listedWorktree is branchWorktree for a project that keeps its refs in a
+// reftable, read by git worktree list within a budget of its own.
+func listedWorktree(project, branch string) (string, error) {
+	const budget = 30 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), budget)
+	defer cancel()
+	result, err := execx.OSRunner{}.Run(ctx, execx.Request{Name: "git", Args: []string{"worktree", "list", "--porcelain", "-z"}, Dir: project})
+	if err != nil {
+		return "", fmt.Errorf("git worktree list --porcelain -z in a reftable project, given %s: %w", budget, err)
+	}
+	if result.ExitCode != 0 {
+		return "", fmt.Errorf("git worktree list --porcelain -z in a reftable project exited %d: %s", result.ExitCode, strings.TrimSpace(string(result.Stderr)))
 	}
 	var worktree string
 	for _, field := range strings.Split(string(result.Stdout), "\x00") {
@@ -57,11 +167,11 @@ func gateTask(root string, runtime commandRuntime) (string, error) {
 			worktree = ""
 		} else if dir, ok := strings.CutPrefix(field, "worktree "); ok {
 			worktree = filepath.FromSlash(dir)
-		} else if field == "branch refs/heads/"+source.Branch {
-			return gateWorktreeTask(h, source.Project, worktree)
+		} else if field == "branch refs/heads/"+branch {
+			return worktree, nil
 		}
 	}
-	return "", fmt.Errorf("%w: no source worktree holds the gate's branch %q", errNoFleetTask, source.Branch)
+	return "", nil
 }
 
 // errNoFleetTask says a gate run's source is no fleet task's, as the

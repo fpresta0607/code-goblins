@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"os"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -33,12 +35,41 @@ func Arguments(pid int) ([]string, error) {
 // set for itself since is in its own memory, which the kernel does not show.
 // Environment is private input to a scoped connection check. Callers must
 // verify process ownership and must never serialize or log this value.
+// A process part-way through its exec reads as having no environment, or
+// not at all, so a process this user started less than a second ago that
+// reads so is read again until it is a second old, for at most a second; a
+// process that has exited is an error, never an empty environment.
 func Environment(pid int) ([]string, error) {
-	_, environment, err := startedWith(pid)
-	if err != nil {
-		return nil, fmt.Errorf("process environment unavailable: %v", err)
+	deadline := time.Now().Add(time.Second)
+	for {
+		_, environment, readErr := startedWith(pid)
+		if readErr == nil && len(environment) > 0 {
+			return environment, nil
+		}
+		process, err := readProcess(pid)
+		if err != nil {
+			return nil, fmt.Errorf("process environment unavailable: %v", err)
+		}
+		now := time.Now()
+		if !isStartingAs(process, uint32(os.Getuid()), now) || now.After(deadline) {
+			if readErr != nil {
+				return nil, fmt.Errorf("process environment unavailable: %v", readErr)
+			}
+			return environment, nil
+		}
+		time.Sleep(time.Millisecond)
 	}
-	return environment, nil
+}
+
+// isStartingAs reports whether process, as the kernel keeps it, started
+// less than a second before now and runs wholly as user, by its real, saved
+// and effective IDs: a setuid program keeps the user's real ID and is read
+// so for good.
+func isStartingAs(process unix.KinfoProc, user uint32, now time.Time) bool {
+	started := process.Proc.P_starttime
+	age := now.Sub(time.Unix(started.Sec, int64(started.Usec)*int64(time.Microsecond)))
+	credentials := process.Eproc.Pcred
+	return age < time.Second && credentials.P_ruid == user && credentials.P_svuid == user && process.Eproc.Ucred.Uid == user
 }
 
 // startedWith reads the arguments and the environment pid was started with

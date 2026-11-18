@@ -459,13 +459,31 @@ func ps(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
 func piExtension(c InstallConfig) string {
 	exe, _ := json.Marshal(c.Executable)
 	args, _ := json.Marshal([]string{"native-hook", "pi", "--home", c.Home, "--state", c.State})
+	failures, _ := json.Marshal(FailureDir(c.State))
 	return `// CEO native hooks v1
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { mkdirSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolExecutionEndEvent } from "@earendil-works/pi-coding-agent";
 export default function (pi: ExtensionAPI) {
   let turn = 0;
   const instance = randomUUID();
+  // A failure goes to the supervisor, which tells the CEO, and never to the
+  // terminal: pi prints a console line onto the session's prompt line, which
+  // the board then reads as unsent text and leaves alone (#2428). A record
+  // that cannot be written has nowhere else to go but that prompt line, so it
+  // is dropped.
+  const failed = (name: string, outcome: string) => {
+    try {
+      mkdirSync(` + string(failures) + `, {recursive: true});
+      if (readdirSync(` + string(failures) + `).length >= ` + strconv.Itoa(MaxFailures) + `) return;
+      const id = randomUUID();
+      const staged = join(` + string(failures) + `, "." + id + ".tmp");
+      writeFileSync(staged, JSON.stringify({harness: "pi", event: name, outcome, at: new Date().toISOString()}));
+      renameSync(staged, join(` + string(failures) + `, id + ".failure.json"));
+    } catch {}
+  };
   const fire = (name: string, ctx: ExtensionContext, tool?: ToolExecutionEndEvent) => {
     if (name === "agent_settled" && ctx.hasPendingMessages()) return;
     const payload = {hook_event_name: name, session_id: ctx.sessionManager.getSessionId(), cwd: ctx.cwd,
@@ -475,11 +493,11 @@ export default function (pi: ExtensionAPI) {
     try {
       input = JSON.stringify(payload);
     } catch {
-      console.error("CEO native event could not be encoded");
+      failed(name, "could not be encoded. The event was not recorded.");
       return;
     }
     if (Buffer.byteLength(input, "utf8") > ` + strconv.Itoa(MaxInputBytes) + `) {
-      console.error("CEO native event exceeds 64 MiB");
+      failed(name, "exceeds 64 MiB. The event was not recorded.");
       return;
     }
     const result = spawnSync(` + string(exe) + `, ` + string(args) + `, {
@@ -497,7 +515,7 @@ export default function (pi: ExtensionAPI) {
       result.signal ? "was terminated by " + result.signal + ". It may have recorded the event." :
       typeof result.status === "number" && result.status !== 0 ? "exited with status " + result.status + ". It may have recorded the event." :
       result.error ? "could not complete (" + (code || "unknown error") + "). It may have recorded the event." : "";
-    if (outcome) console.error("CEO native hook for " + name + " " + outcome);
+    if (outcome) failed(name, outcome);
   };
   pi.on("session_start", (_event, ctx) => fire("session_start", ctx));
   pi.on("session_before_compact", (_event, ctx) => fire("session_before_compact", ctx));

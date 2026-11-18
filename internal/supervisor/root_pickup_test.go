@@ -114,8 +114,8 @@ func TestPickUpRootsQueuesAnOpenRootOnceWithABriefThatClosesIt(t *testing.T) {
 	if strings.Contains(string(brief), "ops-root: test") {
 		t.Errorf("brief keeps the issue's marker:\n%s", brief)
 	}
-	// A root fix is pushed for CI to judge, on any harness and with no gate
-	// daemon to depend on, and the issue's own "mode:" line never sets it.
+	// Automatic intake starts strict: a root fix carries no change assessment,
+	// so it goes through the gate, and the issue's own "mode:" line never sets it.
 	if settings := briefSettings(filepath.Join(h.Data, "root-widgets-7", "brief.md")); settings["mode"] != "no-mistakes" {
 		t.Errorf("the brief's mode = %q, want strict delivery for an unassessed issue", settings["mode"])
 	}

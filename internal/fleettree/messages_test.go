@@ -1247,6 +1247,24 @@ func TestMessagesReadEachKindOfEntry(t *testing.T) {
 			},
 		},
 		{
+			// Claude Code 2.1.323 put a mark right after the path of each
+			// picture it took into a running turn with the line that names it,
+			// live on 2026-11-13, so his message read as some other words and
+			// drew no picture (#2541). The row is his line as he sent it, whose
+			// paths the board draws as its pictures; a mark he typed is his.
+			name: "a line taken into a running turn with its pictures reads as he sent it",
+			entries: func(*testing.T, string) []any {
+				return []any{
+					attachment("q1", object{"type": "queued_command", "commandMode": "prompt", "prompt": []object{textBlock(`look at this C:\goblins\state\composer-files\pasted-4f2a91c7.png[Image #50] C:\goblins\state\composer-files\pasted-0b8e3d52.JPG[Image #51]`), imageBlock([]byte("png")), imageBlock([]byte("jpg"))}}),
+					attachment("q2", object{"type": "queued_command", "commandMode": "prompt", "prompt": "the third row reads [Image #2] here"}),
+				}
+			},
+			want: []Message{
+				{ID: "q1", Seq: 0, Kind: MessagePrompt, At: at, Source: FromOverlord, IsQueued: true, Text: `look at this C:\goblins\state\composer-files\pasted-4f2a91c7.png C:\goblins\state\composer-files\pasted-0b8e3d52.JPG`},
+				{ID: "q2", Seq: 1, Kind: MessagePrompt, At: at, Source: FromOverlord, IsQueued: true, Text: "the third row reads [Image #2] here"},
+			},
+		},
+		{
 			name: "a task notification reads as its summary",
 			entries: func(*testing.T, string) []any {
 				return []any{

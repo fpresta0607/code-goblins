@@ -892,6 +892,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestActivity())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestReviews())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestGoblinRuns())
+	reconcileErr = errors.Join(reconcileErr, s.Store.ingestHookFailures())
 	reconcileErr = errors.Join(reconcileErr, s.ingestCredentialRequests())
 	reconcileErr = errors.Join(reconcileErr, s.expireCredentials(time.Now()))
 	reconcileErr = errors.Join(reconcileErr, s.Store.expireRuns(time.Now()))
@@ -2313,8 +2314,8 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if memory, err := dispatch.Memory(); err == nil {
 			memory.Floor, memory.Next, memory.PoolLine, memory.PoolGrowth = memoryFloor, memoryNext, poolLine, poolGrowth
 			if dispatch.HeavyLine != nil {
-				if hold, err := dispatch.HeavyLine(memory); err == nil {
-					memory.SlotHold = hold
+				if room, err := dispatch.HeavyLine(memory); err == nil {
+					memory.SlotHold = room.Hold
 				}
 			}
 			// Naming who holds commit reads every process, so it is done

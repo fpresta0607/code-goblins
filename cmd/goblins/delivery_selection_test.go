@@ -337,3 +337,92 @@ func TestVerifyRejectsAnInvalidFrozenSelection(t *testing.T) {
 		}
 	}
 }
+
+// Issue 1952: goblins brief writes the mode its flags select on the brief's
+// mode: line, and the Delivery assessment is often recorded afterwards, when
+// the line no longer matches it. Spawn reads the line as a request, so a strict
+// line keeps the task strict whatever the assessment says. Brief readiness
+// names the mode the project's posture and the finished assessment select
+// whenever it differs from the line, so the line is kept or changed on purpose.
+func TestBriefReadyNamesTheModeThePostureAndAssessmentSelectBesideTheModeLine(t *testing.T) {
+	for _, test := range []struct {
+		name, line, assessment string
+		want                   []string
+	}{
+		{
+			name:       "a strict line beside an assessed internal change",
+			line:       "no-mistakes",
+			assessment: "surface: internal\nrisk: low\nreason: an internal report fix\n",
+			want:       []string{"mode: line says no-mistakes", "delivery posture (direct-PR)", "select direct-PR: an internal report fix", "keep no-mistakes on purpose"},
+		},
+		{
+			name:       "a narrower line beside no assessment",
+			line:       "direct-PR",
+			assessment: "surface: unknown\nrisk: unknown\nreason: \n",
+			want:       []string{"mode: line says direct-PR", "select no-mistakes: mixed or unknown change surface", "starts no-mistakes without a delivery exception"},
+		},
+		{
+			name:       "a line the posture and assessment select",
+			line:       "direct-PR",
+			assessment: "surface: internal\nrisk: low\nreason: an internal report fix\n",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h := testHome(t)
+			t.Setenv("GOBLINS_HOME", h.Root)
+			t.Setenv("GOBLINS_STATE_OVERRIDE", h.State)
+			manifest := project.Path(h.Data, "demo")
+			if err := os.MkdirAll(filepath.Dir(manifest), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(manifest, []byte(`{"project":"demo","delivery":{"posture":"direct-PR"},"verification":{"fast":[["git","status"]]}}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			runtime := testCommandRuntimeForHome(h)
+			var scaffold, scaffoldFailure bytes.Buffer
+			if exit := runBrief([]string{"task", "--project", filepath.Join(t.TempDir(), "demo")}, &scaffold, &scaffoldFailure, runtime); exit != 0 {
+				t.Fatalf("brief exit=%d stderr=%s", exit, &scaffoldFailure)
+			}
+			path := strings.TrimSpace(scaffold.String())
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			brief := string(data)
+			for placeholder, authored := range map[string]string{
+				"{TASK - what to build or learn, in one clear paragraph}":        "Fix the report total.",
+				"{ACCEPTANCE - concrete, verifiable outcomes}":                   "The total is right.",
+				"{CONSTRAINTS - things not to touch, boundaries, non-goals}":     "Change only the report.",
+				"mode: no-mistakes\nsurface: unknown\nrisk: unknown\nreason: \n": "mode: " + test.line + "\n" + test.assessment,
+			} {
+				if !strings.Contains(brief, placeholder) {
+					t.Fatalf("premise: the scaffold lacks %q:\n%s", placeholder, brief)
+				}
+				brief = strings.ReplaceAll(brief, placeholder, authored)
+			}
+			if err := os.WriteFile(path, []byte(brief), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runWithRuntime([]string{"brief", "ready", "task"}, &stdout, &stderr, runtime)
+
+			// Assert
+			finalized, err := os.ReadFile(path)
+			if exit != 0 || err != nil || !strings.Contains(string(finalized), "mode: "+test.line+"\n") || !strings.Contains(string(finalized), "ready: true") {
+				t.Fatalf("exit=%d err=%v stderr=%s; want the brief finalized with its own mode line", exit, err, &stderr)
+			}
+			notice := stderr.String()
+			if len(test.want) == 0 && notice != "" {
+				t.Fatalf("stderr=%q; want no notice when the line is the mode the posture and assessment select", notice)
+			}
+			for _, want := range test.want {
+				if !strings.Contains(notice, want) {
+					t.Errorf("stderr=%q; want %q", notice, want)
+				}
+			}
+		})
+	}
+}

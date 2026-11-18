@@ -433,6 +433,56 @@ func TestAnAnswerTheCEOTakesInTheSessionItMovedToIsDelivered(t *testing.T) {
 	}
 }
 
+// The Overlord, 2026-11-13: "img egettign latency delay and synch isseus in
+// modern terminal" (#2541). Claude Code 2.1.323 takes the picture a message's
+// path names into the text it hands its model: with a mark right after the
+// path when it takes the message into a running turn, and with the mark in
+// place of the path when the message starts a turn, as one held for a turn he
+// stopped does. A message of his with a picture is found taken either way,
+// and another message with the same picture is not his, nor is another
+// picture sent alone his own picture sent alone.
+func TestAMessageWithAPictureIsFoundTakenHoweverItsHarnessTookIt(t *testing.T) {
+	words, path := "The list draws this row twice, see the picture", `C:\goblins\state\composer-files\pasted-4f2a91c7.png`
+	typed := words + " " + path
+	picture := map[string]any{"type": "image", "source": map[string]any{"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo="}}
+	for _, tc := range []struct {
+		name  string
+		typed string
+		entry func(at string) map[string]any
+		want  bool
+	}{
+		{name: "into a running turn", typed: typed, entry: func(at string) map[string]any {
+			return map[string]any{"type": "attachment", "timestamp": at, "attachment": map[string]any{"type": "queued_command", "prompt": []map[string]any{{"type": "text", "text": typed + "[Image #50]"}, picture}}}
+		}, want: true},
+		{name: "as the turn it started", typed: typed, entry: func(at string) map[string]any {
+			return map[string]any{"type": "user", "timestamp": at, "message": map[string]any{"role": "user", "content": []map[string]any{{"type": "text", "text": words + " [Image #3]"}, picture}}}
+		}, want: true},
+		{name: "another message with the picture", typed: typed, entry: func(at string) map[string]any {
+			return map[string]any{"type": "user", "timestamp": at, "message": map[string]any{"role": "user", "content": []map[string]any{{"type": "text", "text": "Another row [Image #3]"}, picture}}}
+		}, want: false},
+		{name: "another picture sent alone", typed: path, entry: func(at string) map[string]any {
+			return map[string]any{"type": "user", "timestamp": at, "message": map[string]any{"role": "user", "content": []map[string]any{{"type": "text", "text": "[Image #3]"}, picture}}}
+		}, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			records := useConversations(t)
+			store, _ := testStore(t)
+			since := time.Now().UTC().Add(-time.Second)
+			session := "33333333-aaaa-4bbb-8ccc-000000000003"
+			writeRecord(t, filepath.Join(records, ".claude", "projects", "C--ceo-home", session+".jsonl"), tc.entry(time.Now().UTC().Format(time.RFC3339Nano)))
+
+			// Act
+			look := (&Service{Store: store}).lookAtTerminal(Awaiting{Host: "ceo", Harness: "claude", Since: since, Digest: monitor.TextDigest(tc.typed), Typed: tc.typed, Session: session})
+
+			// Assert
+			if look.Took != tc.want {
+				t.Errorf("look = %+v, want Took %t", look, tc.want)
+			}
+		})
+	}
+}
+
 // A review answer awaited on the CEO's terminal delivers the item only when
 // the CEO is its reporter: a goblin's item handed to the CEO because the
 // goblin restarted or ended never reached the goblin, so it stays undelivered.

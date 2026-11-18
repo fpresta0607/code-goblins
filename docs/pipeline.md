@@ -447,6 +447,12 @@ The command never resets a branch.
 Pipeline-owned recorded-head repair requires strict ancestry or that proof of a pure gate rebase.
 After native has already returned clean user-owned custody, the registered identity, unpublished-run state, stale-head anchor, and compare-and-swap guards are the authorized boundary, so the driver does not reject legitimate rebases or follow-up commits by comparing them with the stale head.
 
+Two refusals name the state they found and the one way on (issue 2378).
+A run cancelled before it pushed, at its submitted head, stays native branch sync's owner beside a newer run of the same branch that completed and published a head holding it, while `recover` reads the newer run as latest.
+The refusal names both runs and the published head, and says no supported recovery continues it until the engine's owner choice is fixed (no-mistakes issue 335), since native recovery of the older run takes custody at a head the published one has moved past.
+A run whose custody already returned while native branch sync no longer answers for it has no same-run continuation, since native retry refuses a driver-started run (no-mistakes issue 323).
+The refusal says a fresh `goblins pipeline run` is the expected path only when the run spent no repair round, and otherwise names the rounds a fresh run would start over and leaves that choice to the CEO.
+
 A gate's fixer works in the run's worktree, which no-mistakes removes with force once the run is over, so the driver keeps what the fixer left uncommitted before anything takes that worktree away.
 Before unpublished recovery runs any native command, and before a stop aborts a live run, every tracked and untracked change in the run's worktree is committed and pinned under `refs/no-mistakes/recovery/<run>/worktree` in the gate repository, and that commit's parent is the head the run ended at.
 The commit is made from an index of the driver's own, so the goblin's staged and unstaged work is exactly as it left it, and a first capture stands rather than being replaced by a later one a goblin may already be restoring.
@@ -486,7 +492,9 @@ At every level, `goblins gate test` also selects the trusted policy's `guards`, 
 A guard runs separately before vet and package tests, with their `go test` arguments and `-timeout 45m`, only when those package tests do not already cover its whole package, including packages scheduled alone.
 A guard with named `tests` runs exactly those tests, so selecting it does not run unrelated slow tests; without `tests`, it runs its whole package.
 An optional `goos` restricts the guard to that operating system; other platforms list it as deferred with the required and current platforms, never as executed, and its platform's CI remains required.
-`goblins gate prepush` uses the same guard declarations and platform rules, omitting a separate guard run when its selected whole-package tests already cover it.
+`goblins gate prepush` uses the same guard declarations and platform rules.
+It omits a guard's separate run only for a quick package the change itself reaches, which runs whole with the guard among its tests.
+A slow package, or one the change reaches through an import, runs its guard first and its own tests later, so the cheap guard runs before slow packages.
 
 A change reaches the packages that own a changed file, the packages that import one of those directly or transitively from their code or tests, and the packages a contract of the policy names for a changed file.
 A package owns Go build inputs (`.go`, `.s`, `.c`, `.h` or `.syso`) directly in its directory, the files under its `testdata` folder and the files its embed patterns cover, even deleted files, so a doc the binary embeds selects the package that embeds it and a doc nothing embeds selects none.
@@ -1009,7 +1017,9 @@ The wrapper's `--gate-run {run}` argument identifies the full native run in the 
 Its `--test-comparison-sha {test_comparison_sha}` argument carries the comparison already selected by native Test, as one full nonzero 40- or 64-character lowercase hexadecimal object ID.
 The consumer uses that value directly and never resolves another base or reads `runs.base_sha`, which records the previous pushed ref and may be zero.
 Without `--gate-run`, `goblins gate turn` keeps the command's existing environment and does not infer a native binding from directory names.
-The wrapper verifies the gate's project and branch through the native run database, finds the owning fleet task through the source repository's worktree list, and checks the task's recorded project and worktree against the home's allowed locations.
+The wrapper verifies the gate's project and branch through the native run database, finds the owning fleet task from the source repository's own worktree records, each worktree's HEAD and gitdir under its common git folder, and checks the task's recorded project and worktree against the home's allowed locations.
+It reads those records rather than running `git worktree list`, which took 12.8 s in a project of 48 worktrees on a loaded host, past the lookup's 5 second budget, and refused every gate run's Test there (issue 2627).
+It finds the common git folder through a `.git` file and the `commondir` it leads to, skips a record that is half made or half removed, as git does, and runs `git worktree list --porcelain -z` within its own 30 second budget only for a repository that keeps its refs in a reftable, whose HEAD files name no branch.
 The managed checkout must have the run's recorded HEAD and canonical native repository.
 The command must run there or in a separate base clone whose top level, local origin and HEAD match the managed checkout and the supplied native Test comparison.
 It never selects an environment from a client variable or another project's record.
