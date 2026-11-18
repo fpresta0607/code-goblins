@@ -18,5 +18,5 @@ func renameSynced(temporary, path string) error {
 		os.Remove(temporary)
 		return err
 	}
-	return fsx.SyncFolder(filepath.Dir(path))
+	return fsx.SyncDirectory(filepath.Dir(path))
 }

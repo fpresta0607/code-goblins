@@ -31,5 +31,5 @@ func replaceFile(destination, staged string) error {
 	if err := os.Rename(staged, destination); err != nil {
 		return fmt.Errorf("pipeline: replacing %s: %w", destination, err)
 	}
-	return fsx.SyncFolder(filepath.Dir(destination))
+	return fsx.SyncDirectory(filepath.Dir(destination))
 }
