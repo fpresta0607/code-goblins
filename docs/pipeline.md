@@ -758,7 +758,7 @@ Everything before `--` is `goblins`'s, and everything after it is the command's,
 It works with or without `--detach`, independently of `--wait`; both accept only positive durations, and an invalid, zero, negative or missing value starts nothing.
 Without an execution limit, the existing unlimited execution and ten-second descendant linger remain unchanged.
 A timeout exits 124 even if the command itself exited zero, names the execution record on standard error, and records `verify.ErrLimit` as a failure.
-A timeout before the command launches records `not_started`, with no invented command exit code.
+A timeout before the command launches records `not_started`, with no invented command exit code, and so does a launch that fails with no process started, such as a missing program.
 Cleanup still uses the existing measured job owner and spares machine services, with five seconds for the job cleanup proof, five seconds for the command wait, bounded custody release, and a final retry bounded to ten seconds.
 Those cleanup and receipt operations can extend elapsed time past the execution deadline, and native Windows calls must return before their cancellation can be observed; the limit is not a guarantee that the wrapper exits at that exact instant.
 A cleanup that cannot be confirmed keeps its custody and reports uncertainty; later confirmed cleanup never makes the timed-out run pass.
