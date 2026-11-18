@@ -133,6 +133,33 @@ func TestNativeGoblinKeyAlarmHandlesOutputShapes(t *testing.T) {
 	}
 }
 
+func TestNativeGoblinKeyAlarmNamesKindsInMemberNameOrder(t *testing.T) {
+	output := `{"d":"` + keyShaped("sk"+"_test_") + `","c":"` + keyShaped("ghp"+"_") + `","b":"` + keyShaped("sk"+"-ant-") + `","a":"` + keyShaped("AI"+"za") + `Ab12"}`
+	for _, harness := range []string{"claude", "codex", "pi"} {
+		t.Run(harness, func(t *testing.T) {
+			stateDir := goblinHookHome(t)
+			var payload map[string]json.RawMessage
+			if err := json.Unmarshal(alarmEvent(t, harness, "call-1", ""), &payload); err != nil {
+				t.Fatal(err)
+			}
+			payload["tool_response"] = json.RawMessage(output)
+			input, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var stdout, stderr bytes.Buffer
+
+			code := runNativeHook([]string{harness, "--home", filepath.Dir(stateDir), "--state", stateDir, "--key-alarm"}, bytes.NewReader(input), &stdout, &stderr, commandRuntime{})
+
+			pending, err := wake.Pending(stateDir)
+			want := "pd-keys's Read output held a Google API key, an Anthropic key, a GitHub token and a Stripe secret key, so"
+			if code != 0 || err != nil || len(pending) != 1 || !strings.Contains(pending[0].Detail, want) {
+				t.Fatalf("exit %d, wakes %+v, error %v; want one wake naming %q", code, pending, err, want)
+			}
+		})
+	}
+}
+
 func TestNativeGoblinKeyAlarmRejectsMalformedAndUnreadableInputSafely(t *testing.T) {
 	key := keyShaped("sk" + "_test_")
 	for _, harness := range []string{"claude", "codex", "pi"} {
