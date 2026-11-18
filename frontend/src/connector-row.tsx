@@ -11,7 +11,8 @@ import { Icon } from "./Icon";
 // carries it (the Overlord, 2026-11-11). A change waiting for a goblin's next terminal says so in one
 // quiet line, and the connector's page says why. The whole row opens the
 // connector, and each button opens it too, since which goblin signs in or
-// takes it is chosen there.
+// takes it is chosen there. A check that could not run says why in one
+// quiet line (#2547).
 export function ConnectorRow({ connector, onOpen }: { connector: Connector; onOpen: (connector: Connector, source: HTMLElement) => void }) {
   const action = connector.status === "available" ? "Connect" : connector.status === "sign-in" ? "Sign in" : "";
   return <li className="connector-row">
@@ -23,6 +24,9 @@ export function ConnectorRow({ connector, onOpen }: { connector: Connector; onOp
         ? <button type="button" className={action === "Sign in" ? "connector-connect primary" : "connector-connect"} aria-label={(action === "Connect" ? "Connect " : "Sign in to ") + connector.name} onClick={(event) => onOpen(connector, event.currentTarget)}>{action}</button>
         : <span className={"connector-state is-" + connector.status}>{connector.status === "verified" && <Icon name="check" />}{connector.word}</span>}
     </span>
-    {connector.isWaiting && <p className="connector-waiting">Applies at its next terminal</p>}
+    {(connector.reason || connector.isWaiting) && <div className="connector-notes">
+      {connector.reason && <p className="connector-reason">{connector.reason}</p>}
+      {connector.isWaiting && <p className="connector-waiting">Applies at its next terminal</p>}
+    </div>}
   </li>;
 }

@@ -59,6 +59,13 @@ func (s *Service) connections() (*connections.Cache, *connections.Inspector) {
 			}
 			return result
 		})
+		checks, stateDir := s.connectionChecks, s.Store.Home.State
+		checks.Failed = func(err error) {
+			_ = s.boardErrors.report(stateDir, "keeping connection checks", err.Error(), time.Now())
+		}
+		if err := checks.Keep(filepath.Join(stateDir, connectionChecksFile)); err != nil {
+			checks.Failed(err)
+		}
 	}
 	return s.connectionChecks, s.connectionInspector
 }
@@ -72,11 +79,25 @@ func (s *Service) connections() (*connections.Cache, *connections.Inspector) {
 // and anything else, such as a sign-in that expired, within this time.
 const connectionResultLife = 10 * time.Minute
 
+// connectionChecksFile keeps each goblin's last connection check in the
+// state folder, so the first open of the Connectors page after a restart of
+// the supervisor shows them at once (#2547).
+const connectionChecksFile = "connection-checks.json"
+
 // taskRecord is a task's record as a check of its connections reads it, so a
 // change to it, a grant or revoke made with goblins auth, rechecks the task.
 func taskRecord(meta state.TaskMeta) string {
 	sum := sha256.Sum256([]byte(fmt.Sprintf("%#v", meta)))
 	return hex.EncodeToString(sum[:])
+}
+
+// notRunning is whether a goblin's lifecycle record leaves it not running. A
+// paused or stopped goblin's check could only fail, and said its runtime
+// changed (#2547), so it is not checked: the goblin is not running, and its
+// connections are checked again when it resumes.
+func (s *Service) notRunning(meta state.TaskMeta) bool {
+	record, err := s.lifecycle(meta.ID)
+	return err == nil && !record.LeavesRunning(s.Store.Home.State, meta)
 }
 
 func (s *Service) connectionTask(task, generation string) (state.TaskMeta, error) {
@@ -89,7 +110,14 @@ func (s *Service) connectionTask(task, generation string) (state.TaskMeta, error
 
 func (h *HTTP) connectionResponse(w http.ResponseWriter, meta state.TaskMeta, refresh bool) {
 	checks, _ := h.Service.connections()
-	snapshot := checks.Read(meta.ID+"\n"+meta.SpawnGen, taskRecord(meta), refresh)
+	key := meta.ID + "\n" + meta.SpawnGen
+	var snapshot connections.Snapshot
+	if h.Service.notRunning(meta) {
+		snapshot = checks.Cached(key)
+		snapshot.NotRunning = true
+	} else {
+		snapshot = checks.Read(key, taskRecord(meta), refresh)
+	}
 	snapshot.Generation = meta.SpawnGen
 	logins := []browserLoginEntry{}
 	if h.Service.browsers != nil {

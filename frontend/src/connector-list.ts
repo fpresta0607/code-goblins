@@ -42,6 +42,9 @@ export interface Connector {
   word: string;
   // Whether a Connect or Disconnect waits for a goblin's next terminal.
   isWaiting: boolean;
+  // Why the check of the goblin whose check says least could not run, in
+  // plain words, which its row says (#2547).
+  reason: string;
 }
 
 // goblinKey names a goblin's running session: its task and its generation.
@@ -103,7 +106,7 @@ export function listConnectors(readings: GoblinReading[], asked: ReadonlyMap<str
       const key = entry.kind + ":" + entry.name.toLowerCase();
       const connector = found.get(key) ?? {
         key, name: entry.kind === "credential" ? entry.name : connectorName(entry.name), reported: entry.name, kind: entry.kind, type: connectorType(entry),
-        uses: [], status: "available" as ConnectorStatus, word: "", isWaiting: false,
+        uses: [], status: "available" as ConnectorStatus, word: "", isWaiting: false, reason: "",
       };
       connector.uses.push({ goblin, entry, isCarried: isCarried(entry, asked.get(askKey(goblin, entry.id))) });
       found.set(key, connector);
@@ -118,6 +121,8 @@ export function listConnectors(readings: GoblinReading[], asked: ReadonlyMap<str
     const { tone, word } = entryState(least.entry);
     connector.status = isSignIn(least.entry) ? "sign-in" : tone;
     connector.word = word;
+    const reason = least.entry.status === "unchecked" ? least.entry.detail.replace(/^Not checked: /, "") : "";
+    connector.reason = reason.charAt(0).toUpperCase() + reason.slice(1);
   }
   return connectors.sort((first, second) => first.name.localeCompare(second.name) || first.type.localeCompare(second.type));
 }

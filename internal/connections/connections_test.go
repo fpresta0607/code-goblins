@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -478,5 +480,131 @@ func TestAServersToolListIsBounded(t *testing.T) {
 	// Assert
 	if len(listed) != toolLimit || listed[0].Name != "tool_00000" || listed[toolLimit-1].Name != fmt.Sprintf("tool_%05d", toolLimit-1) {
 		t.Fatalf("listed %d tools, first %q, last %q", len(listed), listed[0].Name, listed[len(listed)-1].Name)
+	}
+}
+
+// #2547: the results lived only in the supervisor's memory, so the first
+// open after a restart showed no list until every goblin was checked again.
+// A cache that keeps its results in a file reads them back with the time of
+// each check, shows them at once, and rechecks only one older than its time
+// to live; a result a day old is not read back.
+func TestKeptResultsComeBackAfterARestartWithTheirAge(t *testing.T) {
+	// Arrange: a supervisor's cache checks two goblins and closes.
+	path := filepath.Join(t.TempDir(), "connection-checks.json")
+	var calls atomic.Int32
+	check := func(_ context.Context, key string) Snapshot {
+		calls.Add(1)
+		return Snapshot{Entries: []Entry{{ID: "mcp:" + key, Name: key, Kind: "mcp", Status: "connected"}}}
+	}
+	first := NewCache(10*time.Minute, time.Minute, check)
+	if err := first.Keep(path); err != nil {
+		t.Fatal(err)
+	}
+	checkedAt := waitChecked(t, first, "fresh").CheckedAt
+	waitChecked(t, first, "old")
+	first.Close()
+
+	// Act: the next supervisor's cache, five minutes later, reads them back,
+	// with the "old" result written as a day old.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept map[string]keptCheck
+	if err := json.Unmarshal(data, &kept); err != nil {
+		t.Fatal(err)
+	}
+	old := kept["old"]
+	old.At = old.At.Add(-keptFor)
+	kept["old"] = old
+	if data, err = json.Marshal(kept); err != nil || os.WriteFile(path, data, 0o600) != nil {
+		t.Fatal(err)
+	}
+	next := NewCache(10*time.Minute, time.Minute, check)
+	defer next.Close()
+	next.Now = func() time.Time { return time.Now().Add(5 * time.Minute) }
+	if err := next.Keep(path); err != nil {
+		t.Fatal(err)
+	}
+	shown := next.Get("fresh", false)
+
+	// Assert: the kept result at once, with its own time, and no check.
+	if shown.Checking || len(shown.Entries) != 1 || shown.Entries[0].Name != "fresh" || !shown.CheckedAt.Equal(checkedAt) || calls.Load() != 2 {
+		t.Fatalf("shown = %+v after %d checks, want the kept result of %s and no check", shown, calls.Load(), checkedAt)
+	}
+	if day := next.Cached("old"); len(day.Entries) != 0 || !day.CheckedAt.IsZero() {
+		t.Fatalf("a day-old result came back: %+v", day)
+	}
+}
+
+// A check the supervisor's close cuts short proved nothing, so the file keeps
+// the result before it, not a timed-out one the next supervisor would show
+// as a failed check.
+func TestACheckCutShortByCloseKeepsTheResultBeforeIt(t *testing.T) {
+	// Arrange
+	path := filepath.Join(t.TempDir(), "connection-checks.json")
+	var calls atomic.Int32
+	started := make(chan struct{})
+	cache := NewCache(10*time.Minute, time.Minute, func(ctx context.Context, key string) Snapshot {
+		if calls.Add(1) == 2 {
+			close(started)
+			<-ctx.Done()
+		}
+		return Snapshot{Entries: []Entry{{ID: "mcp:tools", Name: "tools", Kind: "mcp", Status: "connected"}}}
+	})
+	if err := cache.Keep(path); err != nil {
+		t.Fatal(err)
+	}
+	waitChecked(t, cache, "one")
+	cache.Get("one", true)
+	<-started
+
+	// Act
+	cache.Close()
+
+	// Assert
+	next := NewCache(10*time.Minute, time.Minute, func(context.Context, string) Snapshot { return Snapshot{Entries: []Entry{}} })
+	defer next.Close()
+	if err := next.Keep(path); err != nil {
+		t.Fatal(err)
+	}
+	kept := next.Cached("one")
+	if kept.Error != "" || len(kept.Entries) != 1 || kept.Entries[0].Status != "connected" {
+		t.Fatalf("kept = %+v, want the result before the cut-short check", kept)
+	}
+}
+
+// An unreadable file is named as such, and the next result is written over
+// it.
+func TestAnUnreadableKeptFileIsNamedAndWrittenOver(t *testing.T) {
+	// Arrange
+	path := filepath.Join(t.TempDir(), "connection-checks.json")
+	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cache := NewCache(10*time.Minute, time.Minute, func(context.Context, string) Snapshot { return Snapshot{Entries: []Entry{}} })
+	defer cache.Close()
+
+	// Act
+	err := cache.Keep(path)
+	waitChecked(t, cache, "one")
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "are unreadable") {
+		t.Fatalf("err = %v, want the file named unreadable", err)
+	}
+	// The result is written just after the check ends, which a read of the
+	// file can meet mid-write on Windows.
+	deadline := time.Now().Add(time.Minute)
+	for {
+		var kept map[string]keptCheck
+		data, readErr := os.ReadFile(path)
+		if readErr == nil && json.Unmarshal(data, &kept) == nil && !kept["one"].At.IsZero() {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the file holds %q (%v), want the next result", data, readErr)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
