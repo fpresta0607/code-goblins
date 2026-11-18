@@ -1,10 +1,12 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
@@ -100,5 +102,34 @@ func TestServeDispatchReadsAHeavyLineStandingStill(t *testing.T) {
 		if !strings.Contains(stall, want) {
 			t.Errorf("serve's LineStall = %q; want %q", stall, want)
 		}
+	}
+}
+
+// The board's supervisor reads the machine's heavy line for a goblin's own
+// turn that has waited an hour: the Dispatch serve hands the supervisor names
+// the run waiting in the line once an hour has passed since it joined, and not
+// before, so the CEO's wake can fire (#2416).
+func TestServeDispatchReadsAGoblinTurnWaitingAnHour(t *testing.T) {
+	// Arrange
+	lineWithAWaitingRun(t)
+	dispatch := serveDispatch(testHome(t))
+	if dispatch.LongTurnWaits == nil {
+		t.Fatal("serve's Dispatch reads no goblin's turn waiting long")
+	}
+	now := time.Now()
+
+	// Act
+	young, youngErr := dispatch.LongTurnWaits(now)
+	aged, agedErr := dispatch.LongTurnWaits(now.Add(61 * time.Minute))
+
+	// Assert
+	if youngErr != nil || agedErr != nil {
+		t.Fatal(errors.Join(youngErr, agedErr))
+	}
+	if len(young) != 0 {
+		t.Errorf("serve's LongTurnWaits now = %v; want none, as the run joined just now", young)
+	}
+	if len(aged) != 1 || !strings.HasPrefix(aged[0].Who, "a run that waits") {
+		t.Errorf("serve's LongTurnWaits an hour on = %v; want the run that waits", aged)
 	}
 }
