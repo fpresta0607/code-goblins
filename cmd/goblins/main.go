@@ -42,6 +42,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/measure"
 	"github.com/fpresta0607/code-goblins/internal/onboarding"
 	"github.com/fpresta0607/code-goblins/internal/openrouter"
+	"github.com/fpresta0607/code-goblins/internal/pagecheck"
 	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/reap"
@@ -309,6 +310,12 @@ type commandRuntime struct {
 	// crawlerNpm runs npm ci for goblins crawler setup and goblins install; nil runs
 	// the machine's.
 	crawlerNpm execx.Runner
+	// lavish runs lavish-axi for goblins page check; nil runs the machine's.
+	lavish execx.Runner
+	// checkPage draws a page's review session in a hidden Chrome and saves
+	// its pictures in out, for goblins page check; nil is pagecheck.Check in
+	// the machine's Chrome.
+	checkPage func(ctx context.Context, session, out string) (pagecheck.Report, error)
 	// switchAFK asks the supervisor to turn AFK mode on or off, and logAFK to
 	// log a decision made under it; nil is the supervisor's pipe.
 	switchAFK func(h home.Home, on bool, asked string) error
@@ -789,7 +796,7 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 	case "review":
 		return runReview(args[1:], stdout, stderr, runtime)
 	case "page":
-		return runPage(args[1:], stdout, stderr)
+		return runPage(args[1:], stdout, stderr, runtime)
 	case "deliver":
 		return runDeliver(args[1:], stdout, stderr, runtime)
 	case "run-request":

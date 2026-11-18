@@ -31,7 +31,7 @@ var pageCheckTimeout = 2 * time.Minute
 // phone width, saves a picture at each and lists every layout issue
 // lavish-axi's gate found, as the Overlord's Layout issues inbox would show
 // it. It exits 0 with none, and 1 with any or when it could not check.
-func runPage(args []string, stdout, stderr io.Writer) int {
+func runPage(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) < 2 || args[0] != "check" || strings.HasPrefix(args[1], "-") {
 		fmt.Fprintln(stderr, "usage: goblins page check <html-file> [--out <folder>]")
 		return 2
@@ -50,13 +50,22 @@ func runPage(args []string, stdout, stderr io.Writer) int {
 	if *out == "" {
 		*out = strings.TrimSuffix(page, filepath.Ext(page)) + "-check"
 	}
-	executable, err := browserlogin.Executable()
-	if err != nil {
-		fmt.Fprintln(stderr, "goblins page check: no Chrome to draw the page in: "+err.Error())
-		return 1
+	commands := runtime.lavish
+	if commands == nil {
+		commands = execx.OSRunner{}
+	}
+	check := runtime.checkPage
+	if check == nil {
+		check = func(ctx context.Context, session, out string) (pagecheck.Report, error) {
+			executable, err := browserlogin.Executable()
+			if err != nil {
+				return pagecheck.Report{}, fmt.Errorf("no Chrome to draw the page in: %w", err)
+			}
+			return pagecheck.Check(ctx, executable, session, out)
+		}
 	}
 	openCtx, openCancel := context.WithTimeout(context.Background(), pageOpenTimeout)
-	session, err := (axi.Lavish{Commands: execx.OSRunner{}}).Open(openCtx, page)
+	session, err := (axi.Lavish{Commands: commands}).Open(openCtx, page)
 	openCancel()
 	if errors.Is(err, axi.ErrSessionEnded) {
 		fmt.Fprintln(stderr, "goblins page check: "+supervisor.EndedPage(page).Error())
@@ -68,7 +77,7 @@ func runPage(args []string, stdout, stderr io.Writer) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), pageCheckTimeout)
 	defer cancel()
-	report, err := pagecheck.Check(ctx, executable, session, *out)
+	report, err := check(ctx, session, *out)
 	if err != nil {
 		fmt.Fprintln(stderr, "goblins page check: "+err.Error())
 		return 1
