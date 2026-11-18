@@ -49,7 +49,7 @@ These `!windows` files already do the Linux job and need no new work of their ow
 
 - `internal/disk` reads free space with `statfs`.
 - `internal/gatehome` links with `os.Symlink`, though its link check (`sameFolder`), which builds everywhere, still folds case (see [Locks, files and paths](#locks-files-and-paths)).
-- `internal/fsx` opens, renames, resolves and removes with the plain calls, everything but `RemoveFileWhen`, though `fsx.SamePath`, which builds everywhere, still folds case.
+- `internal/fsx` opens, renames, resolves and removes with the plain calls, everything but `RemoveFileWhen`, and `fsx.SamePath` compares by the file system's case rule (`fsx.EqualPath`).
 - `internal/auth` keeps each secret in its own file with mode 0600 when there is no Credential Manager.
 - `internal/pipeline` checks that an agent's process is alive with `kill(pid, 0)`.
 - `internal/verify` keeps its admission cache under `~/.cache`.
@@ -142,7 +142,7 @@ The host's protocol (a token handshake, then typed frames) is the same on every 
   The gate's idle lock takes the exclusive `flock` a no-mistakes daemon takes on its `daemon.lock` off Windows, and the shared config it replaces keeps its mode, as `ReplaceFileW` keeps its access list.
   The update's hold has no counterpart in an open file, which keeps nobody from writing or replacing it, so it comes with its one caller, the updater's way back to the previous build, in layer 8, and refuses until then.
 - **Must change, not only port:** code that builds on every system compares paths without regard to case, as Windows does.
-  `fsx.SamePath` folds case for its 24 callers in program files, and about 50 more program files compare paths with `strings.EqualFold`, among them `internal/gatehome`, `internal/home`, `internal/harnessmap`, `internal/pipeline`, `internal/update`, `internal/uninstall`, `internal/codexguard`, `internal/fleettree`, `internal/pathguard` and `cmd/goblins`.
+  `fsx.SamePath`, for its 26 callers in program files, and `internal/pathguard`'s check of the folders it guards compare by the file system's case rule (`fsx.EqualPath`), but about 50 more program files compare paths with `strings.EqualFold`, among them `internal/gatehome`, `internal/home`, `internal/harnessmap`, `internal/pipeline`, `internal/update`, `internal/uninstall`, `internal/codexguard`, `internal/fleettree`, `internal/pathguard` and `cmd/goblins`.
   11 more lower a whole path with `strings.ToLower` to compare it or use it as a key: `cmd/goblins/gate_run_end.go`, `internal/lock/lock.go`, `internal/lifecycle/processes.go`, `internal/supervisor/pages.go`, `internal/janitor/worktrees.go`, `internal/watch/janitor.go`, `internal/gatetest/select.go` and `match.go`, `internal/cleanup/outcome.go`, `internal/doctor/fix.go` and `internal/runtime/owner.go`.
   Some of the `strings.EqualFold` files do the same beside it, among them `internal/monitor/polls.go`, `internal/janitor/temp.go`, `internal/homemove/homemove.go` and `internal/supervisor/runs.go`, and `internal/supervisor/kept_reads.go` keys a folder's file names by their lowercase form.
   Some of the same code also takes `\` as the path separator, which a Linux path never holds.
