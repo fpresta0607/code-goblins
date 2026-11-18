@@ -68,6 +68,37 @@ export function filesOf(data: DataTransfer | null): File[] {
   });
 }
 
+// The attribute that marks each picture a selection copied from a
+// conversation holds inline in its HTML (#2543), which no other HTML's
+// pictures carry.
+export const CONVERSATION_PICTURE = "data-conversation-picture";
+
+// A picture a paste's HTML holds inline as base64 PNG data, as a selection
+// copied from a conversation holds each of its pictures (#2543).
+const INLINE_PICTURE = /^data:image\/png;base64,((?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?)$/;
+
+// inlinePictures is the pictures a selection copied from a conversation
+// holds inline in a paste's HTML, in their order, and none of any other
+// HTML's.
+export function inlinePictures(html: string): File[] {
+  if (!html.includes(CONVERSATION_PICTURE)) return [];
+  return Array.from(new DOMParser().parseFromString(html, "text/html").querySelectorAll(`img[${CONVERSATION_PICTURE}]`)).flatMap((image) => {
+    const data = INLINE_PICTURE.exec(image.getAttribute("src") ?? "")?.[1];
+    return data ? [new File([Uint8Array.from(atob(data), (character) => character.charCodeAt(0))], "pasted.png", { type: "image/png" })] : [];
+  });
+}
+
+// pastedPictures is the pictures a paste brings a box, in their order, and
+// whether the box takes the paste's words as text too: a selection copied from
+// a conversation brings each picture it holds inline, with its words (#2543),
+// and otherwise the picture files the clipboard holds are the paste, which the
+// box takes alone.
+export function pastedPictures(clipboard: DataTransfer): { pictures: File[]; shouldKeepWords: boolean } {
+  const inline = inlinePictures(clipboard.getData("text/html"));
+  if (inline.length) return { pictures: inline, shouldKeepWords: true };
+  return { pictures: filesOf(clipboard).filter((file) => file.type.startsWith("image/")), shouldKeepWords: false };
+}
+
 // clipboardPicture reads the picture the clipboard holds, for a phone's
 // Paste a picture: an iPhone offers its own Paste in a plain text box only
 // for text (WebKit's supportedPasteboardTypesForCurrentSelection), so a

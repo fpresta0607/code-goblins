@@ -614,6 +614,26 @@ test("Alt+V pastes a picture into the box as one it shows and sends by the path 
   await expect(field(page)).toHaveValue("");
 });
 
+// The Overlord, 2026-10-26: "alt + v or ctrl + c both should work for
+// paste"; a read the browser refuses is said over the box, never dropped.
+test("Alt+V whose clipboard read the browser refuses says so over the box and pastes nothing", async ({ page }) => {
+  // Arrange
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { read: async () => { throw new DOMException("Read permission denied.", "NotAllowedError"); } } });
+  });
+  await open(page);
+  await openGoblin(page);
+
+  // Act
+  await field(page).focus();
+  await page.keyboard.press("Alt+v");
+
+  // Assert
+  await expect(box(page).getByRole("alert")).toHaveText("The browser refused to read the clipboard. Press Ctrl+V to paste.");
+  await expect(field(page)).toHaveValue("");
+  await expect(box(page).getByRole("list", { name: "Attached files" })).toHaveCount(0);
+});
+
 for (const harness of ["claude", "codex", "pi"] as const) {
   test(`${harness}: a slash offers the session's commands and skills with what each does, filters by name and by what it does, takes the keyboard and keeps its arguments`, async ({ page }) => {
     // Arrange

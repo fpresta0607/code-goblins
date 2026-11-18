@@ -140,6 +140,35 @@ for (const { label, viewport, isTouch } of [
       expect(sent[0]).toMatchObject({ kind: "ceo_answer", question_id: "written", answer_kind: "other", text: KEPT + "pasted-1.txt" });
     });
 
+    if (!isTouch) test("a selection copied from a conversation and pasted into the answer attaches each of its pictures and keeps its words", async ({ page, context }) => {
+      // Arrange: the clipboard holds what the board's copy of a chat selection
+      // holds (#2543): its words, HTML with its two pictures inline, each
+      // marked as a conversation's, and its first picture as a picture.
+      await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+      const kept = await keepFiles(page);
+      await page.goto("/tests/fixtures/question-input.html");
+      await openItem(page, "Which layout should the page use?");
+      await page.getByRole("dialog").getByRole("radio", { name: /^Other/ }).check();
+      await page.evaluate(async (png) => {
+        const picture = `<img data-conversation-picture src="data:image/png;base64,${png}" alt="">`;
+        await navigator.clipboard.write([new ClipboardItem({
+          "text/plain": new Blob(["Like these two"], { type: "text/plain" }),
+          "text/html": new Blob([`<p>Like these</p>${picture}${picture}<p>two</p>`], { type: "text/html" }),
+          "image/png": new Blob([Uint8Array.from(atob(png), (character) => character.charCodeAt(0))], { type: "image/png" }),
+        })]);
+      }, PNG.toString("base64"));
+
+      // Act
+      await answerBox(page).focus();
+      await page.keyboard.press("Control+V");
+
+      // Assert: both pictures are kept for the goblin that asked and show as
+      // chips, and his words are pasted into the answer.
+      await expect(chips(page).getByRole("listitem")).toHaveCount(2);
+      expect(kept.uploads).toEqual([{ name: "pasted.png", task: "cg-ask" }, { name: "pasted.png", task: "cg-ask" }]);
+      await expect(answerBox(page)).toHaveValue("Like these two");
+    });
+
     test("Send waits while a file is still being kept, and a file the board refuses says why and adds nothing", async ({ page }) => {
       // Arrange
       const sent = await recordAnswers(page);
