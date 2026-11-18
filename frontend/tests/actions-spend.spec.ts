@@ -1,4 +1,4 @@
-import { expect, holdStream, servePages, test } from "./site";
+import { expect, holdStream, servePages, test, type Page } from "./site";
 
 const NOW = "2026-10-15T12:00:00Z";
 // A month GitHub bills in part: its use at list price is $3.50 above its bill.
@@ -7,6 +7,25 @@ const spent = (billed: number) => `$${billed.toFixed(2)} billed this month`;
 const reading = (changes: Record<string, unknown> = {}) => ({ status: "available", month: "2026-10", total: total(8.5),
   repositories: [{ name: "moss", minutes: 400, used_usd: 7, billed_usd: 5 }, { name: "fern", minutes: 300, used_usd: 5, billed_usd: 3.5 }],
   read_at: NOW, checked_at: NOW, detail: "", ...changes });
+
+// pushedStream serves the board a stream that sends snapshot once it opens,
+// as holdStream does, and returns a push that sends it, or another, again.
+async function pushedStream(page: Page, snapshot: unknown): Promise<(next?: unknown) => Promise<void>> {
+  await page.addInitScript((data) => {
+    const streams: EventTarget[] = [];
+    class PushedStream extends EventTarget {
+      onerror: (() => void) | null = null;
+      constructor() {
+        super();
+        streams.push(this);
+        setTimeout(() => this.dispatchEvent(new MessageEvent("snapshot", { data })));
+      }
+      close() {}
+    }
+    Object.assign(window, { EventSource: PushedStream, pushSnapshot: (next: string) => { for (const stream of streams) stream.dispatchEvent(new MessageEvent("snapshot", { data: next })); } });
+  }, JSON.stringify(snapshot));
+  return (next = snapshot) => page.evaluate((data) => (window as unknown as { pushSnapshot: (data: string) => void }).pushSnapshot(data), JSON.stringify(next));
+}
 
 for (const width of [1440, 390, 320]) {
   test(`billing permission repair names the account and preserves focus at ${width}px`, async ({ page }, testInfo) => {
@@ -458,21 +477,8 @@ test.describe("Actions rollover on an open device", () => {
       requests++;
       return route.fulfill({ json: reading({ read_at: "2026-11-01T00:30:00Z", checked_at: "2026-11-01T00:30:00Z" }) });
     });
-    const snapshot = { instance: "actions-fixture", revision: 1, healthy: true, example: true, ceo_runs: true,
-      actions_spend: reading({ month: "2026-11", total: total(40), read_at: "2026-11-01T00:30:00Z", checked_at: "2026-11-01T00:30:00Z" }) };
-    await page.addInitScript((data) => {
-      const streams: EventTarget[] = [];
-      class PushedStream extends EventTarget {
-        onerror: (() => void) | null = null;
-        constructor() {
-          super();
-          streams.push(this);
-          setTimeout(() => this.dispatchEvent(new MessageEvent("snapshot", { data })));
-        }
-        close() {}
-      }
-      Object.assign(window, { EventSource: PushedStream, pushSnapshot: () => { for (const stream of streams) stream.dispatchEvent(new MessageEvent("snapshot", { data })); } });
-    }, JSON.stringify(snapshot));
+    const push = await pushedStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, ceo_runs: true,
+      actions_spend: reading({ month: "2026-11", total: total(40), read_at: "2026-11-01T00:30:00Z", checked_at: "2026-11-01T00:30:00Z" }) });
     await page.goto("/");
     await page.getByRole("button", { name: "Board", exact: true }).click();
     await expect(page.getByRole("button", { name: `GitHub Actions spend: ${spent(8.5)}`, exact: true })).toBeVisible();
@@ -482,9 +488,37 @@ test.describe("Actions rollover on an open device", () => {
 
     for (let update = 0; update < 12; update++) {
       await page.clock.runFor(10_000);
-      await page.evaluate(() => (window as unknown as { pushSnapshot: () => void }).pushSnapshot());
+      await push();
     }
     expect(requests - settled).toBeLessThanOrEqual(2);
+  });
+
+  // Every snapshot moves the board's clock, and one that lands while the
+  // month's read is on its way neither drops that read nor asks again (#2086).
+  test("a snapshot while the month's read is on its way asks for the month once", async ({ page }) => {
+    await page.clock.install({ time: new Date("2026-11-01T02:30:00Z") });
+    let requests = 0;
+    let answer: () => void = () => { throw new Error("the month's read has not started"); };
+    await page.route("**/api/actions-spend?*", async (route) => {
+      requests++;
+      if (requests === 1) await new Promise<void>((resolve) => { answer = resolve; });
+      await route.fulfill({ json: reading({ read_at: "2026-11-01T00:30:00Z", checked_at: "2026-11-01T00:30:00Z" }) });
+    });
+    const snapshot = { instance: "actions-fixture", revision: 1, healthy: true, example: true, ceo_runs: true,
+      actions_spend: reading({ month: "2026-11", total: total(40), read_at: "2026-11-01T00:30:00Z", checked_at: "2026-11-01T00:30:00Z" }) };
+    const push = await pushedStream(page, snapshot);
+    await page.goto("/");
+    await page.getByRole("button", { name: "Board", exact: true }).click();
+    await expect.poll(() => requests).toBe(1);
+    await page.clock.pauseAt(new Date("2026-11-01T02:31:30Z"));
+    // The bar's new words show this snapshot's render, whose effects run
+    // before the read's answer can.
+    await push({ ...snapshot, ceo_starting: true });
+    await expect(page.getByText("Starting: answer anything it asks in its terminal.")).toBeVisible();
+
+    answer();
+    await expect(page.getByRole("button", { name: `GitHub Actions spend: ${spent(8.5)}`, exact: true })).toBeVisible();
+    expect(requests).toBe(1);
   });
 
   test("a device clock hours behind still checks its month within the hour", async ({ page }) => {
