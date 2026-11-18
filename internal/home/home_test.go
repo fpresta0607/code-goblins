@@ -26,8 +26,7 @@ func gitInit(t *testing.T, dir string) {
 func TestResolveDefaultsToThePerUserHome(t *testing.T) {
 	// Arrange: a goblin pane exports GOBLINS_STATE_OVERRIDE, so the defaults this
 	// test asserts only hold once that inherited value is cleared too.
-	local := t.TempDir()
-	t.Setenv("LOCALAPPDATA", local)
+	want := pointDefaultAt(t, t.TempDir())
 	t.Setenv("GOBLINS_HOME", "")
 	t.Setenv("GOBLINS_STATE_OVERRIDE", "")
 	t.Chdir(t.TempDir())
@@ -39,7 +38,6 @@ func TestResolveDefaultsToThePerUserHome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	want := filepath.Join(local, "CodeGoblins")
 	if !strings.EqualFold(h.Root, want) {
 		t.Errorf("Root = %q, want the per-user home %q", h.Root, want)
 	}
@@ -54,7 +52,7 @@ func TestResolveDefaultsToThePerUserHome(t *testing.T) {
 }
 
 func TestResolveWithoutLocalAppDataOrCEOHomeIsRefused(t *testing.T) {
-	t.Setenv("LOCALAPPDATA", "")
+	clearDefault(t)
 	t.Setenv("GOBLINS_HOME", "")
 	t.Setenv("GOBLINS_STATE_OVERRIDE", "")
 	if h, err := Resolve(); err == nil {
@@ -305,9 +303,7 @@ func TestResolveRefusesTheInheritedFleetHome(t *testing.T) {
 	// installed machine is the running fleet.
 	t.Run("a test that clears GOBLINS_HOME and keeps the machine's LOCALAPPDATA", func(t *testing.T) {
 		defer restoreInheritedDefault(inheritedDefault)
-		local := t.TempDir()
-		t.Setenv("LOCALAPPDATA", local)
-		inheritedDefault = filepath.Join(local, "CodeGoblins")
+		inheritedDefault = pointDefaultAt(t, t.TempDir())
 		t.Setenv("GOBLINS_HOME", "")
 		t.Setenv("GOBLINS_STATE_OVERRIDE", "")
 		if h, err := Resolve(); err == nil {

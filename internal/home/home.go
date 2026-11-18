@@ -1,7 +1,7 @@
 // Package home resolves the CEO home directory, names the folders inside it,
 // and decides whether a directory is a genuine primary fleet home. Every
 // install, the desktop installer and `goblins install` alike, uses one per-user
-// home, %LOCALAPPDATA%\CodeGoblins, and a source checkout is never one:
+// home (DefaultRoot), and a source checkout is never one:
 // every hook stays inert in a folder that is not a home.
 package home
 
@@ -215,15 +215,12 @@ func ReadDevDriveConfig(root string) (DevDriveConfig, error) {
 	return config, nil
 }
 
-// DefaultRoot is the per-user home every install uses,
-// %LOCALAPPDATA%\CodeGoblins. GOBLINS_HOME overrides it, for a test or a
-// deliberate choice.
+// DefaultRoot is the per-user home every install uses: %LOCALAPPDATA%\CodeGoblins
+// on Windows, and $XDG_DATA_HOME/code-goblins or ~/.local/share/code-goblins
+// on Linux and macOS. GOBLINS_HOME overrides it, for a test or a deliberate
+// choice.
 func DefaultRoot() (string, error) {
-	local := os.Getenv("LOCALAPPDATA")
-	if local == "" {
-		return "", errors.New("home: LOCALAPPDATA is not set, so there is no per-user folder for a CEO home; set GOBLINS_HOME")
-	}
-	return filepath.Abs(filepath.Join(local, "CodeGoblins"))
+	return defaultRoot()
 }
 
 // inheritedRoot and inheritedState capture the fleet home the process was
@@ -248,8 +245,8 @@ var inheritedDefault, _ = DefaultRoot()
 // at its own directory is unaffected, including one that builds a home which
 // looks primary. A test that clears GOBLINS_HOME is refused the per-user home the
 // machine's own environment names, which on an installed machine is the
-// running fleet; one that points LOCALAPPDATA at its own directory resolves a
-// per-user home there.
+// running fleet; one that points the per-user folder DefaultRoot reads at its
+// own directory resolves a per-user home there.
 func Resolve() (Home, error) {
 	h, err := resolve()
 	if err != nil {

@@ -63,6 +63,15 @@ var (
 	}
 )
 
+// For a report: the accounts a narrowed folder admits, what keeps it to
+// them, what a narrowing changes beside the folder, and what it walks.
+const (
+	Admitted = "you, SYSTEM and Administrators"
+	Guard    = "own access list"
+	Reach    = " and everything in it that takes its access from it"
+	Walk     = " and everything in it, which takes minutes for a folder holding many files"
+)
+
 // Narrow gives path, and everything in it that takes its access from its
 // folder, to SYSTEM, Administrators and the account this process runs as
 // alone, each with full control: its access list names no one else and
