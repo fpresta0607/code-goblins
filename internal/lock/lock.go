@@ -79,7 +79,7 @@ func (i *Info) isSameRun(other *Info) bool {
 }
 
 // Alive reports whether the holder's process still runs, and is the process
-// the record names (isProcess).
+// the record names (IsProcess).
 // Fail closed: if the holder cannot be verified (foreign hostname, unknown process state),
 // return true (assume alive) to avoid stealing a lock that might be legitimately held.
 func (i *Info) Alive() bool {

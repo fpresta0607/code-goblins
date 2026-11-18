@@ -5,6 +5,7 @@ package fsx
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -14,6 +15,15 @@ import (
 // what the name still holds while it acts on it.
 func TestCommitUnheldWaitsForTheReaderThatHoldsTheFile(t *testing.T) {
 	// Arrange
+	budget := transientBudget
+	transientBudget = 2 * time.Minute
+	waiting := make(chan struct{})
+	var once sync.Once
+	sleep = func(wait time.Duration) {
+		once.Do(func() { close(waiting) })
+		time.Sleep(wait)
+	}
+	t.Cleanup(func() { transientBudget, sleep = budget, time.Sleep })
 	path := filepath.Join(t.TempDir(), "primary.json")
 	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
 		t.Fatal(err)
@@ -30,10 +40,11 @@ func TestCommitUnheldWaitsForTheReaderThatHoldsTheFile(t *testing.T) {
 	// Act
 	committed := make(chan error, 1)
 	go func() { committed <- staged.CommitUnheld() }()
+	// The commit pauses between tries only once it has found the file held.
 	select {
 	case err := <-committed:
 		t.Fatalf("CommitUnheld = %v while a reader held the file, want it to wait", err)
-	case <-time.After(200 * time.Millisecond):
+	case <-waiting:
 	}
 	if data, err := os.ReadFile(path); err != nil || string(data) != "old" {
 		t.Fatalf("the name holds %q, %v while the reader holds it, want old", data, err)

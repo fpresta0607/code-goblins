@@ -125,12 +125,12 @@ The host's protocol (a token handshake, then typed frames) is the same on every 
   A check by start, as the one before a process is ended, therefore only ever refuses after a step.
   The lock does not rest on a start: its record and its waiters' tickets name a process by its instance, the boot ID in `/proc/sys/kernel/random/boot_id` and the raw ticks, compared exactly, with no clock in it.
   A record made from a start alone proves no process on Linux.
-  Four records are still made from a start alone, and each carries the boot ID and the ticks (`lock.Info.Instance`) when its layer lands.
-  The primary registration in `internal/supervisor/ceo.go`, which is the `lock.Info` that `Register` writes and the comparison of starts beside it: layer 4, with the primary transport.
+  Three records are still made from a start alone, and each carries the boot ID and the ticks (`lock.Info.Instance`) when its layer lands.
   The terminal binding in `internal/supervisor/terminal.go`, which is the `lock.Info` of a `terminalBinding`: layer 5, with the native terminal.
   The watcher's handover request in `internal/watch/handover.go`, which is `handoverRequest` and `liveRequester`: layer 6, with watching.
   The updater's wait for the supervisor to exit in `cmd/goblins/update.go`, which is `serveProcess` and `processIs`: layer 8, with the updater.
-  A fifth, the gate's custody record of the process that controls a run (`currentController` in `internal/verify/recover.go`), carries its instance from layer 3 part 2, with the gate's executor: without it, the next admission read a live run's controller as gone and ended the run.
+  The primary registration in `internal/supervisor/ceo.go`, which is the `lock.Info` that `Register` writes, carries its instance from layer 4 part 1, with the primary transport, and `Register` compares it by the lock's own rule (`lock.Info.IsProcess`).
+  Another, the gate's custody record of the process that controls a run (`currentController` in `internal/verify/recover.go`), carries its instance from layer 3 part 2, with the gate's executor: without it, the next admission read a live run's controller as gone and ended the run.
   A process that has exited and only waits for its parent to collect it reads as gone.
 - **Not needed:** windows, consoles and integrity levels.
 - **Layer:** 3, and 6 for the TCP peer, whose one caller is the browser sign-in.
@@ -284,7 +284,7 @@ Nothing is dropped in silence: each of these but the last says what it lacks whe
 
 ## Pull requests, one layer each
 
-Each layer is one pull request on the latest main, layer 3 three of them, keeps the Windows suite green, and is proved by CI on its Ubuntu runner.
+Each layer is one pull request on the latest main, layers 3 and 4 three each, keeps the Windows suite green, and is proved by CI on its Ubuntu runner.
 A layer's Linux code sits beside the Windows code under a build tag.
 
 1. **This inventory, then the build compiling on Linux.**
@@ -299,7 +299,7 @@ A layer's Linux code sits beside the Windows code under a build tag.
 3. **Processes, trees, locks and files.**
    `internal/proc` on `/proc`, `internal/execx` and the gate's executor on process groups, the lock on `flock`, the file replacements, and the default home under `$XDG_DATA_HOME`, kept to the user with mode 0700.
    It comes in three pull requests: processes and the lock, then trees and the gate's executor, then the files and the home.
-4. **Transport.** Unix sockets for the host, the run requests and the primary transport, in the user's 0700 folder under `/run/user/<uid>` (or `/tmp`), chosen by the user's id and named by a short hash of the home so each path fits `sun_path`, exact path comparison in `fsx.SamePath`, the `strings.EqualFold` calls and the paths lowered with `strings.ToLower`, the code that takes `\` as the separator, and the folders `internal/pathguard` guards.
+4. **Transport.** A Unix socket for the run requests, in the user's 0700 folder under `/run/user/<uid>` (or `/tmp`), chosen by the user's id and named by a short hash of the home so each path fits `sun_path`, the primary transport held with `flock`, exact path comparison in `fsx.SamePath`, the `strings.EqualFold` calls and the paths lowered with `strings.ToLower`, the code that takes `\` as the separator, and the folders `internal/pathguard` guards.
    Until layer 8 turns lingering on, the socket folder lasts only while the user is signed in.
    The primary registration names its process by instance, as the lock's record does (see [Process identity](#process-identity)).
    It comes in three pull requests: the primary transport and the registration by instance, then the run requests on a Unix socket with its peer check, then path comparison and the folders `internal/pathguard` guards.
@@ -361,7 +361,7 @@ A pure-Go loader such as purego is the alternative; it adds a dependency and sav
 
 ### Layer by layer
 
-Each remaining layer is one pull request for Linux and macOS together, proved on the Ubuntu and the macOS runners.
+Each remaining layer, or each part of layers 3 and 4, is one pull request for Linux and macOS together, proved on the Ubuntu and the macOS runners.
 The sizes are added lines, measured against layer 3 part 1, which added 985 program lines, 675 of them Linux only, and 1,202 test lines.
 
 | Layer | macOS shares with Linux | macOS needs of its own | Pull request | What macOS adds to it |
