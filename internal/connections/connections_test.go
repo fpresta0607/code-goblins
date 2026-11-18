@@ -593,8 +593,18 @@ func TestAnUnreadableKeptFileIsNamedAndWrittenOver(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "are unreadable") {
 		t.Fatalf("err = %v, want the file named unreadable", err)
 	}
-	data, readErr := os.ReadFile(path)
-	if readErr != nil || !json.Valid(data) || !strings.Contains(string(data), `"one"`) {
-		t.Fatalf("the file holds %q (%v), want the next result", data, readErr)
+	// The result is written just after the check ends, which a read of the
+	// file can meet mid-write on Windows.
+	deadline := time.Now().Add(time.Minute)
+	for {
+		var kept map[string]keptCheck
+		data, readErr := os.ReadFile(path)
+		if readErr == nil && json.Unmarshal(data, &kept) == nil && !kept["one"].At.IsZero() {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the file holds %q (%v), want the next result", data, readErr)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }

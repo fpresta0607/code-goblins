@@ -69,10 +69,9 @@ type Snapshot struct {
 	Checking   bool             `json:"checking"`
 	Error      string           `json:"error,omitempty"`
 	CheckedAt  time.Time        `json:"checked_at"`
-	// NotRunning says in plain words why a goblin was not checked: it is
-	// paused or stopped, so it has no harness to check, and its last result
-	// is shown as it was (#2547).
-	NotRunning string `json:"not_running,omitempty"`
+	// NotRunning is set when the goblin is not running, and its connections
+	// are checked again when it resumes (#2547).
+	NotRunning bool `json:"not_running,omitempty"`
 }
 
 type RuntimeIdentity struct {

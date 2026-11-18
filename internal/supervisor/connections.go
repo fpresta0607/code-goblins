@@ -91,19 +91,13 @@ func taskRecord(meta state.TaskMeta) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// notRunning says why a goblin has no harness to check, or nothing when it
-// is meant to run. A paused or stopped goblin's check could only fail, and
-// said its runtime changed (#2547), so it is not checked: the page shows its
-// last result with this reason, and it is checked again once it runs.
-func (s *Service) notRunning(meta state.TaskMeta) string {
+// notRunning is whether a goblin's lifecycle record leaves it not running. A
+// paused or stopped goblin's check could only fail, and said its runtime
+// changed (#2547), so it is not checked: the goblin is not running, and its
+// connections are checked again when it resumes.
+func (s *Service) notRunning(meta state.TaskMeta) bool {
 	record, err := s.lifecycle(meta.ID)
-	if err != nil || record.LeavesRunning(s.Store.Home.State, meta) {
-		return ""
-	}
-	if record.Phase == "paused" || record.Phase == "pausing" {
-		return "This goblin is paused, so its connections are checked again when it resumes."
-	}
-	return "This goblin is not running, so its connections are checked again when it runs."
+	return err == nil && !record.LeavesRunning(s.Store.Home.State, meta)
 }
 
 func (s *Service) connectionTask(task, generation string) (state.TaskMeta, error) {
@@ -118,9 +112,9 @@ func (h *HTTP) connectionResponse(w http.ResponseWriter, meta state.TaskMeta, re
 	checks, _ := h.Service.connections()
 	key := meta.ID + "\n" + meta.SpawnGen
 	var snapshot connections.Snapshot
-	if why := h.Service.notRunning(meta); why != "" {
+	if h.Service.notRunning(meta) {
 		snapshot = checks.Cached(key)
-		snapshot.NotRunning = why
+		snapshot.NotRunning = true
 	} else {
 		snapshot = checks.Read(key, taskRecord(meta), refresh)
 	}

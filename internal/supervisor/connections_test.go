@@ -621,7 +621,7 @@ func TestRepairFinishedDuringARunningCheckRechecksAfterIt(t *testing.T) {
 // #2547, measured on the live board on 2026-11-18: 15 of 28 goblins' checks
 // failed with "Goblin runtime changed. Refresh connections.", and 14 of them
 // were paused, with no harness to check. A paused goblin is not checked: its
-// read shows its last result with the reason, and a recheck starts nothing.
+// read shows its last result, not running, and a recheck starts nothing.
 // The results are kept in the state folder, so a restarted supervisor shows
 // each goblin's last result at once and starts no harness within ten
 // minutes of its check.
@@ -699,11 +699,11 @@ func TestAPausedGoblinIsNotCheckedAndKeptResultsOutliveARestart(t *testing.T) {
 	recheck.Header.Set("X-CEO-Token", "test-instance")
 	rechecked := ask(handler, recheck)
 
-	// Assert: its last result with the reason, no failure and no harness.
+	// Assert: its last result, not running, no failure and no harness.
 	for _, snapshot := range []connections.Snapshot{shown, rechecked} {
 		if snapshot.Checking || snapshot.Error != "" || len(snapshot.Entries) == 0 || snapshot.CheckedAt.IsZero() ||
-			snapshot.NotRunning != "This goblin is paused, so its connections are checked again when it resumes." {
-			t.Fatalf("the paused goblin showed %+v, want its last result and why it is not checked", snapshot)
+			!snapshot.NotRunning {
+			t.Fatalf("the paused goblin showed %+v, want its last result, not running", snapshot)
 		}
 	}
 	if harnesses.Load() != 2 {
@@ -722,5 +722,79 @@ func TestAPausedGoblinIsNotCheckedAndKeptResultsOutliveARestart(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home.State, connectionChecksFile)); err != nil {
 		t.Fatalf("kept file: %v", err)
+	}
+}
+
+// #2547: an unreadable kept file is reported to the CEO once, as the
+// supervisor's other errors are, and written over by the next check.
+func TestAnUnreadableKeptFileIsReportedToTheCEOOnceAndWrittenOver(t *testing.T) {
+	// Arrange: a running goblin, and a kept file that is not JSON.
+	store, home := testStore(t)
+	project := gitFixture(t)
+	meta := state.TaskMeta{ID: "task-1", Project: project, Worktree: filepath.Join(home.Root, "task-1"), Harness: "claude", Backend: "native", SpawnGen: "g1"}
+	if output, err := execx.Command("git", "-C", project, "worktree", "add", "--detach", meta.Worktree, "HEAD").CombinedOutput(); err != nil {
+		t.Fatalf("linked fixture: %s %v", output, err)
+	}
+	if err := state.WriteTaskMeta(home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	kept := filepath.Join(home.State, connectionChecksFile)
+	if err := os.WriteFile(kept, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inspector := connections.NewInspector(home.Root, home.Data, home.State)
+	inspector.Runtime = func(_ context.Context, _ string, meta state.TaskMeta) (connections.RuntimeObservation, error) {
+		return connections.RuntimeObservation{Identity: connections.RuntimeIdentity{ProcessID: 42, StartedAt: time.Unix(100, 0), Workspace: meta.Worktree}, Args: []string{"--strict-mcp-config"}}, nil
+	}
+	inspector.Claude = func(context.Context, string, []string, []string) ([]connections.Entry, error) {
+		return []connections.Entry{{ID: "mcp:tools", Name: "tools", Kind: "mcp", Status: "connected"}}, nil
+	}
+	service := &Service{Store: store, Instance: "test-instance", connectionInspector: inspector}
+	handler := NewHTTP(service, "board.local", nil)
+	defer func() {
+		checks, _ := service.connections()
+		checks.Close()
+	}()
+
+	// Act: the page reads the goblin until its check ends.
+	deadline := time.Now().Add(time.Minute)
+	for {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest("GET", "http://board.local/api/connections?task="+meta.ID+"&generation="+meta.SpawnGen, nil))
+		var snapshot connections.Snapshot
+		if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &snapshot) != nil {
+			t.Fatalf("read: %d %s", response.Code, response.Body)
+		}
+		if !snapshot.Checking {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the check did not end")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	// Assert: one wake names it, and the file holds the check.
+	var reports []string
+	for _, record := range boardWakes(t, home.State) {
+		if strings.HasPrefix(record.Detail, "board: keeping connection checks: ") {
+			reports = append(reports, record.Detail)
+		}
+	}
+	if len(reports) != 1 {
+		t.Fatalf("the CEO was told %d times, want once: %q", len(reports), reports)
+	}
+	// The check is written to the file just after the read finds it ended.
+	key := meta.ID + "\n" + meta.SpawnGen
+	deadline = time.Now().Add(time.Minute)
+	for {
+		var held map[string]json.RawMessage
+		if data, err := os.ReadFile(kept); err == nil && json.Unmarshal(data, &held) == nil && held[key] != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the kept file was not written over with the check")
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
