@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { BrowserLoginRow } from "./browser-login-row";
 import { ago, loginName, type BrowserLogin } from "./browser-logins";
 import { ClickFeedback } from "./click-feedback";
@@ -52,13 +52,16 @@ export function ConnectorsPage({ snapshot, onRepair }: { snapshot: Snapshot; onR
   for (const task of goblins) for (const login of readings.get(goblinKey(task))?.connections?.browserLogins ?? []) if (!logins.has(login.id)) logins.set(login.id, { login, task });
   const read = goblins.map((task) => readings.get(goblinKey(task)));
   const isChecking = read.some((reading) => !reading || !!reading.connections?.checking);
-  const hasFailed = read.some((reading) => reading?.hasFailed || !!reading?.connections?.error);
+  const hasFailed = read.some((reading) => reading?.hasFailed || !!reading?.connections?.error && !reading.connections.isNotRunning);
   // The page shows each goblin's last result at once, and says how old the
   // oldest is, or that a check failed, while the rechecks run behind it; only
   // a goblin with no result yet has the page say it is checking (#2394).
   const isRechecking = read.some((reading) => !!reading?.connections?.checking);
   const isUnchecked = read.some((reading) => !!reading?.connections?.checking && !(Date.parse(reading.connections.checkedAt) > 0));
-  const oldest = read.map((reading) => reading?.connections?.checkedAt ?? "").filter((at) => Date.parse(at) > 0).sort((first, second) => Date.parse(first) - Date.parse(second))[0];
+  // A paused goblin's last result is as old as its pause, and may have failed
+  // as it paused, so the page's age and failed check are those of the
+  // goblins that run (#2547).
+  const oldest = read.filter((reading) => !reading?.connections?.isNotRunning).map((reading) => reading?.connections?.checkedAt ?? "").filter((at) => Date.parse(at) > 0).sort((first, second) => Date.parse(first) - Date.parse(second))[0];
   const rechecking = isRechecking ? ", rechecking..." : "";
   const status = hasFailed ? "Check failed" + rechecking : oldest ? "Checked " + ago(oldest, now) + rechecking : "";
   // When the page last read a goblin, which a login's times are told from.
@@ -69,7 +72,12 @@ export function ConnectorsPage({ snapshot, onRepair }: { snapshot: Snapshot; onR
   const tabs: [Tab, string, number][] = [["yours", "Yours", lists.yours.length], ["discover", "Discover", lists.discover.length]];
   if (logins.size > 0) tabs.push(["logins", "Browser logins", foundLogins.length]);
   const shown: Tab = tab === "logins" && logins.size === 0 ? "yours" : tab;
-  const count = shown === "logins" ? foundLogins.length : lists[shown].length;
+  // Words in the search show every match whichever list holds it, his own
+  // first, each list under its name, so a name only Discover holds is found
+  // with Yours open (#2547); with none the tabs show one list at a time.
+  const isSearching = search.trim() !== "";
+  const groups: Tab[] = isSearching ? tabs.map(([id]) => id).filter((id) => (id === "logins" ? foundLogins.length : lists[id].length) > 0) : [shown];
+  const count = groups.reduce((sum, id) => sum + (id === "logins" ? foundLogins.length : lists[id].length), 0);
   const open = connectors.find((connector) => connector.key === opened);
   // The question goes with the goblin it would act through: one that
   // restarted or left is refused by the supervisor.
@@ -95,22 +103,25 @@ export function ConnectorsPage({ snapshot, onRepair }: { snapshot: Snapshot; onR
       onFix={(task, use, action) => void fix(task, use.entry, action)} onGive={(task, use, isGiving) => void give(task, use.entry, isGiving)} />}
     <div className="connectors-list" hidden={!!open}>
       <div className="connectors-bar">
-        <div className="connectors-tabs" role="group" aria-label="Connectors shown">
+        {!isSearching && <div className="connectors-tabs" role="group" aria-label="Connectors shown">
           {tabs.map(([id, label, size]) => <button key={id} type="button" aria-pressed={shown === id} onClick={() => setTab(id)}>{label}<span className="connector-count">{size}</span></button>)}
-        </div>
+        </div>}
         <label className="connectors-search"><Icon name="search" /><input type="search" value={search} placeholder="Search" aria-label="Search connectors" onChange={(event) => setSearch(event.currentTarget.value)} /></label>
       </div>
-      {shown !== "logins" && count > 0 && <>
-        <div className="connector-columns" aria-hidden="true"><span>Connector</span><span>Type</span><span>Status</span></div>
-        <ul className="connector-rows" aria-label={shown === "yours" ? "Your connectors" : "Connectors to discover"}>
-          {lists[shown].map((connector) => <ConnectorRow key={connector.key} connector={connector} onOpen={openConnector} />)}
-        </ul>
-      </>}
-      {shown === "logins" && count > 0 && <ul className="connector-logins" aria-label="Browser logins">
-        {foundLogins.map(({ login, task }) => <BrowserLoginRow key={login.id} login={login} now={readAt} isBusy={isBusy} onSignOut={() => void endLogin(task, login, "sign-out")} onForget={() => setForgetting({ login, task })} />)}
-      </ul>}
+      {groups.map((id) => <Fragment key={id}>
+        {isSearching && <h3 className="connectors-group-head">{tabs.find(([each]) => each === id)?.[1]}<span className="connector-count">{id === "logins" ? foundLogins.length : lists[id].length}</span></h3>}
+        {id !== "logins" && lists[id].length > 0 && <>
+          <div className="connector-columns" aria-hidden="true"><span>Connector</span><span>Type</span><span>Status</span></div>
+          <ul className="connector-rows" aria-label={id === "yours" ? "Your connectors" : "Connectors to discover"}>
+            {lists[id].map((connector) => <ConnectorRow key={connector.key} connector={connector} onOpen={openConnector} />)}
+          </ul>
+        </>}
+        {id === "logins" && foundLogins.length > 0 && <ul className="connector-logins" aria-label="Browser logins">
+          {foundLogins.map(({ login, task }) => <BrowserLoginRow key={login.id} login={login} now={readAt} isBusy={isBusy} onSignOut={() => void endLogin(task, login, "sign-out")} onForget={() => setForgetting({ login, task })} />)}
+        </ul>}
+      </Fragment>)}
       {count === 0 && <p className="connectors-empty">{goblins.length === 0 ? "No goblin is running. Connectors are read from the goblins that run."
-        : search.trim() ? "Nothing matches \"" + search.trim() + "\"." : isChecking ? "" : EMPTY[shown]}</p>}
+        : isSearching ? "Nothing matches \"" + search.trim() + "\"." : isChecking ? "" : EMPTY[shown]}</p>}
     </div>
     {forgotten && <ForgetLoginDialog login={forgotten.login} onCancel={() => setForgetting(undefined)} onForget={() => { setForgetting(undefined); void endLogin(forgotten.task, forgotten.login, "forget"); }} />}
   </div>;

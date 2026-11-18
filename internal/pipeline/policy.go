@@ -244,9 +244,10 @@ func (s Selection) Instruction(id, path string) string {
 	roles := "Reviewer is Claude Opus high."
 	switch {
 	case s.Policy.Version > 5:
-		roles = "Every gate role runs on this task's own harness, with its own model and effort. The operator names no fallback, so no other harness starts."
+		const onItsHarness = "Every gate role runs on this task's own harness: review, its fixes and the Test step with the other steps on the review, fix and verify lanes its spawn chose, and a role it chose no lane for with the task's own model and effort."
+		roles = onItsHarness + " The operator names no fallback, so no other harness starts."
 		if fallback := s.Policy.Fallback; fallback != (Reviewer{}) {
-			roles = fmt.Sprintf("Every gate role runs on this task's own harness, with its own model and effort. The operator named %s %s %s as the fallback, which starts only for a task on another harness and only while it is signed in.", fallback.Harness, fallback.Model, fallback.Effort)
+			roles = fmt.Sprintf("%s The operator named %s %s %s as the fallback, which starts only for a task on another harness and only while it is signed in.", onItsHarness, fallback.Harness, fallback.Model, fallback.Effort)
 		}
 	case s.Policy.Version > 3:
 		roles = fmt.Sprintf("Every gate role runs Codex %s %s first and Claude next. A CEO gate requires the trusted repository primary to inherit that chain or select Codex explicitly.", s.Policy.Primary.Model, s.Policy.Primary.Effort)

@@ -694,6 +694,9 @@ func (s Service) publishSwitch(meta *state.TaskMeta, target switchTarget) error 
 	if !target.same(*meta) {
 		meta.RouteLane, meta.RouteReason = "explicit", "engine changed by the CEO"
 		meta.ImplementLane, meta.ImplementModel, meta.ImplementEffort = "", "", ""
+		meta.ReviewLane, meta.ReviewModel, meta.ReviewEffort = "", "", ""
+		meta.VerifyLane, meta.VerifyModel, meta.VerifyEffort = "", "", ""
+		meta.FixLane, meta.FixModel, meta.FixEffort = "", "", ""
 	}
 	meta.Harness = string(target.Harness)
 	meta.Model = valueOrDefault(target.Model)

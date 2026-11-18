@@ -181,6 +181,71 @@ for (const isFailing of [false, true]) {
   });
 }
 
+// #2547, measured on the live board: 15 of 28 goblins' checks failed, 14 of
+// them paused goblins, each row saying only Not checked and the page Check
+// failed. A goblin whose harness is not running says why in its rows, and a
+// paused goblin, which the supervisor does not check, shows its last result
+// without a failed check and without its age being the page's.
+test("a check that could not run says why in its rows, and a paused goblin's last result shows without a failed check", async ({ page }) => {
+  // Arrange: one goblin whose harness exited, checked just now.
+  const checked = Date.parse(CHECKED_AT);
+  await page.clock.install({ time: checked + 60_000 });
+  const why = "The goblin's harness is not running, so its connections could not be checked.";
+  const exited = supervisorWith({ [PROOF]: [{ id: "mcp:delta", name: "delta", kind: "mcp", status: "unchecked", detail: "Not checked: " + why, checked_at: CHECKED_AT }] });
+  exited.error = why;
+
+  // Act
+  await open(page, exited);
+
+  // Assert
+  const delta = page.locator(".connector-row").filter({ hasText: "Delta" });
+  await expect(delta.locator(".connector-state")).toHaveText("Not checked");
+  await expect(delta.locator(".connector-reason")).toHaveText(why);
+  await expect(page.locator(".connectors-head [role=status]")).toHaveText("Check failed");
+
+  // Arrange: a running goblin checked a minute ago, and a paused one whose
+  // last result is three days old.
+  const paused = supervisorWith({ [PROOF]: [GITHUB], [PROOF + "-2"]: [{ ...GITHUB, id: "mcp:echo", name: "echo" }] });
+  paused.checkedAtByTask = { [PROOF + "-2"]: new Date(checked - 3 * 86_400_000).toISOString() };
+  paused.notRunning = { [PROOF + "-2"]: true };
+
+  // Act
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await open(page, paused, 2);
+
+  // Assert: both listed, verified, the page's age the running goblin's, and
+  // no failed check or reason.
+  await expect(page.locator(".connector-row .connector-open")).toHaveText(["Echo", "GitHub"]);
+  await expect(page.locator(".connector-row .connector-state")).toHaveText(["Verified", "Verified"]);
+  await expect(page.locator(".connectors-head [role=status]")).toHaveText("Checked 1 minute ago");
+  await expect(page.locator(".connector-reason")).toHaveCount(0);
+  expect(paused.reads).toEqual({ [PROOF]: 1, [PROOF + "-2"]: 1 });
+});
+
+// A check that ran as its goblin paused found no harness and failed; the
+// goblin is not checked again until it resumes, so its failed result shows
+// as it was without the page saying Check failed.
+test("a paused goblin whose last check failed as it paused never has the page or its rows say Check failed", async ({ page }) => {
+  // Arrange: a running goblin checked a minute ago, and a paused one whose
+  // kept result failed for want of a harness.
+  const checked = Date.parse(CHECKED_AT);
+  await page.clock.install({ time: checked + 60_000 });
+  const why = "The goblin's harness is not running, so its connections could not be checked.";
+  const supervisor = supervisorWith({ [PROOF]: [GITHUB], [PROOF + "-2"]: [{ id: "mcp:delta", name: "delta", kind: "mcp", status: "unchecked", detail: "Not checked: " + why, checked_at: CHECKED_AT }] });
+  supervisor.errorByTask = { [PROOF + "-2"]: why };
+  supervisor.notRunning = { [PROOF + "-2"]: true };
+
+  // Act
+  await open(page, supervisor, 2);
+
+  // Assert: its row reads as it was, and nothing says Check failed.
+  const delta = page.locator(".connector-row").filter({ hasText: "Delta" });
+  await expect(delta.locator(".connector-state")).toHaveText("Not checked");
+  await expect(delta.locator(".connector-reason")).toHaveText(why);
+  await expect(page.locator(".connectors-head [role=status]")).toHaveText("Checked 1 minute ago");
+  await expect(page.getByText("Check failed")).toHaveCount(0);
+});
+
 // The Overlord, 2026-10-08: "everything error wise goes to cfo". A check that
 // timed out says so in two words where the page says what it is doing.
 test("a check that timed out says Check failed, without the supervisor's words and without an alert", async ({ page }) => {
@@ -196,6 +261,40 @@ test("a check that timed out says Check failed, without the supervisor's words a
   await expect(page.getByText("Connection check timed out.")).toHaveCount(0);
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Recheck connectors" })).toBeEnabled();
+});
+
+// #2547: only a check that could not run says why under a row. A timed-out
+// check marks each entry Unverified with the supervisor's words, which no row
+// repeats.
+test("a timed-out check's unverified rows carry no reason while the page says Check failed", async ({ page }) => {
+  // Arrange
+  const timedOut = { kind: "mcp", status: "unverified", detail: "Latest check timed out.", checked_at: CHECKED_AT };
+  const supervisor = supervisorWith({ [PROOF]: [{ ...timedOut, id: "mcp:delta", name: "delta" }, { ...timedOut, id: "mcp:echo", name: "echo" }] });
+  supervisor.error = "Connection check timed out.";
+
+  // Act
+  await open(page, supervisor);
+
+  // Assert
+  await expect(page.locator(".connector-row .connector-state")).toHaveText(["Unverified", "Unverified"]);
+  await expect(page.locator(".connector-reason")).toHaveCount(0);
+  await expect(page.getByText("Latest check timed out.")).toHaveCount(0);
+  await expect(page.locator(".connectors-head [role=status]")).toHaveText("Check failed");
+});
+
+// #2547: a reason the inspector words as a fragment after Not checked reads as
+// a sentence under its row.
+test("a goblin whose credential store could not be opened says so as a sentence under its row", async ({ page }) => {
+  // Arrange
+  const supervisor = supervisorWith({ [PROOF]: [{ id: "mcp:delta", name: "delta", kind: "mcp", status: "unchecked", detail: "Not checked: the credential store could not be opened.", checked_at: CHECKED_AT }] });
+
+  // Act
+  await open(page, supervisor);
+
+  // Assert
+  const delta = page.locator(".connector-row").filter({ hasText: "Delta" });
+  await expect(delta.locator(".connector-state")).toHaveText("Not checked");
+  await expect(delta.locator(".connector-reason")).toHaveText("The credential store could not be opened.");
 });
 
 // A goblin whose last check failed keeps saying so while its recheck runs,

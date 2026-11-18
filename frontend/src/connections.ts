@@ -11,6 +11,9 @@ export function parseConnections(value: unknown) {
     checking: result.checking === true,
     error: string(result.error),
     checkedAt: string(result.checked_at),
+    // The goblin is not running, and its connections are checked again when
+    // it resumes (#2547).
+    isNotRunning: result.not_running === true,
     entries: array(result.entries).map((value) => {
       const entry = object(value);
       const grant = string(entry.grant);

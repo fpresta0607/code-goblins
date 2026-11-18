@@ -39,6 +39,9 @@ func nativeRuntime(ctx context.Context, stateDir string, meta state.TaskMeta) (R
 		childPID, ownerPID = info.ForegroundProcessGroupID, info.ShellPID
 	}
 	ancestry, err := proc.Ancestry(childPID, 16)
+	if err == nil && len(ancestry) == 0 {
+		return RuntimeObservation{}, errors.New("The goblin's harness is not running, so its connections could not be checked.")
+	}
 	if err != nil || len(ancestry) < 2 || !slices.ContainsFunc(ancestry[1:], func(entry proc.Entry) bool { return entry.PID == ownerPID }) || (!announced.IsZero() && ancestry[0].Start.After(announced)) {
 		return RuntimeObservation{}, errors.New("Goblin runtime changed. Refresh connections.")
 	}

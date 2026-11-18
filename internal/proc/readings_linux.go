@@ -25,13 +25,36 @@ func WorkingDirectory(pid int) (string, error) {
 }
 
 // Arguments returns the arguments pid was started with, as the kernel keeps
-// them, each one whole.
+// them, each one whole. /proc shows a process part-way through its exec,
+// whose new program has no arguments yet, as started with none, so such a
+// process is read again until its exec has set them up, for at most a
+// second. It also shows an exited process as having none, which is
+// therefore an error.
 func Arguments(pid int) ([]string, error) {
-	arguments, err := readList(pid, "cmdline")
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrCommandLineUnreadable, err)
+	deadline := time.Now().Add(time.Second)
+	for {
+		arguments, err := readList(pid, "cmdline")
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrCommandLineUnreadable, err)
+		}
+		if len(arguments) > 0 {
+			return arguments, nil
+		}
+		read, err := readStatus(pid)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrCommandLineUnreadable, err)
+		}
+		if !read.isExecSettingUp || time.Now().After(deadline) {
+			// The exec may have set the arguments up after they were read
+			// empty and before its line was read, so they are read once more.
+			arguments, err := readList(pid, "cmdline")
+			if err != nil {
+				return nil, fmt.Errorf("%w: %v", ErrCommandLineUnreadable, err)
+			}
+			return arguments, nil
+		}
+		time.Sleep(time.Millisecond)
 	}
-	return arguments, nil
 }
 
 // Environment returns the environment pid was started with: what the process
@@ -56,7 +79,7 @@ func Environment(pid int) ([]string, error) {
 		}
 		// A process this one may not read shows no environment's end, so
 		// only an empty reading tells an exec by it.
-		isExecPossible := read.isEnvironmentPending
+		isExecPossible := read.isExecSettingUp
 		if readErr != nil {
 			isExecPossible = errors.Is(readErr, fs.ErrPermission) && isStartingAsThisUser(pid, read)
 		}
