@@ -88,7 +88,7 @@ func RenderMarkdown(w io.Writer, snapshot Snapshot) error {
 			if outcome.Phase == "done" {
 				phase = "Finished"
 			}
-			if err := writeLine(w, "| "+strings.Join(markdownFields([]string{goblinname.Called(outcome.GoblinName, outcome.ID), outcome.Title, outcome.Project, phase, outcome.Reason}), " | ")+" |"); err != nil {
+			if err := writeLine(w, "| "+strings.Join(markdownFields([]string{called(outcome.GoblinName, outcome.GoblinTitle, outcome.ID), outcome.Title, outcome.Project, phase, outcome.Reason}), " | ")+" |"); err != nil {
 				return err
 			}
 		}
@@ -106,10 +106,10 @@ func renderTasks(w io.Writer, tasks []TaskRow) error {
 	if len(tasks) == 0 {
 		return writeLine(w, "No live task metadata found.")
 	}
-	if err := writeLine(w, "| ID | Current | Health | Stale | Last Seen | Escalation | Deep Inspection | Kind | Project | Credentials | Backend | Endpoint | Artifact | Path | Peek |"); err != nil {
+	if err := writeLine(w, "| ID | Title | Current | Health | Stale | Last Seen | Escalation | Deep Inspection | Kind | Project | Credentials | Backend | Endpoint | Artifact | Path | Peek |"); err != nil {
 		return err
 	}
-	if err := writeLine(w, "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"); err != nil {
+	if err := writeLine(w, "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"); err != nil {
 		return err
 	}
 	for _, task := range tasks {
@@ -117,12 +117,13 @@ func renderTasks(w io.Writer, tasks []TaskRow) error {
 		if task.Current.State == crewstate.Paused {
 			endpoint = "released"
 		}
-		id := goblinname.Called(task.GoblinName, task.ID)
+		id := called(task.GoblinName, task.GoblinTitle, task.ID)
 		if task.Parent != "" {
 			id += " (helper of " + task.Parent + ")"
 		}
 		fields := []string{
 			id,
+			task.Title,
 			currentText(task),
 			dash(string(task.Monitor.Health)),
 			staleText(task.Monitor.StaleSeconds),
@@ -180,12 +181,27 @@ func renderBacklogRows(w io.Writer, rows []BacklogRow, empty string) error {
 			}
 			inTable = true
 		}
-		fields := markdownFields([]string{row.ID, row.Title, row.Repo, row.Kind, blockerText(row), row.Artifact})
+		fields := markdownFields([]string{called(row.GoblinName, row.GoblinTitle, row.ID), row.Title, row.Repo, row.Kind, blockerText(row), row.Artifact})
 		if err := writeLine(w, "| "+strings.Join(fields, " | ")+" |"); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// called is how fleet-view names a goblin, as the board does: "Jerry - Code
+// Designer (cg-x)", or the id alone when it has no name.
+func called(name, title, id string) string {
+	return goblinname.Called(goblinText(name, title), id)
+}
+
+// goblinText is a goblin's name and title, "Jerry - Code Designer", or its
+// name alone when it has no title.
+func goblinText(name, title string) string {
+	if name == "" || title == "" {
+		return name
+	}
+	return goblinname.Pair{Name: name, Title: title}.String()
 }
 
 func markdownFields(values []string) []string {

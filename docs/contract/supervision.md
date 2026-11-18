@@ -2,6 +2,7 @@
 
 - `goblins fleet-view` is your fleet truth; judge work from it, never from guessing.
   It lists goblins in the Supreme Overlord's attention order, which he sets by dragging In progress on the board (`state/attention.json`): check and unblock from the top.
+  When he names a goblin, `goblins fleet-view --name <name>` finds its task, queued, under way, paused or finished, newest first, by the name the board shows for it.
 - The Claude Code hooks (`goblins hook turnend-guard`, `goblins hook stop-autoarm`) refuse to let a turn end blind while goblins are in flight, keep watching while queued work could start with no goblin in flight, and reopen your turn when it ends with no goblin at work while work waits and memory is free ([The fleet never idles](dispatch.md#the-fleet-never-idles)).
   Both fire at a turn's end: `stop-autoarm` shows it is arming before anything slow, and `turnend-guard` waits for a hook that is arming, up to ten seconds, before it calls the turn blind, so a slow start on a loaded machine is not read as supervision being off.
   While `goblins serve` holds the watcher, `stop-autoarm` still rewakes you once for each new wake record.

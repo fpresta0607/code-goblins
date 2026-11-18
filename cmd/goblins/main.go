@@ -52,6 +52,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/telemetry"
+	"github.com/fpresta0607/code-goblins/internal/testguard"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 	"github.com/fpresta0607/code-goblins/internal/watch"
@@ -125,7 +126,7 @@ commands:
   goblins switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty] [--restart] [--terminal]   change a running goblin's harness/model/effort in place, restart it onto a harness update, or take it over in a terminal
   goblins send <target> [--key <key>] <text...>
   goblins peek <target> [lines]
-  goblins fleet-view [--json]
+  goblins fleet-view [--json] [--name <name>]   the fleet's tasks with each goblin's board name and title; --name finds the tasks the board calls by that name, ignoring case, newest first
   goblins runtime [--json]   what is running on this machine and who owns it: containers by owner, the local services stacks goblins holds for tasks, listening dev servers and whether each is safe to stop, machine headroom, each project's deploy target, and how to run each project locally
   goblins services up <project> --task <id> [--wait <duration>] | down <project> --task <id>   start the local services a project declares for a task's full-stack check, or share them with the tasks that hold them, only while memory and commit stay above the floor with their cost added, waiting up to --wait and saying why. down releases the hold, and the last release stops what goblins started and the engine when goblins started it
   goblins shared [--json]   read the gate daemon, the heavy-run line, the Docker engine and the Scrawl server as the supervisor last checked them: busy, never stopped, for a live daemon that missed a reply, whether to go, wait or ask, and who holds and waits on each; it only reads, under any harness, and starts, stops or restarts nothing
@@ -351,6 +352,9 @@ type commandRuntime struct {
 	// gateReadSource reads the source a gate check runs on, with its turn
 	// held, as the check starts and once it has ended.
 	gateReadSource func(ctx context.Context, dir string) (verify.Source, error)
+	// testsKeptCallLimit is how long each git call goblins gate tests-kept
+	// makes may take (testguard.CallLimit).
+	testsKeptCallLimit time.Duration
 	// agentLineLimit is the longest a run that a gate's agent started waits
 	// in line (gateAgentLineLimit).
 	agentLineLimit time.Duration
@@ -567,18 +571,19 @@ func defaultCommandRuntime() commandRuntime {
 			}
 			return supervisor.CheckLaunch(memory, disk)
 		},
-		setupAgent:      setupAgent,
-		choose:          onboarding.AskConsole,
-		repoActivity:    repositoryActivity(github),
-		repositoryOf:    tickets.GitHub{Commands: execx.OSRunner{}}.RepositoryOf,
-		githubAPI:       github,
-		availableMemory: supervisor.MachineMemory,
-		gateWaitLimit:   time.Hour,
-		agentLineLimit:  gateAgentLineLimit,
-		gateBudget:      gateBudget,
-		gateRun:         runGateCommand,
-		gateProgress:    5 * time.Second,
-		gatePlanLimit:   planLimit,
+		setupAgent:         setupAgent,
+		choose:             onboarding.AskConsole,
+		repoActivity:       repositoryActivity(github),
+		repositoryOf:       tickets.GitHub{Commands: execx.OSRunner{}}.RepositoryOf,
+		githubAPI:          github,
+		availableMemory:    supervisor.MachineMemory,
+		gateWaitLimit:      time.Hour,
+		agentLineLimit:     gateAgentLineLimit,
+		gateBudget:         gateBudget,
+		gateRun:            runGateCommand,
+		gateProgress:       5 * time.Second,
+		gatePlanLimit:      planLimit,
+		testsKeptCallLimit: testguard.CallLimit,
 		gateReadSource: func(ctx context.Context, dir string) (verify.Source, error) {
 			return verify.ReadSource(ctx, execx.OSRunner{}, dir)
 		},
