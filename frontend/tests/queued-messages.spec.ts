@@ -15,9 +15,9 @@ const queued = (fields: Record<string, unknown> = {}) => ({
   can_send_now: false, send_now_why: "Its gate holds the branch.", created_at: "2026-10-22T09:00:00Z", updated_at: "2026-10-22T09:00:00Z", ...fields,
 });
 
-async function openWith(page: Page, action: object) {
+async function openWith(page: Page, action: object, goblin: Record<string, unknown> = {}) {
   const posts: { kind: string; target: string; text: string }[] = [];
-  await open(page, snapshot({ actions: [action] }));
+  await open(page, snapshot({ actions: [action] }, goblin));
   await page.route("**/api/actions", (route) => {
     const body = route.request().postDataJSON() as { kind: string; target?: string; text?: string };
     posts.push({ kind: body.kind, target: body.target ?? "", text: body.text ?? "" });
@@ -847,28 +847,65 @@ test("Up in the empty box with no message of his queued brings back what he sent
   expect(typed(relay)).toBe("");
 });
 
-// A message its harness is handing to its turn, as its record shows, is out
-// of his hands, so it reads Sending with no Edit, and Up leaves it and brings
-// back what he sent before.
-test("Up leaves a message its harness is handing to its turn and brings back what he sent before", async ({ page }) => {
-  // Arrange
-  const words = "check the phone layout too";
-  const held = queued({
-    id: "h1", text: words, status: "running", can_send_now: false, send_now_why: "", message: "Queued in its session.",
-    awaiting: { task: GOBLIN.id, since: "2026-10-22T09:01:00Z", is_held: true }, created_at: "2026-10-22T09:01:00Z", updated_at: "2026-10-22T09:01:01Z",
+// Up never asks the board for a message he cannot take back, and brings back
+// what he sent before instead: one out of his hands, which reads Sent or
+// Sending, or shows as his own row once the session's record shows it taken
+// while the board has yet to settle it, none of them with an Edit, and one a
+// Codex or pi goblin's harness holds, whose queue no key gives back (the CEO,
+// 2026-11-18, of #2622: "Up at an empty box brings back what he sent before,
+// past a message a Codex or pi harness holds that no key can take back, so he
+// never meets the same refusal on every Up").
+const WORDS = "check the phone layout too";
+const SINCE = "2026-10-22T09:01:00Z";
+const HELD = { task: GOBLIN.id, since: SINCE, is_held: true };
+const HELD_WHY = "Queued in the goblin's session. The goblin takes it at its next tool call, or as its current turn ends.";
+for (const { what, awaiting, message, goblin, record, state, recalled } of [
+  { what: "typed into its turn that its harness does not hold", awaiting: { task: GOBLIN.id, since: SINCE }, message: "Sent. The goblin takes it at its next tool call, or as its current turn ends.", goblin: {}, record: PAGE, state: "Sent", recalled: "Read the brief" },
+  { what: "its harness is handing to its turn", awaiting: HELD, message: HELD_WHY, goblin: {},
+    record: { ...PAGE, waiting: [{ id: "w1", at: SINCE, source: "overlord", text: WORDS, sending: true, action: "h1" }] }, state: "Sending", recalled: "Read the brief" },
+  { what: "the session's record shows taken before the board settles it", awaiting: HELD, message: HELD_WHY, goblin: {},
+    record: { ...PAGE, messages: [...PAGE.messages, { id: "m2", seq: 2, at: "2026-10-22T09:01:02Z", kind: "prompt", source: "overlord", text: WORDS }] }, state: "", recalled: WORDS },
+  { what: "held in a Codex goblin's queue, which no key gives back,", awaiting: HELD, message: HELD_WHY, goblin: { harness: "codex" }, record: PAGE, state: WAITING, recalled: "Read the brief" },
+]) {
+  test(`Up leaves a message ${what} and brings back what he sent before`, async ({ page }) => {
+    // Arrange
+    const posts = await openWith(page, queued({ id: "h1", text: WORDS, status: "running", can_send_now: false, send_now_why: "", message, awaiting, created_at: SINCE, updated_at: "2026-10-22T09:01:01Z" }), goblin);
+    await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })), record);
+    if (state) await expect(entry(page).filter({ hasText: WORDS }).locator(".queued-state")).toHaveText(state);
+    else {
+      await expect(log(page).locator("[data-message]").filter({ hasText: WORDS })).toBeVisible();
+      await expect(entry(page)).toHaveCount(0);
+    }
+
+    // Act
+    await field(page).focus();
+    await page.keyboard.press("ArrowUp");
+
+    // Assert
+    await expect(field(page)).toHaveValue(recalled);
+    expect(posts).toEqual([]);
   });
-  const posts = await openWith(page, held);
+}
+
+// Claude Code's record shows each message typed into its turn queued there
+// until that turn takes it, and Up takes such a message back as Edit does.
+test("Up in the empty box takes back a message the session's record shows queued in its harness", async ({ page }) => {
+  // Arrange
+  const posts = await openWith(page, queued({ id: "h1", text: WORDS, status: "running", can_send_now: false, send_now_why: "", message: HELD_WHY, awaiting: HELD, created_at: SINCE, updated_at: "2026-10-22T09:01:01Z" }));
   await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })),
-    { ...PAGE, waiting: [{ id: "w1", at: "2026-10-22T09:01:00Z", source: "overlord", text: words, sending: true, action: "h1" }] });
-  await expect(entry(page).filter({ hasText: words }).locator(".queued-state")).toHaveText("Sending");
+    { ...PAGE, waiting: [{ id: "w1", at: SINCE, source: "overlord", text: WORDS, sending: true, action: "h1" }] });
+  await expect(entry(page).filter({ hasText: WORDS }).locator(".queued-state")).toHaveText("Sending");
+  await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })),
+    { ...PAGE, waiting: [{ id: "w1", at: SINCE, source: "overlord", text: WORDS, action: "h1" }] });
+  await expect(entry(page).filter({ hasText: WORDS }).locator(".queued-state")).toHaveText(WAITING);
 
   // Act
   await field(page).focus();
   await page.keyboard.press("ArrowUp");
 
-  // Assert
-  await expect(field(page)).toHaveValue("Read the brief");
-  expect(posts).toEqual([]);
+  // Assert: taken back by its own identity, his words in the box to change.
+  await expect.poll(() => posts).toEqual([{ kind: "message_withdraw", target: "h1", text: WORDS }]);
+  await expect(field(page)).toHaveValue(WORDS);
 });
 
 // A take-back disables the box while the board answers, and a disabled box
