@@ -1,0 +1,15 @@
+/* The long pastes a message carries as text files, each a chip that names
+   its lines, on his side above his words as his pictures are. */
+.pasted-texts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .5em; }
+.pasted-text { display: inline-flex; align-items: center; gap: .45em; min-height: 0; padding: .45em .8em; border: 1px solid var(--glass-border-hover); border-radius: 10px; background: #071015; color: #d8e9e2; box-shadow: none; font-size: .875em; }
+.pasted-text:hover { border-color: var(--mint); }
+.pasted-text > .icon { flex: none; width: 1.15em; height: 1.15em; color: var(--muted); }
+/* A paste's text in a window over the board, its lines as he pasted them,
+   scrolling inside the window under its name. */
+.pasted-text-window { width: min(960px, calc(100vw - 28px)); max-width: none; max-height: calc(100dvh - 28px); padding: 0; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); color: #edf4f3; background: #0b171c; text-align: left; }
+.pasted-text-window[open] { display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.pasted-text-window::backdrop { background: #03050aba; }
+.pasted-text-window > header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .5rem .5rem .5rem 1.25rem; border-bottom: 1px solid var(--glass-border); }
+.pasted-text-window h2 { margin: 0; font-size: 1rem; }
+.pasted-text-window pre { min-height: 0; margin: 0; padding: 1rem 1.25rem; overflow: auto; font: .8125rem/1.5 var(--font-mono); white-space: pre; tab-size: 4; }
+.pasted-text-window > p { margin: 0; padding: 1rem 1.25rem; color: var(--muted); }

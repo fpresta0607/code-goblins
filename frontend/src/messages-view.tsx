@@ -8,6 +8,8 @@ import { MessageRow } from "./message-row";
 import { MessageDocumentScope } from "./message-document-scope";
 import { drawnSpans, ESTIMATED_ROW_PX, messageRowAt, messageWindow, OVERSCAN_PX } from "./message-window";
 import { Notice } from "./notice";
+import { PastedTextOpener, type OpenedPaste } from "./pasted-text-opener";
+import { PastedTextWindow } from "./pasted-text-window";
 import { PictureOpener } from "./picture-opener";
 import { PictureViewer } from "./picture-viewer";
 import { ReplyWorking } from "./reply-working";
@@ -874,7 +876,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   };
   const picture = useCallback((id: string) => address({ picture: id, conversation: held.conversation }), [address, held.conversation]);
   const taskID = task?.id;
-  const keptPicture = useCallback((path: string) => keptFileAddress(instance, taskID, path), [instance, taskID]);
+  const keptFile = useCallback((path: string) => keptFileAddress(instance, taskID, path), [instance, taskID]);
   // The picture he opened from a row, by the address the row draws it from,
   // shown in the one viewer of the conversation, which steps through every
   // picture of the messages the view holds, drawn in the window or not. The
@@ -882,7 +884,11 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   // nothing for it.
   const [viewed, setViewed] = useState<string | null>(null);
   const isViewing = viewed !== null;
-  const pictureSources = useMemo(() => isViewing ? conversationPictures(conversation, picture, keptPicture) : [], [isViewing, conversation, picture, keptPicture]);
+  const pictureSources = useMemo(() => isViewing ? conversationPictures(conversation, picture, keptFile) : [], [isViewing, conversation, picture, keptFile]);
+  // The pasted text he opened from a chip of a row or of a queued message,
+  // shown in the one window of the conversation, which stays open while that
+  // row leaves the rows drawn or that queued message gives way to its row.
+  const [pasteShown, setPasteShown] = useState<OpenedPaste | null>(null);
   useEffect(() => { onChildValue.current = onChild; }, [onChild]);
   const taskValue = useRef(task);
   useLayoutEffect(() => { taskValue.current = task; }, [task]);
@@ -923,7 +929,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     settle();
     return () => observer.disconnect();
   }, [queuedIDs, held.isWorking, reachesEnd, phase, shown, settle]);
-  return <MessageDocumentScope query={query} instance={instance}><section className={"messages-view" + (box ? " has-box" : "")} hidden={!shown} aria-label="Messages" onKeyDown={keys}>
+  return <MessageDocumentScope query={query} instance={instance}><PastedTextOpener value={setPasteShown}><section className={"messages-view" + (box ? " has-box" : "")} hidden={!shown} aria-label="Messages" onKeyDown={keys}>
     {/* Connecting is a plain line above the conversation, never a cover over
         the box he types into. */}
     {phase === "connecting" && <p className="terminal-connecting" role="status"><span className="terminal-spinner" aria-hidden="true" />Connecting to the messages</p>}
@@ -945,7 +951,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
                 ? <QueuedMessage key={message.id} action={ended} liveAction={ended} instance={instance} name={name} variant="pane" row={message.id} onPutAway={putAwayRow} />
                 : <MessageRow key={message.id} message={message} openFolds={openFolds.get(message.id) ?? NO_FOLDS} onFold={foldRow}
                   harness={harness} isTurnEnd={ends.has(message.id)} onRun={isWrittenReply(message, held.messages, held.isWorking) ? runCode : undefined}
-                  task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? held.task : undefined} picture={picture} keptPicture={keptPicture} onChild={openChild} />;
+                  task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? held.task : undefined} picture={picture} keptFile={keptFile} onChild={openChild} />;
             }),
           ])}</PictureOpener>
           <div className="conversation-room" style={{ height: heightOf(spans[spans.length - 1].end, conversation.length) }} />
@@ -998,7 +1004,8 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
       {box?.(model, composing.history, effort, phase === "live" && <UsageBar readings={readings} />, sentFromBox, isTurnRunning)}
     </div>}
     {viewed !== null && <PictureViewer sources={pictureSources} source={viewed} onSource={setViewed} onClose={() => setViewed(null)} />}
-  </section></MessageDocumentScope>;
+    {pasteShown && <PastedTextWindow name={pasteShown.name} source={pasteShown.source} onClose={() => setPasteShown(null)} />}
+  </section></PastedTextOpener></MessageDocumentScope>;
 }
 
 // ownPrompts is what he sent the session himself, oldest first, in the words

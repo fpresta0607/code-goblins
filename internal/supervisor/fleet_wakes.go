@@ -1824,15 +1824,15 @@ func pollMain(ctx context.Context, runner execx.Runner, github *githubapi.Client
 		if !run.red() || reportedRuns[run.ID] || !w.due(key, ciWakeGap, now) {
 			continue
 		}
-		jobs, jobsErr := failedJobs(ctx, github, repository, repo, run.ID)
+		jobs, jobsErr := failedJobs(ctx, github, repository, repo, run)
 		unreadable = errors.Join(unreadable, jobsErr)
 		head := run.HeadSHA
 		if len(head) > 7 {
 			head = head[:7]
 		}
 		owner, name := pullRequestRepository(run.URL)
-		detail := fmt.Sprintf("ci_finished: %s's push CI is red in %s: workflow %s, %s%s, run %d at %s (%s); next: read it with gh run view %d --log-failed and dispatch a fix",
-			branch, filepath.Base(repo), run.Workflow, jobs, failedOnceClause(train.FailedOnce(ctx, github, owner+"/"+name, run.HeadSHA, run.ID)), run.ID, head, run.URL, run.ID)
+		detail := fmt.Sprintf("ci_finished: %s's push CI is red in %s: workflow %s, %s%s, run %d at %s (%s); next: read it with gh run view %d --attempt %d --log-failed and dispatch a fix",
+			branch, filepath.Base(repo), run.Workflow, jobs, failedOnceClause(train.FailedOnce(ctx, github, owner+"/"+name, run.HeadSHA, run.ID)), run.ID, head, run.URL, run.ID, run.Attempt)
 		if err := raiseFleetWake(stateDir, "ci", "main:"+filepath.Base(repo), detail); err != nil {
 			errs = errors.Join(errs, err)
 			continue
@@ -1857,8 +1857,10 @@ func pollMain(ctx context.Context, runner execx.Runner, github *githubapi.Client
 
 // failedJobs names the jobs of run, a workflow run of repository, the
 // GitHub repository of the checkout repo, that failed, as the wake reads
-// them.
-func failedJobs(ctx context.Context, github *githubapi.Client, repository, repo string, run int64) (string, error) {
+// them. It reads the jobs of the attempt the run's red conclusion came from,
+// never the run's latest: on 2026-10-28 a red run was re-run before the wake
+// read its jobs, which were then the new attempt's queued ones (issue 2057).
+func failedJobs(ctx context.Context, github *githubapi.Client, repository, repo string, run ghRun) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, ghCallTimeout)
 	defer cancel()
 	var view struct {
@@ -1867,8 +1869,8 @@ func failedJobs(ctx context.Context, github *githubapi.Client, repository, repo 
 			Conclusion string `json:"conclusion"`
 		} `json:"jobs"`
 	}
-	if err := github.Get(ctx, fmt.Sprintf("repos/%s/actions/runs/%d/jobs?per_page=100", repository, run), &view); err != nil {
-		return "its failing jobs unread", fmt.Errorf("ci wakes: read the failing jobs of %s's run %d: %w", repo, run, err)
+	if err := github.Get(ctx, fmt.Sprintf("repos/%s/actions/runs/%d/attempts/%d/jobs?per_page=100", repository, run.ID, run.Attempt), &view); err != nil {
+		return "its failing jobs unread", fmt.Errorf("ci wakes: read the failing jobs of %s's run %d attempt %d: %w", repo, run.ID, run.Attempt, err)
 	}
 	var failed []string
 	for _, job := range view.Jobs {

@@ -292,9 +292,10 @@ func TestStoppedProcessContractRequiresNonactiveStatusAndIdentifiedTeardown(t *t
 	}
 }
 
-// A task spawned into the home names its worktree, its extra worktrees and
-// its scratch folder there, and every one of them is a directory its stop
-// covers; a record naming anything else stops nothing.
+// A task spawned into the home names its worktree, its extra worktrees, of
+// its own project or of another, and its scratch folder there, and every one
+// of them is a directory its stop covers; a record naming anything else stops
+// nothing.
 func TestTaskResourcesCoverAHomeTasksWorktreesAndScratch(t *testing.T) {
 	root := t.TempDir()
 	h := home.Home{Root: root, State: filepath.Join(root, "state")}
@@ -302,7 +303,7 @@ func TestTaskResourcesCoverAHomeTasksWorktreesAndScratch(t *testing.T) {
 	meta := state.TaskMeta{
 		ID: "g1", Backend: "native", Project: project,
 		Worktree: filepath.Join(root, "worktrees", "app", "g1"),
-		Extras:   []string{filepath.Join(root, "worktrees", "app", "g1-proof")},
+		Extras:   []string{filepath.Join(root, "worktrees", "app", "g1-proof"), filepath.Join(root, "worktrees", "tool", "g1-release")},
 		Scratch:  filepath.Join(root, "scratch", "g1"),
 		TaskTmp:  filepath.Join(h.State, "tasktmp", "g1"),
 	}
@@ -313,7 +314,7 @@ func TestTaskResourcesCoverAHomeTasksWorktreesAndScratch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{meta.Worktree, meta.Extras[0], meta.Scratch, meta.TaskTmp} {
+	for _, want := range []string{meta.Worktree, meta.Extras[0], meta.Extras[1], meta.Scratch, meta.TaskTmp} {
 		if !slices.Contains(resources.Directories, want) {
 			t.Errorf("directories = %v, want %s among them", resources.Directories, want)
 		}
@@ -321,7 +322,8 @@ func TestTaskResourcesCoverAHomeTasksWorktreesAndScratch(t *testing.T) {
 	for name, change := range map[string]func(*state.TaskMeta){
 		"a worktree outside the home":      func(m *state.TaskMeta) { m.Worktree = filepath.Join(root, "elsewhere", "g1") },
 		"an extra of another task":         func(m *state.TaskMeta) { m.Extras = []string{filepath.Join(root, "worktrees", "app", "g2-proof")} },
-		"an extra in another project":      func(m *state.TaskMeta) { m.Extras = []string{filepath.Join(root, "worktrees", "web", "g1-proof")} },
+		"an extra outside the worktrees":   func(m *state.TaskMeta) { m.Extras = []string{filepath.Join(root, "scratch", "g1-proof")} },
+		"an extra in no project folder":    func(m *state.TaskMeta) { m.Extras = []string{filepath.Join(root, "worktrees", "g1-proof")} },
 		"a scratch folder of another task": func(m *state.TaskMeta) { m.Scratch = filepath.Join(root, "scratch", "g2") },
 	} {
 		changed := meta

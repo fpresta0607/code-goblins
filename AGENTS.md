@@ -223,7 +223,7 @@ Its receipt accounts for knowledge, open work, remaining decisions and reset saf
 
 ## Restart is a non-event
 
-All state lives under `$GOBLINS_HOME` (`%LOCALAPPDATA%\CodeGoblins` unless `GOBLINS_HOME` names another folder).
+All state lives under `$GOBLINS_HOME` (`%LOCALAPPDATA%\CodeGoblins`, or `$XDG_DATA_HOME/code-goblins` or `~/.local/share/code-goblins` on Linux and macOS, unless `GOBLINS_HOME` names another folder).
 Metadata, status, and the wake queue are on disk; a fresh session reconciles with `goblins fleet-view` and `goblins drain`.
 
 ## Maintaining the contract

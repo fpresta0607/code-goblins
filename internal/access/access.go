@@ -1,8 +1,9 @@
-// Package access keeps the fleet's folders to the accounts their work needs:
-// the person the fleet runs as, SYSTEM and Administrators. A folder made
-// under a drive's root, as a home that GOBLINS_HOME puts there or a Dev Drive
-// folder is, takes Authenticated Users Modify from it, so any second account
-// on the machine could read and write it.
+// Package access keeps the fleet's folders to the accounts their work needs
+// (Admitted): on Windows the person the fleet runs as, SYSTEM and
+// Administrators, and on Linux and macOS that person alone, by the folder's
+// mode. A folder made under a drive's root, as a home that GOBLINS_HOME puts
+// there or a Dev Drive folder is, takes Authenticated Users Modify from it on
+// Windows, so any second account on the machine could read and write it.
 package access
 
 import (

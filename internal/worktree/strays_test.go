@@ -145,3 +145,33 @@ func TestReturnStraysKeepsNestedUncommittedWorkEvenWhenTheParentIgnoresIt(t *tes
 		}
 	}
 }
+
+// A task's extra worktree of another project is a worktree of that project's
+// checkout, so a harness worktree nested in it is registered there, not with
+// the task's own project, and is still found and returned to that checkout.
+func TestReturnStraysReturnsAWorktreeNestedInAnExtraOfAnotherProjectToThatProject(t *testing.T) {
+	// Arrange
+	project := clonedProject(t)
+	other := clonedProject(t)
+	extra := filepath.Join(t.TempDir(), "g1-release")
+	gitRun(t, other, "worktree", "add", "--detach", extra, "origin/main")
+	nested := filepath.Join(extra, ".claude", "worktrees", "probe")
+	gitRun(t, other, "worktree", "add", "--detach", nested, "origin/main")
+
+	// Act
+	returned, err := ReturnStrays(context.Background(), execx.OSRunner{}, RunnerGit{Commands: execx.OSRunner{}}, project, []string{extra})
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(returned) != 1 || returned[0].Kept != "" {
+		t.Fatalf("returned = %+v, want only %s, returned", returned, nested)
+	}
+	if _, err := os.Stat(nested); !os.IsNotExist(err) {
+		t.Errorf("the nested worktree %s is still there: %v", nested, err)
+	}
+	if listed := gitRun(t, other, "worktree", "list", "--porcelain"); strings.Contains(strings.ToLower(listed), "probe") {
+		t.Errorf("the other project still registers the nested worktree:\n%s", listed)
+	}
+}

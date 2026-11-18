@@ -18,17 +18,20 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
-const worktreeUsage = `usage: goblins worktree add <task-id> <name> [--ref <commit>]
-       goblins worktree remove <task-id> <name>
+const worktreeUsage = `usage: goblins worktree add <task-id> <name> [--ref <commit>] [--project <name|path>]
+       goblins worktree remove <task-id> <name> [--project <name|path>]
 
 add makes the task an extra worktree, <task-id>-<name>, beside its own in the
 home's worktrees folder, detached at --ref or at origin's default branch, and
 records it on the task, so it is the task's: goblins cleanup removes it with the
 task. A worktree made any other way is a stray the janitor reports.
+With --project it is a worktree of that project instead of the task's own, in
+that project's folder of the worktrees, and --ref names a commit of it.
 
 remove returns one extra worktree before the task ends: it refuses one with
 uncommitted work, keeps work that is not on the default branch as a local
-archive tag, and takes it off the task's record.
+archive tag, and takes it off the task's record. It takes the --project the
+extra was added with.
 `
 
 // runWorktree adds or removes a task's extra worktree.
@@ -41,6 +44,7 @@ func runWorktree(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	flags := flag.NewFlagSet("goblins worktree "+verb, flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	ref := flags.String("ref", "", "the commit the extra worktree starts at; origin's default branch when not given")
+	projectArg := flags.String("project", "", "the project the extra worktree is of, by name or path; the task's own when not given")
 	var positional []string
 	rest := args[1:]
 	for len(rest) > 0 {
@@ -71,14 +75,21 @@ func runWorktree(args []string, stdout, stderr io.Writer, runtime commandRuntime
 		fmt.Fprintln(stderr, "goblins worktree: not a primary home")
 		return 1
 	}
+	project := ""
+	if *projectArg != "" {
+		if project, err = runtime.resolveProject(*projectArg); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+	}
 	commands := execx.OSRunner{}
 	service := worktree.Service{Commands: commands, Root: h.Worktrees()}
 	ctx := context.Background()
 	var output string
 	if verb == "add" {
-		output, err = addExtraWorktree(ctx, h, service, id, name, *ref)
+		output, err = addExtraWorktree(ctx, h, service, id, name, project, *ref)
 	} else {
-		output, err = removeExtraWorktree(ctx, h, service, worktree.RunnerGit{Commands: commands}, id, name)
+		output, err = removeExtraWorktree(ctx, h, service, worktree.RunnerGit{Commands: commands}, id, name, project)
 	}
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -109,10 +120,15 @@ func updateTaskRecord(stateDir, id string, change func(*state.TaskMeta) error) (
 	return state.WriteTaskMeta(stateDir, meta)
 }
 
-func addExtraWorktree(ctx context.Context, h home.Home, service worktree.Service, id, name, ref string) (string, error) {
+// addExtraWorktree makes and records task id's extra worktree of project, or
+// of the task's own project when project is empty.
+func addExtraWorktree(ctx context.Context, h home.Home, service worktree.Service, id, name, project, ref string) (string, error) {
 	var path string
 	err := updateTaskRecord(h.State, id, func(meta *state.TaskMeta) error {
-		wt, err := service.AddExtra(ctx, meta.Project, id, name, ref)
+		if project == "" {
+			project = meta.Project
+		}
+		wt, err := service.AddExtra(ctx, project, id, name, ref)
 		if err != nil {
 			return err
 		}
@@ -126,10 +142,15 @@ func addExtraWorktree(ctx context.Context, h home.Home, service worktree.Service
 	return fmt.Sprintf("added %s's extra worktree %s; goblins cleanup %s removes it with the task", id, path, id), nil
 }
 
-func removeExtraWorktree(ctx context.Context, h home.Home, service worktree.Service, git worktree.RunnerGit, id, name string) (string, error) {
+// removeExtraWorktree returns task id's extra worktree of project, or of the
+// task's own project when project is empty, and takes it off the record.
+func removeExtraWorktree(ctx context.Context, h home.Home, service worktree.Service, git worktree.RunnerGit, id, name, project string) (string, error) {
 	var path, tag string
 	err := updateTaskRecord(h.State, id, func(meta *state.TaskMeta) error {
-		want, err := service.Path(meta.Project, id+"-"+name)
+		if project == "" {
+			project = meta.Project
+		}
+		want, err := service.Path(project, id+"-"+name)
 		if err != nil {
 			return err
 		}
@@ -167,7 +188,7 @@ func removeExtraWorktree(ctx context.Context, h home.Home, service worktree.Serv
 				return err
 			}
 		}
-		if err := service.Return(ctx, meta.Project, path); err != nil {
+		if err := service.Return(ctx, project, path); err != nil {
 			return err
 		}
 		meta.Extras = slices.Delete(meta.Extras, at, at+1)

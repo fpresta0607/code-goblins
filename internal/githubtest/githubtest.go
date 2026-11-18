@@ -177,9 +177,10 @@ func WorkflowRuns(runs []byte) (map[string]any, error) {
 }
 
 // WorkflowRun is run, a workflow run in the shape gh run view --json printed
-// it, as GitHub's API gives the same run.
+// it, as GitHub's API gives the same run. GitHub gives every run its attempt,
+// so a run that names none is in its first.
 func WorkflowRun(run map[string]any) map[string]any {
-	converted := map[string]any{}
+	converted := map[string]any{"run_attempt": 1}
 	for key, value := range run {
 		converted[cmp.Or(runFields[key], key)] = value
 	}
