@@ -14,7 +14,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
@@ -86,8 +88,10 @@ func ApprovedHeads(summaries []string) []string {
 // clean there or in the report they let through. That holds for the commit
 // wherever it travels, so it is left out on any branch carrying it, while a
 // commit nobody approved is read however many remote branches hold it. A
-// head this repository lacks is ignored.
-func Check(ctx context.Context, git execx.Runner, dir string, approved []string) (Result, error) {
+// head this repository lacks is ignored. Each git call it makes has limit
+// to answer in.
+func Check(ctx context.Context, git execx.Runner, dir string, approved []string, limit time.Duration) (Result, error) {
+	git = callLimited{next: git, limit: limit}
 	base, err := mergeBase(ctx, git, dir)
 	if err != nil {
 		return Result{}, err
@@ -398,14 +402,45 @@ func grep(ctx context.Context, git execx.Runner, dir string, args ...string) ([]
 }
 
 // mergeBase finds where the branch left the default branch: origin/HEAD
-// where the clone records one, else origin/main.
+// where the clone records one, else origin/main. Only a git exit falls through
+// to origin/main: a call that does not answer fails the check, since
+// origin/main may not be the default branch and would read the wrong commits.
 func mergeBase(ctx context.Context, git execx.Runner, dir string) (string, error) {
 	for _, ref := range []string{"origin/HEAD", "origin/main"} {
-		if base, err := run(ctx, git, dir, "merge-base", "HEAD", ref); err == nil && strings.TrimSpace(base) != "" {
-			return strings.TrimSpace(base), nil
+		args := []string{"merge-base", "HEAD", ref}
+		result, err := git.Run(ctx, execx.Request{Dir: dir, Name: "git", Args: args})
+		if err != nil {
+			return "", fmt.Errorf("testguard: git %s: %w", strings.Join(args, " "), err)
+		}
+		if base := strings.TrimSpace(string(result.Stdout)); result.ExitCode == 0 && base != "" {
+			return base, nil
 		}
 	}
 	return "", errors.New("testguard: no merge base with origin/HEAD or origin/main, so the gate's commits cannot be told from the default branch")
+}
+
+// CallLimit bounds each git call the check makes, never the check as a
+// whole: a branch whose gate made many fix commits takes many calls, and on a
+// loaded machine one git show can take tens of seconds, so one deadline over
+// them all failed a check that had found nothing (issue 1959). A call that
+// never answers still fails the check.
+const CallLimit = 2 * time.Minute
+
+// callLimited gives each git call its own limit, counted on the awake clock,
+// so a pause of the whole machine does not spend it.
+type callLimited struct {
+	next  execx.Runner
+	limit time.Duration
+}
+
+func (git callLimited) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
+	callCtx, cancel := awake.WithTimeout(ctx, git.limit)
+	defer cancel()
+	result, err := git.next.Run(callCtx, request)
+	if err != nil && ctx.Err() == nil && errors.Is(callCtx.Err(), context.DeadlineExceeded) {
+		return result, fmt.Errorf("no answer within %s: %w", git.limit, err)
+	}
+	return result, err
 }
 
 func run(ctx context.Context, git execx.Runner, dir string, args ...string) (string, error) {
