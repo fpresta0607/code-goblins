@@ -1,8 +1,8 @@
-// Copies text to the clipboard. A page served over plain HTTP, such as across
-// the tailnet, has no navigator.clipboard, so there the text is copied from a
-// field off screen, placed in the open dialog when the click came from one,
-// since nothing outside a modal dialog takes a selection. The promise rejects
-// when neither way copies.
+// Copies text to the clipboard. A page served over plain HTTP has no
+// navigator.clipboard, so there the text is copied from a field off screen,
+// placed in the open dialog when the click came from one, since nothing
+// outside a modal dialog takes a selection. The promise rejects when neither
+// way copies.
 export function copyText(text: string): Promise<void> {
   if (navigator.clipboard) return navigator.clipboard.writeText(text);
   const focused = document.activeElement;

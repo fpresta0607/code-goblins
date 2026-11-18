@@ -281,6 +281,41 @@ test("a picture pasted into the pencil's window is kept beside the task and sent
   expect(sent[0].body).toMatchObject({ kind: "run_answer", run_id: "run-shop-signup-7", text: "Like this one\n" + KEPT });
 });
 
+test("a selection copied from a conversation and pasted into the pencil's window keeps each of its pictures and its words", async ({ page, context }) => {
+  // Arrange: the clipboard holds what the board's copy of a chat selection
+  // holds (#2543): its words, HTML with its two pictures inline, each marked
+  // as a conversation's, and its first picture as a picture. Each picture is
+  // kept as the next pasted-N, as the supervisor keeps it.
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await record(page);
+  const kept: (string | null)[] = [];
+  await page.route("**/api/composer/file**", (route) => {
+    if (route.request().method() !== "POST") return route.fulfill({ status: 200, contentType: "image/png", body: Buffer.from(ONE_PIXEL, "base64") });
+    kept.push(new URL(route.request().url()).searchParams.get("name"));
+    return route.fulfill({ status: 201, json: { path: KEPT.replace("pasted-1", "pasted-" + kept.length) } });
+  });
+  const shown = await openCard(page, "Open the command");
+  await pencilOf(shown).click();
+  const note = noteWindow(page).getByLabel("Your note");
+  await page.evaluate(async (png) => {
+    const picture = `<img data-conversation-picture src="data:image/png;base64,${png}" alt="">`;
+    await navigator.clipboard.write([new ClipboardItem({
+      "text/plain": new Blob(["Like these two"], { type: "text/plain" }),
+      "text/html": new Blob([`<p>Like these</p>${picture}${picture}<p>two</p>`], { type: "text/html" }),
+      "image/png": new Blob([Uint8Array.from(atob(png), (character) => character.charCodeAt(0))], { type: "image/png" }),
+    })]);
+  }, ONE_PIXEL);
+
+  // Act
+  await note.focus();
+  await page.keyboard.press("Control+V");
+
+  // Assert: both pictures are kept and shown, and his words are in the note.
+  await expect(noteWindow(page).getByRole("img", { name: "Picture 2" })).toBeVisible();
+  expect(kept).toEqual(["pasted.png", "pasted.png"]);
+  await expect(note).toHaveValue("Like these two");
+});
+
 // The Overlord, 2026-11-13, of this window: "It shouldn't have a character
 // cap. I should be able to paste like large attachments like I do in the
 // goblins chat" (#2538). A long answer goes whole as a file the asker reads,

@@ -43,28 +43,31 @@ export function clipboardInput(event: ClipboardEvent, harness: string): { text: 
   return { key: imageKey(harness) };
 }
 
-// What a clipboard read hands on, and why it could not when it could not.
-export type ClipboardRead = { text: string } | { image: File } | { error: string };
+// What a clipboard read hands on, with the HTML of the item it came from,
+// and why it could not when it could not.
+export type ClipboardRead = ({ text: string } | { image: File }) & { html: string } | { error: string };
 
 // readClipboard reads what the clipboard holds for a paste the browser does
-// not start itself, such as Alt+V: its text, or its picture. The browser may
-// refuse the read, and then the answer says so rather than dropping the
-// paste (the Overlord, 2026-10-26: "alt + v or ctrl + c both should work for
-// paste").
+// not start itself, such as Alt+V: its text, or its picture, and the HTML
+// that holds them, as a selection copied from a conversation holds its
+// pictures there (#2543). The browser may refuse the read, and then the
+// answer says so rather than dropping the paste (the Overlord, 2026-10-26:
+// "alt + v or ctrl + c both should work for paste").
 export async function readClipboard(): Promise<ClipboardRead> {
   if (!navigator.clipboard?.read) return { error: "The browser cannot read the clipboard here. Press Ctrl+V to paste." };
   try {
     const items = await navigator.clipboard.read();
-    let image: File | null = null;
+    let picture: { image: File; html: string } | null = null;
     for (const item of items) {
+      const html = item.types.includes("text/html") ? await (await item.getType("text/html")).text() : "";
       if (item.types.includes("text/plain")) {
         const text = await (await item.getType("text/plain")).text();
-        if (text) return { text };
+        if (text) return { text, html };
       }
       const type = item.types.find((each) => each.startsWith("image/"));
-      if (type && !image) image = new File([await item.getType(type)], "pasted.png", { type });
+      if (type && !picture) picture = { image: new File([await item.getType(type)], "pasted.png", { type }), html };
     }
-    if (image) return { image };
+    if (picture) return picture;
     return { error: "The clipboard holds nothing to paste." };
   } catch {
     return { error: "The browser refused to read the clipboard. Press Ctrl+V to paste." };
