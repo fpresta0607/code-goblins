@@ -95,6 +95,26 @@ func TestHelpGateTurnSynopsisIsTheUsageText(t *testing.T) {
 	}
 }
 
+// The top-level usage summarises goblins gate turn with the synopsis its usage
+// text gives (issue 2071, where it also left out --execution-limit).
+func TestUsageGateTurnSynopsisIsTheUsageText(t *testing.T) {
+	// Arrange
+	want := "  " + strings.TrimPrefix(gateTurnUsage, "usage: ") + "   "
+	var summaries []string
+
+	// Act
+	for _, line := range strings.Split(usage, "\n") {
+		if strings.HasPrefix(line, "  goblins gate turn ") {
+			summaries = append(summaries, line)
+		}
+	}
+
+	// Assert
+	if len(summaries) != 1 || !strings.HasPrefix(summaries[0], want) {
+		t.Fatalf("gate turn summaries %q, want one that starts with %q", summaries, want)
+	}
+}
+
 func contractSkillRoute(skill, topic string) ([]string, error) {
 	var routes [][]string
 	for _, command := range regexp.MustCompile("`([^`\n]+)`").FindAllStringSubmatch(skill, -1) {
