@@ -1059,13 +1059,18 @@ func spawnInstruction(briefPath string, meta state.TaskMeta, install []string, r
 
 // deliveryInstruction names the frozen delivery mode of a task and the one
 // validation owner that mode gives it, over whatever its brief says, and
-// keeps its ask-user findings the CEO's until its run's review repair cycles
-// are spent.
+// keeps its ask-user decisions the CEO's. Only a no-mistakes task has a gate
+// run, so only its instruction names goblins pipeline respond, which refuses
+// every other mode (issue 1952).
 func deliveryInstruction(meta state.TaskMeta) string {
 	if meta.DeliveryHash == "" {
 		return ""
 	}
-	return " Your delivery mode is " + meta.Mode + ", frozen at " + filepath.Join(meta.TaskTmp, "delivery.json") + " before validation: it supersedes the brief's mode line and Verification section. " + fleet.BriefVerification(meta.ID, meta.Mode) + " Follow only this path and its required checks, and add no manual review gate. Until its run's review repair cycles are spent, the implementation worker never decides its own ask-user finding: report it to the CEO and apply the returned decision through goblins pipeline respond."
+	askUser := " The implementation worker never decides an ask-user question of its own: report it to the CEO and follow the returned decision."
+	if meta.Mode == "no-mistakes" {
+		askUser = " Until its run's review repair cycles are spent, the implementation worker never decides its own ask-user finding: report it to the CEO and apply the returned decision through goblins pipeline respond."
+	}
+	return " Your delivery mode is " + meta.Mode + ", frozen at " + filepath.Join(meta.TaskTmp, "delivery.json") + " before validation: it supersedes the brief's mode line and Verification section. " + fleet.BriefVerification(meta.ID, meta.Mode) + " Follow only this path and its required checks, and add no manual review gate." + askUser
 }
 
 // heavyRunInstruction tells a goblin that one heavy run goes at a time on the
