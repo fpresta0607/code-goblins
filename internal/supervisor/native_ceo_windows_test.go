@@ -613,8 +613,9 @@ func TestANativeCEOsSendFromAProcessWhoseParentHasExitedNamesItAsSender(t *testi
 // waits for the hook's report. A hook that reports it while the message still
 // sits alone on the prompt line proves nothing either, since Claude Code runs
 // that hook as it queues a line into a turn, as one its stop hook opened as
-// the message arrived (#2541). Typed, it is the harness's, so it offers no
-// Send now.
+// the message arrived (#2541), nor does one whose screen, read as it
+// redraws, joins two frames and shows no prompt line at all (#2642). Typed,
+// it is the harness's, so it offers no Send now.
 func TestADeliveryToANativeCEOWhoseScreenTurnsToWorkWithoutItsHookIsSentNotDelivered(t *testing.T) {
 	for _, test := range []struct {
 		name string
@@ -622,9 +623,13 @@ func TestADeliveryToANativeCEOWhoseScreenTurnsToWorkWithoutItsHookIsSentNotDeliv
 		// it takes on its prompt line under a working row, and, hooked, whose
 		// prompt hook reports each line it takes.
 		lines []string
+		// isTorn has the first screen read after the hook reported join two
+		// frames.
+		isTorn bool
 	}{
 		{name: "its hook silent", lines: []string{"harness", "keep"}},
 		{name: "its hook reporting it", lines: []string{"harness", "keep", "hooked"}},
+		{name: "its hook reporting it, read torn", lines: []string{"harness", "keep", "hooked"}, isTorn: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -638,9 +643,17 @@ func TestADeliveryToANativeCEOWhoseScreenTurnsToWorkWithoutItsHookIsSentNotDeliv
 				t.Fatalf("the program recorded %q, want its registration", lines)
 			}
 			ceo.showsComposer(t, "claude")
+			connection := &CEOConnection{State: stateDir}
+			if test.isTorn {
+				started := time.Now()
+				connection.ReadScreen = tornOnce(host.ReadScreen, func() bool {
+					isReported, err := NativeHostPromptSince(stateDir, "ceo", started)
+					return err == nil && isReported
+				})
+			}
 
 			// Act
-			result, err := (&CEOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
+			result, err := connection.Send(context.Background(), registrationIdentity(t, stateDir), "hello")
 
 			// Assert
 			if err != nil || result.Awaiting == nil || result.Awaiting.Host != "ceo" || result.Reason != sentToCEO || result.CanSendNow {

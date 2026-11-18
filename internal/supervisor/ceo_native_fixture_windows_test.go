@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -450,6 +451,32 @@ var codexMention = regexp.MustCompile(`(^|\s)\$\S*$`)
 func nativeCEOComposer(t *testing.T, stateDir, mode string) hostedTerminal {
 	t.Helper()
 	return nativeComposer(t, stateDir, "ceo", mode)
+}
+
+// tornOnce reads a terminal's screen as read does, except that the first
+// read once isDue holds joins two frames of a redraw, as a screen read a row
+// at a time while its harness redraws does: on 2026-11-17 such a read of a
+// loaded Claude Code fixture, just after it took a submit key as a new line,
+// showed the rule under its prompt line in place of the row that key added,
+// two rules in a row with no composer between them that can be read (#2635).
+// Each read after that one is read as it is.
+func tornOnce(read func(host.Record) ([]string, error), isDue func() bool) func(host.Record) ([]string, error) {
+	isTorn := false
+	return func(record host.Record) ([]string, error) {
+		screen, err := read(record)
+		if err != nil || isTorn || !isDue() {
+			return screen, err
+		}
+		for row := len(screen) - 1; row > 0; row-- {
+			if trimmed := strings.TrimSpace(screen[row]); len([]rune(trimmed)) >= 8 && strings.Trim(trimmed, "─") == "" {
+				isTorn = true
+				torn := slices.Clone(screen)
+				torn[row-1] = screen[row]
+				return torn, nil
+			}
+		}
+		return screen, nil
+	}
 }
 
 // nativeComposer hosts the fixture harness of mode as terminal id: the CEO's,
