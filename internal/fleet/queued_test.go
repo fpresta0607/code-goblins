@@ -301,14 +301,18 @@ func TestUnreadableCompletionEvidenceRefusesQueuedDispatch(t *testing.T) {
 
 // A brief written from a queued row, as the board's Start writes one, carries
 // no change assessment, so its task starts strict whatever mode the row asks
-// for: its Verification section gives the checks to the pipeline alone and
-// starts no goblins verify beside it.
+// for, or with none: its Verification section gives the checks to the
+// pipeline's Test step alone, run once, and starts no goblins verify beside it.
 func TestAQueuedBriefGivesItsChecksToThePipelineWhateverModeItsRowAsks(t *testing.T) {
-	for _, mode := range []string{"direct-PR", "local-only"} {
-		t.Run(mode, func(t *testing.T) {
+	for _, mode := range []string{"", "no-mistakes", "direct-PR", "local-only"} {
+		t.Run("mode "+mode, func(t *testing.T) {
 			// Arrange
 			h := home.Home{State: t.TempDir(), Data: t.TempDir()}
-			if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte("## Queued\n- **nw-sync** - Say why a billing sync fails (repo: northwind) (mode: "+mode+")\n"), 0o600); err != nil {
+			row := "- **nw-sync** - Say why a billing sync fails (repo: northwind)"
+			if mode != "" {
+				row += " (mode: " + mode + ")"
+			}
+			if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte("## Queued\n"+row+"\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			queued, err := ReadQueuedTask(h, "nw-sync")
@@ -328,7 +332,7 @@ func TestAQueuedBriefGivesItsChecksToThePipelineWhateverModeItsRowAsks(t *testin
 			}
 			_, verification, _ := strings.Cut(string(body), "## Verification\n\n")
 			verification, _, _ = strings.Cut(verification, "\n\n## Authentication")
-			if !strings.Contains(verification, "Drive `goblins pipeline run nw-sync --intent-file <file>`") || !strings.Contains(verification, "Do not start a separate goblins verify") || strings.Contains(verification, "Before each push run") {
+			if !strings.Contains(verification, "Drive `goblins pipeline run nw-sync --intent-file <file>`") || !strings.Contains(verification, "pipeline Test step") || !strings.Contains(verification, "once") || !strings.Contains(verification, "Do not start a separate goblins verify") || strings.Contains(verification, "Before each push run") {
 				t.Errorf("the queued brief's Verification section = %q, want the pipeline as its one check owner", verification)
 			}
 		})
