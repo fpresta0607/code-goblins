@@ -917,7 +917,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 			reconcileErr = errors.Join(reconcileErr, s.Options.Reconcile(ctx))
 		}
 		s.checkRegistration()
-		if snapshot, err := s.Snapshot(); err != nil {
+		if snapshot, err := s.boardSnapshot(); err != nil {
 			reconcileErr = errors.Join(reconcileErr, err)
 		} else {
 			reconcileErr = errors.Join(reconcileErr, s.tellWaitCycles(snapshot), s.tellParkedRuns(snapshot))
