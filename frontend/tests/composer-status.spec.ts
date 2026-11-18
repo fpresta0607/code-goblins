@@ -148,6 +148,52 @@ for (const style of ["modern"]) {
           await expect(field(page)).toHaveValue("and the next one");
         });
       }
+      // The box takes the keyboard back only from nowhere: not from a control
+      // he moved it to while the board answered, and not when the box did not
+      // have it as the message went.
+      for (const keyboard of ["moved to the panel's header", "not in the box"] as const) {
+        test(`${style} leaves the keyboard alone after a send through the board when it was ${keyboard} at ${width}px`, async ({ page }) => {
+          // Arrange
+          await page.addInitScript((value) => localStorage.setItem("ceo-chat-style", value), style);
+          const relay = await open(page);
+          await card(page, NAME).click();
+          await expect.poll(() => relay.views).toBeGreaterThan(0);
+          relay.say({ type: "held", reason: "pipeline owns this task" });
+          await expect(box(page)).toHaveAttribute("data-queues", "");
+          let answer = () => {};
+          const answered = new Promise<void>((resolve) => { answer = resolve; });
+          await page.route("**/api/actions", async (route) => {
+            await answered;
+            await route.fulfill({ status: 202, json: {} });
+          });
+          await field(page).evaluate((element) => new MutationObserver(() => {
+            if (!element.hasAttribute("disabled")) element.dataset.focusedWhenEnabled = String(document.activeElement === element);
+          }).observe(element, { attributeFilter: ["disabled"] }));
+          await field(page).fill("Queue this for after the gate");
+
+          const chatStyle = page.locator(".context-pane .panel-header").getByRole("button", { name: "Chat style", exact: true });
+
+          // Act: he sends, and the keyboard is on the panel's header, or
+          // nowhere since before the send, when the board answers.
+          if (keyboard === "moved to the panel's header") {
+            await field(page).press("Enter");
+            await expect(field(page)).toBeDisabled();
+            await chatStyle.focus();
+            await expect(chatStyle).toBeFocused();
+          } else {
+            await field(page).blur();
+            await send(page).dispatchEvent("click");
+            await expect(field(page)).toBeDisabled();
+          }
+          answer();
+
+          // Assert
+          await expect(field(page)).toHaveAttribute("data-focused-when-enabled", "false");
+          await expect(field(page)).not.toBeFocused();
+          if (keyboard === "moved to the panel's header") await expect(chatStyle).toBeFocused();
+          else expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+        });
+      }
       test(`${style} preserves composing and queue safety through busy, reconnecting and ended states at ${width}px`, async ({ page }, testInfo) => {
         test.slow();
         // Arrange
