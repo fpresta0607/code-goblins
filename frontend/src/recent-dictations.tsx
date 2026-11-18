@@ -82,7 +82,7 @@ export function RecentDictations({ where, anchor, model, look = "card", onPaste,
     const timer = setTimeout(() => setCopied(""), 1400);
     return () => clearTimeout(timer);
   }, [copied]);
-  // A page served over plain HTTP, such as across the tailnet, has no clipboard.
+  // A page served over plain HTTP has no clipboard.
   const clipboard = !!navigator.clipboard;
   const title = look === "pane" ? "Speech history" : "Recent messages";
   return <section ref={card} popover="manual" className={look === "pane" ? "popup-surface speech-pane voice-recent" : "voice-card voice-recent"} role="dialog" aria-label={title}>

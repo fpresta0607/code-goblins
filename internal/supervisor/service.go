@@ -217,6 +217,11 @@ type Options struct {
 	// (pc_restart.go).
 	RestartWindows func() error
 	EndHeavyRuns   func() ([]string, error)
+	// Clocks reads the machine's two clocks at once, which time a fleet
+	// reading: the wall clock, which runs on while the machine sleeps, and
+	// how long the machine has been awake, which its sleep does not move;
+	// nil reads the machine's (machineClocks).
+	Clocks func() (wall time.Time, awake time.Duration)
 }
 
 type Service struct {
@@ -887,6 +892,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestActivity())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestReviews())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestGoblinRuns())
+	reconcileErr = errors.Join(reconcileErr, s.Store.ingestHookFailures())
 	reconcileErr = errors.Join(reconcileErr, s.ingestCredentialRequests())
 	reconcileErr = errors.Join(reconcileErr, s.expireCredentials(time.Now()))
 	reconcileErr = errors.Join(reconcileErr, s.Store.expireRuns(time.Now()))
@@ -1015,20 +1021,32 @@ func (s *Service) reportedDone(id string) string {
 	return deliveredPR(lines, meta.SpawnGen)
 }
 
-// hasDelivered is isDelivered for meta's goblin, read from its status log
-// and the session the store holds for its task.
+// hasDelivered is HasDelivered for meta's goblin. The supervisor too can ask
+// before it takes in a prompt's hook event: it plans its comeback at its
+// first memory reading, before its first cycle takes in the native inbox, and
+// a cycle takes in at most 256 events. A record that cannot be read is said
+// on the board and leaves the goblin taken as not delivered, so it comes back
+// or is paused rather than left as it is.
 func (s *Service) hasDelivered(meta state.TaskMeta) bool {
-	lines, _ := s.statusTail(meta.ID)
-	return isDelivered(lines, meta.SpawnGen, s.Store.taskSession(meta.ID))
+	isDelivered, err := HasDelivered(s.Store.Home.State, meta)
+	if err != nil {
+		s.publish(err)
+	}
+	return isDelivered
 }
 
-// HasDelivered answers isDelivered for meta's goblin from directory, for
-// goblins resume, which runs without the supervisor and can run before it
-// takes in the hook events waiting in the native inbox, so a prompt is looked
-// for there as well as in the board's record. The report's time is kept to
-// the second, so a prompt counts from the second after it, as in isDelivered.
-// The prompt is looked for only for a goblin whose latest report delivered,
-// and a record that cannot be read is an error, never taken as no prompt.
+// HasDelivered reports whether the latest report of meta's goblin delivered
+// and its session took no prompt after it, as one the CEO steers back to work
+// with goblins send takes. Such a goblin waits on the merge, or on nothing
+// once it closed its issue, not on a session: on 2026-10-27 three that a
+// restart brought back each spent a fresh session only to report the same
+// pull request done again. A prompt is looked for in the hook events still
+// waiting in the native inbox as well as in the board's record, since
+// goblins resume runs without the supervisor and the supervisor can ask
+// before it takes them in. The report's time is kept to the second, so a
+// prompt counts from the second after it. The prompt is looked for only for
+// a goblin whose latest report delivered, and a record that cannot be read
+// is an error, never taken as no prompt.
 func HasDelivered(directory string, meta state.TaskMeta) (bool, error) {
 	lines, _ := state.TailStatus(directory, meta.ID, 200)
 	if !reportsDelivery(lines, meta.SpawnGen) {
@@ -1040,18 +1058,6 @@ func HasDelivered(directory string, meta state.TaskMeta) (bool, error) {
 		return false, fmt.Errorf("read whether %s took a prompt since it reported its delivery done: %w", meta.ID, err)
 	}
 	return !isPromptedSince, nil
-}
-
-// isDelivered reports whether the goblin of generation delivered in its latest
-// report and its session took no prompt after it, as one the CEO steers back
-// to work with goblins send takes. Such a goblin waits on the merge, or on nothing
-// once it closed its issue, not on a session: on 2026-10-27 three that a
-// restart brought back each spent a fresh session only to report the same pull
-// request done again.
-func isDelivered(lines []string, generation string, session Session) bool {
-	reportedAt, _ := latestReport(lines, spawnTime(generation))
-	isPromptedSince := session.Generation == generation && session.PromptAt.Truncate(time.Second).After(reportedAt)
-	return reportsDelivery(lines, generation) && !isPromptedSince
 }
 
 // reportsDelivery reports whether the latest report of generation delivered: a
@@ -1645,8 +1651,10 @@ type Task struct {
 	// whose latest report is its done, which leaves nothing to verify of it.
 	KeptReport string `json:"kept_report,omitempty"`
 	// Browser says the goblin's own browser runs, which the board shows on
-	// its Screen view.
-	Browser bool `json:"browser,omitempty"`
+	// its Screen view, and BrowserInUse that the goblin sent it a command a
+	// short time ago, which its card shows as Browser active (#2537).
+	Browser      bool `json:"browser,omitempty"`
+	BrowserInUse bool `json:"browser_in_use,omitempty"`
 	// ReportedAt is when the goblin wrote its latest report, so the board
 	// can tell whether it reported since an answer it was given.
 	ReportedAt time.Time `json:"reported_at"`
@@ -2124,7 +2132,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			title = id
 			untitled[id] = true
 		}
-		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, RouteLane: meta.RouteLane, RouteReason: meta.RouteReason, Mode: meta.Mode, Generation: meta.SpawnGen, Session: named.ID, Runtime: runtime, Activity: activity, LastReport: lastReport, ClosedIssue: state.DoneClosed(lastReport), KeptReport: state.DoneReport(lastReport), ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), isBackAtWork: isBackAtWork, parkedBeforeReport: parkedBeforeReport, Evaluation: evaluation, Browser: s.screens.isRunning(id, meta.SpawnGen)})
+		out.Tasks = append(out.Tasks, Task{ID: id, Title: title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Parent: meta.Parent, Project: filepath.Base(meta.Project), Harness: meta.Harness, Backend: meta.Backend, Model: meta.Model, Effort: meta.Effort, RouteLane: meta.RouteLane, RouteReason: meta.RouteReason, Mode: meta.Mode, Generation: meta.SpawnGen, Session: named.ID, Runtime: runtime, Activity: activity, LastReport: lastReport, ClosedIssue: state.DoneClosed(lastReport), KeptReport: state.DoneReport(lastReport), ReportedAt: lastReportedAt, Since: s.sessionStarted(meta), Report: reportKind(report), isBackAtWork: isBackAtWork, parkedBeforeReport: parkedBeforeReport, Evaluation: evaluation, Browser: s.screens.isRunning(id, meta.SpawnGen), BrowserInUse: s.screens.isInUse(id, meta.SpawnGen)})
 		if len(out.Tasks) >= maxSessions {
 			break
 		}
@@ -2306,8 +2314,8 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		if memory, err := dispatch.Memory(); err == nil {
 			memory.Floor, memory.Next, memory.PoolLine, memory.PoolGrowth = memoryFloor, memoryNext, poolLine, poolGrowth
 			if dispatch.HeavyLine != nil {
-				if hold, err := dispatch.HeavyLine(memory); err == nil {
-					memory.SlotHold = hold
+				if room, err := dispatch.HeavyLine(memory); err == nil {
+					memory.SlotHold = room.Hold
 				}
 			}
 			// Naming who holds commit reads every process, so it is done

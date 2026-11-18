@@ -296,3 +296,119 @@ func TestAnOlderWorktreeIsNotNamedForANewerTaskSharingItsPrefix(t *testing.T) {
 		t.Fatalf("stderr=%q, log=%q (%v); want the unowned worktree explained and recorded", stderr.String(), log, err)
 	}
 }
+
+// A gate run's task is read from its source project's own worktree records,
+// so a git worktree list that outlasts the lookup's 5 second budget, as one
+// took 12.8 s in a project of 48 worktrees on a loaded host, refuses no
+// run's Test (#2627).
+func TestAGateRunNamesItsOwnerWhileGitWorktreeListOutlastsTheBudget(t *testing.T) {
+	// Arrange
+	taskGate(t, "")
+	slow := t.TempDir()
+	for name, script := range map[string]string{
+		"git.cmd": "@ping -n 8 127.0.0.1 >nul\r\n@exit /b 1\r\n",
+		"git":     "#!/bin/sh\nsleep 7\nexit 1\n",
+	} {
+		if err := os.WriteFile(filepath.Join(slow, name), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", slow+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	// Act
+	task, err := gateTurnTask(t.Context(), t.TempDir(), "run", standIn())
+
+	// Assert
+	if task != "cg-example" || err != nil {
+		t.Fatalf("task=%q, err=%v; want cg-example from the project's worktree records", task, err)
+	}
+}
+
+// branchWorktree finds the worktree git checked branch out in, wherever git
+// keeps its record of it: the main worktree's HEAD, a linked worktree's
+// record with an absolute or a relative gitdir, a repository whose .git is a
+// file, and a reftable, whose HEAD files name no branch. A record half made
+// or half removed beside it is skipped, and a branch no worktree holds is in
+// none.
+func TestBranchWorktreeFindsTheWorktreeGitCheckedTheBranchOutIn(t *testing.T) {
+	git := func(t *testing.T, dir string, args ...string) {
+		t.Helper()
+		command := append([]string{"-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", "-C", dir}, args...)
+		if output, err := exec.Command("git", command...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %s (%v)", args, output, err)
+		}
+	}
+	repository := func(t *testing.T, initArgs ...string) string {
+		t.Helper()
+		project := filepath.Join(t.TempDir(), "project")
+		git(t, filepath.Dir(project), append(append([]string{"init", "-b", "main"}, initArgs...), project)...)
+		git(t, project, "commit", "--allow-empty", "-m", "init")
+		git(t, project, "branch", "feature")
+		return project
+	}
+	linked := func(t *testing.T, project string, configs ...string) string {
+		t.Helper()
+		worktree := filepath.Join(filepath.Dir(project), "feature")
+		git(t, project, append(configs, "worktree", "add", worktree, "feature")...)
+		return worktree
+	}
+	for name, arrange := range map[string]func(t *testing.T) (project, branch, want string){
+		"the main worktree": func(t *testing.T) (string, string, string) {
+			project := repository(t)
+			return project, "main", project
+		},
+		"a linked worktree": func(t *testing.T) (string, string, string) {
+			project := repository(t)
+			return project, "feature", linked(t, project)
+		},
+		"a linked worktree recorded by a relative path": func(t *testing.T) (string, string, string) {
+			project := repository(t)
+			return project, "feature", linked(t, project, "-c", "worktree.useRelativePaths=true")
+		},
+		"a linked worktree beside half-made records": func(t *testing.T) (string, string, string) {
+			project := repository(t)
+			worktree := linked(t, project)
+			records := filepath.Join(project, ".git", "worktrees")
+			if err := os.MkdirAll(filepath.Join(records, "a-no-head"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Join(records, "a-no-gitdir"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(records, "a-no-gitdir", "HEAD"), []byte("ref: refs/heads/feature\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			return project, "feature", worktree
+		},
+		"a project whose git folder is elsewhere": func(t *testing.T) (string, string, string) {
+			project := repository(t, "--separate-git-dir="+filepath.Join(t.TempDir(), "project.git"))
+			return project, "main", project
+		},
+		"a project that is a linked worktree": func(t *testing.T) (string, string, string) {
+			main := repository(t)
+			return linked(t, main), "main", main
+		},
+		"a reftable": func(t *testing.T) (string, string, string) {
+			project := repository(t, "--ref-format=reftable")
+			return project, "feature", linked(t, project)
+		},
+		"a branch no worktree holds": func(t *testing.T) (string, string, string) {
+			project := repository(t)
+			linked(t, project)
+			return project, "unheld", ""
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			project, branch, want := arrange(t)
+
+			// Act
+			worktree, err := branchWorktree(project, branch)
+
+			// Assert
+			if err != nil || (want == "") != (worktree == "") || want != "" && !fsx.SamePath(worktree, want) {
+				t.Fatalf("worktree=%q, err=%v; want %q", worktree, err, want)
+			}
+		})
+	}
+}

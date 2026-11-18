@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // Stray is one worktree a project registers inside a task's own folders and
@@ -106,26 +107,43 @@ func Strays(ctx context.Context, commands execx.Runner, project string, folders 
 	return strays, nil
 }
 
-// ReturnStrays returns every worktree Strays lists, keeping unlanded work as a
-// local archive tag first, as goblins cleanup keeps a goblin's own. A worktree
-// holding uncommitted work is kept and named: nothing in the fleet discards
-// work, and a harness's scratchpad is no exception. One folder's failure does
-// not stop the rest, and each is reported as it ended.
+// ReturnStrays returns every worktree Strays lists for project and for every
+// other checkout one of folders is a worktree of, as an extra worktree of
+// another project is, each to the checkout that registers it, keeping
+// unlanded work as a local archive tag first, as goblins cleanup keeps a
+// goblin's own. A worktree holding uncommitted work is kept and named:
+// nothing in the fleet discards work, and a harness's scratchpad is no
+// exception. One folder's failure does not stop the rest, and each is
+// reported as it ended.
 func ReturnStrays(ctx context.Context, commands execx.Runner, git Git, project string, folders []string) ([]Stray, error) {
 	if git == nil {
 		return nil, errors.New("worktree: Git is required")
 	}
-	paths, err := Strays(ctx, commands, project, folders)
-	if err != nil {
-		return nil, err
+	checkouts := []string{project}
+	for _, folder := range folders {
+		if checkout, ok := Checkout(folder); ok && !slices.ContainsFunc(checkouts, func(known string) bool { return fsx.SamePath(known, checkout) }) {
+			checkouts = append(checkouts, checkout)
+		}
+	}
+	type registered struct{ path, checkout string }
+	var found []registered
+	for _, checkout := range checkouts {
+		paths, err := Strays(ctx, commands, checkout, folders)
+		if err != nil {
+			return nil, err
+		}
+		for _, path := range paths {
+			found = append(found, registered{path: path, checkout: checkout})
+		}
 	}
 	// Return children first, so returning an ignored parent cannot remove
 	// another worktree before that worktree's own preservation checks.
-	slices.SortFunc(paths, func(left, right string) int {
-		return cmp.Compare(strings.Count(right, string(filepath.Separator)), strings.Count(left, string(filepath.Separator)))
+	slices.SortFunc(found, func(left, right registered) int {
+		return cmp.Compare(strings.Count(right.path, string(filepath.Separator)), strings.Count(left.path, string(filepath.Separator)))
 	})
-	returned := make([]Stray, 0, len(paths))
-	for _, path := range paths {
+	returned := make([]Stray, 0, len(found))
+	for _, each := range found {
+		path := each.path
 		stray := Stray{Path: path}
 		landing, err := git.Landing(ctx, path)
 		if err != nil {
@@ -142,7 +160,7 @@ func ReturnStrays(ctx context.Context, commands execx.Runner, git Git, project s
 			}
 			stray.Tag = tag
 		}
-		if err := git.Return(ctx, project, path); err != nil {
+		if err := git.Return(ctx, each.checkout, path); err != nil {
 			stray.Kept = err.Error()
 			returned = append(returned, stray)
 			continue

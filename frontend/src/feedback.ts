@@ -75,9 +75,17 @@ export function runMark(run: Run): { icon: IconName; label: string; trouble: boo
 export function runFailure(run: Run): string {
   if (run.state !== "failed") return "";
   const why = (run.exit_code === null ? run.reason : lastLine(run.output)) || "It exited with code " + run.exit_code;
+  return why.replace(/\.$/, "") + ". " + runNext(run);
+}
+
+// hasReachedItsAsker says a run's result went to whoever asked for it, the CEO
+// or the goblin: only a telling that failed notes that it could not be told.
+export const hasReachedItsAsker = (run: Run) => !/could not be told/.test(run.reason);
+
+// runNext is what happens after a failed run, and who takes it.
+export function runNext(run: Run): string {
   const asker = run.task ? "The goblin that asked" : "The CEO";
-  const next = /could not be told/.test(run.reason) ? asker + " may not have its output yet: telling it failed." : asker + " has its output and takes the next step.";
-  return why.replace(/\.$/, "") + ". " + next;
+  return hasReachedItsAsker(run) ? asker + " has its output and takes the next step." : asker + " may not have its output yet: telling it failed.";
 }
 
 // lastLine is the last line of output that holds text, cut to fit a status

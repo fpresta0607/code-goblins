@@ -14,12 +14,12 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/execx"
-	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 // ProcessLister reads the operating system process table. It is an interface
@@ -558,10 +558,21 @@ func heldIDs(stateDir string, tasks []Task, notes *[]string) map[string]string {
 func (c Collector) homeWorktrees(ctx context.Context, tasks []Task, seen map[string]bool, notes *[]string) []WorktreeDir {
 	recorded := map[string]string{}
 	for _, task := range tasks {
-		for _, path := range append([]string{task.Meta.Worktree}, task.Meta.Extras...) {
-			if path != "" && task.Meta.Project != "" {
-				recorded[normalizePath(filepath.Clean(path))] = filepath.Clean(task.Meta.Project)
+		if task.Meta.Worktree != "" && task.Meta.Project != "" {
+			recorded[normalizePath(filepath.Clean(task.Meta.Worktree))] = filepath.Clean(task.Meta.Project)
+		}
+		// An extra worktree may be one of another project, so it is placed
+		// with the checkout its .git file leads to, and with the task's
+		// project only when that cannot be read.
+		for _, path := range task.Meta.Extras {
+			if path == "" || task.Meta.Project == "" {
+				continue
 			}
+			project, ok := worktree.Checkout(path)
+			if !ok {
+				project = task.Meta.Project
+			}
+			recorded[normalizePath(filepath.Clean(path))] = filepath.Clean(project)
 		}
 	}
 	registered := map[string][]registrationEntry{}
@@ -577,7 +588,7 @@ func (c Collector) homeWorktrees(ctx context.Context, tasks []Task, seen map[str
 				seen[normalizePath(path)] = true
 				project, ok := recorded[normalizePath(path)]
 				if !ok {
-					project, ok = checkoutOf(path)
+					project, ok = worktree.Checkout(path)
 				}
 				dir := WorktreeDir{Path: path, Project: project, TaskID: name, Created: createdAt(path)}
 				if ok {
@@ -593,36 +604,6 @@ func (c Collector) homeWorktrees(ctx context.Context, tasks []Task, seen map[str
 		}
 	}
 	return found
-}
-
-// checkoutOf is the checkout a worktree belongs to, read from the gitdir its
-// .git file names: <checkout>\.git\worktrees\<name>, whose commondir leads
-// back to <checkout>\.git.
-func checkoutOf(worktree string) (string, bool) {
-	content, err := fsx.ReadFile(filepath.Join(worktree, ".git"))
-	if err != nil {
-		return "", false
-	}
-	gitDir, ok := strings.CutPrefix(strings.TrimSpace(string(content)), "gitdir:")
-	if !ok {
-		return "", false
-	}
-	gitDir = filepath.Clean(filepath.FromSlash(strings.TrimSpace(gitDir)))
-	if !filepath.IsAbs(gitDir) {
-		gitDir = filepath.Join(worktree, gitDir)
-	}
-	common, err := fsx.ReadFile(filepath.Join(gitDir, "commondir"))
-	if err != nil {
-		return "", false
-	}
-	commonDir := filepath.Clean(filepath.FromSlash(strings.TrimSpace(string(common))))
-	if !filepath.IsAbs(commonDir) {
-		commonDir = filepath.Join(gitDir, commonDir)
-	}
-	if !strings.EqualFold(filepath.Base(commonDir), ".git") {
-		return "", false
-	}
-	return filepath.Dir(commonDir), true
 }
 
 // registeredWorktrees reads the directories a project registers as worktrees,

@@ -11,7 +11,8 @@ import "../../src/styles.css";
 // address. window.terminalStep is the supervisor's next snapshot:
 // "failed" once the command he ran ended with exit 2 and what its terminal
 // showed, and "unfinished" once its terminal closed before the command
-// finished, with no exit code. Every name in them is made up.
+// finished, with no exit code. In both the CEO could not be told, so the card
+// stays to show its terminal (#2605). Every name in them is made up.
 const created = "2026-11-13T12:40:00Z";
 const COMMAND = "gh release create v0.5.2 `\n    --notes-file notes.md `\n    --title \"v0.5.2\"\nif ($LASTEXITCODE) { exit $LASTEXITCODE }";
 const OUTPUT = [
@@ -42,8 +43,8 @@ const fetchQuestion = {
 const base = { healthy: true, instance: "fixture", ceo_runs: true, tasks: [], questions: [question, cleanup, fetchQuestion] };
 const snapshots = {
   ready: parseSnapshot({ ...base, revision: 1, runs: [run, fetchRun] }),
-  failed: parseSnapshot({ ...base, revision: 2, runs: [{ ...run, state: "failed", exit_code: 2, output: OUTPUT, ran_at: "2026-11-13T12:41:00Z", finished_at: "2026-11-13T12:41:10Z", terminal: true }] }),
-  unfinished: parseSnapshot({ ...base, revision: 3, runs: [{ ...run, state: "failed", exit_code: null, reason: "its terminal closed before the command finished", ran_at: "2026-11-13T12:41:00Z", finished_at: "2026-11-13T12:41:10Z" }] }),
+  failed: parseSnapshot({ ...base, revision: 2, runs: [{ ...run, state: "failed", exit_code: 2, output: OUTPUT, reason: "the CEO could not be told: it restarted", ran_at: "2026-11-13T12:41:00Z", finished_at: "2026-11-13T12:41:10Z", terminal: true }] }),
+  unfinished: parseSnapshot({ ...base, revision: 3, runs: [{ ...run, state: "failed", exit_code: null, reason: "its terminal closed before the command finished; the CEO could not be told: it restarted", ran_at: "2026-11-13T12:41:00Z", finished_at: "2026-11-13T12:41:10Z" }] }),
 };
 const ignore = () => {};
 

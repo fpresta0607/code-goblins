@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { message as errorText, reportToCeo, request } from "./api";
-import { copyText } from "./clipboard";
 import { conversationPictures } from "./conversation-pictures";
 import { Icon } from "./Icon";
 import { keptFileAddress } from "./kept-files";
@@ -9,9 +8,12 @@ import { MessageRow } from "./message-row";
 import { MessageDocumentScope } from "./message-document-scope";
 import { drawnSpans, ESTIMATED_ROW_PX, messageRowAt, messageWindow, OVERSCAN_PX } from "./message-window";
 import { Notice } from "./notice";
+import { PastedTextOpener, type OpenedPaste } from "./pasted-text-opener";
+import { PastedTextWindow } from "./pasted-text-window";
 import { PictureOpener } from "./picture-opener";
 import { PictureViewer } from "./picture-viewer";
 import { ReplyWorking } from "./reply-working";
+import { copiedHtml, copySelected, picturesIn } from "./selection-copy";
 import { changeMessages, conversationHead, isWrittenReply, messageFontFor, olderMessages, pageMessages, parseConversation, parseMessages, parsePage, parseSession, parseUsage, parseWaiting, storedMessageFont, storeMessageFont, turnEnds, viewStanding, type ConversationHead, type MessagePage, type SessionReport } from "./session-messages";
 import { attachZoomGesture } from "./terminal-zoom";
 import { object, parseAction, string, type Action, type KeySpend, type SubscriptionUsage, type Task, type TreeNode } from "./types";
@@ -50,9 +52,10 @@ const UNREAD = "The session's messages cannot be read";
 const RECENT_SESSIONS = 8;
 const RECENT_MESSAGES = 50;
 type PublishedMessages = MessagePage & { isWorking: boolean; said: string; task?: Task; sent: Action[]; pending: Action[]; sending: PendingSend[] };
-// What the box under the conversation shows of the session: what it spent and
-// the words he sent it.
-type Composing = Pick<MessagePage, "usage"> & { history: string[] };
+// What the box under the conversation shows of the session: what it spent,
+// the words he sent it, and the board messages of his the conversation shows
+// out of his hands.
+type Composing = Pick<MessagePage, "usage"> & { history: string[]; handedOver: string[] };
 
 // A Claude Code session's messages, read only: the supervisor's stream of
 // them (/api/messages), drawn as the session's conversation. It sits in the
@@ -82,7 +85,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   pages: Map<string, MessagePage>;
   sent: Action[]; pending: Action[];
   subscriptions?: SubscriptionUsage[]; spend?: KeySpend[];
-  shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string, usage: ReactNode, onSend: () => void, isTurnRunning: boolean) => ReactNode;
+  shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string, usage: ReactNode, onSend: () => void, isTurnRunning: boolean, handedOver: string[]) => ReactNode;
   onComposerDock?: (node: HTMLDivElement | null) => void; onAskSlot?: (node: HTMLDivElement | null) => void;
   // onOpenCommand opens the Command Center on an item, as a block's Run does
   // on the run card it made.
@@ -108,7 +111,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   const [received, setReceived] = useState<ConversationHead>(() => conversationHead(held));
   // The box speaks for the session as it is now, however far up he reads, so
   // it follows the stream while the history he reads holds still.
-  const [composing, setComposing] = useState<Composing>(() => composerOf({ history: [] }, held));
+  const [composing, setComposing] = useState<Composing>(() => composerOf({ history: [], handedOver: [] }, held, harness));
   const [phase, setPhase] = useState<"connecting" | "live" | "closed">("connecting");
   // What the fleet's stream says of the session's turn, which alone draws the
   // working indicator: never the board's snapshot of the terminal, which can
@@ -309,7 +312,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
         flushSync(() => {
           if (following.current) setHeld(next);
           setReceived((prior) => prior.conversation === head.conversation && prior.newest === head.newest ? prior : head);
-          setComposing((prior) => composerOf(prior, next));
+          setComposing((prior) => composerOf(prior, next, harness));
           setReconnecting(false);
           setPhase("live");
         });
@@ -360,7 +363,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
       if (stream.readyState !== EventSource.CLOSED) setReconnecting(true);
       stream.close();
     };
-  }, [address, visible, attempt, where, pages, pageKey]);
+  }, [address, visible, attempt, where, pages, pageKey, harness]);
 
   // settle keeps the list where he reads it after anything moved its
   // contents: at its end while he follows it, or else with the message at its
@@ -491,7 +494,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
         reconcile.current();
         const longer = { ...latest.current, ...olderMessages(latest.current, page) };
         latest.current = longer;
-        setComposing((prior) => composerOf(prior, longer));
+        setComposing((prior) => composerOf(prior, longer, harness));
         setHeld((prior) => prior.conversation === conversation && latest.current.conversation === conversation && prior.messages[0]?.id === first.id && prior.messages[0]?.seq === first.seq ? { ...prior, ...olderMessages(prior, page) } : prior);
       };
       if (isScrolling.current) olderWaiting.current = readIn;
@@ -502,7 +505,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
       olderFailures.current = { count: olderFailures.current.count + 1, at: Date.now() };
       reportToCeo(where, errorText(error));
     });
-  }, [address, where]);
+  }, [address, where, harness]);
 
   // The rows drawn: those within reach of where he reads, or of the end while
   // he follows it, each row not measured yet taken at an estimate.
@@ -510,26 +513,10 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   // harness take that the harness keeps no row of, and his messages whose
   // delivery ended with no take seen, each where he sent it (#2541).
   const taken = useMemo(() => withTakenCommands(held.messages, held.sent, harness), [held.messages, held.sent, harness]);
-  // Once the session's record shows his words, written since the board took
-  // them, its row is his message, and the board's copy goes, so it shows once
-  // whichever of the two arrives first. Each row of his is one message, the
-  // oldest the board took of the same words, settled or still waiting, so a
-  // second message of the same words waits for its own row; a row the CEO or
-  // the fleet wrote is never his. One the board settled had its row before it
-  // settled, as the board settles a message only once it has seen the harness
-  // take it, so a later row is never an older message's whose own row is not
-  // loaded. A send the board has not taken yet names no time, so an earlier
-  // message of the same words never hides it.
+  // Each message of his the session's record shows taken is its row there,
+  // and the board's copy goes (ownedRows).
   const { read, undelivered } = useMemo(() => {
-    const rows = ownPrompts(taken);
-    const read = new Set<string>();
-    const owners = held.sent.filter((action) => action.created_at && (action.status === "queued" || action.status === "running" || action.status === "succeeded"));
-    for (const action of owners.sort((one, other) => Date.parse(one.created_at) - Date.parse(other.created_at))) {
-      const row = rows.findIndex((each) => Date.parse(each.at) >= Date.parse(action.created_at) && (action.status !== "succeeded" || Date.parse(each.at) <= Date.parse(action.updated_at)) && sameWords(each.text, action.text));
-      if (row < 0) continue;
-      rows.splice(row, 1);
-      read.add(action.id);
-    }
+    const { read, rows } = ownedRows(taken, held.sent);
     // His messages whose delivery ended with no take seen, failed or typed
     // and never seen taken, stay where he sent them with what happened and
     // Send again until something he sent after them lands, a message of the
@@ -750,14 +737,30 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     if (!shownValue.current || !box || !selection || selection.isCollapsed || selection.rangeCount === 0) return;
     const text = selection.toString();
     const range = selection.getRangeAt(0);
-    if (!text.trim() || !box.contains(range.commonAncestorContainer)) return;
+    if ((!text.trim() && !picturesIn(range).length) || !box.contains(range.commonAncestorContainer)) return;
     const end = [...range.getClientRects()].at(-1) ?? range.getBoundingClientRect();
-    copyText(text).then(() => {
+    copySelected(range, text).then(() => {
       clearTimeout(copiedTimer.current);
       setCopiedAt(end);
       copiedTimer.current = setTimeout(() => setCopiedAt(null), 1400);
     }, () => {});
   }, []);
+  // The browser's own copy of a selection that takes in a picture, as Ctrl+C
+  // or the menu's Copy makes it, holds each picture's board address, whose
+  // query carries the board's token, and never the picture, so such a
+  // selection of this list copies itself, as it does once it settles (#2543).
+  // Its text goes on the clipboard at once, and its HTML too where an earlier
+  // copy of it has drawn its pictures.
+  const copyPictured = (event: ClipboardEvent<HTMLDivElement>) => {
+    const selection = window.getSelection();
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+    if (!selection || !range || !list.current?.contains(range.commonAncestorContainer) || !picturesIn(range).length) return;
+    event.preventDefault();
+    event.clipboardData.setData("text/plain", selection.toString());
+    const html = copiedHtml(range);
+    if (html) event.clipboardData.setData("text/html", html);
+    copySelection();
+  };
   // Copied ends where the selection does, under its last line, or over it
   // where the frame has no room below, and inside the frame.
   useLayoutEffect(() => {
@@ -858,7 +861,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   };
   const picture = useCallback((id: string) => address({ picture: id, conversation: held.conversation }), [address, held.conversation]);
   const taskID = task?.id;
-  const keptPicture = useCallback((path: string) => keptFileAddress(instance, taskID, path), [instance, taskID]);
+  const keptFile = useCallback((path: string) => keptFileAddress(instance, taskID, path), [instance, taskID]);
   // The picture he opened from a row, by the address the row draws it from,
   // shown in the one viewer of the conversation, which steps through every
   // picture of the messages the view holds, drawn in the window or not. The
@@ -866,7 +869,11 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   // nothing for it.
   const [viewed, setViewed] = useState<string | null>(null);
   const isViewing = viewed !== null;
-  const pictureSources = useMemo(() => isViewing ? conversationPictures(conversation, picture, keptPicture) : [], [isViewing, conversation, picture, keptPicture]);
+  const pictureSources = useMemo(() => isViewing ? conversationPictures(conversation, picture, keptFile) : [], [isViewing, conversation, picture, keptFile]);
+  // The pasted text he opened from a chip of a row or of a queued message,
+  // shown in the one window of the conversation, which stays open while that
+  // row leaves the rows drawn or that queued message gives way to its row.
+  const [pasteShown, setPasteShown] = useState<OpenedPaste | null>(null);
   useEffect(() => { onChildValue.current = onChild; }, [onChild]);
   const taskValue = useRef(task);
   useLayoutEffect(() => { taskValue.current = task; }, [task]);
@@ -907,12 +914,12 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
     settle();
     return () => observer.disconnect();
   }, [queuedIDs, held.isWorking, reachesEnd, phase, shown, settle]);
-  return <MessageDocumentScope query={query} instance={instance}><section className={"messages-view" + (box ? " has-box" : "")} hidden={!shown} aria-label="Messages" onKeyDown={keys}>
+  return <MessageDocumentScope query={query} instance={instance}><PastedTextOpener value={setPasteShown}><section className={"messages-view" + (box ? " has-box" : "")} hidden={!shown} aria-label="Messages" onKeyDown={keys}>
     {/* Connecting is a plain line above the conversation, never a cover over
         the box he types into. */}
     {phase === "connecting" && <p className="terminal-connecting" role="status"><span className="terminal-spinner" aria-hidden="true" />Connecting to the messages</p>}
     <div className="conversation-frame">
-      <div ref={list} className="conversation" role="log" aria-label={"Messages of " + name} tabIndex={0} style={{ fontSize: font }} onScroll={remember}
+      <div ref={list} className="conversation" role="log" aria-label={"Messages of " + name} tabIndex={0} style={{ fontSize: font }} onScroll={remember} onCopy={copyPictured}
         onPointerDown={(event) => { if (event.pointerType !== "touch" && event.button === 0) isPressed.current = true; }}
         onTouchStart={() => { isTouching.current = true; }}
         onFocus={(event) => { focusedRow.current = event.target.closest<HTMLElement>("[data-message]")?.dataset.message ?? ""; }}
@@ -929,7 +936,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
                 ? <QueuedMessage key={message.id} action={ended} liveAction={ended} instance={instance} name={name} variant="pane" row={message.id} onPutAway={putAwayRow} />
                 : <MessageRow key={message.id} message={message} openFolds={openFolds.get(message.id) ?? NO_FOLDS} onFold={foldRow}
                   harness={harness} isTurnEnd={ends.has(message.id)} onRun={isWrittenReply(message, held.messages, held.isWorking) ? runCode : undefined}
-                  task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? held.task : undefined} picture={picture} keptPicture={keptPicture} onChild={openChild} />;
+                  task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? held.task : undefined} picture={picture} keptFile={keptFile} onChild={openChild} />;
             }),
           ])}</PictureOpener>
           <div className="conversation-room" style={{ height: heightOf(spans[spans.length - 1].end, conversation.length) }} />
@@ -979,10 +986,11 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
           box"), only once the view is live and holds a real reading, never
           while it connects ("connecting screens don't need to display the
           dither or usage unavailable"). */}
-      {box?.(model, composing.history, effort, phase === "live" && <UsageBar readings={readings} />, sentFromBox, isTurnRunning)}
+      {box?.(model, composing.history, effort, phase === "live" && <UsageBar readings={readings} />, sentFromBox, isTurnRunning, composing.handedOver)}
     </div>}
     {viewed !== null && <PictureViewer sources={pictureSources} source={viewed} onSource={setViewed} onClose={() => setViewed(null)} />}
-  </section></MessageDocumentScope>;
+    {pasteShown && <PastedTextWindow name={pasteShown.name} source={pasteShown.source} onClose={() => setPasteShown(null)} />}
+  </section></PastedTextOpener></MessageDocumentScope>;
 }
 
 // ownPrompts is what he sent the session himself, oldest first, in the words
@@ -991,11 +999,42 @@ function ownPrompts(messages: MessagePage["messages"]): { at: string; text: stri
   return messages.flatMap((message) => message.kind === "prompt" && message.text && (message.source === "overlord" || message.source === "slash" || message.source === "shell") ? [{ at: message.at, text: (message.source === "shell" ? "!" : "") + message.text }] : []);
 }
 
+// ownedRows is which of his messages on the board, sent, the session's
+// messages show taken, and the rows of his no board message owns. Once the
+// session's record shows his words, written since the board took them, its
+// row is his message, and the board's copy goes, so it shows once whichever
+// of the two arrives first. Each row of his is one message, the oldest the
+// board took of the same words, settled or still waiting, so a second message
+// of the same words waits for its own row; a row the CEO or the fleet wrote
+// is never his. One the board settled had its row before it settled, as the
+// board settles a message only once it has seen the harness take it, so a
+// later row is never an older message's whose own row is not loaded. A send
+// the board has not taken yet names no time, so an earlier message of the
+// same words never hides it.
+function ownedRows(messages: MessagePage["messages"], sent: Action[]): { read: Set<string>; rows: { at: string; text: string }[] } {
+  const rows = ownPrompts(messages);
+  const read = new Set<string>();
+  const owners = sent.filter((action) => action.created_at && (action.status === "queued" || action.status === "running" || action.status === "succeeded"));
+  for (const action of owners.sort((one, other) => Date.parse(one.created_at) - Date.parse(other.created_at))) {
+    const row = rows.findIndex((each) => Date.parse(each.at) >= Date.parse(action.created_at) && (action.status !== "succeeded" || Date.parse(each.at) <= Date.parse(action.updated_at)) && sameWords(each.text, action.text));
+    if (row < 0) continue;
+    rows.splice(row, 1);
+    read.add(action.id);
+  }
+  return { read, rows };
+}
+
 // composerOf is what the box shows of page, prior itself while that is the
-// same, so a streamed reply he reads past draws nothing.
-function composerOf(prior: Composing, page: MessagePage): Composing {
+// same, so a streamed reply he reads past draws nothing. Its handedOver is
+// each message of his the board still holds that the conversation shows out
+// of his hands, with no Edit, by the rules it draws them by: one the
+// session's record shows its harness handing to its turn, which reads
+// Sending, and one the record shows taken, which is his own row there.
+function composerOf(prior: Composing, page: PublishedMessages, harness: string): Composing {
   const history = ownPrompts(page.messages).map((row) => row.text);
-  return prior.usage === page.usage && isSameList(prior.history, history) ? prior : { usage: page.usage, history };
+  const { read } = ownedRows(withTakenCommands(page.messages, page.sent, harness), page.sent);
+  const handedOver = [...page.waiting.flatMap((prompt) => prompt.sending && prompt.action ? [prompt.action] : []), ...page.pending.filter((action) => read.has(action.id)).map((action) => action.id)];
+  return prior.usage === page.usage && isSameList(prior.history, history) && isSameList(prior.handedOver, handedOver) ? prior : { usage: page.usage, history, handedOver };
 }
 
 // isSameList says two lists hold the same items in the same order.

@@ -29,5 +29,6 @@ For an existing completed queued brief without a ready marker, review its requir
 This is an explicit lifecycle transition: it validates the full brief before adding `ready: true` or replacing `ready: false`.
 It preserves all other authored bytes, including mode, credentials and policy choices, and leaves queue holds and existing task metadata and policies untouched.
 Already-ready valid briefs are unchanged.
+When the brief's `mode:` line differs from the mode its project's posture and its finished Delivery assessment select, as when the assessment was recorded after the scaffold wrote the line, `goblins brief ready` still finalizes it and prints on stderr which mode they select and why, so the line is changed or kept on purpose.
 Incomplete or malformed briefs, missing explicit choices, and tasks with execution state or archived history refuse finalization without changing the brief.
 There is no automatic conversion of existing briefs and no missing-marker admission fallback.

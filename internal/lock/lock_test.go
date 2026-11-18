@@ -953,3 +953,28 @@ func TestHandOverExclusiveNamedRefusesWhatItCannotHandOver(t *testing.T) {
 		})
 	}
 }
+
+// A record another package writes names its process as the lock's own
+// records do: with the instance on a system that reads one, and with none on
+// Windows.
+func TestInstanceOfIsTheInstanceALockRecordCarries(t *testing.T) {
+	// Arrange
+	self, status := ownerInfo(os.Getpid(), "")
+	if status != statusAlive {
+		t.Fatal("this process could not be read")
+	}
+
+	// Act
+	instance, err := InstanceOf(os.Getpid())
+
+	// Assert
+	if err != nil {
+		t.Fatalf("InstanceOf = %v, want this process read", err)
+	}
+	if instance != self.Instance {
+		t.Fatalf("InstanceOf = %q, want the record's %q", instance, self.Instance)
+	}
+	if !self.IsProcess(self.Start, instance) {
+		t.Fatal("the record does not name this process by the instance read of it")
+	}
+}

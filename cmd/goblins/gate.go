@@ -69,10 +69,12 @@ func runGate(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 	if args[0] == "prepush" {
 		return runGatePrepush(args[1:], dir, stdout, stderr, runtime)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	approved, approvalsErr := approvedHeads(ctx)
-	result, err := testguard.Check(ctx, execx.OSRunner{}, dir, approved)
+	// The approvals read has its own bound and the check gives each of its
+	// git calls one, so no deadline covers the check's whole run (issue 1959).
+	approvalsCtx, cancel := context.WithTimeout(context.Background(), testguard.CallLimit)
+	approved, approvalsErr := approvedHeads(approvalsCtx)
+	cancel()
+	result, err := testguard.Check(context.Background(), execx.OSRunner{}, dir, approved, runtime.testsKeptCallLimit)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
@@ -347,6 +349,14 @@ func runGateChecks(kind string, args []string, dir string, stdout, stderr io.Wri
 	env := gatetest.Environment(os.Environ())
 	remainingFailures := slices.Clone(plan.Failures)
 	lineLimit := gateLineLimit(runtime, os.Getenv, false)
+	// A source read cut off by its time limit, as one on a loaded machine is,
+	// judges nothing: its check is unfinished rather than failed, no check
+	// after it runs, and the run gives no result (issue 1960).
+	var stalledRead error
+	unfinished := func(check *verify.Result, command []string, err error) {
+		check.Status, report.Status = "unfinished", "unfinished"
+		stalledRead = fmt.Errorf("go %s was not judged, since its source read did not finish within its time limit, as a loaded machine makes it do, and no check after it ran: %w", command[1], err)
+	}
 	for _, command := range commands {
 		check := verify.Result{Command: command, Scope: report.Level, Status: "not_run", ExitCode: -1}
 		if report.Status == "passed" {
@@ -362,7 +372,14 @@ func runGateChecks(kind string, args []string, dir string, stdout, stderr io.Wri
 			// The check's source is read with its turn held, before it runs
 			// and once it has ended, so the report says what it tested. The
 			// reads count in no check's time against its budget.
-			check.Source.ReadStart(verify.ReadSource(context.Background(), execx.OSRunner{}, dir))
+			startSource, startErr := runtime.gateReadSource(context.Background(), dir)
+			check.Source.ReadStart(startSource, startErr)
+			if errors.Is(startErr, context.DeadlineExceeded) {
+				turn.Release()
+				unfinished(&check, command, startErr)
+				report.Checks = append(report.Checks, check)
+				continue
+			}
 			check.Start, check.Status = time.Now(), "passed"
 			output := stdout
 			var events *gatetest.Events
@@ -377,9 +394,9 @@ func runGateChecks(kind string, args []string, dir string, stdout, stderr io.Wri
 			exit, err := runtime.gateRun(command, dir, env, output, stderr)
 			stopSaying()
 			ran := time.Since(check.Start)
-			check.Source.ReadEnd(verify.ReadSource(context.Background(), execx.OSRunner{}, dir))
+			endSource, endErr := runtime.gateReadSource(context.Background(), dir)
+			check.Source.ReadEnd(endSource, endErr)
 			_, sourceErr := check.Source.Tested()
-			err = errors.Join(err, sourceErr)
 			if events != nil {
 				if outputErr := events.End(); outputErr != nil && !errors.Is(err, outputErr) {
 					err = errors.Join(err, outputErr)
@@ -394,7 +411,11 @@ func runGateChecks(kind string, args []string, dir string, stdout, stderr io.Wri
 				}
 			}
 			check.ExitCode = exit
-			if err != nil || exit != 0 {
+			switch {
+			case err == nil && exit == 0 && errors.Is(endErr, context.DeadlineExceeded):
+				unfinished(&check, command, endErr)
+			case err != nil || exit != 0 || sourceErr != nil:
+				err = errors.Join(err, sourceErr)
 				check.Status, report.Status = "failed", "failed"
 				fmt.Fprintf(stderr, "%s: go %s: exit %d: %v\n", label, command[1], exit, err)
 			}
@@ -410,9 +431,12 @@ func runGateChecks(kind string, args []string, dir string, stdout, stderr io.Wri
 		}
 		report.Checks = append(report.Checks, check)
 	}
-	for _, failure := range remainingFailures {
-		report.Status = "failed"
-		fmt.Fprintf(stderr, "%s: named failure %s %s was missing, skipped or unfinished\n", label, failure.Package, failure.Name)
+	// The named failures a stalled read kept from running were not judged.
+	if stalledRead == nil {
+		for _, failure := range remainingFailures {
+			report.Status = "failed"
+			fmt.Fprintf(stderr, "%s: named failure %s %s was missing, skipped or unfinished\n", label, failure.Package, failure.Name)
+		}
 	}
 	report.DurationSeconds = time.Since(start).Seconds()
 
@@ -430,6 +454,14 @@ func runGateChecks(kind string, args []string, dir string, stdout, stderr io.Wri
 	fmt.Fprintln(stdout, verdict)
 	if !isLint && report.Status == "passed" && !plan.Level.Covers(plan.Required) {
 		fmt.Fprintf(stdout, "goblins gate test: the change requires the %s level before it merges, which CI's run of every package checks\n", plan.Required)
+	}
+	// As a stalled plan does, the run says so on the last line of both
+	// streams and asks no one to repair what was not judged.
+	if stalledRead != nil {
+		said := fmt.Sprintf("%s: %s", label, oneLine(stalledRead))
+		fmt.Fprintln(stdout, said)
+		fmt.Fprintln(stderr, said)
+		return exitNoTurn
 	}
 	if report.Status != "passed" {
 		return 1
@@ -704,6 +736,29 @@ func runGateTurns(stdout, stderr io.Writer, available func() (supervisor.Memory,
 		}
 		fmt.Fprintln(stdout, line)
 	}
+	// The goblin's own turn that has waited longest, and how many runs that
+	// asked after it stand ahead of it now, said when any do (#2416).
+	oldest := -1
+	for place, run := range report.Waiting {
+		if !run.IsTestStep && !run.IsLowPriority && (oldest < 0 || run.Since.Before(report.Waiting[oldest].Since)) {
+			oldest = place
+		}
+	}
+	if oldest >= 0 {
+		passedBy := 0
+		for _, run := range report.Waiting[:oldest] {
+			if run.Since.After(report.Waiting[oldest].Since) {
+				passedBy++
+			}
+		}
+		ahead := fmt.Sprintf("%d runs that asked after it stand", passedBy)
+		if passedBy == 1 {
+			ahead = "1 run that asked after it stands"
+		}
+		if passedBy > 0 {
+			fmt.Fprintf(stdout, "oldest goblin turn: run %d has waited %s, and %s ahead of it\n", oldest+1, now.Sub(report.Waiting[oldest].Since).Round(time.Second), ahead)
+		}
+	}
 	if report.Memory.IsShort {
 		fmt.Fprintf(stdout, "memory: %.1f GB physical and %.1f GB commit are available; both require the %.1f GB floor\n", verify.Gigabytes(report.Memory.AvailableBytes), verify.Gigabytes(report.Memory.CommitAvailableBytes), verify.Gigabytes(report.Memory.FloorBytes))
 	}
@@ -775,6 +830,7 @@ type turnsRun struct {
 	EstimateBytes uint64    `json:"estimate_bytes"`
 	UsedBytes     uint64    `json:"used_bytes"`
 	IsLowPriority bool      `json:"is_low_priority"`
+	IsTestStep    bool      `json:"is_test_step"`
 	Behind        string    `json:"-"`
 }
 
@@ -845,7 +901,7 @@ func readTurns(available func() (supervisor.Memory, error)) (turnsReport, error)
 func turnsRuns(standing []verify.Standing) []turnsRun {
 	runs := []turnsRun{}
 	for _, run := range standing {
-		runs = append(runs, turnsRun{Who: run.Who, PID: run.PID, Since: run.Since, BudgetSeconds: run.Budget.Seconds(), Now: run.Now, EstimateBytes: run.Estimate, UsedBytes: run.Used, IsLowPriority: run.IsLowPriority, Behind: run.Behind})
+		runs = append(runs, turnsRun{Who: run.Who, PID: run.PID, Since: run.Since, BudgetSeconds: run.Budget.Seconds(), Now: run.Now, EstimateBytes: run.Estimate, UsedBytes: run.Used, IsLowPriority: run.IsLowPriority, IsTestStep: run.IsTestStep, Behind: run.Behind})
 	}
 	return runs
 }

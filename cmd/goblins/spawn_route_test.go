@@ -344,7 +344,7 @@ func TestRunSpawnRoutesFromTheFleetTableWithoutHarness(t *testing.T) {
 	if got.BriefPath != brief || got.Capsule != nil {
 		t.Errorf("brief = %q capsule = %v, want the original brief and no capsule when the project has no manifest", got.BriefPath, got.Capsule != nil)
 	}
-	want := "spawned g10\nrouted lane=build class=implementation risk=normal source=fleet table " + filepath.Join(h.Data, "routing.json") + " quota=check skipped (no quota reader in this runtime) implement=light-codex\n"
+	want := "spawned g10\nrouted lane=build class=implementation risk=normal source=fleet table " + filepath.Join(h.Data, "routing.json") + " quota=check skipped (no quota reader in this runtime) implement=light-codex verify=verification\n"
 	if stdout.String() != want {
 		t.Errorf("stdout = %q, want %q", stdout.String(), want)
 	}
@@ -397,6 +397,68 @@ func TestRunSpawnHandsImplementationToTheLanesImplementRole(t *testing.T) {
 				t.Errorf("implement = %+v, want %+v", got.Implement, test.wantImplement)
 			}
 			if !strings.Contains(stdout.String(), test.wantRoute) || strings.Contains(stdout.String(), " implement=") != strings.Contains(test.wantRoute, " implement=") {
+				t.Errorf("stdout = %q, want the route line to say %q", stdout.String(), test.wantRoute)
+			}
+		})
+	}
+}
+
+// A routed spawn chooses the lanes its gate reviews, verifies and fixes on
+// from its lead's roles, after the same quota check as the lead, and hands
+// them to the task's record. A role its lead's lane does not name, and every
+// role under an explicit model, stays on the goblin's own model, and a
+// verify role with no usable lane apart from the lead's model refuses the
+// spawn rather than verify on it.
+func TestRunSpawnChoosesTheLanesItsGateRolesRunOn(t *testing.T) {
+	codexExhausted := quota.Report{Providers: map[string]quota.Provider{"codex": {Known: true, Scopes: map[string]quota.Scope{
+		"all_models": {Name: "all_models", Known: true, PercentRemaining: 0, Runway: "exhausted_now"},
+	}}}}
+	solExhausted := quota.Report{Providers: map[string]quota.Provider{"codex": {Known: true, Scopes: map[string]quota.Scope{
+		"model:gpt-6-sol": {Name: "gpt-6-sol", Known: true, PercentRemaining: 0, Runway: "exhausted_now"},
+	}}}}
+	fable := routing.ExecutionLane{Name: "fable-claude", Harness: "claude", Model: "claude-fable-5-2", Effort: "xhigh"}
+	for _, test := range []struct {
+		name                   string
+		extra                  []string
+		report                 *quota.Report
+		wantReview, wantVerify routing.ExecutionLane
+		wantRoute, wantRefusal string
+	}{
+		{name: "a Codex lead verified on Sol", wantVerify: routing.ExecutionLane{Name: "verification", Harness: "codex", Model: "gpt-6-sol", Effort: "high"}, wantRoute: " verify=verification"},
+		{name: "a Claude lead reviewed and verified on Fable", report: &codexExhausted, wantReview: fable, wantVerify: fable, wantRoute: " review=fable-claude verify=fable-claude"},
+		{name: "an explicit model", extra: []string{"--model", "gpt-6-luna"}, wantRoute: " overrides=--model gpt-6-luna"},
+		{name: "a verify lane at its limit", report: &solExhausted, wantRefusal: "no usable verify lane"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			_, deps := routedRuntime(t, shippedRoutingJSON(t))
+			if test.report != nil {
+				report := *test.report
+				deps.quota = func(context.Context) (quota.Report, string) { return report, "" }
+			}
+			got := captureSpawn(&deps, "spawned g14")
+			args := append([]string{"spawn", "g14", "--project", `C:\project`, "--brief", briefWith(t, "Add a dark-mode toggle to the settings page.")}, test.extra...)
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runWithRuntime(args, &stdout, &stderr, deps)
+
+			// Assert
+			if test.wantRefusal != "" {
+				if exit != 1 || !strings.Contains(stderr.String(), test.wantRefusal) || got.ID != "" {
+					t.Fatalf("exit = %d, stderr = %q, request = %+v; want the spawn refused with %q", exit, stderr.String(), *got, test.wantRefusal)
+				}
+				return
+			}
+			if exit != 0 {
+				t.Fatalf("exit = %d; stderr=%s", exit, stderr.String())
+			}
+			review, verify, fix := got.Review, got.Verify, got.Fix
+			review.Note, verify.Note, fix.Note = "", "", ""
+			if review != test.wantReview || verify != test.wantVerify || fix != (routing.ExecutionLane{}) {
+				t.Errorf("review = %+v, verify = %+v, fix = %+v; want review %+v, verify %+v and no fix lane", got.Review, got.Verify, got.Fix, test.wantReview, test.wantVerify)
+			}
+			if !strings.Contains(stdout.String(), test.wantRoute) {
 				t.Errorf("stdout = %q, want the route line to say %q", stdout.String(), test.wantRoute)
 			}
 		})

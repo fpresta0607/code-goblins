@@ -100,7 +100,7 @@ The extraction preserves the existing obligations, including gate budgets, merge
 | `goblins send <target> <text>` | [goblins help send](../commands/send.md) |
 | `goblins send <target> --key <key>` | [goblins help send](../commands/send.md) |
 | `goblins peek <target> [lines]` | [goblins help peek](../commands/peek.md) |
-| `goblins fleet-view [--json]` | [goblins help fleet-view](../commands/fleet-view.md) |
+| `goblins fleet-view [--json] [--name <name>]` | [goblins help fleet-view](../commands/fleet-view.md) |
 | `goblins runtime [--json]` | [goblins help runtime](../commands/runtime.md) |
 | `goblins services up <project> --task <id> [--wait <duration>]` \| `down <project> --task <id>` | [goblins help services](../commands/services.md) |
 | `goblins tickets <project> [--brief <file>] [--files <paths>] [--json]` | [goblins help tickets](../commands/tickets.md) |
@@ -115,7 +115,7 @@ The extraction preserves the existing obligations, including gate budgets, merge
 | `goblins start-hook accept <task-id> <file> [--fleet]` | [goblins help start-hook accept](../commands/start-hook/accept.md) |
 | `goblins merge-local <id>` | [goblins help merge-local](../commands/merge-local.md) |
 | `goblins cleanup <id>` | [goblins help cleanup](../commands/cleanup.md) |
-| `goblins worktree add <id> <name> [--ref <commit>]` \| `remove <id> <name>` | [goblins help worktree](../commands/worktree.md) |
+| `goblins worktree add <id> <name> [--ref <commit>] [--project <name\|path>]` \| `remove <id> <name> [--project <name\|path>]` | [goblins help worktree](../commands/worktree.md) |
 | `goblins reap [--dry-run] [--apply] [--force <pid\|task-id>]` | [goblins help reap](../commands/reap.md) |
 | `goblins register` | [goblins help register](../commands/register.md) |
 | `goblins process-plan` | [goblins help process-plan](../commands/process-plan.md) |

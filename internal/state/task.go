@@ -80,6 +80,20 @@ type TaskMeta struct {
 	ImplementLane   string
 	ImplementModel  string
 	ImplementEffort string
+	// ReviewLane, VerifyLane and FixLane, each with its model and effort, are
+	// the lanes, on the task's own harness, its gate's reviewer, verifying
+	// agent and fixer launch on, chosen from its route lane's roles at spawn
+	// so a later table edit never changes them. A role's three are empty
+	// while that role runs on the task's own model.
+	ReviewLane   string
+	ReviewModel  string
+	ReviewEffort string
+	VerifyLane   string
+	VerifyModel  string
+	VerifyEffort string
+	FixLane      string
+	FixModel     string
+	FixEffort    string
 	// EscalatedRun is the gate run whose failed verification last moved the
 	// implement role up a tier, so reading that run again moves it no further.
 	EscalatedRun string
@@ -355,6 +369,15 @@ func ReadTaskMeta(stateDir, id string) (TaskMeta, error) {
 		ImplementLane:    kv["implement_lane"],
 		ImplementModel:   kv["implement_model"],
 		ImplementEffort:  kv["implement_effort"],
+		ReviewLane:       kv["review_lane"],
+		ReviewModel:      kv["review_model"],
+		ReviewEffort:     kv["review_effort"],
+		VerifyLane:       kv["verify_lane"],
+		VerifyModel:      kv["verify_model"],
+		VerifyEffort:     kv["verify_effort"],
+		FixLane:          kv["fix_lane"],
+		FixModel:         kv["fix_model"],
+		FixEffort:        kv["fix_effort"],
 		EscalatedRun:     kv["escalated_run"],
 		Effort:           kv["effort"],
 		SpawnGen:         kv["spawn_gen"],
@@ -463,6 +486,15 @@ func WriteTaskMeta(stateDir string, meta TaskMeta) error {
 		"implement_lane":     meta.ImplementLane,
 		"implement_model":    meta.ImplementModel,
 		"implement_effort":   meta.ImplementEffort,
+		"review_lane":        meta.ReviewLane,
+		"review_model":       meta.ReviewModel,
+		"review_effort":      meta.ReviewEffort,
+		"verify_lane":        meta.VerifyLane,
+		"verify_model":       meta.VerifyModel,
+		"verify_effort":      meta.VerifyEffort,
+		"fix_lane":           meta.FixLane,
+		"fix_model":          meta.FixModel,
+		"fix_effort":         meta.FixEffort,
 		"escalated_run":      meta.EscalatedRun,
 		"effort":             meta.Effort,
 		"spawn_gen":          meta.SpawnGen,
@@ -610,6 +642,15 @@ func validateTaskMetaValues(meta TaskMeta) error {
 		{"implement_lane", meta.ImplementLane},
 		{"implement_model", meta.ImplementModel},
 		{"implement_effort", meta.ImplementEffort},
+		{"review_lane", meta.ReviewLane},
+		{"review_model", meta.ReviewModel},
+		{"review_effort", meta.ReviewEffort},
+		{"verify_lane", meta.VerifyLane},
+		{"verify_model", meta.VerifyModel},
+		{"verify_effort", meta.VerifyEffort},
+		{"fix_lane", meta.FixLane},
+		{"fix_model", meta.FixModel},
+		{"fix_effort", meta.FixEffort},
 		{"escalated_run", meta.EscalatedRun},
 		{"effort", meta.Effort},
 		{"spawn_gen", meta.SpawnGen},

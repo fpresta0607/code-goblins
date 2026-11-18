@@ -59,13 +59,13 @@ type Screens struct {
 	MentionTakesEnter bool
 	// Resubmits is how many more times Enter is pressed while typed text
 	// still waits in a ruled composer over the empty row an Enter taken as a
-	// new line added, and no turn has started: one for Claude Code, which
-	// left a resumed goblin's instruction in its composer over an empty row
-	// on a loaded machine, live, on 2026-10-20. Text that still shows over no
-	// new row is also what a harness that takes its Enter late shows, and
-	// pressed again it would get a second Enter after the instruction
-	// (#1232). Codex has none: End ends its paste, so the Enter after it
-	// submits (#1171).
+	// new line added, and no turn has started, or also in a turn for a
+	// delivery to the CEO (#2541): one for Claude Code, which left a resumed
+	// goblin's instruction in its composer over an empty row on a loaded
+	// machine, live, on 2026-10-20. Text that still shows over no new row is
+	// also what a harness that takes its Enter late shows, and pressed again
+	// it would get a second Enter after the instruction (#1232). Codex has
+	// none: End ends its paste, so the Enter after it submits (#1171).
 	Resubmits int
 	// Undrawn says the harness can hold typed text without drawing it until
 	// its next redraw, which a resize brings: an idle Codex 0.154 did, live,
@@ -602,6 +602,28 @@ func (s Screens) ComposerHoldsPartOf(screen []string, typed string) bool {
 	}
 	held, _ := s.Draft(screen)
 	return strings.Contains(compactScreen([]string{typed}), held) || s.ComposerHoldsOnePaste(screen)
+}
+
+// ComposerHoldsAllOf reports whether screen's composer holds every word of
+// typed in one run, whitespace aside, or a paste's placeholder, as a harness
+// shows text it collapsed as a paste, whatever it holds beside them: words
+// its harness has not taken off the prompt line, though his words sit beside
+// them or a read as it redraws shows them twice. An empty composer holds none
+// of them, and neither does one behind a dialog or one that cannot be read.
+func (s Screens) ComposerHoldsAllOf(screen []string, typed string) bool {
+	if !s.ComposerHoldsText(screen) {
+		return false
+	}
+	held, _ := s.Draft(screen)
+	if want := compactScreen([]string{typed}); want != "" && strings.Contains(held, want) {
+		return true
+	}
+	for _, placeholder := range s.Pasted {
+		if strings.Contains(held, compactScreen([]string{placeholder})) {
+			return true
+		}
+	}
+	return false
 }
 
 // ComposerHoldsOnePaste reports whether all screen's composer holds is one

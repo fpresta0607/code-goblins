@@ -4,11 +4,13 @@ package proc
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -378,4 +380,106 @@ func TestSignalReachesOnlyTheProcessStartedWhenItWasAskedAbout(t *testing.T) {
 	if status, isStatus := cmd.ProcessState.Sys().(syscall.WaitStatus); !isStatus || status.Signal() != syscall.SIGTERM {
 		t.Errorf("the child ended with %v, want SIGTERM", cmd.ProcessState)
 	}
+}
+
+// TestAProcessReadDuringItsStartReadsAsRunning reads each process at once
+// after it starts, while it may still be part-way through its exec: as the
+// direct child cmd.Start has just returned for, and as a child a shell
+// started in the background and left as it exited. Every reading must find
+// it running and carrying the arguments and the environment it was started
+// with. The shell prints its child's ID as soon as it has forked it, so the
+// child may still be a copy of the shell, whose arguments it then shows,
+// until its own exec: it is read as either, never as started with none.
+func TestAProcessReadDuringItsStartReadsAsRunning(t *testing.T) {
+	const starts = 200
+	failed := map[string]int{}
+	first := map[string]string{}
+	fail := func(reading string, pid int, err error) {
+		failed[reading]++
+		if _, isNamed := first[reading]; !isNamed {
+			first[reading] = fmt.Sprintf("process %d: %v", pid, err)
+		}
+	}
+	read := func(pid, group int, started ...[]string) {
+		processes, err := Processes()
+		if err != nil {
+			fail("Processes", pid, err)
+		} else if index := slices.IndexFunc(processes, func(entry Entry) bool { return entry.PID == pid }); index < 0 {
+			fail("Processes", pid, errors.New("not listed"))
+		} else if group != 0 && processes[index].Group != group {
+			fail("Processes", pid, fmt.Errorf("in group %d, want %d", processes[index].Group, group))
+		}
+		if _, err := UseOf(pid); err != nil {
+			fail("UseOf", pid, err)
+		}
+		if _, err := Instance(pid); err != nil {
+			fail("Instance", pid, err)
+		}
+		// Arguments first: Environment waits for an exec in progress.
+		if arguments, err := Arguments(pid); err != nil {
+			fail("Arguments", pid, err)
+		} else if !slices.ContainsFunc(started, func(want []string) bool { return slices.Equal(arguments, want) }) {
+			fail("Arguments", pid, fmt.Errorf("read %q", arguments))
+		}
+		if environment, err := Environment(pid); err != nil {
+			fail("Environment", pid, err)
+		} else if !slices.Contains(environment, "GOBLINS_PROC_TEST=shown") {
+			fail("Environment", pid, fmt.Errorf("%d variables without the one it was started with", len(environment)))
+		}
+	}
+	for range starts {
+		// Arrange: a child in a group of its own, as the gate's executor
+		// starts its command.
+		direct := exec.Command("sleep", "600")
+		direct.Env = append(os.Environ(), "GOBLINS_PROC_TEST=shown")
+		direct.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		if err := direct.Start(); err != nil {
+			t.Fatal(err)
+		}
+
+		// Act
+		read(direct.Process.Pid, direct.Process.Pid, direct.Args)
+
+		_ = direct.Process.Kill()
+		_ = direct.Wait()
+
+		// Arrange: a shell's background child, read as soon as the shell has
+		// exited, as a process tree test reads its helper.
+		shell := exec.Command("sh", "-c", "sleep 600 > /dev/null 2>&1 & echo $!")
+		shell.Env = direct.Env
+		printed, err := shell.Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(string(printed)))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Act
+		read(pid, 0, []string{"sleep", "600"}, shell.Args)
+
+		endOrphan(t, pid)
+	}
+
+	// Assert
+	for reading, count := range failed {
+		t.Errorf("%s missed %d of %d processes read during their start; the first: %s", reading, count, 2*starts, first[reading])
+	}
+}
+
+// endOrphan ends pid, a child of a shell that has exited, by its pid and
+// start once it can be read, within a minute.
+func endOrphan(t *testing.T, pid int) {
+	t.Helper()
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+		entry, err := Lookup(pid)
+		if errors.Is(err, fs.ErrNotExist) {
+			return
+		}
+		if err == nil && Signal(pid, entry.Start, syscall.SIGKILL) == nil {
+			return
+		}
+	}
+	t.Fatalf("process %d could not be ended", pid)
 }

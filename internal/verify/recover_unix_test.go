@@ -44,10 +44,31 @@ func TestRecoveryEndsTheTreeOfAKilledControllerAndFreesTheTurn(t *testing.T) {
 	requested := admission(t)
 	controller := exec.Command(os.Args[0], "-test.run=^TestRecoveryEndsTheTreeOfAKilledControllerAndFreesTheTurn$")
 	controller.Env = append(os.Environ(), recoveryRole+"=controller", "VERIFY_RECOVERY_ADMISSION="+requested.Dir, "VERIFY_RECOVERY_ROOT="+root)
-	if err := controller.Start(); err != nil {
+	output, err := os.Create(filepath.Join(t.TempDir(), "controller.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller.Stdout, controller.Stderr = output, output
+	err = controller.Start()
+	output.Close()
+	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = controller.Process.Kill(); _ = controller.Wait() })
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		_ = controller.Process.Kill()
+		_ = controller.Wait()
+		printed, _ := os.ReadFile(output.Name())
+		t.Logf("the controller printed:\n%s", printed)
+		records, _ := filepath.Glob(filepath.Join(store, "executions", "*.json"))
+		for _, record := range records {
+			content, _ := os.ReadFile(record)
+			t.Logf("%s:\n%s", record, content)
+		}
+	})
 	descendantPID, err := strconv.Atoi(strings.TrimSpace(string(waitForFile(t, filepath.Join(root, "descendant.pid"), time.Minute))))
 	if err != nil {
 		t.Fatal(err)

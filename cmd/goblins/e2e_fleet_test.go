@@ -477,6 +477,7 @@ func (f *fleetE2EFixture) AssertFleetJSONAndMarkdownParity() {
 	}
 	claudeRow := strings.Join([]string{
 		"| claude",
+		"-",
 		"working / status",
 		"stale",
 		(time.Duration(claude.Monitor.StaleSeconds) * time.Second).String(),
@@ -495,7 +496,7 @@ func (f *fleetE2EFixture) AssertFleetJSONAndMarkdownParity() {
 	if !strings.Contains(markdown, claudeRow) {
 		f.t.Fatalf("fleet Markdown does not exactly project Claude JSON row %q:\n%s", claudeRow, markdown)
 	}
-	if !strings.Contains(markdown, "| codex | unknown / none | unknown |") {
+	if !strings.Contains(markdown, "| codex | - | unknown / none | unknown |") {
 		f.t.Fatalf("fleet Markdown missing unknown endpoint/current-state projection:\n%s", markdown)
 	}
 }

@@ -13,7 +13,13 @@ import (
 )
 
 func TestSpawnKeepsRoutingOnTaskRecord(t *testing.T) {
-	request := Request{ID: "routed", RouteLane: "build", RouteReason: "ordinary implementation", Implement: routing.ExecutionLane{Name: "light-codex", Harness: "codex", Model: "gpt-6.1-sol", Effort: "high"}}
+	request := Request{
+		ID: "routed", RouteLane: "build", RouteReason: "ordinary implementation",
+		Implement: routing.ExecutionLane{Name: "light-codex", Harness: "codex", Model: "gpt-6.1-sol", Effort: "high"},
+		Review:    routing.ExecutionLane{Name: "deep", Harness: "codex", Model: "gpt-6-astra", Effort: "xhigh"},
+		Verify:    routing.ExecutionLane{Name: "verification", Harness: "codex", Model: "gpt-6-sol", Effort: "high"},
+		Fix:       routing.ExecutionLane{Name: "mechanical", Harness: "codex", Model: "gpt-6-luna", Effort: "medium"},
+	}
 	result := partialResult(request, "project", "temporary", "worktree", "scratch")
 	directory := t.TempDir()
 	if err := state.WriteTaskMeta(directory, result.Meta); err != nil {
@@ -25,6 +31,16 @@ func TestSpawnKeepsRoutingOnTaskRecord(t *testing.T) {
 	}
 	if record.ImplementLane != "light-codex" || record.ImplementModel != "gpt-6.1-sol" || record.ImplementEffort != "high" {
 		t.Errorf("record = %+v, want the implement lane chosen at spawn", record)
+	}
+	for role, got := range map[string][3]string{
+		"review": {record.ReviewLane, record.ReviewModel, record.ReviewEffort},
+		"verify": {record.VerifyLane, record.VerifyModel, record.VerifyEffort},
+		"fix":    {record.FixLane, record.FixModel, record.FixEffort},
+	} {
+		want := map[string]routing.ExecutionLane{"review": request.Review, "verify": request.Verify, "fix": request.Fix}[role]
+		if got != [3]string{want.Name, want.Model, want.Effort} {
+			t.Errorf("%s lane on the record = %v, want %+v chosen at spawn", role, got, want)
+		}
 	}
 }
 

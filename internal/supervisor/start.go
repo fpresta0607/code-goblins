@@ -19,6 +19,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/verify"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -69,16 +70,20 @@ type Dispatch struct {
 	// GPU reads the machine's graphics adapters and how busy each is; nil
 	// reads none.
 	GPU func() (GPU, error)
-	// HeavyLine says why no goblin starts or resumes by itself at the given
-	// reading of memory, to keep memory for the machine's heavy line, as
-	// SlotHold says it, or "" when one may; nil reads none, and nothing waits
-	// on it.
-	HeavyLine func(Memory) (string, error)
+	// HeavyLine reads the room the machine's heavy line keeps at the given
+	// reading of memory, whose Hold says why no goblin starts or resumes by
+	// itself, as SlotHold says it, or "" when one may; nil reads none, and
+	// nothing waits on it.
+	HeavyLine func(Memory) (LineRoom, error)
 	// LineStall says how the machine's heavy line stands still at the given
 	// reading of memory, a turn free, runs waiting and memory enough for the
 	// one at its head, as MachineLineStall says it, or "" when it does not;
 	// nil reads none.
 	LineStall func(Memory) (string, error)
+	// LongTurnWaits reads the goblins' own turns that have waited in the
+	// machine's heavy line longTurnWait or longer at the given moment, as
+	// MachineLongTurnWaits reads them; nil reads none.
+	LongTurnWaits func(now time.Time) ([]verify.Standing, error)
 	// Spawn runs goblins with args and returns what it printed.
 	Spawn func(ctx context.Context, args []string) (string, error)
 }

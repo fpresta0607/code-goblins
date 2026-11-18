@@ -47,7 +47,7 @@ export function ChangeCard({ question, snapshot, connected, now, draft, onDraft,
         <span className="question-option"><span>{inlineElements(option.text)}</span>{option.recommended && <span className="recommendation">Recommended</span>}</span>
       </label>)}
       <label className="question-choice"><input type="radio" name={"change-" + question.id} checked={shown.selection === "other"} onChange={() => onDraft({ selection: "other", written: shown.selection === "other" ? shown.written : standing.written, error: "" })} /><span className="question-option"><span>Other</span><small>Write your own answer.</small></span></label>
-      {shown.selection === "other" && <DictatedAnswer label="Your written answer" placeholder={"Tell " + (question.task ? asker : "the CEO") + " what you prefer..."} value={shown.written} instance={snapshot.instance} onText={(written) => onDraft({ selection: "other", written, error: "" })} onSubmit={() => { if (canChange) onChange(); }} />}
+      {shown.selection === "other" && <DictatedAnswer maxLength={4000} label="Your written answer" placeholder={"Tell " + (question.task ? asker : "the CEO") + " what you prefer..."} value={shown.written} instance={snapshot.instance} onText={(written) => onDraft({ selection: "other", written, error: "" })} onSubmit={() => { if (canChange) onChange(); }} />}
     </fieldset>
     <p className="question-outcome answered-by" role="status"><AnswerMark who={who.mark} />{who.label}{who.at && " · " + age(who.at, now)}</p>
     {warning && <p className="change-warning">{warning}</p>}

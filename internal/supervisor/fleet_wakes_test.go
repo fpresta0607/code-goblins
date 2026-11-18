@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,6 +26,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/tickets"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -198,6 +201,9 @@ func TestMemoryReadyWakesOnceAndAgainOnlyAfterFallingUnderTheFloor(t *testing.T)
 			t.Errorf("memory wake %q lacks %q", records[0].Detail, want)
 		}
 	}
+	if strings.Contains(records[0].Detail, "floor") {
+		t.Errorf("memory wake %q names a floor though no heavy line was read", records[0].Detail)
+	}
 	if woke := readMemory(t, s, h, meter, &now, [2]float64{4.5, 7}, over, over, over, [2]float64{7, 4.2}, over, over); woke != 0 {
 		t.Fatalf("crossing back without falling under the floor woke %d times, want none", woke)
 	}
@@ -329,6 +335,9 @@ type fakeForge struct {
 	once        string
 	onceFailure string
 	onceCalls   int
+	// attemptJobs are the jobs of a run's attempts, by attempt, where they
+	// differ from jobs, the jobs of its latest attempt.
+	attemptJobs map[int]string
 }
 
 // forgeRefusal is how the forge's GitHub refuses a read: with status and
@@ -417,6 +426,9 @@ func requestedRepository(path, query string, variables map[string]any) string {
 
 // actionsRun matches the path of one workflow run, and of its jobs.
 var actionsRun = regexp.MustCompile(`^repos/[^/]+/[^/]+/actions/runs/[0-9]+(/jobs)?$`)
+
+// attemptJobs matches the path of the jobs of one attempt of a workflow run.
+var attemptJobs = regexp.MustCompile(`^repos/[^/]+/[^/]+/actions/runs/[0-9]+/attempts/([0-9]+)/jobs$`)
 
 // ServeHTTP answers what the CI poll asks of GitHub's API the way GitHub
 // would, from the forge's canned output: for o/r and for every repository no
@@ -514,6 +526,9 @@ func (f *fakeForge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		githubtest.Write(w, http.StatusOK, map[string]string{"login": cmp.Or(f.viewer, "o")})
 	case actionsRun.MatchString(path) && strings.HasSuffix(path, "/jobs"):
 		_, _ = w.Write([]byte(f.jobs))
+	case attemptJobs.MatchString(path):
+		attempt, _ := strconv.Atoi(attemptJobs.FindStringSubmatch(path)[1])
+		_, _ = w.Write([]byte(cmp.Or(f.attemptJobs[attempt], f.jobs)))
 	case actionsRun.MatchString(path):
 		// A run a paused goblin waits on is the forge's jobs output, the run
 		// as gh run view printed it.
@@ -847,6 +862,45 @@ func TestARedRunOfMainWakesOnceAcrossCheckoutsOfOneRepository(t *testing.T) {
 	// Assert
 	if red := fleetWakeRecords(t, h, "ci"); len(red) != 1 {
 		t.Fatalf("red run wakes = %+v, want one", red)
+	}
+}
+
+// Issue 2057: on 2026-10-28 a managed project's deploy run ended its second
+// attempt with build-and-push failed, its third attempt was queued, and the
+// wake filed its red-main issue saying "no job marked failed", since it read
+// the jobs of the run's latest attempt. The wake names the failed jobs of the
+// attempt whose failure it read, and points at that attempt's log.
+func TestARedRunOfMainNamesTheFailedJobsOfTheAttemptThatFailed(t *testing.T) {
+	// Arrange
+	_, h := fleetService(t)
+	var watched fleetWakes
+	checkout := t.TempDir()
+	forge := &fakeForge{
+		repo:        checkout,
+		runs:        `[{"databaseId":38912345678,"workflowName":"deploy","status":"completed","conclusion":"failure","headSha":"9a1b2c3d4e","url":"https://github.com/o/r/actions/runs/38912345678","attempt":2}]`,
+		jobs:        `{"jobs":[{"name":"build-and-push","status":"queued","conclusion":null},{"name":"release","status":"queued","conclusion":null}]}`,
+		attemptJobs: map[int]string{2: `{"jobs":[{"name":"build-and-push","status":"completed","conclusion":"failure"},{"name":"release","status":"completed","conclusion":"skipped"}]}`},
+	}
+	var found []string
+	record := func(_ string, root tickets.Root) { found = append(found, root.RootKey()) }
+
+	// Act
+	if _, err := pollMain(context.Background(), forge, githubtest.Client(forge), "o/r", h.State, &watched, checkout, time.Date(2026, 10, 28, 22, 14, 55, 0, time.UTC), record); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	red := fleetWakeRecords(t, h, "ci")
+	if len(red) != 1 {
+		t.Fatalf("red run wakes = %+v, want one", red)
+	}
+	for _, want := range []string{"workflow deploy, job build-and-push", "gh run view 38912345678 --attempt 2 --log-failed"} {
+		if !strings.Contains(red[0].Detail, want) {
+			t.Errorf("wake %q lacks %q", red[0].Detail, want)
+		}
+	}
+	if want := "ci:deploy: job build-and-push"; len(found) != 1 || found[0] != want {
+		t.Errorf("found %v, want the root %q", found, want)
 	}
 }
 
@@ -1892,39 +1946,72 @@ func TestCIMonitorReportsGitRefusalInsteadOfCallingTheCheckoutInvalid(t *testing
 // A checkout whose recorded path is now only a folder inside another checkout
 // is not that repository's project: git answers with the enclosing repository's
 // origin, which would poll another project in this one's place.
+// Git names that repository by its resolved path, so one reached through a
+// link, as every test folder is where the temporary folder is a junction as
+// the gate's is (#2422), is named in another spelling than the recorded one.
 func TestCIMonitorReportsACheckoutThatMovedInsideAnotherRepository(t *testing.T) {
-	config := t.TempDir()
-	t.Setenv("GH_CONFIG_DIR", config)
-	t.Setenv("GH_HOST", "")
-	s, h := fleetService(t)
-	outer := t.TempDir()
-	git := execx.OSRunner{}
-	for _, args := range [][]string{{"init"}, {"remote", "add", "origin", "https://github.com/o/outer.git"}} {
-		result, err := git.Run(t.Context(), execx.Request{Dir: outer, Name: "git", Args: args})
-		if err != nil || result.ExitCode != 0 {
-			t.Fatalf("git %v: %v %s", args, err, result.Stderr)
-		}
-	}
-	moved := filepath.Join(outer, "moved-checkout")
-	if err := os.Mkdir(moved, 0700); err != nil {
-		t.Fatal(err)
-	}
-	liveGoblin(t, h, "cg-wakes", moved)
-	forge := forgeFor(moved, "cg-wakes")
-	forge.pulls, forge.runs = "[]", "[]"
-	s.Options.CI = realOriginForge{forge}
-	s.Options.GitHub = githubtest.Client(forge)
-	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
-	for range 4 {
-		_ = s.checkFleet(t.Context(), now)
-		now = now.Add(ciPollEvery)
-	}
-	wakes := fleetWakeRecords(t, h, "ci")
-	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "not a checkout of its own") || !strings.Contains(wakes[0].Detail, "repository at "+filepath.ToSlash(fsx.LongPath(outer))) {
-		t.Fatalf("wakes = %+v, want one naming the repository that encloses it", wakes)
-	}
-	if forge.githubCalls != 0 {
-		t.Fatalf("the enclosing repository was polled %d times, want none", forge.githubCalls)
+	for _, spelling := range []struct {
+		name   string
+		folder func(t *testing.T) string
+	}{
+		{"in a folder as it is", func(t *testing.T) string { return t.TempDir() }},
+		{"in a folder reached through a link", func(t *testing.T) string {
+			link := filepath.Join(t.TempDir(), "linked")
+			if runtime.GOOS != "windows" {
+				if err := os.Symlink(t.TempDir(), link); err != nil {
+					t.Fatal(err)
+				}
+				return link
+			}
+			if output, err := exec.Command("cmd", "/d", "/c", "mklink", "/J", link, t.TempDir()).CombinedOutput(); err != nil {
+				t.Fatalf("mklink /J: %v %s", err, output)
+			}
+			return link
+		}},
+	} {
+		t.Run(spelling.name, func(t *testing.T) {
+			config := t.TempDir()
+			t.Setenv("GH_CONFIG_DIR", config)
+			t.Setenv("GH_HOST", "")
+			s, h := fleetService(t)
+			outer := filepath.Join(spelling.folder(t), "outer")
+			if err := os.Mkdir(outer, 0700); err != nil {
+				t.Fatal(err)
+			}
+			git := execx.OSRunner{}
+			for _, args := range [][]string{{"init"}, {"remote", "add", "origin", "https://github.com/o/outer.git"}} {
+				result, err := git.Run(t.Context(), execx.Request{Dir: outer, Name: "git", Args: args})
+				if err != nil || result.ExitCode != 0 {
+					t.Fatalf("git %v: %v %s", args, err, result.Stderr)
+				}
+			}
+			moved := filepath.Join(outer, "moved-checkout")
+			if err := os.Mkdir(moved, 0700); err != nil {
+				t.Fatal(err)
+			}
+			liveGoblin(t, h, "cg-wakes", moved)
+			forge := forgeFor(moved, "cg-wakes")
+			forge.pulls, forge.runs = "[]", "[]"
+			s.Options.CI = realOriginForge{forge}
+			s.Options.GitHub = githubtest.Client(forge)
+			now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+			for range 4 {
+				_ = s.checkFleet(t.Context(), now)
+				now = now.Add(ciPollEvery)
+			}
+			wakes := fleetWakeRecords(t, h, "ci")
+			if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "not a checkout of its own") {
+				t.Fatalf("wakes = %+v, want one saying the checkout is not one of its own", wakes)
+			}
+			_, named, _ := strings.Cut(wakes[0].Detail, "repository at ")
+			named, _, _ = strings.Cut(named, "; next:")
+			if !fsx.SamePath(named, outer) {
+				t.Fatalf("the wake names the repository at %q, want the one at %s that encloses the checkout: %s", named, outer, wakes[0].Detail)
+			}
+			if forge.githubCalls != 0 {
+				t.Fatalf("the enclosing repository was polled %d times, want none", forge.githubCalls)
+			}
+		})
 	}
 }
 

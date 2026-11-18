@@ -3,6 +3,7 @@ package verify
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -29,8 +30,11 @@ func controlAnExecution() int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	executor.Run(ctx, execx.Request{Dir: os.Getenv("VERIFY_RECOVERY_ROOT"), Name: os.Args[0], Args: os.Args[1:], Env: append(os.Environ(), recoveryRole+"=worker")})
-	return 0
+	// A run that ends before the test kills its controller has failed the
+	// fixture, and the test shows why.
+	result, err := executor.Run(ctx, execx.Request{Dir: os.Getenv("VERIFY_RECOVERY_ROOT"), Name: os.Args[0], Args: os.Args[1:], Env: append(os.Environ(), recoveryRole+"=worker")})
+	fmt.Fprintf(os.Stderr, "the run ended before its controller was killed: exit %d: %v\n", result.ExitCode, err)
+	return 1
 }
 
 func readExecution(t *testing.T, path string) ExecutionRecord {

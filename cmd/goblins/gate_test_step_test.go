@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/disk"
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/gatetest"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
@@ -1591,6 +1592,42 @@ func TestGateTurnsShowsWhoHoldsTheTurnAndWhoWaits(t *testing.T) {
 	}
 }
 
+// goblins gate turns says how long the oldest goblin's own turn has waited and
+// how many runs that asked after it stand ahead of it, here a gate's Test
+// step, and only then: a goblin's turn that waited over an hour behind Test
+// steps said neither on 2026-11-12 (#2416).
+func TestGateTurnsSaysHowManyLaterRunsStandAheadOfTheOldestGoblinTurn(t *testing.T) {
+	// Arrange
+	store := t.TempDir()
+	t.Setenv("GOBLINS_VERIFY_DIR", store)
+	holdTheTurn(t)
+	run := verify.Admission{Dir: filepath.Join(store, "slots"), Floor: 4 << 30, Available: func() (uint64, error) { return 64 << 30, nil }, Budget: time.Hour, Limit: time.Minute, Poll: 10 * time.Millisecond}
+	first, own, step := run, run, run
+	first.Who, first.IsTestStep = "a gate's Test step that asked first", true
+	own.Who = "a goblin's own turn"
+	step.Who, step.IsTestStep = "a gate's Test step", true
+	waitInLine(t, first)
+	waitInLine(t, own)
+	var before bytes.Buffer
+	if exit := gateTurns(plenty, &before, io.Discard); exit != 0 || strings.Contains(before.String(), "oldest goblin turn") {
+		t.Fatalf("with only a run that asked before it ahead of the goblin's turn, exit = %d and goblins gate turns printed %q; want 0 and no oldest goblin turn", exit, before.String())
+	}
+	waitInLine(t, step)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := gateTurns(plenty, &stdout, &stderr)
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(lines) != 6 || !strings.HasPrefix(lines[2], "1. a gate's Test step that asked first") || !strings.HasPrefix(lines[3], "2. a gate's Test step") || !strings.HasPrefix(lines[4], "3. a goblin's own turn") || !strings.HasPrefix(lines[5], "oldest goblin turn: run 3 has waited ") || !strings.HasSuffix(lines[5], ", and 1 run that asked after it stands ahead of it") {
+		t.Errorf("goblins gate turns printed %q; want both Test steps, then the goblin's turn, then how long it waited and the 1 run that asked after it ahead of it", lines)
+	}
+}
+
 // A holder whose card cannot be read still shows, without a budget no one
 // knows.
 func TestGateTurnsShowsAHolderThatDidNotNameItself(t *testing.T) {
@@ -1783,5 +1820,116 @@ func TestGateTestStartsNothingWhenItCanTakeNoTurn(t *testing.T) {
 	// Assert
 	if exit != 1 || strings.Contains(stdout.String(), "ran go ") || !strings.Contains(stderr.String(), "goblins gate test: this run takes no turn") {
 		t.Fatalf("exit=%d stdout=%q stderr=%q, want failed admission before any command", exit, stdout.String(), stderr.String())
+	}
+}
+
+// readStallingAt is the real source read, except that its stalledAt-th read
+// runs under a context already past its limit, as a read on a loaded machine
+// runs out its own.
+func readStallingAt(stalledAt int) func(context.Context, string) (verify.Source, error) {
+	reads := 0
+	return func(ctx context.Context, dir string) (verify.Source, error) {
+		reads++
+		if reads == stalledAt {
+			expired, cancel := context.WithTimeout(ctx, 0)
+			defer cancel()
+			return verify.ReadSource(expired, execx.OSRunner{}, dir)
+		}
+		return verify.ReadSource(ctx, execx.OSRunner{}, dir)
+	}
+}
+
+// Issue 1960: a source read that runs out its time limit, as one under memory
+// pressure did on 2026-11-03, judged nothing, yet the check it was read for
+// was marked failed though go vet exited 0, and the step parked as a test
+// failure. Such a check is unfinished, no check after it runs, a named failure
+// left unrun is not reported missing, and the run exits with no result, saying
+// why on its last line.
+func TestGateTestCallsACheckWhoseSourceReadRanOutItsLimitUnfinished(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		stalledAt  int
+		isVetFirst bool
+		isFocused  bool
+	}{
+		{name: "the read once go vet ended", stalledAt: 2, isVetFirst: true},
+		{name: "the read as go vet started", stalledAt: 1},
+		{name: "the read as go vet started in a focused run naming a failure", stalledAt: 1, isFocused: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			dir := testStepModule(t, nil, map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
+			t.Chdir(dir)
+			t.Setenv("NO_MISTAKES_GATE", "")
+			var args []string
+			if test.isFocused {
+				focus := filepath.Join(t.TempDir(), "focus.txt")
+				if err := os.WriteFile(focus, []byte("test example.com/m/a --- FAIL: TestBroken (0.01s)\npath a/a.go\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				t.Setenv("NO_MISTAKES_TEST_FOCUS", focus)
+				args = []string{"--focused"}
+			}
+			runtime := standIn()
+			var ran []string
+			runtime.gateRun = func(command []string, _ string, _ []string, _, _ io.Writer) (int, error) {
+				ran = append(ran, command[1])
+				return 0, nil
+			}
+			runtime.gateReadSource = readStallingAt(test.stalledAt)
+
+			// Act
+			var stdout, stderr bytes.Buffer
+			exit := gateTestWith(runtime, &stdout, &stderr, args...)
+
+			// Assert
+			report, _ := lastReport(t)
+			if exit != exitNoTurn || report.Status != "unfinished" || len(report.Checks) != 2 || report.Checks[0].Status != "unfinished" || report.Checks[1].Status != "not_run" {
+				t.Fatalf("exit = %d, report = %+v, stderr = %q; want exit %d, go vet unfinished and go test not run", exit, report, stderr.String(), exitNoTurn)
+			}
+			if wantRan := map[bool][]string{true: {"vet"}, false: nil}[test.isVetFirst]; !slices.Equal(ran, wantRan) {
+				t.Errorf("ran %q, want %q: a check whose first read stalled runs nothing", ran, wantRan)
+			}
+			if strings.Contains(stderr.String(), "go vet: exit") || strings.Contains(stderr.String(), "was missing, skipped or unfinished") {
+				t.Errorf("stderr = %q; want no failure said of go vet or of a named failure left unrun", stderr.String())
+			}
+			const want = "goblins gate test: go vet was not judged, since its source read did not finish within its time limit"
+			for name, said := range map[string]string{"stdout": stdout.String(), "stderr": stderr.String()} {
+				lines := strings.Split(strings.TrimSpace(said), "\n")
+				if !strings.HasPrefix(lines[len(lines)-1], want) || !strings.Contains(lines[len(lines)-1], "context deadline exceeded") {
+					t.Errorf("the last line of %s is %q, want it to start %q and name the read's error", name, lines[len(lines)-1], want)
+				}
+			}
+		})
+	}
+}
+
+// A command that itself failed is judged by its exit, whatever became of the
+// source read once it ended (issue 1960).
+func TestGateTestFailsACheckWhoseCommandFailedThoughItsEndReadRanOutItsLimit(t *testing.T) {
+	// Arrange
+	dir := testStepModule(t, nil, map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
+	t.Chdir(dir)
+	t.Setenv("NO_MISTAKES_GATE", "")
+	runtime := standIn()
+	runtime.gateRun = func(command []string, _ string, _ []string, _, _ io.Writer) (int, error) {
+		if command[1] == "vet" {
+			return 1, nil
+		}
+		return 0, nil
+	}
+	runtime.gateReadSource = readStallingAt(2)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := gateTestWith(runtime, &stdout, &stderr)
+
+	// Assert
+	report, _ := lastReport(t)
+	if exit != 1 || report.Status != "failed" || len(report.Checks) != 2 || report.Checks[0].Status != "failed" || report.Checks[1].Status != "not_run" {
+		t.Fatalf("exit = %d, report = %+v; want exit 1, go vet failed and go test not run", exit, report)
+	}
+	if !strings.Contains(stderr.String(), "go vet: exit 1") || strings.Contains(stdout.String()+stderr.String(), "was not judged") {
+		t.Errorf("stdout = %q, stderr = %q; want go vet's exit 1 said and nothing called not judged", stdout.String(), stderr.String())
 	}
 }

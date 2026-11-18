@@ -902,7 +902,7 @@ func TestGateTurnsJSONGivesTheLine(t *testing.T) {
 		t.Errorf("the report is %s; want the holder, then the waiter at the lowest priority", stdout.String())
 	}
 	for _, run := range append(report.Holding, report.Waiting...) {
-		for _, key := range []string{"who", "pid", "since", "budget_seconds", "now", "estimate_bytes", "used_bytes", "is_low_priority"} {
+		for _, key := range []string{"who", "pid", "since", "budget_seconds", "now", "estimate_bytes", "used_bytes", "is_low_priority", "is_test_step"} {
 			if _, has := run[key]; !has {
 				t.Errorf("a run %v lacks %q; want every run to carry every key", run, key)
 			}

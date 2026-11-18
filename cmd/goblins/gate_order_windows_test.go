@@ -15,7 +15,8 @@ import (
 
 // A gate's Test step, as its wrapper's --gate-run names it, passes a goblin's
 // own turn that asked first. goblins gate turns says why the goblin's run waits
-// behind it, and goblins gate turns --json keeps every key and adds none.
+// behind it, and goblins gate turns --json keeps every key the board reads and
+// says which run is the Test step.
 func TestAGateTestStepPassesAQueuedGoblinTurn(t *testing.T) {
 	// Arrange
 	_, comparison := gateEnvironmentFixture(t)
@@ -67,11 +68,14 @@ func TestAGateTestStepPassesAQueuedGoblinTurn(t *testing.T) {
 	if err := json.Unmarshal(turnsJSON.Bytes(), &report); jsonExit != 0 || err != nil || len(report.Waiting) != 2 {
 		t.Fatalf("goblins gate turns --json exited %d and printed %q (%v); want two waiting runs", jsonExit, turnsJSON.String(), err)
 	}
-	want := []string{"budget_seconds", "estimate_bytes", "is_low_priority", "now", "pid", "since", "used_bytes", "who"}
+	want := []string{"budget_seconds", "estimate_bytes", "is_low_priority", "is_test_step", "now", "pid", "since", "used_bytes", "who"}
 	for _, run := range report.Waiting {
 		if keys := slices.Sorted(maps.Keys(run)); !slices.Equal(keys, want) {
 			t.Errorf("a waiting run's keys are %q; want exactly %q, as the board reads them", keys, want)
 		}
+	}
+	if report.Waiting[0]["is_test_step"] != true || report.Waiting[1]["is_test_step"] != false {
+		t.Errorf("the waiting runs' is_test_step are %v and %v; want true for the Test step and false for the goblin's own turn", report.Waiting[0]["is_test_step"], report.Waiting[1]["is_test_step"])
 	}
 }
 

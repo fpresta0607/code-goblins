@@ -1,6 +1,6 @@
 ## Project worktree environment
 
-Every goblin works in a git worktree of the project at `$GOBLINS_HOME\worktrees\<project folder>\<id>`, detached from the project's default branch, and an extra worktree it asks for with `goblins worktree add` sits beside it.
+Every goblin works in a git worktree of the project at `$GOBLINS_HOME\worktrees\<project folder>\<id>`, detached from the project's default branch, and an extra worktree it asks for with `goblins worktree add` sits beside it, or with `--project` beside the worktrees of that other project.
 goblins' own git commands there turn `core.longpaths` on, because a worktree under the home is a few folders deeper than one inside the checkout; `goblins doctor` says whether it is on for the goblin's own git.
 A worktree starts as the files git tracks and nothing else of the checkout.
 An env file holds the project's production values, so none reaches a worktree by silence: with no worktree manifest, or with one that names no `link`, a goblin's worktree is given no file of the checkout.
@@ -77,6 +77,7 @@ A locked install is not held back by them: `npm ci` and `uv sync --locked` insta
 A worktree that tracks a `uv.lock`, at its root or in a subfolder, gets no `UV_EXCLUDE_NEWER`, and the `spawned` output says so on a `cooldown:` line: uv sets aside a lock that does not record the cutoff its environment names, so `uv sync --locked` would fail and `uv run` would rewrite the lock.
 Such a project records its own cutoff as `[tool.uv] exclude-newer = "7 days"` in `pyproject.toml`, which uv keeps in its lock for goblins and CI alike.
 A lock a goblin writes under the terminal's cutoff records it too, and a `uv sync --locked` without it, as in CI, fails until the project records the same cutoff.
+A gate run's agents and step commands get the same variables from the same `worktree.Cooldown` of the task's worktree, which `goblins pipeline run` hands no-mistakes as `axi run --agent-env` when it starts the run; how admitted runs and reattaches keep it is in [Driving a task](../pipeline.md#driving-a-task).
 
 ### Code that runs at every Python start
 

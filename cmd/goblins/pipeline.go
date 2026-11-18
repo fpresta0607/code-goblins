@@ -531,7 +531,11 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			start = pipeline.Start{Args: []string{"axi", "run"}}
 			fmt.Fprintf(out, "pipeline: reattached to run %s on %s, which keeps its own intent, closing issues and review budget; no new run starts\n", check.ReattachRun, branch)
 		} else {
-			start, err = pipeline.StartOf(ctx, commands, gated, pipeline.NativeEnv(root), intent, closes)
+			cooldown, _, err := worktree.Service{Commands: commands}.Cooldown(ctx, gated, time.Now())
+			if err != nil {
+				return fmt.Errorf("pipeline: %w", err)
+			}
+			start, err = pipeline.StartOf(ctx, commands, gated, pipeline.NativeEnv(root), intent, closes, cooldown)
 			if err != nil {
 				return fmt.Errorf("pipeline: %w", err)
 			}
@@ -608,6 +612,9 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 				return fmt.Errorf("%s: after a busy gate daemon turned away every earlier try at its health reply, try %d reached it and was refused; that refusal is the recorded outcome, and no ordinary response was attempted", recorded, tries)
 			}
 			return fmt.Errorf("%s and no ordinary response or retry was attempted", recorded)
+		}
+		if args[0] == "run" && selection.Policy.Version > 5 && isRoleChainRefused(result) {
+			return fmt.Errorf("pipeline: native command exited %d. This no-mistakes build runs every gate role on one chain, and task %s reviews, verifies or fixes on a lane of its own, which needs a build with no-mistakes pull request 310. See docs/pipeline.md for the build that does", result.ExitCode, meta.ID)
 		}
 		if args[0] == "run" && selection.Policy.Version > 5 && isLaunchSelectionUnknown(result) {
 			return fmt.Errorf("pipeline: native command exited %d. This no-mistakes build takes no launch selection, which policy version %d needs to run a gate on its task's own harness. See docs/pipeline.md for the build that does", result.ExitCode, selection.Policy.Version)

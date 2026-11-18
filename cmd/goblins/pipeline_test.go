@@ -63,11 +63,19 @@ type pipelineStartRunner struct {
 	// previous is the branch's latest run as CheckStart reads it: "[]" when
 	// the branch has none, and a one-element array otherwise.
 	previous []byte
-	handback []byte
+	// repairRounds is the count of repair rounds the branch's latest run and
+	// the runs its admissions continue spent.
+	repairRounds int
+	handback     []byte
 	// head is the commit the task branch holds.
 	head string
 	// repoConfig, when set, is the .no-mistakes.yaml the task branch holds.
 	repoConfig string
+	// uvLocks is what git ls-files lists of the worktree's uv.lock files,
+	// each ended by a NUL; another directory tracks none.
+	uvLocks string
+	// uvLockListings is each directory git ls-files listed uv.lock files in.
+	uvLockListings []string
 }
 
 func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Result, error) {
@@ -90,6 +98,9 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 			}
 			return execx.Result{Stdout: r.previous}, nil
 		}
+		if strings.Contains(sql, "FROM step_rounds") {
+			return execx.Result{Stdout: []byte(fmt.Sprintf(`[{"rounds":%d}]`, r.repairRounds))}, nil
+		}
 	case "git":
 		switch strings.Join(q.Args, " ") {
 		case "rev-parse HEAD":
@@ -104,6 +115,12 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 			return execx.Result{Stdout: []byte("feat/policy\n")}, nil
 		case "status --porcelain --untracked-files=all":
 			return execx.Result{}, nil
+		case "ls-files -z -- :(glob)**/uv.lock":
+			r.uvLockListings = append(r.uvLockListings, q.Dir)
+			if q.Dir != r.worktree {
+				return execx.Result{}, nil
+			}
+			return execx.Result{Stdout: []byte(r.uvLocks)}, nil
 		case "show HEAD:.no-mistakes.yaml":
 			if r.repoConfig != "" {
 				return execx.Result{Stdout: []byte(r.repoConfig)}, nil
@@ -126,7 +143,7 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 		// 1.80.0 to before 1.86.0, so a run it starts has its intent on the
 		// command line, kept out of the pull request.
 		if slices.Equal(q.Args, []string{"help", "axi", "run"}) {
-			return execx.Result{Stdout: []byte("      --no-publish-intent   keep the generated Intent section out of the PR body\n")}, nil
+			return execx.Result{Stdout: []byte("      --agent-env stringArray   set NAME=VALUE in the environment of every agent of the run\n      --no-publish-intent   keep the generated Intent section out of the PR body\n")}, nil
 		}
 		r.native = append(r.native, q)
 		r.roleStarted = r.advance && r.remoteRead >= 2
@@ -452,8 +469,9 @@ func TestPipelineMigrateReplacesOnlyFrozenPolicyAndAudits(t *testing.T) {
 }
 
 // On 2026-10-23 goblins pipeline run and the goblins pipeline migrate it pointed to
-// both refused a direct-PR task, as the supervisor starts every root issue,
-// with a migration decision that migrate could not make (issue 1438). A task
+// both refused a direct-PR task, as the supervisor then started every root
+// issue, with a migration decision that migrate could not make (issue 1438).
+// Automatic intake now starts strict, but a direct-PR task still exists. A task
 // with no gate is refused by its mode and its own route, and changes nothing.
 func TestPipelineRefusesATaskWithNoGateByItsModeAndRoute(t *testing.T) {
 	for _, test := range []struct {
@@ -1831,7 +1849,7 @@ func TestPipelineRunLaunchesNativeAfterCheckStart(t *testing.T) {
 		t.Fatalf("native launches=%+v, want one", runner.native)
 	}
 	request := runner.native[0]
-	if request.Name != "no-mistakes" || !strings.HasPrefix(strings.Join(request.Args, " "), "axi run --intent ship safely --no-publish-intent --launch-nonce ceo-") {
+	if request.Name != "no-mistakes" || !strings.HasPrefix(strings.Join(withoutAgentEnv(request.Args), " "), "axi run --intent ship safely --no-publish-intent --launch-nonce ceo-") {
 		t.Fatalf("native launch argv: %+v", request)
 	}
 	if request.Dir != wt {
@@ -1851,6 +1869,83 @@ func TestPipelineRunLaunchesNativeAfterCheckStart(t *testing.T) {
 	}
 	if !hasHome || !hasPath {
 		t.Fatalf("native environment: home=%v path=%v", hasHome, hasPath)
+	}
+}
+
+// A pause that ends a gate's live agent leaves its run failed or cancelled.
+// goblins pipeline run refuses to start over one that spent repair rounds,
+// whose continuation is the CEO's terminal admission, and starts a new run
+// over one that spent none, which loses nothing to it (issue 2060).
+func TestPipelineRunRefusesToStartOverAStoppedRunThatSpentRepairs(t *testing.T) {
+	policy, err := pipeline.Load(filepath.Join("..", "..", "config", "pipeline.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := policy.Select("ordinary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		status       string
+		repairRounds int
+		isRefused    bool
+	}{
+		{"failed", 2, true},
+		{"cancelled", 1, true},
+		{"failed", 0, false},
+		{"cancelled", 0, false},
+	} {
+		t.Run(fmt.Sprintf("%s after %d repair rounds", test.status, test.repairRounds), func(t *testing.T) {
+			// Arrange
+			root := t.TempDir()
+			h := home.Home{Root: root, State: filepath.Join(root, "state")}
+			nm := filepath.Join(root, "nm")
+			tmp := filepath.Join(h.State, "tasktmp", "task")
+			project := filepath.Join(root, "project")
+			wt := filepath.Join(project, ".worktrees", "gb-task")
+			for _, path := range []string{nm, tmp, project, wt} {
+				if err := os.MkdirAll(path, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := selection.Save(filepath.Join(tmp, "pipeline.json")); err != nil {
+				t.Fatal(err)
+			}
+			meta := state.TaskMeta{ID: "task", Mode: "no-mistakes", Worktree: wt, Project: project, TaskTmp: tmp, PipelineClass: selection.Class, PipelineHash: selection.Hash, Harness: "codex", Model: "gpt-6.1-sol", Effort: "xhigh"}
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			config, _, err := pipeline.Render([]byte("{}"), policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(nm, "config.yaml"), config, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(nm, "state.sqlite"), nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			const stopped = "01M7Q5Z3Y4X2W1V0T9S8R7Q6P5"
+			previous := fmt.Sprintf(`[{"id":%q,"status":%q,"head":"0123456789abcdef0123456789abcdef01234567","submitted_head":"0123456789abcdef0123456789abcdef01234567","intent":"ship safely"}]`, stopped, test.status)
+			runner := &pipelineStartRunner{worktree: wt, previous: []byte(previous), repairRounds: test.repairRounds}
+
+			// Act
+			err = pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{})
+
+			// Assert
+			if !test.isRefused {
+				if err != nil || len(runner.native) != 1 || !strings.HasPrefix(strings.Join(runner.native[0].Args, " "), "axi run ") {
+					t.Fatalf("start over a run that spent no repair round: %v, native=%+v; want one native axi run", err, runner.native)
+				}
+				return
+			}
+			if !errors.Is(err, pipeline.ErrUnresolved) || len(runner.native) != 0 {
+				t.Fatalf("start over a run that spent repair rounds: %v, native=%+v; want the exit 3 refusal with no native run", err, runner.native)
+			}
+			if !strings.Contains(err.Error(), "goblins pipeline terminal-preflight <task> --run "+stopped) || !strings.Contains(err.Error(), "validate-terminal") {
+				t.Fatalf("refusal = %v, want it to name terminal-preflight of run %s and the CEO's terminal admission", err, stopped)
+			}
+		})
 	}
 }
 
@@ -2067,7 +2162,7 @@ func TestPipelineRunAndRecoverActInTheWorktreeOfTheNamedBranch(t *testing.T) {
 		if err != nil {
 			t.Fatalf("run --branch: %v", err)
 		}
-		if len(start.native) != 1 || !strings.HasSuffix(start.native[0].Dir, "task-connections") || !strings.HasPrefix(strings.Join(start.native[0].Args, " "), "axi run --intent ship safely --no-publish-intent --launch-nonce ceo-") {
+		if len(start.native) != 1 || !strings.HasSuffix(start.native[0].Dir, "task-connections") || !strings.HasPrefix(strings.Join(withoutAgentEnv(start.native[0].Args), " "), "axi run --intent ship safely --no-publish-intent --launch-nonce ceo-") {
 			t.Fatalf("native launches = %+v, want one run in the extra worktree", start.native)
 		}
 	})

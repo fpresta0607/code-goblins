@@ -31,21 +31,35 @@ async function openCard(page: Page, name: string) {
 // Windows keeps a copied line break as a carriage return and a line feed.
 const clipboard = async (page: Page) => (await page.evaluate(() => navigator.clipboard.readText())).replaceAll("\r\n", "\n");
 
+// The Overlord, 2026-11-13: "make sure the copy. Is copy button in the
+// subject line, not the body for the subject? And it can just be the copy
+// icon, and then same for in the corner for the body" (#2538). Each copy is
+// an icon alone, named for a screen reader, where its text is.
 for (const c of CARDS) {
-  test(`Copy on the ${c.kind} card puts its exact body on the clipboard`, async ({ page, context }) => {
+  test(`the ${c.kind} card's body copies from the icon in its bottom corner, and the subject from the icon on its line, each its exact text`, async ({ page, context }) => {
     // Arrange
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     const card = await openCard(page, c.open);
     const mail = card.getByRole("region", { name: "Message to send" });
+    const body = mail.getByLabel("Message body");
+    const copyBody = mail.getByRole("button", { name: "Copy body", exact: true });
 
     // Act
-    await mail.getByRole("button", { name: "Copy", exact: true }).click();
+    await copyBody.click();
 
-    // Assert
-    await expect(mail.getByRole("button", { name: "Copied" })).toBeVisible();
+    // Assert: the body's icon sits in the body's bottom right corner.
+    await expect(mail.getByRole("status")).toHaveText("Body copied");
     expect(await clipboard(page)).toBe(c.body);
-    await expect(mail.getByLabel("Message body")).toHaveText(c.body);
-    await expect(mail.getByRole("button", { name: "Copy subject" })).toHaveCount(c.subject ? 1 : 0);
+    await expect(body).toHaveText(c.body);
+    const [box, icon] = [await body.boundingBox(), await copyBody.boundingBox()];
+    expect(box && icon && icon.x + icon.width <= box.x + box.width && icon.x > box.x + box.width / 2 && icon.y + icon.height <= box.y + box.height && icon.y > box.y + box.height / 2).toBe(true);
+    expect(await mail.getByRole("button").evaluateAll((buttons) => buttons.map((button) => button.textContent?.trim()).filter(Boolean)), "no button shows words").toEqual([]);
+    const subjectIcon = mail.locator(".card-mail-line").filter({ hasText: "Subject" }).getByRole("button", { name: "Copy subject", exact: true });
+    await expect(subjectIcon).toHaveCount(c.subject ? 1 : 0);
+    if (!c.subject) return;
+    await subjectIcon.click();
+    await expect(mail.getByRole("status")).toHaveText("Subject copied");
+    expect(await clipboard(page)).toBe(c.subject);
   });
 
   test(`in the desktop window a path the ${c.kind} card names asks the supervisor to open File Explorer at it`, async ({ page }) => {
@@ -69,10 +83,10 @@ for (const c of CARDS) {
   });
 }
 
-// A subject reads as Copy subject copies it (#2360): an address in it is a
+// A subject reads as its copy icon copies it (#2360): an address in it is a
 // link that reads as written, never a pull request's short name, and the
 // body's address is a link while a javascript: string stays words.
-test("a subject's address is a link that reads exactly as Copy subject copies it, and the body's javascript: text stays words", async ({ page, context }) => {
+test("a subject's address is a link that reads exactly as its copy icon copies it, and the body's javascript: text stays words", async ({ page, context }) => {
   // Arrange
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   const card = await openCard(page, "Open the reply");

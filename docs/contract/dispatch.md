@@ -25,6 +25,7 @@ A goblin started before this keeps the `TMP` it was started with until it is res
   On a supervisor with a board, `CHROME_DEVTOOLS_AXI_BROWSER_URL` points the bridge at the goblin's own browser, which the supervisor runs so the board can show it.
 - Every goblin's first instruction, a helper's and a takeover's too, says that what it starts is its own to end: browsers headless and programs hidden in tests unless a picture needs a window, every start tracked by its pid and ended by that pid, never by its name, and no retry or polling loop without a cap.
   `goblins brief` and the board's Start write the same into a brief's Constraints, and the supervisor tells you what it sees of it ([Supervision](supervision.md#supervision)).
+  The first instruction also says that browsers are for people, which a brief does not: a goblin reads what goes straight to an agent, a page, a picture or text, as a file, checks a Scrawl page it wrote with [`goblins page check`](../commands/page/check.md) instead of its own browser, and uses its browser or computer automation only for an end-to-end live test of a UI the Overlord can oversee, a sign-in or credential step that needs a person, or automating a person's procedure.
 - `--class` is `ordinary` (default), `high-risk`, or `mechanical`; it freezes the task's review repair budget at spawn - two cycles for ordinary and mechanical, three for high-risk - and a running task's snapshot never changes ([docs/pipeline.md](../pipeline.md)).
 - `--yolo` lets you decide routine gates inside the Supreme Overlord's request; without it, every merge asks the Supreme Overlord.
 - The Supreme Overlord can start a queued task himself with **Start** on the board, which runs this same `goblins spawn` with the task's brief, only the harness, model and effort its backlog row or the brief's Delivery section explicitly names, with the row taking precedence for each of the three, and the mode that section names (see docs/native-board.md).
@@ -107,7 +108,8 @@ A subject word another live or queued goblin's title already names is passed ove
 A task that gives no word a title can use gets a generic title, such as Code Designer.
 `goblins spawn` prints the pair on a `goblin:` line, the task's record keeps it, and the supervisor gives one to any live goblin that has none, the pair it was queued with where it has one.
 The board, the merge train and the orchestration canvas show the name, title and harness icon in place of the task id, a queued task's card included, and the task sits in the panel and the hover tooltip.
-`goblins fleet-view`, the wake queue and a merge train's pull request name each goblin as `Name (id)`.
+`goblins fleet-view` names each goblin as `Name - Title (id)`, and the wake queue and a merge train's pull request as `Name (id)`.
+`goblins fleet-view --name <name>` finds the task the board calls by a name.
 Call goblins by name when you tell the Supreme Overlord about them.
 The id stays the handle every `goblins` command takes.
 
@@ -394,7 +396,11 @@ The worker edits and runs the slice's tests but never stages, commits or pushes;
 `goblins spawn` names the lane on its route line as `implement=<lane>`.
 A resume on the task's own engine keeps the worker, and an engine the CEO changes leaves the goblin implementing its own work, as an explicit `--harness`, `--model` or `--effort` at spawn does.
 A Pi goblin has no native subagent to hand a slice to, so while a Pi lane names an implement role the whole lane table is refused, and every routed spawn, `goblins route` and `goblins doctor` table and every Claude or Codex spawn or switch with native helpers fails, until the role is removed and the Pi lead implements its own work.
-Review, verification and fixes do not launch on their roles yet: `goblins route` previews each role's lane after the quota check, or says why a role is refused, and `goblins doctor` prints each lane's roles, while every goblin's gate still reviews, verifies and fixes on its own model.
+The same spawn chooses the review, verify and fix roles' first usable lanes and records them on the task, and its route line names each that is not the lead's own as `review=<lane>`, `verify=<lane>` or `fix=<lane>`.
+A review or verify role with no usable lane apart from the lead's model refuses the spawn and says why, rather than run on that model.
+The goblin's gate then launches on those lanes (docs/pipeline.md): its reviewer on the review lane, its fixer on the fix lane, and its primary agent, which runs the Test step with document and lint, on the verify lane.
+A role with no lane recorded runs on the goblin's own model, as does every role after the CEO changes the goblin's engine, and a resume on its own engine keeps the lanes.
+`goblins route` previews each role's lane after the same quota check, or says why a role is refused, and `goblins doctor` prints each lane's roles.
 A project's `routing` block carries no roles, so its lanes keep every role on the lead.
 
 `tiers` orders each harness's lanes strongest first, one lane for each model, and every lane it names runs on that harness with an explicit model.

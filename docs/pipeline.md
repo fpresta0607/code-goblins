@@ -44,9 +44,11 @@ The driver does not rewrite repository configuration, and non-CEO no-mistakes us
 ## A gate on its task's own harness
 
 Policy v6 names no harness, and neither does v7.
-Every gate role of a task, which is review, review fix, test, document and lint, runs on the harness that task's goblin runs on, with the model and effort its record holds.
+Every gate role of a task, which is review, review fix, test, document and lint, runs on the harness that task's goblin runs on.
 A Claude Code goblin's gate runs Claude Code, a Codex goblin's gate runs Codex, and a pi goblin's gate runs pi.
-A task whose record names no model or no effort takes the machine config's `agent_config.<harness>` value, which is the operator's default for that harness.
+Each role runs on the lane the task's spawn chose for it from its route lane's roles (docs/contract/dispatch.md, Model routing): review on the review lane, review fixes on the fix lane, and the Test step, with document and lint, on the verify lane, since the primary agent runs them.
+A role its spawn chose no lane for runs with the model and effort the task's record holds, as every role did before roles, and so does every role of a task spawned before roles or switched to another engine since.
+A task whose record names no model or no effort, or a role lane that names no effort, takes the machine config's `agent_config.<harness>` value, which is the operator's default for that harness.
 A gate with neither is refused, and the refusal names both ways to name them: `goblins switch <id> --model <model> --effort <effort>`, or `agent_config.<harness>`.
 The harness is read from the task's record when a run starts and is not frozen in the snapshot, so after `goblins switch` the next run follows the new harness.
 A run already started keeps the agents it started with.
@@ -57,15 +59,17 @@ One no-mistakes daemon serves every goblin, and v1.75.1 reads its agent chain fr
 Neither differs between two tasks of one repository, and its one per-run pin, `--model` with `--effort`, serves pi alone.
 So a run carries its own agents as a launch selection, which `goblins pipeline run` writes and no-mistakes proves.
 
-1. The driver writes `state/tasktmp/<id>/launch-selection-<launch>.json`, a file of its own for each start: the trusted default-branch commit, `"apply": true`, and one ordered chain for the primary, reviewer and fixer roles.
-2. It starts the run with `--launch-nonce`, `--validation-generation`, which is the task's frozen policy hash, and `--launch-assertion <file>`, and prints the chain on a `pipeline gate agent:` line.
-3. The daemon replaces that run's agent chain, each named harness's model and effort, and every review role with the selection, for that run alone and in memory.
+1. The driver writes `state/tasktmp/<id>/launch-selection-<launch>.json`, a file of its own for each start: the trusted default-branch commit, `"apply": true`, and one ordered chain each for the primary, the reviewer and the fixer roles.
+2. It starts the run with `--launch-nonce`, `--validation-generation`, which is the task's frozen policy hash, and `--launch-assertion <file>`, and prints the primary chain on a `pipeline gate agent:` line, and a reviewer or fixer apart from it on a `pipeline gate reviewer:` or `pipeline gate fixer:` line.
+3. The daemon replaces that run's agent chain and each named harness's model and effort with the primary chain, and pins `review_agents.reviewer` and `review_agents.fixer` to a reviewer or fixer chain that differs from it, for that run alone and in memory.
+   A pinned fixer takes no fallback, so a fixer apart from the primary runs its own lane alone.
 4. It then proves the selection as it proves any launch assertion: against a fresh fetch of the trusted commit and against the arguments each agent will be started with, before a run exists and before any agent starts.
 5. The selection and its proof are stored with the run, where neither can change, and a daemon that restarts proves the stored selection again before it recovers the run.
 
 Nothing edits the machine's `config.yaml` for a run, so two tasks on different harnesses gate at once under one daemon and one config.
 A no-mistakes build that cannot apply a selection refuses the launch before it takes the branch: a build with no launch assertion rejects the flag, and a build that proves but cannot apply rejects the `apply` field.
 The driver then says which build v6 and later need.
+A build that applies a selection but runs every role on one chain refuses a reviewer or fixer apart from the primary, and the driver names the build a gate role needs.
 A repository's own `agent` field does not stop a start from v6, because the run's selection replaces it.
 
 ### A second harness only when named
@@ -97,9 +101,11 @@ A task frozen before the fallback was named takes it with `goblins pipeline migr
 Policy v6 needs a no-mistakes build that applies launch selections.
 That is the fork at `https://github.com/fpresta0607/no-mistakes` with its pull request 5, and with pull request 4, b05697a, which v5's Codex arguments already need.
 A pi gate needs one more, the fork's pull request 10, which teaches the launch assertion to prove a `pi` selection, so a build without it accepts the Codex and Claude Code chains only.
-The install puts in the build of that fork `install.ps1` pins, commit `710f031`, the head of the fork's main, and each release builds and signs it beside its own programs.
+A gate whose reviewer or fixer runs apart from its primary needs the fork's pull request 310, bb78421, which pins those roles, so a build without it gates only a task whose roles all run on one lane.
+The install puts in the build of that fork `install.ps1` pins, commit `c4383b9`, the head of the fork's main, and each release builds and signs it beside its own programs.
 That main carries pull requests 4 to 10, the fix that gives a gate daemon a temporary directory of its own that outlives the goblin that started it (pull request 32), and the fix that hands the Test step's correction turn the whole response an agent refused, not a snippet of it (pull request 31), and the fix that makes a review with no answer text name what pi ended on and rerun once, not twice (pull request 34).
 It also carries pull requests 46, 49, 52, 56, 60, 61 and 72, and the change that holds a repair round's rereview to what the fix changed, keeping the previous round's verdict on each file the fix left alone that no open finding names (pull request 79).
+It also carries pull request 345, which sets the variables an `axi run --agent-env` names for every agent and step command of that run and of the runs started from it.
 The checked-in `config/pipeline.json` is v7, which needs the same build.
 no-mistakes proves Codex, Claude Code and pi selections only, so a goblin on any other harness has no gate from v6: `goblins spawn` refuses such a task in `no-mistakes` mode there, and `goblins pipeline run` refuses one switched to it.
 
@@ -224,7 +230,11 @@ A still-live original run is named in the contributor's resume instruction, so i
 A run that ended while its goblin was paused, as a daemon restart ends a run whose step was executing, is named with its terminal status.
 Resume does not select validation agents or migrate the frozen policy; an older policy alone does not block contributor restoration.
 Actual validation requires an explicit supported pipeline command, which still enforces the frozen policy and launch selection.
-Continuing retained terminal work requires its supported source-bound continuation, not a replacement run with fresh repair allowance.
+A pause keeps its goblin's gate run running, but a daemon restart or crash ends a run whose step was executing, so a goblin can come back from a pause to its run failed or cancelled before it pushed, where neither `handback`, which needs a published head, nor `respond`, which needs a parked gate, applies (issue 2060).
+The resume note of such a run names its continuation, so the goblin need not ask what it is.
+It reads the run with `goblins pipeline terminal-preflight <id> --run <run>`.
+A run that spent no repair round, counting every predecessor a terminal admission made it continue, loses nothing to a new run, so `goblins pipeline run` starts one.
+A run that spent repair rounds is never replaced, since a new run would begin them again: `goblins pipeline run` refuses it, and its continuation is the CEO's [terminal validation admission](#driving-a-task), `validate-terminal` for its unchanged head or `validate-authored` for a corrected one, which keeps that spending, so the goblin asks the CEO for it with `goblins notify <id> --blocked`.
 
 ## Driving a task
 
@@ -257,6 +267,11 @@ Name each issue the run's pull request closes with `--closes`, as `1996` or `own
 no-mistakes neutralizes the closing words in every text an agent wrote, the intent included, so a `Fixes #N` in the intent closes nothing.
 A no-mistakes before 1.87.0 takes no `--closes`, so a start that names an issue on one starts no run and names the version to update to.
 A reattach to a live run keeps the closing issues it started with.
+Every run starts with the release cooldown of the task's worktree, the variables a goblin's terminal carries, each as `--agent-env NAME=VALUE`, which no-mistakes sets for every agent and step command of that run (issue 1991).
+The shared daemon otherwise starts them with its own environment, so a gate agent's `npm install` or `pip install` would resolve the newest release.
+A no-mistakes whose `axi run` takes no `--agent-env` starts no run, and the command says to update it; a reattach keeps the cooldown its run started with.
+No other start passes it: no-mistakes keeps a run's agent environment in every run admitted from it, by `validate-authored`, `validate-terminal` or an owner correction, as a rerun does.
+So a `validate-terminal` on another branch whose `uv.lock` state differs keeps the first run's `UV_EXCLUDE_NEWER` choice.
 A response's `--instructions` still reach no-mistakes on its command line, which is the only way it takes them, so keep them short and plain.
 An approval `--reason` reaches it the same way, and the driver refuses one that is not a single line of plain text.
 
@@ -278,6 +293,7 @@ Up to v5 the `run` check validates the trusted inputs before invoking native sta
 From v6 the launch selection establishes it: the daemon proves the trusted commit and every role's agents after its own fetch and before any agent starts.
 A repository's `agent` field continues to select only its native primary path and cannot replace the global reviewer or fixer profiles.
 An earlier unresolved run cannot be restarted to reset its budget.
+So a start over a failed or cancelled run that spent repair rounds, counted over the run and every predecessor its terminal admissions continue, as recovery counts them, is refused and names the run's terminal admission, which keeps them; one that spent none, or that completed or had its CI monitor interrupted, does not block a new run.
 A run that is still working is reattached to instead: repeating `goblins pipeline run` with the same branch, submitted head (or current head when no submitted head is recorded) and nonblank retained intent reattaches to it, so no new run starts and no review budget resets.
 This original head comparison remains independent of the handback schema and skips the new-start checks: a clean worktree, the committed gate files, and origin's default branch with its tracking ref, which a merge landing while the hold lasts leaves stale until the next fetch (issue 1586).
 Only when that head comparison fails does the driver look for a published head the caller adopted, and then for an accepted CI handback.
@@ -315,7 +331,8 @@ The selection preserves historical evidence and spending; it does not certify th
 Continuation uses the receipt's recorded selection without requiring the flag again.
 Native still verifies source ancestry and publication identity, and a refusal, including one after a native rebase, remains unresolved rather than being relaxed by the wrapper.
 A latest run that never published is refused before native is asked, with a reason of its own: handback returns only a published run's failed CI.
-A run that failed before it published, such as one Review approved whose Test step then failed preparing, has no route on from its reviewed head that keeps its review until fpresta0607/no-mistakes#323 lands, and until then a new run from the task's branch reviews it again.
+A run that failed before it published, such as one Review approved whose Test step then failed preparing, has no route on from its reviewed head that keeps its review until fpresta0607/no-mistakes#323 lands.
+Until then a new run from the task's branch reviews it again when neither it nor a run its admission continues spent a repair round, and one that spent repair rounds goes on only through the CEO's terminal admission, which keeps them.
 Both handback modes refuse a pending or unreadable policy migration journal without changing the journal, frozen policy, task metadata or audit log.
 Recover the migration explicitly with `goblins pipeline migrate <id>` before requesting handback.
 It requires a native build supporting `axi handback --expect` and receipt-bound `--resume`, plus `--revalidate-publication` when explicitly selected, and refuses when that contract is unavailable.
@@ -448,6 +465,13 @@ The command never resets a branch.
 Pipeline-owned recorded-head repair requires strict ancestry or that proof of a pure gate rebase.
 After native has already returned clean user-owned custody, the registered identity, unpublished-run state, stale-head anchor, and compare-and-swap guards are the authorized boundary, so the driver does not reject legitimate rebases or follow-up commits by comparing them with the stale head.
 
+Two refusals name the state they found and the one way on (issue 2378).
+A run cancelled before it pushed, at its submitted head, stays native branch sync's owner beside a newer run of the same branch that completed and published a head holding it, while `recover` reads the newer run as latest.
+The refusal names both runs and the published head, and says no supported recovery continues it until the engine's owner choice is fixed (no-mistakes issue 335), since native recovery of the older run takes custody at a head the published one has moved past.
+A run whose custody already returned while native branch sync no longer answers for it has no same-run continuation, since native retry refuses a driver-started run (no-mistakes issue 323).
+The refusal says a fresh `goblins pipeline run` is the expected path only when the run spent no repair round, and otherwise names the rounds a fresh run would start over, which `goblins pipeline run` refuses, and names `terminal-preflight` and the CEO's terminal admission, `validate-terminal` or `validate-authored`, which keeps them.
+Rounds are counted over the run and every predecessor its terminal admissions continue, since an admitted child spends none of its own.
+
 A gate's fixer works in the run's worktree, which no-mistakes removes with force once the run is over, so the driver keeps what the fixer left uncommitted before anything takes that worktree away.
 Before unpublished recovery runs any native command, and before a stop aborts a live run, every tracked and untracked change in the run's worktree is committed and pinned under `refs/no-mistakes/recovery/<run>/worktree` in the gate repository, and that commit's parent is the head the run ended at.
 The commit is made from an index of the driver's own, so the goblin's staged and unstaged work is exactly as it left it, and a first capture stands rather than being replaced by a later one a goblin may already be restoring.
@@ -487,7 +511,9 @@ At every level, `goblins gate test` also selects the trusted policy's `guards`, 
 A guard runs separately before vet and package tests, with their `go test` arguments and `-timeout 45m`, only when those package tests do not already cover its whole package, including packages scheduled alone.
 A guard with named `tests` runs exactly those tests, so selecting it does not run unrelated slow tests; without `tests`, it runs its whole package.
 An optional `goos` restricts the guard to that operating system; other platforms list it as deferred with the required and current platforms, never as executed, and its platform's CI remains required.
-`goblins gate prepush` uses the same guard declarations and platform rules, omitting a separate guard run when its selected whole-package tests already cover it.
+`goblins gate prepush` uses the same guard declarations and platform rules.
+It omits a guard's separate run only for a quick package the change itself reaches, which runs whole with the guard among its tests.
+A slow package, or one the change reaches through an import, runs its guard first and its own tests later, so the cheap guard runs before slow packages.
 
 A change reaches the packages that own a changed file, the packages that import one of those directly or transitively from their code or tests, and the packages a contract of the policy names for a changed file.
 A package owns Go build inputs (`.go`, `.s`, `.c`, `.h` or `.syso`) directly in its directory, the files under its `testdata` folder and the files its embed patterns cover, even deleted files, so a doc the binary embeds selects the package that embeds it and a doc nothing embeds selects none.
@@ -559,7 +585,7 @@ A repository with no policy file has no slow packages.
 Every `goblins gate test` run that is not `--plan` leaves a report, and beside it a log of what its commands wrote, in `<user cache folder>\goblins\verify\reports\<project>\`, and its verdict line names the report.
 A run at a level narrower than the change requires ends with one more line naming the level the change requires, which CI's run checks.
 `GOBLINS_VERIFY_DIR` names a folder to use in place of `<user cache folder>\goblins\verify`, so they go under its `reports\<project>\`.
-The report holds the project, the task when a goblin ran it, the commit, where the branch left the default branch, how many files were uncommitted, the level run and the level required with why, the policy and the toolchain, each package with why it was selected, each test run left out with why, and each command with its start, duration, exit code and status: `passed`, `failed`, `over_budget` when a check passed but ran past its budget, or `not_run` when admission or an earlier command failed.
+The report holds the project, the task when a goblin ran it, the commit, where the branch left the default branch, how many files were uncommitted, the level run and the level required with why, the policy and the toolchain, each package with why it was selected, each test run left out with why, and each command with its start, duration, exit code and status: `passed`, `failed`, `over_budget` when a check passed but ran past its budget, `unfinished` when its source read ran out its time limit, or `not_run` when admission or an earlier command failed or was unfinished.
 For the test command it also holds what became of each package: `passed`, `failed`, `build_failed` when it did not compile, `no_tests`, or `unfinished` when its tests were still running as the run ended, with its time, how many tests it ran, the tests that failed and the tests that started and never finished, which is how a test that hangs shows.
 
 The tests run as `go test -json`, and the step prints what `go test` prints without `-v`: a compile error as it arrives, each package's summary line as the package ends, and for a package that did not pass what it printed itself and what its failed and unfinished tests printed.
@@ -612,13 +638,18 @@ The line goes by what a run is and then by when it asked, so urgent work does no
 From the front:
 
 1. A run that has waited two hours, whatever it is, in the order those runs asked.
-2. A gate's Test step, which its wrapper's `--gate-run` names, since a whole delivery waits on it.
-3. A run of a task with `(priority: production-defect)` on its backlog row.
-4. A run of priority 0, of a row that names no priority or one the line does not know, or of no task, which is the place every run had when the line kept only the order they asked in.
-5. Runs of priority 1, then 2, then 3, then `ops-root`, the last of the backlog's rows.
-6. A low-priority run.
+2. A goblin's own turn that has waited 20 minutes, by its task's priority as below.
+3. A gate's Test step, which its wrapper's `--gate-run` names, since a whole delivery waits on it.
+4. A run of a task with `(priority: production-defect)` on its backlog row.
+5. A run of priority 0, of a row that names no priority or one the line does not know, or of no task, which is the place every run had when the line kept only the order they asked in.
+6. Runs of priority 1, then 2, then 3, then `ops-root`, the last of the backlog's rows.
+7. A low-priority run.
 
-Test steps order among themselves by the same task priorities, and a Test step of any priority goes ahead of every run that is not one.
+Test steps order among themselves by the same task priorities, and a Test step of any priority goes ahead of every run that is not one, until a goblin's own turn that asked before it has aged.
+A goblin's own turn, one that is neither a Test step nor low-priority, ages once it has waited 20 minutes and no Test step that asked before it still waits: it then stands ahead of every Test step that asks after it.
+On 2026-11-12 Test steps that kept arriving held a goblin's turn over an hour, among them the `goblins verify fast` its task had to pass before it could publish, and nothing said so (#2416).
+Twenty minutes keeps a Test step first while a few gates are under way, and an aged turn still waits for the Test steps that asked before it.
+An aged turn also stands ahead of a younger goblin turn of a higher priority, since that turn stands behind the Test steps the aged one now goes ahead of.
 Runs of one place keep the order they asked in.
 `goblins gate turn`, `goblins gate test`, `goblins gate prepush` and `goblins verify` each read the priority on their task's row as they join the line, so a row changed later moves no run that already waits.
 A row they cannot read costs a run only its priority: it says so and stands as a run with no task.
@@ -634,7 +665,7 @@ Two hours is a gate's 90 minute turn budget and half an hour more.
 Waits reached an hour on a busy morning, so a limit that short would turn a busy line back into the order runs asked in, just when the order matters, and a limit much longer leaves a goblin idle for more of its session than a whole turn is worth.
 
 Every build orders the line by the names of its places and nothing else, so a run an older build started agrees with a newer one on who goes first.
-An older build's run takes its place by when it asked and never moves to the front.
+An older build's run takes its place by when it asked and never moves to the front or ages.
 
 A command also waits while either physical or commit availability is under the shared floor.
 At capacity one the floor is 4 GiB.
@@ -673,10 +704,12 @@ A run that a gate's agent started waits three minutes at most for its turn, as [
 On 2026-10-14 a run that had waited an hour and fourteen minutes reached the head of the line and ended with no turn on one busy change of the lock.
 
 A gate shows a step's output only once the step has ended, so `goblins gate turns` prints the line from outside while the wait lasts: each run that holds a turn, the runs that wait in the order they take their turns, a low-priority run marked, each after the first with why it stands behind the one before it, as `behind run 1: a gate's Test step goes ahead of a goblin's own turn` or `behind run 2: it asked first`, and the memory when the machine is short of it.
+When runs that asked after the oldest goblin's own turn stand ahead of it, a line after the waiting runs says how long that turn has waited and how many of them stand ahead of it, as `oldest goblin turn: run 4 has waited 1h10m0s, and 3 runs that asked after it stand ahead of it`.
+A goblin's own turn that has waited an hour wakes the CEO once, naming it ([the board's wakes](native-board.md)).
 At capacity two it also shows what each run is expected to use and what each holder uses now.
 When memory and commit, less the about 1 GB a new goblin's session takes, are short of the floor for the line's next run, its last line says the supervisor starts and resumes no goblin by itself, keeping the test slots open, as the scheduler's own line says ([The fleet never idles](contract/dispatch.md#the-fleet-never-idles)).
 `goblins gate turns` shows each light run apart from the slots' holders, as `light, beside the slots:`, with its bound and the memory it uses of what it is expected to use.
-`goblins gate turns --json` gives the same, less why a run stands behind another, as one JSON object, for the board to read, whose keys stay as they are and are always there, an empty line being empty lists: `capacity`, `is_weighed`, `holding`, `light` and `waiting`, each run with `who`, `pid`, `since`, `budget_seconds`, `now`, `estimate_bytes`, `used_bytes` and `is_low_priority`, `memory` with `available_bytes`, `commit_available_bytes`, `floor_bytes` and `is_short`, and `hold`, which says why no goblin starts or resumes by itself and is empty when one may.
+`goblins gate turns --json` gives the same, less why a run stands behind another, as one JSON object, for the board to read, whose keys stay as they are and are always there, an empty line being empty lists: `capacity`, `is_weighed`, `holding`, `light` and `waiting`, each run with `who`, `pid`, `since`, `budget_seconds`, `now`, `estimate_bytes`, `used_bytes`, `is_low_priority` and `is_test_step`, `memory` with `available_bytes`, `commit_available_bytes`, `floor_bytes` and `is_short`, and `hold`, which says why no goblin starts or resumes by itself and is empty when one may.
 Under a run that holds a turn, `goblins gate turns` prints what the run says it is doing, which the run renews every five seconds while its tests run: how many packages are done, which tests are running and for how long, and the last line of its output.
 A new gate run names the task registered for its source worktree, including the owner of an extra worktree, in its turn and report.
 Its turn names the task's goblin with it, as `Zora (cg-example)`, when the task's record names one, and its report keeps the id.
@@ -930,6 +963,8 @@ Recovery preserves failure status, and an executor with pending cleanup must not
 `goblins verify` and `goblins security` run each command of a tier through this executor, as docs/project-runtime.md says.
 They have it read the source the command runs on, once its turn is taken and before it starts and again once it has ended, and the record keeps both reads under `source`.
 `goblins gate test` reads the source of each of its checks the same way and keeps the reads in its report.
+A read cut off by its two-minute limit, as one on a loaded machine is, judged nothing: its check is `unfinished` rather than failed, no check after it runs, named failures left unrun are not reported missing, the report's status is `unfinished`, and the run exits 125 with a last line that starts `go <check> was not judged, since its source read did not finish within its time limit` (issue 1960).
+A command that itself failed still fails its check and the run exits 1, even when the read once it ended was cut off.
 A read is the commit checked out, its own tree, and the git tree of the files git does not ignore as they were on disk, whatever the worktree's own index held.
 So a commit of exactly those files has that tree, and a worktree that matches its commit has the commit's own.
 The read stages them into an index and an object store of its own, which it removes after, so it leaves the worktree's index as it was and writes nothing into the repository.
@@ -1010,7 +1045,9 @@ The wrapper's `--gate-run {run}` argument identifies the full native run in the 
 Its `--test-comparison-sha {test_comparison_sha}` argument carries the comparison already selected by native Test, as one full nonzero 40- or 64-character lowercase hexadecimal object ID.
 The consumer uses that value directly and never resolves another base or reads `runs.base_sha`, which records the previous pushed ref and may be zero.
 Without `--gate-run`, `goblins gate turn` keeps the command's existing environment and does not infer a native binding from directory names.
-The wrapper verifies the gate's project and branch through the native run database, finds the owning fleet task through the source repository's worktree list, and checks the task's recorded project and worktree against the home's allowed locations.
+The wrapper verifies the gate's project and branch through the native run database, finds the owning fleet task from the source repository's own worktree records, each worktree's HEAD and gitdir under its common git folder, and checks the task's recorded project and worktree against the home's allowed locations.
+It reads those records rather than running `git worktree list`, which took 12.8 s in a project of 48 worktrees on a loaded host, past the lookup's 5 second budget, and refused every gate run's Test there (issue 2627).
+It finds the common git folder through a `.git` file and the `commondir` it leads to, skips a record that is half made or half removed, as git does, and runs `git worktree list --porcelain -z` within its own 30 second budget only for a repository that keeps its refs in a reftable, whose HEAD files name no branch.
 The managed checkout must have the run's recorded HEAD and canonical native repository.
 The command must run there or in a separate base clone whose top level, local origin and HEAD match the managed checkout and the supplied native Test comparison.
 It never selects an environment from a client variable or another project's record.
