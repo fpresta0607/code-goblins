@@ -69,6 +69,9 @@ type Snapshot struct {
 	Checking   bool             `json:"checking"`
 	Error      string           `json:"error,omitempty"`
 	CheckedAt  time.Time        `json:"checked_at"`
+	// NotRunning is set when the goblin is not running, and its connections
+	// are checked again when it resumes (#2547).
+	NotRunning bool `json:"not_running,omitempty"`
 }
 
 type RuntimeIdentity struct {

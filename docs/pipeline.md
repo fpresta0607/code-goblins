@@ -44,9 +44,11 @@ The driver does not rewrite repository configuration, and non-CEO no-mistakes us
 ## A gate on its task's own harness
 
 Policy v6 names no harness, and neither does v7.
-Every gate role of a task, which is review, review fix, test, document and lint, runs on the harness that task's goblin runs on, with the model and effort its record holds.
+Every gate role of a task, which is review, review fix, test, document and lint, runs on the harness that task's goblin runs on.
 A Claude Code goblin's gate runs Claude Code, a Codex goblin's gate runs Codex, and a pi goblin's gate runs pi.
-A task whose record names no model or no effort takes the machine config's `agent_config.<harness>` value, which is the operator's default for that harness.
+Each role runs on the lane the task's spawn chose for it from its route lane's roles (docs/contract/dispatch.md, Model routing): review on the review lane, review fixes on the fix lane, and the Test step, with document and lint, on the verify lane, since the primary agent runs them.
+A role its spawn chose no lane for runs with the model and effort the task's record holds, as every role did before roles, and so does every role of a task spawned before roles or switched to another engine since.
+A task whose record names no model or no effort, or a role lane that names no effort, takes the machine config's `agent_config.<harness>` value, which is the operator's default for that harness.
 A gate with neither is refused, and the refusal names both ways to name them: `goblins switch <id> --model <model> --effort <effort>`, or `agent_config.<harness>`.
 The harness is read from the task's record when a run starts and is not frozen in the snapshot, so after `goblins switch` the next run follows the new harness.
 A run already started keeps the agents it started with.
@@ -57,15 +59,17 @@ One no-mistakes daemon serves every goblin, and v1.75.1 reads its agent chain fr
 Neither differs between two tasks of one repository, and its one per-run pin, `--model` with `--effort`, serves pi alone.
 So a run carries its own agents as a launch selection, which `goblins pipeline run` writes and no-mistakes proves.
 
-1. The driver writes `state/tasktmp/<id>/launch-selection-<launch>.json`, a file of its own for each start: the trusted default-branch commit, `"apply": true`, and one ordered chain for the primary, reviewer and fixer roles.
-2. It starts the run with `--launch-nonce`, `--validation-generation`, which is the task's frozen policy hash, and `--launch-assertion <file>`, and prints the chain on a `pipeline gate agent:` line.
-3. The daemon replaces that run's agent chain, each named harness's model and effort, and every review role with the selection, for that run alone and in memory.
+1. The driver writes `state/tasktmp/<id>/launch-selection-<launch>.json`, a file of its own for each start: the trusted default-branch commit, `"apply": true`, and one ordered chain each for the primary, the reviewer and the fixer roles.
+2. It starts the run with `--launch-nonce`, `--validation-generation`, which is the task's frozen policy hash, and `--launch-assertion <file>`, and prints the primary chain on a `pipeline gate agent:` line, and a reviewer or fixer apart from it on a `pipeline gate reviewer:` or `pipeline gate fixer:` line.
+3. The daemon replaces that run's agent chain and each named harness's model and effort with the primary chain, and pins `review_agents.reviewer` and `review_agents.fixer` to a reviewer or fixer chain that differs from it, for that run alone and in memory.
+   A pinned fixer takes no fallback, so a fixer apart from the primary runs its own lane alone.
 4. It then proves the selection as it proves any launch assertion: against a fresh fetch of the trusted commit and against the arguments each agent will be started with, before a run exists and before any agent starts.
 5. The selection and its proof are stored with the run, where neither can change, and a daemon that restarts proves the stored selection again before it recovers the run.
 
 Nothing edits the machine's `config.yaml` for a run, so two tasks on different harnesses gate at once under one daemon and one config.
 A no-mistakes build that cannot apply a selection refuses the launch before it takes the branch: a build with no launch assertion rejects the flag, and a build that proves but cannot apply rejects the `apply` field.
 The driver then says which build v6 and later need.
+A build that applies a selection but runs every role on one chain refuses a reviewer or fixer apart from the primary, and the driver names the build a gate role needs.
 A repository's own `agent` field does not stop a start from v6, because the run's selection replaces it.
 
 ### A second harness only when named
@@ -97,7 +101,8 @@ A task frozen before the fallback was named takes it with `goblins pipeline migr
 Policy v6 needs a no-mistakes build that applies launch selections.
 That is the fork at `https://github.com/fpresta0607/no-mistakes` with its pull request 5, and with pull request 4, b05697a, which v5's Codex arguments already need.
 A pi gate needs one more, the fork's pull request 10, which teaches the launch assertion to prove a `pi` selection, so a build without it accepts the Codex and Claude Code chains only.
-The install puts in the build of that fork `install.ps1` pins, commit `710f031`, the head of the fork's main, and each release builds and signs it beside its own programs.
+A gate whose reviewer or fixer runs apart from its primary needs the fork's pull request 310, bb78421, which pins those roles, so a build without it gates only a task whose roles all run on one lane.
+The install puts in the build of that fork `install.ps1` pins, commit `853d3fd`, the head of the fork's main, and each release builds and signs it beside its own programs.
 That main carries pull requests 4 to 10, the fix that gives a gate daemon a temporary directory of its own that outlives the goblin that started it (pull request 32), and the fix that hands the Test step's correction turn the whole response an agent refused, not a snippet of it (pull request 31), and the fix that makes a review with no answer text name what pi ended on and rerun once, not twice (pull request 34).
 It also carries pull requests 46, 49, 52, 56, 60, 61 and 72, and the change that holds a repair round's rereview to what the fix changed, keeping the previous round's verdict on each file the fix left alone that no open finding names (pull request 79).
 The checked-in `config/pipeline.json` is v7, which needs the same build.

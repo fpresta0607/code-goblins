@@ -613,6 +613,9 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			}
 			return fmt.Errorf("%s and no ordinary response or retry was attempted", recorded)
 		}
+		if args[0] == "run" && selection.Policy.Version > 5 && isRoleChainRefused(result) {
+			return fmt.Errorf("pipeline: native command exited %d. This no-mistakes build runs every gate role on one chain, and task %s reviews, verifies or fixes on a lane of its own, which needs a build with no-mistakes pull request 310. See docs/pipeline.md for the build that does", result.ExitCode, meta.ID)
+		}
 		if args[0] == "run" && selection.Policy.Version > 5 && isLaunchSelectionUnknown(result) {
 			return fmt.Errorf("pipeline: native command exited %d. This no-mistakes build takes no launch selection, which policy version %d needs to run a gate on its task's own harness. See docs/pipeline.md for the build that does", result.ExitCode, selection.Policy.Version)
 		}

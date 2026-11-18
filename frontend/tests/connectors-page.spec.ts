@@ -134,7 +134,7 @@ for (const width of [1440, 390]) {
 
     // Assert
     await expect(yours.locator(".connector-open")).toHaveText(["Supabase"]);
-    await expect(tab(main, "Discover")).toHaveText("Discover0");
+    await expect(main.getByRole("list", { name: "Connectors to discover" })).toHaveCount(0);
 
     // Act
     await main.getByRole("searchbox", { name: "Search connectors" }).fill("zzz");
@@ -142,6 +142,71 @@ for (const width of [1440, 390]) {
     // Assert
     await expect(main.getByText("Nothing matches \"zzz\".", { exact: true })).toBeVisible();
     await expect(yours).toHaveCount(0);
+  });
+
+  // The Overlord, 2026-11-13: "I can't even search. It needs to be in the
+  // yours list to actually search by name" (#2547). Words in the search show
+  // every match whichever list holds it, his own first, each list under its
+  // name, and Nothing matches only when no connector and no login matches.
+  test(`a search finds a connector whichever list holds it, his own first, and says Nothing matches only when nothing does, at ${width}px`, async ({ page }, testInfo) => {
+    // Arrange
+    const supervisor = fleet();
+    supervisor.logins = [{ id: "sentinel-login", provider: "Sentinel Cloud", account: "Made-up Account", projects: ["code-goblins"], signed_in: true, signed_in_at: CHECKED_AT, used_at: CHECKED_AT, signs_out_after_fetch: false, in_use: false }];
+    const main = await open(page, supervisor, width);
+    const search = main.getByRole("searchbox", { name: "Search connectors" });
+    const yours = main.getByRole("list", { name: "Your connectors" });
+    const discover = main.getByRole("list", { name: "Connectors to discover" });
+    const logins = main.getByRole("list", { name: "Browser logins" });
+
+    // Act: a name only Discover holds, with Yours open.
+    await expect(tab(main, "Yours")).toHaveAttribute("aria-pressed", "true");
+    await search.fill("sentry");
+
+    // Assert
+    await expect(discover.locator(".connector-open")).toHaveText(["Sentry"]);
+    await expect(row(main, "Sentry").getByRole("button", { name: "Connect Sentry", exact: true })).toBeVisible();
+    await expect(yours).toHaveCount(0);
+    await expect(main.getByText(/^Nothing matches/)).toHaveCount(0);
+
+    // Act: words both lists and a login hold.
+    await search.fill("s");
+
+    // Assert: his own first, then those on offer, then logins, each under its
+    // name with its count, in the order the page lists them.
+    await expect(main.locator(".connectors-group-head")).toHaveText(["Yours5", "Discover1", "Browser logins1"]);
+    await expect(yours.locator(".connector-open")).toHaveText(["Acme Internal", "Chrome DevTools", "Context7", "GitHub", "Supabase"]);
+    await expect(discover.locator(".connector-open")).toHaveText(["Sentry"]);
+    await expect(logins.getByRole("listitem")).toHaveCount(1);
+    const order = await main.locator(".connectors-group-head, ul[aria-label]").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("aria-label") ?? node.textContent));
+    expect(order).toEqual(["Yours5", "Your connectors", "Discover1", "Connectors to discover", "Browser logins1", "Browser logins"]);
+    await expectFits(page, main);
+    await page.screenshot({ path: testInfo.outputPath(`connectors-search-both-${width}.png`), fullPage: true });
+
+    // Act: words only his own hold.
+    await search.fill("supa");
+
+    // Assert
+    await expect(main.locator(".connectors-group-head")).toHaveText(["Yours1"]);
+    await expect(yours.locator(".connector-open")).toHaveText(["Supabase"]);
+    await expect(discover).toHaveCount(0);
+
+    // Act: words nothing holds.
+    await search.fill("zzz");
+
+    // Assert
+    await expect(main.getByText("Nothing matches \"zzz\".", { exact: true })).toBeVisible();
+    await expect(main.locator(".connectors-group-head, .connector-rows")).toHaveCount(0);
+    await expectFits(page, main);
+    await page.screenshot({ path: testInfo.outputPath(`connectors-search-none-${width}.png`) });
+
+    // Act: an empty search brings the tabs back as he left them.
+    await search.fill("");
+
+    // Assert
+    await expect(tab(main, "Yours")).toHaveAttribute("aria-pressed", "true");
+    await expect(yours.locator(".connector-open")).toHaveCount(7);
+    await expect(discover).toHaveCount(0);
+    await expect(main.locator(".connectors-group-head")).toHaveCount(0);
   });
 
   test(`a connector's own page says what it is, which goblins can use it and its tools in two groups, and its way back returns to the list, at ${width}px`, async ({ page }, testInfo) => {

@@ -215,7 +215,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 
 	taskClass, routeLane, repairRounds := *class, "explicit", 0
 	var route, routeNotice string
-	var implement routing.ExecutionLane
+	var implement, review, verify, fix routing.ExecutionLane
 	routeReason := "explicit choice"
 	if routed {
 		if len(inputs.Table.Lanes) == 0 {
@@ -260,21 +260,27 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		}
 		route = routeLine(choice, assessment, inputs.Table.Source, skipped)
 		// The lead hands implementation slices to its lane's implement role,
-		// which ends on the lead itself when none of its lanes can run.
+		// which ends on the lead itself when none of its lanes can run, and
+		// its gate reviews, verifies and fixes on those roles' lanes.
 		if len(overrides) == 0 {
-			implementChoice, err := inputs.Table.ChooseRole(routing.RoleImplement, choice.ExecutionLane, usable)
-			if err != nil {
-				fmt.Fprintf(stderr, "goblins spawn: %v\n", err)
-				return 1
-			}
-			if implementChoice.Wanted != choice.Name {
-				route += " implement=" + implementChoice.Name
-				if implementChoice.Wanted != implementChoice.Name {
-					route += " implement_wanted=" + implementChoice.Wanted + " implement_quota=" + strings.Join(implementChoice.Notes, "; ")
+			for _, role := range []struct {
+				name string
+				lane *routing.ExecutionLane
+			}{{routing.RoleImplement, &implement}, {routing.RoleReview, &review}, {routing.RoleVerify, &verify}, {routing.RoleFix, &fix}} {
+				roleChoice, err := inputs.Table.ChooseRole(role.name, choice.ExecutionLane, usable)
+				if err != nil {
+					fmt.Fprintf(stderr, "goblins spawn: %v\n", err)
+					return 1
 				}
-			}
-			if implementChoice.Name != choice.Name {
-				implement = implementChoice.ExecutionLane
+				if roleChoice.Wanted != choice.Name {
+					route += " " + role.name + "=" + roleChoice.Name
+					if roleChoice.Wanted != roleChoice.Name {
+						route += " " + role.name + "_wanted=" + roleChoice.Wanted + " " + role.name + "_quota=" + strings.Join(roleChoice.Notes, "; ")
+					}
+				}
+				if roleChoice.Name != choice.Name {
+					*role.lane = roleChoice.ExecutionLane
+				}
 			}
 		} else {
 			route += " overrides=" + strings.Join(overrides, " ")
@@ -374,6 +380,9 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		RouteLane:   routeLane,
 		RouteReason: routeReason,
 		Implement:   implement,
+		Review:      review,
+		Verify:      verify,
+		Fix:         fix,
 		Capsule:     writeCapsule,
 		// The read of teammates' work answers before the terminal launches.
 		BeforeLaunch: checkTeammates,

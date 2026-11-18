@@ -2,6 +2,7 @@ package proc
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -97,10 +98,10 @@ func TestAnInstanceIsTheBootIDAndTheStartTicksOfItsProcess(t *testing.T) {
 	}
 }
 
-// A process whose exec has not yet set up its environment shows its end as
-// 0, as a kernel thread does, which never has one; a kernel older than 3.5
-// shows no end at all.
-func TestParseStatusTellsAnExecSettingUpItsEnvironmentFromAKernelThread(t *testing.T) {
+// A process whose exec has not yet set up its arguments and environment
+// shows the environment's end as 0, as a kernel thread does, which never has
+// one; a kernel older than 3.5 shows no end at all.
+func TestParseStatusTellsAnExecSettingUpFromAKernelThread(t *testing.T) {
 	for _, test := range []struct {
 		name            string
 		flags, end      string
@@ -132,8 +133,8 @@ func TestParseStatusTellsAnExecSettingUpItsEnvironmentFromAKernelThread(t *testi
 			if err != nil {
 				t.Fatal(err)
 			}
-			if read.isEnvironmentPending != test.shouldBePending {
-				t.Errorf("isEnvironmentPending = %t, want %t", read.isEnvironmentPending, test.shouldBePending)
+			if read.isExecSettingUp != test.shouldBePending {
+				t.Errorf("isExecSettingUp = %t, want %t", read.isExecSettingUp, test.shouldBePending)
 			}
 		})
 	}
@@ -268,5 +269,41 @@ func TestAJustStartedChildReadsAsStartingAsThisUserAndInitDoesNot(t *testing.T) 
 				t.Errorf("isStartingAsThisUser(%d) = %t, want %t", pid, isStarting, test.shouldBeStarting)
 			}
 		})
+	}
+}
+
+// A child that has exited and is not yet collected keeps its ID as a zombie,
+// state Z in its line of /proc (proc(5)), and runs no program, so it has no
+// arguments: Arguments refuses it, never reads it as started with none.
+func TestArgumentsRefusesAChildThatExitedBeforeItIsCollected(t *testing.T) {
+	// Arrange
+	child := exec.Command("sleep", "600")
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = child.Wait() })
+	if err := child.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	statFile := fmt.Sprintf("/proc/%d/stat", child.Process.Pid)
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(time.Millisecond) {
+		line, err := os.ReadFile(statFile)
+		if err != nil {
+			t.Fatalf("the killed child was gone before the test read it, so the test proves nothing: %v", err)
+		}
+		if fields := strings.Fields(string(line[strings.LastIndexByte(string(line), ')')+1:])); len(fields) > 0 && fields[0] == "Z" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the killed child did not become a zombie within 30 seconds")
+		}
+	}
+
+	// Act
+	arguments, err := Arguments(child.Process.Pid)
+
+	// Assert
+	if !errors.Is(err, ErrCommandLineUnreadable) {
+		t.Errorf("Arguments of an exited child = %q, %v; want an error that wraps ErrCommandLineUnreadable", arguments, err)
 	}
 }

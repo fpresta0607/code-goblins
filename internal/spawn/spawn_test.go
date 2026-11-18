@@ -225,6 +225,9 @@ func TestSpawnRejectsMetadataBearingControlsBeforeAnyMutation(t *testing.T) {
 		{"implement lane", func(req *Request) { req.Implement.Name = "light\nbackend=other" }},
 		{"implement model", func(req *Request) { req.Implement.Model = "light-model\nwindow=other" }},
 		{"implement effort", func(req *Request) { req.Implement.Effort = "high\rmalformed" }},
+		{"review lane", func(req *Request) { req.Review.Name = "strong\nbackend=other" }},
+		{"verify model", func(req *Request) { req.Verify.Model = "check-model\nwindow=other" }},
+		{"fix effort", func(req *Request) { req.Fix.Effort = "high\rmalformed" }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
