@@ -129,7 +129,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		flags.StringVar(&response.Action, "action", "", "fix or approve")
 		flags.StringVar(&response.Findings, "findings", "", "comma-separated finding IDs")
 		flags.StringVar(&response.Instructions, "instructions", "", "guidance for selected findings")
-		flags.StringVar(&response.Accept, "accept", "", "with approve: every open ask-user and auto-fix finding the CEO, or the task's own goblin on its run's spent review, accepts as it stands")
+		flags.StringVar(&response.Accept, "accept", "", "with approve: every open ask-user and auto-fix finding the CEO, or the task's own goblin on its run's spent review, accepts as it stands; with fix: every open one the CEO declines to fix")
 		flags.StringVar(&response.Reason, "reason", "", "with approve of the test step: the operator's reason the native exception record keeps")
 		flags.StringVar(&scopeDecision, "scope-decision", "", "with a Review fix: an answered task decision sequence whose exact accepted scope reaches native; a blank one is refused")
 	} else if isAdmission {
