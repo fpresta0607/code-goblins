@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -614,8 +615,9 @@ func TestANativeCEOsSendFromAProcessWhoseParentHasExitedNamesItAsSender(t *testi
 // sits alone on the prompt line proves nothing either, since Claude Code runs
 // that hook as it queues a line into a turn, as one its stop hook opened as
 // the message arrived (#2541), nor does one whose screen, read as it
-// redraws, joins two frames and shows no prompt line at all (#2642). Typed,
-// it is the harness's, so it offers no Send now.
+// redraws, joins two frames and shows the prompt line as a rule or twice
+// (#2642), even where every read to the end of the wait does. Typed, it is
+// the harness's, so it offers no Send now.
 func TestADeliveryToANativeCEOWhoseScreenTurnsToWorkWithoutItsHookIsSentNotDelivered(t *testing.T) {
 	for _, test := range []struct {
 		name string
@@ -624,13 +626,15 @@ func TestADeliveryToANativeCEOWhoseScreenTurnsToWorkWithoutItsHookIsSentNotDeliv
 		// prompt hook reports each line it takes.
 		lines []string
 		// tear, when set, joins two frames in the first screen read after
-		// the hook reported.
-		tear func([]string) ([]string, bool)
+		// the hook reported, or, isTornToTheEnd, in every read after it.
+		tear           func([]string) ([]string, bool)
+		isTornToTheEnd bool
 	}{
 		{name: "its hook silent", lines: []string{"harness", "keep"}},
 		{name: "its hook reporting it", lines: []string{"harness", "keep", "hooked"}},
 		{name: "its hook reporting it, its prompt line read as a rule", lines: []string{"harness", "keep", "hooked"}, tear: ruleOverRowAbove},
 		{name: "its hook reporting it, its prompt line read twice", lines: []string{"harness", "keep", "hooked"}, tear: promptLineTwice},
+		{name: "its hook reporting it, its prompt line read as a rule to the end of the wait", lines: []string{"harness", "keep", "hooked"}, tear: ruleOverRowAbove, isTornToTheEnd: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -647,10 +651,21 @@ func TestADeliveryToANativeCEOWhoseScreenTurnsToWorkWithoutItsHookIsSentNotDeliv
 			connection := &CEOConnection{State: stateDir}
 			if test.tear != nil {
 				started := time.Now()
-				connection.ReadScreen = tornOnce(host.ReadScreen, test.tear, func() bool {
+				isReported := func() bool {
 					isReported, err := NativeHostPromptSince(stateDir, "ceo", started)
 					return err == nil && isReported
-				})
+				}
+				connection.ReadScreen = tornOnce(host.ReadScreen, test.tear, isReported)
+				if test.isTornToTheEnd {
+					connection.ReadScreen = func(record host.Record) ([]string, error) {
+						screen, err := host.ReadScreen(record)
+						if err != nil || !isReported() {
+							return screen, err
+						}
+						torn, _ := test.tear(slices.Clone(screen))
+						return torn, nil
+					}
+				}
 			}
 
 			// Act

@@ -939,8 +939,9 @@ func TestADeliveryToACEOInATurnReturnsOnceItsSubmitKeyWent(t *testing.T) {
 // key is pressed again while the words show over the row it added, and words
 // that never leave the prompt line are taken back off it and read Not sent. A
 // screen read that joins two frames of a redraw, as one of a loaded machine
-// can, shows no prompt line at all and so never shows the words gone from it
-// (#2635).
+// can, shows no prompt line at all and so never shows the words gone from it,
+// nor do such reads to the end of the wait, which leave the message unsent
+// with nothing to show where it went (#2635).
 func TestHisMessageInTheCEOsTurnIsQueuedOnlyOnceItLeavesThePromptLine(t *testing.T) {
 	previous := nativeShown
 	nativeShown = 2 * time.Second
@@ -949,12 +950,13 @@ func TestHisMessageInTheCEOsTurnIsQueuedOnlyOnceItLeavesThePromptLine(t *testing
 		name, mode string
 		isQueued   bool
 		// isTorn has the first screen read after the harness took a key
-		// join two frames.
-		isTorn bool
+		// join two frames, and isTornToTheEnd every read after it.
+		isTorn, isTornToTheEnd bool
 	}{
 		{name: "claude-busy-lost-enter", mode: "claude-busy-lost-enter", isQueued: true},
 		{name: "claude-busy-enters-lost", mode: "claude-busy-enters-lost", isQueued: false},
 		{name: "claude-busy-enters-lost read torn", mode: "claude-busy-enters-lost", isQueued: false, isTorn: true},
+		{name: "claude-busy-enters-lost read torn to the end", mode: "claude-busy-enters-lost", isQueued: false, isTornToTheEnd: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
@@ -965,6 +967,16 @@ func TestHisMessageInTheCEOsTurnIsQueuedOnlyOnceItLeavesThePromptLine(t *testing
 			if tc.isTorn {
 				connection.ReadScreen = tornOnce(host.ReadScreen, ruleOverRowAbove, func() bool { return len(terminal.lines(t)) > 1 })
 			}
+			if tc.isTornToTheEnd {
+				connection.ReadScreen = func(record host.Record) ([]string, error) {
+					screen, err := host.ReadScreen(record)
+					if err != nil || len(terminal.lines(t)) <= 1 {
+						return screen, err
+					}
+					torn, _ := ruleOverRowAbove(slices.Clone(screen))
+					return torn, nil
+				}
+			}
 			service := &Service{Store: store, Options: Options{CEO: connection}}
 
 			// Act
@@ -972,6 +984,12 @@ func TestHisMessageInTheCEOsTurnIsQueuedOnlyOnceItLeavesThePromptLine(t *testing
 
 			// Assert
 			input := strings.Join(terminal.lines(t), "\n")
+			if tc.isTornToTheEnd {
+				if err == nil || result.Reason == heldByCEO || strings.Contains(input, "queued ") {
+					t.Errorf("deliverMessage = %+v, %v with terminal input %q; want it not sent, not queued in the turn", result, err, input)
+				}
+				return
+			}
 			if tc.isQueued {
 				if err != nil || result.Reason != heldByCEO || result.Awaiting == nil || strings.Count(input, "queued stop and rebase") != 1 {
 					t.Errorf("deliverMessage = %+v, %v with terminal input %q; want it queued in the turn once, after its submit key was pressed again", result, err, input)
