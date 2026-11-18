@@ -96,7 +96,7 @@ func liveTemps(ctx context.Context, images []string, safeTemp string) ([]LiveTem
 	asked := map[string]bool{}
 	for _, image := range images {
 		runtime := filepath.Dir(image)
-		key := strings.ToLower(runtime)
+		key := fsx.PathKey(runtime)
 		if asked[key] {
 			continue
 		}
@@ -174,7 +174,7 @@ func isWithin(path, folder string) bool {
 				return false
 			}
 			for index, name := range folderRest {
-				if !strings.EqualFold(below[index], name) {
+				if !fsx.EqualPath(filepath.Join(dir, below[index]), filepath.Join(dir, name)) {
 					return false
 				}
 			}

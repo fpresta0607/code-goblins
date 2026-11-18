@@ -661,7 +661,6 @@ func TestExclusiveLeaseKeyCanonicalizesRelativePaths(t *testing.T) {
 	dir := t.TempDir()
 	want := exclusiveLeaseKey(dir, name)
 	for _, variant := range []string{
-		strings.ToUpper(filepath.Clean(dir)),
 		filepath.ToSlash(dir),
 		`\\?\` + filepath.Clean(dir),
 	} {
@@ -669,17 +668,51 @@ func TestExclusiveLeaseKeyCanonicalizesRelativePaths(t *testing.T) {
 			t.Fatalf("exclusiveLeaseKey(%q)=%q, want %q", variant, got, want)
 		}
 	}
+	// A folder in another case shares the key exactly where the file system
+	// opens it by that spelling, as Windows does.
+	caseVariant := strings.ToUpper(filepath.Clean(dir))
+	_, statErr := os.Stat(caseVariant)
+	if isSameKey, isOnePath := exclusiveLeaseKey(caseVariant, name) == want, statErr == nil; isSameKey != isOnePath {
+		t.Fatalf("exclusiveLeaseKey(%q) is %q's: %t, want %t", caseVariant, dir, isSameKey, isOnePath)
+	}
 }
 
-func TestAcquireExclusiveNamedContendsAcrossWindowsCaseVariant(t *testing.T) {
-	dir := t.TempDir()
+// A lease taken through a folder spelled in another case is the held one
+// exactly where the file system reads the spellings as one folder, as
+// Windows does; elsewhere the two are two folders and two leases.
+func TestAcquireExclusiveNamedContendsAcrossACaseVariantWhereTheFileSystemIgnoresCase(t *testing.T) {
+	// Arrange
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "target")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	caseVariant := filepath.Join(parent, "TARGET")
+	_, statErr := os.Stat(caseVariant)
+	isOnePath := statErr == nil
+	if !isOnePath {
+		if err := os.Mkdir(caseVariant, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 	name := ".spawn-task.lock"
 	first, err := AcquireExclusiveNamed(dir, name)
 	if err != nil {
 		t.Fatalf("first AcquireExclusiveNamed: %v", err)
 	}
-	caseVariant := strings.ToUpper(filepath.Clean(dir))
-	if _, err := AcquireExclusiveNamed(caseVariant, name); !errors.Is(err, ErrHeld) {
+
+	// Act
+	_, err = AcquireExclusiveNamed(caseVariant, name)
+
+	// Assert
+	if !isOnePath {
+		if err != nil {
+			t.Fatalf("AcquireExclusiveNamed of the other folder %s: %v, want its own lease", caseVariant, err)
+		}
+		if err := ReleaseExclusiveNamed(caseVariant, name); err != nil {
+			t.Fatalf("ReleaseExclusiveNamed cleanup: %v", err)
+		}
+	} else if !errors.Is(err, ErrHeld) {
 		t.Fatalf("case-variant AcquireExclusiveNamed error = %v, want ErrHeld", err)
 	}
 	holder, err := ReadNamed(dir, name)

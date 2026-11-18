@@ -48,7 +48,7 @@ The untagged files that import `golang.org/x/sys/windows` are the desktop window
 These `!windows` files already do the Linux job and need no new work of their own:
 
 - `internal/disk` reads free space with `statfs`.
-- `internal/gatehome` links with `os.Symlink`, though its link check (`sameFolder`), which builds everywhere, still folds case (see [Locks, files and paths](#locks-files-and-paths)).
+- `internal/gatehome` links with `os.Symlink`, and its link check (`sameFolder`) compares by the file system's case rule (`fsx.EqualPath`).
 - `internal/fsx` opens, renames, resolves and removes with the plain calls, everything but `RemoveFileWhen`, and `fsx.SamePath` compares by the file system's case rule (`fsx.EqualPath`).
 - `internal/auth` keeps each secret in its own file with mode 0600 when there is no Credential Manager.
 - `internal/pipeline` checks that an agent's process is alive with `kill(pid, 0)`.
@@ -142,12 +142,12 @@ The host's protocol (a token handshake, then typed frames) is the same on every 
   The gate's idle lock takes the exclusive `flock` a no-mistakes daemon takes on its `daemon.lock` off Windows, and the shared config it replaces keeps its mode, as `ReplaceFileW` keeps its access list.
   The update's hold has no counterpart in an open file, which keeps nobody from writing or replacing it, so it comes with its one caller, the updater's way back to the previous build, in layer 8, and refuses until then.
 - **Must change, not only port:** code that builds on every system compares paths without regard to case, as Windows does.
-  `fsx.SamePath`, for its 26 callers in program files, and `internal/pathguard`'s check of the folders it guards compare by the file system's case rule (`fsx.EqualPath`), but about 50 more program files compare paths with `strings.EqualFold`, among them `internal/gatehome`, `internal/home`, `internal/harnessmap`, `internal/pipeline`, `internal/update`, `internal/uninstall`, `internal/codexguard`, `internal/fleettree`, `internal/pathguard` and `cmd/goblins`.
-  11 more lower a whole path with `strings.ToLower` to compare it or use it as a key: `cmd/goblins/gate_run_end.go`, `internal/lock/lock.go`, `internal/lifecycle/processes.go`, `internal/supervisor/pages.go`, `internal/janitor/worktrees.go`, `internal/watch/janitor.go`, `internal/gatetest/select.go` and `match.go`, `internal/cleanup/outcome.go`, `internal/doctor/fix.go` and `internal/runtime/owner.go`.
-  Some of the `strings.EqualFold` files do the same beside it, among them `internal/monitor/polls.go`, `internal/janitor/temp.go`, `internal/homemove/homemove.go` and `internal/supervisor/runs.go`, and `internal/supervisor/kept_reads.go` keys a folder's file names by their lowercase form.
+  `fsx.SamePath`, for its 26 callers in program files, `internal/pathguard`'s check of the folders it guards, and the path comparisons of `internal/gatehome`, `internal/home`, `internal/homemove`, `internal/lock`, `internal/reap`, `internal/runtime`, `internal/state` and `internal/worktree` compare by the file system's case rule (`fsx.EqualPath`) with the system's separator, but about 40 more program files compare paths with `strings.EqualFold`, among them `internal/harnessmap`, `internal/pipeline`, `internal/update`, `internal/uninstall`, `internal/codexguard`, `internal/fleettree`, `internal/pathguard` and `cmd/goblins`.
+  9 more lower a whole path with `strings.ToLower` to compare it or use it as a key: `cmd/goblins/gate_run_end.go`, `internal/lifecycle/processes.go`, `internal/supervisor/pages.go`, `internal/janitor/worktrees.go`, `internal/watch/janitor.go`, `internal/gatetest/select.go` and `match.go`, `internal/cleanup/outcome.go` and `internal/doctor/fix.go`.
+  Some of the `strings.EqualFold` files do the same beside it, among them `internal/monitor/polls.go`, `internal/janitor/temp.go` and `internal/supervisor/runs.go`, and `internal/supervisor/kept_reads.go` keys a folder's file names by their lowercase form.
   Some of the same code also takes `\` as the path separator, which a Linux path never holds.
-  `internal/runtime/owner.go` rewrites `/` as `\` before it compares, `internal/doctor/fix.go` and `internal/homemove/homemove.go` end a folder prefix with `\`, and `internal/fleettree/reader.go` looks for `\` before a task's output file in a command line.
-  None of these fails a Linux build, so the compiler does not find them; on Linux `internal/supervisor/pages.go`, for one, would make `Report.html` and `report.html` one page, and `internal/runtime/owner.go` would match a worktree only by its exact folder, never a folder below it.
+  `internal/doctor/fix.go` ends a folder prefix with `\`, and `internal/fleettree/reader.go` looks for `\` before a task's output file in a command line.
+  None of these fails a Linux build, so the compiler does not find them; on Linux `internal/supervisor/pages.go`, for one, would make `Report.html` and `report.html` one page.
   On Linux two paths that differ only in case are two folders, so all of them compare exactly there.
   `internal/connections` folds case only in its Windows file, so its Linux file compares exactly from the start.
   About 80 program files spell a program as `name.exe`; each gets the system's own name.
@@ -303,7 +303,7 @@ A layer's Linux code sits beside the Windows code under a build tag.
    Until layer 8 turns lingering on, the socket folder lasts only while the user is signed in.
    The primary registration names its process by instance, as the lock's record does (see [Process identity](#process-identity)).
    It comes in three pull requests: the primary transport and the registration by instance, then the run requests on a Unix socket with its peer check, then path comparison and the folders `internal/pathguard` guards.
-   Path comparison comes in two of its own: first the rule, `fsx.EqualPath`, `fsx.HasPathPrefix` and `fsx.PathKey`, which `fsx.SamePath` and `internal/pathguard` take, then the code that compares paths itself and moves to that rule.
+   Path comparison comes in two of its own: first the rule, `fsx.EqualPath`, `fsx.HasPathPrefix` and `fsx.PathKey`, which `fsx.SamePath` and `internal/pathguard` take, then the code that compares paths itself and moves to that rule, in three pull requests by package: the homes, worktrees and the reaper's path forms first, then the supervisor and the packages around it, then the rest with `cmd/goblins`.
    The host's socket comes with the native terminal in layer 5, since no host runs off Windows before it, and uses the run requests' folder and peer check.
 5. **The native terminal.** `internal/host` on a pseudo terminal, each host and the supervisor the launcher starts in a transient user scope of its own, the terminal kept off the cores left to the Overlord's own apps with `sched_setaffinity` and the core kinds read from `/sys`, `attach` and the onboarding menu in raw mode, and `spawn` launching on Linux.
    The terminal binding names its process by instance.

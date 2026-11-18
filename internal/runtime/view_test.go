@@ -25,7 +25,7 @@ func render(t *testing.T, report Report) string {
 // second command, so every section must be present and each must carry the
 // fact the CEO came for.
 func TestRenderMarkdownCarriesAllFiveSections(t *testing.T) {
-	out := render(t, Build(`C:\dev\code-goblins`, reportFixture()))
+	out := render(t, Build(systemPath(`C:\dev\code-goblins`), reportFixture()))
 
 	for _, heading := range []string{
 		"# Local Runtime",
@@ -120,7 +120,7 @@ func TestRenderMarkdownNeutralisesHostileValues(t *testing.T) {
 }
 
 func TestRenderJSONRoundTripsTheTypedReport(t *testing.T) {
-	report := Build(`C:\dev\code-goblins`, reportFixture())
+	report := Build(systemPath(`C:\dev\code-goblins`), reportFixture())
 	var out bytes.Buffer
 	if err := RenderJSON(&out, report); err != nil {
 		t.Fatalf("RenderJSON: %v", err)
@@ -208,7 +208,7 @@ func TestRenderMarkdownSaysASharedStackIsNotCEOsToStop(t *testing.T) {
 // home's: a store whose folder could not be named reads as not measured,
 // never as nothing, and one read in part says so apart from the home.
 func TestRenderMarkdownShowsTheVerificationStoreApartFromTheHome(t *testing.T) {
-	const store = `C:\Users\o\AppData\Local\goblins\verify`
+	store := systemPath(`C:\Users\o\AppData\Local\goblins\verify`)
 	for name, row := range map[string]struct {
 		folder      string
 		incomplete  []string
@@ -236,7 +236,7 @@ func TestRenderMarkdownShowsTheVerificationStoreApartFromTheHome(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			report := Build(`C:\dev\code-goblins`, reportFixture())
+			report := Build(systemPath(`C:\dev\code-goblins`), reportFixture())
 			report.Storage.Verification = 3 << 30
 			report.Storage.VerificationStore = row.folder
 			report.Storage.Incomplete = row.incomplete
@@ -262,9 +262,9 @@ func TestRenderMarkdownShowsTheVerificationStoreApartFromTheHome(t *testing.T) {
 // size reads as at least what is shown, and a home read whole says nothing.
 func TestRenderMarkdownNamesTheBucketsReadOnlyInPart(t *testing.T) {
 	// Arrange
-	partial := Build(`C:\dev\code-goblins`, reportFixture())
+	partial := Build(systemPath(`C:\dev\code-goblins`), reportFixture())
 	partial.Storage.Incomplete = []string{"state", `caches\go-build`}
-	whole := Build(`C:\dev\code-goblins`, reportFixture())
+	whole := Build(systemPath(`C:\dev\code-goblins`), reportFixture())
 
 	// Act
 	out, wholeOut := render(t, partial), render(t, whole)
@@ -283,7 +283,7 @@ func TestRenderMarkdownNamesTheBucketsReadOnlyInPart(t *testing.T) {
 // one, is said under its summary, since nothing else shows it.
 func TestRenderMarkdownSaysWhatTheJanitorNoted(t *testing.T) {
 	// Arrange
-	report := Build(`C:\dev\code-goblins`, reportFixture())
+	report := Build(systemPath(`C:\dev\code-goblins`), reportFixture())
 	report.Janitor = &janitor.Record{Time: time.Date(2026, 10, 14, 6, 0, 0, 0, time.UTC), Notes: []string{"the caches hold 21.0 GB, over their 20 GB cap, and are not trimmed, as the sweep took no turn in the machine's heavy line: goblins gate test (pid 4242) holds the machine's heavy line"}}
 
 	// Act
@@ -326,7 +326,7 @@ func TestRenderMarkdownSaysWhenTheHomesDataWasLastFiled(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange
-			report := Build(`C:\dev\code-goblins`, reportFixture())
+			report := Build(systemPath(`C:\dev\code-goblins`), reportFixture())
 			report.Filing = c.filing
 
 			// Act
@@ -353,8 +353,8 @@ func TestRenderMarkdownShowsTheGateHomeTheJanitorMeasured(t *testing.T) {
 	}{
 		{
 			name:    "measured",
-			janitor: &janitor.Record{Time: time.Date(2026, 11, 12, 6, 0, 0, 0, time.UTC), Gate: &janitor.GateHome{Folders: []string{`C:\Users\o\.no-mistakes`, `D:\DevDrive\no-mistakes`}, Bytes: 55 << 30}},
-			want:    `| the gate's home at C:\Users\o\.no-mistakes and D:\DevDrive\no-mistakes, as the janitor measured it at 2026-11-12T06:00:00Z | 55.0 GB |`,
+			janitor: &janitor.Record{Time: time.Date(2026, 11, 12, 6, 0, 0, 0, time.UTC), Gate: &janitor.GateHome{Folders: []string{systemPath(`C:\Users\o\.no-mistakes`), systemPath(`D:\DevDrive\no-mistakes`)}, Bytes: 55 << 30}},
+			want:    systemPath(`| the gate's home at C:\Users\o\.no-mistakes and D:\DevDrive\no-mistakes, as the janitor measured it at 2026-11-12T06:00:00Z | 55.0 GB |`),
 		},
 		{
 			name:    "never measured",
@@ -365,7 +365,7 @@ func TestRenderMarkdownShowsTheGateHomeTheJanitorMeasured(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange
-			report := Build(`C:\dev\code-goblins`, reportFixture())
+			report := Build(systemPath(`C:\dev\code-goblins`), reportFixture())
 			report.Janitor = c.janitor
 
 			// Act
@@ -385,7 +385,7 @@ func TestRenderMarkdownShowsTheGateHomeTheJanitorMeasured(t *testing.T) {
 func TestRenderMarkdownNamesTheProcessesTheJanitorEndedAndLeft(t *testing.T) {
 	// Arrange
 	started := time.Date(2026, 10, 9, 14, 20, 0, 0, time.UTC)
-	report := Build(`C:\dev\code-goblins`, reportFixture())
+	report := Build(systemPath(`C:\dev\code-goblins`), reportFixture())
 	report.Janitor = &janitor.Record{Time: started.Add(time.Hour), Processes: janitor.ProcessSweep{
 		Ended:   []janitor.ProcessItem{{PID: 18656, Started: started, Name: "node.exe", Owner: "cg-machine-resources", Memory: 11 << 20, Why: "its terminal cg-machine-resources is gone"}},
 		Left:    []janitor.ProcessItem{{PID: 20872, Started: started, Name: "node.exe", Memory: 2560 << 20, Command: "node chrome-devtools-axi-bridge.js", Why: "a browser bridge nothing ties to an owner"}},

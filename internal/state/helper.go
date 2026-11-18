@@ -6,8 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // helperOperationPrefix opens every lifecycle operation a parent's pause or
@@ -48,7 +51,7 @@ func HelpersOf(stateDir, parent string) ([]TaskMeta, error) {
 		if err != nil {
 			return nil, err
 		}
-		if meta.Parent != "" && strings.EqualFold(meta.Parent, parent) {
+		if meta.Parent != "" && fsx.EqualPath(filepath.Join(stateDir, meta.Parent), filepath.Join(stateDir, parent)) {
 			helpers = append(helpers, meta)
 		}
 	}
@@ -91,9 +94,9 @@ func NextHelperID(stateDir, parent string) (string, error) {
 		return "", err
 	}
 	highest := 0
-	prefix := strings.ToLower(parent) + "-h"
+	prefix := fsx.PathKey(filepath.Join(stateDir, parent)) + "-h"
 	for _, entry := range entries {
-		name := strings.ToLower(entry.Name())
+		name := fsx.PathKey(filepath.Join(stateDir, entry.Name()))
 		id, isMeta := strings.CutSuffix(name, ".meta")
 		if !isMeta {
 			id, _ = strings.CutSuffix(name, ".status")

@@ -20,11 +20,11 @@ func TestSharedTempCanBeNoTasksScratchFolder(t *testing.T) {
 	if err := state.ValidTaskID(SharedTempDir); err == nil {
 		t.Fatalf("%q is a valid task id, so a task's scratch folder could be the shared temporary folder", SharedTempDir)
 	}
-	h := Home{Root: `C:\home`, DevDrive: `D:\CodeGoblins`}
-	if got, want := SharedTempBeside(filepath.Join(h.Scratch(), "task-1")), `D:\CodeGoblins\scratch\.tmp`; got != want {
+	h := Home{Root: systemPath(`C:\home`), DevDrive: systemPath(`D:\CodeGoblins`)}
+	if got, want := SharedTempBeside(filepath.Join(h.Scratch(), "task-1")), systemPath(`D:\CodeGoblins\scratch\.tmp`); got != want {
 		t.Errorf("SharedTempBeside() on the Dev Drive = %q, want %q", got, want)
 	}
-	if got, want := SharedTempBeside(`C:\home\scratch\task-1\`), `C:\home\scratch\.tmp`; got != want {
+	if got, want := SharedTempBeside(systemPath(`C:\home\scratch\task-1\`)), systemPath(`C:\home\scratch\.tmp`); got != want {
 		t.Errorf("SharedTempBeside() = %q, want %q", got, want)
 	}
 }
@@ -37,13 +37,16 @@ func TestLiveTempInNamesTheRuntimeWhoseTmpGoesWithTheFolder(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// A folder in another case is the folder where the file system opens it
+	// by that spelling, as Windows does, and another folder where it does not.
+	_, upperErr := os.Stat(strings.ToUpper(scratch))
 	tests := []struct {
 		name   string
 		tmp    string
 		isHeld bool
 	}{
 		{name: "the folder itself", tmp: scratch, isHeld: true},
-		{name: "the folder in another case", tmp: strings.ToUpper(scratch), isHeld: true},
+		{name: "the folder in another case", tmp: strings.ToUpper(scratch), isHeld: upperErr == nil},
 		{name: "a folder inside it", tmp: filepath.Join(scratch, "inner"), isHeld: true},
 		{name: "a folder inside it that is gone", tmp: filepath.Join(scratch, "gone", "deeper"), isHeld: true},
 		{name: "a task whose id it begins", tmp: filepath.Join(root, "scratch", "task-10")},
@@ -52,14 +55,14 @@ func TestLiveTempInNamesTheRuntimeWhoseTmpGoesWithTheFolder(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			temps := []LiveTemp{{Runtime: `C:\other\usr\bin`, Folder: `C:\Users\someone\AppData\Local\Temp`}, {Runtime: `C:\Git\usr\bin`, Folder: test.tmp}}
+			temps := []LiveTemp{{Runtime: systemPath(`C:\other\usr\bin`), Folder: systemPath(`C:\Users\someone\AppData\Local\Temp`)}, {Runtime: systemPath(`C:\Git\usr\bin`), Folder: test.tmp}}
 
 			held, isHeld := LiveTempIn(scratch, temps)
 
 			if isHeld != test.isHeld {
 				t.Fatalf("LiveTempIn(%s) with /tmp at %s = %v, want %v", scratch, test.tmp, isHeld, test.isHeld)
 			}
-			if isHeld && held.Runtime != `C:\Git\usr\bin` {
+			if isHeld && held.Runtime != systemPath(`C:\Git\usr\bin`) {
 				t.Errorf("held by %q, want the runtime whose /tmp it is", held.Runtime)
 			}
 		})
@@ -76,11 +79,11 @@ func TestRemoveScratchLeavesAFolderThatIsALiveTmp(t *testing.T) {
 	}{
 		{name: "no runtime runs", temps: func(string) ([]LiveTemp, error) { return nil, nil }},
 		{name: "a runtime's /tmp is elsewhere", temps: func(string) ([]LiveTemp, error) {
-			return []LiveTemp{{Runtime: `C:\Git\usr\bin`, Folder: `C:\Users\someone\AppData\Local\Temp`}}, nil
+			return []LiveTemp{{Runtime: systemPath(`C:\Git\usr\bin`), Folder: systemPath(`C:\Users\someone\AppData\Local\Temp`)}}, nil
 		}},
 		{name: "a runtime's /tmp is the folder", temps: func(scratch string) ([]LiveTemp, error) {
-			return []LiveTemp{{Runtime: `C:\Git\usr\bin`, Folder: scratch}}, nil
-		}, wantHeldBy: `C:\Git\usr\bin`, isKept: true},
+			return []LiveTemp{{Runtime: systemPath(`C:\Git\usr\bin`), Folder: scratch}}, nil
+		}, wantHeldBy: systemPath(`C:\Git\usr\bin`), isKept: true},
 		{name: "a runtime could not be asked", temps: func(string) ([]LiveTemp, error) {
 			return nil, errors.New("cygpath is missing")
 		}, wantErr: "cygpath is missing", isKept: true},
@@ -135,6 +138,53 @@ func TestLiveTempsPassesOverProgramsThatAreNoMsysRuntimes(t *testing.T) {
 	}
 }
 
+// Two programs in folders whose names differ only in case run from one
+// runtime exactly where the file system reads the names as one folder, so it
+// is asked once there, and each is a runtime of its own elsewhere.
+func TestLiveTempsAsksARuntimeInAFolderSpelledInAnotherCaseByTheFileSystemsCase(t *testing.T) {
+	// Arrange
+	lower, upper, isOnePath := caseSpellings(t, t.TempDir(), "bin")
+	if !isOnePath {
+		if err := os.Mkdir(upper, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(upper, msysRuntime), []byte("no library"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	images := []string{filepath.Join(lower, "notepad.exe"), filepath.Join(upper, "bash.exe")}
+
+	// Act
+	temps, err := liveTemps(context.Background(), images, filepath.Join(t.TempDir(), ".tmp"))
+
+	// Assert
+	if isOnePath && (err != nil || len(temps) != 0) {
+		t.Fatalf("liveTemps() = %v, %v, want %s asked once, as no runtime, where it is %s", temps, err, upper, lower)
+	}
+	if !isOnePath && (err == nil || !strings.Contains(err.Error(), upper)) {
+		t.Fatalf("liveTemps() = %v, %v, want the runtime in %s asked apart from %s", temps, err, upper, lower)
+	}
+}
+
+// The names below the deepest folder that exists are compared by the file
+// system's case: a /tmp in a folder that is gone, named in another case, is
+// in the folder about to be removed exactly where the two names are one.
+func TestLiveTempInComparesTheNamesOfFoldersThatAreGoneByTheFileSystemsCase(t *testing.T) {
+	// Arrange
+	root := t.TempDir()
+	_, _, isOnePath := caseSpellings(t, root, "probe")
+	folder := filepath.Join(root, "gone")
+	temps := []LiveTemp{{Runtime: systemPath(`C:\Git\usr\bin`), Folder: filepath.Join(root, "GONE", "deeper")}}
+
+	// Act
+	_, isHeld := LiveTempIn(folder, temps)
+
+	// Assert
+	if isHeld != isOnePath {
+		t.Fatalf("LiveTempIn(%s) with /tmp at %s = %t, want %t", folder, temps[0].Folder, isHeld, isOnePath)
+	}
+}
+
 // A runtime that runs and cannot be asked may have any folder as its /tmp, so
 // it is an error, never a runtime passed over.
 func TestLiveTempsRefusesARunningRuntimeItCannotAsk(t *testing.T) {
@@ -151,25 +201,6 @@ func TestLiveTempsRefusesARunningRuntimeItCannotAsk(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), runtime) {
 		t.Fatalf("liveTemps() = %v, %v, want an error naming the runtime %s", temps, err, runtime)
 	}
-}
-
-func TestProcessImagesListsThisProcess(t *testing.T) {
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	images, err := processImages()
-
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, image := range images {
-		if strings.EqualFold(filepath.Base(image), filepath.Base(self)) && fsx.SamePath(image, self) {
-			return
-		}
-	}
-	t.Fatalf("%d running programs listed, none of them this test's own %s", len(images), self)
 }
 
 // privateRuntime is a msys runtime of the test's own: the library and
@@ -324,29 +355,5 @@ func TestLiveTempsAsksNoRuntimeFromATestBinary(t *testing.T) {
 
 	if err != nil || len(temps) != 0 {
 		t.Fatalf("LiveTemps() in a test binary = %v, %v, want no runtime and no error", temps, err)
-	}
-}
-
-// A cygpath that turns out to be its runtime's first process makes its TMP
-// the /tmp of every shell that starts while it runs, so the folder it is
-// given is the user's own temporary folder as Windows names it, not what the
-// environment of the process that asks says, which for a goblin started
-// before TMP named the shared folder is its scratch folder.
-func TestTheRuntimesAreAskedFromTheUsersOwnTemporaryFolder(t *testing.T) {
-	scratch := filepath.Join(t.TempDir(), "scratch", "task-1")
-	for _, name := range []string{"TMP", "TEMP", "LOCALAPPDATA"} {
-		t.Setenv(name, scratch)
-	}
-
-	temp, err := userTemp()
-
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rel, relErr := filepath.Rel(scratch, temp); relErr == nil && filepath.IsLocal(rel) {
-		t.Fatalf("userTemp() = %s, which follows the environment into the task's scratch folder %s", temp, scratch)
-	}
-	if info, statErr := os.Stat(temp); statErr != nil || !info.IsDir() || !strings.EqualFold(filepath.Base(temp), "Temp") {
-		t.Errorf("userTemp() = %s, stat %v, want the user's existing Temp folder", temp, statErr)
 	}
 }

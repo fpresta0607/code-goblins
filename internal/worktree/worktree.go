@@ -204,7 +204,7 @@ func Checkout(worktree string) (string, bool) {
 	if !filepath.IsAbs(commonDir) {
 		commonDir = filepath.Join(gitDir, commonDir)
 	}
-	if !strings.EqualFold(filepath.Base(commonDir), ".git") {
+	if !fsx.EqualPath(commonDir, filepath.Join(filepath.Dir(commonDir), ".git")) {
 		return "", false
 	}
 	return filepath.Dir(commonDir), true
