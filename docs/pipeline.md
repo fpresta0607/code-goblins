@@ -839,8 +839,8 @@ A gate shows a step's output only once the step has ended, so while a run waits 
 - Standard output. `goblins` writes nothing to it, and the command inherits the handle.
 - Standard error. The command inherits the handle, after the lines above.
 - Standard input, the working folder and the environment. All inherited, with one variable added, `GOBLINS_VERIFY_TURN`, described below.
-- The exit code. It is the command's own, whatever it is.
-- The command's limits. `goblins` adds no timeout and raises none.
+- The exit code. It is the command's own, whatever it is, but for a run its `--execution-limit` ended, which exits 124 even if its command exited zero.
+- The command's limits. `goblins` adds no timeout but the `--execution-limit` its caller gives, and raises none.
 
 **When no command runs.**
 

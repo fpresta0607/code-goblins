@@ -78,6 +78,23 @@ func TestHelpReadsOnlyTheRequestedContractWithoutOpeningAHome(t *testing.T) {
 	}
 }
 
+// The help page a reader runs for goblins gate turn names every flag its usage
+// text does (issue 2071, where --execution-limit was missing from it).
+func TestHelpGateTurnSynopsisIsTheUsageText(t *testing.T) {
+	// Arrange
+	var stdout, stderr bytes.Buffer
+	want := "`" + strings.TrimPrefix(gateTurnUsage, "usage: ") + "`"
+
+	// Act
+	code := runWithRuntime([]string{"help", "gate", "turn"}, &stdout, &stderr, commandRuntime{})
+
+	// Assert
+	lines := strings.Split(strings.ReplaceAll(stdout.String(), "\r\n", "\n"), "\n")
+	if code != 0 || len(lines) < 3 || lines[2] != want {
+		t.Fatalf("exit %d, stderr %q; synopsis line %q, want %q", code, stderr.String(), lines[min(2, len(lines)-1)], want)
+	}
+}
+
 func contractSkillRoute(skill, topic string) ([]string, error) {
 	var routes [][]string
 	for _, command := range regexp.MustCompile("`([^`\n]+)`").FindAllStringSubmatch(skill, -1) {
