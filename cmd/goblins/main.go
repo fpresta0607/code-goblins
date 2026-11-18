@@ -125,7 +125,7 @@ commands:
   goblins switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty] [--restart] [--terminal]   change a running goblin's harness/model/effort in place, restart it onto a harness update, or take it over in a terminal
   goblins send <target> [--key <key>] <text...>
   goblins peek <target> [lines]
-  goblins fleet-view [--json]
+  goblins fleet-view [--json] [--name <name>]   the fleet's tasks with each goblin's board name and title; --name finds the tasks the board calls by that name, ignoring case, newest first
   goblins runtime [--json]   what is running on this machine and who owns it: containers by owner, the local services stacks goblins holds for tasks, listening dev servers and whether each is safe to stop, machine headroom, each project's deploy target, and how to run each project locally
   goblins services up <project> --task <id> [--wait <duration>] | down <project> --task <id>   start the local services a project declares for a task's full-stack check, or share them with the tasks that hold them, only while memory and commit stay above the floor with their cost added, waiting up to --wait and saying why. down releases the hold, and the last release stops what goblins started and the engine when goblins started it
   goblins shared [--json]   read the gate daemon, the heavy-run line, the Docker engine and the Scrawl server as the supervisor last checked them: busy, never stopped, for a live daemon that missed a reply, whether to go, wait or ask, and who holds and waits on each; it only reads, under any harness, and starts, stops or restarts nothing
