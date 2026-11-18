@@ -3,8 +3,11 @@
 package supervisor
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -43,9 +46,10 @@ func dialRunSocketForTest(t *testing.T, state string) *net.UnixConn {
 }
 
 // squatSocket serves the run request socket for state before any supervisor
-// does, the way another process of this user could, and returns what its
-// clients send it.
-func squatSocket(t *testing.T, state string) <-chan []byte {
+// does, the way another process of this user could, and returns its listener
+// and what its first client sends it, or nil once the listener closes with no
+// client.
+func squatSocket(t *testing.T, state string) (net.Listener, <-chan []byte) {
 	t.Helper()
 	leaveNoSocketFolder(t, state)
 	path := runSocketPath(state)
@@ -61,13 +65,110 @@ func squatSocket(t *testing.T, state string) <-chan []byte {
 	go func() {
 		conn, err := listener.Accept()
 		if err != nil {
+			received <- nil
 			return
 		}
 		defer conn.Close()
 		data, _ := io.ReadAll(io.LimitReader(conn, 64<<10))
 		received <- data
 	}()
-	return received
+	return listener, received
+}
+
+// shortSocketPath is a socket's path in a short folder under /tmp: a test's
+// temporary folder can overflow sun_path.
+func shortSocketPath(t *testing.T) string {
+	t.Helper()
+	folder, err := os.MkdirTemp("/tmp", "peer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(folder) })
+	return filepath.Join(folder, "peer.sock")
+}
+
+// peerChildVariable has the test binary, started by peerChild, run
+// TestRunSocketPeerChild as the process at the other end of a socket: its
+// value is the child's role, "dial" or "listen", a colon and the socket's
+// path.
+const peerChildVariable = "GOBLINS_TEST_RUN_SOCKET_PEER"
+
+// TestRunSocketPeerChild is no test of its own: it returns at once unless
+// peerChild started this binary, which then dials or listens on the socket it
+// names, says "ready" and holds the socket until its standard input closes,
+// or for a minute at most.
+func TestRunSocketPeerChild(t *testing.T) {
+	role, path, isChild := strings.Cut(os.Getenv(peerChildVariable), ":")
+	if !isChild {
+		return
+	}
+	switch role {
+	case "dial":
+		conn, err := net.Dial("unix", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+	case "listen":
+		listener, err := net.Listen("unix", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer listener.Close()
+		go func() {
+			conn, err := listener.Accept()
+			if err == nil {
+				defer conn.Close()
+				_, _ = io.Copy(io.Discard, conn)
+			}
+		}()
+	default:
+		t.Fatalf("unknown role %q", role)
+	}
+	fmt.Println("ready")
+	closed := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(time.Minute):
+	}
+}
+
+// peerChild starts this test binary as a process of its own that takes role
+// at the socket path, and returns its process ID once it is ready. The child
+// ends with the test.
+func peerChild(t *testing.T, role, path string) int {
+	t.Helper()
+	child := exec.Command(os.Args[0], "-test.run=^TestRunSocketPeerChild$")
+	child.Env = append(os.Environ(), peerChildVariable+"="+role+":"+path)
+	stdin, err := child.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := child.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = stdin.Close()
+		_ = child.Process.Kill()
+		_ = child.Wait()
+	})
+	var output []string
+	for lines := bufio.NewScanner(stdout); lines.Scan(); {
+		if lines.Text() == "ready" {
+			return child.Process.Pid
+		}
+		output = append(output, lines.Text())
+	}
+	t.Fatalf("the %s child was never ready: %q", role, output)
+	return 0
 }
 
 // The socket's folder is this user's own and nobody else may enter it, and
@@ -180,49 +281,59 @@ func TestARunRequestFromOutsideTheCEOTreeIsRefusedOverTheSocket(t *testing.T) {
 	}
 }
 
-// Each end of the socket reads the process at the other: here both are this
-// test process.
+// Each end of the socket reads the process at the other, here a process of
+// its own, not the end's own process.
 func TestEachEndOfTheRunSocketReadsTheProcessAtTheOther(t *testing.T) {
-	// Arrange: a test's temporary folder can overflow sun_path, so the socket
-	// sits in a short folder under /tmp.
-	folder, err := os.MkdirTemp("/tmp", "peer")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(folder) })
-	path := filepath.Join(folder, "peer.sock")
-	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer listener.Close()
-	accepted := make(chan *net.UnixConn, 1)
-	go func() {
-		conn, _ := listener.AcceptUnix()
-		accepted <- conn
-	}()
-	client, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: path, Net: "unix"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close()
-	server := <-accepted
-	if server == nil {
-		t.Fatal("the listener accepted no connection")
-	}
-	defer server.Close()
+	t.Run("the server reads its client", func(t *testing.T) {
+		// Arrange
+		path := shortSocketPath(t)
+		listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer listener.Close()
+		accepted := make(chan *net.UnixConn, 1)
+		go func() {
+			conn, _ := listener.AcceptUnix()
+			accepted <- conn
+		}()
+		client := peerChild(t, "dial", path)
+		var server *net.UnixConn
+		select {
+		case server = <-accepted:
+		case <-time.After(time.Minute):
+		}
+		if server == nil {
+			t.Fatal("the listener accepted no connection")
+		}
+		defer server.Close()
 
-	// Act
-	serverSees, serverErr := peerProcess(server)
-	clientSees, clientErr := peerProcess(client)
+		// Act
+		pid, err := peerProcess(server)
 
-	// Assert
-	if serverErr != nil || serverSees != os.Getpid() {
-		t.Fatalf("the server reads its client as %d, %v, want %d", serverSees, serverErr, os.Getpid())
-	}
-	if clientErr != nil || clientSees != os.Getpid() {
-		t.Fatalf("the client reads its server as %d, %v, want %d", clientSees, clientErr, os.Getpid())
-	}
+		// Assert
+		if err != nil || pid != client {
+			t.Fatalf("the server reads its client as %d, %v, want the client's %d, not its own %d", pid, err, client, os.Getpid())
+		}
+	})
+	t.Run("the client reads its server", func(t *testing.T) {
+		// Arrange
+		path := shortSocketPath(t)
+		server := peerChild(t, "listen", path)
+		client, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: path, Net: "unix"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer client.Close()
+
+		// Act
+		pid, err := peerProcess(client)
+
+		// Assert
+		if err != nil || pid != server {
+			t.Fatalf("the client reads its server as %d, %v, want the server's %d, not its own %d", pid, err, server, os.Getpid())
+		}
+	})
 }
 
 // A goblin's report has the supervisor's loop look at once.
@@ -357,7 +468,7 @@ func TestTheRunSocketIsNotServedWhenAnotherProcessServesIt(t *testing.T) {
 func TestARunRequestIsNotSentToASocketTheSupervisorDoesNotServe(t *testing.T) {
 	// Arrange
 	_, h := testStore(t)
-	received := squatSocket(t, h.State)
+	_, received := squatSocket(t, h.State)
 	if lock.HeldByNamed(h.State, ".watch.lock", os.Getpid()) {
 		t.Fatal("this test process holds the watch lock, so it would be this home's supervisor")
 	}
@@ -376,5 +487,130 @@ func TestARunRequestIsNotSentToASocketTheSupervisorDoesNotServe(t *testing.T) {
 		}
 	case <-time.After(time.Minute):
 		t.Fatal("the client never closed its connection to the squatter")
+	}
+}
+
+// The asking side refuses a folder others may enter too: a request is never
+// sent through it, even to the home's supervisor.
+func TestARunRequestIsNotSentThroughAFolderOthersMayEnter(t *testing.T) {
+	// Arrange: this test process serves the socket and holds the home's watch
+	// lock, so it passes as the supervisor, but others may enter its folder.
+	_, h := testStore(t)
+	listener, received := squatSocket(t, h.State)
+	if err := os.Chmod(socketFolder(h.State), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lock.AcquireExclusiveNamed(h.State, ".watch.lock"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lock.ReleaseExclusiveNamed(h.State, ".watch.lock") })
+
+	// Act
+	err := sendPipeRequest(h.State, runPipeRequest{ID: "install-tool", Title: "Install the tool", Shell: "bash", Command: "echo secret-plan\n"})
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "not this user's own with mode 0700") {
+		t.Fatalf("a request through a folder others may enter = %v, want it refused, saying why", err)
+	}
+	_ = listener.Close()
+	select {
+	case data := <-received:
+		if len(data) != 0 {
+			t.Fatalf("the socket in a folder others may enter received %q", data)
+		}
+	case <-time.After(time.Minute):
+		t.Fatal("the client is still connected to the socket in a folder others may enter")
+	}
+}
+
+// A socket file nothing answers is a stopped supervisor's: the next
+// supervisor replaces it and serves run requests.
+func TestTheRunSocketReplacesAStoppedSupervisorsSocket(t *testing.T) {
+	// Arrange: a supervisor that stopped without letting its socket go left
+	// the socket file behind.
+	store, h := testStore(t)
+	leaveNoSocketFolder(t, h.State)
+	path := runSocketPath(h.State)
+	if err := os.Mkdir(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	stopped, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stopped.SetUnlinkOnClose(false)
+	_ = stopped.Close()
+	if info, err := os.Lstat(path); err != nil || info.Mode()&os.ModeSocket == 0 {
+		t.Fatalf("the stopped supervisor's socket file = %v, %v, want a socket", info, err)
+	}
+	looks := make(chan chan struct{})
+	s := &Service{Store: store, looks: looks, subscribers: map[chan struct{}]struct{}{}}
+	runPipe(t, s)
+	conn := dialRunSocketForTest(t, h.State)
+	_ = conn.Close()
+
+	// Act
+	go Reported(h.State)
+
+	// Assert
+	select {
+	case looked := <-looks:
+		close(looked)
+	case <-time.After(time.Minute):
+		t.Fatal("the supervisor's loop was not asked to look after a report")
+	}
+	if issues := s.Store.Snapshot().Issues; slices.ContainsFunc(issues, func(issue string) bool { return strings.Contains(issue, "already serves the socket") }) {
+		t.Fatalf("issues = %q, want no word of another process serving a stopped supervisor's socket", issues)
+	}
+}
+
+// A client that asks before the supervisor has made its socket's folder
+// waits for it, as a request does when it starts with goblins serve.
+func TestARunRequestWaitsForASupervisorThatIsStarting(t *testing.T) {
+	// Arrange: nothing has made the socket's folder yet, and the client says
+	// when it waits for it.
+	store, h := testStore(t)
+	leaveNoSocketFolder(t, h.State)
+	if _, err := os.Lstat(socketFolder(h.State)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the socket folder = %v, want none yet", err)
+	}
+	waiting := make(chan struct{}, 1)
+	redialSleep = func(wait time.Duration) {
+		select {
+		case waiting <- struct{}{}:
+		default:
+		}
+		time.Sleep(wait)
+	}
+	t.Cleanup(func() { redialSleep = time.Sleep })
+	answered := make(chan error, 1)
+	go func() {
+		_, err := askPipe(h.State, runPipeRequest{Kind: "reported"})
+		answered <- err
+	}()
+	select {
+	case <-waiting:
+	case <-time.After(time.Minute):
+		t.Fatal("the client never waited for the supervisor's socket")
+	}
+	looks := make(chan chan struct{})
+
+	// Act
+	runPipe(t, &Service{Store: store, looks: looks})
+
+	// Assert
+	select {
+	case looked := <-looks:
+		close(looked)
+	case <-time.After(time.Minute):
+		t.Fatal("the request of a client that waited never reached the supervisor")
+	}
+	select {
+	case err := <-answered:
+		if err != nil {
+			t.Fatalf("askPipe while the supervisor started = %v, want it answered", err)
+		}
+	case <-time.After(time.Minute):
+		t.Fatal("the client that waited was never answered")
 	}
 }

@@ -148,6 +148,10 @@ func (s *Service) handleRunClient(ctx context.Context, conn *net.UnixConn, conne
 	_, _ = conn.Write(append(data, '\n'))
 }
 
+// redialSleep is time.Sleep, which a test replaces to learn that a client is
+// waiting for the supervisor's socket.
+var redialSleep = time.Sleep
+
 // dialRunSocket connects to this home's supervisor, waiting up to wait of the
 // time the machine ran for a socket, or its folder, that is not there or not
 // answering yet, as a supervisor that is starting leaves them.
@@ -166,7 +170,7 @@ func dialRunSocket(stateDir string, wait time.Duration) (*net.UnixConn, error) {
 		if !errors.Is(err, os.ErrNotExist) && !errors.Is(err, syscall.ECONNREFUSED) || opening.Err() != nil {
 			return nil, err
 		}
-		time.Sleep(25 * time.Millisecond)
+		redialSleep(25 * time.Millisecond)
 	}
 }
 
@@ -192,8 +196,11 @@ func askPipe(stateDir string, req runPipeRequest) (pipeReply, error) {
 	// The supervisor has 2 s of time the machine ran to make its socket
 	// (awake), since a pause of the whole machine stops it too.
 	conn, err := dialRunSocket(stateDir, 2*time.Second)
-	if err != nil {
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) {
 		return pipeReply{}, errors.New("the supervisor is not running, so the board cannot take this; start goblins serve")
+	}
+	if err != nil {
+		return pipeReply{}, fmt.Errorf("the run request socket could not be reached: %w", err)
 	}
 	defer conn.Close()
 	// The command goes only to the supervisor of this home: the process that
