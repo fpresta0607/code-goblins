@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -718,7 +717,7 @@ func exclusiveLeaseKey(dir, name string) string {
 	if err != nil {
 		path = filepath.Clean(filepath.Join(dir, name))
 	}
-	return strings.ToLower(path)
+	return fsx.PathKey(path)
 }
 
 func clearExclusiveLease(dir, name string) {

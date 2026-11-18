@@ -464,7 +464,7 @@ func TestLatestVerbIgnoresTheReapersOwnLines(t *testing.T) {
 	line := ReapedPrefix + Finding{
 		Class:  OrphanDirectory,
 		TaskID: "dead",
-		Path:   `C:\dev\pd\.worktrees\gb-dead`,
+		Path:   systemPath(`C:\dev\pd\.worktrees\gb-dead`),
 		Detail: "a directory a dead task left behind",
 		Action: "remove the empty directory",
 	}.Line()
@@ -586,7 +586,7 @@ func (stubPanes) PaneProcessInfo(context.Context, herdr.Target) (herdr.PaneProce
 // worktree when the record's pane id no longer matches, so it has to survive
 // the trip from the snapshot onto the pane the sweep classifies.
 func TestPanesCarryTheirAgentsWorkingDirectory(t *testing.T) {
-	const worktree = `C:\dev\proj\.worktrees\gb-task`
+	worktree := systemPath(`C:\dev\proj\.worktrees\gb-task`)
 	collector := Collector{Session: "fleet", Panes: stubPanes{snapshot: herdr.SessionSnapshot{
 		Protocol: herdr.SupportedProtocol,
 		Panes:    []herdr.SnapshotPane{{ID: "w3:p4"}, {ID: "w3:p5"}},
@@ -651,7 +651,7 @@ func TestASnapshotOfAnotherProtocolLeavesItsAgentsUnplaced(t *testing.T) {
 // sweep: it is one agent the sweep cannot place, so it is carried out by name
 // and the classes that rest on placing it hold.
 func TestAnAgentThatReportsNoWorkingDirectoryIsCarriedOut(t *testing.T) {
-	const worktree = `C:\dev\proj\.worktrees\gb-task`
+	worktree := systemPath(`C:\dev\proj\.worktrees\gb-task`)
 	collector := func(agents []herdr.SnapshotAgent) Collector {
 		root := t.TempDir()
 		stateDir := filepath.Join(root, "state")

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -226,5 +227,116 @@ func TestApplyRefusesARecordThatChangedAndPutsNothingBackWrong(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(filepath.Join(to, "state", "g1.meta")); string(got) != "changed after the plan\n" {
 		t.Errorf("the changed record = %q, want it moved as it is and not rewritten", got)
+	}
+}
+
+// caseSpellings makes the folder parent\name, name in lowercase, and returns
+// its path, the same path with name in uppercase, and whether the file system
+// opens the folder by that second spelling: the oracle a case test here holds
+// a comparison to, read from the file system itself.
+func caseSpellings(t *testing.T, parent, name string) (string, string, bool) {
+	t.Helper()
+	lower := filepath.Join(parent, name)
+	if err := os.MkdirAll(lower, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	upper := filepath.Join(parent, strings.ToUpper(name))
+	_, err := os.Stat(upper)
+	return lower, upper, err == nil
+}
+
+// A move to the home's own path spelled in another case is no move exactly
+// where the file system reads the two spellings as one folder.
+func TestPlanMoveIsAlreadyThereOnlyWhereTheFileSystemReadsTheTargetAsTheHome(t *testing.T) {
+	// Arrange
+	from, to, isOnePath := caseSpellings(t, t.TempDir(), "home")
+
+	// Act
+	_, err := PlanMove(from, to, nil, time.Now())
+
+	// Assert
+	isAlreadyThere := err != nil && strings.Contains(err.Error(), "already there")
+	if isAlreadyThere != isOnePath || (!isOnePath && err != nil) {
+		t.Fatalf("PlanMove(%s, %s) = %v, want already there: %t", from, to, err, isOnePath)
+	}
+}
+
+// A top-level folder named like a home's folder or a tracked one in another
+// case is that folder exactly where the file system reads the names as one,
+// and elsewhere it is no part of the home's layout and stays.
+func TestPlanMoveLeavesAFolderNamedInAnotherCaseByTheFileSystemsCase(t *testing.T) {
+	// Arrange
+	from, _, isOnePath := caseSpellings(t, t.TempDir(), "home")
+	write(t, filepath.Join(from, "State", "x.meta"), "id=x")
+	write(t, filepath.Join(from, "docs", "readme.md"), "source")
+	tracked := map[string]bool{"Docs/readme.md": true}
+
+	// Act
+	plan, err := PlanMove(from, filepath.Join(t.TempDir(), "new"), tracked, time.Now())
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	left := strings.Join(plan.Left, "\n")
+	for _, name := range []string{"State", "docs"} {
+		if isLeft := strings.Contains(left, name+" ("); isLeft == isOnePath {
+			t.Errorf("%s is left behind: %t, want %t, as the file system reads it in another case as one name: %t:\n%s", name, isLeft, !isOnePath, isOnePath, left)
+		}
+	}
+}
+
+// A record's path into a moved folder is rewritten with the system's
+// separator, and a path that names the home in another case is the home's
+// exactly where the file system reads the two spellings as one folder.
+func TestRewriteRecordRewritesAPathIntoTheHomeByTheFileSystemsCase(t *testing.T) {
+	// Arrange
+	from, upper, isOnePath := caseSpellings(t, t.TempDir(), "home")
+	to := filepath.Join(t.TempDir(), "new")
+	content := "brief=" + filepath.Join(from, "data", "brief.md") + "\nnotes=" + filepath.Join(upper, "data", "notes.md") + "\n"
+	cases := []struct {
+		name        string
+		want        string
+		isRewritten bool
+	}{
+		{name: "the home as written", want: "brief=" + filepath.Join(to, "data", "brief.md"), isRewritten: true},
+		{name: "the home in another case", want: "notes=" + filepath.Join(to, "data", "notes.md"), isRewritten: isOnePath},
+	}
+
+	// Act
+	rewrite, isChanged := rewriteRecord("state/g1.meta", []byte(content), from, to)
+
+	// Assert
+	if !isChanged {
+		t.Fatalf("rewriteRecord(%q) changed nothing, want the brief's path rewritten", content)
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if isRewritten := strings.Contains(string(rewrite.Content), tc.want+"\n"); isRewritten != tc.isRewritten {
+				t.Fatalf("the record holds %q: %t, want %t:\n%s", tc.want, isRewritten, tc.isRewritten, rewrite.Content)
+			}
+		})
+	}
+}
+
+// A file that names the old home in another case names it exactly where the
+// file system reads the two spellings as one folder.
+func TestPlanMoveFindsAMentionOfTheHomeByTheFileSystemsCase(t *testing.T) {
+	// Arrange
+	from, upper, isOnePath := caseSpellings(t, t.TempDir(), "home")
+	write(t, filepath.Join(from, "data", "exact.md"), "see "+from)
+	write(t, filepath.Join(from, "data", "other.md"), "see "+upper)
+
+	// Act
+	plan, err := PlanMove(from, filepath.Join(t.TempDir(), "new"), nil, time.Now())
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rel, want := range map[string]bool{"data/exact.md": true, "data/other.md": isOnePath} {
+		if isMention := slices.Contains(plan.Mentions, rel); isMention != want {
+			t.Errorf("%s names the old home: %t, want %t; mentions %v", rel, isMention, want, plan.Mentions)
+		}
 	}
 }

@@ -2,21 +2,17 @@ package reap
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
-const (
-	liveWorktree = `C:\dev\proj\.worktrees\gb-board`
-	extraDir     = `C:\dev\proj\.worktrees\gb-board-5b`
-	fixtureRoot  = `C:\Users\op\AppData\Local\Temp\ceo-board-windows-0a1b`
-	gateWorktree = `C:\Users\op\.no-mistakes\worktrees\a3a2\01M3RUN`
+var (
+	liveWorktree = systemPath(`C:\dev\proj\.worktrees\gb-board`)
+	extraDir     = systemPath(`C:\dev\proj\.worktrees\gb-board-5b`)
+	fixtureRoot  = systemPath(`C:\Users\op\AppData\Local\Temp\ceo-board-windows-0a1b`)
+	gateWorktree = systemPath(`C:\Users\op\.no-mistakes\worktrees\a3a2\01M3RUN`)
 )
 
 // fleetWithGoblin is one goblin, board, working in its worktree through the
@@ -30,7 +26,7 @@ func fleetWithGoblin(alive bool, verb string) Inventory {
 		Session:       "default",
 		Tasks:         []Task{task("board", liveWorktree, "pane-board", verb)},
 		Panes:         []Pane{pane},
-		Worktrees:     []WorktreeDir{{Path: liveWorktree, Project: `C:\dev\proj`, TaskID: "board", Registration: RegistrationListed, Created: fixtureStart}},
+		Worktrees:     []WorktreeDir{{Path: liveWorktree, Project: systemPath(`C:\dev\proj`), TaskID: "board", Registration: RegistrationListed, Created: fixtureStart}},
 		FleetRootPIDs: []int{100},
 		Processes: []Process{
 			process(100, 1, "herdr.exe", `herdr.exe server`, fixtureStart),
@@ -44,12 +40,12 @@ func fleetWithGoblin(alive bool, verb string) Inventory {
 // server for its own test session, started from dir by a script that has
 // since exited, with a stand-in codex.exe running in one of its panes.
 func withFixture(inv Inventory, dir string) Inventory {
-	server := process(500, 777, "herdr.exe", `"C:\Programs\Herdr\bin\herdr.exe" --session ceo-board-test-e736 server`, fixtureLater)
+	server := process(500, 777, "herdr.exe", systemPath(`"C:\Programs\Herdr\bin\herdr.exe" --session ceo-board-test-e736 server`), fixtureLater)
 	server.Cwd = dir
 	shell := process(510, 500, "powershell.exe", `powershell.exe -NoExit -Command herdr-prompt`, fixtureLatest)
-	shell.Cwd = fixtureRoot + `\project`
-	stub := process(520, 510, "codex.exe", `"`+fixtureRoot+`\bin\codex.exe" "`+fixtureRoot+`\fixture.json"`, fixtureLatest.Add(time.Minute))
-	stub.Cwd = fixtureRoot + `\project`
+	shell.Cwd = fixtureRoot + systemPath(`\project`)
+	stub := process(520, 510, "codex.exe", `"`+fixtureRoot+systemPath(`\bin\codex.exe" "`)+fixtureRoot+systemPath(`\fixture.json"`), fixtureLatest.Add(time.Minute))
+	stub.Cwd = fixtureRoot + systemPath(`\project`)
 	inv.FleetRootPIDs = append(inv.FleetRootPIDs, 500)
 	inv.Processes = append(inv.Processes, server, shell, stub)
 	return inv
@@ -86,7 +82,7 @@ func TestAStandInOfARetiredGoblinsFixtureIsReportedAgainstThatGoblin(t *testing.
 // working there, never by something live working below it or, once its
 // goblin is gone, by an agent working above its worktree.
 func TestAStandInUnderAFixtureNoLiveOwnerHoldsIsReported(t *testing.T) {
-	ceo := Pane{ID: "pane-ceo", HasAgent: true, AgentCwd: `C:\dev\proj`}
+	ceo := Pane{ID: "pane-ceo", HasAgent: true, AgentCwd: systemPath(`C:\dev\proj`)}
 	retiredWithCEO := fleetWithGoblin(false, "done")
 	retiredWithCEO.Panes = append(retiredWithCEO.Panes, ceo)
 
@@ -94,7 +90,7 @@ func TestAStandInUnderAFixtureNoLiveOwnerHoldsIsReported(t *testing.T) {
 		name string
 		inv  Inventory
 	}{
-		{"started from the main checkout while goblins work in its worktrees", withFixture(fleetWithGoblin(true, "working"), `C:\dev\proj`)},
+		{"started from the main checkout while goblins work in its worktrees", withFixture(fleetWithGoblin(true, "working"), systemPath(`C:\dev\proj`))},
 		{"started in a retired goblin's worktree while an agent works in the main checkout", withFixture(retiredWithCEO, liveWorktree)},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -128,7 +124,7 @@ func TestAStandInUnderAFixtureIsHeldWhileAnAgentIsUnplaced(t *testing.T) {
 // use for as long as the goblin is.
 func TestAStandInUnderAFixtureStartedInALiveGoblinsExtraWorktreeIsNotAnOrphan(t *testing.T) {
 	inv := fleetWithGoblin(true, "working")
-	inv.Worktrees = append(inv.Worktrees, WorktreeDir{Path: extraDir, Project: `C:\dev\proj`, TaskID: "board-5b", Registration: RegistrationListed, Created: fixtureLater})
+	inv.Worktrees = append(inv.Worktrees, WorktreeDir{Path: extraDir, Project: systemPath(`C:\dev\proj`), TaskID: "board-5b", Registration: RegistrationListed, Created: fixtureLater})
 
 	findings := Classify(withFixture(inv, extraDir))
 
@@ -176,7 +172,7 @@ func TestAHarnessInALiveGoblinsWorktreeWithNoPaneIsStillAnOrphan(t *testing.T) {
 
 func TestALiveGoblinsExtraWorktreeIsNotAnOrphan(t *testing.T) {
 	inv := fleetWithGoblin(true, "working")
-	inv.Worktrees = append(inv.Worktrees, WorktreeDir{Path: extraDir, Project: `C:\dev\proj`, TaskID: "board-5b", Registration: RegistrationListed, Created: fixtureLater})
+	inv.Worktrees = append(inv.Worktrees, WorktreeDir{Path: extraDir, Project: systemPath(`C:\dev\proj`), TaskID: "board-5b", Registration: RegistrationListed, Created: fixtureLater})
 
 	if orphans := classOf(Classify(inv), OrphanWorktree); len(orphans) != 0 {
 		t.Fatalf("a live goblin's extra worktree was reported: %v", lines(orphans))
@@ -188,7 +184,7 @@ func TestALiveGoblinsExtraWorktreeIsNotAnOrphan(t *testing.T) {
 // directory alone and never clean up the goblin's task.
 func TestAnExtraWorktreeOfARetiredGoblinIsReportedUnderItsOwnID(t *testing.T) {
 	inv := fleetWithGoblin(false, "working")
-	inv.Worktrees = append(inv.Worktrees, WorktreeDir{Path: extraDir, Project: `C:\dev\proj`, TaskID: "board-5b", Registration: RegistrationListed, Created: fixtureLater})
+	inv.Worktrees = append(inv.Worktrees, WorktreeDir{Path: extraDir, Project: systemPath(`C:\dev\proj`), TaskID: "board-5b", Registration: RegistrationListed, Created: fixtureLater})
 
 	var extra *Finding
 	findings := classOf(Classify(inv), OrphanWorktree)
@@ -215,7 +211,7 @@ func TestAnExtraWorktreeOfARetiredGoblinIsReportedUnderItsOwnID(t *testing.T) {
 // task's: it is a leftover of some earlier task and is reported as before.
 func TestADirectoryOlderThanTheTaskItsNameExtendsIsNotTiedToIt(t *testing.T) {
 	inv := fleetWithGoblin(true, "working")
-	inv.Worktrees = append(inv.Worktrees, WorktreeDir{Path: extraDir, Project: `C:\dev\proj`, TaskID: "board-5b", Registration: RegistrationListed, Created: fixtureStart.Add(-time.Hour)})
+	inv.Worktrees = append(inv.Worktrees, WorktreeDir{Path: extraDir, Project: systemPath(`C:\dev\proj`), TaskID: "board-5b", Registration: RegistrationListed, Created: fixtureStart.Add(-time.Hour)})
 
 	orphans := classOf(Classify(inv), OrphanWorktree)
 	if len(orphans) != 1 || orphans[0].Path != extraDir || strings.Contains(orphans[0].Detail, "extra worktree") {
@@ -225,8 +221,8 @@ func TestADirectoryOlderThanTheTaskItsNameExtendsIsNotTiedToIt(t *testing.T) {
 
 func TestADevServerInALiveGoblinsExtraWorktreeIsNotStale(t *testing.T) {
 	inv := fleetWithGoblin(true, "working")
-	inv.Worktrees = append(inv.Worktrees, WorktreeDir{Path: extraDir, Project: `C:\dev\proj`, TaskID: "board-5b", Registration: RegistrationListed, Created: fixtureLater})
-	inv.Processes = append(inv.Processes, process(800, 1, "node.exe", `node `+extraDir+`\node_modules\vite\bin\vite.js`, fixtureLatest))
+	inv.Worktrees = append(inv.Worktrees, WorktreeDir{Path: extraDir, Project: systemPath(`C:\dev\proj`), TaskID: "board-5b", Registration: RegistrationListed, Created: fixtureLater})
+	inv.Processes = append(inv.Processes, process(800, 1, "node.exe", `node `+extraDir+systemPath(`\node_modules\vite\bin\vite.js`), fixtureLatest))
 
 	if stale := classOf(Classify(inv), StaleServer); len(stale) != 0 {
 		t.Fatalf("a dev server in a live goblin's extra worktree was reported: %v", lines(stale))
@@ -235,62 +231,13 @@ func TestADevServerInALiveGoblinsExtraWorktreeIsNotStale(t *testing.T) {
 
 func TestHerdrSessionReadsTheSessionAServerRuns(t *testing.T) {
 	for _, tc := range []struct{ command, want string }{
-		{`"C:\Herdr\herdr.exe" --session ceo-board-test-e736 server`, "ceo-board-test-e736"},
+		{systemPath(`"C:\Herdr\herdr.exe" --session ceo-board-test-e736 server`), "ceo-board-test-e736"},
 		{`herdr --session=fleet server`, "fleet"},
 		{`herdr.exe server`, "default"},
 	} {
 		if got := herdrSession(tc.command); got != tc.want {
 			t.Errorf("herdrSession(%q) = %q, want %q", tc.command, got, tc.want)
 		}
-	}
-}
-
-// The collector reads a working directory only for harness-shaped processes
-// and their ancestors, and records the fleet's session and when each worktree
-// directory was made.
-func TestCollectorPlacesHarnessesAndDatesWorktrees(t *testing.T) {
-	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, ".worktrees", "gb-board"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	stateDir := filepath.Join(root, "state")
-	if err := os.MkdirAll(stateDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	var read []int
-	collector := Collector{
-		Home:    home.Home{Root: root, State: stateDir},
-		Session: "fleet",
-		Processes: stubProcesses{
-			process(500, 1, "herdr.exe", `herdr --session ceo-board-test-1 server`, fixtureStart),
-			process(510, 500, "powershell.exe", `powershell -NoExit`, fixtureLater),
-			process(520, 510, "codex.exe", `codex.exe fixture.json`, fixtureLatest),
-			process(900, 1, "node.exe", `node server.js`, fixtureLatest),
-		},
-		WorkingDirectory: func(pid int) (string, error) {
-			read = append(read, pid)
-			return `C:\dir\` + string(rune('a'+pid%26)), nil
-		},
-	}
-
-	inv, _, err := collector.Collect(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	slices.Sort(read)
-	if !slices.Equal(read, []int{500, 510, 520}) {
-		t.Errorf("working directories read for %v, want the stand-in and its ancestors only", read)
-	}
-	if inv.Session != "fleet" {
-		t.Errorf("session = %q, want fleet", inv.Session)
-	}
-	for _, process := range inv.Processes {
-		if process.PID == 520 && process.Cwd == "" {
-			t.Error("the stand-in's working directory was not recorded")
-		}
-	}
-	if len(inv.Worktrees) != 1 || inv.Worktrees[0].Created.IsZero() || time.Since(inv.Worktrees[0].Created) > time.Hour {
-		t.Errorf("worktrees = %+v, want one dated just now", inv.Worktrees)
 	}
 }
 

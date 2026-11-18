@@ -94,6 +94,37 @@ func TestNextHelperIDNeverReusesAnIDAStatusLogKeeps(t *testing.T) {
 	}
 }
 
+// A status log whose name spells the parent in another case is a helper of
+// that parent exactly where the file system reads the two names as one, as
+// Windows does; elsewhere it is another task's helper.
+func TestNextHelperIDCountsAHelperSpelledInAnotherCaseByTheFileSystemsCase(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	probe := filepath.Join(dir, "probe")
+	if err := os.Mkdir(probe, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, statErr := os.Stat(filepath.Join(dir, "PROBE"))
+	isOnePath := statErr == nil
+	for _, id := range []string{"g1-h1", "G1-h5"} {
+		if err := AppendStatus(dir, id, "done: ready to merge"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := "g1-h2"
+	if isOnePath {
+		want = "g1-h6"
+	}
+
+	// Act
+	next, err := NextHelperID(dir, "g1")
+
+	// Assert
+	if err != nil || next != want {
+		t.Fatalf("NextHelperID after g1-h1 and G1-h5 = %q, %v; want %s, as the file system reads names in another case as one: %t", next, err, want, isOnePath)
+	}
+}
+
 func TestNextHelperIDRefusesAParentWhoseHelperIDWouldNotFit(t *testing.T) {
 	dir := t.TempDir()
 	parent := strings.Repeat("p", 62)

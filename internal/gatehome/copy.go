@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -382,5 +381,5 @@ func walkLinks(root string, visit func(path, linked string) error) error {
 }
 
 func sameFolder(left, right string) bool {
-	return strings.EqualFold(filepath.Clean(left), filepath.Clean(right))
+	return fsx.EqualPath(filepath.Clean(left), filepath.Clean(right))
 }

@@ -240,7 +240,7 @@ func (g RunnerGit) Remove(ctx context.Context, project, worktree string) error {
 		return fmt.Errorf("worktree: read %q: %w", worktree, err)
 	}
 	for _, entry := range entries {
-		if strings.EqualFold(entry.Name(), ".git") {
+		if fsx.EqualPath(filepath.Join(worktree, entry.Name()), filepath.Join(worktree, ".git")) {
 			continue
 		}
 		if err := fsx.RemoveAll(filepath.Join(worktree, entry.Name())); err != nil {
