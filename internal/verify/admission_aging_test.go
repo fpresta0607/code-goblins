@@ -43,6 +43,34 @@ func TestAGoblinTurnPastItsAgingLimitGoesAheadOfATestStepThatAskedAfterIt(t *tes
 	}
 }
 
+// Only a goblin's own turn ages: a gate's Test step already goes ahead of it,
+// and a low-priority run waits behind every other run until the line's limit.
+func TestATestStepOrALowPriorityRunDoesNotAge(t *testing.T) {
+	for name, kind := range map[string]Admission{
+		"a gate's Test step":           {IsTestStep: true},
+		"a run at the lowest priority": {IsLowPriority: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			a := admission(t)
+			holder := within(t, take(t, a), "the holder")
+			run := a
+			run.Who, run.IsTestStep, run.IsLowPriority, run.agingAfter = name, kind.IsTestStep, kind.IsLowPriority, 50*time.Millisecond
+			waited := joined(t, run, name)
+
+			// Act
+			time.Sleep(200 * time.Millisecond) // the run is meant to stay where it is, so a stall only makes the wait longer
+
+			// Assert
+			if _, waiting, err := Line(a.Dir); err != nil || len(waiting) != 1 || strings.HasPrefix(waiting[0].place, agedPlace) {
+				t.Errorf("the line is %+v, %v; want %s still at its own place, not aged", waiting, err, name)
+			}
+			holder.Release()
+			within(t, waited, name).Release()
+		})
+	}
+}
+
 // A gate Test step that asked before a goblin's own turn still goes first,
 // however long the goblin's turn has waited, and the goblin's turn ages once
 // no such step waits, ahead of a Test step that asks after that.
@@ -56,7 +84,7 @@ func TestAGoblinTurnPastItsAgingLimitStillWaitsForATestStepThatAskedFirst(t *tes
 	last.Who, last.IsTestStep = "the Test step that asked last", true
 	firstStep := joined(t, first, "the Test step that asked first")
 	waited := joined(t, own, "the goblin's own turn")
-	time.Sleep(200 * time.Millisecond) // stall-accepted: the goblin's turn is meant to stay where it is, so a stall only makes the wait longer.
+	time.Sleep(200 * time.Millisecond) // the goblin's turn is meant to stay where it is, so a stall only makes the wait longer
 	_, waiting, err := Line(a.Dir)
 	if err != nil || len(waiting) != 2 || waiting[0].Who != first.Who || strings.HasPrefix(waiting[1].place, agedPlace) {
 		t.Fatalf("the line is %+v, %v; want the Test step that asked first ahead of the goblin's turn, which has not aged past it", waiting, err)

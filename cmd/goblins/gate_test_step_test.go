@@ -1602,13 +1602,15 @@ func TestGateTurnsSaysHowManyLaterRunsStandAheadOfTheOldestGoblinTurn(t *testing
 	t.Setenv("GOBLINS_VERIFY_DIR", store)
 	holdTheTurn(t)
 	run := verify.Admission{Dir: filepath.Join(store, "slots"), Floor: 4 << 30, Available: func() (uint64, error) { return 64 << 30, nil }, Budget: time.Hour, Limit: time.Minute, Poll: 10 * time.Millisecond}
-	own, step := run, run
+	first, own, step := run, run, run
+	first.Who, first.IsTestStep = "a gate's Test step that asked first", true
 	own.Who = "a goblin's own turn"
 	step.Who, step.IsTestStep = "a gate's Test step", true
+	waitInLine(t, first)
 	waitInLine(t, own)
 	var before bytes.Buffer
 	if exit := gateTurns(plenty, &before, io.Discard); exit != 0 || strings.Contains(before.String(), "oldest goblin turn") {
-		t.Fatalf("with no run ahead of the goblin's turn, exit = %d and goblins gate turns printed %q; want 0 and no oldest goblin turn", exit, before.String())
+		t.Fatalf("with only a run that asked before it ahead of the goblin's turn, exit = %d and goblins gate turns printed %q; want 0 and no oldest goblin turn", exit, before.String())
 	}
 	waitInLine(t, step)
 
@@ -1621,8 +1623,8 @@ func TestGateTurnsSaysHowManyLaterRunsStandAheadOfTheOldestGoblinTurn(t *testing
 		t.Fatalf("exit = %d, want 0; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
 	}
 	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
-	if len(lines) != 5 || !strings.HasPrefix(lines[2], "1. a gate's Test step") || !strings.HasPrefix(lines[3], "2. a goblin's own turn") || !strings.HasPrefix(lines[4], "oldest goblin turn: run 2 has waited ") || !strings.HasSuffix(lines[4], ", and 1 run that asked after it stands ahead of it") {
-		t.Errorf("goblins gate turns printed %q; want the Test step, then the goblin's turn, then how long it waited and the 1 run ahead of it", lines)
+	if len(lines) != 6 || !strings.HasPrefix(lines[2], "1. a gate's Test step that asked first") || !strings.HasPrefix(lines[3], "2. a gate's Test step") || !strings.HasPrefix(lines[4], "3. a goblin's own turn") || !strings.HasPrefix(lines[5], "oldest goblin turn: run 3 has waited ") || !strings.HasSuffix(lines[5], ", and 1 run that asked after it stands ahead of it") {
+		t.Errorf("goblins gate turns printed %q; want both Test steps, then the goblin's turn, then how long it waited and the 1 run that asked after it ahead of it", lines)
 	}
 }
 

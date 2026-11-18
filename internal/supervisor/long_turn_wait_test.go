@@ -73,11 +73,12 @@ func TestMachineLongTurnWaitsReadsOnlyGoblinTurnsWaitingAnHour(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	standInLine(t, store, "00000000000000000001-1-1", "a goblin's own turn an hour old", false, now.Add(-61*time.Minute))
-	standInLine(t, store, "00000000000000000002-1-1", "a goblin's own turn just joined", false, now.Add(-time.Minute))
-	standInLine(t, store, "+00000000000000000003-1-1", "a gate's Test step", true, now.Add(-90*time.Minute))
-	standInLine(t, store, "!00000000000000000004-1-1", "a gate's Test step past the line's limit", true, now.Add(-3*time.Hour))
-	standInLine(t, store, "z-00000000000000000005-1-1", "a run at the lowest priority", false, now.Add(-90*time.Minute))
+	standInLine(t, store, "00000000000000000001-1-1", "a goblin's own turn an hour old", map[string]bool{}, now.Add(-61*time.Minute))
+	standInLine(t, store, "00000000000000000002-1-1", "a goblin's own turn just joined", map[string]bool{}, now.Add(-time.Minute))
+	standInLine(t, store, "+00000000000000000003-1-1", "a gate's Test step", map[string]bool{"is_test_step": true}, now.Add(-90*time.Minute))
+	standInLine(t, store, "!00000000000000000004-1-1", "a gate's Test step past the line's limit", map[string]bool{"is_test_step": true}, now.Add(-3*time.Hour))
+	standInLine(t, store, "z-00000000000000000005-1-1", "a run at the lowest priority", map[string]bool{"is_low_priority": true}, now.Add(-90*time.Minute))
+	standInLine(t, store, "!00000000000000000006-1-1", "a desktop CI job past the line's limit", map[string]bool{"is_low_priority": true}, now.Add(-3*time.Hour))
 
 	// Act
 	runs, err := MachineLongTurnWaits(now)
@@ -96,8 +97,9 @@ func TestMachineLongTurnWaitsReadsOnlyGoblinTurnsWaitingAnHour(t *testing.T) {
 }
 
 // standInLine writes a place named place in the line of store, held by this
-// live process since joined, with a card saying who waits there.
-func standInLine(t *testing.T, store, place, who string, isTestStep bool, joined time.Time) {
+// live process since joined, with a card saying who waits there and the kind
+// of run it is, as is_test_step or is_low_priority.
+func standInLine(t *testing.T, store, place, who string, kind map[string]bool, joined time.Time) {
 	t.Helper()
 	line := filepath.Join(store, "line")
 	if err := os.MkdirAll(line, 0o755); err != nil {
@@ -114,7 +116,11 @@ func standInLine(t *testing.T, store, place, who string, isTestStep bool, joined
 	if err != nil {
 		t.Fatal(err)
 	}
-	card, err := json.Marshal(map[string]any{"who": who, "is_test_step": isTestStep})
+	says := map[string]any{"who": who}
+	for field, is := range kind {
+		says[field] = is
+	}
+	card, err := json.Marshal(says)
 	if err != nil {
 		t.Fatal(err)
 	}

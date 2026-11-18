@@ -211,8 +211,11 @@ func TestARunPastTheLimitGoesAheadOfEveryTier(t *testing.T) {
 			waited := joined(t, overdue, "the run past the limit")
 			passing := joined(t, urgent, "the top of the line")
 			lineShows(t, a.Dir, "the run past the limit stands first", func(waiting []Standing) bool {
-				return len(waiting) == 2 && waiting[0].Who == overdue.Who
+				return len(waiting) == 2 && waiting[0].Who == overdue.Who && strings.HasPrefix(waiting[0].place, overduePlace)
 			})
+			if _, waiting, err := Line(a.Dir); err != nil || waiting[0].IsLowPriority != tier.IsLowPriority || waiting[0].IsTestStep != tier.IsTestStep {
+				t.Fatalf("the line is %+v, %v; want the run past the limit still known as low-priority %t and a Test step %t", waiting, err, tier.IsLowPriority, tier.IsTestStep)
+			}
 
 			// Act
 			holder.Release()

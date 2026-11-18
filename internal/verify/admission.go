@@ -205,9 +205,11 @@ type card struct {
 	// that moved up the line first joined it, which its new lock does not say.
 	Priority string    `json:"priority,omitempty"`
 	Joined   time.Time `json:"joined,omitzero"`
-	// IsTestStep says a waiting run is a gate's Test step, which a place that
-	// moved up the line no longer says.
-	IsTestStep bool `json:"is_test_step,omitempty"`
+	// IsTestStep says a waiting run is a gate's Test step, and IsLowPriority
+	// that it is a low-priority run, which a place that moved up the line no
+	// longer says.
+	IsTestStep    bool `json:"is_test_step,omitempty"`
+	IsLowPriority bool `json:"is_low_priority,omitempty"`
 }
 
 // defaultEstimate is a run's estimate when it names none: the most any run
@@ -620,7 +622,7 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 		return Turn{}, err
 	}
 	defer func() { a.remove(line, place, owner) }()
-	says := card{Who: a.Who, EstimateBytes: a.estimate(), Priority: a.Priority, Joined: owner.Acquired, IsTestStep: a.IsTestStep}
+	says := card{Who: a.Who, EstimateBytes: a.estimate(), Priority: a.Priority, Joined: owner.Acquired, IsTestStep: a.IsTestStep, IsLowPriority: a.IsLowPriority}
 	if err := a.leave(line, place, says); err != nil {
 		return Turn{}, err
 	}
@@ -1281,8 +1283,8 @@ type Standing struct {
 	// said so, and Now what such a run says it is doing.
 	Budget time.Duration
 	Now    string
-	// IsLowPriority says a waiting run waits at the lowest priority, and
-	// IsTestStep that it is a gate's Test step.
+	// IsLowPriority says a waiting run is a low-priority run and IsTestStep
+	// that it is a gate's Test step, wherever in the line it stands now.
 	IsLowPriority bool
 	IsTestStep    bool
 	// IsLight says a run holds a light turn beside the slots, not a slot.
@@ -1304,16 +1306,17 @@ type Standing struct {
 func behind(front, back Standing) string {
 	isFrontOverdue := strings.HasPrefix(front.place, overduePlace)
 	isBackOverdue := strings.HasPrefix(back.place, overduePlace)
+	isFrontLow := strings.HasPrefix(front.place, lowPriorityPlace)
 	switch {
 	case isFrontOverdue && !isBackOverdue:
 		return fmt.Sprintf("it has waited past the line's limit of %s", overdueLimit)
-	case front.IsLowPriority != back.IsLowPriority:
+	case isFrontLow != strings.HasPrefix(back.place, lowPriorityPlace):
 		return "any other run goes ahead of one at the lowest priority"
 	case strings.HasPrefix(front.place, agedPlace) && !strings.HasPrefix(back.place, agedPlace):
 		return fmt.Sprintf("a goblin's own turn that has waited %s goes ahead of what asked after it", agingLimit)
 	case strings.HasPrefix(front.place, testStepPlace) != strings.HasPrefix(back.place, testStepPlace):
 		return "a gate's Test step goes ahead of a goblin's own turn"
-	case !isFrontOverdue && !front.IsLowPriority && priorityPlaces[front.priority] != priorityPlaces[back.priority]:
+	case !isFrontOverdue && !isFrontLow && priorityPlaces[front.priority] != priorityPlaces[back.priority]:
 		return priorityName(front.priority) + " goes ahead of " + priorityName(back.priority)
 	}
 	return "it asked first"
@@ -1360,7 +1363,7 @@ func Line(dir string) (holding, waiting []Standing, err error) {
 				if !says.Joined.IsZero() {
 					since = says.Joined
 				}
-				runs = append(runs, Standing{Who: says.Who, PID: record.PID, Since: since, Budget: time.Duration(says.BudgetSeconds * float64(time.Second)), Now: says.Now, IsLowPriority: strings.HasPrefix(name, lowPriorityPlace), IsTestStep: says.IsTestStep || strings.HasPrefix(name, testStepPlace), IsLight: lightName.MatchString(name), Estimate: says.EstimateBytes, Used: says.UsedBytes, place: name, priority: says.Priority})
+				runs = append(runs, Standing{Who: says.Who, PID: record.PID, Since: since, Budget: time.Duration(says.BudgetSeconds * float64(time.Second)), Now: says.Now, IsLowPriority: says.IsLowPriority || strings.HasPrefix(name, lowPriorityPlace), IsTestStep: says.IsTestStep || strings.HasPrefix(name, testStepPlace), IsLight: lightName.MatchString(name), Estimate: says.EstimateBytes, Used: says.UsedBytes, place: name, priority: says.Priority})
 			}
 		}
 		return runs, nil
