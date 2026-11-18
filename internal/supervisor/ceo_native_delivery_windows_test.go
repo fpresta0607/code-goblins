@@ -937,30 +937,70 @@ func TestADeliveryToACEOInATurnReturnsOnceItsSubmitKeyWent(t *testing.T) {
 // key went, though a Claude Code slow to read, as on a loaded machine, takes
 // that key as a new line and leaves the words on its prompt line unsent. The
 // key is pressed again while the words show over the row it added, and words
-// that never leave the prompt line are taken back off it and read Not sent.
+// that never leave the prompt line are taken back off it and read Not sent. A
+// screen read that joins two frames of a redraw, as one of a loaded machine
+// can, shows no prompt line at all or shows it twice, and so never shows the
+// words gone from it, typed or pasted, nor do such reads to the end of the
+// wait, which leave the message unsent with nothing to show where it went
+// (#2635).
 func TestHisMessageInTheCEOsTurnIsQueuedOnlyOnceItLeavesThePromptLine(t *testing.T) {
 	previous := nativeShown
 	nativeShown = 2 * time.Second
 	t.Cleanup(func() { nativeShown = previous })
 	for _, tc := range []struct {
-		mode     string
-		isQueued bool
+		name, mode string
+		isQueued   bool
+		// isPasted has the message long enough to go as a paste, which the
+		// prompt line shows as its placeholder.
+		isPasted bool
+		// tear, when set, joins two frames in the first screen read after
+		// the harness took a key, or, isTornToTheEnd, in every read after it.
+		tear           func([]string) ([]string, bool)
+		isTornToTheEnd bool
 	}{
-		{mode: "claude-busy-lost-enter", isQueued: true},
-		{mode: "claude-busy-enters-lost", isQueued: false},
+		{name: "claude-busy-lost-enter", mode: "claude-busy-lost-enter", isQueued: true},
+		{name: "claude-busy-enters-lost", mode: "claude-busy-enters-lost", isQueued: false},
+		{name: "claude-busy-enters-lost read torn", mode: "claude-busy-enters-lost", isQueued: false, tear: ruleOverRowAbove},
+		{name: "claude-busy-enters-lost read twice", mode: "claude-busy-enters-lost", isQueued: false, tear: promptLineTwice},
+		{name: "claude-busy-enters-lost pasted read twice", mode: "claude-busy-enters-lost", isQueued: false, isPasted: true, tear: promptLineTwice},
+		{name: "claude-busy-enters-lost read torn to the end", mode: "claude-busy-enters-lost", isQueued: false, tear: ruleOverRowAbove, isTornToTheEnd: true},
 	} {
-		t.Run(tc.mode, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
 			useConversations(t)
 			store, home := testStore(t)
 			terminal := nativeCEOComposer(t, home.State, tc.mode)
-			service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: home.State}}}
+			connection := &CEOConnection{State: home.State}
+			if tc.tear != nil {
+				connection.ReadScreen = tornOnce(host.ReadScreen, tc.tear, func() bool { return len(terminal.lines(t)) > 1 })
+			}
+			if tc.isTornToTheEnd {
+				connection.ReadScreen = func(record host.Record) ([]string, error) {
+					screen, err := host.ReadScreen(record)
+					if err != nil || len(terminal.lines(t)) <= 1 {
+						return screen, err
+					}
+					torn, _ := tc.tear(slices.Clone(screen))
+					return torn, nil
+				}
+			}
+			service := &Service{Store: store, Options: Options{CEO: connection}}
+			text := "stop and rebase"
+			if tc.isPasted {
+				text = strings.TrimSpace(strings.Repeat("stop and rebase ", 40))
+			}
 
 			// Act
-			result, err := service.deliverMessage(context.Background(), Action{Kind: "message", Text: "stop and rebase"})
+			result, err := service.deliverMessage(context.Background(), Action{Kind: "message", Text: text})
 
 			// Assert
 			input := strings.Join(terminal.lines(t), "\n")
+			if tc.isTornToTheEnd {
+				if err == nil || result.Reason == heldByCEO || strings.Contains(input, "queued ") {
+					t.Errorf("deliverMessage = %+v, %v with terminal input %q; want it not sent, not queued in the turn", result, err, input)
+				}
+				return
+			}
 			if tc.isQueued {
 				if err != nil || result.Reason != heldByCEO || result.Awaiting == nil || strings.Count(input, "queued stop and rebase") != 1 {
 					t.Errorf("deliverMessage = %+v, %v with terminal input %q; want it queued in the turn once, after its submit key was pressed again", result, err, input)
@@ -978,42 +1018,52 @@ func TestHisMessageInTheCEOsTurnIsQueuedOnlyOnceItLeavesThePromptLine(t *testing
 // line, as a line queued earlier raises once it is taken at a tool call, never
 // reads his message queued in the CEO's turn while the screen shows its submit
 // key taken as a new line under his words: the key is pressed again (#2541).
+// A screen read that joins two frames of a redraw as the key is taken, as one
+// of a loaded machine can, shows nothing either way (#2665).
 func TestAnotherLinesPromptHookLeavesHisEnterTakenAsANewLineToBePressedAgain(t *testing.T) {
-	// Arrange
-	useConversations(t)
-	store, home := testStore(t)
-	terminal := nativeCEOComposer(t, home.State, "claude-busy-lost-enter")
-	screens, _ := harness.NativeScreens(harness.Claude)
-	connection := &CEOConnection{State: home.State}
-	var typed []string
-	hookErr := errors.New("no screen showed his submit key taken as a new line")
-	connection.ReadScreen = func(record host.Record) ([]string, error) {
-		screen, err := host.ReadScreen(record)
-		if err != nil || hookErr == nil || !screens.ComposerHoldsPartOf(screen, "stop and rebase") {
-			return screen, err
-		}
-		if typed == nil {
-			typed = screen
-		} else if screens.TookEnterAsNewLine(typed, screen) {
-			data, _ := json.Marshal(map[string]string{"session_id": "session-1", "cwd": home.State, "hook_event_name": "UserPromptSubmit"})
-			var event nativehook.Event
-			if event, hookErr = nativehook.Normalize(strings.NewReader(string(data)), nativehook.Context{Harness: "claude", HostID: "ceo"}); hookErr == nil {
-				hookErr = nativehook.Spool(home.State, event)
+	for _, isTorn := range []bool{false, true} {
+		t.Run(fmt.Sprintf("read torn %t", isTorn), func(t *testing.T) {
+			// Arrange
+			useConversations(t)
+			store, home := testStore(t)
+			terminal := nativeCEOComposer(t, home.State, "claude-busy-lost-enter")
+			screens, _ := harness.NativeScreens(harness.Claude)
+			connection := &CEOConnection{State: home.State}
+			read := host.ReadScreen
+			if isTorn {
+				read = tornOnce(host.ReadScreen, ruleOverRowAbove, func() bool { return len(terminal.lines(t)) > 1 })
 			}
-		}
-		return screen, nil
-	}
-	service := &Service{Store: store, Options: Options{CEO: connection}}
+			var typed []string
+			hookErr := errors.New("no screen showed his submit key taken as a new line")
+			connection.ReadScreen = func(record host.Record) ([]string, error) {
+				screen, err := read(record)
+				if err != nil || hookErr == nil || !screens.ComposerHoldsPartOf(screen, "stop and rebase") {
+					return screen, err
+				}
+				if typed == nil {
+					typed = screen
+				} else if screens.TookEnterAsNewLine(typed, screen) {
+					data, _ := json.Marshal(map[string]string{"session_id": "session-1", "cwd": home.State, "hook_event_name": "UserPromptSubmit"})
+					var event nativehook.Event
+					if event, hookErr = nativehook.Normalize(strings.NewReader(string(data)), nativehook.Context{Harness: "claude", HostID: "ceo"}); hookErr == nil {
+						hookErr = nativehook.Spool(home.State, event)
+					}
+				}
+				return screen, nil
+			}
+			service := &Service{Store: store, Options: Options{CEO: connection}}
 
-	// Act
-	result, err := service.deliverMessage(context.Background(), Action{Kind: "message", Text: "stop and rebase"})
+			// Act
+			result, err := service.deliverMessage(context.Background(), Action{Kind: "message", Text: "stop and rebase"})
 
-	// Assert
-	if hookErr != nil {
-		t.Fatalf("the other line's hook never reported: %v", hookErr)
-	}
-	if lines := terminal.waitForLines(t, 3); err != nil || result.Reason != heldByCEO || result.Awaiting == nil || !slices.Equal(lines[1:], []string{"enter taken as a new line", "queued stop and rebase"}) {
-		t.Errorf("deliverMessage = %+v, %v with terminal input %q; want its submit key pressed again and his message queued once", result, err, lines)
+			// Assert
+			if hookErr != nil {
+				t.Fatalf("the other line's hook never reported: %v", hookErr)
+			}
+			if lines := terminal.waitForLines(t, 3); err != nil || result.Reason != heldByCEO || result.Awaiting == nil || !slices.Equal(lines[1:], []string{"enter taken as a new line", "queued stop and rebase"}) {
+				t.Errorf("deliverMessage = %+v, %v with terminal input %q; want its submit key pressed again and his message queued once", result, err, lines)
+			}
+		})
 	}
 }
 
