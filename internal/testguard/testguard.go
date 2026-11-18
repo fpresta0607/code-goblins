@@ -405,8 +405,13 @@ func grep(ctx context.Context, git execx.Runner, dir string, args ...string) ([]
 // where the clone records one, else origin/main.
 func mergeBase(ctx context.Context, git execx.Runner, dir string) (string, error) {
 	for _, ref := range []string{"origin/HEAD", "origin/main"} {
-		if base, err := run(ctx, git, dir, "merge-base", "HEAD", ref); err == nil && strings.TrimSpace(base) != "" {
-			return strings.TrimSpace(base), nil
+		args := []string{"merge-base", "HEAD", ref}
+		result, err := git.Run(ctx, execx.Request{Dir: dir, Name: "git", Args: args})
+		if err != nil {
+			return "", fmt.Errorf("testguard: git %s: %w", strings.Join(args, " "), err)
+		}
+		if base := strings.TrimSpace(string(result.Stdout)); result.ExitCode == 0 && base != "" {
+			return base, nil
 		}
 	}
 	return "", errors.New("testguard: no merge base with origin/HEAD or origin/main, so the gate's commits cannot be told from the default branch")

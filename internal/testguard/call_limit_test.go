@@ -93,3 +93,46 @@ func TestCheckFailsOnAGitCallThatNeverReturnsAndNamesIt(t *testing.T) {
 		}
 	}
 }
+
+// hungMergeBase never answers git merge-base HEAD origin/HEAD, runs every
+// other call and records what each call asked.
+type hungMergeBase struct {
+	calls [][]string
+}
+
+func (git *hungMergeBase) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
+	git.calls = append(git.calls, request.Args)
+	if slices.Equal(request.Args, []string{"merge-base", "HEAD", "origin/HEAD"}) {
+		<-ctx.Done()
+		return execx.Result{}, ctx.Err()
+	}
+	return execx.OSRunner{}.Run(ctx, request)
+}
+
+// A merge base call that never answers fails the check and is named, rather
+// than the check moving on to origin/main, which may be another branch than
+// the one origin/HEAD names and so read the wrong gate commits.
+func TestCheckFailsOnAMergeBaseThatNeverReturnsAndNamesIt(t *testing.T) {
+	// Arrange
+	dir, git, write := scratchRepo(t, "package x\n\nfunc TestGuardHolds(t *testing.T) {}\n")
+	write("guard_test.go", "package x\n\nfunc TestGuardHolds(t *testing.T) { t.Log(1) }\n")
+	git("commit", "-qam", "no-mistakes(review): tighten the guard")
+	hung := &hungMergeBase{}
+	const limit = time.Second
+
+	// Act
+	_, err := Check(context.Background(), hung, dir, nil, limit)
+
+	// Assert
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want the hung merge base's limit to end the check", err)
+	}
+	for _, want := range []string{"git merge-base HEAD origin/HEAD", "no answer within 1s"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %q, want it to name %q", err, want)
+		}
+	}
+	if len(hung.calls) != 1 {
+		t.Errorf("calls = %q, want the check to end at the hung merge base", hung.calls)
+	}
+}
