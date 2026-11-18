@@ -2,7 +2,7 @@
 
 Code Goblins optimizes for one metric: **human intervention minutes per accepted production change**, subject to correctness and safety constraints.
 
-This roadmap deliberately borrows patterns, not product dependencies. Code Goblins stays a local-first Windows-native control plane.
+This roadmap deliberately borrows patterns, not product dependencies. Code Goblins stays a local-first control plane.
 
 ## P0 — Proof-before-merge
 

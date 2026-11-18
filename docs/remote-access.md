@@ -1,7 +1,7 @@
 # Use the board from your phone
 
 Code Goblins runs locally by default. Remote access is optional for every
-installation: the Windows app discovers that PC's Tailscale name and signed-in
+installation: the desktop app discovers that PC's Tailscale name and signed-in
 owner account. No personal hostname, account or key is included in the build.
 
 ## Set up once
