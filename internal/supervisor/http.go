@@ -260,7 +260,7 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/api/composer/file" && r.Method == "POST":
 		h.keepComposerFile(w, r)
 	case r.URL.Path == "/api/composer/file" && r.Method == "GET":
-		h.composerPicture(w, r)
+		h.composerFile(w, r)
 	case r.URL.Path == "/api/commands" && r.Method == "GET":
 		h.commands(w, r)
 	case r.URL.Path == "/api/files" && r.Method == "GET":
@@ -555,6 +555,14 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 24<<10))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&input); err != nil {
+		// A body past the cap is refused in words that name it, never as JSON
+		// the board could not read, as a long paste into the chat's box was
+		// before the box kept one as a file (#2404).
+		var tooLong *http.MaxBytesError
+		if errors.As(err, &tooLong) {
+			apiError(w, http.StatusRequestEntityTooLarge, "It is longer than the 24 KiB the board takes in one go.")
+			return
+		}
 		apiError(w, 400, "Invalid action JSON")
 		return
 	}

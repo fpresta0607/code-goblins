@@ -213,7 +213,38 @@ func TestAPictureKeptForAMessageIsReadBackForItsPreview(t *testing.T) {
 	}
 }
 
-func TestOnlyAPictureInTheComposerFolderIsReadBack(t *testing.T) {
+// A long paste the box kept as text is read back whole, line breaks and all,
+// for the conversation's chip that opens to it, as text the browser never
+// runs (#2404).
+func TestAPastedTextKeptForAMessageIsReadBackForItsChip(t *testing.T) {
+	board, _, _ := composerBoard(t)
+	text := []byte(strings.Repeat("PS C:\\dev> go test ./...\r\nok  \tgithub.com/x/y\t0.4s <b>\n", 3000))
+	for _, task := range []string{"task-1", ""} {
+		t.Run("task "+task, func(t *testing.T) {
+			// Arrange
+			var kept struct{ Path string }
+			if response := postComposerFile(board, task, "pasted.txt", text); json.Unmarshal(response.Body.Bytes(), &kept) != nil {
+				t.Fatalf("not kept: %d %s", response.Code, response.Body)
+			}
+
+			// Act
+			response := getComposerFile(board, task, kept.Path, "test-instance")
+
+			// Assert
+			if response.Code != 200 || !bytes.Equal(response.Body.Bytes(), text) {
+				t.Fatalf("answered %d with %d bytes, want 200 with the %d kept", response.Code, response.Body.Len(), len(text))
+			}
+			if media := response.Header().Get("Content-Type"); media != "text/plain; charset=utf-8" {
+				t.Fatalf("served as %q, want text/plain; charset=utf-8", media)
+			}
+			if sniff := response.Header().Get("X-Content-Type-Options"); sniff != "nosniff" {
+				t.Fatalf("X-Content-Type-Options is %q, want nosniff", sniff)
+			}
+		})
+	}
+}
+
+func TestOnlyAPictureOrAPastedTextInTheComposerFolderIsReadBack(t *testing.T) {
 	board, meta, stateDir := composerBoard(t)
 	var kept struct{ Path string }
 	if response := postComposerFile(board, "task-1", "notes.md", []byte("# notes\n")); json.Unmarshal(response.Body.Bytes(), &kept) != nil {
@@ -232,7 +263,7 @@ func TestOnlyAPictureInTheComposerFolderIsReadBack(t *testing.T) {
 		{"a relative path", "task-1", filepath.Join(composerFilesDir, "pasted-1.png"), "test-instance", 403},
 		{"another session's folder", "", kept.Path, "test-instance", 403},
 		{"the state folder's own files", "", filepath.Join(stateDir, "tasks.json"), "test-instance", 403},
-		{"a kept file that is not a picture", "task-1", kept.Path, "test-instance", 415},
+		{"a kept file that is neither a picture nor a pasted text", "task-1", kept.Path, "test-instance", 415},
 		{"a picture no longer kept", "task-1", filepath.Join(meta.TaskTmp, composerFilesDir, "pasted-gone.png"), "test-instance", 404},
 		{"a stale token", "task-1", kept.Path, "old-instance", 403},
 		{"a task that has ended", "gone", kept.Path, "test-instance", 409},
