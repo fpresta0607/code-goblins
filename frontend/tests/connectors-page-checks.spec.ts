@@ -181,8 +181,6 @@ for (const isFailing of [false, true]) {
   });
 }
 
-// The Overlord, 2026-10-08: "everything error wise goes to cfo". A check that
-// timed out says so in two words where the page says what it is doing.
 // #2547, measured on the live board: 15 of 28 goblins' checks failed, 14 of
 // them paused goblins, each row saying only Not checked and the page Check
 // failed. A goblin whose harness is not running says why in its rows, and a
@@ -248,6 +246,8 @@ test("a paused goblin whose last check failed as it paused never has the page or
   await expect(page.getByText("Check failed")).toHaveCount(0);
 });
 
+// The Overlord, 2026-10-08: "everything error wise goes to cfo". A check that
+// timed out says so in two words where the page says what it is doing.
 test("a check that timed out says Check failed, without the supervisor's words and without an alert", async ({ page }) => {
   // Arrange
   const supervisor = supervisorWith({ [PROOF]: [] });
