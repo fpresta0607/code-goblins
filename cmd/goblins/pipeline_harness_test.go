@@ -257,8 +257,8 @@ func TestTwoTasksOnDifferentHarnessesGateAtOnceUnderOneMachineConfig(t *testing.
 	if claudeNonce == codexNonce {
 		t.Fatalf("both launches share the nonce %q", claudeNonce)
 	}
-	if held.native[0].Args[10] == second.native[0].Args[10] {
-		t.Fatalf("both tasks wrote one launch selection file: %s", second.native[0].Args[10])
+	if withoutAgentEnv(held.native[0].Args)[10] == withoutAgentEnv(second.native[0].Args)[10] {
+		t.Fatalf("both tasks wrote one launch selection file: %s", withoutAgentEnv(second.native[0].Args)[10])
 	}
 	after, err := os.ReadFile(filepath.Join(nm, "config.yaml"))
 	if err != nil || !bytes.Equal(after, machine) {
