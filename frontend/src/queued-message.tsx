@@ -1,9 +1,10 @@
 import { memo, useState } from "react";
 import { message, reportToCeo, request } from "./api";
 import { Icon } from "./Icon";
-import { keptFileAddress, keptPictures } from "./kept-files";
+import { keptFileAddress, keptPictures, pastedTexts } from "./kept-files";
 import { MessagePictures } from "./message-pictures";
 import { isHarnessHeld, isNotSent, messageState } from "./messages";
+import { PastedTexts } from "./pasted-texts";
 import type { Action } from "./types";
 import { linkedText } from "./messageText";
 
@@ -116,10 +117,13 @@ export const QueuedMessage = memo(function QueuedMessage({ action, harnessState,
   // what that send says of itself.
   const movedWhy = current ? "It is already on its way to its session." : action.created_at ? "It has already left the queue." : action.send_now_why || "It is still reaching the board.";
   const reason = harnessState ?? (isHeld || isTyped || isUnsent ? action.message : "");
-  const kept = keptPictures(action.text);
+  const pasted = pastedTexts(action.text);
+  const kept = keptPictures(pasted.text);
+  const keptFile = (path: string) => keptFileAddress(instance, action.task_id || undefined, path);
   const why = "queued-why-" + action.id;
   return <div className={"queued-message " + variant} data-queued={action.id} data-message={row}>
-    {variant === "pane" && <MessagePictures sources={kept.paths.map((path) => keptFileAddress(instance, action.task_id || undefined, path))} />}
+    {variant === "pane" && <MessagePictures sources={kept.paths.map(keptFile)} />}
+    {variant === "pane" && <PastedTexts pastes={pasted.pastes} source={keptFile} />}
     {variant === "pane" && kept.text && <div className={"message-bubble queued-bubble" + (isHeld ? " waiting" : "")} aria-describedby={why}>{linkedText(kept.text)}</div>}
     {variant === "pane" && <p className="queued-state">{state}</p>}
     {variant === "queue" && <span className="composer-sent-text" aria-describedby={why}>{linkedText(action.text)}</span>}

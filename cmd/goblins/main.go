@@ -144,7 +144,7 @@ commands:
   goblins start-hook accept <task-id> <file> [--fleet]   accept a start hook a goblin's seal stopped once you judged it safe: the file, by its name, its exact content and the distribution whose RECORD installs it, for the goblins of the task's project, or of every project with --fleet; their seals let it through at every install from then on and still stop it once any of the three differs
   goblins merge-local <id>
   goblins cleanup <id>   return a finished task's worktree, every extra worktree it recorded and its scratch folder, refusing while any of them holds uncommitted work and keeping work that is not on the default branch as a local archive tag
-  goblins worktree add <id> <name> [--ref <commit>] | remove <id> <name>   give a task an extra worktree, <id>-<name>, beside its own in the home, recorded on the task so cleanup removes it with the task, or return one early
+  goblins worktree add <id> <name> [--ref <commit>] [--project <name|path>] | remove <id> <name> [--project <name|path>]   give a task an extra worktree, <id>-<name>, beside its own in the home, of its own project or with --project of another, recorded on the task so cleanup removes it with the task, or return one early
   goblins backlog done <id>   close a retired delivered task's queued row, preserving its evidence and continuation under Done
   goblins pause <id> | resume <id> | kill <id>   pause, resume or stop a task while preserving its work
   goblins reap [--dry-run] [--apply] [--force <pid|task-id>]... [--json]   find orphaned harness processes, stale dev servers, worktrees, task records and status logs; --apply retires the worktrees, records and logs, and ending a process needs its pid named with --force

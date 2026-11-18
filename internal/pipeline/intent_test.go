@@ -50,7 +50,7 @@ func TestAGateStartHandsItsIntentOverInAFile(t *testing.T) {
 	runner := &helpRunner{help: currentHelp}
 
 	// Act
-	start, err := StartOf(context.Background(), runner, t.TempDir(), nil, longIntent, nil)
+	start, err := StartOf(context.Background(), runner, t.TempDir(), nil, longIntent, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestAGateStartOnANoMistakesWithoutIntentFileKeepsTheCommandLineAndSaysSo(t 
 	runner := &helpRunner{help: "Flags:\n      --intent string        what the user set out to accomplish\n      --no-publish-intent    keep the generated Intent section out of the PR body\n"}
 
 	// Act
-	start, err := StartOf(context.Background(), runner, t.TempDir(), nil, "ship safely", nil)
+	start, err := StartOf(context.Background(), runner, t.TempDir(), nil, "ship safely", nil, nil)
 	defer start.Close()
 
 	// Assert
@@ -109,7 +109,7 @@ func TestAGateStartKeepsItsPrivateIntentOutOfThePullRequest(t *testing.T) {
 	runner := &helpRunner{help: currentHelp}
 
 	// Act
-	start, err := StartOf(context.Background(), runner, t.TempDir(), nil, intent, nil)
+	start, err := StartOf(context.Background(), runner, t.TempDir(), nil, intent, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestAGateStartOnANoMistakesThatWouldPublishItsIntentStartsNothing(t *testin
 			t.Setenv("TEMP", temp)
 
 			// Act
-			start, err := StartOf(context.Background(), runner, t.TempDir(), nil, "ship safely", nil)
+			start, err := StartOf(context.Background(), runner, t.TempDir(), nil, "ship safely", nil, nil)
 			defer start.Close()
 
 			// Assert
@@ -167,7 +167,7 @@ func TestAGateStartHandsNoMistakesTheIssuesItsPullRequestCloses(t *testing.T) {
 	runner := &helpRunner{help: "Flags:\n      --closes stringArray   issue this PR closes when merged\n      --intent-file string   read intent from this file\n      --no-publish-intent    keep the generated Intent section out of the PR body\n"}
 
 	// Act
-	start, err := StartOf(context.Background(), runner, t.TempDir(), nil, "ship safely", []string{"1996", "fpresta0607/code-goblins#1998"})
+	start, err := StartOf(context.Background(), runner, t.TempDir(), nil, "ship safely", []string{"1996", "fpresta0607/code-goblins#1998"}, nil)
 	defer start.Close()
 
 	// Assert
@@ -191,7 +191,7 @@ func TestAGateStartThatClosesAnIssueOnANoMistakesWithoutClosesStartsNothing(t *t
 	}
 
 	// Act
-	start, err := StartOf(context.Background(), runner, t.TempDir(), nil, "ship safely", []string{"1996"})
+	start, err := StartOf(context.Background(), runner, t.TempDir(), nil, "ship safely", []string{"1996"}, nil)
 	defer start.Close()
 
 	// Assert
