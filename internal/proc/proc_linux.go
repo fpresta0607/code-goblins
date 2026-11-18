@@ -30,7 +30,8 @@ var (
 // kernel cuts to 15 bytes, its state, its parent, its process group, the
 // ticks of processor time it and the children it collected used, and how
 // many ticks after the machine started it was created. It also says whether
-// its exec has not yet set up the environment it was started with.
+// its exec has not yet set up the arguments and the environment it was
+// started with.
 type status struct {
 	name    string
 	state   byte
@@ -39,7 +40,7 @@ type status struct {
 	used    uint64
 	started uint64
 
-	isEnvironmentPending bool
+	isExecSettingUp bool
 }
 
 // kernelThreadFlag is PF_KTHREAD among a process's flags.
@@ -73,8 +74,9 @@ func readStatus(pid int) (status, error) {
 // second, the group the third, the flags the seventh, the processor time the
 // twelfth to the fifteenth, the start the twentieth and where the environment
 // ends the forty-ninth. That end is 0 for a kernel thread, and for a process
-// whose exec has installed its new program but not yet set up its
-// environment; a kernel older than 3.5 does not give it.
+// whose exec has installed its new program but not yet set up its arguments
+// and environment, which it sets up together; a kernel older than 3.5 does
+// not give it.
 func parseStatus(line []byte) (status, error) {
 	open, shut := bytes.IndexByte(line, '('), bytes.LastIndexByte(line, ')')
 	if open < 0 || shut < open {
@@ -108,15 +110,15 @@ func parseStatus(line []byte) (status, error) {
 	if err != nil {
 		return status{}, fmt.Errorf("its flags %q are no number", fields[6])
 	}
-	isEnvironmentPending := false
+	isExecSettingUp := false
 	if len(fields) > 48 {
 		environmentEnd, err := strconv.ParseUint(string(fields[48]), 10, 64)
 		if err != nil {
 			return status{}, fmt.Errorf("its environment's end %q is no number", fields[48])
 		}
-		isEnvironmentPending = environmentEnd == 0 && flags&kernelThreadFlag == 0
+		isExecSettingUp = environmentEnd == 0 && flags&kernelThreadFlag == 0
 	}
-	return status{name: string(line[open+1 : shut]), state: fields[0][0], parent: parent, group: group, used: used, started: started, isEnvironmentPending: isEnvironmentPending}, nil
+	return status{name: string(line[open+1 : shut]), state: fields[0][0], parent: parent, group: group, used: used, started: started, isExecSettingUp: isExecSettingUp}, nil
 }
 
 // bootTime is when the machine started, as /proc/stat gives it in whole
