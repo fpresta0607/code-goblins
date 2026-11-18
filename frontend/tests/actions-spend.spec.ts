@@ -510,7 +510,7 @@ test.describe("Actions rollover on an open device", () => {
     await page.goto("/");
     await page.getByRole("button", { name: "Board", exact: true }).click();
     await expect.poll(() => requests).toBe(1);
-    await page.clock.pauseAt(new Date("2026-11-01T02:30:10Z"));
+    await page.clock.pauseAt(new Date("2026-11-01T02:31:30Z"));
     // The bar's new words show this snapshot's render, whose effects run
     // before the read's answer can.
     await push({ ...snapshot, ceo_starting: true });

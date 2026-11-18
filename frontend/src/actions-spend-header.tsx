@@ -32,11 +32,11 @@ export const ActionsSpendHeader = memo(function ActionsSpendHeader({ usage, mont
   const shownMonth = isOpen && isLastMonth ? lastMonth : month;
   const keptFor = (wanted: string) => kept[wanted]?.instance === instance ? kept[wanted] : undefined;
   const isDue = (wanted: string) => !!usage && usage.month !== wanted && now >= (keptFor(wanted)?.refreshAt ?? 0);
-  const requested = [...new Set([month, shownMonth])].filter(isDue).join(" ");
+  const requested = [...new Set([month, shownMonth])].filter(isDue).map((wanted) => wanted + "@" + (keptFor(wanted)?.refreshAt ?? 0)).join(" ");
   useEffect(() => {
     if (!requested) return;
     const controller = new AbortController();
-    for (const wanted of requested.split(" ")) {
+    for (const [wanted] of requested.split(" ").map((entry) => entry.split("@"))) {
       request("/api/actions-spend?month=" + wanted, controller.signal, { headers: { "X-CEO-Token": instance } })
         .then(parseActionsSpend)
         .then((reading) => {
