@@ -65,6 +65,12 @@ type Request struct {
 	// implementation slices to, on the goblin's own harness, and the zero lane
 	// when the goblin implements its own work.
 	Implement routing.ExecutionLane
+	// Review, Verify and Fix are the lanes, on the goblin's own harness, its
+	// gate's reviewer, verifying agent and fixer launch on, each the zero lane
+	// while that role runs on the goblin's own model.
+	Review routing.ExecutionLane
+	Verify routing.ExecutionLane
+	Fix    routing.ExecutionLane
 	// Title is the task's short title, given with --title or taken from its
 	// backlog row, kept on the task so the board names it once the row leaves
 	// the queue.
@@ -919,6 +925,15 @@ func validateRequestLineValues(req Request) error {
 		"request implement lane", req.Implement.Name,
 		"request implement model", req.Implement.Model,
 		"request implement effort", req.Implement.Effort,
+		"request review lane", req.Review.Name,
+		"request review model", req.Review.Model,
+		"request review effort", req.Review.Effort,
+		"request verify lane", req.Verify.Name,
+		"request verify model", req.Verify.Model,
+		"request verify effort", req.Verify.Effort,
+		"request fix lane", req.Fix.Name,
+		"request fix model", req.Fix.Model,
+		"request fix effort", req.Fix.Effort,
 	)
 }
 
@@ -967,6 +982,9 @@ func partialResult(req Request, project, taskTmp, worktree, scratch string) Resu
 		RouteReason:    req.RouteReason,
 	}
 	meta.ImplementLane, meta.ImplementModel, meta.ImplementEffort = req.Implement.Name, req.Implement.Model, req.Implement.Effort
+	meta.ReviewLane, meta.ReviewModel, meta.ReviewEffort = req.Review.Name, req.Review.Model, req.Review.Effort
+	meta.VerifyLane, meta.VerifyModel, meta.VerifyEffort = req.Verify.Name, req.Verify.Model, req.Verify.Effort
+	meta.FixLane, meta.FixModel, meta.FixEffort = req.Fix.Name, req.Fix.Model, req.Fix.Effort
 	if req.Kind == "ship" {
 		meta.Mode = req.Mode
 		meta.Yolo = yoloString(req.Yolo)
