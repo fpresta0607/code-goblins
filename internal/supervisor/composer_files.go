@@ -104,45 +104,51 @@ func (h *HTTP) keepComposerFile(w http.ResponseWriter, r *http.Request) {
 	}{f.Name()})
 }
 
-// composerPicture reads back a picture keepComposerFile kept for a message to
+// composerFile reads back a picture keepComposerFile kept for a message to
 // task, by the path the message names, for the box's thumbnail of it and the
-// conversation's preview. It reads nothing outside that task's composer
-// folder and serves only a picture. An <img> cannot send the board's token in
-// a header, so it comes in the query, as the messages' own pictures' does.
-func (h *HTTP) composerPicture(w http.ResponseWriter, r *http.Request) {
+// conversation's preview, and a long paste the box kept as text, for the
+// conversation's chip that opens to it (#2404). It reads nothing outside that
+// task's composer folder and serves only a picture or a kept text, the text
+// as plain text the browser never runs. An <img> cannot send the board's token
+// in a header, so it comes in the query, as the messages' own pictures' does.
+func (h *HTTP) composerFile(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	if subtle.ConstantTimeCompare([]byte(query.Get("token")), []byte(h.Service.Instance)) != 1 {
-		apiError(w, http.StatusForbidden, "Refresh the board before reading its pictures")
+		apiError(w, http.StatusForbidden, "Refresh the board before reading its files")
 		return
 	}
 	dir, ok := h.composerDir(query.Get("task"))
 	if !ok {
-		apiError(w, http.StatusConflict, "The goblin that task names has ended, so its pictures are gone.")
+		apiError(w, http.StatusConflict, "The goblin that task names has ended, so its files are gone.")
 		return
 	}
 	path := query.Get("path")
 	if !filepath.IsAbs(path) || filepath.Dir(filepath.Clean(path)) != dir {
-		apiError(w, http.StatusForbidden, "Only a picture kept for a message is shown.")
+		apiError(w, http.StatusForbidden, "Only a file kept for a message is shown.")
 		return
 	}
 	file, err := fsx.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
-		apiError(w, http.StatusNotFound, "That picture is no longer kept.")
+		apiError(w, http.StatusNotFound, "That file is no longer kept.")
 		return
 	}
 	if err != nil {
-		apiError(w, http.StatusInternalServerError, "The picture could not be read.")
+		apiError(w, http.StatusInternalServerError, "The file could not be read.")
 		return
 	}
 	defer file.Close()
 	data, err := io.ReadAll(io.LimitReader(file, maxReviewImage+1))
 	if err != nil {
-		apiError(w, http.StatusInternalServerError, "The picture could not be read.")
+		apiError(w, http.StatusInternalServerError, "The file could not be read.")
 		return
 	}
 	media := http.DetectContentType(data)
-	if pictureExtensions[media] == "" || len(data) > maxReviewImage {
-		apiError(w, http.StatusUnsupportedMediaType, "Only a picture is shown.")
+	isText := strings.EqualFold(filepath.Ext(path), ".txt")
+	if isText {
+		media = "text/plain; charset=utf-8"
+	}
+	if (!isText && pictureExtensions[media] == "") || len(data) > maxReviewImage {
+		apiError(w, http.StatusUnsupportedMediaType, "Only a picture or a pasted text is shown.")
 		return
 	}
 	// A kept file is never written again, so a thumbnail drawn again, as a

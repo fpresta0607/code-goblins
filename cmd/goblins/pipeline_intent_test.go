@@ -11,21 +11,27 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
+
+// withAgentEnv is the help of an axi run that takes the run's intent from a
+// file and the environment of the run's agents.
+const withAgentEnv = "      --agent-env stringArray   set NAME=VALUE in the environment of every agent of the run\n      --intent-file string   read intent from this file\n      --no-publish-intent    keep the generated Intent section out of the PR body\n"
 
 // intentFileRunner is a no-mistakes that takes a run's intent from a file, as
 // 1.86.0 and later do: it answers the help the start asks for, and keeps what
 // the file a run names held while the run started.
 type intentFileRunner struct {
 	*pipelineStartRunner
-	// help is what its help for axi run names, the intent file alone unless
-	// a test gives more.
+	// help is what its help for axi run names, withAgentEnv unless a test
+	// gives another.
 	help    string
 	started []execx.Request
 	read    []string
@@ -76,7 +82,7 @@ func intentFixture(t *testing.T) (home.Home, string, *intentFileRunner) {
 
 func (runner *intentFileRunner) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
 	if request.Name == "no-mistakes" && slices.Equal(request.Args, []string{"help", "axi", "run"}) {
-		return execx.Result{Stdout: []byte(cmp.Or(runner.help, "      --intent-file string   read intent from this file\n      --no-publish-intent    keep the generated Intent section out of the PR body\n"))}, nil
+		return execx.Result{Stdout: []byte(cmp.Or(runner.help, withAgentEnv))}, nil
 	}
 	if request.Name == "no-mistakes" && len(request.Args) > 1 && request.Args[0] == "axi" && request.Args[1] == "run" {
 		runner.started = append(runner.started, request)
@@ -516,7 +522,7 @@ func TestPipelineRunRefusesInvalidCIHandbackReattachment(t *testing.T) {
 // closing reference only from axi run --closes. A no-mistakes that takes no
 // --closes, or a value that is not an issue, starts no run.
 func TestPipelineRunHandsNoMistakesTheIssuesItsPullRequestCloses(t *testing.T) {
-	withCloses := "      --closes stringArray   issue this PR closes when merged\n      --intent-file string   read intent from this file\n      --no-publish-intent    keep the generated Intent section out of the PR body\n"
+	withCloses := "      --closes stringArray   issue this PR closes when merged\n" + withAgentEnv
 	for _, row := range []struct {
 		name   string
 		help   string
@@ -553,4 +559,138 @@ func TestPipelineRunHandsNoMistakesTheIssuesItsPullRequestCloses(t *testing.T) {
 			}
 		})
 	}
+}
+
+// agentEnvGiven is each NAME=VALUE a start handed no-mistakes as --agent-env.
+func agentEnvGiven(args []string) []string {
+	var given []string
+	for at, argument := range args {
+		if argument == "--agent-env" && at+1 < len(args) {
+			given = append(given, args[at+1])
+		}
+	}
+	return given
+}
+
+// Issue 1991: every agent a gate run starts carries the release cooldown a
+// goblin's terminal carries, from worktree.Cooldown of the task's own
+// worktree, since the shared daemon would otherwise start them with only its
+// own environment.
+func TestPipelineRunStartsTheGateWithTheTaskWorktreesReleaseCooldown(t *testing.T) {
+	for _, row := range []struct {
+		name    string
+		uvLocks string
+		want    []string
+		absent  string
+	}{
+		{"a worktree with no uv.lock", "", []string{"PIP_UPLOADED_PRIOR_TO=P7D", "UV_EXCLUDE_NEWER=7 days"}, ""},
+		{"a worktree that tracks a uv.lock", "service/uv.lock\x00", []string{"PIP_UPLOADED_PRIOR_TO=P7D"}, "UV_EXCLUDE_NEWER="},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			// Arrange
+			h, nm, runner := intentFixture(t)
+			runner.uvLocks = row.uvLocks
+			earliest := time.Now().UTC().AddDate(0, 0, -worktree.CooldownDays).Add(-time.Second)
+
+			// Act
+			err := pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{})
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(runner.started) != 1 {
+				t.Fatalf("no-mistakes started %d runs, want one", len(runner.started))
+			}
+			if wantDir := filepath.Join(h.Root, "project", ".worktrees", "gb-task"); !slices.Equal(runner.uvLockListings, []string{wantDir}) {
+				t.Errorf("uv.lock files listed in %q, want only the task worktree %q", runner.uvLockListings, wantDir)
+			}
+			given := agentEnvGiven(runner.started[0].Args)
+			for _, want := range row.want {
+				if !slices.Contains(given, want) {
+					t.Errorf("the run's agent environment is %q, want %q in it", given, want)
+				}
+			}
+			var before string
+			for _, entry := range given {
+				if row.absent != "" && strings.HasPrefix(entry, row.absent) {
+					t.Errorf("the run's agent environment holds %q, which a worktree that tracks a uv.lock leaves out", entry)
+				}
+				if value, ok := strings.CutPrefix(entry, "npm_config_before="); ok {
+					before = value
+				}
+			}
+			cutoff, err := time.Parse(time.RFC3339, before)
+			if err != nil || cutoff.Before(earliest) || cutoff.After(time.Now().UTC().AddDate(0, 0, -worktree.CooldownDays)) {
+				t.Errorf("npm_config_before = %q (%v), want the time %d days before the start", before, err, worktree.CooldownDays)
+			}
+		})
+	}
+}
+
+// A run started with --branch on an extra worktree takes the cooldown of that
+// worktree, not of the task's own: here the extra tracks a uv.lock and the own
+// worktree does not, so its run carries no UV_EXCLUDE_NEWER.
+func TestPipelineRunOnAnExtraWorktreeStartsWithThatWorktreesReleaseCooldown(t *testing.T) {
+	// Arrange
+	h, nm, branches := extraWorktreeTask(t)
+	extra := filepath.Join(h.Root, "worktrees", "project", "task-connections")
+	start := &pipelineStartRunner{worktree: extra, uvLocks: "uv.lock\x00"}
+	runner := taskWorktreesRunner{Runner: start, branches: branches}
+
+	// Act
+	err := pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--branch", "fix/connections", "--intent", "ship safely"}, &bytes.Buffer{})
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(start.uvLockListings, []string{extra}) {
+		t.Errorf("uv.lock files listed in %q, want only the extra worktree %q", start.uvLockListings, extra)
+	}
+	if len(start.native) != 1 {
+		t.Fatalf("no-mistakes started %d runs, want one", len(start.native))
+	}
+	given := agentEnvGiven(start.native[0].Args)
+	if !slices.Contains(given, "PIP_UPLOADED_PRIOR_TO=P7D") {
+		t.Errorf("the run's agent environment is %q, want PIP_UPLOADED_PRIOR_TO=P7D in it", given)
+	}
+	for _, entry := range given {
+		if strings.HasPrefix(entry, "UV_EXCLUDE_NEWER=") {
+			t.Errorf("the run's agent environment holds %q, which the extra worktree's tracked uv.lock leaves out", entry)
+		}
+	}
+}
+
+// A no-mistakes whose axi run takes no agent environment would start the
+// gate's agents without the release cooldown, so no run starts on it.
+func TestPipelineRunOnANoMistakesWithoutAgentEnvStartsNothing(t *testing.T) {
+	// Arrange
+	h, nm, runner := intentFixture(t)
+	runner.help = "      --intent-file string   read intent from this file\n      --no-publish-intent    keep the generated Intent section out of the PR body\n"
+
+	// Act
+	err := pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{})
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "--agent-env") || !strings.Contains(err.Error(), "no run starts") {
+		t.Fatalf("pipeline run returned %v, want a refusal naming --agent-env", err)
+	}
+	if len(runner.started) != 0 {
+		t.Errorf("no-mistakes started %q, want no run", runner.started[0].Args)
+	}
+}
+
+// withoutAgentEnv is args with each --agent-env and its NAME=VALUE left out,
+// for a test of the rest of a start.
+func withoutAgentEnv(args []string) []string {
+	var rest []string
+	for at := 0; at < len(args); at++ {
+		if args[at] == "--agent-env" {
+			at++
+			continue
+		}
+		rest = append(rest, args[at])
+	}
+	return rest
 }

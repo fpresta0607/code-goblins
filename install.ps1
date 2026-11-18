@@ -580,15 +580,16 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     # pinned here: the commit of the no-mistakes fork whose axi run takes a
     # gate's intent from a file and the launch selection every gate goblins
     # pipeline run starts gives it, with a reviewer and fixer pinned to their
-    # role lanes (docs/pipeline.md), and the version that build reports.
+    # role lanes and the release cooldown set for each agent and step of the
+    # run (docs/pipeline.md), and the version that build reports.
     # Each release builds it from that commit with
     # tools\build-no-mistakes.ps1, signs it as it signs its own programs and
     # publishes it beside them, and the install takes it from there, so no
     # unsigned program reaches a machine and moving the pin moves every
     # machine the next release installs.
-    $noMistakesVersion = "1.110.0-558-g853d3fd"
+    $noMistakesVersion = "1.110.0-567-gc4383b9"
     $noMistakesRepository = "fpresta0607/no-mistakes"
-    $noMistakesCommit = "853d3fd4cabb559cfc01808a9772e3e6a8560096"
+    $noMistakesCommit = "c4383b9728110729aa387af1a4890d1d4ba9ad78"
     # Every package this install fetches from npm, the skills CLI among
     # them, is pinned to an exact version, so a release upstream reaches
     # users only when it is pinned here. On 2026-10-06 the skills CLI 1.7.1
