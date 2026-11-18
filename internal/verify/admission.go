@@ -72,7 +72,8 @@ type Admission struct {
 	IsLowPriority bool
 	// IsTestStep says the run is a gate's Test step, which a whole delivery
 	// waits on: it goes ahead of every waiting run that is not one, whichever
-	// joined first.
+	// joined first, until a goblin's own turn that asked before it has waited
+	// agingLimit.
 	IsTestStep bool
 	// Priority is the priority on the backlog row of the task whose run this
 	// is, which priorityPlaces orders, and empty for a run with no task.
@@ -87,6 +88,8 @@ type Admission struct {
 	overdueAfter time.Duration
 	// passAfter is passLimit, which a test shortens.
 	passAfter time.Duration
+	// agingAfter is agingLimit, which a test shortens.
+	agingAfter time.Duration
 }
 
 // NoLimit is the Limit of a run that waits for memory for as long as the
@@ -202,6 +205,9 @@ type card struct {
 	// that moved up the line first joined it, which its new lock does not say.
 	Priority string    `json:"priority,omitempty"`
 	Joined   time.Time `json:"joined,omitzero"`
+	// IsTestStep says a waiting run is a gate's Test step, which a place that
+	// moved up the line no longer says.
+	IsTestStep bool `json:"is_test_step,omitempty"`
 }
 
 // defaultEstimate is a run's estimate when it names none: the most any run
@@ -471,6 +477,8 @@ func (a Admission) takeLight() (turn Turn, short string, failure error) {
 // the other. From the front of the line:
 //
 //   - overduePlace: a run that has waited overdueLimit, whatever its tier
+//   - agedPlace: a goblin's own turn that has waited agingLimit, then its
+//     task's priority as below
 //   - testStepPlace: a gate's Test step, then its task's priority as below
 //   - production-defect
 //   - no tier: priority 0, a row that names no priority or one the line does
@@ -480,6 +488,7 @@ func (a Admission) takeLight() (turn Turn, short string, failure error) {
 //   - lowPriorityPlace
 const (
 	overduePlace     = "!"
+	agedPlace        = "#"
 	testStepPlace    = "+"
 	lowPriorityPlace = "z-"
 )
@@ -514,6 +523,17 @@ const overdueLimit = 2 * time.Hour
 // cmd/goblins/gate.go) allows, still uses up its wait, as a holder with more
 // than an hour left does for any run at the head.
 const passLimit = 20 * time.Minute
+
+// agingLimit is how long a goblin's own turn, one that is neither a gate's
+// Test step nor at the lowest priority, waits before no Test step that asks
+// after it may pass it. It then moves to agedPlace, once no Test step that
+// asked before it still waits, which keeps that step's place ahead of it. A
+// Test step goes first because a whole delivery waits on it, and twenty
+// minutes keeps that while a few gates are under way. With no limit but
+// overdueLimit, Test steps that kept arriving held a goblin's turn over an
+// hour on 2026-11-12, among them the goblins verify fast its task had to pass
+// before it could publish (#2416).
+const agingLimit = 20 * time.Minute
 
 // tier begins the run's place in line.
 func (a Admission) tier() string {
@@ -600,7 +620,7 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 		return Turn{}, err
 	}
 	defer func() { a.remove(line, place, owner) }()
-	says := card{Who: a.Who, EstimateBytes: a.estimate(), Priority: a.Priority}
+	says := card{Who: a.Who, EstimateBytes: a.estimate(), Priority: a.Priority, Joined: owner.Acquired, IsTestStep: a.IsTestStep}
 	if err := a.leave(line, place, says); err != nil {
 		return Turn{}, err
 	}
@@ -636,6 +656,20 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 				return Turn{Waited: time.Since(start)}, err
 			}
 			place, owner = overduePlace+arrival, moved
+		}
+		if !a.IsTestStep && !a.IsLowPriority && waited >= cmp.Or(a.agingAfter, agingLimit) && !strings.HasPrefix(place, overduePlace) && !strings.HasPrefix(place, agedPlace) {
+			isBehindAnEarlierStep, err := testStepAskedBefore(line, arrival)
+			if err != nil {
+				return Turn{Waited: time.Since(start)}, err
+			}
+			if !isBehindAnEarlierStep {
+				aged := agedPlace + a.tier() + arrival
+				moved, err := a.moveToFront(line, aged, place, owner, says)
+				if err != nil {
+					return Turn{Waited: time.Since(start)}, err
+				}
+				place, owner = aged, moved
+			}
 		}
 		passed, err := a.passing(line, capacity, floor)
 		if err != nil {
@@ -751,7 +785,6 @@ func (a Admission) moveToFront(line, front, place string, owner *lock.Info, says
 	if err != nil {
 		return nil, err
 	}
-	says.Joined = owner.Acquired
 	if err = a.leave(line, front, says); err == nil {
 		err = a.remove(line, place, owner)
 	}
@@ -818,6 +851,31 @@ func (a Admission) passing(line string, capacity int, floor uint64) (func(name s
 		short, err := ahead.headShort(capacity, floor)
 		return short != "", err
 	}, nil
+}
+
+// testStepAskedBefore says whether a gate's Test step that joined the line
+// before arrival, the moment in a place's name after its tier, still waits in
+// it. One whose lock cannot be read may still wait.
+func testStepAskedBefore(line, arrival string) (bool, error) {
+	entries, err := os.ReadDir(line)
+	if err != nil {
+		return false, err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		at := strings.IndexAny(name, "0123456789")
+		if !strings.HasPrefix(name, testStepPlace) || strings.HasSuffix(name, ".run") || at < 0 || name[at:] >= arrival {
+			continue
+		}
+		waiter, err := lock.ReadNamedStrict(line, name)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil || waiter.Alive() {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // inFront counts the runs whose places come before place and still wait,
@@ -1223,8 +1281,10 @@ type Standing struct {
 	// said so, and Now what such a run says it is doing.
 	Budget time.Duration
 	Now    string
-	// IsLowPriority says a waiting run waits at the lowest priority.
+	// IsLowPriority says a waiting run waits at the lowest priority, and
+	// IsTestStep that it is a gate's Test step.
 	IsLowPriority bool
+	IsTestStep    bool
 	// IsLight says a run holds a light turn beside the slots, not a slot.
 	IsLight bool
 	// Estimate is the most memory it is expected to use, and Used what it
@@ -1249,6 +1309,8 @@ func behind(front, back Standing) string {
 		return fmt.Sprintf("it has waited past the line's limit of %s", overdueLimit)
 	case front.IsLowPriority != back.IsLowPriority:
 		return "any other run goes ahead of one at the lowest priority"
+	case strings.HasPrefix(front.place, agedPlace) && !strings.HasPrefix(back.place, agedPlace):
+		return fmt.Sprintf("a goblin's own turn that has waited %s goes ahead of what asked after it", agingLimit)
 	case strings.HasPrefix(front.place, testStepPlace) != strings.HasPrefix(back.place, testStepPlace):
 		return "a gate's Test step goes ahead of a goblin's own turn"
 	case !isFrontOverdue && !front.IsLowPriority && priorityPlaces[front.priority] != priorityPlaces[back.priority]:
@@ -1298,7 +1360,7 @@ func Line(dir string) (holding, waiting []Standing, err error) {
 				if !says.Joined.IsZero() {
 					since = says.Joined
 				}
-				runs = append(runs, Standing{Who: says.Who, PID: record.PID, Since: since, Budget: time.Duration(says.BudgetSeconds * float64(time.Second)), Now: says.Now, IsLowPriority: strings.HasPrefix(name, lowPriorityPlace), IsLight: lightName.MatchString(name), Estimate: says.EstimateBytes, Used: says.UsedBytes, place: name, priority: says.Priority})
+				runs = append(runs, Standing{Who: says.Who, PID: record.PID, Since: since, Budget: time.Duration(says.BudgetSeconds * float64(time.Second)), Now: says.Now, IsLowPriority: strings.HasPrefix(name, lowPriorityPlace), IsTestStep: says.IsTestStep || strings.HasPrefix(name, testStepPlace), IsLight: lightName.MatchString(name), Estimate: says.EstimateBytes, Used: says.UsedBytes, place: name, priority: says.Priority})
 			}
 		}
 		return runs, nil

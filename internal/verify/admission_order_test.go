@@ -35,7 +35,10 @@ func TestEveryTierSortsBehindTheOneInFrontOfItWhenItJoinedFirst(t *testing.T) {
 		{Priority: "ops-root"},
 		{IsLowPriority: true},
 	}
-	places := []string{overduePlace + fmt.Sprintf("%020d-1-1", len(fromTheFront)+1)}
+	places := []string{
+		overduePlace + fmt.Sprintf("%020d-1-1", len(fromTheFront)+2),
+		agedPlace + priorityPlaces["ops-root"] + fmt.Sprintf("%020d-1-1", len(fromTheFront)+1),
+	}
 
 	// Act
 	for at, run := range fromTheFront {

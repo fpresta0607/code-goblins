@@ -624,13 +624,18 @@ The line goes by what a run is and then by when it asked, so urgent work does no
 From the front:
 
 1. A run that has waited two hours, whatever it is, in the order those runs asked.
-2. A gate's Test step, which its wrapper's `--gate-run` names, since a whole delivery waits on it.
-3. A run of a task with `(priority: production-defect)` on its backlog row.
-4. A run of priority 0, of a row that names no priority or one the line does not know, or of no task, which is the place every run had when the line kept only the order they asked in.
-5. Runs of priority 1, then 2, then 3, then `ops-root`, the last of the backlog's rows.
-6. A low-priority run.
+2. A goblin's own turn that has waited 20 minutes, by its task's priority as below.
+3. A gate's Test step, which its wrapper's `--gate-run` names, since a whole delivery waits on it.
+4. A run of a task with `(priority: production-defect)` on its backlog row.
+5. A run of priority 0, of a row that names no priority or one the line does not know, or of no task, which is the place every run had when the line kept only the order they asked in.
+6. Runs of priority 1, then 2, then 3, then `ops-root`, the last of the backlog's rows.
+7. A low-priority run.
 
-Test steps order among themselves by the same task priorities, and a Test step of any priority goes ahead of every run that is not one.
+Test steps order among themselves by the same task priorities, and a Test step of any priority goes ahead of every run that is not one, until a goblin's own turn that asked before it has aged.
+A goblin's own turn, one that is neither a Test step nor low-priority, ages once it has waited 20 minutes and no Test step that asked before it still waits: it then stands ahead of every Test step that asks after it.
+On 2026-11-12 Test steps that kept arriving held a goblin's turn over an hour, among them the `goblins verify fast` its task had to pass before it could publish, and nothing said so (#2416).
+Twenty minutes keeps a Test step first while a few gates are under way, and an aged turn still waits for the Test steps that asked before it.
+An aged turn also stands ahead of a younger goblin turn of a higher priority, since that turn stands behind the Test steps the aged one now goes ahead of.
 Runs of one place keep the order they asked in.
 `goblins gate turn`, `goblins gate test`, `goblins gate prepush` and `goblins verify` each read the priority on their task's row as they join the line, so a row changed later moves no run that already waits.
 A row they cannot read costs a run only its priority: it says so and stands as a run with no task.
@@ -646,7 +651,7 @@ Two hours is a gate's 90 minute turn budget and half an hour more.
 Waits reached an hour on a busy morning, so a limit that short would turn a busy line back into the order runs asked in, just when the order matters, and a limit much longer leaves a goblin idle for more of its session than a whole turn is worth.
 
 Every build orders the line by the names of its places and nothing else, so a run an older build started agrees with a newer one on who goes first.
-An older build's run takes its place by when it asked and never moves to the front.
+An older build's run takes its place by when it asked and never moves to the front or ages.
 
 A command also waits while either physical or commit availability is under the shared floor.
 At capacity one the floor is 4 GiB.
@@ -685,10 +690,12 @@ A run that a gate's agent started waits three minutes at most for its turn, as [
 On 2026-10-14 a run that had waited an hour and fourteen minutes reached the head of the line and ended with no turn on one busy change of the lock.
 
 A gate shows a step's output only once the step has ended, so `goblins gate turns` prints the line from outside while the wait lasts: each run that holds a turn, the runs that wait in the order they take their turns, a low-priority run marked, each after the first with why it stands behind the one before it, as `behind run 1: a gate's Test step goes ahead of a goblin's own turn` or `behind run 2: it asked first`, and the memory when the machine is short of it.
+When runs that asked after the oldest goblin's own turn stand ahead of it, a line after the waiting runs says how long that turn has waited and how many of them stand ahead of it, as `oldest goblin turn: run 4 has waited 1h10m0s, and 3 runs that asked after it stand ahead of it`.
+A goblin's own turn that has waited an hour wakes the CEO once, naming it ([the board's wakes](native-board.md)).
 At capacity two it also shows what each run is expected to use and what each holder uses now.
 When memory and commit, less the about 1 GB a new goblin's session takes, are short of the floor for the line's next run, its last line says the supervisor starts and resumes no goblin by itself, keeping the test slots open, as the scheduler's own line says ([The fleet never idles](contract/dispatch.md#the-fleet-never-idles)).
 `goblins gate turns` shows each light run apart from the slots' holders, as `light, beside the slots:`, with its bound and the memory it uses of what it is expected to use.
-`goblins gate turns --json` gives the same, less why a run stands behind another, as one JSON object, for the board to read, whose keys stay as they are and are always there, an empty line being empty lists: `capacity`, `is_weighed`, `holding`, `light` and `waiting`, each run with `who`, `pid`, `since`, `budget_seconds`, `now`, `estimate_bytes`, `used_bytes` and `is_low_priority`, `memory` with `available_bytes`, `commit_available_bytes`, `floor_bytes` and `is_short`, and `hold`, which says why no goblin starts or resumes by itself and is empty when one may.
+`goblins gate turns --json` gives the same, less why a run stands behind another, as one JSON object, for the board to read, whose keys stay as they are and are always there, an empty line being empty lists: `capacity`, `is_weighed`, `holding`, `light` and `waiting`, each run with `who`, `pid`, `since`, `budget_seconds`, `now`, `estimate_bytes`, `used_bytes`, `is_low_priority` and `is_test_step`, `memory` with `available_bytes`, `commit_available_bytes`, `floor_bytes` and `is_short`, and `hold`, which says why no goblin starts or resumes by itself and is empty when one may.
 Under a run that holds a turn, `goblins gate turns` prints what the run says it is doing, which the run renews every five seconds while its tests run: how many packages are done, which tests are running and for how long, and the last line of its output.
 A new gate run names the task registered for its source worktree, including the owner of an extra worktree, in its turn and report.
 Its turn names the task's goblin with it, as `Zora (cg-example)`, when the task's record names one, and its report keeps the id.
