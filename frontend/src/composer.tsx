@@ -477,12 +477,11 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // A send through the board disables the box while the board answers, and a
   // disabled box gives up the keyboard. A box that had the keyboard when he
   // sent takes it back in the commit that enables it again, as a take-back
-  // does, unless he has put it somewhere else since: left without it, the next
-  // key he pressed reached nothing (#2085).
+  // does, when the keyboard is still nowhere: left without it, the next key he
+  // pressed reached nothing (#2085).
   const [sendsEnded, setSendsEnded] = useState(0);
   useLayoutEffect(() => {
-    const active = document.activeElement;
-    if (sendsEnded && (!active || active === document.body || composerSection.current?.contains(active))) field.current?.focus();
+    if (sendsEnded && document.activeElement === document.body) field.current?.focus();
   }, [sendsEnded]);
   // send sends what the box holds, or words in its place: the command he
   // picked from the list with Enter, whole, where the box holds only what he

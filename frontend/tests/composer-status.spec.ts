@@ -149,9 +149,9 @@ for (const style of ["modern"]) {
         });
       }
       // The box takes the keyboard back only from nowhere: not from a control
-      // he moved it to while the board answered, and not when the box did not
-      // have it as the message went.
-      for (const keyboard of ["moved to the panel's header", "not in the box"] as const) {
+      // he moved it to while the board answered, in the box or out of it, and
+      // not when the box did not have it as the message went.
+      for (const keyboard of ["moved to the panel's header", "moved to Speech history", "not in the box"] as const) {
         test(`${style} leaves the keyboard alone after a send through the board when it was ${keyboard} at ${width}px`, async ({ page }) => {
           // Arrange
           await page.addInitScript((value) => localStorage.setItem("ceo-chat-style", value), style);
@@ -170,16 +170,15 @@ for (const style of ["modern"]) {
             if (!element.hasAttribute("disabled")) element.dataset.focusedWhenEnabled = String(document.activeElement === element);
           }).observe(element, { attributeFilter: ["disabled"] }));
           await field(page).fill("Queue this for after the gate");
+          const control = keyboard === "moved to Speech history" ? box(page).getByRole("button", { name: "Speech history", exact: true }) : page.locator(".context-pane .panel-header").getByRole("button", { name: "Chat style", exact: true });
 
-          const chatStyle = page.locator(".context-pane .panel-header").getByRole("button", { name: "Chat style", exact: true });
-
-          // Act: he sends, and the keyboard is on the panel's header, or
+          // Act: he sends, and the keyboard is on a control he moved it to, or
           // nowhere since before the send, when the board answers.
-          if (keyboard === "moved to the panel's header") {
+          if (keyboard !== "not in the box") {
             await field(page).press("Enter");
             await expect(field(page)).toBeDisabled();
-            await chatStyle.focus();
-            await expect(chatStyle).toBeFocused();
+            await control.focus();
+            await expect(control).toBeFocused();
           } else {
             await field(page).blur();
             await send(page).dispatchEvent("click");
@@ -190,7 +189,7 @@ for (const style of ["modern"]) {
           // Assert
           await expect(field(page)).toHaveAttribute("data-focused-when-enabled", "false");
           await expect(field(page)).not.toBeFocused();
-          if (keyboard === "moved to the panel's header") await expect(chatStyle).toBeFocused();
+          if (keyboard !== "not in the box") await expect(control).toBeFocused();
           else expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
         });
       }
