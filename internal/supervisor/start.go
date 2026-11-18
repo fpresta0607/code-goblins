@@ -19,6 +19,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/verify"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -79,6 +80,10 @@ type Dispatch struct {
 	// one at its head, as MachineLineStall says it, or "" when it does not;
 	// nil reads none.
 	LineStall func(Memory) (string, error)
+	// LongTurnWaits reads the goblins' own turns that have waited in the
+	// machine's heavy line longTurnWait or longer at the given moment, as
+	// MachineLongTurnWaits reads them; nil reads none.
+	LongTurnWaits func(now time.Time) ([]verify.Standing, error)
 	// Spawn runs goblins with args and returns what it printed.
 	Spawn func(ctx context.Context, args []string) (string, error)
 }

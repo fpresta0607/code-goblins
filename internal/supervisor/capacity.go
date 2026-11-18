@@ -132,6 +132,29 @@ func MachineLineStall(memory Memory) (string, error) {
 	return stall, nil
 }
 
+// longTurnWait is how long a goblin's own turn waits in the heavy line before
+// the CEO is woken for it: the line's aging limit of 20 minutes puts it ahead
+// of every gate Test step that asks after it, so a turn still waiting an hour
+// on is held by something the line does not order (#2416).
+const longTurnWait = time.Hour
+
+// MachineLongTurnWaits reads the goblins' own turns that have waited in the
+// machine's heavy line longTurnWait or longer at now: neither a gate's Test
+// step nor a run at the lowest priority, which waits by design.
+func MachineLongTurnWaits(now time.Time) ([]verify.Standing, error) {
+	dir, err := verify.AdmissionDir()
+	if err != nil {
+		return nil, err
+	}
+	_, waiting, err := verify.Line(dir)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(waiting, func(run verify.Standing) bool {
+		return run.IsTestStep || run.IsLowPriority || now.Sub(run.Since) < longTurnWait
+	}), nil
+}
+
 // heavyLineRoom is the room the machine's heavy line keeps at this reading,
 // whose Hold says why the supervisor starts and resumes no goblin by itself,
 // as SlotHold says it, or is "" when it may or the line is not read. A line

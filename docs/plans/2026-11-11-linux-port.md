@@ -125,12 +125,12 @@ The host's protocol (a token handshake, then typed frames) is the same on every 
   A check by start, as the one before a process is ended, therefore only ever refuses after a step.
   The lock does not rest on a start: its record and its waiters' tickets name a process by its instance, the boot ID in `/proc/sys/kernel/random/boot_id` and the raw ticks, compared exactly, with no clock in it.
   A record made from a start alone proves no process on Linux.
-  Four records are still made from a start alone, and each carries the boot ID and the ticks (`lock.Info.Instance`) when its layer lands.
-  The primary registration in `internal/supervisor/ceo.go`, which is the `lock.Info` that `Register` writes and the comparison of starts beside it: layer 4, with the primary transport.
+  Three records are still made from a start alone, and each carries the boot ID and the ticks (`lock.Info.Instance`) when its layer lands.
   The terminal binding in `internal/supervisor/terminal.go`, which is the `lock.Info` of a `terminalBinding`: layer 5, with the native terminal.
   The watcher's handover request in `internal/watch/handover.go`, which is `handoverRequest` and `liveRequester`: layer 6, with watching.
   The updater's wait for the supervisor to exit in `cmd/goblins/update.go`, which is `serveProcess` and `processIs`: layer 8, with the updater.
-  A fifth, the gate's custody record of the process that controls a run (`currentController` in `internal/verify/recover.go`), carries its instance from layer 3 part 2, with the gate's executor: without it, the next admission read a live run's controller as gone and ended the run.
+  The primary registration in `internal/supervisor/ceo.go`, which is the `lock.Info` that `Register` writes, carries its instance from layer 4 part 1, with the primary transport, and `Register` compares it by the lock's own rule (`lock.Info.IsProcess`).
+  Another, the gate's custody record of the process that controls a run (`currentController` in `internal/verify/recover.go`), carries its instance from layer 3 part 2, with the gate's executor: without it, the next admission read a live run's controller as gone and ended the run.
   A process that has exited and only waits for its parent to collect it reads as gone.
 - **Not needed:** windows, consoles and integrity levels.
 - **Layer:** 3, and 6 for the TCP peer, whose one caller is the browser sign-in.
@@ -284,7 +284,7 @@ Nothing is dropped in silence: each of these but the last says what it lacks whe
 
 ## Pull requests, one layer each
 
-Each layer is one pull request on the latest main, layer 3 three of them, keeps the Windows suite green, and is proved by CI on its Ubuntu runner.
+Each layer is one pull request on the latest main, layers 3 and 4 three each, keeps the Windows suite green, and is proved by CI on its Ubuntu runner.
 A layer's Linux code sits beside the Windows code under a build tag.
 
 1. **This inventory, then the build compiling on Linux.**
@@ -299,11 +299,14 @@ A layer's Linux code sits beside the Windows code under a build tag.
 3. **Processes, trees, locks and files.**
    `internal/proc` on `/proc`, `internal/execx` and the gate's executor on process groups, the lock on `flock`, the file replacements, and the default home under `$XDG_DATA_HOME`, kept to the user with mode 0700.
    It comes in three pull requests: processes and the lock, then trees and the gate's executor, then the files and the home.
-4. **Transport.** Unix sockets for the host, the run requests and the primary transport, in the user's 0700 folder under `/run/user/<uid>` (or `/tmp`), chosen by the user's id and named by a short hash of the home so each path fits `sun_path`, exact path comparison in `fsx.SamePath`, the `strings.EqualFold` calls and the paths lowered with `strings.ToLower`, the code that takes `\` as the separator, and the folders `internal/pathguard` guards.
+4. **Transport.** A Unix socket for the run requests, in the user's 0700 folder under `/run/user/<uid>` (or `/tmp`), chosen by the user's id and named by a short hash of the home so each path fits `sun_path`, the primary transport held with `flock`, exact path comparison in `fsx.SamePath`, the `strings.EqualFold` calls and the paths lowered with `strings.ToLower`, the code that takes `\` as the separator, and the folders `internal/pathguard` guards.
    Until layer 8 turns lingering on, the socket folder lasts only while the user is signed in.
    The primary registration names its process by instance, as the lock's record does (see [Process identity](#process-identity)).
+   It comes in three pull requests: the primary transport and the registration by instance, then the run requests on a Unix socket with its peer check, then path comparison and the folders `internal/pathguard` guards.
+   The host's socket comes with the native terminal in layer 5, since no host runs off Windows before it, and uses the run requests' folder and peer check.
 5. **The native terminal.** `internal/host` on a pseudo terminal, each host and the supervisor the launcher starts in a transient user scope of its own, the terminal kept off the cores left to the Overlord's own apps with `sched_setaffinity` and the core kinds read from `/sys`, `attach` and the onboarding menu in raw mode, and `spawn` launching on Linux.
    The terminal binding names its process by instance.
+   Its socket sits in layer 4's folder, beside the run requests'.
 6. **Watching and readings.** `inotify`, the memory and processor readings, priorities, the janitor's processes, the browser sign-in and the clipboard.
    The watcher's handover request names its requester by instance.
 7. **End to end.** The hooks without PowerShell, card commands and `!` messages in bash, folders opened with `xdg-open`, and a goblin run on Linux in CI under Claude Code, Codex and pi: spawn, send, peek, wake, pause, resume, gate and cleanup.
@@ -358,7 +361,7 @@ A pure-Go loader such as purego is the alternative; it adds a dependency and sav
 
 ### Layer by layer
 
-Each remaining layer is one pull request for Linux and macOS together, proved on the Ubuntu and the macOS runners.
+Each remaining layer, or each part of layers 3 and 4, is one pull request for Linux and macOS together, proved on the Ubuntu and the macOS runners.
 The sizes are added lines, measured against layer 3 part 1, which added 985 program lines, 675 of them Linux only, and 1,202 test lines.
 
 | Layer | macOS shares with Linux | macOS needs of its own | Pull request | What macOS adds to it |
@@ -367,7 +370,7 @@ The sizes are added lines, measured against layer 3 part 1, which added 985 prog
 | 3 part 1, processes and the lock | the lock's line of waiters, its instance rule, `fsx.RemoveFileWhen`, supervise's liveness check, the stand-in programs (`true`, `sleep`) | `internal/proc` on `sysctl` and `libproc`; the instance from the boot session and the process's start in absolute-clock ticks; ending a process without a `pidfd` | M1 | about 350 program lines, 300 test lines |
 | 3 part 2, trees and the gate's executor | process groups, signals, Ctrl+Break as `SIGINT` then `SIGTERM` and `SIGKILL`, the environment marker on each tree `internal/execx` and the gate's executor start, and the tree found by that marker, its group and its parent chain | the marker read through `kern.procargs2`; each process's memory and processor time from `libproc`'s `proc_pid_rusage` | 3 part 2 | about 100 program lines, 80 test lines |
 | 3 part 3, files and the home | the gate's idle lock as the daemon's `flock`, `rename` keeping the replaced file's mode, the home under `$XDG_DATA_HOME`, mode 0700, `access.IsNarrow` by mode, the durable write through `File.Sync` and the folder's `fsync` | nothing of its own | 3 part 3 | nothing |
-| 4, transport and paths | Unix sockets, the peer check, `flock` on the primary transport, `pathguard` reading a path as written | `LOCAL_PEERPID`; sockets under `/tmp`; path comparison by the volume's case and normalization | 4 | about 150 program lines, 150 test lines |
+| 4, transport and paths | Unix sockets, the peer check, `flock` on the primary transport, `pathguard` reading a path as written | `LOCAL_PEERPID`; sockets under `/tmp`; path comparison by the volume's case and normalization | 4 in three parts: the primary transport, the run requests, path comparison | about 150 program lines, 150 test lines, in parts 2 and 3; part 1, the primary's hold on its file and its instance, is shared whole |
 | 5, the native terminal | the pseudo terminal, raw mode, `SIGWINCH`, the host's emulator | the pty from `/dev/ptmx`, the launchd agent's `AbandonProcessGroup` in place of a systemd scope, background priority or the utility class in place of affinity, chosen by measuring both on the macOS runner, the cores' kinds from `sysctl` | 5 | about 200 program lines, 120 test lines |
 | 6, watching and readings | the reader's shape, `setpriority`, Chrome over DevTools | `kqueue`; memory and processors from the Mach host calls; the birth time; `setiopolicy_np`; Chrome in `/Applications`; `pbcopy` | 6 | about 350 program lines, 200 test lines |
 | 7, end to end | the hooks calling `goblins`, the run on CI under Claude Code, Codex and pi | cards in `sh`, `!` in the user's shell, folders opened with `open` | 7 | about 40 program lines, and the macOS runner in the end-to-end job |
