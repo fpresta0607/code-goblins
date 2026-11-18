@@ -249,25 +249,63 @@ func TestToolRefusalMakesNoRepositoryInARepositoryFreeFolder(t *testing.T) {
 	}
 }
 
-// A write to the worktree spelled in another case goes on exactly where the
-// file system opens the worktree by that spelling, as Windows does and Linux
-// does not: elsewhere it names another folder, outside the worktree.
+// A write to the worktree spelled in another case, the folder itself or a file
+// in it, goes on exactly where the file system opens the worktree by that
+// spelling, as Windows does and Linux does not: elsewhere it names another
+// folder, outside the worktree.
 func TestToolRefusalComparesAPathsCaseAsTheFileSystemDoes(t *testing.T) {
 	// Arrange
 	f := newFixture(t)
 	upper := filepath.Join(filepath.Dir(f.worktree), strings.ToUpper(filepath.Base(f.worktree)))
 	_, err := os.Stat(upper)
 	isOneFolder := err == nil
-	file := filepath.Join(upper, "new.go")
+	for _, file := range []string{upper, filepath.Join(upper, "new.go")} {
+		t.Run(filepath.Base(file), func(t *testing.T) {
+			// Act
+			refusal := f.boundary.ToolRefusal("Write", toolInput(t, map[string]string{"file_path": file}))
+
+			// Assert
+			if isOneFolder && refusal != "" {
+				t.Fatalf("a write to %s, which the file system opens as the worktree, was refused: %s", file, refusal)
+			}
+			if !isOneFolder && !strings.Contains(refusal, "outside its worktree") {
+				t.Fatalf("a write to %s, another folder than the worktree %s, gave %q, want it refused", file, f.worktree, refusal)
+			}
+		})
+	}
+}
+
+// Where the file system keeps two names that differ only in case apart, a
+// link named Note to a folder note makes a path another one, and a refusal
+// names both.
+func TestToolRefusalNamesWhereALinkLeadsWhenOnlyItsCaseDiffers(t *testing.T) {
+	// Arrange
+	f := newFixture(t)
+	folder := filepath.Join(f.outside, "note")
+	if err := os.Mkdir(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(f.outside, "NOTE")); err == nil {
+		t.Skip("this file system opens a folder by its name in another case")
+	}
+	link := filepath.Join(f.outside, "Note")
+	if err := os.Symlink(folder, link); err != nil {
+		t.Skipf("this account cannot make a symbolic link: %v", err)
+	}
+	// Where the link leads is named in its long form, which a temporary
+	// folder's short name, as a hosted runner's is, is not.
+	realFolder, err := filepath.EvalSymlinks(folder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	given := filepath.Join(link, "x.txt")
+	leadsTo := filepath.Join(realFolder, "x.txt")
 
 	// Act
-	refusal := f.boundary.ToolRefusal("Write", toolInput(t, map[string]string{"file_path": file}))
+	refusal := f.boundary.ToolRefusal("Write", toolInput(t, map[string]string{"file_path": given}))
 
 	// Assert
-	if isOneFolder && refusal != "" {
-		t.Fatalf("a write to %s, which the file system opens as the worktree, was refused: %s", file, refusal)
-	}
-	if !isOneFolder && !strings.Contains(refusal, "outside its worktree") {
-		t.Fatalf("a write to %s, another folder than the worktree %s, gave %q, want it refused", file, f.worktree, refusal)
+	if !strings.Contains(refusal, given) || !strings.Contains(refusal, "("+leadsTo+")") {
+		t.Fatalf("a write through the link %s gave %q, want it refused naming %s and where it leads, (%s)", link, refusal, given, leadsTo)
 	}
 }
