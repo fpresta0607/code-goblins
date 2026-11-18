@@ -303,7 +303,7 @@ A layer's Linux code sits beside the Windows code under a build tag.
    Until layer 8 turns lingering on, the socket folder lasts only while the user is signed in.
    The primary registration names its process by instance, as the lock's record does (see [Process identity](#process-identity)).
    It comes in three pull requests: the primary transport and the registration by instance, then the run requests on a Unix socket with its peer check, then path comparison and the folders `internal/pathguard` guards.
-   Path comparison comes in two of its own: first the rule, `fsx.EqualPath`, `fsx.HasPathPrefix` and `fsx.PathKey`, which `fsx.SamePath` and `internal/pathguard` take, then the code that compares paths itself and moves to that rule.
+   Path comparison comes in two of its own: first the rule, `fsx.EqualPath`, `fsx.HasPathPrefix` and `fsx.PathKey`, which `fsx.SamePath` and `internal/pathguard` take, then the code that compares paths itself and moves to that rule, in three pull requests by package: the homes, worktrees and the reaper's path forms first, then the supervisor and the packages around it, then the rest with `cmd/goblins`.
    The host's socket comes with the native terminal in layer 5, since no host runs off Windows before it, and uses the run requests' folder and peer check.
 5. **The native terminal.** `internal/host` on a pseudo terminal, each host and the supervisor the launcher starts in a transient user scope of its own, the terminal kept off the cores left to the Overlord's own apps with `sched_setaffinity` and the core kinds read from `/sys`, `attach` and the onboarding menu in raw mode, and `spawn` launching on Linux.
    The terminal binding names its process by instance.
