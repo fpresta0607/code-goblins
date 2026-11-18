@@ -84,6 +84,7 @@ func TestNativeGoblinKeyAlarmReportsQueueFailureWithoutRepeatingPayload(t *testi
 
 func TestNativeGoblinKeyAlarmHandlesOutputShapes(t *testing.T) {
 	key := keyShaped("sk" + "_test_")
+	pictureBytes := "iVBORw0KGgo/" + keyShaped("AIza") + "Ab12" + "AAAANSUhEUg"
 	for _, harness := range []string{"claude", "codex", "pi"} {
 		for _, test := range []struct {
 			name, output string
@@ -98,6 +99,11 @@ func TestNativeGoblinKeyAlarmHandlesOutputShapes(t *testing.T) {
 			{"escaped key", `"\u0073` + key[1:] + `"`, 1},
 			{"large number before key", `{"number":1e1000,"text":"` + key + `"}`, 1},
 			{"large output with key at end", `"` + strings.Repeat("safe ", 1<<18) + key + `"`, 1},
+			{"read of a picture", `{"type":"image","file":{"base64":"` + pictureBytes + `","type":"image/jpeg","originalSize":1234}}`, 0},
+			{"picture typed after its bytes", `{"file":{"base64":"` + pictureBytes + `"},"type":"image"}`, 0},
+			{"picture block", `{"content":[{"type":"image","data":"` + pictureBytes + `","mimeType":"image/png"}]}`, 0},
+			{"text beside a picture", `{"content":[{"type":"image","data":"` + pictureBytes + `"},{"type":"text","text":"` + key + `"}]}`, 1},
+			{"picture bytes outside a picture block", `{"content":[{"type":"text","text":"` + pictureBytes + `"}]}`, 1},
 		} {
 			t.Run(harness+"/"+test.name, func(t *testing.T) {
 				stateDir := goblinHookHome(t)
