@@ -33,8 +33,8 @@ func Canonical(path string) (string, error) {
 	return AbsClean(resolved)
 }
 
-// SamePath reports whether two existing paths resolve to the same
-// case-insensitive Windows identity.
+// SamePath reports whether two existing paths resolve to the same path, by
+// the rule of the file system that holds them (EqualPath).
 func SamePath(left, right string) bool {
 	left, err := Canonical(left)
 	if err != nil {
@@ -44,7 +44,7 @@ func SamePath(left, right string) bool {
 	if err != nil {
 		return false
 	}
-	return strings.EqualFold(normalizeIdentity(left), normalizeIdentity(right))
+	return EqualPath(normalizeIdentity(left), normalizeIdentity(right))
 }
 
 func normalizeInput(path string) string {

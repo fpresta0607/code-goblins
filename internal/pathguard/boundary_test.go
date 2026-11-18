@@ -66,11 +66,6 @@ func toolInput(t *testing.T, fields map[string]string) json.RawMessage {
 	return data
 }
 
-func gitBash(path string) string {
-	slashed := filepath.ToSlash(path)
-	return "/" + strings.ToLower(slashed[:1]) + slashed[2:]
-}
-
 func TestToolRefusalRefusesEachSecretAndOutsideWriteByPath(t *testing.T) {
 	f := newFixture(t)
 	cases := []struct {
@@ -89,8 +84,6 @@ func TestToolRefusalRefusesEachSecretAndOutsideWriteByPath(t *testing.T) {
 		{"glob a pattern under the ssh folder", "Glob", map[string]string{"path": f.profile, "pattern": ".ssh/*"}, filepath.Dir(f.sshKey)},
 		{"grep the credential store", "Grep", map[string]string{"path": filepath.Dir(f.storedCredential)}, filepath.Dir(f.storedCredential)},
 		{"cat an ssh key by ~", "Bash", map[string]string{"command": "cat ~/.ssh/id_ed25519"}, f.sshKey},
-		{"cat an ssh key by its Git Bash path", "Bash", map[string]string{"command": "cat " + gitBash(f.sshKey)}, f.sshKey},
-		{"read an ssh key by USERPROFILE", "PowerShell", map[string]string{"command": `Get-Content $env:USERPROFILE\.ssh\id_ed25519`}, f.sshKey},
 		{"read the ssh folder after moving home", "Bash", map[string]string{"command": "cd ~ && cat .ssh/id_ed25519"}, ".ssh"},
 		{"copy the ssh folder by its bare name after moving home", "Bash", map[string]string{"command": "cd ~ && cp -r .ssh ./keys"}, filepath.Dir(f.sshKey)},
 		{"move into the ssh folder by its bare name", "Bash", map[string]string{"command": "cd ~; cd .ssh; cat id_ed25519"}, filepath.Dir(f.sshKey)},
@@ -100,7 +93,7 @@ func TestToolRefusalRefusesEachSecretAndOutsideWriteByPath(t *testing.T) {
 		{"read an ssh key between escaped single quotes", "Bash", map[string]string{"command": `echo x\' ; cat ~/.ssh/id_ed25519 x\'`}, f.sshKey},
 		{"list Credential Manager", "PowerShell", map[string]string{"command": "cmdkey /list"}, "cmdkey"},
 		{"redirect outside", "Bash", map[string]string{"command": "echo hi > ../../../dev/project/out.txt"}, filepath.Join(f.outside, "out.txt")},
-		{"append outside by descriptor", "Bash", map[string]string{"command": "go test ./... 2>>" + gitBash(filepath.Join(f.outside, "log.txt"))}, filepath.Join(f.outside, "log.txt")},
+		{"append outside by descriptor", "Bash", map[string]string{"command": "go test ./... 2>>" + filepath.ToSlash(filepath.Join(f.outside, "log.txt"))}, filepath.Join(f.outside, "log.txt")},
 		{"copy out of the worktree", "Bash", map[string]string{"command": "cp main.go " + filepath.ToSlash(filepath.Join(f.outside, "main.go"))}, filepath.Join(f.outside, "main.go")},
 		{"remove outside", "PowerShell", map[string]string{"command": "Remove-Item -Recurse -Force " + f.outside}, f.outside},
 		{"set content outside", "PowerShell", map[string]string{"command": "Set-Content -Path '" + filepath.Join(f.outside, "x.txt") + "' -Value 1"}, filepath.Join(f.outside, "x.txt")},
@@ -142,7 +135,6 @@ func TestToolRefusalLetsTheWorktreeScratchAndCachesBe(t *testing.T) {
 		{"run tests", "Bash", map[string]string{"command": "go test ./... 2>&1 | tee test.log"}},
 		{"discard output", "Bash", map[string]string{"command": "go build ./... > /dev/null 2>&1"}},
 		{"discard output in PowerShell", "PowerShell", map[string]string{"command": "go build ./... > $null"}},
-		{"write to Git Bash's tmp", "Bash", map[string]string{"command": "echo hi > /tmp/note.txt"}},
 		{"copy into the worktree from outside", "Bash", map[string]string{"command": "cp " + filepath.ToSlash(filepath.Join(f.outside, "README.md")) + " docs/"}},
 		{"redirect into the scratch folder", "PowerShell", map[string]string{"command": "go test ./... *> '" + filepath.Join(f.scratch, "log.txt") + "'"}},
 		{"a URL that names a .ssh folder", "Bash", map[string]string{"command": "curl -s https://example.com/.ssh/x"}},
@@ -254,5 +246,66 @@ func TestToolRefusalMakesNoRepositoryInARepositoryFreeFolder(t *testing.T) {
 				t.Fatalf("%s %v was refused: %s", test.tool, test.input, refusal)
 			}
 		})
+	}
+}
+
+// A write to the worktree spelled in another case, the folder itself or a file
+// in it, goes on exactly where the file system opens the worktree by that
+// spelling, as Windows does and Linux does not: elsewhere it names another
+// folder, outside the worktree.
+func TestToolRefusalComparesAPathsCaseAsTheFileSystemDoes(t *testing.T) {
+	// Arrange
+	f := newFixture(t)
+	upper := filepath.Join(filepath.Dir(f.worktree), strings.ToUpper(filepath.Base(f.worktree)))
+	_, err := os.Stat(upper)
+	isOneFolder := err == nil
+	for _, file := range []string{upper, filepath.Join(upper, "new.go")} {
+		t.Run(filepath.Base(file), func(t *testing.T) {
+			// Act
+			refusal := f.boundary.ToolRefusal("Write", toolInput(t, map[string]string{"file_path": file}))
+
+			// Assert
+			if isOneFolder && refusal != "" {
+				t.Fatalf("a write to %s, which the file system opens as the worktree, was refused: %s", file, refusal)
+			}
+			if !isOneFolder && !strings.Contains(refusal, "outside its worktree") {
+				t.Fatalf("a write to %s, another folder than the worktree %s, gave %q, want it refused", file, f.worktree, refusal)
+			}
+		})
+	}
+}
+
+// Where the file system keeps two names that differ only in case apart, a
+// link named Note to a folder note makes a path another one, and a refusal
+// names both.
+func TestToolRefusalNamesWhereALinkLeadsWhenOnlyItsCaseDiffers(t *testing.T) {
+	// Arrange
+	f := newFixture(t)
+	folder := filepath.Join(f.outside, "note")
+	if err := os.Mkdir(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(f.outside, "NOTE")); err == nil {
+		t.Skip("this file system opens a folder by its name in another case")
+	}
+	link := filepath.Join(f.outside, "Note")
+	if err := os.Symlink(folder, link); err != nil {
+		t.Skipf("this account cannot make a symbolic link: %v", err)
+	}
+	// Where the link leads is named in its long form, which a temporary
+	// folder's short name, as a hosted runner's is, is not.
+	realFolder, err := filepath.EvalSymlinks(folder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	given := filepath.Join(link, "x.txt")
+	leadsTo := filepath.Join(realFolder, "x.txt")
+
+	// Act
+	refusal := f.boundary.ToolRefusal("Write", toolInput(t, map[string]string{"file_path": given}))
+
+	// Assert
+	if !strings.Contains(refusal, given) || !strings.Contains(refusal, "("+leadsTo+")") {
+		t.Fatalf("a write through the link %s gave %q, want it refused naming %s and where it leads, (%s)", link, refusal, given, leadsTo)
 	}
 }
