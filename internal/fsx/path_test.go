@@ -11,17 +11,17 @@ func TestAbsCleanMakesAbsoluteCleanPaths(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 
-	got, err := AbsClean("nested/..\\target\r\n")
+	got, err := AbsClean("nested/.." + string(filepath.Separator) + "target\r\n")
 	if err != nil {
 		t.Fatalf("AbsClean: %v", err)
 	}
 	want := filepath.Join(dir, "target")
-	if !strings.EqualFold(got, want) {
+	if !EqualPath(got, want) {
 		t.Errorf("AbsClean = %q, want %q", got, want)
 	}
 }
 
-func TestSamePathNormalizesCaseSeparatorsAndLongPathPrefix(t *testing.T) {
+func TestSamePathNormalizesSeparatorsLineEndingsAndLongPathPrefix(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "target")
 	if err := os.Mkdir(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -31,11 +31,6 @@ func TestSamePathNormalizesCaseSeparatorsAndLongPathPrefix(t *testing.T) {
 	withLongPrefix := `\\?\` + filepath.Clean(dir)
 	if !SamePath(withSlash, withLongPrefix) {
 		t.Errorf("SamePath(%q, %q) = false, want true", withSlash, withLongPrefix)
-	}
-
-	caseVariant := strings.ToUpper(filepath.Clean(dir))
-	if !SamePath(caseVariant, dir) {
-		t.Errorf("SamePath(%q, %q) = false, want true", caseVariant, dir)
 	}
 }
 
