@@ -217,6 +217,11 @@ type Options struct {
 	// (pc_restart.go).
 	RestartWindows func() error
 	EndHeavyRuns   func() ([]string, error)
+	// Clocks reads the machine's two clocks at once, which time a fleet
+	// reading: the wall clock, which runs on while the machine sleeps, and
+	// how long the machine has been awake, which its sleep does not move;
+	// nil reads the machine's (machineClocks).
+	Clocks func() (wall time.Time, awake time.Duration)
 }
 
 type Service struct {

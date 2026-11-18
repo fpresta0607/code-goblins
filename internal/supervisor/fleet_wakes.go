@@ -108,7 +108,8 @@ type fleetWakes struct {
 	// and finishes at least half its reads in time, or has none to read, or
 	// after a gap in the passes, and ProgressUnreadWoke
 	// says the CEO was told of those passes. ProgressPassAt is when the latest
-	// reading that read progress ended, which tells that gap.
+	// reading that read progress ended, by the time the machine was awake
+	// through it, which tells that gap.
 	ProgressUnreadSince time.Time `json:"progress_unread_since,omitzero"`
 	ProgressUnreadWoke  bool      `json:"progress_unread_woke,omitempty"`
 	ProgressPassAt      time.Time `json:"progress_pass_at,omitzero"`
@@ -316,6 +317,11 @@ func (s *Service) keepFleetWakes(ctx context.Context, every time.Duration) {
 	}
 }
 
+// machineClocks reads the machine's wall clock and how long it has been awake.
+func machineClocks() (time.Time, time.Duration) {
+	return time.Now(), awakeTime()
+}
+
 // checkFleet takes one memory reading and, when it is due, one CI poll. A
 // supervisor that reads neither writes nothing. It returns what went wrong
 // and hands it to the recovery cycle, which shows it on the board: what this
@@ -325,16 +331,28 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 	if (s.Options.Dispatch == nil || s.Options.Dispatch.Memory == nil) && s.Options.CI == nil && s.Options.Progress == nil && s.Options.Defender == nil && s.Options.Shared == nil {
 		return nil
 	}
-	readingStarted := time.Now()
-	currentTime := func() time.Time { return now.Add(time.Since(readingStarted)) }
+	clocks := s.Options.Clocks
+	if clocks == nil {
+		clocks = machineClocks
+	}
+	readingStarted, awakeStarted := clocks()
+	currentTime := func() time.Time {
+		wall, _ := clocks()
+		return now.Add(wall.Sub(readingStarted))
+	}
 	stateDir := s.Store.Home.State
 	w, readErr := readFleetWakes(stateDir)
 	err := errors.Join(readErr, s.pauseAtAllowanceFloor(ctx, &w, now), s.pollCI(ctx, &w, now, currentTime))
 	err = errors.Join(err, s.reconcilePreparedWaits(ctx, &w, now))
 	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkHandles(&w, now), s.checkDisk(&w, now), s.checkProgress(ctx, &w, now), s.checkDefender(ctx, &w, now), s.checkCEOWaits(&w, now), s.checkSharedServices(ctx, &w, now))
 	w.RootReadings = s.currentRootReadings()
+	// The reading's end is its start and the time the machine was awake
+	// through it: a sleep that fell inside the reading, in its progress probe
+	// or a read after it, is a gap in the passes as one between readings is,
+	// while a reading that is only slow is not (#2053).
 	if s.Options.Progress != nil {
-		w.ProgressPassAt = currentTime()
+		_, awakeEnded := clocks()
+		w.ProgressPassAt = now.Add(awakeEnded - awakeStarted)
 	}
 	err = errors.Join(err, writeFleetWakes(stateDir, w))
 	var unreadable error
