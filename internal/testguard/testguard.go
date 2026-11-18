@@ -402,7 +402,9 @@ func grep(ctx context.Context, git execx.Runner, dir string, args ...string) ([]
 }
 
 // mergeBase finds where the branch left the default branch: origin/HEAD
-// where the clone records one, else origin/main.
+// where the clone records one, else origin/main. Only a git exit falls through
+// to origin/main: a call that does not answer fails the check, since
+// origin/main may not be the default branch and would read the wrong commits.
 func mergeBase(ctx context.Context, git execx.Runner, dir string) (string, error) {
 	for _, ref := range []string{"origin/HEAD", "origin/main"} {
 		args := []string{"merge-base", "HEAD", ref}
