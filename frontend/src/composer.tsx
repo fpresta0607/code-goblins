@@ -12,7 +12,7 @@ import { EnginePane } from "./engine-pane";
 import { HarnessMark } from "./harness-mark";
 import { HarnessPanel } from "./harness-panel";
 import { Icon } from "./Icon";
-import { clipboardPicture, filesOf, keptFiles, pastedTextLine } from "./kept-files";
+import { clipboardPicture, filesOf, inlinePictures, keptFiles, pastedPictures, pastedTextLine } from "./kept-files";
 import { isHarnessHeld, isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { mentionAt, mentionedFiles, mentionFile, parseFiles } from "./mentions";
 import { cycleMode, MODE_NOT_SENT } from "./mode-cycle";
@@ -596,19 +596,25 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   };
   // A picture pasted into the box arrives as a file the session can read, and
   // so does a long paste of text. Other text keeps the browser's own paste,
-  // which the textarea takes as it always has.
+  // which the textarea takes as it always has. A selection copied with its
+  // pictures from a conversation holds them inline in its HTML: each arrives
+  // as a pasted picture does, in their order, and its words paste as text, or
+  // as a pasted text that comes before them when they are long (#2543).
   const paste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
-    const pictures = filesOf(event.clipboardData).filter((file) => file.type.startsWith("image/"));
-    if (pictures.length) {
+    const { pictures, shouldKeepWords } = pastedPictures(event.clipboardData);
+    if (pictures.length && !shouldKeepWords) {
       event.preventDefault();
       void add(pictures);
       return;
     }
     const text = boxText(event.clipboardData.getData("text/plain"));
     const box = event.currentTarget;
-    if (!isLongPaste(text, box.value.slice(0, box.selectionStart) + text + box.value.slice(box.selectionEnd))) return;
+    if (!isLongPaste(text, box.value.slice(0, box.selectionStart) + text + box.value.slice(box.selectionEnd))) {
+      void add(pictures);
+      return;
+    }
     event.preventDefault();
-    void keepPaste(text);
+    void keepPaste(text).then(() => add(pictures));
   };
   // A file dragged onto the box is added as one chosen with Add files.
   const dragOver = (event: DragEvent<HTMLDivElement>) => {
@@ -638,11 +644,16 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   };
   const pasteKey = async () => {
     const input = await readClipboard();
+    if ("error" in input) {
+      refuse(input.error);
+      return;
+    }
+    const inline = inlinePictures(input.html);
     const text = "text" in input ? boxText(input.text) : "";
     if (isLongPaste(text, draft + text)) await keepPaste(text);
     else if ("text" in input) insert(input.text);
+    if (inline.length) await add(inline);
     else if ("image" in input) await add([input.image]);
-    else refuse(input.error);
   };
   const pastePicture = async () => {
     const read = await clipboardPicture();

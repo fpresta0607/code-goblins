@@ -38,13 +38,13 @@ func TestCheckLeavesOutGateCommitsUnderAnApprovedHead(t *testing.T) {
 	write("ci.go", "package x\n")
 	git("add", ".")
 	git("commit", "-qm", "fix: the CI failure")
-	unapproved, err := Check(context.Background(), execx.OSRunner{}, dir, nil)
+	unapproved, err := Check(context.Background(), execx.OSRunner{}, dir, nil, CallLimit)
 	if err != nil || len(unapproved.Removals) != 1 {
 		t.Fatalf("premise: with no approval the deletion is reported, got %+v %v", unapproved.Removals, err)
 	}
 
 	// Act
-	result, err := Check(context.Background(), execx.OSRunner{}, dir, []string{approved})
+	result, err := Check(context.Background(), execx.OSRunner{}, dir, []string{approved}, CallLimit)
 
 	// Assert
 	if err != nil {
@@ -77,7 +77,7 @@ func TestCheckStillReportsAGateCommitThatWasPushedButNotApproved(t *testing.T) {
 	git("update-ref", "refs/heads/archive/feature", "HEAD")
 
 	// Act
-	result, err := Check(context.Background(), execx.OSRunner{}, dir, []string{siblingApproved})
+	result, err := Check(context.Background(), execx.OSRunner{}, dir, []string{siblingApproved}, CallLimit)
 
 	// Assert
 	if err != nil {
@@ -127,7 +127,7 @@ func TestCheckReadsGateCommitsMadeAfterTheApprovedHead(t *testing.T) {
 			git("commit", "-qam", "no-mistakes(test): fix the next failure")
 
 			// Act
-			result, err := Check(context.Background(), execx.OSRunner{}, dir, []string{approved})
+			result, err := Check(context.Background(), execx.OSRunner{}, dir, []string{approved}, CallLimit)
 
 			// Assert
 			if err != nil {
@@ -156,11 +156,11 @@ func TestCheckLeavesOutAnApprovedCommitCarriedIntoAnotherBranch(t *testing.T) {
 	git("merge", "-q", "--no-edit", "first")
 
 	// Act
-	unapproved, err := Check(context.Background(), execx.OSRunner{}, dir, nil)
+	unapproved, err := Check(context.Background(), execx.OSRunner{}, dir, nil, CallLimit)
 	if err != nil || len(unapproved.Removals) != 1 {
 		t.Fatalf("premise: unapproved, the carried deletion is reported, got %+v %v", unapproved.Removals, err)
 	}
-	result, err := Check(context.Background(), execx.OSRunner{}, dir, []string{approved})
+	result, err := Check(context.Background(), execx.OSRunner{}, dir, []string{approved}, CallLimit)
 
 	// Assert
 	if err != nil {
@@ -180,7 +180,7 @@ func TestCheckIgnoresAnApprovedHeadThisRepositoryLacks(t *testing.T) {
 	git("commit", "-qam", "no-mistakes(test): fix failing live test")
 
 	// Act
-	result, err := Check(context.Background(), execx.OSRunner{}, dir, []string{strings.Repeat("0123456789", 4)})
+	result, err := Check(context.Background(), execx.OSRunner{}, dir, []string{strings.Repeat("0123456789", 4)}, CallLimit)
 
 	// Assert
 	if err != nil {

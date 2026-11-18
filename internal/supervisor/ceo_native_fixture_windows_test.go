@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -450,6 +451,65 @@ var codexMention = regexp.MustCompile(`(^|\s)\$\S*$`)
 func nativeCEOComposer(t *testing.T, stateDir, mode string) hostedTerminal {
 	t.Helper()
 	return nativeComposer(t, stateDir, "ceo", mode)
+}
+
+// tornOnce reads a terminal's screen as read does, except that the first
+// read once isDue holds joins two frames of a redraw as tear joins them, as a
+// screen read a row at a time while its harness redraws does. Each read after
+// that one is read as it is.
+func tornOnce(read func(host.Record) ([]string, error), tear func([]string) ([]string, bool), isDue func() bool) func(host.Record) ([]string, error) {
+	isTorn := false
+	return func(record host.Record) ([]string, error) {
+		screen, err := read(record)
+		if err != nil || isTorn || !isDue() {
+			return screen, err
+		}
+		torn, isJoined := tear(slices.Clone(screen))
+		if !isJoined {
+			return screen, nil
+		}
+		isTorn = true
+		return torn, nil
+	}
+}
+
+// ruleOverRowAbove joins two frames as a read of a loaded Claude Code
+// fixture did on 2026-11-17, just after it took a submit key as a new line:
+// the rule under its prompt line in place of the row that key added, two
+// rules in a row with no prompt line between them that can be read (#2635).
+func ruleOverRowAbove(screen []string) ([]string, bool) {
+	for row := len(screen) - 1; row > 0; row-- {
+		if trimmed := strings.TrimSpace(screen[row]); len([]rune(trimmed)) >= 8 && strings.Trim(trimmed, "─") == "" {
+			screen[row-1] = screen[row]
+			return screen, true
+		}
+	}
+	return screen, false
+}
+
+// promptLineTwice joins two frames as reads of a loaded Claude Code fixture
+// did on 2026-11-17, as it drew a working row over its prompt line: the top
+// rows from the frame before and the rest from the frame after, which drew
+// them a row lower, so the prompt line reads twice between its rules (#2642).
+func promptLineTwice(screen []string) ([]string, bool) {
+	for row := range screen {
+		if strings.HasPrefix(strings.TrimSpace(screen[row]), "❯ ") {
+			return slices.Insert(screen, row, screen[row]), true
+		}
+	}
+	return screen, false
+}
+
+// hisWordsAfter shows words he typed after a delivery's on a Claude Code
+// prompt line, which leave the delivery's words there untaken.
+func hisWordsAfter(screen []string) ([]string, bool) {
+	for row := range screen {
+		if strings.HasPrefix(strings.TrimSpace(screen[row]), "❯ ") {
+			screen[row] += " and the"
+			return screen, true
+		}
+	}
+	return screen, false
 }
 
 // nativeComposer hosts the fixture harness of mode as terminal id: the CEO's,

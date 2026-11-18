@@ -1016,20 +1016,32 @@ func (s *Service) reportedDone(id string) string {
 	return deliveredPR(lines, meta.SpawnGen)
 }
 
-// hasDelivered is isDelivered for meta's goblin, read from its status log
-// and the session the store holds for its task.
+// hasDelivered is HasDelivered for meta's goblin. The supervisor too can ask
+// before it takes in a prompt's hook event: it plans its comeback at its
+// first memory reading, before its first cycle takes in the native inbox, and
+// a cycle takes in at most 256 events. A record that cannot be read is said
+// on the board and leaves the goblin taken as not delivered, so it comes back
+// or is paused rather than left as it is.
 func (s *Service) hasDelivered(meta state.TaskMeta) bool {
-	lines, _ := s.statusTail(meta.ID)
-	return isDelivered(lines, meta.SpawnGen, s.Store.taskSession(meta.ID))
+	isDelivered, err := HasDelivered(s.Store.Home.State, meta)
+	if err != nil {
+		s.publish(err)
+	}
+	return isDelivered
 }
 
-// HasDelivered answers isDelivered for meta's goblin from directory, for
-// goblins resume, which runs without the supervisor and can run before it
-// takes in the hook events waiting in the native inbox, so a prompt is looked
-// for there as well as in the board's record. The report's time is kept to
-// the second, so a prompt counts from the second after it, as in isDelivered.
-// The prompt is looked for only for a goblin whose latest report delivered,
-// and a record that cannot be read is an error, never taken as no prompt.
+// HasDelivered reports whether the latest report of meta's goblin delivered
+// and its session took no prompt after it, as one the CEO steers back to work
+// with goblins send takes. Such a goblin waits on the merge, or on nothing
+// once it closed its issue, not on a session: on 2026-10-27 three that a
+// restart brought back each spent a fresh session only to report the same
+// pull request done again. A prompt is looked for in the hook events still
+// waiting in the native inbox as well as in the board's record, since
+// goblins resume runs without the supervisor and the supervisor can ask
+// before it takes them in. The report's time is kept to the second, so a
+// prompt counts from the second after it. The prompt is looked for only for
+// a goblin whose latest report delivered, and a record that cannot be read
+// is an error, never taken as no prompt.
 func HasDelivered(directory string, meta state.TaskMeta) (bool, error) {
 	lines, _ := state.TailStatus(directory, meta.ID, 200)
 	if !reportsDelivery(lines, meta.SpawnGen) {
@@ -1041,18 +1053,6 @@ func HasDelivered(directory string, meta state.TaskMeta) (bool, error) {
 		return false, fmt.Errorf("read whether %s took a prompt since it reported its delivery done: %w", meta.ID, err)
 	}
 	return !isPromptedSince, nil
-}
-
-// isDelivered reports whether the goblin of generation delivered in its latest
-// report and its session took no prompt after it, as one the CEO steers back
-// to work with goblins send takes. Such a goblin waits on the merge, or on nothing
-// once it closed its issue, not on a session: on 2026-10-27 three that a
-// restart brought back each spent a fresh session only to report the same pull
-// request done again.
-func isDelivered(lines []string, generation string, session Session) bool {
-	reportedAt, _ := latestReport(lines, spawnTime(generation))
-	isPromptedSince := session.Generation == generation && session.PromptAt.Truncate(time.Second).After(reportedAt)
-	return reportsDelivery(lines, generation) && !isPromptedSince
 }
 
 // reportsDelivery reports whether the latest report of generation delivered: a

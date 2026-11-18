@@ -762,6 +762,25 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 	// rows under it drawn after, and show his words alone over that row though
 	// words beside them came in the same redraw.
 	atPress, presses, isOverNewRow := screen, 0, false
+	// A screen is read a row at a time, so a read as the harness redraws can
+	// join rows of two frames, and under load a frame can stay half drawn for
+	// more than one read: on 2026-11-17 reads of a loaded Claude Code fixture
+	// showed the rule under its prompt line in the place of the row above it,
+	// so no prompt line could be read, or the prompt line twice, and a
+	// delivery took either for the words gone from it (#2635, #2642, #2665).
+	// A read that shows no prompt line, and no dialog or panel in its place,
+	// shows nothing either way, so while a wait lasts it is read again rather
+	// than judged, and one at its end leaves the delivery as unproven as
+	// words that never left; and words that all still show on the prompt line
+	// have not left it, whatever shows beside them.
+	isTorn := func(screen []string) bool {
+		_, isRead := screens.Draft(screen)
+		_, isDialog := screens.Dialog(screen)
+		return !isRead && !isDialog && !screens.IsOpen(screen)
+	}
+	isOnPromptLine := func(screen []string) bool {
+		return screens.ComposerHoldsPartOf(screen, instruction) || screens.ComposerHoldsAllOf(screen, instruction)
+	}
 	pressAgain := func(screen []string) (bool, error) {
 		wasOverNewRow := isOverNewRow
 		isOverNewRow = screens.ComposerHoldsPartOf(screen, instruction) && screens.TookEnterAsNewLine(atPress, screen)
@@ -830,7 +849,18 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 				if err != nil {
 					return Evaluation{Awaiting: waiting}, fmt.Errorf("the message was submitted into the CEO's turn, and its input cannot be read: %w", err)
 				}
-				if !screens.ComposerHoldsPartOf(screen, instruction) {
+				if isTorn(screen) {
+					if left.Err() != nil {
+						return heldOrUnsent("The message was typed into the CEO's turn, and the wait to see it leave the prompt line ended before it did.")
+					}
+					select {
+					case <-time.After(nativeConfirmPoll):
+						continue
+					case <-ctx.Done():
+						return heldOrUnsent("The message was typed into the CEO's turn, and the wait to see it leave the prompt line ended before it did.")
+					}
+				}
+				if !isOnPromptLine(screen) {
 					break
 				}
 				// Its prompt hook shows the words queued though a screen drawn
@@ -899,7 +929,7 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 			waiting.IsHeld = true
 			return Evaluation{Reason: heldByCEO, Awaiting: waiting}, true
 		}
-		if isReported, err := NativeHostPromptSince(c.State, primary.Host, submitted); err == nil && isReported && !screens.ComposerHoldsPartOf(screen, instruction) {
+		if isReported, err := NativeHostPromptSince(c.State, primary.Host, submitted); err == nil && isReported && !isOnPromptLine(screen) {
 			return Evaluation{Reason: "Taken by the CEO in its native terminal, as its hook reported."}, true
 		}
 		if _, dialog := screens.Dialog(screen); !dialog && screens.IsWorking(screen) && screens.ComposerEmpty(screen) {
@@ -911,6 +941,17 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 		screen, err := read(record)
 		if err != nil {
 			return Evaluation{Awaiting: waiting}, fmt.Errorf("the answer was submitted but the CEO's screen cannot be read: %w", err)
+		}
+		if isTorn(screen) {
+			if taken.Err() != nil {
+				return Evaluation{Reason: sentToCEO, Awaiting: waiting}, nil
+			}
+			select {
+			case <-time.After(nativeConfirmPoll):
+				continue
+			case <-ctx.Done():
+				return Evaluation{Awaiting: waiting}, fmt.Errorf("the message was typed into the CEO's native terminal and submitted, and the wait to see it taken ended: %w", ctx.Err())
+			}
 		}
 		if result, isTaken := took(screen); isTaken {
 			return result, nil
