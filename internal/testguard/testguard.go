@@ -14,7 +14,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
@@ -86,8 +88,21 @@ func ApprovedHeads(summaries []string) []string {
 // clean there or in the report they let through. That holds for the commit
 // wherever it travels, so it is left out on any branch carrying it, while a
 // commit nobody approved is read however many remote branches hold it. A
-// head this repository lacks is ignored.
+// head this repository lacks is ignored. Each git call it makes has
+// CallLimit to answer in.
 func Check(ctx context.Context, git execx.Runner, dir string, approved []string) (Result, error) {
+	return check(ctx, git, dir, approved, CallLimit)
+}
+
+// CallLimit bounds each git call the check makes, never the check as a
+// whole: a branch whose gate made many fix commits takes many calls, and on a
+// loaded machine one git show can take tens of seconds, so one deadline over
+// them all failed a check that had found nothing (issue 1959). A call that
+// never answers still fails the check.
+const CallLimit = 2 * time.Minute
+
+func check(ctx context.Context, git execx.Runner, dir string, approved []string, limit time.Duration) (Result, error) {
+	git = callLimited{next: git, limit: limit}
 	base, err := mergeBase(ctx, git, dir)
 	if err != nil {
 		return Result{}, err
@@ -406,6 +421,23 @@ func mergeBase(ctx context.Context, git execx.Runner, dir string) (string, error
 		}
 	}
 	return "", errors.New("testguard: no merge base with origin/HEAD or origin/main, so the gate's commits cannot be told from the default branch")
+}
+
+// callLimited gives each git call its own limit, counted on the awake clock,
+// so a pause of the whole machine does not spend it.
+type callLimited struct {
+	next  execx.Runner
+	limit time.Duration
+}
+
+func (git callLimited) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
+	callCtx, cancel := awake.WithTimeout(ctx, git.limit)
+	defer cancel()
+	result, err := git.next.Run(callCtx, request)
+	if err != nil && ctx.Err() == nil && errors.Is(callCtx.Err(), context.DeadlineExceeded) {
+		return result, fmt.Errorf("no answer within %s: %w", git.limit, err)
+	}
+	return result, err
 }
 
 func run(ctx context.Context, git execx.Runner, dir string, args ...string) (string, error) {

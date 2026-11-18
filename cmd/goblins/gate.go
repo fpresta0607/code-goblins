@@ -69,10 +69,12 @@ func runGate(args []string, stdout, stderr io.Writer, runtime commandRuntime) in
 	if args[0] == "prepush" {
 		return runGatePrepush(args[1:], dir, stdout, stderr, runtime)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	approved, approvalsErr := approvedHeads(ctx)
-	result, err := testguard.Check(ctx, execx.OSRunner{}, dir, approved)
+	// The approvals read has its own bound and the check gives each of its
+	// git calls one, so no deadline covers the check's whole run (issue 1959).
+	approvalsCtx, cancel := context.WithTimeout(context.Background(), testguard.CallLimit)
+	approved, approvalsErr := approvedHeads(approvalsCtx)
+	cancel()
+	result, err := testguard.Check(context.Background(), execx.OSRunner{}, dir, approved)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
