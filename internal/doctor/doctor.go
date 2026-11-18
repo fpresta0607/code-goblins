@@ -133,7 +133,9 @@ func Run() []Check {
 // fork's build name. A component the version does not carry counts as 0. An
 // unparseable version fails the floor. A floor that names a build, such as
 // 0.1.79-codegoblins.3, is met at its own numeric version only by that build
-// at that number or later; a higher numeric version meets it whatever its build.
+// at that number or later, whatever suffix follows the build, such as a local
+// build's -dirty, as install.ps1 orders it; a higher numeric version meets it
+// whatever its build.
 func meetsFloor(versionLine, floor string) bool {
 	fields := strings.Fields(versionLine)
 	if len(fields) == 0 {
@@ -160,6 +162,7 @@ func meetsFloor(versionLine, floor string) bool {
 		return true
 	}
 	wantName, wantNumber, _ := strings.Cut(floorBuild, ".")
+	build, _, _ = strings.Cut(build, "-")
 	haveName, haveNumber, _ := strings.Cut(build, ".")
 	want, _ := strconv.Atoi(wantNumber)
 	got, err := strconv.Atoi(haveNumber)
