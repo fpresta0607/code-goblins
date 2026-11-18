@@ -1592,6 +1592,42 @@ func TestGateTurnsShowsWhoHoldsTheTurnAndWhoWaits(t *testing.T) {
 	}
 }
 
+// goblins gate turns says how long the oldest goblin's own turn has waited and
+// how many runs that asked after it stand ahead of it, here a gate's Test
+// step, and only then: a goblin's turn that waited over an hour behind Test
+// steps said neither on 2026-11-12 (#2416).
+func TestGateTurnsSaysHowManyLaterRunsStandAheadOfTheOldestGoblinTurn(t *testing.T) {
+	// Arrange
+	store := t.TempDir()
+	t.Setenv("GOBLINS_VERIFY_DIR", store)
+	holdTheTurn(t)
+	run := verify.Admission{Dir: filepath.Join(store, "slots"), Floor: 4 << 30, Available: func() (uint64, error) { return 64 << 30, nil }, Budget: time.Hour, Limit: time.Minute, Poll: 10 * time.Millisecond}
+	first, own, step := run, run, run
+	first.Who, first.IsTestStep = "a gate's Test step that asked first", true
+	own.Who = "a goblin's own turn"
+	step.Who, step.IsTestStep = "a gate's Test step", true
+	waitInLine(t, first)
+	waitInLine(t, own)
+	var before bytes.Buffer
+	if exit := gateTurns(plenty, &before, io.Discard); exit != 0 || strings.Contains(before.String(), "oldest goblin turn") {
+		t.Fatalf("with only a run that asked before it ahead of the goblin's turn, exit = %d and goblins gate turns printed %q; want 0 and no oldest goblin turn", exit, before.String())
+	}
+	waitInLine(t, step)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := gateTurns(plenty, &stdout, &stderr)
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(lines) != 6 || !strings.HasPrefix(lines[2], "1. a gate's Test step that asked first") || !strings.HasPrefix(lines[3], "2. a gate's Test step") || !strings.HasPrefix(lines[4], "3. a goblin's own turn") || !strings.HasPrefix(lines[5], "oldest goblin turn: run 3 has waited ") || !strings.HasSuffix(lines[5], ", and 1 run that asked after it stands ahead of it") {
+		t.Errorf("goblins gate turns printed %q; want both Test steps, then the goblin's turn, then how long it waited and the 1 run that asked after it ahead of it", lines)
+	}
+}
+
 // A holder whose card cannot be read still shows, without a budget no one
 // knows.
 func TestGateTurnsShowsAHolderThatDidNotNameItself(t *testing.T) {

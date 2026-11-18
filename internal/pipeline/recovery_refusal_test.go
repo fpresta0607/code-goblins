@@ -165,23 +165,31 @@ func (r stateRecoveryRunner) Run(ctx context.Context, request execx.Request) (ex
 
 func TestRecoverKeepLocalNamesAFreshRunOnlyForARunThatSpentNoRepairRound(t *testing.T) {
 	const (
-		run      = "01M761B9CBW4RHC6KC0NH6ETG5"
-		otherRun = "01M761C4QH0WZ3T2W8V1M2XK7P"
-		branch   = "fix/failed-after-fixes"
+		run         = "01M761B9CBW4RHC6KC0NH6ETG5"
+		otherRun    = "01M761C4QH0WZ3T2W8V1M2XK7P"
+		predecessor = "01M761A2RZ8V4N6Q0T3W5X7Y9B"
+		branch      = "fix/failed-after-fixes"
 	)
+	const continuation = ", which a fresh run would start over, so goblins pipeline run refuses one: read it with goblins pipeline terminal-preflight <task> --run " + run + ", and its continuation is the CEO's terminal admission, goblins pipeline validate-terminal for its unchanged head or validate-authored for a corrected one"
 	for _, test := range []struct {
 		name           string
 		repairTriggers []string
-		want           string
+		// predecessorTriggers, when set, are the repair rounds of the run a
+		// terminal admission made this run continue.
+		predecessorTriggers []string
+		want                string
 	}{
 		{name: "no repair round spent", want: "it spent no repair round, so a fresh goblins pipeline run is the expected path"},
-		{name: "one repair round spent", repairTriggers: []string{"auto_fix"}, want: "spent 1 repair round, which a fresh run would start over: ask the CEO before starting one"},
-		{name: "automatic and user repair rounds spent", repairTriggers: []string{"auto_fix", "user_fix"}, want: "spent 2 repair rounds, which a fresh run would start over: ask the CEO before starting one"},
+		{name: "admitted child whose predecessor spent none", predecessorTriggers: []string{}, want: "it spent no repair round, so a fresh goblins pipeline run is the expected path"},
+		{name: "one repair round spent", repairTriggers: []string{"auto_fix"}, want: "spent 1 repair round" + continuation},
+		{name: "automatic and user repair rounds spent", repairTriggers: []string{"auto_fix", "user_fix"}, want: "spent 2 repair rounds" + continuation},
+		{name: "admitted child whose predecessor spent repair rounds", predecessorTriggers: []string{"auto_fix", "user_fix"}, want: "spent 2 repair rounds" + continuation},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange: custody already returned, native branch sync no longer
 			// answers for the run, and the ledger holds the run's initial
-			// rounds and another run's repair round beside its own repairs.
+			// rounds and another run's repair round beside its own repairs
+			// and those of any run its admission continues.
 			runner := &recoveryRunner{
 				scenario: recoveryScenario{
 					run:       run,
@@ -197,6 +205,7 @@ func TestRecoverKeepLocalNamesAFreshRunOnlyForARunThatSpentNoRepairRound(t *test
 CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,status TEXT,head_sha TEXT,submitted_head_sha TEXT,last_pushed_sha TEXT,custody_returned_at INTEGER,terminal_head_verified_at INTEGER,created_at INTEGER,updated_at INTEGER);
 CREATE TABLE step_results(id TEXT,run_id TEXT,step_name TEXT);
 CREATE TABLE step_rounds(id TEXT,step_result_id TEXT,round INTEGER,trigger_type TEXT);
+CREATE TABLE validation_admissions(id TEXT,child_id TEXT,predecessor_id TEXT,event_json TEXT);
 INSERT INTO repos VALUES(` + sqlString(recoveryRepo) + `,'project');
 INSERT INTO runs VALUES(` + sqlString(run) + `,` + sqlString(recoveryRepo) + `,` + sqlString(branch) + `,'failed',` + sqlString(runner.scenario.recorded) + `,` + sqlString(runner.scenario.submitted) + `,NULL,1,NULL,1,1);
 INSERT INTO step_results VALUES('review',` + sqlString(run) + `,'review'),('test',` + sqlString(run) + `,'test'),('other-review',` + sqlString(otherRun) + `,'review');
@@ -204,6 +213,17 @@ INSERT INTO step_rounds VALUES('review-1','review',1,'initial'),('test-1','test'
 			for index, trigger := range test.repairTriggers {
 				round := index + 2
 				sql += fmt.Sprintf("\nINSERT INTO step_rounds VALUES('review-%d','review',%d,%s);", round, round, sqlString(trigger))
+			}
+			if test.predecessorTriggers != nil {
+				sql += `
+INSERT INTO runs VALUES(` + sqlString(predecessor) + `,` + sqlString(recoveryRepo) + `,` + sqlString(branch) + `,'cancelled',` + sqlString(runner.scenario.recorded) + `,` + sqlString(runner.scenario.recorded) + `,NULL,NULL,NULL,0,0);
+INSERT INTO validation_admissions VALUES('admission',` + sqlString(run) + `,` + sqlString(predecessor) + `,'{}');
+INSERT INTO step_results VALUES('predecessor-review',` + sqlString(predecessor) + `,'review');
+INSERT INTO step_rounds VALUES('predecessor-review-1','predecessor-review',1,'initial');`
+				for index, trigger := range test.predecessorTriggers {
+					round := index + 2
+					sql += fmt.Sprintf("\nINSERT INTO step_rounds VALUES('predecessor-review-%d','predecessor-review',%d,%s);", round, round, sqlString(trigger))
+				}
 			}
 			writeFixtureSQLite(t, filepath.Join(reader.Root, "state.sqlite"), sql)
 

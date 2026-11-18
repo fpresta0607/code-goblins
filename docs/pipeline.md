@@ -230,7 +230,11 @@ A still-live original run is named in the contributor's resume instruction, so i
 A run that ended while its goblin was paused, as a daemon restart ends a run whose step was executing, is named with its terminal status.
 Resume does not select validation agents or migrate the frozen policy; an older policy alone does not block contributor restoration.
 Actual validation requires an explicit supported pipeline command, which still enforces the frozen policy and launch selection.
-Continuing retained terminal work requires its supported source-bound continuation, not a replacement run with fresh repair allowance.
+A pause keeps its goblin's gate run running, but a daemon restart or crash ends a run whose step was executing, so a goblin can come back from a pause to its run failed or cancelled before it pushed, where neither `handback`, which needs a published head, nor `respond`, which needs a parked gate, applies (issue 2060).
+The resume note of such a run names its continuation, so the goblin need not ask what it is.
+It reads the run with `goblins pipeline terminal-preflight <id> --run <run>`.
+A run that spent no repair round, counting every predecessor a terminal admission made it continue, loses nothing to a new run, so `goblins pipeline run` starts one.
+A run that spent repair rounds is never replaced, since a new run would begin them again: `goblins pipeline run` refuses it, and its continuation is the CEO's [terminal validation admission](#driving-a-task), `validate-terminal` for its unchanged head or `validate-authored` for a corrected one, which keeps that spending, so the goblin asks the CEO for it with `goblins notify <id> --blocked`.
 
 ## Driving a task
 
@@ -289,6 +293,7 @@ Up to v5 the `run` check validates the trusted inputs before invoking native sta
 From v6 the launch selection establishes it: the daemon proves the trusted commit and every role's agents after its own fetch and before any agent starts.
 A repository's `agent` field continues to select only its native primary path and cannot replace the global reviewer or fixer profiles.
 An earlier unresolved run cannot be restarted to reset its budget.
+So a start over a failed or cancelled run that spent repair rounds, counted over the run and every predecessor its terminal admissions continue, as recovery counts them, is refused and names the run's terminal admission, which keeps them; one that spent none, or that completed or had its CI monitor interrupted, does not block a new run.
 A run that is still working is reattached to instead: repeating `goblins pipeline run` with the same branch, submitted head (or current head when no submitted head is recorded) and nonblank retained intent reattaches to it, so no new run starts and no review budget resets.
 This original head comparison remains independent of the handback schema and skips the new-start checks: a clean worktree, the committed gate files, and origin's default branch with its tracking ref, which a merge landing while the hold lasts leaves stale until the next fetch (issue 1586).
 Only when that head comparison fails does the driver look for a published head the caller adopted, and then for an accepted CI handback.
@@ -326,7 +331,8 @@ The selection preserves historical evidence and spending; it does not certify th
 Continuation uses the receipt's recorded selection without requiring the flag again.
 Native still verifies source ancestry and publication identity, and a refusal, including one after a native rebase, remains unresolved rather than being relaxed by the wrapper.
 A latest run that never published is refused before native is asked, with a reason of its own: handback returns only a published run's failed CI.
-A run that failed before it published, such as one Review approved whose Test step then failed preparing, has no route on from its reviewed head that keeps its review until fpresta0607/no-mistakes#323 lands, and until then a new run from the task's branch reviews it again.
+A run that failed before it published, such as one Review approved whose Test step then failed preparing, has no route on from its reviewed head that keeps its review until fpresta0607/no-mistakes#323 lands.
+Until then a new run from the task's branch reviews it again when neither it nor a run its admission continues spent a repair round, and one that spent repair rounds goes on only through the CEO's terminal admission, which keeps them.
 Both handback modes refuse a pending or unreadable policy migration journal without changing the journal, frozen policy, task metadata or audit log.
 Recover the migration explicitly with `goblins pipeline migrate <id>` before requesting handback.
 It requires a native build supporting `axi handback --expect` and receipt-bound `--resume`, plus `--revalidate-publication` when explicitly selected, and refuses when that contract is unavailable.
@@ -462,7 +468,8 @@ Two refusals name the state they found and the one way on (issue 2378).
 A run cancelled before it pushed, at its submitted head, stays native branch sync's owner beside a newer run of the same branch that completed and published a head holding it, while `recover` reads the newer run as latest.
 The refusal names both runs and the published head, and says no supported recovery continues it until the engine's owner choice is fixed (no-mistakes issue 335), since native recovery of the older run takes custody at a head the published one has moved past.
 A run whose custody already returned while native branch sync no longer answers for it has no same-run continuation, since native retry refuses a driver-started run (no-mistakes issue 323).
-The refusal says a fresh `goblins pipeline run` is the expected path only when the run spent no repair round, and otherwise names the rounds a fresh run would start over and leaves that choice to the CEO.
+The refusal says a fresh `goblins pipeline run` is the expected path only when the run spent no repair round, and otherwise names the rounds a fresh run would start over, which `goblins pipeline run` refuses, and names `terminal-preflight` and the CEO's terminal admission, `validate-terminal` or `validate-authored`, which keeps them.
+Rounds are counted over the run and every predecessor its terminal admissions continue, since an admitted child spends none of its own.
 
 A gate's fixer works in the run's worktree, which no-mistakes removes with force once the run is over, so the driver keeps what the fixer left uncommitted before anything takes that worktree away.
 Before unpublished recovery runs any native command, and before a stop aborts a live run, every tracked and untracked change in the run's worktree is committed and pinned under `refs/no-mistakes/recovery/<run>/worktree` in the gate repository, and that commit's parent is the head the run ended at.
@@ -630,13 +637,18 @@ The line goes by what a run is and then by when it asked, so urgent work does no
 From the front:
 
 1. A run that has waited two hours, whatever it is, in the order those runs asked.
-2. A gate's Test step, which its wrapper's `--gate-run` names, since a whole delivery waits on it.
-3. A run of a task with `(priority: production-defect)` on its backlog row.
-4. A run of priority 0, of a row that names no priority or one the line does not know, or of no task, which is the place every run had when the line kept only the order they asked in.
-5. Runs of priority 1, then 2, then 3, then `ops-root`, the last of the backlog's rows.
-6. A low-priority run.
+2. A goblin's own turn that has waited 20 minutes, by its task's priority as below.
+3. A gate's Test step, which its wrapper's `--gate-run` names, since a whole delivery waits on it.
+4. A run of a task with `(priority: production-defect)` on its backlog row.
+5. A run of priority 0, of a row that names no priority or one the line does not know, or of no task, which is the place every run had when the line kept only the order they asked in.
+6. Runs of priority 1, then 2, then 3, then `ops-root`, the last of the backlog's rows.
+7. A low-priority run.
 
-Test steps order among themselves by the same task priorities, and a Test step of any priority goes ahead of every run that is not one.
+Test steps order among themselves by the same task priorities, and a Test step of any priority goes ahead of every run that is not one, until a goblin's own turn that asked before it has aged.
+A goblin's own turn, one that is neither a Test step nor low-priority, ages once it has waited 20 minutes and no Test step that asked before it still waits: it then stands ahead of every Test step that asks after it.
+On 2026-11-12 Test steps that kept arriving held a goblin's turn over an hour, among them the `goblins verify fast` its task had to pass before it could publish, and nothing said so (#2416).
+Twenty minutes keeps a Test step first while a few gates are under way, and an aged turn still waits for the Test steps that asked before it.
+An aged turn also stands ahead of a younger goblin turn of a higher priority, since that turn stands behind the Test steps the aged one now goes ahead of.
 Runs of one place keep the order they asked in.
 `goblins gate turn`, `goblins gate test`, `goblins gate prepush` and `goblins verify` each read the priority on their task's row as they join the line, so a row changed later moves no run that already waits.
 A row they cannot read costs a run only its priority: it says so and stands as a run with no task.
@@ -652,7 +664,7 @@ Two hours is a gate's 90 minute turn budget and half an hour more.
 Waits reached an hour on a busy morning, so a limit that short would turn a busy line back into the order runs asked in, just when the order matters, and a limit much longer leaves a goblin idle for more of its session than a whole turn is worth.
 
 Every build orders the line by the names of its places and nothing else, so a run an older build started agrees with a newer one on who goes first.
-An older build's run takes its place by when it asked and never moves to the front.
+An older build's run takes its place by when it asked and never moves to the front or ages.
 
 A command also waits while either physical or commit availability is under the shared floor.
 At capacity one the floor is 4 GiB.
@@ -691,10 +703,12 @@ A run that a gate's agent started waits three minutes at most for its turn, as [
 On 2026-10-14 a run that had waited an hour and fourteen minutes reached the head of the line and ended with no turn on one busy change of the lock.
 
 A gate shows a step's output only once the step has ended, so `goblins gate turns` prints the line from outside while the wait lasts: each run that holds a turn, the runs that wait in the order they take their turns, a low-priority run marked, each after the first with why it stands behind the one before it, as `behind run 1: a gate's Test step goes ahead of a goblin's own turn` or `behind run 2: it asked first`, and the memory when the machine is short of it.
+When runs that asked after the oldest goblin's own turn stand ahead of it, a line after the waiting runs says how long that turn has waited and how many of them stand ahead of it, as `oldest goblin turn: run 4 has waited 1h10m0s, and 3 runs that asked after it stand ahead of it`.
+A goblin's own turn that has waited an hour wakes the CEO once, naming it ([the board's wakes](native-board.md)).
 At capacity two it also shows what each run is expected to use and what each holder uses now.
 When memory and commit, less the about 1 GB a new goblin's session takes, are short of the floor for the line's next run, its last line says the supervisor starts and resumes no goblin by itself, keeping the test slots open, as the scheduler's own line says ([The fleet never idles](contract/dispatch.md#the-fleet-never-idles)).
 `goblins gate turns` shows each light run apart from the slots' holders, as `light, beside the slots:`, with its bound and the memory it uses of what it is expected to use.
-`goblins gate turns --json` gives the same, less why a run stands behind another, as one JSON object, for the board to read, whose keys stay as they are and are always there, an empty line being empty lists: `capacity`, `is_weighed`, `holding`, `light` and `waiting`, each run with `who`, `pid`, `since`, `budget_seconds`, `now`, `estimate_bytes`, `used_bytes` and `is_low_priority`, `memory` with `available_bytes`, `commit_available_bytes`, `floor_bytes` and `is_short`, and `hold`, which says why no goblin starts or resumes by itself and is empty when one may.
+`goblins gate turns --json` gives the same, less why a run stands behind another, as one JSON object, for the board to read, whose keys stay as they are and are always there, an empty line being empty lists: `capacity`, `is_weighed`, `holding`, `light` and `waiting`, each run with `who`, `pid`, `since`, `budget_seconds`, `now`, `estimate_bytes`, `used_bytes`, `is_low_priority` and `is_test_step`, `memory` with `available_bytes`, `commit_available_bytes`, `floor_bytes` and `is_short`, and `hold`, which says why no goblin starts or resumes by itself and is empty when one may.
 Under a run that holds a turn, `goblins gate turns` prints what the run says it is doing, which the run renews every five seconds while its tests run: how many packages are done, which tests are running and for how long, and the last line of its output.
 A new gate run names the task registered for its source worktree, including the owner of an extra worktree, in its turn and report.
 Its turn names the task's goblin with it, as `Zora (cg-example)`, when the task's record names one, and its report keeps the id.

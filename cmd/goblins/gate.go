@@ -736,6 +736,29 @@ func runGateTurns(stdout, stderr io.Writer, available func() (supervisor.Memory,
 		}
 		fmt.Fprintln(stdout, line)
 	}
+	// The goblin's own turn that has waited longest, and how many runs that
+	// asked after it stand ahead of it now, said when any do (#2416).
+	oldest := -1
+	for place, run := range report.Waiting {
+		if !run.IsTestStep && !run.IsLowPriority && (oldest < 0 || run.Since.Before(report.Waiting[oldest].Since)) {
+			oldest = place
+		}
+	}
+	if oldest >= 0 {
+		passedBy := 0
+		for _, run := range report.Waiting[:oldest] {
+			if run.Since.After(report.Waiting[oldest].Since) {
+				passedBy++
+			}
+		}
+		ahead := fmt.Sprintf("%d runs that asked after it stand", passedBy)
+		if passedBy == 1 {
+			ahead = "1 run that asked after it stands"
+		}
+		if passedBy > 0 {
+			fmt.Fprintf(stdout, "oldest goblin turn: run %d has waited %s, and %s ahead of it\n", oldest+1, now.Sub(report.Waiting[oldest].Since).Round(time.Second), ahead)
+		}
+	}
 	if report.Memory.IsShort {
 		fmt.Fprintf(stdout, "memory: %.1f GB physical and %.1f GB commit are available; both require the %.1f GB floor\n", verify.Gigabytes(report.Memory.AvailableBytes), verify.Gigabytes(report.Memory.CommitAvailableBytes), verify.Gigabytes(report.Memory.FloorBytes))
 	}
@@ -807,6 +830,7 @@ type turnsRun struct {
 	EstimateBytes uint64    `json:"estimate_bytes"`
 	UsedBytes     uint64    `json:"used_bytes"`
 	IsLowPriority bool      `json:"is_low_priority"`
+	IsTestStep    bool      `json:"is_test_step"`
 	Behind        string    `json:"-"`
 }
 
@@ -877,7 +901,7 @@ func readTurns(available func() (supervisor.Memory, error)) (turnsReport, error)
 func turnsRuns(standing []verify.Standing) []turnsRun {
 	runs := []turnsRun{}
 	for _, run := range standing {
-		runs = append(runs, turnsRun{Who: run.Who, PID: run.PID, Since: run.Since, BudgetSeconds: run.Budget.Seconds(), Now: run.Now, EstimateBytes: run.Estimate, UsedBytes: run.Used, IsLowPriority: run.IsLowPriority, Behind: run.Behind})
+		runs = append(runs, turnsRun{Who: run.Who, PID: run.PID, Since: run.Since, BudgetSeconds: run.Budget.Seconds(), Now: run.Now, EstimateBytes: run.Estimate, UsedBytes: run.Used, IsLowPriority: run.IsLowPriority, IsTestStep: run.IsTestStep, Behind: run.Behind})
 	}
 	return runs
 }

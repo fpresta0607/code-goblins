@@ -122,6 +122,10 @@ type fleetWakes struct {
 	LineStallSince time.Time          `json:"line_stall_since,omitzero"`
 	LineStallWoke  bool               `json:"line_stall_woke,omitempty"`
 	RootReadings   []rootStartReading `json:"root_readings,omitempty"`
+	// LongTurnWaitsWoke names the goblins' own turns, by pid and the moment
+	// they joined the line, still waiting at the latest reading that the CEO
+	// was woken for as waiting longTurnWait.
+	LongTurnWaitsWoke []string `json:"long_turn_waits_woke,omitempty"`
 	// DiskLow says disk_low woke since a reading was last at or above the
 	// disk floor.
 	DiskLow bool `json:"disk_low,omitempty"`
@@ -328,7 +332,7 @@ func machineClocks() (time.Time, time.Duration) {
 // reading met once, however many readings met it, and each repository whose
 // CI cannot be read at every cycle until a poll reads it again.
 func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
-	if (s.Options.Dispatch == nil || s.Options.Dispatch.Memory == nil) && s.Options.CI == nil && s.Options.Progress == nil && s.Options.Defender == nil && s.Options.Shared == nil {
+	if (s.Options.Dispatch == nil || s.Options.Dispatch.Memory == nil && s.Options.Dispatch.LongTurnWaits == nil) && s.Options.CI == nil && s.Options.Progress == nil && s.Options.Defender == nil && s.Options.Shared == nil {
 		return nil
 	}
 	clocks := s.Options.Clocks
@@ -344,7 +348,7 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 	w, readErr := readFleetWakes(stateDir)
 	err := errors.Join(readErr, s.pauseAtAllowanceFloor(ctx, &w, now), s.pollCI(ctx, &w, now, currentTime))
 	err = errors.Join(err, s.reconcilePreparedWaits(ctx, &w, now))
-	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkHandles(&w, now), s.checkDisk(&w, now), s.checkProgress(ctx, &w, now), s.checkDefender(ctx, &w, now), s.checkCEOWaits(&w, now), s.checkSharedServices(ctx, &w, now))
+	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkHandles(&w, now), s.checkDisk(&w, now), s.checkLongTurnWaits(&w, now), s.checkProgress(ctx, &w, now), s.checkDefender(ctx, &w, now), s.checkCEOWaits(&w, now), s.checkSharedServices(ctx, &w, now))
 	w.RootReadings = s.currentRootReadings()
 	// The reading's end is its start and the time the machine was awake
 	// through it: a sleep that fell inside the reading, in its progress probe
@@ -536,6 +540,36 @@ func (s *Service) checkLineStall(w *fleetWakes, memory Memory, now time.Time) er
 		return err
 	}
 	w.LineStallWoke = true
+	return nil
+}
+
+// checkLongTurnWaits wakes the CEO once for each goblin's own turn that has
+// waited in the machine's heavy line longTurnWait, naming the run and its task,
+// so a turn that starves is told rather than found. A reading that fails
+// forgets none it woke for.
+func (s *Service) checkLongTurnWaits(w *fleetWakes, now time.Time) error {
+	dispatch := s.Options.Dispatch
+	if dispatch == nil || dispatch.LongTurnWaits == nil {
+		return nil
+	}
+	runs, err := dispatch.LongTurnWaits(now)
+	if err != nil {
+		return w.failing("long-turn-waits", fmt.Errorf("the machine's heavy line cannot be read for turns waiting long, so none is told: %w", err))
+	}
+	w.failing("long-turn-waits", nil)
+	var woken []string
+	for _, run := range runs {
+		key := fmt.Sprintf("%d@%s", run.PID, run.Since.UTC().Format(time.RFC3339Nano))
+		if !slices.Contains(w.LongTurnWaitsWoke, key) {
+			detail := fmt.Sprintf("heavy_line_turn_waits: %s (pid %d) has waited %s in the machine's heavy line for its own turn. Next: goblins gate turns says what stands ahead of it and what holds the turns.", run.Who, run.PID, now.Sub(run.Since).Round(time.Minute))
+			if err := raiseFleetWake(s.Store.Home.State, "idle", "heavy-line-turn-wait", detail); err != nil {
+				return err
+			}
+			w.LongTurnWaitsWoke = append(w.LongTurnWaitsWoke, key)
+		}
+		woken = append(woken, key)
+	}
+	w.LongTurnWaitsWoke = woken
 	return nil
 }
 
