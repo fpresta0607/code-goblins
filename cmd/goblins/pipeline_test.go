@@ -76,6 +76,9 @@ type pipelineStartRunner struct {
 	uvLocks string
 	// uvLockListings is each directory git ls-files listed uv.lock files in.
 	uvLockListings []string
+	// numstat is what git diff --numstat -z prints of the branch's changes
+	// since its merge base, which is the trusted head.
+	numstat string
 }
 
 func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Result, error) {
@@ -137,6 +140,11 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 			return execx.Result{Stdout: []byte(trusted + "\n")}, nil
 		case "show refs/remotes/origin/main:.no-mistakes.yaml":
 			return execx.Result{Stdout: []byte("auto_fix: {review: 0}\n")}, nil
+		case "merge-base " + trusted + " HEAD":
+			return execx.Result{Stdout: []byte(trusted + "\n")}, nil
+		}
+		if len(q.Args) > 5 && q.Args[0] == "--attr-source="+trusted && q.Args[1] == "diff" && q.Args[2] == "--numstat" && q.Args[5] == trusted {
+			return execx.Result{Stdout: []byte(r.numstat)}, nil
 		}
 	case "no-mistakes":
 		// This no-mistakes names no --intent-file in its help, as one from

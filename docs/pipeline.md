@@ -241,6 +241,7 @@ A run that spent repair rounds is never replaced, since a new run would begin th
 ```powershell
 goblins pipeline run <id> --intent-file intent.md
 goblins pipeline run <id> --intent-file intent.md --closes 1996
+goblins pipeline run <id> --intent-file intent.md --size-override "a vendored drop that cannot be split"
 goblins pipeline respond <id> --action fix --findings finding-id --instructions "Concrete guidance"
 goblins pipeline respond <id> --action fix --findings finding-id --scope-decision <answered-notify-sequence>
 goblins pipeline respond <id> --action approve
@@ -272,6 +273,13 @@ The shared daemon otherwise starts them with its own environment, so a gate agen
 A no-mistakes whose `axi run` takes no `--agent-env` starts no run, and the command says to update it; a reattach keeps the cooldown its run started with.
 No other start passes it: no-mistakes keeps a run's agent environment in every run admitted from it, by `validate-authored`, `validate-terminal` or an owner correction, as a rerun does.
 So a `validate-terminal` on another branch whose `uv.lock` state differs keeps the first run's `UV_EXCLUDE_NEWER` choice.
+A new run starts only on a branch that changes at most 2,000 lines, its insertions plus deletions against its merge base with origin's default branch (issue 2002).
+Binary files, lock files (`go.sum`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `uv.lock`, `Cargo.lock`) and only the files the default branch's `.gitattributes` marks `linguist-generated` are not counted.
+The branch's own `.gitattributes` is not read, so a branch cannot leave its files out by marking them generated, and a large first drop of a new generated file starts on the CEO's word or after its `.gitattributes` line lands on the default branch.
+In the week to 2026-10-27 reviews of changes over 2,000 lines read 85% of the gate's review tokens, about 41.6 million a pass, and a run that ends without landing reviews the whole branch again.
+A larger branch is sent back before any review is spent: the command names its total and its largest files and says to split it into branches that are each gated on their own.
+A branch that cannot be split, such as a vendored drop, starts only on the CEO's word, `--size-override "<reason>"` from the registered primary CEO, whose reason goes to the task's status log as `pipeline-size-override` before the run starts; a goblin's, a blank one or one of more than one line is refused.
+A reattach to a live run is not sized again.
 A response's `--instructions` still reach no-mistakes on its command line, which is the only way it takes them, so keep them short and plain.
 An approval `--reason` reaches it the same way, and the driver refuses one that is not a single line of plain text.
 

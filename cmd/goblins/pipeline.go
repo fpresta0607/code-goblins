@@ -107,7 +107,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	}
 	flags := flag.NewFlagSet("pipeline", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var intent, intentFile, wantBranch, wantRun, admissionFile, scopeDecision, correctedFindings string
+	var intent, intentFile, wantBranch, wantRun, admissionFile, scopeDecision, correctedFindings, sizeOverride string
 	isAdmission := args[0] == "validate-authored" || args[0] == "validate-terminal"
 	isPreflight := args[0] == "terminal-preflight"
 	var shouldResume, shouldRevalidatePublication bool
@@ -124,6 +124,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			closes = append(closes, issue)
 			return nil
 		})
+		flags.StringVar(&sizeOverride, "size-override", "", "the CEO's reason to start a gate run on a branch over the review line limit anyway")
 	} else if args[0] == "respond" {
 		flags.StringVar(&response.Action, "action", "", "fix or approve")
 		flags.StringVar(&response.Findings, "findings", "", "comma-separated finding IDs")
@@ -221,6 +222,29 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		// scope decision would send the ordinary fix and drop the accepted
 		// scope the primary CEO answered with.
 		return errors.New("pipeline: --scope-decision is empty; it must name an answered task decision sequence")
+	}
+	isSizeOverrideGiven := false
+	flags.Visit(func(given *flag.Flag) { isSizeOverrideGiven = isSizeOverrideGiven || given.Name == "size-override" })
+	if isSizeOverrideGiven {
+		// Starting a run on a branch too large for one review pass is the
+		// CEO's decision alone, so a goblin cannot spend the review it was
+		// sent back to split (issue 2002). A blank or many-line reason, as an
+		// unset variable or a pasted note gives, is refused, not read as one.
+		if strings.TrimSpace(sizeOverride) == "" || strings.ContainsAny(sizeOverride, "\r\n") {
+			return errors.New("pipeline: --size-override must give the CEO's reason on one line")
+		}
+		identityErr := errors.New("a gate agent, goblin or helper cannot act as the registered primary CEO")
+		if os.Getenv(gateAgentVariable) == "" && os.Getenv(harness.RoleVariable) != harness.RoleGoblin {
+			ceo := supervisor.CEOConnection{State: h.State}
+			var release func()
+			_, release, identityErr = ceo.CallerIdentity()
+			if identityErr == nil {
+				defer release()
+			}
+		}
+		if identityErr != nil {
+			return fmt.Errorf("pipeline: --size-override is honoured only from the registered primary CEO: %w", identityErr)
+		}
 	}
 	scopeDecisionSequence := 0
 	scopeDecisionID := ""
@@ -531,6 +555,9 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			start = pipeline.Start{Args: []string{"axi", "run"}}
 			fmt.Fprintf(out, "pipeline: reattached to run %s on %s, which keeps its own intent, closing issues and review budget; no new run starts\n", check.ReattachRun, branch)
 		} else {
+			if err := checkBranchSize(ctx, h, commands, meta.ID, gated, branch, check.TrustedHead, sizeOverride, out); err != nil {
+				return err
+			}
 			cooldown, _, err := worktree.Service{Commands: commands}.Cooldown(ctx, gated, time.Now())
 			if err != nil {
 				return fmt.Errorf("pipeline: %w", err)
@@ -641,6 +668,32 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if selection.Policy.Version >= 7 {
 		return reportHandback(ctx, h, reader, meta, selection, gated, branch, out)
 	}
+	return nil
+}
+
+// checkBranchSize refuses a new gate run on a branch that changes more lines
+// than one review pass takes, naming its size and its largest files, unless
+// the CEO gave a reason to start it anyway, which goes to the task's status
+// log before the run starts (issue 2002).
+func checkBranchSize(ctx context.Context, h home.Home, commands execx.Runner, id, worktree, branch, base, sizeOverride string, out io.Writer) error {
+	size, err := pipeline.BranchSizeOf(ctx, commands, worktree, base)
+	if err != nil {
+		return err
+	}
+	if size.Lines <= pipeline.ReviewLineLimit {
+		return nil
+	}
+	if sizeOverride == "" {
+		largest := make([]string, 0, 5)
+		for _, file := range size.Files[:min(5, len(size.Files))] {
+			largest = append(largest, fmt.Sprintf("%s (%d)", file.Path, file.Lines))
+		}
+		return fmt.Errorf("pipeline: branch %s changes %d lines against its merge base with origin's default branch, over the %d a gate run reviews in one pass, so no run started and no review was spent. Its largest files: %s. Split it into branches of at most %d changed lines, each gated on its own. Binary files, lock files and only the files the default branch's .gitattributes marks linguist-generated are not counted, so a large first drop of a new generated file starts on the CEO's word or after its .gitattributes line lands on the default branch. A branch that cannot be split starts only on the CEO's word: goblins pipeline run %s --size-override \"<why>\" with its intent", branch, size.Lines, pipeline.ReviewLineLimit, strings.Join(largest, ", "), pipeline.ReviewLineLimit, id)
+	}
+	if err := state.AppendStatus(h.State, id, fmt.Sprintf("pipeline-size-override: branch=%s lines=%d limit=%d reason=%q by=ceo", branch, size.Lines, pipeline.ReviewLineLimit, sizeOverride)); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "pipeline: branch %s changes %d lines, over the %d a gate run reviews in one pass, and starts on the CEO's word: %s\n", branch, size.Lines, pipeline.ReviewLineLimit, sizeOverride)
 	return nil
 }
 
