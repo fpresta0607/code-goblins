@@ -4,9 +4,9 @@
 New installations keep the home outside the source checkout; existing checkout homes follow the [legacy checkout activation boundary](ownership.md#legacy-checkout-activation).
 The home is local and private by default, and nothing in it is pushed anywhere.
 `goblins install` keeps the home, and the Dev Drive folder its worktrees, scratch and caches moved to, open only to the account it runs as, SYSTEM and Administrators, and so does `goblins dev-drive move` for the folder it makes: a folder made under a drive's root, as a home `GOBLINS_HOME` puts there or the Dev Drive folder is, lets Authenticated Users modify it, so any second account on the machine could read and write the fleet's records and every goblin's work.
-On Linux and macOS the install gives the home and its folders mode 0700 instead, open only to the account it runs as, which shuts out what they hold without changing it.
 The first install that narrows a folder walks everything in it, which takes minutes for a folder holding hundreds of thousands of files, and an install that finds it narrowed reads only the folder itself.
 A file or folder in it whose access list the install may not change, such as one an elevated program made, keeps its access with everything it holds: the install names the first few, finishes, and leaves `.ceo-narrowing-unfinished` in the folder so the next install narrows it again; the move records the move all the same, says so and exits 1, and the next install or move narrows the folder again.
+On Linux and macOS the install gives the home and its folders mode 0700 instead, open only to the account it runs as, which shuts out what they hold without changing or walking it.
 It is laid out the same way on every machine:
 
 | Path | What it holds |

@@ -146,8 +146,8 @@ func (s Service) writeHome(report *reporter) error {
 }
 
 // narrowFolders keeps the home, and the Dev Drive folder its worktrees,
-// scratch and caches moved to when they did, to the account the install runs
-// as, SYSTEM and Administrators. A folder made under a drive's root, as a
+// scratch and caches moved to when they did, to the accounts access.Admitted
+// names. A folder made under a drive's root, as a
 // home GOBLINS_HOME puts there or a Dev Drive folder is, lets Authenticated Users
 // modify it, so any second account on the machine could read and write the
 // fleet's records and every goblin's work. A Dev Drive that is not attached,
@@ -172,10 +172,10 @@ func (s Service) narrowFolders(report *reporter) error {
 			return fmt.Errorf("install: read who may open %s: %w", folder, err)
 		}
 		if isNarrow {
-			report.same("access", folder+"'s own access list admits only "+access.Admitted)
+			report.same("access", folder+"'s "+access.Guard+" admits only "+access.Admitted)
 			continue
 		}
-		report.detail("narrowing " + folder + " and everything in it, which takes minutes for a folder holding many files")
+		report.detail("narrowing " + folder + access.Walk)
 		var unchanged *access.Unchanged
 		switch err := access.Narrow(folder); {
 		case errors.As(err, &unchanged):
@@ -183,7 +183,7 @@ func (s Service) narrowFolders(report *reporter) error {
 		case err != nil:
 			return fmt.Errorf("install: keep %s to %s: %w", folder, access.Admitted, err)
 		default:
-			report.change("access", folder+" and everything in it that takes its access from it now open only to "+access.Admitted)
+			report.change("access", folder+access.Reach+" now open only to "+access.Admitted)
 		}
 	}
 	return nil

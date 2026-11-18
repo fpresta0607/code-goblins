@@ -4,6 +4,7 @@ package home
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -60,7 +61,7 @@ func TestDefaultRootWithNoAbsoluteFolderIsRefused(t *testing.T) {
 	root, err := DefaultRoot()
 
 	// Assert
-	if err == nil {
-		t.Fatalf("DefaultRoot = %q, want a refusal naming GOBLINS_HOME", root)
+	if err == nil || !strings.Contains(err.Error(), "GOBLINS_HOME") {
+		t.Fatalf("DefaultRoot = %q, %v; want a refusal naming GOBLINS_HOME", root, err)
 	}
 }

@@ -8,8 +8,14 @@ import (
 	"syscall"
 )
 
-// Admitted names the accounts a narrowed folder admits, for a report.
-const Admitted = "you"
+// For a report: the accounts a narrowed folder admits, what keeps it to
+// them, and that a narrowing changes and walks nothing beside the folder.
+const (
+	Admitted = "you"
+	Guard    = "mode"
+	Reach    = ""
+	Walk     = ""
+)
 
 // Narrow keeps path to the account this process runs as: it takes every
 // permission from path's group and from everyone else, so no other account
