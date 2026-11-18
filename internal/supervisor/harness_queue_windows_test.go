@@ -25,20 +25,25 @@ import (
 // returns the task those messages name and the line the board typed for a
 // text. The CEO's are typed by the board's own delivery; a goblin's by the
 // line that delivery types, recorded as that delivery records one submitted
-// into a turn.
+// into a turn. The fixture records a line queued before it draws its queue,
+// so each is waited for on the screen too, where the board reads it.
 func heldQueue(t *testing.T, isGoblin bool, mode string, texts ...string) (*Store, *Service, hostedTerminal, string, func(string) string) {
 	t.Helper()
 	useConversations(t)
 	store, home := testStore(t)
 	service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: home.State}}}
 	task, typed := "", func(text string) string { return text }
+	name := "codex"
+	if strings.HasPrefix(mode, "claude-") {
+		name = "claude"
+	}
+	if strings.HasPrefix(mode, "pi-") {
+		name = "pi"
+	}
 	var meta state.TaskMeta
 	if isGoblin {
 		meta = makeNative(t, home.State, "task-1")
-		meta.Harness = "codex"
-		if strings.HasPrefix(mode, "claude-") {
-			meta.Harness = "claude"
-		}
+		meta.Harness = name
 		if err := state.WriteTaskMeta(home.State, meta); err != nil {
 			t.Fatal(err)
 		}
@@ -69,6 +74,7 @@ func heldQueue(t *testing.T, isGoblin bool, mode string, texts ...string) (*Stor
 		if held := actionOf(store, id); !isHarnessHeld(held) {
 			t.Fatalf("%s = %+v; want it held in its harness's queue", id, held)
 		}
+		promptLineEmpties(t, terminal, name)
 	}
 	return store, service, terminal, task, typed
 }
@@ -302,20 +308,35 @@ func TestSendNowOnAMessageItsHarnessHoldsPressesThatHarnesssSendNowKeyOnce(t *te
 		name     string
 		isGoblin bool
 		mode     string
+		kind     harness.Kind
 		wantKey  string
 	}{
-		{name: "the CEO's Claude Code", mode: "claude-busy", wantKey: "sent now"},
-		{name: "a goblin's Claude Code", isGoblin: true, mode: "claude-busy", wantKey: "sent now"},
-		{name: "the CEO's Codex", mode: "busy", wantKey: "interrupted"},
+		{name: "the CEO's Claude Code", mode: "claude-busy", kind: harness.Claude, wantKey: "sent now"},
+		{name: "a goblin's Claude Code", isGoblin: true, mode: "claude-busy", kind: harness.Claude, wantKey: "sent now"},
+		{name: "the CEO's Codex", mode: "busy", kind: harness.Codex, wantKey: "interrupted"},
+		{name: "the CEO's pi", mode: "pi-busy", kind: harness.Pi, wantKey: "interrupted"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			store, service, terminal, task, _ := heldQueue(t, test.isGoblin, test.mode, "first words", "second words")
 			before := actionOf(store, "m2").UpdatedAt
+			record, err := host.ReadRecord(terminal.stateDir, terminal.id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			screens, _ := harness.NativeScreens(test.kind)
 
 			// Act
 			pressed := sendNow(service, task, "m2")
 			terminal.waitForLines(t, 4)
+			// The fixture draws what its key did only after it records the
+			// key, and a press reads the screen, so the second waits until
+			// it shows the turn ended or its queue no longer offered.
+			for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+				if screen, err := host.ReadScreen(record); err == nil && (!screens.IsWorking(screen) || screens.Queued != nil && !screens.OffersQueue(screen)) {
+					break
+				}
+			}
 			sent := actionOf(store, "m2")
 			again := boardRequest(NewHTTP(service, "board.local", nil), "POST", "/api/actions", fmt.Sprintf(`{"id":"again","kind":"message_now","task_id":%q,"generation":"","target":"m2"}`, task))
 
@@ -335,26 +356,29 @@ func TestSendNowOnAMessageItsHarnessHoldsPressesThatHarnesssSendNowKeyOnce(t *te
 
 // #2332: a queued message "can be edited and deleted from Modern Chat and the
 // change lands on the harness's own queued item". Claude Code gives its queue
-// back only whole, every line onto the prompt line for one Up, so Cancel,
-// which Edit sends too, takes that queue back, clears it off the prompt line
-// unsubmitted, deletes the message he named, and types the others again in
-// the order he sent them.
+// back only whole, every line onto the prompt line for one Up, and pi 1.4.0
+// every line into its editor for one Alt+Q (#2340), so Cancel, which Edit
+// sends too, takes that queue back, clears it off the prompt line unsubmitted,
+// deletes the message he named, and types the others again in the order he
+// sent them.
 func TestCancelOfAMessageItsHarnessHoldsTakesItOutOfThatQueueAndKeepsTheOthers(t *testing.T) {
 	for _, test := range []struct {
-		name     string
-		isGoblin bool
+		name, mode, harness string
+		isGoblin            bool
 	}{
-		{name: "the CEO's"},
-		{name: "a goblin's", isGoblin: true},
+		{name: "the CEO's Claude Code", mode: "claude-busy", harness: "claude"},
+		{name: "a goblin's Claude Code", mode: "claude-busy", harness: "claude", isGoblin: true},
+		{name: "the CEO's pi", mode: "pi-busy", harness: "pi"},
+		{name: "a goblin's pi", mode: "pi-busy", harness: "pi", isGoblin: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			store, service, terminal, task, typed := heldQueue(t, test.isGoblin, "claude-busy", "first words", "second words", "third words")
+			store, service, terminal, task, typed := heldQueue(t, test.isGoblin, test.mode, "first words", "second words", "third words")
 
 			// Act
 			cancel := pressOnQueued(service, "message_withdraw", task, "m2", "second words")
 			kept := []string{actionOf(store, "m1").Status, actionOf(store, "m3").Status}
-			promptLineEmpties(t, terminal, "claude")
+			promptLineEmpties(t, terminal, test.harness)
 			if !test.isGoblin {
 				// The worker tries a delivery its terminal put off again, as here.
 				for deadline := time.Now().Add(30 * time.Second); !(isHarnessHeld(actionOf(store, "m1")) && isHarnessHeld(actionOf(store, "m3"))) && time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
@@ -571,16 +595,21 @@ func startedAgain(t *testing.T, terminal hostedTerminal, task, mode string) host
 // the press says why: a harness with no key for it, a prompt line that holds
 // his own draft, and a queue that also holds a line typed in the terminal,
 // which comes onto the prompt line with the board's and is never cleared with
-// them.
+// them. Codex 0.160 has no such key: it sends a line typed into a turn to its
+// model at once, for its next tool call, and its Alt+Up gives back only a line
+// queued with Tab (live on 2026-11-18, #2340).
 func TestAQueueTheBoardCannotTakeBackAloneIsNeverCleared(t *testing.T) {
 	for _, test := range []struct {
 		name, mode, before string
+		kind               harness.Kind
 		wantSays           string
 		wantHeld           bool
 	}{
-		{name: "Codex, which gives its queue back to no key", mode: "busy", wantSays: "gives back to no key", wantHeld: true},
-		{name: "his own draft on the prompt line", mode: "claude-busy", before: "a draft of his", wantSays: "does not offer its queue now", wantHeld: true},
-		{name: "a line typed in the terminal in the same queue", mode: "claude-busy", before: "typed in the terminal\r", wantSays: "holds words the board cannot take back alone"},
+		{name: "Codex, which gives its queue back to no key", mode: "busy", kind: harness.Codex, wantSays: "gives back to no key", wantHeld: true},
+		{name: "his own draft on the prompt line", mode: "claude-busy", kind: harness.Claude, before: "a draft of his", wantSays: "does not offer its queue now", wantHeld: true},
+		{name: "a line typed in the terminal in the same queue", mode: "claude-busy", kind: harness.Claude, before: "typed in the terminal\r", wantSays: "holds words the board cannot take back alone"},
+		{name: "his own draft in pi's editor", mode: "pi-busy", kind: harness.Pi, before: "a draft of his", wantSays: "does not offer its queue now", wantHeld: true},
+		{name: "a line typed in pi's terminal in the same queue", mode: "pi-busy", kind: harness.Pi, before: "typed in the terminal\r", wantSays: "holds words the board cannot take back alone"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -600,8 +629,9 @@ func TestAQueueTheBoardCannotTakeBackAloneIsNeverCleared(t *testing.T) {
 				}
 				if strings.HasSuffix(test.before, "\r") {
 					terminal.waitForLines(t, 3)
+					promptLineEmpties(t, terminal, string(test.kind))
 				} else {
-					screens, _ := harness.NativeScreens(harness.Claude)
+					screens, _ := harness.NativeScreens(test.kind)
 					for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 						if screen, err := host.ReadScreen(record); err == nil && screens.ComposerHoldsText(screen) {
 							break
@@ -688,14 +718,17 @@ func TestSendNowOnAMessageBehindACommandForTheCEOsTurnHasThatMessageTakenFirst(t
 // once, as a goblin's does (#1915): Claude Code takes the command into its
 // turn's queue and runs it at once with its send-now chord, and Codex, which
 // refuses such a command in a turn, ends its turn on Escape, so the command
-// goes at the prompt line the turn's end leaves.
+// goes at the prompt line the turn's end leaves. pi, which runs /compact
+// beside its turn and expands another command into a steer, ends its turn on
+// Escape first too, though Alt+Q gives its queue back (#2340).
 func TestSendNowRunsACommandHeldForTheCEOsTurnAtOnce(t *testing.T) {
 	for _, test := range []struct {
-		name, mode string
-		wantInput  []string
+		name, mode, command string
+		wantInput           []string
 	}{
-		{name: "Claude Code", mode: "claude-busy", wantInput: []string{"queued /compact", "sent now"}},
-		{name: "Codex", mode: "busy", wantInput: []string{"interrupted", "accepted /compact"}},
+		{name: "Claude Code", mode: "claude-busy", command: "/compact", wantInput: []string{"queued /compact", "sent now"}},
+		{name: "Codex", mode: "busy", command: "/compact", wantInput: []string{"interrupted", "accepted /compact"}},
+		{name: "pi", mode: "pi-busy", command: "/review", wantInput: []string{"interrupted", "accepted /review"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -703,7 +736,7 @@ func TestSendNowRunsACommandHeldForTheCEOsTurnAtOnce(t *testing.T) {
 			store, home := testStore(t)
 			terminal := nativeCEOComposer(t, home.State, test.mode)
 			service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: home.State}}}
-			if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: "/compact"}); err != nil {
+			if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: test.command}); err != nil {
 				t.Fatal(err)
 			}
 			pastUndoWindow(t, store)

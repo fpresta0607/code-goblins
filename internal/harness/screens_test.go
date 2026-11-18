@@ -1119,12 +1119,47 @@ func TestOnlyAnEmptyPromptLineThatShowsItsQueuesHintOffersTheQueueBack(t *testin
 		"Claude Code's bare prompt line": {Claude, "❯ ", false},
 		"Claude Code's draft":            {Claude, "❯ Press up to edit the file", false},
 		"Codex, which has no such key":   {Codex, "› Ask Codex to do anything", false},
-		"pi, which has no such key":      {Pi, "", false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			screens, _ := NativeScreens(test.kind)
 			screen := []string{"* Billowing… (2s · ↓ 9 tokens)", rule, test.prompt, rule, "  ⏵⏵ auto mode on (shift+tab to cycle)"}
+
+			// Act
+			offers := screens.OffersQueue(screen)
+
+			// Assert
+			if offers != test.want {
+				t.Fatalf("OffersQueue = %v, want %v", offers, test.want)
+			}
+		})
+	}
+}
+
+// pi 1.4.0, live on 2026-11-18 (#2340): while lines wait in its queue it
+// draws each as "Steering: <line>" over a row "↳ Alt+Q to edit all queued
+// messages", above its editor and cut under "..." in a narrow terminal, and
+// Alt+Q puts every one of them back in the editor without ending the turn.
+// The board presses it only while that row is the last one above the empty
+// editor that is not blank.
+func TestPisQueueIsOfferedByTheHintOverItsEmptyEditor(t *testing.T) {
+	rule := strings.Repeat("─", 40)
+	for name, test := range map[string]struct {
+		above, editor []string
+		want          bool
+	}{
+		"its hint over its empty editor":     {[]string{" Steering: first queued line", " Steering: second queued line", " ↳ Alt+Q to edit all queued messages", ""}, []string{""}, true},
+		"its hint cut at 30 columns":         {[]string{" Steering: first queued line", " ↳ Alt+Q to edit all queue... ", ""}, []string{""}, true},
+		"no queue":                           {[]string{" word0 word1 word2", ""}, []string{""}, false},
+		"its hint over a draft of his":       {[]string{" Steering: first queued line", " ↳ Alt+Q to edit all queued messages", ""}, []string{"a draft of his"}, false},
+		"its words quoted higher up":         {[]string{" ↳ Alt+Q to edit all queued messages", " word0 word1 word2", ""}, []string{""}, false},
+		"a draft that starts as its hint":    {[]string{" ↳ Alt+Q to edit all of them", ""}, []string{""}, false},
+		"words that only end as its hint do": {[]string{" Now ↳ Alt+Q to edit all queued messages", ""}, []string{""}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			screens, _ := NativeScreens(Pi)
+			screen := slices.Concat([]string{" HOLD-TURN start", ""}, test.above, []string{"── ⠹ Working " + rule}, test.editor, []string{rule, `~\work\task`, "0.7%/200k (auto)                    fake-model"})
 
 			// Act
 			offers := screens.OffersQueue(screen)

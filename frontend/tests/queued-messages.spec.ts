@@ -782,16 +782,23 @@ test("Up in the empty box takes the newest queued message back into the box, its
 // message back into my input and unqueues it. That should be the same
 // functionality in Modern Terminal." A message typed into a turn under way
 // waits in its harness's own queue, where Edit takes it back (#2332), and Up
-// in the empty box takes it back the same way.
-for (const { whose, task, name } of [{ whose: "the CEO", task: "", name: "CEO" }, { whose: "a goblin", task: GOBLIN.id, name: undefined }]) {
-  test(`Up in the empty box takes his message back out of ${whose}'s harness queue and into the box, as the terminal's Up does`, async ({ page }) => {
+// in the empty box takes it back the same way, from Claude Code, and from pi,
+// whose Alt+Q gives its queue back (#2340).
+for (const { whose, task, name, harness, as } of [
+  { whose: "the CEO", task: "", name: "CEO", harness: "claude", as: "as the terminal's Up does" },
+  { whose: "a goblin", task: GOBLIN.id, name: undefined, harness: "claude", as: "as the terminal's Up does" },
+  { whose: "a pi CEO", task: "", name: "CEO", harness: "pi", as: "as Alt+Q does in its terminal" },
+  { whose: "a pi goblin", task: GOBLIN.id, name: undefined, harness: "pi", as: "as Alt+Q does in its terminal" },
+]) {
+  test(`Up in the empty box takes his message back out of ${whose}'s harness queue and into the box, ${as}`, async ({ page }) => {
     // Arrange
     const words = "check the phone layout too";
     const held = queued({
       id: "h1", task_id: task, generation: task ? GOBLIN.generation : "", text: words, status: "running", can_send_now: false, send_now_why: "", message: "Queued in its session.",
       awaiting: task ? { task, since: "2026-10-22T09:01:00Z", is_held: true } : { since: "2026-10-22T09:01:00Z", is_held: true }, created_at: "2026-10-22T09:01:00Z", updated_at: "2026-10-22T09:01:01Z",
     });
-    const relay = await open(page, snapshot({ actions: [held] }));
+    const board = (fields: Record<string, unknown>) => task ? snapshot(fields, { harness }) : snapshot({ ...fields, ceo_harness: harness });
+    const relay = await open(page, board({ actions: [held] }));
     const posts: { kind: string; target: string; text: string }[] = [];
     await page.route("**/api/actions", (route) => {
       const body = route.request().postDataJSON() as { kind: string; target?: string; text?: string };
@@ -815,7 +822,7 @@ for (const { whose, task, name } of [{ whose: "the CEO", task: "", name: "CEO" }
     await expect(field(page, name)).toHaveValue(words);
 
     // Act: the board has taken it back out of its harness's queue.
-    await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2, actions: [] }));
+    await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), board({ revision: 2, actions: [] }));
 
     // Assert: the queue is empty, and nothing reached the terminal.
     await expect(entry(page)).toHaveCount(0);
@@ -851,8 +858,8 @@ test("Up in the empty box with no message of his queued brings back what he sent
 // what he sent before instead: one out of his hands, which reads Sent or
 // Sending, or shows as his own row once the session's record shows it taken
 // while the board has yet to settle it, none of them with an Edit, and one a
-// harness holds whose queue no key gives back, a Codex or pi harness's, the
-// CEO's as a goblin's, and a Claude Code goblin's on stream-json pipes (the
+// harness holds whose queue no key gives back, a Codex harness's, the CEO's
+// as a goblin's, and a Claude Code goblin's on stream-json pipes (the
 // CEO, 2026-11-18, of #2622: "Up at an empty box brings back what he sent
 // before, past a message a Codex or pi harness holds that no key can take
 // back, so he never meets the same refusal on every Up").

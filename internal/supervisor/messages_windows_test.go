@@ -2122,14 +2122,18 @@ func TestACommandAGoblinsHarnessRunsBesideATurnIsTypedIntoThatTurn(t *testing.T)
 // command into its turn's queue and runs it at once with Ctrl+X Ctrl+S, as
 // he does in its terminal, while Codex 0.160 refuses such a command in a turn
 // ("'/compact' is disabled while a task is in progress") and ends its turn on
-// Escape, so the command goes at the prompt line the turn's end leaves.
+// Escape, so the command goes at the prompt line the turn's end leaves. pi,
+// which runs /compact beside its turn and expands another command into a
+// steer, ends its turn on Escape first too, though Alt+Q gives its queue back
+// (#2340).
 func TestSendNowRunsACommandHeldForAGoblinsTurnAtOnce(t *testing.T) {
 	for _, test := range []struct {
-		name, harness, mode string
-		wantInput           []string
+		name, harness, mode, command string
+		wantInput                    []string
 	}{
-		{name: "Claude Code", harness: "claude", mode: "claude-busy", wantInput: []string{"queued /compact", "sent now"}},
-		{name: "Codex", harness: "codex", mode: "busy", wantInput: []string{"interrupted", "accepted /compact"}},
+		{name: "Claude Code", harness: "claude", mode: "claude-busy", command: "/compact", wantInput: []string{"queued /compact", "sent now"}},
+		{name: "Codex", harness: "codex", mode: "busy", command: "/compact", wantInput: []string{"interrupted", "accepted /compact"}},
+		{name: "pi", harness: "pi", mode: "pi-busy", command: "/review", wantInput: []string{"interrupted", "accepted /review"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -2143,7 +2147,7 @@ func TestSendNowRunsACommandHeldForAGoblinsTurnAtOnce(t *testing.T) {
 			gitWorktree(t, meta.Worktree)
 			terminal := nativeComposer(t, h.State, meta.ID, test.mode)
 			service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
-			messageTo(t, store, meta, "message-1", "/compact")
+			messageTo(t, store, meta, "message-1", test.command)
 			if err := store.ProcessOne(t.Context(), service.execute); !errors.Is(err, ErrDeferred) {
 				t.Fatalf("delivery = %v; want the command held for the turn's end", err)
 			}

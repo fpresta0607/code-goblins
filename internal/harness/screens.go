@@ -104,14 +104,27 @@ type Screens struct {
 	// in internal/supervisor). A harness with none would take a line typed
 	// during a turn only at its next tool call.
 	SendNow string
+	// SendNowRunsCommand says a slash command typed into the harness's turn
+	// waits in its queue as typed, where SendNow runs it at once, as Claude
+	// Code 2.1.322's does. Codex 0.160 refuses such a command in a turn and
+	// pi 1.4.0 expands one into a steer, so their SendNow, which ends the
+	// turn, goes before the command instead.
+	SendNowRunsCommand bool
 	// EditQueue is the key that, at an empty prompt line, takes every line
-	// the harness holds in its queue back onto that line, a row each, and
-	// Queued matches the empty prompt line's row while the harness offers
-	// it: Claude Code 2.1.322's Up under "Press up to edit queued messages"
-	// (live, 2026-11-10, #2332). A harness with none gives a queued line up
-	// only to a turn.
-	EditQueue string
-	Queued    *regexp.Regexp
+	// the harness holds in its queue back onto that line, and Queued matches
+	// the row that offers it while the harness does: the empty prompt line's
+	// own row, or with QueuedAbove the last row above the composer that is
+	// not blank. Claude Code 2.1.322's Up under "Press up to edit queued
+	// messages" puts the lines there a row each (live, 2026-11-10, #2332),
+	// and pi 1.4.0's Alt+Q under "↳ Alt+Q to edit all queued messages" an
+	// empty row between each two (live, 2026-11-18, #2340). Codex 0.160 has
+	// none: it hands a line typed into its turn to its agent as it is
+	// submitted, and its Alt+Up gives back only the newest line queued with
+	// Tab or turned away as a steer. A harness with none gives a queued line
+	// up only to a turn.
+	EditQueue   string
+	Queued      *regexp.Regexp
+	QueuedAbove bool
 }
 
 // Dialog is one startup prompt. A spawn answers it only while one of Markers
@@ -181,7 +194,7 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			Resubmits:  1,
 			// Claude Code 2.1.288 encloses its bare prompt between rules, and
 			// 2.1.314 draws a hint on it while a message waits in its queue.
-			Empty:         regexp.MustCompile(`^[>❯][ \x{00a0}]*(` + cutShort("Press up to edit queued messages") + `)?$`),
+			Empty:         regexp.MustCompile(`^[>❯][ \x{00a0}]*(` + cutShort("Press up to edit queued messages", "…") + `)?$`),
 			RuledComposer: true,
 			// Claude Code 2.1.302 asks permission for a call under its
 			// diff, as in "Do you want to create nine.txt?", over
@@ -193,9 +206,10 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// Claude Code 2.1.275's chat:sendNow chord, Ctrl+X Ctrl+S: a
 			// message it queued during a turn is sent "right away, as its key
 			// does" (its changelog for the click on that hint).
-			SendNow:   "\x18\x13",
-			EditQueue: "\x1b[A",
-			Queued:    regexp.MustCompile(`^[>❯][ \x{00a0}]*(` + cutShort("Press up to edit queued messages") + `)$`),
+			SendNow:            "\x18\x13",
+			SendNowRunsCommand: true,
+			EditQueue:          "\x1b[A",
+			Queued:             regexp.MustCompile(`^[>❯][ \x{00a0}]*(` + cutShort("Press up to edit queued messages", "…") + `)$`),
 		}, true
 	case Codex:
 		hookMenu := `(?m)^[ \t]*(?:› )?1\. Review hooks[ \t]*\n[ \t]*(?:› )?2\. Trust all and continue[ \t]*\n[ \t]*(?:› )?3\. Continue without trusting(?: \(hooks won't run\))?[ \t]*\n[ \t\n]*`
@@ -274,16 +288,26 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// pi binds app.interrupt to Escape: it ends the run, keeps the
 			// session, and returns the lines the editor queued to the editor.
 			SendNow: "\x1b",
+			// pi 1.4.0 binds app.message.dequeue to Alt+Q, which puts every
+			// line its queue holds in its editor and leaves the run going.
+			// While lines wait there it draws each as "Steering: <line>" over
+			// that hint, above the editor, each row cut under "..." in a
+			// terminal too narrow for it (interactive mode's
+			// updatePendingMessagesDisplay), live on 2026-11-18 (#2340).
+			EditQueue:   "\x1bq",
+			Queued:      regexp.MustCompile(`^↳ (` + cutShort("Alt+Q to edit all queued messages", "...") + `)$`),
+			QueuedAbove: true,
 		}, true
 	}
 	return Screens{}, false
 }
 
 // ClearLine is the key that takes typed words back off a harness's prompt
-// line: Ctrl+U, in a turn or out of one. Codex 0.160 and pi 1.4 take the whole
-// prompt line off with it, and Claude Code 2.1.322 the one row its cursor is
-// in, so it is pressed until the prompt line reads empty; each does nothing
-// with it over an empty one (live, 2026-11-10, #2306).
+// line: Ctrl+U, in a turn or out of one. Codex 0.160 takes the whole prompt
+// line off with it, and Claude Code 2.1.322 and pi 1.4.0 only the row their
+// cursor is in, or an empty one with the line break before it (live,
+// 2026-11-10, #2306, and 2026-11-18, #2340), so it is pressed until the
+// prompt line reads empty; each does nothing with it over an empty one.
 const ClearLine = "\x15"
 
 // trailingMention matches text that ends in a $ word.
@@ -300,13 +324,14 @@ func (s Screens) Submittable(text string) string {
 }
 
 // cutShort returns a pattern for text as a terminal draws it, whole or cut
-// under an ellipsis wherever its width falls, as Claude Code 2.1.314 cut its
-// hint to "Press up to edit queued …" at 27 columns. A line that only starts
-// like text does not match: that is words somebody typed.
-func cutShort(text string) string {
+// under ellipsis wherever its width falls, as Claude Code 2.1.314 cut its
+// hint to "Press up to edit queued …" at 27 columns, and pi 1.4.0 cuts its
+// own under "...". A line that only starts like text does not match: that is
+// words somebody typed.
+func cutShort(text, ellipsis string) string {
 	cuts := []string{regexp.QuoteMeta(text)}
 	for end := 1; end < len(text); end++ {
-		cuts = append(cuts, regexp.QuoteMeta(text[:end])+"…")
+		cuts = append(cuts, regexp.QuoteMeta(text[:end]+ellipsis))
 	}
 	return strings.Join(cuts, "|")
 }
@@ -544,6 +569,15 @@ func (s Screens) ComposerEmpty(screen []string) bool {
 // has no such key offers none.
 func (s Screens) OffersQueue(screen []string) bool {
 	if s.EditQueue == "" || s.Queued == nil || !s.ComposerEmpty(screen) {
+		return false
+	}
+	if s.QueuedAbove {
+		top, _, _ := s.composerRules(screen)
+		for row := top - 1; row >= 0; row-- {
+			if offer := strings.TrimSpace(screen[row]); offer != "" {
+				return s.Queued.MatchString(offer)
+			}
+		}
 		return false
 	}
 	composer, _ := s.composer(screen)

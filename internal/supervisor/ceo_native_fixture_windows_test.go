@@ -30,6 +30,9 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 	if strings.HasPrefix(mode, "claude-") {
 		harness, mode = "claude", strings.TrimPrefix(mode, "claude-")
 	}
+	if strings.HasPrefix(mode, "pi-") {
+		harness, mode = "pi", strings.TrimPrefix(mode, "pi-")
+	}
 	// A harness that draws late leaves the line typed into its turn on its
 	// screen once its turn queues it, and redraws a second after Escape
 	// interrupts the turn, so until then the screen still shows the turn
@@ -113,6 +116,11 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 		file.Close()
 	}
 	promptEvent := func(name string) {
+		// pi's extension names these events in words of its own
+		// (nativehook.Normalize).
+		if harness == "pi" {
+			name = map[string]string{"SessionStart": "session_start", "UserPromptSubmit": "agent_start"}[name]
+		}
 		data, err := json.Marshal(map[string]string{"session_id": "session-1", "cwd": stateDir, "hook_event_name": name})
 		if err != nil {
 			os.Exit(2)
@@ -159,7 +167,9 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 	isBusy, hasQueued, held := mode == "busy", false, ""
 	// Claude Code 2.1.322 keeps each line queued, gives them all back to the
 	// prompt line, a row each, for Up at an empty one, and sends them with
-	// its send-now chord, live on 2026-11-10 (#2332).
+	// its send-now chord, live on 2026-11-10 (#2332). pi 1.4.0 gives them all
+	// back to its editor for Alt+Q, an empty row between each two, live on
+	// 2026-11-18 (#2340).
 	var queue []string
 	composer := func() string { return typedBefore + paste + readAsPaste + line }
 	draw := func(isWorking bool) {
@@ -176,14 +186,31 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 		if isManual {
 			rows = append(rows, "● Shall I merge it?", "")
 		}
-		if isWorking || isBusy {
+		if (isWorking || isBusy) && harness != "pi" {
 			if harness == "claude" {
 				rows = append(rows, working)
 			} else {
 				rows = append(rows, "• Working (1s • esc to interrupt)")
 			}
 		}
-		if harness == "claude" {
+		if harness == "pi" {
+			// pi 1.4.0 draws each line its queue holds as "Steering: <line>"
+			// over its hint, above its editor, whose top border carries the
+			// turn's status while one runs, live on 2026-11-18 (#2340).
+			rule := strings.Repeat("─", 80)
+			top := rule
+			if isWorking || isBusy {
+				top = "── ⠋ Working " + strings.Repeat("─", 67)
+			}
+			if len(queue) > 0 {
+				rows = append(rows, "")
+				for _, queued := range queue {
+					rows = append(rows, " Steering: "+queued)
+				}
+				rows = append(rows, " ↳ Alt+Q to edit all queued messages", "")
+			}
+			rows = append(rows, top, strings.ReplaceAll(composer(), "\n", "\r\n"), rule, `~\work\task`, "0.0%/200k (auto)")
+		} else if harness == "claude" {
 			rule := strings.Repeat("─", 80)
 			shown := typedBefore + line
 			if paste != "" || readAsPaste != "" {
@@ -239,14 +266,17 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 			// Ctrl+U takes typed words back off the prompt line: Codex 0.160
 			// the whole line, and Claude Code 2.1.322 the row its cursor is
 			// in, claudeRow characters here, or a paste's placeholder whole,
-			// live on 2026-11-10 (#2306).
+			// live on 2026-11-10 (#2306); pi 1.4.0 that row whole, live on
+			// 2026-11-18 (#2340).
 			had := composer()
 			switch {
-			case harness != "claude":
+			case harness == "codex":
 				line, paste, readAsPaste, typedBefore = "", "", "", ""
 			case strings.HasSuffix(line, "\n"):
 				// The row above the cursor's emptied one joins it.
 				line = strings.TrimSuffix(line, "\n")
+			case harness == "pi" && line != "":
+				line = line[:strings.LastIndex(line, "\n")+1]
 			case line != "":
 				row := line[strings.LastIndex(line, "\n")+1:]
 				line = strings.TrimSuffix(line, row) + string([]rune(row)[:max(0, len([]rune(row))-claudeRow)])
@@ -304,6 +334,19 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 					}
 				default:
 					hasPasteEnded = true
+				}
+				continue
+			}
+			// pi 1.4.0's Alt+Q, Escape and then q, gives its queue back to its
+			// editor without ending the turn.
+			if next, err := reader.Peek(min(1, reader.Buffered())); harness == "pi" && err == nil && len(next) == 1 && next[0] == 'q' {
+				if _, err := reader.ReadByte(); err != nil {
+					return
+				}
+				if composer() == "" && len(queue) > 0 {
+					record("took back " + strings.Join(queue, " | "))
+					line, hasQueued, queue, held = strings.Join(queue, "\n\n"), false, nil, ""
+					draw(false)
 				}
 				continue
 			}
@@ -526,6 +569,9 @@ func nativeComposer(t *testing.T, stateDir, id, mode string) hostedTerminal {
 	if strings.HasPrefix(mode, "claude-") {
 		harness = "claude"
 	}
+	if strings.HasPrefix(mode, "pi-") {
+		harness = "pi"
+	}
 	shim := fmt.Sprintf("@\"%s\" -test.run=^TestNativeCEOComposerProgram$ -- ceo-composer-program \"%s\" \"%s\" %s\r\n", program, stateDir, events, mode)
 	if err := os.WriteFile(filepath.Join(shims, harness+".cmd"), []byte(shim), 0o600); err != nil {
 		t.Fatal(err)
@@ -542,7 +588,7 @@ func nativeComposer(t *testing.T, stateDir, id, mode string) hostedTerminal {
 			t.Fatal(err)
 		}
 		screen, err := host.ReadScreen(record)
-		if err == nil && (strings.Contains(strings.Join(screen, " "), "100% context left") || strings.Contains(strings.Join(screen, " "), "bypass permissions on") || strings.Contains(strings.Join(screen, " "), "manual mode on") || mode == "display-model" && strings.Contains(strings.Join(screen, " "), "? for shortcuts")) {
+		if err == nil && (strings.Contains(strings.Join(screen, " "), "100% context left") || strings.Contains(strings.Join(screen, " "), "bypass permissions on") || strings.Contains(strings.Join(screen, " "), "manual mode on") || strings.Contains(strings.Join(screen, " "), "0.0%/200k (auto)") || mode == "display-model" && strings.Contains(strings.Join(screen, " "), "? for shortcuts")) {
 			return terminal
 		}
 		if time.Now().After(deadline) {

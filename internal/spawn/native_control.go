@@ -64,10 +64,10 @@ func (s Service) SendNative(ctx context.Context, meta state.TaskMeta, text strin
 	// so their key, which ends the turn, goes first, and the command goes at
 	// the prompt line the turn's end leaves.
 	isSentNow := isBusy && !isBesideTurn && s.ShouldSendNow && screens.SendNow != ""
-	if isSentNow && screens.Queued == nil {
+	if isSentNow && !screens.SendNowRunsCommand {
 		isBusy = InterruptTurn(ctx, read, press, screens, before) == nil
 	}
-	isRunNow := isSentNow && screens.Queued != nil && !screens.OffersQueue(before)
+	isRunNow := isSentNow && screens.SendNowRunsCommand && !screens.OffersQueue(before)
 	if isBusy && !isBesideTurn && !isRunNow && s.ShouldRefuseTurn {
 		return fmt.Errorf("spawn: native terminal %s: %w: %w", record.ID, fleet.ErrNotTyped, ErrInTurn)
 	}

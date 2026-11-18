@@ -210,7 +210,8 @@ func (s *Service) sendHeldNow(id, task string) (bool, error) {
 // harness that holds it, for Edit and Cancel, and reports false when no
 // harness holds it, which the board then withdraws where it holds it. A
 // harness gives its queue back only whole: Claude Code's Up puts every queued
-// line on the prompt line, a row each. So the board presses that key where
+// line on the prompt line, a row each, and pi's Alt+Q every one in its
+// editor, an empty row between each two. So the board presses that key where
 // the empty prompt line offers it, waits to read there exactly the lines it
 // typed into that queue, takes them off unsubmitted, deletes the one he named
 // and types the others again in the order he sent them. Nothing is cleared

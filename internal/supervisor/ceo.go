@@ -674,12 +674,12 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 	readScreen := func(context.Context) ([]string, error) { return read(record) }
 	press := func() error { return spawn.PressKeys(delivery.Write, screens.SendNow) }
 	isSentNow := isHeldCommand && sendsNow && screens.SendNow != ""
-	if isSentNow && screens.Queued == nil {
+	if isSentNow && !screens.SendNowRunsCommand {
 		if idle := spawn.InterruptTurn(ctx, readScreen, press, screens, before); idle != nil {
 			before, busy, isHeldCommand = idle, false, false
 		}
 	}
-	isRunNow := isSentNow && screens.Queued != nil && !screens.OffersQueue(before)
+	isRunNow := isSentNow && screens.SendNowRunsCommand && !screens.OffersQueue(before)
 	if isHeldCommand && !isRunNow {
 		sendNow := "Send now types it for the CEO to take at its next tool call."
 		if screens.SendNow != "" {
