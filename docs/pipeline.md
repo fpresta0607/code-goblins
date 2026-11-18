@@ -230,7 +230,11 @@ A still-live original run is named in the contributor's resume instruction, so i
 A run that ended while its goblin was paused, as a daemon restart ends a run whose step was executing, is named with its terminal status.
 Resume does not select validation agents or migrate the frozen policy; an older policy alone does not block contributor restoration.
 Actual validation requires an explicit supported pipeline command, which still enforces the frozen policy and launch selection.
-Continuing retained terminal work requires its supported source-bound continuation, not a replacement run with fresh repair allowance.
+A pause keeps its goblin's gate run running, but a daemon restart or crash ends a run whose step was executing, so a goblin can come back from a pause to its run failed or cancelled before it pushed, where neither `handback`, which needs a published head, nor `respond`, which needs a parked gate, applies (issue 2060).
+The resume note of such a run names its continuation, so the goblin need not ask what it is.
+It reads the run with `goblins pipeline terminal-preflight <id> --run <run>`.
+A run that spent no repair round, counting every predecessor a terminal admission made it continue, loses nothing to a new run, so `goblins pipeline run` starts one.
+A run that spent repair rounds is never replaced, since a new run would begin them again: `goblins pipeline run` refuses it, and its continuation is the CEO's [terminal validation admission](#driving-a-task), `validate-terminal` for its unchanged head or `validate-authored` for a corrected one, which keeps that spending, so the goblin asks the CEO for it with `goblins notify <id> --blocked`.
 
 ## Driving a task
 
@@ -289,6 +293,7 @@ Up to v5 the `run` check validates the trusted inputs before invoking native sta
 From v6 the launch selection establishes it: the daemon proves the trusted commit and every role's agents after its own fetch and before any agent starts.
 A repository's `agent` field continues to select only its native primary path and cannot replace the global reviewer or fixer profiles.
 An earlier unresolved run cannot be restarted to reset its budget.
+So a start over a failed or cancelled run that spent repair rounds, counted over the run and every predecessor its terminal admissions continue, as recovery counts them, is refused and names the run's terminal admission, which keeps them; one that spent none, or that completed or had its CI monitor interrupted, does not block a new run.
 A run that is still working is reattached to instead: repeating `goblins pipeline run` with the same branch, submitted head (or current head when no submitted head is recorded) and nonblank retained intent reattaches to it, so no new run starts and no review budget resets.
 This original head comparison remains independent of the handback schema and skips the new-start checks: a clean worktree, the committed gate files, and origin's default branch with its tracking ref, which a merge landing while the hold lasts leaves stale until the next fetch (issue 1586).
 Only when that head comparison fails does the driver look for a published head the caller adopted, and then for an accepted CI handback.
@@ -326,7 +331,8 @@ The selection preserves historical evidence and spending; it does not certify th
 Continuation uses the receipt's recorded selection without requiring the flag again.
 Native still verifies source ancestry and publication identity, and a refusal, including one after a native rebase, remains unresolved rather than being relaxed by the wrapper.
 A latest run that never published is refused before native is asked, with a reason of its own: handback returns only a published run's failed CI.
-A run that failed before it published, such as one Review approved whose Test step then failed preparing, has no route on from its reviewed head that keeps its review until fpresta0607/no-mistakes#323 lands, and until then a new run from the task's branch reviews it again.
+A run that failed before it published, such as one Review approved whose Test step then failed preparing, has no route on from its reviewed head that keeps its review until fpresta0607/no-mistakes#323 lands.
+Until then a new run from the task's branch reviews it again when neither it nor a run its admission continues spent a repair round, and one that spent repair rounds goes on only through the CEO's terminal admission, which keeps them.
 Both handback modes refuse a pending or unreadable policy migration journal without changing the journal, frozen policy, task metadata or audit log.
 Recover the migration explicitly with `goblins pipeline migrate <id>` before requesting handback.
 It requires a native build supporting `axi handback --expect` and receipt-bound `--resume`, plus `--revalidate-publication` when explicitly selected, and refuses when that contract is unavailable.
@@ -462,7 +468,8 @@ Two refusals name the state they found and the one way on (issue 2378).
 A run cancelled before it pushed, at its submitted head, stays native branch sync's owner beside a newer run of the same branch that completed and published a head holding it, while `recover` reads the newer run as latest.
 The refusal names both runs and the published head, and says no supported recovery continues it until the engine's owner choice is fixed (no-mistakes issue 335), since native recovery of the older run takes custody at a head the published one has moved past.
 A run whose custody already returned while native branch sync no longer answers for it has no same-run continuation, since native retry refuses a driver-started run (no-mistakes issue 323).
-The refusal says a fresh `goblins pipeline run` is the expected path only when the run spent no repair round, and otherwise names the rounds a fresh run would start over and leaves that choice to the CEO.
+The refusal says a fresh `goblins pipeline run` is the expected path only when the run spent no repair round, and otherwise names the rounds a fresh run would start over, which `goblins pipeline run` refuses, and names `terminal-preflight` and the CEO's terminal admission, `validate-terminal` or `validate-authored`, which keeps them.
+Rounds are counted over the run and every predecessor its terminal admissions continue, since an admitted child spends none of its own.
 
 A gate's fixer works in the run's worktree, which no-mistakes removes with force once the run is over, so the driver keeps what the fixer left uncommitted before anything takes that worktree away.
 Before unpublished recovery runs any native command, and before a stop aborts a live run, every tracked and untracked change in the run's worktree is committed and pinned under `refs/no-mistakes/recovery/<run>/worktree` in the gate repository, and that commit's parent is the head the run ended at.
