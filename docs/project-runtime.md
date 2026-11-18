@@ -403,7 +403,7 @@ The check asks the same three, each through the pipeline's own code and against 
 With no policy file the check can read, a count is `gate-limits-unjudged` and a pin is `gate-agent-unjudged`, both `low` lines.
 A gate file that sets no count and pins no agent, and that the pipeline's reader takes, has no line.
 
-The start also asks things of the task and not of the project, which the check does not read: that the task's work is committed, that no earlier run of its branch is unresolved, and that its own branch still holds the gate file.
+The start also asks things of the task and not of the project, which the check does not read: that the task's work is committed, that no earlier run of its branch is unresolved, that its own branch still holds the gate file, and that its branch is [small enough for one review pass](pipeline.md#driving-a-task).
 It asks too that the checkout's copy of the default branch is the remote's, which is what `remote-moved` reports.
 
 ### What the check cannot see
