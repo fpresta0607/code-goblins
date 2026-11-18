@@ -3,10 +3,13 @@
 package supervisor
 
 import (
-	"errors"
 	"os"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
-func openPrimary(string) (*os.File, error) {
-	return nil, errors.New("verified primary CEO transport requires Windows")
+// openPrimary holds the registration against a replace while a captured
+// registration is being used (fsx.OpenHeld), as Windows denies the replace.
+func openPrimary(path string) (*os.File, error) {
+	return fsx.OpenHeld(path)
 }
