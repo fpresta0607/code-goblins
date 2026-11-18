@@ -77,8 +77,7 @@ A locked install is not held back by them: `npm ci` and `uv sync --locked` insta
 A worktree that tracks a `uv.lock`, at its root or in a subfolder, gets no `UV_EXCLUDE_NEWER`, and the `spawned` output says so on a `cooldown:` line: uv sets aside a lock that does not record the cutoff its environment names, so `uv sync --locked` would fail and `uv run` would rewrite the lock.
 Such a project records its own cutoff as `[tool.uv] exclude-newer = "7 days"` in `pyproject.toml`, which uv keeps in its lock for goblins and CI alike.
 A lock a goblin writes under the terminal's cutoff records it too, and a `uv sync --locked` without it, as in CI, fails until the project records the same cutoff.
-A gate run's agents and step commands get the same variables from the same `worktree.Cooldown` of the task's worktree, which `goblins pipeline run` hands no-mistakes as `axi run --agent-env` when it starts the run.
-A run admitted from it, by `validate-authored`, `validate-terminal` or an owner correction, keeps that run's agent environment in no-mistakes, as a rerun does, so a `validate-terminal` on another branch whose `uv.lock` state differs keeps the first run's `UV_EXCLUDE_NEWER` choice.
+A gate run's agents and step commands get the same variables from the same `worktree.Cooldown` of the task's worktree, which `goblins pipeline run` hands no-mistakes as `axi run --agent-env` when it starts the run; how admitted runs and reattaches keep it is in [Driving a task](../pipeline.md#driving-a-task).
 
 ### Code that runs at every Python start
 
