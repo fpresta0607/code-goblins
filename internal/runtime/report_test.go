@@ -10,7 +10,7 @@ import (
 // evidence the attribution tests use.
 func reportFixture() Inventory {
 	inv := machineFixture()
-	inv.SystemRoot = `C:\WINDOWS`
+	inv.SystemRoot = systemPath(`C:\WINDOWS`)
 	inv.Containers = []Container{
 		{
 			Name: "supabase_edge_runtime_peakcraftsman-demo", Image: "edge-runtime:v1.74.3",
@@ -42,8 +42,8 @@ func reportFixture() Inventory {
 		{Port: 3200, PID: 21524, Process: "node.exe", WorkDir: peakRoot},
 		{Port: 3201, PID: 38896, Process: "node.exe", WorkDir: peakLiveTree},
 		{Port: 3300, PID: 36032, Process: "node.exe", WorkDir: peakDeadTree},
-		{Port: 54422, PID: 16248, Process: "com.docker.backend.exe", WorkDir: `C:\Users\x\Docker`},
-		{Port: 5432, PID: 4268, Process: "wslrelay.exe", WorkDir: `C:\WINDOWS\system32`},
+		{Port: 54422, PID: 16248, Process: "com.docker.backend.exe", WorkDir: systemPath(`C:\Users\x\Docker`)},
+		{Port: 5432, PID: 4268, Process: "wslrelay.exe", WorkDir: systemPath(`C:\WINDOWS\system32`)},
 		{Port: 49664, PID: 1520, Process: "lsass.exe"},
 	}
 	inv.Machine = Machine{MemoryTotal: 32 << 30, MemoryAvailable: 8 << 30, CommitLimit: 40 << 30, CommitAvailable: 6 << 30, WSL: 11 << 30}
@@ -54,7 +54,7 @@ func reportFixture() Inventory {
 // report rather than on the attribution alone: the stacks must actually come
 // out grouped this way.
 func TestBuildGroupsStacksByOwner(t *testing.T) {
-	report := Build(`C:\dev\code-goblins`, reportFixture())
+	report := Build(systemPath(`C:\dev\code-goblins`), reportFixture())
 
 	want := map[string]string{
 		"goblin peak-inbox-connect":    "supabase_edge_runtime_peakcraftsman-demo",
@@ -166,8 +166,8 @@ func TestBuildAnswersWhichServersAreSafeToStop(t *testing.T) {
 func TestBuildAttributesAServerStartedInsideAWorktree(t *testing.T) {
 	inv := reportFixture()
 	inv.Listeners = append(inv.Listeners,
-		Listener{Port: 3202, PID: 41000, Process: "node.exe", WorkDir: peakLiveTree + `\frontend`},
-		Listener{Port: 3301, PID: 41001, Process: "node.exe", WorkDir: peakDeadTree + `\frontend`},
+		Listener{Port: 3202, PID: 41000, Process: "node.exe", WorkDir: peakLiveTree + systemPath(`\frontend`)},
+		Listener{Port: 3301, PID: 41001, Process: "node.exe", WorkDir: peakDeadTree + systemPath(`\frontend`)},
 	)
 	servers := map[int]Server{}
 	for _, server := range Build("", inv).Servers {
@@ -189,7 +189,7 @@ func TestBuildAttributesAServerStartedInsideAWorktree(t *testing.T) {
 // that "safe" is how a working goblin's server gets stopped.
 func TestBuildRefusesToCallARecordlessWorktreeSafeToStop(t *testing.T) {
 	inv := reportFixture()
-	recordless := `C:\dev\peakCraftsman\.worktrees\gb-peak-no-record`
+	recordless := systemPath(`C:\dev\peakCraftsman\.worktrees\gb-peak-no-record`)
 	inv.Listeners = append(inv.Listeners,
 		Listener{Port: 3500, PID: 42000, Process: "node.exe", WorkDir: recordless})
 	inv.Present[normalize(recordless)] = true

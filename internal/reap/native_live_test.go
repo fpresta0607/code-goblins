@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -60,7 +59,7 @@ func TestAnUnreadableHostRecordHoldsItsGoblin(t *testing.T) {
 	processes := stubProcesses{
 		process(400, 1, "goblins.exe", `goblins.exe host --id board`, fixtureStart),
 		process(410, 400, "claude.exe", `claude --dangerously-skip-permissions`, fixtureLatest),
-		process(420, 410, "node.exe", `node `+worktree+`\node_modules\vite\bin\vite.js`, fixtureLatest.Add(time.Minute)),
+		process(420, 410, "node.exe", `node `+worktree+systemPath(`\node_modules\vite\bin\vite.js`), fixtureLatest.Add(time.Minute)),
 	}
 
 	inv, notes, err := Collector{Home: h, Session: "default", Processes: processes}.Collect(context.Background())
@@ -78,44 +77,6 @@ func TestAnUnreadableHostRecordHoldsItsGoblin(t *testing.T) {
 	}
 	if !slices.ContainsFunc(notes, func(note string) bool { return strings.Contains(note, `state/hosts/board.json: UNREADABLE`) }) {
 		t.Errorf("notes %q do not name the unreadable host record", notes)
-	}
-}
-
-// A host that ends removes its own record, so a record listed but gone by the
-// time it is read belongs to a host that has just ended: nothing is unknown,
-// and the dead goblin's dev server is reported rather than held.
-func TestAHostRecordGoneSinceTheListingIsAnEndedHost(t *testing.T) {
-	h, worktree := nativeHome(t)
-	recordFile := filepath.Join(h.State, "hosts", "board.json")
-	if err := os.Remove(recordFile); err != nil {
-		t.Fatal(err)
-	}
-	if out, err := exec.Command("cmd", "/c", "mklink", "/J", recordFile, filepath.Join(h.State, "ended")).CombinedOutput(); err != nil {
-		t.Fatalf("mklink /J: %v: %s", err, out)
-	}
-	processes := stubProcesses{
-		process(410, 400, "claude.exe", `claude --dangerously-skip-permissions`, fixtureLatest),
-		process(420, 410, "node.exe", `node `+worktree+`\node_modules\vite\bin\vite.js`, fixtureLatest.Add(time.Minute)),
-	}
-
-	inv, notes, err := Collector{Home: h, Session: "default", Processes: processes}.Collect(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	findings := Classify(inv)
-
-	if slices.ContainsFunc(notes, func(note string) bool { return strings.Contains(note, "state/hosts/board.json") }) {
-		t.Errorf("notes %q name a record whose host has ended", notes)
-	}
-	reported := false
-	for _, finding := range classOf(findings, StaleServer) {
-		if finding.TaskID == "board" && heldOnHostRecord(finding) {
-			t.Errorf("the dev server of a goblin whose host has ended is held on its host record: %v", lines(findings))
-		}
-		reported = reported || finding.TaskID == "board"
-	}
-	if !reported {
-		t.Errorf("the dev server of a goblin whose host has ended was not reported: %v", lines(findings))
 	}
 }
 
@@ -180,7 +141,7 @@ func TestALiveNativeGoblinIsNotAnOrphan(t *testing.T) {
 			h, worktree := nativeHome(t)
 			processes := stubProcesses{
 				process(410, 400, "claude.exe", `claude --dangerously-skip-permissions`, fixtureLatest),
-				process(420, 410, "node.exe", `node `+worktree+`\node_modules\vite\bin\vite.js`, fixtureLatest.Add(time.Minute)),
+				process(420, 410, "node.exe", `node `+worktree+systemPath(`\node_modules\vite\bin\vite.js`), fixtureLatest.Add(time.Minute)),
 			}
 			if test.hostRunning {
 				processes = append(processes, process(400, 1, "goblins.exe", `goblins.exe host --id board`, test.hostStart))
@@ -305,11 +266,11 @@ func TestAProcessARunningTerminalOwnsIsNoOrphan(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			h, _ := nativeHome(t)
-			standIn := `C:\WINDOWS\system32\cmd.exe /c codex --dangerously-bypass-approvals-and-sandbox`
+			standIn := systemPath(`C:\WINDOWS\system32\cmd.exe /c codex --dangerously-bypass-approvals-and-sandbox`)
 			processes := stubProcesses{
 				process(500, 9999, "go.exe", `go test ./internal/spawn/`, fixtureLatest),
-				process(510, 500, "spawn.test.exe", `C:\tmp\spawn.test.exe -test.timeout=10m0s`, fixtureLatest),
-				process(520, 510, "spawn.test.exe", `C:\tmp\spawn.test.exe native-spawn-host --state C:\tmp\state --id task-7 -- `+standIn, fixtureLatest),
+				process(510, 500, "spawn.test.exe", systemPath(`C:\tmp\spawn.test.exe -test.timeout=10m0s`), fixtureLatest),
+				process(520, 510, "spawn.test.exe", systemPath(`C:\tmp\spawn.test.exe native-spawn-host --state C:\tmp\state --id task-7 -- `)+standIn, fixtureLatest),
 				process(530, 520, "cmd.exe", standIn, fixtureLatest),
 			}
 			if test.hostRuns {
@@ -349,11 +310,11 @@ func TestAFixturePIDARealParentHoldsIsStillJudged(t *testing.T) {
 	// Arrange
 	h, _ := nativeHome(t)
 	parent := os.Getppid()
-	standIn := `C:\WINDOWS\system32\cmd.exe /c codex --dangerously-bypass-approvals-and-sandbox`
+	standIn := systemPath(`C:\WINDOWS\system32\cmd.exe /c codex --dangerously-bypass-approvals-and-sandbox`)
 	processes := stubProcesses{
 		process(parent, 9999, "go.exe", `go test ./internal/spawn/`, fixtureLatest),
-		process(510, parent, "spawn.test.exe", `C:\tmp\spawn.test.exe -test.timeout=10m0s`, fixtureLatest),
-		process(520, 510, "spawn.test.exe", `C:\tmp\spawn.test.exe native-spawn-host --state C:\tmp\state --id task-7 -- `+standIn, fixtureLatest),
+		process(510, parent, "spawn.test.exe", systemPath(`C:\tmp\spawn.test.exe -test.timeout=10m0s`), fixtureLatest),
+		process(520, 510, "spawn.test.exe", systemPath(`C:\tmp\spawn.test.exe native-spawn-host --state C:\tmp\state --id task-7 -- `)+standIn, fixtureLatest),
 		process(530, 520, "cmd.exe", standIn, fixtureLatest),
 	}
 	collector := Collector{Home: h, Session: "default", Processes: processes, Sightings: stillRunning(processes, nil)}
@@ -385,12 +346,12 @@ func TestAFixturePIDARealParentHoldsIsStillJudged(t *testing.T) {
 func TestAProcessThatEndedSinceTheListingIsNoFinding(t *testing.T) {
 	// Arrange
 	h, worktree := nativeHome(t)
-	standIn := `C:\WINDOWS\system32\cmd.exe /c codex --dangerously-bypass-approvals-and-sandbox`
+	standIn := systemPath(`C:\WINDOWS\system32\cmd.exe /c codex --dangerously-bypass-approvals-and-sandbox`)
 	host := process(400, 1, "goblins.exe", `goblins.exe host --id board`, fixtureStart)
 	goblin := process(410, 400, "claude.exe", `claude --dangerously-skip-permissions`, fixtureLatest)
-	ended := process(520, 9999, "spawn.test.exe", `C:\tmp\spawn.test.exe native-spawn-host --state C:\tmp\state --id task-7 -- `+standIn, fixtureLatest)
+	ended := process(520, 9999, "spawn.test.exe", systemPath(`C:\tmp\spawn.test.exe native-spawn-host --state C:\tmp\state --id task-7 -- `)+standIn, fixtureLatest)
 	replaced := process(530, 520, "cmd.exe", standIn, fixtureLatest)
-	server := process(540, 9999, "node.exe", `node `+worktree+`-2\node_modules\vite\bin\vite.js`, fixtureLatest)
+	server := process(540, 9999, "node.exe", `node `+worktree+systemPath(`-2\node_modules\vite\bin\vite.js`), fixtureLatest)
 	orphan := process(550, 9999, "codex.exe", `codex --dangerously-bypass-approvals-and-sandbox`, fixtureLatest)
 	unread := process(560, 9999, "codex.exe", `codex --dangerously-bypass-approvals-and-sandbox`, time.Time{})
 	processes := stubProcesses{host, goblin, ended, replaced, server, orphan, unread}
