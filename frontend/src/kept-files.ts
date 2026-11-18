@@ -1,6 +1,7 @@
 // The files he pastes into, drops on or adds to the message box, which the
 // supervisor keeps where the session reads them (internal/supervisor/
-// composer_files.go), and the message names by path, one to a line.
+// composer_files.go), and the message names one to a line, each by its path
+// and a long paste by its line (pastedTextLine).
 
 const PICTURE = /\.(?:png|jpe?g|gif|webp)$/i;
 // A line of his words that is only the path of any file the box kept.
@@ -20,8 +21,9 @@ const KEPT_PATH = String.raw`(?:[A-Za-z]:[\\/]|[\\/])(?:(?!\s(?:Pasted text, |[A
 const PASTED_TEXT = new RegExp(String.raw`^Pasted text, (\d{1,3}(?:,\d{3})*) lines?: (${KEPT_PATH}\.txt)$`, "i");
 // The last of the pasted texts and other files the box kept that end a line
 // of his words, joined to them by spaces as a harness's record keeps them: a
-// pasted text by its first two groups, any other kept file by its third.
-const JOINED_KEPT = new RegExp(String.raw`(?:^|\s+)(?:Pasted text, (\d{1,3}(?:,\d{3})*) lines?: (${KEPT_PATH}\.txt)|(${KEPT_PATH}))\s*$`, "i");
+// pasted text by its first two groups, and by its third any other kept file
+// or the [Image #N] mark Claude Code records for a picture a turn took.
+const JOINED_KEPT = new RegExp(String.raw`(?:^|\s+)(?:Pasted text, (\d{1,3}(?:,\d{3})*) lines?: (${KEPT_PATH}\.txt)|(${KEPT_PATH}|\[Image #\d+\]))\s*$`, "i");
 
 // A long paste the box kept as a text file the session reads whole (#2404).
 export interface PastedText { path: string; lines: number }
@@ -64,7 +66,8 @@ export function pastedTextLine(path: string, lines: number): string {
 // bubble shows each as its chip. A harness's record joins the lines the board
 // typed with spaces, so the pasted texts and other files the box kept are
 // read from the end of each line, with his words or none before them; each
-// other kept file stays in his words, a picture for keptPictures.
+// other kept file stays in his words, a picture for keptPictures, and so does
+// each picture mark a turn's record holds.
 export function pastedTexts(text: string): { text: string; pastes: PastedText[] } {
   if (!text.includes("Pasted text, ")) return { text, pastes: [] };
   const pastes: PastedText[] = [];
@@ -99,8 +102,9 @@ export function keptFiles(text: string): { text: string; paths: string[] } {
   return paths.length ? { text: words.join("\n").trim(), paths } : { text, paths };
 }
 
-// keptFileAddress reads a kept picture back from the supervisor, with the
-// board's token in the query, as an <img> sends no header.
+// keptFileAddress reads a kept picture or pasted text back from the
+// supervisor, with the board's token in the query, as an <img> sends no
+// header.
 export function keptFileAddress(instance: string, task: string | undefined, path: string): string {
   const query = new URLSearchParams({ token: instance });
   if (task) query.set("task", task);

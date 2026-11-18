@@ -140,6 +140,58 @@ test("a long paste the board cannot keep says why over the box, and his words st
   await expect(attachments(page)).toHaveCount(0);
 });
 
+// A long paste takes the place of the words he selected for it, as any paste
+// does, so the box holds what its size was measured with: a whole ! command
+// selected and pasted over goes, rather than handing the shell the paste's
+// line.
+for (const key of ["Control+V", "Alt+v"]) {
+  test(`a long paste with ${key} over the words he selected takes their place, as any paste does`, async ({ page }) => {
+    // Arrange
+    const relay = await open(page);
+    const kept = await keepTexts(page);
+    await openGoblin(page);
+    await field(page).fill("!git status");
+    await field(page).focus();
+    await page.keyboard.press("Control+A");
+
+    // Act
+    await page.evaluate((words) => navigator.clipboard.writeText(words), OUTPUT);
+    await page.keyboard.press(key);
+
+    // Assert: the paste's chip, and none of the command he selected.
+    await expect(attachments(page)).toContainText("Pasted text, 5,000 lines");
+    expect(kept.uploads).toHaveLength(1);
+    await expect(field(page)).toHaveValue("");
+
+    // Act
+    await send(page).click();
+
+    // Assert: a message that names the file, not a ! command.
+    await expect.poll(() => typed(relay)).toContain(pasted("Pasted text, 5,000 lines: " + KEPT_TEXT) + "\r");
+    expect(typed(relay)).not.toContain("git status");
+  });
+}
+
+// A long paste over selected words that the board cannot keep leaves them as
+// they were, with why over the box.
+test("a long paste over selected words that the board cannot keep leaves them as they were", async ({ page }) => {
+  // Arrange
+  await open(page);
+  await page.route("**/api/composer/file**", (route) => route.fulfill({ status: 413, json: { error: "A pasted file may be at most 10 MiB." } }));
+  await openGoblin(page);
+  await field(page).fill("summarize this for me");
+  await field(page).focus();
+  await page.keyboard.press("Control+A");
+
+  // Act
+  await page.evaluate((words) => navigator.clipboard.writeText(words), OUTPUT);
+  await page.keyboard.press("Control+V");
+
+  // Assert
+  await expect(box(page).getByRole("alert")).toHaveText("That paste was not added: A pasted file may be at most 10 MiB.");
+  await expect(field(page)).toHaveValue("summarize this for me");
+});
+
 // A selection copied from a conversation holds its pictures inline in its
 // HTML (#2543): its long words go as a pasted text, whose chip comes before
 // each of its pictures, kept in that order.
@@ -364,7 +416,10 @@ test("a queued message shows its pasted text as a chip, and Edit gives it back t
   const action = { id: "q1", kind: "message", task_id: GOBLIN.id, generation: "", status: "queued", text: "check this\nPasted text, 12 lines: " + KEPT_TEXT, message: "Queued until its turn ends.", can_send_now: true, updated_at: at };
   await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2, actions: [action] }));
   const shown = page.locator(".queued-message.pane").filter({ hasText: "check this" });
+
+  // Assert: the chip, and his words without the pasted text's line.
   await expect(shown.getByRole("button", { name: "Pasted text, 12 lines" })).toBeVisible();
+  await expect(shown.locator(".queued-bubble")).toHaveText("check this");
 
   // Act
   await shown.getByRole("button", { name: "Edit", exact: true }).click();

@@ -22,10 +22,11 @@ test("a long paste kept as a file is named with its line count, as Send names it
 
 // A harness's record joins the lines the board typed with spaces, so a
 // pasted text is found at the end of a line too, after his words or with
-// none, before or after another pasted text or another file the box kept,
-// which his words keep with the rest, whether or not its folder's path holds
-// a space.
-test("a pasted text on a line of its own or joined on a line of the record becomes its chip, and the other kept files there stay in his words", () => {
+// none, before or after another pasted text, another file the box kept or
+// the [Image #N] mark Claude Code records for a picture a turn took, which
+// his words keep with the rest, whether or not its folder's path holds a
+// space.
+test("a pasted text on a line of its own or joined on a line of the record becomes its chip, and the other kept files and picture marks there stay in his words", () => {
   for (const [text, want] of [
     ["look at this\n" + pastedTextLine(TEXT_WINDOWS, 3232), { text: "look at this", pastes: [{ path: TEXT_WINDOWS, lines: 3232 }] }],
     ["look at this " + pastedTextLine(TEXT_WINDOWS, 3232) + " " + pastedTextLine(TEXT_UNIX, 1), { text: "look at this", pastes: [{ path: TEXT_WINDOWS, lines: 3232 }, { path: TEXT_UNIX, lines: 1 }] }],
@@ -39,6 +40,9 @@ test("a pasted text on a line of its own or joined on a line of the record becom
     ["why does it fail? " + pastedTextLine(TEXT_SPACED, 3), { text: "why does it fail?", pastes: [{ path: TEXT_SPACED, lines: 3 }] }],
     [pastedTextLine(TEXT_SPACED, 300) + " " + pastedTextLine(TEXT_SPACED_AGAIN, 700), { text: "", pastes: [{ path: TEXT_SPACED, lines: 300 }, { path: TEXT_SPACED_AGAIN, lines: 700 }] }],
     [pastedTextLine(TEXT_SPACED, 3) + " " + ADDED_SPACED, { text: ADDED_SPACED, pastes: [{ path: TEXT_SPACED, lines: 3 }] }],
+    ["why does this fail? " + pastedTextLine(TEXT_WINDOWS, 120) + " [Image #1]", { text: "why does this fail? [Image #1]", pastes: [{ path: TEXT_WINDOWS, lines: 120 }] }],
+    [pastedTextLine(TEXT_SPACED, 120) + " [Image #1] [Image #2]", { text: "[Image #1] [Image #2]", pastes: [{ path: TEXT_SPACED, lines: 120 }] }],
+    [pastedTextLine(TEXT_WINDOWS, 3) + " [Image #1] " + pastedTextLine(TEXT_UNIX, 5), { text: "[Image #1]", pastes: [{ path: TEXT_WINDOWS, lines: 3 }, { path: TEXT_UNIX, lines: 5 }] }],
   ] as const) assert.deepEqual(pastedTexts(text), want, text);
 });
 

@@ -43,7 +43,8 @@ const MENTION_WAIT_MS = 120;
 // session reads whole, as a harness's own terminal collapses a long paste,
 // and so does a shorter one that would take his message past LONGEST_MESSAGE,
 // what one message holds (internal/supervisor/store.go), so a paste of any
-// size goes through (the Overlord, 2026-11-17, #2404).
+// size goes through, up to the 10 MiB a kept file holds (the Overlord,
+// 2026-11-17, #2404).
 const LONGEST_PASTE = 4000;
 const LONGEST_MESSAGE = 16000;
 // How long the box waits for Codex's /model picker to show the choice it
@@ -61,7 +62,8 @@ const NO_NOTES: Record<NoteSource, string> = { adding: "", feedback: "", dictati
 // switch to another view or session, a reconnect and a reload of the board
 // all find it where he left it.
 const DRAFT_KEY = "ceo-draft:";
-// The paths of the files he added to that draft, kept the same way.
+// The files he added to that draft, kept the same way: each by its path, and
+// each long paste by its line (pastedTextLine).
 const ATTACHED_KEY = "ceo-draft-files:";
 
 function storedDraft(key: string): string {
@@ -170,7 +172,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   useEffect(() => storeDraft(draftKey, draft), [draftKey, draft]);
   const [attached, setAttached] = useState(() => storedAttached(draftKey));
   useEffect(() => storeAttached(draftKey, attached), [draftKey, attached]);
-  // What Send sends: his words, then the path of each file he added.
+  // What Send sends: his words, then each file he added by its path, and each
+  // long paste by its line (pastedTextLine).
   const withAttached = (words: string) => [words.trim(), ...attached].filter(Boolean).join("\n");
   const outgoing = withAttached(draft);
   // A message that starts with ! is shell mode (#2051): the box wears the
@@ -582,12 +585,22 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   const isLongPaste = (text: string, words: string) => !!text && !words.trimStart().startsWith("!") && (inputBytes(text) > LONGEST_PASTE || inputBytes(withAttached(words)) > LONGEST_MESSAGE);
   // keepPaste keeps a long paste where the session reads it, as a file he
   // added is kept, and shows it in the box as a chip that names its lines.
+  // Once kept it takes the place of the words he selected for it, as any
+  // paste does, unless he has changed the box meanwhile; a paste the board
+  // cannot keep leaves them.
   const keepPaste = async (text: string) => {
+    const box = field.current;
+    const whole = box?.value ?? draft;
+    const start = box?.selectionStart ?? whole.length, end = box?.selectionEnd ?? start;
     const lines = text.replace(/\n$/, "").split("\n").length;
     setAdding((count) => count + 1);
     try {
       const path = await keepFile(new Blob([text], { type: "text/plain" }), "pasted.txt", snapshot.instance, task?.id);
       attach((prior) => [...prior, pastedTextLine(path, lines)]);
+      if (start < end && field.current?.value === whole) {
+        write(() => whole.slice(0, start) + whole.slice(end));
+        requestAnimationFrame(() => field.current?.setSelectionRange(start, start));
+      }
     } catch (error: unknown) {
       refuse("That paste was not added: " + message(error));
     } finally {
