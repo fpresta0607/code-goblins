@@ -263,6 +263,40 @@ test("a check that timed out says Check failed, without the supervisor's words a
   await expect(page.getByRole("button", { name: "Recheck connectors" })).toBeEnabled();
 });
 
+// #2547: only a check that could not run says why under a row. A timed-out
+// check marks each entry Unverified with the supervisor's words, which no row
+// repeats.
+test("a timed-out check's unverified rows carry no reason while the page says Check failed", async ({ page }) => {
+  // Arrange
+  const timedOut = { kind: "mcp", status: "unverified", detail: "Latest check timed out.", checked_at: CHECKED_AT };
+  const supervisor = supervisorWith({ [PROOF]: [{ ...timedOut, id: "mcp:delta", name: "delta" }, { ...timedOut, id: "mcp:echo", name: "echo" }] });
+  supervisor.error = "Connection check timed out.";
+
+  // Act
+  await open(page, supervisor);
+
+  // Assert
+  await expect(page.locator(".connector-row .connector-state")).toHaveText(["Unverified", "Unverified"]);
+  await expect(page.locator(".connector-reason")).toHaveCount(0);
+  await expect(page.getByText("Latest check timed out.")).toHaveCount(0);
+  await expect(page.locator(".connectors-head [role=status]")).toHaveText("Check failed");
+});
+
+// #2547: a reason the inspector words as a fragment after Not checked reads as
+// a sentence under its row.
+test("a goblin whose credential store could not be opened says so as a sentence under its row", async ({ page }) => {
+  // Arrange
+  const supervisor = supervisorWith({ [PROOF]: [{ id: "mcp:delta", name: "delta", kind: "mcp", status: "unchecked", detail: "Not checked: the credential store could not be opened.", checked_at: CHECKED_AT }] });
+
+  // Act
+  await open(page, supervisor);
+
+  // Assert
+  const delta = page.locator(".connector-row").filter({ hasText: "Delta" });
+  await expect(delta.locator(".connector-state")).toHaveText("Not checked");
+  await expect(delta.locator(".connector-reason")).toHaveText("The credential store could not be opened.");
+});
+
 // A goblin whose last check failed keeps saying so while its recheck runs,
 // and says it is rechecking, since a recheck can take minutes (#2394).
 test("a check that failed says Check failed, rechecking... while its recheck runs, and Check failed once it ends failed again", async ({ page }) => {
