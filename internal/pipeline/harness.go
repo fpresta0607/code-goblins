@@ -64,12 +64,12 @@ func isGateToken(value string) bool {
 	return true
 }
 
-// GateChain is the agents a version 6 gate may start, in order: the task's
-// own harness with its model and effort, then the fallback the operator named
-// when that is another harness and isSignedIn says somebody is signed in to
-// it. isSignedIn is given the whole fallback, because pi signs in per provider
-// and the fallback's model names its provider. With no fallback named nothing
-// is asked and no second harness starts.
+// GateChain is the agents one role of a version 6 gate may start, in order:
+// the task's own harness with that role's model and effort, then the fallback
+// the operator named when that is another harness and isSignedIn says
+// somebody is signed in to it. isSignedIn is given the whole fallback, because
+// pi signs in per provider and the fallback's model names its provider. With
+// no fallback named nothing is asked and no second harness starts.
 func (p Policy) GateChain(own Reviewer, isSignedIn func(fallback Reviewer) bool) ([]Reviewer, error) {
 	if err := p.Validate(); err != nil {
 		return nil, err
