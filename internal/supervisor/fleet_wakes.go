@@ -565,6 +565,7 @@ func (s *Service) checkLongTurnWaits(w *fleetWakes, now time.Time) error {
 			if err := raiseFleetWake(s.Store.Home.State, "idle", "heavy-line-turn-wait", detail); err != nil {
 				return err
 			}
+			w.LongTurnWaitsWoke = append(w.LongTurnWaitsWoke, key)
 		}
 		woken = append(woken, key)
 	}
