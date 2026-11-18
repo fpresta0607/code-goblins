@@ -261,30 +261,44 @@ func (r Reader) cancelledDuplicate(ctx context.Context, latest recoveryRecord) e
 	return fmt.Errorf("pipeline: run %s was cancelled before it pushed, and native branch sync keeps it as this branch's owner beside the newer run %s, which completed and published %s, a head that holds it; no supported recovery continues it until https://github.com/fpresta0607/no-mistakes/issues/335 is fixed: do not recover run %s natively, which takes custody at a head the published one has moved past, and report this to the CEO", older.RunID, latest.RunID, latest.PushedHead, older.RunID)
 }
 
+// spentRepairRounds counts the automatic and manual repair rounds a run and
+// every predecessor its validation admissions continue spent. A child of the
+// CEO's terminal admission starts with no repair round of its own and keeps
+// its chain's spending, so its own rounds alone would understate it.
+func (r Reader) spentRepairRounds(ctx context.Context, runID string) (int, error) {
+	var spent []struct {
+		Rounds int `json:"rounds"`
+	}
+	query := `WITH RECURSIVE chain(id) AS (SELECT ` + sqlString(runID) + ` UNION SELECT a.predecessor_id FROM validation_admissions a JOIN chain ON a.child_id=chain.id) SELECT COUNT(*) AS rounds FROM step_rounds q JOIN step_results s ON s.id=q.step_result_id WHERE s.run_id IN (SELECT id FROM chain) AND q.trigger_type IN ('auto_fix','user_fix')`
+	if err := r.query(ctx, query, &spent); err != nil {
+		return 0, err
+	}
+	if len(spent) != 1 {
+		return 0, errors.New("pipeline: run repair rounds cannot be read")
+	}
+	return spent[0].Rounds, nil
+}
+
 // returnedCustodyMismatch refuses a run whose custody already returned while
 // native branch sync no longer answers for it. A driver-started run has no
 // same-run continuation (no-mistakes issue 323), so the refusal names the
 // fresh run that goes on, unless the run spent repair rounds a fresh run
-// would start over, which is the CEO's to allow (#2378).
+// would start over, which goes on only through the CEO's terminal admission
+// (#2378, issue 2060).
 func (r Reader) returnedCustodyMismatch(ctx context.Context, run recoveryRecord) error {
-	var spent []struct {
-		Rounds int `json:"rounds"`
-	}
-	query := `SELECT COUNT(*) AS rounds FROM step_rounds q JOIN step_results s ON s.id=q.step_result_id WHERE s.run_id=` + sqlString(run.RunID) + ` AND q.trigger_type IN ('auto_fix','user_fix')`
-	if err := r.query(ctx, query, &spent); err != nil {
+	rounds, err := r.spentRepairRounds(ctx, run.RunID)
+	if err != nil {
 		return err
 	}
-	if len(spent) != 1 {
-		return errors.New("pipeline: run repair rounds cannot be read")
-	}
 	const refusal = "pipeline: recorded custody return does not match native branch state; run %s already returned custody and a driver-started run has no same-run continuation"
-	switch spent[0].Rounds {
+	const continuation = ", which a fresh run would start over, so goblins pipeline run refuses one: read it with goblins pipeline terminal-preflight <task> --run %s, and its continuation is the CEO's terminal admission, goblins pipeline validate-terminal for its unchanged head or validate-authored for a corrected one, which keeps that spending"
+	switch rounds {
 	case 0:
 		return fmt.Errorf(refusal+", and it spent no repair round, so a fresh goblins pipeline run is the expected path", run.RunID)
 	case 1:
-		return fmt.Errorf(refusal+", but it spent 1 repair round, which a fresh run would start over: ask the CEO before starting one", run.RunID)
+		return fmt.Errorf(refusal+", but it spent 1 repair round"+continuation, run.RunID, run.RunID)
 	}
-	return fmt.Errorf(refusal+", but it spent %d repair rounds, which a fresh run would start over: ask the CEO before starting one", run.RunID, spent[0].Rounds)
+	return fmt.Errorf(refusal+", but it spent %d repair rounds"+continuation, run.RunID, rounds, run.RunID)
 }
 
 // agentProcessStatus says whether the process a recorded agent pid names is
