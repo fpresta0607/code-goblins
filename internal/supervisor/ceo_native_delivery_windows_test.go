@@ -939,9 +939,10 @@ func TestADeliveryToACEOInATurnReturnsOnceItsSubmitKeyWent(t *testing.T) {
 // key is pressed again while the words show over the row it added, and words
 // that never leave the prompt line are taken back off it and read Not sent. A
 // screen read that joins two frames of a redraw, as one of a loaded machine
-// can, shows no prompt line at all and so never shows the words gone from it,
-// nor do such reads to the end of the wait, which leave the message unsent
-// with nothing to show where it went (#2635).
+// can, shows no prompt line at all or shows it twice, and so never shows the
+// words gone from it, typed or pasted, nor do such reads to the end of the
+// wait, which leave the message unsent with nothing to show where it went
+// (#2635).
 func TestHisMessageInTheCEOsTurnIsQueuedOnlyOnceItLeavesThePromptLine(t *testing.T) {
 	previous := nativeShown
 	nativeShown = 2 * time.Second
@@ -949,14 +950,20 @@ func TestHisMessageInTheCEOsTurnIsQueuedOnlyOnceItLeavesThePromptLine(t *testing
 	for _, tc := range []struct {
 		name, mode string
 		isQueued   bool
-		// isTorn has the first screen read after the harness took a key
-		// join two frames, and isTornToTheEnd every read after it.
-		isTorn, isTornToTheEnd bool
+		// isPasted has the message long enough to go as a paste, which the
+		// prompt line shows as its placeholder.
+		isPasted bool
+		// tear, when set, joins two frames in the first screen read after
+		// the harness took a key, or, isTornToTheEnd, in every read after it.
+		tear           func([]string) ([]string, bool)
+		isTornToTheEnd bool
 	}{
 		{name: "claude-busy-lost-enter", mode: "claude-busy-lost-enter", isQueued: true},
 		{name: "claude-busy-enters-lost", mode: "claude-busy-enters-lost", isQueued: false},
-		{name: "claude-busy-enters-lost read torn", mode: "claude-busy-enters-lost", isQueued: false, isTorn: true},
-		{name: "claude-busy-enters-lost read torn to the end", mode: "claude-busy-enters-lost", isQueued: false, isTornToTheEnd: true},
+		{name: "claude-busy-enters-lost read torn", mode: "claude-busy-enters-lost", isQueued: false, tear: ruleOverRowAbove},
+		{name: "claude-busy-enters-lost read twice", mode: "claude-busy-enters-lost", isQueued: false, tear: promptLineTwice},
+		{name: "claude-busy-enters-lost pasted read twice", mode: "claude-busy-enters-lost", isQueued: false, isPasted: true, tear: promptLineTwice},
+		{name: "claude-busy-enters-lost read torn to the end", mode: "claude-busy-enters-lost", isQueued: false, tear: ruleOverRowAbove, isTornToTheEnd: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
@@ -964,8 +971,8 @@ func TestHisMessageInTheCEOsTurnIsQueuedOnlyOnceItLeavesThePromptLine(t *testing
 			store, home := testStore(t)
 			terminal := nativeCEOComposer(t, home.State, tc.mode)
 			connection := &CEOConnection{State: home.State}
-			if tc.isTorn {
-				connection.ReadScreen = tornOnce(host.ReadScreen, ruleOverRowAbove, func() bool { return len(terminal.lines(t)) > 1 })
+			if tc.tear != nil {
+				connection.ReadScreen = tornOnce(host.ReadScreen, tc.tear, func() bool { return len(terminal.lines(t)) > 1 })
 			}
 			if tc.isTornToTheEnd {
 				connection.ReadScreen = func(record host.Record) ([]string, error) {
@@ -973,14 +980,18 @@ func TestHisMessageInTheCEOsTurnIsQueuedOnlyOnceItLeavesThePromptLine(t *testing
 					if err != nil || len(terminal.lines(t)) <= 1 {
 						return screen, err
 					}
-					torn, _ := ruleOverRowAbove(slices.Clone(screen))
+					torn, _ := tc.tear(slices.Clone(screen))
 					return torn, nil
 				}
 			}
 			service := &Service{Store: store, Options: Options{CEO: connection}}
+			text := "stop and rebase"
+			if tc.isPasted {
+				text = strings.TrimSpace(strings.Repeat("stop and rebase ", 40))
+			}
 
 			// Act
-			result, err := service.deliverMessage(context.Background(), Action{Kind: "message", Text: "stop and rebase"})
+			result, err := service.deliverMessage(context.Background(), Action{Kind: "message", Text: text})
 
 			// Assert
 			input := strings.Join(terminal.lines(t), "\n")

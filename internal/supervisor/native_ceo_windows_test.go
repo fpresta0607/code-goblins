@@ -616,8 +616,9 @@ func TestANativeCEOsSendFromAProcessWhoseParentHasExitedNamesItAsSender(t *testi
 // that hook as it queues a line into a turn, as one its stop hook opened as
 // the message arrived (#2541), nor does one whose screen, read as it
 // redraws, joins two frames and shows the prompt line as a rule or twice
-// (#2642), even where every read to the end of the wait does. Typed, it is
-// the harness's, so it offers no Send now.
+// (#2642), even where every read to the end of the wait does, nor one that
+// shows his words after the message's. Typed, it is the harness's, so it
+// offers no Send now.
 func TestADeliveryToANativeCEOWhoseScreenTurnsToWorkWithoutItsHookIsSentNotDelivered(t *testing.T) {
 	for _, test := range []struct {
 		name string
@@ -625,8 +626,8 @@ func TestADeliveryToANativeCEOWhoseScreenTurnsToWorkWithoutItsHookIsSentNotDeliv
 		// it takes on its prompt line under a working row, and, hooked, whose
 		// prompt hook reports each line it takes.
 		lines []string
-		// tear, when set, joins two frames in the first screen read after
-		// the hook reported, or, isTornToTheEnd, in every read after it.
+		// tear, when set, changes the first screen read after the hook
+		// reported, or, isTornToTheEnd, every read after it.
 		tear           func([]string) ([]string, bool)
 		isTornToTheEnd bool
 	}{
@@ -634,6 +635,7 @@ func TestADeliveryToANativeCEOWhoseScreenTurnsToWorkWithoutItsHookIsSentNotDeliv
 		{name: "its hook reporting it", lines: []string{"harness", "keep", "hooked"}},
 		{name: "its hook reporting it, its prompt line read as a rule", lines: []string{"harness", "keep", "hooked"}, tear: ruleOverRowAbove},
 		{name: "its hook reporting it, its prompt line read twice", lines: []string{"harness", "keep", "hooked"}, tear: promptLineTwice},
+		{name: "its hook reporting it, his words read after it", lines: []string{"harness", "keep", "hooked"}, tear: hisWordsAfter},
 		{name: "its hook reporting it, its prompt line read as a rule to the end of the wait", lines: []string{"harness", "keep", "hooked"}, tear: ruleOverRowAbove, isTornToTheEnd: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {

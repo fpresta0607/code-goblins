@@ -640,10 +640,11 @@ func TestAPromptLineIsADeliverysOwnOnlyWhileItHoldsNothingButItsWords(t *testing
 	}
 }
 
-// A delivery's words are still on a prompt line while every one of them shows
-// there, whatever shows beside them: his words, or a second copy of the line
-// in a read that joins two frames of a redraw (#2642). Part of them, an empty
-// line and one that cannot be read do not hold them all.
+// A delivery's words are still on a prompt line while every one of them, or
+// the placeholder its harness shows for them as a paste, shows there,
+// whatever shows beside them: his words, or a second copy of the line in a
+// read that joins two frames of a redraw (#2642). Part of them, an empty line
+// and one that cannot be read do not hold them all.
 func TestAPromptLineHoldsADeliverysWordsWhileEveryOneShowsOnIt(t *testing.T) {
 	rule := strings.Repeat("─", 80)
 	claudeFooter := "⏵⏵ bypass permissions on (shift+tab to cycle)"
@@ -659,6 +660,9 @@ func TestAPromptLineHoldsADeliverysWordsWhileEveryOneShowsOnIt(t *testing.T) {
 		"claude every word read twice": {Claude, []string{rule, "❯ stop and rebase", "❯ stop and rebase", rule, claudeFooter}, "stop and rebase", true},
 		"claude his words after":       {Claude, []string{rule, "❯ stop and rebase and the", rule, claudeFooter}, "stop and rebase", true},
 		"claude every row wrapped":     {Claude, []string{rule, "❯ check the tests", "  stop and rebase", rule, claudeFooter}, "check the tests stop and rebase", true},
+		"claude a paste read twice":    {Claude, []string{rule, "❯ [Pasted text #1 +3 lines]", "❯ [Pasted text #1 +3 lines]", rule, claudeFooter}, "stop\nand\nrebase\nnow", true},
+		"claude a paste, his after":    {Claude, []string{rule, "❯ [Pasted text #1 +3 lines] and the", rule, claudeFooter}, "stop\nand\nrebase\nnow", true},
+		"claude a paste, part typed":   {Claude, []string{rule, "❯ [Pasted text #1]rebase", rule, claudeFooter}, "stop and rebase", true},
 		"claude the part read so far":  {Claude, []string{rule, "❯ stop and re", rule, claudeFooter}, "stop and rebase", false},
 		"claude his words alone":       {Claude, []string{rule, "❯ wait for me", rule, claudeFooter}, "stop and rebase", false},
 		"claude an empty line":         {Claude, []string{rule, "❯ ", rule, claudeFooter}, "stop and rebase", false},

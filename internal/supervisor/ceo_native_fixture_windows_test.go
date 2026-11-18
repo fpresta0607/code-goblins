@@ -500,6 +500,18 @@ func promptLineTwice(screen []string) ([]string, bool) {
 	return screen, false
 }
 
+// hisWordsAfter shows words he typed after a delivery's on a Claude Code
+// prompt line, which leave the delivery's words there untaken.
+func hisWordsAfter(screen []string) ([]string, bool) {
+	for row := range screen {
+		if strings.HasPrefix(strings.TrimSpace(screen[row]), "❯ ") {
+			screen[row] += " and the"
+			return screen, true
+		}
+	}
+	return screen, false
+}
+
 // nativeComposer hosts the fixture harness of mode as terminal id: the CEO's,
 // or a goblin's, which registers no CEO.
 func nativeComposer(t *testing.T, stateDir, id, mode string) hostedTerminal {

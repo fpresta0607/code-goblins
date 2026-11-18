@@ -605,7 +605,8 @@ func (s Screens) ComposerHoldsPartOf(screen []string, typed string) bool {
 }
 
 // ComposerHoldsAllOf reports whether screen's composer holds every word of
-// typed in one run, whitespace aside, whatever it holds beside them: words
+// typed in one run, whitespace aside, or a paste's placeholder, as a harness
+// shows text it collapsed as a paste, whatever it holds beside them: words
 // its harness has not taken off the prompt line, though his words sit beside
 // them or a read as it redraws shows them twice. An empty composer holds none
 // of them, and neither does one behind a dialog or one that cannot be read.
@@ -614,8 +615,15 @@ func (s Screens) ComposerHoldsAllOf(screen []string, typed string) bool {
 		return false
 	}
 	held, _ := s.Draft(screen)
-	want := compactScreen([]string{typed})
-	return want != "" && strings.Contains(held, want)
+	if want := compactScreen([]string{typed}); want != "" && strings.Contains(held, want) {
+		return true
+	}
+	for _, placeholder := range s.Pasted {
+		if strings.Contains(held, compactScreen([]string{placeholder})) {
+			return true
+		}
+	}
+	return false
 }
 
 // ComposerHoldsOnePaste reports whether all screen's composer holds is one
