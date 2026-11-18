@@ -312,14 +312,13 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 	}
 	tree, err := execx.StartNamedTree(command, guard.Job)
 	if err != nil {
-		failure := fmt.Errorf("%w: %w", ErrNotStarted, err)
-		measurement := Measurement{State: CleanupUncertain}
+		// A launch that started no process is a refusal like any other failure
+		// before the command starts, whatever ended it.
 		if command.Process == nil {
-			measurement = Measurement{State: Interrupted, CleanupConfirmed: true}
-		} else {
-			pending.usage = nil
+			return refuseStart(err)
 		}
-		return -1, errors.Join(failure, execution.Observe(measurement))
+		pending.usage = nil
+		return -1, errors.Join(fmt.Errorf("%w: %w", ErrNotStarted, err), execution.Observe(Measurement{State: CleanupUncertain}))
 	}
 	pending.tree = tree
 	pending.usage = nil

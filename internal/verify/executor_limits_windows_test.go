@@ -824,6 +824,30 @@ func TestExecutorSaysWhyACommandNeverStarted(t *testing.T) {
 	}
 }
 
+// A launch that fails with no process started is a refusal, recorded
+// not_started with no invented exit code, as docs/pipeline.md says, and not a
+// failed run.
+func TestExecutorRecordsALaunchThatStartedNoProcessAsNotStarted(t *testing.T) {
+	// Arrange
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
+	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Headroom: plentyOfMemory}}
+
+	// Act
+	result, path, err := executor.RunWithin(context.Background(), execx.Request{Dir: t.TempDir(), Name: filepath.Join(t.TempDir(), "missing.exe")}, 0)
+
+	// Assert
+	if !errors.Is(err, ErrNotStarted) || result.ExitCode != -1 {
+		t.Fatalf("run = %+v, %v; want not started and no exit code", result, err)
+	}
+	record := readExecution(t, path)
+	if record.Status != "not_started" || record.ExitCode != nil || !record.Measurement.CleanupConfirmed || record.Failure == "" {
+		t.Fatalf("receipt = %+v; want a refusal that started no process", record)
+	}
+	if holders, waiters, lineError := Line(executor.Admission.Dir); lineError != nil || len(holders)+len(waiters) != 0 {
+		t.Fatalf("custody leaked: %v, %v, %v", holders, waiters, lineError)
+	}
+}
+
 // An interrupt that comes after the run took its turn and before a command
 // that answers interrupts itself started never reaches the command, so the
 // run ends there, with no turn's result, and starts nothing.
