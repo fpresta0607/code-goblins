@@ -387,7 +387,9 @@ func TestSignalReachesOnlyTheProcessStartedWhenItWasAskedAbout(t *testing.T) {
 // direct child cmd.Start has just returned for, and as a child a shell
 // started in the background and left as it exited. Every reading must find
 // it running and carrying the arguments and the environment it was started
-// with.
+// with. The shell prints its child's ID as soon as it has forked it, so the
+// child may still be a copy of the shell, whose arguments it then shows,
+// until its own exec: it is read as either, never as started with none.
 func TestAProcessReadDuringItsStartReadsAsRunning(t *testing.T) {
 	const starts = 200
 	failed := map[string]int{}
@@ -398,7 +400,7 @@ func TestAProcessReadDuringItsStartReadsAsRunning(t *testing.T) {
 			first[reading] = fmt.Sprintf("process %d: %v", pid, err)
 		}
 	}
-	read := func(pid, group int) {
+	read := func(pid, group int, started ...[]string) {
 		processes, err := Processes()
 		if err != nil {
 			fail("Processes", pid, err)
@@ -416,7 +418,7 @@ func TestAProcessReadDuringItsStartReadsAsRunning(t *testing.T) {
 		// Arguments first: Environment waits for an exec in progress.
 		if arguments, err := Arguments(pid); err != nil {
 			fail("Arguments", pid, err)
-		} else if !slices.Equal(arguments, []string{"sleep", "600"}) {
+		} else if !slices.ContainsFunc(started, func(want []string) bool { return slices.Equal(arguments, want) }) {
 			fail("Arguments", pid, fmt.Errorf("read %q", arguments))
 		}
 		if environment, err := Environment(pid); err != nil {
@@ -436,7 +438,7 @@ func TestAProcessReadDuringItsStartReadsAsRunning(t *testing.T) {
 		}
 
 		// Act
-		read(direct.Process.Pid, direct.Process.Pid)
+		read(direct.Process.Pid, direct.Process.Pid, direct.Args)
 
 		_ = direct.Process.Kill()
 		_ = direct.Wait()
@@ -455,7 +457,7 @@ func TestAProcessReadDuringItsStartReadsAsRunning(t *testing.T) {
 		}
 
 		// Act
-		read(pid, 0)
+		read(pid, 0, []string{"sleep", "600"}, shell.Args)
 
 		endOrphan(t, pid)
 	}
