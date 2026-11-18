@@ -61,9 +61,9 @@ func TestWorktreeAddRecordsTheExtraAndRemoveTakesItOff(t *testing.T) {
 	want := filepath.Join(h.Worktrees(), "app", "g1-proof")
 
 	// Act
-	_, addErr := addExtraWorktree(ctx, h, service, "g1", "proof", "")
+	_, addErr := addExtraWorktree(ctx, h, service, "g1", "proof", "", "")
 	added, readErr := state.ReadTaskMeta(h.State, "g1")
-	_, removeErr := removeExtraWorktree(ctx, h, service, worktree.RunnerGit{Commands: execx.OSRunner{}}, "g1", "proof")
+	_, removeErr := removeExtraWorktree(ctx, h, service, worktree.RunnerGit{Commands: execx.OSRunner{}}, "g1", "proof", "")
 	removed, rereadErr := state.ReadTaskMeta(h.State, "g1")
 
 	// Assert
@@ -81,6 +81,62 @@ func TestWorktreeAddRecordsTheExtraAndRemoveTakesItOff(t *testing.T) {
 	}
 }
 
+// goblins worktree add --project makes the extra a worktree of the project
+// the projects root names, beside that project's worktrees in the home, and
+// records it on the task; remove --project returns it to that project, which
+// then registers none.
+func TestWorktreeAddMakesAndRecordsAnExtraOfAnotherProject(t *testing.T) {
+	// Arrange: a primary home and a second project in the projects root,
+	// cloned from an origin of its own.
+	h, _ := extraFixture(t)
+	for _, name := range []string{"AGENTS.md", home.InstalledMarker} {
+		if err := os.WriteFile(filepath.Join(h.Root, name), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	root := filepath.Dir(h.Root)
+	origin := filepath.Join(root, "tool.git")
+	gitIn(t, root, "init", "-q", "--bare", "--initial-branch=main", origin)
+	other := filepath.Join(root, "tool")
+	gitIn(t, root, "clone", "-q", origin, other)
+	gitIn(t, other, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "seed")
+	gitIn(t, other, "push", "-q", "origin", "HEAD:main")
+	gitIn(t, other, "remote", "set-head", "origin", "--auto")
+	runtime := commandRuntime{
+		resolveHome:  func() (home.Home, error) { return h, nil },
+		projectsRoot: func() (string, error) { return root, nil },
+	}
+	want := filepath.Join(h.Worktrees(), "tool", "g1-release")
+	var addOut, addErr, removeOut, removeErr strings.Builder
+
+	// Act
+	addCode := runWorktree([]string{"add", "g1", "release", "--project", "tool"}, &addOut, &addErr, runtime)
+	added, readErr := state.ReadTaskMeta(h.State, "g1")
+	registered := gitIn(t, other, "worktree", "list", "--porcelain")
+	removeCode := runWorktree([]string{"remove", "g1", "release", "--project", "tool"}, &removeOut, &removeErr, runtime)
+	removed, rereadErr := state.ReadTaskMeta(h.State, "g1")
+
+	// Assert
+	if addCode != 0 || removeCode != 0 {
+		t.Fatalf("add exited %d (%s), remove exited %d (%s)", addCode, addErr.String(), removeCode, removeErr.String())
+	}
+	if readErr != nil || rereadErr != nil {
+		t.Fatalf("read %v, reread %v", readErr, rereadErr)
+	}
+	if !slices.Equal(added.Extras, []string{want}) {
+		t.Errorf("after add the record's extras are %v, want %s", added.Extras, want)
+	}
+	if !strings.Contains(registered, filepath.ToSlash(want)) {
+		t.Errorf("the other project does not register the extra %s:\n%s", want, registered)
+	}
+	if len(removed.Extras) != 0 {
+		t.Errorf("after remove the record's extras are %v, want none", removed.Extras)
+	}
+	if listed := gitIn(t, other, "worktree", "list"); strings.Count(listed, "\n") != 0 {
+		t.Errorf("the other project still registers worktrees after remove:\n%s", listed)
+	}
+}
+
 // A home named through a link spells an extra worktree's path otherwise than
 // the record, which holds the canonical path, and remove still finds it.
 func TestWorktreeRemoveFindsTheExtraThroughALinkedHome(t *testing.T) {
@@ -88,7 +144,7 @@ func TestWorktreeRemoveFindsTheExtraThroughALinkedHome(t *testing.T) {
 	// removed through a junction to it.
 	h, service := extraFixture(t)
 	ctx := context.Background()
-	if _, err := addExtraWorktree(ctx, h, service, "g1", "proof", ""); err != nil {
+	if _, err := addExtraWorktree(ctx, h, service, "g1", "proof", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	linked := filepath.Join(t.TempDir(), "linked-home")
@@ -98,7 +154,7 @@ func TestWorktreeRemoveFindsTheExtraThroughALinkedHome(t *testing.T) {
 	viaLink := home.Home{Root: linked, State: filepath.Join(linked, "state"), Data: filepath.Join(linked, "data")}
 
 	// Act
-	_, err := removeExtraWorktree(ctx, viaLink, worktree.Service{Commands: execx.OSRunner{}, Root: viaLink.Worktrees()}, worktree.RunnerGit{Commands: execx.OSRunner{}}, "g1", "proof")
+	_, err := removeExtraWorktree(ctx, viaLink, worktree.Service{Commands: execx.OSRunner{}, Root: viaLink.Worktrees()}, worktree.RunnerGit{Commands: execx.OSRunner{}}, "g1", "proof", "")
 
 	// Assert
 	if err != nil {
@@ -118,7 +174,7 @@ func TestWorktreeRemoveRefusesUncommittedWorkAndChangesNothing(t *testing.T) {
 	// Arrange
 	h, service := extraFixture(t)
 	ctx := context.Background()
-	if _, err := addExtraWorktree(ctx, h, service, "g1", "proof", ""); err != nil {
+	if _, err := addExtraWorktree(ctx, h, service, "g1", "proof", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(h.Worktrees(), "app", "g1-proof")
@@ -127,7 +183,7 @@ func TestWorktreeRemoveRefusesUncommittedWorkAndChangesNothing(t *testing.T) {
 	}
 
 	// Act
-	_, err := removeExtraWorktree(ctx, h, service, worktree.RunnerGit{Commands: execx.OSRunner{}}, "g1", "proof")
+	_, err := removeExtraWorktree(ctx, h, service, worktree.RunnerGit{Commands: execx.OSRunner{}}, "g1", "proof", "")
 
 	// Assert
 	if err == nil || !strings.Contains(err.Error(), "uncommitted work") {

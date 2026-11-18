@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -149,6 +150,68 @@ func TestCleanupRemovesTheWorktreeEveryRecordedExtraAndTheScratch(t *testing.T) 
 	}
 	if _, err := state.ReadTaskMeta(task.stateDir, "g1"); err == nil {
 		t.Error("the task record survived the cleanup")
+	}
+}
+
+func TestCleanupReturnsAnExtraOfAnotherProjectToThatProjectKeepingItsWork(t *testing.T) {
+	// Arrange: the task records an extra worktree of a second project, which
+	// holds a commit that is on no branch.
+	task := newHomeTask(t)
+	root := filepath.Dir(filepath.Dir(task.stateDir))
+	origin := filepath.Join(root, "tool.git")
+	realGit(t, root, "init", "--bare", "--initial-branch=main", origin)
+	otherPath := filepath.Join(root, "tool")
+	realGit(t, root, "clone", "-q", origin, otherPath)
+	realGit(t, otherPath, "config", "user.email", "t@t")
+	realGit(t, otherPath, "config", "user.name", "t")
+	realGit(t, otherPath, "commit", "-q", "--allow-empty", "-m", "seed")
+	realGit(t, otherPath, "push", "-q", "origin", "HEAD:main")
+	other, err := fsx.Canonical(otherPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	extra, err := task.service.Worktrees.AddExtra(context.Background(), other, "g1", "release", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	realGit(t, extra.Path, "commit", "-q", "--allow-empty", "-m", "release")
+	releaseHead := realGit(t, extra.Path, "rev-parse", "HEAD")
+	meta, err := state.ReadTaskMeta(task.stateDir, "g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Extras = append(meta.Extras, extra.Path)
+	if err := state.WriteTaskMeta(task.stateDir, meta); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	result, err := task.service.Cleanup(context.Background(), "g1")
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+	if exists(t, extra.Path) {
+		t.Errorf("%s survived the cleanup", extra.Path)
+	}
+	if listed := realGit(t, other, "worktree", "list"); strings.Count(listed, "\n") != 0 {
+		t.Errorf("the other project still registers worktrees:\n%s", listed)
+	}
+	if got := realGit(t, other, "rev-parse", "refs/tags/archive/g1-release^{commit}"); got != releaseHead {
+		t.Errorf("archive/g1-release = %s, want the extra's unlanded commit %s", got, releaseHead)
+	}
+	if !strings.Contains(result.Output, "archive/g1-release") {
+		t.Errorf("Output = %q, want the archive tag named", result.Output)
+	}
+	tags, err := state.ArchiveTags(task.stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(tags, func(tag state.ArchiveTag) bool {
+		return tag.Tag == "archive/g1-release" && strings.EqualFold(tag.Checkout, other)
+	}) {
+		t.Errorf("the home records the archive tags %v, want archive/g1-release in %s, which an uninstall keeps and removes", tags, other)
 	}
 }
 

@@ -180,6 +180,36 @@ func Validate(ctx context.Context, git Git, project, worktree string) error {
 	return nil
 }
 
+// Checkout is the checkout a worktree belongs to, read from the gitdir its
+// .git file names: <checkout>\.git\worktrees\<name>, whose commondir leads
+// back to <checkout>\.git.
+func Checkout(worktree string) (string, bool) {
+	content, err := fsx.ReadFile(filepath.Join(worktree, ".git"))
+	if err != nil {
+		return "", false
+	}
+	gitDir, ok := strings.CutPrefix(strings.TrimSpace(string(content)), "gitdir:")
+	if !ok {
+		return "", false
+	}
+	gitDir = filepath.Clean(filepath.FromSlash(strings.TrimSpace(gitDir)))
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(worktree, gitDir)
+	}
+	common, err := fsx.ReadFile(filepath.Join(gitDir, "commondir"))
+	if err != nil {
+		return "", false
+	}
+	commonDir := filepath.Clean(filepath.FromSlash(strings.TrimSpace(string(common))))
+	if !filepath.IsAbs(commonDir) {
+		commonDir = filepath.Join(gitDir, commonDir)
+	}
+	if !strings.EqualFold(filepath.Base(commonDir), ".git") {
+		return "", false
+	}
+	return filepath.Dir(commonDir), true
+}
+
 func (s Service) git() (Git, error) {
 	if s.Git != nil {
 		return s.Git, nil

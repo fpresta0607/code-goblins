@@ -12,7 +12,7 @@ import { EnginePane } from "./engine-pane";
 import { HarnessMark } from "./harness-mark";
 import { HarnessPanel } from "./harness-panel";
 import { Icon } from "./Icon";
-import { clipboardPicture, filesOf, inlinePictures, keptFiles, pastedPictures } from "./kept-files";
+import { clipboardPicture, filesOf, inlinePictures, keptFiles, pastedPictures, pastedTextLine } from "./kept-files";
 import { isHarnessHeld, isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { mentionAt, mentionedFiles, mentionFile, parseFiles } from "./mentions";
 import { cycleMode, MODE_NOT_SENT } from "./mode-cycle";
@@ -28,7 +28,7 @@ import { useTerminalLink, watchLink } from "./terminal-link";
 import { readClipboard } from "./terminal-keys";
 import { keepFile } from "./terminal-image";
 import { TerminalStatus } from "./terminal-status";
-import { detachedHoldReason } from "./terminalInput";
+import { detachedHoldReason, inputBytes } from "./terminalInput";
 import { appendDictation, useDictation } from "./useDictation";
 import { linkedText } from "./messageText";
 import "./composer.css";
@@ -39,6 +39,14 @@ const SHOWN = 5;
 // How long the @ list waits after a keystroke before it reads the files, so
 // a burst of typing asks once.
 const MENTION_WAIT_MS = 120;
+// A paste longer than LONGEST_PASTE, in UTF-8 bytes, goes as a text file the
+// session reads whole, as a harness's own terminal collapses a long paste,
+// and so does a shorter one that would take his message past LONGEST_MESSAGE,
+// what one message holds (internal/supervisor/store.go), so a paste of any
+// size goes through, up to the 10 MiB a kept file holds (the Overlord,
+// 2026-11-17, #2404).
+const LONGEST_PASTE = 4000;
+const LONGEST_MESSAGE = 16000;
 // How long the box waits for Codex's /model picker to show the choice it
 // set out to pick before it closes the picker and says so, for the harness to
 // take a model before the box sets that model's effort, and for its footer to
@@ -54,7 +62,8 @@ const NO_NOTES: Record<NoteSource, string> = { adding: "", feedback: "", dictati
 // switch to another view or session, a reconnect and a reload of the board
 // all find it where he left it.
 const DRAFT_KEY = "ceo-draft:";
-// The paths of the files he added to that draft, kept the same way.
+// The files he added to that draft, kept the same way: each by its path, and
+// each long paste by its line (pastedTextLine).
 const ATTACHED_KEY = "ceo-draft-files:";
 
 function storedDraft(key: string): string {
@@ -80,6 +89,13 @@ function storeAttached(key: string, paths: string[]): void {
     if (paths.length) sessionStorage.setItem(ATTACHED_KEY + key, JSON.stringify(paths));
     else sessionStorage.removeItem(ATTACHED_KEY + key);
   } catch { /* the files stay while the box does */ }
+}
+
+// boxText is a paste as the box holds it, each line break one "\n" where
+// Windows' clipboard holds "\r\n", so a paste is measured and kept as the box
+// would hold it.
+function boxText(text: string): string {
+  return text.replace(/\r\n?/g, "\n");
 }
 
 // The message box under a session's messages, in place of its terminal's
@@ -160,7 +176,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   useEffect(() => storeDraft(draftKey, draft), [draftKey, draft]);
   const [attached, setAttached] = useState(() => storedAttached(draftKey));
   useEffect(() => storeAttached(draftKey, attached), [draftKey, attached]);
-  // What Send sends: his words, then the path of each file he added.
+  // What Send sends: his words, then each file he added by its path, and each
+  // long paste by its line (pastedTextLine).
   const withAttached = (words: string) => [words.trim(), ...attached].filter(Boolean).join("\n");
   const outgoing = withAttached(draft);
   // A message that starts with ! is shell mode (#2051): the box wears the
@@ -565,16 +582,56 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
       }
     }
   };
-  // A picture pasted into the box arrives as a file the session can read. Text
-  // keeps the browser's own paste, which the textarea takes as it always has.
-  // A selection copied with its pictures from a conversation holds them
-  // inline in its HTML: each arrives as a pasted picture does, in their
-  // order, and its words paste as text (#2543).
+  // isLongPaste says a paste goes as a text file: it is longer than
+  // LONGEST_PASTE, or the message would be longer than LONGEST_MESSAGE with
+  // it, where words is the box's text with the paste in it. A paste into a !
+  // command stays the command's words, which the shell runs.
+  const isLongPaste = (text: string, words: string) => !!text && !words.trimStart().startsWith("!") && (inputBytes(text) > LONGEST_PASTE || inputBytes(withAttached(words)) > LONGEST_MESSAGE);
+  // keepPaste keeps a long paste where the session reads it, as a file he
+  // added is kept, and shows it in the box as a chip that names its lines.
+  // Once kept it takes the place of the words he selected for it, as any
+  // paste does, unless he has changed the box meanwhile; a paste the board
+  // cannot keep leaves them.
+  const keepPaste = async (text: string) => {
+    const box = field.current;
+    const whole = box?.value ?? draft;
+    const start = box?.selectionStart ?? whole.length, end = box?.selectionEnd ?? start;
+    const lines = text.replace(/\n$/, "").split("\n").length;
+    setAdding((count) => count + 1);
+    try {
+      const path = await keepFile(new Blob([text], { type: "text/plain" }), "pasted.txt", snapshot.instance, task?.id);
+      attach((prior) => [...prior, pastedTextLine(path, lines)]);
+      if (start < end && field.current?.value === whole) {
+        write(() => whole.slice(0, start) + whole.slice(end));
+        requestAnimationFrame(() => field.current?.setSelectionRange(start, start));
+      }
+    } catch (error: unknown) {
+      refuse("That paste was not added: " + message(error));
+    } finally {
+      setAdding((count) => Math.max(0, count - 1));
+    }
+  };
+  // A picture pasted into the box arrives as a file the session can read, and
+  // so does a long paste of text. Other text keeps the browser's own paste,
+  // which the textarea takes as it always has. A selection copied with its
+  // pictures from a conversation holds them inline in its HTML: each arrives
+  // as a pasted picture does, in their order, and its words paste as text, or
+  // as a pasted text that comes before them when they are long (#2543).
   const paste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
     const { pictures, shouldKeepWords } = pastedPictures(event.clipboardData);
-    if (!pictures.length) return;
-    if (!shouldKeepWords) event.preventDefault();
-    void add(pictures);
+    if (pictures.length && !shouldKeepWords) {
+      event.preventDefault();
+      void add(pictures);
+      return;
+    }
+    const text = boxText(event.clipboardData.getData("text/plain"));
+    const box = event.currentTarget;
+    if (!isLongPaste(text, box.value.slice(0, box.selectionStart) + text + box.value.slice(box.selectionEnd))) {
+      void add(pictures);
+      return;
+    }
+    event.preventDefault();
+    void keepPaste(text).then(() => add(pictures));
   };
   // A file dragged onto the box is added as one chosen with Add files.
   const dragOver = (event: DragEvent<HTMLDivElement>) => {
@@ -588,9 +645,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
     event.preventDefault();
     void add(dropped);
   };
-  // insert puts words where the caret or the selection is, keeping the rest of
-  // the draft, and separates them from a word they would otherwise run into.
-  const insert = (text: string) => {
+  // inserted is the draft with words put where the caret or the selection is,
+  // keeping the rest of it, and separated from a word they would otherwise run
+  // into, and where the caret lands after them.
+  const inserted = (text: string) => {
     const box = field.current;
     const prior = box?.value ?? draft;
     const heard = text.trim();
@@ -598,8 +656,13 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
     const before = prior.slice(0, start), after = prior.slice(end);
     const lead = heard && before && !/\s$/.test(before) ? " " : "";
     const tail = heard && after && !/^\s/.test(after) ? " " : "";
-    write(() => before + lead + heard + tail + after);
-    const at = start + lead.length + heard.length;
+    return { words: before + lead + heard + tail + after, at: start + lead.length + heard.length };
+  };
+  // insert puts words in the draft where inserted places them.
+  const insert = (text: string) => {
+    const box = field.current;
+    const { words, at } = inserted(text);
+    write(() => words);
     requestAnimationFrame(() => { box?.setSelectionRange(at, at); box?.focus(); });
   };
   const pasteKey = async () => {
@@ -609,7 +672,9 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
       return;
     }
     const inline = inlinePictures(input.html);
-    if ("text" in input) insert(input.text);
+    const text = "text" in input ? boxText(input.text) : "";
+    if (isLongPaste(text, inserted(text).words)) await keepPaste(text);
+    else if ("text" in input) insert(text);
     if (inline.length) await add(inline);
     else if ("image" in input) await add([input.image]);
   };

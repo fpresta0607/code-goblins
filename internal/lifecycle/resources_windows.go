@@ -36,7 +36,7 @@ type Resources struct {
 // termination rules: stopping a parent ends whatever its helpers' own stops
 // left. Every directory it names is a task's own by its identity: the
 // worktree spawn made for it in the home, or where an older build put it,
-// the extra worktrees it recorded beside that, its task temporary directory
+// the extra worktrees it recorded in the home's worktrees, its task temporary directory
 // and its scratch folder, so a record that names anything else stops
 // nothing. Its marks are the proofs its own terminal was given, under every
 // host that ran it since the machine started.
@@ -73,11 +73,11 @@ func heldResources(ctx context.Context, h home.Home, meta state.TaskMeta, comman
 
 // TaskDirectories are the folders that are one task's own by its identity:
 // its worktree, its task temporary directory, the extra worktrees it recorded
-// beside its own, its scratch folder and its Claude Code scratchpad. A
+// in a project folder of the home's worktrees, its own project's or another's,
+// its scratch folder and its Claude Code scratchpad. A
 // record that names anything else names nothing, so no process is the task's
 // for working there.
 func TaskDirectories(h home.Home, meta state.TaskMeta) ([]string, error) {
-	project := filepath.Base(filepath.Clean(meta.Project))
 	if !filepath.IsAbs(meta.Project) || !slices.ContainsFunc(h.OwnWorktrees(meta.Project, meta.ID), func(own string) bool { return strings.EqualFold(filepath.Clean(meta.Worktree), own) }) {
 		return nil, errors.New("task worktree is not its isolated project worktree")
 	}
@@ -88,9 +88,9 @@ func TaskDirectories(h home.Home, meta state.TaskMeta) ([]string, error) {
 	for _, extra := range meta.Extras {
 		name := filepath.Base(filepath.Clean(extra))
 		if !slices.ContainsFunc(h.WorktreeRoots(), func(root string) bool {
-			return strings.EqualFold(filepath.Dir(filepath.Clean(extra)), filepath.Join(root, project))
+			return strings.EqualFold(filepath.Dir(filepath.Dir(filepath.Clean(extra))), filepath.Clean(root))
 		}) || !strings.HasPrefix(strings.ToLower(name), strings.ToLower(meta.ID)+"-") {
-			return nil, errors.New("task extra worktree is not one beside its own")
+			return nil, errors.New("task extra worktree is not one of the home's worktrees named for the task")
 		}
 		directories = append(directories, extra)
 	}

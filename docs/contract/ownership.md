@@ -115,7 +115,7 @@ The extraction preserves the existing obligations, including gate budgets, merge
 | `goblins start-hook accept <task-id> <file> [--fleet]` | [goblins help start-hook accept](../commands/start-hook/accept.md) |
 | `goblins merge-local <id>` | [goblins help merge-local](../commands/merge-local.md) |
 | `goblins cleanup <id>` | [goblins help cleanup](../commands/cleanup.md) |
-| `goblins worktree add <id> <name> [--ref <commit>]` \| `remove <id> <name>` | [goblins help worktree](../commands/worktree.md) |
+| `goblins worktree add <id> <name> [--ref <commit>] [--project <name\|path>]` \| `remove <id> <name> [--project <name\|path>]` | [goblins help worktree](../commands/worktree.md) |
 | `goblins reap [--dry-run] [--apply] [--force <pid\|task-id>]` | [goblins help reap](../commands/reap.md) |
 | `goblins register` | [goblins help register](../commands/register.md) |
 | `goblins process-plan` | [goblins help process-plan](../commands/process-plan.md) |
