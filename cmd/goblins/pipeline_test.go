@@ -143,7 +143,7 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 		case "merge-base " + trusted + " HEAD":
 			return execx.Result{Stdout: []byte(trusted + "\n")}, nil
 		}
-		if len(q.Args) > 4 && q.Args[0] == "diff" && q.Args[1] == "--numstat" && q.Args[4] == trusted {
+		if len(q.Args) > 5 && q.Args[0] == "--attr-source="+trusted && q.Args[1] == "diff" && q.Args[2] == "--numstat" && q.Args[5] == trusted {
 			return execx.Result{Stdout: []byte(r.numstat)}, nil
 		}
 	case "no-mistakes":

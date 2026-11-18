@@ -37,7 +37,9 @@ type BranchSize struct {
 
 // BranchSizeOf counts the lines the HEAD of worktree changes against its merge
 // base with base: insertions plus deletions, leaving out binary files, files
-// the repository marks linguist-generated in .gitattributes, and lock files.
+// base's .gitattributes marks linguist-generated, and lock files. The
+// attributes are read from base, never from the branch, so a branch cannot
+// leave its own files out by marking them generated.
 func BranchSizeOf(ctx context.Context, commands execx.Runner, worktree, base string) (BranchSize, error) {
 	mergeBase, err := commands.Run(ctx, execx.Request{Dir: worktree, Name: "git", Args: []string{"merge-base", base, "HEAD"}})
 	fields := strings.Fields(string(mergeBase.Stdout))
@@ -46,7 +48,7 @@ func BranchSizeOf(ctx context.Context, commands execx.Runner, worktree, base str
 	}
 	// Both forms of the attribute are left out: a bare linguist-generated
 	// sets it, and attr:linguist-generated matches only that, not =true.
-	diff, err := commands.Run(ctx, execx.Request{Dir: worktree, Name: "git", Args: []string{"diff", "--numstat", "-z", "-M", fields[0], "HEAD", "--", ".", ":(exclude,attr:linguist-generated)", ":(exclude,attr:linguist-generated=true)"}})
+	diff, err := commands.Run(ctx, execx.Request{Dir: worktree, Name: "git", Args: []string{"--attr-source=" + base, "diff", "--numstat", "-z", "-M", fields[0], "HEAD", "--", ".", ":(exclude,attr:linguist-generated)", ":(exclude,attr:linguist-generated=true)"}})
 	if err != nil || diff.ExitCode != 0 {
 		return BranchSize{}, fmt.Errorf("pipeline: the branch's changes since %s cannot be read, so its size is unknown and no run started: %v %s", fields[0], err, strings.TrimSpace(string(diff.Stderr)))
 	}

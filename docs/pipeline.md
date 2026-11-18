@@ -274,7 +274,8 @@ A no-mistakes whose `axi run` takes no `--agent-env` starts no run, and the comm
 No other start passes it: no-mistakes keeps a run's agent environment in every run admitted from it, by `validate-authored`, `validate-terminal` or an owner correction, as a rerun does.
 So a `validate-terminal` on another branch whose `uv.lock` state differs keeps the first run's `UV_EXCLUDE_NEWER` choice.
 A new run starts only on a branch that changes at most 2,000 lines, its insertions plus deletions against its merge base with origin's default branch (issue 2002).
-Binary files, files the repository's `.gitattributes` marks `linguist-generated` and lock files (`go.sum`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `uv.lock`, `Cargo.lock`) are not counted.
+Binary files, lock files (`go.sum`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `uv.lock`, `Cargo.lock`) and only the files the default branch's `.gitattributes` marks `linguist-generated` are not counted.
+The branch's own `.gitattributes` is not read, so a branch cannot leave its files out by marking them generated, and a large first drop of a new generated file starts on the CEO's word or after its `.gitattributes` line lands on the default branch.
 In the week to 2026-10-27 reviews of changes over 2,000 lines read 85% of the gate's review tokens, about 41.6 million a pass, and a run that ends without landing reviews the whole branch again.
 A larger branch is sent back before any review is spent: the command names its total and its largest files and says to split it into branches that are each gated on their own.
 A branch that cannot be split, such as a vendored drop, starts only on the CEO's word, `--size-override "<reason>"` from the registered primary CEO, whose reason goes to the task's status log as `pipeline-size-override` before the run starts; a goblin's, a blank one or one of more than one line is refused.

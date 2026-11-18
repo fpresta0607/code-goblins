@@ -53,7 +53,7 @@ func TestPipelineRunSendsBackABranchTooLargeForOneReviewPass(t *testing.T) {
 			if err == nil || len(runner.started) != 0 {
 				t.Fatalf("a branch of 2001 changed lines: %v, native=%+v; want it refused with no gate run", err, runner.started)
 			}
-			for _, said := range []string{"branch feat/policy changes 2001 lines", "over the 2000", "no run started", "internal/big.go (1200), internal/bigger.go (700), docs/notes.md (101)", "Split it", "--size-override"} {
+			for _, said := range []string{"branch feat/policy changes 2001 lines", "over the 2000", "no run started", "internal/big.go (1200), internal/bigger.go (700), docs/notes.md (101)", "Split it", "only the files the default branch's .gitattributes marks linguist-generated are not counted", "--size-override"} {
 				if !strings.Contains(err.Error(), said) {
 					t.Errorf("refusal = %v; want it to say %q", err, said)
 				}
