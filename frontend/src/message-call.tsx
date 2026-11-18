@@ -34,8 +34,9 @@ const RESULTS: Partial<Record<CallState, Omit<TerminalResult, "icon">>> = { runn
 // open: a connector's tool as its harness names it, the tools a search
 // loaded, all it was called on, a command with what it printed and how it
 // ended in one terminal block (#2524), what any other call brought back in
-// one, an edit's diff and its pictures, and under a command that drove the
-// goblin's browser its Screen view (CallOpens). A call that started a
+// one, the diff of what a call edited in place of what it printed (#2534),
+// its pictures, and under a command that drove the goblin's browser its
+// Screen view (CallOpens). A call that started a
 // sub-agent is its baby goblin's row instead, whose Open shows that baby
 // goblin's terminal while its goblin's tree holds it, and a call that wrote
 // a plan is that plan's checklist card. Whether its fold is open is the
@@ -78,11 +79,9 @@ export function MessageCall({ call, task, picture, onChild, open, onOpenChange }
   return <Disclosure kind="disclosure-line message-call" title={head} open={open} onOpenChange={onOpenChange}>
     {words.connector && <p className="call-full call-raw">{call.tool}</p>}
     {words.loaded && words.loaded.length > 0 && <ul className="call-loaded">{words.loaded.map((name, at) => <li key={at}>{name}</li>)}</ul>}
-    {language ? <TerminalBlock shell={language} command={input} output={hasDiff ? "" : call.result} result={ending && mark && { ...ending, icon: mark }} />
+    {language ? <TerminalBlock shell={language} command={input} output={hasDiff ? "" : call.result} diff={call.edit?.diff} result={ending && mark && { ...ending, icon: mark }} />
       : input && <p className="call-full">{literalLinks(input)}</p>}
-    {call.edit && hasDiff
-      ? <div className="message-diff">{call.edit.diff.map((line, at) => <div key={at} className={line.startsWith("+") ? "line-added" : line.startsWith("-") ? "line-removed" : undefined}>{line}</div>)}</div>
-      : !language && call.result && <TerminalBlock output={call.result} />}
+    {!language && (hasDiff || call.result) && <TerminalBlock output={hasDiff ? "" : call.result} diff={call.edit?.diff} />}
     <MessagePictures sources={call.pictures.map((each) => picture(each.id))} />
     {language && <CallOpens command={input} />}
   </Disclosure>;
