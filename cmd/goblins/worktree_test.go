@@ -81,13 +81,19 @@ func TestWorktreeAddRecordsTheExtraAndRemoveTakesItOff(t *testing.T) {
 	}
 }
 
-// goblins worktree add --project makes the extra a worktree of another project,
-// beside that project's worktrees in the home, and records it on the task;
-// remove --project returns it to that project, which then registers none.
+// goblins worktree add --project makes the extra a worktree of the project
+// the projects root names, beside that project's worktrees in the home, and
+// records it on the task; remove --project returns it to that project, which
+// then registers none.
 func TestWorktreeAddMakesAndRecordsAnExtraOfAnotherProject(t *testing.T) {
-	// Arrange: a second project, cloned from an origin of its own.
-	h, service := extraFixture(t)
-	ctx := context.Background()
+	// Arrange: a primary home and a second project in the projects root,
+	// cloned from an origin of its own.
+	h, _ := extraFixture(t)
+	for _, name := range []string{"AGENTS.md", home.InstalledMarker} {
+		if err := os.WriteFile(filepath.Join(h.Root, name), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 	root := filepath.Dir(h.Root)
 	origin := filepath.Join(root, "tool.git")
 	gitIn(t, root, "init", "-q", "--bare", "--initial-branch=main", origin)
@@ -96,18 +102,26 @@ func TestWorktreeAddMakesAndRecordsAnExtraOfAnotherProject(t *testing.T) {
 	gitIn(t, other, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "seed")
 	gitIn(t, other, "push", "-q", "origin", "HEAD:main")
 	gitIn(t, other, "remote", "set-head", "origin", "--auto")
+	runtime := commandRuntime{
+		resolveHome:  func() (home.Home, error) { return h, nil },
+		projectsRoot: func() (string, error) { return root, nil },
+	}
 	want := filepath.Join(h.Worktrees(), "tool", "g1-release")
+	var addOut, addErr, removeOut, removeErr strings.Builder
 
 	// Act
-	_, addErr := addExtraWorktree(ctx, h, service, "g1", "release", other, "")
+	addCode := runWorktree([]string{"add", "g1", "release", "--project", "tool"}, &addOut, &addErr, runtime)
 	added, readErr := state.ReadTaskMeta(h.State, "g1")
 	registered := gitIn(t, other, "worktree", "list", "--porcelain")
-	_, removeErr := removeExtraWorktree(ctx, h, service, worktree.RunnerGit{Commands: execx.OSRunner{}}, "g1", "release", other)
+	removeCode := runWorktree([]string{"remove", "g1", "release", "--project", "tool"}, &removeOut, &removeErr, runtime)
 	removed, rereadErr := state.ReadTaskMeta(h.State, "g1")
 
 	// Assert
-	if addErr != nil || readErr != nil || removeErr != nil || rereadErr != nil {
-		t.Fatalf("add %v, read %v, remove %v, reread %v", addErr, readErr, removeErr, rereadErr)
+	if addCode != 0 || removeCode != 0 {
+		t.Fatalf("add exited %d (%s), remove exited %d (%s)", addCode, addErr.String(), removeCode, removeErr.String())
+	}
+	if readErr != nil || rereadErr != nil {
+		t.Fatalf("read %v, reread %v", readErr, rereadErr)
 	}
 	if !slices.Equal(added.Extras, []string{want}) {
 		t.Errorf("after add the record's extras are %v, want %s", added.Extras, want)
