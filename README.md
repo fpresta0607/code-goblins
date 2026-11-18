@@ -247,7 +247,7 @@ See [uninstall options and retention details](docs/commands/uninstall.md).
 
 ## Your data
 
-The CEO home is `%LOCALAPPDATA%\CodeGoblins` by default, or the folder selected through `GOBLINS_HOME`.
+The CEO home is `%LOCALAPPDATA%\CodeGoblins` by default, `$XDG_DATA_HOME/code-goblins` or `~/.local/share/code-goblins` on Linux and macOS, or the folder selected through `GOBLINS_HOME`.
 It holds fleet state, briefs, the backlog, project settings, credentials, memory, isolated worktrees and caches outside your repositories.
 Your directives live in `data/overlord.md`; durable shared knowledge lives in `data/memory/`, indexed by `MEMORY.md`.
 See the [CEO home contract](docs/contract/home.md#the-ceo-home) and [instruction and context load map](docs/load-map.md).
