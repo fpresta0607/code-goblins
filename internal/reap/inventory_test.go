@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -293,6 +294,43 @@ func TestWorktreesConfirmRegistrationWithTheRepository(t *testing.T) {
 	}
 	if len(notes) != 0 {
 		t.Errorf("unexpected notes: %q", notes)
+	}
+}
+
+// An extra worktree a task recorded of another project is placed with that
+// project, which registers it, and not with the task's own, which does not.
+func TestARecordedExtraOfAnotherProjectIsPlacedWithThatProject(t *testing.T) {
+	// Arrange
+	root := t.TempDir()
+	projects := filepath.Join(root, "dev")
+	checkout := filepath.Join(projects, "repo")
+	tool := filepath.Join(projects, "tool")
+	gitInit(t, checkout)
+	gitInit(t, tool)
+	h := withRecords(t, filepath.Join(root, "home"), "t1")
+	own := filepath.Join(h.Root, "worktrees", "repo", "t1")
+	extra := filepath.Join(h.Root, "worktrees", "tool", "t1-release")
+	for _, add := range []struct{ checkout, worktree string }{{checkout, own}, {tool, extra}} {
+		command := exec.Command("git", "worktree", "add", "--detach", add.worktree)
+		command.Dir = add.checkout
+		if out, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git worktree add: %v: %s", err, out)
+		}
+	}
+	tasks := []Task{{ID: "t1", Meta: state.TaskMeta{ID: "t1", Project: checkout, Worktree: own, Extras: []string{extra}}}}
+	collector := Collector{Home: h, Commands: execx.OSRunner{}, ProjectsRoot: func() (string, error) { return projects, nil }}
+
+	// Act
+	var notes []string
+	found := collector.worktrees(context.Background(), tasks, &notes)
+
+	// Assert
+	at := slices.IndexFunc(found, func(dir WorktreeDir) bool { return dir.Path == extra })
+	if at < 0 {
+		t.Fatalf("the extra %s was not scanned; scanned %+v, notes %q", extra, found, notes)
+	}
+	if !fsx.SamePath(found[at].Project, tool) || found[at].Registration != RegistrationListed {
+		t.Errorf("the extra is placed with %s as %q, want %s, which registers it; notes %q", found[at].Project, found[at].Registration, tool, notes)
 	}
 }
 

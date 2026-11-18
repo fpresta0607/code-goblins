@@ -102,9 +102,10 @@ Policy v6 needs a no-mistakes build that applies launch selections.
 That is the fork at `https://github.com/fpresta0607/no-mistakes` with its pull request 5, and with pull request 4, b05697a, which v5's Codex arguments already need.
 A pi gate needs one more, the fork's pull request 10, which teaches the launch assertion to prove a `pi` selection, so a build without it accepts the Codex and Claude Code chains only.
 A gate whose reviewer or fixer runs apart from its primary needs the fork's pull request 310, bb78421, which pins those roles, so a build without it gates only a task whose roles all run on one lane.
-The install puts in the build of that fork `install.ps1` pins, commit `853d3fd`, the head of the fork's main, and each release builds and signs it beside its own programs.
+The install puts in the build of that fork `install.ps1` pins, commit `c4383b9`, the head of the fork's main, and each release builds and signs it beside its own programs.
 That main carries pull requests 4 to 10, the fix that gives a gate daemon a temporary directory of its own that outlives the goblin that started it (pull request 32), and the fix that hands the Test step's correction turn the whole response an agent refused, not a snippet of it (pull request 31), and the fix that makes a review with no answer text name what pi ended on and rerun once, not twice (pull request 34).
 It also carries pull requests 46, 49, 52, 56, 60, 61 and 72, and the change that holds a repair round's rereview to what the fix changed, keeping the previous round's verdict on each file the fix left alone that no open finding names (pull request 79).
+It also carries pull request 345, which sets the variables an `axi run --agent-env` names for every agent and step command of that run and of the runs started from it.
 The checked-in `config/pipeline.json` is v7, which needs the same build.
 no-mistakes proves Codex, Claude Code and pi selections only, so a goblin on any other harness has no gate from v6: `goblins spawn` refuses such a task in `no-mistakes` mode there, and `goblins pipeline run` refuses one switched to it.
 
@@ -262,6 +263,11 @@ Name each issue the run's pull request closes with `--closes`, as `1996` or `own
 no-mistakes neutralizes the closing words in every text an agent wrote, the intent included, so a `Fixes #N` in the intent closes nothing.
 A no-mistakes before 1.87.0 takes no `--closes`, so a start that names an issue on one starts no run and names the version to update to.
 A reattach to a live run keeps the closing issues it started with.
+Every run starts with the release cooldown of the task's worktree, the variables a goblin's terminal carries, each as `--agent-env NAME=VALUE`, which no-mistakes sets for every agent and step command of that run (issue 1991).
+The shared daemon otherwise starts them with its own environment, so a gate agent's `npm install` or `pip install` would resolve the newest release.
+A no-mistakes whose `axi run` takes no `--agent-env` starts no run, and the command says to update it; a reattach keeps the cooldown its run started with.
+No other start passes it: no-mistakes keeps a run's agent environment in every run admitted from it, by `validate-authored`, `validate-terminal` or an owner correction, as a rerun does.
+So a `validate-terminal` on another branch whose `uv.lock` state differs keeps the first run's `UV_EXCLUDE_NEWER` choice.
 A response's `--instructions` still reach no-mistakes on its command line, which is the only way it takes them, so keep them short and plain.
 An approval `--reason` reaches it the same way, and the driver refuses one that is not a single line of plain text.
 

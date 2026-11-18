@@ -180,7 +180,7 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 		}
 		return Result{}, fmt.Errorf("cleanup: validate worktree: %w", err)
 	}
-	extras, err := s.recordedExtras(ctx, git, project, meta)
+	extras, err := s.recordedExtras(ctx, git, meta)
 	if err != nil {
 		return Result{}, err
 	}
@@ -208,11 +208,12 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	strayNote := worktree.StrayNote(strays, "cleanup")
 	// Every worktree the task holds is proven clean before anything changes,
 	// so a refusal leaves the task exactly as it was.
-	for _, path := range append(extras, worktreePath) {
-		if kept := keptInside(path, strays); kept != "" {
-			return Result{}, fmt.Errorf("cleanup: %s still holds harness worktree %s%s", path, kept, strayNote)
+	held := append(extras, checkoutWorktree{path: worktreePath, checkout: project})
+	for _, each := range held {
+		if kept := keptInside(each.path, strays); kept != "" {
+			return Result{}, fmt.Errorf("cleanup: %s still holds harness worktree %s%s", each.path, kept, strayNote)
 		}
-		if err := s.requireClean(ctx, path); err != nil {
+		if err := s.requireClean(ctx, each.path); err != nil {
 			return Result{}, err
 		}
 	}
@@ -244,10 +245,10 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	outcome := s.outcome(ctx, meta, "Worktree returned by cleanup")
 	var archived, heldLeft []string
 	var holds []error
-	for _, path := range append(extras, worktreePath) {
-		tag, hold, err := s.returnWorktree(ctx, git, project, path)
+	for _, each := range held {
+		tag, hold, err := s.returnWorktree(ctx, git, each.checkout, each.path)
 		switch {
-		case err != nil && path == worktreePath:
+		case err != nil && each.path == worktreePath:
 			return Result{}, fmt.Errorf("cleanup: return worktree: %w", err)
 		case err != nil:
 			return Result{}, fmt.Errorf("cleanup: return extra worktree: %w", err)
@@ -256,7 +257,7 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 			archived = append(archived, tag)
 		}
 		if hold != nil {
-			heldLeft = append(heldLeft, path)
+			heldLeft = append(heldLeft, each.path)
 			holds = append(holds, hold)
 		}
 	}
@@ -280,7 +281,7 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	result.Meta = meta
 	result.Output = fmt.Sprintf("cleaned %s worktree=%s", id, worktreePath)
 	for _, extra := range extras {
-		result.Output += " extra=" + extra
+		result.Output += " extra=" + extra.path
 	}
 	if archive != "" {
 		result.Output += " archive=" + archive
@@ -444,11 +445,20 @@ func (s Service) closeRow(outcome state.Outcome) string {
 	return "\nits backlog row is under ## Done"
 }
 
-// recordedExtras resolves the extra worktrees the task recorded, each proven
-// a worktree of the task's project and never the project itself. One already
-// gone has nothing left to return and is skipped.
-func (s Service) recordedExtras(ctx context.Context, git worktree.Git, project string, meta state.TaskMeta) ([]string, error) {
-	var extras []string
+// checkoutWorktree is a worktree the cleanup returns and the checkout it is
+// returned to, where its unlanded work is kept and its record pruned.
+type checkoutWorktree struct {
+	path     string
+	checkout string
+}
+
+// recordedExtras resolves the extra worktrees the task recorded, each with
+// the checkout its .git file leads to, which is another project's for an
+// extra `goblins worktree add --project` made, and each proven a worktree of
+// that checkout and never the checkout itself. One already gone has nothing
+// left to return and is skipped.
+func (s Service) recordedExtras(ctx context.Context, git worktree.Git, meta state.TaskMeta) ([]checkoutWorktree, error) {
+	var extras []checkoutWorktree
 	for _, recorded := range meta.Extras {
 		path, err := fsx.Canonical(recorded)
 		if errors.Is(err, fs.ErrNotExist) {
@@ -457,10 +467,17 @@ func (s Service) recordedExtras(ctx context.Context, git worktree.Git, project s
 		if err != nil {
 			return nil, fmt.Errorf("cleanup: canonicalize extra worktree %q: %w", recorded, err)
 		}
-		if err := worktree.Validate(ctx, git, project, path); err != nil {
+		checkout, ok := worktree.Checkout(path)
+		if !ok {
+			return nil, fmt.Errorf("cleanup: extra worktree %s: its .git file leads to no checkout", path)
+		}
+		if checkout, err = fsx.Canonical(checkout); err != nil {
+			return nil, fmt.Errorf("cleanup: canonicalize the checkout of extra worktree %s: %w", path, err)
+		}
+		if err := worktree.Validate(ctx, git, checkout, path); err != nil {
 			return nil, fmt.Errorf("cleanup: validate extra worktree: %w", err)
 		}
-		extras = append(extras, path)
+		extras = append(extras, checkoutWorktree{path: path, checkout: checkout})
 	}
 	return extras, nil
 }
