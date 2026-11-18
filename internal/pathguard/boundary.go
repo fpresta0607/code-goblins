@@ -12,7 +12,10 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // Boundary is what one session's tool calls may reach.
@@ -52,7 +55,7 @@ func (b Boundary) Refusal(path string, isWrite bool) string {
 	}
 	resolved := realPath(given)
 	named := given
-	if !strings.EqualFold(resolved, given) {
+	if !fsx.EqualPath(resolved, given) {
 		named += " (" + resolved + ")"
 	}
 	for _, secret := range b.Secrets {
@@ -95,7 +98,7 @@ func (b Boundary) absolute(path string) (string, bool) {
 	}
 	if !filepath.IsAbs(path) {
 		switch volume := filepath.VolumeName(path); {
-		case strings.HasPrefix(path, `\`):
+		case runtime.GOOS == "windows" && strings.HasPrefix(path, `\`):
 			path = filepath.VolumeName(b.Cwd) + path
 		case volume != "":
 			path = volume + `\` + path[len(volume):]
@@ -110,7 +113,8 @@ func (b Boundary) absolute(path string) (string, bool) {
 }
 
 // expand reads what a shell would before it reaches the path: ~, the
-// variables that name the user's folders, and Git Bash's /c/ drives.
+// variables that name the user's folders, and on Windows Git Bash's /c/
+// drives and its /tmp. Elsewhere /c/ and /tmp are the paths they spell.
 func (b Boundary) expand(path string) string {
 	getenv := b.Getenv
 	if getenv == nil {
@@ -134,6 +138,7 @@ func (b Boundary) expand(path string) string {
 		}
 	}
 	switch {
+	case runtime.GOOS != "windows":
 	case len(path) >= 2 && path[0] == '/' && isLetter(path[1]) && (len(path) == 2 || path[2] == '/'):
 		path = strings.ToUpper(path[1:2]) + ":/" + strings.TrimPrefix(path[2:], "/")
 	case path == "/tmp" || strings.HasPrefix(path, "/tmp/"):
@@ -162,18 +167,18 @@ func realPath(path string) string {
 	}
 }
 
-// within reports whether path is root or inside it, comparing without case
-// as Windows does.
+// within reports whether path is root or inside it, by the rule of the file
+// system that holds root (fsx.EqualPath).
 func within(path, root string) bool {
 	root = realPath(filepath.Clean(root))
-	if strings.EqualFold(path, root) {
+	if fsx.EqualPath(root, path) {
 		return true
 	}
 	prefix := root
 	if !strings.HasSuffix(prefix, string(filepath.Separator)) {
 		prefix += string(filepath.Separator)
 	}
-	return len(path) > len(prefix) && strings.EqualFold(path[:len(prefix)], prefix)
+	return len(path) > len(prefix) && fsx.HasPathPrefix(path, prefix)
 }
 
 // namesGitBelow reports whether path is inside root and a folder or file of
