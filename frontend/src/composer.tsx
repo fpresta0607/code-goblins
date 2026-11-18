@@ -124,7 +124,7 @@ function storeAttached(key: string, paths: string[]): void {
 // harness's interrupt, and a paste the board cannot keep says so here. On a
 // touch screen the + opens Paste a picture, since an iPhone's own Paste in a
 // text box takes text alone, and Photos or files, the phone's own picker.
-export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, model, effort, hasConversation = false, isTerminalShown = false, isShown = true, isWorking = false, isCompacting = false, history = [], usage, onActive, askSlot }: {
+export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, model, effort, hasConversation = false, isTerminalShown = false, isShown = true, isWorking = false, isCompacting = false, history = [], handing = [], usage, onActive, askSlot }: {
   snapshot: Snapshot; task?: Task; name: string; hasConversation?: boolean;
   model?: string;
   // model and effort are what the session's own record last says it runs.
@@ -138,6 +138,9 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // the send button's place interrupts while the box is empty, and history
   // is what he sent the session before, oldest first, which Up recalls.
   isWorking?: boolean; history?: string[];
+  // handing is each message of his that the session's harness is handing to
+  // its turn, as its record shows, out of his hands, so Up leaves it.
+  handing?: string[];
   // usage is the session's usage pies, drawn at the end of the controls row
   // where the send arrow was before Send moved onto the line he writes on.
   usage?: ReactNode;
@@ -674,7 +677,12 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // harness from the queue (the Overlord, 2026-10-28: "if I hit the up arrow
   // when there's a queued message, it'll pull that queued message back into
   // my chat composer automatically to then edit and resend it, taking it off
-  // the queue"). A message already typed into the turn is the harness's.
+  // the queue"). Up takes back the same way one typed into a turn under way
+  // that its harness still holds in its own queue, as the terminal's own Up
+  // takes that queue back (the Overlord, 2026-11-17: "If I up arrow, it
+  // actually pulls the message back into my input and unqueues it", #2622),
+  // but never one its harness is handing to its turn, which reads Sending and
+  // has no Edit.
   // Edit on a queued message takes it back the same way, before any words he
   // has in the box since, and a message is taken back once however often he
   // presses (the Overlord, 2026-10-28: "lack of indmepotent click on teh
@@ -731,7 +739,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // Down walks forward again to the empty box; any edit ends the recall.
   const recall = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const box = event.currentTarget;
-    const newest = queued.filter((action) => !action.awaiting).at(-1);
+    const newest = queued.filter((action) => !action.awaiting || isHarnessHeld(action) && !handing.includes(action.id)).at(-1);
     if (event.key === "ArrowUp" && hasConversation && !draft && !attached.length && newest) {
       if (!isSending) void unqueue(newest);
       return true;

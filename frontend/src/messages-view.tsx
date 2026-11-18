@@ -50,9 +50,10 @@ const UNREAD = "The session's messages cannot be read";
 const RECENT_SESSIONS = 8;
 const RECENT_MESSAGES = 50;
 type PublishedMessages = MessagePage & { isWorking: boolean; said: string; task?: Task; sent: Action[]; pending: Action[]; sending: PendingSend[] };
-// What the box under the conversation shows of the session: what it spent and
-// the words he sent it.
-type Composing = Pick<MessagePage, "usage"> & { history: string[] };
+// What the box under the conversation shows of the session: what it spent,
+// the words he sent it, and the board messages of his its harness is handing
+// to its turn.
+type Composing = Pick<MessagePage, "usage"> & { history: string[]; handing: string[] };
 
 // A Claude Code session's messages, read only: the supervisor's stream of
 // them (/api/messages), drawn as the session's conversation. It sits in the
@@ -82,7 +83,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   pages: Map<string, MessagePage>;
   sent: Action[]; pending: Action[];
   subscriptions?: SubscriptionUsage[]; spend?: KeySpend[];
-  shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string, usage: ReactNode, onSend: () => void, isTurnRunning: boolean) => ReactNode;
+  shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string, usage: ReactNode, onSend: () => void, isTurnRunning: boolean, handing: string[]) => ReactNode;
   onComposerDock?: (node: HTMLDivElement | null) => void; onAskSlot?: (node: HTMLDivElement | null) => void;
   // onOpenCommand opens the Command Center on an item, as a block's Run does
   // on the run card it made.
@@ -108,7 +109,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
   const [received, setReceived] = useState<ConversationHead>(() => conversationHead(held));
   // The box speaks for the session as it is now, however far up he reads, so
   // it follows the stream while the history he reads holds still.
-  const [composing, setComposing] = useState<Composing>(() => composerOf({ history: [] }, held));
+  const [composing, setComposing] = useState<Composing>(() => composerOf({ history: [], handing: [] }, held));
   const [phase, setPhase] = useState<"connecting" | "live" | "closed">("connecting");
   // What the fleet's stream says of the session's turn, which alone draws the
   // working indicator: never the board's snapshot of the terminal, which can
@@ -995,7 +996,7 @@ export function MessagesView({ query, instance, pages, name, task, terminal, har
           box"), only once the view is live and holds a real reading, never
           while it connects ("connecting screens don't need to display the
           dither or usage unavailable"). */}
-      {box?.(model, composing.history, effort, phase === "live" && <UsageBar readings={readings} />, sentFromBox, isTurnRunning)}
+      {box?.(model, composing.history, effort, phase === "live" && <UsageBar readings={readings} />, sentFromBox, isTurnRunning, composing.handing)}
     </div>}
     {viewed !== null && <PictureViewer sources={pictureSources} source={viewed} onSource={setViewed} onClose={() => setViewed(null)} />}
   </section></MessageDocumentScope>;
@@ -1011,7 +1012,8 @@ function ownPrompts(messages: MessagePage["messages"]): { at: string; text: stri
 // same, so a streamed reply he reads past draws nothing.
 function composerOf(prior: Composing, page: MessagePage): Composing {
   const history = ownPrompts(page.messages).map((row) => row.text);
-  return prior.usage === page.usage && isSameList(prior.history, history) ? prior : { usage: page.usage, history };
+  const handing = page.waiting.flatMap((prompt) => prompt.sending && prompt.action ? [prompt.action] : []);
+  return prior.usage === page.usage && isSameList(prior.history, history) && isSameList(prior.handing, handing) ? prior : { usage: page.usage, history, handing };
 }
 
 // isSameList says two lists hold the same items in the same order.

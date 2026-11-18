@@ -778,6 +778,99 @@ test("Up in the empty box takes the newest queued message back into the box, its
   expect(posts).toHaveLength(1);
 });
 
+// The Overlord, 2026-11-17 (#2622): "If I up arrow, it actually pulls the
+// message back into my input and unqueues it. That should be the same
+// functionality in Modern Terminal." A message typed into a turn under way
+// waits in its harness's own queue, where Edit takes it back (#2332), and Up
+// in the empty box takes it back the same way.
+for (const { whose, task, name } of [{ whose: "the CEO", task: "", name: "CEO" }, { whose: "a goblin", task: GOBLIN.id, name: undefined }]) {
+  test(`Up in the empty box takes his message back out of ${whose}'s harness queue and into the box, as the terminal's Up does`, async ({ page }) => {
+    // Arrange
+    const words = "check the phone layout too";
+    const held = queued({
+      id: "h1", task_id: task, generation: task ? GOBLIN.generation : "", text: words, status: "running", can_send_now: false, send_now_why: "", message: "Queued in its session.",
+      awaiting: task ? { task, since: "2026-10-22T09:01:00Z", is_held: true } : { since: "2026-10-22T09:01:00Z", is_held: true }, created_at: "2026-10-22T09:01:00Z", updated_at: "2026-10-22T09:01:01Z",
+    });
+    const relay = await open(page, snapshot({ actions: [held] }));
+    const posts: { kind: string; target: string; text: string }[] = [];
+    await page.route("**/api/actions", (route) => {
+      const body = route.request().postDataJSON() as { kind: string; target?: string; text?: string };
+      posts.push({ kind: body.kind, target: body.target ?? "", text: body.text ?? "" });
+      return route.fulfill({ status: 202, json: { status: "succeeded" } });
+    });
+    if (task) await openGoblin(page);
+    else {
+      await page.keyboard.press("Control+Alt+1");
+      await expect(page.locator("#panel-title")).toHaveText("CEO");
+    }
+    relay.say({ type: "screen", asking: false, open: false, working: true });
+    await expect(entry(page).filter({ hasText: words }).locator(".queued-state")).toHaveText(WAITING);
+
+    // Act
+    await field(page, name).focus();
+    await page.keyboard.press("ArrowUp");
+
+    // Assert: taken back by its own identity, his words in the box to change.
+    await expect.poll(() => posts).toEqual([{ kind: "message_withdraw", target: "h1", text: words }]);
+    await expect(field(page, name)).toHaveValue(words);
+
+    // Act: the board has taken it back out of its harness's queue.
+    await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2, actions: [] }));
+
+    // Assert: the queue is empty, and nothing reached the terminal.
+    await expect(entry(page)).toHaveCount(0);
+    expect(typed(relay)).toBe("");
+  });
+}
+
+// With nothing of his queued, Up in the empty box brings back what he sent
+// before while the session works, as it does while it waits.
+test("Up in the empty box with no message of his queued brings back what he sent before, as it did", async ({ page }) => {
+  // Arrange
+  const relay = await open(page, snapshot());
+  const posts: string[] = [];
+  await page.route("**/api/actions", (route) => {
+    posts.push((route.request().postDataJSON() as { kind: string }).kind);
+    return route.fulfill({ status: 202, json: { status: "succeeded" } });
+  });
+  await openGoblin(page);
+  relay.say({ type: "screen", asking: false, open: false, working: true });
+  await expect(entry(page)).toHaveCount(0);
+
+  // Act
+  await field(page).focus();
+  await page.keyboard.press("ArrowUp");
+
+  // Assert
+  await expect(field(page)).toHaveValue("Read the brief");
+  expect(posts).toEqual([]);
+  expect(typed(relay)).toBe("");
+});
+
+// A message its harness is handing to its turn, as its record shows, is out
+// of his hands, so it reads Sending with no Edit, and Up leaves it and brings
+// back what he sent before.
+test("Up leaves a message its harness is handing to its turn and brings back what he sent before", async ({ page }) => {
+  // Arrange
+  const words = "check the phone layout too";
+  const held = queued({
+    id: "h1", text: words, status: "running", can_send_now: false, send_now_why: "", message: "Queued in its session.",
+    awaiting: { task: GOBLIN.id, since: "2026-10-22T09:01:00Z", is_held: true }, created_at: "2026-10-22T09:01:00Z", updated_at: "2026-10-22T09:01:01Z",
+  });
+  const posts = await openWith(page, held);
+  await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })),
+    { ...PAGE, waiting: [{ id: "w1", at: "2026-10-22T09:01:00Z", source: "overlord", text: words, sending: true, action: "h1" }] });
+  await expect(entry(page).filter({ hasText: words }).locator(".queued-state")).toHaveText("Sending");
+
+  // Act
+  await field(page).focus();
+  await page.keyboard.press("ArrowUp");
+
+  // Assert
+  await expect(field(page)).toHaveValue("Read the brief");
+  expect(posts).toEqual([]);
+});
+
 // A take-back disables the box while the board answers, and a disabled box
 // gives up the keyboard. The box has it back from the moment it is enabled
 // again: given back a frame later, a key he pressed at once reached nothing,
