@@ -529,9 +529,9 @@ func (s Service) endLeft(ctx context.Context, meta state.TaskMeta) string {
 	return output
 }
 
-// returnHarnessStrays returns the worktrees the project registers inside the
-// task's own folders, which a harness's own tooling left rather than ceo, and
-// says what became of each. A worktree it cannot prove safe is kept and
+// returnHarnessStrays returns the worktrees the project, or an extra's own
+// project, registers inside the task's own folders, which a harness's own
+// tooling left rather than ceo, and says what became of each. A worktree it cannot prove safe is kept and
 // named, never discarded. A read that fails does not stop the relaunch, which
 // would leave the goblin with no harness.
 func (s Service) returnHarnessStrays(ctx context.Context, git worktree.Git, project string, meta state.TaskMeta, scratch, worktreePath string) string {
