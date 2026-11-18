@@ -1075,6 +1075,113 @@ func TestAReadAfterTheProgressPassIsNoGapInThePasses(t *testing.T) {
 	}
 }
 
+// machineClocksAt are a machine's two clocks as a test sets them: the wall
+// clock, which runs on while the machine sleeps, and how long it was awake.
+type machineClocksAt struct {
+	mu    sync.Mutex
+	wall  time.Time
+	awake time.Duration
+}
+
+func (clocks *machineClocksAt) read() (time.Time, time.Duration) {
+	clocks.mu.Lock()
+	defer clocks.mu.Unlock()
+	return clocks.wall, clocks.awake
+}
+
+// sleep moves the wall clock on by length, as the machine's sleep does.
+func (clocks *machineClocksAt) sleep(length time.Duration) {
+	clocks.mu.Lock()
+	defer clocks.mu.Unlock()
+	clocks.wall = clocks.wall.Add(length)
+}
+
+// work moves both clocks on by length, as the machine's slow work does.
+func (clocks *machineClocksAt) work(length time.Duration) {
+	clocks.mu.Lock()
+	defer clocks.mu.Unlock()
+	clocks.wall = clocks.wall.Add(length)
+	clocks.awake += length
+}
+
+// pausingGit is a progress read that runs out of time, the first of which
+// takes pause inside it.
+type pausingGit struct {
+	slowGit
+	once  sync.Once
+	pause func()
+}
+
+func (git *pausingGit) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
+	git.once.Do(git.pause)
+	return git.slowGit.Run(ctx, request)
+}
+
+// A machine that sleeps inside a reading, in its progress probe, was not
+// watched while it slept, as one that sleeps between readings was not: on
+// waking, the next reading starts the blind spell again. Go's monotonic clock
+// on Windows counts the sleep, which stamped the reading's end after the wake
+// and woke the CEO at once with a spell spanning the night (#2053). A reading
+// whose work is only slow, minutes on a loaded machine, was watched
+// throughout, so the spell goes on through it and wakes once it lasted a
+// stall.
+func TestASleepInsideAReadingStartsTheBlindSpellAgain(t *testing.T) {
+	spellSince := time.Date(2026, 11, 3, 18, 0, 0, 0, time.UTC)
+	at := spellSince.Add(5 * time.Minute)
+	for _, test := range []struct {
+		name       string
+		pause      func(clocks *machineClocksAt)
+		next       time.Time
+		spellSince time.Time
+		wakes      int
+	}{
+		{"the machine slept 14 hours in the reading's progress probe", func(clocks *machineClocksAt) { clocks.sleep(14 * time.Hour) }, at.Add(14 * time.Hour), at.Add(14 * time.Hour), 0},
+		{"the reading's work took 15 minutes on a loaded machine", func(clocks *machineClocksAt) { clocks.work(15 * time.Minute) }, at.Add(15 * time.Minute), spellSince, 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange: every read has run out since 18:00Z, and the reading
+			// before ended as this one starts.
+			service, h := fleetService(t)
+			for _, id := range []string{"a-task", "b-task", "c-task"} {
+				liveGoblin(t, h, id, h.Root)
+			}
+			clocks := &machineClocksAt{wall: at, awake: time.Hour}
+			service.Options.Clocks = clocks.read
+			head := strings.Repeat("a", 40)
+			service.Options.Progress = &pausingGit{slowGit: slowGit{progressGit: progressGit{head: head, pushed: head}, isEverySlow: true}, pause: func() { test.pause(clocks) }}
+			if err := writeFleetWakes(h.State, fleetWakes{ProgressUnreadSince: spellSince, ProgressPassAt: at}); err != nil {
+				t.Fatal(err)
+			}
+			if err := service.checkFleet(t.Context(), at); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act: the next reading starts as the paused one ends, with every
+			// read still running out.
+			err := service.checkFleet(t.Context(), test.next)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			watched, err := readFleetWakes(h.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !watched.ProgressUnreadSince.Equal(test.spellSince) {
+				t.Errorf("blind spell since %s, want %s", watched.ProgressUnreadSince.Format(time.RFC3339), test.spellSince.Format(time.RFC3339))
+			}
+			wakes := progressUnreadWakes(t, h)
+			if len(wakes) != test.wakes {
+				t.Fatalf("progress_unread wakes = %d, want %d: %q", len(wakes), test.wakes, wakes)
+			}
+			if test.wakes > 0 && !strings.Contains(wakes[0], "for 20 minutes, since 18:00Z") {
+				t.Errorf("wake %q, want the spell that began at 18:00Z", wakes[0])
+			}
+		})
+	}
+}
+
 // A pass the supervisor's own stop cut short, its reads ended with the
 // supervisor, read neither the machine nor any goblin: it starts no blind
 // spell and adds to no goblin's run of failed passes.
