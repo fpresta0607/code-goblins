@@ -27,7 +27,7 @@ for (const who of ["CEO", "goblin"] as const) {
     await expect(log.locator(".message-thinking li")).toHaveText(["Read the file.", "Keep its order."]);
     await log.locator("details.message-call-group > summary", { hasText: "Ran 1 command, edited 1 file" }).click();
     await log.getByText("src/example.ts", { exact: true }).click();
-    await expect(log.locator(".message-diff")).toContainText("+new");
+    await expect(log.locator(".terminal-diff")).toContainText("+new");
     await expect(field(page, name)).toHaveValue("continue from this draft");
 
     // Enter types into the terminal once its view is live, which a busy
