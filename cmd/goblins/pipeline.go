@@ -531,7 +531,11 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			start = pipeline.Start{Args: []string{"axi", "run"}}
 			fmt.Fprintf(out, "pipeline: reattached to run %s on %s, which keeps its own intent, closing issues and review budget; no new run starts\n", check.ReattachRun, branch)
 		} else {
-			start, err = pipeline.StartOf(ctx, commands, gated, pipeline.NativeEnv(root), intent, closes)
+			cooldown, _, err := worktree.Service{Commands: commands}.Cooldown(ctx, gated, time.Now())
+			if err != nil {
+				return fmt.Errorf("pipeline: %w", err)
+			}
+			start, err = pipeline.StartOf(ctx, commands, gated, pipeline.NativeEnv(root), intent, closes, cooldown)
 			if err != nil {
 				return fmt.Errorf("pipeline: %w", err)
 			}

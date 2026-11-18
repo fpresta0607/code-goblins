@@ -257,6 +257,9 @@ Name each issue the run's pull request closes with `--closes`, as `1996` or `own
 no-mistakes neutralizes the closing words in every text an agent wrote, the intent included, so a `Fixes #N` in the intent closes nothing.
 A no-mistakes before 1.87.0 takes no `--closes`, so a start that names an issue on one starts no run and names the version to update to.
 A reattach to a live run keeps the closing issues it started with.
+Every run starts with the release cooldown of the task's worktree, the variables a goblin's terminal carries, each as `--agent-env NAME=VALUE`, which no-mistakes sets for every agent and step command of that run (issue 1991).
+The shared daemon otherwise starts them with its own environment, so a gate agent's `npm install` or `pip install` would resolve the newest release.
+A no-mistakes whose `axi run` takes no `--agent-env` starts no run, and the command says to update it; a reattach keeps the cooldown its run started with.
 A response's `--instructions` still reach no-mistakes on its command line, which is the only way it takes them, so keep them short and plain.
 An approval `--reason` reaches it the same way, and the driver refuses one that is not a single line of plain text.
 

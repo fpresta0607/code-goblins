@@ -61,7 +61,7 @@ func (r *gateStartRunner) Run(ctx context.Context, q execx.Request) (execx.Resul
 		// 1.80.0 to before 1.86.0, so a run it starts has its intent on the
 		// command line, kept out of the pull request.
 		if strings.Join(q.Args, " ") == "help axi run" {
-			return execx.Result{Stdout: []byte("      --no-publish-intent   keep the generated Intent section out of the PR body\n")}, nil
+			return execx.Result{Stdout: []byte("      --agent-env stringArray   set NAME=VALUE in the environment of every agent of the run\n      --no-publish-intent   keep the generated Intent section out of the PR body\n")}, nil
 		}
 		if r.started != nil {
 			close(r.started)
@@ -153,7 +153,7 @@ func launchedSelection(t *testing.T, native []execx.Request) (selection writtenS
 	if len(native) != 1 {
 		t.Fatalf("native launches=%+v, want one", native)
 	}
-	args := native[0].Args
+	args := withoutAgentEnv(native[0].Args)
 	if len(args) != 11 || strings.Join(args[:5], " ") != "axi run --intent ship safely --no-publish-intent" || args[5] != "--launch-nonce" || args[7] != "--validation-generation" || args[9] != "--launch-assertion" {
 		t.Fatalf("native launch argv: %q", args)
 	}

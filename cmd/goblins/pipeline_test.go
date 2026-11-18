@@ -68,6 +68,9 @@ type pipelineStartRunner struct {
 	head string
 	// repoConfig, when set, is the .no-mistakes.yaml the task branch holds.
 	repoConfig string
+	// uvLocks is what git ls-files lists of the worktree's uv.lock files,
+	// each ended by a NUL.
+	uvLocks string
 }
 
 func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Result, error) {
@@ -104,6 +107,8 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 			return execx.Result{Stdout: []byte("feat/policy\n")}, nil
 		case "status --porcelain --untracked-files=all":
 			return execx.Result{}, nil
+		case "ls-files -z -- :(glob)**/uv.lock":
+			return execx.Result{Stdout: []byte(r.uvLocks)}, nil
 		case "show HEAD:.no-mistakes.yaml":
 			if r.repoConfig != "" {
 				return execx.Result{Stdout: []byte(r.repoConfig)}, nil
@@ -126,7 +131,7 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 		// 1.80.0 to before 1.86.0, so a run it starts has its intent on the
 		// command line, kept out of the pull request.
 		if slices.Equal(q.Args, []string{"help", "axi", "run"}) {
-			return execx.Result{Stdout: []byte("      --no-publish-intent   keep the generated Intent section out of the PR body\n")}, nil
+			return execx.Result{Stdout: []byte("      --agent-env stringArray   set NAME=VALUE in the environment of every agent of the run\n      --no-publish-intent   keep the generated Intent section out of the PR body\n")}, nil
 		}
 		r.native = append(r.native, q)
 		r.roleStarted = r.advance && r.remoteRead >= 2
@@ -1832,7 +1837,7 @@ func TestPipelineRunLaunchesNativeAfterCheckStart(t *testing.T) {
 		t.Fatalf("native launches=%+v, want one", runner.native)
 	}
 	request := runner.native[0]
-	if request.Name != "no-mistakes" || !strings.HasPrefix(strings.Join(request.Args, " "), "axi run --intent ship safely --no-publish-intent --launch-nonce ceo-") {
+	if request.Name != "no-mistakes" || !strings.HasPrefix(strings.Join(withoutAgentEnv(request.Args), " "), "axi run --intent ship safely --no-publish-intent --launch-nonce ceo-") {
 		t.Fatalf("native launch argv: %+v", request)
 	}
 	if request.Dir != wt {
@@ -2068,7 +2073,7 @@ func TestPipelineRunAndRecoverActInTheWorktreeOfTheNamedBranch(t *testing.T) {
 		if err != nil {
 			t.Fatalf("run --branch: %v", err)
 		}
-		if len(start.native) != 1 || !strings.HasSuffix(start.native[0].Dir, "task-connections") || !strings.HasPrefix(strings.Join(start.native[0].Args, " "), "axi run --intent ship safely --no-publish-intent --launch-nonce ceo-") {
+		if len(start.native) != 1 || !strings.HasSuffix(start.native[0].Dir, "task-connections") || !strings.HasPrefix(strings.Join(withoutAgentEnv(start.native[0].Args), " "), "axi run --intent ship safely --no-publish-intent --launch-nonce ceo-") {
 			t.Fatalf("native launches = %+v, want one run in the extra worktree", start.native)
 		}
 	})

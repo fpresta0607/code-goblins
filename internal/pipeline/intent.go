@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"maps"
 	"os"
+	"slices"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
@@ -54,7 +56,13 @@ func (start Start) Close() {
 // reference from, since it neutralizes a closing keyword in every text an
 // agent wrote, the intent included. A no-mistakes before 1.87.0 takes no
 // --closes, so a start that names an issue on one starts no run.
-func StartOf(ctx context.Context, commands execx.Runner, dir string, env []string, intent string, closes []string) (Start, error) {
+//
+// Each variable of agentEnv goes to no-mistakes as --agent-env NAME=VALUE,
+// which it sets for every agent and step command of the run. The shared
+// daemon starts them with its own environment otherwise, which carries none
+// of the release cooldown a goblin's terminal does (#1991). A no-mistakes
+// whose axi run takes no --agent-env starts no run with any.
+func StartOf(ctx context.Context, commands execx.Runner, dir string, env []string, intent string, closes []string, agentEnv map[string]string) (Start, error) {
 	help, err := commands.Run(ctx, execx.Request{Dir: dir, Env: env, Name: "no-mistakes", Args: []string{"help", "axi", "run"}})
 	if err != nil {
 		return Start{}, err
@@ -65,9 +73,15 @@ func StartOf(ctx context.Context, commands execx.Runner, dir string, env []strin
 	if len(closes) > 0 && !bytes.Contains(help.Stdout, []byte("--closes")) {
 		return Start{}, errors.New("this no-mistakes takes no --closes, so the pull request its gate opened would close no issue, and no run starts: update no-mistakes to 1.87.0 or later")
 	}
+	if len(agentEnv) > 0 && !bytes.Contains(help.Stdout, []byte("--agent-env")) {
+		return Start{}, errors.New("this no-mistakes takes no --agent-env, so the gate's agents would run package managers without the release cooldown a goblin's terminal carries, and no run starts: update no-mistakes to a build whose axi run takes --agent-env")
+	}
 	var closing []string
 	for _, issue := range closes {
 		closing = append(closing, "--closes", issue)
+	}
+	for _, name := range slices.Sorted(maps.Keys(agentEnv)) {
+		closing = append(closing, "--agent-env", name+"="+agentEnv[name])
 	}
 	if !bytes.Contains(help.Stdout, []byte("--intent-file")) {
 		return Start{Args: append([]string{"axi", "run", "--intent", intent, noPublishIntent}, closing...), IsOnCommandLine: true}, nil
