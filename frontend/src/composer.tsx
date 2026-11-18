@@ -748,11 +748,12 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // takes that queue back (the Overlord, 2026-11-17: "If I up arrow, it
   // actually pulls the message back into my input and unqueues it", #2622),
   // but only from a harness that gives its queue back to a key, which Claude
-  // Code alone does (Screens.EditQueue), and never one out of his hands, which
-  // has no Edit. Past those Up brings back what he sent before, so he never
-  // meets the same refusal on every Up (the CEO, 2026-11-18: "Up at an empty
-  // box brings back what he sent before, past a message a Codex or pi harness
-  // holds that no key can take back").
+  // Code alone does (Screens.EditQueue), and only in a terminal, since on
+  // stream-json pipes it gives its queue back to nothing; and never one out
+  // of his hands, which has no Edit. Past those Up brings back what he sent
+  // before, so he never meets the same refusal on every Up (the CEO,
+  // 2026-11-18: "Up at an empty box brings back what he sent before, past a
+  // message a Codex or pi harness holds that no key can take back").
   // Edit on a queued message takes it back the same way, before any words he
   // has in the box since, and a message is taken back once however often he
   // presses (the Overlord, 2026-10-28: "lack of indmepotent click on teh
@@ -809,7 +810,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // Down walks forward again to the empty box; any edit ends the recall.
   const recall = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const box = event.currentTarget;
-    const hasQueueKey = (task ? task.harness : snapshot.ceo_harness) === "claude";
+    const hasQueueKey = harness === "claude" && !live?.isStream;
     const newest = queued.filter((action) => !action.awaiting || hasQueueKey && isHarnessHeld(action) && !handedOver.includes(action.id)).at(-1);
     if (event.key === "ArrowUp" && hasConversation && !draft && !attached.length && newest) {
       if (!isSending) void unqueue(newest);

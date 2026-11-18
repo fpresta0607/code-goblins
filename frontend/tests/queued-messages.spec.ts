@@ -851,25 +851,52 @@ test("Up in the empty box with no message of his queued brings back what he sent
 // what he sent before instead: one out of his hands, which reads Sent or
 // Sending, or shows as his own row once the session's record shows it taken
 // while the board has yet to settle it, none of them with an Edit, and one a
-// Codex or pi goblin's harness holds, whose queue no key gives back (the CEO,
-// 2026-11-18, of #2622: "Up at an empty box brings back what he sent before,
-// past a message a Codex or pi harness holds that no key can take back, so he
-// never meets the same refusal on every Up").
+// harness holds whose queue no key gives back, a Codex or pi harness's, the
+// CEO's as a goblin's, and a Claude Code goblin's on stream-json pipes (the
+// CEO, 2026-11-18, of #2622: "Up at an empty box brings back what he sent
+// before, past a message a Codex or pi harness holds that no key can take
+// back, so he never meets the same refusal on every Up").
 const WORDS = "check the phone layout too";
 const SINCE = "2026-10-22T09:01:00Z";
 const HELD = { task: GOBLIN.id, since: SINCE, is_held: true };
 const HELD_WHY = "Queued in the goblin's session. The goblin takes it at its next tool call, or as its current turn ends.";
-for (const { what, awaiting, message, goblin, record, state, recalled } of [
-  { what: "typed into its turn that its harness does not hold", awaiting: { task: GOBLIN.id, since: SINCE }, message: "Sent. The goblin takes it at its next tool call, or as its current turn ends.", goblin: {}, record: PAGE, state: "Sent", recalled: "Read the brief" },
-  { what: "its harness is handing to its turn", awaiting: HELD, message: HELD_WHY, goblin: {},
+for (const { what, task = GOBLIN.id, harness = "claude", isStream = false, awaiting, message, record, state, recalled } of [
+  { what: "typed into its turn that its harness does not hold", awaiting: { task: GOBLIN.id, since: SINCE }, message: "Sent. The goblin takes it at its next tool call, or as its current turn ends.", record: PAGE, state: "Sent", recalled: "Read the brief" },
+  { what: "its harness is handing to its turn", awaiting: HELD, message: HELD_WHY,
     record: { ...PAGE, waiting: [{ id: "w1", at: SINCE, source: "overlord", text: WORDS, sending: true, action: "h1" }] }, state: "Sending", recalled: "Read the brief" },
-  { what: "the session's record shows taken before the board settles it", awaiting: HELD, message: HELD_WHY, goblin: {},
+  { what: "the session's record shows taken before the board settles it", awaiting: HELD, message: HELD_WHY,
     record: { ...PAGE, messages: [...PAGE.messages, { id: "m2", seq: 2, at: "2026-10-22T09:01:02Z", kind: "prompt", source: "overlord", text: WORDS }] }, state: "", recalled: WORDS },
-  { what: "held in a Codex goblin's queue, which no key gives back,", awaiting: HELD, message: HELD_WHY, goblin: { harness: "codex" }, record: PAGE, state: WAITING, recalled: "Read the brief" },
+  { what: "held in a Codex goblin's queue, which no key gives back,", harness: "codex", awaiting: HELD, message: HELD_WHY, record: PAGE, state: WAITING, recalled: "Read the brief" },
+  { what: "held in a Codex CEO's queue, which no key gives back,", task: "", harness: "codex", awaiting: { since: SINCE, is_held: true },
+    message: "Queued in the CEO's session. The CEO takes it at its next tool call, or as its current turn ends.", record: PAGE, state: WAITING, recalled: "Read the brief" },
+  { what: "held in the queue of a Claude Code goblin on stream-json pipes, which nothing gives back,", isStream: true, awaiting: HELD, message: HELD_WHY, record: PAGE, state: WAITING, recalled: "Read the brief" },
 ]) {
   test(`Up leaves a message ${what} and brings back what he sent before`, async ({ page }) => {
     // Arrange
-    const posts = await openWith(page, queued({ id: "h1", text: WORDS, status: "running", can_send_now: false, send_now_why: "", message, awaiting, created_at: SINCE, updated_at: "2026-10-22T09:01:01Z" }), goblin);
+    const held = queued({ id: "h1", task_id: task, generation: task ? GOBLIN.generation : "", text: WORDS, status: "running", can_send_now: false, send_now_why: "", message, awaiting, created_at: SINCE, updated_at: "2026-10-22T09:01:01Z" });
+    const relay = await open(page, task ? snapshot({ actions: [held] }, { harness }) : snapshot({ actions: [held], ceo_harness: harness }));
+    const posts: string[] = [];
+    await page.route("**/api/actions", (route) => {
+      posts.push((route.request().postDataJSON() as { kind: string }).kind);
+      return route.fulfill({ status: 202, json: { status: "succeeded" } });
+    });
+    const name = task ? undefined : "CEO";
+    if (task) await openGoblin(page);
+    else {
+      await page.keyboard.press("Control+Alt+1");
+      await expect(page.locator("#panel-title")).toHaveText("CEO");
+    }
+    if (isStream) {
+      // A stream session's view takes no typing, and its stream marker
+      // brings Stop back over the hold, so the box knows it before Up.
+      const stop = box(page).getByRole("button", { name: "Stop", exact: true });
+      relay.say({ type: "screen", asking: false, open: false, working: true });
+      await expect(stop).toBeVisible();
+      relay.say({ type: "held", reason: "This goblin runs on stream-json pipes." });
+      await expect(stop).toHaveCount(0);
+      relay.say({ type: "stream" });
+      await expect(stop).toBeVisible();
+    }
     await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })), record);
     if (state) await expect(entry(page).filter({ hasText: WORDS }).locator(".queued-state")).toHaveText(state);
     else {
@@ -878,11 +905,11 @@ for (const { what, awaiting, message, goblin, record, state, recalled } of [
     }
 
     // Act
-    await field(page).focus();
+    await field(page, name).focus();
     await page.keyboard.press("ArrowUp");
 
     // Assert
-    await expect(field(page)).toHaveValue(recalled);
+    await expect(field(page, name)).toHaveValue(recalled);
     expect(posts).toEqual([]);
   });
 }
