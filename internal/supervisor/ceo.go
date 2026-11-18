@@ -133,26 +133,24 @@ func Register(stateDir, harness, session string) (string, error) {
 	if _, _, err := custody.Take(stateDir, ancestry[harnessAt].PID, session, "goblins register"); err != nil {
 		return "", fmt.Errorf("the home's session lock could not be taken, so this session is not registered: %w", err)
 	}
-	hostname, err := os.Hostname()
+	process, err := registeredProcess(ancestry[harnessAt], session)
 	if err != nil {
 		return "", err
 	}
-	process := ancestry[harnessAt]
 	described := fmt.Sprintf("%s pid %d in native terminal %s", primary.Agent, process.PID, primary.Host)
 	// primary.json's hash is the identity questions, reviews and answers are
 	// bound to, so the same process in the same terminal keeps its bytes.
 	if file, err := openPrimary(filepath.Join(stateDir, "primary.json")); err == nil {
 		current, _, err := decodePrimary(file)
 		_ = file.Close()
-		drift := current.Process.Start.Sub(process.Start)
-		sameProcess := current.Process.PID == process.PID && current.Process.Hostname == hostname && drift > -time.Second && drift < time.Second
+		sameProcess := current.Process.PID == process.PID && current.Process.Hostname == process.Hostname && current.Process.IsProcess(process.Start, process.Instance)
 		recorded := current
 		current.Process = lock.Info{}
 		if err == nil && sameProcess && current == primary {
 			return described, recordCEOConversation(stateDir, recorded, session)
 		}
 	}
-	primary.Process = lock.Info{PID: process.PID, OwnerPID: process.PID, Session: session, Start: process.Start, Hostname: hostname, Acquired: time.Now().UTC()}
+	primary.Process = process
 	data, err := json.Marshal(primary)
 	if err != nil {
 		return "", err
@@ -162,10 +160,32 @@ func Register(stateDir, harness, session string) (string, error) {
 	if _, _, err := decodePrimary(bytes.NewReader(data)); err != nil {
 		return "", err
 	}
-	if err := fsx.AtomicWriteFile(filepath.Join(stateDir, "primary.json"), data); err != nil {
+	// A reader that holds primary.json (openPrimary) acts on what it read, so
+	// the replace waits it out.
+	staged, err := fsx.Stage(filepath.Join(stateDir, "primary.json"), data)
+	if err != nil {
+		return "", err
+	}
+	if err := staged.CommitUnheld(); err != nil {
 		return "", err
 	}
 	return described, recordCEOConversation(stateDir, primary, session)
+}
+
+// registeredProcess is the record of the CEO's harness process that
+// primary.json keeps, naming it as the lock's records do: by its start, and
+// by its instance where the system reads one, since there a start moves when
+// the clock is stepped and a record without its instance proves no process.
+func registeredProcess(process proc.Entry, session string) (lock.Info, error) {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return lock.Info{}, err
+	}
+	instance, err := lock.InstanceOf(process.PID)
+	if err != nil {
+		return lock.Info{}, err
+	}
+	return lock.Info{PID: process.PID, OwnerPID: process.PID, Session: session, Start: process.Start, Hostname: hostname, Acquired: time.Now().UTC(), Instance: instance}, nil
 }
 
 // nativeHarness proves this process runs in the CEO's own session, whose
