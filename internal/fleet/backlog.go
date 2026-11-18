@@ -114,6 +114,10 @@ type BacklogRow struct {
 	Effort  string `json:"effort,omitempty"`
 	Mode    string `json:"mode,omitempty"`
 	Raw     string `json:"raw"`
+	// GoblinName and GoblinTitle are the goblin the board named a queued
+	// row's task for, before it starts.
+	GoblinName  string `json:"goblin_name,omitempty"`
+	GoblinTitle string `json:"goblin_title,omitempty"`
 }
 
 // IsCheckedOff says the row is a checkbox row marked done, as - [x] id - ...

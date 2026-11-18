@@ -100,7 +100,7 @@ The extraction preserves the existing obligations, including gate budgets, merge
 | `goblins send <target> <text>` | [goblins help send](../commands/send.md) |
 | `goblins send <target> --key <key>` | [goblins help send](../commands/send.md) |
 | `goblins peek <target> [lines]` | [goblins help peek](../commands/peek.md) |
-| `goblins fleet-view [--json]` | [goblins help fleet-view](../commands/fleet-view.md) |
+| `goblins fleet-view [--json] [--name <name>]` | [goblins help fleet-view](../commands/fleet-view.md) |
 | `goblins runtime [--json]` | [goblins help runtime](../commands/runtime.md) |
 | `goblins services up <project> --task <id> [--wait <duration>]` \| `down <project> --task <id>` | [goblins help services](../commands/services.md) |
 | `goblins tickets <project> [--brief <file>] [--files <paths>] [--json]` | [goblins help tickets](../commands/tickets.md) |
