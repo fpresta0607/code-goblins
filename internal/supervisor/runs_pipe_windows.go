@@ -18,7 +18,6 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/lock"
-	"github.com/fpresta0607/code-goblins/internal/memory"
 )
 
 var (
@@ -37,20 +36,6 @@ const (
 	pipeUnlimitedInstances  = 255
 	errorPipeConnected      = syscall.Errno(535)
 	errorPipeBusy           = syscall.Errno(231)
-	// maxRunRequest bounds one request: the command plus its JSON escaping.
-	maxRunRequest = 8 * maxRunCommand
-	// runRequestTimeout bounds the work that waits on the loop or the
-	// allowance.
-	runRequestTimeout = 20 * time.Second
-)
-
-// runReadTimeout bounds how long a client takes to send its request, and
-// runReplyTimeout how long goblins run-request waits for the answer. Only time
-// the machine ran spends either (awake), since a pause of the whole machine
-// stops the other side too.
-var (
-	runReadTimeout  = 10 * time.Second
-	runReplyTimeout = 30 * time.Second
 )
 
 // runPipeName is the supervisor's pipe for run requests, one per state
@@ -59,13 +44,6 @@ func runPipeName(stateDir string) string {
 	sum := sha256.Sum256([]byte(strings.ToLower(filepath.Clean(stateDir))))
 	return `\\.\pipe\ceo-run-requests-` + hex.EncodeToString(sum[:8])
 }
-
-// firstInstanceWait is how long the supervisor waits for a pipe name another
-// instance still holds to come free: a supervisor that just stopped releases
-// its instances within moments, and a name held longer than this is not ours.
-// Only time the machine ran spends it (awake), since a pause of the whole
-// machine stops the supervisor before too.
-const firstInstanceWait = 2 * time.Second
 
 // serveRunRequests takes run items over the supervisor's named pipe until ctx
 // ends. Every client is proven by its own process: only one that runs under
@@ -117,12 +95,7 @@ func (s *Service) serveRunRequests(ctx context.Context) {
 		}
 		if syscall.Handle(handle) == syscall.InvalidHandle {
 			if first && errors.Is(callErr, syscall.ERROR_ACCESS_DENIED) {
-				err := fmt.Errorf("run requests: another process already holds the pipe %s, so run requests are not served; stop it and restart goblins serve", runPipeName(s.Store.Home.State))
-				s.Store.mu.Lock()
-				s.Store.issue(err.Error())
-				saveErr := s.Store.save()
-				s.Store.mu.Unlock()
-				s.publish(errors.Join(err, saveErr))
+				s.refuseRunRequests(fmt.Errorf("run requests: another process already holds the pipe %s, so run requests are not served; stop it and restart goblins serve", runPipeName(s.Store.Home.State)))
 				return
 			}
 			s.publish(fmt.Errorf("run requests: the pipe could not be created: %w", callErr))
@@ -139,17 +112,6 @@ func (s *Service) serveRunRequests(ctx context.Context) {
 	}
 }
 
-// requestTimeout bounds the work of req: a key fetch loads its pages in a
-// Chrome it starts, and lending a login's browser starts one too, which a
-// loaded machine took over half a minute to do. Every other request takes
-// runRequestTimeout.
-func requestTimeout(req runPipeRequest) time.Duration {
-	if req.Kind == "browser" && req.Browser != nil && (req.Browser.Action == "fetch" || req.Browser.Action == "attach") {
-		return browserFetchTimeout
-	}
-	return runRequestTimeout
-}
-
 // handleRunClient answers one run request with the reason it was refused, or
 // nothing when the item is on the board. A client that has not sent its
 // request within runReadTimeout is disconnected unanswered.
@@ -158,7 +120,6 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 	ok, _, callErr := procGetNamedPipeClientProcessID.Call(uintptr(handle), uintptr(unsafe.Pointer(&pid)))
 	pipe := os.NewFile(uintptr(handle), "run request pipe")
 	defer pipe.Close()
-	var reply pipeReply
 	reading, cancelReading := awake.WithTimeout(context.Background(), runReadTimeout)
 	defer cancelReading()
 	expired := make(chan struct{})
@@ -171,93 +132,11 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 		<-expired
 		return
 	}
-	var req runPipeRequest
-	switch {
-	case ok == 0:
-		reply.Error = "the supervisor could not tell which process sent the request: " + callErr.Error()
-	case err != nil:
-		reply.Error = "the run request was incomplete or over its size limit"
-	case json.Unmarshal(line, &req) != nil:
-		reply.Error = "the run request is not valid JSON"
-	default:
-		ctx, cancel := context.WithTimeout(ctx, requestTimeout(req))
-		switch req.Kind {
-		case "reported":
-			// A look takes no item, so it waits behind nobody's request.
-			err = s.lookNow(ctx)
-		case "recall":
-			// A question of the memory index reads only the index, so any
-			// process of this home may ask it and nobody's request waits.
-			var result memory.RecallResult
-			if req.Recall == nil {
-				err = errors.New("a recall request names no question")
-			} else if result, err = s.memory.recall(*req.Recall); err == nil {
-				reply.Recall = &result
-			}
-		case "browser":
-			// The broker takes its own requests one at a time, and a
-			// browser's start waits behind nobody's item.
-			var lease BrowserLease
-			if req.Browser == nil {
-				err = errors.New("a browser request names no browser")
-			} else if err = goblinPipeCaller(s.Store.Home.State, req.Browser.Task, int(pid), connected); err != nil {
-				err = fmt.Errorf("browser caller: %w", err)
-			} else {
-				switch req.Browser.Action {
-				case "sign-in":
-					lease, err = s.requestBrowserSignIn(*req.Browser)
-				case "fetch":
-					lease, err = s.fetchCredential(ctx, *req.Browser)
-				default:
-					lease, err = s.browsers.take(ctx, *req.Browser)
-				}
-				if err == nil && lease.Login != "" {
-					reply.Browser = &lease
-				}
-			}
-		case "credential-step":
-			if req.Step == nil {
-				err = errors.New("a card step names no card")
-			} else {
-				err = s.stepCredential(int(pid), connected, *req.Step)
-			}
-		default:
-			s.runRequests.Lock()
-			switch req.Kind {
-			case "":
-				err = s.acceptRunRequest(int(pid), connected, req)
-			case "afk-on", "afk-off":
-				err = s.switchAFK(ctx, int(pid), connected, req.Kind == "afk-on", req.Asked)
-			case "afk-train-landed":
-				// Any process of this home may ask: the supervisor logs
-				// only what the train's record and GitHub say.
-				if req.Train == nil {
-					err = errors.New("a train landing names no train")
-				} else {
-					err = s.logTrainLanding(ctx, *req.Train)
-				}
-			case "helper":
-				var started HelperStart
-				if req.Helper == nil {
-					err = errors.New("a helper request names no helper")
-				} else if err = goblinPipeCaller(s.Store.Home.State, req.Helper.Parent, int(pid), connected); err != nil {
-					err = fmt.Errorf("helper caller: %w", err)
-				} else if started, err = s.acceptHelper(*req.Helper); err == nil {
-					reply.Helper = &started
-				}
-			default:
-				err = s.acceptCEOItem(int(pid), connected, req)
-			}
-			s.runRequests.Unlock()
-		}
-		cancel()
-		switch {
-		case err != nil:
-			reply.Error = err.Error()
-		case req.Kind != "reported" && req.Kind != "browser" && req.Kind != "recall":
-			s.publish(nil)
-		}
+	var identified error
+	if ok == 0 {
+		identified = callErr
 	}
+	reply := s.answerRunRequest(ctx, int(pid), identified, connected, line, err)
 	data, _ := json.Marshal(reply)
 	// A written reply stays in the pipe for its client to read after this
 	// handle closes, where DisconnectNamedPipe would discard it. Only a reply
@@ -278,24 +157,6 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 	_, _ = pipe.Write(append(data, '\n'))
 }
 
-// lookNow has the supervisor's loop run a cycle now, which reads what a
-// goblin just reported and tells every board, and returns once it has.
-// Anyone who can open the pipe may ask: a look changes nothing.
-func (s *Service) lookNow(ctx context.Context) error {
-	looked := make(chan struct{})
-	select {
-	case s.looks <- looked:
-	case <-ctx.Done():
-		return errors.New("the supervisor's loop did not take the report in time")
-	}
-	select {
-	case <-looked:
-		return nil
-	case <-ctx.Done():
-		return errors.New("the supervisor's loop did not finish looking in time")
-	}
-}
-
 // Reported tells the supervisor of this home, if one runs, that a goblin
 // just reported, so the board shows the report at once instead of at its
 // next refresh. It waits for nothing: with no supervisor, or one that is
@@ -311,13 +172,6 @@ func Reported(stateDir string) {
 		return
 	}
 	_, _ = pipe.Write([]byte(`{"kind":"reported"}` + "\n"))
-}
-
-// sendPipeRequest hands one request to the supervisor and returns the reason
-// it was refused, if it was.
-func sendPipeRequest(stateDir string, req runPipeRequest) error {
-	_, err := askPipe(stateDir, req)
-	return err
 }
 
 // askPipe hands one request to the supervisor and returns its answer, or the
@@ -359,30 +213,7 @@ func askPipe(stateDir string, req runPipeRequest) (pipeReply, error) {
 	if !lock.HeldByNamed(stateDir, ".watch.lock", int(server)) {
 		return pipeReply{}, fmt.Errorf("the run request pipe is served by pid %d, which is not this home's supervisor, so nothing was sent", server)
 	}
-	// The answer may take as long as the request's work, and the margin
-	// runReplyTimeout leaves past runRequestTimeout.
-	answerWait := requestTimeout(req) + runReplyTimeout - runRequestTimeout
-	lift := awake.Deadline(pipe.SetDeadline, answerWait)
-	defer lift()
-	data, err := json.Marshal(req)
-	if err != nil {
-		return pipeReply{}, err
-	}
-	if _, err := pipe.Write(append(data, '\n')); err != nil {
-		return pipeReply{}, fmt.Errorf("the supervisor did not take the run request: %w", err)
-	}
-	line, err := bufio.NewReader(io.LimitReader(pipe, 64<<10)).ReadBytes('\n')
-	var reply pipeReply
-	if errors.Is(err, os.ErrDeadlineExceeded) {
-		return pipeReply{}, fmt.Errorf("the supervisor did not answer the run request within %s", answerWait)
-	}
-	if err != nil || json.Unmarshal(line, &reply) != nil {
-		return pipeReply{}, errors.New("the supervisor gave no answer to the run request")
-	}
-	if reply.Error != "" {
-		return reply, errors.New(reply.Error)
-	}
-	return reply, nil
+	return exchangeRunRequest(pipe, req)
 }
 
 // currentUserOnly is a security descriptor that grants the current user, and

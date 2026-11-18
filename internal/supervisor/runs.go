@@ -228,7 +228,7 @@ func runDigest(data []byte) string {
 }
 
 // PublishRun hands a command for the Overlord to run to the supervisor over
-// its named pipe. It reads the command file, and any message file, once. The
+// its pipe. It reads the command file, and any message file, once. The
 // supervisor proves the calling process runs under the registered primary
 // CEO and writes the script file Run executes itself, so nothing written
 // straight into the state directory ever reaches the board.
