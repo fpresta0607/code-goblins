@@ -442,8 +442,11 @@ INSERT INTO runs VALUES('previous','repo','feature',1,'running','` + primaryRout
 // A failed or cancelled run that spent repair rounds would have them begin
 // again in a new run, as a pause that ends a gate's live agent can leave one
 // (issue 2060), so it is refused like a live run; its continuation is the
-// CEO's terminal admission. One that spent none, even after Review approved
-// it, loses nothing to a new run.
+// CEO's terminal admission. A child of that admission spends no round of its
+// own and keeps its predecessors' spending, so the rounds of every run its
+// admissions continue count, and an earlier run it does not continue does not.
+// One whose chain spent none, even after Review approved it, loses nothing to a
+// new run.
 func TestCheckStartRefusesALiveRunAndAStoppedOneThatSpentRepairs(t *testing.T) {
 	sqlite, err := exec.LookPath("sqlite3")
 	if err != nil {
@@ -452,32 +455,54 @@ func TestCheckStartRefusesALiveRunAndAStoppedOneThatSpentRepairs(t *testing.T) {
 	for _, c := range []struct {
 		status       string
 		repairRounds int
-		unresolved   bool
+		// predecessorRounds are the repair rounds of the runs the latest run
+		// continues, its admission's predecessor first.
+		predecessorRounds []int
+		unresolved        bool
 	}{
-		{"completed", 2, false},
-		{"failed", 0, false},
-		{"cancelled", 0, false},
-		{"failed", 1, true},
-		{"cancelled", 2, true},
-		{"ci_monitor_interrupted", 2, false},
-		{"running", 0, true},
-		{"pending", 0, true},
-		{"awaiting_approval", 0, true},
-		{"unknown", 0, true},
+		{"completed", 2, nil, false},
+		{"failed", 0, nil, false},
+		{"cancelled", 0, nil, false},
+		{"failed", 1, nil, true},
+		{"cancelled", 2, nil, true},
+		{"failed", 0, []int{2}, true},
+		{"cancelled", 0, []int{0, 1}, true},
+		{"cancelled", 0, []int{0}, false},
+		{"ci_monitor_interrupted", 2, nil, false},
+		{"running", 0, nil, true},
+		{"pending", 0, nil, true},
+		{"awaiting_approval", 0, nil, true},
+		{"unknown", 0, nil, true},
 	} {
-		t.Run(fmt.Sprintf("%s after %d repair rounds", c.status, c.repairRounds), func(t *testing.T) {
-			// Arrange
+		t.Run(fmt.Sprintf("%s after %d repair rounds continuing %v", c.status, c.repairRounds, c.predecessorRounds), func(t *testing.T) {
+			// Arrange: an earlier run of the branch the latest does not
+			// continue spent repair rounds of its own.
 			dir := t.TempDir()
 			sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
 CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,created_at INTEGER,status TEXT,head_sha TEXT,submitted_head_sha TEXT,intent TEXT);
 CREATE TABLE step_results(id TEXT,run_id TEXT,step_name TEXT);
 CREATE TABLE step_rounds(step_result_id TEXT,round INTEGER,trigger_type TEXT);
+CREATE TABLE validation_admissions(id TEXT,child_id TEXT,predecessor_id TEXT,event_json TEXT);
 INSERT INTO repos VALUES('repo','C:\project','main');
-INSERT INTO runs VALUES('previous','repo','feat',1,'` + c.status + `','` + primaryRoutingSHA + `','` + primaryRoutingSHA + `','ship safely');
-INSERT INTO step_results VALUES('intent','previous','intent'),('review','previous','review'),('test','previous','test');
-INSERT INTO step_rounds VALUES('intent',1,'initial'),('review',1,'initial'),('test',1,'initial');`
+INSERT INTO runs VALUES('previous','repo','feat',1,'` + c.status + `','` + primaryRoutingSHA + `','` + primaryRoutingSHA + `','ship safely'),('unrelated','repo','feat',0,'cancelled','` + primaryRoutingSHA + `','` + primaryRoutingSHA + `','ship safely');
+INSERT INTO step_results VALUES('intent','previous','intent'),('review','previous','review'),('test','previous','test'),('unrelated-review','unrelated','review');
+INSERT INTO step_rounds VALUES('intent',1,'initial'),('review',1,'initial'),('test',1,'initial'),('unrelated-review',1,'initial'),('unrelated-review',2,'auto_fix'),('unrelated-review',3,'user_fix');`
 			for round := 2; round <= c.repairRounds+1; round++ {
 				sql += fmt.Sprintf("\nINSERT INTO step_rounds VALUES('review',%d,'auto_fix');", round)
+			}
+			spent, child := c.repairRounds, "previous"
+			for index, rounds := range c.predecessorRounds {
+				predecessor := fmt.Sprintf("predecessor-%d", index+1)
+				sql += fmt.Sprintf(`
+INSERT INTO runs VALUES('%[1]s','repo','feat',0,'cancelled','%[2]s','%[2]s','ship safely');
+INSERT INTO validation_admissions VALUES('admission-%[1]s','%[3]s','%[1]s','{}');
+INSERT INTO step_results VALUES('%[1]s-review','%[1]s','review');
+INSERT INTO step_rounds VALUES('%[1]s-review',1,'initial');`, predecessor, primaryRoutingSHA, child)
+				for round := 2; round <= rounds+1; round++ {
+					sql += fmt.Sprintf("\nINSERT INTO step_rounds VALUES('%s-review',%d,'user_fix');", predecessor, round)
+				}
+				spent += rounds
+				child = predecessor
 			}
 			if out, err := exec.Command(sqlite, filepath.Join(dir, "state.sqlite"), sql).CombinedOutput(); err != nil {
 				t.Fatalf("fixture: %s %v", out, err)
@@ -497,10 +522,10 @@ INSERT INTO step_rounds VALUES('intent',1,'initial'),('review',1,'initial'),('te
 
 			// Assert
 			if errors.Is(err, ErrUnresolved) != c.unresolved {
-				t.Fatalf("status %q after %d repair rounds: %v", c.status, c.repairRounds, err)
+				t.Fatalf("status %q after %d repair rounds continuing %v: %v", c.status, c.repairRounds, c.predecessorRounds, err)
 			}
-			if c.unresolved && c.repairRounds > 0 && !strings.Contains(err.Error(), "goblins pipeline terminal-preflight <task> --run previous") {
-				t.Fatalf("refusal names no continuation: %v", err)
+			if c.unresolved && spent > 0 && (!strings.Contains(err.Error(), fmt.Sprintf("after %d repair rounds", spent)) || !strings.Contains(err.Error(), "goblins pipeline terminal-preflight <task> --run previous")) {
+				t.Fatalf("refusal = %v, want it to name %d repair rounds and the continuation", err, spent)
 			}
 		})
 	}

@@ -234,21 +234,16 @@ func (r Reader) CheckStart(ctx context.Context, project, worktree, branch, inten
 	// A failed or cancelled run that spent repair rounds, as a pause that ends
 	// a gate's live agent can leave one, would have them begin again in a new
 	// run (issue 2060). Its continuation is the CEO's terminal admission, which
-	// keeps that spending. One that spent none loses nothing to a new run, as
-	// recovery's returned-custody refusal counts it (#2378).
+	// keeps that spending. One whose admission chain spent none loses nothing
+	// to a new run.
 	if len(previous) > 0 && (previous[0].Status == "failed" || previous[0].Status == "cancelled") {
 		run := previous[0]
-		var spent []struct {
-			Rounds int `json:"rounds"`
-		}
-		if err := r.query(ctx, `SELECT COUNT(*) AS rounds FROM step_rounds q JOIN step_results s ON s.id=q.step_result_id WHERE s.run_id=`+sqlString(run.ID)+` AND q.trigger_type IN ('auto_fix','user_fix')`, &spent); err != nil {
+		rounds, err := r.spentRepairRounds(ctx, run.ID)
+		if err != nil {
 			return StartCheck{}, err
 		}
-		if len(spent) != 1 {
-			return StartCheck{}, errors.New("pipeline: run repair rounds cannot be read")
-		}
-		if spent[0].Rounds > 0 {
-			return StartCheck{}, fmt.Errorf("%w; run %s is %s on %s after %d repair rounds, which a new run would begin again: read it with goblins pipeline terminal-preflight <task> --run %s, and its continuation is the CEO's terminal admission, goblins pipeline validate-terminal for its unchanged head or validate-authored for a corrected one, which keeps that spending", ErrUnresolved, run.ID, run.Status, branch, spent[0].Rounds, run.ID)
+		if rounds > 0 {
+			return StartCheck{}, fmt.Errorf("%w; run %s is %s on %s after %d repair rounds, which a new run would begin again: read it with goblins pipeline terminal-preflight <task> --run %s, and its continuation is the CEO's terminal admission, goblins pipeline validate-terminal for its unchanged head or validate-authored for a corrected one, which keeps that spending", ErrUnresolved, run.ID, run.Status, branch, rounds, run.ID)
 		}
 	}
 	// A live run blocks a new one. The set matches Idle's.

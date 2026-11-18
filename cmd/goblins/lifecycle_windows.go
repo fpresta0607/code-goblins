@@ -208,9 +208,10 @@ func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, comman
 		told := "Your retained validation run " + retained.ID + " is " + retained.Status + ". Resuming your terminal starts no validation and returns no branch custody; inspect its supported source-bound continuation before requesting validation, and never replace this run or reset its spent allowance."
 		if retained.Status == "failed" || retained.Status == "cancelled" {
 			// A pause that ends a gate's live agent leaves its run here, and
-			// CheckStart refuses a new run over one that spent repair rounds,
-			// which only the CEO's terminal admission continues (issue 2060).
-			told = "Your retained validation run is " + retained.Status + ". Resuming your terminal starts no validation and returns no branch custody. Read it with goblins pipeline terminal-preflight " + meta.ID + " --run " + retained.ID + ". If it spent no repair round, goblins pipeline run starts its new run, which loses nothing. If it spent one, that start is refused, and its continuation is the CEO's terminal admission, goblins pipeline validate-terminal for its unchanged head or validate-authored for a corrected one, which keeps that spending: ask the CEO for it with goblins notify " + meta.ID + " --blocked."
+			// CheckStart refuses a new run over one whose admission chain spent
+			// repair rounds, which only the CEO's terminal admission continues
+			// (issue 2060).
+			told = "Your retained validation run is " + retained.Status + ". Resuming your terminal starts no validation and returns no branch custody. Read it with goblins pipeline terminal-preflight " + meta.ID + " --run " + retained.ID + ". If neither it nor a run its admission continues spent a repair round, goblins pipeline run starts its new run, which loses nothing. If one did, that start is refused, and its continuation is the CEO's terminal admission, goblins pipeline validate-terminal for its unchanged head or validate-authored for a corrected one, which keeps that spending: ask the CEO for it with goblins notify " + meta.ID + " --blocked."
 		}
 		if !retained.IsTerminal() {
 			told = "Your validation run " + retained.ID + " is still running; inspect its status and carry on from that original run, and start no other run beside it."
