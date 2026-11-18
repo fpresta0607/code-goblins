@@ -15,9 +15,9 @@ const queued = (fields: Record<string, unknown> = {}) => ({
   can_send_now: false, send_now_why: "Its gate holds the branch.", created_at: "2026-10-22T09:00:00Z", updated_at: "2026-10-22T09:00:00Z", ...fields,
 });
 
-async function openWith(page: Page, action: object) {
+async function openWith(page: Page, action: object, goblin: Record<string, unknown> = {}) {
   const posts: { kind: string; target: string; text: string }[] = [];
-  await open(page, snapshot({ actions: [action] }));
+  await open(page, snapshot({ actions: [action] }, goblin));
   await page.route("**/api/actions", (route) => {
     const body = route.request().postDataJSON() as { kind: string; target?: string; text?: string };
     posts.push({ kind: body.kind, target: body.target ?? "", text: body.text ?? "" });
@@ -776,6 +776,163 @@ test("Up in the empty box takes the newest queued message back into the box, its
 
   // Assert
   expect(posts).toHaveLength(1);
+});
+
+// The Overlord, 2026-11-17 (#2622): "If I up arrow, it actually pulls the
+// message back into my input and unqueues it. That should be the same
+// functionality in Modern Terminal." A message typed into a turn under way
+// waits in its harness's own queue, where Edit takes it back (#2332), and Up
+// in the empty box takes it back the same way.
+for (const { whose, task, name } of [{ whose: "the CEO", task: "", name: "CEO" }, { whose: "a goblin", task: GOBLIN.id, name: undefined }]) {
+  test(`Up in the empty box takes his message back out of ${whose}'s harness queue and into the box, as the terminal's Up does`, async ({ page }) => {
+    // Arrange
+    const words = "check the phone layout too";
+    const held = queued({
+      id: "h1", task_id: task, generation: task ? GOBLIN.generation : "", text: words, status: "running", can_send_now: false, send_now_why: "", message: "Queued in its session.",
+      awaiting: task ? { task, since: "2026-10-22T09:01:00Z", is_held: true } : { since: "2026-10-22T09:01:00Z", is_held: true }, created_at: "2026-10-22T09:01:00Z", updated_at: "2026-10-22T09:01:01Z",
+    });
+    const relay = await open(page, snapshot({ actions: [held] }));
+    const posts: { kind: string; target: string; text: string }[] = [];
+    await page.route("**/api/actions", (route) => {
+      const body = route.request().postDataJSON() as { kind: string; target?: string; text?: string };
+      posts.push({ kind: body.kind, target: body.target ?? "", text: body.text ?? "" });
+      return route.fulfill({ status: 202, json: { status: "succeeded" } });
+    });
+    if (task) await openGoblin(page);
+    else {
+      await page.keyboard.press("Control+Alt+1");
+      await expect(page.locator("#panel-title")).toHaveText("CEO");
+    }
+    relay.say({ type: "screen", asking: false, open: false, working: true });
+    await expect(entry(page).filter({ hasText: words }).locator(".queued-state")).toHaveText(WAITING);
+
+    // Act
+    await field(page, name).focus();
+    await page.keyboard.press("ArrowUp");
+
+    // Assert: taken back by its own identity, his words in the box to change.
+    await expect.poll(() => posts).toEqual([{ kind: "message_withdraw", target: "h1", text: words }]);
+    await expect(field(page, name)).toHaveValue(words);
+
+    // Act: the board has taken it back out of its harness's queue.
+    await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2, actions: [] }));
+
+    // Assert: the queue is empty, and nothing reached the terminal.
+    await expect(entry(page)).toHaveCount(0);
+    expect(typed(relay)).toBe("");
+  });
+}
+
+// With nothing of his queued, Up in the empty box brings back what he sent
+// before while the session works, as it does while it waits.
+test("Up in the empty box with no message of his queued brings back what he sent before, as it did", async ({ page }) => {
+  // Arrange
+  const relay = await open(page, snapshot());
+  const posts: string[] = [];
+  await page.route("**/api/actions", (route) => {
+    posts.push((route.request().postDataJSON() as { kind: string }).kind);
+    return route.fulfill({ status: 202, json: { status: "succeeded" } });
+  });
+  await openGoblin(page);
+  relay.say({ type: "screen", asking: false, open: false, working: true });
+  await expect(entry(page)).toHaveCount(0);
+
+  // Act
+  await field(page).focus();
+  await page.keyboard.press("ArrowUp");
+
+  // Assert
+  await expect(field(page)).toHaveValue("Read the brief");
+  expect(posts).toEqual([]);
+  expect(typed(relay)).toBe("");
+});
+
+// Up never asks the board for a message he cannot take back, and brings back
+// what he sent before instead: one out of his hands, which reads Sent or
+// Sending, or shows as his own row once the session's record shows it taken
+// while the board has yet to settle it, none of them with an Edit, and one a
+// harness holds whose queue no key gives back, a Codex or pi harness's, the
+// CEO's as a goblin's, and a Claude Code goblin's on stream-json pipes (the
+// CEO, 2026-11-18, of #2622: "Up at an empty box brings back what he sent
+// before, past a message a Codex or pi harness holds that no key can take
+// back, so he never meets the same refusal on every Up").
+const WORDS = "check the phone layout too";
+const SINCE = "2026-10-22T09:01:00Z";
+const HELD = { task: GOBLIN.id, since: SINCE, is_held: true };
+const HELD_WHY = "Queued in the goblin's session. The goblin takes it at its next tool call, or as its current turn ends.";
+for (const { what, task = GOBLIN.id, harness = "claude", isStream = false, awaiting, message, record, state, recalled } of [
+  { what: "typed into its turn that its harness does not hold", awaiting: { task: GOBLIN.id, since: SINCE }, message: "Sent. The goblin takes it at its next tool call, or as its current turn ends.", record: PAGE, state: "Sent", recalled: "Read the brief" },
+  { what: "its harness is handing to its turn", awaiting: HELD, message: HELD_WHY,
+    record: { ...PAGE, waiting: [{ id: "w1", at: SINCE, source: "overlord", text: WORDS, sending: true, action: "h1" }] }, state: "Sending", recalled: "Read the brief" },
+  { what: "the session's record shows taken before the board settles it", awaiting: HELD, message: HELD_WHY,
+    record: { ...PAGE, messages: [...PAGE.messages, { id: "m2", seq: 2, at: "2026-10-22T09:01:02Z", kind: "prompt", source: "overlord", text: WORDS }] }, state: "", recalled: WORDS },
+  { what: "held in a Codex goblin's queue, which no key gives back,", harness: "codex", awaiting: HELD, message: HELD_WHY, record: PAGE, state: WAITING, recalled: "Read the brief" },
+  { what: "held in a Codex CEO's queue, which no key gives back,", task: "", harness: "codex", awaiting: { since: SINCE, is_held: true },
+    message: "Queued in the CEO's session. The CEO takes it at its next tool call, or as its current turn ends.", record: PAGE, state: WAITING, recalled: "Read the brief" },
+  { what: "held in the queue of a Claude Code goblin on stream-json pipes, which nothing gives back,", isStream: true, awaiting: HELD, message: HELD_WHY, record: PAGE, state: WAITING, recalled: "Read the brief" },
+]) {
+  test(`Up leaves a message ${what} and brings back what he sent before`, async ({ page }) => {
+    // Arrange
+    const held = queued({ id: "h1", task_id: task, generation: task ? GOBLIN.generation : "", text: WORDS, status: "running", can_send_now: false, send_now_why: "", message, awaiting, created_at: SINCE, updated_at: "2026-10-22T09:01:01Z" });
+    const relay = await open(page, task ? snapshot({ actions: [held] }, { harness }) : snapshot({ actions: [held], ceo_harness: harness }));
+    const posts: string[] = [];
+    await page.route("**/api/actions", (route) => {
+      posts.push((route.request().postDataJSON() as { kind: string }).kind);
+      return route.fulfill({ status: 202, json: { status: "succeeded" } });
+    });
+    const name = task ? undefined : "CEO";
+    if (task) await openGoblin(page);
+    else {
+      await page.keyboard.press("Control+Alt+1");
+      await expect(page.locator("#panel-title")).toHaveText("CEO");
+    }
+    if (isStream) {
+      // A stream session's view takes no typing, and its stream marker
+      // brings Stop back over the hold, so the box knows it before Up.
+      const stop = box(page).getByRole("button", { name: "Stop", exact: true });
+      relay.say({ type: "screen", asking: false, open: false, working: true });
+      await expect(stop).toBeVisible();
+      relay.say({ type: "held", reason: "This goblin runs on stream-json pipes." });
+      await expect(stop).toHaveCount(0);
+      relay.say({ type: "stream" });
+      await expect(stop).toBeVisible();
+    }
+    await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })), record);
+    if (state) await expect(entry(page).filter({ hasText: WORDS }).locator(".queued-state")).toHaveText(state);
+    else {
+      await expect(log(page).locator("[data-message]").filter({ hasText: WORDS })).toBeVisible();
+      await expect(entry(page)).toHaveCount(0);
+    }
+
+    // Act
+    await field(page, name).focus();
+    await page.keyboard.press("ArrowUp");
+
+    // Assert
+    await expect(field(page, name)).toHaveValue(recalled);
+    expect(posts).toEqual([]);
+  });
+}
+
+// Claude Code's record shows each message typed into its turn queued there
+// until that turn takes it, and Up takes such a message back as Edit does.
+test("Up in the empty box takes back a message the session's record shows queued in its harness", async ({ page }) => {
+  // Arrange
+  const posts = await openWith(page, queued({ id: "h1", text: WORDS, status: "running", can_send_now: false, send_now_why: "", message: HELD_WHY, awaiting: HELD, created_at: SINCE, updated_at: "2026-10-22T09:01:01Z" }));
+  await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })),
+    { ...PAGE, waiting: [{ id: "w1", at: SINCE, source: "overlord", text: WORDS, sending: true, action: "h1" }] });
+  await expect(entry(page).filter({ hasText: WORDS }).locator(".queued-state")).toHaveText("Sending");
+  await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })),
+    { ...PAGE, waiting: [{ id: "w1", at: SINCE, source: "overlord", text: WORDS, action: "h1" }] });
+  await expect(entry(page).filter({ hasText: WORDS }).locator(".queued-state")).toHaveText(WAITING);
+
+  // Act
+  await field(page).focus();
+  await page.keyboard.press("ArrowUp");
+
+  // Assert: taken back by its own identity, his words in the box to change.
+  await expect.poll(() => posts).toEqual([{ kind: "message_withdraw", target: "h1", text: WORDS }]);
+  await expect(field(page)).toHaveValue(WORDS);
 });
 
 // A take-back disables the box while the board answers, and a disabled box
