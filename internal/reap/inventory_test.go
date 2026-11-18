@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -328,7 +329,7 @@ func TestARecordedExtraOfAnotherProjectIsPlacedWithThatProject(t *testing.T) {
 	if at < 0 {
 		t.Fatalf("the extra %s was not scanned; scanned %+v, notes %q", extra, found, notes)
 	}
-	if !strings.EqualFold(filepath.Clean(found[at].Project), tool) || found[at].Registration != RegistrationListed {
+	if !fsx.SamePath(found[at].Project, tool) || found[at].Registration != RegistrationListed {
 		t.Errorf("the extra is placed with %s as %q, want %s, which registers it; notes %q", found[at].Project, found[at].Registration, tool, notes)
 	}
 }
