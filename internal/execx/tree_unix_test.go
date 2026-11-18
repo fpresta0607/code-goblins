@@ -82,6 +82,70 @@ func isAmong(processes []EndedProcess, pid int) bool {
 	return slices.ContainsFunc(processes, func(process EndedProcess) bool { return process.PID == pid })
 }
 
+// A tree read just as its only process starts a helper and ends still counts
+// the helper: the process was listed before it started the helper and ended
+// before it was read, so the listing holds neither (#2617). The tree finds
+// the helper by its group, as the gate's executor starts its commands, or by
+// its mark alone.
+func TestATreeReadAsItsOnlyProcessHandsOverToAHelperCountsTheHelper(t *testing.T) {
+	const starts = 100
+	for _, isGrouped := range []bool{true, false} {
+		t.Run(fmt.Sprintf("grouped %t", isGrouped), func(t *testing.T) {
+			missed := 0
+			for range starts {
+				// Arrange
+				output := filepath.Join(t.TempDir(), "helper.pid")
+				cmd := Command("sh", "-c", "sleep 600 > /dev/null 2>&1 & echo $! > "+output)
+				if isGrouped {
+					cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+				}
+				tree, err := StartTree(cmd)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				// Act
+				usage, err := tree.Usage()
+
+				// Assert
+				if waitErr := cmd.Wait(); waitErr != nil {
+					t.Fatal(waitErr)
+				}
+				endHelper(t, output)
+				if _, _, endErr := tree.EndAndWait(context.Background()); endErr != nil {
+					t.Fatal(endErr)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				if usage.ActiveProcesses == 0 {
+					missed++
+				}
+			}
+			if missed > 0 {
+				t.Errorf("the tree read no process running in %d of %d starts, while its helper ran", missed, starts)
+			}
+		})
+	}
+}
+
+// endHelper ends, by its pid while it is the helper, the helper whose pid a
+// script wrote to output, once the test is done.
+func endHelper(t *testing.T, output string) {
+	t.Helper()
+	written, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	helper, err := strconv.Atoi(strings.TrimSpace(string(written)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry, err := proc.Lookup(helper); err == nil {
+		t.Cleanup(func() { _ = proc.Signal(helper, entry.Start, syscall.SIGKILL) })
+	}
+}
+
 func TestEndEndsAHelperWhoseParentExitedAndNothingOutsideTheTree(t *testing.T) {
 	// Arrange
 	outside := exec.Command("sleep", "600")

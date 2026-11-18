@@ -41,6 +41,11 @@ on:
       - tools/leftovers/**
       - tests/uninstall/**
       - tests/update/**
+      - tests/hidden_server.ps1
+      - tests/hidden_server.py
+      - tests/pre_rename_build.ps1
+      - tests/acceptance/dictation.ps1
+      - tests/acceptance/install_left_out.ps1
       - cmd/goblins/update*.go
       - cmd/goblins/update_release.go
       - internal/release/**
@@ -79,6 +84,11 @@ on:
       - tools/leftovers/**
       - tests/uninstall/**
       - tests/update/**
+      - tests/hidden_server.ps1
+      - tests/hidden_server.py
+      - tests/pre_rename_build.ps1
+      - tests/acceptance/dictation.ps1
+      - tests/acceptance/install_left_out.ps1
       - cmd/goblins/update*.go
       - cmd/goblins/update_release.go
       - internal/release/**

@@ -610,26 +610,46 @@ func TestANativeCEOsSendFromAProcessWhoseParentHasExitedNamesItAsSender(t *testi
 // A delivery to a native CEO whose screen turns to work but whose prompt hook
 // has not reported taking it, its input still showing the message, is sent,
 // not delivered, since Enter may have chosen a dialog's option instead: it
-// waits for the hook's report. Typed, it is the harness's, so it offers no
+// waits for the hook's report. A hook that reports it while the message still
+// sits alone on the prompt line proves nothing either, since Claude Code runs
+// that hook as it queues a line into a turn, as one its stop hook opened as
+// the message arrived (#2541). Typed, it is the harness's, so it offers no
 // Send now.
 func TestADeliveryToANativeCEOWhoseScreenTurnsToWorkWithoutItsHookIsSentNotDelivered(t *testing.T) {
-	stateDir := t.TempDir()
-	ceo := hostTerminal(t, stateDir, "ceo")
-	ceo.typeLine(t, "register")
-	ceo.typeLine(t, "harness")
-	ceo.typeLine(t, "keep")
-	if lines := ceo.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
-		t.Fatalf("the program recorded %q, want its registration", lines)
-	}
-	ceo.showsComposer(t, "claude")
+	for _, test := range []struct {
+		name string
+		// lines set up the terminal's program: a harness that keeps each line
+		// it takes on its prompt line under a working row, and, hooked, whose
+		// prompt hook reports each line it takes.
+		lines []string
+	}{
+		{name: "its hook silent", lines: []string{"harness", "keep"}},
+		{name: "its hook reporting it", lines: []string{"harness", "keep", "hooked"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			stateDir := t.TempDir()
+			ceo := hostTerminal(t, stateDir, "ceo")
+			ceo.typeLine(t, "register")
+			for _, line := range test.lines {
+				ceo.typeLine(t, line)
+			}
+			if lines := ceo.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
+				t.Fatalf("the program recorded %q, want its registration", lines)
+			}
+			ceo.showsComposer(t, "claude")
 
-	result, err := (&CEOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
+			// Act
+			result, err := (&CEOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
 
-	if err != nil || result.Awaiting == nil || result.Awaiting.Host != "ceo" || result.Reason != sentToCEO || result.CanSendNow {
-		t.Errorf("Send = %+v, %v; want it sent and awaiting the CEO's hook, with no Send now, not an error", result, err)
-	}
-	if typed := ceo.exit(t); len(typed) != 2 || typed[1] != "Overlord: hello" {
-		t.Errorf("the terminal received %q, want its registration and then the message once", typed)
+			// Assert
+			if err != nil || result.Awaiting == nil || result.Awaiting.Host != "ceo" || result.Reason != sentToCEO || result.CanSendNow {
+				t.Errorf("Send = %+v, %v; want it sent and awaiting the CEO's take, with no Send now, not an error", result, err)
+			}
+			if typed := ceo.exit(t); len(typed) != 2 || typed[1] != "Overlord: hello" {
+				t.Errorf("the terminal received %q, want its registration and then the message once", typed)
+			}
+		})
 	}
 }
 

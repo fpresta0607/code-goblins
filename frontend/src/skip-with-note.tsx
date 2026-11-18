@@ -10,8 +10,8 @@ import { Icon } from "./Icon";
 // the CEO: a pasted picture is kept where the asker can read it. A card that
 // posts his answer itself returns how the board took it: the window stays
 // open until then, and a refusal shows there in full with his words kept.
-export function SkipWithNote({ asker, task, instance, disabled, onSkip, onAnswer }: {
-  asker: string; task: string; instance: string; disabled: boolean; onSkip: () => void; onAnswer: (text: string) => Promise<string> | void;
+export function SkipWithNote({ asker, task, instance, disabled, isCredentialCard = false, onSkip, onAnswer }: {
+  asker: string; task: string; instance: string; disabled: boolean; isCredentialCard?: boolean; onSkip: () => void; onAnswer: (text: string) => Promise<string> | void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -28,7 +28,7 @@ export function SkipWithNote({ asker, task, instance, disabled, onSkip, onAnswer
   return <>
     <button type="button" className="icon-button raised" disabled={disabled} aria-label="Skip this card" onClick={onSkip}><Icon name="close" /></button>
     <button type="button" className="icon-button raised skip-with-note" aria-label="Something else?" disabled={disabled} onClick={() => setIsOpen(true)}><Icon name="edit" /></button>
-    {isOpen && <AnswerWindow asker={asker} task={task} instance={instance} isSending={isSending} refusal={refusal} onCancel={() => { setIsOpen(false); setRefusal(""); }}
+    {isOpen && <AnswerWindow asker={asker} task={task} instance={instance} isCredentialCard={isCredentialCard} isSending={isSending} refusal={refusal} onCancel={() => { setIsOpen(false); setRefusal(""); }}
       onSend={(text) => void answer(text)} />}
   </>;
 }

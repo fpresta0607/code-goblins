@@ -82,6 +82,7 @@ To take back an item he has not run, such as one whose command went stale, run `
 
 For a nonblocking walkthrough or review, prefer a Scrawl page, the Overlord's name for the review page `lavish-axi` serves (`lavish-axi <file> --no-open`), then report the returned safe URL with `goblins present --id <stable-id> --kind browser|review --url <safe-url> [--watch "<what to watch>"]` from verified primary context.
 A goblin reports its own with `--task <its id>` from its own pane or native terminal, which needs no native hook; the tailnet URL `lavish-axi` returns is accepted as it is, so it opens on the Overlord's phone too, and a refusal names the rule the URL broke.
+Check a page you wrote with [`goblins page check <file>`](../commands/page/check.md) before publishing it, never by opening it in your own browser: browsers are for people, and the command draws it hidden at a desktop and a phone width, saves a picture of each and lists the layout issues he would see.
 Refresh only while actually live and report `--state ended` when finished.
 A `--kind review` with `--watch` waits on him, so it is published as a review item under the same ID, titled by that line and polled on its page, which his Send and End there closes; its `--state ended` withdraws the item.
 Viewing choices never pause autonomous work, and opening a URL does not mirror browser control.

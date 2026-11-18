@@ -2,6 +2,17 @@
    Open Command Center carries how many wait in a dark chip, and that is the
    whole signal. */
 .ceo-command-count { display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; background: var(--soot); color: var(--lantern); font: 800 .9375rem/1 var(--font-body); }
+/* Wider than a phone, the lantern box is a flex row: its line takes the free
+   width, never less than its whole line beside the actions, and the actions
+   go to a row of their own, at its right, when they do not fit beside it
+   (the Overlord, 2026-11-18: "Column simple flex fit please", #2670). A
+   phone keeps the shared dialogue box's grid. */
+@container (width > 640px) {
+  .ceo-pin .dialogue-box { display: flex; flex-wrap: wrap; }
+  .ceo-pin .dialogue-portrait { flex: none; }
+  .ceo-pin .dialogue-text { flex: 1 1 auto; }
+  .ceo-pin .dialogue-actions { margin-left: auto; }
+}
 /* The weekly allowance dials sit beside the bar's buttons, in either form. */
 .ceo-pin .subscription-dials { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 /* A narrow bar gives its line the first row, and its dials, Start the CEO or

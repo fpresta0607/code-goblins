@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type Rea
 import { createPortal } from "react-dom";
 import { message, request, useResource } from "./api";
 import { object, parseAction, parseClosedItems, string, type BoardActivity, type BrowserSignIn, type CredentialRequest, type Question, type Review, type Run, type Snapshot } from "./types";
-import { deliveryMark, runMark, submissionFor } from "./feedback";
+import { deliveryMark, hasReachedItsAsker, runMark, runNext, submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Chevron } from "./Chevron";
 import { Icon } from "./Icon";
@@ -145,16 +145,19 @@ export function CommandCenter({ snapshot, connected, presentations, now, focus, 
   // whatever this card tried meanwhile, and so does one that closed while this
   // card sent nothing: answered on another board, or taken back by its asker
   // or the CEO. A command finishes once it ends without trouble, by its exit
-  // code whatever its output says, or is withdrawn; one that failed keeps its
-  // card, with its output, and an update keeps its own card. A credential
+  // code whatever its output says, or is withdrawn. One that failed finishes
+  // the same way once whoever asked for it has its output, as the Overlord
+  // asked on 2026-11-14 ("wont clos automatically on fail"), and History keeps
+  // how it failed; one whose asker could not be told keeps its card, with its
+  // output, and an update keeps its own card. A credential
   // request finishes once every value it asks for is stored, by its card or
   // its terminal.
   const closedBy = item && !draft?.submission ? closedElsewhere(item, snapshot.actions) : "";
   const elsewhere = !!item && (answeredElsewhere(item) || !!closedBy);
-  const ranClean = item?.kind === "run" && !item.run.update && !isOpen(item) && !runMark(item.run).trouble;
+  const runEnded = item?.kind === "run" && !item.run.update && !isOpen(item) && (!runMark(item.run).trouble || hasReachedItsAsker(item.run));
   const credentialEnd = item?.kind === "credential" ? credentialFinish(item.request) : null;
   const stored = !!credentialEnd;
-  const finishing = !!item && (item.kind === "run" ? ranClean : item.kind === "credential" ? stored : item.kind === "browser-signin" ? !isOpen(item) : elsewhere || !!sending && !sending.failed);
+  const finishing = !!item && (item.kind === "run" ? runEnded : item.kind === "credential" ? stored : item.kind === "browser-signin" ? !isOpen(item) : elsewhere || !!sending && !sending.failed);
   const done = finishing ? item.key : "";
   // A question he answered and moved past opens again, when he goes back to
   // it, with his answer checked and its other choices open to change, never
@@ -557,8 +560,8 @@ export function CommandCenter({ snapshot, connected, presentations, now, focus, 
                 onDraft={(changes) => update(changeKey(revisited), changes)} onChange={() => change(revisited)} onClose={close} pager={pager} />
               : elsewhere
               ? <DoneCard key={shownKey} heading={closedBy || "Answered"} label={settledLabel(item, snapshot.actions)} pager={pager} />
-              : ranClean
-              ? <DoneCard key={shownKey} heading={runMark(item.run).label} label={item.run.state === "stopped" ? "" : item.run.reason} pager={pager} />
+              : runEnded
+              ? <DoneCard key={shownKey} heading={runMark(item.run).label} label={item.run.state === "failed" ? runNext(item.run) : item.run.state === "stopped" ? "" : item.run.reason} pager={pager} />
               : item.kind === "credential" && credentialEnd
               ? <DoneCard key={shownKey} heading={credentialEnd.heading} label={credentialEnd.label} pager={pager} />
               : item.kind === "browser-signin" && item.signin.state === "signed_in"

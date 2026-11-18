@@ -452,8 +452,9 @@ func TestPipelineMigrateReplacesOnlyFrozenPolicyAndAudits(t *testing.T) {
 }
 
 // On 2026-10-23 goblins pipeline run and the goblins pipeline migrate it pointed to
-// both refused a direct-PR task, as the supervisor starts every root issue,
-// with a migration decision that migrate could not make (issue 1438). A task
+// both refused a direct-PR task, as the supervisor then started every root
+// issue, with a migration decision that migrate could not make (issue 1438).
+// Automatic intake now starts strict, but a direct-PR task still exists. A task
 // with no gate is refused by its mode and its own route, and changes nothing.
 func TestPipelineRefusesATaskWithNoGateByItsModeAndRoute(t *testing.T) {
 	for _, test := range []struct {

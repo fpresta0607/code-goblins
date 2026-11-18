@@ -141,7 +141,8 @@ func TestPiExtensionReportsTransportFailuresWithoutRepeatingOutput(t *testing.T)
 	for _, failure := range []string{"exit", "spawn", "cycle", "oversize"} {
 		t.Run(failure, func(t *testing.T) {
 			directory := t.TempDir()
-			extension, err := Install(InstallConfig{Harness: "pi", ConfigDir: directory, Executable: filepath.Join(directory, "hook.exe"), Home: directory, State: filepath.Join(directory, "state")})
+			state := filepath.Join(directory, "state")
+			extension, err := Install(InstallConfig{Harness: "pi", ConfigDir: directory, Executable: filepath.Join(directory, "hook.exe"), Home: directory, State: state})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -176,8 +177,11 @@ process.stdout.write(String(calls));
 			if err != nil {
 				t.Fatal(err)
 			}
-			if diagnostics == "" || strings.Contains(diagnostics, "fixture-output") {
-				t.Fatal("transport failure was not safely reported")
+			if diagnostics != "" {
+				t.Fatalf("the extension wrote %q onto the session's terminal, want nothing there", diagnostics)
+			}
+			if failures := piFailures(t, state); len(failures) != 1 || failures[0].Harness != "pi" || failures[0].Event != "tool_execution_end" {
+				t.Fatalf("failures = %+v, want one record of the tool_execution_end hook", failures)
 			}
 			want := "1"
 			if failure == "cycle" || failure == "oversize" {
@@ -196,7 +200,8 @@ process.stdout.write(String(calls));
 // A timeout or a signal can follow a child that already recorded its event, so
 // each outcome now says only what is known and names the fixed event, which
 // lets a later failure be correlated. No child output is repeated, since a tool
-// result may carry private data.
+// result may carry private data. The outcome is recorded for the supervisor,
+// never written onto the session's terminal (#2428).
 func TestPiExtensionNamesTheRealHookFailureWithoutClaimingALostEvent(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
@@ -207,16 +212,17 @@ func TestPiExtensionNamesTheRealHookFailureWithoutClaimingALostEvent(t *testing.
 		failure string
 		want    []string
 	}{
-		{name: "a hook held past its limit", failure: "timeout", want: []string{"for agent_settled", "timed out.", "may have started and recorded the event."}},
-		{name: "a hook that could not start", failure: "missing", want: []string{"for agent_settled", "could not start (ENOENT).", "The event was not recorded."}},
-		{name: "a hook terminated by a signal", failure: "signal", want: []string{"for agent_settled", "was terminated by SIGKILL.", "may have recorded the event."}},
-		{name: "a hook that ran and failed", failure: "status", want: []string{"for agent_settled", "exited with status 3.", "may have recorded the event."}},
-		{name: "a process error with no code", failure: "unknown", want: []string{"for agent_settled", "could not complete (unknown error).", "may have recorded the event."}},
+		{name: "a hook held past its limit", failure: "timeout", want: []string{"timed out.", "may have started and recorded the event."}},
+		{name: "a hook that could not start", failure: "missing", want: []string{"could not start (ENOENT).", "The event was not recorded."}},
+		{name: "a hook terminated by a signal", failure: "signal", want: []string{"was terminated by SIGKILL.", "may have recorded the event."}},
+		{name: "a hook that ran and failed", failure: "status", want: []string{"exited with status 3.", "may have recorded the event."}},
+		{name: "a process error with no code", failure: "unknown", want: []string{"could not complete (unknown error).", "may have recorded the event."}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange
 			directory := t.TempDir()
-			extension, err := Install(InstallConfig{Harness: "pi", ConfigDir: directory, Executable: filepath.Join(directory, "hook.exe"), Home: directory, State: filepath.Join(directory, "state")})
+			state := filepath.Join(directory, "state")
+			extension, err := Install(InstallConfig{Harness: "pi", ConfigDir: directory, Executable: filepath.Join(directory, "hook.exe"), Home: directory, State: state})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -246,21 +252,116 @@ handlers.agent_settled({}, ctx);
 			t.Setenv("GOBLINS_ROLE", "goblin")
 
 			// Act
-			_, reported, err := runPiDriver(piDriverBound, node, driver, extension, c.failure)
+			_, diagnostics, err := runPiDriver(piDriverBound, node, driver, extension, c.failure)
 
 			// Assert
-			if err != nil || reported == "" {
-				t.Fatalf("the extension reported nothing of the failure: %v %q", err, reported)
+			if err != nil || diagnostics != "" {
+				t.Fatalf("the extension wrote %q onto the session's terminal (%v), want nothing there", diagnostics, err)
 			}
+			failures := piFailures(t, state)
+			if len(failures) != 1 || failures[0].Event != "agent_settled" {
+				t.Fatalf("failures = %+v, want one record of the agent_settled hook", failures)
+			}
+			reported := failures[0].Outcome
 			for _, refused := range []string{"could not be spooled", "fixture-output", ";"} {
 				if strings.Contains(reported, refused) {
-					t.Fatalf("reported %q, want no %q in a visible diagnostic", reported, refused)
+					t.Fatalf("recorded %q, want no %q in it", reported, refused)
 				}
 			}
 			for _, want := range c.want {
 				if !strings.Contains(reported, want) {
-					t.Fatalf("reported %q, want it to name %q", reported, want)
+					t.Fatalf("recorded %q, want it to name %q", reported, want)
 				}
+			}
+		})
+	}
+}
+
+// piFailures reads the failure records a pi extension wrote under state, each
+// whole and none repeating the hook program's output.
+func piFailures(t *testing.T, state string) []Failure {
+	t.Helper()
+	entries, err := os.ReadDir(FailureDir(state))
+	if err != nil {
+		t.Fatalf("the extension recorded no failure: %v", err)
+	}
+	var failures []Failure
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".failure.json") {
+			t.Fatalf("the extension left %s in its failure records", entry.Name())
+		}
+		data, err := os.ReadFile(filepath.Join(FailureDir(state), entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(data, []byte("fixture-output")) {
+			t.Fatalf("the record %s repeats the hook program's output", data)
+		}
+		var failure Failure
+		if err := json.Unmarshal(data, &failure); err != nil {
+			t.Fatalf("the record %s is unreadable: %v", data, err)
+		}
+		failures = append(failures, failure)
+	}
+	return failures
+}
+
+// A hook program missing for long fails every event, so the extension keeps at
+// most 256 records and drops a failure past them rather than fill the disk.
+func TestPiExtensionKeepsAtMost256FailureRecords(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("Pi requires Node")
+	}
+	for _, c := range []struct {
+		name      string
+		prefilled int
+		want      int
+	}{
+		{name: "one short of the limit", prefilled: 255, want: 256},
+		{name: "at the limit", prefilled: 256, want: 256},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			directory := t.TempDir()
+			state := filepath.Join(directory, "state")
+			extension, err := Install(InstallConfig{Harness: "pi", ConfigDir: directory, Executable: filepath.Join(directory, "hook.exe"), Home: directory, State: state})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(FailureDir(state), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			for index := range c.prefilled {
+				if err := os.WriteFile(filepath.Join(FailureDir(state), fmt.Sprintf("%03d.failure.json", index)), []byte(`{"harness":"pi","event":"agent_settled","outcome":"exited with status 1."}`), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			driver := filepath.Join(directory, "driver.mjs")
+			if err := os.WriteFile(driver, []byte(`import childProcess from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
+import { pathToFileURL } from "node:url";
+childProcess.spawnSync = () => ({status: 3, signal: null});
+syncBuiltinESMExports();
+const extension = (await import(pathToFileURL(process.argv[2]).href)).default;
+const handlers = {};
+extension({on: (name, handler) => {handlers[name] = handler;}});
+const ctx = {cwd: process.cwd(), sessionManager: {getSessionId: () => "fixture-session"}, hasPendingMessages: () => false};
+handlers.agent_settled({}, ctx);
+`), 0600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("GOBLINS_ROLE", "goblin")
+
+			// Act
+			_, diagnostics, err := runPiDriver(piDriverBound, node, driver, extension)
+
+			// Assert
+			if err != nil || diagnostics != "" {
+				t.Fatalf("the extension wrote %q onto the session's terminal (%v), want nothing there", diagnostics, err)
+			}
+			if failures := piFailures(t, state); len(failures) != c.want {
+				t.Fatalf("%d records after one failure with %d kept, want %d", len(failures), c.prefilled, c.want)
 			}
 		})
 	}

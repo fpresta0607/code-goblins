@@ -298,7 +298,7 @@ export function CredentialCard({ request, snapshot, connected, now, pager }: { r
     {(pager || feedback || open) && <div className="card-actions">
       <ClickFeedback text={feedback} />
       {pager}
-      {open && !request.grant_service && <SkipWithNote asker={request.task ? asker : "the CEO"} task={request.task} instance={snapshot.instance} disabled={!connected || !!pressing}
+      {open && !request.grant_service && <SkipWithNote asker={request.task ? asker : "the CEO"} task={request.task} instance={snapshot.instance} disabled={!connected || !!pressing} isCredentialCard
         onSkip={() => void press("/api/credentials/close", { action: "dismiss" }, "dismiss")} onAnswer={answer} />}
       {open && request.grant_service && <>
         <button type="button" disabled={!connected || !!pressing} onClick={() => void press("/api/credentials/close", { action: "dismiss" }, "dismiss")}>Deny</button>
