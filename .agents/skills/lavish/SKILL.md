@@ -34,11 +34,13 @@ If it is empty, infer what to show from the conversation.
    Run `lavish-axi playbook` to list the playbooks, `lavish-axi playbook <id>` for the one that matches the content, and `lavish-axi design` for the design direction before writing.
    Start the page in the board's look and ask for a pick the way "The page" below says.
    Keep every other referenced asset beside the HTML and reference it with a relative path; apart from the two board stylesheets, a root-absolute path will not resolve.
-2. Publish it with `goblins review --id <stable-id> --title "<what to look at>" --lavish <file>`, adding `--task <your id>` from a goblin's own terminal: the command opens the page without a browser and puts its link in the Command Center.
-3. Keep working or end the turn: the supervisor polls the page, and what the Overlord sends reaches the CEO as a `review` wake, his feedback saved whole under `state/reviews/feedback/`.
+2. Check it with `goblins page check <file>`, never in your own browser: it draws the page in a hidden Chrome at a desktop and a phone width, saves a picture of each for you to read as a file and lists the layout issues the Overlord would see, exiting 1 while there are any.
+   Fix them and check again before publishing.
+3. Publish it with `goblins review --id <stable-id> --title "<what to look at>" --lavish <file>`, adding `--task <your id>` from a goblin's own terminal: the command opens the page without a browser and puts its link in the Command Center.
+4. Keep working or end the turn: the supervisor polls the page, and what the Overlord sends reaches the CEO as a `review` wake, his feedback saved whole under `state/reviews/feedback/`.
    Never run `lavish-axi poll` yourself.
-4. Apply every queued prompt, refresh the artifact, and publish it again under a new ID to keep the loop going.
-5. Run `lavish-axi end <file>` when the review is done, or `lavish-axi export <file> [--out <path>]` for a portable single-file copy.
+5. Apply every queued prompt, refresh the artifact, and publish it again under a new ID to keep the loop going.
+6. Run `lavish-axi end <file>` when the review is done, or `lavish-axi export <file> [--out <path>]` for a portable single-file copy.
 
 ## The page
 
