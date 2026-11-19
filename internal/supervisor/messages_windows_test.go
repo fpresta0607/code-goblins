@@ -2522,13 +2522,17 @@ func TestAHeldGoblinMessageSaysWhatSendNowDoesForItsHarness(t *testing.T) {
 // waits for nothing that key could end, so it offers none, its words promise
 // nothing sooner, and a press says why, as one does behind his words in a
 // turn's queue that its harness gives back to no key, which that key would
-// send ahead of it (#2759).
+// send ahead of it (#2759). A terminal started again since his words went
+// into its turn's queue holds nothing ahead of the command.
 func TestACommandHeldForAGoblinsTurnOffersSendNowWhereItsTerminalCanRunItAtOnce(t *testing.T) {
 	for _, test := range []struct {
 		name, harness, text string
 		ahead               string
-		refusal             error
-		isOffered           bool
+		// isStartedAgain starts its terminal again once his words ahead went
+		// into its turn's queue.
+		isStartedAgain bool
+		refusal        error
+		isOffered      bool
 	}{
 		{name: "a bang command for a Claude Code in a turn", harness: "claude", text: "!git status", refusal: spawn.ErrInTurn, isOffered: true},
 		{name: "a slash command for a Claude Code in a turn", harness: "claude", text: "/compact", refusal: spawn.ErrInTurn, isOffered: true},
@@ -2537,6 +2541,7 @@ func TestACommandHeldForAGoblinsTurnOffersSendNowWhereItsTerminalCanRunItAtOnce(
 		{name: "a slash command behind his words in a Claude Code's queue", harness: "claude", text: "/compact", ahead: "first words", refusal: spawn.ErrInTurn, isOffered: true},
 		{name: "a slash command behind his words in a Codex's queue", harness: "codex", text: "/compact", ahead: "first words", refusal: spawn.ErrInTurn},
 		{name: "a slash command behind his words in a pi's queue", harness: "pi", text: "/compact", ahead: "first words", refusal: spawn.ErrInTurn},
+		{name: "a slash command behind his words in the queue of a Claude Code started again since", harness: "claude", text: "/compact", ahead: "first words", isStartedAgain: true, refusal: spawn.ErrInTurn, isOffered: true},
 		{name: "a command its terminal is not ready for", harness: "claude", text: "!git status", refusal: ErrDeferred},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -2556,6 +2561,12 @@ func TestACommandHeldForAGoblinsTurnOffersSendNowWhereItsTerminalCanRunItAtOnce(
 					return service.behindGoblinsTurn(meta.ID, time.Now().UTC(), test.ahead, ""), nil
 				}); err != nil || !isHarnessHeld(actionOf(store, "message-0")) {
 					t.Fatalf("his words = %+v, %v; want them held in the turn's queue", actionOf(store, "message-0"), err)
+				}
+			}
+			if test.isStartedAgain {
+				meta.SpawnGen = "g2"
+				if err := state.WriteTaskMeta(h.State, meta); err != nil {
+					t.Fatal(err)
 				}
 			}
 			messageTo(t, store, meta, "message-1", test.text)

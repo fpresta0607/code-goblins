@@ -912,6 +912,61 @@ func TestACommandBehindHisWordsInAQueueNoKeyGivesBackOffersNoSendNow(t *testing.
 	}
 }
 
+// Claude Code gives its turn's queue back to Up, but only his words there can
+// wait on the board behind a command he sends now: an answer the board typed
+// into that queue would be typed into the turn again ahead of the command
+// (#2759). So a command behind his words and such an answer in Claude Code's
+// queue is refused, saying it runs when that turn ends, with nothing taken out
+// of the queue, and once it is tried it offers no Send now.
+func TestACommandBehindAnAnswerInClaudeCodesQueueOffersNoSendNow(t *testing.T) {
+	// Arrange
+	store, service, terminal, _, _ := heldQueue(t, false, "claude-busy", "first words")
+	identity := registrationIdentity(t, terminal.stateDir)
+	question := Question{ID: "held-question", Identity: identity, Text: "Choose", CreatedAt: time.Now().UTC()}
+	if err := store.acceptQuestion(question); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Queue(Action{ID: "held-answer", Kind: "ceo_answer", Generation: identity, QuestionID: question.ID, Text: "Reply received"}); err != nil {
+		t.Fatal(err)
+	}
+	tryNext(t, store, service, terminal, "claude")
+	given := actionOf(store, "held-answer")
+	if !isHarnessHeld(given) {
+		t.Fatalf("the answer = %+v; want it in the turn's queue beside his words", given)
+	}
+	for _, message := range []Action{{ID: "m2", Kind: "message", Text: "more words"}, {ID: "m3", Kind: "message", Text: "/compact"}} {
+		if _, err := store.Queue(message); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if offered := actionOf(store, "m3"); !offered.CanSendNow {
+		t.Fatalf("the command = %+v; want Send now offered while the words ahead of it on the board offer it", offered)
+	}
+
+	// Act
+	pressed := sendNow(service, "", "m3")
+	refused, words, answer := actionOf(store, "m3"), actionOf(store, "m1"), actionOf(store, "held-answer")
+	pastUndoWindow(t, store)
+	tryNext(t, store, service, terminal, "claude")
+	tried := store.ProcessOne(context.Background(), service.execute)
+	held := actionOf(store, "m3")
+	input := terminal.waitForLines(t, 4)
+
+	// Assert
+	if pressed.Code != 409 || !strings.Contains(pressed.Body.String(), commandWaits) || refused.IsSentNow {
+		t.Errorf("Send now = %d %s, the command = %+v; want it refused, saying the command runs when the turn ends", pressed.Code, pressed.Body, refused)
+	}
+	if !isHarnessHeld(words) || !isHarnessHeld(answer) {
+		t.Errorf("after the press, his words = %+v, the answer = %+v; want both still in the turn's queue", words, answer)
+	}
+	if !errors.Is(tried, ErrDeferred) || held.Status != "queued" || held.CanSendNow || held.SendNowWhy != commandWaits || held.Message != "Queued. "+commandWaits {
+		t.Errorf("its try = %v, the command = %+v; want it held for the turn's end with no Send now, saying so", tried, held)
+	}
+	if want := []string{"queued first words", "queued " + given.Awaiting.Typed, "queued more words"}; !slices.Equal(input[1:], want) {
+		t.Errorf("terminal input = %q; want %q after its registration, and nothing taken back or pressed for the command", input, want)
+	}
+}
+
 // Claude Code's send-now chord takes its turn's queue from the head, so the
 // board presses it over a command only while that queue holds nothing else.
 // A Send now that finds lines ahead of the command that he typed into that
@@ -1235,6 +1290,48 @@ func TestAQueueIsNotTakenBackWhileADeliveryToItsSessionRuns(t *testing.T) {
 			}
 			if !isHarnessHeld(actionOf(store, "m1")) {
 				t.Errorf("after the press = %+v; want it still held in its harness's queue", actionOf(store, "m1"))
+			}
+			if input := terminal.lines(t); slices.ContainsFunc(input, func(line string) bool { return strings.HasPrefix(line, "took back ") }) {
+				t.Errorf("terminal input = %q; want no key pressed", input)
+			}
+		})
+	}
+}
+
+// A press reads what the board typed into a session's queue before it waits
+// for the CEO's typing lock and reads that session's prompt line, and a
+// delivery the worker runs meanwhile can join that queue, as his next words
+// to the CEO do once their undo window ends. The board takes the queue back
+// only while it holds just what the press read there: its key would bring the
+// rest back onto the prompt line too, where none of it could be taken back.
+func TestAQueueIsNotTakenBackOnceADeliveryJoinedItSinceThePressReadIt(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		isGoblin bool
+	}{
+		{name: "the CEO's"},
+		{name: "a goblin's", isGoblin: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			store, service, terminal, task, _ := heldQueue(t, test.isGoblin, "claude-busy", "first words", "second words")
+			promptLineEmpties(t, terminal, "claude")
+			held, record, screens, _ := service.queueAhead(task)
+			if len(held) != 2 {
+				t.Fatalf("the queue holds %+v; want both messages", held)
+			}
+
+			// Act
+			err := service.takeQueueBack(held[:1], task, record, screens)
+
+			// Assert
+			if err == nil || !strings.Contains(err.Error(), "The board is typing for") {
+				t.Errorf("taking back what the press read = %v; want it refused while the queue holds more", err)
+			}
+			for _, id := range []string{"m1", "m2"} {
+				if after := actionOf(store, id); !isHarnessHeld(after) {
+					t.Errorf("%s after the press = %+v; want it still held in its harness's queue", id, after)
+				}
 			}
 			if input := terminal.lines(t); slices.ContainsFunc(input, func(line string) bool { return strings.HasPrefix(line, "took back ") }) {
 				t.Errorf("terminal input = %q; want no key pressed", input)

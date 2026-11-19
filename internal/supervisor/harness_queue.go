@@ -30,6 +30,12 @@ func isHarnessHeld(a Action) bool {
 	return a.Status == "running" && a.Awaiting != nil && a.Awaiting.IsHeld
 }
 
+// isHeldWith says delivery a waits in the queue of the harness that typed, a
+// delivery the board typed, went into.
+func isHeldWith(a Action, typed Awaiting) bool {
+	return isHarnessHeld(a) && a.Awaiting.Host == typed.Host && a.Awaiting.Task == typed.Task && a.Awaiting.Generation == typed.Generation
+}
+
 // whoHolds names the session message a waits in, within a sentence and at
 // the start of one.
 func whoHolds(task string) (string, string) {
@@ -54,7 +60,7 @@ func (s *Store) heldWith(id, task string) []Action {
 	target := *s.db.Actions[at].Awaiting
 	var held []Action
 	for _, a := range s.db.Actions {
-		if isHarnessHeld(a) && a.Awaiting.Host == target.Host && a.Awaiting.Task == target.Task && a.Awaiting.Generation == target.Generation {
+		if isHeldWith(a, target) {
 			held = append(held, a)
 		}
 	}
@@ -66,9 +72,11 @@ func (s *Store) heldWith(id, task string) []Action {
 // as one the board is trying, awaited no longer, while the board takes that
 // queue back onto its prompt line: nothing else then submits, takes back or
 // settles them, and a later message to their session waits behind them. It
-// reports false, and changes nothing, when one of them is held no longer or
-// the worker runs a delivery to their session now, which may be typing onto
-// that prompt line or have typed a line it has yet to record.
+// reports false, and changes nothing, when one of them is held no longer,
+// that queue holds another the board typed there since they were read, which
+// would come back onto the prompt line with them, or the worker runs a
+// delivery to their session now, which may be typing onto that prompt line or
+// have typed a line it has yet to record.
 func (s *Store) setAside(held []Action) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -78,6 +86,11 @@ func (s *Store) setAside(held []Action) bool {
 		if places[i] < 0 {
 			return false
 		}
+	}
+	if slices.ContainsFunc(s.db.Actions, func(a Action) bool {
+		return isHeldWith(a, *held[0].Awaiting) && !slices.ContainsFunc(held, func(each Action) bool { return each.ID == a.ID })
+	}) {
+		return false
 	}
 	task := held[0].Awaiting.Task
 	if slices.ContainsFunc(s.db.Actions, func(a Action) bool {
