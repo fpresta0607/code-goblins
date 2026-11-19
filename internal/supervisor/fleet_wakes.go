@@ -92,12 +92,10 @@ type fleetWakes struct {
 	Progress  map[string]WorkProgress `json:"progress,omitempty"`
 	Durations []CIDuration            `json:"durations,omitempty"`
 	// MemoryAbove counts readings in a row with memory and commit both at or
-	// above what a start of the costliest harness needs (Room.Need), and
-	// MemoryBelow those with either under the
-	// floor, which AFK mode pauses a goblin at. MemorySpent says memory_ready
-	// woke since a reading last fell under the floor.
+	// above what a start of the costliest harness needs (Room.Need).
+	// MemorySpent says memory_ready woke since a reading last fell under the
+	// floor.
 	MemoryAbove  int       `json:"memory_above,omitempty"`
-	MemoryBelow  int       `json:"memory_below,omitempty"`
 	MemorySpent  bool      `json:"memory_spent,omitempty"`
 	MemoryReadAt time.Time `json:"memory_read_at,omitzero"`
 	// MemoryLow says the latest reading found memory or commit under the
@@ -401,8 +399,8 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 // report is a wait on memory, and a new goblin would still leave the
 // machine's heavy line its next floor. It wakes once per crossing: not
 // again until a reading falls under the floor and crosses back, and never
-// twice within memoryWakeGap. A reading under the floor goes to AFK mode's
-// memory floor.
+// twice within memoryWakeGap. A reading under the floor schedules nothing:
+// the memory guard (guardMemory) pauses a goblin at it.
 // Every check first plans the comeback for this sign-in, before memory is
 // read, so a sign-in that never reaches the floor still records itself; a
 // planning error is reported and the rest of the check still runs. Each
@@ -428,7 +426,7 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	memory, err := dispatch.Memory()
 	if err != nil {
 		// No reading is no evidence either way: the next two decide.
-		w.MemoryAbove, w.MemoryBelow = 0, 0
+		w.MemoryAbove = 0
 		w.LineStallSince, w.LineStallWoke = time.Time{}, false
 		return planningErr
 	}
@@ -442,12 +440,12 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	isRestarting := s.isRestartingPC()
 	s.starts.Unlock()
 	if isRestarting {
-		w.MemoryAbove, w.MemoryBelow = 0, 0
+		w.MemoryAbove = 0
 		w.LineStallSince, w.LineStallWoke = time.Time{}, false
 		return planningErr
 	}
 	if w.MemoryReadAt.IsZero() || now.Sub(w.MemoryReadAt) > 2*fleetWatchEvery || !now.After(w.MemoryReadAt) {
-		w.MemoryAbove, w.MemoryBelow = 0, 0
+		w.MemoryAbove = 0
 		w.LineStallSince, w.LineStallWoke = time.Time{}, false
 	}
 	w.MemoryReadAt = now
@@ -462,24 +460,22 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	// default stands in for it.
 	floor, err := MachineMemoryFloor(s.Store.Home)
 	if err != nil {
-		w.MemoryAbove, w.MemoryBelow = 0, 0
+		w.MemoryAbove = 0
 		w.LineStallSince, w.LineStallWoke = time.Time{}, false
 		return errors.Join(planningErr, err)
 	}
 	if low < floor {
 		w.MemorySpent, w.MemoryAbove, w.MemoryLow = false, 0, true
-		w.MemoryBelow++
 		w.LineStallSince, w.LineStallWoke = time.Time{}, false
-		return errors.Join(planningErr, s.pauseAtMemoryFloor(w, memory, floor, now))
+		return planningErr
 	}
 	room, err := s.room(now)
 	if err != nil {
-		w.MemoryAbove, w.MemoryBelow = 0, 0
+		w.MemoryAbove = 0
 		w.LineStallSince, w.LineStallWoke = time.Time{}, false
 		return errors.Join(planningErr, err)
 	}
 	stallErr := s.checkLineStall(w, memory, now)
-	w.MemoryBelow = 0
 	if low < room.Need(room.costliest()) {
 		w.MemoryAbove = 0
 	} else {
