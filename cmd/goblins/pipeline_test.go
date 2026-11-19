@@ -1157,8 +1157,13 @@ func TestPipelineMigrationRacingSwitchPreservesBothUpdates(t *testing.T) {
 	}
 
 	// A switch starts the codex its validation found on PATH, so the one this
-	// test's adapter stands for is put there. It never runs.
-	stub := t.TempDir()
+	// test's adapter stands for is put there, inside the home, since a goblin
+	// of a home the user's environment does not name starts only a harness
+	// its home holds. It never runs.
+	stub := filepath.Join(root, "bin")
+	if err := os.MkdirAll(stub, 0700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(stub, "codex.cmd"), []byte("@exit /b 1\r\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -1173,6 +1178,7 @@ func TestPipelineMigrationRacingSwitchPreservesBothUpdates(t *testing.T) {
 			harness.Codex:  pipelineSwitchAdapter{kind: harness.Codex},
 		}},
 		Commands:        switchRunner,
+		HomeRoot:        h.Root,
 		StateDir:        h.State,
 		UserEnvironment: func() ([]string, error) { return os.Environ(), nil },
 	}

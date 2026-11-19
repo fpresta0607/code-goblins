@@ -21,6 +21,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/cutover/homesetting"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -2293,7 +2294,7 @@ func TestAGoblinOfAnotherHomeStartsOnlyAHarnessInsideItUnlessAskedForTheRealOne(
 			userEnv := map[string][]string{
 				"own":     {"GOBLINS_HOME=" + root, "LOCALAPPDATA=" + t.TempDir()},
 				"default": {"LOCALAPPDATA=" + local},
-				"old":     {"CFO_HOME=" + root},
+				"old":     {homesetting.Old + "=" + root},
 				"other":   {"GOBLINS_HOME=" + t.TempDir(), "LOCALAPPDATA=" + local + "-other"},
 			}[test.usersHome]
 			service := Service{HomeRoot: root, StateDir: filepath.Join(root, "state")}
