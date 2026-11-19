@@ -577,6 +577,9 @@ func TestTwoEndedNativeCodexTasksDoNotResumeTheForeignLatestSession(t *testing.T
 			if err != nil || host.Running(first) || host.Running(latest) {
 				t.Fatalf("both native tasks must have ended: %v", err)
 			}
+			// task-8's fixture put the fake its own home holds first on PATH,
+			// and task-7's home starts only the one it holds.
+			putFirstOnPath(t, filepath.Join(owned.service.HomeRoot, "bin", "codex.exe"))
 
 			result, err := owned.service.Switch(t.Context(), SwitchRequest{ID: before.ID, Effort: "xhigh", Generation: before.SpawnGen, ResumeSession: testCase.session})
 
