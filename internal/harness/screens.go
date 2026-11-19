@@ -650,7 +650,8 @@ func (s Screens) Draft(screen []string) (string, bool) {
 	}
 	first := strings.TrimSpace(composer[0])
 	if s.Empty != nil {
-		for _, prompt := range []string{"› ", "❯ ", "> "} {
+		// Claude Code 2.1.328 holds a no-break space after its glyph.
+		for _, prompt := range []string{"› ", "❯ ", "> ", "❯ ", "> "} {
 			if content, found := strings.CutPrefix(first, prompt); found {
 				first = content
 				break

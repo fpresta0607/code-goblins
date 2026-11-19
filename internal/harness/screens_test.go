@@ -1102,6 +1102,42 @@ func TestClaudesQueuedHintReadsEmptyWithoutMistakingADraft(t *testing.T) {
 	}
 }
 
+// Claude Code 2.1.328, live on 2026-11-19: its prompt line holds a no-break
+// space after its glyph before the words typed on it, as its empty prompt line
+// does, so the board read a line that held only its own words as words it
+// never typed and refused to submit them (#2776).
+func TestClaudesPromptLineAfterANoBreakSpaceReadsAsTheWordsItHolds(t *testing.T) {
+	rule := strings.Repeat("─", 120)
+	footer := "  ⏵⏵ auto mode on (shift+tab to cycle)"
+	screens, _ := NativeScreens(Claude)
+	for name, test := range map[string]struct {
+		rows  []string
+		typed string
+		draft string
+		isOwn bool
+	}{
+		"captured words":        {[]string{"❯ first words"}, "first words", "firstwords", true},
+		"ascii prompt":          {[]string{"> first words"}, "first words", "firstwords", true},
+		"words over two rows":   {[]string{"❯ check the tests", "  and rebase"}, "check the tests and rebase", "checkthetestsandrebase", true},
+		"a paste":               {[]string{"❯ [Pasted text #1 +3 lines]"}, "stop\nand\nrebase\nnow", "[Pastedtext#1+3lines]", true},
+		"his words beside them": {[]string{"❯ first words and his"}, "first words", "firstwordsandhis", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			screen := append(append([]string{"✻ Flambéing… (0s · ↓ 2 tokens)", rule}, test.rows...), rule, footer)
+
+			// Act
+			draft, isRead := screens.Draft(screen)
+			isOwn := screens.ComposerHoldsPartOf(screen, test.typed)
+
+			// Assert
+			if !isRead || draft != test.draft || isOwn != test.isOwn {
+				t.Errorf("Draft = %q, %v and ComposerHoldsPartOf = %v; want %q and %v", draft, isRead, isOwn, test.draft, test.isOwn)
+			}
+		})
+	}
+}
+
 // Claude Code 2.1.322, live on 2026-11-10: Up at the empty prompt line that
 // shows its queue's hint takes every queued line back onto that line, and at
 // one that shows none it recalls an earlier prompt instead. The board presses
