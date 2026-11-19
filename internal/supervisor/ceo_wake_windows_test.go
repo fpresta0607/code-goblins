@@ -16,6 +16,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -334,6 +335,37 @@ func TestAnUnprovenWakeLineIsReportedAndNeverTypedTwice(t *testing.T) {
 	}
 	if err := s.wakeCEO(context.Background(), now.Add(time.Minute)); err != nil || len(*typed) != 1 {
 		t.Fatalf("the unproven line was typed again: %q, %v", *typed, err)
+	}
+}
+
+// A wake line its delivery took back off the CEO's prompt line unsent, such
+// as one a slow CEO never showed, reached nobody: its records stay uncovered,
+// the skip is recorded with why, and the next look types them again.
+func TestAWakeLineTakenBackUnsentIsTypedAgain(t *testing.T) {
+	// Arrange
+	s, stateDir, typed, deliverErr := typedWakeCEO(t, "codex", idleCodexCEO)
+	*deliverErr = fmt.Errorf("spawn: native terminal ceo never showed the instruction: %w", spawn.ErrTakenBack)
+	queueWake(t, stateDir, "notify", "cg-wakes", "blocked: merge or hold?")
+	now := time.Date(2026, 9, 30, 18, 0, 0, 0, time.UTC)
+
+	// Act
+	takenBackErr := s.wakeCEO(context.Background(), now)
+	covered, _, err := readCEOWoken(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	*deliverErr = nil
+	againErr := s.wakeCEO(context.Background(), now.Add(time.Minute))
+
+	// Assert
+	if takenBackErr != nil || covered != 0 {
+		t.Errorf("taken-back look = %v, covered up to %d; want no error and nothing covered", takenBackErr, covered)
+	}
+	if kept := skips(t, stateDir); len(kept) != 1 || !strings.Contains(kept[0].Why, "taken back") || kept[0].Wakes != 1 {
+		t.Errorf("skips = %+v, want one saying the line was taken back", kept)
+	}
+	if againErr != nil || len(*typed) != 2 || !strings.Contains((*typed)[1], "1 queued wake (notify cg-wakes)") {
+		t.Errorf("next look = %v, typed %q; want the same wake typed again", againErr, *typed)
 	}
 }
 

@@ -1211,9 +1211,9 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 		completed.Awaiting = nil
 		if runErr != nil {
 			completed.Status = "failed"
-			// A message whose words were taken back unsent reached nobody;
-			// any other delivery that ended in doubt may have arrived.
-			if a.Kind != "evaluate" && !errors.Is(runErr, ErrRejected) && !(a.Kind == "message" && errors.Is(runErr, ErrNotSent)) {
+			// A delivery whose words were taken back unsent reached nobody;
+			// any other that ended in doubt may have arrived.
+			if a.Kind != "evaluate" && !errors.Is(runErr, ErrRejected) && !errors.Is(runErr, ErrNotSent) {
 				completed.Status = "uncertain"
 			}
 			completed.Message = bounded(runErr.Error(), 1200)
