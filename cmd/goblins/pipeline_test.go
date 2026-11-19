@@ -2006,7 +2006,8 @@ func TestPipelineRunRefusesAMissingRequiredEnvironmentBeforeStartingTheGate(t *t
 
 // taskWorktreesRunner answers git in each directory of branches as the top
 // level of a checkout with that branch checked out, the native database's run
-// lookup with runBranch and its custody record with recovery; every other
+// lookup with runBranch, its custody record with recovery, and the gate's
+// recovery refs as absent, as for a run that kept nothing; every other
 // command goes to the runner it wraps.
 type taskWorktreesRunner struct {
 	execx.Runner
@@ -2033,6 +2034,10 @@ func (r taskWorktreesRunner) Run(ctx context.Context, q execx.Request) (execx.Re
 		return execx.Result{Stdout: []byte(`[{"branch":"` + r.runBranch + `"}]`)}, nil
 	case q.Name == "sqlite3" && strings.Contains(command, "AS recorded_head"):
 		return execx.Result{Stdout: []byte(r.recovery)}, nil
+	case q.Name == "git" && strings.Contains(command, "symbolic-ref --quiet refs/no-mistakes/recovery/"):
+		return execx.Result{ExitCode: 1}, nil
+	case q.Name == "git" && strings.Contains(command, "show-ref --exists refs/no-mistakes/recovery/"):
+		return execx.Result{ExitCode: 2}, nil
 	}
 	return r.Runner.Run(ctx, q)
 }

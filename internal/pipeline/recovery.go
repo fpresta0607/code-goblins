@@ -101,12 +101,20 @@ func (r Reader) RecoverKeepLocal(ctx context.Context, project, worktree, branch 
 	}
 	result, err := r.recoverRun(ctx, project, worktree, branch, env, run, edits)
 	// A recovery that stops short keeps the artifact as firmly as one that
-	// finishes: the goblin restores its fixer's work either way.
+	// finishes: the goblin restores its fixer's work either way, so its error,
+	// all goblins pipeline recover prints of it, names where (issue 2755).
 	result.WorktreeEdits = edits
+	if err != nil && edits != "" {
+		err = fmt.Errorf("%w; run %s's unfinished edits are kept at %s under %s; restore them with git cherry-pick -n %s", err, run.RunID, edits, WorktreeRef(run.RunID), edits)
+	}
 	return result, err
 }
 
 func (r Reader) recoverRun(ctx context.Context, project, worktree, branch string, env []string, run recoveryRecord, edits string) (RecoveryResult, error) {
+	bare := filepath.Join(r.Root, "repos", run.RepoID+".git")
+	if err := r.carryNativeRecoveryAnchor(ctx, bare, run); err != nil {
+		return RecoveryResult{}, err
+	}
 	status, output, err := r.readRecoverySync(ctx, worktree, env)
 	status.WorktreeEdits = edits
 	if err == nil && status.recoverableAtRecordedHead(run) {
@@ -139,7 +147,6 @@ func (r Reader) recoverRun(ctx context.Context, project, worktree, branch string
 	if err := r.requireCleanHead(ctx, worktree, run.SubmittedHead); err != nil {
 		return RecoveryResult{}, err
 	}
-	bare := filepath.Join(r.Root, "repos", run.RepoID+".git")
 	if err := r.requireRef(ctx, bare, "refs/heads/"+branch, run.SubmittedHead); err != nil {
 		return RecoveryResult{}, fmt.Errorf("pipeline: preserved gate branch is unsafe: %w", err)
 	}
@@ -157,6 +164,12 @@ func (r Reader) recoverRun(ctx context.Context, project, worktree, branch string
 		if !safe {
 			return RecoveryResult{}, fmt.Errorf("pipeline: recorded head is neither an ancestor of the submitted head nor the gate's rebase of it onto a published base or merge of one into it; to keep the gate's commits, put the clean task branch at the recorded head %s and recover again", run.RecordedHead)
 		}
+		nativeAnchor := "refs/no-mistakes/recover/" + run.RunID
+		if pinned, found, err := r.recoveryHead(ctx, bare, nativeAnchor, true); err != nil {
+			return RecoveryResult{}, err
+		} else if found && pinned != run.RecordedHead {
+			return RecoveryResult{}, fmt.Errorf("pipeline: native recovery anchor %s names %s, not the recorded head %s, so the recorded head was not repaired and nothing was changed", nativeAnchor, pinned, run.RecordedHead)
+		}
 		anchor := "refs/no-mistakes/recovery/" + run.RunID + "/recorded"
 		if err := r.preserveRecoveryHead(ctx, bare, anchor, run.RecordedHead); err != nil {
 			return RecoveryResult{}, err
@@ -168,6 +181,10 @@ func (r Reader) recoverRun(ctx context.Context, project, worktree, branch string
 			return RecoveryResult{}, fmt.Errorf("pipeline: preserved gate branch changed during recovery: %w", err)
 		}
 		if err := r.replaceRecordedHead(ctx, run); err != nil {
+			return RecoveryResult{}, err
+		}
+		run.RecordedHead = run.SubmittedHead
+		if err := r.carryNativeRecoveryAnchor(ctx, bare, run); err != nil {
 			return RecoveryResult{}, err
 		}
 	}
@@ -1124,6 +1141,33 @@ func (r Reader) preserveRecoveryHead(ctx context.Context, repo, ref, head string
 		return errors.New("pipeline: could not anchor the stale recorded commit")
 	}
 	return r.requireRecoveryHead(ctx, repo, ref, head)
+}
+
+// carryNativeRecoveryAnchor finishes the recorded-head repair in the gate.
+// Native pins an unpublished run's head under refs/no-mistakes/recover/<run>
+// when the run ends, and its recovery and terminal preflight both refuse a run
+// whose recorded head that anchor contradicts (issue 2755). So once the run
+// records its submitted head, an anchor still naming the stale head the repair
+// kept under recovery/<run>/recorded is compare-and-swapped to the submitted
+// head, and the stale head stays anchored there. A recovery that stopped
+// between the two, as issue 2755's did, finishes the move when it runs again.
+func (r Reader) carryNativeRecoveryAnchor(ctx context.Context, bare string, run recoveryRecord) error {
+	if run.RecordedHead != run.SubmittedHead || run.CustodyReturnedAt != 0 {
+		return nil
+	}
+	stale, found, err := r.recoveryHead(ctx, bare, "refs/no-mistakes/recovery/"+run.RunID+"/recorded", true)
+	if err != nil || !found {
+		return err
+	}
+	nativeAnchor := "refs/no-mistakes/recover/" + run.RunID
+	pinned, found, err := r.recoveryHead(ctx, bare, nativeAnchor, true)
+	if err != nil || !found || pinned != stale {
+		return err
+	}
+	if err := r.requireRef(ctx, bare, "refs/heads/"+run.Branch, run.SubmittedHead); err != nil {
+		return fmt.Errorf("pipeline: preserved gate branch is unsafe: %w", err)
+	}
+	return r.moveRef(ctx, bare, nativeAnchor, run.SubmittedHead, stale)
 }
 
 func (r Reader) replaceRecordedHead(ctx context.Context, run recoveryRecord) error {
