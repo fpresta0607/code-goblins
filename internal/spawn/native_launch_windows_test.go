@@ -1057,31 +1057,18 @@ func TestACheckThatRefusesBeforeLaunchLeavesNoTrace(t *testing.T) {
 // never runs on the user's profile and spends nothing (#2094).
 func TestAScratchHomesSpawnRefusesAHarnessOutsideTheHome(t *testing.T) {
 	// Arrange
+	behind := linkACodexOutsideTheHome(t)
 	f := newQuickFixture(t)
-	program, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	outside := t.TempDir()
-	standin.RemoveAtCleanup(t, outside)
-	behind := filepath.Join(outside, "codex.exe")
-	if err := os.Link(program, behind); err != nil {
-		t.Fatalf("link the test binary as the codex outside the home: %v", err)
-	}
-	t.Setenv("PATH", outside+string(os.PathListSeparator)+os.Getenv("PATH"))
+	putFirstOnPath(t, behind)
 	t.Setenv(RealHarnessVariable, "")
 	f.userEnv = append(f.userEnv, "GOBLINS_HOME="+t.TempDir())
-	// The premise: the harness the spawn finds is the one outside the home,
-	// and the user's environment names another home.
-	if found, err := exec.LookPath("codex"); err != nil || !strings.EqualFold(found, behind) {
-		t.Fatalf("codex resolves to %q, %v; want %s", found, err, behind)
-	}
+	// The premise: the user's environment names another home.
 	if users := usersHome(f.userEnv); users == "" || fsx.SamePath(users, f.service.HomeRoot) {
 		t.Fatalf("the user's environment names %q, want a home other than %s", users, f.service.HomeRoot)
 	}
 
 	// Act
-	_, err = f.service.Spawn(t.Context(), f.request)
+	_, err := f.service.Spawn(t.Context(), f.request)
 
 	// Assert
 	if err == nil || !strings.Contains(err.Error(), RealHarnessVariable+"=1") || !strings.Contains(err.Error(), behind) {
@@ -1092,6 +1079,76 @@ func TestAScratchHomesSpawnRefusesAHarnessOutsideTheHome(t *testing.T) {
 	}
 	if _, readErr := os.Stat(f.record); !errors.Is(readErr, os.ErrNotExist) {
 		t.Fatalf("the harness outside the home ran: %v", readErr)
+	}
+}
+
+// A goblin of the home the user's environment names, or of a scratch home
+// whose spawner asks for the real harness, starts the harness PATH finds
+// outside the home, as every installed goblin starts the real one.
+func TestASpawnStartsAHarnessOutsideTheHomeInTheUsersOwnHomeOrWhenAskedFor(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		// isUsersHome has the user's environment name the spawning home by
+		// GOBLINS_HOME, and another home otherwise.
+		isUsersHome bool
+		realHarness string
+	}{
+		{name: "the user's own home", isUsersHome: true},
+		{name: "a scratch home whose spawner asks for the real harness", realHarness: "1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			behind := linkACodexOutsideTheHome(t)
+			f := newQuickFixture(t)
+			putFirstOnPath(t, behind)
+			t.Setenv(RealHarnessVariable, test.realHarness)
+			users := t.TempDir()
+			if test.isUsersHome {
+				users = f.service.HomeRoot
+			}
+			f.userEnv = append(f.userEnv, "GOBLINS_HOME="+users)
+
+			// Act
+			_, err := f.service.Spawn(t.Context(), f.request)
+
+			// Assert
+			if err != nil {
+				t.Fatalf("Spawn: %v", err)
+			}
+			if _, found := f.terminal(); !found {
+				t.Error("the spawn started no terminal")
+			}
+			if submitted := named(f.events(t), "submitted"); len(submitted) != 1 {
+				t.Errorf("submitted = %+v, want the instruction once to the harness outside the home", submitted)
+			}
+		})
+	}
+}
+
+// linkACodexOutsideTheHome links a fake codex in a folder outside every home
+// and returns its path. A test links it before its native fixture, so the
+// fixture's cleanup ends the terminal before the folder goes.
+func linkACodexOutsideTheHome(t *testing.T) string {
+	t.Helper()
+	program, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	standin.RemoveAtCleanup(t, outside)
+	behind := filepath.Join(outside, "codex.exe")
+	if err := os.Link(program, behind); err != nil {
+		t.Fatalf("link the test binary as the codex outside the home: %v", err)
+	}
+	return behind
+}
+
+// putFirstOnPath puts the folder of the fake codex at path first on PATH.
+func putFirstOnPath(t *testing.T, path string) {
+	t.Helper()
+	t.Setenv("PATH", filepath.Dir(path)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if found, err := exec.LookPath("codex"); err != nil || !strings.EqualFold(found, path) {
+		t.Fatalf("codex resolves to %q, %v; want %s", found, err, path)
 	}
 }
 
