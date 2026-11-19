@@ -18,22 +18,22 @@ import (
 // before the janitor takes it for a leak.
 const tempAge = 24 * time.Hour
 
-// readableProcesses returns every running process's command line, lowercased,
-// once the list is proven read: this process's own must be in it, naming its
+// readableProcesses returns every running process's command line once the
+// list is proven read: this process's own must be in it, naming its
 // own program. A list that fails that is no evidence that nothing uses a
 // folder, so no temporary folder is removed on its strength.
-func (cfg Config) readableProcesses(record *Record) ([]string, bool) {
+func (cfg Config) readableProcesses(record *Record) ([]commandLine, bool) {
 	self, err := os.Executable()
 	if err != nil {
 		record.Notes = append(record.Notes, "this program's own path could not be read, so the process list could not be proven read and no temporary folder was removed")
 		return nil, false
 	}
-	var lines []string
+	var lines []commandLine
 	seen := false
 	for _, process := range cfg.Inventory.Processes {
-		line := strings.ToLower(process.CommandLine)
+		line := commandLine{text: process.CommandLine, lower: strings.ToLower(process.CommandLine)}
 		lines = append(lines, line)
-		if process.PID == cfg.SelfPID && names(line, self) {
+		if process.PID == cfg.SelfPID && anyNames([]commandLine{line}, self) {
 			seen = true
 		}
 	}
@@ -44,12 +44,37 @@ func (cfg Config) readableProcesses(record *Record) ([]string, bool) {
 	return lines, true
 }
 
-// names reports whether a lowercased command line names path, as the path
-// itself or a path inside it, ending where a path does: at its end, a
-// separator, a quote or a space. Without the boundary a process using
-// pd-12 would read as one using pd-1.
-func names(line, path string) bool {
-	target := strings.ToLower(filepath.Clean(path))
+// commandLine is a running process's command line as read and lowercased,
+// so a sweep that asks of many folders whether a process names them lowers
+// each line once.
+type commandLine struct{ text, lower string }
+
+// anyNames reports whether any of lines names path, as the path itself or a
+// path inside it, in any case where the file system that holds path ignores
+// case, ending where a path does: at its end, a separator, a quote or a
+// space. Without the boundary a process using pd-12 would read as one using
+// pd-1.
+func anyNames(lines []commandLine, path string) bool {
+	target := filepath.Clean(path)
+	isFolded := fsx.FoldsCase(target)
+	if isFolded {
+		target = strings.ToLower(target)
+	}
+	for _, line := range lines {
+		text := line.text
+		if isFolded {
+			text = line.lower
+		}
+		if names(text, target) {
+			return true
+		}
+	}
+	return false
+}
+
+// names reports whether line names target, both in the case they are to be
+// compared in, as anyNames says.
+func names(line, target string) bool {
 	for offset := 0; ; {
 		at := strings.Index(line[offset:], target)
 		if at < 0 {
@@ -69,7 +94,7 @@ func names(line, path string) bool {
 // Go temporary folder, a task's whose record is gone. Each goes only once
 // nothing in it was written for a day, no running process names it and no
 // running Git Bash has it as /tmp.
-func (cfg Config) removeTempLeaks(processes []string, record *Record) {
+func (cfg Config) removeTempLeaks(processes []commandLine, record *Record) {
 	scratchRoots := append(cfg.Home.ScratchRoots(), cfg.LegacyGoTmp)
 	var candidates []string
 	if cfg.TempDir != "" {
@@ -97,7 +122,7 @@ func (cfg Config) removeTempLeaks(processes []string, record *Record) {
 	} else {
 		live := map[string]bool{}
 		for _, task := range cfg.Inventory.Tasks {
-			live[strings.ToLower(task.ID)] = true
+			live[fsx.PathKey(filepath.Join(cfg.Home.State, task.ID))] = true
 		}
 		for _, root := range scratchRoots {
 			if root == "" {
@@ -112,11 +137,12 @@ func (cfg Config) removeTempLeaks(processes []string, record *Record) {
 				// goblin's shell was the first to start. Removing it
 				// would take /tmp from all of them, as removing a task's
 				// scratch folder did on 2026-10-09.
-				if strings.EqualFold(entry.Name(), home.SharedTempDir) {
+				folder := filepath.Join(root, entry.Name())
+				if fsx.EqualPath(folder, filepath.Join(root, home.SharedTempDir)) {
 					continue
 				}
-				if entry.IsDir() && !live[strings.ToLower(entry.Name())] {
-					candidates = append(candidates, filepath.Join(root, entry.Name()))
+				if entry.IsDir() && !live[fsx.PathKey(filepath.Join(cfg.Home.State, entry.Name()))] {
+					candidates = append(candidates, folder)
 				}
 			}
 		}
@@ -141,27 +167,34 @@ func (cfg Config) removeTempLeaks(processes []string, record *Record) {
 func (cfg Config) fleetTemps(dir string, entries []os.DirEntry) []string {
 	var folders []string
 	for _, entry := range entries {
-		if entry.IsDir() && cfg.isFleetTemp(entry.Name()) {
+		if entry.IsDir() && cfg.isFleetTemp(dir, entry.Name()) {
 			folders = append(folders, filepath.Join(dir, entry.Name()))
 		}
 	}
 	return folders
 }
 
-func (cfg Config) isFleetTemp(name string) bool {
+// isFleetTemp reports whether name, an entry of dir, matches a temp pattern
+// of the settings, in any case where dir's file system ignores case.
+func (cfg Config) isFleetTemp(dir, name string) bool {
+	isFolded := fsx.FoldsCase(dir)
+	if isFolded {
+		name = strings.ToLower(name)
+	}
 	for _, pattern := range cfg.Settings.TempPatterns {
-		if matched, err := filepath.Match(strings.ToLower(pattern), strings.ToLower(name)); err == nil && matched {
+		if isFolded {
+			pattern = strings.ToLower(pattern)
+		}
+		if matched, err := filepath.Match(pattern, name); err == nil && matched {
 			return true
 		}
 	}
 	return false
 }
 
-func (cfg Config) removeTempLeak(path string, processes []string, liveTmp func() ([]home.LiveTemp, error), record *Record) {
-	for _, line := range processes {
-		if names(line, path) {
-			return
-		}
+func (cfg Config) removeTempLeak(path string, processes []commandLine, liveTmp func() ([]home.LiveTemp, error), record *Record) {
+	if anyNames(processes, path) {
+		return
 	}
 	newest, bytes, err := newestWrite(path)
 	if err != nil {

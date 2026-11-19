@@ -59,7 +59,7 @@ func (cfg Config) tidyWorktrees(ctx context.Context, record *Record) {
 				record.Kept = append(record.Kept, Item{Kind: "worktree", Path: dir.Path, Detail: "an empty folder that could not be removed: " + err.Error()})
 				continue
 			}
-			gone[strings.ToLower(dir.Path)] = true
+			gone[fsx.PathKey(dir.Path)] = true
 			record.Removed = append(record.Removed, Item{Kind: "worktree", Path: dir.Path, Detail: "an empty folder its project does not register"})
 			continue
 		}
@@ -69,11 +69,11 @@ func (cfg Config) tidyWorktrees(ctx context.Context, record *Record) {
 			record.Kept = append(record.Kept, Item{Kind: "worktree", Path: dir.Path, Bytes: bytes, Detail: err.Error()})
 			continue
 		}
-		gone[strings.ToLower(dir.Path)] = true
+		gone[fsx.PathKey(dir.Path)] = true
 		record.Removed = append(record.Removed, Item{Kind: "worktree", Path: dir.Path, Bytes: bytes, Detail: detail})
 	}
 	for _, dir := range cfg.Inventory.Worktrees {
-		if gone[strings.ToLower(dir.Path)] || reap.Recorded(cfg.Inventory, dir.Path) {
+		if gone[fsx.PathKey(dir.Path)] || reap.Recorded(cfg.Inventory, dir.Path) {
 			continue
 		}
 		// A live session's worktree in a checkout is no leftover, so the CEO
