@@ -92,7 +92,8 @@ type Dispatch struct {
 // SlotHold is why the supervisor starts and resumes no goblin by itself at
 // this reading, keeping the test slots open, or empty when it may or the
 // machine's heavy line is not read. HandleHolder is the process holding the
-// most handles open, whose leak fills the kernel's paged pool.
+// most handles open, whose leak fills the kernel's paged pool. Guard is the
+// reading the memory guard last acted on.
 type Memory struct {
 	Available       uint64         `json:"available"`
 	Total           uint64         `json:"total"`
@@ -107,6 +108,18 @@ type Memory struct {
 	SlotHold        string         `json:"slot_hold"`
 	Holders         []CommitHolder `json:"holders,omitempty"`
 	HandleHolder    *HandleHolder  `json:"handle_holder,omitempty"`
+	Guard           *GuardReading  `json:"guard,omitempty"`
+}
+
+// GuardReading is the reading under the floor that the memory guard last acted
+// on: when it read, the free memory and commit it read, the floor, and what it
+// did about it.
+type GuardReading struct {
+	At              time.Time `json:"at"`
+	Available       uint64    `json:"available"`
+	CommitAvailable uint64    `json:"commit_available"`
+	Floor           uint64    `json:"floor"`
+	Action          string    `json:"action"`
 }
 
 // startPlan is the goblins spawn a Start runs.

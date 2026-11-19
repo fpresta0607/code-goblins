@@ -525,6 +525,7 @@ func defaultCommandRuntime() commandRuntime {
 				Docker:            runtime.Docker{Commands: commands},
 				System:            runtime.System{Commands: commands},
 				VerificationStore: verificationStore,
+				DispatchNeed:      func() (uint64, error) { return dispatchNeed(h, fleettree.Processes, time.Now()) },
 			}.Collect(ctx)
 		},
 		cleanup:       defaultCleanup,
