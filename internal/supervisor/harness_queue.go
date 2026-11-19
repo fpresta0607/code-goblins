@@ -393,7 +393,20 @@ func (s *Service) sendCommandFirst(ctx context.Context, id, task string) (bool, 
 	}
 	held, record, screens, canGoAhead := s.queueAhead(task)
 	if !canGoAhead {
-		return false, errors.New(commandWaits)
+		// One that reads Not sent goes back in the queue, as Send now puts back
+		// any message that reads Not sent, but to run there when the turn ends
+		// and not sent now, since the harness's send-now key would end that
+		// turn over the words ahead of it, as Codex's Escape hands them back
+		// onto its prompt line.
+		var saveErr error
+		s.Store.mu.Lock()
+		if at := slices.IndexFunc(s.Store.db.Actions, func(a Action) bool { return a.ID == id && a.TaskID == task && isNotSent(a) }); at >= 0 {
+			a := &s.Store.db.Actions[at]
+			a.Status, a.Message, a.IsSentNow, a.CanSendNow, a.SendNowWhy, a.Awaiting, a.LeftTyped, a.UpdatedAt = "queued", "Queued. "+commandWaits, false, false, commandWaits, nil, nil, time.Now().UTC()
+			saveErr = s.Store.save()
+		}
+		s.Store.mu.Unlock()
+		return false, errors.Join(errors.New(commandWaits), saveErr)
 	}
 	if len(held) == 0 {
 		return false, nil

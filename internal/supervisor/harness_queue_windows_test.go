@@ -1161,6 +1161,47 @@ func TestACommandBehindHisWordsInAQueueNoKeyGivesBackOffersNoSendNow(t *testing.
 	}
 }
 
+// A command that reads Not sent reached nobody, so Send now puts it back in
+// the queue, as for any message that reads Not sent. Behind his words in a
+// Codex turn's queue, which no key gives back, it cannot go ahead of them, and
+// Codex's send-now key, Escape, would end that turn by handing them back onto
+// its prompt line. So there it goes back in the queue with no Send now, to run
+// when that turn ends, rather than being refused and left reading Not sent,
+// and the press says so, with nothing pressed in his turn (#2759).
+func TestSendNowPutsACommandThatReadsNotSentBackInTheQueueBehindHisWordsInAQueueNoKeyGivesBack(t *testing.T) {
+	// Arrange
+	store, service, terminal, _, _ := heldQueue(t, false, "busy", "first words")
+	now := time.Now().UTC()
+	store.mu.Lock()
+	store.db.Actions = append(store.db.Actions, Action{ID: "m2", Kind: "message", Text: "/compact", Status: "failed", Message: "Not sent. The answer was typed but never showed in the CEO's input. It was taken back off the CEO's prompt line, so nothing of it is left typed there.", CreatedAt: now.Add(-time.Minute), UpdatedAt: now})
+	saved := store.save()
+	store.mu.Unlock()
+	if saved != nil {
+		t.Fatal(saved)
+	}
+	if unsent := actionOf(store, "m2"); !isNotSent(unsent) {
+		t.Fatalf("the command = %+v; want it to read Not sent", unsent)
+	}
+
+	// Act
+	pressed := sendNow(service, "", "m2")
+	queued, words := actionOf(store, "m2"), actionOf(store, "m1")
+	tried := store.ProcessOne(context.Background(), service.execute)
+	held := actionOf(store, "m2")
+	input := terminal.waitForLines(t, 2)
+
+	// Assert
+	if pressed.Code != 409 || !strings.Contains(pressed.Body.String(), commandWaits) || queued.Status != "queued" || queued.IsSentNow || queued.CanSendNow || !isHarnessHeld(words) {
+		t.Errorf("Send now = %d %s, the command = %+v, his words = %+v; want it back in the queue, not sent now, saying it runs when the turn ends, and his words left in the turn's queue", pressed.Code, pressed.Body, queued, words)
+	}
+	if !errors.Is(tried, ErrDeferred) || held.Status != "queued" || held.CanSendNow || held.SendNowWhy != commandWaits || held.Message != "Queued. "+commandWaits {
+		t.Errorf("its try = %v, the command = %+v; want it held for the turn's end with no Send now, saying so", tried, held)
+	}
+	if want := []string{"queued first words"}; !slices.Equal(input[1:], want) {
+		t.Errorf("terminal input = %q; want %q after its registration, and no key pressed for the command", input, want)
+	}
+}
+
 // Claude Code gives its turn's queue back to Up, but only his words there can
 // wait on the board behind a command he sends now: an answer the board typed
 // into that queue would be typed into the turn again ahead of the command
