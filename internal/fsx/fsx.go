@@ -62,6 +62,21 @@ func Stages() int64 { return stages.Load() }
 // before the close and the rename.
 var syncFile = (*os.File).Sync
 
+// Sync flushes file's data to disk, as Stage flushes the file it stages, for
+// a writer that fills a staged file itself and then renames it over another.
+func Sync(file *os.File) error {
+	return syncFile(file)
+}
+
+// ReplaceSync makes every flush through this package call flush instead,
+// until the returned restore runs, so a test of a writer elsewhere sees it
+// flush its staged file before the rename. It is for tests alone.
+func ReplaceSync(flush func(*os.File) error) (restore func()) {
+	original := syncFile
+	syncFile = flush
+	return func() { syncFile = original }
+}
+
 // Stage writes data to a temporary file in path's directory, for Commit to
 // put in path's place. The data is flushed to disk before the file closes:
 // NTFS can journal the rename before it writes data still cached, and a

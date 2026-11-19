@@ -1,13 +1,16 @@
 package spawn
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // stubPreflight stands in for the auth package so spawn's contribution -
@@ -112,5 +115,50 @@ func TestSpawnRefusesARedBlockingServiceAndPrintsTheFixCommand(t *testing.T) {
 	// the operator cannot ignore is the control; the fix has to be in it.
 	if !strings.Contains(err.Error(), "goblins auth store --project primary DATABASE_URL") {
 		t.Errorf("err = %v, want the exact fix command printed", err)
+	}
+}
+
+// The credential script is flushed to disk while its staged copy is still
+// open and before it replaces the script a shell sources, so a machine that
+// stops after the rename finds the script whole rather than at full length
+// and holding only zero bytes.
+func TestWriteAuthScriptFlushesTheScriptBeforeTheSwap(t *testing.T) {
+	// Arrange
+	taskTmp := t.TempDir()
+	path := filepath.Join(taskTmp, "auth.ps1")
+	old := []byte("$env:OLD = 'stale'\n")
+	if err := os.WriteFile(path, old, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	type flush struct {
+		name string
+		data []byte
+	}
+	var flushedBeforeTheSwap []flush
+	t.Cleanup(fsx.ReplaceSync(func(file *os.File) error {
+		staged, _ := os.ReadFile(file.Name())
+		if kept, _ := os.ReadFile(path); file.Name() != path && bytes.Equal(kept, old) {
+			flushedBeforeTheSwap = append(flushedBeforeTheSwap, flush{file.Name(), staged})
+		}
+		return file.Sync()
+	}))
+
+	// Act
+	_, _, err := writeAuthScript(taskTmp, map[string]string{"FLY_API_TOKEN": "fresh"})
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	script, err := os.ReadFile(path)
+	if err != nil || !bytes.Contains(script, []byte("fresh")) {
+		t.Fatalf("auth.ps1 = %q, %v; want the new script", script, err)
+	}
+	flushedWhole := slices.ContainsFunc(flushedBeforeTheSwap, func(f flush) bool {
+		_, err := os.Stat(f.name)
+		return bytes.Equal(f.data, script) && os.IsNotExist(err)
+	})
+	if !flushedWhole {
+		t.Errorf("flushes before the swap %v, want the whole script flushed in the copy renamed into place", flushedBeforeTheSwap)
 	}
 }

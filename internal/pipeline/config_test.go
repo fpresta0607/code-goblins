@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"gopkg.in/yaml.v3"
 )
 
@@ -465,5 +466,51 @@ func TestApplyRefusesBusyAndBacksUpIdleConfig(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The applied configuration is flushed to disk while its staged copy is still
+// open and before it replaces the live one, so a machine that stops after the
+// swap finds the configuration whole rather than at full length and holding
+// only zero bytes.
+func TestApplyFlushesTheStagedConfigBeforeItReplacesTheLiveOne(t *testing.T) {
+	// Arrange
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	before := []byte("agent: [pi]\n")
+	if err := os.WriteFile(path, before, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	type flush struct {
+		name string
+		data []byte
+	}
+	var flushedBeforeTheSwap []flush
+	t.Cleanup(fsx.ReplaceSync(func(file *os.File) error {
+		staged, _ := os.ReadFile(file.Name())
+		if live, _ := os.ReadFile(path); file.Name() != path && slices.Equal(live, before) {
+			flushedBeforeTheSwap = append(flushedBeforeTheSwap, flush{file.Name(), staged})
+		}
+		return file.Sync()
+	}))
+	c := Config{Path: path, Policy: testPolicy(t), Idle: func(context.Context) (func() error, error) {
+		return func() error { return nil }, nil
+	}}
+
+	// Act
+	result, err := c.Apply(context.Background())
+
+	// Assert
+	if err != nil || len(result.Drift) == 0 {
+		t.Fatalf("Apply = %+v, %v; want the drift applied", result, err)
+	}
+	applied, err := os.ReadFile(path)
+	if err != nil || slices.Equal(applied, before) {
+		t.Fatalf("config = %q, %v; want the applied configuration", applied, err)
+	}
+	flushedWhole := slices.ContainsFunc(flushedBeforeTheSwap, func(f flush) bool {
+		return f.name != result.Backup && slices.Equal(f.data, applied)
+	})
+	if !flushedWhole {
+		t.Errorf("flushes before the swap %v, want the whole applied configuration flushed in its staged copy", flushedBeforeTheSwap)
 	}
 }

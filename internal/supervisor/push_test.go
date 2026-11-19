@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/remoteaccess"
 	"github.com/fpresta0607/code-goblins/internal/webpush"
 )
@@ -511,5 +512,52 @@ func TestAGoblinsQuestionTheCEOLeftCountsButIsNotPushed(t *testing.T) {
 	// Assert
 	if sent := p.sent(); quiet != 0 || len(sent) != 1 || pushed(t, sent[0])["count"] != float64(2) {
 		t.Errorf("pushed %d for the goblin's question, %d in all; want none for it, then the CEO's question counting 2", quiet, len(sent))
+	}
+}
+
+// The push record, which holds the board's private key, is flushed to disk
+// while its staged copy is still open and before it replaces the one kept:
+// NTFS can journal the rename before it writes the data, and a machine that
+// stopped in between came back with the file at full length and holding
+// only zero bytes.
+func TestThePushRecordIsFlushedBeforeItReplacesTheOneKept(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	s := &Service{Store: store}
+	path := filepath.Join(h.State, pushFile)
+	old := []byte(`{"keys":null,"apps":[]}`)
+	if err := os.WriteFile(path, old, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record := pushRecord{Apps: []webpush.Subscription{phone}}
+	want, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var flushedWhole []string
+	t.Cleanup(fsx.ReplaceSync(func(file *os.File) error {
+		staged, _ := os.ReadFile(file.Name())
+		kept, _ := os.ReadFile(path)
+		if file.Name() != path && bytes.Equal(staged, want) && bytes.Equal(kept, old) {
+			flushedWhole = append(flushedWhole, file.Name())
+		}
+		return file.Sync()
+	}))
+
+	// Act
+	err = s.writePush(record)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(flushedWhole) != 1 {
+		t.Fatalf("the whole record was flushed %d times before it replaced the kept one, want once", len(flushedWhole))
+	}
+	if _, err := os.Stat(flushedWhole[0]); !os.IsNotExist(err) {
+		t.Errorf("the flushed copy %s is still beside the record, want it renamed into place: %v", flushedWhole[0], err)
+	}
+	if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, want) {
+		t.Errorf("the record holds %q, %v; want %q", got, err, want)
 	}
 }

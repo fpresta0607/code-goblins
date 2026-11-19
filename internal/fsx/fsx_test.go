@@ -50,9 +50,7 @@ func TestAtomicWriteFileLeavesNoTempOnSuccess(t *testing.T) {
 // replaceSyncFile swaps the flush for flush until the test ends.
 func replaceSyncFile(t *testing.T, flush func(*os.File) error) {
 	t.Helper()
-	original := syncFile
-	t.Cleanup(func() { syncFile = original })
-	syncFile = flush
+	t.Cleanup(ReplaceSync(flush))
 }
 
 // Stage flushes the staged copy while it is still open and before Commit

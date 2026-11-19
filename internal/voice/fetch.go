@@ -345,7 +345,7 @@ func unpack(archive, dir string, files []string) (map[string]int64, error) {
 		// machine that stops after the rename finds the files whole.
 		size, err := io.Copy(out, entries)
 		if err == nil {
-			err = out.Sync()
+			err = fsx.Sync(out)
 		}
 		if closeErr := out.Close(); err == nil {
 			err = closeErr

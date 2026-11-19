@@ -15,6 +15,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // Windows' inbox conhost enqueues a program's waiting console read outside
@@ -226,7 +228,7 @@ func writeBeside(path string, content []byte) error {
 		return err
 	}
 	_, writeErr := file.Write(content)
-	if err := errors.Join(writeErr, file.Sync(), file.Close()); err != nil {
+	if err := errors.Join(writeErr, fsx.Sync(file), file.Close()); err != nil {
 		os.Remove(file.Name())
 		return err
 	}
