@@ -319,7 +319,7 @@ A layer's Linux code sits beside the Windows code under a build tag.
 6. **Watching and readings.** `inotify`, the memory and processor readings, priorities, the janitor's processes, the browser sign-in and the clipboard.
    The watcher's handover request names its requester by instance.
 7. **End to end.** The hooks without PowerShell, card commands and `!` messages in bash, folders opened with `xdg-open`, and a goblin run on Linux in CI under Claude Code, Codex and pi: spawn, send, peek, wake, pause, resume, gate and cleanup.
-8. **Installer and updater.** The release's Linux archives and `install.sh`, update and uninstall, the `.desktop` entry, the user unit and lingering, the board opening in the browser, and the README's download control and the install guide offering macOS/Linux as one choice beside Windows.
+8. **Installer and updater.** The release's Linux archives and Linux in the shared `install.sh` that 8m brings, update and uninstall, the `.desktop` entry, the user unit and lingering, the board opening in the browser, and the README's download control and the install guide offering macOS/Linux as one choice beside Windows.
    The updater's wait for the supervisor to exit names the supervisor by instance.
 9. **Dictation.** The speech engine's Linux library, pinned in `config/voice.json` beside the Windows one, and loaded through cgo or a pure-Go loader such as purego, whichever this layer chooses.
    If it takes cgo, the release's Linux build from layer 8 turns cgo on with it.
