@@ -110,7 +110,7 @@ func preparedPackage(t *testing.T) *preparedFixture {
 			Stop: func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) {
 				return []string{"synthetic terminal"}, nil
 			},
-			Resume: func(_ context.Context, current state.TaskMeta, _ state.Lifecycle) error {
+			Resume: func(_ context.Context, current state.TaskMeta, _ *state.Lifecycle) error {
 				current.SpawnGen, current.ResumeOperation = "generation-resumed-rex", request.Operation
 				return state.WriteTaskMeta(h.State, current)
 			},

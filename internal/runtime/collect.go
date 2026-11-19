@@ -52,6 +52,9 @@ type Collector struct {
 	// VerificationStore is the verification store's folder, measured beside
 	// the home. Empty measures it as not named.
 	VerificationStore string
+	// DispatchNeed reads the free memory and commit, in bytes, the next goblin
+	// start needs. Nil leaves the need unread, which holds every dispatch.
+	DispatchNeed func() (uint64, error)
 }
 
 // Collect reads every source once.
@@ -131,6 +134,7 @@ func (c Collector) Collect(ctx context.Context) (Inventory, error) {
 		} else {
 			inv.Machine.DiskFloor = int64(fleetconfig.Bytes(settings.DiskFloorGB))
 		}
+		c.readDispatchNeed(&inv.Machine)
 	} else {
 		inv.Notes = append(inv.Notes, "SERVERS UNREADABLE: no system source configured")
 	}
@@ -161,6 +165,21 @@ func (c Collector) Collect(ctx context.Context) (Inventory, error) {
 	inv.Notes = append(inv.Notes, projectNotes...)
 	c.markPresent(&inv)
 	return inv, nil
+}
+
+// readDispatchNeed sets what the next goblin start needs of machine, or why
+// that could not be read.
+func (c Collector) readDispatchNeed(machine *Machine) {
+	if c.DispatchNeed == nil {
+		machine.DispatchNeedUnread = "no source for the next start's need is configured"
+		return
+	}
+	need, err := c.DispatchNeed()
+	if err != nil {
+		machine.DispatchNeedUnread = err.Error()
+		return
+	}
+	machine.DispatchNeed = int64(need)
 }
 
 // tasks reads every live task record. A task's worktree is what makes a

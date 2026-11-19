@@ -547,7 +547,7 @@ func TestAResumeOfAFailedResumeAlreadyUpHandsItsKeptMessagesToTheCEO(t *testing.
 			var carried []string
 			controller := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
 				IsRunning: func(context.Context, state.TaskMeta) (bool, error) { return tc.isRunning, nil },
-				Resume: func(_ context.Context, _ state.TaskMeta, prior state.Lifecycle) error {
+				Resume: func(_ context.Context, _ state.TaskMeta, prior *state.Lifecycle) error {
 					_, carried = keptMessages(prior.ResumeNote)
 					return nil
 				},

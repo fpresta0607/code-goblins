@@ -187,11 +187,6 @@ type Service struct {
 	// his harness draws from it is his to answer: a board message, not a
 	// spawn's briefing or a wake line.
 	His bool
-	// ShouldTakeBack takes the text a delivery typed back off its harness's
-	// prompt line when the delivery ends before its submit key, and says so
-	// with ErrTakenBack: a board delivery, whose words left there unsent
-	// would hold every later one back.
-	ShouldTakeBack bool
 	// SubmittedIntoTurn is told once the submit key of a delivery into a
 	// turn under way went: from then the text waits in its harness's queue,
 	// while the delivery still waits to see it taken. Nil is told nothing.
@@ -1284,7 +1279,7 @@ func rejectTaskIDAlias(stateDir, id string) error {
 		if strings.EqualFold(extension, ".status") && !live[existingID] {
 			continue
 		}
-		if taskIDsAlias(id, existingID) {
+		if taskIDsAlias(stateDir, id, existingID) {
 			return fmt.Errorf("spawn: task ID %q conflicts case-insensitively with retained task state for %q", id, existingID)
 		}
 	}
@@ -1298,15 +1293,18 @@ func rejectTaskIDAlias(stateDir, id string) error {
 		return fmt.Errorf("spawn: list task temporary directories: %w", err)
 	}
 	for _, entry := range entries {
-		if entry.IsDir() && taskIDsAlias(id, entry.Name()) {
+		if entry.IsDir() && taskIDsAlias(taskTmp, id, entry.Name()) {
 			return fmt.Errorf("spawn: task ID %q conflicts case-insensitively with retained task temporary directory %q", id, entry.Name())
 		}
 	}
 	return nil
 }
 
-func taskIDsAlias(id, existingID string) bool {
-	return state.ValidTaskID(existingID) == nil && strings.EqualFold(existingID, id)
+// taskIDsAlias reports whether id and existingID, a name in dir, name one
+// file there: without regard to case where dir's file system ignores case, as
+// Windows does.
+func taskIDsAlias(dir, id, existingID string) bool {
+	return state.ValidTaskID(existingID) == nil && fsx.EqualPath(filepath.Join(dir, existingID), filepath.Join(dir, id))
 }
 
 func (s Service) sleep(ctx context.Context, duration time.Duration) error {

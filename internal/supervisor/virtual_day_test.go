@@ -25,7 +25,7 @@ func TestScratchHomeVirtualDayResumesThreeReasonsWithoutReplacingWork(t *testing
 		Stop: func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) {
 			return []string{"scratch process fixture"}, nil
 		},
-		Resume: func(_ context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
+		Resume: func(_ context.Context, meta state.TaskMeta, prior *state.Lifecycle) error {
 			if prior.Session != "saved-"+meta.ID || !prior.HandoffSaved {
 				t.Errorf("resume lost the session or handoff: %+v", prior)
 			}

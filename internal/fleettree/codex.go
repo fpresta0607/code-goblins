@@ -139,7 +139,7 @@ func (r *Reader) codexConversation(ctx context.Context, worktree, session string
 		isOwned, seen := owned[meta.cwd]
 		if !seen {
 			resolved, err := fsx.Canonical(meta.cwd)
-			isOwned = filepath.IsAbs(meta.cwd) && err == nil && strings.EqualFold(resolved, worktree)
+			isOwned = filepath.IsAbs(meta.cwd) && err == nil && fsx.EqualPath(resolved, worktree)
 			owned[meta.cwd] = isOwned
 		}
 		if !isOwned {

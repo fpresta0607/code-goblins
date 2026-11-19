@@ -7,7 +7,7 @@ import { parseSnapshot, type Disk, type Gpu, type Memory, type Processors, type 
 const GB = 2 ** 30;
 // memory is a machine with available GB of memory and, unless given, ample
 // commit and healthy kernel pools under their 7.5 GB line.
-const memory = (available: number, commit = 40): Memory => ({ available: available * GB, total: 32 * GB, commit_available: commit * GB, commit_limit: 48 * GB, paged_pool: 0.5 * GB, nonpaged_pool: 0.3 * GB, pool_line: 7.5 * GB, pool_growth: [], floor: 4 * GB, next: 5 * GB, slot_hold: "", holders: [] });
+const memory = (available: number, commit = 40): Memory => ({ available: available * GB, total: 32 * GB, commit_available: commit * GB, commit_limit: 48 * GB, paged_pool: 0.5 * GB, nonpaged_pool: 0.3 * GB, pool_line: 7.5 * GB, pool_growth: [], floor: 4 * GB, next: 5 * GB, slot_hold: "", holders: [], guard: null });
 const task = (changes: Partial<Task> = {}) => parseSnapshot({ healthy: true, tasks: [{ id: "next-task", phase: "queued", brief: true, starting: false, start_error: "", verified: false, ...changes }] }).tasks[0];
 
 test("the meter says when the next task starts", () => {
@@ -37,6 +37,21 @@ test("the meter waits and its tip says why while the heavy line keeps the memory
   assert.equal(memoryMarks({ ...memory(4.5), slot_hold: hold }), marks);
   assert.deepEqual(meterState(memory(6)), { tone: "ready", text: "Enough memory for the next task" }, "no hold, room for the next task");
   assert.equal(memoryMarks(memory(6)), marks);
+});
+
+// The memory guard pauses a goblin on one reading under the floor, and the
+// meter's tip and screen-reader text say what it did last, when and with how
+// much free; nothing is added before it has acted.
+test("the memory meter's tip names the reading the guard last acted on", () => {
+  // Arrange
+  const at = new Date(2026, 10, 19, 7, 5, 9);
+  const marks = "Red mark: the 4 GB floor. Nothing starts under it. White mark: 5 GB, where the next task starts.";
+  const acted = (action: string) => ({ ...memory(3.46, 8), guard: { at: at.toISOString(), available: 3.46 * GB, commit_available: 8 * GB, floor: 4 * GB, action } });
+
+  // Act and assert
+  assert.equal(memoryMarks(memory(3.46, 8)), marks);
+  assert.equal(memoryMarks(acted("paused newer-task: the lowest goblin in the In progress order not pushing or merging")), `${marks} The memory guard last acted at 07:05 with 3.4 GB free: paused newer-task: the lowest goblin in the In progress order not pushing or merging.`);
+  assert.equal(memoryMarks({ ...acted("nothing to pause: every goblin it could pause is pushing or merging"), guard: { at: at.toISOString(), available: 9 * GB, commit_available: 3.9 * GB, floor: 4 * GB, action: "nothing to pause: no live goblin may be paused" } }), `${marks} The memory guard last acted at 07:05 with 3.9 GB free: nothing to pause: no live goblin may be paused.`);
 });
 
 // The Overlord, 2026-10-08: "below memory disk remove the text please not
@@ -195,12 +210,13 @@ test("the snapshot's memory carries commit, the kernel pools and the apps holdin
   const growth = [{ tag: "Toke", pool: "paged", grown: 11, holds: 12 }];
 
   // Act
-  const withHolders = parseSnapshot({ healthy: true, memory: { ...wire, pool_growth: growth, holders: [{ name: "ChatGPT", commit: 9 }] } }).memory;
+  const guard = { at: "2026-11-19T07:05:09Z", available: 13, commit_available: 14, floor: 7, action: "paused newer-task: the lowest goblin in the In progress order not pushing or merging" };
+  const withHolders = parseSnapshot({ healthy: true, memory: { ...wire, pool_growth: growth, holders: [{ name: "ChatGPT", commit: 9 }], guard } }).memory;
   const withoutHolders = parseSnapshot({ healthy: true, memory: wire }).memory;
 
   // Assert
-  assert.deepEqual(withHolders, { ...wire, pool_growth: growth, holders: [{ name: "ChatGPT", commit: 9 }] });
-  assert.deepEqual(withoutHolders, { ...wire, pool_growth: [], holders: [] });
+  assert.deepEqual(withHolders, { ...wire, pool_growth: growth, holders: [{ name: "ChatGPT", commit: 9 }], guard });
+  assert.deepEqual(withoutHolders, { ...wire, pool_growth: [], holders: [], guard: null });
 });
 
 // The board shows the restart his Restart PC began until the PC restarts,

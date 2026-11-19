@@ -15,13 +15,14 @@ import (
 
 // The memory floor keeps the machine working whether or not the Overlord is
 // away (the Overlord, 2026-10-08: "it should work regardless of afk thats a
-// critical core feature"). When two readings in a row find memory or commit
-// under the floor, the supervisor pauses the live goblin lowest in the
-// Overlord's In progress order that is not pushing or merging, through the
-// pause the allowance floor uses, one goblin at a time, and the scheduler
-// resumes it once memory is back at the next-start mark and a new session
-// leaves the machine's heavy line its next floor. While AFK mode is on, its
-// log keeps each pause for the report of the stretch.
+// critical core feature"). When one reading of the memory guard finds memory
+// or commit under the floor, the supervisor pauses at once the live goblin
+// whose process tree grew most since the reading before, or the one lowest in
+// the Overlord's In progress order when none grew, that is not pushing or
+// merging, through the pause the allowance floor uses, one goblin at a time,
+// and the scheduler resumes it once memory is back at the next-start mark and
+// a new session leaves the machine's heavy line its next floor. While AFK mode
+// is on, its log keeps each pause for the report of the stretch.
 
 // gitPushOrMerge are the git commands that push or merge, which a goblin is
 // left to finish rather than paused in the middle of.
@@ -34,34 +35,6 @@ var gitPushOrMerge = []string{"push", "merge", "pull", "rebase", "cherry-pick", 
 // (#1926).
 const freshResume = 10 * time.Minute
 
-// pauseAtMemoryFloor takes a reading under the floor, the w.MemoryBelow-th in
-// a row, of memory at now: from the second on, while nothing else starts or
-// changes, it pauses the lowest goblin it may. A change under way frees what
-// it frees only once it ends, so the count starts again after it.
-func (s *Service) pauseAtMemoryFloor(w *fleetWakes, memory Memory, floor uint64, now time.Time) error {
-	if w.MemoryBelow < 2 {
-		return nil
-	}
-	s.starts.Lock()
-	isChanging := s.starting != "" || len(s.changing) > 0
-	s.starts.Unlock()
-	if isChanging {
-		w.MemoryBelow = 0
-		return nil
-	}
-	pick, found, problems := s.lowestToPause(now)
-	if !found {
-		return problems
-	}
-	evidence := fmt.Sprintf("%.1f GB of memory and %.1f GB of commit free on two readings in a row, under the %g GB floor; %s was %s",
-		gigabytes(memory.Available), gigabytes(memory.CommitAvailable), gigabytes(floor), pick.meta.ID, pick.why)
-	began, err := s.pauseAtFloor(pick.meta, pick.record, "memory", "", evidence)
-	if began {
-		w.MemoryBelow = 0
-	}
-	return errors.Join(problems, err)
-}
-
 // floorPick is the goblin the memory floor pauses, and why it is that one.
 type floorPick struct {
 	meta   state.TaskMeta
@@ -69,71 +42,103 @@ type floorPick struct {
 	why    string
 }
 
-// lowestToPause is the goblin the memory floor pauses at a reading at now:
-// of the native goblins whose terminal host runs, that are not paused or
-// changing and whose last pause at the memory floor did not fail, the lowest
-// in the Overlord's In progress order that is not pushing or merging and did
-// not resume from a memory pause in the last freshResume, or the lowest that
-// did when no other may be paused. Processes that cannot be listed tell
-// nothing of pushing or merging, so the lowest is paused then.
-func (s *Service) lowestToPause(now time.Time) (floorPick, bool, error) {
+// floorCandidate is a goblin the memory floor may pause, and how many bytes
+// of private working set its process tree grew since the guard's reading
+// before.
+type floorCandidate struct {
+	meta   state.TaskMeta
+	record state.Lifecycle
+	host   host.Record
+	growth uint64
+}
+
+// pausableGoblins are the goblins of live, in the order they are given, that
+// are not paused or changing and whose last pause at the memory floor did not
+// fail, with their growth from growth by task.
+func (s *Service) pausableGoblins(live []guardedGoblin, growth map[string]uint64) ([]floorCandidate, error) {
 	stateDir := s.Store.Home.State
-	type candidate struct {
-		meta   state.TaskMeta
-		record state.Lifecycle
-		host   host.Record
-	}
-	var candidates []candidate
-	tasks, problems := inProgressOrder(s.Store.Home)
-	slices.Reverse(tasks)
-	for _, meta := range tasks {
-		if meta.Backend != "native" {
-			continue
-		}
-		hostRecord, err := host.ReadRecord(stateDir, meta.ID)
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			problems = errors.Join(problems, err)
-			continue
-		}
-		if !host.Running(hostRecord) {
-			continue
-		}
-		record, err := state.ReadLifecycle(stateDir, meta.ID)
+	var candidates []floorCandidate
+	var problems error
+	for _, goblin := range live {
+		record, err := state.ReadLifecycle(stateDir, goblin.meta.ID)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			problems = errors.Join(problems, err)
 			continue
 		}
 		failed := record.Action == "pause" && record.Phase == "failed" && record.Pause != nil && record.Pause.Reason == "memory"
-		if record.Generation == meta.SpawnGen && (record.SuppressesMonitoring(stateDir) || failed) {
+		if record.Generation == goblin.meta.SpawnGen && (record.SuppressesMonitoring(stateDir) || failed) {
 			continue
 		}
-		candidates = append(candidates, candidate{meta, record, hostRecord})
+		candidates = append(candidates, floorCandidate{goblin.meta, record, goblin.host, growth[goblin.meta.ID]})
 	}
-	const lowest = "the lowest goblin in the In progress order not pushing or merging"
-	processes, unlisted := proc.Processes()
-	spared := ""
-	var fresh floorPick
+	return candidates, problems
+}
+
+// hostsPushingOrMerging reads the machine's processes and returns whether a
+// terminal host has a process pushing or merging under it. Processes that
+// cannot be listed tell nothing of pushing or merging, so no host is taken to
+// push or merge then.
+func hostsPushingOrMerging() func(hostPID int) bool {
+	processes, err := proc.Processes()
+	if err != nil {
+		return func(int) bool { return false }
+	}
+	return func(hostPID int) bool { return pushingOrMerging(hostPID, processes, proc.Arguments) }
+}
+
+// pickToPause is the goblin the memory floor pauses at a reading at now, of
+// the lowest-first candidates: of those isPushing says are not pushing or
+// merging and did not resume from a memory pause in the last freshResume, or
+// of those that did when no other may be paused, the one whose process tree
+// grew most, the lowest in the Overlord's In progress order when none grew or
+// they grew alike. When it finds none it says why in its last result.
+func pickToPause(candidates []floorCandidate, isPushing func(hostPID int) bool, now time.Time) (floorPick, bool, string) {
+	var free []floorCandidate
 	for _, one := range candidates {
-		if unlisted == nil && pushingOrMerging(one.host.HostPID, processes, proc.Arguments) {
-			continue
-		}
-		isFresh := one.record.Generation == one.meta.SpawnGen && one.record.Action == "resume" && one.record.Phase == "running" && one.record.Pause != nil && one.record.Pause.Reason == "memory" && now.Sub(one.record.Updated) < freshResume
-		if !isFresh {
-			why := lowest
-			if spared != "" {
-				why += fmt.Sprintf(" past %s, which resumed from a memory pause in the last %d minutes", spared, int(freshResume/time.Minute))
-			}
-			return floorPick{one.meta, one.record, why}, true, problems
-		}
-		if spared == "" {
-			spared = one.meta.ID
-			fresh = floorPick{one.meta, one.record, fmt.Sprintf("%s, and every goblin it could pause resumed from a memory pause in the last %d minutes", lowest, int(freshResume/time.Minute))}
+		if !isPushing(one.host.HostPID) {
+			free = append(free, one)
 		}
 	}
-	return fresh, spared != "", problems
+	switch {
+	case len(candidates) == 0:
+		return floorPick{}, false, "nothing to pause: no live goblin may be paused"
+	case len(free) == 0:
+		return floorPick{}, false, "nothing to pause: every goblin it could pause is pushing or merging"
+	}
+	isFresh := func(one floorCandidate) bool {
+		return one.record.Generation == one.meta.SpawnGen && one.record.Action == "resume" && one.record.Phase == "running" && one.record.Pause != nil && one.record.Pause.Reason == "memory" && now.Sub(one.record.Updated) < freshResume
+	}
+	var settled []floorCandidate
+	for _, one := range free {
+		if !isFresh(one) {
+			settled = append(settled, one)
+		}
+	}
+	pool, passing := settled, ""
+	switch ideal := mostGrown(free); {
+	case len(settled) == 0:
+		pool, passing = free, fmt.Sprintf(", and every goblin it could pause resumed from a memory pause in the last %d minutes", int(freshResume/time.Minute))
+	case isFresh(ideal):
+		passing = fmt.Sprintf(" past %s, which resumed from a memory pause in the last %d minutes", ideal.meta.ID, int(freshResume/time.Minute))
+	}
+	chosen := mostGrown(pool)
+	why := "the lowest goblin in the In progress order not pushing or merging"
+	if chosen.growth > 0 {
+		why = fmt.Sprintf("the goblin whose process tree grew most since the reading before, by %.1f MB", float64(chosen.growth)/(1<<20))
+	}
+	return floorPick{chosen.meta, chosen.record, why + passing}, true, ""
+}
+
+// mostGrown is the candidate of the non-empty candidates whose process tree
+// grew most, the first of them on a tie.
+func mostGrown(candidates []floorCandidate) floorCandidate {
+	most := candidates[0]
+	for _, one := range candidates[1:] {
+		if one.growth > most.growth {
+			most = one
+		}
+	}
+	return most
 }
 
 // pushingOrMerging reports whether a process under the terminal host hostPID

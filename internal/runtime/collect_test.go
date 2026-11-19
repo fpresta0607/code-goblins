@@ -291,3 +291,35 @@ func TestCollectReadsTheHomesLastFilingPass(t *testing.T) {
 		})
 	}
 }
+
+// The Dispatch line reads the figure the scheduler admits by, which the
+// collector takes from its injected source, and says why when it has none.
+func TestCollectReadsWhatTheNextStartNeedsOrWhyItCouldNot(t *testing.T) {
+	cases := []struct {
+		name           string
+		source         func() (uint64, error)
+		wantNeed       int64
+		wantUnreadPart string
+	}{
+		{name: "read", source: func() (uint64, error) { return 6 << 30, nil }, wantNeed: 6 << 30},
+		{name: "failed", source: func() (uint64, error) { return 0, errors.New("the memory floor cannot be read") }, wantUnreadPart: "the memory floor cannot be read"},
+		{name: "no source", wantUnreadPart: "no source"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// Act
+			inv, err := Collector{Home: collectorHome(t), Docker: stubDocker{}, System: stubSystem{}, DispatchNeed: c.source}.Collect(context.Background())
+
+			// Assert
+			if err != nil {
+				t.Fatalf("Collect: %v", err)
+			}
+			if inv.Machine.DispatchNeed != c.wantNeed {
+				t.Errorf("DispatchNeed = %d, want %d", inv.Machine.DispatchNeed, c.wantNeed)
+			}
+			if unread := inv.Machine.DispatchNeedUnread; c.wantUnreadPart == "" && unread != "" || !strings.Contains(unread, c.wantUnreadPart) {
+				t.Errorf("DispatchNeedUnread = %q, want one naming %q", unread, c.wantUnreadPart)
+			}
+		})
+	}
+}

@@ -401,7 +401,7 @@ func (s *Service) ingestCredentialRequests() error {
 		if invalid == nil {
 			if meta, err := state.ReadTaskMeta(s.Store.Home.State, r.Task); err != nil || goblinIdentity(meta) != r.Identity {
 				invalid = errors.New("the goblin that asked restarted or ended")
-			} else if r.EnvFile != "" && !strings.EqualFold(filepath.Clean(r.Repository), filepath.Clean(meta.Project)) {
+			} else if r.EnvFile != "" && !fsx.EqualPath(filepath.Clean(meta.Project), filepath.Clean(r.Repository)) {
 				// A goblin could otherwise have a value it does not hold
 				// written into a file it can read.
 				invalid = errors.New("a goblin's request may name an env file only in its own task's checkout")

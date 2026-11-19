@@ -303,6 +303,8 @@ type Service struct {
 	// trees is each live goblin's family tree as keepTrees last read it.
 	trees           map[string]fleettree.Tree
 	progressReadErr error
+	// guard is what the memory guard remembers between its readings.
+	guard memoryGuard
 
 	// ceoUpdateRead and harnessUpdates are the harness updates the last look
 	// found waiting for the CEO and for each goblin; ceoUpdating says the
@@ -685,6 +687,12 @@ func (s *Service) run(ctx context.Context) {
 		s.keepFleetWakes(ctx, fleetWatchEvery)
 	}()
 	defer func() { s.cancel(); <-fleetDone }()
+	guardDone := make(chan struct{})
+	go func() {
+		defer close(guardDone)
+		s.keepMemoryGuard(ctx, memoryGuardEvery)
+	}()
+	defer func() { s.cancel(); <-guardDone }()
 	pushDone := make(chan struct{})
 	go func() {
 		defer close(pushDone)
@@ -2315,6 +2323,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		room, roomErr := s.room(out.At)
 		if err == nil && roomErr == nil {
 			memory.PoolLine, memory.PoolGrowth = poolLine, poolGrowth
+			memory.Guard = s.guard.reading()
 			memory.Floor, memory.Next = room.Floor, room.Need(room.costliest())
 			if dispatch.HeavyLine != nil {
 				if room, err := dispatch.HeavyLine(memory); err == nil {

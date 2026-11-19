@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // codexConfig is what the user's Codex config.toml says about the skills
@@ -35,7 +37,7 @@ func (config codexConfig) isSkillEnabled(skill codexSkill) bool {
 		canonical = skill.path
 	}
 	for _, rule := range config.skillRules {
-		if rule.name == skill.name || (rule.path != "" && strings.EqualFold(rule.path, canonical)) {
+		if rule.name == skill.name || (rule.path != "" && fsx.EqualPath(canonical, rule.path)) {
 			isEnabled = rule.isEnabled
 		}
 	}

@@ -118,62 +118,91 @@ func TestTakeBackGivesUpOnWordsThatNeverLeave(t *testing.T) {
 	}
 }
 
-// A board delivery that ends between typing its words and its submit key
-// leaves nothing typed for the next delivery to join: it takes them back off
-// the composer and says so, and nothing of it is submitted (#2306). A send
-// that does not take its text back ends as it did, its words left there.
-func TestADeliveryThatEndsBeforeItsSubmitKeyTakesItsWordsBackOnlyWhenAsked(t *testing.T) {
-	for _, test := range []struct {
-		name           string
-		shouldTakeBack bool
-		wantCleared    int
-	}{
-		{name: "a board delivery", shouldTakeBack: true, wantCleared: 1},
-		{name: "a send that leaves its words", shouldTakeBack: false},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			// Arrange
-			f := newNativeFixture(t, harness.Codex, "turns")
-			if _, err := f.service.Spawn(t.Context(), f.request); err != nil {
-				t.Fatalf("Spawn: %v", err)
-			}
-			meta, err := state.ReadTaskMeta(f.stateDir, "task-7")
-			if err != nil {
-				t.Fatal(err)
-			}
-			awaitComposer(t, f)
-			ended := errors.New("the delivery's time ran out")
-			f.service.ShouldTakeBack = test.shouldTakeBack
-			f.service.Sleep = func(ctx context.Context, duration time.Duration) error {
-				if duration == launchSettle {
-					return ended
-				}
-				timer := time.NewTimer(duration) // stall-accepted: it sleeps for the send's own pauses, which are meant to run out.
-				defer timer.Stop()
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case <-timer.C:
-					return nil
-				}
-			}
+// A delivery that ends between typing its words and its submit key leaves
+// nothing typed for the next delivery to join: it takes them back off the
+// composer and says so, and nothing of it is submitted (#2306).
+func TestADeliveryThatEndsBeforeItsSubmitKeyTakesItsWordsBack(t *testing.T) {
+	// Arrange
+	f := newNativeFixture(t, harness.Codex, "turns")
+	if _, err := f.service.Spawn(t.Context(), f.request); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	meta, err := state.ReadTaskMeta(f.stateDir, "task-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	awaitComposer(t, f)
+	ended := errors.New("the delivery's time ran out")
+	f.service.Sleep = func(ctx context.Context, duration time.Duration) error {
+		if duration == launchSettle {
+			return ended
+		}
+		timer := time.NewTimer(duration) // stall-accepted: it sleeps for the send's own pauses, which are meant to run out.
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			return nil
+		}
+	}
 
-			// Act
-			err = f.service.SendNative(t.Context(), meta, "stop and rebase")
+	// Act
+	err = f.service.SendNative(t.Context(), meta, "stop and rebase")
 
-			// Assert
-			if !errors.Is(err, ended) || errors.Is(err, ErrTakenBack) != test.shouldTakeBack || errors.Is(err, ErrLeftTyped) {
-				t.Errorf("SendNative = %v; want it ended as it did, taken back %t", err, test.shouldTakeBack)
-			}
-			events := f.events(t)
-			if cleared := named(events, "cleared"); len(cleared) != test.wantCleared || test.wantCleared == 1 && !strings.Contains(cleared[0].Text, "stop and rebase") {
-				t.Errorf("cleared = %+v, want %d of his words", cleared, test.wantCleared)
-			}
-			for _, event := range named(events, "submitted") {
-				if strings.Contains(event.Text, "stop and rebase") {
-					t.Errorf("submitted %q, want nothing of the ended delivery submitted", event.Text)
-				}
-			}
-		})
+	// Assert
+	if !errors.Is(err, ended) || !errors.Is(err, ErrTakenBack) || errors.Is(err, ErrLeftTyped) {
+		t.Errorf("SendNative = %v; want it ended as it did and taken back", err)
+	}
+	events := f.events(t)
+	if cleared := named(events, "cleared"); len(cleared) != 1 || !strings.Contains(cleared[0].Text, "stop and rebase") {
+		t.Errorf("cleared = %+v, want its words cleared once", cleared)
+	}
+	for _, event := range named(events, "submitted") {
+		if strings.Contains(event.Text, "stop and rebase") {
+			t.Errorf("submitted %q, want nothing of the ended delivery submitted", event.Text)
+		}
+	}
+}
+
+// A long goblins send whose end never shows in the composer ends once its wait
+// for that runs out, as one did live on 2026-11-05, and takes back what it
+// typed, so the next delivery finds an empty prompt line rather than being
+// refused for words nobody sent (#2104). The service is the zero one goblins
+// send builds.
+func TestALongSendThatNeverShowsLeavesNoWordsBehind(t *testing.T) {
+	// Arrange
+	f := newNativeFixture(t, harness.Codex, "short-line")
+	if _, err := f.service.Spawn(t.Context(), f.request); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	meta, err := state.ReadTaskMeta(f.stateDir, "task-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	awaitComposer(t, f)
+	previous := nativeKeyEffect
+	nativeKeyEffect = 3 * time.Second
+	t.Cleanup(func() { nativeKeyEffect = previous })
+	send := Service{StateDir: f.stateDir}
+	long := strings.TrimSpace(strings.Repeat("rebase onto main and run the gate again ", 4))
+
+	// Act
+	err = send.SendNative(t.Context(), meta, long)
+	next := send.SendNative(t.Context(), meta, "stop")
+
+	// Assert
+	if !errors.Is(err, ErrTakenBack) || !strings.Contains(err.Error(), "never showed in its composer") {
+		t.Errorf("the long send = %v; want it never shown and taken back", err)
+	}
+	if errors.Is(next, ErrUnsentWords) {
+		t.Errorf("the next send = %v; want it typed onto an empty prompt line", next)
+	}
+	events := f.events(t)
+	if cleared := named(events, "cleared"); len(cleared) != 1 || !strings.HasPrefix(long, cleared[0].Text) {
+		t.Errorf("cleared = %+v, want what the long send typed cleared once", cleared)
+	}
+	if submitted := named(events, "submitted"); len(submitted) == 0 || submitted[len(submitted)-1].Text != "stop" {
+		t.Errorf("submitted = %+v, want the next send's words alone", submitted)
 	}
 }

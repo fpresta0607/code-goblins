@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 type InterruptedRun struct {
@@ -184,7 +185,7 @@ func sameFolder(got, want string) bool {
 	if gotErr == nil && wantErr == nil && os.SameFile(gotInfo, wantInfo) {
 		return true
 	}
-	return strings.EqualFold(filepath.Clean(got), filepath.Clean(want))
+	return fsx.EqualPath(filepath.Clean(got), filepath.Clean(want))
 }
 
 // preserveRunWorktreeEdits keeps whatever unfinished changes a failed or
@@ -316,17 +317,43 @@ func (reader Reader) importInterruptedHead(ctx context.Context, worktree string,
 }
 
 // ResumeInterrupted verifies the saved run without taking custody or starting
-// validation. The contributor resumes with that run's existing history.
+// validation. The contributor resumes with that run's existing history, or
+// with the ended run a validation admission continued it with while the task
+// was paused, which is the same validation (#2462).
 func (reader Reader) ResumeInterrupted(ctx context.Context, project string, prior InterruptedRun) (InterruptedRun, error) {
 	current, err := reader.Interruption(ctx, project, prior.Branch)
 	if err != nil {
 		return InterruptedRun{}, err
 	}
 	if current.ID != prior.ID {
-		return InterruptedRun{}, errors.New("another validation run owns the branch; inspect it before resuming")
+		isSuccessor := false
+		if current.IsTerminal() {
+			if isSuccessor, err = reader.continues(ctx, current.ID, prior.ID); err != nil {
+				return InterruptedRun{}, err
+			}
+		}
+		if !isSuccessor {
+			return InterruptedRun{}, errors.New("another validation run owns the branch; inspect it before resuming")
+		}
 	}
 	if prior.Intent != "" && current.Intent != prior.Intent {
 		return InterruptedRun{}, errors.New("the saved validation intent changed; inspect it before resuming")
 	}
 	return current, nil
+}
+
+// continues reports whether run's chain of validation admissions reaches
+// predecessor.
+func (reader Reader) continues(ctx context.Context, run, predecessor string) (bool, error) {
+	var chain []struct {
+		Found int `json:"found"`
+	}
+	query := `WITH RECURSIVE chain(id) AS (SELECT ` + sqlString(run) + ` UNION SELECT a.predecessor_id FROM validation_admissions a JOIN chain ON a.child_id=chain.id) SELECT COUNT(*) AS found FROM chain WHERE id=` + sqlString(predecessor)
+	if err := reader.query(ctx, query, &chain); err != nil {
+		return false, err
+	}
+	if len(chain) != 1 {
+		return false, errors.New("pipeline: the run's validation admissions cannot be read")
+	}
+	return chain[0].Found == 1, nil
 }

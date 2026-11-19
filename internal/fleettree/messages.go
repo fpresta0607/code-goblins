@@ -1363,7 +1363,7 @@ func (l *messageLog) spilled(spill []string, outcome toolOutcome) (string, int64
 	}
 	path := filepath.Clean(cmp.Or(outcome.PersistedOutputPath, strings.TrimSpace(spill[3])))
 	session := strings.TrimSuffix(l.path, filepath.Ext(l.path))
-	if !strings.EqualFold(filepath.Dir(path), filepath.Join(session, "tool-results")) {
+	if !fsx.EqualPath(filepath.Dir(path), filepath.Join(session, "tool-results")) {
 		return preview, size
 	}
 	root, err := os.OpenRoot(session)

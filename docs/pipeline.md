@@ -225,6 +225,9 @@ Resume restores the contributor's terminal and retains its original validation r
 Pause persists that run's identity before process teardown, including terminal runs and the live runs every pause leaves running.
 Resume reads the saved run identity without recovering branch custody, starting validation or replacing the run.
 A different current run, unreadable state or a run without a saved pause identity refuses the resume instead of adopting another run.
+The one newer run it takes is one that has ended and whose chain of validation admissions reaches the saved run, since that is the same validation; the task's lifecycle then records that run, its intent and head as the task's run (issue 2462).
+A newer run still running, pending or parked, or one outside that chain, refuses the resume as before.
+While a task's current generation is pausing or paused, `validate-authored` and `validate-terminal` refuse it and admit nothing, since its lifecycle keeps the run its pause saved and no goblin is there to carry a new run on; resume it with `goblins resume <id>`, then admit the run.
 A direct-PR task whose current branch has no gate can resume even when its saved pause names an earlier branch's run.
 A still-live original run is named in the contributor's resume instruction, so it continues that run without starting another beside it.
 A run that ended while its goblin was paused, as a daemon restart ends a run whose step was executing, is named with its terminal status.

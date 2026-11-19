@@ -77,7 +77,10 @@ func runStartHook(args []string, stdout, stderr io.Writer, runtime commandRuntim
 		file = filepath.Join(meta.Worktree, file)
 	}
 	at := slices.IndexFunc(hooks, func(hook starthook.Hook) bool { return fsx.SamePath(hook.Path, file) })
-	project := taskProject(h.State, task)
+	checkout, project := taskCheckout(h.State, task), ""
+	if checkout != "" {
+		project = filepath.Base(checkout)
+	}
 	switch {
 	case at < 0:
 		fmt.Fprintf(stderr, "goblins start-hook: %s is no start hook %s's seal stops, which its wake names\n", file, task)
@@ -103,7 +106,7 @@ func runStartHook(args []string, stdout, stderr io.Writer, runtime commandRuntim
 		return 1
 	}
 	next := task + "'s commands run again, so tell it to go on."
-	if stopped, err := starthook.Unaccepted(h.State, project, hooks); err != nil || len(stopped) != 0 {
+	if stopped, err := starthook.Unaccepted(h.State, checkout, hooks); err != nil || len(stopped) != 0 {
 		next = task + " stays stopped while another start hook its wakes name is there."
 	}
 	fmt.Fprintf(stdout, "Accepted %s from %s %s, its content's SHA-256 %s: their seals let it through at every install from now on, and still stop it once its content, its name or its distribution differs. %s\n", acceptance.File, acceptance.Distribution, whose, acceptance.SHA256, next)

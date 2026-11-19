@@ -313,16 +313,20 @@ func TestSpawnPostAcquireFailureSurfacesReturnError(t *testing.T) {
 	}
 }
 
+// Foo.META claims foo exactly where the file system opens it as foo.meta.
 func TestSpawnRejectsCaseInsensitiveMetadataExtensionBeforeTerminalOrWorktreeMutation(t *testing.T) {
 	f := newFixture(t)
 	writeFile(t, filepath.Join(f.stateDir, "Foo.META"), "window=native\n")
+	_, statErr := os.Stat(filepath.Join(f.stateDir, "foo.meta"))
+	isOnePath := statErr == nil
 
 	request := f.request
 	request.ID = "foo"
-	if _, err := f.service.Spawn(context.Background(), request); err == nil || !strings.Contains(err.Error(), "case-insensitive") {
-		t.Fatalf("case-insensitive extension Spawn error = %v, want collision refusal", err)
+	_, err := f.service.Spawn(context.Background(), request)
+	if isRefused := err != nil && strings.Contains(err.Error(), "case-insensitive"); isRefused != isOnePath {
+		t.Fatalf("case-insensitive extension Spawn error = %v, want collision refusal: %t, as the file system opens Foo.META by foo.meta: %t", err, isOnePath, isOnePath)
 	}
-	if f.runner.calls != 0 || len(mutations(f.events)) != 0 {
+	if isOnePath && (f.runner.calls != 0 || len(mutations(f.events)) != 0) {
 		t.Errorf("commands = %d and events = %v, want none before the metadata-alias refusal", f.runner.calls, f.events)
 	}
 }
@@ -361,7 +365,8 @@ func TestSpawnFailureLeavesNoGoTemporaryDirectory(t *testing.T) {
 // a .status without live metadata is deliberately not a claim on the id (that
 // is what forced a cleaned-up task to be respawned under an invented suffix).
 // The leftover directory below is therefore created directly, which is the
-// only way this state still arises.
+// only way this state still arises. On a file system that tells Foo and foo
+// apart they are two directories, and nothing is refused.
 func TestSpawnRejectsCaseAliasOfARetainedTaskTemporaryDirectory(t *testing.T) {
 	f := newFixture(t)
 	leftover := filepath.Join(f.stateDir, "tasktmp", "Foo")
@@ -374,29 +379,36 @@ func TestSpawnRejectsCaseAliasOfARetainedTaskTemporaryDirectory(t *testing.T) {
 	if info, err := os.Stat(leftover); err != nil || !info.IsDir() {
 		t.Fatalf("leftover tasktmp: info=%v err=%v, want a directory to collide with", info, err)
 	}
+	_, statErr := os.Stat(filepath.Join(f.stateDir, "tasktmp", "foo"))
+	isOnePath := statErr == nil
 
 	request := f.request
 	request.ID = "foo"
-	if _, err := f.service.Spawn(context.Background(), request); err == nil || !strings.Contains(err.Error(), "case-insensitive") {
-		t.Fatalf("alias Spawn error = %v, want collision refusal", err)
+	_, err := f.service.Spawn(context.Background(), request)
+	if isRefused := err != nil && strings.Contains(err.Error(), "case-insensitive"); isRefused != isOnePath {
+		t.Fatalf("alias Spawn error = %v, want collision refusal: %t, as the file system opens Foo by foo: %t", err, isOnePath, isOnePath)
 	}
-	if f.runner.calls != 0 || len(mutations(f.events)) != 0 {
+	if isOnePath && (f.runner.calls != 0 || len(mutations(f.events)) != 0) {
 		t.Errorf("commands = %d and events = %v after alias rejection, want none before a second task mutation", f.runner.calls, f.events)
 	}
 }
 
 // A live task still claims its id through its metadata, which is the durable
-// claim a failed spawn's removed tasktmp no longer has to stand in for.
+// claim a failed spawn's removed tasktmp no longer has to stand in for: in
+// another case exactly where the file system opens Foo.meta as foo.meta.
 func TestSpawnRejectsCaseAliasOfALiveTask(t *testing.T) {
 	f := newFixture(t)
 	writeFile(t, filepath.Join(f.stateDir, "Foo.meta"), "id: Foo\n")
+	_, statErr := os.Stat(filepath.Join(f.stateDir, "foo.meta"))
+	isOnePath := statErr == nil
 
 	request := f.request
 	request.ID = "foo"
-	if _, err := f.service.Spawn(context.Background(), request); err == nil || !strings.Contains(err.Error(), "case-insensitive") {
-		t.Fatalf("alias Spawn error = %v, want collision refusal", err)
+	_, err := f.service.Spawn(context.Background(), request)
+	if isRefused := err != nil && strings.Contains(err.Error(), "case-insensitive"); isRefused != isOnePath {
+		t.Fatalf("alias Spawn error = %v, want collision refusal: %t, as the file system opens Foo.meta by foo.meta: %t", err, isOnePath, isOnePath)
 	}
-	if f.runner.calls != 0 || len(mutations(f.events)) != 0 {
+	if isOnePath && (f.runner.calls != 0 || len(mutations(f.events)) != 0) {
 		t.Errorf("commands = %d and events = %v after alias rejection, want none before a second task mutation", f.runner.calls, f.events)
 	}
 }
