@@ -2128,17 +2128,15 @@ The board's dictation works in it as in a browser tab, because the page records 
 ### The memory floor and admission
 
 The memory floor is `config/fleet.json`'s `memory_floor_gb`, 4 GB unless set, and every check of free memory reads it there: starts, resumes, the heavy line, a services start and a browser sign-in.
-`serve` reads the memory meter, available memory and available commit, every 5 seconds in a guard of its own, apart from the scheduler's reading once a minute.
-One reading with the tighter of the two under the floor acts at once: while no start or other change is under way, the supervisor pauses one live native goblin with the reason `memory`, through the same `goblins pause` the allowance floor sends, so its lifecycle keeps its handoff.
-The pause goes to the goblin whose process tree, its terminal host and every process under it, grew most in private working set since the guard's previous reading, and when none grew, or the processes cannot be listed, to the lowest in the Overlord's In progress order.
-It never pauses a goblin that is pausing or paused, or whose last pause at the memory floor failed, or one with a git push, merge, pull, rebase, cherry-pick or am, or `gh pr merge`, running under its host, and it passes over a goblin resumed from a memory pause in the last 10 minutes for the next one, pausing such a goblin only when no other may be paused; the pause's evidence names the reading, the floor, the goblin and why it was that one.
-A pause under way is a change, so the next pause waits for it to end and for a reading after it that is still under the floor.
-The snapshot's `memory.guard` is the reading the guard last acted on: when (`at`), the `available` memory and `commit_available` it read, the `floor`, and `action`, what it did; the memory meter's tip and screen-reader text name it.
+`serve` reads the memory meter, available memory and available commit, once a minute.
+After two readings in a row with the tighter of the two under the floor, and with no start or other change under way, the supervisor pauses one live native goblin with the reason `memory`, through the same `goblins pause` the allowance floor sends, so its lifecycle keeps its handoff.
+The pause goes to the lowest in the Overlord's In progress order that is not pausing or paused, whose last pause at the memory floor did not fail, and that has no git push, merge, pull, rebase, cherry-pick or am, or `gh pr merge`, running under its host, and it passes over a goblin resumed from a memory pause in the last 10 minutes for the next one, pausing such a goblin only when no other may be paused; the pause's evidence says which it passed over or that every goblin it could pause had just resumed.
+A change under way, the pause included, starts the count again, so one goblin is paused at a time.
 
 While free memory or commit is under the floor nothing new starts: the scheduler starts no queued task and resumes no paused goblin, and the heavy line gives no new turn, since every run waits for at least the floor.
 Above it, a start or a resume of a goblin on a harness is admitted only while free memory and commit, less what that start costs, stay at or above the floor:
 
-- What a start costs is the largest of the last five measured starts of the same harness, kept in `state/start-costs.json`, or 1 GB while that harness has none: the guard measures a goblin whose terminal host it saw start as the most private working set its process tree held in its first 5 minutes.
+- What a start costs is the largest of the last five measured starts of the same harness kept in `state/start-costs.json`, or 1 GB while that harness has none.
 - A goblin whose host started in the last 5 minutes is counted as well, at its harness's cost less what its tree holds already, so a goblin just started or resumed is counted before the next is admitted; while the processes cannot be listed it counts at its whole cost.
 - A services start that waits for memory or is starting holds its stack's cost, which `goblins services up` records in `state/services.json` under `admitting` while its process lives, so no start or resume takes the memory that start was admitted with, and goblins paused for memory stay paused until its stack is up or its start has ended (#2695).
 
@@ -3223,7 +3221,7 @@ When the stretch ends, each decision the CEO answered in his place is settled: i
 An answer to a goblin's page needs nothing more: the goblin's question is in History already, closed as the CEO's answer while he was away, and his page of the stretch lists it under Decided for you.
 His change to either from History is an `answer_change` like any other: it reaches the CEO once for the CEO's own question, and the goblin, or the CEO when that goblin has ended, for a goblin's.
 A run item the board made itself, for a credential card's terminal or a connection's repair, is not held: it is ready only for the moment after his own click.
-Whether or not it is on, the [memory floor](#the-memory-floor-and-admission) pauses goblins by itself, at one reading under the floor, and the scheduler resumes each once a reading admits it.
+Whether or not it is on, the [memory floor](#the-memory-floor-and-admission) pauses goblins by itself, after two readings under the floor, and the scheduler resumes each once a reading admits it.
 Each pause at either floor while it is on is logged as a `pause` line with the readings it stood on, then its outcome, and the report lists them under Paused at a floor; they are not decisions, so the bar's count leaves them out.
 An answer recorded as the Overlord's (`goblins answer --record-only --in <where>`) is refused while it is on, by the command and by the supervisor for the same request sent straight over the pipe.
 
