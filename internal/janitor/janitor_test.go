@@ -830,30 +830,37 @@ func TestRecordRoundTripsWithItsStrays(t *testing.T) {
 // are under their own: Go's build cache first loses the entries unused for an
 // hour rather than a day, which needs no turn of the heavy line, so a busy
 // line still frees them. Over the clean mark the caches under their cap are
-// left as they are.
+// left as they are. While a Go build or test runs, or the process list cannot
+// say none does, Go's build cache is left out of the tight trim, its entries
+// and its prune, since trimming it can break a running build (#2761).
 func TestSweepUnderTheCleanMarkTrimsTheCachesToTheTightCap(t *testing.T) {
+	goBuild := reap.Process{PID: 5150, Name: "go.exe", CommandLine: `go test ./...`}
 	for _, testCase := range []struct {
 		name      string
 		isTight   bool
+		processes func(t *testing.T) []reap.Process
 		isTrimmed bool
+		wantNote  string
 	}{
-		{name: "tight", isTight: true, isTrimmed: true},
-		{name: "not tight", isTight: false},
+		{name: "tight", isTight: true, processes: func(t *testing.T) []reap.Process { return []reap.Process{selfProcess(t)} }, isTrimmed: true},
+		{name: "not tight", processes: func(t *testing.T) []reap.Process { return []reap.Process{selfProcess(t)} }},
+		{name: "tight while a Go build runs", isTight: true, processes: func(t *testing.T) []reap.Process { return []reap.Process{selfProcess(t), goBuild} }, wantNote: "as a Go build or test runs (pid 5150)"},
+		{name: "tight with a process list not proven read", isTight: true, processes: func(*testing.T) []reap.Process { return nil }, wantNote: "as whether a Go build or test runs, which trimming it can break, could not be read"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			// Arrange: a megabyte entry Go last marked used three hours ago, under the
-			// caches' cap and over their tight cap.
+			// caches' cap and over their tight cap, on a line free for a prune.
 			f := newSweepFixture(t)
 			cache := filepath.Join(f.home.Caches(), "go-build")
 			entry := filepath.Join(cache, "0a", "unused-a")
 			writeFile(t, entry, string(make([]byte, 1<<20)))
 			makeAged(t, cache, 3*time.Hour)
 			runner := &pruneRunner{caches: f.home.Caches()}
-			cfg := f.config(reap.Inventory{})
+			cfg := f.config(reap.Inventory{Processes: testCase.processes(t)})
 			cfg.Commands = runner
 			cfg.Settings.CachesCapGB = 2.0 / 1024
 			cfg.Settings.CachesTightCapGB = 0.5 / 1024
-			cfg.Line = busyLine{}
+			cfg.Line = freeLine{}
 			cfg.IsTight = testCase.isTight
 
 			// Act
@@ -868,7 +875,10 @@ func TestSweepUnderTheCleanMarkTrimsTheCachesToTheTightCap(t *testing.T) {
 				t.Errorf("removed = %+v, want the megabyte Go left unused for an hour", record.Removed)
 			}
 			if len(runner.ran) != 0 {
-				t.Errorf("ran %q on a busy line, want no prune", runner.ran)
+				t.Errorf("ran %q, want no prune", runner.ran)
+			}
+			if notes := strings.Join(record.Notes, "\n"); testCase.wantNote != "" && !strings.Contains(notes, "Go's build cache was left out of the caches' trim, "+testCase.wantNote) {
+				t.Errorf("notes = %q, want Go's build cache said left out %s", notes, testCase.wantNote)
 			}
 		})
 	}

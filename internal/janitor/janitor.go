@@ -175,7 +175,7 @@ func Sweep(ctx context.Context, cfg Config) Record {
 		cfg.retireMovedCaches(&record)
 		cfg.removeStaleBrowserSessions(&record)
 	}
-	cfg.trimCaches(ctx, &record)
+	cfg.trimCaches(ctx, ok, &record)
 	cfg.stopServices(ctx, &record)
 	cfg.sweepProcesses(ctx, &record)
 	cfg.reportProjectsRoot(&record)

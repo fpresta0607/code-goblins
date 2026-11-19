@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -59,7 +60,11 @@ const goBuildUnusedTight = time.Hour
 // only once the machine's heavy line is free, and runs in a turn of that line
 // (HeavyLine.Wrap), which no run that waits its turn builds beside. The trim
 // stops at a line that is not free and leaves the rest to the next sweep.
-func (cfg Config) trimCaches(ctx context.Context, record *Record) {
+// While tight, Go's build cache is left out of the trim, its entries and its
+// prune, while a Go command runs, a build or a test that removing what it
+// reads can break, or while the process list, unproven read
+// (isProcessesRead), cannot say none does.
+func (cfg Config) trimCaches(ctx context.Context, isProcessesRead bool, record *Record) {
 	root := cfg.Home.Caches()
 	capGB := cfg.Settings.CachesCap(cfg.IsTight)
 	limit := int64(fleetconfig.Bytes(capGB))
@@ -71,13 +76,32 @@ func (cfg Config) trimCaches(ctx context.Context, record *Record) {
 		return
 	}
 	goBuild := filepath.Join(root, "go-build")
+	isGoBuildLeft := false
+	if cfg.IsTight {
+		var goCommands []string
+		for _, process := range cfg.Inventory.Processes {
+			if strings.EqualFold(process.Name, "go.exe") || process.Name == "go" {
+				goCommands = append(goCommands, strconv.Itoa(process.PID))
+			}
+		}
+		switch {
+		case !isProcessesRead:
+			isGoBuildLeft = true
+			record.Notes = append(record.Notes, "Go's build cache was left out of the caches' trim, as whether a Go build or test runs, which trimming it can break, could not be read")
+		case len(goCommands) > 0:
+			isGoBuildLeft = true
+			record.Notes = append(record.Notes, "Go's build cache was left out of the caches' trim, as a Go build or test runs (pid "+strings.Join(goCommands, ", ")+"), which trimming it can break")
+		}
+	}
 	unused, unusedText := goBuildUnused, "a day"
 	if cfg.IsTight {
 		unused, unusedText = goBuildUnusedTight, "an hour, as free disk is under the clean mark"
 	}
-	if freed := trimGoBuild(ctx, goBuild, cfg.Now.Add(-unused-time.Hour)); freed > 0 {
-		total -= freed
-		record.Removed = append(record.Removed, Item{Kind: "cache", Path: goBuild, Bytes: freed, Detail: "Go build cache entries unused for " + unusedText})
+	if !isGoBuildLeft {
+		if freed := trimGoBuild(ctx, goBuild, cfg.Now.Add(-unused-time.Hour)); freed > 0 {
+			total -= freed
+			record.Removed = append(record.Removed, Item{Kind: "cache", Path: goBuild, Bytes: freed, Detail: "Go build cache entries unused for " + unusedText})
+		}
 	}
 	if total <= limit {
 		return
@@ -88,6 +112,9 @@ func (cfg Config) trimCaches(ctx context.Context, record *Record) {
 	}
 	var order []used
 	for _, tool := range cacheTools {
+		if isGoBuildLeft && tool.dir == "go-build" {
+			continue
+		}
 		if last, ok := lastUse(filepath.Join(root, tool.dir)); ok {
 			order = append(order, used{tool, last})
 		}
