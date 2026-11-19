@@ -28,7 +28,7 @@ func admissionWithCapacity(t *testing.T, capacity int) Admission {
 // One slot's floor is 4 GiB. Two slots' is weighed, and on an empty line is
 // a run's default estimate and the desktop reserve, 4.5 GiB.
 func TestAdmissionSharedCapacityDeterminesTheMinimumFloor(t *testing.T) {
-	for capacity, floor := range map[int]uint64{1: 4 * gigabyte, 2: defaultEstimate + 2*gigabyte} {
+	for capacity, floor := range map[int]uint64{1: 4 * gigabyte, 2: DefaultEstimate + 2*gigabyte} {
 		t.Run(fmt.Sprint(capacity), func(t *testing.T) {
 			for _, sample := range []struct {
 				name          string
@@ -366,4 +366,41 @@ func TestAdmissionCapacityTwoCancellationPreservesBothHoldersAndTheNextWaiter(t 
 	}
 	second.Release()
 	within(t, waiting, "surviving waiter after release").Release()
+}
+
+// Whoever reads the line reads the fleet task each holder's card names, a
+// slot's and a light run's alike, as the memory floor reads whom to pause
+// last, and none for a run that names none (#2808).
+func TestLineNamesTheTaskOfEachRunHoldingATurn(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		task    string
+		isLight bool
+	}{
+		{name: "a slot of a task", task: "cg-example"},
+		{name: "a light turn of a task", task: "cg-example", isLight: true},
+		{name: "a slot of no task"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			a := admission(t)
+			a.Task = test.task
+			if test.isLight {
+				a.IsLight, a.Estimate, a.Budget = true, gigabyte, time.Minute
+			}
+			turn, err := a.Wait(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer turn.Release()
+
+			// Act
+			holding, _, err := Line(a.Dir)
+
+			// Assert
+			if err != nil || len(holding) != 1 || holding[0].Task != test.task || holding[0].IsLight != test.isLight {
+				t.Fatalf("holding = %+v, %v; want one run of task %q, light %v", holding, err, test.task, test.isLight)
+			}
+		})
+	}
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -20,6 +21,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/sandbox"
+	"github.com/fpresta0607/code-goblins/internal/services"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 )
@@ -43,7 +45,7 @@ const (
 // statusControlCExit is the exit status of a console program Ctrl+C ended.
 const statusControlCExit = 0xC000013A
 
-const gateTurnUsage = "usage: goblins gate turn [--as <name>] [--gate-run <run-id>] [--test-comparison-sha <sha>] [--wait <duration>] [--execution-limit <duration>] [--memory <size>] [--low-priority] [--light] [--detach <log-file>] -- <program> [<argument>...]"
+const gateTurnUsage = "usage: goblins gate turn [--as <name>] [--gate-run <run-id>] [--test-comparison-sha <sha>] [--wait <duration>] [--execution-limit <duration>] [--memory <size>] [--low-priority] [--light] [--docker] [--detach <log-file>] -- <program> [<argument>...]"
 
 // runGateTurn runs any command in the machine's one line for heavy runs, the
 // line goblins gate test takes its turns in, so that one such run goes at a time
@@ -179,6 +181,7 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 	executor.Admission.IsTestStep = request.gateRun != ""
 	executor.Admission.LineLimit = gateLineLimit(runtime, os.Getenv, executor.Admission.IsTestStep)
 	executor.Admission.Priority = taskPriority("goblins gate turn", task, stderr, runtime)
+	executor.Admission.Task = task
 	executor.Admission.Estimate = request.memory
 	executor.ExecutionLimit = request.executionLimit
 	if request.isLight {
@@ -214,6 +217,24 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 		executor.Admission.Estimate = uint64(light.MemoryMiB) << 20
 		executor.Admission.Budget = limit
 		executor.ExecutionLimit = limit
+	}
+	// Docker's engine, its virtual machine and the stack on them take memory
+	// no process of the run's holds, so a run that starts Docker waits for room
+	// for them and its own estimate on top of the floor, and the memory floor
+	// never has to cut what the line admitted (#2808).
+	if !executor.Admission.IsLight && (request.isDocker || startsDocker(command)) {
+		room, basis, err := dockerRoom(task, runtime)
+		if err != nil {
+			fmt.Fprintf(stderr, "goblins gate turn: this run takes no turn: its command starts Docker, and the room it needs cannot be read: %s\n", oneLine(err))
+			tell(exitNoTurn)
+			return exitNoTurn
+		}
+		estimate := cmp.Or(executor.Admission.Estimate, verify.DefaultEstimate)
+		executor.Admission.Floor += room + estimate
+		waiting := executor.Admission.Waiting
+		executor.Admission.Waiting = func(waited time.Duration, why string) {
+			waiting(waited, fmt.Sprintf("%s; its command starts Docker, so its floor adds %.1f GB for Docker (%s) and %.1f GB for its own run", why, verify.Gigabytes(room), basis, verify.Gigabytes(estimate)))
+		}
 	}
 	run := command
 	if request.gateRun != "" {
@@ -485,6 +506,9 @@ type gateTurnRequest struct {
 	// isLight has the run take a light turn beside the slots, bounded by its
 	// memory and its execution limit, which it must name both of.
 	isLight bool
+	// isDocker says the run starts Docker, as a script whose words the run
+	// does not read may (startsDocker).
+	isDocker bool
 	// detachLog, when set, asks for the run to be started detached and
 	// hidden, its output appended to this file.
 	detachLog string
@@ -585,6 +609,8 @@ func parseGateTurn(args []string) (gateTurnRequest, error) {
 			request.isLowPriority = true
 		case args[at] == "--light":
 			request.isLight = true
+		case args[at] == "--docker":
+			request.isDocker = true
 		case args[at] == "--memory":
 			return gateTurnRequest{}, errors.New("--memory is given no size")
 		case args[at] == "--detach" && at+1 < len(args) && args[at+1] != "" && !strings.HasPrefix(args[at+1], "-"):
@@ -651,7 +677,62 @@ func detachedArguments(request gateTurnRequest) []string {
 	if request.isLight {
 		args = append(args, "--light")
 	}
+	if request.isDocker {
+		args = append(args, "--docker")
+	}
 	return append(append(args, "--"), request.command...)
+}
+
+// dockerEngineRoom is the room a run that starts Docker waits for when its
+// project declares no services stack: an estimate of what Docker's engine and
+// its virtual machine take before anything runs on them. On 2026-11-19 free
+// memory fell from 5.4 GB under the 4 GB floor within about 4 seconds of the
+// engine coming up (#2808).
+const dockerEngineRoom uint64 = 2 << 30
+
+// startsDocker says command starts Docker: a word of it, a shell's command
+// string's included, names the docker or docker-compose program, bare or as
+// its executable's path, or is goblins services up. A script the command runs
+// is not read, which --docker declares.
+func startsDocker(command []string) bool {
+	words := strings.FieldsFunc(strings.Join(command, " "), func(r rune) bool {
+		return unicode.IsSpace(r) || strings.ContainsRune(`"'&|;()<>`, r)
+	})
+	for at, word := range words {
+		lowered := strings.ToLower(word)
+		program := lowered[strings.LastIndexAny(lowered, `/\`)+1:]
+		isPath := program != lowered
+		program, isExecutable := strings.CutSuffix(program, ".exe")
+		if (program == "docker" || program == "docker-compose") && (!isPath || isExecutable) {
+			return true
+		}
+		if program == "goblins" && at+2 < len(words) && words[at+1] == "services" && words[at+2] == "up" {
+			return true
+		}
+	}
+	return false
+}
+
+// dockerRoom is the memory a run of task that starts Docker needs free on top
+// of the floor and its own estimate, and what that rests on: the room a start
+// of the task's project's services stack needs (services.StartRoom) when the
+// project declares one, and dockerEngineRoom otherwise.
+func dockerRoom(task string, runtime commandRuntime) (uint64, string, error) {
+	if task != "" {
+		h, err := runtime.resolveHome()
+		if err != nil {
+			return 0, "", err
+		}
+		meta, err := state.ReadTaskMeta(h.State, task)
+		if err != nil {
+			return 0, "", err
+		}
+		room, basis, isDeclared, err := services.StartRoom(h.State, h.Data, meta.Project)
+		if err != nil || isDeclared {
+			return room, basis, err
+		}
+	}
+	return dockerEngineRoom, "its engine and virtual machine, estimated", nil
 }
 
 // detachGateTurn starts the run request asks for as a process of its own in

@@ -1371,3 +1371,70 @@ func runGateTurnTestCommand(args []string) int {
 	}
 	return exit
 }
+
+// A run starts Docker when a word of its command, a shell's command string's
+// included, is the docker or docker-compose program or goblins services up;
+// a folder that is named docker is no program (#2808).
+func TestStartsDockerReadsTheCommandsWords(t *testing.T) {
+	for _, test := range []struct {
+		command []string
+		want    bool
+	}{
+		{[]string{"docker", "compose", "up", "-d"}, true},
+		{[]string{"docker-compose", "up"}, true},
+		{[]string{`C:\Program Files\Docker\Docker\resources\bin\docker.exe`, "info"}, true},
+		{[]string{"cmd", "/c", "docker compose up -d && npm test"}, true},
+		{[]string{"goblins", "services", "up", "PrecisionDocs-AI", "--task", "cg-a"}, true},
+		{[]string{`C:\dev\code-goblins\bin\goblins.exe`, "services", "up", "PrecisionDocs-AI"}, true},
+		{[]string{"goblins", "services", "down", "PrecisionDocs-AI"}, false},
+		{[]string{"go", "test", "./internal/docker/..."}, false},
+		{[]string{"npm", "run", "docker:test"}, false},
+		{[]string{"go", "test", "./..."}, false},
+	} {
+		t.Run(strings.Join(test.command, " "), func(t *testing.T) {
+			// Act
+			got := startsDocker(test.command)
+
+			// Assert
+			if got != test.want {
+				t.Fatalf("startsDocker(%q) = %v, want %v", test.command, got, test.want)
+			}
+		})
+	}
+}
+
+// With 5.4 GB free against the 4 GB floor, as on 2026-11-19, a run that
+// starts no Docker takes its turn, while one that starts Docker waits for the
+// floor, Docker's engine and virtual machine and its own estimate, and
+// starts nothing in its wait (#2808).
+func TestGateTurnAdmitsARunThatStartsDockerOnlyWithRoomForDocker(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		flags     []string
+		wantExit  int
+		wantSaid  string
+		isStarted bool
+	}{
+		{name: "a run that starts no Docker", flags: []string{"--wait", "3s"}, wantExit: 6, isStarted: true},
+		{name: "a run declared to start Docker", flags: []string{"--wait", "3s", "--docker", "--memory", "1GiB"}, wantExit: exitNoTurn, wantSaid: "5.4 GB of memory is available and the floor is 7.0 GB; this run is next in line; its command starts Docker, so its floor adds 2.0 GB for Docker (its engine and virtual machine, estimated) and 1.0 GB for its own run"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			turnLine(t)
+			dir := commandFolder(t)
+			runtime := turnRuntime()
+			runtime.availableMemory = func() (supervisor.Memory, error) {
+				return supervisor.Memory{Available: 5_850_000_000, CommitAvailable: 16 << 30}, nil
+			}
+			var stdout, stderr lockedBuffer
+
+			// Act
+			exit := gateTurn(runtime, &stdout, &stderr, append(test.flags, turnCommand(dir, "command", 6, false)...)...)
+
+			// Assert
+			if exit != test.wantExit || left(dir, "command", "started") != test.isStarted || !strings.Contains(stderr.String(), test.wantSaid) {
+				t.Fatalf("exit = %d, started = %v, stderr = %q; want exit %d, started %v, saying %q", exit, left(dir, "command", "started"), stderr.String(), test.wantExit, test.isStarted, test.wantSaid)
+			}
+		})
+	}
+}

@@ -453,8 +453,9 @@ func floorCandidates(now time.Time, resumed []string, growth map[string]uint64, 
 
 // The memory floor pauses the goblin whose process tree grew most since the
 // reading before, not the one lowest in the order, and falls back to the lowest
-// when none grew. Pushing or merging and a resume from a memory pause in the
-// last ten minutes still pass a goblin over.
+// when none grew. Pushing or merging, a resume from a memory pause in the
+// last ten minutes and a turn of the heavy line that runs still pass a goblin
+// over, the turn's holder until it is the last goblin it could pause (#2808).
 func TestTheMemoryFloorPicksTheGoblinWhoseTreeGrewMost(t *testing.T) {
 	now := time.Now()
 	for _, test := range []struct {
@@ -463,10 +464,14 @@ func TestTheMemoryFloorPicksTheGoblinWhoseTreeGrewMost(t *testing.T) {
 		growth     map[string]uint64
 		resumed    []string
 		isPushing  []int
+		holding    []string
 		want       string
 		wantWhy    string
 		wantNoPick string
 	}{
+		{name: "the one that grew most holds the heavy line", ids: []string{"low", "mid", "high"}, growth: map[string]uint64{"low": 10, "mid": 300, "high": 20}, holding: []string{"mid"}, want: "high", wantWhy: "the goblin whose process tree grew most since the reading before, by 20.0 MB past mid, whose turn of the heavy line runs"},
+		{name: "the holder is the last it could pause", ids: []string{"low", "mid"}, growth: map[string]uint64{"low": 10, "mid": 300}, isPushing: []int{100}, holding: []string{"mid"}, want: "mid", wantWhy: "the goblin whose process tree grew most since the reading before, by 300.0 MB, and the last goblin it could pause, though its turn of the heavy line runs"},
+		{name: "a goblin just resumed goes before the holder", ids: []string{"low", "mid"}, growth: map[string]uint64{"low": 5, "mid": 300}, resumed: []string{"low"}, holding: []string{"mid"}, want: "low", wantWhy: "the goblin whose process tree grew most since the reading before, by 5.0 MB, and every goblin it could pause resumed from a memory pause in the last 10 minutes"},
 		{name: "the one that grew most", ids: []string{"low", "mid", "high"}, growth: map[string]uint64{"low": 10, "mid": 300, "high": 20}, want: "mid", wantWhy: "the goblin whose process tree grew most since the reading before, by 300.0 MB"},
 		{name: "none grew", ids: []string{"low", "mid", "high"}, want: "low", wantWhy: "the lowest goblin in the In progress order not pushing or merging"},
 		{name: "a tie goes to the lowest", ids: []string{"low", "mid", "high"}, growth: map[string]uint64{"mid": 50, "high": 50}, want: "mid", wantWhy: "the goblin whose process tree grew most since the reading before, by 50.0 MB"},
@@ -479,6 +484,9 @@ func TestTheMemoryFloorPicksTheGoblinWhoseTreeGrewMost(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			candidates := floorCandidates(now, test.resumed, test.growth, test.ids...)
+			for i := range candidates {
+				candidates[i].isHoldingTurn = slices.Contains(test.holding, candidates[i].meta.ID)
+			}
 			isPushing := func(hostPID int) bool { return slices.Contains(test.isPushing, hostPID) }
 
 			// Act
@@ -493,6 +501,58 @@ func TestTheMemoryFloorPicksTheGoblinWhoseTreeGrewMost(t *testing.T) {
 			}
 			if !isFound || pick.meta.ID != test.want || pick.why != test.wantWhy {
 				t.Fatalf("pick = %s because %q (found %v), want %s because %q", pick.meta.ID, pick.why, isFound, test.want, test.wantWhy)
+			}
+		})
+	}
+}
+
+// While a goblin's turn of the heavy line runs, the floor waits out one
+// reading that dips less than a gigabyte under it, and the next reading under
+// it pauses the goblin that holds no turn, though the holder stands lowest in
+// the order, saying it passed the holder. A deeper dip pauses at once, the
+// holder only when it is the last goblin it could pause, and a line that
+// cannot be read spares nobody, its failure reported (#2808).
+func TestTheMemoryFloorPausesTheHeavyLinesHolderLast(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		holders    []string
+		holdersErr error
+		readings   [][2]float64
+		wantPaused string
+		wantAction string
+	}{
+		{name: "a dip is waited out", holders: []string{"newer-task"}, readings: [][2]float64{{3.5, 8}}, wantAction: "waited out a dip under the floor while newer-task's turn of the heavy line runs: the next reading under it pauses a goblin"},
+		{name: "the holder is spared", holders: []string{"newer-task"}, readings: [][2]float64{{3.5, 8}, {3.5, 8}}, wantPaused: "older-task", wantAction: "paused older-task: the lowest goblin in the In progress order not pushing or merging past newer-task, whose turn of the heavy line runs"},
+		{name: "a deep dip pauses at once", holders: []string{"newer-task"}, readings: [][2]float64{{2.9, 8}}, wantPaused: "older-task", wantAction: "paused older-task: the lowest goblin in the In progress order not pushing or merging past newer-task, whose turn of the heavy line runs"},
+		{name: "every goblin holds a turn", holders: []string{"newer-task", "older-task"}, readings: [][2]float64{{3.5, 8}, {3.5, 8}}, wantPaused: "newer-task", wantAction: "paused newer-task: the lowest goblin in the In progress order not pushing or merging, and the last goblin it could pause, though its turn of the heavy line runs"},
+		{name: "the line cannot be read", holdersErr: errors.New("the line is unreadable"), readings: [][2]float64{{3.5, 8}}, wantPaused: "newer-task", wantAction: "paused newer-task: the lowest goblin in the In progress order not pushing or merging"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			spawner := &spawnRecorder{}
+			s, _, _, _, now := floorBoard(t, false, spawner, test.readings...)
+			s.Options.Dispatch.TurnHolders = func() ([]string, error) { return test.holders, test.holdersErr }
+
+			// Act
+			var err error
+			for reading := range test.readings {
+				err = errors.Join(err, s.guardMemory(now.Add(time.Duration(reading)*memoryGuardEvery)))
+			}
+			wantCalls := 0
+			if test.wantPaused != "" {
+				wantCalls = 1
+			}
+			calls := awaitRecorded(t, spawner, max(wantCalls, 1))
+
+			// Assert
+			if (err != nil) != (test.holdersErr != nil) || err != nil && !strings.Contains(err.Error(), "spares none for one: the line is unreadable") {
+				t.Errorf("guard reading error = %v, want one only when the line cannot be read", err)
+			}
+			if len(calls) != wantCalls || wantCalls == 1 && (calls[0][0] != "pause" || calls[0][1] != test.wantPaused) {
+				t.Fatalf("dispatches = %v, want %q paused", calls, test.wantPaused)
+			}
+			if guard := s.guard.reading(); guard == nil || guard.Action != test.wantAction {
+				t.Fatalf("guard = %+v, want the action %q", guard, test.wantAction)
 			}
 		})
 	}

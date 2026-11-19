@@ -21,8 +21,10 @@ import (
 // the Overlord's In progress order when none grew, that is not pushing or
 // merging, through the pause the allowance floor uses, one goblin at a time,
 // and the scheduler resumes it once memory is back at the next-start mark and
-// a new session leaves the machine's heavy line its next floor. While AFK mode
-// is on, its log keeps each pause for the report of the stretch.
+// a new session leaves the machine's heavy line its next floor. A goblin whose
+// turn of the heavy line runs grows most because the line admitted it, so it
+// is paused only when no other goblin may be (#2808). While AFK mode is on,
+// its log keeps each pause for the report of the stretch.
 
 // gitPushOrMerge are the git commands that push or merge, which a goblin is
 // left to finish rather than paused in the middle of.
@@ -42,20 +44,21 @@ type floorPick struct {
 	why    string
 }
 
-// floorCandidate is a goblin the memory floor may pause, and how many bytes
-// of private working set its process tree grew since the guard's reading
-// before.
+// floorCandidate is a goblin the memory floor may pause, how many bytes of
+// private working set its process tree grew since the guard's reading before,
+// and whether it holds a turn of the machine's heavy line.
 type floorCandidate struct {
-	meta   state.TaskMeta
-	record state.Lifecycle
-	host   host.Record
-	growth uint64
+	meta          state.TaskMeta
+	record        state.Lifecycle
+	host          host.Record
+	growth        uint64
+	isHoldingTurn bool
 }
 
 // pausableGoblins are the goblins of live, in the order they are given, that
 // are not paused or changing and whose last pause at the memory floor did not
-// fail, with their growth from growth by task.
-func (s *Service) pausableGoblins(live []guardedGoblin, growth map[string]uint64) ([]floorCandidate, error) {
+// fail, with their growth from growth by task and whether holders names them.
+func (s *Service) pausableGoblins(live []guardedGoblin, growth map[string]uint64, holders []string) ([]floorCandidate, error) {
 	stateDir := s.Store.Home.State
 	var candidates []floorCandidate
 	var problems error
@@ -69,7 +72,7 @@ func (s *Service) pausableGoblins(live []guardedGoblin, growth map[string]uint64
 		if record.Generation == goblin.meta.SpawnGen && (record.SuppressesMonitoring(stateDir) || failed) {
 			continue
 		}
-		candidates = append(candidates, floorCandidate{goblin.meta, record, goblin.host, growth[goblin.meta.ID]})
+		candidates = append(candidates, floorCandidate{goblin.meta, record, goblin.host, growth[goblin.meta.ID], slices.Contains(holders, goblin.meta.ID)})
 	}
 	return candidates, problems
 }
@@ -88,10 +91,12 @@ func hostsPushingOrMerging() func(hostPID int) bool {
 
 // pickToPause is the goblin the memory floor pauses at a reading at now, of
 // the lowest-first candidates: of those isPushing says are not pushing or
-// merging and did not resume from a memory pause in the last freshResume, or
-// of those that did when no other may be paused, the one whose process tree
-// grew most, the lowest in the Overlord's In progress order when none grew or
-// they grew alike. When it finds none it says why in its last result.
+// merging, hold no turn of the heavy line and did not resume from a memory
+// pause in the last freshResume, or of those that did when no other may be
+// paused, or of those holding a turn when no other may be paused, the one
+// whose process tree grew most, the lowest in the Overlord's In progress order
+// when none grew or they grew alike. When it finds none it says why in its
+// last result.
 func pickToPause(candidates []floorCandidate, isPushing func(hostPID int) bool, now time.Time) (floorPick, bool, string) {
 	var free []floorCandidate
 	for _, one := range candidates {
@@ -108,16 +113,25 @@ func pickToPause(candidates []floorCandidate, isPushing func(hostPID int) bool, 
 	isFresh := func(one floorCandidate) bool {
 		return one.record.Generation == one.meta.SpawnGen && one.record.Action == "resume" && one.record.Phase == "running" && one.record.Pause != nil && one.record.Pause.Reason == "memory" && now.Sub(one.record.Updated) < freshResume
 	}
-	var settled []floorCandidate
+	var settled, fresh, holding []floorCandidate
 	for _, one := range free {
-		if !isFresh(one) {
+		switch {
+		case one.isHoldingTurn:
+			holding = append(holding, one)
+		case isFresh(one):
+			fresh = append(fresh, one)
+		default:
 			settled = append(settled, one)
 		}
 	}
 	pool, passing := settled, ""
 	switch ideal := mostGrown(free); {
+	case len(settled) == 0 && len(fresh) == 0:
+		pool, passing = holding, ", and the last goblin it could pause, though its turn of the heavy line runs"
 	case len(settled) == 0:
-		pool, passing = free, fmt.Sprintf(", and every goblin it could pause resumed from a memory pause in the last %d minutes", int(freshResume/time.Minute))
+		pool, passing = fresh, fmt.Sprintf(", and every goblin it could pause resumed from a memory pause in the last %d minutes", int(freshResume/time.Minute))
+	case ideal.isHoldingTurn:
+		passing = fmt.Sprintf(" past %s, whose turn of the heavy line runs", ideal.meta.ID)
 	case isFresh(ideal):
 		passing = fmt.Sprintf(" past %s, which resumed from a memory pause in the last %d minutes", ideal.meta.ID, int(freshResume/time.Minute))
 	}

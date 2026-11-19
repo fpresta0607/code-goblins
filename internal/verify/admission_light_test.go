@@ -225,7 +225,7 @@ func TestTheHeadFloorWeighsWhatALightRunMayStillUse(t *testing.T) {
 	floor, err := HeadFloor(a.Dir, 0, 0)
 
 	// Assert
-	if want := 3*gigabyte + defaultEstimate + 2*gigabyte; err != nil || floor != want {
+	if want := 3*gigabyte + DefaultEstimate + 2*gigabyte; err != nil || floor != want {
 		t.Fatalf("HeadFloor = %d, %v; want %d, the light run's 3 GiB, the default estimate and the reserve", floor, err, want)
 	}
 }

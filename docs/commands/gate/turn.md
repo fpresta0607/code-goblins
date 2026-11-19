@@ -1,6 +1,6 @@
 # goblins gate turn
 
-`goblins gate turn [--as <name>] [--gate-run <run-id>] [--test-comparison-sha <sha>] [--wait <duration>] [--execution-limit <duration>] [--memory <size>] [--low-priority] [--light] [--detach <log-file>] -- <program> [<argument>...]`
+`goblins gate turn [--as <name>] [--gate-run <run-id>] [--test-comparison-sha <sha>] [--wait <duration>] [--execution-limit <duration>] [--memory <size>] [--low-priority] [--light] [--docker] [--detach <log-file>] -- <program> [<argument>...]`
 
 Run any heavy command in the line `goblins gate test` and `goblins gate prepush` take their turns in, so one such run goes at a time on the machine whoever started it: another repository's test command under its gate, a goblin's own suite, or a run one of the Supreme Overlord's sessions starts.
 It waits while another run holds the turn and, at the head of the line, while free physical memory or free commit is under the line's floor, with no limit of its own but for a run that a gate's agent started, as below: the limits that end a run are its command's and its caller's.
@@ -16,6 +16,7 @@ A script the command runs is not read.
 A command that takes turns itself, as `goblins gate test` and `goblins gate prepush` do, runs inside the turn its wrapper holds, which `GOBLINS_VERIFY_TURN` names to it.
 The floor is 4 GiB on a line of one slot, and on a line of two what each run holding a slot may still use, its expected memory less what it commits now, then this run's own expected memory and the desktop reserve, never under 4 GiB.
 `--memory <size>`, as `--memory 7GiB`, is the most memory the run is expected to use, 2.5 GiB without it.
+A run whose command starts Docker, which `--docker` declares for a script whose words the run does not read and which a word of the command, a shell's command string's included, says when it is the `docker` or `docker-compose` program or `goblins services up`, waits for the floor, its own expected memory and the room Docker needs, since Docker's engine, its virtual machine and the stack on them take memory no process of the run's holds: the run's project's services stack's cost, measured or else declared in its `services.json`, nothing while a task holds that stack, and 2 GiB for the engine and virtual machine when the project declares no stack; while it waits it says so.
 `--light` has the run take a light turn beside the slots once free memory covers what the runs holding the slots and the light runs may still use, its `--memory` and the desktop reserve, however many runs hold the slots, and end at its `--execution-limit` with everything it started, exit 124 and a last line that says the light run outlived its bound; it needs both.
 `--as` names the run to whoever reads the line, as a gate names its repository, branch and run.
 `--wait` bounds the wait for the turn, as `--wait 30s`: a run that takes no turn within it runs nothing and exits 125, and once it has its turn the wait no longer counts.

@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
@@ -151,6 +153,42 @@ func MachineLongTurnWaits(now time.Time) ([]verify.Standing, error) {
 	return slices.DeleteFunc(waiting, func(run verify.Standing) bool {
 		return run.IsTestStep || run.IsLowPriority || now.Sub(run.Since) < longTurnWait
 	}), nil
+}
+
+// MachineTurnHolders reads the tasks whose goblins hold a turn of the
+// machine's heavy line, a slot or a light turn beside them, any verification
+// a gate's Test step included: the task each holder's card names, as goblins
+// gate turn names its run's, or else the one its environment names in
+// GOBLINS_TASK_ID, which every run a goblin starts inherits from its
+// terminal, a detached run whose starter has ended too. A holder whose card
+// names none and whose environment cannot be read, or names none, is no
+// goblin's.
+func MachineTurnHolders() ([]string, error) {
+	dir, err := verify.AdmissionDir()
+	if err != nil {
+		return nil, err
+	}
+	holding, _, err := verify.Line(dir)
+	if err != nil {
+		return nil, err
+	}
+	var tasks []string
+	for _, run := range holding {
+		if run.Task != "" {
+			tasks = append(tasks, run.Task)
+			continue
+		}
+		environment, err := proc.Environment(run.PID)
+		if err != nil {
+			continue
+		}
+		for _, entry := range environment {
+			if name, task, _ := strings.Cut(entry, "="); strings.EqualFold(name, "GOBLINS_TASK_ID") && task != "" {
+				tasks = append(tasks, task)
+			}
+		}
+	}
+	return tasks, nil
 }
 
 // heavyLineRoom is the room the machine's heavy line keeps at this reading,

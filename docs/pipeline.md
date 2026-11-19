@@ -761,7 +761,7 @@ A store failure prevents commands from starting.
 `goblins gate test`, `goblins gate prepush` and `goblins gate turn` wait through the same admission code in the same store, so a run of any of them waits for a run of the others.
 
 ```text
-goblins gate turn [--as <name>] [--wait <duration>] [--execution-limit <duration>] [--memory <size>] [--low-priority] [--light] [--detach <log-file>] -- <program> [<argument>...]
+goblins gate turn [--as <name>] [--wait <duration>] [--execution-limit <duration>] [--memory <size>] [--low-priority] [--light] [--docker] [--detach <log-file>] -- <program> [<argument>...]
 ```
 
 Everything before `--` is `goblins`'s, and everything after it is the command's, its own flags and a `--` of its own included.
@@ -779,6 +779,7 @@ A cleanup that cannot be confirmed keeps its custody and reports uncertainty; la
 `--low-priority` has the run wait at the lowest priority: it takes its turn only while no ordinary run waits, and an ordinary run that joins the line after it still goes first, unless the low-priority run is already taking its turn or has waited the line's two hours, as the desktop's CI jobs wait, and `goblins gate turns` marks it.
 `--memory <size>`, as `--memory 7GiB` or `--memory 512MiB`, is the most memory the run is expected to use, which a line of two slots weighs before it starts the run beside another, as [Taking turns](#taking-turns) says.
 Without it a run is expected to use 2.5 GiB.
+A run whose command starts Docker, which `--docker` declares for a script whose words the run does not read and which a word of the command, a shell's command string's included, says when it is the `docker` or `docker-compose` program or `goblins services up`, waits for the floor, its own expected memory and the room Docker needs, since Docker's engine, its virtual machine and the stack on them take memory no process of the run's holds: the run's project's services stack's cost, measured or else declared in its `services.json`, nothing while a task holds that stack, and 2 GiB for the engine and virtual machine when the project declares no stack; while it waits it says so.
 `--light` has the run take a light turn beside the slots, which needs `--memory` and `--execution-limit`, as [Light runs beside the line](#light-runs-beside-the-line) says.
 A caller such as a gate knows its repository, branch and run, which the command and the folder do not say, so it should give them: `--as "PrecisionDocs feat/x, run 01M4FG7F"`.
 A run is named `<name>: <command>` with `--as` and `<command> in <folder>` without it.

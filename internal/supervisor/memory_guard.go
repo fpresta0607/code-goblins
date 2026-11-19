@@ -61,6 +61,23 @@ type memoryGuard struct {
 	trees   map[string]guardedTree
 	watches map[string]startWatch
 	last    *GuardReading
+	isUnder bool
+}
+
+// dipAllowance is how far under the floor free memory may dip for one reading
+// while a goblin's turn of the heavy line runs before the floor acts: the
+// Overlord, 2026-11-19, "if it was dipping a little bit, that was fine".
+// Under that the floor acts at once (#2808).
+const dipAllowance uint64 = 1 << 30
+
+// under keeps whether this reading is under the floor and says whether the
+// reading before was.
+func (g *memoryGuard) under(isUnder bool) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	wasUnder := g.isUnder
+	g.isUnder = isUnder
+	return wasUnder
 }
 
 // guardedGoblin is a native goblin whose terminal host runs.
@@ -184,10 +201,12 @@ func (s *Service) guardMemory(now time.Time) error {
 	for _, start := range settled {
 		problems = errors.Join(problems, writeStartCost(s.Store.Home.State, start.harness, start.cost))
 	}
-	if min(memory.Available, memory.CommitAvailable) >= floor {
+	isUnder := min(memory.Available, memory.CommitAvailable) < floor
+	wasUnder := s.guard.under(isUnder)
+	if !isUnder {
 		return problems
 	}
-	return errors.Join(problems, s.pauseOneForMemory(live, growth, memory, floor, now))
+	return errors.Join(problems, s.pauseOneForMemory(live, growth, memory, floor, wasUnder, now))
 }
 
 // guardedGoblins are the native goblins whose terminal host runs, the lowest in
@@ -220,16 +239,32 @@ func (s *Service) guardedGoblins() ([]guardedGoblin, error) {
 // is under floor, and keeps the reading and what it did as the guard's last.
 // While a start or another change is under way, a pause included, or the PC
 // restarts, it does nothing: a change under way frees what it frees only once
-// it ends, and the next reading under the floor pauses the next goblin.
-func (s *Service) pauseOneForMemory(live []guardedGoblin, growth map[string]uint64, memory Memory, floor uint64, now time.Time) error {
+// it ends, and the next reading under the floor pauses the next goblin. While
+// a goblin's turn of the heavy line runs, a first reading under the floor,
+// with the reading before at or over it (wasUnder false), that stays within
+// dipAllowance of it is a dip it waits out.
+func (s *Service) pauseOneForMemory(live []guardedGoblin, growth map[string]uint64, memory Memory, floor uint64, wasUnder bool, now time.Time) error {
 	s.starts.Lock()
 	isBusy := s.isRestartingPC() || s.starting != "" || len(s.changing) > 0
 	s.starts.Unlock()
 	if isBusy {
 		return nil
 	}
-	candidates, problems := s.pausableGoblins(live, growth)
+	var holders []string
+	var holdersErr error
+	if read := s.Options.Dispatch.TurnHolders; read != nil {
+		if holders, holdersErr = read(); holdersErr != nil {
+			holdersErr = fmt.Errorf("the memory floor cannot read which goblins hold a turn of the heavy line, so it spares none for one: %w", holdersErr)
+		}
+	}
+	candidates, problems := s.pausableGoblins(live, growth, holders)
+	problems = errors.Join(problems, holdersErr)
 	reading := GuardReading{At: now, Available: memory.Available, CommitAvailable: memory.CommitAvailable, Floor: floor}
+	if holder := slices.IndexFunc(candidates, func(one floorCandidate) bool { return one.isHoldingTurn }); holder >= 0 && !wasUnder && min(memory.Available, memory.CommitAvailable) >= floor-min(floor, dipAllowance) {
+		reading.Action = fmt.Sprintf("waited out a dip under the floor while %s's turn of the heavy line runs: the next reading under it pauses a goblin", candidates[holder].meta.ID)
+		s.guard.record(reading)
+		return problems
+	}
 	pick, isFound, nothing := pickToPause(candidates, hostsPushingOrMerging(), now)
 	if !isFound {
 		reading.Action = nothing

@@ -321,7 +321,7 @@ func TestHoldersRemainingWeighsEachHoldersEstimate(t *testing.T) {
 	}{
 		"an estimate unreached":   {says: card{Who: "a", EstimateBytes: 3 * gigabyte, UsedBytes: gigabyte}, want: 2 * gigabyte},
 		"an estimate passed":      {says: card{Who: "a", EstimateBytes: gigabyte, UsedBytes: 2 * gigabyte}, want: 0},
-		"no estimate on its card": {says: card{Who: "a", UsedBytes: gigabyte / 2}, want: defaultEstimate - gigabyte/2},
+		"no estimate on its card": {says: card{Who: "a", UsedBytes: gigabyte / 2}, want: DefaultEstimate - gigabyte/2},
 		"nothing measured":        {says: card{Who: "a", EstimateBytes: 2 * gigabyte}, want: 2 * gigabyte},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -419,7 +419,7 @@ func TestADeadHoldersEstimateHoldsNoRunBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	holder.Wait()
-	if says := readCard(filepath.Join(a.Dir, "slot-1")); says.EstimateBytes != defaultEstimate {
+	if says := readCard(filepath.Join(a.Dir, "slot-1")); says.EstimateBytes != DefaultEstimate {
 		t.Fatalf("the ended holder's card says %+v; want its estimate left on it", says)
 	}
 
