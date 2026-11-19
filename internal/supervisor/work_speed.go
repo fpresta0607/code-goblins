@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
@@ -149,10 +151,13 @@ func (s *Service) checkProgress(ctx context.Context, watched *fleetWakes, now ti
 	waits := map[string][]string{}
 	measured := map[string]bool{}
 	awaitedHelper := map[string]string{}
+	// A task id is a name in the state folder, so its file system's case rule
+	// keys and compares it.
+	taskPath := func(id string) string { return s.Store.Home.State + string(filepath.Separator) + id }
 	helpers := map[string]state.TaskMeta{}
 	for _, meta := range tasks {
 		if meta.Parent != "" {
-			helpers[strings.ToLower(meta.ID)] = meta
+			helpers[fsx.PathKey(taskPath(meta.ID))] = meta
 		}
 	}
 measuring:
@@ -237,7 +242,7 @@ measuring:
 		measured[meta.ID] = true
 		standingAt, standing := standingReport(lines, spawnTime(meta.SpawnGen))
 		phase, _, target, isReported := reportedProgress(s.statusTail, meta.ID, database.Reviews, standingAt, standing)
-		if helper, isHelper := helpers[strings.ToLower(target)]; isReported && phase == "waiting" && isHelper && strings.EqualFold(helper.Parent, meta.ID) {
+		if helper, isHelper := helpers[fsx.PathKey(taskPath(target))]; isReported && phase == "waiting" && isHelper && fsx.EqualPath(taskPath(helper.Parent), taskPath(meta.ID)) {
 			awaitedHelper[meta.ID] = helper.ID
 		}
 	}

@@ -39,10 +39,11 @@ func TestPathsThatDifferOnlyInCaseAreOnePathWhereTheFileSystemSaysSo(t *testing.
 	isPrefix := HasPathPrefix(file, upper)
 	isSameKey := PathKey(lower) == PathKey(upper)
 	isSame := SamePath(lower, upper)
+	isFolded := FoldsCase(lower)
 
 	// Assert
-	if isEqual != isOnePath || isPrefix != isOnePath || isSameKey != isOnePath {
-		t.Fatalf("EqualPath = %t, HasPathPrefix = %t, one PathKey = %t, want each %t, as the file system opens %s by %s: %t", isEqual, isPrefix, isSameKey, isOnePath, lower, upper, isOnePath)
+	if isEqual != isOnePath || isPrefix != isOnePath || isSameKey != isOnePath || isFolded != isOnePath {
+		t.Fatalf("EqualPath = %t, HasPathPrefix = %t, one PathKey = %t, FoldsCase = %t, want each %t, as the file system opens %s by %s: %t", isEqual, isPrefix, isSameKey, isFolded, isOnePath, lower, upper, isOnePath)
 	}
 	if isSame != isOnePath {
 		t.Fatalf("SamePath(%s, %s) = %t, want %t", lower, upper, isSame, isOnePath)

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -158,7 +159,7 @@ func removeExtraWorktree(ctx context.Context, h home.Home, service worktree.Serv
 		// by a short or linked path spells differently, so the folder that is
 		// the same one on disk matches too.
 		at := slices.IndexFunc(meta.Extras, func(extra string) bool {
-			if strings.EqualFold(filepath.Clean(extra), want) {
+			if fsx.EqualPath(filepath.Clean(extra), want) {
 				return true
 			}
 			recorded, err := os.Stat(extra)

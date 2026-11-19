@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -158,7 +160,9 @@ func reachHelpers(ctx context.Context, h home.Home, meta state.TaskMeta, record 
 	var lines []string
 	var problems []error
 	for _, helper := range helpers {
-		if pause != nil && pause.Reason == "dependency" && strings.EqualFold(pause.Until, "task:"+helper.ID) {
+		// The pause waits on the helper when its task: wait names the helper's
+		// id, compared by the case rule of the state folder its record is in.
+		if pause != nil && pause.Reason == "dependency" && fsx.EqualPath(h.State+string(filepath.Separator)+pause.Until, h.State+string(filepath.Separator)+"task:"+helper.ID) {
 			lines = append(lines, "helper "+helper.ID+" kept at work: "+meta.ID+" waits on it")
 			continue
 		}

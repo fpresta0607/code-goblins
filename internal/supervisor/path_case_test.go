@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -271,5 +272,90 @@ func TestHandoffPlacesTakeThePauseNoteByTheFileSystemsCase(t *testing.T) {
 	// Assert
 	if isNoteTaken := err == nil && len(places) == 2 && places[0].path == filepath.Join("tasktmp", "g1", "pause-pause-1.md"); isNoteTaken != isOnePath {
 		t.Fatalf("handoffPlaces with the note at %s = %+v, %v; want the note taken: %t", record.Handoff, places, err, isOnePath)
+	}
+}
+
+// A parent waiting on its helper takes the helper's progress when the wait
+// names the helper, or the helper names its parent, in another case exactly
+// where the file system opens the one task id by the other in the state
+// folder.
+func TestAParentWaitingOnItsHelperNamesTasksByTheFileSystemsCase(t *testing.T) {
+	cases := []struct {
+		name, awaited, parent string
+	}{
+		{name: "the wait names the helper in another case", awaited: "PARENT-TASK-H1", parent: "parent-task"},
+		{name: "the helper names its parent in another case", awaited: "parent-task-h1", parent: "PARENT-TASK"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			service, h := fleetService(t)
+			liveGoblin(t, h, "parent-task", h.Root)
+			helper := state.TaskMeta{ID: "parent-task-h1", Parent: tc.parent, Project: h.Root, Worktree: filepath.Join(h.Root, ".worktrees", "gb-parent-task-h1"), Harness: "claude", Backend: "native", SpawnGen: "s1"}
+			if err := state.WriteTaskMeta(h.State, helper); err != nil {
+				t.Fatal(err)
+			}
+			_, err := os.Stat(filepath.Join(h.State, "PARENT-TASK-H1.meta"))
+			isOnePath := err == nil
+			git := &worktreeGit{heads: map[string]string{
+				filepath.Join(h.Root, ".worktrees", "gb-parent-task"): strings.Repeat("a", 40),
+				helper.Worktree: strings.Repeat("a", 40),
+			}}
+			service.Options.Progress = git
+			now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+			writeFile(t, filepath.Join(h.State, "parent-task.status"), now.Format(time.RFC3339)+" waiting on "+tc.awaited+": merging its work once it is done\n")
+			if err := service.checkFleet(t.Context(), now); err != nil {
+				t.Fatal(err)
+			}
+			git.heads[helper.Worktree] = strings.Repeat("b", 40)
+			if err := service.checkFleet(t.Context(), now.Add(15*time.Minute)); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			err = service.checkFleet(t.Context(), now.Add(25*time.Minute))
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if isFolded := stallWakes(t, service, "parent-task") == 0; isFolded != isOnePath {
+				t.Fatalf("parent waiting on %s took its helper's commit: %t, want %t", tc.awaited, isFolded, isOnePath)
+			}
+		})
+	}
+}
+
+// Git Bash is never a bash.exe under SystemRoot, spelled in another case
+// exactly where the file system opens SystemRoot by that spelling.
+func TestRunShellPathComparesSystemRootByTheFileSystemsCase(t *testing.T) {
+	// Arrange
+	lower, upper, isOnePath := caseSpellings(t, "windows")
+	git := filepath.Join(lower, "cmd", "git.exe")
+	lookPath := func(name string) (string, error) {
+		if name == "git" {
+			return git, nil
+		}
+		return "", errors.New("not found")
+	}
+	exists := func(string) bool { return true }
+	cases := []struct {
+		name        string
+		systemRoot  string
+		wantRefused bool
+	}{
+		{name: "its own spelling", systemRoot: lower, wantRefused: true},
+		{name: "another case", systemRoot: upper, wantRefused: isOnePath},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Act
+			path, err := runShellPath("bash", lookPath, exists, tc.systemRoot)
+
+			// Assert
+			if isRefused := err != nil; isRefused != tc.wantRefused {
+				t.Fatalf("runShellPath(bash) beside %s under SystemRoot %s = %q, %v; want refused: %t", git, tc.systemRoot, path, err, tc.wantRefused)
+			}
+		})
 	}
 }

@@ -19,6 +19,13 @@ func HasPathPrefix(path, prefix string) bool {
 	return len(path) >= len(prefix) && EqualPath(path[:len(prefix)], prefix)
 }
 
+// FoldsCase reports whether the file system that holds path ignores case,
+// for what no comparison of two paths answers, such as a command line that
+// names path among other words or a pattern its entries are matched to.
+func FoldsCase(path string) bool {
+	return foldsCase(path)
+}
+
 // PathKey is path in the form two spellings EqualPath equates share, for a
 // map that keys paths: lowercase where the file system ignores case, and as
 // written where it does not.

@@ -69,7 +69,7 @@ func Ensure(dataDir string) (created []string, legacy bool, err error) {
 			return nil, false, err
 		}
 		for _, entry := range entries {
-			if !strings.EqualFold(entry.Name(), routing.FileName) {
+			if !fsx.EqualPath(filepath.Join(dataDir, entry.Name()), filepath.Join(dataDir, routing.FileName)) {
 				return nil, true, nil
 			}
 		}
