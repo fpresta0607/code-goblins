@@ -76,6 +76,7 @@ func TestReadRoomCountsWhatAGoblinStillStartingHasYetToTake(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			// stall-accepted: a fake clock reading handed to ReadRoom, not a wait.
 			now := started.Add(test.startedAgo)
 
 			// Act
