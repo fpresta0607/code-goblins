@@ -608,7 +608,6 @@ jobs:
           EXCEPT: >-
             ./cmd/goblins
             ./internal/cleanup
-            ./internal/codexguard
             ./internal/connections
             ./internal/digest
             ./internal/doctor
@@ -619,7 +618,6 @@ jobs:
             ./internal/install
             ./internal/layout
             ./internal/memory
-            ./internal/monitor
             ./internal/pathguard
             ./internal/pipeline
             ./internal/sandbox
