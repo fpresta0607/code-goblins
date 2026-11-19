@@ -315,6 +315,7 @@ func fileAt(ctx context.Context, runner execx.Runner, dir, base, file string) (t
 // pathsIn are the import paths of the packages whose directory, from root,
 // dirs lists, as the policy lists its slow and its alone packages.
 func pathsIn(root string, packages []Package, dirs []string) map[string]bool {
+	holder := root + string(filepath.Separator)
 	paths := map[string]bool{}
 	for _, p := range packages {
 		dir, err := filepath.Rel(root, p.Dir)
@@ -322,7 +323,7 @@ func pathsIn(root string, packages []Package, dirs []string) map[string]bool {
 			continue
 		}
 		dir = filepath.ToSlash(dir)
-		if slices.ContainsFunc(dirs, func(listed string) bool { return strings.EqualFold(listed, dir) }) {
+		if slices.ContainsFunc(dirs, func(listed string) bool { return fsx.EqualPath(holder+listed, holder+dir) }) {
 			paths[p.ImportPath] = true
 		}
 	}

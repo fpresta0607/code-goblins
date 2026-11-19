@@ -258,13 +258,14 @@ func TestValidateAcceptsOnlyTheFilesAnUpdateMovesAside(t *testing.T) {
 	if err := Swap(journal); err != nil {
 		t.Fatal(err)
 	}
+	_, upperErr := os.Stat(strings.ToUpper(root))
 	for _, test := range []struct {
 		name  string
 		aside string
 		valid bool
 	}{
 		{"as moved aside", journal.Aliases[0].Aside[0], true},
-		{"the root in other case", filepath.Join(strings.ToUpper(root), "goblins.exe.1.update-old"), true},
+		{"the root in other case", filepath.Join(strings.ToUpper(root), "goblins.exe.1.update-old"), upperErr == nil},
 		{"outside the home", filepath.Join(t.TempDir(), "goblins.exe.1.update-old"), false},
 		{"another program's", filepath.Join(root, "goblins-hook.exe.1.update-old"), false},
 		{"no number", filepath.Join(root, "goblins.exe..update-old"), false},

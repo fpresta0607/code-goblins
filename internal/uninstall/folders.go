@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // folders are Code Goblins' own files and folders outside the home: what its
@@ -30,7 +32,7 @@ func (m Machine) folders(context.Context) ([]Item, error) {
 	}
 	items = append(items, m.tidied()...)
 	for _, aside := range Asides(m.Home.Root) {
-		if !strings.EqualFold(aside, m.Aside) {
+		if !fsx.EqualPath(aside, m.Aside) {
 			items = append(items, removal(GroupFolders, "a copy of the uninstall an earlier run left", aside))
 		}
 	}

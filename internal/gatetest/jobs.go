@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // JobTable says what can change the result of each job of the CI workflow:
@@ -86,10 +88,11 @@ func ChooseJobs(plan Plan, table JobTable, planner string) Jobs {
 	case reached[planner]:
 		return everything("the change reaches " + planner + ", which is this rule's own code")
 	}
+	isFolded := fsx.FoldsCase(plan.Root)
 	jobs := Jobs{
 		Why:      fmt.Sprintf("the change reaches %d of the module's packages", len(reached)),
-		Frontend: table.Frontend.reads(plan.Changed, reached),
-		Browser:  table.Browser.reads(plan.Changed, reached),
+		Frontend: table.Frontend.reads(plan.Changed, reached, isFolded),
+		Browser:  table.Browser.reads(plan.Changed, reached, isFolded),
 	}
 	for _, shard := range table.Go {
 		own := strings.Fields(shard.Packages)
@@ -101,10 +104,10 @@ func ChooseJobs(plan Plan, table JobTable, planner string) Jobs {
 }
 
 // reads reports whether a change to changed that reaches the packages in
-// reached can alter the job.
-func (r JobRule) reads(changed []string, reached map[string]bool) bool {
+// reached can alter the job, its files named as matches names them.
+func (r JobRule) reads(changed []string, reached map[string]bool, isFolded bool) bool {
 	return slices.ContainsFunc(r.Packages, func(dir string) bool { return reached[dir] }) ||
 		slices.ContainsFunc(changed, func(file string) bool {
-			return slices.ContainsFunc(r.Paths, func(pattern string) bool { return matches(pattern, file) })
+			return slices.ContainsFunc(r.Paths, func(pattern string) bool { return matches(pattern, file, isFolded) })
 		})
 }

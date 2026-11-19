@@ -69,11 +69,11 @@ func checkoutOf(worktree string) (string, bool) {
 	}
 	gitdir = filepath.Clean(strings.TrimSpace(gitdir))
 	worktrees := filepath.Dir(gitdir)
-	if !strings.EqualFold(filepath.Base(worktrees), "worktrees") {
+	if !fsx.EqualPath(worktrees, filepath.Join(filepath.Dir(worktrees), "worktrees")) {
 		return "", false
 	}
 	common := filepath.Dir(worktrees)
-	if strings.EqualFold(filepath.Base(common), ".git") {
+	if fsx.EqualPath(common, filepath.Join(filepath.Dir(common), ".git")) {
 		return filepath.Dir(common), true
 	}
 	return common, true

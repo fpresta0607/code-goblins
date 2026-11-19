@@ -24,7 +24,7 @@ func (m Machine) trust() ([]Item, error) {
 	}
 	if dir, ok := m.Install.HarnessDirs["claude"]; ok {
 		file := filepath.Join(dir, ".claude.json")
-		if strings.EqualFold(filepath.Clean(dir), filepath.Join(m.Profile, ".claude")) {
+		if fsx.EqualPath(filepath.Clean(dir), filepath.Join(m.Profile, ".claude")) {
 			file = filepath.Join(m.Profile, ".claude.json")
 		}
 		if n, err := claudeProjects(file, inHome, false); err != nil {

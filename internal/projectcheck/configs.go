@@ -46,7 +46,7 @@ func (c *checker) homeConfigs() {
 			"the loader refuses the project's worktree manifest, which refuses the project's next spawn",
 			err.Error(), "correct what the loader names in "+file)
 	case manifest.Path == "":
-	case manifest.Project != "" && !sameName(manifest.Project, c.project):
+	case manifest.Project != "" && !sameName(filepath.Dir(c.Checkout), manifest.Project, c.project):
 		c.add(AreaConfigs, "worktree-names-another-project", Medium,
 			"the worktree manifest names a project other than the checkout it is filed under",
 			fmt.Sprintf("%s says project %q and is filed for the checkout folder %q", file, manifest.Project, c.project),
@@ -209,7 +209,7 @@ func (c *checker) worktreeManifest(ctx context.Context) {
 		return
 	}
 	clean := true
-	if manifest.Project != "" && !sameName(manifest.Project, c.project) {
+	if manifest.Project != "" && !sameName(filepath.Dir(c.Checkout), manifest.Project, c.project) {
 		clean = false
 		c.add(AreaConfigs, "worktree-names-another-project", Medium,
 			"the worktree manifest names a project other than the checkout it is filed under",

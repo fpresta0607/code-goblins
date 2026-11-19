@@ -107,3 +107,21 @@ func TestTreeOfCountsOnlyAServiceInTheTree(t *testing.T) {
 		})
 	}
 }
+
+// Windows names the Scrawl server's script by a drive and backslashes, and
+// in any case, so these spellings are the server there.
+func TestServiceOfKnowsTheScrawlServerByItsWindowsScript(t *testing.T) {
+	for _, tc := range []struct {
+		exe       string
+		arguments []string
+		want      Service
+	}{
+		{"node.exe", []string{`C:\Program Files\nodejs\node.exe`, `C:\Users\o\AppData\Roaming\npm\node_modules\lavish-axi\dist\server.mjs`, "server", "--port", "4455"}, PageServer},
+		{"node.exe", []string{"node", `C:\src\lavish-axi\bin\lavish-axi-server.js`, "server", "--port", "4455"}, PageServer},
+		{"NODE.EXE", []string{"node", "C:/Users/o/AppData/Roaming/npm/node_modules/Lavish-Axi/dist/server.mjs", "server"}, PageServer},
+	} {
+		if got := ServiceOf(tc.exe, tc.arguments); got != tc.want {
+			t.Errorf("ServiceOf(%q, %q) = %d, want %d", tc.exe, tc.arguments, got, tc.want)
+		}
+	}
+}
