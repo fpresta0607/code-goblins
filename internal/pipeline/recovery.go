@@ -91,6 +91,13 @@ func (r Reader) RecoverKeepLocal(ctx context.Context, project, worktree, branch 
 			}
 		}
 	}
+	return r.recoverPreservingEdits(ctx, project, worktree, branch, env, run, run.RunID)
+}
+
+// recoverPreservingEdits recovers run's custody, latestID naming the branch's
+// latest run, which is run itself unless run is an earlier owner the latest
+// one left holding the branch.
+func (r Reader) recoverPreservingEdits(ctx context.Context, project, worktree, branch string, env []string, run recoveryRecord, latestID string) (RecoveryResult, error) {
 	// Native recovery removes a failed run's worktree with force, so the
 	// fixer's unfinished repairs are preserved before anything recovery runs.
 	// On 2026-10-23 an allowance-interrupted review repair lost its frontend
@@ -99,7 +106,7 @@ func (r Reader) RecoverKeepLocal(ctx context.Context, project, worktree, branch 
 	if err != nil {
 		return RecoveryResult{}, err
 	}
-	result, err := r.recoverRun(ctx, project, worktree, branch, env, run, edits)
+	result, err := r.recoverRun(ctx, project, worktree, branch, env, run, latestID, edits)
 	// A recovery that stops short keeps the artifact as firmly as one that
 	// finishes: the goblin restores its fixer's work either way, so its error,
 	// all goblins pipeline recover prints of it, names where (issue 2755).
@@ -110,7 +117,7 @@ func (r Reader) RecoverKeepLocal(ctx context.Context, project, worktree, branch 
 	return result, err
 }
 
-func (r Reader) recoverRun(ctx context.Context, project, worktree, branch string, env []string, run recoveryRecord, edits string) (RecoveryResult, error) {
+func (r Reader) recoverRun(ctx context.Context, project, worktree, branch string, env []string, run recoveryRecord, latestID, edits string) (RecoveryResult, error) {
 	bare := filepath.Join(r.Root, "repos", run.RepoID+".git")
 	if err := r.carryNativeRecoveryAnchor(ctx, bare, run); err != nil {
 		return RecoveryResult{}, err
@@ -121,14 +128,16 @@ func (r Reader) recoverRun(ctx context.Context, project, worktree, branch string
 		if err := r.returnCustodyAtRecordedHead(ctx, worktree, branch, env, run); err != nil {
 			return RecoveryResult{}, err
 		}
-		returned, runErr := r.latestRecoveryRun(ctx, project, branch)
+		latest, runErr := r.latestRecoveryRun(ctx, project, branch)
 		if runErr != nil {
 			return RecoveryResult{}, runErr
 		}
-		if returned.RunID != run.RunID {
+		if latest.RunID != latestID {
 			return RecoveryResult{}, errors.New("pipeline: another run took the branch during custody recovery")
 		}
-		run = returned
+		if run, runErr = r.runRecord(ctx, run); runErr != nil {
+			return RecoveryResult{}, runErr
+		}
 		status, output, err = r.readRecoverySync(ctx, worktree, env)
 		status.WorktreeEdits = edits
 	}
@@ -141,6 +150,13 @@ func (r Reader) recoverRun(ctx context.Context, project, worktree, branch string
 		}
 	}
 	if run.CustodyReturnedAt != 0 {
+		if err == nil && status.State == "pipeline_owned" && status.Pipeline.Run != run.RunID {
+			owner, ownerErr := r.earlierOwner(ctx, run, status.Pipeline.Run)
+			if ownerErr != nil {
+				return RecoveryResult{}, ownerErr
+			}
+			return r.recoverPreservingEdits(ctx, project, worktree, branch, env, owner, latestID)
+		}
 		return RecoveryResult{}, r.returnedCustodyMismatch(ctx, run)
 	}
 
@@ -236,6 +252,42 @@ func (r Reader) latestRecoveryCandidate(ctx context.Context, project, branch str
 		return recoveryRecord{}, errors.New("pipeline: latest run is not an unpublished failed or cancelled custody recovery")
 	}
 	return run, nil
+}
+
+// earlierOwner is the run native branch sync names as the branch's owner
+// after latest, the branch's latest run, already returned custody: an earlier
+// failed or cancelled run of the branch that never published or returned
+// custody, such as one that failed after the gate committed its review fixes,
+// followed by a run that was cancelled. That earlier run holds the branch, so
+// it is the one recovered; refusing the latest as a mismatch instead sent the
+// branch to a fresh run that the earlier owner refuses (#2757).
+func (r Reader) earlierOwner(ctx context.Context, latest recoveryRecord, owner string) (recoveryRecord, error) {
+	refusal := fmt.Errorf("pipeline: run %s already returned custody, and native branch sync names run %s as this branch's owner, which is not an earlier unpublished failed or cancelled run of it holding custody, so no recovery is safe; report this to the CEO", latest.RunID, owner)
+	if !gateIdentity.MatchString(owner) {
+		return recoveryRecord{}, refusal
+	}
+	var runs []recoveryRecord
+	query := `SELECT id AS run_id, repo_id, branch, status, head_sha AS recorded_head, COALESCE(submitted_head_sha,'') AS submitted_head, COALESCE(last_pushed_sha,'') AS pushed_head, COALESCE(custody_returned_at,0) AS custody_returned_at FROM runs WHERE id=` + sqlString(owner) + ` AND repo_id=` + sqlString(latest.RepoID) + ` AND branch=` + sqlString(latest.Branch) + ` AND status IN ('failed','cancelled') AND COALESCE(head_sha,'')<>'' AND COALESCE(submitted_head_sha,'')<>'' AND COALESCE(last_pushed_sha,'')='' AND COALESCE(custody_returned_at,0)=0 AND (created_at,id)<(SELECT created_at,id FROM runs WHERE id=` + sqlString(latest.RunID) + `)`
+	if err := r.query(ctx, query, &runs); err != nil {
+		return recoveryRecord{}, err
+	}
+	if len(runs) != 1 {
+		return recoveryRecord{}, refusal
+	}
+	return runs[0], nil
+}
+
+// runRecord reads run's record again by its identity.
+func (r Reader) runRecord(ctx context.Context, run recoveryRecord) (recoveryRecord, error) {
+	var rows []recoveryRecord
+	query := `SELECT id AS run_id, repo_id, branch, status, head_sha AS recorded_head, COALESCE(submitted_head_sha,'') AS submitted_head, COALESCE(last_pushed_sha,'') AS pushed_head, COALESCE(custody_returned_at,0) AS custody_returned_at FROM runs WHERE id=` + sqlString(run.RunID) + ` AND repo_id=` + sqlString(run.RepoID) + ` AND branch=` + sqlString(run.Branch)
+	if err := r.query(ctx, query, &rows); err != nil {
+		return recoveryRecord{}, err
+	}
+	if len(rows) != 1 || rows[0].PushedHead != "" {
+		return recoveryRecord{}, errors.New("pipeline: the recovered run's record cannot be read")
+	}
+	return rows[0], nil
 }
 
 // cancelledDuplicate names the older run native branch sync still keeps as
