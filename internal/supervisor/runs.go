@@ -1086,7 +1086,7 @@ func runShellPath(shell string, lookPath func(string) (string, error), exists fu
 			root = filepath.Dir(root)
 		}
 		path := filepath.Join(root, "bin", "bash.exe")
-		inSystemRoot := systemRoot != "" && strings.HasPrefix(strings.ToLower(path), strings.ToLower(filepath.Clean(systemRoot))+`\`)
+		inSystemRoot := systemRoot != "" && fsx.HasPathPrefix(path, filepath.Clean(systemRoot)+string(filepath.Separator))
 		if inSystemRoot || !exists(path) {
 			return "", fmt.Errorf("Git Bash is not installed beside %s", git)
 		}
