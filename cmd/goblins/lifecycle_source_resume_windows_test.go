@@ -317,6 +317,7 @@ func TestSourceResumeComposedBoundaries(t *testing.T) {
 CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,status TEXT,head_sha TEXT,last_pushed_sha TEXT,intent TEXT,worktree_dir TEXT,created_at INTEGER);
 CREATE TABLE step_results(run_id TEXT,step_name TEXT,round INTEGER,spent INTEGER);
 CREATE TABLE findings(run_id TEXT,id TEXT,resolution TEXT);
+CREATE TABLE validation_admissions(id TEXT,child_id TEXT,predecessor_id TEXT,event_json TEXT);
 INSERT INTO repos VALUES('repo-1','%s');
 INSERT INTO runs VALUES('original-run','repo-1','fix/source-resume','%s','%s','%s','retain validation history','',1);
 INSERT INTO step_results VALUES('original-run','review',3,3);
