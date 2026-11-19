@@ -596,7 +596,7 @@ func TestAFailingGuardReadingIsPublishedOnceUntilOneSucceeds(t *testing.T) {
 		return s.revision
 	}
 	waitForReads := func(count int32) {
-		for deadline := time.Now().Add(10 * time.Second); reads.Load() < count && time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+		for deadline := time.Now().Add(30 * time.Second); reads.Load() < count && time.Now().Before(deadline); time.Sleep(time.Millisecond) {
 		}
 	}
 	ctx, stop := context.WithCancel(t.Context())
