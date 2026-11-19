@@ -1187,6 +1187,41 @@ func TestWordsBesideHisMessageOnTheCEOsPromptLineAreNeverSubmittedWithIt(t *test
 	}
 }
 
+// Claude Code 2.1.328 draws a no-break space after its prompt line's glyph,
+// and the board read the glyph as words beside a message typed there, so it
+// refused every message to the CEO as input that changed and left it typed,
+// unsent, on 2026-11-19 (#2776). A message on such a prompt line is submitted
+// to a CEO idle or in a turn, and pressed again once a lost Enter adds a row.
+func TestAMessageAfterANoBreakSpaceOnTheCEOsPromptLineIsSubmitted(t *testing.T) {
+	for _, tc := range []struct {
+		mode  string
+		input []string
+	}{
+		{mode: "claude-ready-no-break-space", input: []string{"accepted stop and rebase"}},
+		{mode: "claude-ready-lost-enter-no-break-space", input: []string{"enter taken as a new line", "accepted stop and rebase"}},
+		{mode: "claude-busy-no-break-space", input: []string{"queued stop and rebase"}},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			// Arrange
+			useConversations(t)
+			store, home := testStore(t)
+			terminal := nativeCEOComposer(t, home.State, tc.mode)
+			service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: home.State}}}
+
+			// Act
+			result, err := service.deliverMessage(context.Background(), Action{Kind: "message", Text: "stop and rebase"})
+
+			// Assert
+			if err != nil || result.LeftTyped != nil {
+				t.Errorf("deliverMessage = %+v, %v; want it submitted, not refused as input that changed", result, err)
+			}
+			if input := terminal.lines(t)[1:]; !slices.Equal(input, tc.input) {
+				t.Errorf("terminal input = %q; want %q", input, tc.input)
+			}
+		})
+	}
+}
+
 // The Overlord, 2026-11-13: "Stale old messages that appear randomly when
 // memory gets low" (#2541). A machine short of memory reads a terminal slowly,
 // and a read that failed once a message's submit key went ended its delivery

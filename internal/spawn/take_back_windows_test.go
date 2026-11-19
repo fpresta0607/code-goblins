@@ -15,18 +15,24 @@ import (
 // claudePromptLine stands in for Claude Code's prompt line. One ClearLine
 // takes row characters off it, the row its cursor is in, as Claude Code
 // 2.1.322 did live on 2026-11-10, and nothing while isStuck. He types his
-// onto it the moment it is empty.
+// onto it the moment it is empty. With hasNoBreakSpace it draws a no-break
+// space after its glyph, as Claude Code 2.1.328 did live on 2026-11-19 (#2776).
 type claudePromptLine struct {
-	words   string
-	row     int
-	isStuck bool
-	his     string
-	presses int
+	words           string
+	row             int
+	isStuck         bool
+	hasNoBreakSpace bool
+	his             string
+	presses         int
 }
 
 func (p *claudePromptLine) read() ([]string, error) {
 	rule := strings.Repeat("─", 80)
-	return []string{"● Done.", rule, "❯ " + p.words, rule, "⏵⏵ bypass permissions on (shift+tab to cycle)"}, nil
+	prompt := "❯ "
+	if p.hasNoBreakSpace {
+		prompt = "❯\u00a0"
+	}
+	return []string{"● Done.", rule, prompt + p.words, rule, "⏵⏵ bypass permissions on (shift+tab to cycle)"}, nil
 }
 
 func (p *claudePromptLine) press(keys []byte) error {
@@ -64,6 +70,7 @@ func TestTakeBackPressesOnlyForWordsItSeesAndReportsThemGoneOnceTheLineIsEmpty(t
 		"words on one row":               {line: claudePromptLine{words: "stop and rebase", row: 100}, typed: "stop and rebase", wantTaken: true, wantPresses: 1},
 		"words over three rows":          {line: claudePromptLine{words: long, row: 100}, typed: long, wantTaken: true, wantPresses: 3},
 		"a paste shown as a placeholder": {line: claudePromptLine{words: "[Pasted text #1 +3 lines]", row: 100}, typed: long, wantTaken: true, wantPresses: 1},
+		"words after a no-break space":   {line: claudePromptLine{words: "stop and rebase", row: 100, hasNoBreakSpace: true}, typed: "stop and rebase", wantTaken: true, wantPresses: 1},
 		"words the screen does not show": {line: claudePromptLine{row: 100}, typed: "stop and rebase"},
 		"his words after the delivery's": {line: claudePromptLine{words: "stop and rebase and the", row: 100}, typed: "stop and rebase"},
 		"his words alone":                {line: claudePromptLine{words: "wait for me", row: 100}, typed: "stop and rebase"},
