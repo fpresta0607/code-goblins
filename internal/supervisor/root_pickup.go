@@ -224,8 +224,10 @@ func isInFlight(h home.Home, backlog fleet.BacklogRows, id string) bool {
 // a root the CEO dispatched by hand is not picked up beside it.
 func issuesNamedInProject(h home.Home, backlog fleet.BacklogRows, name, checkout, repository string) map[int]bool {
 	isOfProject := func(taskProject string) bool {
-		base := filepath.Base(strings.TrimSpace(taskProject))
-		return strings.EqualFold(base, name) || strings.EqualFold(base, filepath.Base(checkout))
+		taskProject = strings.TrimSpace(taskProject)
+		dir := filepath.Dir(taskProject)
+		base := filepath.Join(dir, filepath.Base(taskProject))
+		return fsx.EqualPath(base, filepath.Join(dir, name)) || fsx.EqualPath(base, filepath.Join(dir, filepath.Base(checkout)))
 	}
 	named := map[int]bool{}
 	add := func(text string) {

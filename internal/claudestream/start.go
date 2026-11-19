@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // Start is what a stream session says of itself before it is given any work:
@@ -141,7 +143,7 @@ func (s Start) check(expected []string) error {
 		missing = append(missing, "it loaded no skills")
 	}
 	for _, path := range expected {
-		if !slices.ContainsFunc(s.MemoryFiles, func(loaded string) bool { return strings.EqualFold(filepath.Clean(loaded), filepath.Clean(path)) }) {
+		if !slices.ContainsFunc(s.MemoryFiles, func(loaded string) bool { return fsx.EqualPath(filepath.Clean(loaded), filepath.Clean(path)) }) {
 			missing = append(missing, "it did not load "+path)
 		}
 	}

@@ -57,7 +57,13 @@ func (service Service) outcome(ctx context.Context, meta state.TaskMeta, reason 
 			report = ""
 		}
 	}
-	named := strings.ToLower(filepath.Join(filepath.Base(service.Data), meta.ID, "report.md"))
+	// The line names the report without regard to case where the home's
+	// file system ignores case, as Windows does.
+	named := filepath.Join(filepath.Base(service.Data), meta.ID, "report.md")
+	isFolding := fsx.EqualPath(filepath.Join(service.Data, "a"), filepath.Join(service.Data, "A"))
+	if isFolding {
+		named = strings.ToLower(named)
+	}
 	lines, _ := state.TailStatus(service.StateDir, meta.ID, 200)
 	nanoseconds, _ := strconv.ParseInt(strings.TrimPrefix(meta.SpawnGen, "s"), 10, 64)
 	for index := len(lines) - 1; index >= 0; index-- {
@@ -75,7 +81,11 @@ func (service Service) outcome(ctx context.Context, meta state.TaskMeta, reason 
 			outcome.Phase, outcome.Evidence = "done", "closed "+issue
 			return outcome
 		}
-		if report != "" && strings.HasPrefix(line, "done: ") && strings.Contains(strings.ToLower(filepath.FromSlash(line)), named) {
+		said := filepath.FromSlash(line)
+		if isFolding {
+			said = strings.ToLower(said)
+		}
+		if report != "" && strings.HasPrefix(line, "done: ") && strings.Contains(said, named) {
 			outcome.Phase, outcome.Evidence = "done", "reported its report "+report
 			return outcome
 		}

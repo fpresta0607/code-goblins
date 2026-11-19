@@ -118,7 +118,7 @@ func findVSCode(lookup func(string) (string, error)) (string, error) {
 	case "code.exe":
 		executable = shim
 	case "code.cmd", "code":
-		if !strings.EqualFold(filepath.Base(filepath.Dir(shim)), "bin") {
+		if bin := filepath.Dir(shim); !fsx.EqualPath(bin, filepath.Join(filepath.Dir(bin), "bin")) {
 			return "", errors.New("VS Code installation could not be verified.")
 		}
 		executable = filepath.Join(filepath.Dir(filepath.Dir(shim)), "Code.exe")

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
@@ -39,7 +40,7 @@ func PreserveWork(ctx context.Context, commands execx.Runner, meta state.TaskMet
 		}
 		return result, errors.New("worktree could not be verified; left in place")
 	}
-	if !strings.EqualFold(filepath.Clean(strings.TrimSpace(string(top.Stdout))), filepath.Clean(meta.Worktree)) {
+	if !fsx.EqualPath(filepath.Clean(strings.TrimSpace(string(top.Stdout))), filepath.Clean(meta.Worktree)) {
 		return result, errors.New("git answered for a different checkout; left untouched")
 	}
 	status, err := git("status", "--porcelain=v1", "--untracked-files=all")

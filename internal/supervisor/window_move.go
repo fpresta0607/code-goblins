@@ -171,7 +171,7 @@ func leftOnAnOldProgram(image, program string) bool {
 	if _, err := os.Stat(program); err != nil {
 		return false
 	}
-	return strings.EqualFold(filepath.Dir(image), filepath.Dir(program)) && !strings.EqualFold(filepath.Clean(image), filepath.Clean(program))
+	return fsx.EqualPath(filepath.Dir(program), filepath.Dir(image)) && !fsx.EqualPath(filepath.Clean(program), filepath.Clean(image))
 }
 
 // relaunchWindow ends the window started, which runs image, waits for it to

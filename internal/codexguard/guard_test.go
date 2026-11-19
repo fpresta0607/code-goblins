@@ -18,7 +18,7 @@ import (
 func TestArmWritesACodexForCmdAndOneForGitBash(t *testing.T) {
 	// Arrange
 	stateDir := filepath.Join(t.TempDir(), "100% state")
-	program := `C:\Users\o'neil\CodeGoblins\bin\goblins.exe`
+	program := systemPath(`C:\Users\o'neil\CodeGoblins\bin\goblins.exe`)
 	until := time.Date(2026, 10, 22, 12, 0, 13, 0, time.UTC)
 
 	// Act
@@ -30,8 +30,8 @@ func TestArmWritesACodexForCmdAndOneForGitBash(t *testing.T) {
 	}
 	escapedState := strings.ReplaceAll(stateDir, "%", "%%")
 	for name, want := range map[string]string{
-		"codex.cmd": `@"C:\Users\o'neil\CodeGoblins\bin\goblins.exe" "codex-guard" "--state" "` + escapedState + `" "--task" "g1" "--until" "2026-10-22T12:00:13Z" -- %*` + "\r\n",
-		"codex":     "#!/bin/sh\nexec 'C:/Users/o'\\''neil/CodeGoblins/bin/goblins.exe' 'codex-guard' '--state' '" + stateDir + "' '--task' 'g1' '--until' '2026-10-22T12:00:13Z' -- \"$@\"\n",
+		"codex.cmd": `@"` + program + `" "codex-guard" "--state" "` + escapedState + `" "--task" "g1" "--until" "2026-10-22T12:00:13Z" -- %*` + "\r\n",
+		"codex":     "#!/bin/sh\nexec '" + systemPath(`C:/Users/o`) + "'\\''neil/CodeGoblins/bin/goblins.exe' 'codex-guard' '--state' '" + stateDir + "' '--task' 'g1' '--until' '2026-10-22T12:00:13Z' -- \"$@\"\n",
 	} {
 		got, err := os.ReadFile(filepath.Join(Dir(stateDir, "g1"), name))
 		if err != nil || string(got) != want {
@@ -84,7 +84,9 @@ func TestArmAndDisarmRefuseAnIDThatIsNoTasks(t *testing.T) {
 }
 
 // Disarming empties a task's guard, a guard that is not armed included, and
-// pruning takes away the guard of every task no longer live.
+// pruning takes away the guard of every task no longer live. A live id in
+// another case keeps a guard exactly where the file system opens the guard's
+// folder by that spelling.
 func TestDisarmAndPruneTakeGuardsAway(t *testing.T) {
 	// Arrange
 	stateDir := t.TempDir()
@@ -94,6 +96,8 @@ func TestDisarmAndPruneTakeGuardsAway(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	_, err := os.Stat(Dir(stateDir, "G2"))
+	isOnePath := err == nil
 
 	// Act
 	disarmed := Disarm(stateDir, "g1")
@@ -104,13 +108,42 @@ func TestDisarmAndPruneTakeGuardsAway(t *testing.T) {
 	if disarmed != nil || disarmedTwice != nil || pruned != nil {
 		t.Fatalf("Disarm = %v, again %v, Prune = %v", disarmed, disarmedTwice, pruned)
 	}
-	for id, isArmed := range map[string]bool{"g1": false, "g2": true, "gone-1": false} {
+	for id, isArmed := range map[string]bool{"g1": false, "g2": isOnePath, "gone-1": false} {
 		if _, err := os.Stat(filepath.Join(Dir(stateDir, id), "codex.cmd")); (err == nil) != isArmed {
 			t.Errorf("%s's guard armed = %v, want %v", id, err == nil, isArmed)
 		}
 	}
 	if err := Prune(t.TempDir(), nil); err != nil {
 		t.Errorf("Prune of a home with no guards = %v", err)
+	}
+}
+
+// A terminal's PATH names each guard folder once: an inherited folder spelled
+// in another case is the terminal's own exactly where the file system opens
+// the one by the other, and one spelled with a trailing separator always is.
+func TestChainNamesEachGuardFolderOnceByTheFileSystemsCase(t *testing.T) {
+	// Arrange
+	parent := t.TempDir()
+	own := filepath.Join(parent, "guard")
+	if err := os.Mkdir(own, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	upper := filepath.Join(parent, "GUARD")
+	_, err := os.Stat(upper)
+	isOnePath := err == nil
+	other := filepath.Join(parent, "other")
+	want := []string{own, upper, other}
+	if isOnePath {
+		want = []string{own, other}
+	}
+	inherited := strings.Join([]string{upper, own + string(filepath.Separator), other}, string(os.PathListSeparator))
+
+	// Act
+	chain := Chain(own, inherited)
+
+	// Assert
+	if wantChain := strings.Join(want, string(os.PathListSeparator)); chain != wantChain {
+		t.Fatalf("Chain(%s, %s) = %s, want %s, as the file system opens %s by %s: %t", own, inherited, chain, wantChain, own, upper, isOnePath)
 	}
 }
 

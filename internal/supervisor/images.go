@@ -129,7 +129,8 @@ var folderSpellings = func(dir string) (long, short string) {
 
 // pathBelow returns the part of path below dir, or "" when path is not below
 // it. Only dir is looked up on disk, and path is compared as it is spelled,
-// without regard to case, as Windows compares names.
+// without regard to case where dir's file system ignores case, as Windows
+// compares names.
 func pathBelow(dir, path string) string {
 	long, short := folderSpellings(dir)
 	longNames, shortNames, names := pathNames(long), pathNames(short), pathNames(path)
@@ -137,7 +138,8 @@ func pathBelow(dir, path string) string {
 		return ""
 	}
 	for i, name := range names[:len(longNames)] {
-		if !strings.EqualFold(name, longNames[i]) && !strings.EqualFold(name, shortNames[i]) {
+		spelled := filepath.Join(long, name)
+		if !fsx.EqualPath(spelled, filepath.Join(long, longNames[i])) && !fsx.EqualPath(spelled, filepath.Join(long, shortNames[i])) {
 			return ""
 		}
 	}
