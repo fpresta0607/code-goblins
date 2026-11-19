@@ -110,7 +110,9 @@ func (r Reader) recoverPreservingEdits(ctx context.Context, project, worktree, b
 	// A recovery that stops short keeps the artifact as firmly as one that
 	// finishes: the goblin restores its fixer's work either way, so its error,
 	// all goblins pipeline recover prints of it, names where (issue 2755).
-	result.WorktreeEdits = edits
+	if err != nil || result.RunID == run.RunID {
+		result.WorktreeEdits = edits
+	}
 	if err != nil && edits != "" {
 		err = fmt.Errorf("%w; run %s's unfinished edits are kept at %s under %s; restore them with git cherry-pick -n %s", err, run.RunID, edits, WorktreeRef(run.RunID), edits)
 	}
