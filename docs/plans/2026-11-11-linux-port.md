@@ -207,6 +207,9 @@ The host's protocol (a token handshake, then typed frames) is the same on every 
   Install turns on lingering (`loginctl enable-linger`), so the user manager, and the unit with it, starts at boot and stays up after the last logout, which a server reached over SSH needs.
   `goblins update` replaces a program by renaming the new file over it, which Linux allows while it runs.
   The uninstaller removes the programs, the `.desktop` entry and the unit, and turns lingering off again if install turned it on.
+- **One choice, macOS/Linux:** wherever Code Goblins is offered, the README's download control and badge, the install guide and the release notes, macOS and Linux are one entry, macOS/Linux, beside Windows, as the Overlord asked on 2026-11-19.
+  One `install.sh` serves both: it reads `uname` and installs the Linux archive for its architecture, or on a Mac the signed and notarized app for Apple silicon and Intel with its command line.
+  Where the Mac cannot yet do what Linux does, the entry says so in a few words rather than splitting the choice again.
 - **Not needed:** the setup window, the registry, Installed apps, shortcuts, elevation, Authenticode (the checksums remain; a signature for the archive can follow).
 - **Layer:** 8.
 
@@ -316,7 +319,7 @@ A layer's Linux code sits beside the Windows code under a build tag.
 6. **Watching and readings.** `inotify`, the memory and processor readings, priorities, the janitor's processes, the browser sign-in and the clipboard.
    The watcher's handover request names its requester by instance.
 7. **End to end.** The hooks without PowerShell, card commands and `!` messages in bash, folders opened with `xdg-open`, and a goblin run on Linux in CI under Claude Code, Codex and pi: spawn, send, peek, wake, pause, resume, gate and cleanup.
-8. **Installer and updater.** The release's Linux archives and `install.sh`, update and uninstall, the `.desktop` entry, the user unit and lingering, the board opening in the browser, and the README's download control and the install guide offering Linux beside Windows.
+8. **Installer and updater.** The release's Linux archives and `install.sh`, update and uninstall, the `.desktop` entry, the user unit and lingering, the board opening in the browser, and the README's download control and the install guide offering macOS/Linux as one choice beside Windows.
    The updater's wait for the supervisor to exit names the supervisor by instance.
 9. **Dictation.** The speech engine's Linux library, pinned in `config/voice.json` beside the Windows one, and loaded through cgo or a pure-Go loader such as purego, whichever this layer chooses.
    If it takes cgo, the release's Linux build from layer 8 turns cgo on with it.
@@ -381,7 +384,7 @@ The sizes are added lines, measured against layer 3 part 1, which added 985 prog
 | 5, the native terminal | the pseudo terminal, raw mode, `SIGWINCH`, the host's emulator | the pty from `/dev/ptmx`, the launchd agent's `AbandonProcessGroup` in place of a systemd scope, background priority or the utility class in place of affinity, chosen by measuring both on the macOS runner, the cores' kinds from `sysctl` | 5 | about 200 program lines, 120 test lines |
 | 6, watching and readings | the reader's shape, `setpriority`, Chrome over DevTools | `kqueue`; memory and processors from the Mach host calls; the birth time; `setiopolicy_np`; Chrome in `/Applications`; `pbcopy` | 6 | about 350 program lines, 200 test lines |
 | 7, end to end | the hooks calling `goblins`, the run on CI under Claude Code, Codex and pi | cards in `sh`, `!` in the user's shell, folders opened with `open` | 7 | about 40 program lines, and the macOS runner in the end-to-end job |
-| 8 for macOS, installer, window and updater | the release's checksums, update by rename, the update's hold on the previous build | one universal disk image for Apple silicon and Intel holding the app with the window and the CLI, signed and notarized; start at sign-in as a launch agent; the Keychain; update and uninstall of the app | 8m, its own pull request, ahead of the Linux installer | about 600 program lines, 200 test lines, and the release job on a macOS runner |
+| 8 for macOS, installer, window and updater | the release's checksums, update by rename, the update's hold on the previous build | one universal disk image for Apple silicon and Intel holding the app with the window and the CLI, signed and notarized, which the shared `install.sh` installs on a Mac; start at sign-in as a launch agent; the Keychain; update and uninstall of the app | 8m, its own pull request, ahead of the Linux installer | about 600 program lines, 200 test lines, and the release job on a macOS runner |
 | 8 for Linux | | | 8, after 8m | nothing |
 | 9, dictation | the loader layer 9 chooses | the sherpa engine's universal library, the microphone permission, which the signed app asks for | 9 | about 80 program lines |
 | 10, the desktop CI runner | | | 10, Linux only | nothing: left out on macOS (see below) |
@@ -425,8 +428,9 @@ Nothing is dropped in silence: each of these but the last says what it lacks whe
 1. This plan.
 2. M1: macOS catches up to layer 3 part 1, with its CI job.
 3. Layers 3 part 2, 3 part 3, 4, 5, 6 and 7, each for Linux and macOS.
-4. 8m: the Mac installer, window and updater, signed and notarized.
-5. 8: the Linux installer.
+4. 8m: the Mac installer, window and updater, signed and notarized, with the `install.sh` Linux shares.
+5. 8: the Linux installer, in the same `install.sh`.
+   The one macOS/Linux entry says coming soon until both have landed.
 6. 9 and 10.
 
 ## How it was measured

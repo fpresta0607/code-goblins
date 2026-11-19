@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="Platform: Windows, with macOS and Linux coming soon" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%26%20Linux%20soon-blue?style=flat-square" />
+  <img alt="Platform: Windows, with macOS/Linux coming soon" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%2FLinux%20soon-blue?style=flat-square" />
   <img alt="Go" src="https://img.shields.io/badge/core-Go-00ADD8?style=flat-square" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-green?style=flat-square" />
 </p>
@@ -23,8 +23,7 @@
 
 <p align="center">
   <a href="https://github.com/fpresta0607/code-goblins/releases/latest/download/CodeGoblinsSetup.exe"><strong>Download for Windows</strong></a>
-  · <strong>macOS</strong>: <a href="https://github.com/fpresta0607/code-goblins/issues/2535">coming soon</a>
-  · <strong>Linux</strong>: <a href="https://github.com/fpresta0607/code-goblins/issues/2366">coming soon</a>
+  · <strong>macOS/Linux</strong>: <a href="https://github.com/fpresta0607/code-goblins/issues/2366">coming soon</a>
   <br />
   <a href="#quick-start">Quick start</a>
   · <a href="#using-the-board">Explore the app</a>
@@ -51,7 +50,7 @@ Download and open [`CodeGoblinsSetup.exe`](https://github.com/fpresta0607/code-g
 irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install.ps1 | iex
 ```
 
-You need Windows (macOS and Linux are coming soon) and a signed-in coding harness.
+You need Windows (macOS/Linux is coming soon) and a signed-in coding harness.
 The installer includes the desktop app and the `goblins` command, sets up the tools it needs and opens the app.
 Run `goblins` to choose and sign in to the CEO's harness; `goblins setup` lets you choose again.
 Claude Code is recommended for the fullest CEO integration; the setup explains the differences for Codex and pi.
