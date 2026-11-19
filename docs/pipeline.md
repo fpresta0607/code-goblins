@@ -487,6 +487,8 @@ The refusal names both runs and the published head, and says no supported recove
 A run whose custody already returned while native branch sync no longer answers for it has no same-run continuation, since native retry refuses a driver-started run (no-mistakes issue 323).
 The refusal says a fresh `goblins pipeline run` is the expected path only when the run spent no repair round, and otherwise names the rounds a fresh run would start over, which `goblins pipeline run` refuses, and names `terminal-preflight` and the CEO's terminal admission, `validate-terminal` or `validate-authored`, which keeps them.
 Rounds are counted over the run and every predecessor its terminal admissions continue, since an admitted child spends none of its own.
+When native branch sync instead names an earlier run of the branch as its owner, a failed or cancelled run that never published or returned custody, such as one that failed after the gate committed its review fixes before a later run was cancelled, `recover` recovers that earlier run rather than refusing, since it holds the branch and would refuse the fresh run (issue 2757).
+An owner that is no such earlier run is refused by name.
 
 A gate's fixer works in the run's worktree, which no-mistakes removes with force once the run is over, so the driver keeps what the fixer left uncommitted before anything takes that worktree away.
 Before unpublished recovery runs any native command, and before a stop aborts a live run, every tracked and untracked change in the run's worktree is committed and pinned under `refs/no-mistakes/recovery/<run>/worktree` in the gate repository, and that commit's parent is the head the run ended at.
