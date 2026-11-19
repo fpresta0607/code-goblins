@@ -616,16 +616,12 @@ jobs:
             ./internal/fleettree
             ./internal/fsx
             ./internal/harnessmap
-            ./internal/home
-            ./internal/homemove
             ./internal/install
             ./internal/layout
             ./internal/memory
             ./internal/monitor
             ./internal/pathguard
             ./internal/pipeline
-            ./internal/reap
-            ./internal/runtime
             ./internal/sandbox
             ./internal/spawn
             ./internal/startwatch
