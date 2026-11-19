@@ -368,13 +368,16 @@ func (c *CEOConnection) typeWake(ctx context.Context, primary primaryRegistratio
 		deliver = c.deliverNative
 	}
 	err = deliver(ctx, state.TaskMeta{ID: primary.Host, Harness: primary.Agent}, text)
-	if errors.Is(err, fleet.ErrNotTyped) {
-		// Nothing reached the terminal, so the records stay for the next look.
+	if errors.Is(err, fleet.ErrNotTyped) || errors.Is(err, spawn.ErrTakenBack) {
+		// Nothing reached the CEO, so the records stay for the next look.
 		if err := writeCEOWoken(c.State, previous, previousAt); err != nil {
 			return ceoWakeSkip{}, err
 		}
 		if errors.Is(err, spawn.ErrInTurn) {
 			return ceoWakeSkip{Why: whyInTurn}, nil
+		}
+		if errors.Is(err, spawn.ErrTakenBack) {
+			return ceoWakeSkip{Why: "its wake line was never taken and was taken back off its prompt line"}, nil
 		}
 		return ceoWakeSkip{}, fmt.Errorf("no wake line reached the CEO's native terminal %s: %w", primary.Host, err)
 	}
