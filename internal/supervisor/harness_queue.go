@@ -5,6 +5,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 )
@@ -209,15 +210,10 @@ func (s *Service) sendHeldNow(id, task string) (bool, error) {
 // takeBackHeld takes the message withdraw names back out of the queue of the
 // harness that holds it, for Edit and Cancel, and reports false when no
 // harness holds it, which the board then withdraws where it holds it. A
-// harness gives its queue back only whole: Claude Code's Up puts every queued
-// line on the prompt line, a row each. So the board presses that key where
-// the empty prompt line offers it, waits to read there exactly the lines it
-// typed into that queue, takes them off unsubmitted, deletes the one he named
-// and types the others again in the order he sent them. Nothing is cleared
-// that the board did not type: a queue that also held a line typed in the
-// terminal is left on the prompt line for him, with the board's lines watched
-// there as lines left typed are. A message its turn already took is in no
-// queue, and his press can land before the board's next look at its session's
+// harness gives its queue back only whole, so the board takes it all back
+// (takeQueueBack), deletes the one he named and types the others again in
+// the order he sent them. A message its turn already took is in no queue,
+// and his press can land before the board's next look at its session's
 // record, so the board looks first: that message then reads delivered on
 // every board, the press says its session took it, and no key goes to a
 // session for a queue it no longer holds (#1915).
@@ -249,22 +245,42 @@ func (s *Service) takeBackHeld(withdraw Action) (Action, bool, error) {
 		s.Options.CEO.typing.Lock()
 		defer s.Options.CEO.typing.Unlock()
 	}
+	if err := s.takeQueueBack(held, withdraw.TaskID, record, screens); err != nil {
+		return Action{}, true, err
+	}
+	withdrawn, err := s.Store.withdrawTakenBack(withdraw, held)
+	return withdrawn, true, err
+}
+
+// takeQueueBack takes held, every delivery the board typed into the queue of
+// the harness that runs in record and draws screens, back off its prompt line
+// unsubmitted, and leaves them set aside for its caller to settle. A harness
+// gives its queue back only whole: Claude Code's Up puts every queued line on
+// the prompt line, a row each. So the board presses that key where the empty
+// prompt line offers it, waits to read there exactly the lines it typed into
+// that queue and takes them off. Nothing is cleared that the board did not
+// type: a queue that also held a line typed in the terminal is left on the
+// prompt line for him, with the board's lines watched there as lines left
+// typed are. For a queue of the CEO's, its caller holds the CEO's typing
+// lock.
+func (s *Service) takeQueueBack(held []Action, task string, record host.Record, screens harness.Screens) error {
+	who, subject := whoHolds(task)
 	read := func() ([]string, error) { return host.ReadScreen(record) }
 	rows, err := read()
 	if err != nil || !screens.OffersQueue(rows) {
-		return Action{}, true, errors.New(subject + "'s prompt line does not offer its queue now, so nothing was changed. Press again in a moment.")
+		return errors.New(subject + "'s prompt line does not offer its queue now, so nothing was changed. Press again in a moment.")
 	}
 	client, err := host.Dial(record)
 	if err != nil {
-		return Action{}, true, errors.New(subject + "'s terminal does not answer, so its queue was left as it is.")
+		return errors.New(subject + "'s terminal does not answer, so its queue was left as it is.")
 	}
 	defer client.Close()
 	if !s.Store.setAside(held) {
-		return Action{}, true, errors.New("The board is typing for " + who + " right now. Press again in a moment.")
+		return errors.New("The board is typing for " + who + " right now. Press again in a moment.")
 	}
 	restore := func(a *Action, was Action) { a.Awaiting = was.Awaiting }
 	if err := client.Input([]byte(screens.EditQueue)); err != nil {
-		return Action{}, true, errors.Join(errors.New(subject+"'s terminal took no key, so its queue was left as it is."), s.Store.settleSetAside(held, restore))
+		return errors.Join(errors.New(subject+"'s terminal took no key, so its queue was left as it is."), s.Store.settleSetAside(held, restore))
 	}
 	typed, words := make([]Awaiting, len(held)), ""
 	for i, a := range held {
@@ -281,14 +297,103 @@ func (s *Service) takeBackHeld(withdraw Action) (Action, bool, error) {
 	// A prompt line that shows no words took nothing off the queue, which its
 	// turn then has, or took meanwhile.
 	if !isBack && (err != nil || !screens.ComposerHoldsText(rows)) {
-		return Action{}, true, errors.Join(errors.New(subject+"'s harness did not give its queue back, so nothing was changed."), s.Store.settleSetAside(held, restore))
+		return errors.Join(errors.New(subject+"'s harness did not give its queue back, so nothing was changed."), s.Store.settleSetAside(held, restore))
 	}
 	if !isBack || !spawn.TakeBack(read, client.Input, screens, words) {
 		why := "It left " + who + "'s queue for its prompt line, which holds words the board cannot take back alone, so it waits there unsent. Send or clear that line in its terminal."
-		return Action{}, true, errors.Join(errors.New(why), s.Store.settleSetAside(held, func(a *Action, was Action) {
+		return errors.Join(errors.New(why), s.Store.settleSetAside(held, func(a *Action, was Action) {
 			a.Status, a.Awaiting, a.LeftTyped, a.Message = "uncertain", was.Awaiting, was.Awaiting, why
 		}))
 	}
-	withdrawn, err := s.Store.withdrawTakenBack(withdraw, held)
-	return withdrawn, true, err
+	return nil
+}
+
+// heldIn returns every delivery the board typed into the queue of the
+// harness of task's session that it still holds there, in the order they
+// were typed; none when it holds none of his messages.
+func (s *Store) heldIn(task string) []Action {
+	s.mu.Lock()
+	at := slices.IndexFunc(s.db.Actions, func(a Action) bool { return a.TaskID == task && a.Kind == "message" && isHarnessHeld(a) })
+	id := ""
+	if at >= 0 {
+		id = s.db.Actions[at].ID
+	}
+	s.mu.Unlock()
+	if at < 0 {
+		return nil
+	}
+	return s.heldWith(id, task)
+}
+
+// queueAhead returns what the harness of task's session holds in its queue
+// of what the board typed there, the terminal it runs in and the screens it
+// draws, and whether a command he sends now can go ahead of it: its send-now
+// key takes that queue from the head, so a command behind his words there
+// waits out the whole turn they start, as /login did on Claude Code 2.1.328,
+// live on 2026-11-19 (#2759). It can only where that harness gives its queue
+// back to a key and holds there only his messages, which then wait on the
+// board behind the command. A queue in a terminal that has ended holds
+// nothing.
+func (s *Service) queueAhead(task string) ([]Action, host.Record, harness.Screens, bool) {
+	held := s.Store.heldIn(task)
+	if len(held) == 0 {
+		return nil, host.Record{}, harness.Screens{}, true
+	}
+	record, screens, isLive := s.deliveryTerminal(*held[0].Awaiting)
+	if !isLive {
+		return nil, host.Record{}, harness.Screens{}, true
+	}
+	return held, record, screens, !record.Stream && screens.EditQueue != "" && !slices.ContainsFunc(held, func(a Action) bool { return a.Kind != "message" })
+}
+
+// sendCommandFirst readies queued command id to task, which he sends now, to
+// go ahead of what its session's harness holds in its queue of what the board
+// typed there, and returns why it cannot where it cannot (queueAhead). It
+// takes that queue back (takeQueueBack), sends the command now, and reports
+// that it did, and his words wait on the board behind the command
+// (waitsForCommandSentNow), to be typed into the turn again once it has gone.
+// No key goes for a command that cannot go ahead of them. As takeBackHeld
+// does, the board looks first, since the turn may have taken them since its
+// last look.
+func (s *Service) sendCommandFirst(id, task string) (bool, error) {
+	if !s.Store.isCommandToSendNow(id, task) {
+		return false, nil
+	}
+	if len(s.Store.heldIn(task)) > 0 {
+		if err := s.Store.settleDeliveries(time.Now().UTC(), s.lookAtTerminal); err != nil {
+			return false, err
+		}
+		s.notify()
+	}
+	held, record, screens, canGoAhead := s.queueAhead(task)
+	if !canGoAhead {
+		return false, errors.New(commandWaits)
+	}
+	if len(held) == 0 {
+		return false, nil
+	}
+	if first := *held[0].Awaiting; first.Host != "" && s.Options.CEO != nil {
+		s.Options.CEO.typing.Lock()
+		defer s.Options.CEO.typing.Unlock()
+	}
+	if err := s.takeQueueBack(held, task, record, screens); err != nil {
+		return false, err
+	}
+	// The command is sent now before his words wait on the board again, so
+	// the worker never types them back into that queue ahead of it.
+	_, err := s.Store.SendQueuedMessageNow(id, task)
+	return true, errors.Join(err, s.Store.settleSetAside(held, func(a *Action, _ Action) {
+		a.Status, a.CanSendNow, a.SendNowWhy = "queued", true, ""
+		a.Message = "Queued. It left its session's queue so the command he sent now runs first, and is typed there again after it."
+	}))
+}
+
+// isCommandToSendNow reports whether message id to task is a command queued
+// on the board that he may send now.
+func (s *Store) isCommandToSendNow(id, task string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.ContainsFunc(s.db.Actions, func(a Action) bool {
+		return a.ID == id && a.TaskID == task && a.Kind == "message" && a.Status == "queued" && a.CanSendNow && isHarnessCommand(a.Text)
+	})
 }

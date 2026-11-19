@@ -969,16 +969,19 @@ func (s *Store) queue(a Action) (Action, error) {
 	s.db.Actions = append(s.db.Actions, a)
 	if message {
 		// The message reads at once what the first one queued for its session
-		// waits on, as a try gives those behind it, and a command has no Send
-		// now until a try finds whether its harness can run it at once. Those
-		// queued before it keep what their last try gave them, a held
-		// command's Send now with it (#1915).
+		// waits on, as a try gives those behind it. A command alone has no
+		// Send now until a try finds whether its harness can run it at once,
+		// and one behind a message he may send now with no reason against it
+		// has Send now too, as his words to the CEO in their undo window do,
+		// its press being the try that finds it (#2759). Those queued before
+		// it keep what their last try gave them, a held command's Send now
+		// with it (#1915).
 		held := s.db.Actions[slices.IndexFunc(s.db.Actions, func(queued Action) bool {
 			return queued.Kind == "message" && queued.TaskID == a.TaskID && queued.Status == "queued"
 		})]
 		added := &s.db.Actions[len(s.db.Actions)-1]
 		added.Message, added.CanSendNow, added.SendNowWhy = held.Message, held.CanSendNow, held.SendNowWhy
-		added.holdCommand(false)
+		added.holdCommand(held.SendNowWhy == "")
 	}
 	if answer {
 		for i := range s.db.Questions {

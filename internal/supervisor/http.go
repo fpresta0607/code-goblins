@@ -616,9 +616,20 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 			respond(w, 202, map[string]string{"status": "sending"})
 			return
 		}
-		if _, err := h.Service.Store.SendQueuedMessageNow(a.Target, a.TaskID); err != nil {
+		// A command goes ahead of what its session's harness holds in its
+		// queue, or says why it cannot (#2759).
+		isSent, err := h.Service.sendCommandFirst(a.Target, a.TaskID)
+		if err != nil {
+			h.Service.wakeActions()
+			h.Service.publish(nil)
 			apiError(w, 409, err.Error())
 			return
+		}
+		if !isSent {
+			if _, err := h.Service.Store.SendQueuedMessageNow(a.Target, a.TaskID); err != nil {
+				apiError(w, 409, err.Error())
+				return
+			}
 		}
 		h.Service.wakeActions()
 		h.Service.publish(nil)
