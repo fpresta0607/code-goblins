@@ -58,7 +58,9 @@ const (
 // no End before it can be taken as part of the text ("swallow"), the first
 // submit key can be taken seconds after it arrived ("slow"), or the first
 // submit key can be lost, the text left in the composer ("lost-enter"), or
-// every one ("enters-lost"), where by default a turn never ends. One that
+// every one ("enters-lost"), where by default a turn never ends, or it can
+// take in no more of a line after its first than shortLine characters, each
+// turn ending as in "turns" ("short-line"). One that
 // loses its key draws a footer a live Codex drew, with no count of the context
 // left: Codex 0.154's model and folder row ("lost-enter"), or Codex 0.160's
 // model display name row over its shortcuts row ("enters-lost"), and takes an
@@ -82,6 +84,10 @@ const (
 	fakeCodexTranscript = "SPAWN_TEST_CODEX_TRANSCRIPT"
 	fakeCodexDraft      = "SPAWN_TEST_CODEX_DRAFT"
 )
+
+// shortLine is how much of a line the fake harness's composer takes in
+// "short-line".
+const shortLine = 60
 
 // codexMention matches a line that ends in a $ word, over which Codex 0.160
 // lists its skills.
@@ -285,6 +291,7 @@ func fakeHarness() {
 	composer("Ask Codex to do anything")
 	var line strings.Builder
 	late, hasPasteEnded, slow := false, false, mode == "slow"
+	isShort := false
 	lost := 0
 	resized := make(chan struct{}, 1)
 	if mode == "undrawn" {
@@ -353,6 +360,7 @@ func fakeHarness() {
 					slow = false
 				}
 				record(codexEvent{Event: "submitted", Text: line.String()})
+				isShort = mode == "short-line"
 				// Like codex, it ends at a submitted /exit.
 				if line.String() == "/exit" {
 					if mode == "exitmenu" {
@@ -373,7 +381,7 @@ func fakeHarness() {
 					draw("", "› "+line.String(), "", "• Working (0s • esc to interrupt)")
 				}
 				line.Reset()
-				if mode == "turns" {
+				if mode == "turns" || mode == "short-line" {
 					time.Sleep(8 * time.Second)
 					composer("Ask Codex to do anything")
 				}
@@ -389,6 +397,10 @@ func fakeHarness() {
 				// End ends a paste and leaves the text as it is.
 				hasPasteEnded = true
 			case key == "\x1b[A" || key == "\x1b[B":
+			case isShort && line.Len() >= shortLine:
+				// Once its first line is submitted, its composer takes no
+				// more of a long line, so the line's end never shows, as a
+				// long goblins send's never did, live, on 2026-11-05 (#2104).
 			default:
 				line.WriteString(key)
 				if mode == "trickle" {

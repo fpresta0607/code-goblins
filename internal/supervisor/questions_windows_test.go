@@ -15,6 +15,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
+	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -430,6 +431,59 @@ func TestABoardAnswerToABusyAskerIsSentNotUnconfirmed(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A board answer its goblin's terminal refused with nothing typed, as one
+// whose prompt line holds words that were never sent refuses, reached nobody:
+// it waits, never uncertain and never answered, and lands once the line can
+// take it (#2104).
+func TestABoardAnswerRefusedWithNothingTypedWaitsAndLandsOnceTheLineIsEmpty(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta, record, _, connection := goblinFixture(t, store)
+	q := surfaced(t, store, meta, record, connection)
+	s := &Service{Store: store, Options: Options{CEO: connection}}
+	previous := typeIntoGoblin
+	t.Cleanup(func() { typeIntoGoblin = previous })
+	isLineHeld := true
+	var typed []string
+	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _, _, _ bool) error {
+		if isLineHeld {
+			return fmt.Errorf("spawn: native terminal %s: %w: %w", meta.ID, fleet.ErrNotTyped, spawn.ErrUnsentWords)
+		}
+		typed = append(typed, text)
+		return nil
+	}
+	if _, err := store.Queue(Action{ID: "answer-1", Kind: "goblin_answer", Generation: q.Identity, QuestionID: q.ID, Text: "SQLite"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	refused := store.ProcessOne(context.Background(), s.execute)
+	held, heldQuestion := actionOf(store, "answer-1"), store.Snapshot().Questions[0]
+	pending, err := wake.Pending(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	isLineHeld = false
+	store.mu.Lock()
+	delete(store.deferredUntil, "answer-1")
+	store.mu.Unlock()
+	landed := store.ProcessOne(context.Background(), s.execute)
+
+	// Assert
+	if !errors.Is(refused, ErrDeferred) || held.Status != "queued" || !strings.Contains(held.Message, "prompt line") || heldQuestion.Status == "uncertain" {
+		t.Errorf("refused try = %v, action %+v, question %s; want the answer queued behind the held prompt line", refused, held, heldQuestion.Status)
+	}
+	if len(pending) != 1 || pending[0].Answered != "" {
+		t.Errorf("notify while held = %+v, want it still unanswered", pending)
+	}
+	if landed != nil || len(typed) != 1 || !strings.Contains(typed[0], "Answer: SQLite") {
+		t.Errorf("next try = %v, typed %q; want the answer typed once", landed, typed)
+	}
+	if got := store.Snapshot().Questions[0]; got.Status != "succeeded" || got.Answer != "SQLite" {
+		t.Errorf("question = %+v, want it answered with SQLite", got)
 	}
 }
 

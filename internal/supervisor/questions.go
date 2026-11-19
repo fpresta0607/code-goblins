@@ -290,7 +290,7 @@ var readAnswerRecipient = state.ReadTaskMeta
 // variable so a test can act while a delivery is in flight.
 var typeIntoGoblin = func(ctx context.Context, stateDir string, meta state.TaskMeta, text string, shouldRefuseTurn, shouldSendNow, his bool) error {
 	submitted, _ := ctx.Value(submittedKey{}).(func())
-	sender := spawn.Service{StateDir: stateDir, ShouldRefuseTurn: shouldRefuseTurn, ShouldSendNow: shouldSendNow, His: his, ShouldTakeBack: true, SubmittedIntoTurn: submitted, PromptSince: func(taskID, generation string, since time.Time) (bool, error) {
+	sender := spawn.Service{StateDir: stateDir, ShouldRefuseTurn: shouldRefuseTurn, ShouldSendNow: shouldSendNow, His: his, SubmittedIntoTurn: submitted, PromptSince: func(taskID, generation string, since time.Time) (bool, error) {
 		return NativePromptSince(stateDir, taskID, generation, since)
 	}, Took: NativeTook}
 	return sender.SendNative(ctx, meta, text)
@@ -406,7 +406,9 @@ func answerLabel(a Action) string {
 
 // deliverAnswer gives the goblin that asked q the Overlord's answer: saved
 // for its Resume while it is paused, otherwise typed into its terminal, which
-// takes it at its next tool call when a turn is in progress.
+// takes it at its next tool call when a turn is in progress. One its terminal
+// refused with nothing typed reached nobody, so it waits and is tried again,
+// as a board message is, rather than reading uncertain (#2104).
 func (s *Service) deliverAnswer(ctx context.Context, q Question, text string) (Evaluation, error) {
 	sent := time.Now().UTC()
 	isSaved, err := savePausedAnswer(s.Store.Home.State, q.Task, q.Identity, text)
@@ -417,8 +419,13 @@ func (s *Service) deliverAnswer(ctx context.Context, q Question, text string) (E
 	if !isSaved {
 		result, err = s.Options.CEO.SendGoblinHis(ctx, q.Task, q.Identity, text)
 	}
-	if errors.Is(err, fleet.ErrQueuedForToolCall) {
+	switch {
+	case errors.Is(err, fleet.ErrQueuedForToolCall):
 		result, err = s.behindGoblinsTurn(q.Task, sent, text, "Submitted to the goblin while it was working; it takes the answer at its next tool call, or as its current turn ends."), nil
+	case errors.Is(err, spawn.ErrUnsentWords):
+		result, err = Evaluation{Reason: "Queued until " + q.Task + "'s prompt line is empty. It holds words that were never sent, and nothing is typed onto them."}, ErrDeferred
+	case errors.Is(err, fleet.ErrNotTyped):
+		result, err = Evaluation{Reason: "Queued until its terminal can take the answer. Nothing was typed."}, ErrDeferred
 	}
 	return result, err
 }

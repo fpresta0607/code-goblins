@@ -102,9 +102,9 @@ var ErrSentNow = fmt.Errorf("its send-now key went: %w", fleet.ErrQueuedForToolC
 // submitted, and nothing typed is left for the next delivery to join.
 var ErrTakenBack = errors.New("it was taken back off the prompt line unsent")
 
-// ErrLeftTyped says a delivery that takes its text back (ShouldTakeBack)
-// typed it, ended before its submit key and never saw it leave the prompt
-// line: a harness that had not read it yet shows it there later.
+// ErrLeftTyped says a delivery typed its text, ended before its submit key
+// and never saw it leave the prompt line: a harness that had not read it yet
+// shows it there later.
 var ErrLeftTyped = errors.New("it may still be typed on the prompt line, unsent")
 
 // takeBackWait bounds how long TakeBack presses for an empty prompt line.
@@ -831,21 +831,21 @@ func (s Service) submitNative(ctx context.Context, record host.Record, screens h
 	}
 	atPress, dismissed, err := s.DismissOffer(ctx, record, screens)
 	if err != nil {
-		return nil, s.leftTyped(err)
+		return nil, leftTyped(err)
 	}
 	if dismissed {
 		if err := s.sleep(ctx, nativePoll); err != nil {
-			return nil, s.leftTyped(err)
+			return nil, leftTyped(err)
 		}
 		if atPress, err = s.readNativeScreen(ctx, record); err != nil {
-			return nil, s.leftTyped(err)
+			return nil, leftTyped(err)
 		}
 	}
 	if _, hasDialog := screens.Dialog(atPress); hasDialog {
-		return nil, s.leftTyped(errNativeStartupDialog)
+		return nil, leftTyped(errNativeStartupDialog)
 	}
 	if !screens.Shows(atPress, instruction) {
-		return nil, s.leftTyped(fmt.Errorf("spawn: native terminal %s no longer shows the instruction, so it was not submitted", record.ID))
+		return nil, leftTyped(fmt.Errorf("spawn: native terminal %s no longer shows the instruction, so it was not submitted", record.ID))
 	}
 	if err := client.Input([]byte(submitKey(screens, instruction))); err != nil {
 		return nil, fmt.Errorf("spawn: submit the instruction in native terminal %s: %w", record.ID, err)
@@ -864,30 +864,26 @@ func submitKey(screens harness.Screens, instruction string) string {
 }
 
 // unsubmitted is how a delivery that typed instruction, which its screen
-// showed or never did, ends before its submit key: with err as it is, or,
-// for one that takes its text back (ShouldTakeBack), as ErrTakenBack too
-// once the text is off the prompt line and as leftTyped has it otherwise.
+// showed or never did, ends before its submit key: with err and ErrTakenBack
+// once the text is off the prompt line, and as leftTyped has it otherwise.
+// Every delivery takes its text back, a goblins send's as much as a board
+// one's, since words left there unsent hold every later delivery back
+// (#2104).
 func (s Service) unsubmitted(client *host.Client, record host.Record, screens harness.Screens, instruction string, err error) error {
-	if !s.ShouldTakeBack {
-		return err
-	}
 	read := s.ReadScreen
 	if read == nil {
 		read = host.ReadScreen
 	}
 	if !TakeBack(func() ([]string, error) { return read(record) }, client.Input, screens, instruction) {
-		return s.leftTyped(err)
+		return leftTyped(err)
 	}
 	return fmt.Errorf("%w: %w", err, ErrTakenBack)
 }
 
 // leftTyped is err for a delivery that ended after typing and before its
-// submit key with its text not seen to leave the prompt line: ErrLeftTyped
-// too, for one that takes its text back.
-func (s Service) leftTyped(err error) error {
-	if !s.ShouldTakeBack {
-		return err
-	}
+// submit key with its text not seen to leave the prompt line, with
+// ErrLeftTyped.
+func leftTyped(err error) error {
 	return fmt.Errorf("%w: %w", err, ErrLeftTyped)
 }
 
