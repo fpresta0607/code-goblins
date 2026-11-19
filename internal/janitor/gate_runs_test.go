@@ -15,15 +15,15 @@ import (
 )
 
 // gateRun is one run a test's gate home records, its checkout's folder and
-// how long ago the checkout was last written.
+// how long ago the run finished and its checkout was last written.
 type gateRun struct {
 	repository, id, status string
 	age                    time.Duration
 }
 
-// newGateHome makes a gate home at root with a database recording runs, a
-// checkout under worktrees for each, and config as its config.yaml when it
-// is not empty.
+// newGateHome makes a gate home at root with a database recording runs, each
+// last updated as its age says, a checkout under worktrees for each, and
+// config as its config.yaml when it is not empty.
 func newGateHome(t *testing.T, root, config string, runs []gateRun) {
 	t.Helper()
 	if err := os.MkdirAll(root, 0o755); err != nil {
@@ -37,11 +37,11 @@ func newGateHome(t *testing.T, root, config string, runs []gateRun) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if _, err := db.Exec("CREATE TABLE runs (id TEXT PRIMARY KEY, repo_id TEXT, status TEXT)"); err != nil {
+	if _, err := db.Exec("CREATE TABLE runs (id TEXT PRIMARY KEY, repo_id TEXT, status TEXT, updated_at INTEGER)"); err != nil {
 		t.Fatal(err)
 	}
 	for _, run := range runs {
-		if _, err := db.Exec("INSERT INTO runs (id, repo_id, status) VALUES (?, ?, ?)", run.id, run.repository, run.status); err != nil {
+		if _, err := db.Exec("INSERT INTO runs (id, repo_id, status, updated_at) VALUES (?, ?, ?, ?)", run.id, run.repository, run.status, time.Now().Add(-run.age).Unix()); err != nil {
 			t.Fatal(err)
 		}
 		checkout := filepath.Join(root, "worktrees", run.repository, run.id)
@@ -108,6 +108,46 @@ func TestSweepCountsTheGatesCompletedRunsKeptPastItsRetention(t *testing.T) {
 			}
 			if age := f.now.Sub(past.Unlinked.Oldest); age < 71*time.Hour || age > 73*time.Hour {
 				t.Errorf("oldest was written %s ago, want the completed run's 72 hours", age)
+			}
+		})
+	}
+}
+
+// The gate's reaper runs as a run finishes, never on a timer, so after a quiet
+// night a checkout whose retention ended since the last run finished is one
+// the reaper has not had a turn at, not one it kept; once any run, failed
+// too, finishes after that retention ended, the checkout is past its rule.
+func TestSweepCountsOnlyTheCheckoutsTheGatesReaperHadATurnAt(t *testing.T) {
+	left := gateRun{repository: "repo1", id: "run-left", status: "completed", age: 30 * time.Hour}
+	for _, testCase := range []struct {
+		name      string
+		runs      []gateRun
+		wantCount int
+	}{
+		{name: "a quiet night since the run finished", runs: []gateRun{left}},
+		{name: "a quiet night since a run finished before its retention ended", runs: []gateRun{left, {repository: "repo2", id: "run-earlier", status: "completed", age: 8 * time.Hour}}},
+		{name: "a failed run finished since its retention ended", runs: []gateRun{left, {repository: "repo2", id: "run-since", status: "failed", age: 2 * time.Hour}}, wantCount: 1},
+		{name: "a running run since its retention ended", runs: []gateRun{left, {repository: "repo2", id: "run-running", status: "running", age: 2 * time.Hour}}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange: a completed run's checkout written 30 hours ago, past the
+			// 24-hour retention six hours ago.
+			f := newSweepFixture(t)
+			gate := filepath.Join(t.TempDir(), ".no-mistakes")
+			newGateHome(t, gate, "", testCase.runs)
+			cfg := f.config(reap.Inventory{})
+			cfg.GateHomes = []string{gate}
+			cfg.GateRoot = gate
+
+			// Act
+			record := Sweep(context.Background(), cfg)
+
+			// Assert
+			if record.Gate == nil || record.Gate.PastRetention == nil {
+				t.Fatalf("gate = %+v, want its runs read; notes %q", record.Gate, record.Notes)
+			}
+			if count := record.Gate.PastRetention.Unlinked.Count; count != testCase.wantCount {
+				t.Fatalf("past retention = %d, want %d", count, testCase.wantCount)
 			}
 		})
 	}

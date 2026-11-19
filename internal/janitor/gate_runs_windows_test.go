@@ -25,6 +25,7 @@ func TestSweepCountsTheGatesCompletedRunsUnderAJunctionApart(t *testing.T) {
 		{repository: "moved", id: "run-linked-1", status: "completed", age: 30 * time.Hour},
 		{repository: "moved", id: "run-linked-2", status: "completed", age: 96 * time.Hour},
 		{repository: "moved", id: "run-linked-failed", status: "failed", age: 120 * time.Hour},
+		{repository: "repo1", id: "run-just-finished", status: "completed", age: time.Hour},
 	})
 	moved := filepath.Join(gate, "worktrees", "moved")
 	target := filepath.Join(t.TempDir(), "devdrive", "no-mistakes", "worktrees", "moved")

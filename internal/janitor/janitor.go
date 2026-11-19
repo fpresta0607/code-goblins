@@ -187,7 +187,7 @@ func Sweep(ctx context.Context, cfg Config) Record {
 	if len(cfg.GateHomes) > 0 {
 		record.Gate = MeasureGate(cfg.GateHomes)
 		if cfg.GateRoot != "" {
-			past, err := gatePastRetention(ctx, cfg.GateRoot, cfg.Now)
+			past, err := gatePastRetention(ctx, cfg.GateRoot)
 			if err != nil {
 				record.Notes = append(record.Notes, "the gate's finished runs kept past its retention could not be read: "+err.Error())
 			}

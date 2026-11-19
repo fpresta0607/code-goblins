@@ -24,13 +24,15 @@ import (
 const gateRetention = 24 * time.Hour
 
 // GatePastRetention is what the gate's home keeps against its own rule: the
-// checkouts of runs its database records as completed that were last written
-// longer ago than its worktree.retention, which its reaper removes. A failed or
-// cancelled run's checkout the gate may keep on purpose, for work it could
-// still continue, so only a completed run's is past its rule. Linked are those
-// under a repository folder that is a junction or a link, which its reaper
-// does not reach (no-mistakes#261); Unlinked those under a folder of its own,
-// which it reaches and still left.
+// checkouts of runs its database records as completed whose worktree.retention
+// ended before a gate run last finished, which its reaper removes. The reaper
+// runs at the daemon's start and as each run finishes, never on a timer, so a
+// checkout whose retention ended since is one it has not yet had a turn at. A
+// failed or cancelled run's checkout the gate may keep on purpose, for work it
+// could still continue, so only a completed run's is past its rule. Linked are
+// those under a repository folder that is a junction or a link, which its
+// reaper does not reach (no-mistakes#261); Unlinked those under a folder of
+// its own, which it reaches and still left.
 type GatePastRetention struct {
 	Retention time.Duration `json:"retention"`
 	Linked    GateRuns      `json:"linked,omitzero"`
@@ -52,17 +54,17 @@ func (runs *GateRuns) add(written time.Time) {
 }
 
 // gatePastRetention reads, in the gate's home root, every run checkout under
-// its worktrees folder whose run its database records as completed and that
-// was last written longer ago than its retention. It returns nil when the
-// gate keeps every checkout, its retention set to unlimited or 0, and an
-// error, measuring nothing, when its configuration, its database or a folder
-// cannot be read.
-func gatePastRetention(ctx context.Context, root string, now time.Time) (*GatePastRetention, error) {
+// its worktrees folder whose run its database records as completed and whose
+// retention, from when it was last written, ended before a gate run last
+// finished. It returns nil when the gate keeps every checkout, its retention
+// set to unlimited or 0, and an error, measuring nothing, when its
+// configuration, its database or a folder cannot be read.
+func gatePastRetention(ctx context.Context, root string) (*GatePastRetention, error) {
 	retention, err := readGateRetention(root)
 	if err != nil || retention == 0 {
 		return nil, err
 	}
-	completed, err := completedGateRuns(ctx, filepath.Join(root, "state.sqlite"))
+	completed, lastFinished, err := finishedGateRuns(ctx, filepath.Join(root, "state.sqlite"))
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +95,7 @@ func gatePastRetention(ctx context.Context, root string, now time.Time) (*GatePa
 			if err != nil {
 				return nil, err
 			}
-			if now.Sub(info.ModTime()) <= retention {
+			if !info.ModTime().Add(retention).Before(lastFinished) {
 				continue
 			}
 			if isLinked {
@@ -139,27 +141,37 @@ func readGateRetention(root string) (time.Duration, error) {
 	return max(retention, 0), nil
 }
 
-// completedGateRuns is the id of every run the gate's database at path records
-// as completed, read in process as goblins reads the gate's database elsewhere.
-func completedGateRuns(ctx context.Context, path string) (map[string]bool, error) {
-	result, err := gatedb.Runner{}.Run(ctx, execx.Request{Name: "sqlite3", Args: []string{"-readonly", "-json", path, "SELECT id FROM runs WHERE status = 'completed'"}})
+// finishedGateRuns reads the gate's database at path, in process as goblins
+// reads it elsewhere: the id of every run it records as completed, and when a
+// run last finished, the latest update of a run in any of the gate's finished
+// states, which is when its reaper last ran.
+func finishedGateRuns(ctx context.Context, path string) (map[string]bool, time.Time, error) {
+	result, err := gatedb.Runner{}.Run(ctx, execx.Request{Name: "sqlite3", Args: []string{"-readonly", "-json", path, "SELECT id, status, updated_at FROM runs WHERE status IN ('completed', 'failed', 'cancelled', 'checks_passed', 'ci_monitor_interrupted', 'handed_off')"}})
 	if err != nil {
-		return nil, err
+		return nil, time.Time{}, err
 	}
 	if result.ExitCode != 0 {
-		return nil, fmt.Errorf("the gate's database: %s", strings.TrimSpace(string(result.Stderr)))
+		return nil, time.Time{}, fmt.Errorf("the gate's database: %s", strings.TrimSpace(string(result.Stderr)))
 	}
 	var rows []struct {
-		ID string `json:"id"`
+		ID        string `json:"id"`
+		Status    string `json:"status"`
+		UpdatedAt int64  `json:"updated_at"`
 	}
 	if len(result.Stdout) > 0 {
 		if err := json.Unmarshal(result.Stdout, &rows); err != nil {
-			return nil, fmt.Errorf("the gate's database: %w", err)
+			return nil, time.Time{}, fmt.Errorf("the gate's database: %w", err)
 		}
 	}
 	completed := make(map[string]bool, len(rows))
+	var lastFinished time.Time
 	for _, row := range rows {
-		completed[row.ID] = true
+		if row.Status == "completed" {
+			completed[row.ID] = true
+		}
+		if finished := time.Unix(row.UpdatedAt, 0); finished.After(lastFinished) {
+			lastFinished = finished
+		}
 	}
-	return completed, nil
+	return completed, lastFinished, nil
 }

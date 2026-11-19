@@ -437,7 +437,10 @@ func TestTheJanitorPassCountsTheGatesCompletedRunsPastItsRetention(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec("CREATE TABLE runs (id TEXT PRIMARY KEY, status TEXT); INSERT INTO runs VALUES ('run-1', 'completed')"); err != nil {
+	if _, err := db.Exec("CREATE TABLE runs (id TEXT PRIMARY KEY, status TEXT, updated_at INTEGER)"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO runs VALUES ('run-1', 'completed', ?), ('run-2', 'failed', ?)", time.Now().Add(-48*time.Hour).Unix(), time.Now().Add(-time.Hour).Unix()); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {
