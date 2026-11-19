@@ -149,7 +149,7 @@ func plan(h home.Home, harnessMemory string, now time.Time) ([]Move, []Kept, err
 	if err != nil {
 		return nil, nil, err
 	}
-	queuedRows, parkedRows := rowsName(backlog.Queued), rowsName(backlog.Parked)
+	queuedRows, parkedRows := rowsName(h.Data, backlog.Queued), rowsName(h.Data, backlog.Parked)
 	// A finished folder kept in place is still read: whoever resumes the work
 	// starts from its brief and handoff. So what they name by path stays too,
 	// and so on until nothing new is kept.
@@ -157,7 +157,7 @@ func plan(h home.Home, harnessMemory string, now time.Time) ([]Move, []Kept, err
 	for grew := true; grew; {
 		grew = false
 		for _, f := range folders {
-			id := strings.ToLower(f.id)
+			id := dataKey(h.Data, f.id)
 			if f.live || !f.dispatched || expanded[id] {
 				continue
 			}
@@ -170,7 +170,7 @@ func plan(h home.Home, harnessMemory string, now time.Time) ([]Move, []Kept, err
 				if err != nil {
 					return nil, nil, err
 				}
-				if noteNames(named, string(data), "data/"+f.id+"/"+file) {
+				if noteNames(named, h.Data, string(data), "data/"+f.id+"/"+file) {
 					grew = true
 				}
 			}
@@ -184,7 +184,7 @@ func plan(h home.Home, harnessMemory string, now time.Time) ([]Move, []Kept, err
 			kept = append(kept, Kept{ID: f.id, Reason: "under way"})
 			continue
 		}
-		id := strings.ToLower(f.id)
+		id := dataKey(h.Data, f.id)
 		queued, parked := queuedRows[id], parkedRows[id]
 		where := named.where[id]
 		var move Move
@@ -249,7 +249,7 @@ func readBriefFolders(h home.Home) ([]briefFolder, []string, error) {
 	var briefs []string
 	for _, entry := range entries {
 		id := entry.Name()
-		if !entry.IsDir() || state.ValidTaskID(id) != nil || isLayoutFolder(id) {
+		if !entry.IsDir() || state.ValidTaskID(id) != nil || isLayoutFolder(h.Data, id) {
 			continue
 		}
 		brief, err := os.Stat(filepath.Join(h.Data, id, "brief.md"))
@@ -273,7 +273,7 @@ func readBriefFolders(h home.Home) ([]briefFolder, []string, error) {
 			return nil, nil, err
 		}
 		for _, a := range archived {
-			if !isArchiveOf(a.Name(), id) {
+			if !isArchiveOf(filepath.Join(h.State, state.ArchiveDirName), a.Name(), id) {
 				continue
 			}
 			info, err := a.Info()
@@ -300,10 +300,11 @@ func readBriefFolders(h home.Home) ([]briefFolder, []string, error) {
 // entry with, and filing a second archive of the same task.
 const archiveStamp = "20060102T150405Z"
 
-// isArchiveOf reports whether a state archive entry is id's own record:
-// <id>.<stamp> from cleanup or <id>.status.<stamp> from reap, so an entry for
-// a longer dotted id such as cg.v2 is not cg's.
-func isArchiveOf(name, id string) bool {
+// isArchiveOf reports whether name, an entry of the state archive folder
+// archive, is id's own record: <id>.<stamp> from cleanup or
+// <id>.status.<stamp> from reap, so an entry for a longer dotted id such as
+// cg.v2 is not cg's.
+func isArchiveOf(archive, name, id string) bool {
 	i := strings.LastIndex(name, ".")
 	if i < 0 {
 		return false
@@ -311,8 +312,8 @@ func isArchiveOf(name, id string) bool {
 	if _, err := time.Parse(archiveStamp, name[i+1:]); err != nil {
 		return false
 	}
-	owner := name[:i]
-	return strings.EqualFold(owner, id) || strings.EqualFold(owner, id+".status")
+	owner := filepath.Join(archive, name[:i])
+	return fsx.EqualPath(owner, filepath.Join(archive, id)) || fsx.EqualPath(owner, filepath.Join(archive, id+".status"))
 }
 
 // dataPathName matches a path into the data folder, in either slash
@@ -321,15 +322,15 @@ func isArchiveOf(name, id string) bool {
 // reading as a path into data.
 var dataPathName = regexp.MustCompile(`(?i)\bdata[\\/]([A-Za-z0-9._-]+)(?:[\\/]([A-Za-z0-9._-]+))?`)
 
-// names is what live text names by path: each data folder, lowercased, with
-// the first place that names it, and the entries at the top of each folder
-// it names, as written.
+// names is what live text names by path: each data folder, keyed by
+// dataKey, with the first place that names it, and the entries at the top of
+// each folder it names, as written.
 type names struct {
 	where   map[string]string
 	entries map[string][]string
 }
 
-// namedInLiveText returns, lowercased, every data folder named by path in
+// namedInLiveText returns, keyed by dataKey, every data folder named by path in
 // what the fleet or the Overlord still reads, with the first place that
 // names it: the backlog's open rows, the directives, the home's memory and
 // the harness's memory folder, the given briefs, and every open Command
@@ -343,7 +344,7 @@ func namedInLiveText(h home.Home, backlog fleet.BacklogRows, harnessMemory strin
 	}
 	named := names{where: map[string]string{}, entries: map[string][]string{}}
 	for _, text := range texts {
-		noteNames(named, text.text, text.where)
+		noteNames(named, h.Data, text.text, text.where)
 	}
 	return named, nil
 }
@@ -414,13 +415,13 @@ func LiveText(h home.Home, harnessMemory string) (string, error) {
 	return all.String(), nil
 }
 
-// noteNames records in named every data folder text names by path that named
-// does not hold yet, with where as the place that names it, and every entry
-// at a folder's top it names, and reports whether it recorded a folder.
-func noteNames(named names, text, where string) bool {
+// noteNames records in named every folder of data text names by path that
+// named does not hold yet, with where as the place that names it, and every
+// entry at a folder's top it names, and reports whether it recorded a folder.
+func noteNames(named names, data, text, where string) bool {
 	added := false
 	for _, match := range dataPathName.FindAllStringSubmatch(text, -1) {
-		name := strings.ToLower(strings.TrimRight(match[1], "."))
+		name := dataKey(data, strings.TrimRight(match[1], "."))
 		if named.where[name] == "" {
 			named.where[name] = where
 			added = true
@@ -582,33 +583,42 @@ func ClaudeMemoryFolder(root string) string {
 	return filepath.Join(user, ".claude", "projects", name, "memory")
 }
 
-func isLayoutFolder(name string) bool {
+// isLayoutFolder reports whether name, an entry of data, is a folder the
+// layout owns.
+func isLayoutFolder(data, name string) bool {
 	for _, folder := range notTasks {
-		if strings.EqualFold(name, folder) {
+		if fsx.EqualPath(filepath.Join(data, name), filepath.Join(data, folder)) {
 			return true
 		}
 	}
 	return false
 }
 
-// rowsName returns, lowercased, every task the open rows name, by its id or
-// by a path into its folder, in either slash direction and any case, as
-// Windows reads paths. A note between rows and a row checked off name
-// nothing. A plan reads the rows once: read again for each folder, a backlog
-// of some 470 open rows took 15 seconds over 1,300 folders, and a plan read
-// them several times over.
-func rowsName(rows []fleet.BacklogRow) map[string]bool {
+// rowsName returns, keyed by dataKey, every task the open rows name, by its
+// id or by a path into its folder in data, in either slash direction and in
+// any case where the file system that holds data ignores case. A note
+// between rows and a row checked off name nothing. A plan reads the rows
+// once: read again for each folder, a backlog of some 470 open rows took 15
+// seconds over 1,300 folders, and a plan read them several times over.
+func rowsName(data string, rows []fleet.BacklogRow) map[string]bool {
 	ids := map[string]bool{}
 	for _, row := range rows {
 		if !row.Structured || row.IsCheckedOff() {
 			continue
 		}
-		ids[strings.ToLower(row.ID)] = true
+		ids[dataKey(data, row.ID)] = true
 		for _, match := range dataPathName.FindAllStringSubmatch(row.Raw, -1) {
-			ids[strings.ToLower(strings.TrimRight(match[1], "."))] = true
+			ids[dataKey(data, strings.TrimRight(match[1], "."))] = true
 		}
 	}
 	return ids
+}
+
+// dataKey is the key of the folder name in data, by fsx.PathKey of its path
+// there. The name is joined unclean, so an id that is no folder name, as a
+// backlog row's may be, is never read as one.
+func dataKey(data, name string) string {
+	return fsx.PathKey(data + string(filepath.Separator) + name)
 }
 
 // freeTarget returns path, or path with the filing time appended when an

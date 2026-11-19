@@ -49,7 +49,11 @@ func RedMainRoot(workflow, jobs, evidence string) Root {
 }
 
 var (
-	errorPath   = regexp.MustCompile(`(?i)(?:\b[a-z]:[\\/]|\\\\|/[a-z]/)\S*`)
+	// errorPath is a path on a machine: a drive, a network share, Git
+	// Bash's /c/, or a path in a folder that holds a Linux or macOS user's
+	// or machine's own files, which starts a word and ends at a space or a
+	// quote.
+	errorPath   = regexp.MustCompile(`(?i)(^|[\s"'(=\x60])(?-i:/(?:home|Users|root|tmp|var/folders|private|mnt|Volumes)/)[^\s"']*|(?:\b[a-z]:[\\/]|\\\\|/[a-z]/)\S*`)
 	errorQuoted = regexp.MustCompile(`"[^"]*"|'[^']*'`)
 	errorHex    = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
 	errorNumber = regexp.MustCompile(`\d+`)
@@ -72,7 +76,7 @@ func IsLostConnection(line string) bool {
 // it names, hashes and numbers. Two lines of one class are one root, so one
 // cause met by two goblins is one root (#1950).
 func ErrorClass(line string, tasks []string) string {
-	class := errorPath.ReplaceAllString(line, "<path>")
+	class := errorPath.ReplaceAllString(line, "${1}<path>")
 	class = errorQuoted.ReplaceAllString(class, "<text>")
 	class = errorWord.ReplaceAllStringFunc(class, func(word string) string {
 		// A task id never ends with a dot, so one that ends a sentence

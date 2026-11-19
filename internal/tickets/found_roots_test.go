@@ -46,6 +46,11 @@ func TestErrorClassTakesOutWhatChangesBetweenSightings(t *testing.T) {
 		`pause condition for t1: open C:\Users\x\state\t1.json: denied after 3 tries`: "pause condition for tN: open <path> denied after N tries",
 		`git rev-parse "abc" at d1faafe41 exited 128`:                                 "git rev-parse <text> at <hash> exited N",
 		`read /c/dev/repo/file failed`:                                                "read <path> failed",
+		`pause condition for t1: open /home/x/state/t1.json: denied after 3 tries`:    "pause condition for tN: open <path> denied after N tries",
+		`stat "/Users/x/repo" (/Users/x/repo/go.mod) failed`:                          "stat <text> (<path> failed",
+		`read "/c/dev/repo/file" failed`:                                              `read "<path> failed`,
+		`exec /usr/bin/bash failed`:                                                   "exec /usr/bin/bash failed",
+		`GET /orders/7/items failed`:                                                  "GET /orders/N/items failed",
 	}
 	for line, want := range cases {
 		if got := ErrorClass(line, nil); got != want {
@@ -54,6 +59,9 @@ func TestErrorClassTakesOutWhatChangesBetweenSightings(t *testing.T) {
 	}
 	if ErrorClass("pid 4012 exited", nil) != ErrorClass("pid 977 exited", nil) {
 		t.Error("two lines that differ by a number are two classes")
+	}
+	if ErrorClass("open /home/a/state/x.json: denied", nil) != ErrorClass("open /Users/b/state/x.json: denied", nil) {
+		t.Error("two lines that differ by a Linux and a macOS home are two classes")
 	}
 }
 

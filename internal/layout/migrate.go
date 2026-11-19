@@ -163,14 +163,16 @@ func (m *Migration) planMemory() error {
 			return err
 		}
 		rel := indexDir + "/" + name
-		current, err := readOptional(filepath.Join(m.Home.Data, filepath.FromSlash(rel)))
+		target := filepath.Join(m.Home.Data, filepath.FromSlash(rel))
+		current, err := readOptional(target)
 		if err != nil {
 			return err
 		}
+		isIndex := fsx.EqualPath(target, filepath.Join(m.Home.Data, filepath.FromSlash(MemoryIndex)))
 		switch {
-		case strings.EqualFold(rel, MemoryIndex) && current != nil:
-			m.add(rel, withIndexLines(current, source, stamp), "the memory index, with a line for every imported fact")
-		case current == nil && strings.EqualFold(rel, MemoryIndex):
+		case isIndex && current != nil:
+			m.add(rel, withIndexLines(filepath.Dir(target), current, source, stamp), "the memory index, with a line for every imported fact")
+		case current == nil && isIndex:
 			m.add(rel, stamped(source, stamp), "the memory index, copied from "+m.MemoryFrom+" and stamped with where and when")
 		case current == nil:
 			m.add(rel, source, "a memory fact, copied from "+m.MemoryFrom)
@@ -191,13 +193,15 @@ func stamped(index []byte, stamp string) []byte {
 	return joinLines(slices.Insert(lines, 0, stamp, ""), newline)
 }
 
-// withIndexLines returns index with every line of source's index whose fact
-// it does not link yet appended after stamp, so the index only ever gains
-// lines.
-func withIndexLines(index, source []byte, stamp string) []byte {
+// withIndexLines returns index, the index in the folder memory, with every
+// line of source's index whose fact it does not link yet appended after
+// stamp, so the index only ever gains lines. A fact is linked in another case
+// where memory's file system ignores case.
+func withIndexLines(memory string, index, source []byte, stamp string) []byte {
+	key := func(link string) string { return fsx.PathKey(memory + string(filepath.Separator) + link) }
 	linked := map[string]bool{}
 	for _, match := range indexLink.FindAllSubmatch(index, -1) {
-		linked[strings.ToLower(string(match[1]))] = true
+		linked[key(string(match[1]))] = true
 	}
 	next := bytes.TrimRight(index, "\r\n")
 	newline := []byte("\n")
@@ -206,10 +210,10 @@ func withIndexLines(index, source []byte, stamp string) []byte {
 	}
 	for _, line := range strings.Split(strings.ReplaceAll(string(source), "\r\n", "\n"), "\n") {
 		match := indexLink.FindStringSubmatch(line)
-		if !strings.HasPrefix(strings.TrimSpace(line), "- ") || match == nil || linked[strings.ToLower(match[1])] {
+		if !strings.HasPrefix(strings.TrimSpace(line), "- ") || match == nil || linked[key(match[1])] {
 			continue
 		}
-		linked[strings.ToLower(match[1])] = true
+		linked[key(match[1])] = true
 		if stamp != "" {
 			next = append(append(next, newline...), stamp...)
 			stamp = ""
@@ -226,7 +230,7 @@ func (m *Migration) predict() Manifest {
 		to := rel
 		for _, move := range m.Moves {
 			from, dest := dataRel(m.Home, move.From), dataRel(m.Home, move.To)
-			if strings.HasPrefix(strings.ToLower(rel), strings.ToLower(from)+"/") {
+			if fsx.HasPathPrefix(filepath.Join(m.Home.Data, filepath.FromSlash(rel)), filepath.Join(m.Home.Data, filepath.FromSlash(from))+string(filepath.Separator)) {
 				to = dest + rel[len(from):]
 				m.Moved[rel] = to
 				break
@@ -499,9 +503,10 @@ func (m Migration) unchangedSincePlan() error {
 			return err
 		}
 		from := dataRel(m.Home, move.From) + "/"
+		folder := filepath.Join(m.Home.Data, filepath.FromSlash(from)) + string(filepath.Separator)
 		planned := Manifest{}
 		for rel, sum := range m.Before {
-			if strings.HasPrefix(strings.ToLower(rel), strings.ToLower(from)) {
+			if fsx.HasPathPrefix(filepath.Join(m.Home.Data, filepath.FromSlash(rel)), folder) {
 				planned[rel[len(from):]] = sum
 			}
 		}

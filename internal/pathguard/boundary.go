@@ -182,19 +182,22 @@ func within(path, root string) bool {
 }
 
 // namesGitBelow reports whether path is inside root and a folder or file of
-// it below root is .git as Windows opens it: in any case, with dots and
-// spaces after it, which Windows drops, or with a stream after a colon, as
-// .git::$INDEX_ALLOCATION makes a folder .git.
+// it below root is .git as Windows opens it: in any case where the file
+// system that holds it ignores case, with dots and spaces after it, which
+// Windows drops, or with a stream after a colon, as .git::$INDEX_ALLOCATION
+// makes a folder .git.
 func namesGitBelow(path, root string) bool {
 	if !within(path, root) {
 		return false
 	}
-	below := path[len(realPath(filepath.Clean(root))):]
-	for _, name := range strings.FieldsFunc(below, func(r rune) bool { return r == '\\' || r == '/' }) {
-		name, _, _ = strings.Cut(strings.ToLower(name), ":")
-		if strings.TrimRight(name, ". ") == ".git" {
+	folder := realPath(filepath.Clean(root))
+	below := path[len(folder):]
+	for _, name := range strings.FieldsFunc(below, func(r rune) bool { return r == '/' || r == filepath.Separator }) {
+		named, _, _ := strings.Cut(name, ":")
+		if fsx.PathKey(folder+string(filepath.Separator)+strings.TrimRight(named, ". ")) == fsx.PathKey(folder+string(filepath.Separator)+".git") {
 			return true
 		}
+		folder = filepath.Join(folder, name)
 	}
 	return false
 }
