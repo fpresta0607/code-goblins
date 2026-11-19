@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -132,18 +133,19 @@ func (g *memoryGuard) reading() *GuardReading {
 
 // keepMemoryGuard reads memory and the processes every `every` until ctx ends.
 // It runs apart from the fleet's reading once a minute, since a PC short of
-// memory has little time. A reading that fails is published once, not at
-// every reading, until a reading succeeds again.
+// memory has little time. A reading that fails joins its error, once, to the
+// fleet's, which the next recovery cycle reports.
 func (s *Service) keepMemoryGuard(ctx context.Context, every time.Duration) {
 	ticker := time.NewTicker(every)
 	defer ticker.Stop()
-	isFailing := false
 	for {
-		err := s.guardMemory(time.Now().UTC())
-		if err != nil && !isFailing {
-			s.publish(err)
+		if err := s.guardMemory(time.Now().UTC()); err != nil {
+			s.mu.Lock()
+			if s.fleetErr == nil || !strings.Contains(s.fleetErr.Error(), err.Error()) {
+				s.fleetErr = errors.Join(s.fleetErr, err)
+			}
+			s.mu.Unlock()
 		}
-		isFailing = err != nil
 		select {
 		case <-ctx.Done():
 			return

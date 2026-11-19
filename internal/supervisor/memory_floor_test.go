@@ -573,27 +573,23 @@ func TestTheGuardKeepsNoReadingItDidNotActOn(t *testing.T) {
 	}
 }
 
-// A reading of the guard that fails is published once, not at every reading,
-// until a reading succeeds again.
-func TestAFailingGuardReadingIsPublishedOnceUntilOneSucceeds(t *testing.T) {
+// A reading of the guard that fails reaches every recovery cycle's error for
+// as long as the failure lasts, and the guard never publishes it on its own,
+// which a recovery cycle would wipe at once.
+func TestAFailingGuardReadingReachesEveryRecoveryCycleWhileItFails(t *testing.T) {
 	// Arrange
 	spawner := &spawnRecorder{}
 	s, _, _, _, _ := floorBoard(t, false, spawner)
-	var reads, failures atomic.Int32
-	var isFailing atomic.Bool
-	isFailing.Store(true)
+	s.work, s.subscribers = make(chan struct{}, 1), map[chan struct{}]struct{}{}
+	var reads atomic.Int32
 	s.Options.Dispatch.Memory = func() (Memory, error) {
 		reads.Add(1)
-		if isFailing.Load() {
-			failures.Add(1)
-			return Memory{}, errors.New("memory cannot be read")
-		}
-		return Memory{Available: 8 * gigabyte, CommitAvailable: 8 * gigabyte}, nil
+		return Memory{}, errors.New("memory cannot be read")
 	}
-	published := func() uint64 {
+	shown := func() string {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		return s.revision
+		return s.lastError
 	}
 	waitForReads := func(count int32) {
 		for deadline := time.Now().Add(30 * time.Second); reads.Load() < count && time.Now().Before(deadline); time.Sleep(time.Millisecond) {
@@ -605,22 +601,85 @@ func TestAFailingGuardReadingIsPublishedOnceUntilOneSucceeds(t *testing.T) {
 		defer close(done)
 		s.keepMemoryGuard(ctx, time.Millisecond)
 	}()
+	defer func() { stop(); <-done }()
+	const want = "the memory guard cannot read memory: memory cannot be read"
 
 	// Act
-	waitForReads(5)
-	whileFailing := published()
-	isFailing.Store(false)
-	waitForReads(reads.Load() + 3)
-	isFailing.Store(true)
-	waitForReads(reads.Load() + 3)
-	stop()
-	<-done
+	waitForReads(3)
+	beforeCycle := shown()
+	var cycles []string
+	for range 2 {
+		waitForReads(reads.Load() + 3)
+		s.cycle(t.Context(), true)
+		cycles = append(cycles, shown())
+	}
 
 	// Assert
-	if whileFailing != 1 {
-		t.Errorf("publishes during %d failing readings = %d, want 1", failures.Load(), whileFailing)
+	if beforeCycle != "" {
+		t.Errorf("the board showed %q before any recovery cycle, want the guard to leave publishing to the cycle", beforeCycle)
 	}
-	if again := published(); again != 2 {
-		t.Errorf("publishes after a reading succeeded and another failed = %d, want 2", again)
+	for cycle, line := range cycles {
+		if strings.Count(line, want) != 1 {
+			t.Errorf("recovery cycle %d showed %q, want %q once", cycle+1, line, want)
+		}
+	}
+}
+
+// The running supervisor reads memory with its own guard: its first reading
+// under the floor pauses the lowest goblin, with no reading of the test's.
+func TestTheRunningSupervisorsGuardPausesAGoblinUnderTheFloor(t *testing.T) {
+	// Arrange
+	_, h := testStore(t)
+	if err := os.MkdirAll(h.Data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	older := hostedGoblin(t, h, "older-task", now.Add(time.Second))
+	newer := hostedGoblin(t, h, "newer-task", now.Add(2*time.Second))
+	if err := fleet.WriteAttention(h, []string{older.ID, newer.ID}); err != nil {
+		t.Fatal(err)
+	}
+	spawner := &spawnRecorder{}
+	options := Options{Dispatch: &Dispatch{
+		Memory: func() (Memory, error) {
+			return Memory{Available: 3 * gigabyte, Total: 32 * gigabyte, CommitAvailable: 8 * gigabyte, CommitLimit: 48 * gigabyte}, nil
+		},
+		Disk:          func() (Disk, error) { return diskWithFree(200 * gigabyte), nil },
+		CommitHolders: func() ([]CommitHolder, error) { return nil, nil },
+		Spawn:         spawner.spawn,
+	}}
+
+	// Act
+	s, err := Start(t.Context(), h, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	calls := awaitRecorded(t, spawner, 1)
+
+	// Assert
+	if len(calls) != 1 || calls[0][0] != "pause" || calls[0][1] != newer.ID || !strings.HasSuffix(strings.Join(calls[0], " "), "--reason memory") {
+		t.Fatalf("dispatches of the running supervisor = %v, want one memory pause of %s", calls, newer.ID)
+	}
+}
+
+// The fleet's reading once a minute marks a reading under the floor low and
+// pauses nothing, however many readings fall under it: the guard alone pauses.
+func TestAFleetReadingUnderTheFloorPausesNothing(t *testing.T) {
+	// Arrange
+	spawner := &spawnRecorder{}
+	s, h, _, _, now := floorBoard(t, true, spawner, [2]float64{3, 8}, [2]float64{3, 8}, [2]float64{3, 8})
+
+	// Act
+	readFleet(t, s, now, 0, 1, 2)
+	calls := awaitRecorded(t, spawner, 1)
+
+	// Assert
+	wakes, err := readFleetWakes(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 0 || !wakes.MemoryLow {
+		t.Fatalf("after three fleet readings under the floor: dispatches %v, reading low %v, want no dispatch and the reading low", calls, wakes.MemoryLow)
 	}
 }
