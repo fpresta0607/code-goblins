@@ -82,11 +82,11 @@ func MachineHeavyLine(memory Memory) (LineRoom, error) {
 	if err != nil {
 		return LineRoom{}, err
 	}
-	var estimate uint64
+	var head verify.Standing
 	if len(waiting) > 0 {
-		estimate = waiting[0].Estimate
+		head = waiting[0]
 	}
-	floor, err := verify.HeadFloor(dir, estimate, 0)
+	floor, err := verify.HeadFloor(dir, head, 0)
 	if err != nil {
 		return LineRoom{}, err
 	}
@@ -113,7 +113,7 @@ func MachineLineStall(memory Memory) (string, error) {
 	if err != nil || len(holding) >= capacity || len(waiting) == 0 {
 		return "", err
 	}
-	floor, err := verify.HeadFloor(dir, waiting[0].Estimate, 0)
+	floor, err := verify.HeadFloor(dir, waiting[0], 0)
 	if err != nil {
 		return "", err
 	}

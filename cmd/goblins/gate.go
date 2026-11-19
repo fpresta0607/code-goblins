@@ -882,11 +882,11 @@ func readTurns(available func() (supervisor.Memory, error)) (turnsReport, error)
 	}
 	light := slices.DeleteFunc(slices.Clone(holding), func(run verify.Standing) bool { return !run.IsLight })
 	holding = slices.DeleteFunc(holding, func(run verify.Standing) bool { return run.IsLight })
-	var headEstimate uint64
+	var head verify.Standing
 	if len(waiting) > 0 {
-		headEstimate = waiting[0].Estimate
+		head = waiting[0]
 	}
-	floor, err := verify.HeadFloor(store, headEstimate, 0)
+	floor, err := verify.HeadFloor(store, head, 0)
 	if err != nil {
 		return turnsReport{}, err
 	}

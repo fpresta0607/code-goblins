@@ -222,7 +222,7 @@ func TestTheHeadFloorWeighsWhatALightRunMayStillUse(t *testing.T) {
 	defer light.Release()
 
 	// Act
-	floor, err := HeadFloor(a.Dir, 0, 0)
+	floor, err := HeadFloor(a.Dir, Standing{}, 0)
 
 	// Assert
 	if want := 3*gigabyte + DefaultEstimate + 2*gigabyte; err != nil || floor != want {

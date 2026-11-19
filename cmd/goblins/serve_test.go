@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +14,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/installbase"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
+	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
 // The first-run page records the projects folder as this machine's setting,
@@ -102,6 +105,78 @@ func TestServeDispatchReadsAHeavyLineStandingStill(t *testing.T) {
 		if !strings.Contains(stall, want) {
 			t.Errorf("serve's LineStall = %q; want %q", stall, want)
 		}
+	}
+}
+
+// The board's supervisor reads which goblins hold a turn of the machine's
+// heavy line, for the memory floor to pause last: the task a holder's card
+// names, as goblins gate turn writes it, or else the GOBLINS_TASK_ID of the
+// holder's process, and none for a holder that names neither (#2808).
+func TestServeDispatchReadsWhichGoblinsHoldATurn(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		cardTask    string
+		environment string
+		want        []string
+	}{
+		{name: "a card that names its task", cardTask: "cg-card", environment: "cg-environment", want: []string{"cg-card"}},
+		{name: "a card that names none", environment: "cg-environment", want: []string{"cg-environment"}},
+		{name: "no task anywhere"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			store := t.TempDir()
+			t.Setenv("GOBLINS_VERIFY_DIR", store)
+			t.Setenv("GOBLINS_TASK_ID", test.environment)
+			plentyFree := func() (uint64, error) { return 16 << 30, nil }
+			turn, err := verify.Admission{Dir: filepath.Join(store, "slots"), Floor: 4 << 30, Available: plentyFree, Task: test.cardTask, Who: "a run that holds", Budget: time.Hour, Limit: time.Minute, Poll: 10 * time.Millisecond}.Wait(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer turn.Release()
+			dispatch := serveDispatch(testHome(t))
+			if dispatch.TurnHolders == nil {
+				t.Fatal("serve's Dispatch reads no holders of the heavy line")
+			}
+
+			// Act
+			holders, err := dispatch.TurnHolders()
+
+			// Assert
+			if err != nil || !slices.Equal(holders, test.want) {
+				t.Fatalf("serve's TurnHolders = %q, %v; want %q", holders, err, test.want)
+			}
+		})
+	}
+}
+
+// The board's supervisor weighs the Docker of the run at the head of the
+// machine's heavy line as the run itself does: 6 GiB free is short of the
+// 4 GiB floor, the run's default 2.5 GiB and 2 GiB for Docker, so the line
+// does not stand still, and no goblin starts while the line keeps 8.5 GiB
+// (#2808).
+func TestServeDispatchWeighsTheDockerOfTheRunAtTheHeadOfTheLine(t *testing.T) {
+	// Arrange
+	store := t.TempDir()
+	t.Setenv("GOBLINS_VERIFY_DIR", store)
+	short := func() (uint64, error) { return 1 << 30, nil }
+	waitInLine(t, verify.Admission{Dir: filepath.Join(store, "slots"), Floor: 4 << 30, Available: short, IsDocker: true, Docker: 2 << 30, Who: "a run that starts Docker", Budget: time.Hour, Limit: time.Minute, Poll: 10 * time.Millisecond})
+	dispatch := serveDispatch(testHome(t))
+	memory := supervisor.Memory{Available: 6 << 30, CommitAvailable: 6 << 30, Total: 32 << 30}
+
+	// Act
+	stall, stallErr := dispatch.LineStall(memory)
+	room, roomErr := dispatch.HeavyLine(memory)
+
+	// Assert
+	if stallErr != nil || roomErr != nil {
+		t.Fatal(errors.Join(stallErr, roomErr))
+	}
+	if stall != "" {
+		t.Errorf("serve's LineStall = %q; want none, the run at the head being short of its floor", stall)
+	}
+	if want := uint64(17 << 29); room.Floor != want || room.Hold == "" {
+		t.Errorf("serve's HeavyLine = %+v; want the 8.5 GiB floor of the run that starts Docker, holding starts", room)
 	}
 }
 

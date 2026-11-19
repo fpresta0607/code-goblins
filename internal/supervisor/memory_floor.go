@@ -128,6 +128,8 @@ func pickToPause(candidates []floorCandidate, isPushing func(hostPID int) bool, 
 	switch ideal := mostGrown(free); {
 	case len(settled) == 0 && len(fresh) == 0:
 		pool, passing = holding, ", and the last goblin it could pause, though its turn of the heavy line runs"
+	case len(settled) == 0 && len(holding) > 0:
+		pool, passing = fresh, fmt.Sprintf(" past %s, whose turn of the heavy line runs, and every other goblin it could pause resumed from a memory pause in the last %d minutes", mostGrown(holding).meta.ID, int(freshResume/time.Minute))
 	case len(settled) == 0:
 		pool, passing = fresh, fmt.Sprintf(", and every goblin it could pause resumed from a memory pause in the last %d minutes", int(freshResume/time.Minute))
 	case ideal.isHoldingTurn:

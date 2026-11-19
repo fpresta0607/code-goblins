@@ -19,7 +19,9 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/services"
 	"github.com/fpresta0607/code-goblins/internal/standin"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
@@ -473,8 +475,12 @@ func TestGateTurnNamesItsRunToTheRunsBehindIt(t *testing.T) {
 			letGo(t, dir, "command")
 
 			// Assert
-			if lineErr != nil || len(holding) != 1 || holding[0].Who != want || holding[0].Budget != 0 || holding[0].PID != os.Getpid() {
-				t.Errorf("the line held %+v (%v); want this process holding the turn as %q under no budget", holding, lineErr, want)
+			wantTask := test.task
+			if test.gate != "" {
+				wantTask = ""
+			}
+			if lineErr != nil || len(holding) != 1 || holding[0].Who != want || holding[0].Task != wantTask || holding[0].Budget != 0 || holding[0].PID != os.Getpid() {
+				t.Errorf("the line held %+v (%v); want this process holding the turn as %q of task %q under no budget", holding, lineErr, want, wantTask)
 			}
 			if line := fmt.Sprintf("turn: %s (pid %d), for ", want, os.Getpid()); turnsExit != 0 || !strings.HasPrefix(turns.String(), line) || strings.Contains(turns.String(), "budget") {
 				t.Errorf("goblins gate turns exited %d and printed %q; want a line that starts %q and names no budget", turnsExit, turns.String(), line)
@@ -1372,9 +1378,10 @@ func runGateTurnTestCommand(args []string) int {
 	return exit
 }
 
-// A run starts Docker when a word of its command, a shell's command string's
-// included, is the docker or docker-compose program or goblins services up;
-// a folder that is named docker is no program (#2808).
+// A run starts Docker when the program it runs, or one a shell's command
+// string among its arguments runs, is the docker or docker-compose program or
+// goblins services up; a folder, a test or a search named docker runs no
+// Docker (#2808).
 func TestStartsDockerReadsTheCommandsWords(t *testing.T) {
 	for _, test := range []struct {
 		command []string
@@ -1390,6 +1397,11 @@ func TestStartsDockerReadsTheCommandsWords(t *testing.T) {
 		{[]string{"go", "test", "./internal/docker/..."}, false},
 		{[]string{"npm", "run", "docker:test"}, false},
 		{[]string{"go", "test", "./..."}, false},
+		{[]string{"sh", "-c", "npm ci; docker compose up -d"}, true},
+		{[]string{"cmd", "/c", "cd docker && npm test"}, false},
+		{[]string{"go", "test", "./...", "-run", "Docker"}, false},
+		{[]string{"grep", "docker", "log.txt"}, false},
+		{[]string{"cmd", "/c", "findstr docker log.txt"}, false},
 	} {
 		t.Run(strings.Join(test.command, " "), func(t *testing.T) {
 			// Act
@@ -1411,12 +1423,15 @@ func TestGateTurnAdmitsARunThatStartsDockerOnlyWithRoomForDocker(t *testing.T) {
 	for _, test := range []struct {
 		name      string
 		flags     []string
+		command   []string
 		wantExit  int
 		wantSaid  string
 		isStarted bool
 	}{
 		{name: "a run that starts no Docker", flags: []string{"--wait", "3s"}, wantExit: 6, isStarted: true},
 		{name: "a run declared to start Docker", flags: []string{"--wait", "3s", "--docker", "--memory", "1GiB"}, wantExit: exitNoTurn, wantSaid: "5.4 GB of memory is available and the floor is 7.0 GB; this run is next in line; its command starts Docker, so its floor adds 2.0 GB for Docker (its engine and virtual machine, estimated) and 1.0 GB for its own run"},
+		{name: "a run whose command starts Docker", flags: []string{"--wait", "3s"}, command: []string{"--", "docker", "compose", "up", "-d"}, wantExit: exitNoTurn, wantSaid: "5.4 GB of memory is available and the floor is 8.5 GB; this run is next in line; its command starts Docker, so its floor adds 2.0 GB for Docker (its engine and virtual machine, estimated) and 2.5 GB for its own run"},
+		{name: "a light run declared to start Docker", flags: []string{"--wait", "3s", "--light", "--docker", "--memory", "1GiB", "--execution-limit", "1m"}, wantExit: exitNoTurn, wantSaid: "a light run waits beside the line for memory: 5.4 GB of memory is available and the floor is 7.0 GB; its command starts Docker, so its floor adds 2.0 GB for Docker (its engine and virtual machine, estimated) and 1.0 GB for its own run"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -1426,15 +1441,95 @@ func TestGateTurnAdmitsARunThatStartsDockerOnlyWithRoomForDocker(t *testing.T) {
 			runtime.availableMemory = func() (supervisor.Memory, error) {
 				return supervisor.Memory{Available: 5_850_000_000, CommitAvailable: 16 << 30}, nil
 			}
+			command := test.command
+			if command == nil {
+				command = turnCommand(dir, "command", 6, false)
+			}
 			var stdout, stderr lockedBuffer
 
 			// Act
-			exit := gateTurn(runtime, &stdout, &stderr, append(test.flags, turnCommand(dir, "command", 6, false)...)...)
+			exit := gateTurn(runtime, &stdout, &stderr, append(test.flags, command...)...)
 
 			// Assert
 			if exit != test.wantExit || left(dir, "command", "started") != test.isStarted || !strings.Contains(stderr.String(), test.wantSaid) {
 				t.Fatalf("exit = %d, started = %v, stderr = %q; want exit %d, started %v, saying %q", exit, left(dir, "command", "started"), stderr.String(), test.wantExit, test.isStarted, test.wantSaid)
 			}
 		})
+	}
+}
+
+// A run of a task that starts Docker waits for the room its project's
+// services stack needs, as services.json declares it until a start measured
+// it, and none while a task holds the stack: 5.4 GB free is short of the 4 GB
+// floor, its 1 GB and the declared 3 GB, and covers the floor and its 1 GB.
+// A run whose task's record cannot be read takes no turn, as the room it
+// needs is not known (#2808).
+func TestGateTurnWaitsForTheRoomItsTasksServicesStackNeeds(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		isUnreadable bool
+		stack        services.Stack
+		wantExit     int
+		wantSaid     string
+		isStarted    bool
+	}{
+		{name: "a stack declared and down", wantExit: exitNoTurn, wantSaid: "the floor is 8.0 GB; this run is next in line; its command starts Docker, so its floor adds 3.0 GB for Docker (PrecisionDocs-AI's services, estimated, not measured yet) and 1.0 GB for its own run"},
+		{name: "a stack another task holds", stack: services.Stack{Holders: []services.Hold{{Task: "cg-other", Since: time.Now()}}}, wantExit: 6, isStarted: true},
+		{name: "a task whose record cannot be read", isUnreadable: true, wantExit: exitNoTurn, wantSaid: "goblins gate turn: this run takes no turn: its command starts Docker, and the room it needs cannot be read"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			turnLine(t)
+			dir := commandFolder(t)
+			h := testHome(t)
+			t.Setenv("GOBLINS_TASK_ID", "cg-docker")
+			t.Setenv("NO_MISTAKES_GATE", "")
+			project := filepath.Join(t.TempDir(), "PrecisionDocs-AI")
+			manifest := services.ManifestPath(h.Data, project)
+			if err := os.MkdirAll(filepath.Dir(manifest), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(manifest, []byte(`{"project": "PrecisionDocs-AI", "compose": "docker-compose.dev.yml", "env_file": ".env.docker.local", "services": ["backend"], "check": ["powershell", "-NoProfile", "-File", "guard.ps1"], "memory_estimate_gb": 3}`), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(h.State, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := services.WriteRecord(h.State, services.Record{Stacks: map[string]services.Stack{"PrecisionDocs-AI": test.stack}}); err != nil {
+				t.Fatal(err)
+			}
+			if !test.isUnreadable {
+				if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "cg-docker", Project: project, Worktree: dir}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			runtime := turnRuntime()
+			runtime.resolveHome = func() (home.Home, error) { return h, nil }
+			runtime.availableMemory = func() (supervisor.Memory, error) {
+				return supervisor.Memory{Available: 5_850_000_000, CommitAvailable: 16 << 30}, nil
+			}
+			var stdout, stderr lockedBuffer
+
+			// Act
+			exit := gateTurn(runtime, &stdout, &stderr, append([]string{"--wait", "3s", "--docker", "--memory", "1GiB"}, turnCommand(dir, "command", 6, false)...)...)
+
+			// Assert
+			if exit != test.wantExit || left(dir, "command", "started") != test.isStarted || !strings.Contains(stderr.String(), test.wantSaid) {
+				t.Fatalf("exit = %d, started = %v, stderr = %q; want exit %d, started %v, saying %q", exit, left(dir, "command", "started"), stderr.String(), test.wantExit, test.isStarted, test.wantSaid)
+			}
+		})
+	}
+}
+
+// A run started detached keeps --docker, so the run that takes the turn
+// waits for Docker's room as the one asked for it would have.
+func TestGateTurnDetachKeepsItsDocker(t *testing.T) {
+	// Act
+	request, err := parseGateTurn([]string{"--docker", "--", "powershell", "-File", "stack.ps1"})
+
+	// Assert
+	want := []string{"--detached", "--docker", "--", "powershell", "-File", "stack.ps1"}
+	if got := detachedArguments(request); err != nil || !slices.Equal(got, want) {
+		t.Fatalf("detachedArguments = %q, %v; want %q", got, err, want)
 	}
 }

@@ -375,7 +375,7 @@ func TestTheWeighedFloorKeepsTheMonitorsDesktopReserve(t *testing.T) {
 			}
 
 			// Act
-			floor, err := HeadFloor(dir, 4*gigabyte, row.requested)
+			floor, err := HeadFloor(dir, Standing{Estimate: 4 * gigabyte}, row.requested)
 
 			// Assert
 			if row.want == 0 {
@@ -439,7 +439,7 @@ func TestTheWeighedFloorNeverAsksLessThanOneSlots(t *testing.T) {
 	dir := admissionWithCapacity(t, 2).Dir
 
 	// Act
-	floor, err := HeadFloor(dir, 512<<20, 0)
+	floor, err := HeadFloor(dir, Standing{Estimate: 512 << 20}, 0)
 
 	// Assert
 	if err != nil || floor != 4*gigabyte {
