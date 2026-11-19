@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // gateDaemonTaskPrefix starts the name of each scheduled task no-mistakes
@@ -64,7 +65,7 @@ func startsGateDaemonOf(definition, root string) bool {
 	if unquoted, err := strconv.Unquote(named); err == nil {
 		named = unquoted
 	}
-	return strings.EqualFold(filepath.Clean(named), filepath.Clean(root))
+	return fsx.EqualPath(filepath.Clean(named), filepath.Clean(root))
 }
 
 func schtasks(ctx context.Context, commands execx.Runner, args ...string) (string, error) {

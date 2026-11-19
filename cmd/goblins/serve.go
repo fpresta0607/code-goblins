@@ -124,7 +124,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	}
 	if *example {
 		rel, err := filepath.Rel(os.TempDir(), h.Root)
-		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || !strings.EqualFold(filepath.Clean(h.State), filepath.Join(h.Root, "state")) {
+		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || !fsx.EqualPath(filepath.Clean(h.State), filepath.Join(h.Root, "state")) {
 			fmt.Fprintln(stderr, "--example requires a separate home under the temporary directory with its own state directory")
 			return 2
 		}
