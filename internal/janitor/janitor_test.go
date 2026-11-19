@@ -825,3 +825,51 @@ func TestRecordRoundTripsWithItsStrays(t *testing.T) {
 		t.Errorf("ReadRecord = %+v, %v (freed %d)", got, err, got.Freed())
 	}
 }
+
+// Under the clean mark the caches are trimmed to their tight cap, though they
+// are under their own: Go's build cache first loses the entries unused for an
+// hour rather than a day, which needs no turn of the heavy line, so a busy
+// line still frees them. Over the clean mark the caches under their cap are
+// left as they are.
+func TestSweepUnderTheCleanMarkTrimsTheCachesToTheTightCap(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		isTight   bool
+		isTrimmed bool
+	}{
+		{name: "tight", isTight: true, isTrimmed: true},
+		{name: "not tight", isTight: false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange: a megabyte entry Go last marked used three hours ago, under the
+			// caches' cap and over their tight cap.
+			f := newSweepFixture(t)
+			cache := filepath.Join(f.home.Caches(), "go-build")
+			entry := filepath.Join(cache, "0a", "unused-a")
+			writeFile(t, entry, string(make([]byte, 1<<20)))
+			makeAged(t, cache, 3*time.Hour)
+			runner := &pruneRunner{caches: f.home.Caches()}
+			cfg := f.config(reap.Inventory{})
+			cfg.Commands = runner
+			cfg.Settings.CachesCapGB = 2.0 / 1024
+			cfg.Settings.CachesTightCapGB = 0.5 / 1024
+			cfg.Line = busyLine{}
+			cfg.IsTight = testCase.isTight
+
+			// Act
+			record := Sweep(context.Background(), cfg)
+
+			// Assert
+			_, err := os.Stat(entry)
+			if isGone := os.IsNotExist(err); isGone != testCase.isTrimmed {
+				t.Fatalf("the entry unused for three hours gone = %v, want %v; removed %+v, notes %q", isGone, testCase.isTrimmed, record.Removed, record.Notes)
+			}
+			if item, ok := has(record.Removed, cache); testCase.isTrimmed && (!ok || item.Bytes != 1<<20 || !strings.Contains(item.Detail, "unused for an hour")) {
+				t.Errorf("removed = %+v, want the megabyte Go left unused for an hour", record.Removed)
+			}
+			if len(runner.ran) != 0 {
+				t.Errorf("ran %q on a busy line, want no prune", runner.ran)
+			}
+		})
+	}
+}
