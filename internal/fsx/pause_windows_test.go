@@ -1,4 +1,4 @@
-package fsx
+package fsx_test
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/awake/awaketest"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // A machine that pauses stops every process at once, the one holding a file
@@ -39,10 +40,8 @@ func TestAReplaceWaitsOutAHolderAcrossAPauseOfTheWholeMachine(t *testing.T) {
 	var letGo sync.Once
 	release := func() { letGo.Do(func() { _ = reader.Close() }) }
 	t.Cleanup(release)
-	budget := transientBudget
-	transientBudget = time.Second
 	var isReady bool
-	sleep = func(wait time.Duration) {
+	fsx.WaitWithinForTest(t, time.Second, func(wait time.Duration) {
 		if !isReady {
 			isReady = true
 			held, cancelHold := awake.WithTimeout(context.Background(), 300*time.Millisecond)
@@ -51,11 +50,10 @@ func TestAReplaceWaitsOutAHolderAcrossAPauseOfTheWholeMachine(t *testing.T) {
 			awaketest.Ready()
 		}
 		time.Sleep(wait)
-	}
-	t.Cleanup(func() { transientBudget, sleep = budget, time.Sleep })
+	})
 
 	// Act
-	err = AtomicWriteFile(path, []byte("new"))
+	err = fsx.AtomicWriteFile(path, []byte("new"))
 
 	// Assert
 	if !isReady {
@@ -64,7 +62,7 @@ func TestAReplaceWaitsOutAHolderAcrossAPauseOfTheWholeMachine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the replace gave up across a pause of %s on a holder that let go %s of running time after it began: %v", awaketest.Length, 300*time.Millisecond, err)
 	}
-	if got, err := ReadFile(path); err != nil || string(got) != "new" {
+	if got, err := fsx.ReadFile(path); err != nil || string(got) != "new" {
 		t.Errorf("ReadFile after the replace = %q, %v, want %q", got, err, "new")
 	}
 }
