@@ -925,6 +925,44 @@ func TestGateTurnsJSONGivesTheLine(t *testing.T) {
 	}
 }
 
+// goblins gate turns --json gives the floor the run at the head of the line
+// waits for, the Docker it starts included: on a line of one turn, a run that
+// starts Docker with the default 2.5 GiB and 2 GiB for Docker waits for the
+// 4 GiB floor and both, 8.5 GiB (#2808).
+func TestGateTurnsJSONGivesTheFloorOfADockerRunAtTheHead(t *testing.T) {
+	// Arrange
+	slots := turnLine(t)
+	waiter := verify.Admission{Dir: slots, Floor: 4 << 30, Available: func() (uint64, error) { return 1 << 30, nil }, IsDocker: true, Docker: 2 << 30, Who: "a run that starts Docker", Limit: time.Minute, Poll: 10 * time.Millisecond}
+	ctx, cancel := context.WithCancel(context.Background())
+	ended := make(chan struct{})
+	go func() {
+		defer close(ended)
+		_, _ = waiter.Wait(ctx)
+	}()
+	defer func() {
+		cancel()
+		<-ended
+	}()
+	eventually(t, "the run that starts Docker joins the line", func() bool {
+		_, waiting, err := verify.Line(slots)
+		return err == nil && len(waiting) == 1 && waiting[0].Who == waiter.Who
+	})
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := runGateTurnsJSON(&stdout, &stderr, plenty)
+
+	// Assert
+	var report struct {
+		Memory struct {
+			FloorBytes uint64 `json:"floor_bytes"`
+		} `json:"memory"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &report); exit != 0 || err != nil || report.Memory.FloorBytes != 17<<29 {
+		t.Fatalf("goblins gate turns --json exited %d, printing %q (%v), and said %q; want the 8.5 GiB floor of the run that starts Docker", exit, stdout.String(), err, stderr.String())
+	}
+}
+
 // A line nobody holds or waits in is empty lists, never null, so the board
 // reads one shape whatever the line holds.
 func TestGateTurnsJSONGivesAnEmptyLineAsEmptyLists(t *testing.T) {
@@ -1402,6 +1440,14 @@ func TestStartsDockerReadsTheCommandsWords(t *testing.T) {
 		{[]string{"go", "test", "./...", "-run", "Docker"}, false},
 		{[]string{"grep", "docker", "log.txt"}, false},
 		{[]string{"cmd", "/c", "findstr docker log.txt"}, false},
+		{[]string{"cmd", "/c", "docker", "compose", "up", "-d"}, true},
+		{[]string{"pwsh", "-Command", "docker", "compose", "up", "-d"}, true},
+		{[]string{`C:\Windows\System32\cmd.exe`, "/C", "npm ci && docker compose up -d"}, true},
+		{[]string{"powershell.exe", "-NoProfile", "-Command", "docker info"}, true},
+		{[]string{"bash", "-c", "docker-compose up"}, true},
+		{[]string{"go", "test", "./...", "-run", "Docker compose"}, false},
+		{[]string{"git", "commit", "-m", "docker compose fix"}, false},
+		{[]string{"cmd", "/c", "echo", "docker"}, false},
 	} {
 		t.Run(strings.Join(test.command, " "), func(t *testing.T) {
 			// Act

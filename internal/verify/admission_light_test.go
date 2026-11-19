@@ -214,19 +214,33 @@ func TestARunStartedInsideALightTurnRunsInsideIt(t *testing.T) {
 }
 
 // A heavy run at the head of a line of two weighs what a light run beside the
-// slots may still use, as it weighs a slot holder's.
+// slots may still use, as it weighs a slot holder's, the room Docker needs
+// for a light run that starts Docker included (#2808).
 func TestTheHeadFloorWeighsWhatALightRunMayStillUse(t *testing.T) {
-	// Arrange
-	a := admissionWithCapacity(t, 2)
-	light := within(t, take(t, lightAdmission(a, 3*gigabyte, 16*gigabyte)), "light run")
-	defer light.Release()
+	for _, test := range []struct {
+		name   string
+		docker uint64
+		want   uint64
+	}{
+		{name: "a light run", want: 3*gigabyte + DefaultEstimate + 2*gigabyte},
+		{name: "a light run that starts Docker", docker: 2 * gigabyte, want: 3*gigabyte + 2*gigabyte + DefaultEstimate + 2*gigabyte},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			a := admissionWithCapacity(t, 2)
+			lightRun := lightAdmission(a, 3*gigabyte, 16*gigabyte)
+			lightRun.IsDocker, lightRun.Docker = test.docker > 0, test.docker
+			light := within(t, take(t, lightRun), "light run")
+			defer light.Release()
 
-	// Act
-	floor, err := HeadFloor(a.Dir, Standing{}, 0)
+			// Act
+			floor, err := HeadFloor(a.Dir, Standing{}, 0)
 
-	// Assert
-	if want := 3*gigabyte + DefaultEstimate + 2*gigabyte; err != nil || floor != want {
-		t.Fatalf("HeadFloor = %d, %v; want %d, the light run's 3 GiB, the default estimate and the reserve", floor, err, want)
+			// Assert
+			if err != nil || floor != test.want {
+				t.Fatalf("HeadFloor = %d, %v; want %d, the light run's 3 GiB and its Docker, the default estimate and the reserve", floor, err, test.want)
+			}
+		})
 	}
 }
 

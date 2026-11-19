@@ -690,12 +690,13 @@ func detachedArguments(request gateTurnRequest) []string {
 // engine coming up (#2808).
 const dockerEngineRoom uint64 = 2 << 30
 
-// startsDocker says command starts Docker: the program it runs, or one a
-// shell's command string among its arguments runs, at the string's start or
-// after &, &&, |, ||, ; or (, is the docker or docker-compose program, bare
-// or as its executable's path, or is goblins services up. A word anywhere
-// else, as a folder, a test's name or a search's, starts nothing, and a
-// script the command runs is not read, which --docker declares.
+// startsDocker says command starts Docker: the program it runs, or one the
+// command string of a shell (cmd, sh, bash, pwsh or powershell) runs, its
+// arguments after its /c, -c or -Command, at the string's start or after &,
+// &&, |, ||, ; or (, is the docker or docker-compose program, bare or as its
+// executable's path, or is goblins services up. A word anywhere else, as a
+// folder, a test's name, a search's or a commit message's, starts nothing,
+// and a script the command runs is not read, which --docker declares.
 func startsDocker(command []string) bool {
 	if len(command) == 0 {
 		return false
@@ -703,27 +704,37 @@ func startsDocker(command []string) bool {
 	if runsDocker(command[0], command[1:]) {
 		return true
 	}
-	for _, argument := range command[1:] {
-		if !strings.ContainsFunc(argument, unicode.IsSpace) {
-			continue
-		}
-		for _, statement := range strings.FieldsFunc(argument, func(r rune) bool { return strings.ContainsRune("&|;(", r) }) {
-			words := strings.FieldsFunc(statement, func(r rune) bool { return unicode.IsSpace(r) || strings.ContainsRune(`"')<>`, r) })
-			if len(words) > 0 && runsDocker(words[0], words[1:]) {
-				return true
-			}
+	if shell, _, _ := programName(command[0]); !slices.Contains([]string{"cmd", "sh", "bash", "pwsh", "powershell"}, shell) {
+		return false
+	}
+	at := slices.IndexFunc(command, func(argument string) bool {
+		return strings.EqualFold(argument, "/c") || strings.EqualFold(argument, "-c") || strings.EqualFold(argument, "-command")
+	})
+	if at < 0 {
+		return false
+	}
+	for _, statement := range strings.FieldsFunc(strings.Join(command[at+1:], " "), func(r rune) bool { return strings.ContainsRune("&|;(", r) }) {
+		words := strings.FieldsFunc(statement, func(r rune) bool { return unicode.IsSpace(r) || strings.ContainsRune(`"')<>`, r) })
+		if len(words) > 0 && runsDocker(words[0], words[1:]) {
+			return true
 		}
 	}
 	return false
 }
 
+// programName is the name of program, lowered and without its folder or its
+// .exe, whether program named a path, and whether it named an executable.
+func programName(program string) (name string, isPath, isExecutable bool) {
+	lowered := strings.ToLower(program)
+	name = lowered[strings.LastIndexAny(lowered, `/\`)+1:]
+	name, isExecutable = strings.CutSuffix(name, ".exe")
+	return name, strings.ContainsAny(lowered, `/\`), isExecutable
+}
+
 // runsDocker says program, run with arguments, starts Docker, as
 // startsDocker says it.
 func runsDocker(program string, arguments []string) bool {
-	lowered := strings.ToLower(program)
-	name := lowered[strings.LastIndexAny(lowered, `/\`)+1:]
-	isPath := name != lowered
-	name, isExecutable := strings.CutSuffix(name, ".exe")
+	name, isPath, isExecutable := programName(program)
 	if name == "docker" || name == "docker-compose" {
 		return !isPath || isExecutable
 	}

@@ -312,8 +312,10 @@ func HeadFloor(dir string, head Standing, reserve uint64) (uint64, error) {
 }
 
 // holdersRemaining is what the runs holding the slots in dir may still use:
-// each one's estimate less what it commits now, never below nothing. A
-// holder whose card names no estimate, as an older build's, is weighed at
+// each one's estimate less what it commits now, never below nothing, and
+// the room Docker needs for one that starts Docker, which its turn keeps
+// whole since what Docker takes is no process of the run's. A holder whose
+// card names no estimate, as an older build's, is weighed at
 // DefaultEstimate.
 func holdersRemaining(dir string) (uint64, error) {
 	var remaining uint64
@@ -337,6 +339,7 @@ func holdersRemaining(dir string) (uint64, error) {
 		if says.UsedBytes < estimate {
 			remaining += estimate - says.UsedBytes
 		}
+		remaining += says.DockerBytes
 	}
 	return remaining, nil
 }
@@ -356,7 +359,9 @@ const lightPlace = "light-"
 var lightName = regexp.MustCompile(`^light-[0-9]{20}-[0-9]+-[0-9]+$`)
 
 // lightRemaining is what the light runs holding a turn in dir may still use:
-// each one's estimate less what it commits now, never below nothing.
+// each one's estimate less what it commits now, never below nothing, and
+// the room Docker needs for one that starts Docker, as holdersRemaining
+// weighs it.
 func lightRemaining(dir string) (uint64, error) {
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
@@ -385,6 +390,7 @@ func lightRemaining(dir string) (uint64, error) {
 		if says.UsedBytes < says.EstimateBytes {
 			remaining += says.EstimateBytes - says.UsedBytes
 		}
+		remaining += says.DockerBytes
 	}
 	return remaining, nil
 }
@@ -505,7 +511,7 @@ func (a Admission) takeLight() (turn Turn, short string, failure error) {
 	if err != nil {
 		return Turn{}, "", err
 	}
-	says := card{Who: a.Who, Task: a.Task, BudgetSeconds: a.Budget.Seconds(), EstimateBytes: a.estimate()}
+	says := card{Who: a.Who, Task: a.Task, BudgetSeconds: a.Budget.Seconds(), EstimateBytes: a.estimate(), IsDocker: a.IsDocker, DockerBytes: a.Docker}
 	if err := a.leave(a.Dir, name, says); err != nil {
 		lock.ReleaseExclusiveNamed(a.Dir, name)
 		return Turn{}, "", err
@@ -1170,7 +1176,7 @@ func (a Admission) take(capacity int, floor uint64) (turn Turn, short string, fa
 		if err != nil {
 			return Turn{}, "", err
 		}
-		says := card{Who: a.Who, Task: a.Task, BudgetSeconds: a.Budget.Seconds(), EstimateBytes: a.estimate()}
+		says := card{Who: a.Who, Task: a.Task, BudgetSeconds: a.Budget.Seconds(), EstimateBytes: a.estimate(), IsDocker: a.IsDocker, DockerBytes: a.Docker}
 		if err := a.leave(a.Dir, name, says); err != nil {
 			lock.ReleaseExclusiveNamed(a.Dir, name)
 			return Turn{}, "", err

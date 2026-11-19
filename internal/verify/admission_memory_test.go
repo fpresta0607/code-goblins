@@ -312,17 +312,21 @@ func hasOverduePlace(t *testing.T, dir string) bool {
 }
 
 // What a holder may still use is its estimate less what it commits now,
-// never below nothing, and a holder that named no estimate, as an older
-// build's, is weighed at the default.
+// never below nothing, and the room Docker needs for one that starts Docker,
+// which no process of the run's holds and so no measure of it lowers (#2808);
+// a holder that named no estimate, as an older build's, is weighed at the
+// default.
 func TestHoldersRemainingWeighsEachHoldersEstimate(t *testing.T) {
 	for name, row := range map[string]struct {
 		says card
 		want uint64
 	}{
-		"an estimate unreached":   {says: card{Who: "a", EstimateBytes: 3 * gigabyte, UsedBytes: gigabyte}, want: 2 * gigabyte},
-		"an estimate passed":      {says: card{Who: "a", EstimateBytes: gigabyte, UsedBytes: 2 * gigabyte}, want: 0},
-		"no estimate on its card": {says: card{Who: "a", UsedBytes: gigabyte / 2}, want: DefaultEstimate - gigabyte/2},
-		"nothing measured":        {says: card{Who: "a", EstimateBytes: 2 * gigabyte}, want: 2 * gigabyte},
+		"an estimate unreached":                       {says: card{Who: "a", EstimateBytes: 3 * gigabyte, UsedBytes: gigabyte}, want: 2 * gigabyte},
+		"an estimate passed":                          {says: card{Who: "a", EstimateBytes: gigabyte, UsedBytes: 2 * gigabyte}, want: 0},
+		"no estimate on its card":                     {says: card{Who: "a", UsedBytes: gigabyte / 2}, want: DefaultEstimate - gigabyte/2},
+		"nothing measured":                            {says: card{Who: "a", EstimateBytes: 2 * gigabyte}, want: 2 * gigabyte},
+		"a run that starts Docker":                    {says: card{Who: "a", EstimateBytes: 3 * gigabyte, UsedBytes: gigabyte, IsDocker: true, DockerBytes: 2 * gigabyte}, want: 4 * gigabyte},
+		"a run that starts Docker, past its estimate": {says: card{Who: "a", EstimateBytes: gigabyte, UsedBytes: 2 * gigabyte, IsDocker: true, DockerBytes: 2 * gigabyte}, want: 2 * gigabyte},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange

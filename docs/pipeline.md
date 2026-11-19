@@ -690,7 +690,7 @@ An older build's run takes its place by when it asked and never moves to the fro
 
 A command also waits while either physical or commit availability is under the shared floor.
 At capacity one the floor is 4 GiB.
-At capacity two it is weighed for the run at the head of the line: what each run holding a slot may still use, its expected memory less what it commits now, then the head's own expected memory and the desktop reserve, and never under 4 GiB.
+At capacity two it is weighed for the run at the head of the line: what each run holding a slot may still use, its expected memory less what it commits now and the room Docker needs for one that starts Docker, then the head's own expected memory and the desktop reserve, and never under 4 GiB.
 A run's expected memory is what `goblins gate turn --memory` declares, or 2.5 GiB without it, and a run's card in the line carries it with what the run commits, measured as it runs.
 At capacity two a run that fits the memory free goes past a run ahead of it that does not fit for its own expected memory, so a run that expects more than the machine has free holds back no run behind it.
 A run that fits goes past a run ahead that does not fit only during that run's first 20 minutes in line.
@@ -703,7 +703,7 @@ An unavailable reading or an hour of floor waiting refuses admission and starts 
 #### Light runs beside the line
 
 A light run takes a turn of its own beside the slots, however many runs hold them or wait for them, once free physical memory and free commit cover its floor.
-Its floor is what each run holding a slot and each light run beside it may still use, its expected memory less what it commits now, then its own expected memory and the desktop reserve.
+Its floor is what each run holding a slot and each light run beside it may still use, its expected memory less what it commits now and the room Docker needs for one that starts Docker, then its own expected memory and the desktop reserve.
 A heavy run still grows toward its expected memory, so a light run admitted on memory a heavy run is about to use would have that run ended at the desktop reserve.
 It is admitted by free memory, never by a count, so any number of light runs go beside the slots while memory covers them.
 A light run names its expected memory and its bound, as `goblins gate turn --light --memory 1GiB --execution-limit 15m` does, or takes no turn.

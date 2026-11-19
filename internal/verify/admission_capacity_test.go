@@ -537,3 +537,35 @@ func TestARunThatFitsPassesOneThatWaitsForDockersRoom(t *testing.T) {
 	}
 	notYet(t, takenDocker, "the run that starts Docker, short of its room")
 }
+
+// A run that starts Docker keeps the room Docker needs for its whole turn,
+// since Docker's engine and virtual machine come up after the turn is taken
+// and no measure of the run's own processes sees them. The review's traced
+// case: a run that starts Docker takes the one slot at 8.5 GiB free (4 + 2.5
+// + 2 GiB), and a light run of 3 GiB at 8.3 GiB free then waits, its floor
+// being the holder's 2.5 GiB and 2 GiB for Docker, its own 3 GiB and the
+// 2 GiB reserve, 9.5 GiB, which it takes once free (#2808).
+func TestAHolderThatStartsDockerKeepsDockersRoomForItsTurn(t *testing.T) {
+	// Arrange
+	var free atomic.Uint64
+	free.Store(17 * gigabyte / 2)
+	a := admission(t)
+	a.Available = func() (uint64, error) { return free.Load(), nil }
+	docker := a
+	docker.IsDocker, docker.Docker = true, 2*gigabyte
+	holder := within(t, take(t, docker), "the run that starts Docker")
+	defer holder.Release()
+	free.Store(83 * gigabyte / 10)
+	light := lightAdmission(a, 3*gigabyte, 0)
+	light.Available = func() (uint64, error) { return free.Load(), nil }
+
+	// Act
+	taken := take(t, light)
+
+	// Assert
+	notYet(t, taken, "a light run of 3 GiB at 8.3 GiB free beside a holder that starts Docker")
+	free.Store(19 * gigabyte / 2)
+	if err := within(t, taken, "the light run, once 9.5 GiB is free").Release(); err != nil {
+		t.Fatal(err)
+	}
+}
