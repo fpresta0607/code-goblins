@@ -35,39 +35,48 @@ CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,created_at INTEGER,status TEX
 INSERT INTO repos VALUES('`+recoveryRepo+`','C:/project','main');
 INSERT INTO runs VALUES('`+recoveryRun+`','`+recoveryRepo+`','`+recoveryBranch+`',1,'failed','`+fixture.submitted+`','`+fixture.submitted+`',NULL,NULL);`)
 	runner := &gateRecoveryRunner{bare: fixture.bare, gateWorktree: fixture.gateWorktree, submitted: fixture.submitted}
+	reader := Reader{Root: fixture.root, Commands: runner}
 
 	// Act
-	result, err := (Reader{Root: fixture.root, Commands: runner}).RecoverKeepLocal(context.Background(), "C:/project", fixture.taskWorktree, recoveryBranch, nil)
+	result, err := reader.RecoverKeepLocal(context.Background(), "C:/project", fixture.taskWorktree, recoveryBranch, nil)
+	pinned, isPinnedBeforeRecovery := runner.pinned, runner.pinnedBeforeRecovery
+	retried, retryErr := reader.RecoverKeepLocal(context.Background(), "C:/project", fixture.taskWorktree, recoveryBranch, nil)
 
 	// Assert
 	if err == nil || !strings.Contains(err.Error(), "native custody recovery exited 1") {
 		t.Fatalf("recover = %v, want the native refusal after the worktree was swept", err)
 	}
-	if runner.pinned == "" || !runner.pinnedBeforeRecovery {
+	if pinned == "" || !isPinnedBeforeRecovery {
 		t.Fatal("the fixer's edits were not pinned before native recovery removed the worktree")
 	}
-	if result.WorktreeEdits != runner.pinned {
-		t.Fatalf("worktree edits = %q, want the pinned commit %q", result.WorktreeEdits, runner.pinned)
+	if result.WorktreeEdits != pinned {
+		t.Fatalf("worktree edits = %q, want the pinned commit %q", result.WorktreeEdits, pinned)
 	}
 	// goblins pipeline recover prints the error of a recovery that stops short
 	// and nothing else of its result, so the error names where the edits are
-	// kept (issue 2755).
-	if !strings.Contains(err.Error(), "unfinished edits are kept at "+runner.pinned+" under "+WorktreeRef(recoveryRun)) {
-		t.Fatalf("recover = %v, want it to name the pinned commit %s under %s", err, runner.pinned, WorktreeRef(recoveryRun))
+	// kept (issue 2755), and so does a recovery run again once native swept
+	// the worktree.
+	for i, refused := range []error{err, retryErr} {
+		if refused == nil || !strings.Contains(refused.Error(), "unfinished edits are kept at "+pinned+" under "+WorktreeRef(recoveryRun)) {
+			t.Fatalf("recovery %d = %v, want it to name the pinned commit %s under %s", i+1, refused, pinned, WorktreeRef(recoveryRun))
+		}
+	}
+	if retried.WorktreeEdits != pinned {
+		t.Fatalf("worktree edits of the recovery run again = %q, want the pinned commit %q", retried.WorktreeEdits, pinned)
 	}
 	if _, err := os.Stat(fixture.gateWorktree); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("gate worktree survived the fixture's sweep: %v", err)
 	}
-	if got := fixture.git(t, "rev-parse", WorktreeRef(recoveryRun)); got != runner.pinned {
-		t.Fatalf("%s = %s, want %s", WorktreeRef(recoveryRun), got, runner.pinned)
+	if got := fixture.git(t, "rev-parse", WorktreeRef(recoveryRun)); got != pinned {
+		t.Fatalf("%s = %s, want %s", WorktreeRef(recoveryRun), got, pinned)
 	}
-	if parent := fixture.git(t, "rev-parse", runner.pinned+"^"); parent != fixture.submitted {
+	if parent := fixture.git(t, "rev-parse", pinned+"^"); parent != fixture.submitted {
 		t.Fatalf("preserved commit's parent = %s, want the run head %s", parent, fixture.submitted)
 	}
-	if changes := fixture.git(t, "show", "--name-status", "--format=", runner.pinned); changes != "D\tapp.go\nM\tpage.tsx\nA\trepair_test.go" {
+	if changes := fixture.git(t, "show", "--name-status", "--format=", pinned); changes != "D\tapp.go\nM\tpage.tsx\nA\trepair_test.go" {
 		t.Fatalf("preserved changes:\n%s\nwant the fixer's edit, deletion and untracked test", changes)
 	}
-	if repaired := fixture.git(t, "cat-file", "-p", runner.pinned+":page.tsx"); repaired != "export const page = 2; // repaired" {
+	if repaired := fixture.git(t, "cat-file", "-p", pinned+":page.tsx"); repaired != "export const page = 2; // repaired" {
 		t.Fatalf("preserved page.tsx = %q", repaired)
 	}
 }

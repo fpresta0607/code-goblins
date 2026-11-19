@@ -288,6 +288,10 @@ func (r *recoveryRunner) Run(_ context.Context, request execx.Request) (execx.Re
 			return execx.Result{}, nil
 		case strings.HasPrefix(joined, "merge-base --is-ancestor "):
 			return execx.Result{ExitCode: 1}, nil
+		case joined == "symbolic-ref --quiet "+WorktreeRef(scenario.run):
+			return execx.Result{ExitCode: 1}, nil
+		case joined == "show-ref --exists "+WorktreeRef(scenario.run):
+			return execx.Result{ExitCode: 2}, nil
 		case strings.HasPrefix(joined, "symbolic-ref --quiet refs/no-mistakes/recovery/") && r.anchorSymbolic:
 			return execx.Result{Stdout: []byte("refs/heads/" + scenario.branch + "\n")}, nil
 		case strings.HasPrefix(joined, "symbolic-ref --quiet refs/no-mistakes/"):
@@ -541,14 +545,21 @@ func TestRecoverKeepLocalReturnsCustodyOnlyFromAGateRebaseOrMergeOfTheSubmittedH
 		// holds: by default the recorded head, which native pins when an
 		// unpublished run ends; "none" for a run that ended without it;
 		// "interrupted" for issue 2755's run, whose recovery moved its recorded
-		// head to the submitted head and was then refused on that anchor; or
-		// "another commit".
+		// head to the submitted head and was then refused on that anchor;
+		// "moved" for that run once its task and gate branches moved on to
+		// another commit; "stopped" for a recovery that anchored the recorded
+		// head and stopped before it recorded the submitted head; "carried"
+		// for one that also moved that anchor to the submitted head and
+		// stopped before native recovered; or "another commit".
 		nativeAnchor string
 		isRecovered  bool
 	}{
 		{name: "rebase onto published main", isRebased: true, remoteHolds: "upstream", isRecovered: true},
 		{name: "rebase onto published main that native never anchored", isRebased: true, remoteHolds: "upstream", nativeAnchor: "none", isRecovered: true},
 		{name: "merge of published main after a recovery its native anchor refused", isMerged: true, remoteHolds: "upstream", nativeAnchor: "interrupted", isRecovered: true},
+		{name: "merge of published main after a recovery its native anchor refused and a move of its gate branch", isMerged: true, remoteHolds: "upstream", nativeAnchor: "moved"},
+		{name: "merge of published main after a recovery that stopped before recording the submitted head", isMerged: true, remoteHolds: "upstream", nativeAnchor: "stopped", isRecovered: true},
+		{name: "merge of published main after a recovery that carried its native anchor and stopped", isMerged: true, remoteHolds: "upstream", nativeAnchor: "carried", isRecovered: true},
 		{name: "merge of published main whose native anchor names another commit", isMerged: true, remoteHolds: "upstream", nativeAnchor: "another commit"},
 		{name: "rebase onto a base no remote holds", isRebased: true, remoteHolds: "base"},
 		{name: "rebase with a gate fix commit", isRebased: true, hasFixCommit: true, remoteHolds: "upstream"},
@@ -636,18 +647,31 @@ func TestRecoverKeepLocalReturnsCustodyOnlyFromAGateRebaseOrMergeOfTheSubmittedH
 			}[test.remoteHolds]
 			runPipelineGit(t, work, "push", "--quiet", bare, submitted+":refs/heads/"+branch, recorded+":refs/fixture/run", remote)
 			nativeAnchor := "refs/no-mistakes/recover/" + run
-			pinned := map[string]string{"": recorded, "interrupted": recorded, "another commit": upstream}[test.nativeAnchor]
+			pinned := map[string]string{"": recorded, "interrupted": recorded, "moved": recorded, "stopped": recorded, "carried": submitted, "another commit": upstream}[test.nativeAnchor]
 			if pinned != "" {
 				runPipelineGit(t, bare, "update-ref", nativeAnchor, pinned)
 			}
-			head := recorded
-			if test.nativeAnchor == "interrupted" {
+			isReleased := test.nativeAnchor == "interrupted" || test.nativeAnchor == "moved"
+			head, kept, callerPinned := recorded, "", ""
+			switch {
+			case isReleased:
 				// The driver anchored the merge and recorded the submitted head,
 				// and native's recovery then verified that head, anchored it in
 				// the task's repository and refused on the gate's anchor.
-				head = submitted
-				runPipelineGit(t, bare, "update-ref", "refs/no-mistakes/recovery/"+run+"/recorded", recorded)
-				runPipelineGit(t, work, "update-ref", nativeAnchor, submitted)
+				head, kept, callerPinned = submitted, recorded, submitted
+				runPipelineGit(t, work, "update-ref", nativeAnchor, callerPinned)
+			case test.nativeAnchor == "stopped":
+				kept = recorded
+			case test.nativeAnchor == "carried":
+				head, kept = submitted, recorded
+			}
+			if kept != "" {
+				runPipelineGit(t, bare, "update-ref", "refs/no-mistakes/recovery/"+run+"/recorded", kept)
+			}
+			want := submitted
+			if test.nativeAnchor == "moved" {
+				want = commit("corrected.txt", "corrected\n")
+				runPipelineGit(t, work, "push", "--quiet", bare, want+":refs/heads/"+branch)
 			}
 			sql := `CREATE TABLE repos(id TEXT,working_path TEXT);
 CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,status TEXT,head_sha TEXT,submitted_head_sha TEXT,last_pushed_sha TEXT,custody_returned_at INTEGER,created_at INTEGER,updated_at INTEGER);
@@ -656,7 +680,7 @@ INSERT INTO runs VALUES(` + sqlString(run) + `,` + sqlString(repo) + `,` + sqlSt
 			if out, err := exec.Command("sqlite3", database, sql).CombinedOutput(); err != nil {
 				t.Fatalf("fixture: %s %v", out, err)
 			}
-			runner := &gateRebaseRunner{database: database, bare: bare, branch: branch, run: run, submitted: submitted, isRecovered: test.nativeAnchor == "interrupted"}
+			runner := &gateRebaseRunner{database: database, bare: bare, branch: branch, run: run, submitted: submitted, isRecovered: isReleased}
 			reader := Reader{Root: root, Commands: runner}
 
 			// Act
@@ -670,24 +694,30 @@ INSERT INTO runs VALUES(` + sqlString(run) + `,` + sqlString(repo) + `,` + sqlSt
 			anchored, _ := exec.Command("git", "--git-dir="+bare, "rev-parse", "--verify", "--quiet", "refs/no-mistakes/recovery/"+run+"/recorded").Output()
 			callerAnchor, _ := exec.Command("git", "-C", work, "rev-parse", "--verify", "--quiet", nativeAnchor).Output()
 			gateAnchor, _ := exec.Command("git", "--git-dir="+bare, "rev-parse", "--verify", "--quiet", nativeAnchor).Output()
-			if local := runPipelineGit(t, work, "rev-parse", "HEAD"); local != submitted {
-				t.Fatalf("local head moved from %s to %s", submitted, local)
+			if local := runPipelineGit(t, work, "rev-parse", "HEAD"); local != want {
+				t.Fatalf("local head moved from %s to %s", want, local)
 			}
-			if gate := runPipelineGit(t, bare, "rev-parse", "refs/heads/"+branch); gate != submitted {
-				t.Fatalf("gate branch moved from %s to %s", submitted, gate)
+			if gate := runPipelineGit(t, bare, "rev-parse", "refs/heads/"+branch); gate != want {
+				t.Fatalf("gate branch moved from %s to %s", want, gate)
 			}
 			if !test.isRecovered {
 				refusals := []string{"neither an ancestor of the submitted head nor the gate's rebase", "at the recorded head " + recorded}
-				if test.nativeAnchor == "another commit" {
+				switch test.nativeAnchor {
+				case "another commit":
 					refusals = []string{"native recovery anchor " + nativeAnchor + " names " + upstream + ", not the recorded head " + recorded}
+				case "moved":
+					refusals = []string{"preserved gate branch is unsafe: refs/heads/" + branch + " does not equal " + submitted}
 				}
 				for _, refusal := range refusals {
 					if err == nil || !strings.Contains(err.Error(), refusal) {
 						t.Fatalf("recover = %v, want it refused saying %q", err, refusal)
 					}
 				}
-				if runner.isRecovered || len(anchored) != 0 || strings.TrimSpace(string(heads)) != recorded+" "+submitted || len(callerAnchor) != 0 || strings.TrimSpace(string(gateAnchor)) != pinned {
-					t.Fatalf("unsafe recovery: native recovered=%t anchor=%q heads=%q native anchors %q in the task's repository and %q in the gate, want the gate's alone at %s", runner.isRecovered, anchored, heads, callerAnchor, gateAnchor, pinned)
+				if strings.Contains(err.Error(), "unfinished edits") {
+					t.Fatalf("recover = %v, want no word of unfinished edits from a run that kept none", err)
+				}
+				if runner.isRecovered != isReleased || strings.TrimSpace(string(anchored)) != kept || strings.TrimSpace(string(heads)) != head+" "+submitted || strings.TrimSpace(string(callerAnchor)) != callerPinned || strings.TrimSpace(string(gateAnchor)) != pinned {
+					t.Fatalf("unsafe recovery: native recovered=%t anchor=%q heads=%q native anchors %q in the task's repository and %q in the gate, want them unchanged from %t, %q, %q, %q and %q", runner.isRecovered, anchored, heads, callerAnchor, gateAnchor, isReleased, kept, head+" "+submitted, callerPinned, pinned)
 				}
 				return
 			}
