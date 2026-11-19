@@ -721,7 +721,7 @@ func TestSendNowSeesEachOfItsKeysTakenWithinAFewFramesOfTheScreen(t *testing.T) 
 			shown, changed = screen, time.Time{}
 		} else if changed.IsZero() {
 			changed = time.Now()
-		} else if time.Since(changed) >= drawLag {
+		} else if time.Since(changed) >= drawLag { // stall-accepted: a stall cannot fail it, since it only holds back what the fake screen shows, and a stall only shows the change sooner.
 			shown, changed = screen, time.Time{}
 		}
 		looks = append(looks, look{began: began, ended: time.Now(), isOnPromptLine: claude.ComposerHoldsAllOf(shown, "use the staging database")})
@@ -744,6 +744,7 @@ func TestSendNowSeesEachOfItsKeysTakenWithinAFewFramesOfTheScreen(t *testing.T) 
 			continue
 		}
 		changes++
+		// stall-accepted: it times the looks, and the wait it rules out is the delivery's look every 250 ms before #2759, which no bound that outlasts a stall can tell apart.
 		if gap := looks[i].began.Sub(looks[i-1].ended); gap > 200*time.Millisecond {
 			t.Errorf("the delivery saw its line on the prompt line = %t on a look %s after its look before; want it within a few frames", looks[i].isOnPromptLine, gap)
 		}
