@@ -212,7 +212,9 @@ func (reader Reader) changedFiles(ctx context.Context, worktree, from, to string
 
 // namedText is what names the files a correction of run may touch: the end
 // of its step's log and its findings' descriptions, with every path written
-// with forward slashes. A step that left no log is named by its findings.
+// with forward slashes: on Windows a backslash is rewritten as one, and
+// elsewhere a backslash is no separator and stays. A step that left no log is
+// named by its findings.
 func (run Handback) namedText() (string, error) {
 	var text bytes.Buffer
 	for _, finding := range run.Findings {
@@ -220,7 +222,7 @@ func (run Handback) namedText() (string, error) {
 	}
 	file, err := fsx.Open(run.Log)
 	if errors.Is(err, os.ErrNotExist) {
-		return strings.ReplaceAll(text.String(), `\`, "/"), nil
+		return filepath.ToSlash(text.String()), nil
 	}
 	if err != nil {
 		return "", fmt.Errorf("pipeline: run %s's %s log cannot be read: %w", run.RunID, run.Step, err)
@@ -236,7 +238,7 @@ func (run Handback) namedText() (string, error) {
 	if _, err := io.Copy(&text, file); err != nil {
 		return "", fmt.Errorf("pipeline: run %s's %s log cannot be read: %w", run.RunID, run.Step, err)
 	}
-	return strings.ReplaceAll(text.String(), `\`, "/"), nil
+	return filepath.ToSlash(text.String()), nil
 }
 
 // isNamed reports whether text names file, by one of two rules. Its path
@@ -255,7 +257,7 @@ func isNamed(text, file string, roots, own []string) bool {
 	isAnchored := func(before string) bool {
 		return strings.HasSuffix(before, "./") && isOpen(before[:len(before)-2]) || slices.ContainsFunc(roots, func(root string) bool {
 			root += "/"
-			return len(before) >= len(root) && strings.EqualFold(before[len(before)-len(root):], root)
+			return len(before) >= len(root) && fsx.EqualPath(root, before[len(before)-len(root):])
 		})
 	}
 	isPathStart := isAnchored

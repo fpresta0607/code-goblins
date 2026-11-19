@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 type InterruptedRun struct {
@@ -184,7 +185,7 @@ func sameFolder(got, want string) bool {
 	if gotErr == nil && wantErr == nil && os.SameFile(gotInfo, wantInfo) {
 		return true
 	}
-	return strings.EqualFold(filepath.Clean(got), filepath.Clean(want))
+	return fsx.EqualPath(filepath.Clean(got), filepath.Clean(want))
 }
 
 // preserveRunWorktreeEdits keeps whatever unfinished changes a failed or

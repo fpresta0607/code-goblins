@@ -58,7 +58,7 @@ func admissionDir(named string, isTest bool) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if !strings.EqualFold(absolute, canonical) {
+		if !fsx.EqualPath(absolute, canonical) {
 			return "", errors.New("verify: production admission cannot use a private store")
 		}
 	}
