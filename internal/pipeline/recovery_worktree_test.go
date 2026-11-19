@@ -49,6 +49,12 @@ INSERT INTO runs VALUES('`+recoveryRun+`','`+recoveryRepo+`','`+recoveryBranch+`
 	if result.WorktreeEdits != runner.pinned {
 		t.Fatalf("worktree edits = %q, want the pinned commit %q", result.WorktreeEdits, runner.pinned)
 	}
+	// goblins pipeline recover prints the error of a recovery that stops short
+	// and nothing else of its result, so the error names where the edits are
+	// kept (issue 2755).
+	if !strings.Contains(err.Error(), "unfinished edits are kept at "+runner.pinned+" under "+WorktreeRef(recoveryRun)) {
+		t.Fatalf("recover = %v, want it to name the pinned commit %s under %s", err, runner.pinned, WorktreeRef(recoveryRun))
+	}
 	if _, err := os.Stat(fixture.gateWorktree); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("gate worktree survived the fixture's sweep: %v", err)
 	}

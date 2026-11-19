@@ -450,7 +450,13 @@ func TestRecoverKeepLocalCreatesSHA256RecoveryAnchor(t *testing.T) {
 
 // gateRebaseRunner runs git and sqlite3 for real and stands in for the
 // no-mistakes engine, which returns custody of a failed run only once the
-// run's recorded head is the gate branch's head, as its unverified-head check does.
+// run's recorded head is the gate branch's head, as its unverified-head check
+// does, and only while its run recovery anchor, refs/no-mistakes/recover/<run>,
+// is absent or names that head in the task's repository and in the gate. It
+// anchors the head in the task's repository before it reads the gate's, as
+// native recovery does. A runner that starts recovered is the engine after its
+// own refused recovery verified a recorded head that is the submitted head,
+// which releases the branch to the user (issue 2755).
 type gateRebaseRunner struct {
 	database, bare, branch, run, submitted string
 	isRecovered                            bool
@@ -462,16 +468,44 @@ func (r *gateRebaseRunner) Run(ctx context.Context, request execx.Request) (exec
 	}
 	switch strings.Join(request.Args, " ") {
 	case "axi sync --recover --keep-local":
-		recorded, err := exec.Command("sqlite3", r.database, "SELECT head_sha FROM runs WHERE id="+sqlString(r.run)).Output()
+		row, err := exec.Command("sqlite3", r.database, "SELECT head_sha FROM runs WHERE id="+sqlString(r.run)).Output()
 		if err != nil {
 			return execx.Result{}, err
 		}
+		recorded := strings.TrimSpace(string(row))
 		gate, err := exec.Command("git", "--git-dir="+r.bare, "rev-parse", "refs/heads/"+r.branch).Output()
 		if err != nil {
 			return execx.Result{}, err
 		}
-		if strings.TrimSpace(string(recorded)) != strings.TrimSpace(string(gate)) {
+		if recorded != strings.TrimSpace(string(gate)) {
 			return execx.Result{ExitCode: 1, Stdout: []byte("safety: blocked_recover_unverified_head\n")}, nil
+		}
+		anchor := "refs/no-mistakes/recover/" + r.run
+		readAnchor := func(repository ...string) (string, error) {
+			pinned, err := exec.Command("git", append(repository, "rev-parse", "--verify", "--quiet", anchor)...).Output()
+			if exitErr := (*exec.ExitError)(nil); errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+				return "", nil
+			}
+			return strings.TrimSpace(string(pinned)), err
+		}
+		mismatch := execx.Result{ExitCode: 1, Stdout: []byte("safety: blocked_recover_anchor_mismatch\n")}
+		caller, err := readAnchor("-C", request.Dir)
+		if err != nil {
+			return execx.Result{}, err
+		}
+		switch caller {
+		case "":
+			if out, err := exec.Command("git", "-C", request.Dir, "update-ref", anchor, recorded, strings.Repeat("0", len(recorded))).CombinedOutput(); err != nil {
+				return execx.Result{}, fmt.Errorf("anchor the recorded head: %s %w", out, err)
+			}
+		case recorded:
+		default:
+			return mismatch, nil
+		}
+		if pinned, err := readAnchor("--git-dir=" + r.bare); err != nil {
+			return execx.Result{}, err
+		} else if pinned != "" && pinned != recorded {
+			return mismatch, nil
 		}
 		r.isRecovered = true
 		return execx.Result{Stdout: []byte("custody returned\n")}, nil
@@ -503,9 +537,19 @@ func TestRecoverKeepLocalReturnsCustodyOnlyFromAGateRebaseOrMergeOfTheSubmittedH
 		hasFixCommit  bool
 		isAmended     bool
 		remoteHolds   string
-		isRecovered   bool
+		// nativeAnchor is what the gate's refs/no-mistakes/recover/<run>
+		// holds: by default the recorded head, which native pins when an
+		// unpublished run ends; "none" for a run that ended without it;
+		// "interrupted" for issue 2755's run, whose recovery moved its recorded
+		// head to the submitted head and was then refused on that anchor; or
+		// "another commit".
+		nativeAnchor string
+		isRecovered  bool
 	}{
 		{name: "rebase onto published main", isRebased: true, remoteHolds: "upstream", isRecovered: true},
+		{name: "rebase onto published main that native never anchored", isRebased: true, remoteHolds: "upstream", nativeAnchor: "none", isRecovered: true},
+		{name: "merge of published main after a recovery its native anchor refused", isMerged: true, remoteHolds: "upstream", nativeAnchor: "interrupted", isRecovered: true},
+		{name: "merge of published main whose native anchor names another commit", isMerged: true, remoteHolds: "upstream", nativeAnchor: "another commit"},
 		{name: "rebase onto a base no remote holds", isRebased: true, remoteHolds: "base"},
 		{name: "rebase with a gate fix commit", isRebased: true, hasFixCommit: true, remoteHolds: "upstream"},
 		{name: "rebase whose conflict the gate resolved", isRebased: true, isConflicting: true, remoteHolds: "upstream"},
@@ -591,14 +635,28 @@ func TestRecoverKeepLocalReturnsCustodyOnlyFromAGateRebaseOrMergeOfTheSubmittedH
 				"recorded": recorded + ":refs/remotes/origin/" + branch,
 			}[test.remoteHolds]
 			runPipelineGit(t, work, "push", "--quiet", bare, submitted+":refs/heads/"+branch, recorded+":refs/fixture/run", remote)
+			nativeAnchor := "refs/no-mistakes/recover/" + run
+			pinned := map[string]string{"": recorded, "interrupted": recorded, "another commit": upstream}[test.nativeAnchor]
+			if pinned != "" {
+				runPipelineGit(t, bare, "update-ref", nativeAnchor, pinned)
+			}
+			head := recorded
+			if test.nativeAnchor == "interrupted" {
+				// The driver anchored the merge and recorded the submitted head,
+				// and native's recovery then verified that head, anchored it in
+				// the task's repository and refused on the gate's anchor.
+				head = submitted
+				runPipelineGit(t, bare, "update-ref", "refs/no-mistakes/recovery/"+run+"/recorded", recorded)
+				runPipelineGit(t, work, "update-ref", nativeAnchor, submitted)
+			}
 			sql := `CREATE TABLE repos(id TEXT,working_path TEXT);
 CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,status TEXT,head_sha TEXT,submitted_head_sha TEXT,last_pushed_sha TEXT,custody_returned_at INTEGER,created_at INTEGER,updated_at INTEGER);
 INSERT INTO repos VALUES(` + sqlString(repo) + `,` + sqlString(filepath.ToSlash(work)) + `);
-INSERT INTO runs VALUES(` + sqlString(run) + `,` + sqlString(repo) + `,` + sqlString(branch) + `,'failed',` + sqlString(recorded) + `,` + sqlString(submitted) + `,NULL,NULL,1,1);`
+INSERT INTO runs VALUES(` + sqlString(run) + `,` + sqlString(repo) + `,` + sqlString(branch) + `,'failed',` + sqlString(head) + `,` + sqlString(submitted) + `,NULL,NULL,1,1);`
 			if out, err := exec.Command("sqlite3", database, sql).CombinedOutput(); err != nil {
 				t.Fatalf("fixture: %s %v", out, err)
 			}
-			runner := &gateRebaseRunner{database: database, bare: bare, branch: branch, run: run, submitted: submitted}
+			runner := &gateRebaseRunner{database: database, bare: bare, branch: branch, run: run, submitted: submitted, isRecovered: test.nativeAnchor == "interrupted"}
 			reader := Reader{Root: root, Commands: runner}
 
 			// Act
@@ -610,6 +668,8 @@ INSERT INTO runs VALUES(` + sqlString(run) + `,` + sqlString(repo) + `,` + sqlSt
 				t.Fatal(queryErr)
 			}
 			anchored, _ := exec.Command("git", "--git-dir="+bare, "rev-parse", "--verify", "--quiet", "refs/no-mistakes/recovery/"+run+"/recorded").Output()
+			callerAnchor, _ := exec.Command("git", "-C", work, "rev-parse", "--verify", "--quiet", nativeAnchor).Output()
+			gateAnchor, _ := exec.Command("git", "--git-dir="+bare, "rev-parse", "--verify", "--quiet", nativeAnchor).Output()
 			if local := runPipelineGit(t, work, "rev-parse", "HEAD"); local != submitted {
 				t.Fatalf("local head moved from %s to %s", submitted, local)
 			}
@@ -617,8 +677,17 @@ INSERT INTO runs VALUES(` + sqlString(run) + `,` + sqlString(repo) + `,` + sqlSt
 				t.Fatalf("gate branch moved from %s to %s", submitted, gate)
 			}
 			if !test.isRecovered {
-				if err == nil || !strings.Contains(err.Error(), "neither an ancestor of the submitted head nor the gate's rebase") || !strings.Contains(err.Error(), "at the recorded head "+recorded) || runner.isRecovered || len(anchored) != 0 || strings.TrimSpace(string(heads)) != recorded+" "+submitted {
-					t.Fatalf("unsafe recovery: error=%v native recovered=%t anchor=%q heads=%q", err, runner.isRecovered, anchored, heads)
+				refusals := []string{"neither an ancestor of the submitted head nor the gate's rebase", "at the recorded head " + recorded}
+				if test.nativeAnchor == "another commit" {
+					refusals = []string{"native recovery anchor " + nativeAnchor + " names " + upstream + ", not the recorded head " + recorded}
+				}
+				for _, refusal := range refusals {
+					if err == nil || !strings.Contains(err.Error(), refusal) {
+						t.Fatalf("recover = %v, want it refused saying %q", err, refusal)
+					}
+				}
+				if runner.isRecovered || len(anchored) != 0 || strings.TrimSpace(string(heads)) != recorded+" "+submitted || len(callerAnchor) != 0 || strings.TrimSpace(string(gateAnchor)) != pinned {
+					t.Fatalf("unsafe recovery: native recovered=%t anchor=%q heads=%q native anchors %q in the task's repository and %q in the gate, want the gate's alone at %s", runner.isRecovered, anchored, heads, callerAnchor, gateAnchor, pinned)
 				}
 				return
 			}
@@ -633,6 +702,13 @@ INSERT INTO runs VALUES(` + sqlString(run) + `,` + sqlString(repo) + `,` + sqlSt
 			}
 			if strings.TrimSpace(string(heads)) != submitted+" "+submitted {
 				t.Fatalf("recorded heads %q, want both at %s", heads, submitted)
+			}
+			wantGateAnchor := submitted
+			if test.nativeAnchor == "none" {
+				wantGateAnchor = ""
+			}
+			if strings.TrimSpace(string(callerAnchor)) != submitted || strings.TrimSpace(string(gateAnchor)) != wantGateAnchor {
+				t.Fatalf("native recovery anchors %q in the task's repository and %q in the gate, want %s and %q, since native recovery and terminal preflight refuse an anchor that is not the recorded head", callerAnchor, gateAnchor, submitted, wantGateAnchor)
 			}
 		})
 	}
