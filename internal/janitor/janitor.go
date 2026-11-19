@@ -59,6 +59,11 @@ type Config struct {
 	// list was read before anything is removed on the strength of it.
 	SelfPID int
 	Now     time.Time
+	// IsTight is free disk under the clean mark (fleetconfig's CleanMark),
+	// where the sweep frees what is safe at once: a finished task's scratch
+	// folder an hour after its last write rather than a day, and the caches
+	// down to their tight cap.
+	IsTight bool
 	// StopServices stops every local services stack goblins services started
 	// that no live task holds, and the Docker engine goblins started once
 	// nothing it started runs on it, and says what it stopped. Nil stops
@@ -90,6 +95,10 @@ type Config struct {
 	// beside the home: the one the gate runs from, and the Dev Drive's when
 	// that is another. None measures no gate home.
 	GateHomes []string
+	// GateRoot is the gate's home the gate runs from, whose database and
+	// worktrees folder the sweep reads for finished runs' checkouts kept past
+	// the gate's retention. Empty reads none.
+	GateRoot string
 }
 
 // Item is one thing a sweep removed, kept or reports.
@@ -166,7 +175,7 @@ func Sweep(ctx context.Context, cfg Config) Record {
 		cfg.retireMovedCaches(&record)
 		cfg.removeStaleBrowserSessions(&record)
 	}
-	cfg.trimCaches(ctx, &record)
+	cfg.trimCaches(ctx, ok, &record)
 	cfg.stopServices(ctx, &record)
 	cfg.sweepProcesses(ctx, &record)
 	cfg.reportProjectsRoot(&record)
@@ -177,6 +186,13 @@ func Sweep(ctx context.Context, cfg Config) Record {
 	record.Buckets = Measure(cfg.Home, metas, cfg.VerificationStore)
 	if len(cfg.GateHomes) > 0 {
 		record.Gate = MeasureGate(cfg.GateHomes)
+		if cfg.GateRoot != "" {
+			past, err := gatePastRetention(ctx, cfg.GateRoot)
+			if err != nil {
+				record.Notes = append(record.Notes, "the gate's finished runs kept past its retention could not be read: "+err.Error())
+			}
+			record.Gate.PastRetention = past
+		}
 	}
 	cfg.reportDataSize(&record)
 	cfg.reportBacklogHistory(&record)

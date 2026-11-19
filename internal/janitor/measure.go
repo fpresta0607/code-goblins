@@ -51,6 +51,9 @@ type GateHome struct {
 	// IsIncomplete is a folder holding an entry the sweep could not read,
 	// whose bytes are then what it could count.
 	IsIncomplete bool `json:"incomplete,omitempty"`
+	// PastRetention is what the gate's home keeps past its own retention, nil
+	// when the sweep could not read it or the gate keeps every checkout.
+	PastRetention *GatePastRetention `json:"past_retention,omitempty"`
 }
 
 // MeasureGate measures the gate home's folders. Links are not followed, so a
