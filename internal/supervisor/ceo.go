@@ -545,6 +545,14 @@ const (
 	nativeConfirmPoll = 250 * time.Millisecond
 )
 
+// nativeKeyPoll spaces the looks of a delivery to the native CEO that waits
+// for its screen to show a key taken before it presses the next. On
+// 2026-11-19 a Claude Code 2.1.328 drew typed words 46 ms after they went and
+// queued them 35 ms after their Enter, and looks nativeConfirmPoll apart saw
+// each a quarter second late, so a message sent now reached its model 962 ms
+// after his press, against 173 ms for one already in its queue (#2759).
+const nativeKeyPoll = 50 * time.Millisecond
+
 // nativeShown bounds how long a delivery to the native CEO waits for the
 // text it typed to show on the CEO's prompt line, in time the machine ran. A
 // harness busy in a turn reads its input late: on 2026-11-10 the live CEO's
@@ -737,7 +745,7 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 			return unsent("The answer was typed but never showed in the CEO's input.")
 		}
 		select {
-		case <-time.After(nativeConfirmPoll):
+		case <-time.After(nativeKeyPoll):
 		case <-ctx.Done():
 			return unsent("The answer was typed into the CEO's terminal, and the wait to see it there ended before it showed.")
 		}
@@ -776,12 +784,13 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 	// or not (the Overlord, 2026-11-13: "just queues the message and puts it
 	// into the chat input, but doesn't actually fire the message and then
 	// start the turn", #2541). The key is pressed again as often as its
-	// harness's screens allow once two reads in a row show the words alone
-	// over the row it added, as for a goblin: a screen is read a row at a
-	// time, so one read can join the prompt row drawn before a redraw to the
-	// rows under it drawn after, and show his words alone over that row though
-	// words beside them came in the same redraw.
-	atPress, presses, isOverNewRow := screen, 0, false
+	// harness's screens allow once every read for nativeConfirmPoll shows the
+	// words alone over the row it added, as for a goblin: a screen is read a
+	// row at a time, so one read can join the prompt row drawn before a redraw
+	// to the rows under it drawn after, and show his words alone over that row
+	// though words beside them came in the same redraw, and reads nativeKeyPoll
+	// apart can meet the same redraw more than once (#2759).
+	atPress, presses, overNewRowSince := screen, 0, time.Time{}
 	// A screen is read a row at a time, so a read as the harness redraws can
 	// join rows of two frames, and under load a frame can stay half drawn for
 	// more than one read: on 2026-11-17 reads of a loaded Claude Code fixture
@@ -802,15 +811,20 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 		return screens.ComposerHoldsPartOf(screen, instruction) || screens.ComposerHoldsAllOf(screen, instruction)
 	}
 	pressAgain := func(screen []string) (bool, error) {
-		wasOverNewRow := isOverNewRow
-		isOverNewRow = screens.ComposerHoldsPartOf(screen, instruction) && screens.TookEnterAsNewLine(atPress, screen)
-		if presses >= screens.Resubmits || !isOverNewRow || !wasOverNewRow {
+		if !screens.ComposerHoldsPartOf(screen, instruction) || !screens.TookEnterAsNewLine(atPress, screen) {
+			overNewRowSince = time.Time{}
+			return false, nil
+		}
+		if overNewRowSince.IsZero() {
+			overNewRowSince = time.Now()
+		}
+		if presses >= screens.Resubmits || time.Since(overNewRowSince) < nativeConfirmPoll {
 			return false, nil
 		}
 		if err := delivery.Write([]byte(submit)); err != nil {
 			return false, err
 		}
-		atPress, presses, isOverNewRow = screen, presses+1, false
+		atPress, presses, overNewRowSince = screen, presses+1, time.Time{}
 		return true, nil
 	}
 	// A CEO in a turn takes the answer at its next tool call, and its prompt
@@ -874,7 +888,7 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 						return heldOrUnsent("The message was typed into the CEO's turn, and the wait to see it leave the prompt line ended before it did.")
 					}
 					select {
-					case <-time.After(nativeConfirmPoll):
+					case <-time.After(nativeKeyPoll):
 						continue
 					case <-ctx.Done():
 						return heldOrUnsent("The message was typed into the CEO's turn, and the wait to see it leave the prompt line ended before it did.")
@@ -899,7 +913,7 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 					return heldOrUnsent("The message stayed on the CEO's prompt line after its submit key, so the CEO's turn never queued it.")
 				}
 				select {
-				case <-time.After(nativeConfirmPoll):
+				case <-time.After(nativeKeyPoll):
 				case <-ctx.Done():
 					return heldOrUnsent("The message was typed into the CEO's turn, and the wait to see it leave the prompt line ended before it did.")
 				}
@@ -928,7 +942,7 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 					break
 				}
 				select {
-				case <-time.After(nativeConfirmPoll):
+				case <-time.After(nativeKeyPoll):
 				case <-ctx.Done():
 					return Evaluation{Awaiting: waiting}, fmt.Errorf("the CEO's send-now key was not pressed: %w", ctx.Err())
 				}

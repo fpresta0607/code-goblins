@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -421,6 +422,88 @@ func TestSendNowInterruptsTheCEOsTurnAndDeliversHisMessageOnce(t *testing.T) {
 			}
 			if sent := store.Snapshot().Actions[0]; !sent.IsSentNow || sent.CanSendNow || sent.Status != "running" || sent.Awaiting == nil || sent.Message != sentNowInTurn {
 				t.Errorf("after Send now = %+v; want it typed into the turn, awaiting the CEO, and Send now gone", sent)
+			}
+		})
+	}
+}
+
+// Send now on his message in its undo window types it into the CEO's turn,
+// submits it and presses the harness's send-now key, each once the screen
+// shows the key before it taken. On 2026-11-19 a Claude Code 2.1.328 drew his
+// typed words 46 ms after they went and queued them 35 ms after their Enter,
+// but the board looked at its screen only every 250 ms and saw each a quarter
+// second late, so its model had the message 962 ms after his press, against
+// 173 ms for one already in its queue (#2759). The board looks again within a
+// few frames of a look that did not yet show its key taken.
+func TestSendNowSeesEachOfItsKeysTakenWithinAFewFramesOfTheCEOsScreen(t *testing.T) {
+	// drawLag is how long the screen takes to show a change, so the look that
+	// first meets one never shows it, as a look just after a key meets a
+	// harness that has not drawn that key yet.
+	const drawLag = 40 * time.Millisecond
+	for _, test := range []struct{ mode, harness, interrupt string }{
+		{mode: "claude-busy", harness: "claude", interrupt: "sent now"},
+		{mode: "busy", harness: "codex", interrupt: "interrupted"},
+	} {
+		t.Run(test.harness, func(t *testing.T) {
+			// Arrange
+			useConversations(t)
+			store, home := testStore(t)
+			terminal := nativeCEOComposer(t, home.State, test.mode)
+			screens, _ := harness.NativeScreens(harness.Kind(test.harness))
+			type look struct {
+				began, ended   time.Time
+				isOnPromptLine bool
+			}
+			var mu sync.Mutex
+			var looks []look
+			var shown []string
+			var changed time.Time
+			read := func(record host.Record) ([]string, error) {
+				began := time.Now()
+				screen, err := host.ReadScreen(record)
+				if err != nil {
+					return nil, err
+				}
+				mu.Lock()
+				defer mu.Unlock()
+				if shown == nil || slices.Equal(screen, shown) {
+					shown, changed = screen, time.Time{}
+				} else if changed.IsZero() {
+					changed = time.Now()
+				} else if time.Since(changed) >= drawLag {
+					shown, changed = screen, time.Time{}
+				}
+				looks = append(looks, look{began: began, ended: time.Now(), isOnPromptLine: screens.ComposerHoldsAllOf(shown, "stop and rebase")})
+				return shown, nil
+			}
+			service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: home.State, ReadScreen: read}}}
+			if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: "stop and rebase"}); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			pressed := sendNow(service, "", "m1")
+			err := store.ProcessOne(context.Background(), service.execute)
+			input := terminal.waitForLines(t, 3)
+
+			// Assert
+			if pressed.Code != http.StatusAccepted || err != nil || !slices.Equal(input[1:], []string{"queued stop and rebase", test.interrupt}) {
+				t.Fatalf("Send now = %d %s, its try = %v, terminal input = %q; want the message queued into the turn and its send-now key pressed", pressed.Code, pressed.Body, err, input)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			changes := 0
+			for i := 1; i < len(looks); i++ {
+				if looks[i].isOnPromptLine == looks[i-1].isOnPromptLine {
+					continue
+				}
+				changes++
+				if gap := looks[i].began.Sub(looks[i-1].ended); gap > 200*time.Millisecond {
+					t.Errorf("the board saw its words on the prompt line = %t on a look %s after its look before; want it within a few frames", looks[i].isOnPromptLine, gap)
+				}
+			}
+			if changes < 2 {
+				t.Errorf("the board saw its words come onto or leave the prompt line %d times; want them seen typed and then taken", changes)
 			}
 		})
 	}

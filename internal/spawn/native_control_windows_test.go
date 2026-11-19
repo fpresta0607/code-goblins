@@ -676,6 +676,83 @@ func TestSendNowHasAClaudeCodeInATurnTakeTheLineAtOnce(t *testing.T) {
 	}
 }
 
+// Send now on a line for a Claude Code in a turn types it, submits it and
+// presses its send-now key, each once the screen shows the key before it
+// taken. On 2026-11-19 a Claude Code 2.1.328 drew typed words 46 ms after
+// they went and queued them 35 ms after their Enter, and a delivery that
+// looked at its screen every 250 ms saw each a quarter second late (#2759).
+// The delivery looks again within a few frames of a look that did not yet
+// show its key taken.
+func TestSendNowSeesEachOfItsKeysTakenWithinAFewFramesOfTheScreen(t *testing.T) {
+	// Arrange
+	// drawLag is how long the screen takes to show a change, so the look that
+	// first meets one never shows it, as a look just after a key meets a
+	// harness that has not drawn that key yet.
+	const drawLag = 40 * time.Millisecond
+	f := newNativeFixture(t, harness.Claude, "claude-queues")
+	nativeQueuedProof = 30 * time.Second
+	t.Cleanup(func() { nativeQueuedProof = 5 * time.Second })
+	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	meta, err := state.ReadTaskMeta(f.stateDir, "task-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claude, _ := harness.NativeScreens(harness.Claude)
+	type look struct {
+		began, ended   time.Time
+		isOnPromptLine bool
+	}
+	var looks []look
+	var shown []string
+	var changed time.Time
+	f.service.ShouldSendNow = true
+	f.service.Took = func(context.Context, state.TaskMeta, string, string, time.Time) bool {
+		return len(named(f.events(t), "sent now")) > 0
+	}
+	f.service.ReadScreen = func(record host.Record) ([]string, error) {
+		began := time.Now()
+		screen, err := host.ReadScreen(record)
+		if err != nil {
+			return nil, err
+		}
+		if shown == nil || slices.Equal(screen, shown) {
+			shown, changed = screen, time.Time{}
+		} else if changed.IsZero() {
+			changed = time.Now()
+		} else if time.Since(changed) >= drawLag {
+			shown, changed = screen, time.Time{}
+		}
+		looks = append(looks, look{began: began, ended: time.Now(), isOnPromptLine: claude.ComposerHoldsAllOf(shown, "use the staging database")})
+		return shown, nil
+	}
+
+	// Act
+	err = f.service.SendNative(t.Context(), meta, "use the staging database")
+
+	// Assert
+	if err != nil {
+		t.Fatalf("SendNative = %v, want the line sent now and taken", err)
+	}
+	if sentNow := recordedLines(t, f, "sent now", 1); !slices.Equal(sentNow, []string{"use the staging database"}) {
+		t.Fatalf("sent now = %q, want the line sent now once", sentNow)
+	}
+	changes := 0
+	for i := 1; i < len(looks); i++ {
+		if looks[i].isOnPromptLine == looks[i-1].isOnPromptLine {
+			continue
+		}
+		changes++
+		if gap := looks[i].began.Sub(looks[i-1].ended); gap > 200*time.Millisecond {
+			t.Errorf("the delivery saw its line on the prompt line = %t on a look %s after its look before; want it within a few frames", looks[i].isOnPromptLine, gap)
+		}
+	}
+	if changes < 2 {
+		t.Errorf("the delivery saw its line come onto or leave the prompt line %d times; want it seen typed and then taken", changes)
+	}
+}
+
 // A screen of its own drawn over a Claude Code's turn takes no send-now key
 // from a delivery, even with an empty prompt line above it, since the key
 // would go to that screen rather than the composer, and the delivery says
