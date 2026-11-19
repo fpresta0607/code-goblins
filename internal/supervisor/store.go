@@ -738,9 +738,10 @@ func (s *Store) markTyped(id, task string, awaiting *Awaiting) error {
 
 // holdCommand gives a queued message that is a command, which waits for its
 // turn to end, words of its own in place of what it was given: that Send now
-// runs it at once, where its session's harness can (sendsNow), and otherwise
-// no Send now. One whose Send now was spent says, with its Send now, that it
-// could not run it at once, whenever it is given one (#1915).
+// runs it at once, where its session's harness can or his press is the try
+// that finds whether it can (sendsNow), and otherwise no Send now. One whose
+// Send now was spent says, with its Send now, that it could not run it at
+// once, whenever it is given one (#1915).
 func (a *Action) holdCommand(sendsNow bool) {
 	if !a.CanSendNow || !isHarnessCommand(a.Text) {
 		return
