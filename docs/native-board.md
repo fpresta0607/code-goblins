@@ -1230,7 +1230,7 @@ The page records at the microphone's own rate, usually 48 kHz, and averages each
 On this PC, with the fleet busy, the words of a five-second line are in the terminal 0.2 to 1.2 s after the keys are let go, and of a longer dictation 0.3 to 0.4 s after the last piece is said, since only what followed the last piece is still to be heard, and the engine holds about 800 MB at every length. Started cold, it loads and answers a five-second line in 2.7 to 2.8 s, and since loading starts as the keys are pressed, that is hidden behind anything longer said.
 It is ended after 5 minutes without a dictation, when it breaks or a dictation is abandoned, when there is no room for it, and when the supervisor stops, and the next dictation loads it again; a fault in the engine ends that process, never the board.
 The Overlord's dictations in one burst came up to four minutes apart on the board's record and the bursts at least eleven minutes apart, so a burst loads the engine once; until 3 November 2026 it was kept for 30 minutes, set for Moonshine tiny's 140 MB and not revisited for parakeet, which held about 850 MB through every pause (#1612).
-It needs 2 GB of free memory and of free commit and says so when the machine has less, which is far under the fleet's 4 GB floor on purpose: dictation is how the Overlord types, and it must not refuse because the fleet is busy.
+It needs 2 GB of free memory and of free commit and says so when the machine has less, which is far under the fleet's [memory floor](#the-memory-floor-and-admission) (4 GB unless set) on purpose: dictation is how the Overlord types, and it must not refuse because the fleet is busy.
 `goblins doctor` says dictation is ready, naming the model, its version and the engine, or names what is missing, how many megabytes, and the fix, `goblins dictation setup`.
 
 Key-to-echo latency, measured with `tests/acceptance/terminal_latency.mjs` against the example fixture on 25 September 2026: the Herdr view on main e6f7ea97 took p50 74 ms and p95 592 ms with 3 of 100 keys unechoed after 5 seconds and 4.6 s to a live screen, and the native view p50 24 ms and p95 34 to 36 ms with none missed and 0.4 s to a live screen.
@@ -2130,10 +2130,12 @@ The board's dictation works in it as in a browser tab, because the page records 
 ### The memory floor and admission
 
 The memory floor is `config/fleet.json`'s `memory_floor_gb`, 4 GB unless set, and every check of free memory reads it there: starts, resumes, the heavy line, a services start and a browser sign-in.
+A floor that cannot be read admits nothing, with no default in its place; `goblins services down` never reads it, so a stack still stops.
 `serve` reads the memory meter, available memory and available commit, once a minute.
 After two readings in a row with the tighter of the two under the floor, and with no start or other change under way, the supervisor pauses one live native goblin with the reason `memory`, through the same `goblins pause` the allowance floor sends, so its lifecycle keeps its handoff.
 The pause goes to the lowest in the Overlord's In progress order that is not pausing or paused, whose last pause at the memory floor did not fail, and that has no git push, merge, pull, rebase, cherry-pick or am, or `gh pr merge`, running under its host, and it passes over a goblin resumed from a memory pause in the last 10 minutes for the next one, pausing such a goblin only when no other may be paused; the pause's evidence says which it passed over or that every goblin it could pause had just resumed.
 A change under way, the pause included, starts the count again, so one goblin is paused at a time.
+The pause reads the floor alone, so a `state/start-costs.json` or `state/services.json` that cannot be read stops every start and resume but never the pause.
 
 While free memory or commit is under the floor nothing new starts: the scheduler starts no queued task and resumes no paused goblin, and the heavy line gives no new turn, since every run waits for at least the floor.
 Above it, a start or a resume of a goblin on a harness is admitted only while free memory and commit, less what that start costs, stay at or above the floor:
@@ -2143,7 +2145,7 @@ Above it, a start or a resume of a goblin on a harness is admitted only while fr
 - A services start that waits for memory or is starting holds its stack's cost, which `goblins services up` records in `state/services.json` under `admitting` while its process lives, so no start or resume takes the memory that start was admitted with, and goblins paused for memory stay paused until its stack is up or its start has ended (#2695).
 
 The same rule, `CheckLaunch`, admits the scheduler's starts and resumes, the Overlord's Start and Resume, `goblins spawn`, `goblins resume`, a helper and a goblin coming back after a restart, and a goblin paused for memory resumes at the first reading that admits it.
-The snapshot's `memory.next` is that mark for the costliest harness.
+The snapshot's `memory.next` is that mark for the costliest harness, and while the floor, `state/start-costs.json` or `state/services.json` cannot be read the snapshot has no `memory`, so the board shows no memory meter rather than marks of zero.
 
 ### Restarts
 
