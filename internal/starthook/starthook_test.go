@@ -269,7 +269,8 @@ const (
 // the distribution whose RECORD installs it: that file passes in every later
 // environment, and one that differs in any of the three is still stopped.
 // A project or a file named in another case is the same exactly where the
-// file system opens a folder by its name in another case.
+// file system that holds it opens a folder by its name in another case: the
+// project's, the folder its checkout is in.
 func TestUnacceptedLetsThroughOnlyTheStartHookTheCEOAccepted(t *testing.T) {
 	spellings := t.TempDir()
 	if err := os.Mkdir(filepath.Join(spellings, "shop"), 0o755); err != nil {
@@ -334,8 +335,13 @@ func TestUnacceptedLetsThroughOnlyTheStartHookTheCEOAccepted(t *testing.T) {
 				t.Fatalf("hooks = %+v, %v, want the one start hook", hooks, err)
 			}
 
+			checkout := ""
+			if test.project != "" {
+				checkout = filepath.Join(spellings, test.project)
+			}
+
 			// Act
-			stopped, err := Unaccepted(stateDir, test.project, hooks)
+			stopped, err := Unaccepted(stateDir, checkout, hooks)
 
 			// Assert
 			if err != nil {
