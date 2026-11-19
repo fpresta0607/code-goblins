@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/remoteaccess"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -107,7 +108,7 @@ func homesWindow(started proc.Entry, image, bin string) bool {
 		return false
 	}
 	folder := filepath.Dir(filepath.Clean(image))
-	if strings.EqualFold(folder, filepath.Clean(bin)) {
+	if fsx.EqualPath(folder, filepath.Clean(bin)) {
 		return true
 	}
 	runs, err := os.Stat(folder)

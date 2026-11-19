@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // claudePluginCommands reads the commands and skills of the plugins Claude
@@ -57,7 +59,7 @@ func claudePluginCommands(folder, claudeRoot, pluginsRoot string) []command {
 			switch {
 			case install.Scope == "user" && path == "":
 				path = install.InstallPath
-			case install.Scope != "user" && install.ProjectPath != "" && strings.EqualFold(filepath.Clean(install.ProjectPath), filepath.Clean(folder)):
+			case install.Scope != "user" && install.ProjectPath != "" && fsx.EqualPath(filepath.Clean(folder), filepath.Clean(install.ProjectPath)):
 				path = install.InstallPath
 			}
 		}

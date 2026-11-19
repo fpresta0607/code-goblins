@@ -131,10 +131,10 @@ func ask(path string, isListed bool, list map[string]fs.FileInfo) (fs.FileInfo, 
 			if err != nil {
 				return nil, nil, err
 			}
-			list[strings.ToLower(entry.Name())] = info
+			list[fsx.PathKey(filepath.Join(folder, entry.Name()))] = info
 		}
 	}
-	info, ok := list[strings.ToLower(filepath.Base(path))]
+	info, ok := list[fsx.PathKey(filepath.Join(folder, filepath.Base(path)))]
 	switch {
 	case !ok:
 		return nil, list, &fs.PathError{Op: "stat", Path: path, Err: fs.ErrNotExist}

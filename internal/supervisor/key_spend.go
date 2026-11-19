@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/openrouter"
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
@@ -236,7 +237,7 @@ func keySpendProfileName(dir, defaultDir string) string {
 	if dir == "" {
 		return ""
 	}
-	if defaultDir != "" && strings.EqualFold(filepath.Clean(dir), filepath.Clean(defaultDir)) {
+	if defaultDir != "" && fsx.EqualPath(filepath.Clean(dir), filepath.Clean(defaultDir)) {
 		return "default"
 	}
 	return filepath.Base(dir)
