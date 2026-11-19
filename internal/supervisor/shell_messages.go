@@ -87,7 +87,7 @@ func shellMessageLine(stateDir, actionID, task, text string) (line string, isShe
 // text or a script that folder no longer holds.
 func shellCommandOf(stateDir, text string) (string, bool) {
 	match := shellLine.FindStringSubmatch(strings.TrimSpace(text))
-	if match == nil || !strings.EqualFold(path.Dir(match[1]), filepath.ToSlash(filepath.Join(fsx.LongPath(stateDir), shellCommandsDir))) {
+	if match == nil || !fsx.EqualPath(filepath.ToSlash(filepath.Join(fsx.LongPath(stateDir), shellCommandsDir)), path.Dir(match[1])) {
 		return "", false
 	}
 	data, err := fsx.ReadFile(filepath.FromSlash(match[1]))

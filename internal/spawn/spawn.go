@@ -1279,7 +1279,7 @@ func rejectTaskIDAlias(stateDir, id string) error {
 		if strings.EqualFold(extension, ".status") && !live[existingID] {
 			continue
 		}
-		if taskIDsAlias(id, existingID) {
+		if taskIDsAlias(stateDir, id, existingID) {
 			return fmt.Errorf("spawn: task ID %q conflicts case-insensitively with retained task state for %q", id, existingID)
 		}
 	}
@@ -1293,15 +1293,18 @@ func rejectTaskIDAlias(stateDir, id string) error {
 		return fmt.Errorf("spawn: list task temporary directories: %w", err)
 	}
 	for _, entry := range entries {
-		if entry.IsDir() && taskIDsAlias(id, entry.Name()) {
+		if entry.IsDir() && taskIDsAlias(taskTmp, id, entry.Name()) {
 			return fmt.Errorf("spawn: task ID %q conflicts case-insensitively with retained task temporary directory %q", id, entry.Name())
 		}
 	}
 	return nil
 }
 
-func taskIDsAlias(id, existingID string) bool {
-	return state.ValidTaskID(existingID) == nil && strings.EqualFold(existingID, id)
+// taskIDsAlias reports whether id and existingID, a name in dir, name one
+// file there: without regard to case where dir's file system ignores case, as
+// Windows does.
+func taskIDsAlias(dir, id, existingID string) bool {
+	return state.ValidTaskID(existingID) == nil && fsx.EqualPath(filepath.Join(dir, existingID), filepath.Join(dir, id))
 }
 
 func (s Service) sleep(ctx context.Context, duration time.Duration) error {

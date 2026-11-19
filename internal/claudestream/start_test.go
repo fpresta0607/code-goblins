@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -160,13 +161,23 @@ func TestProveStartRefusesASessionWhoseSessionStartHookFailed(t *testing.T) {
 	}
 }
 
+// The memory file it loaded, spelled in another case, is the one expected
+// exactly where the file system reads the two spellings as one file: a
+// folder made in lowercase and opened by its uppercase name says whether it
+// does.
 func TestProveStartRefusesASessionMissingAnExpectedCLAUDEFile(t *testing.T) {
+	parent := t.TempDir()
+	if err := os.Mkdir(filepath.Join(parent, "memory"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := os.Stat(filepath.Join(parent, "MEMORY"))
+	isOnePath := err == nil
 	for _, testCase := range []struct {
 		name     string
 		expected []string
 		isPassed bool
 	}{
-		{"the loaded one in another case", []string{strings.ToUpper(userMemory)}, true},
+		{"the loaded one in another case", []string{strings.ToUpper(userMemory)}, isOnePath},
 		{"none expected", nil, true},
 		{"the worktree's, not loaded", []string{userMemory, `D:\worktrees\task\CLAUDE.md`}, false},
 	} {

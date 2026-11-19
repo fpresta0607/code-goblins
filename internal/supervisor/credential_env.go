@@ -15,6 +15,7 @@ import (
 	"unicode"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // envFileName matches a project's local environment files by name: .env,
@@ -48,7 +49,7 @@ func EnvFileProblem(ctx context.Context, repository, name string) error {
 		return fmt.Errorf("git could not say whether %s is a checkout", repository)
 	case lines[0] != "":
 		return fmt.Errorf("%s is a folder inside a checkout, not the root of the project's main checkout", repository)
-	case !strings.EqualFold(filepath.Clean(lines[1]), filepath.Clean(lines[2])):
+	case !fsx.EqualPath(filepath.Clean(lines[1]), filepath.Clean(lines[2])):
 		return fmt.Errorf("%s is a goblin's worktree, not the project's main checkout", repository)
 	}
 	if info, err := os.Lstat(filepath.Join(repository, name)); err == nil && !info.Mode().IsRegular() {

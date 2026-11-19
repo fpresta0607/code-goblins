@@ -12,6 +12,7 @@ import (
 	"unicode"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // A card's text makes a link of each local file or folder it names (the
@@ -104,7 +105,7 @@ func (h *HTTP) openCardPath(w http.ResponseWriter, r *http.Request) {
 	case !found:
 		apiError(w, http.StatusNotFound, "That card is no longer on the board.")
 		return
-	case !slices.ContainsFunc(paths, func(path string) bool { return strings.EqualFold(path, input.Path) }):
+	case !slices.ContainsFunc(paths, func(path string) bool { return fsx.EqualPath(path, input.Path) }):
 		apiError(w, http.StatusBadRequest, "That card names no such path.")
 		return
 	case len(filepath.VolumeName(input.Path)) != 2 || !filepath.IsAbs(input.Path) || strings.ContainsFunc(input.Path, unicode.IsControl):

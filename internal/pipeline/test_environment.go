@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -41,7 +40,8 @@ func ProjectTestEnvironment(ctx context.Context, commands execx.Runner, data, ch
 	refuse := func(reason string) ([]string, error) {
 		return nil, fmt.Errorf("pipeline: required test environment: %s; verify the registered task's existing .venv and python_version in %s; no dependency installation or command execution was attempted", reason, path)
 	}
-	if !strings.EqualFold(manifest.Project, filepath.Base(checkout)) {
+	parent := filepath.Dir(checkout) + string(filepath.Separator)
+	if !fsx.EqualPath(parent+filepath.Base(checkout), parent+manifest.Project) {
 		return refuse("project manifest identity does not match the gate's source project")
 	}
 	source, err := fsx.Canonical(worktree)

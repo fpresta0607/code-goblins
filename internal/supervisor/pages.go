@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/axi"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -438,9 +439,10 @@ func (s *Service) handPageToCEO(ctx context.Context, r Review, poll axi.PagePoll
 	s.passOnAnswer(ctx, answer)
 }
 
-// pageKey names a page by its file the way Windows does, in any case.
+// pageKey names a page by its file: in any case where its file system
+// ignores case, as Windows does.
 func pageKey(file string) string {
-	return strings.ToLower(filepath.Clean(file))
+	return fsx.PathKey(filepath.Clean(file))
 }
 
 func samePageVersion(a, b Review) bool {
