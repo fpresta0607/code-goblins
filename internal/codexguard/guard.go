@@ -48,12 +48,13 @@ func Dir(stateDir, id string) string { return filepath.Join(stateDir, folder, id
 
 // Chain is the guard folders a terminal's PATH begins with: own, the
 // terminal's own, then inherited, the ones the environment that started it
-// carries, each once, as Windows compares paths. Either may be empty, and a
-// folder is named whether or not it is there: a disarmed guard is none.
+// carries, each once by its file system's case rule, as Windows compares
+// paths there. Either may be empty, and a folder is named whether or not it
+// is there: a disarmed guard is none.
 func Chain(own, inherited string) string {
 	var chain []string
 	for _, dir := range append([]string{own}, filepath.SplitList(inherited)...) {
-		if dir != "" && !slices.ContainsFunc(chain, func(kept string) bool { return strings.EqualFold(filepath.Clean(kept), filepath.Clean(dir)) }) {
+		if dir != "" && !slices.ContainsFunc(chain, func(kept string) bool { return fsx.EqualPath(filepath.Clean(kept), filepath.Clean(dir)) }) {
 			chain = append(chain, dir)
 		}
 	}
@@ -112,9 +113,11 @@ func Prune(stateDir string, live []string) error {
 		return fmt.Errorf("codexguard: read the guard folders: %w", err)
 	}
 	var problems error
+	guards := filepath.Join(stateDir, folder)
 	for _, entry := range entries {
-		if !slices.ContainsFunc(live, func(id string) bool { return strings.EqualFold(id, entry.Name()) }) {
-			problems = errors.Join(problems, fsx.RemoveAll(filepath.Join(stateDir, folder, entry.Name())))
+		guard := filepath.Join(guards, entry.Name())
+		if !slices.ContainsFunc(live, func(id string) bool { return fsx.EqualPath(guard, filepath.Join(guards, id)) }) {
+			problems = errors.Join(problems, fsx.RemoveAll(guard))
 		}
 	}
 	return problems

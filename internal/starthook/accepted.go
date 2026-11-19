@@ -73,12 +73,14 @@ func Unaccepted(stateDir, project string, hooks []Hook) ([]Hook, error) {
 
 // passes reports whether a lets hook through in an environment of a goblin of
 // project. A hook no installed distribution names never passes, nor does a
-// folder, which has no one content. Windows tells neither a project's folder
-// nor a file's name apart by case.
+// folder, which has no one content. A project's folder and a file's name are
+// told apart by case where the file system tells names apart: Windows tells
+// neither apart by case.
 func (a Acceptance) passes(project string, hook Hook) bool {
+	folder := filepath.Dir(hook.Path) + string(filepath.Separator)
 	return hook.Package != "" && hook.Digest != "" &&
-		(a.Project == "" || strings.EqualFold(a.Project, project)) &&
-		strings.EqualFold(a.File, filepath.Base(hook.Path)) &&
+		(a.Project == "" || fsx.EqualPath(project, a.Project)) &&
+		fsx.EqualPath(folder+filepath.Base(hook.Path), folder+a.File) &&
 		strings.EqualFold(a.SHA256, hook.Digest) &&
 		strings.EqualFold(a.Distribution, hook.Package)
 }

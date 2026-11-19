@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/gatehome"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/janitor"
@@ -131,7 +132,7 @@ func runJanitor(cfg Config, inv reap.Inventory) {
 	}
 	if cfg.Home.DevDrive != "" {
 		target := gatehome.Target(cfg.Home.DevDrive)
-		if _, err := os.Stat(target); err == nil && !slices.ContainsFunc(gateHomes, func(gate string) bool { return strings.EqualFold(gate, target) }) {
+		if _, err := os.Stat(target); err == nil && !slices.ContainsFunc(gateHomes, func(gate string) bool { return fsx.EqualPath(gate, target) }) {
 			gateHomes = append(gateHomes, target)
 		}
 	}
@@ -226,11 +227,11 @@ func memoryText(bytes uint64) string {
 func strayWake(previous, record janitor.Record) string {
 	reported := make(map[string]bool, len(previous.Strays))
 	for _, stray := range previous.Strays {
-		reported[strings.ToLower(stray.Path)] = true
+		reported[fsx.PathKey(stray.Path)] = true
 	}
 	isNew := false
 	for _, stray := range record.Strays {
-		if !reported[strings.ToLower(stray.Path)] {
+		if !reported[fsx.PathKey(stray.Path)] {
 			isNew = true
 		}
 	}

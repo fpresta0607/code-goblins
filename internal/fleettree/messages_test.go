@@ -1198,7 +1198,7 @@ func TestMessagesReadEachKindOfEntry(t *testing.T) {
 					prompted("u1", "Read the readme"),
 					answer("a1", "msg_1", thinkingBlock("")),
 					answer("a2", "msg_1", thinkingBlock("The readme says what the repo is.")),
-					answer("a3", "msg_1", useBlock("toolu_1", "Read", object{"file_path": workDir + `\README.md`})),
+					answer("a3", "msg_1", useBlock("toolu_1", "Read", object{"file_path": filepath.Join(workDir, "README.md")})),
 					answered("u2", "toolu_1", "1\t# Repo", object{"type": "text"}, nil),
 					answer("a4", "msg_1", textBlock("It names the repo.")),
 					answer("a5", "msg_2", textBlock("Done.")),
@@ -1439,11 +1439,11 @@ func TestMessagesReadEachKindOfEntry(t *testing.T) {
 			name: "an edit carries its counts, and a sub-agent call its node",
 			entries: func(*testing.T, string) []any {
 				return []any{
-					answer("a1", "msg_1", useBlock("toolu_1", "Edit", object{"file_path": workDir + `\main.go`, "old_string": "a", "new_string": "b"})),
-					answer("a2", "msg_1", useBlock("toolu_2", "Write", object{"file_path": workDir + `\new.go`, "content": "package x\n\nfunc X() {}\n"})),
+					answer("a1", "msg_1", useBlock("toolu_1", "Edit", object{"file_path": filepath.Join(workDir, "main.go"), "old_string": "a", "new_string": "b"})),
+					answer("a2", "msg_1", useBlock("toolu_2", "Write", object{"file_path": filepath.Join(workDir, "new.go"), "content": "package x\n\nfunc X() {}\n"})),
 					answer("a3", "msg_1", useBlock("toolu_3", "Agent", object{"description": "Map the monitor", "subagent_type": "Explore", "prompt": "map it"})),
-					answered("u1", "toolu_1", "The file has been updated.", object{"filePath": workDir + `\main.go`, "structuredPatch": []object{{"oldStart": 1, "oldLines": 3, "newStart": 1, "newLines": 4, "lines": []string{" package main", "-var a = 1", "+var b = 2", "+var c = 3"}}}}, nil),
-					answered("u2", "toolu_2", "File created successfully.", object{"type": "create", "filePath": workDir + `\new.go`, "content": "package x\n\nfunc X() {}\n", "structuredPatch": []object{}}, nil),
+					answered("u1", "toolu_1", "The file has been updated.", object{"filePath": filepath.Join(workDir, "main.go"), "structuredPatch": []object{{"oldStart": 1, "oldLines": 3, "newStart": 1, "newLines": 4, "lines": []string{" package main", "-var a = 1", "+var b = 2", "+var c = 3"}}}}, nil),
+					answered("u2", "toolu_2", "File created successfully.", object{"type": "create", "filePath": filepath.Join(workDir, "new.go"), "content": "package x\n\nfunc X() {}\n", "structuredPatch": []object{}}, nil),
 					answered("u3", "toolu_3", "Async agent launched successfully.", object{"status": "async_launched", "agentId": "a1"}, nil),
 				}
 			},
@@ -1459,7 +1459,7 @@ func TestMessagesReadEachKindOfEntry(t *testing.T) {
 			entries: func(*testing.T, string) []any {
 				return []any{
 					prompted("u1", []object{imageBlock([]byte("a screenshot")), textBlock("Why is this red?")}),
-					answer("a1", "msg_1", useBlock("toolu_1", "Read", object{"file_path": workDir + `\shot.png`})),
+					answer("a1", "msg_1", useBlock("toolu_1", "Read", object{"file_path": filepath.Join(workDir, "shot.png")})),
 					answered("u2", "toolu_1", []object{imageBlock([]byte("the file"))}, object{"type": "image"}, nil),
 				}
 			},
@@ -1653,7 +1653,7 @@ func TestMessagePictureIsReadBackByItsID(t *testing.T) {
 	home := t.TempDir()
 	path := conversation(t, home,
 		prompted("u1", []object{imageBlock([]byte("a screenshot")), textBlock("Why is this red?")}),
-		answer("a1", "msg_1", useBlock("toolu_1", "Read", object{"file_path": workDir + `\shot.png`})),
+		answer("a1", "msg_1", useBlock("toolu_1", "Read", object{"file_path": filepath.Join(workDir, "shot.png")})),
 		answered("u2", "toolu_1", []object{imageBlock([]byte("the file"))}, object{"type": "image"}, nil))
 	reader := Reader{Home: home}
 	page, _, err := reader.MessagePage(path, -1)

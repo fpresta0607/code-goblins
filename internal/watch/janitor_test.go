@@ -109,7 +109,15 @@ func TestHeavyLineWrapsAPruneInThisBuildsGateTurn(t *testing.T) {
 // TestStrayWakeFiresOnlyForAStrayNotReportedBefore: the janitor reports the
 // same strays on every pass, and one going away is nothing the CEO must act
 // on; only a stray it has not been told about wakes it.
+// A stray spelled in another case is the one reported before exactly where
+// the file system opens a folder by its name in another case.
 func TestStrayWakeFiresOnlyForAStrayNotReportedBefore(t *testing.T) {
+	spellings := t.TempDir()
+	if err := os.Mkdir(filepath.Join(spellings, "stray"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := os.Stat(filepath.Join(spellings, "STRAY"))
+	isOnePath := err == nil
 	strays := func(paths ...string) janitor.Record {
 		var record janitor.Record
 		for _, path := range paths {
@@ -125,7 +133,7 @@ func TestStrayWakeFiresOnlyForAStrayNotReportedBefore(t *testing.T) {
 	}{
 		{"the first stray", strays(), strays(`C:\dev\a`), true},
 		{"the same strays again", strays(`C:\dev\a`, `C:\dev\b`), strays(`C:\dev\b`, `C:\dev\a`), false},
-		{"the same stray in another case", strays(`C:\dev\a`), strays(`c:\DEV\a`), false},
+		{"the same stray in another case", strays(`C:\dev\a`), strays(`c:\DEV\a`), !isOnePath},
 		{"one of two went away", strays(`C:\dev\a`, `C:\dev\b`), strays(`C:\dev\a`), false},
 		{"a new one beside the old", strays(`C:\dev\a`), strays(`C:\dev\a`, `C:\dev\c`), true},
 		{"none left", strays(`C:\dev\a`), strays(), false},

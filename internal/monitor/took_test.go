@@ -432,9 +432,8 @@ func writeConversation(t *testing.T, home, harness, worktree string, entries ...
 			opening := map[string]any{"type": "session_meta", "payload": map[string]any{"cwd": dir}}
 			transcriptLines(t, filepath.Join(home, ".codex", "sessions", "2026", "10", "06", fmt.Sprintf("rollout-2026-10-06T16-53-3%d-session-%d.jsonl", i, i)), written, append([]map[string]any{opening}, entries...)...)
 		case "pi":
-			folder := "--" + strings.NewReplacer(`\`, "-", ":", "-").Replace(dir) + "--"
 			opening := map[string]any{"type": "session", "cwd": dir}
-			transcriptLines(t, filepath.Join(home, ".pi", "agent", "sessions", folder, "2026-10-06T21-50-00-000Z_session.jsonl"), written, append([]map[string]any{opening}, entries...)...)
+			transcriptLines(t, filepath.Join(piFolder(home, dir), "2026-10-06T21-50-00-000Z_session.jsonl"), written, append([]map[string]any{opening}, entries...)...)
 		}
 	}
 }
