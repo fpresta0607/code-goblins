@@ -60,7 +60,7 @@ func TestResumeDoesNotInventAGateForADirectPRBranch(t *testing.T) {
 			}}
 
 			// Act
-			err := resumeTask(t.Context(), h, runtime, commands, pipeline.Reader{Root: root, Commands: commands}, meta, prior, nil)
+			err := resumeTask(t.Context(), h, runtime, commands, pipeline.Reader{Root: root, Commands: commands}, meta, &prior, nil)
 
 			// Assert
 			if test.want == "" {
@@ -96,7 +96,7 @@ func TestDirectPRResumePreservesAGateThatOwnsItsBranch(t *testing.T) {
 			}}
 
 			// Act
-			err := resumeTask(t.Context(), h, runtime, test.commands, pipeline.Reader{Root: root, Commands: test.commands}, meta, prior, nil)
+			err := resumeTask(t.Context(), h, runtime, test.commands, pipeline.Reader{Root: root, Commands: test.commands}, meta, &prior, nil)
 
 			// Assert
 			if test.want != "" {
@@ -151,7 +151,7 @@ func TestResumeRestoresContributorWithoutSelectingValidationAgents(t *testing.T)
 			}}
 			prior := state.Lifecycle{ID: meta.ID, Phase: "paused", Started: time.Now().Add(-time.Hour), GateRun: "run-1", GateIntent: "ship safely"}
 			// Act
-			err = resumeTask(t.Context(), h, runtime, commands, pipeline.Reader{Root: root, Commands: commands}, meta, prior, nil)
+			err = resumeTask(t.Context(), h, runtime, commands, pipeline.Reader{Root: root, Commands: commands}, meta, &prior, nil)
 			// Assert
 			if err != nil || !isSwitched || len(commands.native) != 0 {
 				t.Fatalf("resume = %v, switched = %v, native calls = %d", err, isSwitched, len(commands.native))

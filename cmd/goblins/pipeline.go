@@ -329,6 +329,18 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		}
 		return errors.New(refusal)
 	}
+	if isAdmission {
+		// A paused task's lifecycle names the run its pause saved, which its
+		// resume continues, and no goblin is there to carry a new run on, so
+		// an admission waits for the resume (#2462).
+		record, err := state.ReadLifecycle(h.State, id)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if err == nil && record.Generation == meta.SpawnGen && (record.Phase == "pausing" || record.Phase == "paused") {
+			return fmt.Errorf("pipeline: task %s is %s, so goblins pipeline %s admitted nothing: its lifecycle keeps the validation run its pause saved for its resume, and no goblin is there to carry a new run on. Resume it with goblins resume %s, then admit the run", id, record.Phase, args[0], id)
+		}
+	}
 	if meta.SandboxImage != "" && (args[0] == "run" || args[0] == "respond" || args[0] == "handback" || isAdmission) {
 		// The gate's wrapper stands only commands.test behind goblins gate turn,
 		// which runs it in the task's container (issue 2244).

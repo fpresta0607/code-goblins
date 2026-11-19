@@ -77,7 +77,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			record.Stopped = append(record.Stopped, "validation run "+preserved.ID)
 			return nil
 		},
-		Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
+		Resume: func(ctx context.Context, meta state.TaskMeta, prior *state.Lifecycle) error {
 			return resumeTask(ctx, h, runtime, commands, gate, meta, prior, admit)
 		},
 		IsRunning: func(ctx context.Context, meta state.TaskMeta) (bool, error) {
@@ -165,10 +165,11 @@ func resumeAdmission(h home.Home, meta state.TaskMeta, memoryReader func() (supe
 	return supervisor.CheckLaunch(memory, room, engine, disk)
 }
 
-// resumeTask relaunches a paused task in place. admit is the machine's room,
-// which the relaunch checks again under the home's spawn lock, around its
-// terminal's launch only.
-func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, commands execx.Runner, gate pipeline.Reader, meta state.TaskMeta, prior state.Lifecycle, admit func() error) error {
+// resumeTask relaunches a paused task in place, and names in prior's gate
+// fields the run it resumes with. admit is the machine's room, which the
+// relaunch checks again under the home's spawn lock, around its terminal's
+// launch only.
+func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, commands execx.Runner, gate pipeline.Reader, meta state.TaskMeta, prior *state.Lifecycle, admit func() error) error {
 	if meta.Backend != "native" {
 		return fmt.Errorf("resume: task %s runs in backend %q; only a task in a native terminal can resume; retire it with goblins cleanup %s --force-archive", meta.ID, meta.Backend, meta.ID)
 	}
@@ -188,6 +189,9 @@ func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, comman
 		// A direct-PR task may now be on a branch with no gate of its own.
 		if err != nil && !(meta.Mode == "direct-PR" && errors.Is(err, pipeline.ErrNoProgress)) {
 			return err
+		}
+		if retained.ID != "" && retained.ID != prior.GateRun {
+			prior.GateRun, prior.GateIntent, prior.GateHead = retained.ID, retained.Intent, retained.Head
 		}
 	} else {
 		current, err := lifecycle.TaskGate(ctx, meta, gate)

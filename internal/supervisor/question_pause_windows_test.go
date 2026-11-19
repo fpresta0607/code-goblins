@@ -71,7 +71,7 @@ func TestCEOAnswerToMemoryPausedGoblinSurvivesItsHostAndResumesOnce(t *testing.T
 	var resumed hostedTerminal
 	resumeCount := 0
 	controller := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
-		Resume: func(ctx context.Context, current state.TaskMeta, prior state.Lifecycle) error {
+		Resume: func(ctx context.Context, current state.TaskMeta, prior *state.Lifecycle) error {
 			resumeCount++
 			current.SpawnGen = "resumed-generation"
 			if err := state.WriteTaskMeta(h.State, current); err != nil {
@@ -232,7 +232,7 @@ func TestAnAnswerSavedWhilePausedLeavesTheMessagesKeptBeforeIt(t *testing.T) {
 			service := &Service{Store: store, Options: Options{CEO: connection}}
 			var carried string
 			controller := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
-				Resume: func(_ context.Context, _ state.TaskMeta, prior state.Lifecycle) error {
+				Resume: func(_ context.Context, _ state.TaskMeta, prior *state.Lifecycle) error {
 					carried = prior.ResumeNote
 					return nil
 				},
