@@ -48,6 +48,9 @@ func TestErrorClassTakesOutWhatChangesBetweenSightings(t *testing.T) {
 		`read /c/dev/repo/file failed`:                                                "read <path> failed",
 		`pause condition for t1: open /home/x/state/t1.json: denied after 3 tries`:    "pause condition for tN: open <path> denied after N tries",
 		`stat "/Users/x/repo" (/Users/x/repo/go.mod) failed`:                          "stat <text> (<path> failed",
+		`read "/c/dev/repo/file" failed`:                                              `read "<path> failed`,
+		`exec /usr/bin/bash failed`:                                                   "exec /usr/bin/bash failed",
+		`GET /orders/7/items failed`:                                                  "GET /orders/N/items failed",
 	}
 	for line, want := range cases {
 		if got := ErrorClass(line, nil); got != want {

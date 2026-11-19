@@ -50,9 +50,10 @@ func RedMainRoot(workflow, jobs, evidence string) Root {
 
 var (
 	// errorPath is a path on a machine: a drive, a network share, Git
-	// Bash's /c/, or an absolute Linux or macOS path, which starts a word
-	// and ends at a space or a quote.
-	errorPath   = regexp.MustCompile(`(?i)(^|[\s"'(=\x60])/[^\s/"']+/[^\s"']*|(?:\b[a-z]:[\\/]|\\\\|/[a-z]/)\S*`)
+	// Bash's /c/, or a path in a folder that holds a Linux or macOS user's
+	// or machine's own files, which starts a word and ends at a space or a
+	// quote.
+	errorPath   = regexp.MustCompile(`(?i)(^|[\s"'(=\x60])(?-i:/(?:home|Users|root|tmp|var/folders|private|mnt|Volumes)/)[^\s"']*|(?:\b[a-z]:[\\/]|\\\\|/[a-z]/)\S*`)
 	errorQuoted = regexp.MustCompile(`"[^"]*"|'[^']*'`)
 	errorHex    = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
 	errorNumber = regexp.MustCompile(`\d+`)
