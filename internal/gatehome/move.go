@@ -389,6 +389,19 @@ func (m Mover) lock(ctx context.Context) (func() error, error) {
 	return nil, fmt.Errorf("gate home: nothing moved, and the daemon was never stopped; the home moves once no other move of it runs: %w: %w", ErrGateBusy, held)
 }
 
+// IsMoving says whether a move of the gate's home holds lock, the file every
+// move holds for its whole run, now.
+func IsMoving(lock string) (bool, error) {
+	if _, err := os.Stat(lock); errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	unlock, isTaken, err := lockFile(lock)
+	if err != nil || !isTaken {
+		return err == nil, err
+	}
+	return false, unlock()
+}
+
 func (m Mover) setEnv(target string) error {
 	if err := m.Env.Set(Variable, target); err != nil {
 		return err

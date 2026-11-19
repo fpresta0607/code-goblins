@@ -44,20 +44,27 @@ func DefaultRoot() (string, error) {
 // a bare NM_HOME entry would strip PATH, USERPROFILE and TEMP and the engine
 // could resolve neither its tools nor a home directory. A process started
 // before the gate's home moved carries no NM_HOME or the old one, so every
-// no-mistakes it starts is given the root.
+// no-mistakes it starts is given the root. It also turns off no-mistakes' own
+// update check, since the fleet installs no-mistakes itself: a call whose
+// cached check is a day old starts a background program that rewrites
+// update-check.json in the gate's home, which made a move's proof of its copy
+// fail on 2026-11-19 (#2817).
 func NativeEnv(root string) []string {
-	env := make([]string, 0, len(os.Environ())+1)
+	env := make([]string, 0, len(os.Environ())+2)
 	for _, entry := range os.Environ() {
 		// Windows matches environment names without case, so an existing
-		// NM_HOME has to be dropped rather than left beside the override.
+		// entry has to be dropped rather than left beside the override.
 		name, _, ok := strings.Cut(entry, "=")
-		if ok && strings.EqualFold(name, gatehome.Variable) {
+		if ok && (strings.EqualFold(name, gatehome.Variable) || strings.EqualFold(name, noUpdateCheckVariable)) {
 			continue
 		}
 		env = append(env, entry)
 	}
-	return append(env, gatehome.Variable+"="+root)
+	return append(env, gatehome.Variable+"="+root, noUpdateCheckVariable+"=1")
 }
+
+// noUpdateCheckVariable set to 1 turns off no-mistakes' own update check.
+const noUpdateCheckVariable = "NO_MISTAKES_NO_UPDATE_CHECK"
 
 // stateQueryTimeout bounds one read of the gate's database, so a wedged read
 // cannot hold a command forever. The fleet's runners answer a read in process

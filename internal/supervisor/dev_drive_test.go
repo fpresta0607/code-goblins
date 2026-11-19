@@ -499,6 +499,44 @@ func TestTheSupervisorRetriesABusyCarryAndAFailedOneWaitsForTryAgain(t *testing.
 	g.ended <- nil
 }
 
+// A failed carry stays failed when the board starts again: the restarted
+// board reads why it failed and waits for Try again, where it once started
+// the same hour-long carry again by itself (#2817).
+func TestAFailedCarryStaysFailedAcrossARestartUntilTryAgain(t *testing.T) {
+	// Arrange
+	g := newGateStep(t, true)
+	g.s.keepDevDrive(context.Background())
+	g.carriedInto(t)
+	const failed = `gate home: the copy to D:\CodeGoblins\no-mistakes failed, so nothing moved: update-check.json does not hold the bytes of C:\Users\someone\.no-mistakes\update-check.json`
+	g.end(t, errors.New(failed))
+	restarted := &Service{Store: g.s.Store, Instance: g.s.Instance, subscribers: map[chan struct{}]struct{}{}, work: make(chan struct{}, 1), devDriveNow: make(chan struct{}, 1), Options: g.s.Options}
+	g.s = restarted
+
+	// Act
+	g.s.keepDevDrive(context.Background())
+
+	// Assert
+	if g.isCarrying() || len(g.started) != 0 {
+		t.Fatal("the restarted board started the failed carry again by itself")
+	}
+	if view := g.s.devDriveViewNow(); view.Action != devDriveTryAgain || view.Status != gateStepDone+" It did not move: "+failed {
+		t.Errorf("view = %+v, want why it failed and Try again", view)
+	}
+
+	// Act: he presses Try again.
+	if err := g.s.askDevDrive(true); err != nil {
+		t.Fatal(err)
+	}
+	g.s.keepDevDrive(context.Background())
+
+	// Assert
+	if !g.isCarrying() {
+		t.Fatal("Try again started no carry")
+	}
+	g.carriedInto(t)
+	g.ended <- nil
+}
+
 // The gate step is taken only on the person's word: until he asked for a Dev
 // Drive the row offers Set up and nothing is carried, and gate runs that
 // cannot be read are said in the row and read again.

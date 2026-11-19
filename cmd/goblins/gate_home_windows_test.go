@@ -478,6 +478,58 @@ func TestCarryGateHomeWaitsOnTheMoveLockItIsGiven(t *testing.T) {
 	s.assertNothingCarried(t)
 }
 
+// A gate run started while a move of the gate's home holds its lock is
+// refused before native runs, saying the home is moving and the run starts
+// once it is done, where it once named the held daemon's pid and its locked
+// file (#2817); with the lock free the same start reaches native.
+func TestPipelineRunSaysTheGateHomeIsMovingWhileAMoveHoldsItsLock(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		isMoving bool
+	}{
+		{name: "a move holds the lock", isMoving: true},
+		{name: "no move runs", isMoving: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			policy := versionSixPolicy(t, pipeline.Reviewer{})
+			h, nm := gateHome(t, policy, operatorMachineConfig)
+			wt, _ := gatedTask(t, h, "task", policy, claudeGoblin)
+			if test.isMoving {
+				held, err := os.OpenFile(filepath.Join(h.State, gateHomeMoveLock), os.O_RDWR|os.O_CREATE, 0o600)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer held.Close()
+				if err := windows.LockFileEx(windows.Handle(held.Fd()), windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, new(windows.Overlapped)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			runner := &gateStartRunner{pipelineStartRunner: pipelineStartRunner{worktree: wt}}
+			var out bytes.Buffer
+
+			// Act
+			err := pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &out)
+
+			// Assert
+			if !test.isMoving {
+				if err != nil || len(runner.native) != 1 {
+					t.Fatalf("err = %v, native launches = %+v, want the gate started once", err, runner.native)
+				}
+				return
+			}
+			for _, want := range []string{"the gate's home is moving to the Dev Drive", "goblins pipeline run started nothing", "start this run again once the move is done"} {
+				if err == nil || !strings.Contains(err.Error(), want) {
+					t.Fatalf("error = %v, want it to say %q", err, want)
+				}
+			}
+			if len(runner.native) != 0 || out.Len() != 0 {
+				t.Fatalf("refused start ran native %+v and printed %q", runner.native, out.String())
+			}
+		})
+	}
+}
+
 // gateDaemonRunner records each command the gate daemon runs and answers it
 // with exit 0.
 type gateDaemonRunner struct{ requests []execx.Request }
