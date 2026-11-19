@@ -1116,11 +1116,11 @@ func TestClaudesPromptLineAfterANoBreakSpaceReadsAsTheWordsItHolds(t *testing.T)
 		draft string
 		isOwn bool
 	}{
-		"captured words":        {[]string{"❯ first words"}, "first words", "firstwords", true},
-		"ascii prompt":          {[]string{"> first words"}, "first words", "firstwords", true},
-		"words over two rows":   {[]string{"❯ check the tests", "  and rebase"}, "check the tests and rebase", "checkthetestsandrebase", true},
-		"a paste":               {[]string{"❯ [Pasted text #1 +3 lines]"}, "stop\nand\nrebase\nnow", "[Pastedtext#1+3lines]", true},
-		"his words beside them": {[]string{"❯ first words and his"}, "first words", "firstwordsandhis", false},
+		"captured words":        {[]string{"❯\u00a0first words"}, "first words", "firstwords", true},
+		"ascii prompt":          {[]string{">\u00a0first words"}, "first words", "firstwords", true},
+		"words over two rows":   {[]string{"❯\u00a0check the tests", "  and rebase"}, "check the tests and rebase", "checkthetestsandrebase", true},
+		"a paste":               {[]string{"❯\u00a0[Pasted text #1 +3 lines]"}, "stop\nand\nrebase\nnow", "[Pastedtext#1+3lines]", true},
+		"his words beside them": {[]string{"❯\u00a0first words and his"}, "first words", "firstwordsandhis", false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
