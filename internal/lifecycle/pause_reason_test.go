@@ -49,7 +49,7 @@ func TestResumeAdmissionFailureLeavesThePausedTaskIntact(t *testing.T) {
 	}
 	isResumed := false
 	service.Operations.Admit = func() error { return errors.New("live cap reached") }
-	service.Operations.Resume = func(context.Context, state.TaskMeta, state.Lifecycle) error {
+	service.Operations.Resume = func(context.Context, state.TaskMeta, *state.Lifecycle) error {
 		isResumed = true
 		return nil
 	}
