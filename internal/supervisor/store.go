@@ -648,17 +648,28 @@ var tryWait = 10 * time.Second
 // do not work while a Claude turn runs"). A try that typed the message into
 // a goblin's turn still runs while it waits to see the message taken.
 func (s *Store) awaitTry(ctx context.Context, id, task string) {
+	s.awaitTries(ctx, func(a Action) bool { return a.ID == id && a.TaskID == task && a.Kind == "message" })
+}
+
+// awaitTries waits out every try under way of an action isNamed names, for at
+// most tryWait, and reports whether none still runs. isNamed is called with
+// s.mu held.
+func (s *Store) awaitTries(ctx context.Context, isNamed func(Action) bool) bool {
 	for deadline := time.Now().Add(tryWait); ; {
 		s.mu.Lock()
-		at := slices.IndexFunc(s.db.Actions, func(a Action) bool { return a.ID == id && a.TaskID == task && a.Kind == "message" })
-		isTried := at >= 0 && (s.db.Actions[at].Status == "running" && s.db.Actions[at].Awaiting == nil || slices.Contains(s.trying, id))
+		isTried := slices.ContainsFunc(s.db.Actions, func(a Action) bool {
+			return isNamed(a) && (a.Status == "running" && a.Awaiting == nil || slices.Contains(s.trying, a.ID))
+		})
 		s.mu.Unlock()
-		if !isTried || time.Now().After(deadline) {
-			return
+		if !isTried {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
 		}
 		select {
 		case <-ctx.Done():
-			return
+			return false
 		case <-time.After(20 * time.Millisecond):
 		}
 	}

@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"time"
@@ -93,13 +94,7 @@ func (s *Store) setAside(held []Action) bool {
 		return false
 	}
 	task := held[0].Awaiting.Task
-	if slices.ContainsFunc(s.db.Actions, func(a Action) bool {
-		isForSession := a.TaskID == task && a.Kind != "evaluate"
-		if task == "" {
-			isForSession = s.waitsForCEO(a)
-		}
-		return isForSession && slices.Contains(s.trying, a.ID)
-	}) {
+	if slices.ContainsFunc(s.db.Actions, func(a Action) bool { return s.isDeliveryTo(a, task) && slices.Contains(s.trying, a.ID) }) {
 		return false
 	}
 	now := time.Now().UTC()
@@ -107,6 +102,16 @@ func (s *Store) setAside(held []Action) bool {
 		s.db.Actions[at].Awaiting, s.db.Actions[at].UpdatedAt = nil, now
 	}
 	return s.save() == nil
+}
+
+// isDeliveryTo says action a goes to task's session: one waitsForCEO names
+// for the CEO's, and any of its task's but an evaluation for a goblin's. The
+// caller holds s.mu.
+func (s *Store) isDeliveryTo(a Action, task string) bool {
+	if task == "" {
+		return s.waitsForCEO(a)
+	}
+	return a.TaskID == task && a.Kind != "evaluate"
 }
 
 // settleSetAside ends what setAside began for each of held still set aside,
@@ -359,18 +364,26 @@ func (s *Service) queueAhead(task string) ([]Action, host.Record, harness.Screen
 	return held, record, screens, !record.Stream && screens.EditQueue != "" && !slices.ContainsFunc(held, func(a Action) bool { return a.Kind != "message" })
 }
 
-// sendCommandFirst readies queued command id to task, which he sends now, to
-// go ahead of what its session's harness holds in its queue of what the board
+// sendCommandFirst readies command id to task, which he sends now, to go
+// ahead of what its session's harness holds in its queue of what the board
 // typed there, and returns why it cannot where it cannot (queueAhead). It
 // takes that queue back (takeQueueBack), sends the command now, and reports
 // that it did, and his words wait on the board behind the command
 // (waitsForCommandSentNow), to be typed into the turn again once it has gone.
-// No key goes for a command that cannot go ahead of them. As takeBackHeld
-// does, the board looks first, since the turn may have taken them since its
-// last look.
-func (s *Service) sendCommandFirst(id, task string) (bool, error) {
+// No key goes for a command that cannot go ahead of them. A delivery to that
+// session the worker tries meanwhile can be typing into that queue a line the
+// board records there only once its try ends, as his words to the CEO are, so
+// the press reads the queue once no such try runs, waiting up to tryWait for
+// one under way, and otherwise says to press again in a moment. As
+// takeBackHeld does, the board then looks first, since the turn may have
+// taken them since its last look.
+func (s *Service) sendCommandFirst(ctx context.Context, id, task string) (bool, error) {
 	if !s.Store.isCommandToSendNow(id, task) {
 		return false, nil
+	}
+	if !s.Store.awaitTries(ctx, func(a Action) bool { return s.Store.isDeliveryTo(a, task) }) {
+		who, _ := whoHolds(task)
+		return false, errors.New("The board is typing for " + who + " right now. Press again in a moment.")
 	}
 	if len(s.Store.heldIn(task)) > 0 {
 		if err := s.Store.settleDeliveries(time.Now().UTC(), s.lookAtTerminal); err != nil {
@@ -401,12 +414,13 @@ func (s *Service) sendCommandFirst(id, task string) (bool, error) {
 	}))
 }
 
-// isCommandToSendNow reports whether message id to task is a command queued
-// on the board that he may send now.
+// isCommandToSendNow reports whether message id to task is a command he may
+// send now: one queued on the board with Send now, or one that reads Not
+// sent, which Send now puts back in the queue to go at once.
 func (s *Store) isCommandToSendNow(id, task string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return slices.ContainsFunc(s.db.Actions, func(a Action) bool {
-		return a.ID == id && a.TaskID == task && a.Kind == "message" && a.Status == "queued" && a.CanSendNow && isHarnessCommand(a.Text)
+		return a.ID == id && a.TaskID == task && isHarnessCommand(a.Text) && (a.Kind == "message" && a.Status == "queued" && a.CanSendNow || isNotSent(a))
 	})
 }

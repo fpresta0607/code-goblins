@@ -618,7 +618,7 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 		}
 		// A command goes ahead of what its session's harness holds in its
 		// queue, or says why it cannot (#2759).
-		isSent, err := h.Service.sendCommandFirst(a.Target, a.TaskID)
+		isSent, err := h.Service.sendCommandFirst(r.Context(), a.Target, a.TaskID)
 		if err != nil {
 			h.Service.wakeActions()
 			h.Service.publish(nil)

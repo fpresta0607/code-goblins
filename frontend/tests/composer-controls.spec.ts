@@ -383,6 +383,33 @@ for (const who of ["CEO", "goblin"] as const) {
           await expect(page.getByRole("group", { name: name + " asks", exact: true })).toHaveCount(0);
         });
       }
+      // A footer that also offers to close a dialog makes it no result when it
+      // asks for Enter or lists choices: it still asks, and takes what he
+      // writes as its answer.
+      for (const [what, asks] of [["a dialog that asks for Enter", { rows: ["Name this session"], choices: [], hints: ["Enter to submit · Esc to close"] }], ["a list of choices", { rows: ["Select model"], choices: [{ text: "Default", number: 1, focused: true }, { text: "Opus", number: 2 }], hints: ["Esc to close"] }]] as const) {
+        test(`${what} whose footer also offers to close it takes what he writes as its answer`, async ({ page }) => {
+          // Arrange
+          const relay = await open(page);
+          const name = who === "CEO" ? "CEO" : NAME;
+          const posted: string[] = [];
+          await page.route("**/api/actions", (route) => {
+            posted.push((route.request().postDataJSON() as { text?: string }).text ?? "");
+            return route.fulfill({ status: 202, json: { status: "queued" } });
+          });
+          await openConnected(page, relay, who);
+          relay.say({ type: "screen", asking: asks.choices.length > 0, open: true, working: false, submission: "asks-1", panel: asks });
+          await expect(page.getByRole("group", { name: name + " asks", exact: true })).toContainText(asks.rows[0]);
+          const before = typed(relay);
+
+          // Act
+          await field(page, name).fill("my answer");
+          await field(page, name).press("Enter");
+
+          // Assert
+          await expect.poll(() => typed(relay)).toBe(before + pasted("my answer"));
+          expect(posted).toEqual([]);
+        });
+      }
 
       test("a menu the harness drew for something other than his own input is not shown and takes no keys", async ({ page }) => {
         // Arrange

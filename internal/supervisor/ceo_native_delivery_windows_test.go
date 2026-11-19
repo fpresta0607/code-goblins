@@ -1756,21 +1756,31 @@ func TestAnAnswerItsDeliveryGaveUpOnAfterItsSubmitKeyIsPromisedNoSent(t *testing
 // frames apart, that meet that redraw twice (#2759).
 func TestASecondSubmitKeyNeverSendsWordsThatLandedBesideHisMessage(t *testing.T) {
 	const beside = " and the line beside it"
-	previous := nativeShown
-	nativeShown = 2 * time.Second
-	t.Cleanup(func() { nativeShown = previous })
 	for _, tc := range []struct {
 		name, mode string
 		// torn is how many reads in a row, from the second to show those
 		// words, are torn.
 		torn int
+		// shown, where set, bounds the wait of a delivery into a turn to see
+		// his words leave the prompt line, which they never do here.
+		shown time.Duration
 	}{
 		{name: "each read as the host gives it", mode: "claude-ready-lost-enter-joined-at-enter"},
 		{name: "one read torn across the redraw", mode: "claude-ready-lost-enter-joined-at-enter", torn: 1},
-		{name: "a CEO in a turn read torn twice across the redraw", mode: "claude-busy-lost-enter-joined-at-enter", torn: 2},
+		{name: "a CEO in a turn read torn twice across the redraw", mode: "claude-busy-lost-enter-joined-at-enter", torn: 2, shown: 2 * time.Second},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
+			if tc.shown > 0 {
+				// The torn reads are chosen by count, but the quarter second
+				// pressAgain waits over his words alone is wall time, so a
+				// runner pause of about 200 ms between the two torn reads has
+				// the delivery press Enter again as designed, and this case
+				// fails whatever the delivery does.
+				previous := nativeShown
+				nativeShown = tc.shown
+				t.Cleanup(func() { nativeShown = previous })
+			}
 			useConversations(t)
 			store, home := testStore(t)
 			terminal := nativeCEOComposer(t, home.State, tc.mode)

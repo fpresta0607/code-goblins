@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/http/httptest"
 	"os"
 	"slices"
 	"strings"
@@ -868,6 +869,254 @@ func TestSendNowRunsACommandAtOnceBehindHisWordsTheirTurnTookBeforeTheBoardSawIt
 		t.Errorf("the command's try = %v, the command = %+v; want it run at once", ran, command)
 	}
 	if want := []string{"queued first words", "sent now", "queued /compact", "sent now"}; !slices.Equal(input[1:], want) {
+		t.Errorf("terminal input = %q; want %q after its registration", input, want)
+	}
+}
+
+// The worker types his words to the CEO into its turn once their undo window
+// ends, and records them in the turn's queue only once that try ends. Send
+// now on a command he queued behind them, pressed while that try runs, waits
+// it out rather than reading the queue empty and being spent by a try that
+// then finds his words ahead of the command: it takes them back out of the
+// queue once they are recorded there, and the command runs at once ahead of
+// them (#2759).
+func TestSendNowOnACommandWaitsOutTheTryOfHisWordsAheadOfItAndRunsItFirst(t *testing.T) {
+	// Arrange
+	useConversations(t)
+	store, home := testStore(t)
+	terminal := nativeCEOComposer(t, home.State, "claude-busy")
+	screens, _ := harness.NativeScreens(harness.Claude)
+	// The try of his words is held once they show typed on the prompt line,
+	// before their submit key, until he has pressed Send now.
+	typing, release, isHeldBack := make(chan struct{}), make(chan struct{}), false
+	read := func(record host.Record) ([]string, error) {
+		screen, err := host.ReadScreen(record)
+		if err == nil && !isHeldBack && screens.ComposerHoldsAllOf(screen, "first words") {
+			isHeldBack = true
+			close(typing)
+			<-release
+		}
+		return screen, err
+	}
+	service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: home.State, ReadScreen: read}}}
+	for _, message := range []Action{{ID: "m1", Kind: "message", Text: "first words"}, {ID: "m2", Kind: "message", Text: "/compact"}} {
+		if _, err := store.Queue(message); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pastUndoWindow(t, store)
+	previous := tryWait
+	tryWait = time.Minute
+	t.Cleanup(func() { tryWait = previous })
+	tried := make(chan error, 1)
+	go func() { tried <- store.ProcessOne(context.Background(), service.execute) }()
+	select {
+	case <-typing:
+	case err := <-tried:
+		t.Fatalf("the try of his words = %v, which ended before they showed typed", err)
+	}
+
+	// Act
+	answered := make(chan *httptest.ResponseRecorder, 1)
+	go func() { answered <- sendNow(service, "", "m2") }()
+	var early *httptest.ResponseRecorder
+	select {
+	case early = <-answered:
+	case <-time.After(time.Second): // stall-accepted: the press is meant to stay waiting for the try it found under way, so a stall only makes the wait longer.
+	}
+	close(release)
+	typedErr := <-tried
+	pressed := early
+	if pressed == nil {
+		pressed = <-answered
+	}
+	back := actionOf(store, "m1")
+	ran := store.ProcessOne(context.Background(), service.execute)
+	command := actionOf(store, "m2")
+	promptLineEmpties(t, terminal, "claude")
+	again := store.ProcessOne(context.Background(), service.execute)
+	words := actionOf(store, "m1")
+	input := terminal.waitForLines(t, 7)
+
+	// Assert
+	if early != nil {
+		t.Errorf("Send now = %d %s while the try of his words ran; want it to wait that try out", early.Code, early.Body)
+	}
+	if typedErr != nil || pressed.Code != 202 || back.Status != "queued" || back.Message != "Queued. It left its session's queue so the command he sent now runs first, and is typed there again after it." {
+		t.Errorf("the try of his words = %v, Send now = %d %s, his words = %+v; want them typed into the turn, the press taken, and the words back on the board behind the command", typedErr, pressed.Code, pressed.Body, back)
+	}
+	if ran != nil || command.Status != "succeeded" {
+		t.Errorf("the command's try = %v, the command = %+v; want it run at once", ran, command)
+	}
+	if again != nil || !isHarnessHeld(words) {
+		t.Errorf("the next try = %v, his words = %+v; want them typed into the turn again", again, words)
+	}
+	if want := []string{"queued first words", "took back first words", "cleared", "queued /compact", "sent now", "queued first words"}; !slices.Equal(input[1:], want) {
+		t.Errorf("terminal input = %q; want %q after its registration", input, want)
+	}
+}
+
+// A delivery the worker tries types into its session's turn a line the board
+// records in that turn's queue only once the try ends, as his words to the
+// CEO are, or once its submit key went, as a goblin's are. So Send now on a
+// command reads that queue only once no delivery to the session is being
+// tried, and a press while one runs past the wait for it is refused, saying
+// to press again in a moment, with nothing sent now and no key pressed,
+// rather than taken with the queue unread and then spent by a try that finds
+// his words queued ahead of the command (#2759).
+func TestSendNowOnACommandIsRefusedWhileATryOfADeliveryToItsSessionOutlastsItsWait(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		isGoblin bool
+	}{
+		{name: "the CEO's"},
+		{name: "a goblin's", isGoblin: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			store, service, terminal, task, _ := heldQueue(t, test.isGoblin, "claude-busy")
+			for _, message := range []Action{{ID: "m1", Kind: "message", TaskID: task, Text: "first words"}, {ID: "m2", Kind: "message", TaskID: task, Text: "/compact"}} {
+				if _, err := store.Queue(message); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if offered := actionOf(store, "m2"); !offered.CanSendNow {
+				t.Fatalf("the command = %+v; want Send now offered while his words ahead of it offer it", offered)
+			}
+			store.mu.Lock()
+			store.db.Actions[slices.IndexFunc(store.db.Actions, func(a Action) bool { return a.ID == "m1" })].Status = "running"
+			store.trying = []string{"m1"}
+			store.mu.Unlock()
+			// The try of his words never ends here, so the press waits for it
+			// only a moment.
+			previous := tryWait
+			tryWait = 200 * time.Millisecond
+			t.Cleanup(func() { tryWait = previous })
+
+			// Act
+			pressed := sendNow(service, task, "m2")
+			command := actionOf(store, "m2")
+
+			// Assert
+			if pressed.Code != 409 || !strings.Contains(pressed.Body.String(), "The board is typing for") || command.IsSentNow {
+				t.Errorf("Send now = %d %s, the command = %+v; want it refused while the board tries his words, and not sent now", pressed.Code, pressed.Body, command)
+			}
+			if input := terminal.lines(t); len(input) != 1 {
+				t.Errorf("terminal input = %q; want nothing after its registration", input)
+			}
+		})
+	}
+}
+
+// Send now on a command that reads Not sent puts it back in the queue to go
+// at once, so behind his words in Claude Code's queue it takes them back out
+// of that queue first, runs the command at once and types them into the turn
+// again after it, as for a command queued on the board (#2759).
+func TestSendNowRunsACommandThatReadsNotSentAtOnceAheadOfHisWordsInClaudeCodesQueue(t *testing.T) {
+	// Arrange
+	store, service, terminal, _, _ := heldQueue(t, false, "claude-busy", "first words")
+	promptLineEmpties(t, terminal, "claude")
+	now := time.Now().UTC()
+	store.mu.Lock()
+	store.db.Actions = append(store.db.Actions, Action{ID: "m2", Kind: "message", Text: "/compact", Status: "failed", IsSentNow: true, Message: "Not sent. The answer was typed but never showed in the CEO's input. It was taken back off the CEO's prompt line, so nothing of it is left typed there.", CreatedAt: now, UpdatedAt: now})
+	saved := store.save()
+	store.mu.Unlock()
+	if saved != nil {
+		t.Fatal(saved)
+	}
+	if unsent := actionOf(store, "m2"); !isNotSent(unsent) {
+		t.Fatalf("the command = %+v; want it to read Not sent", unsent)
+	}
+
+	// Act
+	pressed := sendNow(service, "", "m2")
+	back := actionOf(store, "m1")
+	ran := store.ProcessOne(context.Background(), service.execute)
+	command := actionOf(store, "m2")
+	promptLineEmpties(t, terminal, "claude")
+	again := store.ProcessOne(context.Background(), service.execute)
+	words := actionOf(store, "m1")
+	input := terminal.waitForLines(t, 7)
+
+	// Assert
+	if pressed.Code != 202 || back.Status != "queued" || back.Message != "Queued. It left its session's queue so the command he sent now runs first, and is typed there again after it." {
+		t.Errorf("Send now = %d %s, his words = %+v; want it taken, and the words back on the board behind the command", pressed.Code, pressed.Body, back)
+	}
+	if ran != nil || command.Status != "succeeded" {
+		t.Errorf("the command's try = %v, the command = %+v; want it run at once", ran, command)
+	}
+	if again != nil || !isHarnessHeld(words) {
+		t.Errorf("the next try = %v, his words = %+v; want them typed into the turn again", again, words)
+	}
+	if want := []string{"queued first words", "took back first words", "cleared", "queued /compact", "sent now", "queued first words"}; !slices.Equal(input[1:], want) {
+		t.Errorf("terminal input = %q; want %q after its registration", input, want)
+	}
+}
+
+// Only a command he sends now goes ahead of his words in Claude Code's queue
+// (#2759). Send now on his words behind them, in their undo window, types
+// those words into the turn behind them and presses the send-now chord, which
+// has the turn take its whole queue at once, and takes nothing back out of
+// that queue.
+func TestSendNowOnHisWordsBehindHisWordsInClaudeCodesQueueTakesNothingBack(t *testing.T) {
+	// Arrange
+	store, service, terminal, _, _ := heldQueue(t, false, "claude-busy", "first words")
+	promptLineEmpties(t, terminal, "claude")
+	if _, err := store.Queue(Action{ID: "m2", Kind: "message", Text: "more words"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	pressed := sendNow(service, "", "m2")
+	first := actionOf(store, "m1")
+	err := store.ProcessOne(context.Background(), service.execute)
+	sent := actionOf(store, "m2")
+	input := terminal.waitForLines(t, 4)
+
+	// Assert
+	if pressed.Code != 202 || !isHarnessHeld(first) {
+		t.Errorf("Send now = %d %s, his first words = %+v; want it taken, and those words left in the turn's queue", pressed.Code, pressed.Body, first)
+	}
+	if err != nil || !isHarnessHeld(sent) || sent.Message != sentNowInTurn {
+		t.Errorf("its try = %v, his words sent now = %+v; want them typed into the turn and sent now", err, sent)
+	}
+	if want := []string{"queued first words", "queued more words", "sent now"}; !slices.Equal(input[1:], want) {
+		t.Errorf("terminal input = %q; want %q after its registration, nothing taken back", input, want)
+	}
+}
+
+// His words wait for a command he sent now after them, which Claude Code's
+// send-now chord would otherwise find queued behind them (#2759), but a
+// command waits for none, so two commands he sends now to the CEO run in the
+// order he sent them.
+func TestTwoCommandsHeSendsNowToTheCEORunInTheOrderHeSentThem(t *testing.T) {
+	// Arrange
+	useConversations(t)
+	store, home := testStore(t)
+	terminal := nativeCEOComposer(t, home.State, "claude-busy")
+	service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: home.State}}}
+	for _, message := range []Action{{ID: "m1", Kind: "message", Text: "first words"}, {ID: "m2", Kind: "message", Text: "/compact"}, {ID: "m3", Kind: "message", Text: "/context"}} {
+		if _, err := store.Queue(message); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, id := range []string{"m2", "m3"} {
+		if pressed := sendNow(service, "", id); pressed.Code != 202 {
+			t.Fatalf("Send now on %s = %d %s; want it taken", id, pressed.Code, pressed.Body)
+		}
+	}
+
+	// Act
+	first := store.ProcessOne(context.Background(), service.execute)
+	promptLineEmpties(t, terminal, "claude")
+	second := store.ProcessOne(context.Background(), service.execute)
+	input := terminal.waitForLines(t, 5)
+
+	// Assert
+	if first != nil || second != nil || actionOf(store, "m2").Status != "succeeded" || actionOf(store, "m3").Status != "succeeded" {
+		t.Errorf("their tries = %v, %v, the commands = %+v, %+v; want both run at once", first, second, actionOf(store, "m2"), actionOf(store, "m3"))
+	}
+	if want := []string{"queued /compact", "sent now", "queued /context", "sent now"}; !slices.Equal(input[1:], want) {
 		t.Errorf("terminal input = %q; want %q after its registration", input, want)
 	}
 }
