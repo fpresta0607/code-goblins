@@ -102,7 +102,7 @@ func TestPlanFilesEachTaskFolderByWhatTheFleetRecords(t *testing.T) {
 		}, nil},
 		{"the task's own archive entry records it", emptyBacklog, func(t *testing.T, h home.Home) {
 			taskFolder(t, h, "cg", 2*day)
-			finishedAt(t, filepath.Join(h.State, "archive", "CG.20260925T120000Z"), "", day)
+			finishedAt(t, filepath.Join(h.State, "archive", "cg.20260925T120000Z"), "", day)
 		}, []string{"archive cg"}},
 		{"the task's own status archive entry records it", emptyBacklog, func(t *testing.T, h home.Home) {
 			taskFolder(t, h, "cg", 2*day)
