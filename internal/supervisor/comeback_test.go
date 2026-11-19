@@ -236,27 +236,26 @@ func TestAComebackPlanningErrorIsReportedWhenMemoryCannotBeRead(t *testing.T) {
 		isMemoryRead = true
 		return Memory{}, errors.New("memory cannot be read")
 	}
-	wakes := fleetWakes{MemoryAbove: 3, MemoryBelow: 1}
+	wakes := fleetWakes{MemoryAbove: 3}
 
 	err := service.checkMemory(t.Context(), &wakes, thisSignIn)
 
-	if !errors.Is(err, planningErr) || !isMemoryRead || wakes.MemoryAbove != 0 || wakes.MemoryBelow != 0 || len(recorder.came()) != 0 {
+	if !errors.Is(err, planningErr) || !isMemoryRead || wakes.MemoryAbove != 0 || len(recorder.came()) != 0 {
 		t.Fatalf("error %v, memory read %v, readings %+v, resumed %v", err, isMemoryRead, wakes, recorder.came())
 	}
 }
 
-func TestAComebackPlanningErrorStillPausesAtTheMemoryFloor(t *testing.T) {
+func TestAComebackPlanningErrorDoesNotStopTheMemoryGuard(t *testing.T) {
 	spawner := &spawnRecorder{}
 	service, _, _, newer, now := floorBoard(t, true, spawner, [2]float64{3, 8}, [2]float64{3, 8})
 	planningErr := errors.New("sign-in cannot be read")
 	service.Options.Comeback = &Comeback{SignedIn: func() (time.Time, error) { return time.Time{}, planningErr }}
 	wakes := fleetWakes{}
 
-	for minute := range 2 {
-		if err := service.checkMemory(t.Context(), &wakes, now.Add(time.Duration(minute)*time.Minute)); !errors.Is(err, planningErr) {
-			t.Fatalf("reading %d error %v, want the planning error", minute, err)
-		}
+	if err := service.checkMemory(t.Context(), &wakes, now); !errors.Is(err, planningErr) {
+		t.Fatalf("fleet reading error %v, want the planning error", err)
 	}
+	readGuard(t, service, now)
 
 	calls := awaitDispatch(t, service, spawner, 1)
 	if len(calls) != 1 || calls[0][0] != "pause" || calls[0][1] != newer.ID {
