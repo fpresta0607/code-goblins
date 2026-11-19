@@ -95,7 +95,7 @@ func TestGateGrowthWakesOnceForEachNewCauseAndFilesTheJunctionCauseOnTheGate(t *
 	select {
 	case extra := <-filings:
 		t.Fatalf("filed %+v as well, want the junction cause alone filed", extra)
-	case <-time.After(time.Second):
+	case <-time.After(100 * time.Millisecond): // stall-accepted: no further filing is meant to arrive, so a stall only makes the wait longer.
 	}
 }
 
