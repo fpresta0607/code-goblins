@@ -156,6 +156,12 @@ func (r Room) Need(harness string) uint64 {
 	return r.Floor + r.pending() + r.reserved() + r.Cost(harness)
 }
 
+// NextStartNeed is the free memory and commit the next goblin start needs
+// while its harness is not chosen yet: Need of the costliest harness.
+func (r Room) NextStartNeed() uint64 {
+	return r.Need(r.costliest())
+}
+
 // costliest is the harness whose start costs the most, the first of the
 // spawn harnesses on a tie.
 func (r Room) costliest() string {

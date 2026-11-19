@@ -525,6 +525,10 @@ func defaultCommandRuntime() commandRuntime {
 				Docker:            runtime.Docker{Commands: commands},
 				System:            runtime.System{Commands: commands},
 				VerificationStore: verificationStore,
+				DispatchNeed: func() (uint64, error) {
+					room, err := supervisor.ReadRoom(h, fleettree.Processes, time.Now())
+					return room.NextStartNeed(), err
+				},
 			}.Collect(ctx)
 		},
 		cleanup:       defaultCleanup,

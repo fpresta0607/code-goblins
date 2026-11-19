@@ -72,6 +72,28 @@ func TestRoomNeedIsTheFloorWhatIsHeldAndTheStartsOwnCost(t *testing.T) {
 	}
 }
 
+func TestRoomNextStartNeedPricesTheCostliestHarness(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		room Room
+		want uint64
+	}{
+		{name: "nothing measured", room: Room{Floor: 4 * gigabyte}, want: 5 * gigabyte},
+		{name: "one harness measured above the rest", room: Room{Floor: 4 * gigabyte, Costs: costs("codex", 2.5)}, want: gb(6.5)},
+		{name: "the costliest start with a start settling", room: Room{Floor: 4 * gigabyte, Costs: costs("claude", 3), Pending: []PendingStart{{Task: "a", Harness: "claude", Remaining: gigabyte}}}, want: 8 * gigabyte},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			got := test.room.NextStartNeed()
+
+			// Assert
+			if got != test.want {
+				t.Fatalf("NextStartNeed() = %d, want %d", got, test.want)
+			}
+		})
+	}
+}
+
 func TestRoomShortfallSaysWhyTheFreeMemoryIsUnderWhatAStartNeeds(t *testing.T) {
 	room := Room{
 		Floor:    4 * gigabyte,

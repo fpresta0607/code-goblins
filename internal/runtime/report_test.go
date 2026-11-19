@@ -352,7 +352,7 @@ func TestBuildNamesAVolumesProjectFromItsStackNameAlone(t *testing.T) {
 // refuse everything when that floor cannot be read, so the Dispatch line
 // goblins runtime prints must not read ready in either case.
 func TestMachineDispatchWaitsUnderTheDiskFloor(t *testing.T) {
-	roomy := Machine{MemoryAvailable: 16 << 30, CommitAvailable: 16 << 30, DiskName: "C:", DiskFree: 20 << 30, DiskFloor: 15 << 30}
+	roomy := Machine{MemoryAvailable: 16 << 30, CommitAvailable: 16 << 30, DispatchNeed: 5 << 30, DiskName: "C:", DiskFree: 20 << 30, DiskFloor: 15 << 30}
 	tests := []struct {
 		name   string
 		change func(*Machine)
@@ -391,10 +391,11 @@ func TestMachineDispatchWaitsUnderTheDiskFloor(t *testing.T) {
 	}
 }
 
-// The next goblin needs both memory and commit at the fleet's next-start
-// mark: commit running out stops a process starting however much memory
-// looks available, so a dispatch read from memory alone starts one anyway.
-func TestMachineDispatchNeedsMemoryAndCommitAtTheNextStartMark(t *testing.T) {
+// The next goblin needs both memory and commit at the figure the scheduler
+// admits a start by: commit running out stops a process starting however much
+// memory looks available, so a dispatch read from memory alone starts one
+// anyway, and a need that cannot be read holds every dispatch.
+func TestMachineDispatchNeedsMemoryAndCommitAtTheNextStartNeed(t *testing.T) {
 	tests := []struct {
 		name    string
 		machine Machine
@@ -402,23 +403,33 @@ func TestMachineDispatchNeedsMemoryAndCommitAtTheNextStartMark(t *testing.T) {
 	}{
 		{
 			name:    "memory short",
-			machine: Machine{MemoryAvailable: 2560 << 20, CommitAvailable: 16 << 30},
-			want:    Dispatch{Line: "Dispatch: wait, only 2.5 GB of memory is free; the next goblin starts at 5 GB of both"},
+			machine: Machine{MemoryAvailable: 2560 << 20, CommitAvailable: 16 << 30, DispatchNeed: 5 << 30},
+			want:    Dispatch{Line: "Dispatch: wait, only 2.5 GB of memory is free; the next goblin starts at 5.0 GB of both"},
 		},
 		{
 			name:    "commit short",
-			machine: Machine{MemoryAvailable: 16 << 30, CommitAvailable: 2560 << 20},
-			want:    Dispatch{Line: "Dispatch: wait, only 2.5 GB of commit (memory plus page file) is free; the next goblin starts at 5 GB of both"},
+			machine: Machine{MemoryAvailable: 16 << 30, CommitAvailable: 2560 << 20, DispatchNeed: 6<<30 + 512<<20},
+			want:    Dispatch{Line: "Dispatch: wait, only 2.5 GB of commit (memory plus page file) is free; the next goblin starts at 6.5 GB of both"},
 		},
 		{
 			name:    "both short",
-			machine: Machine{MemoryAvailable: 3 << 30, CommitAvailable: 1 << 30},
-			want:    Dispatch{Line: "Dispatch: wait, only 3.0 GB of memory and 1.0 GB of commit (memory plus page file) are free; the next goblin starts at 5 GB of both"},
+			machine: Machine{MemoryAvailable: 3 << 30, CommitAvailable: 1 << 30, DispatchNeed: 8 << 30},
+			want:    Dispatch{Line: "Dispatch: wait, only 3.0 GB of memory and 1.0 GB of commit (memory plus page file) are free; the next goblin starts at 8.0 GB of both"},
 		},
 		{
-			name:    "both at exactly the mark",
-			machine: Machine{MemoryAvailable: 5 << 30, CommitAvailable: 5 << 30},
-			want:    Dispatch{Ready: true, Line: "Dispatch: ready, 5.0 GB of memory and 5.0 GB of commit are free"},
+			name:    "need unread",
+			machine: Machine{MemoryAvailable: 16 << 30, CommitAvailable: 16 << 30, DispatchNeedUnread: "the memory floor cannot be read: config/fleet.json: invalid character"},
+			want:    Dispatch{Line: "Dispatch: wait, the memory the next start needs cannot be read, so nothing starts: the memory floor cannot be read: config/fleet.json: invalid character"},
+		},
+		{
+			name:    "both at exactly the need",
+			machine: Machine{MemoryAvailable: 6<<30 + 512<<20, CommitAvailable: 6<<30 + 512<<20, DispatchNeed: 6<<30 + 512<<20},
+			want:    Dispatch{Ready: true, Line: "Dispatch: ready, 6.5 GB of memory and 6.5 GB of commit are free"},
+		},
+		{
+			name:    "ready above the need",
+			machine: Machine{MemoryAvailable: 16 << 30, CommitAvailable: 12 << 30, DispatchNeed: 5 << 30},
+			want:    Dispatch{Ready: true, Line: "Dispatch: ready, 16.0 GB of memory and 12.0 GB of commit are free"},
 		},
 	}
 	for _, test := range tests {
