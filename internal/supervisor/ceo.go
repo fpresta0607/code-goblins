@@ -65,6 +65,9 @@ type CEOConnection struct {
 	// it as goblins send does.
 	ReadScreen func(host.Record) ([]string, error)
 	Deliver    func(ctx context.Context, terminal state.TaskMeta, text string) error
+	// After is each wait a board send takes between its looks at the CEO's
+	// screen; nil waits on the clock.
+	After func(time.Duration) <-chan time.Time
 	// typing lets one writer at a time read and type into the CEO's native
 	// terminal, so a typed wake and a board send never share its composer.
 	typing sync.Mutex
@@ -606,6 +609,10 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 	if read == nil {
 		read = host.ReadScreen
 	}
+	after := c.After
+	if after == nil {
+		after = time.After
+	}
 	c.typing.Lock()
 	defer c.typing.Unlock()
 	delivery, err := host.DialDelivery(record)
@@ -647,7 +654,7 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 		// The terminal holds an Escape the next input follows within 100 ms
 		// as the start of a longer key, so the answer waits a poll.
 		select {
-		case <-time.After(nativeConfirmPoll):
+		case <-after(nativeConfirmPoll):
 		case <-ctx.Done():
 			return Evaluation{Reason: "The CEO's optional offer was dismissed. Your answer is queued; nothing was sent."}, ErrDeferred
 		}
@@ -745,13 +752,13 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 			return unsent("The answer was typed but never showed in the CEO's input.")
 		}
 		select {
-		case <-time.After(nativeKeyPoll):
+		case <-after(nativeKeyPoll):
 		case <-ctx.Done():
 			return unsent("The answer was typed into the CEO's terminal, and the wait to see it there ended before it showed.")
 		}
 	}
 	select {
-	case <-time.After(nativeSubmitSettle):
+	case <-after(nativeSubmitSettle):
 	case <-ctx.Done():
 		return unsent("The answer was typed into the CEO's terminal, and the delivery ended before its submit key.")
 	}
@@ -888,7 +895,7 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 						return heldOrUnsent("The message was typed into the CEO's turn, and the wait to see it leave the prompt line ended before it did.")
 					}
 					select {
-					case <-time.After(nativeKeyPoll):
+					case <-after(nativeKeyPoll):
 						continue
 					case <-ctx.Done():
 						return heldOrUnsent("The message was typed into the CEO's turn, and the wait to see it leave the prompt line ended before it did.")
@@ -913,7 +920,7 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 					return heldOrUnsent("The message stayed on the CEO's prompt line after its submit key, so the CEO's turn never queued it.")
 				}
 				select {
-				case <-time.After(nativeKeyPoll):
+				case <-after(nativeKeyPoll):
 				case <-ctx.Done():
 					return heldOrUnsent("The message was typed into the CEO's turn, and the wait to see it leave the prompt line ended before it did.")
 				}
@@ -942,7 +949,7 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 					break
 				}
 				select {
-				case <-time.After(nativeKeyPoll):
+				case <-after(nativeKeyPoll):
 				case <-ctx.Done():
 					return Evaluation{Awaiting: waiting}, fmt.Errorf("the CEO's send-now key was not pressed: %w", ctx.Err())
 				}
@@ -981,7 +988,7 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 				return Evaluation{Reason: sentToCEO, Awaiting: waiting}, nil
 			}
 			select {
-			case <-time.After(nativeConfirmPoll):
+			case <-after(nativeConfirmPoll):
 				continue
 			case <-ctx.Done():
 				return Evaluation{Awaiting: waiting}, fmt.Errorf("the message was typed into the CEO's native terminal and submitted, and the wait to see it taken ended: %w", ctx.Err())
@@ -1017,7 +1024,7 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 			return Evaluation{Reason: sentToCEO, Awaiting: waiting}, nil
 		}
 		select {
-		case <-time.After(nativeConfirmPoll):
+		case <-after(nativeConfirmPoll):
 		case <-ctx.Done():
 			return Evaluation{Awaiting: waiting}, fmt.Errorf("the message was typed into the CEO's native terminal and submitted, and the wait to see it taken ended: %w", ctx.Err())
 		}

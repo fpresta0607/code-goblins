@@ -685,10 +685,10 @@ func TestSendNowHasAClaudeCodeInATurnTakeTheLineAtOnce(t *testing.T) {
 // show its key taken.
 func TestSendNowSeesEachOfItsKeysTakenWithinAFewFramesOfTheScreen(t *testing.T) {
 	// Arrange
-	// drawLag is how long the screen takes to show a change, so the look that
-	// first meets one never shows it, as a look just after a key meets a
-	// harness that has not drawn that key yet.
-	const drawLag = 40 * time.Millisecond
+	// fewFrames is the longest the delivery may ask to sleep between a look
+	// that did not yet show its key taken and the next: what the delivery
+	// asks for, never how long the runner took.
+	const fewFrames = 100 * time.Millisecond
 	f := newNativeFixture(t, harness.Claude, "claude-queues")
 	nativeQueuedProof = 30 * time.Second
 	t.Cleanup(func() { nativeQueuedProof = 5 * time.Second })
@@ -700,31 +700,42 @@ func TestSendNowSeesEachOfItsKeysTakenWithinAFewFramesOfTheScreen(t *testing.T) 
 		t.Fatal(err)
 	}
 	claude, _ := harness.NativeScreens(harness.Claude)
+	// A look is how long the delivery asked to sleep since the look before
+	// it, and what it showed. The look that first meets a change of the
+	// screen still shows the screen before it, as a look just after a key
+	// meets a harness that has not drawn that key yet, so the delivery sees
+	// each key taken only on a look after a sleep it asked for.
 	type look struct {
-		began, ended   time.Time
+		asked          time.Duration
 		isOnPromptLine bool
 	}
 	var looks []look
 	var shown []string
-	var changed time.Time
+	var asked time.Duration
+	isHeldBack := false
 	f.service.ShouldSendNow = true
 	f.service.Took = func(context.Context, state.TaskMeta, string, string, time.Time) bool {
 		return len(named(f.events(t), "sent now")) > 0
 	}
+	f.service.Sleep = func(ctx context.Context, duration time.Duration) error {
+		asked += duration
+		return Service{}.sleep(ctx, duration)
+	}
 	f.service.ReadScreen = func(record host.Record) ([]string, error) {
-		began := time.Now()
 		screen, err := host.ReadScreen(record)
 		if err != nil {
 			return nil, err
 		}
-		if shown == nil || slices.Equal(screen, shown) {
-			shown, changed = screen, time.Time{}
-		} else if changed.IsZero() {
-			changed = time.Now()
-		} else if time.Since(changed) >= drawLag { // stall-accepted: a stall cannot fail it, since it only holds back what the fake screen shows, and a stall only shows the change sooner.
-			shown, changed = screen, time.Time{}
+		switch {
+		case shown == nil || slices.Equal(screen, shown):
+			shown, isHeldBack = screen, false
+		case !isHeldBack:
+			isHeldBack = true
+		default:
+			shown, isHeldBack = screen, false
 		}
-		looks = append(looks, look{began: began, ended: time.Now(), isOnPromptLine: claude.ComposerHoldsAllOf(shown, "use the staging database")})
+		looks = append(looks, look{asked: asked, isOnPromptLine: claude.ComposerHoldsAllOf(shown, "use the staging database")})
+		asked = 0
 		return shown, nil
 	}
 
@@ -744,9 +755,8 @@ func TestSendNowSeesEachOfItsKeysTakenWithinAFewFramesOfTheScreen(t *testing.T) 
 			continue
 		}
 		changes++
-		// stall-accepted: it times the looks, and the wait it rules out is the delivery's look every 250 ms before #2759, which no bound that outlasts a stall can tell apart.
-		if gap := looks[i].began.Sub(looks[i-1].ended); gap > 200*time.Millisecond {
-			t.Errorf("the delivery saw its line on the prompt line = %t on a look %s after its look before; want it within a few frames", looks[i].isOnPromptLine, gap)
+		if looks[i].asked > fewFrames {
+			t.Errorf("the delivery saw its line on the prompt line = %t on a look it asked to sleep %s for after its look before; want it within a few frames", looks[i].isOnPromptLine, looks[i].asked)
 		}
 	}
 	if changes < 2 {

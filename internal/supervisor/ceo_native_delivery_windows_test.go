@@ -436,10 +436,10 @@ func TestSendNowInterruptsTheCEOsTurnAndDeliversHisMessageOnce(t *testing.T) {
 // 173 ms for one already in its queue (#2759). The board looks again within a
 // few frames of a look that did not yet show its key taken.
 func TestSendNowSeesEachOfItsKeysTakenWithinAFewFramesOfTheCEOsScreen(t *testing.T) {
-	// drawLag is how long the screen takes to show a change, so the look that
-	// first meets one never shows it, as a look just after a key meets a
-	// harness that has not drawn that key yet.
-	const drawLag = 40 * time.Millisecond
+	// fewFrames is the longest the board may ask to wait between a look that
+	// did not yet show its key taken and the next: what the board asks for,
+	// never how long the runner took.
+	const fewFrames = 100 * time.Millisecond
 	for _, test := range []struct{ mode, harness, interrupt string }{
 		{mode: "claude-busy", harness: "claude", interrupt: "sent now"},
 		{mode: "busy", harness: "codex", interrupt: "interrupted"},
@@ -450,33 +450,47 @@ func TestSendNowSeesEachOfItsKeysTakenWithinAFewFramesOfTheCEOsScreen(t *testing
 			store, home := testStore(t)
 			terminal := nativeCEOComposer(t, home.State, test.mode)
 			screens, _ := harness.NativeScreens(harness.Kind(test.harness))
+			// A look is how long the board asked to wait since the look before
+			// it, and what it showed. The look that first meets a change of the
+			// screen still shows the screen before it, as a look just after a
+			// key meets a harness that has not drawn that key yet, so the board
+			// sees each key taken only on a look after a wait it asked for.
 			type look struct {
-				began, ended   time.Time
+				asked          time.Duration
 				isOnPromptLine bool
 			}
 			var mu sync.Mutex
 			var looks []look
 			var shown []string
-			var changed time.Time
+			var asked time.Duration
+			isHeldBack := false
 			read := func(record host.Record) ([]string, error) {
-				began := time.Now()
 				screen, err := host.ReadScreen(record)
 				if err != nil {
 					return nil, err
 				}
 				mu.Lock()
 				defer mu.Unlock()
-				if shown == nil || slices.Equal(screen, shown) {
-					shown, changed = screen, time.Time{}
-				} else if changed.IsZero() {
-					changed = time.Now()
-				} else if time.Since(changed) >= drawLag { // stall-accepted: a stall cannot fail it, since it only holds back what the fake screen shows, and a stall only shows the change sooner.
-					shown, changed = screen, time.Time{}
+				switch {
+				case shown == nil || slices.Equal(screen, shown):
+					shown, isHeldBack = screen, false
+				case !isHeldBack:
+					isHeldBack = true
+				default:
+					shown, isHeldBack = screen, false
 				}
-				looks = append(looks, look{began: began, ended: time.Now(), isOnPromptLine: screens.ComposerHoldsAllOf(shown, "stop and rebase")})
+				looks = append(looks, look{asked: asked, isOnPromptLine: screens.ComposerHoldsAllOf(shown, "stop and rebase")})
+				asked = 0
 				return shown, nil
 			}
-			service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: home.State, ReadScreen: read}}}
+			after := func(wait time.Duration) <-chan time.Time {
+				mu.Lock()
+				defer mu.Unlock()
+				asked += wait
+				// stall-accepted: it waits as long as the board asked, which only spaces its looks, so a stall cannot fail the test.
+				return time.After(wait)
+			}
+			service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: home.State, ReadScreen: read, After: after}}}
 			if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: "stop and rebase"}); err != nil {
 				t.Fatal(err)
 			}
@@ -498,9 +512,8 @@ func TestSendNowSeesEachOfItsKeysTakenWithinAFewFramesOfTheCEOsScreen(t *testing
 					continue
 				}
 				changes++
-				// stall-accepted: it times the looks, and the wait it rules out is the board's look every 250 ms before #2759, which no bound that outlasts a stall can tell apart.
-				if gap := looks[i].began.Sub(looks[i-1].ended); gap > 200*time.Millisecond {
-					t.Errorf("the board saw its words on the prompt line = %t on a look %s after its look before; want it within a few frames", looks[i].isOnPromptLine, gap)
+				if looks[i].asked > fewFrames {
+					t.Errorf("the board saw its words on the prompt line = %t on a look it asked to wait %s for after its look before; want it within a few frames", looks[i].isOnPromptLine, looks[i].asked)
 				}
 			}
 			if changes < 2 {
