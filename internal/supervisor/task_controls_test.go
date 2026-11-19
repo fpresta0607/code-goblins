@@ -498,6 +498,55 @@ func TestBoardResumeWaitsItsTurnForFiveGigabytesOfBothMemoryAndCommit(t *testing
 	}
 }
 
+// A Resume is priced by the harness the goblin resumes on, against the home's
+// floor: with 6 GB kept and codex measured at 2 GB, 7.5 GB free resumes a
+// goblin that comes back on claude (7 GB needed) and holds one given codex
+// while paused (8 GB needed).
+func TestBoardResumeIsAdmittedByItsResumeHarnessAgainstTheHomesFloor(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		resumes string
+		isRun   bool
+	}{
+		{name: "on the harness it paused on", isRun: true},
+		{name: "on the harness it was given while paused", resumes: "codex"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			spawner := &spawnRecorder{}
+			handler, h := startBoardWith(t, Memory{Available: gb(7.5), Total: 32 * gigabyte, CommitAvailable: gb(7.5), CommitLimit: 48 * gigabyte}, spawner)
+			writeFile(t, filepath.Join(h.Root, "config", "fleet.json"), `{"memory_floor_gb":6}`)
+			if err := writeStartCost(h.State, "codex", StartCost{Bytes: 2 * gigabyte, Task: "earlier"}); err != nil {
+				t.Fatal(err)
+			}
+			meta := state.TaskMeta{ID: "task", SpawnGen: "generation-1", Backend: "native", Harness: "claude"}
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Phase: "paused"}); err != nil {
+				t.Fatal(err)
+			}
+			if test.resumes != "" {
+				if err := state.WriteEngineChoice(h.State, state.EngineChoice{ID: meta.ID, Generation: meta.SpawnGen, Harness: test.resumes, Model: "default", When: "resume", Requested: time.Now()}); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Act
+			response := taskControlRequest(handler, "/api/tasks/lifecycle", map[string]string{"task": meta.ID, "generation": meta.SpawnGen, "operation": "resume-1", "action": "resume"})
+
+			// Assert
+			calls := awaitRecorded(t, spawner, 1)
+			if test.isRun {
+				calls = awaitCalls(t, spawner, 1)
+			}
+			if response.Code != 202 || test.isRun != (len(calls) == 1) {
+				t.Fatalf("resume = %d %s, goblins ran %v, want it run at once %v", response.Code, response.Body, calls, test.isRun)
+			}
+		})
+	}
+}
+
 func TestInterruptedResumeRemainsAvailableAfterPublishingAReplacementGeneration(t *testing.T) {
 	handler, h := orderBoard(t)
 	meta := state.TaskMeta{ID: "task", SpawnGen: "replacement", ResumeOperation: "resume-1", Backend: "native"}

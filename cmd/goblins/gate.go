@@ -566,6 +566,11 @@ func takeGateTurn(ctx context.Context, label string, says, stderr io.Writer, ava
 		fmt.Fprintf(stderr, "%s: this run takes no turn: %v\n", label, err)
 		return verify.Turn{}, err
 	}
+	floor, err := gateMemoryFloor()
+	if err != nil {
+		fmt.Fprintf(stderr, "%s: this run takes no turn: %v\n", label, err)
+		return verify.Turn{}, err
+	}
 	var pairedAvailable func() (uint64, error)
 	if available != nil {
 		pairedAvailable = func() (uint64, error) {
@@ -579,7 +584,7 @@ func takeGateTurn(ctx context.Context, label string, says, stderr io.Writer, ava
 	}
 	turn, err := verify.Admission{
 		Dir:       store,
-		Floor:     supervisor.MemoryFloor,
+		Floor:     floor,
 		Available: pairedAvailable,
 		Who:       who,
 		Priority:  priority,
@@ -618,10 +623,14 @@ func measuredExecutor(label, who string, says io.Writer, available func() (super
 	if err != nil {
 		return nil, err
 	}
+	floor, err := gateMemoryFloor()
+	if err != nil {
+		return nil, err
+	}
 	return &verify.Executor{
 		Admission: verify.Admission{
 			Dir:   store,
-			Floor: supervisor.MemoryFloor,
+			Floor: floor,
 			Who:   who,
 			Limit: verify.NoLimit,
 			Poll:  time.Second,
@@ -639,6 +648,20 @@ func measuredExecutor(label, who string, says io.Writer, available func() (super
 			return verify.Headroom{PhysicalAvailable: memory.Available, CommitAvailable: memory.CommitAvailable}, err
 		}},
 	}, nil
+}
+
+// gateMemoryFloor is the free memory a run of the machine's heavy line waits
+// for before it starts: the one the fleet's home sets when this runs for a
+// home and the default otherwise.
+func gateMemoryFloor() (uint64, error) {
+	settings := fleetconfig.Defaults()
+	if h, err := home.Resolve(); err == nil && home.IsPrimary(h) {
+		var readErr error
+		if settings, readErr = fleetconfig.Read(h.Root); readErr != nil {
+			return 0, fmt.Errorf("the memory floor cannot be read: %w", readErr)
+		}
+	}
+	return fleetconfig.Bytes(settings.MemoryFloorGB), nil
 }
 
 // gateDiskShortfall reads the free disk of the drive the run's checkout is on

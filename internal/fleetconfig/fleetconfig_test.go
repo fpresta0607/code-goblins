@@ -27,6 +27,9 @@ func TestReadRefusesAFileThatDoesNotMeanWhatItSays(t *testing.T) {
 		// Goblin slots go by memory alone; a count of live goblins is no
 		// setting, so a file that still sets one is refused, not obeyed.
 		{name: "a live goblin count", settings: `{"max_live_goblins":128}`},
+		{name: "a memory floor of 0", settings: `{"memory_floor_gb":0}`},
+		{name: "a memory floor under 0", settings: `{"memory_floor_gb":-1}`},
+		{name: "a memory floor that is no number", settings: `{"memory_floor_gb":"4"}`},
 		{name: "a weekly floor under 0", settings: `{"weekly_floor_percent":{"claude":-1}}`},
 		{name: "a weekly floor of the whole week", settings: `{"weekly_floor_percent":{"claude":100}}`},
 		{name: "a weekly floor for a provider with no measured week", settings: `{"weekly_floor_percent":{"pi":0}}`},
@@ -46,6 +49,33 @@ func TestReadRefusesAFileThatDoesNotMeanWhatItSays(t *testing.T) {
 			// Assert
 			if err == nil {
 				t.Fatalf("%s was read as settings", testCase.settings)
+			}
+		})
+	}
+}
+
+func TestMemoryFloorIsFourGigabytesUnlessTheFileSetsIt(t *testing.T) {
+	for _, testCase := range []struct {
+		name, settings string
+		want           float64
+	}{
+		{name: "no file", want: 4},
+		{name: "a file without the setting", settings: `{"disk_floor_gb":20}`, want: 4},
+		{name: "a file that sets it", settings: `{"memory_floor_gb":6.5}`, want: 6.5},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			root := t.TempDir()
+			if testCase.settings != "" {
+				root = writeSettings(t, testCase.settings)
+			}
+
+			// Act
+			settings, err := Read(root)
+
+			// Assert
+			if err != nil || settings.MemoryFloorGB != testCase.want {
+				t.Fatalf("memory floor %v, err %v, want %v", settings.MemoryFloorGB, err, testCase.want)
 			}
 		})
 	}

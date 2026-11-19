@@ -708,6 +708,57 @@ func TestSnapshotShowsMemoryCommitAndKernelPoolsAgainstTheFloorAndTheNextStart(t
 	}
 }
 
+// The board's next-start mark is where the costliest start is admitted: a
+// home that keeps 6 GB, with codex measured at 2.5 GB and claude at 1.5 GB,
+// marks the next start at 8.5 GB.
+func TestSnapshotMarksTheNextStartAtTheHomesFloorPlusTheCostliestStart(t *testing.T) {
+	// Arrange
+	handler, h := startBoard(t, 12*gigabyte, &spawnRecorder{})
+	writeFile(t, filepath.Join(h.Root, "config", "fleet.json"), `{"memory_floor_gb":6}`)
+	for harness, cost := range map[string]float64{"codex": 2.5, "claude": 1.5} {
+		if err := writeStartCost(h.State, harness, StartCost{Bytes: gb(cost), Task: "earlier"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Act
+	snapshot, err := handler.Service.Snapshot()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Memory == nil || snapshot.Memory.Floor != 6*gigabyte || snapshot.Memory.Next != gb(8.5) {
+		t.Fatalf("memory = %+v, want the floor at 6 GB and the next start at 8.5 GB", snapshot.Memory)
+	}
+}
+
+// While the room cannot be read nothing starts, so the board shows no memory
+// meter rather than marks of zero that read as enough memory.
+func TestSnapshotShowsNoMemoryWhileTheRoomCannotBeRead(t *testing.T) {
+	for _, test := range []struct{ name, file, content string }{
+		{name: "an unreadable floor", file: filepath.Join("config", "fleet.json"), content: `{"memory_floor_gb":0}`},
+		{name: "an unreadable services record", file: filepath.Join("state", "services.json"), content: "{"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			handler, h := startBoard(t, 12*gigabyte, &spawnRecorder{})
+			writeFile(t, filepath.Join(h.Root, test.file), test.content)
+
+			// Act
+			snapshot, err := handler.Service.Snapshot()
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if snapshot.Memory != nil {
+				t.Fatalf("memory = %+v, want none shown", snapshot.Memory)
+			}
+		})
+	}
+}
+
 // Over the next-start mark the board's memory says why nothing starts by
 // itself while a new goblin's session would leave the machine's heavy line
 // short of the floor it keeps for its next test run, so the meter does not

@@ -420,7 +420,6 @@ func TestPauseResumeSupersedesTheStopAndPreservesRecovery(t *testing.T) {
 					return errors.New("handoff interrupted")
 				},
 				Stop:   func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) { return nil, nil },
-				Memory: func() (uint64, uint64, error) { return 6 << 30, 6 << 30, nil },
 				Notify: func(state.Lifecycle) error { return nil },
 				Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
 					handoff := ""

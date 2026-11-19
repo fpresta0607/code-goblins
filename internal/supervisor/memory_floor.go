@@ -38,7 +38,7 @@ const freshResume = 10 * time.Minute
 // a row, of memory at now: from the second on, while nothing else starts or
 // changes, it pauses the lowest goblin it may. A change under way frees what
 // it frees only once it ends, so the count starts again after it.
-func (s *Service) pauseAtMemoryFloor(w *fleetWakes, memory Memory, now time.Time) error {
+func (s *Service) pauseAtMemoryFloor(w *fleetWakes, memory Memory, floor uint64, now time.Time) error {
 	if w.MemoryBelow < 2 {
 		return nil
 	}
@@ -53,8 +53,8 @@ func (s *Service) pauseAtMemoryFloor(w *fleetWakes, memory Memory, now time.Time
 	if !found {
 		return problems
 	}
-	evidence := fmt.Sprintf("%.1f GB of memory and %.1f GB of commit free on two readings in a row, under the %.0f GB floor; %s was %s",
-		gigabytes(memory.Available), gigabytes(memory.CommitAvailable), gigabytes(memoryFloor), pick.meta.ID, pick.why)
+	evidence := fmt.Sprintf("%.1f GB of memory and %.1f GB of commit free on two readings in a row, under the %g GB floor; %s was %s",
+		gigabytes(memory.Available), gigabytes(memory.CommitAvailable), gigabytes(floor), pick.meta.ID, pick.why)
 	began, err := s.pauseAtFloor(pick.meta, pick.record, "memory", "", evidence)
 	if began {
 		w.MemoryBelow = 0

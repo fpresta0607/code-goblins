@@ -548,7 +548,7 @@ func TestGatePrepushWaitsOutAMomentUnderTheMemoryFloor(t *testing.T) {
 	if exit != 0 || len(ran) != 4 {
 		t.Fatalf("exit = %d after %d check(s), want 0 after 4; stdout=%s stderr=%s", exit, len(ran), stdout.String(), stderr.String())
 	}
-	want := fmt.Sprintf("goblins gate prepush: waiting to start check 2, since the machine has 3.0 GB of memory free and a check starts only above %.1f GB\n", verify.Gigabytes(supervisor.MemoryFloor))
+	want := fmt.Sprintf("goblins gate prepush: waiting to start check 2, since the machine has 3.0 GB of memory free and a check starts only above %.1f GB\n", verify.Gigabytes(defaultMemoryFloor))
 	if strings.Count(stdout.String(), want) != 1 {
 		t.Errorf("stdout %q says %q %d times, want once", stdout.String(), want, strings.Count(stdout.String(), want))
 	}
@@ -591,7 +591,7 @@ func TestGatePrepushStartsNoCheckWhileMemoryIsUnderTheFloor(t *testing.T) {
 	if exit != 0 || len(ran) != 1 {
 		t.Fatalf("exit = %d after %d check(s), want 0 after 1; stdout=%s stderr=%s", exit, len(ran), stdout.String(), stderr.String())
 	}
-	want := fmt.Sprintf("left to CI, since the machine has 1.0 GB of memory free and a check starts only above %.1f GB, and the time limit of 1s passed while the run waited for it:\n- tests of a (changed)\n- go vet of 2 packages (they build against what changed)\n- tests of b (imports a)\n", verify.Gigabytes(supervisor.MemoryFloor))
+	want := fmt.Sprintf("left to CI, since the machine has 1.0 GB of memory free and a check starts only above %.1f GB, and the time limit of 1s passed while the run waited for it:\n- tests of a (changed)\n- go vet of 2 packages (they build against what changed)\n- tests of b (imports a)\n", verify.Gigabytes(defaultMemoryFloor))
 	if !strings.Contains(stdout.String(), want) {
 		t.Errorf("stdout %q lacks %q", stdout.String(), want)
 	}

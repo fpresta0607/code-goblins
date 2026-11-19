@@ -102,7 +102,7 @@ func TestAnIdleTurnIsWokenWithTheNextWork(t *testing.T) {
 			testCase.arrange(t, h)
 
 			// Act
-			detail, err := IdleTurnWake(h, testCase.memory, time.Now().UTC())
+			detail, err := IdleTurnWake(h, nil, testCase.memory, time.Now().UTC())
 
 			// Assert
 			if err != nil {
@@ -173,7 +173,7 @@ func TestAnIdleTurnLeavesOutTheTaskBeingStarted(t *testing.T) {
 			}
 
 			// Act
-			detail, err := IdleTurnWake(h, Memory{Available: 8 * gigabyte, CommitAvailable: 40 * gigabyte}, now)
+			detail, err := IdleTurnWake(h, nil, Memory{Available: 8 * gigabyte, CommitAvailable: 40 * gigabyte}, now)
 
 			// Assert
 			if err != nil {
@@ -209,7 +209,7 @@ func TestAnIdleTurnIsWokenOncePerNextWorkPerInterval(t *testing.T) {
 	start := time.Now().UTC()
 	raised := func(at time.Time) bool {
 		t.Helper()
-		detail, err := IdleTurnWake(h, plenty, at)
+		detail, err := IdleTurnWake(h, nil, plenty, at)
 		if err != nil {
 			t.Fatal(err)
 		}

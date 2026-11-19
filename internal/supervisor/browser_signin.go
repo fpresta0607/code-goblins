@@ -373,8 +373,12 @@ func (b *browserBroker) startSignIn(ctx context.Context, card BrowserSignIn) err
 	if err != nil {
 		return errors.New("Free memory cannot be read. Try again in a minute")
 	}
-	if min(memory.Available, memory.CommitAvailable) < memoryFloor {
-		return errors.New("The sign-in window needs 4 GB of free memory. Try again in a minute")
+	floor, err := b.floor()
+	if err != nil {
+		return fmt.Errorf("The sign-in window cannot open: %w", err)
+	}
+	if min(memory.Available, memory.CommitAvailable) < floor {
+		return fmt.Errorf("The sign-in window needs %g GB of free memory. Try again in a minute", gigabytes(floor))
 	}
 	profile, err := browserlogin.MakeProfile(b.state, card.Login)
 	if err != nil {

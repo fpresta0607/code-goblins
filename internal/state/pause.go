@@ -97,7 +97,7 @@ func validateWaitURL(kind, target string) error {
 func (condition PauseCondition) Description() string {
 	switch condition.Reason {
 	case "memory":
-		return "Paused for memory; resumes after two readings with 5 GB of memory and commit free"
+		return "Paused for memory; resumes once free memory, less its start's cost, stays above the floor"
 	case "allowance":
 		return "Paused for the allowance; resumes at " + condition.Until
 	case "restart":
