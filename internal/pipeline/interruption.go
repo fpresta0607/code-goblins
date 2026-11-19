@@ -197,7 +197,11 @@ func (reader Reader) preserveRunWorktreeEdits(ctx context.Context, run recoveryR
 		return "", fmt.Errorf("pipeline: gate worktree of run %s could not be verified: %w", run.RunID, err)
 	}
 	if worktree == "" {
-		return "", nil
+		kept, _, err := reader.recoveryHead(ctx, filepath.Join(reader.Root, "repos", run.RepoID+".git"), WorktreeRef(run.RunID), true)
+		if err != nil {
+			return "", fmt.Errorf("pipeline: kept gate worktree edits of run %s could not be read: %w", run.RunID, err)
+		}
+		return kept, nil
 	}
 	result, err := reader.runGit(ctx, worktree, false, "rev-parse", "HEAD")
 	head := strings.TrimSpace(string(result.Stdout))

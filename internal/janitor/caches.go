@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -45,28 +46,62 @@ const cacheTimeout = 10 * time.Minute
 // as Go marks a use only once an hour.
 const goBuildUnused = 24 * time.Hour
 
-// trimCaches brings the home's caches folder back under its cap: over it, it
-// first trims Go's build cache of the entries unused for a day (see
+// goBuildUnusedTight is goBuildUnused while free disk is under the clean mark:
+// an entry unused for an hour goes, and a build that wants it again builds
+// it, as it does after Go's own trim.
+const goBuildUnusedTight = time.Hour
+
+// trimCaches brings the home's caches folder back under its cap, the tight cap
+// while free disk is under the clean mark: over it, it first trims Go's build
+// cache of the entries unused for a day, or for an hour while tight (see
 // trimGoBuild), then each tool prunes its own cache, the one used longest ago
 // first, until the folder is under the cap again or every tool has pruned. A
 // prune can delete a whole cache, as go clean -cache does, so each starts
 // only once the machine's heavy line is free, and runs in a turn of that line
 // (HeavyLine.Wrap), which no run that waits its turn builds beside. The trim
 // stops at a line that is not free and leaves the rest to the next sweep.
-func (cfg Config) trimCaches(ctx context.Context, record *Record) {
+// While tight, Go's build and module caches are left out of the trim, the
+// build cache's entries and both prunes, while a Go command runs, a build or a
+// test that removing what it reads can break, or while the process list,
+// unproven read (isProcessesRead), cannot say none does.
+func (cfg Config) trimCaches(ctx context.Context, isProcessesRead bool, record *Record) {
 	root := cfg.Home.Caches()
-	limit := int64(fleetconfig.Bytes(cfg.Settings.CachesCapGB))
+	capGB := cfg.Settings.CachesCap(cfg.IsTight)
+	limit := int64(fleetconfig.Bytes(capGB))
 	total, isWhole := sizeOf(root)
 	if !isWhole {
-		record.Notes = append(record.Notes, fmt.Sprintf("the caches could not all be read, so the %.1f GB they hold against their %.0f GB cap is only what could be counted", disk.GB(uint64(total)), cfg.Settings.CachesCapGB))
+		record.Notes = append(record.Notes, fmt.Sprintf("the caches could not all be read, so the %.1f GB they hold against their %.0f GB cap is only what could be counted", disk.GB(uint64(total)), capGB))
 	}
 	if total <= limit {
 		return
 	}
 	goBuild := filepath.Join(root, "go-build")
-	if freed := trimGoBuild(ctx, goBuild, cfg.Now.Add(-goBuildUnused-time.Hour)); freed > 0 {
-		total -= freed
-		record.Removed = append(record.Removed, Item{Kind: "cache", Path: goBuild, Bytes: freed, Detail: "Go build cache entries unused for a day"})
+	isGoLeft := false
+	if cfg.IsTight {
+		var goCommands []string
+		for _, process := range cfg.Inventory.Processes {
+			if strings.EqualFold(process.Name, "go.exe") || process.Name == "go" {
+				goCommands = append(goCommands, strconv.Itoa(process.PID))
+			}
+		}
+		switch {
+		case !isProcessesRead:
+			isGoLeft = true
+			record.Notes = append(record.Notes, "Go's build and module caches were left out of the caches' trim, as whether a Go build or test runs, which trimming them can break, could not be read")
+		case len(goCommands) > 0:
+			isGoLeft = true
+			record.Notes = append(record.Notes, "Go's build and module caches were left out of the caches' trim, as a Go build or test runs (pid "+strings.Join(goCommands, ", ")+"), which trimming them can break")
+		}
+	}
+	unused, unusedText := goBuildUnused, "a day"
+	if cfg.IsTight {
+		unused, unusedText = goBuildUnusedTight, "an hour, as free disk is under the clean mark"
+	}
+	if !isGoLeft {
+		if freed := trimGoBuild(ctx, goBuild, cfg.Now.Add(-unused-time.Hour)); freed > 0 {
+			total -= freed
+			record.Removed = append(record.Removed, Item{Kind: "cache", Path: goBuild, Bytes: freed, Detail: "Go build cache entries unused for " + unusedText})
+		}
 	}
 	if total <= limit {
 		return
@@ -77,6 +112,9 @@ func (cfg Config) trimCaches(ctx context.Context, record *Record) {
 	}
 	var order []used
 	for _, tool := range cacheTools {
+		if isGoLeft && (tool.dir == "go-build" || tool.dir == "go-mod") {
+			continue
+		}
 		if last, ok := lastUse(filepath.Join(root, tool.dir)); ok {
 			order = append(order, used{tool, last})
 		}
@@ -87,7 +125,7 @@ func (cfg Config) trimCaches(ctx context.Context, record *Record) {
 			break
 		}
 		if err := cfg.lineFree(); err != nil {
-			record.Notes = append(record.Notes, fmt.Sprintf("the caches hold %.1f GB, over their %.0f GB cap, and are not trimmed further, as the machine's heavy line is not free: %v", disk.GB(uint64(total)), cfg.Settings.CachesCapGB, err))
+			record.Notes = append(record.Notes, fmt.Sprintf("the caches hold %.1f GB, over their %.0f GB cap, and are not trimmed further, as the machine's heavy line is not free: %v", disk.GB(uint64(total)), capGB, err))
 			return
 		}
 		dir := filepath.Join(root, entry.tool.dir)
@@ -102,7 +140,7 @@ func (cfg Config) trimCaches(ctx context.Context, record *Record) {
 		})
 		cancel()
 		if err == nil && result.ExitCode == noTurnExit {
-			record.Notes = append(record.Notes, fmt.Sprintf("the caches hold %.1f GB, over their %.0f GB cap, and are not trimmed further, as a run took the machine's heavy line before the %s cache's prune took its turn", disk.GB(uint64(total)), cfg.Settings.CachesCapGB, entry.tool.dir))
+			record.Notes = append(record.Notes, fmt.Sprintf("the caches hold %.1f GB, over their %.0f GB cap, and are not trimmed further, as a run took the machine's heavy line before the %s cache's prune took its turn", disk.GB(uint64(total)), capGB, entry.tool.dir))
 			return
 		}
 		if err != nil || result.ExitCode != 0 {
@@ -116,7 +154,7 @@ func (cfg Config) trimCaches(ctx context.Context, record *Record) {
 		}
 	}
 	if total > limit {
-		record.Notes = append(record.Notes, fmt.Sprintf("the caches hold %.1f GB, over their %.0f GB cap, after every tool's own prune; nothing is deleted blind", disk.GB(uint64(total)), cfg.Settings.CachesCapGB))
+		record.Notes = append(record.Notes, fmt.Sprintf("the caches hold %.1f GB, over their %.0f GB cap, after every tool's own prune; nothing is deleted blind", disk.GB(uint64(total)), capGB))
 	}
 }
 

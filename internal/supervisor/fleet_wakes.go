@@ -130,6 +130,14 @@ type fleetWakes struct {
 	// DiskLow says disk_low woke since a reading was last at or above the
 	// disk floor.
 	DiskLow bool `json:"disk_low,omitempty"`
+	// GateCauses names each cause of the gate's home keeping finished runs'
+	// checkouts past its retention that gate_growth woke for, until a sweep
+	// finds it no more.
+	GateCauses []string `json:"gate_causes,omitempty"`
+	// GoblinFolders holds, by task and the generation it was first spawned
+	// on, each live goblin told its folders passed goblin_disk_gb, and how
+	// many sends to it failed.
+	GoblinFolders map[string]folderNotice `json:"goblin_folders,omitempty"`
 	// HandleHolder names the process past the handle line the CEO was woken
 	// for, by its pid and start, until a reading finds none past it.
 	HandleHolder string `json:"handle_holder,omitempty"`
@@ -349,7 +357,7 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 	w, readErr := readFleetWakes(stateDir)
 	err := errors.Join(readErr, s.pauseAtAllowanceFloor(ctx, &w, now), s.pollCI(ctx, &w, now, currentTime))
 	err = errors.Join(err, s.reconcilePreparedWaits(ctx, &w, now))
-	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkHandles(&w, now), s.checkDisk(&w, now), s.checkLongTurnWaits(&w, now), s.checkProgress(ctx, &w, now), s.checkDefender(ctx, &w, now), s.checkCEOWaits(&w, now), s.checkSharedServices(ctx, &w, now))
+	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkHandles(&w, now), s.checkDisk(&w, now), s.checkGateGrowth(&w, now), s.checkGoblinFolders(ctx, &w), s.checkLongTurnWaits(&w, now), s.checkProgress(ctx, &w, now), s.checkDefender(ctx, &w, now), s.checkCEOWaits(&w, now), s.checkSharedServices(ctx, &w, now))
 	w.RootReadings = s.currentRootReadings()
 	// The reading's end is its start and the time the machine was awake
 	// through it: a sleep that fell inside the reading, in its progress probe

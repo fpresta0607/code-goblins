@@ -12,11 +12,30 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/layout"
+	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 // tempAge is how long nothing in a temporary folder must have been written
 // before the janitor takes it for a leak.
 const tempAge = 24 * time.Hour
+
+// tightScratchAge is how long nothing in a finished task's scratch folder must
+// have been written before the janitor takes it while free disk is under the
+// clean mark: the time a spawn may take between making a task's scratch
+// folder and writing the record that names it. A folder the settings' temp
+// patterns name keeps the day, since a test running now can use it unnamed.
+const tightScratchAge = time.Hour
+
+// tempCandidate is a folder the sweep may take for a leak, how long nothing in
+// it must have been written first, and whether it is a finished task's
+// scratch folder.
+type tempCandidate struct {
+	path      string
+	age       time.Duration
+	isScratch bool
+}
 
 // readableProcesses returns every running process's command line, lowercased,
 // once the list is proven read: this process's own must be in it, naming its
@@ -67,17 +86,28 @@ func names(line, path string) bool {
 // machine's temporary folder and in the folder every goblin's TMP names,
 // those its settings name; in the home's scratch folder and the older builds'
 // Go temporary folder, a task's whose record is gone. Each goes only once
-// nothing in it was written for a day, no running process names it and no
-// running Git Bash has it as /tmp.
+// nothing in it was written for a day, or for an hour for a finished task's
+// scratch folder while free disk is under the clean mark, no running process
+// names it and no running Git Bash has it as /tmp. A finished task's scratch
+// folder also stays while anything still read names a path in it.
 func (cfg Config) removeTempLeaks(processes []string, record *Record) {
 	scratchRoots := append(cfg.Home.ScratchRoots(), cfg.LegacyGoTmp)
-	var candidates []string
+	scratchAge := tempAge
+	if cfg.IsTight {
+		scratchAge = tightScratchAge
+	}
+	var candidates []tempCandidate
+	temps := func(dir string, entries []os.DirEntry) {
+		for _, path := range cfg.fleetTemps(dir, entries) {
+			candidates = append(candidates, tempCandidate{path: path, age: tempAge})
+		}
+	}
 	if cfg.TempDir != "" {
 		entries, err := os.ReadDir(cfg.TempDir)
 		if err != nil {
 			record.Notes = append(record.Notes, "the temporary folder could not be read: "+err.Error())
 		}
-		candidates = append(candidates, cfg.fleetTemps(cfg.TempDir, entries)...)
+		temps(cfg.TempDir, entries)
 	}
 	// What asks Windows for the temporary folder in a goblin's terminal, as a
 	// Go program's os.TempDir does, is given the folder every goblin shares,
@@ -90,7 +120,7 @@ func (cfg Config) removeTempLeaks(processes []string, record *Record) {
 		}
 		shared := filepath.Join(root, home.SharedTempDir)
 		entries, _ := os.ReadDir(shared)
-		candidates = append(candidates, cfg.fleetTemps(shared, entries)...)
+		temps(shared, entries)
 	}
 	if len(cfg.Inventory.UnreadableTasks) > 0 {
 		record.Notes = append(record.Notes, "a task record could not be read, so no scratch folder was taken for a finished task's")
@@ -116,7 +146,7 @@ func (cfg Config) removeTempLeaks(processes []string, record *Record) {
 					continue
 				}
 				if entry.IsDir() && !live[strings.ToLower(entry.Name())] {
-					candidates = append(candidates, filepath.Join(root, entry.Name()))
+					candidates = append(candidates, tempCandidate{path: filepath.Join(root, entry.Name()), age: scratchAge, isScratch: true})
 				}
 			}
 		}
@@ -131,9 +161,82 @@ func (cfg Config) removeTempLeaks(processes []string, record *Record) {
 		}
 		return temps, err
 	})
-	for _, path := range candidates {
-		cfg.removeTempLeak(path, processes, liveTmp, record)
+	// What the fleet and the Overlord still read is read once a sweep too,
+	// and only when a finished task's scratch folder is otherwise due to go.
+	liveText := sync.OnceValues(func() (string, error) {
+		text, err := cfg.liveText()
+		if err != nil {
+			record.Notes = append(record.Notes, "what reports, cards, questions, briefs, the backlog and memory name could not all be read, so no finished task's scratch folder was removed: "+err.Error())
+		}
+		return text, err
+	})
+	for _, candidate := range candidates {
+		cfg.removeTempLeak(candidate, processes, liveTmp, liveText, record)
 	}
+}
+
+// liveText is every text that keeps the files it names by path: the open
+// backlog rows, the directives, both memory folders, the briefs of live and
+// undispatched tasks and the open Command Center items (layout.LiveText), the
+// wakes the CEO has not acknowledged, and each task's status log, which holds
+// its reports. It is lowercased, with
+// every slash a backslash, as names reads a command line.
+func (cfg Config) liveText() (string, error) {
+	text, err := layout.LiveText(cfg.Home, layout.ClaudeMemoryFolder(cfg.Home.Root))
+	if err != nil {
+		return "", err
+	}
+	var all strings.Builder
+	all.WriteString(text)
+	pending, err := wake.Pending(cfg.Home.State)
+	if err != nil {
+		return "", err
+	}
+	for _, record := range pending {
+		all.WriteString(record.Detail + "\n")
+	}
+	for _, task := range cfg.Inventory.Tasks {
+		status, err := fsx.ReadFile(state.StatusPath(cfg.Home.State, task.ID))
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return "", err
+		}
+		all.Write(status)
+		all.WriteString("\n")
+	}
+	return strings.ReplaceAll(strings.ToLower(all.String()), "/", `\`), nil
+}
+
+// textNames reports whether text, as liveText gives it, names path or a path
+// inside it, written as Windows writes it or as Git Bash does, /d/... for
+// D:\.... The path is spelled as the text is, lowercased with every slash a
+// backslash. A name ends at any character a task id cannot go on with, so a
+// text that names gone-task-2 does not keep gone-task, while one that ends a
+// sentence with gone-task. does.
+func textNames(text, path string) bool {
+	target := strings.ReplaceAll(strings.ToLower(filepath.Clean(path)), "/", `\`)
+	targets := []string{target}
+	if volume := filepath.VolumeName(target); len(volume) == 2 && volume[1] == ':' {
+		targets = append(targets, `\`+volume[:1]+target[2:])
+	}
+	for _, target := range targets {
+		for offset := 0; ; {
+			at := strings.Index(text[offset:], target)
+			if at < 0 {
+				break
+			}
+			end := offset + at + len(target)
+			if end == len(text) || !isNameRune(rune(text[end])) {
+				return true
+			}
+			offset += at + 1
+		}
+	}
+	return false
+}
+
+// isNameRune is a character a task id or a folder name can go on with.
+func isNameRune(r rune) bool {
+	return r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '_'
 }
 
 // fleetTemps are the folders among dir's entries that the settings' temp
@@ -157,7 +260,8 @@ func (cfg Config) isFleetTemp(name string) bool {
 	return false
 }
 
-func (cfg Config) removeTempLeak(path string, processes []string, liveTmp func() ([]home.LiveTemp, error), record *Record) {
+func (cfg Config) removeTempLeak(candidate tempCandidate, processes []string, liveTmp func() ([]home.LiveTemp, error), liveText func() (string, error), record *Record) {
+	path := candidate.path
 	for _, line := range processes {
 		if names(line, path) {
 			return
@@ -168,8 +272,18 @@ func (cfg Config) removeTempLeak(path string, processes []string, liveTmp func()
 		record.Notes = append(record.Notes, "left "+path+": what it holds could not all be read")
 		return
 	}
-	if cfg.Now.Sub(newest) < tempAge {
+	if cfg.Now.Sub(newest) < candidate.age {
 		return
+	}
+	if candidate.isScratch {
+		text, err := liveText()
+		if err != nil {
+			return
+		}
+		if textNames(text, path) {
+			record.Kept = append(record.Kept, Item{Kind: "temp", Path: path, Bytes: bytes, Detail: "a finished task's scratch folder that a report, card, question, brief, backlog row or memory file still names a path in"})
+			return
+		}
 	}
 	repository, err := findRepository(path)
 	if err != nil {
@@ -196,7 +310,11 @@ func (cfg Config) removeTempLeak(path string, processes []string, liveTmp func()
 		record.Kept = append(record.Kept, Item{Kind: "temp", Path: path, Detail: "something still holds it open: " + err.Error()})
 		return
 	}
-	record.Removed = append(record.Removed, Item{Kind: "temp", Path: path, Bytes: bytes, Detail: "nothing written in it for a day and no running process names it"})
+	detail := "nothing written in it for a day and no running process names it"
+	if candidate.age != tempAge {
+		detail = "free disk is under the clean mark, nothing written in it for an hour and no running process names it"
+	}
+	record.Removed = append(record.Removed, Item{Kind: "temp", Path: path, Bytes: bytes, Detail: detail})
 }
 
 // newestWrite is the latest modification time of path and everything under

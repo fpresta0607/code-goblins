@@ -456,6 +456,10 @@ A rebase's first-parent commits that no remote-tracking ref of the gate reposito
 A run under `rebase.strategy: merge` integrates with a merge commit instead, which must have exactly two parents, the submitted head first and a commit a remote-tracking ref holds second, and the tree `git merge-tree --write-tree` gives for those two.
 A gate fix commit or conflict resolution on the rebase or merge, or content from a base no remote-tracking ref holds, is refused, so keeping the submitted head drops nothing that neither it nor a remote-tracking ref holds.
 Before a compare-and-swap repairs the stale database field, the old commit is anchored under `refs/no-mistakes/recovery/<run>/recorded`.
+Native pins an unpublished head under `refs/no-mistakes/recover/<run>` in the gate when its run ends, and its recovery and terminal preflight both refuse a run whose recorded head that anchor contradicts (issue 2755).
+So the repair first requires that anchor to be absent or to name the stale commit, and refuses before any write otherwise.
+Once the database field names the submitted head, it compare-and-swaps that anchor from the stale commit to the submitted head, while the stale commit stays anchored under `refs/no-mistakes/recovery/<run>/recorded`.
+A recovery that stopped between the two moves the anchor when it runs again, provided the gate branch is still at the submitted head and the anchor still names exactly the commit the driver kept.
 The driver then invokes native `sync --recover --keep-local` and verifies that custody was durably returned without moving the local or gate head.
 A recorded head that holds the gate's own commits, such as a rebase followed by review fixes, would lose them if the submitted head were kept, so it is recovered at the recorded head instead, and the refusal from the submitted head names that head.
 With the clean task branch at the recorded head, native status offers plain `sync --recover`; the driver requires the gate branch to still name the submitted head, runs that recovery, which returns custody without moving the local or gate branch, and requires the local head unchanged.
@@ -487,7 +491,7 @@ Rounds are counted over the run and every predecessor its terminal admissions co
 A gate's fixer works in the run's worktree, which no-mistakes removes with force once the run is over, so the driver keeps what the fixer left uncommitted before anything takes that worktree away.
 Before unpublished recovery runs any native command, and before a stop aborts a live run, every tracked and untracked change in the run's worktree is committed and pinned under `refs/no-mistakes/recovery/<run>/worktree` in the gate repository, and that commit's parent is the head the run ended at.
 The commit is made from an index of the driver's own, so the goblin's staged and unstaged work is exactly as it left it, and a first capture stands rather than being replaced by a later one a goblin may already be restoring.
-The commit is named in the branch-sync evidence the recovery reads, in `goblins pipeline recover`'s output, and in the lifecycle record of a stop, so an interrupted fixer's repairs stay recoverable with `git cherry-pick -n <commit>` after the worktree is gone.
+The commit is named in the branch-sync evidence the recovery reads, in `goblins pipeline recover`'s output, in its error when the recovery stops short, and in the lifecycle record of a stop, so an interrupted fixer's repairs stay recoverable with `git cherry-pick -n <commit>` after the worktree is gone.
 On 2026-10-23 an allowance-interrupted review repair lost its frontend changes exactly this way: the step failed, custody returned at the submitted head, and native recovery swept the worktree before anything read it (issue 1416).
 
 This repository's committed automatic-fix overrides remain authoritative for a new submitted branch.

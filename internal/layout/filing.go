@@ -137,73 +137,13 @@ type Kept struct {
 // plan is Plan, and also every task folder it leaves in place with the
 // reason, which a migration reports so its owner can see why each one stays.
 func plan(h home.Home, harnessMemory string, now time.Time) ([]Move, []Kept, error) {
-	entries, err := os.ReadDir(h.Data)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil, nil
-	}
-	if err != nil {
+	folders, briefs, err := readBriefFolders(h)
+	if err != nil || len(folders) == 0 {
 		return nil, nil, err
 	}
 	backlog, err := fleet.ReadBacklog(h)
 	if err != nil {
 		return nil, nil, err
-	}
-	archived, err := os.ReadDir(filepath.Join(h.State, state.ArchiveDirName))
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, nil, err
-	}
-	type folder struct {
-		id               string
-		brief            fs.FileInfo
-		live, dispatched bool
-	}
-	var folders []folder
-	var briefs []string
-	for _, entry := range entries {
-		id := entry.Name()
-		if !entry.IsDir() || state.ValidTaskID(id) != nil || isLayoutFolder(id) {
-			continue
-		}
-		brief, err := os.Stat(filepath.Join(h.Data, id, "brief.md"))
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return nil, nil, err
-		}
-		f := folder{id: id, brief: brief}
-		if f.live, err = exists(filepath.Join(h.State, id+".meta")); err != nil {
-			return nil, nil, err
-		}
-		// The task's last record is its status log or its newest state
-		// archive entry. A brief written after it is a new brief for the same
-		// id rather than the finished task's, so it is not finished work.
-		var lastRecord time.Time
-		if info, err := os.Stat(filepath.Join(h.State, id+".status")); err == nil {
-			f.dispatched, lastRecord = true, info.ModTime()
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			return nil, nil, err
-		}
-		for _, a := range archived {
-			if !isArchiveOf(a.Name(), id) {
-				continue
-			}
-			info, err := a.Info()
-			if err != nil {
-				return nil, nil, err
-			}
-			f.dispatched = true
-			if info.ModTime().After(lastRecord) {
-				lastRecord = info.ModTime()
-			}
-		}
-		if brief.ModTime().After(lastRecord) {
-			f.dispatched = false
-		}
-		if f.live || !f.dispatched {
-			briefs = append(briefs, filepath.Join(h.Data, id, "brief.md"))
-		}
-		folders = append(folders, f)
 	}
 	named, err := namedInLiveText(h, backlog, harnessMemory, briefs)
 	if err != nil {
@@ -283,6 +223,79 @@ func plan(h home.Home, harnessMemory string, now time.Time) ([]Move, []Kept, err
 	return moves, kept, nil
 }
 
+// briefFolder is a data folder holding a brief, and whether its task is live
+// and whether it was dispatched (see Plan).
+type briefFolder struct {
+	id               string
+	brief            fs.FileInfo
+	live, dispatched bool
+}
+
+// readBriefFolders reads every task folder in h's data holding a brief.md, and
+// the brief of each that is live or not yet dispatched, which is live text.
+func readBriefFolders(h home.Home) ([]briefFolder, []string, error) {
+	entries, err := os.ReadDir(h.Data)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	archived, err := os.ReadDir(filepath.Join(h.State, state.ArchiveDirName))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, nil, err
+	}
+	var folders []briefFolder
+	var briefs []string
+	for _, entry := range entries {
+		id := entry.Name()
+		if !entry.IsDir() || state.ValidTaskID(id) != nil || isLayoutFolder(id) {
+			continue
+		}
+		brief, err := os.Stat(filepath.Join(h.Data, id, "brief.md"))
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		f := briefFolder{id: id, brief: brief}
+		if f.live, err = exists(filepath.Join(h.State, id+".meta")); err != nil {
+			return nil, nil, err
+		}
+		// The task's last record is its status log or its newest state
+		// archive entry. A brief written after it is a new brief for the same
+		// id rather than the finished task's, so it is not finished work.
+		var lastRecord time.Time
+		if info, err := os.Stat(filepath.Join(h.State, id+".status")); err == nil {
+			f.dispatched, lastRecord = true, info.ModTime()
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return nil, nil, err
+		}
+		for _, a := range archived {
+			if !isArchiveOf(a.Name(), id) {
+				continue
+			}
+			info, err := a.Info()
+			if err != nil {
+				return nil, nil, err
+			}
+			f.dispatched = true
+			if info.ModTime().After(lastRecord) {
+				lastRecord = info.ModTime()
+			}
+		}
+		if brief.ModTime().After(lastRecord) {
+			f.dispatched = false
+		}
+		if f.live || !f.dispatched {
+			briefs = append(briefs, filepath.Join(h.Data, id, "brief.md"))
+		}
+		folders = append(folders, f)
+	}
+	return folders, briefs, nil
+}
+
 // archiveStamp is the time format cleanup and reap stamp a state archive
 // entry with, and filing a second archive of the same task.
 const archiveStamp = "20060102T150405Z"
@@ -324,8 +337,24 @@ type names struct {
 // the backlog's notes and history name what is over, so they keep nothing. A
 // file that is not there reads as empty.
 func namedInLiveText(h home.Home, backlog fleet.BacklogRows, harnessMemory string, briefs []string) (names, error) {
+	texts, err := liveTexts(h, backlog, harnessMemory, briefs)
+	if err != nil {
+		return names{}, err
+	}
 	named := names{where: map[string]string{}, entries: map[string][]string{}}
-	noteNames(named, backlog.OpenRowsText(), "an open row of data/"+Backlog)
+	for _, text := range texts {
+		noteNames(named, text.text, text.where)
+	}
+	return named, nil
+}
+
+// liveText is one text the fleet or the Overlord still reads, and where it is.
+type liveText struct{ where, text string }
+
+// liveTexts reads what namedInLiveText reads names from, each text with the
+// place that holds it.
+func liveTexts(h home.Home, backlog fleet.BacklogRows, harnessMemory string, briefs []string) ([]liveText, error) {
+	texts := []liveText{{where: "an open row of data/" + Backlog, text: backlog.OpenRowsText()}}
 	files := append([]string{filepath.Join(h.Data, "overlord.md")}, briefs...)
 	for _, dir := range []string{filepath.Join(h.Data, filepath.FromSlash(path.Dir(MemoryIndex))), harnessMemory} {
 		if dir == "" {
@@ -333,7 +362,7 @@ func namedInLiveText(h home.Home, backlog fleet.BacklogRows, harnessMemory strin
 		}
 		entries, err := os.ReadDir(dir)
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return names{}, err
+			return nil, err
 		}
 		for _, entry := range entries {
 			if entry.Type().IsRegular() {
@@ -344,20 +373,45 @@ func namedInLiveText(h home.Home, backlog fleet.BacklogRows, harnessMemory strin
 	for _, file := range files {
 		data, err := fsx.ReadFile(file)
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return names{}, err
+			return nil, err
 		}
 		where := file
 		if rel, err := filepath.Rel(h.Data, file); err == nil && filepath.IsLocal(rel) {
 			where = "data/" + filepath.ToSlash(rel)
 		}
-		noteNames(named, string(data), where)
+		texts = append(texts, liveText{where: where, text: string(data)})
 	}
 	open, err := openBoardText(h)
 	if err != nil {
-		return names{}, err
+		return nil, err
 	}
-	noteNames(named, open, "an open Command Center item")
-	return named, nil
+	return append(texts, liveText{where: "an open Command Center item", text: open}), nil
+}
+
+// LiveText is every text the fleet or the Overlord still reads, in which a
+// path keeps what it names: the backlog's open rows, the directives, the
+// home's memory and the harness's memory folder harnessMemory, the brief of
+// every live task and every brief not yet dispatched, as filing reads them,
+// and every open Command Center question, review item and run card. A file
+// that is not there reads as empty.
+func LiveText(h home.Home, harnessMemory string) (string, error) {
+	_, briefs, err := readBriefFolders(h)
+	if err != nil {
+		return "", err
+	}
+	backlog, err := fleet.ReadBacklog(h)
+	if err != nil {
+		return "", err
+	}
+	texts, err := liveTexts(h, backlog, harnessMemory, briefs)
+	if err != nil {
+		return "", err
+	}
+	var all strings.Builder
+	for _, text := range texts {
+		all.WriteString(text.text + "\n")
+	}
+	return all.String(), nil
 }
 
 // noteNames records in named every data folder text names by path that named
