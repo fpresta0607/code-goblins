@@ -588,7 +588,7 @@ A contract selects its own packages and not the packages that import them.
 `outside` names the files no Go check reads, each rule with why: a doc nothing embeds, or the frontend's sources, which its own checks cover.
 A change to one of them selects no package, and the plan lists it under the rule's reason.
 
-A path is a pattern from the repository root with forward slashes: `*` and `?` match inside one name as Go's `path.Match` does, `**` stands for any number of folders, none included, and case does not count.
+A path is a pattern from the repository root with forward slashes: `*` and `?` match inside one name as Go's `path.Match` does, `**` stands for any number of folders, none included, and case does not count where the repository's file system ignores it, as Windows and a Mac's default volume do.
 A file a package owns is that package's whatever a pattern says of it, and a contract is read before `outside`.
 
 A policy that has `contracts` or `outside` says what every file is.
