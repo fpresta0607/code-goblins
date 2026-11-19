@@ -421,7 +421,7 @@ func TestPauseResumeSupersedesTheStopAndPreservesRecovery(t *testing.T) {
 				},
 				Stop:   func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) { return nil, nil },
 				Notify: func(state.Lifecycle) error { return nil },
-				Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
+				Resume: func(ctx context.Context, meta state.TaskMeta, prior *state.Lifecycle) error {
 					handoff := ""
 					if prior.HandoffSaved {
 						handoff = prior.Handoff

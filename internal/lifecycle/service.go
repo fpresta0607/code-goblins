@@ -47,9 +47,12 @@ type Operations struct {
 	Withdraw   func(context.Context, state.TaskMeta) error
 	Stop       func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error)
 	Checkpoint func(context.Context, state.TaskMeta, *state.Lifecycle) error
-	Resume     func(context.Context, state.TaskMeta, state.Lifecycle) error
-	IsRunning  func(context.Context, state.TaskMeta) (bool, error)
-	Archive    func(context.Context, state.TaskMeta, *state.Lifecycle) (Preservation, error)
+	// Resume relaunches the paused task its record describes. It names in
+	// that record's gate fields the validation run the task resumes with,
+	// which the resumed task's record keeps.
+	Resume    func(context.Context, state.TaskMeta, *state.Lifecycle) error
+	IsRunning func(context.Context, state.TaskMeta) (bool, error)
+	Archive   func(context.Context, state.TaskMeta, *state.Lifecycle) (Preservation, error)
 	// Admit says why the machine has no room for the resumed goblin's start,
 	// or nil when it has.
 	Admit  func() error
@@ -247,7 +250,7 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 			if request.ResumeNote != "" {
 				told.ResumeNote = strings.TrimPrefix(prior.ResumeNote+"\n"+request.ResumeNote, "\n")
 			}
-			err = service.Operations.Resume(ctx, meta, told)
+			err = service.Operations.Resume(ctx, meta, &told)
 			// A relaunch refused for room started nothing, so the record
 			// goes back to what it was, as for a Resume refused before the
 			// record changed: a goblin paused for memory stays paused for
@@ -269,6 +272,9 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 				err = fmt.Errorf("%w: %w", state.ErrResumeRefused, err)
 				return prior, errors.Join(err, state.WriteLifecycle(service.StateDir, prior), state.AppendStatus(service.StateDir, meta.ID, "lifecycle-refused: "+state.NormalizeStatusDetail(err.Error())))
 			}
+			// The run the relaunch resumed with is the task's, as the ended
+			// run an authored admission continued its saved run with (#2462).
+			result.GateRun, result.GateIntent, result.GateHead = told.GateRun, told.GateIntent, told.GateHead
 		}
 		if current, readErr := state.ReadTaskMeta(service.StateDir, meta.ID); readErr == nil {
 			result.Generation = current.SpawnGen

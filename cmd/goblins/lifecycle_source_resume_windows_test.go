@@ -443,7 +443,7 @@ INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.Repla
 			}
 			service := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
 				Admit: admit,
-				Resume: func(ctx context.Context, current state.TaskMeta, prior state.Lifecycle) error {
+				Resume: func(ctx context.Context, current state.TaskMeta, prior *state.Lifecycle) error {
 					return resumeTask(ctx, h, runtime, commands, pipeline.Reader{Root: nativeRoot, Commands: commands}, current, prior, admit)
 				},
 				Notify: func(state.Lifecycle) error { return nil },
@@ -549,7 +549,7 @@ func TestPublicResumeRestoresSourceWithoutReplacingValidation(t *testing.T) {
 	standin.RemoveAtCleanup(t, bin)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	for _, test := range []struct {
-		name, status, reason, until, liveStep, refusal, finalStatus                          string
+		name, status, reason, until, liveStep, refusal, finalStatus, successor               string
 		isForeign, isUnreadable, isLowMemory, isAllowanceDenied, isProviderRefused, isKilled bool
 	}{
 		{name: "cancelled", status: "cancelled"},
@@ -566,6 +566,10 @@ func TestPublicResumeRestoresSourceWithoutReplacingValidation(t *testing.T) {
 		{name: "live original finishes while paused", status: "running", finalStatus: "failed"},
 		{name: "live original in Test a daemon restart ends while paused", status: "running", reason: "dependency", until: "date:2099-01-01T00:00:00Z", liveStep: "test", finalStatus: "failed"},
 		{name: "foreign run with identical intent", status: "running", isForeign: true, refusal: "another validation run owns"},
+		// The CEO admits an authored correction while the goblin is paused
+		// and stops it, as he did for Rufus (#2462).
+		{name: "authored successor ended while paused", status: "failed", reason: "memory", successor: "cancelled"},
+		{name: "authored successor running while paused", status: "failed", reason: "memory", successor: "running", refusal: "another validation run owns"},
 		{name: "unreadable gate state", status: "cancelled", isUnreadable: true, refusal: "state query failed"},
 		{name: "memory admission", status: "failed", isLowMemory: true, refusal: "Only 4.0 GB of memory is free"},
 		{name: "allowance admission", status: "failed", isAllowanceDenied: true, refusal: "provider allowance exhausted"},
@@ -651,6 +655,7 @@ func TestPublicResumeRestoresSourceWithoutReplacingValidation(t *testing.T) {
 CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,status TEXT,head_sha TEXT,last_pushed_sha TEXT,intent TEXT,worktree_dir TEXT,created_at INTEGER,submitted_head_sha TEXT,custody_returned_at INTEGER,review_approved_head_sha TEXT,pr_url TEXT,pr_state TEXT,ci_ready_at INTEGER,terminal_head_verified_at INTEGER);
 CREATE TABLE step_results(run_id TEXT,step_name TEXT,status TEXT,round INTEGER,spent INTEGER);
 CREATE TABLE findings(run_id TEXT,id TEXT,resolution TEXT);
+CREATE TABLE validation_admissions(id TEXT,child_id TEXT,predecessor_id TEXT,event_json TEXT);
 INSERT INTO repos VALUES('repo-1','%s');
 INSERT INTO runs(id,repo_id,branch,status,head_sha,last_pushed_sha,intent,worktree_dir,created_at) VALUES('original-run','repo-1','fix/source-resume','%s','%s','%s','retain validation history','',1);
 %s
@@ -683,7 +688,7 @@ INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.Repla
 					}
 					return nil
 				},
-				Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
+				Resume: func(ctx context.Context, meta state.TaskMeta, prior *state.Lifecycle) error {
 					return resumeTask(ctx, h, runtime, commands, pipeline.Reader{Root: nativeRoot, Commands: commands}, meta, prior, nil)
 				},
 				Notify: func(state.Lifecycle) error { return nil },
@@ -744,8 +749,15 @@ INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.Repla
 				}
 				return
 			}
-			if test.isForeign || test.finalStatus != "" {
+			wantRun, wantHead := "original-run", head
+			if test.isForeign || test.finalStatus != "" || test.successor != "" {
 				update := "INSERT INTO runs(id,repo_id,branch,status,head_sha,last_pushed_sha,intent,worktree_dir,created_at) SELECT 'foreign-run',repo_id,branch,status,head_sha,last_pushed_sha,intent,worktree_dir,2 FROM runs WHERE id='original-run';"
+				if test.successor != "" {
+					// The admitted child validates a corrected head under the
+					// saved run's intent, as native admission keeps it.
+					wantRun, wantHead = "authored-run", strings.Repeat("c", 40)
+					update = fmt.Sprintf("INSERT INTO runs(id,repo_id,branch,status,head_sha,last_pushed_sha,intent,worktree_dir,created_at) SELECT '%s',repo_id,branch,'%s','%s',last_pushed_sha,intent,'',2 FROM runs WHERE id='original-run'; INSERT INTO validation_admissions VALUES('admission-1','%[1]s','original-run','{}');", wantRun, test.successor, wantHead)
+				}
 				if test.finalStatus != "" {
 					// The run ends on its own, as a daemon restart ends a run
 					// whose step was executing, and its spending stays as it was.
@@ -808,14 +820,14 @@ INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.Repla
 			if len(commands.native) != 0 || launches != 1 || resumed.ResumeHandoff != paused.Handoff || !resumed.ForceDirty {
 				t.Fatalf("resume = %+v, launches = %d, native calls = %d", resumed, launches, len(commands.native))
 			}
-			if strings.Count(resumed.ResumeNote, "original-run") != 1 {
-				t.Fatalf("original validation context must be named once: %q", resumed.ResumeNote)
+			if strings.Count(resumed.ResumeNote, wantRun) != 1 || wantRun != "original-run" && strings.Contains(resumed.ResumeNote, "original-run") {
+				t.Fatalf("validation context %s must be named once, and alone: %q", wantRun, resumed.ResumeNote)
 			}
 			if test.finalStatus != "" && !strings.Contains(resumed.ResumeNote, " is "+test.finalStatus+".") {
 				t.Fatalf("resume lost the original run's terminal status: %q", resumed.ResumeNote)
 			}
 			current, err := state.ReadLifecycle(h.State, meta.ID)
-			if err != nil || current.GateRun != paused.GateRun || current.GateHead != head || current.Phase != "running" {
+			if err != nil || current.GateRun != wantRun || current.GateIntent != paused.GateIntent || current.GateHead != wantHead || current.Phase != "running" {
 				t.Fatalf("retained lifecycle = %+v, %v", current, err)
 			}
 		})
