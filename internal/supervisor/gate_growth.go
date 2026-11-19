@@ -102,7 +102,14 @@ func (s *Service) checkGateGrowth(w *fleetWakes, now time.Time) error {
 }
 
 // durationText is a whole duration as a person reads it, 24h rather than
-// 24h0m0s.
+// 24h0m0s and 30m rather than 30m0s: only a zero unit goes.
 func durationText(d time.Duration) string {
-	return strings.TrimSuffix(strings.TrimSuffix(d.String(), "0s"), "0m")
+	text := d.String()
+	if strings.HasSuffix(text, "m0s") {
+		text = strings.TrimSuffix(text, "0s")
+	}
+	if strings.HasSuffix(text, "h0m") {
+		text = strings.TrimSuffix(text, "0m")
+	}
+	return text
 }

@@ -98,3 +98,26 @@ func TestGateGrowthWakesOnceForEachNewCauseAndFilesTheJunctionCauseOnTheGate(t *
 	case <-time.After(time.Second):
 	}
 }
+
+func TestDurationTextDropsOnlyAZeroUnit(t *testing.T) {
+	for _, testCase := range []struct {
+		duration time.Duration
+		want     string
+	}{
+		{24 * time.Hour, "24h"},
+		{342 * time.Hour, "342h"},
+		{30 * time.Minute, "30m"},
+		{90 * time.Minute, "1h30m"},
+		{12*time.Hour + 30*time.Minute, "12h30m"},
+		{90 * time.Second, "1m30s"},
+		{time.Hour + 10*time.Second, "1h0m10s"},
+	} {
+		// Act
+		got := durationText(testCase.duration)
+
+		// Assert
+		if got != testCase.want {
+			t.Errorf("durationText(%v) = %q, want %q", testCase.duration, got, testCase.want)
+		}
+	}
+}

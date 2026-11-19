@@ -207,11 +207,12 @@ func (cfg Config) liveText() (string, error) {
 
 // textNames reports whether text, as liveText gives it, names path or a path
 // inside it, written as Windows writes it or as Git Bash does, /d/... for
-// D:\.... A name ends at any character a task id cannot go on with, so a text
-// that names gone-task-2 does not keep gone-task, while one that ends a
+// D:\.... The path is spelled as the text is, lowercased with every slash a
+// backslash. A name ends at any character a task id cannot go on with, so a
+// text that names gone-task-2 does not keep gone-task, while one that ends a
 // sentence with gone-task. does.
 func textNames(text, path string) bool {
-	target := strings.ToLower(filepath.Clean(path))
+	target := strings.ReplaceAll(strings.ToLower(filepath.Clean(path)), "/", `\`)
 	targets := []string{target}
 	if volume := filepath.VolumeName(target); len(volume) == 2 && volume[1] == ':' {
 		targets = append(targets, `\`+volume[:1]+target[2:])

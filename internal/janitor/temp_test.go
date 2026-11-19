@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -254,6 +255,9 @@ func TestSweepKeepsAFinishedTasksScratchThatSomethingStillReadNames(t *testing.T
 			writeFile(t, filepath.Join(h.Data, "backlog.md"), "# Backlog\n\n## Queued\n\n- [ ] next-task - start from "+scratch+`\handoff.md`+"\n")
 		}},
 		{name: "a memory file in Git Bash's spelling", isKept: true, write: func(t *testing.T, h home.Home, scratch string) {
+			if runtime.GOOS != "windows" {
+				t.Skip("Git Bash spells only a path on a Windows drive")
+			}
 			writeFile(t, filepath.Join(h.Data, "memory", "fact.md"), "The trace is at /"+strings.ToLower(scratch[:1])+filepath.ToSlash(scratch[2:])+"/trace.zip\n")
 		}},
 		{name: "an open Command Center question", isKept: true, write: func(t *testing.T, h home.Home, scratch string) {
@@ -297,6 +301,30 @@ func TestSweepKeepsAFinishedTasksScratchThatSomethingStillReadNames(t *testing.T
 				t.Errorf("kept = %+v, want %s kept because something still read names it", record.Kept, scratch)
 			}
 		})
+	}
+}
+
+func TestSweepKeepsEveryFinishedTasksScratchWhenWhatNamesItCannotBeRead(t *testing.T) {
+	// Arrange: a finished task's old scratch folder under the clean mark, and a
+	// Command Center file that cannot be read as one.
+	f := newSweepFixture(t)
+	scratch := folder(t, filepath.Join(f.home.Scratch(), "gone-task"), true)
+	writeFile(t, filepath.Join(f.home.State, ".supervisor.json"), "{not json")
+	makeOld(t, scratch)
+	stubLiveTemps(t, func() ([]home.LiveTemp, error) { return nil, nil })
+	cfg := f.config(reap.Inventory{Processes: []reap.Process{selfProcess(t)}})
+	cfg.TempDir = t.TempDir()
+	cfg.IsTight = true
+
+	// Act
+	record := Sweep(context.Background(), cfg)
+
+	// Assert
+	if _, err := os.Stat(scratch); err != nil {
+		t.Fatalf("%s gone (%v), want it kept while what names a path could not be read; removed %+v", scratch, err, record.Removed)
+	}
+	if notes := strings.Join(record.Notes, "\n"); !strings.Contains(notes, "could not all be read, so no finished task's scratch folder was removed") {
+		t.Errorf("notes = %q, want the unreadable text said to keep every finished task's scratch", notes)
 	}
 }
 

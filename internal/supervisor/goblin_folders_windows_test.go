@@ -14,21 +14,30 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// foldersBoard is a service whose CEO reaches task-1, a native goblin whose
-// terminal runs, and whose janitor record measures its worktrees and scratch
-// folder at the gigabytes given.
-func foldersBoard(t *testing.T) (*Service, string, func(worktreesGB, scratchGB int64)) {
+// foldersBoard is a service whose CEO reaches task-1, a native goblin first
+// spawned at 11:00 on 2026-11-18 whose terminal runs, and whose janitor record,
+// a sweep at the time given, measures its worktrees and scratch folder at the
+// gigabytes given.
+func foldersBoard(t *testing.T) (*Service, string, func(at time.Time, worktreesGB, scratchGB int64)) {
 	t.Helper()
 	store, h := testStore(t)
 	liveNativeGoblin(t, h.State, "task-1")
+	meta, err := state.ReadTaskMeta(h.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.SpawnGen = fmt.Sprintf("s%d", time.Date(2026, 11, 18, 11, 0, 0, 0, time.UTC).UnixNano())
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
 	s := boardService(store)
 	s.Options.CEO = &CEOConnection{State: h.State}
 	s.Options.Dispatch = &Dispatch{Memory: func() (Memory, error) {
 		return Memory{Available: 20 * gigabyte, CommitAvailable: 20 * gigabyte, Total: 32 * gigabyte}, nil
 	}}
-	measure := func(worktreesGB, scratchGB int64) {
+	measure := func(at time.Time, worktreesGB, scratchGB int64) {
 		t.Helper()
-		record := janitor.Record{Buckets: janitor.Buckets{Worktrees: map[string]int64{"task-1": worktreesGB * gigabyte}, Scratch: map[string]int64{"task-1": scratchGB * gigabyte}}}
+		record := janitor.Record{Time: at, Buckets: janitor.Buckets{Worktrees: map[string]int64{"task-1": worktreesGB * gigabyte}, Scratch: map[string]int64{"task-1": scratchGB * gigabyte}}}
 		if err := janitor.WriteRecord(h.State, record); err != nil {
 			t.Fatal(err)
 		}
@@ -56,8 +65,8 @@ func TestALiveGoblinPastItsFolderSizeIsToldOnce(t *testing.T) {
 			// Arrange
 			s, _, measure := foldersBoard(t)
 			notices := deliverNotices(t, nil)
-			measure(c.worktreesGB, c.scratch)
 			now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
+			measure(now, c.worktreesGB, c.scratch)
 
 			// Act
 			for reading := range 3 {
@@ -87,12 +96,14 @@ func TestALiveGoblinPastItsFolderSizeIsToldOnce(t *testing.T) {
 
 // A goblin whose terminal does not run, as a paused task's, is told nothing
 // until it runs again, and then once; a later task under the same id, first
-// spawned on another generation, is told again.
+// spawned on another generation, is told nothing from the sweep that measured
+// the task before it, and once a sweep measures it.
 func TestAGoblinPastItsFolderSizeIsToldOnceItRunsAndAgainAsANewTask(t *testing.T) {
 	// Arrange
 	s, stateDir, measure := foldersBoard(t)
 	notices := deliverNotices(t, nil)
-	measure(6, 0)
+	now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
+	measure(now, 6, 0)
 	hostRecord := filepath.Join(stateDir, "hosts", "task-1.json")
 	held, err := os.ReadFile(hostRecord)
 	if err != nil {
@@ -101,7 +112,6 @@ func TestAGoblinPastItsFolderSizeIsToldOnceItRunsAndAgainAsANewTask(t *testing.T
 	if err := os.Remove(hostRecord); err != nil {
 		t.Fatal(err)
 	}
-	now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
 	read := func() int {
 		t.Helper()
 		before := len(*notices)
@@ -124,10 +134,14 @@ func TestAGoblinPastItsFolderSizeIsToldOnceItRunsAndAgainAsANewTask(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	meta.FirstGen = "g2"
+	meta.FirstGen = fmt.Sprintf("s%d", now.UnixNano())
 	if err := state.WriteTaskMeta(stateDir, meta); err != nil {
 		t.Fatal(err)
 	}
+	if told := read(); told != 0 {
+		t.Fatalf("a later task under the same id was told %d times from the sweep that measured the task before it, want none", told)
+	}
+	measure(now, 6, 0)
 	if told := read() + read(); told != 1 {
 		t.Fatalf("a later task under the same id was told %d times, want once", told)
 	}
@@ -151,8 +165,8 @@ func TestAFolderNoticeThatReachesNoTerminalIsTriedThreeTimes(t *testing.T) {
 			// Arrange
 			s, _, measure := foldersBoard(t)
 			notices := deliverNotices(t, c.delivery)
-			measure(6, 0)
 			now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
+			measure(now, 6, 0)
 
 			// Act
 			var errs []error

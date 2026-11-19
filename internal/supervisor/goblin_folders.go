@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -54,6 +55,13 @@ func (s *Service) checkGoblinFolders(ctx context.Context, w *fleetWakes) error {
 	for _, meta := range liveTasks(s.Store.Home.State) {
 		key := folderKey(meta)
 		live[key] = true
+		// The sweep measures by task id, so a sweep from before this task was
+		// first spawned measured an earlier task under the same id.
+		generation := firstGeneration(meta)
+		spawned, err := strconv.ParseInt(strings.TrimPrefix(generation, "s"), 10, 64)
+		if err != nil || !strings.HasPrefix(generation, "s") || record.Time.Before(time.Unix(0, spawned)) {
+			continue
+		}
 		worktrees, scratch := record.Buckets.Worktrees[meta.ID], record.Buckets.Scratch[meta.ID]
 		notice := w.GoblinFolders[key]
 		if worktrees <= limit && scratch <= limit || notice.IsTold || notice.Failed >= folderNoticeTries {
@@ -63,7 +71,7 @@ func (s *Service) checkGoblinFolders(ctx context.Context, w *fleetWakes) error {
 			continue
 		}
 		sending, cancel := context.WithTimeout(ctx, folderNoticeWithin)
-		_, err := s.Options.CEO.SendGoblin(sending, meta.ID, goblinIdentity(meta), folderNoticeText(worktrees, scratch, settings.GoblinDiskGB))
+		_, err = s.Options.CEO.SendGoblin(sending, meta.ID, goblinIdentity(meta), folderNoticeText(worktrees, scratch, settings.GoblinDiskGB))
 		cancel()
 		switch {
 		case err == nil || errors.Is(err, fleet.ErrQueuedForToolCall):
@@ -88,15 +96,19 @@ func (s *Service) checkGoblinFolders(ctx context.Context, w *fleetWakes) error {
 }
 
 // folderKey names a task by its id and the generation it was first spawned
-// on, which a relaunch does not move, so a later task under the same id is
-// told again. A task an older build spawned records no first generation, and
-// is named by its spawn's.
+// on, so a later task under the same id is told again.
 func folderKey(meta state.TaskMeta) string {
-	generation := meta.FirstGen
-	if generation == "" {
-		generation = meta.SpawnGen
+	return meta.ID + "@" + firstGeneration(meta)
+}
+
+// firstGeneration is the generation a task was first spawned on, which a
+// relaunch does not move. A task an older build spawned records no first
+// generation, and gives its spawn's.
+func firstGeneration(meta state.TaskMeta) string {
+	if meta.FirstGen == "" {
+		return meta.SpawnGen
 	}
-	return meta.ID + "@" + generation
+	return meta.FirstGen
 }
 
 // folderNoticeText is the notice a goblin whose folders passed limitGB gets.
