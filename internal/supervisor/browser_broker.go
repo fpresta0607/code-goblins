@@ -60,6 +60,8 @@ type browserBroker struct {
 	// memory reads the machine's free memory; a browser starts only above
 	// the fleet's floor.
 	memory func() (Memory, error)
+	// floor reads the free memory the fleet keeps from the home's settings.
+	floor func() (uint64, error)
 	// live reports why task cannot hold a browser, nil while it can.
 	live       func(task string) error
 	executable func() (string, error)
@@ -93,10 +95,10 @@ type browserBroker struct {
 	closed bool
 }
 
-// newBrowserBroker is the broker of the home whose state is stateDir, on
-// this machine's Chrome and memory, telling report of a Chrome it could not
-// close.
-func newBrowserBroker(stateDir, dataDir string, options Options, report func(error)) *browserBroker {
+// newBrowserBroker is the broker of home h, on this machine's Chrome and
+// memory, telling report of a Chrome it could not close.
+func newBrowserBroker(h home.Home, options Options, report func(error)) *browserBroker {
+	stateDir, dataDir := h.State, h.Data
 	memory := func() (Memory, error) { return Memory{}, errors.New("this supervisor cannot read memory") }
 	if options.Dispatch != nil && options.Dispatch.Memory != nil {
 		memory = options.Dispatch.Memory
@@ -106,6 +108,7 @@ func newBrowserBroker(stateDir, dataDir string, options Options, report func(err
 		data:        dataDir,
 		recipes:     options.KeyPages,
 		memory:      memory,
+		floor:       func() (uint64, error) { return MachineMemoryFloor(h) },
 		live:        func(task string) error { return terminalAnswers(stateDir, task) },
 		executable:  browserlogin.Executable,
 		start:       browserlogin.Start,
@@ -233,8 +236,12 @@ func (b *browserBroker) attach(ctx context.Context, task, providerID string) (Br
 	if err != nil {
 		return BrowserLease{}, fmt.Errorf("free memory cannot be read, so no browser starts: %w", err)
 	}
-	if low := min(memory.Available, memory.CommitAvailable); low < memoryFloor {
-		return BrowserLease{}, fmt.Errorf("free memory is %.1f GB, under the %.0f GB a browser waits for. Ask again in a few minutes", gigabytes(low), gigabytes(memoryFloor))
+	floor, err := b.floor()
+	if err != nil {
+		return BrowserLease{}, fmt.Errorf("no browser starts: %w", err)
+	}
+	if low := min(memory.Available, memory.CommitAvailable); low < floor {
+		return BrowserLease{}, fmt.Errorf("free memory is %.1f GB, under the %g GB a browser waits for. Ask again in a few minutes", gigabytes(low), gigabytes(floor))
 	}
 	profile, err := browserlogin.MakeProfile(b.state, login.ID)
 	if err != nil {

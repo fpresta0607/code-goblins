@@ -55,7 +55,7 @@ func TestRemoveTempLeakReadsCommandLinesByTheFileSystemsCase(t *testing.T) {
 	}
 
 	// Act
-	cfg.removeTempLeak(lower, processes, func() ([]home.LiveTemp, error) { return nil, nil }, &record)
+	cfg.removeTempLeak(tempCandidate{path: lower, age: tempAge}, processes, func() ([]home.LiveTemp, error) { return nil, nil }, func() (string, error) { return "", nil }, &record)
 
 	// Assert
 	if isKept := exists(lower); isKept != isOnePath {

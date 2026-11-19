@@ -303,6 +303,8 @@ type Service struct {
 	// trees is each live goblin's family tree as keepTrees last read it.
 	trees           map[string]fleettree.Tree
 	progressReadErr error
+	// guard is what the memory guard remembers between its readings.
+	guard memoryGuard
 
 	// ceoUpdateRead and harnessUpdates are the harness updates the last look
 	// found waiting for the CEO and for each goblin; ceoUpdating says the
@@ -515,7 +517,7 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 	if options.Tickets != nil {
 		s.tickets = newTicketKeeper(h, options.Tickets)
 	}
-	s.browsers = newBrowserBroker(h.State, h.Data, options, func(err error) { s.publish(fmt.Errorf("browser logins: %w", err)) })
+	s.browsers = newBrowserBroker(h, options, func(err error) { s.publish(fmt.Errorf("browser logins: %w", err)) })
 	s.screens = newTaskBrowsers(h.State, s.notify, s.endCardScreens, func(err error) { s.publish(fmt.Errorf("goblin browsers: %w", err)) })
 	if options.Tree != nil {
 		options.Tree.Recorded = store.recordedSession
@@ -685,6 +687,12 @@ func (s *Service) run(ctx context.Context) {
 		s.keepFleetWakes(ctx, fleetWatchEvery)
 	}()
 	defer func() { s.cancel(); <-fleetDone }()
+	guardDone := make(chan struct{})
+	go func() {
+		defer close(guardDone)
+		s.keepMemoryGuard(ctx, memoryGuardEvery)
+	}()
+	defer func() { s.cancel(); <-guardDone }()
 	pushDone := make(chan struct{})
 	go func() {
 		defer close(pushDone)
@@ -2311,8 +2319,12 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 	}
 	if dispatch := s.Options.Dispatch; dispatch != nil {
-		if memory, err := dispatch.Memory(); err == nil {
-			memory.Floor, memory.Next, memory.PoolLine, memory.PoolGrowth = memoryFloor, memoryNext, poolLine, poolGrowth
+		memory, err := dispatch.Memory()
+		room, roomErr := s.room(out.At)
+		if err == nil && roomErr == nil {
+			memory.PoolLine, memory.PoolGrowth = poolLine, poolGrowth
+			memory.Guard = s.guard.reading()
+			memory.Floor, memory.Next = room.Floor, room.Need(room.costliest())
 			if dispatch.HeavyLine != nil {
 				if room, err := dispatch.HeavyLine(memory); err == nil {
 					memory.SlotHold = room.Hold

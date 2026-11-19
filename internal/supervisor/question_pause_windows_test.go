@@ -71,7 +71,6 @@ func TestCEOAnswerToMemoryPausedGoblinSurvivesItsHostAndResumesOnce(t *testing.T
 	var resumed hostedTerminal
 	resumeCount := 0
 	controller := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
-		Memory: func() (uint64, uint64, error) { return 8 << 30, 8 << 30, nil },
 		Resume: func(ctx context.Context, current state.TaskMeta, prior state.Lifecycle) error {
 			resumeCount++
 			current.SpawnGen = "resumed-generation"
@@ -191,7 +190,7 @@ func TestBoardAnswerToPausedQuestionIsKeptForResume(t *testing.T) {
 	if question := store.Snapshot().Questions[0]; question.Status != "succeeded" || question.AnsweredBy != "overlord" {
 		t.Fatalf("answer not recorded: %+v", question)
 	}
-	isReady, err := service.pauseCleared(t.Context(), condition, time.Now(), &fleetWakes{})
+	isReady, err := service.pauseCleared(t.Context(), condition, time.Now(), &fleetWakes{}, false)
 	if err != nil || !isReady {
 		t.Fatalf("answered pause stayed blocked: %v, %v", isReady, err)
 	}
@@ -233,7 +232,6 @@ func TestAnAnswerSavedWhilePausedLeavesTheMessagesKeptBeforeIt(t *testing.T) {
 			service := &Service{Store: store, Options: Options{CEO: connection}}
 			var carried string
 			controller := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
-				Memory: func() (uint64, uint64, error) { return 8 << 30, 8 << 30, nil },
 				Resume: func(_ context.Context, _ state.TaskMeta, prior state.Lifecycle) error {
 					carried = prior.ResumeNote
 					return nil

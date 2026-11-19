@@ -10,9 +10,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/disk"
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/gatehome"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/janitor"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
@@ -82,13 +84,15 @@ var janitorRunning sync.Mutex
 
 // tidyHome starts the janitor's pass over the home, with the inventory the
 // orphan sweep just collected, once JanitorEvery has passed since the last
-// one. It runs beside the watcher's pass rather than inside it, because the
-// pass keeps the watcher's heartbeat and a prune can outlast its budget.
+// one, or at once when free disk fell under the clean mark since the last
+// pass read it at or above. It runs beside the watcher's pass rather than
+// inside it, because the pass keeps the watcher's heartbeat and a prune can
+// outlast its budget.
 func tidyHome(cfg Config, inv reap.Inventory) {
 	if cfg.JanitorEvery <= 0 {
 		return
 	}
-	if last, err := janitor.ReadRecord(cfg.Home.State); err == nil && time.Since(last.Time) < cfg.JanitorEvery {
+	if last, err := janitor.ReadRecord(cfg.Home.State); err == nil && time.Since(last.Time) < cfg.JanitorEvery && !isNewlyTight(cfg.Home, last) {
 		return
 	}
 	if !janitorRunning.TryLock() {
@@ -98,6 +102,22 @@ func tidyHome(cfg Config, inv reap.Inventory) {
 		defer janitorRunning.Unlock()
 		runJanitor(cfg, inv)
 	}()
+}
+
+// isNewlyTight says free disk is under the clean mark and the last pass read
+// it at or above, so the janitor frees what is safe at once rather than at its
+// next hourly pass. A setting or a reading that cannot be read is no news.
+func isNewlyTight(h home.Home, last janitor.Record) bool {
+	settings, err := fleetconfig.Read(h.Root)
+	if err != nil {
+		return false
+	}
+	reading, err := disk.ReadLeast(h.Root, h.DevDrive)
+	if err != nil {
+		return false
+	}
+	mark := settings.CleanMark()
+	return reading.Free < mark && last.Disk.Free >= mark
 }
 
 // runJanitor tidies the home once, keeps its record for the digest, the board
@@ -127,14 +147,23 @@ func runJanitor(cfg Config, inv reap.Inventory) {
 	// Drive, where a home moved there by hand keeps its repositories behind
 	// junctions the measure does not follow.
 	var gateHomes []string
+	gateRoot := ""
 	if gate, err := gatehome.Root(); err == nil {
 		gateHomes = append(gateHomes, gate)
+		if _, err := os.Stat(gate); err == nil {
+			gateRoot = gate
+		}
 	}
 	if cfg.Home.DevDrive != "" {
 		target := gatehome.Target(cfg.Home.DevDrive)
 		if _, err := os.Stat(target); err == nil && !slices.ContainsFunc(gateHomes, func(gate string) bool { return fsx.EqualPath(gate, target) }) {
 			gateHomes = append(gateHomes, target)
 		}
+	}
+	// Free disk that cannot be read is not taken as under the clean mark.
+	isTight := false
+	if reading, err := disk.ReadLeast(cfg.Home.Root, cfg.Home.DevDrive); err == nil {
+		isTight = reading.Free < settings.CleanMark()
 	}
 	// A sweep that cannot name this build deletes no cache.
 	var line janitor.HeavyLine
@@ -153,6 +182,7 @@ func runJanitor(cfg Config, inv reap.Inventory) {
 		ProjectsRoot: projects,
 		SelfPID:      os.Getpid(),
 		Now:          time.Now(),
+		IsTight:      isTight,
 		StopServices: services.Service{
 			StateDir: cfg.Home.State,
 			DataDir:  cfg.Home.Data,
@@ -171,6 +201,7 @@ func runJanitor(cfg Config, inv reap.Inventory) {
 
 		VerificationStore: verificationStore,
 		GateHomes:         gateHomes,
+		GateRoot:          gateRoot,
 	})
 	if err := janitor.WriteRecord(cfg.Home.State, record); err != nil {
 		return

@@ -18,7 +18,9 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/claudestream"
 	"github.com/fpresta0607/code-goblins/internal/codexguard"
 	"github.com/fpresta0607/code-goblins/internal/crawler"
+	"github.com/fpresta0607/code-goblins/internal/cutover"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
@@ -187,7 +189,7 @@ func (s Service) launchHost(id string, kind harness.Kind, launch harness.Launch,
 	if _, ok := harness.NativeScreens(kind); !ok {
 		return host.Record{}, fmt.Errorf("spawn: %s cannot run in a native terminal yet", kind)
 	}
-	program, err := nativeProgram(kind, launch)
+	program, err := s.goblinProgram(kind, launch, userEnv)
 	if err != nil {
 		return host.Record{}, err
 	}
@@ -1027,6 +1029,68 @@ func nativeProgram(kind harness.Kind, launch harness.Launch) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("spawn: find %s: %w", kind, err)
 	}
+	return programAt(kind, path, launch)
+}
+
+// RealHarnessVariable, set to 1 in the process that runs goblins spawn, lets
+// a home other than the one the user's environment names start a harness
+// that lies outside it: the real harness, on the user's own profile and
+// sign-in, which spends his model allowance.
+const RealHarnessVariable = "GOBLINS_REAL_HARNESS"
+
+// goblinProgram is nativeProgram for a goblin of this home. A goblin's
+// terminal starts from the user's own environment whatever home spawned it,
+// so its harness reads his profile and his sign-in. A home other than the one
+// that environment names, such as the scratch home of a test or of a gate's
+// live check, therefore starts only a stand-in harness it holds itself, one
+// whose path lies inside the home, unless the spawning process asks for the
+// real one with RealHarnessVariable: a stand-in that PATH does not find
+// first is refused, never replaced by the real harness found behind it
+// (#2094).
+func (s Service) goblinProgram(kind harness.Kind, launch harness.Launch, userEnv []string) ([]string, error) {
+	path, err := exec.LookPath(cmp.Or(launch.Executable, string(kind)))
+	if err != nil {
+		return nil, fmt.Errorf("spawn: find %s: %w", kind, err)
+	}
+	users := usersHome(userEnv)
+	if os.Getenv(RealHarnessVariable) != "1" && !(users != "" && fsx.SamePath(s.HomeRoot, users)) && !isInside(path, s.HomeRoot) {
+		return nil, fmt.Errorf("spawn: %s resolves to %s, outside this home %s, which is not the home the user's environment names (%s): its goblin would run the real %s on the user's own profile and sign-in and spend real model allowance; put a stand-in %s inside this home first on PATH, or set %s=1 to start the real one", kind, path, s.HomeRoot, cmp.Or(users, "none"), kind, kind, RealHarnessVariable)
+	}
+	return programAt(kind, path, launch)
+}
+
+// usersHome is the home the user's environment userEnv names, as goblins
+// resolves one: GOBLINS_HOME, by its old name where a release before the
+// rename set that, or else the per-user home under LOCALAPPDATA. It is empty
+// when userEnv names neither. A native terminal runs only on Windows so far.
+func usersHome(userEnv []string) string {
+	if root := cutover.SettingIn(userEnv, "GOBLINS_HOME"); root != "" {
+		return root
+	}
+	if local := cutover.SettingIn(userEnv, "LOCALAPPDATA"); local != "" {
+		return filepath.Join(local, "CodeGoblins")
+	}
+	return ""
+}
+
+// isInside reports whether path, which exists, lies inside folder, both
+// compared by what they resolve to, so a symbolic link inside the folder to a
+// program outside it is outside.
+func isInside(path, folder string) bool {
+	resolved, err := fsx.Canonical(path)
+	if err != nil {
+		return false
+	}
+	root, err := fsx.Canonical(folder)
+	if err != nil {
+		return false
+	}
+	return fsx.HasPathPrefix(resolved, strings.TrimSuffix(root, string(filepath.Separator))+string(filepath.Separator))
+}
+
+// programAt is the command line a native terminal starts the harness kind at
+// path with, as nativeProgram describes.
+func programAt(kind harness.Kind, path string, launch harness.Launch) ([]string, error) {
 	if launch.Executable != "" {
 		return cmdProgram(path, launch.Args...)
 	}

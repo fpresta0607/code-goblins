@@ -208,7 +208,7 @@ func TestAHelperIsRefusedWithWhyAndWhenToAskAgain(t *testing.T) {
 		request   HelperRequest
 		want      []string
 	}{
-		{"under the memory mark", 4 * gigabyte, nil, HelperRequest{Parent: "g1", Brief: helperBrief}, []string{"5 GB", "ask again"}},
+		{"under the memory mark", 4 * gigabyte, nil, HelperRequest{Parent: "g1", Brief: helperBrief}, []string{"a claude start needs 5.0 GB", "ask again"}},
 		{"a helper of a helper", 6 * gigabyte, func(t *testing.T, s *Service, h home.Home) {
 			writeHelperTask(t, h, state.TaskMeta{ID: "g1-h1", Parent: "g1", Mode: "local-only"})
 		}, HelperRequest{Parent: "g1-h1", Brief: helperBrief}, []string{"a helper cannot start helpers"}},

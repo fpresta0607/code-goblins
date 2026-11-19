@@ -456,6 +456,10 @@ A rebase's first-parent commits that no remote-tracking ref of the gate reposito
 A run under `rebase.strategy: merge` integrates with a merge commit instead, which must have exactly two parents, the submitted head first and a commit a remote-tracking ref holds second, and the tree `git merge-tree --write-tree` gives for those two.
 A gate fix commit or conflict resolution on the rebase or merge, or content from a base no remote-tracking ref holds, is refused, so keeping the submitted head drops nothing that neither it nor a remote-tracking ref holds.
 Before a compare-and-swap repairs the stale database field, the old commit is anchored under `refs/no-mistakes/recovery/<run>/recorded`.
+Native pins an unpublished head under `refs/no-mistakes/recover/<run>` in the gate when its run ends, and its recovery and terminal preflight both refuse a run whose recorded head that anchor contradicts (issue 2755).
+So the repair first requires that anchor to be absent or to name the stale commit, and refuses before any write otherwise.
+Once the database field names the submitted head, it compare-and-swaps that anchor from the stale commit to the submitted head, while the stale commit stays anchored under `refs/no-mistakes/recovery/<run>/recorded`.
+A recovery that stopped between the two moves the anchor when it runs again, provided the gate branch is still at the submitted head and the anchor still names exactly the commit the driver kept.
 The driver then invokes native `sync --recover --keep-local` and verifies that custody was durably returned without moving the local or gate head.
 A recorded head that holds the gate's own commits, such as a rebase followed by review fixes, would lose them if the submitted head were kept, so it is recovered at the recorded head instead, and the refusal from the submitted head names that head.
 With the clean task branch at the recorded head, native status offers plain `sync --recover`; the driver requires the gate branch to still name the submitted head, runs that recovery, which returns custody without moving the local or gate branch, and requires the local head unchanged.
@@ -483,11 +487,13 @@ The refusal names both runs and the published head, and says no supported recove
 A run whose custody already returned while native branch sync no longer answers for it has no same-run continuation, since native retry refuses a driver-started run (no-mistakes issue 323).
 The refusal says a fresh `goblins pipeline run` is the expected path only when the run spent no repair round, and otherwise names the rounds a fresh run would start over, which `goblins pipeline run` refuses, and names `terminal-preflight` and the CEO's terminal admission, `validate-terminal` or `validate-authored`, which keeps them.
 Rounds are counted over the run and every predecessor its terminal admissions continue, since an admitted child spends none of its own.
+When native branch sync instead names an earlier run of the branch as its owner, a failed or cancelled run that never published or returned custody, such as one that failed after the gate committed its review fixes before a later run was cancelled, `recover` recovers that earlier run rather than refusing, since it holds the branch and would refuse the fresh run (issue 2757).
+An owner that is no such earlier run is refused by name.
 
 A gate's fixer works in the run's worktree, which no-mistakes removes with force once the run is over, so the driver keeps what the fixer left uncommitted before anything takes that worktree away.
 Before unpublished recovery runs any native command, and before a stop aborts a live run, every tracked and untracked change in the run's worktree is committed and pinned under `refs/no-mistakes/recovery/<run>/worktree` in the gate repository, and that commit's parent is the head the run ended at.
 The commit is made from an index of the driver's own, so the goblin's staged and unstaged work is exactly as it left it, and a first capture stands rather than being replaced by a later one a goblin may already be restoring.
-The commit is named in the branch-sync evidence the recovery reads, in `goblins pipeline recover`'s output, and in the lifecycle record of a stop, so an interrupted fixer's repairs stay recoverable with `git cherry-pick -n <commit>` after the worktree is gone.
+The commit is named in the branch-sync evidence the recovery reads, in `goblins pipeline recover`'s output, in its error when the recovery stops short, and in the lifecycle record of a stop, so an interrupted fixer's repairs stay recoverable with `git cherry-pick -n <commit>` after the worktree is gone.
 On 2026-10-23 an allowance-interrupted review repair lost its frontend changes exactly this way: the step failed, custody returned at the submitted head, and native recovery swept the worktree before anything read it (issue 1416).
 
 This repository's committed automatic-fix overrides remain authoritative for a new submitted branch.
@@ -1152,7 +1158,7 @@ Every `goblins gate prepush` run and every `goblins gate test` run adds what it 
 
 The run fits the machine.
 It waits for the machine's turn in the line `goblins gate test` runs wait in, so the two never run together, and it tests one package at a time.
-It starts a check only while free memory and commit are over the 4 GB floor, and none after its time limit, which is 15 minutes of running unless `--limit` says otherwise.
+It starts a check only while free memory and commit are over the memory floor (`memory_floor_gb`, 4 GB unless set), and none after its time limit, which is 15 minutes of running unless `--limit` says otherwise.
 Beside a working fleet free memory dips under the floor for seconds at a time, so a run waits for the floor, says once what it waits for, and leaves the rest to CI only when the limit passes first or memory cannot be read.
 A run that gave up at the first low reading ran 9 of its 42 checks on 2026-10-10 and left the two changed slow packages to CI.
 A check still running at the limit is ended, which is no failure.

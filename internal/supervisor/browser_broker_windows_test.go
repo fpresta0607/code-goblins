@@ -116,7 +116,7 @@ func TestALoginsBrowserSlowToStartIsStillLentOverThePipe(t *testing.T) {
 func TestABrowserLentOverThePipeIsAHeadlessChromeOnTheLoginsProfileThatCloses(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
-	broker := newBrowserBroker(h.State, h.Data, Options{
+	broker := newBrowserBroker(h, Options{
 		KeyPages: keypages.Recipes{Providers: []keypages.Provider{{ID: "stripe", Name: "Stripe", Hosts: []string{"stripe.com", "*.stripe.com"}}}},
 		Dispatch: &Dispatch{Memory: func() (Memory, error) { return Memory{Available: 8 << 30, CommitAvailable: 8 << 30}, nil }},
 	}, func(err error) { t.Errorf("a browser was not closed: %v", err) })

@@ -14,7 +14,6 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/gatetest"
-	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
@@ -331,6 +330,10 @@ func takePushTurn(stdout io.Writer, runtime commandRuntime, who, priority string
 	if err != nil {
 		return verify.Turn{}, err
 	}
+	floor, err := gateMemoryFloor()
+	if err != nil {
+		return verify.Turn{}, err
+	}
 	var available func() (uint64, error)
 	if runtime.availableMemory != nil {
 		available = func() (uint64, error) {
@@ -341,7 +344,7 @@ func takePushTurn(stdout io.Writer, runtime commandRuntime, who, priority string
 	lineLimit := gateLineLimit(runtime, os.Getenv, false)
 	turn, err := verify.Admission{
 		Dir:       store,
-		Floor:     supervisor.MemoryFloor,
+		Floor:     floor,
 		Available: available,
 		Who:       who,
 		Priority:  priority,
@@ -375,11 +378,15 @@ func waitForPushMemory(stdout io.Writer, runtime commandRuntime, number int, dea
 		if err != nil {
 			return "free memory cannot be read (" + err.Error() + ")"
 		}
+		floor, err := gateMemoryFloor()
+		if err != nil {
+			return err.Error()
+		}
 		free := min(memory.Available, memory.CommitAvailable)
-		if free >= supervisor.MemoryFloor {
+		if free >= floor {
 			return ""
 		}
-		short := fmt.Sprintf("the machine has %.1f GB of memory free and a check starts only above %.1f GB", verify.Gigabytes(free), verify.Gigabytes(supervisor.MemoryFloor))
+		short := fmt.Sprintf("the machine has %.1f GB of memory free and a check starts only above %.1f GB", verify.Gigabytes(free), verify.Gigabytes(floor))
 		if !time.Now().Before(deadline) {
 			return fmt.Sprintf("%s, and the time limit of %s passed while the run waited for it", short, limit)
 		}

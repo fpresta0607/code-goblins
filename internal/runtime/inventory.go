@@ -29,11 +29,6 @@ import (
 // Schema names the typed report, matching the convention fleet-view set.
 const Schema = "runtime-report.v1"
 
-// dispatchNext is the memory and the commit at which the next goblin starts:
-// the fleet's 4 GB floor and about 1 GB for the new session, the same mark
-// the board's Start holds a task to.
-const dispatchNext = 5 << 30
-
 // Inventory is everything the report is computed from: a plain value with no
 // I/O, so attribution is a pure function over fixtures. Collect builds the
 // production one.
@@ -217,6 +212,12 @@ type Machine struct {
 	// file could not be read, which refuses every start.
 	DiskFloor       int64  `json:"disk_floor"`
 	DiskFloorUnread string `json:"disk_floor_unread,omitempty"`
+	// DispatchNeed is the free memory and the free commit at which the next
+	// goblin starts: the memory floor, what the starts under way hold and the
+	// start's own cost, as the scheduler admits by. DispatchNeedUnread says why
+	// it could not be read, which holds every dispatch.
+	DispatchNeed       int64  `json:"dispatch_need"`
+	DispatchNeedUnread string `json:"dispatch_need_unread,omitempty"`
 	// WSL is the working set of the WSL virtual machine, the footprint that
 	// has starved this fleet before by growing without anything on the
 	// Windows side accounting for it.
@@ -236,19 +237,23 @@ type Dispatch struct {
 	Line string `json:"line"`
 }
 
-// Dispatch reads the machine against the mark at which the next goblin
-// starts and the disk floor, rounding down so a reading just under the mark
-// never shows as it.
+// Dispatch reads the machine against the memory and commit the next goblin
+// start needs and the disk floor, rounding down so a reading just under the
+// mark never shows as it.
 func (m Machine) Dispatch() Dispatch {
 	gigabytes := func(bytes int64) float64 { return math.Floor(float64(bytes)/(1<<30)*10) / 10 }
-	const wait = "Dispatch: wait, only %s free; the next goblin starts at 5 GB of both"
+	wait := func(short string) Dispatch {
+		return Dispatch{Line: fmt.Sprintf("Dispatch: wait, only %s free; the next goblin starts at %.1f GB of both", short, gigabytes(m.DispatchNeed))}
+	}
 	switch {
-	case m.MemoryAvailable < dispatchNext && m.CommitAvailable < dispatchNext:
-		return Dispatch{Line: fmt.Sprintf(wait, fmt.Sprintf("%.1f GB of memory and %.1f GB of commit (memory plus page file) are", gigabytes(m.MemoryAvailable), gigabytes(m.CommitAvailable)))}
-	case m.MemoryAvailable < dispatchNext:
-		return Dispatch{Line: fmt.Sprintf(wait, fmt.Sprintf("%.1f GB of memory is", gigabytes(m.MemoryAvailable)))}
-	case m.CommitAvailable < dispatchNext:
-		return Dispatch{Line: fmt.Sprintf(wait, fmt.Sprintf("%.1f GB of commit (memory plus page file) is", gigabytes(m.CommitAvailable)))}
+	case m.DispatchNeedUnread != "":
+		return Dispatch{Line: "Dispatch: wait, the memory the next start needs cannot be read, so nothing starts: " + m.DispatchNeedUnread}
+	case m.MemoryAvailable < m.DispatchNeed && m.CommitAvailable < m.DispatchNeed:
+		return wait(fmt.Sprintf("%.1f GB of memory and %.1f GB of commit (memory plus page file) are", gigabytes(m.MemoryAvailable), gigabytes(m.CommitAvailable)))
+	case m.MemoryAvailable < m.DispatchNeed:
+		return wait(fmt.Sprintf("%.1f GB of memory is", gigabytes(m.MemoryAvailable)))
+	case m.CommitAvailable < m.DispatchNeed:
+		return wait(fmt.Sprintf("%.1f GB of commit (memory plus page file) is", gigabytes(m.CommitAvailable)))
 	case m.DiskFloorUnread != "":
 		return Dispatch{Line: "Dispatch: wait, the disk floor cannot be read, so nothing starts: " + m.DiskFloorUnread}
 	case m.DiskFree < m.DiskFloor:

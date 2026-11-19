@@ -422,7 +422,7 @@ func (s *Service) reconcilePreparedWait(ctx context.Context, watched *fleetWakes
 	if err != nil {
 		return s.preparedProblem(&record, "prepared", err)
 	}
-	isCleared, err := s.preparedCleared(ctx, record, now, watched)
+	isCleared, err := s.preparedCleared(ctx, record, now, watched, watched.MemoryAbove > 0)
 	if err != nil {
 		return s.preparedProblem(&record, "prepared", err)
 	}
@@ -450,7 +450,7 @@ func (s *Service) reconcilePreparedWait(ctx context.Context, watched *fleetWakes
 		s.starts.Unlock()
 		s.notify()
 	}()
-	isCleared, err = s.preparedCleared(ctx, record, now, watched)
+	isCleared, err = s.preparedCleared(ctx, record, now, watched, watched.MemoryAbove > 0)
 	if err != nil {
 		return s.preparedProblem(&record, "prepared", err)
 	}
@@ -559,7 +559,7 @@ func (s *Service) finishPreparedResume(paused state.Lifecycle, operation string,
 	return state.WritePreparedWait(s.Store.Home.State, record)
 }
 
-func (s *Service) preparedCleared(ctx context.Context, record state.PreparedWait, now time.Time, watched *fleetWakes) (bool, error) {
+func (s *Service) preparedCleared(ctx context.Context, record state.PreparedWait, now time.Time, watched *fleetWakes, isRoomFree bool) (bool, error) {
 	if err := s.preparedDependency(record); err != nil {
 		return false, err
 	}
@@ -585,5 +585,5 @@ func (s *Service) preparedCleared(ctx context.Context, record state.PreparedWait
 			return false, errors.New("prepared pull request is unknown")
 		}
 	}
-	return s.pauseCleared(ctx, record.Condition, now, watched)
+	return s.pauseCleared(ctx, record.Condition, now, watched, isRoomFree)
 }

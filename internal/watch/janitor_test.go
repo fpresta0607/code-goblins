@@ -2,6 +2,7 @@ package watch
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,9 @@ import (
 	"testing"
 	"time"
 
+	_ "modernc.org/sqlite"
+
+	"github.com/fpresta0607/code-goblins/internal/disk"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/janitor"
@@ -302,6 +306,196 @@ func TestTheJanitorPassMeasuresTheGatesHomeOnBothDrives(t *testing.T) {
 			}
 			if swept.Gate == nil || !slices.Equal(swept.Gate.Folders, want) {
 				t.Errorf("gate = %+v, want %v measured", swept.Gate, want)
+			}
+		})
+	}
+}
+
+// fleetSettings writes the home's config/fleet.json.
+func fleetSettings(t *testing.T, h home.Home, settings string) {
+	t.Helper()
+	path := filepath.Join(h.Root, "config", "fleet.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(settings), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A clean mark no drive is under, and one every drive is under.
+const (
+	markNoDriveIsUnder    = `{"disk_floor_gb":0,"disk_wake_gb":0,"disk_clean_gb":0}`
+	markEveryDriveIsUnder = `{"disk_clean_gb":1000000000}`
+)
+
+// The orphan sweep starts the janitor's pass once an hour has passed since the
+// last, and at once when free disk fell under the clean mark since the last
+// pass read it at or above, rather than wait for the hour (#2761).
+func TestTheJanitorPassRunsAtOnceWhenFreeDiskFallsUnderTheCleanMark(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		settings  string
+		lastAgo   time.Duration
+		lastFree  uint64
+		isStarted bool
+	}{
+		{name: "under the mark, the last pass read above it", settings: markEveryDriveIsUnder, lastAgo: 10 * time.Minute, lastFree: 1 << 62, isStarted: true},
+		{name: "under the mark, the last pass read under it too", settings: markEveryDriveIsUnder, lastAgo: 10 * time.Minute, lastFree: 1 << 30},
+		{name: "above the mark", settings: markNoDriveIsUnder, lastAgo: 10 * time.Minute, lastFree: 1 << 30},
+		{name: "above the mark, an hour past the last pass", settings: markNoDriveIsUnder, lastAgo: 2 * time.Hour, lastFree: 1 << 30, isStarted: true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			root := t.TempDir()
+			h := home.Home{Root: root, State: filepath.Join(root, "state"), Data: filepath.Join(root, "data")}
+			if err := os.MkdirAll(h.State, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			fleetSettings(t, h, c.settings)
+			last := time.Now().Add(-c.lastAgo).UTC()
+			if err := janitor.WriteRecord(h.State, janitor.Record{Time: last, Disk: disk.Reading{Drive: "C:", Free: c.lastFree}}); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("NM_HOME", filepath.Join(root, "no-gate"))
+
+			// Act
+			tidyHome(Config{Home: h, Reap: &reap.Service{Commands: &dockerRunner{}}, JanitorEvery: time.Hour}, reap.Inventory{})
+			janitorRunning.Lock()
+			janitorRunning.Unlock()
+
+			// Assert
+			swept, err := janitor.ReadRecord(h.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if isStarted := !swept.Time.Equal(last); isStarted != c.isStarted {
+				t.Fatalf("pass started = %v, want %v", isStarted, c.isStarted)
+			}
+		})
+	}
+}
+
+// The watcher's janitor pass frees what is safe at once under the clean mark:
+// a finished task's scratch folder unwritten for two hours goes, which above
+// the mark waits its day (#2761).
+func TestTheJanitorPassUnderTheCleanMarkTakesAFinishedTasksScratch(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		settings string
+		isGone   bool
+	}{
+		{name: "under the mark", settings: markEveryDriveIsUnder, isGone: true},
+		{name: "above the mark", settings: markNoDriveIsUnder},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			temp := t.TempDir()
+			t.Setenv("TMP", temp)
+			t.Setenv("TEMP", temp)
+			t.Setenv("TMPDIR", temp)
+			profile := t.TempDir()
+			t.Setenv("USERPROFILE", profile)
+			t.Setenv("HOME", profile)
+			root := t.TempDir()
+			h := home.Home{Root: root, State: filepath.Join(root, "state"), Data: filepath.Join(root, "data")}
+			if err := os.MkdirAll(h.State, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			fleetSettings(t, h, c.settings)
+			t.Setenv("NM_HOME", filepath.Join(root, "no-gate"))
+			scratch := filepath.Join(h.Scratch(), "gone-task")
+			if err := os.MkdirAll(scratch, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			written := time.Now().Add(-2 * time.Hour)
+			if err := os.Chtimes(scratch, written, written); err != nil {
+				t.Fatal(err)
+			}
+			self, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			inventory := reap.Inventory{Processes: []reap.Process{{PID: os.Getpid(), CommandLine: `"` + self + `" -test.run=TheJanitorPass`}}}
+
+			// Act
+			runJanitor(Config{Home: h, Reap: &reap.Service{Commands: &dockerRunner{}}, JanitorEvery: time.Hour}, inventory)
+
+			// Assert
+			_, err = os.Stat(scratch)
+			if isGone := os.IsNotExist(err); isGone != c.isGone {
+				swept, _ := janitor.ReadRecord(h.State)
+				t.Fatalf("scratch gone = %v, want %v; removed %+v, notes %q", isGone, c.isGone, swept.Removed, swept.Notes)
+			}
+		})
+	}
+}
+
+// The watcher's janitor pass reads the gate's home the gate runs from for
+// completed runs' checkouts kept past its retention, which the supervisor's
+// gate_growth wake names (#2761). On a machine without the gate's home there
+// is nothing to read, so the pass says nothing of it.
+func TestTheJanitorPassCountsTheGatesCompletedRunsPastItsRetention(t *testing.T) {
+	for _, c := range []struct {
+		name       string
+		isGateMade bool
+	}{
+		{name: "the gate's home", isGateMade: true},
+		{name: "no gate's home"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			root := t.TempDir()
+			h := home.Home{Root: root, State: filepath.Join(root, "state"), Data: filepath.Join(root, "data")}
+			if err := os.MkdirAll(h.State, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			gate := filepath.Join(root, "profile", ".no-mistakes")
+			if c.isGateMade {
+				checkout := filepath.Join(gate, "worktrees", "repo1", "run-1")
+				if err := os.MkdirAll(checkout, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				db, err := sql.Open("sqlite", filepath.Join(gate, "state.sqlite"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := db.Exec("CREATE TABLE runs (id TEXT PRIMARY KEY, status TEXT, updated_at INTEGER)"); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := db.Exec("INSERT INTO runs VALUES ('run-1', 'completed', ?), ('run-2', 'failed', ?)", time.Now().Add(-48*time.Hour).Unix(), time.Now().Add(-time.Hour).Unix()); err != nil {
+					t.Fatal(err)
+				}
+				if err := db.Close(); err != nil {
+					t.Fatal(err)
+				}
+				written := time.Now().Add(-48 * time.Hour)
+				if err := os.Chtimes(checkout, written, written); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Setenv("NM_HOME", gate)
+
+			// Act
+			runJanitor(Config{Home: h, Reap: &reap.Service{Commands: &dockerRunner{}}, JanitorEvery: time.Hour}, reap.Inventory{})
+
+			// Assert
+			swept, err := janitor.ReadRecord(h.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if swept.Gate == nil {
+				t.Fatalf("no gate measured; notes %q", swept.Notes)
+			}
+			past := swept.Gate.PastRetention
+			if c.isGateMade && (past == nil || past.Unlinked.Count != 1) {
+				t.Errorf("past retention = %+v, want one completed run's checkout past the retention; notes %q", past, swept.Notes)
+			}
+			if !c.isGateMade && past != nil {
+				t.Errorf("past retention = %+v, want none read from a gate's home that is not there", past)
+			}
+			if notes := strings.Join(swept.Notes, "\n"); strings.Contains(notes, "kept past its retention could not be read") {
+				t.Errorf("notes = %q, want nothing said of the gate's finished runs", notes)
 			}
 		})
 	}

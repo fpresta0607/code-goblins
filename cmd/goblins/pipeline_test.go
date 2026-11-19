@@ -1157,8 +1157,13 @@ func TestPipelineMigrationRacingSwitchPreservesBothUpdates(t *testing.T) {
 	}
 
 	// A switch starts the codex its validation found on PATH, so the one this
-	// test's adapter stands for is put there. It never runs.
-	stub := t.TempDir()
+	// test's adapter stands for is put there, inside the home, since a goblin
+	// of a home the user's environment does not name starts only a harness
+	// its home holds. It never runs.
+	stub := filepath.Join(root, "bin")
+	if err := os.MkdirAll(stub, 0700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(stub, "codex.cmd"), []byte("@exit /b 1\r\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -1173,6 +1178,7 @@ func TestPipelineMigrationRacingSwitchPreservesBothUpdates(t *testing.T) {
 			harness.Codex:  pipelineSwitchAdapter{kind: harness.Codex},
 		}},
 		Commands:        switchRunner,
+		HomeRoot:        h.Root,
 		StateDir:        h.State,
 		UserEnvironment: func() ([]string, error) { return os.Environ(), nil },
 	}
@@ -2006,7 +2012,8 @@ func TestPipelineRunRefusesAMissingRequiredEnvironmentBeforeStartingTheGate(t *t
 
 // taskWorktreesRunner answers git in each directory of branches as the top
 // level of a checkout with that branch checked out, the native database's run
-// lookup with runBranch and its custody record with recovery; every other
+// lookup with runBranch, its custody record with recovery, and the gate's
+// recovery refs as absent, as for a run that kept nothing; every other
 // command goes to the runner it wraps.
 type taskWorktreesRunner struct {
 	execx.Runner
@@ -2033,6 +2040,10 @@ func (r taskWorktreesRunner) Run(ctx context.Context, q execx.Request) (execx.Re
 		return execx.Result{Stdout: []byte(`[{"branch":"` + r.runBranch + `"}]`)}, nil
 	case q.Name == "sqlite3" && strings.Contains(command, "AS recorded_head"):
 		return execx.Result{Stdout: []byte(r.recovery)}, nil
+	case q.Name == "git" && strings.Contains(command, "symbolic-ref --quiet refs/no-mistakes/recovery/"):
+		return execx.Result{ExitCode: 1}, nil
+	case q.Name == "git" && strings.Contains(command, "show-ref --exists refs/no-mistakes/recovery/"):
+		return execx.Result{ExitCode: 2}, nil
 	}
 	return r.Runner.Run(ctx, q)
 }

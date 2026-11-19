@@ -54,6 +54,6 @@ func (s *Service) followNativeCEO(events []nativehook.Event) error {
 	if readErr != nil {
 		return errors.Join(err, readErr)
 	}
-	_, wakeErr := IdleTurnWake(h, memory, time.Now().UTC())
+	_, wakeErr := IdleTurnWake(h, dispatch.Processes, memory, time.Now().UTC())
 	return errors.Join(err, wakeErr)
 }
