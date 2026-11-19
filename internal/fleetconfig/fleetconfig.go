@@ -1,7 +1,9 @@
 // Package fleetconfig reads the fleet's machine settings, config/fleet.json in
 // the home: whether the board looks for a newer release, the free disk under
-// which no goblin or gate starts and the lower mark at which the CEO is woken,
-// how large the shared caches may grow, which temporary folders the janitor
+// which no goblin or gate starts, the lower mark at which the CEO is woken and
+// the higher one under which the janitor frees what is safe at once, how large
+// the shared caches may grow, and a goblin's folders before it is told to clear
+// what it can rebuild, which temporary folders the janitor
 // treats as the fleet's leaks, the GitHub organizations whose pull requests
 // the fleet watches as its own, and the part of each provider's weekly
 // allowance the fleet keeps back. How many goblins run is no setting:
@@ -32,9 +34,20 @@ type Settings struct {
 	DiskFloorGB float64 `json:"disk_floor_gb"`
 	// DiskWakeGB is the lower mark under which the CEO is woken.
 	DiskWakeGB float64 `json:"disk_wake_gb"`
+	// DiskCleanGB is the free disk, in gigabytes, under which the janitor
+	// frees what is safe at once; see CleanMark.
+	DiskCleanGB float64 `json:"disk_clean_gb"`
 	// CachesCapGB is the size, in gigabytes, the home's caches folder is
 	// trimmed back under.
 	CachesCapGB float64 `json:"caches_cap_gb"`
+	// CachesTightCapGB is the size, in gigabytes, the caches folder is
+	// trimmed back under while free disk is under the clean mark; see
+	// CachesCap.
+	CachesTightCapGB float64 `json:"caches_tight_cap_gb"`
+	// GoblinDiskGB is the size, in gigabytes, of a task's worktrees or of its
+	// scratch folder past which its live goblin is told, once, to clear what
+	// it can rebuild.
+	GoblinDiskGB float64 `json:"goblin_disk_gb"`
 	// TempPatterns name the folders in the machine's temporary folder the
 	// fleet's tests and tools leave behind, as filepath.Match patterns.
 	TempPatterns []string `json:"temp_patterns"`
@@ -59,6 +72,23 @@ type Settings struct {
 	ClaudeGoblinsOnStream bool `json:"claude_goblins_on_stream"`
 }
 
+// CleanMark is the free disk, in bytes, under which the janitor frees what is
+// safe at once: disk_clean_gb, or the floor when that is higher, so cleaning
+// starts no later than starts stop.
+func (s Settings) CleanMark() uint64 {
+	return Bytes(max(s.DiskCleanGB, s.DiskFloorGB))
+}
+
+// CachesCap is the size, in gigabytes, the caches are trimmed back under:
+// caches_cap_gb, and while free disk is under the clean mark
+// caches_tight_cap_gb, or caches_cap_gb when that is lower.
+func (s Settings) CachesCap(isTight bool) float64 {
+	if isTight {
+		return min(s.CachesTightCapGB, s.CachesCapGB)
+	}
+	return s.CachesCapGB
+}
+
 // DefaultWeeklyFloorPercent is the part of a provider's week a home that never
 // set its floor keeps back.
 const DefaultWeeklyFloorPercent = 5
@@ -80,9 +110,12 @@ func (s Settings) WeeklyFloor(provider string) float64 {
 // Defaults are the settings a home with no config/fleet.json runs under.
 func Defaults() Settings {
 	return Settings{
-		DiskFloorGB: 15,
-		DiskWakeGB:  10,
-		CachesCapGB: 20,
+		DiskFloorGB:      15,
+		DiskWakeGB:       10,
+		DiskCleanGB:      25,
+		CachesCapGB:      20,
+		CachesTightCapGB: 10,
+		GoblinDiskGB:     5,
 		// The leaks the CEO removed by hand on 2026-10-02: Go test homes,
 		// Go's own build folders, goblins fixtures, Playwright and Chrome
 		// profiles, audit runs and PrecisionDocs test homes.
@@ -178,8 +211,14 @@ func parse(data []byte) (Settings, error) {
 	if settings.DiskWakeGB < 0 || settings.DiskFloorGB < settings.DiskWakeGB {
 		return Settings{}, errors.New("disk_wake_gb must be at least 0 and no more than disk_floor_gb")
 	}
-	if settings.CachesCapGB <= 0 {
-		return Settings{}, errors.New("caches_cap_gb must be more than 0")
+	if settings.DiskCleanGB < 0 {
+		return Settings{}, errors.New("disk_clean_gb must be at least 0")
+	}
+	if settings.CachesCapGB <= 0 || settings.CachesTightCapGB <= 0 {
+		return Settings{}, errors.New("caches_cap_gb and caches_tight_cap_gb must be more than 0")
+	}
+	if settings.GoblinDiskGB <= 0 {
+		return Settings{}, errors.New("goblin_disk_gb must be more than 0")
 	}
 	for _, pattern := range settings.TempPatterns {
 		if _, err := filepath.Match(pattern, ""); err != nil || pattern == "" || pattern == "*" || filepath.Base(pattern) != pattern {
