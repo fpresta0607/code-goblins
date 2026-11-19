@@ -408,3 +408,26 @@ func TestTheMemoryFloorPassesOverAGoblinJustResumedForMemory(t *testing.T) {
 		})
 	}
 }
+
+// The pause at the floor needs only the floor: a services record or a start
+// costs file that cannot be read stops what starts, never the pause that
+// keeps the machine working.
+func TestTheMemoryFloorPausesWhileARecordOnlyAdmissionReadsIsUnreadable(t *testing.T) {
+	for _, record := range []string{"services.json", "start-costs.json"} {
+		t.Run(record, func(t *testing.T) {
+			// Arrange
+			spawner := &spawnRecorder{}
+			s, h, _, newer, now := floorBoard(t, false, spawner, [2]float64{3.9, 8}, [2]float64{3.9, 8})
+			writeFile(t, filepath.Join(h.State, record), "{")
+
+			// Act
+			readFleet(t, s, now, 0, 1)
+			calls := awaitDispatch(t, s, spawner, 1)
+
+			// Assert
+			if len(calls) != 1 || calls[0][0] != "pause" || calls[0][1] != newer.ID {
+				t.Fatalf("dispatches = %v, want %s paused at the floor", calls, newer.ID)
+			}
+		})
+	}
+}

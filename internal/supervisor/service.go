@@ -2311,11 +2311,11 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 	}
 	if dispatch := s.Options.Dispatch; dispatch != nil {
-		if memory, err := dispatch.Memory(); err == nil {
+		memory, err := dispatch.Memory()
+		room, roomErr := s.room(out.At)
+		if err == nil && roomErr == nil {
 			memory.PoolLine, memory.PoolGrowth = poolLine, poolGrowth
-			if room, err := s.room(out.At); err == nil {
-				memory.Floor, memory.Next = room.Floor, room.Need(room.costliest())
-			}
+			memory.Floor, memory.Next = room.Floor, room.Need(room.costliest())
 			if dispatch.HeavyLine != nil {
 				if room, err := dispatch.HeavyLine(memory); err == nil {
 					memory.SlotHold = room.Hold

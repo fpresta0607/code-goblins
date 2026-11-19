@@ -460,17 +460,23 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	defer func() { s.setScheduling(scheduled) }()
 	// A floor or a record that cannot be read leaves nothing admitted: no
 	// default stands in for it.
-	room, err := s.room(now)
+	floor, err := MachineMemoryFloor(s.Store.Home)
 	if err != nil {
 		w.MemoryAbove, w.MemoryBelow = 0, 0
 		w.LineStallSince, w.LineStallWoke = time.Time{}, false
 		return errors.Join(planningErr, err)
 	}
-	if low < room.Floor {
+	if low < floor {
 		w.MemorySpent, w.MemoryAbove, w.MemoryLow = false, 0, true
 		w.MemoryBelow++
 		w.LineStallSince, w.LineStallWoke = time.Time{}, false
-		return errors.Join(planningErr, s.pauseAtMemoryFloor(w, memory, room.Floor, now))
+		return errors.Join(planningErr, s.pauseAtMemoryFloor(w, memory, floor, now))
+	}
+	room, err := s.room(now)
+	if err != nil {
+		w.MemoryAbove, w.MemoryBelow = 0, 0
+		w.LineStallSince, w.LineStallWoke = time.Time{}, false
+		return errors.Join(planningErr, err)
 	}
 	stallErr := s.checkLineStall(w, memory, now)
 	w.MemoryBelow = 0

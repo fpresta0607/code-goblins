@@ -250,7 +250,9 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 		record.Text = "starting " + queued[0]
 		startErr = s.startQueued(queued[0], false)
 	case memoryPending != "":
-		record.Text = memoryPending + " resumes first: " + bounded(room.Shortfall(memory, harnesses[memoryPending]), 120)
+		shortfall := room.Shortfall(memory, harnesses[memoryPending])
+		record.Text = memoryPending + " resumes first: " + bounded(shortfall, 120)
+		record.isWaitingForRoom = shortfall != ""
 	case len(record.Waiting) > 0:
 		// The whole reason is on the task's card; the meter's line is short.
 		record.Text = "nothing starts: " + record.Waiting[0].ID + ": " + bounded(record.Waiting[0].Why, 120)

@@ -68,17 +68,17 @@ func servicesFixture(t *testing.T, docker *commandDocker) (commandRuntime, strin
 	}
 	runtime := commandRuntime{
 		resolveHome: func() (home.Home, error) { return h, nil },
-		projectServices: func(h home.Home, progress io.Writer) (services.Service, error) {
+		projectServices: func(h home.Home, progress io.Writer) services.Service {
 			return services.Service{
 				StateDir: h.State, DataDir: h.Data, Docker: docker,
 				Memory: func() (services.Memory, error) {
 					return services.Memory{Available: 16 << 30, CommitAvailable: 16 << 30}, nil
 				},
-				Floor: 4 << 30, IsLive: services.LiveIn(h.State),
-				Now: time.Now, Sleep: func(time.Duration) {}, Poll: time.Second, Out: progress,
+				IsLive: services.LiveIn(h.State),
+				Now:    time.Now, Sleep: func(time.Duration) {}, Poll: time.Second, Out: progress,
 				Turn:       func(context.Context, string) (func(), error) { return func() {}, nil },
 				FloorEvery: time.Millisecond, ReliefEvery: time.Hour,
-			}, nil
+			}
 		},
 	}
 	return runtime, checkout
@@ -108,6 +108,35 @@ func TestServicesUpStartsTheStackAndDownStopsIt(t *testing.T) {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("stdout = %q, want %q", stdout.String(), want)
 		}
+	}
+}
+
+// Settings that cannot be read leave the memory floor unknown: up starts
+// nothing, and down still stops the stack, which is what frees memory.
+func TestServicesWithUnreadableSettingsStopsAStackButStartsNone(t *testing.T) {
+	// Arrange
+	docker := &commandDocker{}
+	runtime, checkout := servicesFixture(t, docker)
+	h, err := runtime.resolveHome()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exit := runServices([]string{"up", checkout, "--task", "pd-check"}, io.Discard, io.Discard, runtime); exit != 0 {
+		t.Fatalf("the first up exited %d, want the stack started", exit)
+	}
+	writeTestFile(t, filepath.Join(h.Root, "config", "fleet.json"), `{"memory_floor_gb":0}`)
+	var upOut, upErr, downOut, downErr bytes.Buffer
+
+	// Act
+	up := runServices([]string{"up", checkout, "--task", "pd-check"}, &upOut, &upErr, runtime)
+	down := runServices([]string{"down", checkout, "--task", "pd-check"}, &downOut, &downErr, runtime)
+
+	// Assert
+	if up != 1 || !strings.Contains(upErr.String(), "the memory floor cannot be read") {
+		t.Fatalf("up exit %d stderr %q, want 1 naming the unreadable floor", up, upErr.String())
+	}
+	if down != 0 || downErr.Len() != 0 || !slices.Equal(docker.calls, []string{"up backend", "down "}) {
+		t.Fatalf("down exit %d stderr %q, docker calls %q, want the stack stopped and nothing started", down, downErr.String(), docker.calls)
 	}
 }
 

@@ -301,7 +301,7 @@ type commandRuntime struct {
 	stepCard func(home.Home, supervisor.CredentialStep) error
 	// projectServices builds the local services of a home, writing what a
 	// start says while it waits to progress.
-	projectServices func(home.Home, io.Writer) (services.Service, error)
+	projectServices func(home.Home, io.Writer) services.Service
 	// sandboxEngine is the Docker engine a sandbox task's runs use, which
 	// says what a start of it does on its writer; nil is the machine's docker.
 	sandboxEngine func(io.Writer) sandboxEngine

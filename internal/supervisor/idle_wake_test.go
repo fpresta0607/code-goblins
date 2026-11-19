@@ -79,6 +79,14 @@ func TestTheCEOIsWokenAgainWhileRunnableWorkWaitsAndNothingStarts(t *testing.T) 
 			},
 			spawnFail: true,
 		},
+		{
+			name:      "a goblin paused for memory resumes first",
+			available: 4.6,
+			arrange: func(t *testing.T, h home.Home) {
+				queueBriefedTask(t, h, "- **next-task** - Ship it", strings.ReplaceAll(plainBrief, "C:\\dev\\code-goblins", ""))
+				pausedGoblin(t, h, "paused-task", "memory", "", time.Now().UTC().Add(-time.Hour))
+			},
+		},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {

@@ -260,3 +260,40 @@ func TestGateTurnsUsesSharedCapacityFloor(t *testing.T) {
 		}
 	}
 }
+
+// A run of the heavy line waits for the floor its home's settings keep: with
+// 6 GB kept, 5.9 GB of both free gives no turn and 6 GB does.
+func TestAGateTurnWaitsForTheFloorTheHomeKeeps(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		free    uint64
+		isTaken bool
+	}{
+		{name: "under the floor", free: 6<<30 - 100<<20},
+		{name: "at the floor", free: 6 << 30, isTaken: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h := primaryHomeFixture(t)
+			writeTestFile(t, filepath.Join(h.Root, "config", "fleet.json"), `{"memory_floor_gb":6}`)
+			t.Setenv("GOBLINS_HOME", h.Root)
+			t.Setenv("GOBLINS_STATE_OVERRIDE", h.State)
+			t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
+			available := func() (supervisor.Memory, error) {
+				return supervisor.Memory{Available: test.free, CommitAvailable: test.free}, nil
+			}
+
+			// Act
+			var says, stderr bytes.Buffer
+			turn, err := takeGateTurn(t.Context(), "goblins gate", &says, &stderr, available, "a test run", "", time.Minute, 50*time.Millisecond, 0, 0)
+
+			// Assert
+			if err == nil {
+				defer func() { _ = turn.Release() }()
+			}
+			if (err == nil) != test.isTaken {
+				t.Fatalf("turn err = %v (said %q, stderr %q), want a turn %t", err, says.String(), stderr.String(), test.isTaken)
+			}
+		})
+	}
+}
