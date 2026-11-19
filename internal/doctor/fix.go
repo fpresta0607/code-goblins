@@ -134,9 +134,9 @@ func RunningFrom(folder string) ([]int, error) {
 		return nil, err
 	}
 	inside := func(path string) bool {
-		path = strings.ToLower(filepath.Clean(strings.Trim(path, `"`)))
-		prefix := strings.ToLower(filepath.Clean(folder)) + `\`
-		return strings.HasPrefix(path, prefix)
+		path = filepath.Clean(strings.Trim(path, `"`))
+		prefix := filepath.Clean(folder) + string(filepath.Separator)
+		return fsx.HasPathPrefix(path, prefix)
 	}
 	var running []int
 	for _, process := range processes {
