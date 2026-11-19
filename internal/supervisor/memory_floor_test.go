@@ -1,12 +1,15 @@
 package supervisor
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -65,6 +68,14 @@ func readFleet(t *testing.T, s *Service, now time.Time, minutes ...int) {
 	}
 }
 
+// readGuard takes one reading of the memory guard at now.
+func readGuard(t *testing.T, s *Service, now time.Time) {
+	t.Helper()
+	if err := s.guardMemory(now); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // awaitRecorded waits until goblins has been run count times, a run still under
 // way included: the floor's pause runs goblins from a goroutine of its own.
 func awaitRecorded(t *testing.T, spawner *spawnRecorder, count int) [][]string {
@@ -105,39 +116,37 @@ func TestTheLowestGoblinPausesAtTheMemoryFloorWhetherAFKModeIsOnOrOff(t *testing
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			spawner := &spawnRecorder{}
-			s, _, _, newer, now := floorBoard(t, test.isAFKOn, spawner, test.low, test.low)
+			s, _, _, newer, now := floorBoard(t, test.isAFKOn, spawner, test.low)
 
 			// Act
-			readFleet(t, s, now, 0)
-			afterOne := spawner.recorded()
-			readFleet(t, s, now, 1)
+			readGuard(t, s, now)
+			calls := awaitRecorded(t, spawner, 1)
 
 			// Assert
-			if len(afterOne) != 0 {
-				t.Fatalf("paused on one reading under the floor: %v", afterOne)
+			if len(calls) != 1 {
+				t.Fatalf("dispatches after one reading under the floor = %v, want one pause", calls)
 			}
-			calls := awaitDispatch(t, s, spawner, 1)
 			args := strings.Join(calls[0], " ")
-			if len(calls) != 1 || calls[0][0] != "pause" || calls[0][1] != newer.ID || !strings.Contains(args, "--generation "+newer.SpawnGen) || !strings.HasSuffix(args, "--reason memory") {
+			if calls[0][0] != "pause" || calls[0][1] != newer.ID || !strings.Contains(args, "--generation "+newer.SpawnGen) || !strings.HasSuffix(args, "--reason memory") {
 				t.Fatalf("dispatches = %v, want one pause of the lowest goblin for memory, with no --until", calls)
 			}
 		})
 	}
 }
 
-// The memory floor pauses the goblin lowest in the Overlord's In progress
-// order, the one he ranks last, not the one that started last.
+// With no tree growing, the memory floor pauses the goblin lowest in the
+// Overlord's In progress order, the one he ranks last, not the one that
+// started last.
 func TestTheMemoryFloorPausesTheGoblinLowestInHisOrder(t *testing.T) {
 	// Arrange
 	spawner := &spawnRecorder{}
-	low := [2]float64{3, 8}
-	s, h, older, newer, now := floorBoard(t, false, spawner, low, low)
+	s, h, older, newer, now := floorBoard(t, false, spawner, [2]float64{3, 8})
 	if err := fleet.WriteAttention(h, []string{newer.ID, older.ID}); err != nil {
 		t.Fatal(err)
 	}
 
 	// Act
-	readFleet(t, s, now, 0, 1)
+	readGuard(t, s, now)
 
 	// Assert
 	if calls := awaitDispatch(t, s, spawner, 1); len(calls) != 1 || calls[0][0] != "pause" || calls[0][1] != older.ID {
@@ -146,26 +155,25 @@ func TestTheMemoryFloorPausesTheGoblinLowestInHisOrder(t *testing.T) {
 }
 
 // One goblin is paused at a time: while a pause or any other change is under
-// way nothing more is paused, and once it is done two fresh readings under
-// the floor are needed before the next lowest is paused, so a pause has the
-// time to free what it frees.
+// way nothing more is paused, and once it is done the next reading still under
+// the floor pauses the next lowest, so a pause has the time to free what it
+// frees.
 func TestTheMemoryFloorPausesOneGoblinAtATime(t *testing.T) {
 	// Arrange
 	spawner := &spawnRecorder{release: make(chan struct{})}
 	low := [2]float64{3, 8}
-	s, h, older, newer, now := floorBoard(t, true, spawner, low, low, low, low, low, low)
+	s, h, older, newer, now := floorBoard(t, true, spawner, low, low, low, low)
 
 	// Act
-	readFleet(t, s, now, 0, 1)
+	readGuard(t, s, now)
 	inFlight := waitForCalls(t, spawner, 1)
-	readFleet(t, s, now, 2, 3)
+	readGuard(t, s, now.Add(memoryGuardEvery))
+	readGuard(t, s, now.Add(2*memoryGuardEvery))
 	whileInFlight := spawner.recorded()
 	close(spawner.release)
 	awaitDispatch(t, s, spawner, 1)
-	pausedFor(t, h, newer, "memory", "paused", now.Add(3*time.Minute))
-	readFleet(t, s, now, 4)
-	afterOneMore := spawner.recorded()
-	readFleet(t, s, now, 5)
+	pausedFor(t, h, newer, "memory", "paused", now.Add(2*memoryGuardEvery))
+	readGuard(t, s, now.Add(3*memoryGuardEvery))
 
 	// Assert
 	if len(inFlight) != 1 || inFlight[0][1] != newer.ID {
@@ -173,9 +181,6 @@ func TestTheMemoryFloorPausesOneGoblinAtATime(t *testing.T) {
 	}
 	if len(whileInFlight) != 1 {
 		t.Fatalf("dispatches while the first pause ran = %v, want no second", whileInFlight)
-	}
-	if len(afterOneMore) != 1 {
-		t.Fatalf("dispatches one reading after the pause = %v, want none yet", afterOneMore)
 	}
 	calls := awaitDispatch(t, s, spawner, 2)
 	if len(calls) != 2 || calls[1][0] != "pause" || calls[1][1] != older.ID {
@@ -188,12 +193,11 @@ func TestTheMemoryFloorPausesOneGoblinAtATime(t *testing.T) {
 func TestAGoblinWhoseMemoryPauseFailedIsNotPausedAgain(t *testing.T) {
 	// Arrange
 	spawner := &spawnRecorder{}
-	low := [2]float64{3, 8}
-	s, h, older, newer, now := floorBoard(t, true, spawner, low, low)
+	s, h, older, newer, now := floorBoard(t, true, spawner, [2]float64{3, 8})
 	pausedFor(t, h, newer, "memory", "failed", now.Add(-time.Minute))
 
 	// Act
-	readFleet(t, s, now, 0, 1)
+	readGuard(t, s, now)
 
 	// Assert
 	if calls := awaitDispatch(t, s, spawner, 1); len(calls) != 1 || calls[0][1] != older.ID {
@@ -214,10 +218,10 @@ func TestAPauseAtTheMemoryFloorIsLoggedWithItsReadingsAndOutcome(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			spawner := &spawnRecorder{err: test.err}
-			s, h, _, newer, now := floorBoard(t, true, spawner, [2]float64{3.2, 8}, [2]float64{3.15, 8})
+			s, h, _, newer, now := floorBoard(t, true, spawner, [2]float64{3.15, 8})
 
 			// Act
-			readFleet(t, s, now, 0, 1)
+			readGuard(t, s, now)
 			awaitDispatch(t, s, spawner, 1)
 
 			// Assert
@@ -322,8 +326,7 @@ func TestAGoblinPushingOrMergingIsToldByWhatRunsUnderItsHost(t *testing.T) {
 func TestAPauseTheLogCannotTakeStillPausesAndSaysSo(t *testing.T) {
 	// Arrange
 	spawner := &spawnRecorder{}
-	low := [2]float64{3, 8}
-	s, h, _, newer, now := floorBoard(t, true, spawner, low, low)
+	s, h, _, newer, now := floorBoard(t, true, spawner, [2]float64{3, 8})
 	audit := filepath.Join(h.State, "afk.audit")
 	if err := os.Remove(audit); err != nil {
 		t.Fatal(err)
@@ -333,8 +336,7 @@ func TestAPauseTheLogCannotTakeStillPausesAndSaysSo(t *testing.T) {
 	}
 
 	// Act
-	readFleet(t, s, now, 0)
-	err := s.checkFleet(t.Context(), now.Add(time.Minute))
+	err := s.guardMemory(now)
 	calls := awaitDispatch(t, s, spawner, 1)
 
 	// Assert
@@ -374,8 +376,7 @@ func TestTheMemoryFloorPassesOverAGoblinJustResumedForMemory(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			spawner := &spawnRecorder{}
-			low := [2]float64{3, 8}
-			s, h, older, newer, now := floorBoard(t, true, spawner, low, low)
+			s, h, older, newer, now := floorBoard(t, true, spawner, [2]float64{3, 8})
 			resumedAt := now.Add(-test.ago)
 			condition, err := state.NewPauseCondition(test.pause, test.until, resumedAt.Add(-time.Hour))
 			if err != nil {
@@ -391,7 +392,7 @@ func TestTheMemoryFloorPassesOverAGoblinJustResumedForMemory(t *testing.T) {
 			}
 
 			// Act
-			readFleet(t, s, now, 0, 1)
+			readGuard(t, s, now)
 			calls := awaitDispatch(t, s, spawner, 1)
 
 			// Assert
@@ -421,7 +422,7 @@ func TestTheMemoryFloorPausesWhileARecordOnlyAdmissionReadsIsUnreadable(t *testi
 			writeFile(t, filepath.Join(h.State, record), "{")
 
 			// Act
-			readFleet(t, s, now, 0, 1)
+			readGuard(t, s, now)
 			calls := awaitDispatch(t, s, spawner, 1)
 
 			// Assert
@@ -429,5 +430,256 @@ func TestTheMemoryFloorPausesWhileARecordOnlyAdmissionReadsIsUnreadable(t *testi
 				t.Fatalf("dispatches = %v, want %s paused at the floor", calls, newer.ID)
 			}
 		})
+	}
+}
+
+// floorCandidates are goblins named by id, lowest in the Overlord's order
+// first, each with the growth of its process tree in megabytes, and the ids of
+// those resumed from a memory pause a minute before now, which pickToPause
+// passes over.
+func floorCandidates(now time.Time, resumed []string, growth map[string]uint64, ids ...string) []floorCandidate {
+	var candidates []floorCandidate
+	for i, id := range ids {
+		meta := state.TaskMeta{ID: id, SpawnGen: "generation-" + id}
+		candidate := floorCandidate{meta: meta, host: host.Record{HostPID: 100 + i}, growth: growth[id] << 20}
+		if slices.Contains(resumed, id) {
+			condition, _ := state.NewPauseCondition("memory", "", now.Add(-time.Hour))
+			candidate.record = state.Lifecycle{ID: id, Generation: meta.SpawnGen, Action: "resume", Phase: "running", Updated: now.Add(-time.Minute), Pause: &condition}
+		}
+		candidates = append(candidates, candidate)
+	}
+	return candidates
+}
+
+// The memory floor pauses the goblin whose process tree grew most since the
+// reading before, not the one lowest in the order, and falls back to the lowest
+// when none grew. Pushing or merging and a resume from a memory pause in the
+// last ten minutes still pass a goblin over.
+func TestTheMemoryFloorPicksTheGoblinWhoseTreeGrewMost(t *testing.T) {
+	now := time.Now()
+	for _, test := range []struct {
+		name       string
+		ids        []string
+		growth     map[string]uint64
+		resumed    []string
+		isPushing  []int
+		want       string
+		wantWhy    string
+		wantNoPick string
+	}{
+		{name: "the one that grew most", ids: []string{"low", "mid", "high"}, growth: map[string]uint64{"low": 10, "mid": 300, "high": 20}, want: "mid", wantWhy: "the goblin whose process tree grew most since the reading before, by 300.0 MB"},
+		{name: "none grew", ids: []string{"low", "mid", "high"}, want: "low", wantWhy: "the lowest goblin in the In progress order not pushing or merging"},
+		{name: "a tie goes to the lowest", ids: []string{"low", "mid", "high"}, growth: map[string]uint64{"mid": 50, "high": 50}, want: "mid", wantWhy: "the goblin whose process tree grew most since the reading before, by 50.0 MB"},
+		{name: "the one that grew most is pushing", ids: []string{"low", "mid", "high"}, growth: map[string]uint64{"mid": 300, "high": 20}, isPushing: []int{101}, want: "high", wantWhy: "the goblin whose process tree grew most since the reading before, by 20.0 MB"},
+		{name: "the one that grew most just resumed", ids: []string{"low", "mid", "high"}, growth: map[string]uint64{"low": 5, "mid": 300}, resumed: []string{"mid"}, want: "low", wantWhy: "the goblin whose process tree grew most since the reading before, by 5.0 MB past mid, which resumed from a memory pause in the last 10 minutes"},
+		{name: "only goblins just resumed", ids: []string{"low", "mid"}, growth: map[string]uint64{"low": 5, "mid": 300}, resumed: []string{"low", "mid"}, want: "mid", wantWhy: "the goblin whose process tree grew most since the reading before, by 300.0 MB, and every goblin it could pause resumed from a memory pause in the last 10 minutes"},
+		{name: "every goblin is pushing", ids: []string{"low", "mid"}, isPushing: []int{100, 101}, wantNoPick: "nothing to pause: every goblin it could pause is pushing or merging"},
+		{name: "no goblin may be paused", wantNoPick: "nothing to pause: no live goblin may be paused"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			candidates := floorCandidates(now, test.resumed, test.growth, test.ids...)
+			isPushing := func(hostPID int) bool { return slices.Contains(test.isPushing, hostPID) }
+
+			// Act
+			pick, isFound, nothing := pickToPause(candidates, isPushing, now)
+
+			// Assert
+			if test.wantNoPick != "" {
+				if isFound || nothing != test.wantNoPick {
+					t.Fatalf("pick = %+v, %v, %q, want none because %q", pick, isFound, nothing, test.wantNoPick)
+				}
+				return
+			}
+			if !isFound || pick.meta.ID != test.want || pick.why != test.wantWhy {
+				t.Fatalf("pick = %s because %q (found %v), want %s because %q", pick.meta.ID, pick.why, isFound, test.want, test.wantWhy)
+			}
+		})
+	}
+}
+
+// The board's memory carries the reading the guard last acted on, whether it
+// paused a goblin or found none it may, and nothing before it has acted.
+func TestTheBoardsMemoryCarriesTheReadingTheGuardLastActedOn(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		isFailed   bool
+		wantAction string
+	}{
+		{name: "a goblin paused", wantAction: "paused newer-task: the lowest goblin in the In progress order not pushing or merging"},
+		{name: "no goblin may be paused", isFailed: true, wantAction: "nothing to pause: no live goblin may be paused"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			spawner := &spawnRecorder{}
+			s, h, older, newer, now := floorBoard(t, false, spawner)
+			steady := Memory{Available: uint64(3.5 * gigabyte), CommitAvailable: 8 * gigabyte, Total: 32 * gigabyte}
+			s.Options.Dispatch.Memory = func() (Memory, error) { return steady, nil }
+			before, err := s.Snapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.isFailed {
+				pausedFor(t, h, older, "memory", "failed", now.Add(-time.Minute))
+				pausedFor(t, h, newer, "memory", "failed", now.Add(-time.Minute))
+			}
+
+			// Act
+			readGuard(t, s, now)
+			after, err := s.Snapshot()
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if before.Memory != nil && before.Memory.Guard != nil {
+				t.Errorf("guard before any action = %+v, want none", before.Memory.Guard)
+			}
+			guard := after.Memory.Guard
+			if guard == nil || !guard.At.Equal(now) || guard.Available != steady.Available || guard.CommitAvailable != steady.CommitAvailable || guard.Floor != 4*gigabyte || guard.Action != test.wantAction {
+				t.Fatalf("guard = %+v, want the reading at %v with action %q", guard, now, test.wantAction)
+			}
+		})
+	}
+}
+
+// A reading at or above the floor, or one met while a change is under way or
+// the PC restarts, is not acted on, so the board keeps no guard reading for it.
+func TestTheGuardKeepsNoReadingItDidNotActOn(t *testing.T) {
+	for name, busy := range map[string]func(s *Service, task string){
+		"a pause is under way": func(s *Service, task string) { s.markChanging(task, "pause") },
+		"the PC is restarting": func(s *Service, _ string) { s.pcRestart = &PCRestart{State: "stopping"} },
+		"nothing is under way": func(*Service, string) {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			spawner := &spawnRecorder{}
+			s, _, _, newer, now := floorBoard(t, false, spawner, [2]float64{8, 8}, [2]float64{3, 8})
+			readGuard(t, s, now)
+			afterAbove := s.guard.reading()
+			s.starts.Lock()
+			busy(s, newer.ID)
+			s.starts.Unlock()
+
+			// Act
+			readGuard(t, s, now.Add(memoryGuardEvery))
+
+			// Assert
+			isActed := name == "nothing is under way"
+			if afterAbove != nil || (s.guard.reading() != nil) != isActed || (len(awaitRecorded(t, spawner, 1)) != 0) != isActed {
+				t.Fatalf("guard = %+v after a reading above the floor, %+v after one under it, dispatches %v, want acted on only when nothing is under way", afterAbove, s.guard.reading(), spawner.recorded())
+			}
+		})
+	}
+}
+
+// A reading of the guard that fails reaches every recovery cycle's error for
+// as long as the failure lasts, and the guard never publishes it on its own,
+// which a recovery cycle would wipe at once.
+func TestAFailingGuardReadingReachesEveryRecoveryCycleWhileItFails(t *testing.T) {
+	// Arrange
+	spawner := &spawnRecorder{}
+	s, _, _, _, _ := floorBoard(t, false, spawner)
+	s.work, s.subscribers = make(chan struct{}, 1), map[chan struct{}]struct{}{}
+	var reads atomic.Int32
+	s.Options.Dispatch.Memory = func() (Memory, error) {
+		reads.Add(1)
+		return Memory{}, errors.New("memory cannot be read")
+	}
+	shown := func() string {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.lastError
+	}
+	waitForReads := func(count int32) {
+		for deadline := time.Now().Add(30 * time.Second); reads.Load() < count && time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+		}
+	}
+	ctx, stop := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.keepMemoryGuard(ctx, time.Millisecond)
+	}()
+	defer func() { stop(); <-done }()
+	const want = "the memory guard cannot read memory: memory cannot be read"
+
+	// Act
+	waitForReads(3)
+	beforeCycle := shown()
+	var cycles []string
+	for range 2 {
+		waitForReads(reads.Load() + 3)
+		s.cycle(t.Context(), true)
+		cycles = append(cycles, shown())
+	}
+
+	// Assert
+	if beforeCycle != "" {
+		t.Errorf("the board showed %q before any recovery cycle, want the guard to leave publishing to the cycle", beforeCycle)
+	}
+	for cycle, line := range cycles {
+		if strings.Count(line, want) != 1 {
+			t.Errorf("recovery cycle %d showed %q, want %q once", cycle+1, line, want)
+		}
+	}
+}
+
+// The running supervisor reads memory with its own guard: its first reading
+// under the floor pauses the lowest goblin, with no reading of the test's.
+func TestTheRunningSupervisorsGuardPausesAGoblinUnderTheFloor(t *testing.T) {
+	// Arrange
+	_, h := testStore(t)
+	if err := os.MkdirAll(h.Data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	older := hostedGoblin(t, h, "older-task", now.Add(time.Second))
+	newer := hostedGoblin(t, h, "newer-task", now.Add(2*time.Second))
+	if err := fleet.WriteAttention(h, []string{older.ID, newer.ID}); err != nil {
+		t.Fatal(err)
+	}
+	spawner := &spawnRecorder{}
+	options := Options{Dispatch: &Dispatch{
+		Memory: func() (Memory, error) {
+			return Memory{Available: 3 * gigabyte, Total: 32 * gigabyte, CommitAvailable: 8 * gigabyte, CommitLimit: 48 * gigabyte}, nil
+		},
+		Disk:          func() (Disk, error) { return diskWithFree(200 * gigabyte), nil },
+		CommitHolders: func() ([]CommitHolder, error) { return nil, nil },
+		Spawn:         spawner.spawn,
+	}}
+
+	// Act
+	s, err := Start(t.Context(), h, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	calls := awaitRecorded(t, spawner, 1)
+
+	// Assert
+	if len(calls) != 1 || calls[0][0] != "pause" || calls[0][1] != newer.ID || !strings.HasSuffix(strings.Join(calls[0], " "), "--reason memory") {
+		t.Fatalf("dispatches of the running supervisor = %v, want one memory pause of %s", calls, newer.ID)
+	}
+}
+
+// The fleet's reading once a minute marks a reading under the floor low and
+// pauses nothing, however many readings fall under it: the guard alone pauses.
+func TestAFleetReadingUnderTheFloorPausesNothing(t *testing.T) {
+	// Arrange
+	spawner := &spawnRecorder{}
+	s, h, _, _, now := floorBoard(t, true, spawner, [2]float64{3, 8}, [2]float64{3, 8}, [2]float64{3, 8})
+
+	// Act
+	readFleet(t, s, now, 0, 1, 2)
+	calls := awaitRecorded(t, spawner, 1)
+
+	// Assert
+	wakes, err := readFleetWakes(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 0 || !wakes.MemoryLow {
+		t.Fatalf("after three fleet readings under the floor: dispatches %v, reading low %v, want no dispatch and the reading low", calls, wakes.MemoryLow)
 	}
 }

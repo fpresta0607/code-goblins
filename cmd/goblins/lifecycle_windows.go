@@ -46,23 +46,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 	runtime := defaultCommandRuntime()
 	var resources lifecycle.Resources
 	admit := func() error {
-		memory, err := supervisor.MachineMemory()
-		if err != nil {
-			return err
-		}
-		harness, _, err := supervisor.ResumeEngine(h.State, meta)
-		if err != nil {
-			return err
-		}
-		room, err := supervisor.ReadRoom(h, fleettree.Processes, time.Now().UTC())
-		if err != nil {
-			return fmt.Errorf("the room for a start cannot be read, so nothing resumes: %w", err)
-		}
-		disk, err := supervisor.MachineDisk(h)
-		if err != nil {
-			return fmt.Errorf("free disk cannot be read, so nothing resumes: %w", err)
-		}
-		return supervisor.CheckLaunch(memory, room, harness, disk)
+		return resumeAdmission(h, meta, supervisor.MachineMemory, fleettree.Processes, supervisor.MachineDisk, time.Now().UTC())
 	}
 	service := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
 		Helpers: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) ([]string, error) {
@@ -154,6 +138,31 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 		},
 	}}
 	return service.Run(ctx, request)
+}
+
+// resumeAdmission says whether the machine has room to resume the paused task
+// meta on the engine it resumes on: it prices the start by that engine's
+// measured cost above the memory floor of the home's settings, and an error
+// says why nothing resumes. Memory, processes and disk are the readers of the
+// machine, and now is when the room is read.
+func resumeAdmission(h home.Home, meta state.TaskMeta, memoryReader func() (supervisor.Memory, error), processes func() ([]fleettree.Process, error), diskReader func(home.Home) (supervisor.Disk, error), now time.Time) error {
+	memory, err := memoryReader()
+	if err != nil {
+		return err
+	}
+	engine, _, err := supervisor.ResumeEngine(h.State, meta)
+	if err != nil {
+		return err
+	}
+	room, err := supervisor.ReadRoom(h, processes, now)
+	if err != nil {
+		return fmt.Errorf("the room for a start cannot be read, so nothing resumes: %w", err)
+	}
+	disk, err := diskReader(h)
+	if err != nil {
+		return fmt.Errorf("free disk cannot be read, so nothing resumes: %w", err)
+	}
+	return supervisor.CheckLaunch(memory, room, engine, disk)
 }
 
 // resumeTask relaunches a paused task in place. admit is the machine's room,

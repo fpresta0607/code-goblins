@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/runtime"
 )
@@ -107,5 +111,48 @@ func TestRunRuntimeReportsACollectionFailureOnStderr(t *testing.T) {
 func TestUsageNamesTheRuntimeCommand(t *testing.T) {
 	if !strings.Contains(usage, "goblins runtime") {
 		t.Errorf("usage does not name the command:\n%s", usage)
+	}
+}
+
+// goblins runtime's Dispatch line reads the admission mark: the home's memory
+// floor plus the start of the costliest harness, codex measured at 3 GB. The
+// floor alone, the fixed 5 GB the line once read, or the floor with an
+// unmeasured 1 GB start would each read another figure.
+func TestDispatchNeedIsTheHomesFloorPlusTheCostliestMeasuredStart(t *testing.T) {
+	tests := []struct {
+		name       string
+		fleetJSON  string
+		wantNeed   uint64
+		wantErrors string
+	}{
+		{name: "a floor the home sets", fleetJSON: `{"memory_floor_gb":6}`, wantNeed: 9 << 30},
+		{name: "the default floor", wantNeed: 7 << 30},
+		{name: "settings that cannot be read", fleetJSON: `not json`, wantErrors: "the memory floor cannot be read"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h := testHome(t)
+			if test.fleetJSON != "" {
+				writeTestFile(t, filepath.Join(h.Root, "config", "fleet.json"), test.fleetJSON)
+			}
+			now := time.Now().UTC()
+			writeTestFile(t, filepath.Join(h.State, "start-costs.json"), fmt.Sprintf(`{"schema":"ceo-start-costs.v1","harnesses":{"codex":[{"bytes":3221225472,"at":%q,"task":"measured"}]}}`, now.Add(-time.Hour).Format(time.RFC3339)))
+			noProcesses := func() ([]fleettree.Process, error) { return nil, nil }
+
+			// Act
+			need, err := dispatchNeed(h, noProcesses, now)
+
+			// Assert
+			if test.wantErrors != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantErrors) {
+					t.Fatalf("dispatchNeed error = %v, want one naming %q", err, test.wantErrors)
+				}
+				return
+			}
+			if err != nil || need != test.wantNeed {
+				t.Fatalf("dispatchNeed = %d, %v, want %d", need, err, test.wantNeed)
+			}
+		})
 	}
 }

@@ -5,8 +5,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/runtime"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
 func runRuntime(args []string, stdout, stderr io.Writer, commands commandRuntime) int {
@@ -45,4 +49,12 @@ func runRuntime(args []string, stdout, stderr io.Writer, commands commandRuntime
 		return 1
 	}
 	return 0
+}
+
+// dispatchNeed is the free memory and commit, in bytes, the next goblin start
+// on the home h's machine needs at now: the admission mark the scheduler
+// starts by, read with processes as the machine's process list.
+func dispatchNeed(h home.Home, processes func() ([]fleettree.Process, error), now time.Time) (uint64, error) {
+	room, err := supervisor.ReadRoom(h, processes, now)
+	return room.NextStartNeed(), err
 }
