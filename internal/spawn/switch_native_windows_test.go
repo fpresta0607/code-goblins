@@ -474,7 +474,6 @@ func TestBusyResumeRecovery(t *testing.T) {
 			nativeStartup = time.Minute
 			t.Cleanup(func() { nativeStartup = previous })
 			controller := lifecycle.Service{StateDir: f.stateDir, Operations: lifecycle.Operations{
-				Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
 				Resume: func(ctx context.Context, meta state.TaskMeta, paused state.Lifecycle) error {
 					_, err := f.service.Switch(ctx, SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, IsResume: true, ResumeSession: paused.Session})
 					return err
@@ -723,7 +722,6 @@ func TestAResumeSubmitsOnceMoreOnlyWhenItsFirstEnterWasLost(t *testing.T) {
 				t.Fatal(err)
 			}
 			controller := lifecycle.Service{StateDir: f.stateDir, Operations: lifecycle.Operations{
-				Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
 				Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
 					_, err := f.service.Switch(ctx, SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, IsResume: true, ResumeSession: prior.Session})
 					return err
@@ -794,7 +792,6 @@ func TestAResumeSubmitsOnceMoreALaunchInstructionItsCodexLeftUnsent(t *testing.T
 				t.Fatal(err)
 			}
 			controller := lifecycle.Service{StateDir: f.stateDir, Operations: lifecycle.Operations{
-				Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
 				Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
 					_, err := f.service.Switch(ctx, SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, IsResume: true, ResumeSession: prior.Session})
 					return err
@@ -864,7 +861,6 @@ func TestAResumesRelaunchPublishesItsGenerationBeforeItStartsATerminal(t *testin
 			}
 			test.arrange(t, f)
 			controller := lifecycle.Service{StateDir: f.stateDir, Operations: lifecycle.Operations{
-				Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
 				Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
 					_, err := f.service.Switch(ctx, SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, IsResume: true, ResumeSession: prior.Session})
 					return err

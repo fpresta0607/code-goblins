@@ -109,7 +109,11 @@ func runServices(args []string, stdout, stderr io.Writer, runtime commandRuntime
 		fmt.Fprintf(stderr, "goblins services: %s is not a project checkout on this machine\n", checkout)
 		return 1
 	}
-	service := runtime.projectServices(h, stdout)
+	service, err := runtime.projectServices(h, stdout)
+	if err != nil {
+		fmt.Fprintln(stderr, "goblins services:", err)
+		return 1
+	}
 	ctx := context.Background()
 	var line string
 	if verb == "up" {
@@ -130,8 +134,21 @@ func runServices(args []string, stdout, stderr io.Writer, runtime commandRuntime
 // fleet's floor, the machine's one line for heavy runs, and the home's task
 // records. A start reads memory every 2 seconds while it builds and hands
 // the engine's file cache back every 10, as cg-services-pd-build's watch did
-// on 2026-10-11.
-func defaultProjectServices(h home.Home, progress io.Writer) services.Service {
+// on 2026-10-11. Settings that cannot be read leave the floor unknown, so
+// nothing starts.
+func defaultProjectServices(h home.Home, progress io.Writer) (services.Service, error) {
+	floor, err := supervisor.MachineMemoryFloor(h)
+	if err != nil {
+		return services.Service{}, err
+	}
+	service := stoppingProjectServices(h, progress)
+	service.Floor = floor
+	return service, nil
+}
+
+// stoppingProjectServices is the services of a home without the memory floor,
+// which stopping a stack never reads.
+func stoppingProjectServices(h home.Home, progress io.Writer) services.Service {
 	commands := execx.OSRunner{}
 	return services.Service{
 		StateDir: h.State,
@@ -142,7 +159,6 @@ func defaultProjectServices(h home.Home, progress io.Writer) services.Service {
 			memory, err := supervisor.MachineMemory()
 			return services.Memory{Available: memory.Available, CommitAvailable: memory.CommitAvailable}, err
 		},
-		Floor:  supervisor.MemoryFloor,
 		IsLive: services.LiveIn(h.State),
 		Now:    time.Now,
 		Sleep:  time.Sleep,

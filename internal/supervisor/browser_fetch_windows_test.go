@@ -79,7 +79,7 @@ document.getElementById("reveal").addEventListener("click", async (event) => {
 		{Name: "STRIPE_TEST_PUBLISHABLE_KEY", Row: "Publishable key", Prefix: "pk_test_"},
 		{Name: "STRIPE_TEST_SECRET_KEY", Row: "Secret key", Reveal: "Reveal test key", Prefix: "sk_test_"},
 	}}
-	broker := newBrowserBroker(h.State, h.Data, Options{KeyPages: keypages.Recipes{Providers: []keypages.Provider{provider}}, Dispatch: &Dispatch{Memory: func() (Memory, error) { return Memory{Available: 8 << 30, CommitAvailable: 8 << 30}, nil }}}, func(err error) { t.Error(err) })
+	broker := newBrowserBroker(h, Options{KeyPages: keypages.Recipes{Providers: []keypages.Provider{provider}}, Dispatch: &Dispatch{Memory: func() (Memory, error) { return Memory{Available: 8 << 30, CommitAvailable: 8 << 30}, nil }}}, func(err error) { t.Error(err) })
 	broker.live = func(string) error { return nil }
 	service := &Service{Store: store, Instance: "test-instance", browsers: broker, Options: Options{
 		Credentials:        auth.OpenStore,

@@ -226,7 +226,7 @@ func TestSourceResumeComposedBoundaries(t *testing.T) {
 		{name: "original finishes during memory pause"},
 		{name: "foreign same-intent run", refusal: "another validation run owns"},
 		{name: "unreadable state", refusal: "state query failed"},
-		{name: "low memory", refusal: "Resume needs at least 5 GB"},
+		{name: "low memory", refusal: "Only 4.0 GB of memory is free"},
 		{name: "exhausted allowance", refusal: "fixture provider allowance exhausted"},
 		{name: "provider refusal through Switch", refusal: "fixture provider refused this session"},
 	} {
@@ -385,6 +385,9 @@ INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.Repla
 				if test.name == "exhausted allowance" {
 					return errors.New("fixture provider allowance exhausted")
 				}
+				if test.name == "low memory" {
+					return errors.New("Only 4.0 GB of memory is free")
+				}
 				return nil
 			}
 			launcher := spawn.Service{
@@ -439,12 +442,6 @@ INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.Repla
 				return launcher.Switch(ctx, request)
 			}
 			service := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
-				Memory: func() (uint64, uint64, error) {
-					if test.name == "low memory" {
-						return 4 << 30, 5 << 30, nil
-					}
-					return 5 << 30, 5 << 30, nil
-				},
 				Admit: admit,
 				Resume: func(ctx context.Context, current state.TaskMeta, prior state.Lifecycle) error {
 					return resumeTask(ctx, h, runtime, commands, pipeline.Reader{Root: nativeRoot, Commands: commands}, current, prior, admit)
@@ -570,7 +567,7 @@ func TestPublicResumeRestoresSourceWithoutReplacingValidation(t *testing.T) {
 		{name: "live original in Test a daemon restart ends while paused", status: "running", reason: "dependency", until: "date:2099-01-01T00:00:00Z", liveStep: "test", finalStatus: "failed"},
 		{name: "foreign run with identical intent", status: "running", isForeign: true, refusal: "another validation run owns"},
 		{name: "unreadable gate state", status: "cancelled", isUnreadable: true, refusal: "state query failed"},
-		{name: "memory admission", status: "failed", isLowMemory: true, refusal: "Resume needs at least 5 GB"},
+		{name: "memory admission", status: "failed", isLowMemory: true, refusal: "Only 4.0 GB of memory is free"},
 		{name: "allowance admission", status: "failed", isAllowanceDenied: true, refusal: "provider allowance exhausted"},
 		{name: "provider safety refusal", status: "failed", isProviderRefused: true, refusal: "provider refused this session"},
 	} {
@@ -677,13 +674,10 @@ INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.Repla
 				return spawn.SwitchResult{}, nil
 			}}
 			service := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
-				Memory: func() (uint64, uint64, error) {
-					if test.isLowMemory {
-						return 4 << 30, 5 << 30, nil
-					}
-					return 5 << 30, 5 << 30, nil
-				},
 				Admit: func() error {
+					if test.isLowMemory {
+						return errors.New("Only 4.0 GB of memory is free")
+					}
 					if test.isAllowanceDenied {
 						return errors.New("provider allowance exhausted")
 					}

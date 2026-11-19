@@ -515,7 +515,7 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 	if options.Tickets != nil {
 		s.tickets = newTicketKeeper(h, options.Tickets)
 	}
-	s.browsers = newBrowserBroker(h.State, h.Data, options, func(err error) { s.publish(fmt.Errorf("browser logins: %w", err)) })
+	s.browsers = newBrowserBroker(h, options, func(err error) { s.publish(fmt.Errorf("browser logins: %w", err)) })
 	s.screens = newTaskBrowsers(h.State, s.notify, s.endCardScreens, func(err error) { s.publish(fmt.Errorf("goblin browsers: %w", err)) })
 	if options.Tree != nil {
 		options.Tree.Recorded = store.recordedSession
@@ -2312,7 +2312,10 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	}
 	if dispatch := s.Options.Dispatch; dispatch != nil {
 		if memory, err := dispatch.Memory(); err == nil {
-			memory.Floor, memory.Next, memory.PoolLine, memory.PoolGrowth = memoryFloor, memoryNext, poolLine, poolGrowth
+			memory.PoolLine, memory.PoolGrowth = poolLine, poolGrowth
+			if room, err := s.room(out.At); err == nil {
+				memory.Floor, memory.Next = room.Floor, room.Need(room.costliest())
+			}
 			if dispatch.HeavyLine != nil {
 				if room, err := dispatch.HeavyLine(memory); err == nil {
 					memory.SlotHold = room.Hold

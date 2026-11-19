@@ -72,6 +72,7 @@ func testBroker(t *testing.T) (*browserBroker, *fakeChrome, map[string]bool, *ti
 		data:    t.TempDir(),
 		recipes: keypages.Recipes{Providers: []keypages.Provider{{ID: "stripe", Name: "Stripe", Hosts: []string{"stripe.com", "*.stripe.com"}}}},
 		memory:  func() (Memory, error) { return Memory{Available: 8 << 30, CommitAvailable: 8 << 30}, nil },
+		floor:   func() (uint64, error) { return 4 << 30, nil },
 		live: func(task string) error {
 			if gone[task] {
 				return errors.New(task + " has left")

@@ -1,7 +1,7 @@
 // Package fleetconfig reads the fleet's machine settings, config/fleet.json in
-// the home: whether the board looks for a newer release, the free disk under
-// which no goblin or gate starts and the lower mark at which the CEO is woken,
-// how large the shared caches may grow, which temporary folders the janitor
+// the home: whether the board looks for a newer release, the free memory and
+// the free disk under which no goblin or gate starts and the lower mark at
+// which the CEO is woken, how large the shared caches may grow, which temporary folders the janitor
 // treats as the fleet's leaks, the GitHub organizations whose pull requests
 // the fleet watches as its own, and the part of each provider's weekly
 // allowance the fleet keeps back. How many goblins run is no setting:
@@ -27,6 +27,10 @@ import (
 
 // Settings are config/fleet.json.
 type Settings struct {
+	// MemoryFloorGB is the free memory, in gigabytes, the fleet keeps: no
+	// goblin starts or resumes, and no gate turn begins, once memory or commit
+	// reads under it.
+	MemoryFloorGB float64 `json:"memory_floor_gb"`
 	// DiskFloorGB is the free disk, in gigabytes, under which spawn, Start,
 	// Resume and gate test runs are refused.
 	DiskFloorGB float64 `json:"disk_floor_gb"`
@@ -80,9 +84,10 @@ func (s Settings) WeeklyFloor(provider string) float64 {
 // Defaults are the settings a home with no config/fleet.json runs under.
 func Defaults() Settings {
 	return Settings{
-		DiskFloorGB: 15,
-		DiskWakeGB:  10,
-		CachesCapGB: 20,
+		MemoryFloorGB: 4,
+		DiskFloorGB:   15,
+		DiskWakeGB:    10,
+		CachesCapGB:   20,
 		// The leaks the CEO removed by hand on 2026-10-02: Go test homes,
 		// Go's own build folders, goblins fixtures, Playwright and Chrome
 		// profiles, audit runs and PrecisionDocs test homes.
@@ -174,6 +179,9 @@ func parse(data []byte) (Settings, error) {
 	}
 	if err := decoder.Decode(new(json.RawMessage)); !errors.Is(err, io.EOF) {
 		return Settings{}, errors.New("config/fleet.json must contain one JSON object")
+	}
+	if !(settings.MemoryFloorGB > 0) {
+		return Settings{}, errors.New("memory_floor_gb must be more than 0")
 	}
 	if settings.DiskWakeGB < 0 || settings.DiskFloorGB < settings.DiskWakeGB {
 		return Settings{}, errors.New("disk_wake_gb must be at least 0 and no more than disk_floor_gb")

@@ -68,7 +68,7 @@ func servicesFixture(t *testing.T, docker *commandDocker) (commandRuntime, strin
 	}
 	runtime := commandRuntime{
 		resolveHome: func() (home.Home, error) { return h, nil },
-		projectServices: func(h home.Home, progress io.Writer) services.Service {
+		projectServices: func(h home.Home, progress io.Writer) (services.Service, error) {
 			return services.Service{
 				StateDir: h.State, DataDir: h.Data, Docker: docker,
 				Memory: func() (services.Memory, error) {
@@ -78,7 +78,7 @@ func servicesFixture(t *testing.T, docker *commandDocker) (commandRuntime, strin
 				Now: time.Now, Sleep: func(time.Duration) {}, Poll: time.Second, Out: progress,
 				Turn:       func(context.Context, string) (func(), error) { return func() {}, nil },
 				FloorEvery: time.Millisecond, ReliefEvery: time.Hour,
-			}
+			}, nil
 		},
 	}
 	return runtime, checkout

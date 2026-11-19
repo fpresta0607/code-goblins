@@ -123,9 +123,9 @@ func (s *Service) comeBack(memory Memory, w *fleetWakes, hold string) (bool, err
 	return true, nil
 }
 
-// launchRoom says why the machine has no room for one more goblin, as a
-// spawn admits one, or nil when it has.
-func (s *Service) launchRoom(memory Memory) error {
+// launchRoom says why the machine has no room for one more goblin on harness,
+// as a spawn admits one, or nil when it has.
+func (s *Service) launchRoom(memory Memory, harness string) error {
 	if s.Options.Dispatch == nil || s.Options.Dispatch.Disk == nil {
 		return errors.New("free disk cannot be read")
 	}
@@ -133,7 +133,11 @@ func (s *Service) launchRoom(memory Memory) error {
 	if err != nil {
 		return fmt.Errorf("free disk cannot be read: %w", err)
 	}
-	return CheckLaunch(memory, disk)
+	room, err := s.room(time.Now().UTC())
+	if err != nil {
+		return fmt.Errorf("the room for a start cannot be read: %w", err)
+	}
+	return CheckLaunch(memory, room, harness, disk)
 }
 
 // planComeback returns the comeback for this sign-in, planned and recorded
@@ -263,7 +267,7 @@ func (s *Service) bringGoblinBack(comeback *Comeback, id string, memory Memory) 
 	default:
 		// The relaunch takes the home's spawn lock itself, around its
 		// terminal's launch only, and admits the goblin again under it.
-		if err := s.launchRoom(memory); err != nil {
+		if err := s.launchRoom(memory, meta.Harness); err != nil {
 			result = GoblinComeback{Outcome: WaitsForRoom, Said: err.Error()}
 		} else if err := state.CheckPreparedComeback(directory, meta); err != nil {
 			result = GoblinComeback{Outcome: DidNotComeBack, Said: err.Error()}

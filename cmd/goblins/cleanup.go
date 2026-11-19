@@ -108,7 +108,7 @@ func defaultCleanup(ctx context.Context, h home.Home, id string, forceArchive bo
 		EndLeft: func(ctx context.Context, meta state.TaskMeta) ([]string, error) {
 			return endLeftProcesses(ctx, h, meta)
 		},
-		ReleaseServices: defaultProjectServices(h, io.Discard).ReleaseTask,
+		ReleaseServices: stoppingProjectServices(h, io.Discard).ReleaseTask,
 		HandOver: func(meta state.TaskMeta) (bool, error) {
 			return supervisor.HandOverRetiredNote(h.State, meta)
 		},

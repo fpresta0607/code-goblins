@@ -142,7 +142,7 @@ func TestCIPauseUsesFreshConfirmationWithoutRepeatingTheCompletionWake(t *testin
 	if err := reportChecks(h.State, &watched, meta.ID, pr, false, now, nil); err != nil {
 		t.Fatal(err)
 	}
-	isReady, err := service.pauseCleared(t.Context(), *condition.Pause, now, &watched)
+	isReady, err := service.pauseCleared(t.Context(), *condition.Pause, now, &watched, false)
 
 	if err != nil || !isReady || len(fleetWakeRecords(t, h, "ci")) != 1 {
 		t.Fatalf("fresh completion did not clear pause without duplicate wake: ready=%v err=%v", isReady, err)

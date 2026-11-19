@@ -11,8 +11,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
+
+// defaultMemoryFloor is the free memory a gate run waits for when the home's
+// settings do not set another.
+var defaultMemoryFloor = fleetconfig.Bytes(fleetconfig.Defaults().MemoryFloorGB)
 
 func TestGateAdmissionFailureStartsNoCommand(t *testing.T) {
 	for _, cause := range []string{"memory", "missing_reader", "floor_expired", "store", "capacity", "slot_override", "corrupt_custody", "corrupt_second_slot"} {
@@ -28,7 +33,7 @@ func TestGateAdmissionFailureStartsNoCommand(t *testing.T) {
 				runtime.availableMemory = nil
 			case "floor_expired":
 				runtime.availableMemory = func() (supervisor.Memory, error) {
-					return supervisor.Memory{Available: supervisor.MemoryFloor - 1, CommitAvailable: 16 << 30}, nil
+					return supervisor.Memory{Available: defaultMemoryFloor - 1, CommitAvailable: 16 << 30}, nil
 				}
 				runtime.gateWaitLimit = 20 * time.Millisecond
 			case "store":
@@ -95,7 +100,7 @@ func TestGateAdmissionFailureStartsNoCommand(t *testing.T) {
 func TestGateAdmissionRequiresBothMemoryFloors(t *testing.T) {
 	// One slot's floor is flat. Two slots' is weighed, and on an empty line
 	// is a run's default estimate, 2.5 GiB, and the desktop reserve, 2 GiB.
-	for capacity, floor := range map[int]uint64{1: supervisor.MemoryFloor, 2: 9 << 29} {
+	for capacity, floor := range map[int]uint64{1: defaultMemoryFloor, 2: 9 << 29} {
 		t.Run(fmt.Sprint(capacity), func(t *testing.T) {
 			for _, sample := range []struct {
 				name             string
@@ -218,7 +223,7 @@ func TestGateTurnsReportsUnavailableCustodyOrMemory(t *testing.T) {
 // One slot's floor is flat. Two slots' is weighed, and on an empty line is a
 // run's default estimate, 2.5 GiB, and the desktop reserve, 2 GiB.
 func TestGateTurnsUsesSharedCapacityFloor(t *testing.T) {
-	for capacity, floor := range map[int]uint64{1: supervisor.MemoryFloor, 2: 9 << 29} {
+	for capacity, floor := range map[int]uint64{1: defaultMemoryFloor, 2: 9 << 29} {
 		for _, sample := range []struct {
 			name             string
 			physical, commit uint64

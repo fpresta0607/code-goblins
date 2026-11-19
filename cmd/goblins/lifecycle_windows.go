@@ -11,6 +11,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/gatedb"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
@@ -49,11 +50,19 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 		if err != nil {
 			return err
 		}
+		harness, _, err := supervisor.ResumeEngine(h.State, meta)
+		if err != nil {
+			return err
+		}
+		room, err := supervisor.ReadRoom(h, fleettree.Processes, time.Now().UTC())
+		if err != nil {
+			return fmt.Errorf("the room for a start cannot be read, so nothing resumes: %w", err)
+		}
 		disk, err := supervisor.MachineDisk(h)
 		if err != nil {
 			return fmt.Errorf("free disk cannot be read, so nothing resumes: %w", err)
 		}
-		return supervisor.CheckLaunch(memory, disk)
+		return supervisor.CheckLaunch(memory, room, harness, disk)
 	}
 	service := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
 		Helpers: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) ([]string, error) {
@@ -129,10 +138,6 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			}
 			_, err = runtime.cleanup(ctx, h, meta.ID, !preserved.CanRemove)
 			return preserved, err
-		},
-		Memory: func() (uint64, uint64, error) {
-			memory, err := supervisor.MachineMemory()
-			return memory.Available, memory.CommitAvailable, err
 		},
 		Admit: admit,
 		Notify: func(record state.Lifecycle) error {
