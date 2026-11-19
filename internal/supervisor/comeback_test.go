@@ -188,7 +188,7 @@ func TestTheComebackRecordsTheSignInBeforeLowOrFailedMemoryReadings(t *testing.T
 					if isReadingFailed {
 						return Memory{}, errors.New("memory cannot be read")
 					}
-					return Memory{Available: memoryFloor - 1, CommitAvailable: 8 * gigabyte}, nil
+					return Memory{Available: 4*gigabyte - 1, CommitAvailable: 8 * gigabyte}, nil
 				}
 
 				reading(t, service, 0)

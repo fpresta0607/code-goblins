@@ -42,7 +42,7 @@ func TestAStartWhoseOwnMemoryReadingFallsShortWaitsForTheNextReadingAndIsNoError
 	if err != nil {
 		t.Fatalf("the reading met %q, want the start to wait for the next reading", err)
 	}
-	if want := "nothing starts: Only 4.9 GB of memory is free; Start needs 5 GB to keep the 4 GB floor"; line != want || len(calls) != 0 {
+	if want := "nothing starts: Only 4.9 GB of memory is free, and a claude start needs 5.0 GB: floor 4.0, start 1.0"; line != want || len(calls) != 0 {
 		t.Fatalf("line %q and dispatches %v, want %q and none", line, calls, want)
 	}
 	if nextErr != nil {

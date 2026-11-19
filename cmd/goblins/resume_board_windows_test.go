@@ -120,7 +120,6 @@ func TestBoardResumeRestoresDirectPRAndReportsForeignValidation(t *testing.T) {
 	runtime.switchTask = boardResumeSwitch(h.State, true)
 	runtime.taskLifecycle = func(ctx context.Context, _ home.Home, request lifecycle.Request, _ string) (state.Lifecycle, error) {
 		controller := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
-			Memory: func() (uint64, uint64, error) { return 8 << 30, 8 << 30, nil },
 			Notify: func(record state.Lifecycle) error { return lifecycle.Report(h.State, record) },
 			Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
 				var commands execx.Runner = absentResumeGate{}

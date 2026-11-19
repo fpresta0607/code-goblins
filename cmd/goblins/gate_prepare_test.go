@@ -174,7 +174,7 @@ func TestGatePrepareInstallsNothingWhenItCanTakeNoTurn(t *testing.T) {
 	}{
 		{"memory unreadable", func() (supervisor.Memory, error) { return supervisor.Memory{}, errors.New("memory unavailable") }},
 		{"floor never met within the wait", func() (supervisor.Memory, error) {
-			return supervisor.Memory{Available: supervisor.MemoryFloor - 1, CommitAvailable: 16 << 30}, nil
+			return supervisor.Memory{Available: defaultMemoryFloor - 1, CommitAvailable: 16 << 30}, nil
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {

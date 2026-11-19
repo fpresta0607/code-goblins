@@ -72,6 +72,7 @@ func testBroker(t *testing.T) (*browserBroker, *fakeChrome, map[string]bool, *ti
 		data:    t.TempDir(),
 		recipes: keypages.Recipes{Providers: []keypages.Provider{{ID: "stripe", Name: "Stripe", Hosts: []string{"stripe.com", "*.stripe.com"}}}},
 		memory:  func() (Memory, error) { return Memory{Available: 8 << 30, CommitAvailable: 8 << 30}, nil },
+		floor:   func() (uint64, error) { return 4 << 30, nil },
 		live: func(task string) error {
 			if gone[task] {
 				return errors.New(task + " has left")
@@ -344,6 +345,24 @@ func TestABrowserRequestIsRefusedWithNothingStarted(t *testing.T) {
 				t.Fatalf("started %d Chromes on a refused request", len(chrome.launches))
 			}
 		})
+	}
+}
+
+// A browser waits for the floor the home's settings keep: with 6 GB kept,
+// 5.5 GB free refuses it.
+func TestABrowserWaitsForTheFloorTheHomeKeeps(t *testing.T) {
+	// Arrange
+	broker, chrome, _, _ := testBroker(t)
+	brokerTask(t, broker, "pd-keys", "PrecisionDocs-AI")
+	broker.floor = newBrowserBroker(roomHome(t, `{"memory_floor_gb":6}`), Options{}, nil).floor
+	broker.memory = func() (Memory, error) { return Memory{Available: gb(5.5), CommitAvailable: gb(5.5)}, nil }
+
+	// Act
+	_, err := broker.take(context.Background(), BrowserRequest{Action: "attach", Task: "pd-keys", Provider: "stripe"})
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "under the 6 GB a browser waits for") || len(chrome.launches) != 0 {
+		t.Fatalf("take = %v after %d launches, want it refused under the 6 GB floor", err, len(chrome.launches))
 	}
 }
 

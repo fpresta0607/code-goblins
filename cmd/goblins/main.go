@@ -242,9 +242,9 @@ type commandRuntime struct {
 	// the conversation it last registered with and, when it did not come back
 	// on that conversation, why it started a new one.
 	restartCEO func(h home.Home, harness string) (supervisor.CEOConversation, string, error)
-	// admitLaunch says why the machine has no room yet for another harness,
-	// or nil when it has, as a spawn admits one.
-	admitLaunch func(h home.Home) error
+	// admitLaunch says why the machine has no room yet for another goblin on
+	// harness, or nil when it has, as a spawn admits one.
+	admitLaunch func(h home.Home, harness string) error
 	// settleCEO answers the known startup dialogs of a CEO just started in
 	// native terminal ceo and returns what to tell the Overlord about them.
 	settleCEO func(ctx context.Context, stateDir, harness string) []string
@@ -424,11 +424,15 @@ func defaultCommandRuntime() commandRuntime {
 					if err != nil {
 						return err
 					}
+					room, err := supervisor.ReadRoom(h, fleettree.Processes, time.Now().UTC())
+					if err != nil {
+						return fmt.Errorf("spawn: the room for a start cannot be read, so nothing starts: %w", err)
+					}
 					disk, err := supervisor.MachineDisk(h)
 					if err != nil {
 						return fmt.Errorf("spawn: free disk cannot be read, so nothing starts: %w", err)
 					}
-					return supervisor.CheckLaunch(memory, disk)
+					return supervisor.CheckLaunch(memory, room, string(request.Harness), disk)
 				},
 			}
 			return service.Spawn(ctx, request)
@@ -560,16 +564,20 @@ func defaultCommandRuntime() commandRuntime {
 		nativeTerminalRuns: supervisor.NativeTerminalRuns,
 		settleCEO:          settleNativeCEO,
 		restartCEO:         restartCEO,
-		admitLaunch: func(h home.Home) error {
+		admitLaunch: func(h home.Home, harness string) error {
 			memory, err := supervisor.MachineMemory()
 			if err != nil {
 				return err
+			}
+			room, err := supervisor.ReadRoom(h, fleettree.Processes, time.Now().UTC())
+			if err != nil {
+				return fmt.Errorf("the room for a start cannot be read, so nothing comes back: %w", err)
 			}
 			disk, err := supervisor.MachineDisk(h)
 			if err != nil {
 				return fmt.Errorf("free disk cannot be read, so nothing comes back: %w", err)
 			}
-			return supervisor.CheckLaunch(memory, disk)
+			return supervisor.CheckLaunch(memory, room, harness, disk)
 		},
 		setupAgent:         setupAgent,
 		choose:             onboarding.AskConsole,

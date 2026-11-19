@@ -22,6 +22,10 @@ type Scheduling struct {
 	At      time.Time     `json:"at"`
 	Text    string        `json:"text"`
 	Waiting []WaitingWork `json:"waiting,omitempty"`
+	// isWaitingForRoom says the work waits for memory to have room for its
+	// start, which is no idling: the CEO's idle wake is for work that waits
+	// with memory free.
+	isWaitingForRoom bool
 }
 
 // WaitingWork is a queued task or a paused goblin that could run now and did
@@ -36,10 +40,11 @@ type WaitingWork struct {
 // whose pause cleared, then the top of the queue, with a picked-up root issue
 // after every other queued task, unless a goblin paused for memory comes back
 // first. All it would start or resume waits while hold says a new goblin
-// would leave the machine's heavy line short of its next floor. It says what
-// it did, and what could run and did not, with why; a board that cannot
-// start goblins schedules nothing and says nothing.
-func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWakes, memory Memory, hold string) (*Scheduling, error) {
+// would leave the machine's heavy line short of its next floor, and while
+// room says the machine has no room for the start of the one it would pick.
+// It says what it did, and what could run and did not, with why; a board that
+// cannot start goblins schedules nothing and says nothing.
+func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWakes, memory Memory, room Room, hold string) (*Scheduling, error) {
 	if s.Options.Dispatch.Spawn == nil {
 		return nil, nil
 	}
@@ -60,8 +65,12 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 	finished := s.finishedWork()
 	var queued, roots []string
 	defect := ""
+	// harnesses is the harness each start or resume would run on, which the
+	// room prices it by.
+	harnesses := map[string]string{}
 	for _, id := range queuedCandidates(s.Store.Home) {
 		plan, err := planStart(s.Store.Home, id, finished, reading)
+		harnesses[id] = room.startHarness(plan.harness)
 		var refusal StartRefusal
 		if errors.As(err, &refusal) && refusal.Held {
 			continue
@@ -121,26 +130,25 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 		// A goblin given new settings while paused resumes on them, as goblins
 		// resume does, so it waits on their allowance and not on the one
 		// it paused on.
-		harness, model := meta.Harness, meta.Model
-		choice, err := state.ReadEngineChoice(s.Store.Home.State, meta.ID)
-		if err == nil && choice.Generation == meta.SpawnGen {
-			harness, model = choice.Harness, choice.Model
-		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
-			problems = errors.Join(problems, fmt.Errorf("resume settings of %s: %w", meta.ID, err))
+		harness, model, err := ResumeEngine(s.Store.Home.State, meta)
+		if err != nil {
+			problems = errors.Join(problems, err)
 			continue
 		}
 		if allowanceBlocked(watched, harness, model, now) {
 			continue
 		}
+		harnesses[meta.ID] = room.startHarness(harness)
+		isRoomFree := room.Shortfall(memory, harnesses[meta.ID]) == ""
 		var isReady bool
 		prepared, preparedErr := state.ReadPreparedWait(s.Store.Home.State, meta.ID)
 		if preparedErr == nil && prepared.Operation == record.Operation {
-			isReady, err = s.preparedCleared(ctx, prepared, now, watched)
+			isReady, err = s.preparedCleared(ctx, prepared, now, watched, isRoomFree)
 			isReady = isReady && prepared.Phase == "paused"
 		} else if preparedErr != nil && !errors.Is(preparedErr, os.ErrNotExist) {
 			err = preparedErr
 		} else {
-			isReady, err = s.pauseCleared(ctx, *record.Pause, now, watched)
+			isReady, err = s.pauseCleared(ctx, *record.Pause, now, watched, isRoomFree)
 		}
 		if err != nil {
 			unreadPauses[meta.ID] = true
@@ -195,6 +203,21 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 	if waitsOnProcessors != "" && starting == "" && len(changing) == 0 && len(asked) == 0 && defect == "" {
 		busy = s.processorsBusy()
 	}
+	// The one it would start or resume next, in the order the cases below take
+	// them, waits while the machine has no room for its start.
+	next := ""
+	switch {
+	case defect != "":
+		next = defect
+	case len(ready) > 0:
+		next = ready[0].ID
+	case len(queued) > 0 && memoryPending == "":
+		next = queued[0]
+	}
+	roomShort := ""
+	if next != "" {
+		roomShort = room.Shortfall(memory, harnesses[next])
+	}
 	var startErr error
 	switch {
 	case starting != "":
@@ -210,6 +233,10 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 		s.runAsked()
 	case isHeldByLine:
 		record.Text = "nothing starts, keeping the test slots open: " + hold
+	case roomShort != "":
+		record.Waiting = append(record.Waiting, WaitingWork{ID: next, Why: roomShort})
+		record.Text = "nothing starts: " + bounded(roomShort, 120)
+		record.isWaitingForRoom = true
 	case defect != "":
 		record.Text = "starting " + defect + ", a reported production defect"
 		startErr = s.startQueued(defect, false)
@@ -223,7 +250,9 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 		record.Text = "starting " + queued[0]
 		startErr = s.startQueued(queued[0], false)
 	case memoryPending != "":
-		record.Text = memoryPending + " resumes first, once memory reads 5 GB twice"
+		shortfall := room.Shortfall(memory, harnesses[memoryPending])
+		record.Text = memoryPending + " resumes first: " + bounded(shortfall, 120)
+		record.isWaitingForRoom = shortfall != ""
 	case len(record.Waiting) > 0:
 		// The whole reason is on the task's card; the meter's line is short.
 		record.Text = "nothing starts: " + record.Waiting[0].ID + ": " + bounded(record.Waiting[0].Why, 120)
@@ -251,10 +280,13 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 // changingVerbs says what a task in the middle of a change is doing.
 var changingVerbs = map[string]string{"resume": "resuming", "switch": "switching", "pause": "pausing", "stop": "stopping", "save": "being edited", "note": "being edited"}
 
-func (s *Service) pauseCleared(ctx context.Context, condition state.PauseCondition, now time.Time, watched *fleetWakes) (bool, error) {
+// pauseCleared says whether the pause condition has cleared at this reading.
+// A pause for memory clears at one reading, once isRoomFree says the machine
+// has room for the start of the goblin that waits.
+func (s *Service) pauseCleared(ctx context.Context, condition state.PauseCondition, now time.Time, watched *fleetWakes, isRoomFree bool) (bool, error) {
 	switch condition.Reason {
 	case "memory":
-		return watched.MemoryAbove >= 2, nil
+		return isRoomFree, nil
 	case "allowance":
 		return pauseClearedHere(s.Store.Home.State, condition, now)
 	case "dependency":

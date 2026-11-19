@@ -9,12 +9,13 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
-// CheckLaunch refuses a start, a resume or a spawn while memory or commit is
-// under the next-start mark or the disk under its floor. No count of goblins
+// CheckLaunch refuses a start, a resume or a spawn of harness while memory or
+// commit is under what room says it needs, or the disk under its floor. A
+// harness not chosen yet is priced as the costliest. No count of goblins
 // refuses one: memory alone says whether another fits.
-func CheckLaunch(memory Memory, disk Disk) error {
-	if short := memory.shortfall(); short != "" {
-		return errors.New(short + "; a start needs 5 GB of memory and commit to keep the 4 GB floor")
+func CheckLaunch(memory Memory, room Room, harness string, disk Disk) error {
+	if short := room.Shortfall(memory, room.startHarness(harness)); short != "" {
+		return errors.New(short)
 	}
 	if short := disk.Shortfall(); short != "" {
 		return errors.New(diskRefusal(short))
@@ -41,12 +42,9 @@ func (s *Service) processorsBusy() string {
 	return processors.shortfall()
 }
 
-// sessionMemory is about what a new goblin session takes: the next-start
-// mark is the fleet's floor and this.
-const sessionMemory = memoryNext - memoryFloor
-
 // SlotHold says why no goblin starts or resumes by itself at the reading
-// memory, or "" when one may: a new session takes about 1 GB, and memory and
+// memory, or "" when one may: a new session takes about 1 GB (a start
+// not yet measured costs unmeasuredStartCost), and memory and
 // commit less that must still meet floor, what the machine's heavy line keeps
 // for its next test run as goblins gate turns shows it, so both test slots stay
 // usable. The Overlord set this rule on 2026-11-02, by free memory and no
@@ -54,7 +52,7 @@ const sessionMemory = memoryNext - memoryFloor
 // paused at the memory floor minutes later while heavy steps waited (#1926).
 func SlotHold(floor uint64, memory Memory) string {
 	free := min(memory.Available, memory.CommitAvailable)
-	if free >= floor+sessionMemory {
+	if free >= floor+unmeasuredStartCost {
 		return ""
 	}
 	return fmt.Sprintf("%.1f GB of memory and commit is free; the next test run needs %.1f GB and a new goblin 1 GB", gigabytes(free), gigabytes(floor))

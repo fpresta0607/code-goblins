@@ -50,9 +50,10 @@ type Operations struct {
 	Resume     func(context.Context, state.TaskMeta, state.Lifecycle) error
 	IsRunning  func(context.Context, state.TaskMeta) (bool, error)
 	Archive    func(context.Context, state.TaskMeta, *state.Lifecycle) (Preservation, error)
-	Memory     func() (available, commit uint64, err error)
-	Admit      func() error
-	Notify     func(state.Lifecycle) error
+	// Admit says why the machine has no room for the resumed goblin's start,
+	// or nil when it has.
+	Admit  func() error
+	Notify func(state.Lifecycle) error
 	// HandOver hands on what the task's record keeps for a resume that
 	// never runs, as a resume whose session a later start replaced, before
 	// the operation writes its own record over it, and says whether it did:
@@ -177,20 +178,6 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 			}
 		}
 		if !isAlreadyRunning {
-			available, commit, err := service.Operations.Memory()
-			if err != nil {
-				return result, fmt.Errorf("read available memory: %w", err)
-			}
-			var short []string
-			if available < 5<<30 {
-				short = append(short, "available memory")
-			}
-			if commit < 5<<30 {
-				short = append(short, "commit (RAM plus page file)")
-			}
-			if len(short) > 0 {
-				return result, errors.New("Resume needs at least 5 GB of " + strings.Join(short, " and of ") + " to keep the 4 GB floor")
-			}
 			if service.Operations.Admit != nil {
 				if err := service.Operations.Admit(); err != nil {
 					return result, err

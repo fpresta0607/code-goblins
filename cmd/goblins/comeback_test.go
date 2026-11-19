@@ -190,9 +190,9 @@ func TestTheComebackBringsEachGoblinBackToldTheMachineRestarted(t *testing.T) {
 
 	// Act
 	for _, id := range []string{"claude-owned", "still-runs", "paused", "no-room", "fails"} {
-		runtime.admitLaunch = func(home.Home) error { return nil }
+		runtime.admitLaunch = func(home.Home, string) error { return nil }
 		if id == "no-room" {
-			runtime.admitLaunch = func(home.Home) error { return refused }
+			runtime.admitLaunch = func(home.Home, string) error { return refused }
 		}
 		outcomes[id] = comebackGoblin(t.Context(), h, runtime, id, restartNote, false)
 	}

@@ -345,7 +345,6 @@ func TestEachRefusalOfAResumesRelaunchLeavesTheTaskPausedAsItWas(t *testing.T) {
 				return spawn.SwitchResult{}, f.switched
 			}}
 			service := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
-				Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
 				Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
 					return resumeTask(ctx, h, runtime, f.commands, pipeline.Reader{Root: nm, Commands: f.commands}, meta, prior, nil)
 				},

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -50,8 +51,12 @@ func WorkWaits(h home.Home) bool {
 // the one moment the supervisor's scheduler cannot see, so what sees it calls
 // this: a Claude CEO's turn-end guard, and the supervisor itself as it ingests
 // the turn end a Codex or pi CEO's native hook spooled.
-func IdleTurnWake(h home.Home, memory Memory, now time.Time) (string, error) {
-	if memory.shortfall() != "" {
+func IdleTurnWake(h home.Home, processes func() ([]fleettree.Process, error), memory Memory, now time.Time) (string, error) {
+	room, err := ReadRoom(h, processes, now)
+	if err != nil {
+		return "", err
+	}
+	if room.Shortfall(memory, room.costliest()) != "" {
 		return "", nil
 	}
 	var paused []state.Lifecycle

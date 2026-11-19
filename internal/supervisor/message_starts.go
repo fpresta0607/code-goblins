@@ -136,8 +136,10 @@ func (s *Service) bringGoblinBackForMessage(comeback *Comeback, task string) {
 		if s.Options.Dispatch != nil && s.Options.Dispatch.Memory != nil {
 			if memory, err := s.Options.Dispatch.Memory(); err != nil {
 				room = fmt.Errorf("free memory cannot be read: %w", err)
+			} else if meta, err := state.ReadTaskMeta(s.Store.Home.State, task); err != nil {
+				room = fmt.Errorf("its task record cannot be read: %w", err)
 			} else {
-				room = s.launchRoom(memory)
+				room = s.launchRoom(memory, meta.Harness)
 			}
 		}
 		if room != nil {

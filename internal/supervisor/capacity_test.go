@@ -9,15 +9,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// liveGoblins records count native goblins whose terminal hosts run.
-func liveGoblins(t *testing.T, h home.Home, count int) {
+// liveGoblins records count native goblins whose terminal hosts run and whose
+// trees have taken the whole 1 GB a start costs when nothing was measured, so
+// none of them is still starting.
+func liveGoblins(t *testing.T, service *Service, h home.Home, count int) {
 	t.Helper()
+	service.Options.Dispatch.Processes = func() ([]fleettree.Process, error) {
+		return []fleettree.Process{{PID: os.Getpid(), Memory: unmeasuredStartCost}}, nil
+	}
 	for index := range count {
 		id := fmt.Sprintf("running-task-%d", index)
 		if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: id, Backend: "native", SpawnGen: "generation-" + id}); err != nil {
@@ -39,7 +45,7 @@ func TestStartWithEightGoblinsLiveAndNineGBFreeStarts(t *testing.T) {
 	spawner := &spawnRecorder{}
 	handler, h := startBoard(t, 9*gigabyte, spawner)
 	queueBriefedTask(t, h, "- **next-task** - Ship it", plainBrief)
-	liveGoblins(t, h, 8)
+	liveGoblins(t, handler.Service, h, 8)
 
 	// Act
 	response := postStart(handler, `{"task":"next-task"}`, "board.local", "http://board.local", orderToken)
@@ -61,7 +67,7 @@ func TestSchedulerStartsTheNextTaskWithEightGoblinsLiveAndNineGBFree(t *testing.
 	spawner := &spawnRecorder{}
 	handler, h := startBoard(t, 9*gigabyte, spawner)
 	queueBriefedTask(t, h, "- **next-task** - Ship it", plainBrief)
-	liveGoblins(t, h, 8)
+	liveGoblins(t, handler.Service, h, 8)
 
 	// Act
 	if err := handler.Service.checkFleet(t.Context(), time.Now().UTC()); err != nil {

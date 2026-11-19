@@ -1158,7 +1158,7 @@ Every `goblins gate prepush` run and every `goblins gate test` run adds what it 
 
 The run fits the machine.
 It waits for the machine's turn in the line `goblins gate test` runs wait in, so the two never run together, and it tests one package at a time.
-It starts a check only while free memory and commit are over the 4 GB floor, and none after its time limit, which is 15 minutes of running unless `--limit` says otherwise.
+It starts a check only while free memory and commit are over the memory floor (`memory_floor_gb`, 4 GB unless set), and none after its time limit, which is 15 minutes of running unless `--limit` says otherwise.
 Beside a working fleet free memory dips under the floor for seconds at a time, so a run waits for the floor, says once what it waits for, and leaves the rest to CI only when the limit passes first or memory cannot be read.
 A run that gave up at the first low reading ran 9 of its 42 checks on 2026-10-10 and left the two changed slow packages to CI.
 A check still running at the limit is ended, which is no failure.

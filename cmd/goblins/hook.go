@@ -16,6 +16,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/claudehook"
 	"github.com/fpresta0607/code-goblins/internal/custody"
 	"github.com/fpresta0607/code-goblins/internal/digest"
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/guard"
 	"github.com/fpresta0607/code-goblins/internal/harness"
@@ -436,7 +437,7 @@ func reopenIdleTurn(h home.Home, session string) string {
 	}
 	// A wake raised whose interval could not be recorded still reopens the
 	// turn; one that could not be raised does not.
-	detail, _ := supervisor.IdleTurnWake(h, memory, time.Now().UTC())
+	detail, _ := supervisor.IdleTurnWake(h, fleettree.Processes, memory, time.Now().UTC())
 	if detail == "" {
 		return ""
 	}

@@ -207,20 +207,20 @@ func TestAFailedChangeIsKeptHoweverTheFirstChangeBegan(t *testing.T) {
 	}
 }
 
-func TestMemoryPauseResumesOnlyAfterTwoReadingsOfMemoryAndCommit(t *testing.T) {
+func TestMemoryPauseResumesAtTheFirstReadingWithRoomForItsStartInMemoryAndCommit(t *testing.T) {
 	spawner := &spawnRecorder{}
 	handler, h := startBoard(t, 8*gigabyte, spawner)
 	now := time.Now().UTC()
 	meta := pausedGoblin(t, h, "memory-task", "memory", "", now.Add(-time.Hour))
-	meter := &memoryReadings{readings: [][2]float64{{4, 8}, {8, 4}, {8, 8}, {8, 8}}}
+	meter := &memoryReadings{readings: [][2]float64{{4, 8}, {8, 4}, {8, 8}}}
 	handler.Service.Options.Dispatch.Memory = meter.read
 
-	for reading := 0; reading < 4; reading++ {
+	for reading := 0; reading < 3; reading++ {
 		if err := handler.Service.checkFleet(t.Context(), now.Add(time.Duration(reading)*time.Minute)); err != nil {
 			t.Fatal(err)
 		}
-		if reading < 3 && len(spawner.recorded()) != 0 {
-			t.Fatalf("resumed before two good readings: %v", spawner.recorded())
+		if reading < 2 && len(spawner.recorded()) != 0 {
+			t.Fatalf("resumed before a reading with room in both: %v", spawner.recorded())
 		}
 	}
 
@@ -268,7 +268,7 @@ func TestClearedPauseRunsBeforeQueueAndDatesDoNotHoldTheSlot(t *testing.T) {
 	}
 }
 
-func TestFirstGoodMemoryReadingHoldsTheQueueForAMemoryPause(t *testing.T) {
+func TestAMemoryPauseWithRoomResumesAtOneReadingBeforeTheQueue(t *testing.T) {
 	spawner := &spawnRecorder{}
 	handler, h := startBoard(t, 8*gigabyte, spawner)
 	now := time.Now().UTC()
@@ -278,15 +278,6 @@ func TestFirstGoodMemoryReadingHoldsTheQueueForAMemoryPause(t *testing.T) {
 	handler.Service.Options.Dispatch.Memory = meter.read
 
 	if err := handler.Service.checkFleet(t.Context(), now); err != nil {
-		t.Fatal(err)
-	}
-	handler.Service.starts.Lock()
-	isChanging := handler.Service.starting != "" || len(handler.Service.changing) > 0
-	handler.Service.starts.Unlock()
-	if calls := spawner.recorded(); len(calls) != 0 || isChanging {
-		t.Fatalf("first good reading dispatched %v (changing %t)", calls, isChanging)
-	}
-	if err := handler.Service.checkFleet(t.Context(), now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 
