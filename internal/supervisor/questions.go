@@ -426,6 +426,8 @@ func (s *Service) deliverAnswer(ctx context.Context, q Question, text string) (E
 		result, err = Evaluation{Reason: "Queued until " + q.Task + "'s prompt line is empty. It holds words that were never sent, and nothing is typed onto them."}, ErrDeferred
 	case errors.Is(err, fleet.ErrNotTyped):
 		result, err = Evaluation{Reason: "Queued until its terminal can take the answer. Nothing was typed."}, ErrDeferred
+	case errors.Is(err, spawn.ErrTakenBack):
+		result, err = Evaluation{}, fmt.Errorf("%w. It was typed for %s and never submitted. It was taken back off its prompt line, so nothing of it is left typed there.", ErrNotSent, q.Task)
 	}
 	return result, err
 }

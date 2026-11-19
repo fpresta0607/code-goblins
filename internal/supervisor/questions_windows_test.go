@@ -439,18 +439,83 @@ func TestABoardAnswerToABusyAskerIsSentNotUnconfirmed(t *testing.T) {
 // it waits, never uncertain and never answered, and lands once the line can
 // take it (#2104).
 func TestABoardAnswerRefusedWithNothingTypedWaitsAndLandsOnceTheLineIsEmpty(t *testing.T) {
+	for name, test := range map[string]struct {
+		refusal error
+		says    string
+	}{
+		"no terminal can take it": {fmt.Errorf("spawn: native terminal task-1: %w", fleet.ErrNotTyped), "Nothing was typed"},
+		"words left unsent":       {fmt.Errorf("spawn: native terminal task-1: %w: %w", fleet.ErrNotTyped, spawn.ErrUnsentWords), "prompt line"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta, record, _, connection := goblinFixture(t, store)
+			q := surfaced(t, store, meta, record, connection)
+			s := &Service{Store: store, Options: Options{CEO: connection}}
+			previous := typeIntoGoblin
+			t.Cleanup(func() { typeIntoGoblin = previous })
+			isRefused := true
+			var typed []string
+			typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _, _, _ bool) error {
+				if isRefused {
+					return test.refusal
+				}
+				typed = append(typed, text)
+				return nil
+			}
+			if _, err := store.Queue(Action{ID: "answer-1", Kind: "goblin_answer", Generation: q.Identity, QuestionID: q.ID, Text: "SQLite"}); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			refused := store.ProcessOne(context.Background(), s.execute)
+			held, heldQuestion := actionOf(store, "answer-1"), store.Snapshot().Questions[0]
+			pending, err := wake.Pending(h.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			isRefused = false
+			store.mu.Lock()
+			delete(store.deferredUntil, "answer-1")
+			store.mu.Unlock()
+			landed := store.ProcessOne(context.Background(), s.execute)
+
+			// Assert
+			if !errors.Is(refused, ErrDeferred) || held.Status != "queued" || !strings.Contains(held.Message, test.says) || heldQuestion.Status == "uncertain" {
+				t.Errorf("refused try = %v, action %+v, question %s; want the answer queued saying %q", refused, held, heldQuestion.Status, test.says)
+			}
+			if len(pending) != 1 || pending[0].Answered != "" {
+				t.Errorf("notify while held = %+v, want it still unanswered", pending)
+			}
+			if landed != nil || len(typed) != 1 || !strings.Contains(typed[0], "Answer: SQLite") {
+				t.Errorf("next try = %v, typed %q; want the answer typed once", landed, typed)
+			}
+			if got := store.Snapshot().Questions[0]; got.Status != "succeeded" || got.Answer != "SQLite" {
+				t.Errorf("question = %+v, want it answered with SQLite", got)
+			}
+		})
+	}
+}
+
+// A board answer typed and then taken back off its goblin's prompt line
+// unsent reached nobody: it reads Not sent and failed, never uncertain, its
+// notify stays unanswered, and goblins answer answers the question again
+// (#2104).
+func TestABoardAnswerTakenBackUnsentReadsNotSentAndIsAnsweredAgain(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
+	primaryFixture(t, store)
 	meta, record, _, connection := goblinFixture(t, store)
+	servePipe(t, store, connection)
 	q := surfaced(t, store, meta, record, connection)
 	s := &Service{Store: store, Options: Options{CEO: connection}}
 	previous := typeIntoGoblin
 	t.Cleanup(func() { typeIntoGoblin = previous })
-	isLineHeld := true
+	isTakenBack := true
 	var typed []string
 	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _, _, _ bool) error {
-		if isLineHeld {
-			return fmt.Errorf("spawn: native terminal %s: %w: %w", meta.ID, fleet.ErrNotTyped, spawn.ErrUnsentWords)
+		if isTakenBack {
+			return fmt.Errorf("spawn: native terminal %s never showed the instruction: %w", meta.ID, spawn.ErrTakenBack)
 		}
 		typed = append(typed, text)
 		return nil
@@ -460,30 +525,27 @@ func TestABoardAnswerRefusedWithNothingTypedWaitsAndLandsOnceTheLineIsEmpty(t *t
 	}
 
 	// Act
-	refused := store.ProcessOne(context.Background(), s.execute)
-	held, heldQuestion := actionOf(store, "answer-1"), store.Snapshot().Questions[0]
+	firstErr := store.ProcessOne(context.Background(), s.execute)
+	unsent, unsentQuestion := actionOf(store, "answer-1"), store.Snapshot().Questions[0]
 	pending, err := wake.Pending(h.State)
 	if err != nil {
 		t.Fatal(err)
 	}
-	isLineHeld = false
-	store.mu.Lock()
-	delete(store.deferredUntil, "answer-1")
-	store.mu.Unlock()
-	landed := store.ProcessOne(context.Background(), s.execute)
+	isTakenBack = false
+	_, _, againErr := connection.AnswerGoblin(context.Background(), q.ID, "Postgres", "")
 
 	// Assert
-	if !errors.Is(refused, ErrDeferred) || held.Status != "queued" || !strings.Contains(held.Message, "prompt line") || heldQuestion.Status == "uncertain" {
-		t.Errorf("refused try = %v, action %+v, question %s; want the answer queued behind the held prompt line", refused, held, heldQuestion.Status)
+	if firstErr != nil || unsent.Status != "failed" || !strings.HasPrefix(unsent.Message, "Not sent") || unsentQuestion.Status != "failed" {
+		t.Errorf("first try = %v, action %+v, question %s; want it failed reading Not sent", firstErr, unsent, unsentQuestion.Status)
 	}
 	if len(pending) != 1 || pending[0].Answered != "" {
-		t.Errorf("notify while held = %+v, want it still unanswered", pending)
+		t.Errorf("notify after the take-back = %+v, want it still unanswered", pending)
 	}
-	if landed != nil || len(typed) != 1 || !strings.Contains(typed[0], "Answer: SQLite") {
-		t.Errorf("next try = %v, typed %q; want the answer typed once", landed, typed)
+	if againErr != nil || len(typed) != 1 || !strings.Contains(typed[0], "Postgres") {
+		t.Errorf("answering again = %v, typed %q; want the new answer typed once", againErr, typed)
 	}
-	if got := store.Snapshot().Questions[0]; got.Status != "succeeded" || got.Answer != "SQLite" {
-		t.Errorf("question = %+v, want it answered with SQLite", got)
+	if got := store.Snapshot().Questions[0]; got.Status != "succeeded" || got.Answer != "Postgres" || got.AnsweredBy != "ceo" {
+		t.Errorf("question = %+v, want the CEO's answer, Postgres", got)
 	}
 }
 
