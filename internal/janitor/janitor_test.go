@@ -835,6 +835,7 @@ func TestRecordRoundTripsWithItsStrays(t *testing.T) {
 // and its prune, since trimming it can break a running build (#2761).
 func TestSweepUnderTheCleanMarkTrimsTheCachesToTheTightCap(t *testing.T) {
 	goBuild := reap.Process{PID: 5150, Name: "go.exe", CommandLine: `go test ./...`}
+	goBuildElsewhere := reap.Process{PID: 5151, Name: "go", CommandLine: `go build ./...`}
 	for _, testCase := range []struct {
 		name      string
 		isTight   bool
@@ -845,6 +846,7 @@ func TestSweepUnderTheCleanMarkTrimsTheCachesToTheTightCap(t *testing.T) {
 		{name: "tight", isTight: true, processes: func(t *testing.T) []reap.Process { return []reap.Process{selfProcess(t)} }, isTrimmed: true},
 		{name: "not tight", processes: func(t *testing.T) []reap.Process { return []reap.Process{selfProcess(t)} }},
 		{name: "tight while a Go build runs", isTight: true, processes: func(t *testing.T) []reap.Process { return []reap.Process{selfProcess(t), goBuild} }, wantNote: "as a Go build or test runs (pid 5150)"},
+		{name: "tight while a Go build runs on Linux or macOS", isTight: true, processes: func(t *testing.T) []reap.Process { return []reap.Process{selfProcess(t), goBuildElsewhere} }, wantNote: "as a Go build or test runs (pid 5151)"},
 		{name: "tight with a process list not proven read", isTight: true, processes: func(*testing.T) []reap.Process { return nil }, wantNote: "as whether a Go build or test runs, which trimming them can break, could not be read"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {

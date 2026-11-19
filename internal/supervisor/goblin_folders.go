@@ -59,7 +59,7 @@ func (s *Service) checkGoblinFolders(ctx context.Context, w *fleetWakes) error {
 		// first spawned measured an earlier task under the same id.
 		generation := firstGeneration(meta)
 		spawned, err := strconv.ParseInt(strings.TrimPrefix(generation, "s"), 10, 64)
-		if err != nil || !strings.HasPrefix(generation, "s") || record.Time.Before(time.Unix(0, spawned)) {
+		if err != nil || record.Time.Before(time.Unix(0, spawned)) {
 			continue
 		}
 		worktrees, scratch := record.Buckets.Worktrees[meta.ID], record.Buckets.Scratch[meta.ID]

@@ -166,7 +166,7 @@ func (cfg Config) removeTempLeaks(processes []string, record *Record) {
 	liveText := sync.OnceValues(func() (string, error) {
 		text, err := cfg.liveText()
 		if err != nil {
-			record.Notes = append(record.Notes, "what reports, cards, questions, the backlog and memory name could not all be read, so no finished task's scratch folder was removed: "+err.Error())
+			record.Notes = append(record.Notes, "what reports, cards, questions, briefs, the backlog and memory name could not all be read, so no finished task's scratch folder was removed: "+err.Error())
 		}
 		return text, err
 	})
@@ -176,9 +176,10 @@ func (cfg Config) removeTempLeaks(processes []string, record *Record) {
 }
 
 // liveText is every text that keeps the files it names by path: the open
-// backlog rows, the directives, both memory folders and the open Command
-// Center items (layout.LiveText), the wakes the CEO has not acknowledged, and
-// each task's status log, which holds its reports. It is lowercased, with
+// backlog rows, the directives, both memory folders, the briefs of live and
+// undispatched tasks and the open Command Center items (layout.LiveText), the
+// wakes the CEO has not acknowledged, and each task's status log, which holds
+// its reports. It is lowercased, with
 // every slash a backslash, as names reads a command line.
 func (cfg Config) liveText() (string, error) {
 	text, err := layout.LiveText(cfg.Home, layout.ClaudeMemoryFolder(cfg.Home.Root))
@@ -280,7 +281,7 @@ func (cfg Config) removeTempLeak(candidate tempCandidate, processes []string, li
 			return
 		}
 		if textNames(text, path) {
-			record.Kept = append(record.Kept, Item{Kind: "temp", Path: path, Bytes: bytes, Detail: "a finished task's scratch folder that a report, card, question, backlog row or memory file still names a path in"})
+			record.Kept = append(record.Kept, Item{Kind: "temp", Path: path, Bytes: bytes, Detail: "a finished task's scratch folder that a report, card, question, brief, backlog row or memory file still names a path in"})
 			return
 		}
 	}

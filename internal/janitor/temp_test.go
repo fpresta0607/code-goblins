@@ -242,9 +242,10 @@ func TestSweepUnderTheCleanMarkTakesAFinishedTasksScratchAfterAnHour(t *testing.
 }
 
 // A finished task's scratch folder stays, however old and however tight the
-// disk, while a report, card, question, backlog row or memory file still
-// names a path in it, written as Windows or as Git Bash writes it. A name
-// that only begins with the folder's, as another task's, keeps nothing.
+// disk, while a report, card, question, backlog row, memory file or the brief
+// of a live or undispatched task still names a path in it, written as Windows
+// or as Git Bash writes it. A name that only begins with the folder's, as
+// another task's, and a finished task's brief keep nothing.
 func TestSweepKeepsAFinishedTasksScratchThatSomethingStillReadNames(t *testing.T) {
 	for _, testCase := range []struct {
 		name   string
@@ -273,6 +274,19 @@ func TestSweepKeepsAFinishedTasksScratchThatSomethingStillReadNames(t *testing.T
 		}},
 		{name: "another task's folder", write: func(t *testing.T, h home.Home, scratch string) {
 			writeFile(t, filepath.Join(h.Data, "memory", "fact.md"), "See "+scratch+`-2\notes.txt`+"\n")
+		}},
+		{name: "a live task's brief", isKept: true, write: func(t *testing.T, h home.Home, scratch string) {
+			writeFile(t, filepath.Join(h.State, "live.meta"), "id=live\n")
+			writeFile(t, filepath.Join(h.Data, "live", "brief.md"), "Start from "+filepath.Join(scratch, "repro", "trace.zip")+"\n")
+		}},
+		{name: "a brief not yet dispatched", isKept: true, write: func(t *testing.T, h home.Home, scratch string) {
+			writeFile(t, filepath.Join(h.Data, "next-task", "brief.md"), "Start from "+filepath.Join(scratch, "repro", "trace.zip")+"\n")
+		}},
+		{name: "a finished task's brief", write: func(t *testing.T, h home.Home, scratch string) {
+			brief := filepath.Join(h.Data, "done-task", "brief.md")
+			writeFile(t, brief, "Start from "+filepath.Join(scratch, "repro", "trace.zip")+"\n")
+			makeOld(t, brief)
+			writeFile(t, state.StatusPath(h.State, "done-task"), "done: the trace is read\n")
 		}},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {

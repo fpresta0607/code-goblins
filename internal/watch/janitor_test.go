@@ -385,6 +385,10 @@ func TestTheJanitorPassUnderTheCleanMarkTakesAFinishedTasksScratch(t *testing.T)
 			temp := t.TempDir()
 			t.Setenv("TMP", temp)
 			t.Setenv("TEMP", temp)
+			t.Setenv("TMPDIR", temp)
+			profile := t.TempDir()
+			t.Setenv("USERPROFILE", profile)
+			t.Setenv("HOME", profile)
 			root := t.TempDir()
 			h := home.Home{Root: root, State: filepath.Join(root, "state"), Data: filepath.Join(root, "data")}
 			if err := os.MkdirAll(h.State, 0o755); err != nil {
@@ -421,46 +425,70 @@ func TestTheJanitorPassUnderTheCleanMarkTakesAFinishedTasksScratch(t *testing.T)
 
 // The watcher's janitor pass reads the gate's home the gate runs from for
 // completed runs' checkouts kept past its retention, which the supervisor's
-// gate_growth wake names (#2761).
+// gate_growth wake names (#2761). On a machine without the gate's home there
+// is nothing to read, so the pass says nothing of it.
 func TestTheJanitorPassCountsTheGatesCompletedRunsPastItsRetention(t *testing.T) {
-	// Arrange
-	root := t.TempDir()
-	h := home.Home{Root: root, State: filepath.Join(root, "state"), Data: filepath.Join(root, "data")}
-	gate := filepath.Join(root, "profile", ".no-mistakes")
-	checkout := filepath.Join(gate, "worktrees", "repo1", "run-1")
-	for _, folder := range []string{h.State, checkout} {
-		if err := os.MkdirAll(folder, 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	db, err := sql.Open("sqlite", filepath.Join(gate, "state.sqlite"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("CREATE TABLE runs (id TEXT PRIMARY KEY, status TEXT, updated_at INTEGER)"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("INSERT INTO runs VALUES ('run-1', 'completed', ?), ('run-2', 'failed', ?)", time.Now().Add(-48*time.Hour).Unix(), time.Now().Add(-time.Hour).Unix()); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	written := time.Now().Add(-48 * time.Hour)
-	if err := os.Chtimes(checkout, written, written); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("NM_HOME", gate)
+	for _, c := range []struct {
+		name       string
+		isGateMade bool
+	}{
+		{name: "the gate's home", isGateMade: true},
+		{name: "no gate's home"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			root := t.TempDir()
+			h := home.Home{Root: root, State: filepath.Join(root, "state"), Data: filepath.Join(root, "data")}
+			if err := os.MkdirAll(h.State, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			gate := filepath.Join(root, "profile", ".no-mistakes")
+			if c.isGateMade {
+				checkout := filepath.Join(gate, "worktrees", "repo1", "run-1")
+				if err := os.MkdirAll(checkout, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				db, err := sql.Open("sqlite", filepath.Join(gate, "state.sqlite"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := db.Exec("CREATE TABLE runs (id TEXT PRIMARY KEY, status TEXT, updated_at INTEGER)"); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := db.Exec("INSERT INTO runs VALUES ('run-1', 'completed', ?), ('run-2', 'failed', ?)", time.Now().Add(-48*time.Hour).Unix(), time.Now().Add(-time.Hour).Unix()); err != nil {
+					t.Fatal(err)
+				}
+				if err := db.Close(); err != nil {
+					t.Fatal(err)
+				}
+				written := time.Now().Add(-48 * time.Hour)
+				if err := os.Chtimes(checkout, written, written); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Setenv("NM_HOME", gate)
 
-	// Act
-	runJanitor(Config{Home: h, Reap: &reap.Service{Commands: &dockerRunner{}}, JanitorEvery: time.Hour}, reap.Inventory{})
+			// Act
+			runJanitor(Config{Home: h, Reap: &reap.Service{Commands: &dockerRunner{}}, JanitorEvery: time.Hour}, reap.Inventory{})
 
-	// Assert
-	swept, err := janitor.ReadRecord(h.State)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if swept.Gate == nil || swept.Gate.PastRetention == nil || swept.Gate.PastRetention.Unlinked.Count != 1 {
-		t.Fatalf("gate = %+v, want one completed run's checkout past the retention; notes %q", swept.Gate, swept.Notes)
+			// Assert
+			swept, err := janitor.ReadRecord(h.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if swept.Gate == nil {
+				t.Fatalf("no gate measured; notes %q", swept.Notes)
+			}
+			past := swept.Gate.PastRetention
+			if c.isGateMade && (past == nil || past.Unlinked.Count != 1) {
+				t.Errorf("past retention = %+v, want one completed run's checkout past the retention; notes %q", past, swept.Notes)
+			}
+			if !c.isGateMade && past != nil {
+				t.Errorf("past retention = %+v, want none read from a gate's home that is not there", past)
+			}
+			if notes := strings.Join(swept.Notes, "\n"); strings.Contains(notes, "kept past its retention could not be read") {
+				t.Errorf("notes = %q, want nothing said of the gate's finished runs", notes)
+			}
+		})
 	}
 }

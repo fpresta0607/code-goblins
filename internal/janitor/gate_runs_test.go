@@ -153,6 +153,43 @@ func TestSweepCountsOnlyTheCheckoutsTheGatesReaperHadATurnAt(t *testing.T) {
 	}
 }
 
+// A repository folder that is a symbolic link, as a gate home moved by hand
+// on Linux or macOS leaves it, is one the gate's reaper does not reach either
+// (no-mistakes#261), so the completed runs it keeps past its retention there
+// are counted apart from those under a folder of its own.
+func TestSweepCountsTheGatesCompletedRunsUnderASymbolicLinkApart(t *testing.T) {
+	// Arrange
+	f := newSweepFixture(t)
+	gate := filepath.Join(t.TempDir(), ".no-mistakes")
+	newGateHome(t, gate, "", []gateRun{
+		{repository: "repo1", id: "run-own", status: "completed", age: 48 * time.Hour},
+		{repository: "moved", id: "run-linked", status: "completed", age: 30 * time.Hour},
+		{repository: "repo1", id: "run-just-finished", status: "completed", age: time.Hour},
+	})
+	moved := filepath.Join(gate, "worktrees", "moved")
+	target := filepath.Join(t.TempDir(), "moved")
+	if err := os.Rename(moved, target); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, moved); err != nil {
+		t.Skipf("this account cannot make a symbolic link: %v", err)
+	}
+	cfg := f.config(reap.Inventory{})
+	cfg.GateHomes = []string{gate}
+	cfg.GateRoot = gate
+
+	// Act
+	record := Sweep(context.Background(), cfg)
+
+	// Assert
+	if record.Gate == nil {
+		t.Fatal("the gate's home was not measured")
+	}
+	if past := record.Gate.PastRetention; past == nil || past.Linked.Count != 1 || past.Unlinked.Count != 1 {
+		t.Fatalf("past retention = %+v, want 1 under the link and 1 under a folder of its own; notes %q", past, record.Notes)
+	}
+}
+
 // A gate home whose database cannot be read is no evidence that it keeps
 // nothing past its rule: the sweep says so and records nothing.
 func TestSweepSaysWhenTheGatesRunsCannotBeRead(t *testing.T) {
