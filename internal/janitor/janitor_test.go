@@ -845,16 +845,18 @@ func TestSweepUnderTheCleanMarkTrimsTheCachesToTheTightCap(t *testing.T) {
 		{name: "tight", isTight: true, processes: func(t *testing.T) []reap.Process { return []reap.Process{selfProcess(t)} }, isTrimmed: true},
 		{name: "not tight", processes: func(t *testing.T) []reap.Process { return []reap.Process{selfProcess(t)} }},
 		{name: "tight while a Go build runs", isTight: true, processes: func(t *testing.T) []reap.Process { return []reap.Process{selfProcess(t), goBuild} }, wantNote: "as a Go build or test runs (pid 5150)"},
-		{name: "tight with a process list not proven read", isTight: true, processes: func(*testing.T) []reap.Process { return nil }, wantNote: "as whether a Go build or test runs, which trimming it can break, could not be read"},
+		{name: "tight with a process list not proven read", isTight: true, processes: func(*testing.T) []reap.Process { return nil }, wantNote: "as whether a Go build or test runs, which trimming them can break, could not be read"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			// Arrange: a megabyte entry Go last marked used three hours ago, under the
-			// caches' cap and over their tight cap, on a line free for a prune.
+			// Arrange: a megabyte entry Go last marked used three hours ago and a
+			// module, under the caches' cap and over their tight cap, on a line free
+			// for a prune.
 			f := newSweepFixture(t)
 			cache := filepath.Join(f.home.Caches(), "go-build")
 			entry := filepath.Join(cache, "0a", "unused-a")
 			writeFile(t, entry, string(make([]byte, 1<<20)))
 			makeAged(t, cache, 3*time.Hour)
+			writeFile(t, filepath.Join(f.home.Caches(), "go-mod", "example.com", "module@v1.0.0", "go.mod"), "module example.com/module\n")
 			runner := &pruneRunner{caches: f.home.Caches()}
 			cfg := f.config(reap.Inventory{Processes: testCase.processes(t)})
 			cfg.Commands = runner
@@ -877,8 +879,8 @@ func TestSweepUnderTheCleanMarkTrimsTheCachesToTheTightCap(t *testing.T) {
 			if len(runner.ran) != 0 {
 				t.Errorf("ran %q, want no prune", runner.ran)
 			}
-			if notes := strings.Join(record.Notes, "\n"); testCase.wantNote != "" && !strings.Contains(notes, "Go's build cache was left out of the caches' trim, "+testCase.wantNote) {
-				t.Errorf("notes = %q, want Go's build cache said left out %s", notes, testCase.wantNote)
+			if notes := strings.Join(record.Notes, "\n"); testCase.wantNote != "" && !strings.Contains(notes, "Go's build and module caches were left out of the caches' trim, "+testCase.wantNote) {
+				t.Errorf("notes = %q, want Go's build and module caches said left out %s", notes, testCase.wantNote)
 			}
 		})
 	}
