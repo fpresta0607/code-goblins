@@ -142,12 +142,13 @@ The host's protocol (a token handshake, then typed frames) is the same on every 
   The gate's idle lock takes the exclusive `flock` a no-mistakes daemon takes on its `daemon.lock` off Windows, and the shared config it replaces keeps its mode, as `ReplaceFileW` keeps its access list.
   The update's hold has no counterpart in an open file, which keeps nobody from writing or replacing it, so it comes with its one caller, the updater's way back to the previous build, in layer 8, and refuses until then.
 - **Must change, not only port:** code that builds on every system compares paths without regard to case, as Windows does.
-  `fsx.SamePath`, for its 26 callers in program files, `internal/pathguard`'s check of the folders it guards, the path comparisons of `internal/gatehome`, `internal/home`, `internal/homemove`, `internal/lock`, `internal/reap`, `internal/runtime`, `internal/state` and `internal/worktree`, and those of the supervisor and the packages around it, `internal/supervisor`, `internal/pipeline`, `internal/spawn`, `internal/verify`, `internal/monitor`, `internal/fleettree`, `internal/watch`, `internal/lifecycle`, `internal/cleanup`, `internal/claudestream`, `internal/codexguard` and `internal/starthook`, compare by the file system's case rule (`fsx.EqualPath`) with the system's separator.
-  The rest of the program files that compare paths with `strings.EqualFold` do not yet, among them `internal/harnessmap`, `internal/update`, `internal/uninstall`, `internal/janitor`, `internal/layout`, `internal/pathguard` and `cmd/goblins`.
-  5 more lower a whole path with `strings.ToLower` to compare it or use it as a key: `cmd/goblins/gate_run_end.go`, `internal/janitor/worktrees.go`, `internal/gatetest/select.go` and `match.go`, and `internal/doctor/fix.go`.
-  Some of the `strings.EqualFold` files do the same beside it, among them `internal/janitor/temp.go` and `internal/supervisor/runs.go`.
-  Some of the same code also takes `\` as the path separator, which a Linux path never holds: `internal/doctor/fix.go` ends a folder prefix with `\`.
-  None of these fails a Linux build, so the compiler does not find them; on Linux `internal/janitor/worktrees.go`, for one, would take two worktrees whose names differ only in case for one.
+  `fsx.SamePath`, for its 26 callers in program files, `internal/pathguard`'s check of the folders it guards and of the `.git` names below a root, the path comparisons of `internal/gatehome`, `internal/home`, `internal/homemove`, `internal/lock`, `internal/reap`, `internal/runtime`, `internal/state` and `internal/worktree`, those of the supervisor and the packages around it, `internal/supervisor`, `internal/pipeline`, `internal/spawn`, `internal/verify`, `internal/monitor`, `internal/fleettree`, `internal/watch`, `internal/lifecycle`, `internal/cleanup`, `internal/claudestream`, `internal/codexguard` and `internal/starthook`, and those of `internal/janitor`, `internal/layout`, `internal/doctor` and `cmd/goblins`, compare by the file system's case rule (`fsx.EqualPath`) with the system's separator.
+  Where the janitor asks what no comparison of two paths answers, whether a command line names a folder or a folder's entry matches a temp pattern, it asks `fsx.FoldsCase`.
+  The rest of the program files that compare paths with `strings.EqualFold` do not yet: those of `internal/cutover`, `internal/defender`, `internal/devdrive`, `internal/gatetest`, `internal/harnessmap`, `internal/install`, `internal/memory`, `internal/project`, `internal/projectcheck`, `internal/readcache`, `internal/remoteaccess`, `internal/sandbox`, `internal/tickets`' area, `internal/uninstall` and `internal/update`.
+  2 more lower a whole path with `strings.ToLower` to compare it or use it as a key: `internal/gatetest/select.go` and `match.go`.
+  Some of the same code also takes `\` as the path separator, which a Linux path never holds: `internal/devdrive/move.go` ends a drive's root with `\`.
+  None of these fails a Linux build, so the compiler does not find them; on Linux `internal/gatetest/select.go`, for one, would take two package folders whose names differ only in case for one.
+  Some comparisons keep folding case on purpose: the File Explorer opener's paths (`internal/supervisor/card_paths.go` and `shell_messages.go`), whose Linux form comes with the native desktop layer, Git for Windows' `mingw64` folder (`internal/supervisor/runs.go`), `internal/pathguard`'s environment variable forms such as `$HOME`, which follow the shell's rule, and its `.ssh` check, and the janitor's check that live text names a path in a finished task's scratch folder, which only refuse or keep more by folding.
   Many of the moved comparisons are tested only on Windows, where the case rule gives what `strings.EqualFold` gave, or only through the helper that decides, since their packages are not yet in the Linux job.
   When `internal/supervisor` joins it, tests that reach them through their callers come first, beginning with the check that a goblin's credential request names an env file only in its own task's checkout (`internal/supervisor/credentials.go`).
   Then come the main checkout against a worktree in `EnvFileProblem` (`credential_env.go`), `piResourceEnabled` (`commands.go`), a Claude plugin's project in `claudePluginCommands` (`commands_claude.go`), `bridgesInUse` (`crossing.go`), the live and queued keys of `finishedTasks` and `queuedBriefs` (`evidence.go`) and `shellCommandOf` (`shell_messages.go`).
@@ -206,6 +207,9 @@ The host's protocol (a token handshake, then typed frames) is the same on every 
   Install turns on lingering (`loginctl enable-linger`), so the user manager, and the unit with it, starts at boot and stays up after the last logout, which a server reached over SSH needs.
   `goblins update` replaces a program by renaming the new file over it, which Linux allows while it runs.
   The uninstaller removes the programs, the `.desktop` entry and the unit, and turns lingering off again if install turned it on.
+- **One choice, macOS/Linux:** wherever Code Goblins is offered, the README's download control and badge, the install guide and the release notes, macOS and Linux are one entry, macOS/Linux, beside Windows, as the Overlord asked on 2026-11-19.
+  One `install.sh` serves both: it reads `uname` and installs the Linux archive for its architecture, or on a Mac the signed and notarized app for Apple silicon and Intel with its command line.
+  Where the Mac cannot yet do what Linux does, the entry says so in a few words rather than splitting the choice again.
 - **Not needed:** the setup window, the registry, Installed apps, shortcuts, elevation, Authenticode (the checksums remain; a signature for the archive can follow).
 - **Layer:** 8.
 
@@ -307,7 +311,7 @@ A layer's Linux code sits beside the Windows code under a build tag.
    Until layer 8 turns lingering on, the socket folder lasts only while the user is signed in.
    The primary registration names its process by instance, as the lock's record does (see [Process identity](#process-identity)).
    It comes in three pull requests: the primary transport and the registration by instance, then the run requests on a Unix socket with its peer check, then path comparison and the folders `internal/pathguard` guards.
-   Path comparison comes in two of its own: first the rule, `fsx.EqualPath`, `fsx.HasPathPrefix` and `fsx.PathKey`, which `fsx.SamePath` and `internal/pathguard` take, then the code that compares paths itself and moves to that rule, in three pull requests by package: the homes, worktrees and the reaper's path forms first, then the supervisor and the packages around it, then the rest with `cmd/goblins`.
+   Path comparison comes in two of its own: first the rule, `fsx.EqualPath`, `fsx.HasPathPrefix` and `fsx.PathKey`, which `fsx.SamePath` and `internal/pathguard` take, then the code that compares paths itself and moves to that rule, in four pull requests by package: the homes, worktrees and the reaper's path forms first, then the supervisor and the packages around it, then `cmd/goblins`, `internal/janitor`, `internal/layout`, `internal/doctor` and the `.git` names `internal/pathguard` finds below a root, then the rest.
    The host's socket comes with the native terminal in layer 5, since no host runs off Windows before it, and uses the run requests' folder and peer check.
 5. **The native terminal.** `internal/host` on a pseudo terminal, each host and the supervisor the launcher starts in a transient user scope of its own, the terminal kept off the cores left to the Overlord's own apps with `sched_setaffinity` and the core kinds read from `/sys`, `attach` and the onboarding menu in raw mode, and `spawn` launching on Linux.
    The terminal binding names its process by instance.
@@ -315,7 +319,7 @@ A layer's Linux code sits beside the Windows code under a build tag.
 6. **Watching and readings.** `inotify`, the memory and processor readings, priorities, the janitor's processes, the browser sign-in and the clipboard.
    The watcher's handover request names its requester by instance.
 7. **End to end.** The hooks without PowerShell, card commands and `!` messages in bash, folders opened with `xdg-open`, and a goblin run on Linux in CI under Claude Code, Codex and pi: spawn, send, peek, wake, pause, resume, gate and cleanup.
-8. **Installer and updater.** The release's Linux archives and `install.sh`, update and uninstall, the `.desktop` entry, the user unit and lingering, the board opening in the browser, and the README's download control and the install guide offering Linux beside Windows.
+8. **Installer and updater.** The release's Linux archives and Linux in the shared `install.sh` that 8m brings, update and uninstall, the `.desktop` entry, the user unit and lingering, the board opening in the browser, and the README's download control and the install guide offering macOS/Linux as one choice beside Windows.
    The updater's wait for the supervisor to exit names the supervisor by instance.
 9. **Dictation.** The speech engine's Linux library, pinned in `config/voice.json` beside the Windows one, and loaded through cgo or a pure-Go loader such as purego, whichever this layer chooses.
    If it takes cgo, the release's Linux build from layer 8 turns cgo on with it.
@@ -380,7 +384,7 @@ The sizes are added lines, measured against layer 3 part 1, which added 985 prog
 | 5, the native terminal | the pseudo terminal, raw mode, `SIGWINCH`, the host's emulator | the pty from `/dev/ptmx`, the launchd agent's `AbandonProcessGroup` in place of a systemd scope, background priority or the utility class in place of affinity, chosen by measuring both on the macOS runner, the cores' kinds from `sysctl` | 5 | about 200 program lines, 120 test lines |
 | 6, watching and readings | the reader's shape, `setpriority`, Chrome over DevTools | `kqueue`; memory and processors from the Mach host calls; the birth time; `setiopolicy_np`; Chrome in `/Applications`; `pbcopy` | 6 | about 350 program lines, 200 test lines |
 | 7, end to end | the hooks calling `goblins`, the run on CI under Claude Code, Codex and pi | cards in `sh`, `!` in the user's shell, folders opened with `open` | 7 | about 40 program lines, and the macOS runner in the end-to-end job |
-| 8 for macOS, installer, window and updater | the release's checksums, update by rename, the update's hold on the previous build | one universal disk image for Apple silicon and Intel holding the app with the window and the CLI, signed and notarized; start at sign-in as a launch agent; the Keychain; update and uninstall of the app | 8m, its own pull request, ahead of the Linux installer | about 600 program lines, 200 test lines, and the release job on a macOS runner |
+| 8 for macOS, installer, window and updater | the release's checksums, update by rename, the update's hold on the previous build | one universal disk image for Apple silicon and Intel holding the app with the window and the CLI, signed and notarized, which the shared `install.sh` installs on a Mac; start at sign-in as a launch agent; the Keychain; update and uninstall of the app | 8m, its own pull request, ahead of the Linux installer | about 600 program lines, 200 test lines, and the release job on a macOS runner |
 | 8 for Linux | | | 8, after 8m | nothing |
 | 9, dictation | the loader layer 9 chooses | the sherpa engine's universal library, the microphone permission, which the signed app asks for | 9 | about 80 program lines |
 | 10, the desktop CI runner | | | 10, Linux only | nothing: left out on macOS (see below) |
@@ -424,8 +428,9 @@ Nothing is dropped in silence: each of these but the last says what it lacks whe
 1. This plan.
 2. M1: macOS catches up to layer 3 part 1, with its CI job.
 3. Layers 3 part 2, 3 part 3, 4, 5, 6 and 7, each for Linux and macOS.
-4. 8m: the Mac installer, window and updater, signed and notarized.
-5. 8: the Linux installer.
+4. 8m: the Mac installer, window and updater, signed and notarized, with the `install.sh` Linux shares.
+5. 8: the Linux installer, in the same `install.sh`.
+   The one macOS/Linux entry says coming soon until both have landed.
 6. 9 and 10.
 
 ## How it was measured

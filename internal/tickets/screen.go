@@ -29,9 +29,12 @@ type Screen struct {
 
 var (
 	// localPath is a path on a machine rather than in a repository: a
-	// drive (C:\ or C:/), a network share, Git Bash's /c/, a home folder or
-	// a Windows profile folder by its variable.
-	localPath = regexp.MustCompile(`(?i)\b[a-z]:[\\/]|\\\\[\w.$-]+\\|(?:^|[\s"'(=\x60])(?:/[a-z]/|~[\\/])|%userprofile%|%appdata%|%localappdata%`)
+	// drive (C:\ or C:/), a network share, Git Bash's /c/, a home folder, a
+	// Linux or macOS folder that holds a user's or a machine's own files
+	// (/home/, /Users/, /root/, /tmp/, /var/folders/, /private/, /mnt/,
+	// /Volumes/), spelt in the case those systems give it, or a profile
+	// folder by its variable.
+	localPath = regexp.MustCompile(`(?i)\b[a-z]:[\\/]|\\\\[\w.$-]+\\|(?:^|[\s"'(=\x60])(?:/[a-z]/|~[\\/]|(?-i:/(?:home|Users|root|tmp|var/folders|private|mnt|Volumes)/))|(?-i:\$HOME\b|\$\{HOME\})|%userprofile%|%appdata%|%localappdata%`)
 	// mention is an @login; one inside an email address or a path is not.
 	mention = regexp.MustCompile(`(?:^|[^\w/.@-])@([A-Za-z0-9][A-Za-z0-9-]{0,38})\b`)
 )

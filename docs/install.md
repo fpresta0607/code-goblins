@@ -6,6 +6,8 @@ Setups already published with v0.4.0 through v0.5.4 still install their own rele
 Delete any older `CodeGoblinsSetup.exe` you kept and download the setup again from the latest release.
 For the common install choices and what they add, see [Install](../README.md#install).
 Use the setup if you want a window, the one line if you live in a terminal.
+macOS/Linux is one choice, coming soon: one line will install Code Goblins on either, the archive for your machine on Linux and the signed and notarized app on a Mac.
+[#2366](https://github.com/fpresta0607/code-goblins/issues/2366) follows it.
 
 ## To use it
 

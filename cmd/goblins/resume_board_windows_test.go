@@ -121,7 +121,7 @@ func TestBoardResumeRestoresDirectPRAndReportsForeignValidation(t *testing.T) {
 	runtime.taskLifecycle = func(ctx context.Context, _ home.Home, request lifecycle.Request, _ string) (state.Lifecycle, error) {
 		controller := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
 			Notify: func(record state.Lifecycle) error { return lifecycle.Report(h.State, record) },
-			Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
+			Resume: func(ctx context.Context, meta state.TaskMeta, prior *state.Lifecycle) error {
 				var commands execx.Runner = absentResumeGate{}
 				if meta.Mode == "no-mistakes" {
 					commands = refusingGateRunner{run: "foreign-run", intent: "ship safely"}

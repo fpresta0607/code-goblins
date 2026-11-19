@@ -128,7 +128,7 @@ func TestPauseReportsDetachedWindowsTeardownWithoutWaitingForTheHandle(t *testin
 				t.Fatalf("status hid teardown: %v %v", lines, err)
 			}
 			isResumed := false
-			service.Operations.Resume = func(_ context.Context, _ state.TaskMeta, prior state.Lifecycle) error {
+			service.Operations.Resume = func(_ context.Context, _ state.TaskMeta, prior *state.Lifecycle) error {
 				isResumed = len(prior.Teardown) == 1
 				return nil
 			}

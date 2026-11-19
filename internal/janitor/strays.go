@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
@@ -32,7 +31,7 @@ func (cfg Config) reportProjectsRoot(record *Record) {
 		return
 	}
 	path := filepath.Join(cfg.Home.State, knownName)
-	known, err := readKnown(path)
+	known, err := readKnown(path, cfg.ProjectsRoot)
 	if err != nil {
 		record.Notes = append(record.Notes, "the projects root's known entries could not be read: "+err.Error())
 		return
@@ -42,13 +41,12 @@ func (cfg Config) reportProjectsRoot(record *Record) {
 		known = map[string]bool{}
 	}
 	for _, entry := range entries {
-		name := strings.ToLower(entry.Name())
-		if known[name] {
+		full := filepath.Join(cfg.ProjectsRoot, entry.Name())
+		if known[fsx.PathKey(full)] {
 			continue
 		}
-		full := filepath.Join(cfg.ProjectsRoot, entry.Name())
 		if first {
-			known[name] = true
+			known[fsx.PathKey(full)] = true
 		}
 		if _, err := os.Stat(filepath.Join(full, ".git")); err == nil {
 			continue
@@ -69,7 +67,10 @@ func (cfg Config) reportProjectsRoot(record *Record) {
 	}
 }
 
-func readKnown(path string) (map[string]bool, error) {
+// readKnown reads the projects root's entries the janitor has seen, keyed by
+// fsx.PathKey of each one's path in root; writeKnown writes each key's name,
+// lowercase where root's file system ignores case, as before.
+func readKnown(path, root string) (map[string]bool, error) {
 	data, err := fsx.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -83,15 +84,15 @@ func readKnown(path string) (map[string]bool, error) {
 	}
 	known := make(map[string]bool, len(names))
 	for _, name := range names {
-		known[strings.ToLower(name)] = true
+		known[fsx.PathKey(filepath.Join(root, name))] = true
 	}
 	return known, nil
 }
 
 func writeKnown(path string, known map[string]bool) error {
 	names := make([]string, 0, len(known))
-	for name := range known {
-		names = append(names, name)
+	for key := range known {
+		names = append(names, filepath.Base(key))
 	}
 	sort.Strings(names)
 	data, err := json.MarshalIndent(names, "", "  ")

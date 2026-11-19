@@ -214,7 +214,6 @@ func TestToolRefusalMakesNoRepositoryInARepositoryFreeFolder(t *testing.T) {
 	}{
 		{"a nested repository's config", "Write", map[string]string{"file_path": filepath.Join(f.worktree, "vendor", "x", ".git", "config")}, true, true},
 		{"a link file of a repository", "Write", map[string]string{"file_path": filepath.Join(f.worktree, "vendor", "x", ".git")}, true, true},
-		{"in another case", "Edit", map[string]string{"file_path": filepath.Join(f.worktree, "src", ".GIT", "HEAD")}, true, true},
 		{"with a dot Windows drops", "Write", map[string]string{"file_path": filepath.Join(f.worktree, "src", ".git.", "HEAD")}, true, true},
 		{"with a space Windows drops", "Write", map[string]string{"file_path": filepath.Join(f.worktree, "src", ".git ", "HEAD")}, true, true},
 		{"as a folder's stream", "Write", map[string]string{"file_path": filepath.Join(f.worktree, "src", ".git::$INDEX_ALLOCATION", "HEAD")}, true, true},

@@ -253,9 +253,10 @@ func issueScreen(ctx context.Context, github tickets.GitHub, runtime commandRunt
 		}
 	}
 	text := strings.Join([]string{root.Title, root.Body, root.Evidence, root.Key}, "\n")
+	checkouts := filepath.Dir(checkout) + string(filepath.Separator)
 	for _, project := range tickets.Mentioned(text, projects) {
 		projectArg := project
-		if strings.EqualFold(project, filepath.Base(checkout)) {
+		if fsx.EqualPath(checkouts+filepath.Base(checkout), checkouts+project) {
 			projectArg = checkout
 		}
 		if !isPublicProject(ctx, github, runtime, projectArg) {

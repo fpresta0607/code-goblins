@@ -495,3 +495,63 @@ func TestPipelineAdmissionPublicDispatchAndRequiredArguments(t *testing.T) {
 		})
 	}
 }
+
+// A paused task's lifecycle keeps the run its pause saved for its resume, so
+// an admission for it is refused, with why, until it resumes (#2462).
+func TestPipelineAdmissionRefusesAPausedTask(t *testing.T) {
+	for _, operation := range []string{"validate-authored", "validate-terminal"} {
+		for _, test := range []struct {
+			name, phase                  string
+			isOlderGeneration, isRefused bool
+		}{
+			{name: "paused", phase: "paused", isRefused: true},
+			{name: "pausing", phase: "pausing", isRefused: true},
+			{name: "running", phase: "running"},
+			{name: "paused in an earlier generation", phase: "paused", isOlderGeneration: true},
+		} {
+			t.Run(operation+"/"+test.name, func(t *testing.T) {
+				// Arrange
+				h, root, fixture := admissionControllerStage(t)
+				meta, err := state.ReadTaskMeta(h.State, "task")
+				if err != nil {
+					t.Fatal(err)
+				}
+				generation := meta.SpawnGen
+				if test.isOlderGeneration {
+					generation = "earlier-" + generation
+				}
+				saved := state.Lifecycle{ID: meta.ID, Generation: generation, RequestGeneration: generation, Operation: "memory-pause", Action: "pause", Phase: test.phase, GateRun: "predecessor", GateIntent: "saved intent", GateHead: strings.Repeat("a", 40)}
+				if err := state.WriteLifecycle(h.State, saved); err != nil {
+					t.Fatal(err)
+				}
+				saved, err = state.ReadLifecycle(h.State, meta.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				data := controllerAdmission(t, meta, operation == "validate-terminal")
+				file := filepath.Join(h.Root, "admission.json")
+				if err := os.WriteFile(file, data, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				commands := &admissionCommands{worktree: fixture.worktree, branch: "feat/admission", admission: string(data), result: execx.Result{Stdout: []byte("launch_receipt:\n  run_id: child\n")}}
+
+				// Act
+				err = pipelineCommand(t.Context(), h, root, commands, []string{operation, "task", "--admission-file", file}, &bytes.Buffer{})
+
+				// Assert
+				if !test.isRefused {
+					if err != nil || len(commands.native) != 1 {
+						t.Fatalf("admission = %v with %d native calls, want it admitted", err, len(commands.native))
+					}
+					return
+				}
+				if err == nil || !strings.Contains(err.Error(), "task task is "+test.phase) || !strings.Contains(err.Error(), "goblins resume task") || len(commands.native) != 0 {
+					t.Fatalf("admission = %v with %d native calls, want a refusal naming the resume and no native call", err, len(commands.native))
+				}
+				if current, err := state.ReadLifecycle(h.State, meta.ID); err != nil || !reflect.DeepEqual(current, saved) {
+					t.Fatalf("lifecycle = %+v, %v; want the pause's record unchanged", current, err)
+				}
+			})
+		}
+	}
+}

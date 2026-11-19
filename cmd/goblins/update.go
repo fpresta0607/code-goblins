@@ -17,6 +17,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/cutover"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/installbase"
@@ -922,7 +923,7 @@ func homeServe(h home.Home) func(proc.Identity) error {
 }
 
 func sameHomePath(a, b string) bool {
-	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
+	return fsx.EqualPath(filepath.Clean(a), filepath.Clean(b))
 }
 
 // journalFolder is the folder of this home's build that the journal's update
@@ -955,7 +956,7 @@ func runsPreviousBuild(running serveProcess, journal *update.Journal) bool {
 func homeProgram(h home.Home, program string) bool {
 	directory := filepath.Clean(filepath.Dir(program))
 	for _, folder := range []string{h.Bin(), h.Root, update.Dir(h.State)} {
-		if strings.EqualFold(directory, filepath.Clean(folder)) {
+		if fsx.EqualPath(directory, filepath.Clean(folder)) {
 			return true
 		}
 	}
