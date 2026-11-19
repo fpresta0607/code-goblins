@@ -3,10 +3,13 @@ package monitor
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -50,11 +53,22 @@ func TestPollPageRecognisesOnlyALavishAxiPoll(t *testing.T) {
 	}
 }
 
+// A worktree spelled in another case is the goblin's exactly where the file
+// system opens a folder by its name in another case.
 func TestWorktreeTaskNamesTheGoblinWhoseWorktreeHoldsADirectory(t *testing.T) {
+	parent := t.TempDir()
+	if err := os.Mkdir(filepath.Join(parent, "worktrees"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := os.Stat(filepath.Join(parent, "WORKTREES"))
+	inAnotherCase := ""
+	if err == nil {
+		inAnotherCase = "Task-2"
+	}
 	for dir, want := range map[string]string{
 		`C:\dev\app\.worktrees\gb-task-1`:                           "task-1",
 		`C:\dev\app\.worktrees\gb-task-1\web\.lavish`:               "task-1",
-		`c:\DEV\app\.WORKTREES\GB-Task-2`:                           "Task-2",
+		`c:\DEV\app\.WORKTREES\GB-Task-2`:                           inAnotherCase,
 		`C:\dev\app\.worktrees\gb-outer\vendor\.worktrees\gb-inner`: "inner",
 		`C:\dev\app`:                                                  "",
 		`C:\dev\app\.worktrees\feature-branch`:                        "",
@@ -71,8 +85,8 @@ func TestWorktreeTaskNamesTheGoblinWhoseWorktreeHoldsADirectory(t *testing.T) {
 		`D:\CodeGoblins\worktrees\app\task-4\web`:                     "task-4",
 		`D:\CodeGoblins\scratch\task-4`:                               "",
 	} {
-		owners := map[string]string{strings.ToLower(`C:\home\worktrees\app\task-3-proof`): "task-3"}
-		if got := worktreeTask(owners, []string{`D:\CodeGoblins\worktrees`, `C:\home\worktrees`}, dir); got != want {
+		owners := map[string]string{fsx.PathKey(systemPath(`C:\home\worktrees\app\task-3-proof`)): "task-3"}
+		if got := worktreeTask(owners, []string{systemPath(`D:\CodeGoblins\worktrees`), systemPath(`C:\home\worktrees`)}, systemPath(dir)); got != want {
 			t.Errorf("worktreeTask(%q) = %q, want %q", dir, got, want)
 		}
 	}

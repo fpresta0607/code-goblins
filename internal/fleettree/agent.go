@@ -371,7 +371,7 @@ func callSubject(input json.RawMessage, cwd string) string {
 		Prompt      string `json:"prompt"`
 	}
 	_ = json.Unmarshal(input, &fields)
-	if cwd != "" && len(fields.FilePath) > len(cwd)+1 && strings.EqualFold(fields.FilePath[:len(cwd)], cwd) && strings.ContainsRune(`\/`, rune(fields.FilePath[len(cwd)])) {
+	if cwd != "" && len(fields.FilePath) > len(cwd)+1 && fsx.HasPathPrefix(fields.FilePath, cwd) && os.IsPathSeparator(fields.FilePath[len(cwd)]) {
 		fields.FilePath = fields.FilePath[len(cwd)+1:]
 	}
 	for _, subject := range []string{fields.Command, fields.FilePath, fields.Pattern, fields.URL, fields.Query, fields.Description, fields.Path, fields.Prompt} {

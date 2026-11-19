@@ -268,7 +268,16 @@ const (
 // for its project or for the fleet, by its file's name, its exact content and
 // the distribution whose RECORD installs it: that file passes in every later
 // environment, and one that differs in any of the three is still stopped.
+// A project or a file named in another case is the same exactly where the
+// file system that holds it opens a folder by its name in another case: the
+// project's, the folder its checkout is in.
 func TestUnacceptedLetsThroughOnlyTheStartHookTheCEOAccepted(t *testing.T) {
+	spellings := t.TempDir()
+	if err := os.Mkdir(filepath.Join(spellings, "shop"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := os.Stat(filepath.Join(spellings, "SHOP"))
+	isOnePath := err == nil
 	sum := sha256.Sum256([]byte(nspkgLine))
 	accepted := Acceptance{Project: "shop", File: nspkgFile, SHA256: hex.EncodeToString(sum[:]), Distribution: "zope.interface-6.4", Task: "shop-1", At: time.Now()}
 	zope := func(t *testing.T, site string) {
@@ -282,7 +291,8 @@ func TestUnacceptedLetsThroughOnlyTheStartHookTheCEOAccepted(t *testing.T) {
 		isPassed   bool
 	}{
 		{name: "accepted for its project", project: "shop", arrange: zope, isPassed: true},
-		{name: "accepted for its project, named in another case", project: "Shop", arrange: zope, isPassed: true},
+		{name: "accepted for its project, named in another case", project: "Shop", arrange: zope, isPassed: isOnePath},
+		{name: "accepted by its file's name in another case", acceptance: func(a Acceptance) Acceptance { a.File = strings.ToUpper(a.File); return a }, project: "shop", arrange: zope, isPassed: isOnePath},
 		{name: "accepted for the fleet, in another project", acceptance: func(a Acceptance) Acceptance { a.Project = ""; return a }, project: "garden", arrange: zope, isPassed: true},
 		{name: "accepted for another project", project: "garden", arrange: zope},
 		{name: "in a goblin whose project is unknown", arrange: zope},
@@ -325,8 +335,13 @@ func TestUnacceptedLetsThroughOnlyTheStartHookTheCEOAccepted(t *testing.T) {
 				t.Fatalf("hooks = %+v, %v, want the one start hook", hooks, err)
 			}
 
+			checkout := ""
+			if test.project != "" {
+				checkout = filepath.Join(spellings, test.project)
+			}
+
 			// Act
-			stopped, err := Unaccepted(stateDir, test.project, hooks)
+			stopped, err := Unaccepted(stateDir, checkout, hooks)
 
 			// Assert
 			if err != nil {

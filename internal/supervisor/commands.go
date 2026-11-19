@@ -436,7 +436,7 @@ func piCommandProjectTrusted(folder, agentDir, policy string) bool {
 	}
 	for current := canonical; ; current = filepath.Dir(current) {
 		for path, decision := range trust {
-			if decision != nil && strings.EqualFold(filepath.Clean(path), current) {
+			if decision != nil && fsx.EqualPath(current, filepath.Clean(path)) {
 				return *decision
 			}
 		}
@@ -485,7 +485,7 @@ func piResourceEnabled(path, base string, configured []string, profile string) b
 		for _, candidate := range candidates {
 			switch rule[0] {
 			case '+', '-':
-				if strings.EqualFold(piResourcePath(base, rule[1:], profile), candidate) {
+				if fsx.EqualPath(candidate, piResourcePath(base, rule[1:], profile)) {
 					if rule[0] == '+' {
 						isIncluded = true
 					} else {

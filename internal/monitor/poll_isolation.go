@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/axi"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // A poll is isolated only when its explicit state and port are independent,
@@ -102,7 +103,7 @@ func isolatedPagePoll(ctx context.Context, page string, environment []string) bo
 }
 
 func samePollPath(left, right string) bool {
-	if strings.EqualFold(filepath.Clean(left), filepath.Clean(right)) {
+	if fsx.EqualPath(filepath.Clean(left), filepath.Clean(right)) {
 		return true
 	}
 	leftInfo, leftErr := os.Stat(left)

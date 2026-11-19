@@ -291,7 +291,7 @@ func takeCustodyMutation(caller context.Context, dir string) (func() error, erro
 	if err != nil {
 		return nil, err
 	}
-	key = strings.ToLower(key)
+	key = fsx.PathKey(key)
 	ctx, cancel := awake.WithTimeout(caller, time.Duration(custodyMutationBudget.Load()))
 	defer cancel()
 	const name = custodyMutationName
