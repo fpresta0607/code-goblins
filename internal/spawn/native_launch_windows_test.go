@@ -21,8 +21,10 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/cutover/homesetting"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -879,7 +881,9 @@ func newNativeFixture(t *testing.T, kind harness.Kind, mode string) *nativeFixtu
 	if err != nil {
 		t.Fatal(err)
 	}
-	bin := t.TempDir()
+	// Inside the spawning home, which is not the user's: a goblin of such a
+	// home starts only a harness the home holds.
+	bin := makeDir(t, filepath.Join(f.service.HomeRoot, "bin"))
 	// Go's own removal refuses a name of the running test binary, which
 	// fsx's takes while the test binary's own name keeps the file.
 	standin.RemoveAtCleanup(t, bin)
@@ -1045,6 +1049,107 @@ func TestACheckThatRefusesBeforeLaunchLeavesNoTrace(t *testing.T) {
 		return strings.HasPrefix(line, "failed:") || strings.Contains(line, " failed:")
 	}) {
 		t.Fatalf("status log = %q, want no failure for a refused start", lines)
+	}
+}
+
+// A goblin of a scratch home whose PATH finds a harness outside the home,
+// as a gate's live check found the real pi behind the stand-in it meant to
+// run on 2026-11-05, is refused before its terminal launches, so the harness
+// never runs on the user's profile and spends nothing (#2094).
+func TestAScratchHomesSpawnRefusesAHarnessOutsideTheHome(t *testing.T) {
+	// Arrange
+	behind := linkACodexOutsideTheHome(t)
+	f := newQuickFixture(t)
+	putFirstOnPath(t, behind)
+	t.Setenv(RealHarnessVariable, "")
+	f.userEnv = append(f.userEnv, "GOBLINS_HOME="+t.TempDir())
+	// The premise: the user's environment names another home.
+	if users := usersHome(f.userEnv); users == "" || fsx.SamePath(users, f.service.HomeRoot) {
+		t.Fatalf("the user's environment names %q, want a home other than %s", users, f.service.HomeRoot)
+	}
+
+	// Act
+	_, err := f.service.Spawn(t.Context(), f.request)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), RealHarnessVariable+"=1") || !strings.Contains(err.Error(), behind) {
+		t.Fatalf("spawn = %v, want refused for the codex at %s with how to ask for it", err, behind)
+	}
+	if _, readErr := host.ReadRecord(f.stateDir, f.request.ID); !errors.Is(readErr, os.ErrNotExist) {
+		t.Fatalf("the refused start launched a terminal: %v", readErr)
+	}
+	if _, readErr := os.Stat(f.record); !errors.Is(readErr, os.ErrNotExist) {
+		t.Fatalf("the harness outside the home ran: %v", readErr)
+	}
+}
+
+// A goblin of the home the user's environment names, or of a scratch home
+// whose spawner asks for the real harness, starts the harness PATH finds
+// outside the home, as every installed goblin starts the real one.
+func TestASpawnStartsAHarnessOutsideTheHomeInTheUsersOwnHomeOrWhenAskedFor(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		// isUsersHome has the user's environment name the spawning home by
+		// GOBLINS_HOME, and another home otherwise.
+		isUsersHome bool
+		realHarness string
+	}{
+		{name: "the user's own home", isUsersHome: true},
+		{name: "a scratch home whose spawner asks for the real harness", realHarness: "1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			behind := linkACodexOutsideTheHome(t)
+			f := newQuickFixture(t)
+			putFirstOnPath(t, behind)
+			t.Setenv(RealHarnessVariable, test.realHarness)
+			users := t.TempDir()
+			if test.isUsersHome {
+				users = f.service.HomeRoot
+			}
+			f.userEnv = append(f.userEnv, "GOBLINS_HOME="+users)
+
+			// Act
+			_, err := f.service.Spawn(t.Context(), f.request)
+
+			// Assert
+			if err != nil {
+				t.Fatalf("Spawn: %v", err)
+			}
+			if _, found := f.terminal(); !found {
+				t.Error("the spawn started no terminal")
+			}
+			if submitted := named(f.events(t), "submitted"); len(submitted) != 1 {
+				t.Errorf("submitted = %+v, want the instruction once to the harness outside the home", submitted)
+			}
+		})
+	}
+}
+
+// linkACodexOutsideTheHome links a fake codex in a folder outside every home
+// and returns its path. A test links it before its native fixture, so the
+// fixture's cleanup ends the terminal before the folder goes.
+func linkACodexOutsideTheHome(t *testing.T) string {
+	t.Helper()
+	program, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	standin.RemoveAtCleanup(t, outside)
+	behind := filepath.Join(outside, "codex.exe")
+	if err := os.Link(program, behind); err != nil {
+		t.Fatalf("link the test binary as the codex outside the home: %v", err)
+	}
+	return behind
+}
+
+// putFirstOnPath puts the folder of the fake codex at path first on PATH.
+func putFirstOnPath(t *testing.T, path string) {
+	t.Helper()
+	t.Setenv("PATH", filepath.Dir(path)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if found, err := exec.LookPath("codex"); err != nil || !strings.EqualFold(found, path) {
+		t.Fatalf("codex resolves to %q, %v; want %s", found, err, path)
 	}
 }
 
@@ -2145,6 +2250,101 @@ func TestANativeTerminalStartsEachHarnessAsItsProgramNeeds(t *testing.T) {
 		if program, err := nativeProgram(harness.Pi, harness.Launch{Executable: "pi", Args: []string{arg}}); err == nil {
 			t.Errorf("pi with %q = %q, want refused", arg, program)
 		}
+	}
+}
+
+// A goblin's terminal starts from the user's own environment, so its harness
+// runs on his profile and his sign-in. A home other than the one that
+// environment names starts only a stand-in it holds itself: a harness PATH
+// finds outside it, the real one behind a stand-in PATH did not put first, is
+// refused with why, unless the spawner asks for the real one (#2094).
+func TestAGoblinOfAnotherHomeStartsOnlyAHarnessInsideItUnlessAskedForTheRealOne(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		// isInside puts the harness PATH finds inside the spawning home.
+		isInside bool
+		// usersHome is the home the user's environment names: "own" for the
+		// spawning home by GOBLINS_HOME, "default" for it as the per-user
+		// home under LOCALAPPDATA, "old" for it by the name a release before
+		// the rename set, and "other" for another home.
+		usersHome   string
+		realHarness string
+		shouldStart bool
+	}{
+		{name: "a harness outside a scratch home", usersHome: "other"},
+		{name: "a real harness asked for with a value other than 1", usersHome: "other", realHarness: "yes"},
+		{name: "a stand-in inside a scratch home", isInside: true, usersHome: "other", shouldStart: true},
+		{name: "the real harness a scratch home's spawner asks for", usersHome: "other", realHarness: "1", shouldStart: true},
+		{name: "the harness of the user's own home", usersHome: "own", shouldStart: true},
+		{name: "the harness of the user's per-user home", usersHome: "default", shouldStart: true},
+		{name: "the harness of the home an older release named", usersHome: "old", shouldStart: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			local := makeDir(t, t.TempDir())
+			root := makeDir(t, filepath.Join(local, "CodeGoblins"))
+			bin := makeDir(t, t.TempDir())
+			if test.isInside {
+				bin = makeDir(t, filepath.Join(root, "bin"))
+			}
+			writeFile(t, filepath.Join(bin, "codex.cmd"), "@echo off\r\n")
+			t.Setenv("PATH", bin)
+			t.Setenv("ComSpec", `C:\Windows\System32\cmd.exe`)
+			t.Setenv(RealHarnessVariable, test.realHarness)
+			userEnv := map[string][]string{
+				"own":     {"GOBLINS_HOME=" + root, "LOCALAPPDATA=" + t.TempDir()},
+				"default": {"LOCALAPPDATA=" + local},
+				"old":     {homesetting.Old + "=" + root},
+				"other":   {"GOBLINS_HOME=" + t.TempDir(), "LOCALAPPDATA=" + local + "-other"},
+			}[test.usersHome]
+			service := Service{HomeRoot: root, StateDir: filepath.Join(root, "state")}
+
+			// Act
+			program, err := service.goblinProgram(harness.Codex, harness.Launch{Executable: "codex", Args: []string{"--model", "gpt-6-astra"}}, userEnv)
+
+			// Assert
+			want := []string{`C:\Windows\System32\cmd.exe`, "/c", filepath.Join(bin, "codex.cmd"), "--model", "gpt-6-astra"}
+			if test.shouldStart {
+				if err != nil || !slices.Equal(program, want) {
+					t.Errorf("program = %q, %v; want %q", program, err, want)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("program = %q, want refused", program)
+			}
+			for _, says := range []string{filepath.Join(bin, "codex.cmd"), root, "real model allowance", RealHarnessVariable + "=1"} {
+				if !strings.Contains(err.Error(), says) {
+					t.Errorf("refusal %q does not say %q", err, says)
+				}
+			}
+		})
+	}
+}
+
+// A junction inside a scratch home to a folder outside it is outside the
+// home: the harness PATH finds through it is the program outside, which
+// still reads the user's profile.
+func TestAJunctionInsideAScratchHomeToAHarnessOutsideItIsRefused(t *testing.T) {
+	// Arrange
+	root := makeDir(t, t.TempDir())
+	outside := makeDir(t, t.TempDir())
+	writeFile(t, filepath.Join(outside, "codex.cmd"), "@echo off\r\n")
+	bin := filepath.Join(root, "bin")
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", bin, outside).CombinedOutput(); err != nil {
+		t.Fatalf("mklink /J: %v: %s", err, out)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("ComSpec", `C:\Windows\System32\cmd.exe`)
+	t.Setenv(RealHarnessVariable, "")
+	service := Service{HomeRoot: root, StateDir: filepath.Join(root, "state")}
+
+	// Act
+	program, err := service.goblinProgram(harness.Codex, harness.Launch{Executable: "codex"}, []string{"GOBLINS_HOME=" + t.TempDir()})
+
+	// Assert
+	if err == nil {
+		t.Errorf("program = %q, want refused", program)
 	}
 }
 
