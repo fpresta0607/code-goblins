@@ -218,15 +218,15 @@ func holdFile(path string) (*os.File, error) {
 	return os.NewFile(uintptr(handle), path), nil
 }
 
-// writeBeside writes content to a new file in path's folder and renames it
-// over path.
+// writeBeside writes content to a new file in path's folder, flushes it to
+// disk, and renames it over path.
 func writeBeside(path string, content []byte) error {
 	file, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
 	if err != nil {
 		return err
 	}
 	_, writeErr := file.Write(content)
-	if err := errors.Join(writeErr, file.Close()); err != nil {
+	if err := errors.Join(writeErr, file.Sync(), file.Close()); err != nil {
 		os.Remove(file.Name())
 		return err
 	}

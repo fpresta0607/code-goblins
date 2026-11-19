@@ -81,7 +81,7 @@ func (s *Service) writePush(record pushRecord) error {
 	if err := auth.WriteSecretFile(staged, ""); err != nil {
 		return err
 	}
-	if err := os.WriteFile(staged, data, 0o600); err != nil {
+	if err := fsx.WriteFileSynced(staged, data, 0o600); err != nil {
 		return err
 	}
 	return os.Rename(staged, path)

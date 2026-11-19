@@ -339,7 +339,7 @@ func (c Config) Apply(ctx context.Context) (result ApplyResult, err error) {
 	if err := auth.WriteSecretFile(name, ""); err != nil {
 		return result, err
 	}
-	if err := os.WriteFile(name, after, 0600); err != nil {
+	if err := fsx.WriteFileSynced(name, after, 0600); err != nil {
 		return result, err
 	}
 	// Detect an operator edit that raced the backup; never overwrite that edit.

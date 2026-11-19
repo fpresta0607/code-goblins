@@ -224,7 +224,7 @@ func copyReadOnly(source, destination string) error {
 	if err := unstage(); err != nil {
 		return err
 	}
-	if err := os.WriteFile(staged, data, 0o400); err != nil {
+	if err := fsx.WriteFileSynced(staged, data, 0o400); err != nil {
 		return errors.Join(err, unstage())
 	}
 	if err := os.Rename(staged, destination); err != nil {

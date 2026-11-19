@@ -58,8 +58,15 @@ var stages atomic.Int64
 // through AtomicWriteFile included. A test holds a path under a lock to none.
 func Stages() int64 { return stages.Load() }
 
+// syncFile is (*os.File).Sync, which a test replaces to see the flush come
+// before the close and the rename.
+var syncFile = (*os.File).Sync
+
 // Stage writes data to a temporary file in path's directory, for Commit to
-// put in path's place.
+// put in path's place. The data is flushed to disk before the file closes:
+// NTFS can journal the rename before it writes data still cached, and a
+// machine that stopped in between came back with each file it had replaced
+// at full length and holding only zero bytes.
 func Stage(path string, data []byte) (*Staged, error) {
 	stages.Add(1)
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".goblins-tmp-*")
@@ -67,12 +74,25 @@ func Stage(path string, data []byte) (*Staged, error) {
 		return nil, err
 	}
 	_, werr := tmp.Write(data)
+	serr := syncFile(tmp)
 	cerr := tmp.Close()
-	if err := errors.Join(werr, cerr); err != nil {
+	if err := errors.Join(werr, serr, cerr); err != nil {
 		os.Remove(tmp.Name())
 		return nil, err
 	}
 	return &Staged{temp: tmp.Name(), path: path}, nil
+}
+
+// WriteFileSynced is os.WriteFile that flushes data to disk before the file
+// closes, for a file written whole and then renamed over another, as Stage
+// writes one.
+func WriteFileSynced(path string, data []byte, perm os.FileMode) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+	_, werr := file.Write(data)
+	return errors.Join(werr, syncFile(file), file.Close())
 }
 
 // Commit puts the staged file in its place, replacing what is there, and

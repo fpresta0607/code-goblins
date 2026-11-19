@@ -341,7 +341,12 @@ func unpack(archive, dir string, files []string) (map[string]int64, error) {
 		if err != nil {
 			return nil, err
 		}
+		// Each file is flushed before the folder is renamed into place, so a
+		// machine that stops after the rename finds the files whole.
 		size, err := io.Copy(out, entries)
+		if err == nil {
+			err = out.Sync()
+		}
 		if closeErr := out.Close(); err == nil {
 			err = closeErr
 		}
