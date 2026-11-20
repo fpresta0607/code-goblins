@@ -68,6 +68,37 @@ func TestSendNowEditAndCancelRefuseAMessageAStreamGoblinHolds(t *testing.T) {
 	}
 }
 
+// Claude Code on stream-json pipes holds what it queues itself and gives it
+// back to nothing, so a command he sends now behind his words a stream goblin
+// holds cannot go ahead of them: his Send now on it, which the board's words
+// between them offer, is refused, saying it runs when its turn ends, and his
+// words stay held (#2759).
+func TestSendNowOnACommandBehindHisWordsAStreamGoblinHoldsIsRefused(t *testing.T) {
+	// Arrange
+	store, service, _ := streamGoblinHolding(t, true)
+	meta, err := state.ReadTaskMeta(store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	messageTo(t, store, meta, "m2", "more words")
+	messageTo(t, store, meta, "m3", "/compact")
+	if offered := actionOf(store, "m3"); !offered.CanSendNow {
+		t.Fatalf("the command = %+v; want Send now offered while the words ahead of it on the board offer it", offered)
+	}
+
+	// Act
+	pressed := sendNow(service, "task-1", "m3")
+	refused, words := actionOf(store, "m3"), actionOf(store, "m1")
+
+	// Assert
+	if pressed.Code != 409 || !strings.Contains(pressed.Body.String(), commandWaits) || refused.IsSentNow {
+		t.Errorf("Send now = %d %s, the command = %+v; want it refused, saying the command runs when its turn ends", pressed.Code, pressed.Body, refused)
+	}
+	if !isHarnessHeld(words) {
+		t.Errorf("his words = %+v; want them still held in the goblin's own queue", words)
+	}
+}
+
 // A message a stream goblin holds waits for as long as its host's state
 // shows the turn, with no screen to read, and warns only once Claude Code
 // waits for a line without having taken it (#2374).
