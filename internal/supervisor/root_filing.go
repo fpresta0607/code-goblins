@@ -61,7 +61,7 @@ func (s *Service) fileRepeatedErrors(err error, now time.Time) {
 		s.errorClassesMet, s.errorClassesFiled = map[string]time.Time{}, map[string]bool{}
 	}
 	for _, line := range strings.Split(err.Error(), "\n") {
-		class := tickets.ErrorClass(line, goblins)
+		class := tickets.ErrorClass(line, s.Store.Home.State, goblins)
 		if class == "" || tickets.IsLostConnection(line) {
 			continue
 		}

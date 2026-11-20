@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // Service is a machine-wide service a goblin may start for its work but that
@@ -37,9 +39,9 @@ func ServiceOf(exeBase string, arguments []string) Service {
 	case name == "no-mistakes" && len(arguments) > 1 && strings.EqualFold(arguments[1], "daemon"):
 		return GateDaemon
 	case name == "node" && len(arguments) > 2 && arguments[2] == "server":
-		script := strings.ToLower(strings.ReplaceAll(arguments[1], `\`, "/"))
+		script := strings.ReplaceAll(arguments[1], `\`, "/")
 		for _, known := range pageServerScripts {
-			if strings.HasSuffix(script, known) {
+			if len(script) >= len(known) && fsx.EqualPath(script, script[:len(script)-len(known)]+known) {
 				return PageServer
 			}
 		}

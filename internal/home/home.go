@@ -143,6 +143,12 @@ type DevDriveConfig struct {
 	// VHD is the file the create step made the Dev Drive in, which the
 	// attach step attaches again.
 	VHD string `json:"vhd,omitempty"`
+	// GateCarryFailed is why the board's own carry of the gate's home last
+	// failed for a reason other than a busy gate, and GateCarryFailedAt
+	// when: the board starts it again only once the person asks after it,
+	// across a restart of the board too.
+	GateCarryFailed   string    `json:"gate_carry_failed,omitempty"`
+	GateCarryFailedAt time.Time `json:"gate_carry_failed_at,omitzero"`
 }
 
 // The answers to the offer of a Dev Drive.

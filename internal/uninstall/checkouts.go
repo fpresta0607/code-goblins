@@ -55,7 +55,7 @@ func (m Machine) knownCheckouts(worktrees []goblinWorktree) ([]string, error) {
 			return
 		}
 		path = filepath.Clean(path)
-		if !slices.ContainsFunc(checkouts, func(known string) bool { return strings.EqualFold(known, path) }) {
+		if !slices.ContainsFunc(checkouts, func(known string) bool { return fsx.EqualPath(known, path) }) {
 			if isThere, _ := there(filepath.Join(path, ".git")); isThere {
 				checkouts = append(checkouts, path)
 			}

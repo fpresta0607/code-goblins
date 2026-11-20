@@ -19,6 +19,11 @@ func MachineGPU() (GPU, error) {
 	return GPU{}, ErrNoGPU
 }
 
+// MachineKernel is read only on Windows, the fleet's platform.
+func MachineKernel() (Kernel, error) {
+	return Kernel{}, errors.New("the kernel's tokens and pools are read only on Windows")
+}
+
 // PoolTags is read only on Windows, the fleet's platform.
 func PoolTags() ([]PoolTag, error) {
 	return nil, errors.New("the kernel's pool tags are read only on Windows")

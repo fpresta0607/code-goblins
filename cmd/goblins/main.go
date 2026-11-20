@@ -265,6 +265,9 @@ type commandRuntime struct {
 	// readDevDrive reads what this machine says about Dev Drives, for goblins
 	// dev-drive and goblins doctor.
 	readDevDrive func(context.Context) (devdrive.Machine, error)
+	// readKernel reads the kernel's access tokens and pools, for goblins
+	// doctor.
+	readKernel func() (supervisor.Kernel, error)
 	// gateHome is where the gate's home is now (gatehome.Root), and
 	// carryGateHome moves it into a Dev Drive folder (carryGateHome), for
 	// goblins dev-drive, goblins doctor, goblins install and the board's gate step.
@@ -547,6 +550,7 @@ func defaultCommandRuntime() commandRuntime {
 		},
 		projectsRoot:  install.MachineProjectsRoot,
 		readDevDrive:  func(ctx context.Context) (devdrive.Machine, error) { return devdrive.Read(ctx, execx.OSRunner{}) },
+		readKernel:    supervisor.MachineKernel,
 		gateHome:      gatehome.Root,
 		carryGateHome: carryGateHome,
 		restartBoard:  restartBoardOntoTheDrive,

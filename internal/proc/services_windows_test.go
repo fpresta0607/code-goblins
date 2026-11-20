@@ -107,3 +107,12 @@ func TestTreeOfCountsOnlyAServiceInTheTree(t *testing.T) {
 		})
 	}
 }
+
+// Windows names the Scrawl server's script in any case, so this spelling is
+// the server there.
+func TestServiceOfKnowsTheScrawlServerByItsWindowsScript(t *testing.T) {
+	exe, arguments := "NODE.EXE", []string{"node", "C:/Users/o/AppData/Roaming/npm/node_modules/Lavish-Axi/dist/server.mjs", "server"}
+	if got := ServiceOf(exe, arguments); got != PageServer {
+		t.Errorf("ServiceOf(%q, %q) = %d, want %d", exe, arguments, got, PageServer)
+	}
+}

@@ -258,12 +258,14 @@ func sortKeys(keys []Key) {
 
 // WriteSecretFile writes content that contains credentials: 0600 plus an
 // owner-only ACL on Windows, where the permission bits alone do nothing. Use
-// it for anything derived from the store that has to land on disk.
+// it for anything derived from the store that has to land on disk. The data
+// is flushed to disk before it returns, since a caller renames it over
+// another file.
 func WriteSecretFile(path, content string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+	if err := fsx.WriteFileSynced(path, []byte(content), 0o600); err != nil {
 		return err
 	}
 	return restrictToOwner(path)

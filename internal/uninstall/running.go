@@ -2,10 +2,12 @@ package uninstall
 
 import (
 	"cmp"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 )
 
@@ -106,12 +108,12 @@ func classify(program Running, hosts map[int]string, fromFolders bool) ownedProg
 	return ownedProgram{Running: program, kind: kindProgram, what: "a program a goblin started, " + name}
 }
 
-// within reports whether path is folder or under it, without regard to case,
-// as Windows compares paths.
+// within reports whether path is folder or under it, by the file system's
+// case rule and separators.
 func within(path, folder string) bool {
 	path, folder = filepath.Clean(path), filepath.Clean(folder)
-	if strings.EqualFold(path, folder) {
+	if fsx.EqualPath(path, folder) {
 		return true
 	}
-	return len(path) > len(folder) && strings.EqualFold(path[:len(folder)], folder) && (path[len(folder)] == '\\' || path[len(folder)] == '/' || strings.HasSuffix(folder, `\`))
+	return len(path) > len(folder) && fsx.HasPathPrefix(path, folder) && (os.IsPathSeparator(path[len(folder)]) || os.IsPathSeparator(folder[len(folder)-1]))
 }

@@ -52,7 +52,7 @@ func TestTheFilesTheOldBuildWroteInAHarnessTakeTheirNewNames(t *testing.T) {
 		{"settings.json." + oldName + "-install.bak", "settings.json." + newName + "-install.bak"},
 		{"settings.json", "settings.json"},
 	} {
-		if got := r.renamedFile(test.old); got != test.want {
+		if got := r.renamedFile(test.old, true); got != test.want {
 			t.Errorf("renamedFile(%q) = %q, want %q", test.old, got, test.want)
 		}
 	}

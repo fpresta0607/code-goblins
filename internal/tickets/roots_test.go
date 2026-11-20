@@ -153,7 +153,7 @@ func TestTwoGoblinsMeetingOneErrorFileOneIssueAndOneSighting(t *testing.T) {
 	// Act
 	var filings []FiledRoot
 	for _, line := range []string{"progress for cg-remote-toggle: context deadline exceeded", "progress for cg-goblin-typing-and-header: context deadline exceeded"} {
-		root := RepeatedErrorRoot(ErrorClass(line, tasks), "First met 2026-10-14 17:40Z, met again 2026-10-14 18:45Z.")
+		root := RepeatedErrorRoot(ErrorClass(line, t.TempDir(), tasks), "First met 2026-10-14 17:40Z, met again 2026-10-14 18:45Z.")
 		filed, err := github.FileRoot(context.Background(), rootRepository, rootRepository, root, rootNow)
 		if err != nil {
 			t.Fatal(err)
