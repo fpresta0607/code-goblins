@@ -134,50 +134,53 @@ func issueRepository(ctx context.Context, h home.Home, repositoryOf func(context
 }
 
 // openTaskIssues names, as owner/name#N, each issue a task names that is
-// still open on GitHub: an issue its brief names, one its branch's gate runs
-// were started to close and one its pull requests name. An issue or a pull
-// request that cannot be read is an error, never an issue taken as closed. A
-// project checkout gone leaves the task's bare issue numbers no repository,
-// and a worktree no longer on a branch leaves its gate runs unread.
-func openTaskIssues(h home.Home, github tickets.GitHub, gate pipeline.Reader) func(context.Context, state.TaskMeta) ([]string, error) {
-	return func(ctx context.Context, meta state.TaskMeta) ([]string, error) {
+// still open on GitHub, and apart each one GitHub reports gone: an issue its
+// brief names, one its branch's gate runs were started to close and one its
+// pull requests name. An issue or a pull request that cannot be read is an
+// error, and a gone issue is never one taken as closed. A project checkout
+// gone leaves the task's bare issue numbers no repository, and a worktree no
+// longer on a branch leaves its gate runs unread.
+func openTaskIssues(h home.Home, github tickets.GitHub, gate pipeline.Reader) func(context.Context, state.TaskMeta) (open, gone []string, err error) {
+	return func(ctx context.Context, meta state.TaskMeta) (open, gone []string, err error) {
 		task := namingTask{ID: meta.ID}
 		if _, err := os.Stat(meta.Project); err == nil {
 			if task.Repository, err = issueRepository(ctx, h, github.RepositoryOf, meta.Project); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		} else if !errors.Is(err, fs.ErrNotExist) {
-			return nil, err
+			return nil, nil, err
 		}
 		brief, err := taskBrief(h, meta.ID, meta.Brief)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		task.Brief = brief
 		if task.Closes, err = gateClosingIssues(ctx, github.Commands, gate, meta); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if task.PullRequests, err = taskPullRequests(h.State, meta.ID); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		pullIssues, unread, err := github.PullRequestIssues(ctx, task.PullRequests)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if len(unread) > 0 {
-			return nil, fmt.Errorf("GitHub shows no pull request at %s", strings.Join(unread, ", "))
+			return nil, nil, fmt.Errorf("GitHub shows no pull request at %s", strings.Join(unread, ", "))
 		}
-		var open []string
 		for _, issue := range task.issues(pullIssues) {
 			issueState, err := github.IssueState(ctx, issue.Repository, issue.Number)
 			if err != nil {
-				return nil, fmt.Errorf("read %s: %w", issue, err)
+				return nil, nil, fmt.Errorf("read %s: %w", issue, err)
 			}
-			if issueState == "open" {
+			switch issueState {
+			case "open":
 				open = append(open, issue.String())
+			case "missing":
+				gone = append(gone, issue.String())
 			}
 		}
-		return open, nil
+		return open, gone, nil
 	}
 }
 

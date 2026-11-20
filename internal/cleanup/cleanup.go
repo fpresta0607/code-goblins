@@ -88,21 +88,23 @@ type Service struct {
 	// whose gate cannot be read, is refused before anything changes: retired,
 	// the task would leave its run going on for nobody. Nil reads none.
 	OpenGateRun func(ctx context.Context, meta state.TaskMeta) (string, error)
-	// OpenIssues names each issue the task names that is still open, by its
+	// OpenIssues names each issue the task names that is still open, and apart
+	// each one GitHub reports gone, as one deleted or never filed, each by its
 	// address owner/name#N, and nothing for an issue that is closed or a task
 	// that names none. A task's work is not settled while an issue it names is
-	// open, since the issue then still asks for work nobody is doing, so every
+	// open, since the issue then still asks for work nobody is doing, nor while
+	// one is gone, since nothing then shows that its work was done, so every
 	// retirement, a force archive and an empty folder's included, asks it
-	// first, and one that finds an issue open that the CEO has not kept open
-	// with KeepOpen, or whose issues cannot be read, is refused before
-	// anything changes. Nil reads none.
-	OpenIssues func(ctx context.Context, meta state.TaskMeta) ([]string, error)
-	// KeepOpen are the open issues, each by its address owner/name#N, that the
-	// CEO retires the task with anyway, and KeepReason is why: an issue that
-	// stays open on purpose, as one whose work another task carries on. The
-	// task's status log records each with the reason, so the issue left open is
-	// never a silent one. A keep naming an issue that is not open, or given with
-	// no reason, refuses the cleanup.
+	// first, and one that finds an issue open or gone that the CEO has not
+	// kept open with KeepOpen, or whose issues cannot be read, is refused
+	// before anything changes. Nil reads none.
+	OpenIssues func(ctx context.Context, meta state.TaskMeta) (open, gone []string, err error)
+	// KeepOpen are the open or gone issues, each by its address owner/name#N,
+	// that the CEO retires the task with anyway, and KeepReason is why: an
+	// issue that stays open on purpose, as one whose work another task carries
+	// on. The task's status log records each with the reason, so the issue
+	// left open is never a silent one. A keep naming an issue that is neither
+	// open nor gone refuses the cleanup.
 	KeepOpen   []string
 	KeepReason string
 }
@@ -416,55 +418,71 @@ func (s Service) requireGateRunEnded(ctx context.Context, meta state.TaskMeta) e
 	return nil
 }
 
-// requireIssuesSettled refuses a task that names an issue that is still open,
-// or whose issues cannot be read, before anything changes, unless the CEO keeps
-// that issue open with a reason, and returns the open issues the CEO keeps open,
-// each as the address OpenIssues spelled it. A keep that names no open issue is
-// a mistake to show, never one to ignore: it would otherwise sit beside a
-// retirement that its words never reached. Addresses compare without regard to
-// case, as GitHub spells an owner and a repository.
+// requireIssuesSettled refuses a task that names an issue that is still open
+// or gone, or whose issues cannot be read, before anything changes, unless the
+// CEO keeps that issue open with a reason, and returns the issues the CEO
+// keeps open, each as the address OpenIssues spelled it. A keep that names no
+// open or gone issue is a mistake to show, never one to ignore: it would
+// otherwise sit beside a retirement that its words never reached. Addresses
+// compare without regard to case, as GitHub spells an owner and a repository.
 func (s Service) requireIssuesSettled(ctx context.Context, meta state.TaskMeta) (kept []string, err error) {
 	if s.OpenIssues == nil {
 		return nil, nil
 	}
-	open, err := s.OpenIssues(ctx, meta)
+	open, gone, err := s.OpenIssues(ctx, meta)
 	if err != nil {
 		return nil, fmt.Errorf("cleanup: the issues %s names cannot be read, so nothing was removed, and the cleanup can run again once they can: %w", meta.ID, err)
 	}
-	if len(s.KeepOpen) > 0 && strings.TrimSpace(s.KeepReason) == "" {
-		return nil, fmt.Errorf("cleanup: keeping %s open needs a reason, so nothing was removed: give it with --reason \"<why>\"", strings.Join(s.KeepOpen, ", "))
-	}
+	unsettled := append(slices.Clip(open), gone...)
 	for _, keep := range s.KeepOpen {
-		if !slices.ContainsFunc(open, func(issue string) bool { return strings.EqualFold(issue, keep) }) {
-			return nil, fmt.Errorf("cleanup: %s is not an issue %s names that is open, so nothing was removed; its open issues are %s", keep, meta.ID, openIssueList(open))
+		if !slices.ContainsFunc(unsettled, func(issue string) bool { return strings.EqualFold(issue, keep) }) {
+			return nil, fmt.Errorf("cleanup: %s is not an issue %s names that is open or gone, so nothing was removed; its open or gone issues are %s", keep, meta.ID, unsettledIssueList(unsettled))
 		}
 	}
-	var unsettled []string
+	isKept := func(issue string) bool {
+		return slices.ContainsFunc(s.KeepOpen, func(keep string) bool { return strings.EqualFold(issue, keep) })
+	}
+	var openLeft, goneLeft []string
 	for _, issue := range open {
-		if !slices.ContainsFunc(s.KeepOpen, func(keep string) bool { return strings.EqualFold(issue, keep) }) {
-			unsettled = append(unsettled, issue)
-			continue
+		if isKept(issue) {
+			kept = append(kept, issue)
+		} else {
+			openLeft = append(openLeft, issue)
 		}
-		kept = append(kept, issue)
 	}
-	if len(unsettled) > 0 {
-		return nil, fmt.Errorf("cleanup: %s names the open issue(s) %s, so nothing was removed: close each once its work is on its project's main, or retire the task with it open by goblins cleanup %s --keep-issue-open <issue> --reason \"<why>\"", meta.ID, strings.Join(unsettled, ", "), meta.ID)
+	for _, issue := range gone {
+		if isKept(issue) {
+			kept = append(kept, issue)
+		} else {
+			goneLeft = append(goneLeft, issue+" (gone on GitHub)")
+		}
+	}
+	var named []string
+	if len(openLeft) > 0 {
+		named = append(named, "the open issue(s) "+strings.Join(openLeft, ", "))
+	}
+	if len(goneLeft) > 0 {
+		named = append(named, "the issue(s) "+strings.Join(goneLeft, ", "))
+	}
+	if len(named) > 0 {
+		return nil, fmt.Errorf("cleanup: %s names %s, so nothing was removed: close each open issue once its work is on its project's main, or retire the task with an open or gone issue by goblins cleanup %s --keep-issue-open <issue> --reason \"<why>\"", meta.ID, strings.Join(named, " and "), meta.ID)
 	}
 	return kept, nil
 }
 
-// openIssueList says which issues are open, for a refusal that shows what a
-// keep could have named.
-func openIssueList(open []string) string {
-	if len(open) == 0 {
+// unsettledIssueList says which issues are open or gone, for a refusal that
+// shows what a keep could have named.
+func unsettledIssueList(unsettled []string) string {
+	if len(unsettled) == 0 {
 		return "none"
 	}
-	return strings.Join(open, ", ")
+	return strings.Join(unsettled, ", ")
 }
 
-// recordKeptIssues records in the task's status log each open issue the task
-// retires with, and why, and says so for the cleanup's output. It runs after
-// every check has passed, just before the line that records the retirement.
+// recordKeptIssues records in the task's status log each open or gone issue
+// the task retires with, and why, and says so for the cleanup's output. It
+// runs after every check has passed, just before the line that records the
+// retirement.
 func (s Service) recordKeptIssues(id string, kept []string) (string, error) {
 	// A reason is one line in a log of lines, so a line break in it cannot
 	// start a status line of its own.

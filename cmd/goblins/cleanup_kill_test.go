@@ -7,10 +7,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
@@ -191,6 +193,82 @@ func TestKillStillArchivesThroughItsOwnCleanup(t *testing.T) {
 			t.Errorf("%s is still held after the kill: %v", name, err)
 		}
 	}
+}
+
+// goblins cleanup reads the issues its task names through the production
+// service, refusing while one is open and retiring the task with it kept open
+// for a reason the status log records, while goblins kill, which stops work
+// unfinished, reads none, so it retires a task whose issues cannot be read.
+func TestCleanupChecksTheIssuesItsTaskNamesAndKillDoesNot(t *testing.T) {
+	const issue = "acme/widgets#7"
+	withOpenIssue := func(t *testing.T) (home.Home, state.TaskMeta) {
+		t.Helper()
+		h, meta := killedTask(t)
+		writeFixtureFile(t, filepath.Join(h.Data, meta.ID, "brief.md"), "# Brief g1\n\n## Task\n\nFix https://github.com/acme/widgets/issues/7.\n")
+		return h, meta
+	}
+	github := githubtest.Client(taskIssuesGitHub{states: map[string]string{issue: "open"}})
+
+	t.Run("goblins cleanup refuses while the issue is open", func(t *testing.T) {
+		// Arrange
+		h, meta := withOpenIssue(t)
+
+		// Act
+		_, err := defaultCleanup(t.Context(), h, cleanupRequest{ID: meta.ID, ShouldCheckIssues: true}, github)
+
+		// Assert
+		if err == nil || !strings.Contains(err.Error(), "names the open issue(s) "+issue) {
+			t.Fatalf("the cleanup = %v, want a refusal naming %s", err, issue)
+		}
+		if _, err := state.ReadTaskMeta(h.State, meta.ID); err != nil {
+			t.Errorf("the task record after a refused cleanup: %v, want it kept", err)
+		}
+	})
+	t.Run("goblins cleanup retires the task with the issue kept open and records why", func(t *testing.T) {
+		// Arrange
+		h, meta := withOpenIssue(t)
+		request := cleanupRequest{ID: meta.ID, ShouldCheckIssues: true, KeepOpen: []string{issue}, KeepReason: "task g2 carries it on"}
+
+		// Act
+		output, err := defaultCleanup(t.Context(), h, request, github)
+
+		// Assert
+		if err != nil {
+			t.Fatalf("the cleanup = %q, %v, want the task retired", output, err)
+		}
+		status, err := state.TailStatus(h.State, meta.ID, 10)
+		if err != nil || !slices.ContainsFunc(status, func(line string) bool {
+			_, event := state.SplitStatus(line)
+			return event == "issue-kept-open: "+issue+": task g2 carries it on"
+		}) {
+			t.Errorf("status = %q, %v; want the kept issue recorded with its reason", status, err)
+		}
+		if _, err := state.ReadTaskMeta(h.State, meta.ID); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("the task record after the cleanup: %v, want it retired", err)
+		}
+	})
+	t.Run("goblins kill retires a task whose issues cannot even be read", func(t *testing.T) {
+		// Arrange: the brief the record names is a folder, so a kill that read
+		// the task's issues would refuse there, before it could ask GitHub
+		// anything.
+		h, meta := killedTask(t)
+		meta.Brief = t.TempDir()
+		if err := state.WriteTaskMeta(h.State, meta); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
+
+		// Act
+		record, err := defaultTaskLifecycle(t.Context(), h, lifecycle.Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "kill-1", Action: "stop", Reason: "Requested by the operator", IsWatched: true}, "")
+
+		// Assert
+		if err != nil || record.Phase != "stopped" {
+			t.Fatalf("the kill = phase %q, %v, want the task retired\nproblems: %s", record.Phase, err, strings.Join(record.Problems, "; "))
+		}
+		if _, err := state.ReadTaskMeta(h.State, meta.ID); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("the task record after the kill: %v, want it retired", err)
+		}
+	})
 }
 
 // A pause leaves its goblin's gate run running, so goblins cleanup, and the

@@ -35,11 +35,15 @@ func (taskIssuesGit) Run(_ context.Context, request execx.Request) (execx.Result
 	return execx.Result{ExitCode: 129, Stderr: []byte("unexpected git " + arguments)}, nil
 }
 
-// taskIssuesGitHub answers what the task's pull request names and the state
-// of each issue, and refuses a pull request it was told to hide.
+// taskIssuesGitHub answers what the task's pull request names, each
+// repository as one GitHub shows unless it was told to hide them, and the
+// state of each issue it knows, "pull request" answering as GitHub answers an
+// issue read of a pull request, and it refuses an issue it does not know and
+// a pull request it was told to hide.
 type taskIssuesGitHub struct {
-	states     map[string]string
-	isPullGone bool
+	states               map[string]string
+	isPullGone           bool
+	isRepositoriesHidden bool
 }
 
 func (g taskIssuesGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -52,10 +56,18 @@ func (g taskIssuesGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	repository, number, isIssue := strings.Cut(strings.TrimPrefix(r.URL.Path, "/repos/"), "/issues/")
+	if r.Method == http.MethodGet && !isIssue && !g.isRepositoriesHidden && strings.Count(repository, "/") == 1 {
+		githubtest.Write(w, http.StatusOK, map[string]any{"full_name": repository})
+		return
+	}
 	issueState, isKnown := g.states[repository+"#"+number]
 	issueNumber, err := strconv.Atoi(number)
 	if r.Method != http.MethodGet || !isIssue || !isKnown || err != nil {
 		githubtest.Refuse(w, http.StatusNotFound, "Not Found")
+		return
+	}
+	if issueState == "pull request" {
+		githubtest.Write(w, http.StatusOK, map[string]any{"number": issueNumber, "html_url": "https://github.com/" + repository + "/pull/" + number, "state": "open", "pull_request": map[string]any{}})
 		return
 	}
 	githubtest.Write(w, http.StatusOK, map[string]any{"number": issueNumber, "html_url": "https://github.com/" + repository + "/issues/" + number, "state": issueState})
@@ -103,14 +115,35 @@ func TestOpenTaskIssuesNamesTheOpenIssuesOfTheBriefTheGateAndThePullRequest(t *t
 	github := tickets.GitHub{Commands: taskIssuesGit{}, API: githubtest.Client(answers)}
 
 	// Act
-	open, err := openTaskIssues(h, github, gate)(context.Background(), meta)
+	open, gone, err := openTaskIssues(h, github, gate)(context.Background(), meta)
 
 	// Assert
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"acme/widgets#1", "acme/widgets#9", "acme/gadgets#3"}; !slices.Equal(open, want) {
-		t.Fatalf("open issues = %q, want %q", open, want)
+	if want := []string{"acme/widgets#1", "acme/widgets#9", "acme/gadgets#3"}; !slices.Equal(open, want) || len(gone) != 0 {
+		t.Fatalf("open issues = %q, gone %q; want %q open and none gone", open, gone, want)
+	}
+}
+
+// GitHub answers 404 for an issue that was deleted or never filed, in a
+// repository it shows, so the issue is gone, never closed; a number that is a
+// pull request is no issue at all.
+func TestOpenTaskIssuesNamesAnIssueGitHubReportsGoneApart(t *testing.T) {
+	// Arrange
+	h, meta, gate := taskIssuesFixture(t)
+	answers := taskIssuesGitHub{states: map[string]string{"acme/widgets#1": "open", "acme/widgets#2": "pull request", "acme/gadgets#3": "closed"}}
+	github := tickets.GitHub{Commands: taskIssuesGit{}, API: githubtest.Client(answers)}
+
+	// Act
+	open, gone, err := openTaskIssues(h, github, gate)(context.Background(), meta)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(open, []string{"acme/widgets#1"}) || !slices.Equal(gone, []string{"acme/widgets#9"}) {
+		t.Fatalf("open issues = %q, gone %q; want acme/widgets#1 open and acme/widgets#9 gone", open, gone)
 	}
 }
 
@@ -121,7 +154,7 @@ func TestOpenTaskIssuesFailsWhatItCannotRead(t *testing.T) {
 		want    string
 	}{
 		{"a pull request GitHub does not show", taskIssuesGitHub{isPullGone: true}, "GitHub shows no pull request at https://github.com/acme/widgets/pull/50"},
-		{"an issue GitHub refuses", taskIssuesGitHub{states: map[string]string{"acme/widgets#1": "open"}}, "read acme/widgets#9"},
+		{"an issue of a repository GitHub does not show", taskIssuesGitHub{states: map[string]string{"acme/widgets#1": "open"}, isRepositoriesHidden: true}, "read acme/widgets#9"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -130,7 +163,7 @@ func TestOpenTaskIssuesFailsWhatItCannotRead(t *testing.T) {
 			github := tickets.GitHub{Commands: taskIssuesGit{}, API: githubtest.Client(test.answers)}
 
 			// Act
-			_, err := openTaskIssues(h, github, gate)(context.Background(), meta)
+			_, _, err := openTaskIssues(h, github, gate)(context.Background(), meta)
 
 			// Assert
 			if err == nil || !strings.Contains(err.Error(), test.want) {

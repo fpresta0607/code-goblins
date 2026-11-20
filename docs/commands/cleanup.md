@@ -15,10 +15,11 @@ A task that names an issue still open on GitHub is refused before anything chang
 The issues a task names are those its brief names to take up in its Task or Acceptance criteria (by address, as "issue #N", or as a bare `#N` that opens a line of its Task), those its branch's gate runs were started to close with `goblins pipeline run --closes`, and those its pull requests name, which GitHub links them to close or their body names after a closing word or "Part of".
 Its pull requests are the one `goblins pr check` recorded, each its done reports named and each its ticket named.
 A bare number belongs to the project's issue repository, its project record's `issue_repository` or else its origin.
-An issue, a pull request or a repository GitHub will not show refuses the cleanup as well, since an issue it cannot read is never taken for a closed one.
-Close each issue once its work is on its project's main, or retire the task with it open by `--keep-issue-open <issue>`, written `owner/name#N` or as its address and repeated for each, with `--reason "<why>"`.
+An issue GitHub reports gone, as a deleted issue or a mistyped number is, refuses the cleanup as well, named as `owner/name#N (gone on GitHub)` apart from the open ones, since a gone issue is never taken for a closed one.
+A pull request or a repository GitHub will not show refuses it too, since an issue it cannot read is never taken for a closed one either.
+Close each open issue once its work is on its project's main, or retire the task with an open or gone issue by `--keep-issue-open <issue>`, written `owner/name#N` or as its address and repeated for each, with `--reason "<why>"`.
 The task's status log records each issue kept open as `issue-kept-open: <issue>: <reason>` and the output names it.
-A keep that names no open issue of the task, and a keep without a reason, are refused.
+A keep that names no open or gone issue of the task, and a keep without a reason, are refused.
 `goblins kill`, which stops work unfinished, and `goblins reap --apply` check no issue.
 `goblins issue unowned` lists the open issues that no live or queued task names ([goblins help issue unowned](issue/unowned.md)).
 A task any of whose worktrees holds uncommitted work is refused before anything changes, never destroyed. goblins removes a worktree's files itself, by the removal every goblin folder goes through, which removes a link as a link and never walks into what it points at: a junction pnpm makes in `node_modules`, which can lead into the store every project on the machine shares, or one into the checkout.

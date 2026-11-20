@@ -37,9 +37,11 @@ It refuses as well, naming each, while an issue the task names is still
 open on GitHub: an issue its brief names in its Task or Acceptance criteria,
 one its gate runs were started to close with --closes, and one its pull
 requests name, which GitHub links them to close or their body names after
-a closing word or "Part of". A task whose issues cannot be read is refused
-too. Close each issue once its work is on its project's main, or retire the
-task with it open by --keep-issue-open <issue>, written owner/name#N or as
+a closing word or "Part of". An issue GitHub reports gone, as a deleted
+issue or a mistyped number is, refuses it too, named apart as gone on
+GitHub, and so does a task whose issues cannot be read. Close each open
+issue once its work is on its project's main, or retire the task with an
+open or gone issue by --keep-issue-open <issue>, written owner/name#N or as
 its address, once for each, with --reason "<why>", which the task's status
 log records for each kept issue. goblins kill, which stops work unfinished,
 does not check issues.

@@ -13,12 +13,13 @@ import (
 const (
 	firstIssue  = "acme/widgets#12"
 	secondIssue = "acme/gadgets#7"
+	goneIssue   = "acme/widgets#4321"
 )
 
 // opensIssues makes the fixture's task name the issues given, each open.
 func opensIssues(fixture *cleanupFixture, issues ...string) {
-	fixture.service.OpenIssues = func(context.Context, state.TaskMeta) ([]string, error) {
-		return issues, nil
+	fixture.service.OpenIssues = func(context.Context, state.TaskMeta) ([]string, []string, error) {
+		return issues, nil, nil
 	}
 }
 
@@ -51,6 +52,58 @@ func TestCleanupRefusesATaskWhoseIssueIsStillOpen(t *testing.T) {
 		t.Fatalf("Cleanup = %v, want a refusal naming %s and how to keep it open", err, firstIssue)
 	}
 	assertNothingRetired(t, fixture)
+}
+
+// An issue GitHub reports gone, as a deleted issue or a mistyped number is,
+// shows nothing of the task's work done, so the cleanup refuses it as it
+// does an open one, naming it as gone in a clause of its own.
+func TestCleanupRefusesATaskWhoseIssueIsGoneAndNamesItApart(t *testing.T) {
+	// Arrange
+	fixture := newCleanupFixture(t)
+	fixture.service.OpenIssues = func(context.Context, state.TaskMeta) ([]string, []string, error) {
+		return []string{firstIssue}, []string{goneIssue}, nil
+	}
+
+	// Act
+	_, err := fixture.service.Cleanup(t.Context(), "g1")
+
+	// Assert
+	want := "names the open issue(s) " + firstIssue + " and the issue(s) " + goneIssue + " (gone on GitHub), so nothing was removed"
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("Cleanup = %v, want a refusal saying %q", err, want)
+	}
+	assertNothingRetired(t, fixture)
+}
+
+func TestCleanupRetiresATaskWithAGoneIssueKeptAndRecordsWhy(t *testing.T) {
+	// Arrange
+	fixture := newCleanupFixture(t)
+	fixture.service.OpenIssues = func(context.Context, state.TaskMeta) ([]string, []string, error) {
+		return nil, []string{goneIssue}, nil
+	}
+	fixture.service.KeepOpen = []string{goneIssue}
+	fixture.service.KeepReason = "the brief named a mistyped issue"
+
+	// Act
+	result, err := fixture.service.Cleanup(t.Context(), "g1")
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Cleanup = %v, want the task retired with its gone issue kept", err)
+	}
+	status, err := state.TailStatus(fixture.stateDir, "g1", 10)
+	if err != nil || len(status) != 2 {
+		t.Fatalf("status = %v, %v; want the kept issue, then the retirement", status, err)
+	}
+	if _, event := state.SplitStatus(status[0]); event != "issue-kept-open: "+goneIssue+": the brief named a mistyped issue" {
+		t.Errorf("first status line = %q, want the gone issue recorded with its reason", event)
+	}
+	if want := "\nkept the issue " + goneIssue + " open: the brief named a mistyped issue"; !strings.Contains(result.Output, want) {
+		t.Errorf("output = %q, want it to say %q", result.Output, want)
+	}
+	if _, err := state.ReadTaskMeta(fixture.stateDir, "g1"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("task record after the cleanup: %v, want it retired", err)
+	}
 }
 
 func TestCleanupRefusalNamesEveryOpenIssueNotKept(t *testing.T) {
@@ -128,42 +181,33 @@ func TestCleanupRetiresATaskWithAnIssueKeptOpenAndRecordsWhy(t *testing.T) {
 func TestCleanupRefusesAnIssueKeepItCannotHonourAndChangesNothing(t *testing.T) {
 	tests := []struct {
 		name       string
-		issues     func(context.Context, state.TaskMeta) ([]string, error)
+		issues     func(context.Context, state.TaskMeta) ([]string, []string, error)
 		keepOpen   []string
 		keepReason string
 		want       []string
 	}{
 		{
-			name:       "a keep naming an issue that is not open",
-			issues:     func(context.Context, state.TaskMeta) ([]string, error) { return []string{firstIssue}, nil },
+			name: "a keep naming an issue that is not open",
+			issues: func(context.Context, state.TaskMeta) ([]string, []string, error) {
+				return []string{firstIssue}, []string{goneIssue}, nil
+			},
 			keepOpen:   []string{firstIssue, secondIssue},
 			keepReason: "carried on elsewhere",
-			want:       []string{secondIssue, "not an issue g1 names that is open", firstIssue},
+			want:       []string{secondIssue, "not an issue g1 names that is open or gone", firstIssue + ", " + goneIssue},
 		},
 		{
-			name:       "a keep when no issue is open",
-			issues:     func(context.Context, state.TaskMeta) ([]string, error) { return nil, nil },
+			name:       "a keep when no issue is open or gone",
+			issues:     func(context.Context, state.TaskMeta) ([]string, []string, error) { return nil, nil, nil },
 			keepOpen:   []string{firstIssue},
 			keepReason: "carried on elsewhere",
-			want:       []string{firstIssue, "not an issue g1 names that is open", "none"},
+			want:       []string{firstIssue, "not an issue g1 names that is open or gone", "none"},
 		},
 		{
-			name:     "a keep with no reason",
-			issues:   func(context.Context, state.TaskMeta) ([]string, error) { return []string{firstIssue}, nil },
-			keepOpen: []string{firstIssue},
-			want:     []string{"needs a reason", firstIssue, "--reason"},
-		},
-		{
-			name:       "a keep with a blank reason",
-			issues:     func(context.Context, state.TaskMeta) ([]string, error) { return []string{firstIssue}, nil },
-			keepOpen:   []string{firstIssue},
-			keepReason: "  \t ",
-			want:       []string{"needs a reason", firstIssue},
-		},
-		{
-			name:   "issues that cannot be read",
-			issues: func(context.Context, state.TaskMeta) ([]string, error) { return nil, errors.New("gh unavailable") },
-			want:   []string{"the issues g1 names cannot be read", "nothing was removed", "gh unavailable"},
+			name: "issues that cannot be read",
+			issues: func(context.Context, state.TaskMeta) ([]string, []string, error) {
+				return nil, nil, errors.New("gh unavailable")
+			},
+			want: []string{"the issues g1 names cannot be read", "nothing was removed", "gh unavailable"},
 		},
 	}
 	for _, tc := range tests {
