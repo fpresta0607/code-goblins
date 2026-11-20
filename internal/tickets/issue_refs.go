@@ -92,8 +92,12 @@ func withIssueRef(refs []IssueRef, ref IssueRef) []IssueRef {
 
 // BriefIssueRefs are the issues a task's brief names to take up: every issue
 // NamedIssues names, as an issue of repository, owner/name, then every issue
-// address of any other repository inside the brief's scope. Each is there
-// once, where it is first mentioned.
+// address of any other repository inside the brief's scope, and then those of
+// each section the CEO added to the brief later, under a heading that starts
+// "## ADDED", since it adds work to the task: the same, read as a Task of its
+// own, and those its heading and body name in words, as "issue 42" or
+// "issues 34 and 25", the way the CEO writes them there. Each is there once,
+// where it is first mentioned.
 func BriefIssueRefs(text, repository string) []IssueRef {
 	var refs []IssueRef
 	for _, named := range NamedIssues(text, repository) {
@@ -109,7 +113,40 @@ func BriefIssueRefs(text, repository string) []IssueRef {
 			refs = withIssueRef(refs, ref)
 		}
 	}
+	for _, added := range addedSections(text) {
+		for _, ref := range BriefIssueRefs("## Task\n"+added, repository) {
+			refs = withIssueRef(refs, ref)
+		}
+		for _, mention := range issueWordMentions(added, repository) {
+			refs = withIssueRef(refs, mention.ref)
+		}
+	}
 	return refs
+}
+
+// addedSections are a brief's sections whose heading starts "## ADDED",
+// whatever its case, in order, each its heading's words and then its body.
+func addedSections(text string) []string {
+	var sections []string
+	var body []string
+	isAdded := false
+	for _, line := range strings.Split(text, "\n") {
+		if heading, ok := strings.CutPrefix(strings.TrimSpace(line), "## "); ok {
+			if isAdded {
+				sections = append(sections, strings.Join(body, "\n"))
+			}
+			isAdded = strings.HasPrefix(strings.ToLower(strings.TrimSpace(heading)), "added")
+			body = []string{heading}
+			continue
+		}
+		if isAdded {
+			body = append(body, line)
+		}
+	}
+	if isAdded {
+		sections = append(sections, strings.Join(body, "\n"))
+	}
+	return sections
 }
 
 // RowIssueRefs are the issues a backlog row's title line names, in the order
@@ -120,14 +157,10 @@ func BriefIssueRefs(text, repository string) []IssueRef {
 // issue word or # goes with, as in "PR 2844", "pull request 2844" or a date,
 // is not an issue, and neither is a #N right after "PR" or "pull request".
 func RowIssueRefs(row, repository string) []IssueRef {
-	type mention struct {
-		at  int
-		ref IssueRef
-	}
-	var mentions []mention
+	mentions := issueWordMentions(row, repository)
 	add := func(at int, ref IssueRef, ok bool) {
 		if ok {
-			mentions = append(mentions, mention{at, ref})
+			mentions = append(mentions, issueMention{at, ref})
 		}
 	}
 	for _, match := range issueURL.FindAllStringSubmatchIndex(row, -1) {
@@ -148,33 +181,49 @@ func RowIssueRefs(row, repository string) []IssueRef {
 		ref, ok := issueRefOf(repository, row[match[2]:match[3]])
 		add(match[2]-1, ref, ok)
 	}
-	for _, words := range issueWordsList.FindAllStringIndex(row, -1) {
-		if dateTail.MatchString(row[words[1]:]) {
-			continue
-		}
-		for _, item := range rowIssueNumber.FindAllStringSubmatchIndex(row[words[0]:words[1]], -1) {
-			first, err := strconv.Atoi(row[words[0]+item[2] : words[0]+item[3]])
-			if err != nil {
-				continue
-			}
-			last := first
-			if item[4] >= 0 {
-				if last, err = strconv.Atoi(row[words[0]+item[4] : words[0]+item[5]]); err != nil || last < first || last-first >= maxIssueRange {
-					continue
-				}
-			}
-			for number := first; number <= last; number++ {
-				ref, ok := issueRefOf(repository, strconv.Itoa(number))
-				add(words[0]+item[0], ref, ok)
-			}
-		}
-	}
-	slices.SortStableFunc(mentions, func(a, b mention) int { return a.at - b.at })
+	slices.SortStableFunc(mentions, func(a, b issueMention) int { return a.at - b.at })
 	var refs []IssueRef
 	for _, m := range mentions {
 		refs = withIssueRef(refs, m.ref)
 	}
 	return refs
+}
+
+// issueMention is an issue a text names and where it names it.
+type issueMention struct {
+	at  int
+	ref IssueRef
+}
+
+// issueWordMentions are the issues of repository that text names in words:
+// "issue N", "issue #N", "issues N, M and K" and "issues N to M", whatever
+// their case, a range read only when it spans at most maxIssueRange numbers,
+// and none whose words run into a date.
+func issueWordMentions(text, repository string) []issueMention {
+	var mentions []issueMention
+	for _, words := range issueWordsList.FindAllStringIndex(text, -1) {
+		if dateTail.MatchString(text[words[1]:]) {
+			continue
+		}
+		for _, item := range rowIssueNumber.FindAllStringSubmatchIndex(text[words[0]:words[1]], -1) {
+			first, err := strconv.Atoi(text[words[0]+item[2] : words[0]+item[3]])
+			if err != nil {
+				continue
+			}
+			last := first
+			if item[4] >= 0 {
+				if last, err = strconv.Atoi(text[words[0]+item[4] : words[0]+item[5]]); err != nil || last < first || last-first >= maxIssueRange {
+					continue
+				}
+			}
+			for number := first; number <= last; number++ {
+				if ref, ok := issueRefOf(repository, strconv.Itoa(number)); ok {
+					mentions = append(mentions, issueMention{words[0] + item[0], ref})
+				}
+			}
+		}
+	}
+	return mentions
 }
 
 // ClosingIssueRefs are the issues a gate run closes, as no-mistakes stores

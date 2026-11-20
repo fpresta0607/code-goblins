@@ -34,8 +34,8 @@ kill or a switch of the task that starts meanwhile is refused, and it is
 refused itself, before it removes anything, while one of those is in flight.
 
 It refuses as well, naming each, while an issue the task names is still
-open on GitHub: an issue its brief names in its Task or Acceptance criteria,
-one its gate runs were started to close with --closes, and one its pull
+open on GitHub: an issue its brief names in its Task or Acceptance criteria
+or in a section added to it under a heading "## ADDED", one its gate runs were started to close with --closes, and one its pull
 requests name, which GitHub links them to close or their body names after
 a closing word or "Part of". An issue GitHub reports gone, as a deleted
 issue or a mistyped number is, refuses it too, named apart as gone on
