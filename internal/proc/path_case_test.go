@@ -27,19 +27,3 @@ func TestServiceOfNamesTheScrawlServersScriptByTheFileSystemsCase(t *testing.T) 
 		t.Fatalf("ServiceOf(node %s server) = %d, want the Scrawl server: %t", script, service, isOnePath)
 	}
 }
-
-// A backslash in the script's name separates its folders only where it is
-// the system's separator: elsewhere it is a character of one name, and that
-// file is no lavish-axi script.
-func TestServiceOfReadsTheScriptsFoldersBySeparator(t *testing.T) {
-	// Arrange
-	script := filepath.Join(t.TempDir(), `lavish-axi\dist\server.mjs`)
-
-	// Act
-	service := ServiceOf("node", []string{"node", script, "server"})
-
-	// Assert
-	if isServer, want := service == PageServer, os.IsPathSeparator('\\'); isServer != want {
-		t.Fatalf("ServiceOf(node %s server) = %d, want the Scrawl server: %t", script, service, want)
-	}
-}

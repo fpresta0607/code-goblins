@@ -83,8 +83,8 @@ func TestServiceOfKnowsTheScrawlServerByItsScript(t *testing.T) {
 		arguments []string
 		want      Service
 	}{
-		{"node", []string{"node", "/usr/lib/node_modules/lavish-axi/dist/server.mjs", "server", "--port", "4455"}, PageServer},
-		{"node", []string{"node", "/home/o/src/lavish-axi/bin/lavish-axi-server.js", "server"}, PageServer},
+		{"node.exe", []string{`C:\Program Files\nodejs\node.exe`, `C:\Users\o\AppData\Roaming\npm\node_modules\lavish-axi\dist\server.mjs`, "server", "--port", "4455"}, PageServer},
+		{"node.exe", []string{"node", `C:\src\lavish-axi\bin\lavish-axi-server.js`, "server", "--port", "4455"}, PageServer},
 		{"node.exe", []string{"node", `C:\Users\o\AppData\Roaming\npm\node_modules\lavish-axi\dist\cli.mjs`, "open", "page.html"}, NoService},
 		{"node.exe", []string{"node", `C:\work\app\dist\server.mjs`, "server"}, NoService},
 		{"node.exe", []string{"node", `C:\Users\o\AppData\Roaming\npm\node_modules\lavish-axi\dist\server.mjs`}, NoService},

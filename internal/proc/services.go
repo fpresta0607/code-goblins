@@ -2,7 +2,6 @@ package proc
 
 import (
 	"fmt"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -40,7 +39,7 @@ func ServiceOf(exeBase string, arguments []string) Service {
 	case name == "no-mistakes" && len(arguments) > 1 && strings.EqualFold(arguments[1], "daemon"):
 		return GateDaemon
 	case name == "node" && len(arguments) > 2 && arguments[2] == "server":
-		script := filepath.ToSlash(arguments[1])
+		script := strings.ReplaceAll(arguments[1], `\`, "/")
 		for _, known := range pageServerScripts {
 			if len(script) >= len(known) && fsx.EqualPath(script, script[:len(script)-len(known)]+known) {
 				return PageServer
