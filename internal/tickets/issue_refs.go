@@ -124,8 +124,8 @@ func BriefIssueRefs(text, repository string) []IssueRef {
 	return refs
 }
 
-// addedSections are a brief's sections whose heading starts "## ADDED",
-// whatever its case, in order, each its heading's words and then its body.
+// addedSections are a brief's sections whose heading starts "## ADDED", in
+// order, each its heading's words and then its body.
 func addedSections(text string) []string {
 	var sections []string
 	var body []string
@@ -135,7 +135,7 @@ func addedSections(text string) []string {
 			if isAdded {
 				sections = append(sections, strings.Join(body, "\n"))
 			}
-			isAdded = strings.HasPrefix(strings.ToLower(strings.TrimSpace(heading)), "added")
+			isAdded = strings.HasPrefix(strings.TrimSpace(heading), "ADDED")
 			body = []string{heading}
 			continue
 		}

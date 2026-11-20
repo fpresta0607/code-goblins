@@ -84,6 +84,10 @@ func TestBriefIssueRefsNamesTheRepositorysIssuesThenOtherRepositoriesAddresses(t
 			text: "## Task\nFix issue #3.\n## Constraints\nLeave issue #4 alone.\n## ADDED 2026-11-19 about 22:40Z - the stats page, issue 42, and issues 34 and 25\nIssue: https://github.com/acme/widgets/issues/188.\n- #190 the toggle\nAlso https://github.com/other/repo/issues/7.\n1. Issue 50, the tab left open.\nThe other task (#185) adds a picker, so leave it.\n",
 			want: append(append(issueRefs("acme/widgets", 3, 188, 190), IssueRef{"other/repo", 7}), issueRefs("acme/widgets", 42, 34, 25, 50)...),
 		},
+		{
+			name: "a heading that starts Added in another case is not an added section",
+			text: "## Task\nTidy the docs.\n## Added context\nSee issue 12 for background.\n",
+		},
 		{name: "no issue", text: "## Task\nTidy the docs.\n"},
 	}
 	for _, tc := range cases {
