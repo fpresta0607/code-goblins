@@ -1,6 +1,7 @@
 package fsx
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -86,6 +87,31 @@ func TestCommitNewPutsTheFileOnlyInAMissingPlace(t *testing.T) {
 				t.Errorf("dir has %d entries, want 1 (no leftover staged file)", len(entries))
 			}
 		})
+	}
+}
+
+// Staging can outlast the caller's deadline, and the place is still free: a
+// commit of a new file tries its rename once however late the context ended.
+func TestCommitNewTriesOnceWhenItsContextHasEnded(t *testing.T) {
+	// Arrange
+	path := filepath.Join(t.TempDir(), "record")
+	staged, err := Stage(path, []byte("ours"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer staged.Discard()
+	ended, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	// Act
+	err = staged.CommitNewContext(ended)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("commit into a free place after its context ended = %v, want it taken", err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != "ours" {
+		t.Errorf("record = %q, %v; want %q", got, err, "ours")
 	}
 }
 

@@ -122,10 +122,18 @@ func retryTransientContext(ctx context.Context, op func() error) error {
 // A reader finds the file whole or not at all, and a writer ended before the
 // commit leaves nothing in its place, where a file created and then written
 // is left empty. It waits out another process holding the place, a file
-// still being deleted included, while ctx lasts. A commit that fails keeps
-// the staged file for another try, and Discard removes it.
+// still being deleted included, while ctx lasts. The rename is tried once
+// whether or not ctx has ended, since staging is the slow part of a write and
+// a caller whose deadline staging outlasted would otherwise lose a place
+// nothing holds. A commit that fails keeps the staged file for another try,
+// and Discard removes it.
 func (s *Staged) CommitNewContext(ctx context.Context) error {
-	if err := retryTransientContext(ctx, func() error { return renameNew(s.temp, s.path) }); err != nil {
+	op := func() error { return renameNew(s.temp, s.path) }
+	err := op()
+	if err != nil && heldByAnother(err) {
+		err = retryTransientContext(ctx, op)
+	}
+	if err != nil {
 		return err
 	}
 	s.temp = ""

@@ -1011,3 +1011,28 @@ func TestInstanceOfIsTheInstanceALockRecordCarries(t *testing.T) {
 		t.Fatal("the record does not name this process by the instance read of it")
 	}
 }
+
+// Staging a record is the slow part of a write, and a look's deadline past the
+// wait is one pause. A waiter the line lets through late, whose staging then
+// outlasts that pause, still takes a free lock: the look's rename is tried
+// once whatever the deadline says (#2108).
+func TestAWaiterWhoseStagingOutlastsItsLookStillTakesAFreeLock(t *testing.T) {
+	// Arrange
+	dir, name := t.TempDir(), ".wake-queue.lock"
+	const wait = 100 * time.Millisecond
+	stalledLine, stalledPublishing := inLine, publishing
+	inLine = func() { time.Sleep(2 * wait) }
+	publishing = func() { time.Sleep(2 * longestPause) }
+	t.Cleanup(func() { inLine, publishing = stalledLine, stalledPublishing })
+
+	// Act
+	info, err := AcquireNamedOwnerWithin(dir, name, os.Getpid(), "wake", wait)
+
+	// Assert
+	if err != nil || info == nil || info.PID != os.Getpid() {
+		t.Fatalf("acquire = %+v, %v, want the free lock taken by the caller whose staging ran past its look", info, err)
+	}
+	if err := ReleaseNamed(dir, name); err != nil {
+		t.Fatal(err)
+	}
+}
