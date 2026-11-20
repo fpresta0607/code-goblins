@@ -24,7 +24,7 @@ Go standard library and modules compiled into the commands under cmd/:
   github.com/yuin/goldmark v1.8.6: MIT [13]
   golang.org/x/sys v0.48.0: BSD-3-Clause [1]
   gopkg.in/yaml.v3 v3.0.1: MIT AND Apache-2.0 [14]
-  modernc.org/libc v1.70.0: MIT AND BSD-3-Clause [15]
+  modernc.org/libc v1.70.0: BSD-3-Clause [15]
   modernc.org/mathutil v1.7.1: BSD-3-Clause [16]
   modernc.org/memory v1.11.0: BSD-3-Clause [17]
   modernc.org/sqlite v1.48.1: BSD-3-Clause [18]
