@@ -77,6 +77,10 @@ type Dispatch struct {
 	// machine's heavy line longTurnWait or longer at the given moment, as
 	// MachineLongTurnWaits reads them; nil reads none.
 	LongTurnWaits func(now time.Time) ([]verify.Standing, error)
+	// TurnHolders reads the tasks whose goblins hold a turn of the machine's
+	// heavy line, as MachineTurnHolders reads them, which the memory floor
+	// pauses last; nil reads none, and the floor spares no goblin for a turn.
+	TurnHolders func() ([]string, error)
 	// Spawn runs goblins with args and returns what it printed.
 	Spawn func(ctx context.Context, args []string) (string, error)
 }

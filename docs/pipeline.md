@@ -690,9 +690,9 @@ An older build's run takes its place by when it asked and never moves to the fro
 
 A command also waits while either physical or commit availability is under the shared floor.
 At capacity one the floor is 4 GiB.
-At capacity two it is weighed for the run at the head of the line: what each run holding a slot may still use, its expected memory less what it commits now, then the head's own expected memory and the desktop reserve, and never under 4 GiB.
+At capacity two it is weighed for the run at the head of the line: what each run holding a slot may still use, its expected memory less what it commits now and the room Docker needs for one that starts Docker, then the head's own expected memory and the desktop reserve, and never under 4 GiB.
 A run's expected memory is what `goblins gate turn --memory` declares, or 2.5 GiB without it, and a run's card in the line carries it with what the run commits, measured as it runs.
-At capacity two a run that fits the memory free goes past a run ahead of it that does not fit for its own expected memory, so a run that expects more than the machine has free holds back no run behind it.
+At capacity two a run that fits the memory free goes past a run ahead of it that does not fit for its own floor, so a run that expects more than the machine has free holds back no run behind it.
 A run that fits goes past a run ahead that does not fit only during that run's first 20 minutes in line.
 After those 20 minutes no run passes it, and the slots drain for it.
 A run that was passed starts its hour of floor waiting only once nothing can pass it, so a run past it whose turn ends within that hour leaves it its turn, and its longest wait for a turn is 20 and 60, 80 minutes, inside the line's two-hour overdue limit.
@@ -703,7 +703,7 @@ An unavailable reading or an hour of floor waiting refuses admission and starts 
 #### Light runs beside the line
 
 A light run takes a turn of its own beside the slots, however many runs hold them or wait for them, once free physical memory and free commit cover its floor.
-Its floor is what each run holding a slot and each light run beside it may still use, its expected memory less what it commits now, then its own expected memory and the desktop reserve.
+Its floor is what each run holding a slot and each light run beside it may still use, its expected memory less what it commits now and the room Docker needs for one that starts Docker, then its own expected memory and the desktop reserve.
 A heavy run still grows toward its expected memory, so a light run admitted on memory a heavy run is about to use would have that run ended at the desktop reserve.
 It is admitted by free memory, never by a count, so any number of light runs go beside the slots while memory covers them.
 A light run names its expected memory and its bound, as `goblins gate turn --light --memory 1GiB --execution-limit 15m` does, or takes no turn.
@@ -761,7 +761,7 @@ A store failure prevents commands from starting.
 `goblins gate test`, `goblins gate prepush` and `goblins gate turn` wait through the same admission code in the same store, so a run of any of them waits for a run of the others.
 
 ```text
-goblins gate turn [--as <name>] [--wait <duration>] [--execution-limit <duration>] [--memory <size>] [--low-priority] [--light] [--detach <log-file>] -- <program> [<argument>...]
+goblins gate turn [--as <name>] [--wait <duration>] [--execution-limit <duration>] [--memory <size>] [--low-priority] [--light] [--docker] [--detach <log-file>] -- <program> [<argument>...]
 ```
 
 Everything before `--` is `goblins`'s, and everything after it is the command's, its own flags and a `--` of its own included.
@@ -779,6 +779,7 @@ A cleanup that cannot be confirmed keeps its custody and reports uncertainty; la
 `--low-priority` has the run wait at the lowest priority: it takes its turn only while no ordinary run waits, and an ordinary run that joins the line after it still goes first, unless the low-priority run is already taking its turn or has waited the line's two hours, as the desktop's CI jobs wait, and `goblins gate turns` marks it.
 `--memory <size>`, as `--memory 7GiB` or `--memory 512MiB`, is the most memory the run is expected to use, which a line of two slots weighs before it starts the run beside another, as [Taking turns](#taking-turns) says.
 Without it a run is expected to use 2.5 GiB.
+A run whose command starts Docker, which `--docker` declares for a script whose words the run does not read and which the command says when the program it runs, or one a shell's command string among its arguments runs first or after `&`, `&&`, `|`, `||`, `;` or `(`, is the `docker` or `docker-compose` program or `goblins services up`, a light run's included, waits for the floor, its own expected memory and the room Docker needs, on top of what the runs holding a turn may still use on a line of two or beside the slots, since Docker's engine, its virtual machine and the stack on them take memory no process of the run's holds: the run's project's services stack's cost, measured or else declared in its `services.json`, nothing while a task holds that stack, and 2 GiB for the engine and virtual machine when the project declares no stack; while it waits it says so.
 `--light` has the run take a light turn beside the slots, which needs `--memory` and `--execution-limit`, as [Light runs beside the line](#light-runs-beside-the-line) says.
 On Windows the run keeps itself, and so its command and everything that starts, to the processor threads a goblin's terminal keeps to, as [docs/native-board.md](native-board.md) says, whoever started it: the gate daemon, which runs each Test step here, is started by Task Scheduler on every thread.
 A run that cannot read or set those threads says so in one line on standard error and keeps the threads it was started on.

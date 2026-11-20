@@ -744,6 +744,32 @@ func (s Stack) cost(manifest Manifest) (uint64, string) {
 	return uint64(manifest.MemoryEstimateGB * (1 << 30)), "estimated, not measured yet"
 }
 
+// StartRoom is the memory a run that may start project's stack, and the
+// Docker engine under it, needs free on top of the floor, and what that rests
+// on: the stack's cost, measured or declared, while no task holds it, and
+// nothing once one does, since its start took that memory already.
+// isDeclared is false for a project that declares no stack.
+func StartRoom(stateDir, dataDir, project string) (room uint64, basis string, isDeclared bool, err error) {
+	manifest, err := LoadManifest(dataDir, project)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, "", false, nil
+	}
+	if err != nil {
+		return 0, "", false, err
+	}
+	record, err := ReadRecord(stateDir)
+	if err != nil {
+		return 0, "", true, err
+	}
+	name := auth.ProjectName(project)
+	stack := record.Stacks[name]
+	if stack.IsUp() {
+		return 0, name + "'s services are up already", true, nil
+	}
+	cost, basis := stack.cost(manifest)
+	return cost, name + "'s services, " + basis, true, nil
+}
+
 // shortfall says why a start costing cost does not fit, or is empty when it
 // does: both memory and commit must stay at or above the floor with it
 // added.

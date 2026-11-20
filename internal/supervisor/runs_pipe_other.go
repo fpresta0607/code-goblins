@@ -5,8 +5,6 @@ package supervisor
 import (
 	"bufio"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,56 +12,17 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/awake"
+	"github.com/fpresta0607/code-goblins/internal/localsocket"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 )
 
-// socketFolder is the folder that holds this home's sockets: one of the
-// user's own, named by a short hash of the home, under /run/user/<uid> where
-// that folder is the user's own, as systemd makes it on Linux, or else under
-// /tmp, as on macOS. It is chosen by the user's ID, not by XDG_RUNTIME_DIR,
-// so a command run from cron, su - or sudo -iu, which has no such variable,
-// still finds the supervisor the user started. A socket's path must fit
-// sun_path, 108 bytes on Linux and 104 on macOS, which a long home or a
-// test's temporary folder overflows, so the sockets are not in the home.
-func socketFolder(stateDir string) string {
-	uid := os.Getuid()
-	base := "/tmp"
-	runtime := filepath.Join("/run/user", strconv.Itoa(uid))
-	if info, err := os.Stat(runtime); err == nil && info.IsDir() && isOwnedBy(info, uid) {
-		base = runtime
-	}
-	sum := sha256.Sum256([]byte(filepath.Clean(stateDir)))
-	return filepath.Join(base, "code-goblins-"+hex.EncodeToString(sum[:8]))
-}
-
 // runSocketPath is the supervisor's socket for run requests, one per home.
 func runSocketPath(stateDir string) string {
-	return filepath.Join(socketFolder(stateDir), "run-requests.sock")
-}
-
-// isOwnedBy reports whether uid owns the file info describes.
-func isOwnedBy(info os.FileInfo, uid int) bool {
-	stat, isStat := info.Sys().(*syscall.Stat_t)
-	return isStat && int(stat.Uid) == uid
-}
-
-// checkSocketFolder refuses folder unless it is a folder, not a link to one,
-// that this user owns and nobody else may enter: under /tmp anyone may make
-// a folder of that name first.
-func checkSocketFolder(folder string) error {
-	info, err := os.Lstat(folder)
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() || !isOwnedBy(info, os.Getuid()) || info.Mode().Perm()&0o077 != 0 {
-		return fmt.Errorf("the socket folder %s is not this user's own with mode 0700, so it is not used", folder)
-	}
-	return nil
+	return filepath.Join(localsocket.Folder(stateDir), "run-requests.sock")
 }
 
 // serveRunRequests takes run items over the supervisor's socket until ctx
@@ -77,7 +36,7 @@ func (s *Service) serveRunRequests(ctx context.Context) {
 		s.publish(fmt.Errorf("run requests: %w", err))
 		return
 	}
-	if err := checkSocketFolder(filepath.Dir(path)); err != nil {
+	if err := localsocket.CheckFolder(filepath.Dir(path)); err != nil {
 		s.refuseRunRequests(fmt.Errorf("run requests: %w, so run requests are not served", err))
 		return
 	}
@@ -128,7 +87,7 @@ func (s *Service) serveRunRequests(ctx context.Context) {
 // request within runReadTimeout is disconnected unanswered.
 func (s *Service) handleRunClient(ctx context.Context, conn *net.UnixConn, connected time.Time) {
 	defer conn.Close()
-	pid, identified := peerProcess(conn)
+	pid, identified := localsocket.PeerProcess(conn)
 	lift := awake.Deadline(conn.SetReadDeadline, runReadTimeout)
 	line, err := bufio.NewReader(io.LimitReader(conn, maxRunRequest)).ReadBytes('\n')
 	lift()
@@ -160,7 +119,7 @@ func dialRunSocket(stateDir string, wait time.Duration) (*net.UnixConn, error) {
 	opening, cancelOpening := awake.WithTimeout(context.Background(), wait)
 	defer cancelOpening()
 	for {
-		err := checkSocketFolder(filepath.Dir(path))
+		err := localsocket.CheckFolder(filepath.Dir(path))
 		if err == nil {
 			var conn *net.UnixConn
 			if conn, err = net.DialUnix("unix", nil, &net.UnixAddr{Name: path, Net: "unix"}); err == nil {
@@ -184,7 +143,7 @@ func Reported(stateDir string) {
 		return
 	}
 	defer conn.Close()
-	if server, err := peerProcess(conn); err != nil || !lock.HeldByNamed(stateDir, ".watch.lock", server) {
+	if server, err := localsocket.PeerProcess(conn); err != nil || !lock.HeldByNamed(stateDir, ".watch.lock", server) {
 		return
 	}
 	_, _ = conn.Write([]byte(`{"kind":"reported"}` + "\n"))
@@ -205,7 +164,7 @@ func askPipe(stateDir string, req runPipeRequest) (pipeReply, error) {
 	defer conn.Close()
 	// The command goes only to the supervisor of this home: the process that
 	// holds its watch lock. A socket served by anything else never sees it.
-	server, err := peerProcess(conn)
+	server, err := localsocket.PeerProcess(conn)
 	if err != nil {
 		return pipeReply{}, fmt.Errorf("the run request socket's server could not be identified: %w", err)
 	}

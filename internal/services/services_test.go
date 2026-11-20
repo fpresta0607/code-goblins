@@ -1256,3 +1256,46 @@ func TestAFailedReliefIsSaidOnceAndTheStartGoesOn(t *testing.T) {
 		t.Errorf("said the relief failed %d times in %q, want once", said, h.out.String())
 	}
 }
+
+// A run that may start a project's stack needs its cost free on top of the
+// floor, the one measured or else the one declared, and nothing once a task
+// holds the stack; a project that declares none has no room of its own, and a
+// declaration that cannot be read is an error (#2808).
+func TestStartRoomIsTheStacksMeasuredOrDeclaredCostWhileItIsDown(t *testing.T) {
+	measured := time.Date(2026, 11, 18, 5, 43, 13, 0, time.UTC)
+	for _, test := range []struct {
+		name           string
+		project        string
+		manifest       string
+		stack          Stack
+		wantRoom       uint64
+		wantBasis      string
+		wantIsDeclared bool
+		wantErr        bool
+	}{
+		{name: "declared, never measured", project: "PrecisionDocs-AI", manifest: testManifest, wantRoom: 3 * gigabyte, wantBasis: "PrecisionDocs-AI's services, estimated, not measured yet", wantIsDeclared: true},
+		{name: "measured", project: "PrecisionDocs-AI", manifest: testManifest, stack: Stack{Cost: Cost{Bytes: 4 * gigabyte, MeasuredAt: measured}}, wantRoom: 4 * gigabyte, wantBasis: "PrecisionDocs-AI's services, measured 2026-11-18 05:43Z", wantIsDeclared: true},
+		{name: "up already", project: "PrecisionDocs-AI", manifest: testManifest, stack: Stack{Holders: []Hold{{Task: "task-a", Since: measured}}, Cost: Cost{Bytes: 4 * gigabyte, MeasuredAt: measured}}, wantBasis: "PrecisionDocs-AI's services are up already", wantIsDeclared: true},
+		{name: "no stack declared", project: "code-goblins"},
+		{name: "a declaration that cannot be read", project: "PrecisionDocs-AI", manifest: "{", wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			dataDir, stateDir := t.TempDir(), t.TempDir()
+			if test.manifest != "" {
+				writeManifest(t, dataDir, test.project, test.manifest)
+			}
+			if err := WriteRecord(stateDir, Record{Stacks: map[string]Stack{"PrecisionDocs-AI": test.stack}}); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			room, basis, isDeclared, err := StartRoom(stateDir, dataDir, filepath.Join(`C:\dev`, test.project))
+
+			// Assert
+			if (err != nil) != test.wantErr || room != test.wantRoom || basis != test.wantBasis || isDeclared != test.wantIsDeclared {
+				t.Fatalf("StartRoom = %d, %q, %v, %v; want %d, %q, %v, an error %v", room, basis, isDeclared, err, test.wantRoom, test.wantBasis, test.wantIsDeclared, test.wantErr)
+			}
+		})
+	}
+}
