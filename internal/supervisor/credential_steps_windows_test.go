@@ -54,6 +54,7 @@ func TestTheAskerOrTheCEOClosesACardOverThePipe(t *testing.T) {
 	withdrawErr := StepCredential(h, CredentialStep{ID: withdrawn.ID, Task: meta.ID, Action: "withdraw", Reason: "The account already existed"})
 	ceoErr := StepCredential(h, CredentialStep{ID: byCEO.ID, Action: "withdraw", Reason: "Not needed any more"})
 	againErr := StepCredential(h, CredentialStep{ID: finished.ID, Task: meta.ID, Action: "withdraw", Reason: "late"})
+	service.credentialWork.Wait()
 
 	// Assert
 	if strangerErr == nil {
@@ -70,6 +71,14 @@ func TestTheAskerOrTheCEOClosesACardOverThePipe(t *testing.T) {
 	}
 	if request, _ := store.credential(withdrawn.ID); request.Reason != "The account already existed" {
 		t.Fatalf("reason = %q, want the goblin's", request.Reason)
+	}
+	var toldDone, toldWithdrawn bool
+	for _, record := range fleetWakeRecords(t, h, "review") {
+		toldDone = toldDone || strings.Contains(record.Detail, "closed as done: the goblin saw the step done")
+		toldWithdrawn = toldWithdrawn || strings.Contains(record.Detail, "withdrawn by the goblin: The account already existed")
+	}
+	if !toldDone || !toldWithdrawn {
+		t.Fatalf("the CEO was told of the goblin's done = %v, of its withdrawal = %v", toldDone, toldWithdrawn)
 	}
 }
 

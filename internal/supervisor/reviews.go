@@ -519,8 +519,7 @@ func copyReviewImage(source io.Reader, path string) (string, error) {
 	}
 	hash := sha256.New()
 	_, copyErr := io.Copy(io.MultiWriter(out, hash), io.LimitReader(source, maxReviewImage))
-	closeErr := out.Close()
-	if err := errors.Join(copyErr, closeErr); err != nil {
+	if err := errors.Join(copyErr, fsx.Sync(out), out.Close()); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
