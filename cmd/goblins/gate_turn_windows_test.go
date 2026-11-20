@@ -16,12 +16,14 @@ import (
 	"syscall"
 	"testing"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/execx/treetest"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/processor"
 	"github.com/fpresta0607/code-goblins/internal/standin"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 )
@@ -632,6 +634,95 @@ func TestGateTurnWithNoConsoleRunsItsCommand(t *testing.T) {
 	// Assert
 	if exit != 4 || !left(dir, "command", "ended") {
 		t.Fatalf("exit = %d and the command ended = %v; want the command's own 4", exit, left(dir, "command", "ended"))
+	}
+}
+
+// The gate daemon is started by Task Scheduler on every processor thread, and
+// a gate's Test step runs its command in goblins gate turn, the daemon's
+// test_command_wrapper. On 2026-11-06 one unchanged Lighthouse run scored 92
+// from a goblin's terminal and 77 from the daemon's tree, first paint 95 ms
+// against 2137 ms, since Windows keeps hidden work on the efficiency cores
+// (#2107). A run started on every thread keeps its command to the fleet's
+// threads, as a goblin's terminal does.
+func TestGateTurnKeepsItsCommandToTheFleetsProcessorThreads(t *testing.T) {
+	// Arrange
+	turnLine(t)
+	dir := commandFolder(t)
+	var own, machine uintptr
+	if result, _, err := windows.NewLazySystemDLL("kernel32.dll").NewProc("GetProcessAffinityMask").Call(uintptr(windows.CurrentProcess()), uintptr(unsafe.Pointer(&own)), uintptr(unsafe.Pointer(&machine))); result == 0 {
+		t.Fatal(err)
+	}
+	fleet, err := processor.MachineFleetThreads()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fleet == 0 || fleet == machine {
+		if os.Getenv("CI") == "true" {
+			t.Fatalf("CI runs this test on a machine of the processor threads %#x, where the fleet's work keeps to %#x, so a run kept to the fleet's threads went untested", machine, fleet)
+		}
+		t.Skipf("this machine's processor threads are %#x, where the fleet's work keeps to %#x, so a run kept to them cannot be told from one that is not", machine, fleet)
+	}
+	run := exec.Command(os.Args[0], append([]string{gateTurnTestWrapper}, turnCommand(dir, "command", 0, true)...)...)
+	var output lockedBuffer
+	run.Stdout, run.Stderr = &output, &output
+	run.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW | windows.CREATE_SUSPENDED}
+	if err := run.Start(); err != nil {
+		t.Fatal(err)
+	}
+	exited := make(chan int, 1)
+	go func() {
+		run.Wait()
+		exited <- run.ProcessState.ExitCode()
+	}()
+	t.Cleanup(func() {
+		run.Process.Kill()
+		<-exited
+	})
+	wrapper, err := windows.OpenProcess(windows.PROCESS_SET_INFORMATION|windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(run.Process.Pid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer windows.CloseHandle(wrapper)
+	if result, _, err := windows.NewLazySystemDLL("kernel32.dll").NewProc("SetProcessAffinityMask").Call(uintptr(wrapper), machine); result == 0 {
+		t.Fatal(err)
+	}
+
+	// Act
+	if err := proc.Resume(run.Process.Pid); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "the command started", func() bool { return left(dir, "command", "started") })
+	data, err := os.ReadFile(filepath.Join(dir, "command.pid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(string(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer windows.CloseHandle(command)
+	got, err := processor.ProcessThreads(command)
+	letGo(t, dir, "command")
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != fleet {
+		t.Errorf("a run started on the processor threads %#x gave its command %#x, want the fleet's, %#x", machine, got, fleet)
+	}
+	select {
+	case exit := <-exited:
+		if exit != 0 {
+			t.Errorf("the run exited %d, want its command's 0; output %q", exit, output.String())
+		}
+		exited <- exit
+	case <-time.After(time.Minute):
+		t.Fatalf("the run had not ended a minute after its command was let go; output %q", output.String())
 	}
 }
 

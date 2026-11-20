@@ -14,6 +14,7 @@ var (
 	kernel32                         = windows.NewLazySystemDLL("kernel32.dll")
 	getLogicalProcessorInformationEx = kernel32.NewProc("GetLogicalProcessorInformationEx")
 	getProcessAffinityMask           = kernel32.NewProc("GetProcessAffinityMask")
+	setProcessAffinityMask           = kernel32.NewProc("SetProcessAffinityMask")
 	getActiveProcessorGroupCount     = kernel32.NewProc("GetActiveProcessorGroupCount")
 )
 
@@ -73,6 +74,20 @@ func MachineFleetThreads() (uintptr, error) {
 	}
 	groups, _, _ := getActiveProcessorGroupCount.Call()
 	return fleetThreads(cores, int(groups), own), nil
+}
+
+// KeepToFleetThreads keeps this process, and everything it starts from now
+// on, to the machine's fleet threads (MachineFleetThreads), and changes
+// nothing where those set no limit.
+func KeepToFleetThreads() error {
+	threads, err := MachineFleetThreads()
+	if err != nil || threads == 0 {
+		return err
+	}
+	if result, _, err := setProcessAffinityMask.Call(uintptr(windows.CurrentProcess()), threads); result == 0 {
+		return fmt.Errorf("keep this process to the fleet's processor threads %#x: %w", threads, err)
+	}
+	return nil
 }
 
 // ProcessThreads is the mask of the processor threads process may run on.

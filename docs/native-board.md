@@ -1016,6 +1016,8 @@ The test Chrome was never the window in front, so a start the Overlord clicks hi
 The efficiency cores stay with the system's background work, because Windows keeps a hidden process that asks for nothing on them and does not move that work to a performance core when they fill, and what a terminal starts asks for nothing.
 On 2026-11-05, on the same kind of PC, eight hidden CPU-bound processes of 6 seconds' work each were started together: with the efficiency cores in the mask 1 or 2 finished within the wait, the efficiency cores 100 percent busy and the performance threads 13 to 70, and without them all 8 did, the performance threads 50 to 100 percent busy.
 There is no such limit on a machine with one performance core, on a machine with more than one processor group, or where the cores cannot be read, which the host's log says, and a terminal is never given a thread its host may not itself run on.
+The gate daemon is no terminal's: Task Scheduler starts it on every core, so `goblins gate turn`, which runs each gate's Test step, keeps itself and its command to the same threads before the command starts (#2107).
+On 2026-11-06 one unchanged Lighthouse run scored 92 and 93 from a goblin's terminal and 77 and 82 from the daemon's tree, first paint 95 ms against 2137 ms.
 The CEO's terminal, a run card's terminal and a staged harness's proof start keep every core.
 Installing a build or restarting `serve` leaves existing hosts running their original code; the persistent policy takes effect in newly launched hosts, so resume each existing session only when its active work permits a host restart.
 
