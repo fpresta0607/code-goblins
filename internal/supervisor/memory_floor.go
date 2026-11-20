@@ -16,7 +16,8 @@ import (
 // The memory floor keeps the machine working whether or not the Overlord is
 // away (the Overlord, 2026-10-08: "it should work regardless of afk thats a
 // critical core feature"). When one reading of the memory guard finds memory
-// or commit under the floor, the supervisor pauses at once the live goblin
+// or commit under the floor, the supervisor pauses at once, but for one
+// shallow dip while a turn of the heavy line runs (dipAllowance), the live goblin
 // whose process tree grew most since the reading before, or the one lowest in
 // the Overlord's In progress order when none grew, that is not pushing or
 // merging, through the pause the allowance floor uses, one goblin at a time,

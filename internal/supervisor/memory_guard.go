@@ -174,8 +174,8 @@ func (s *Service) keepMemoryGuard(ctx context.Context, every time.Duration) {
 // guardMemory takes one reading of the memory guard at now. It follows every
 // live native goblin's process tree and measures the cost of the starts it
 // sees (writeStartCost), and when the lesser of the free memory and commit is
-// under the floor from the home's settings it pauses one goblin at once
-// (pauseOneForMemory). It does nothing where no memory is read.
+// under the floor from the home's settings it pauses one goblin at once, but
+// for one shallow dip while a turn of the heavy line runs (pauseOneForMemory). It does nothing where no memory is read.
 func (s *Service) guardMemory(now time.Time) error {
 	dispatch := s.Options.Dispatch
 	if dispatch == nil || dispatch.Memory == nil {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
+	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
 // defaultMemoryFloor is the free memory a gate run waits for when the home's
@@ -285,7 +286,7 @@ func TestAGateTurnWaitsForTheFloorTheHomeKeeps(t *testing.T) {
 
 			// Act
 			var says, stderr bytes.Buffer
-			turn, err := takeGateTurn(t.Context(), "goblins gate", &says, &stderr, available, "a test run", "", time.Minute, 50*time.Millisecond, 0, 0)
+			turn, err := takeGateTurn(t.Context(), "goblins gate", &says, &stderr, available, "a test run", "", "", time.Minute, 50*time.Millisecond, 0, 0)
 
 			// Assert
 			if err == nil {
@@ -295,5 +296,37 @@ func TestAGateTurnWaitsForTheFloorTheHomeKeeps(t *testing.T) {
 				t.Fatalf("turn err = %v (said %q, stderr %q), want a turn %t", err, says.String(), stderr.String(), test.isTaken)
 			}
 		})
+	}
+}
+
+// A gate's step names on its card the task its caller resolved, since the
+// gate daemon's environment it runs in can name another goblin's, and the
+// memory floor spares the goblin a card names (#2808).
+func TestAGateTurnNamesItsTaskOnItsCard(t *testing.T) {
+	// Arrange
+	h := primaryHomeFixture(t)
+	t.Setenv("GOBLINS_HOME", h.Root)
+	t.Setenv("GOBLINS_STATE_OVERRIDE", h.State)
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
+	available := func() (supervisor.Memory, error) {
+		return supervisor.Memory{Available: 16 << 30, CommitAvailable: 16 << 30}, nil
+	}
+
+	// Act
+	var says, stderr bytes.Buffer
+	turn, err := takeGateTurn(t.Context(), "goblins gate test", &says, &stderr, available, "a gate's Test step", "", "cg-gated", time.Minute, 50*time.Millisecond, 0, 0)
+	if err != nil {
+		t.Fatalf("turn err = %v (said %q, stderr %q)", err, says.String(), stderr.String())
+	}
+	defer func() { _ = turn.Release() }()
+	store, err := verify.AdmissionDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	holding, _, err := verify.Line(store)
+
+	// Assert
+	if err != nil || len(holding) != 1 || holding[0].Task != "cg-gated" {
+		t.Fatalf("the line holds %+v, %v; want one turn whose card names cg-gated", holding, err)
 	}
 }

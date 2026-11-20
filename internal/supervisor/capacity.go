@@ -162,7 +162,8 @@ func MachineLongTurnWaits(now time.Time) ([]verify.Standing, error) {
 // GOBLINS_TASK_ID, which every run a goblin starts inherits from its
 // terminal, a detached run whose starter has ended too. A holder whose card
 // names none and whose environment cannot be read, or names none, is no
-// goblin's.
+// goblin's, as is one whose environment sets NO_MISTAKES_GATE: a gate's step
+// runs in the gate daemon's environment, which can be another goblin's.
 func MachineTurnHolders() ([]string, error) {
 	dir, err := verify.AdmissionDir()
 	if err != nil {
@@ -182,10 +183,19 @@ func MachineTurnHolders() ([]string, error) {
 		if err != nil {
 			continue
 		}
+		var task string
+		isUnderGate := false
 		for _, entry := range environment {
-			if name, task, _ := strings.Cut(entry, "="); strings.EqualFold(name, "GOBLINS_TASK_ID") && task != "" {
-				tasks = append(tasks, task)
+			name, value, _ := strings.Cut(entry, "=")
+			switch {
+			case strings.EqualFold(name, "GOBLINS_TASK_ID"):
+				task = value
+			case strings.EqualFold(name, "NO_MISTAKES_GATE") && value != "":
+				isUnderGate = true
 			}
+		}
+		if task != "" && !isUnderGate {
+			tasks = append(tasks, task)
 		}
 	}
 	return tasks, nil

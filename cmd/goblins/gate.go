@@ -117,7 +117,7 @@ func runGatePrepare(dir string, stdout, stderr io.Writer, runtime commandRuntime
 	if task != "" {
 		who += ", task " + taskLabel(task, runtime)
 	}
-	turn, err := takeGateTurn(context.Background(), label, stdout, stderr, runtime.availableMemory, who, taskPriority(label, task, stderr, runtime), runtime.gateBudget(plan.Level), runtime.gateWaitLimit, gateLineLimit(runtime, os.Getenv, false), 0)
+	turn, err := takeGateTurn(context.Background(), label, stdout, stderr, runtime.availableMemory, who, taskPriority(label, task, stderr, runtime), task, runtime.gateBudget(plan.Level), runtime.gateWaitLimit, gateLineLimit(runtime, os.Getenv, false), 0)
 	if err != nil {
 		return 1
 	}
@@ -362,7 +362,7 @@ func runGateChecks(kind string, args []string, dir string, stdout, stderr io.Wri
 		if report.Status == "passed" {
 			budget := runtime.gateBudget(plan.Level)
 			lineWaited := time.Duration(report.QueueSeconds * float64(time.Second))
-			turn, admissionErr := takeGateTurn(context.Background(), label, stdout, stderr, runtime.availableMemory, who, priority, budget, runtime.gateWaitLimit, lineLimit, lineWaited)
+			turn, admissionErr := takeGateTurn(context.Background(), label, stdout, stderr, runtime.availableMemory, who, priority, report.Task, budget, runtime.gateWaitLimit, lineLimit, lineWaited)
 			report.QueueSeconds += turn.Waited.Seconds()
 			if admissionErr != nil {
 				report.Status, report.QueueNote = "failed", admissionErr.Error()
@@ -559,8 +559,10 @@ func agentLeftLine(limit time.Duration) string {
 // a gate's agent started (gateLineLimit) and bounds that run's wait across
 // every turn it takes: lineWaited is what its earlier turns took of the
 // limit, and a run with none of it left takes a turn that is free and waits
-// for none. Budget expiry never displaces custody.
-func takeGateTurn(ctx context.Context, label string, says, stderr io.Writer, available func() (supervisor.Memory, error), who, priority string, budget, limit, lineLimit, lineWaited time.Duration) (verify.Turn, error) {
+// for none. Budget expiry never displaces custody. Its card names task, the
+// one its caller resolved, since a gate's step runs in the gate daemon's
+// environment, which can name another goblin's (#2808).
+func takeGateTurn(ctx context.Context, label string, says, stderr io.Writer, available func() (supervisor.Memory, error), who, priority, task string, budget, limit, lineLimit, lineWaited time.Duration) (verify.Turn, error) {
 	store, err := verify.AdmissionDir()
 	if err != nil {
 		fmt.Fprintf(stderr, "%s: this run takes no turn: %v\n", label, err)
@@ -588,6 +590,7 @@ func takeGateTurn(ctx context.Context, label string, says, stderr io.Writer, ava
 		Available: pairedAvailable,
 		Who:       who,
 		Priority:  priority,
+		Task:      task,
 		Budget:    budget,
 		Limit:     limit,
 		LineLimit: lineLeft,

@@ -111,22 +111,28 @@ func TestServeDispatchReadsAHeavyLineStandingStill(t *testing.T) {
 // The board's supervisor reads which goblins hold a turn of the machine's
 // heavy line, for the memory floor to pause last: the task a holder's card
 // names, as goblins gate turn writes it, or else the GOBLINS_TASK_ID of the
-// holder's process, and none for a holder that names neither (#2808).
+// holder's process, and none for a holder that names neither, or whose
+// process is a gate's step, which runs in the gate daemon's environment, and
+// that can be another goblin's (#2808).
 func TestServeDispatchReadsWhichGoblinsHoldATurn(t *testing.T) {
 	for _, test := range []struct {
 		name        string
 		cardTask    string
 		environment string
+		gate        string
 		want        []string
 	}{
 		{name: "a card that names its task", cardTask: "cg-card", environment: "cg-environment", want: []string{"cg-card"}},
 		{name: "a card that names none", environment: "cg-environment", want: []string{"cg-environment"}},
+		{name: "a gate's step whose card names none", environment: "cg-daemon-starter", gate: "1"},
+		{name: "a gate's step whose card names its task", cardTask: "cg-card", environment: "cg-daemon-starter", gate: "1", want: []string{"cg-card"}},
 		{name: "no task anywhere"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			store := t.TempDir()
 			t.Setenv("GOBLINS_VERIFY_DIR", store)
+			t.Setenv("NO_MISTAKES_GATE", test.gate)
 			t.Setenv("GOBLINS_TASK_ID", test.environment)
 			plentyFree := func() (uint64, error) { return 16 << 30, nil }
 			turn, err := verify.Admission{Dir: filepath.Join(store, "slots"), Floor: 4 << 30, Available: plentyFree, Task: test.cardTask, Who: "a run that holds", Budget: time.Hour, Limit: time.Minute, Poll: 10 * time.Millisecond}.Wait(context.Background())
