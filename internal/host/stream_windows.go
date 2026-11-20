@@ -157,7 +157,7 @@ func runStream(stateDir string, spec Spec, proof string, processors uintptr) err
 // ended. A writer's lines are written to the program, each acknowledged
 // once written or with why not. Either may close the session. A state read
 // is sent what the lines say of the session, from state, and let go.
-func serveStream(connection *os.File, token string, program *conpty.Piped, lines *lineHistory, write func(json.RawMessage) error, state func() ([]byte, error), closing chan<- struct{}) {
+func serveStream(connection hostConnection, token string, program *conpty.Piped, lines *lineHistory, write func(json.RawMessage) error, state func() ([]byte, error), closing chan<- struct{}) {
 	defer connection.Close()
 	greeting, ok := greet(connection, token, true)
 	if !ok {
@@ -265,7 +265,7 @@ func serveStream(connection *os.File, token string, program *conpty.Piped, lines
 // StreamViewer reads a stream session's lines: those its host kept, then
 // each as it comes, whoever wrote it, then how the program ended.
 type StreamViewer struct {
-	pipe    *os.File
+	pipe    hostConnection
 	sending sync.Mutex
 }
 
@@ -325,7 +325,7 @@ func (v *StreamViewer) Close() error {
 // StreamWriter writes lines into a stream session and learns, line by line,
 // that its host wrote each into the program's input.
 type StreamWriter struct {
-	pipe *os.File
+	pipe hostConnection
 }
 
 // DialStreamWriter connects to the stream host record names to write lines.
