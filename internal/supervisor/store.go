@@ -207,6 +207,10 @@ type Database struct {
 	// turn, held until its record shows the goblin took each; the board
 	// shows a receipt only then.
 	QueuedSends []BoardActivity `json:"queued_sends,omitempty"`
+	// HeldNotices are the notices the supervisor told the CEO in a turn under
+	// way, which its harness holds in its own queue with no action recording
+	// them, until they can wait there no longer (#2759).
+	HeldNotices []Awaiting `json:"held_notices,omitempty"`
 }
 
 type Store struct {
@@ -371,6 +375,7 @@ func cloneDatabase(d Database) Database {
 	d.Questions = slices.Clone(d.Questions)
 	d.Activity = slices.Clone(d.Activity)
 	d.QueuedSends = slices.Clone(d.QueuedSends)
+	d.HeldNotices = slices.Clone(d.HeldNotices)
 	d.Reviews = slices.Clone(d.Reviews)
 	d.Runs = slices.Clone(d.Runs)
 	d.CEOAnswers = slices.Clone(d.CEOAnswers)

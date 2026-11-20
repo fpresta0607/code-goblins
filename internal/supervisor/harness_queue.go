@@ -58,10 +58,15 @@ func (s *Store) heldWith(id, task string) []Action {
 	if at < 0 {
 		return nil
 	}
-	target := *s.db.Actions[at].Awaiting
+	return s.heldBeside(*s.db.Actions[at].Awaiting)
+}
+
+// heldBeside returns every delivery the board typed into the queue that holds
+// typed, in the order they were typed. The caller holds s.mu.
+func (s *Store) heldBeside(typed Awaiting) []Action {
 	var held []Action
 	for _, a := range s.db.Actions {
-		if isHeldWith(a, target) {
+		if isHeldWith(a, typed) {
 			held = append(held, a)
 		}
 	}
@@ -328,19 +333,29 @@ func (s *Service) takeQueueBack(held []Action, task string, record host.Record, 
 
 // heldIn returns every delivery the board typed into the queue of the
 // harness of task's session that it still holds there, in the order they
-// were typed; none when it holds none of his messages.
+// were typed; none when it holds none: an answer held there alone is in it
+// as his words are (#2759).
 func (s *Store) heldIn(task string) []Action {
 	s.mu.Lock()
-	at := slices.IndexFunc(s.db.Actions, func(a Action) bool { return a.TaskID == task && a.Kind == "message" && isHarnessHeld(a) })
-	id := ""
-	if at >= 0 {
-		id = s.db.Actions[at].ID
-	}
-	s.mu.Unlock()
+	defer s.mu.Unlock()
+	at := slices.IndexFunc(s.db.Actions, func(a Action) bool { return s.isDeliveryTo(a, task) && isHarnessHeld(a) })
 	if at < 0 {
 		return nil
 	}
-	return s.heldWith(id, task)
+	return s.heldBeside(*s.db.Actions[at].Awaiting)
+}
+
+// holdsUnrecorded says the harness of task's session may hold in its queue a
+// line typed there that no action records, which it would give back with the
+// board's: a notice told to the CEO in a turn under way, or a message goblins
+// send typed into a goblin's.
+func (s *Store) holdsUnrecorded(task string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if task == "" {
+		return len(s.db.HeldNotices) > 0
+	}
+	return slices.ContainsFunc(s.db.QueuedSends, func(a BoardActivity) bool { return a.TaskID == task })
 }
 
 // queueAhead returns what the harness of task's session holds in its queue
@@ -350,9 +365,13 @@ func (s *Store) heldIn(task string) []Action {
 // waits out the whole turn they start, as /login did on Claude Code 2.1.328,
 // live on 2026-11-19 (#2759). It can only where that harness gives its queue
 // back to a key and holds there only his messages, which then wait on the
-// board behind the command. A queue in a terminal that has ended holds
+// board behind the command, and no line that no action records, which that
+// key would give back with them. A queue in a terminal that has ended holds
 // nothing.
 func (s *Service) queueAhead(task string) ([]Action, host.Record, harness.Screens, bool) {
+	if s.Store.holdsUnrecorded(task) {
+		return nil, host.Record{}, harness.Screens{}, false
+	}
 	held := s.Store.heldIn(task)
 	if len(held) == 0 {
 		return nil, host.Record{}, harness.Screens{}, true
@@ -376,7 +395,7 @@ func (s *Service) queueAhead(task string) ([]Action, host.Record, harness.Screen
 // the press reads the queue once no such try runs, waiting up to tryWait for
 // one under way, and otherwise says to press again in a moment. As
 // takeBackHeld does, the board then looks first, since the turn may have
-// taken them since its last look.
+// taken them, or a notice told to the CEO, since its last look.
 func (s *Service) sendCommandFirst(ctx context.Context, id, task string) (bool, error) {
 	if !s.Store.isCommandToSendNow(id, task) {
 		return false, nil
@@ -385,7 +404,7 @@ func (s *Service) sendCommandFirst(ctx context.Context, id, task string) (bool, 
 		who, _ := whoHolds(task)
 		return false, errors.New("The board is typing for " + who + " right now. Press again in a moment.")
 	}
-	if len(s.Store.heldIn(task)) > 0 {
+	if len(s.Store.heldIn(task)) > 0 || s.Store.holdsUnrecorded(task) {
 		if err := s.Store.settleDeliveries(time.Now().UTC(), s.lookAtTerminal); err != nil {
 			return false, err
 		}
