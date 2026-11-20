@@ -221,12 +221,15 @@ func TestNPMComponentsListsOnlyBundledPackagesAndRefusesCopyleftOnes(t *testing.
 			"node_modules/fsevents":{"version":"2.3.3","license":"MIT","devOptional":true},
 			"node_modules/react/node_modules/strict":{"version":"1.0.0","license":"GPL-3.0-only"},
 			"node_modules/liar":{"version":"1.0.0","license":"MIT"},
-			"node_modules/eula":{"version":"2.0.0","license":"MIT"}
+			"node_modules/eula":{"version":"2.0.0","license":"MIT"},
+			"node_modules/vendored":{"version":"3.0.0","license":"MIT"}
 		}}`,
 		"node_modules/react/LICENSE":                     mitText,
 		"node_modules/react/node_modules/strict/LICENSE": gplText,
 		"node_modules/liar/LICENSE.md":                   mplText,
 		"node_modules/eula/LICENSE":                      "Business Source License 1.1\n\nYou may not use the Licensed Work in production.",
+		"node_modules/vendored/LICENSE":                  mitText,
+		"node_modules/vendored/LICENSE-3RD-PARTY.md":     sqliteThirdPartyText,
 	})
 
 	s, problems, err := npmComponents(frontend)
@@ -238,8 +241,8 @@ func TestNPMComponentsListsOnlyBundledPackagesAndRefusesCopyleftOnes(t *testing.
 	for _, c := range s.components {
 		names = append(names, c.name)
 	}
-	if got := strings.Join(names, ", "); got != "npm eula 2.0.0, npm liar 1.0.0, npm react 19.3.0, npm strict 1.0.0" {
-		t.Errorf("components = %s, want the four bundled packages and no development tool", got)
+	if got := strings.Join(names, ", "); got != "npm eula 2.0.0, npm liar 1.0.0, npm react 19.3.0, npm strict 1.0.0, npm vendored 3.0.0" {
+		t.Errorf("components = %s, want the five bundled packages and no development tool", got)
 	}
 	joined := strings.Join(problems, "\n")
 	if len(problems) != 3 || !strings.Contains(joined, `npm strict 1.0.0: declares "GPL-3.0-only"`) || !strings.Contains(joined, "npm liar 1.0.0: copyleft") || !strings.Contains(joined, "npm eula 2.0.0: "+errUnrecognised.Error()) {
@@ -261,15 +264,21 @@ func TestNPMComponentsAsksForNPMCIWhenAPackageIsNotInstalled(t *testing.T) {
 // its files, under their licence, and a copyleft one is refused.
 func TestConsoleHostComponentsNameThePackageVersionAndLicence(t *testing.T) {
 	for name, test := range map[string]struct {
-		licence, want string
-		isRefused     bool
+		licenceFiles map[string]string
+		want         string
+		isRefused    bool
 	}{
-		"MIT":      {licence: mitText, want: "Microsoft.Windows.Console.ConPTY 1.25.260930003 (conpty.dll and OpenConsole.exe)=MIT"},
-		"copyleft": {licence: gplText, isRefused: true},
+		"MIT":                                    {licenceFiles: map[string]string{"LICENSE": mitText}, want: "Microsoft.Windows.Console.ConPTY 1.25.260930003 (conpty.dll and OpenConsole.exe)=MIT"},
+		"MIT beside an inventory naming the GPL": {licenceFiles: map[string]string{"LICENSE": mitText, "LICENSE-3RD-PARTY.md": sqliteThirdPartyText}, want: "Microsoft.Windows.Console.ConPTY 1.25.260930003 (conpty.dll and OpenConsole.exe)=MIT"},
+		"copyleft":                               {licenceFiles: map[string]string{"LICENSE": gplText}, isRefused: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			dir := writeFiles(t, map[string]string{"VERSION": "1.25.260930003\r\n", "LICENSE": test.licence, "conpty.dll": "library bytes", "OpenConsole.exe": "program bytes"})
+			files := map[string]string{"VERSION": "1.25.260930003\r\n", "conpty.dll": "library bytes", "OpenConsole.exe": "program bytes"}
+			for file, text := range test.licenceFiles {
+				files[file] = text
+			}
+			dir := writeFiles(t, files)
 
 			// Act
 			s, problems, err := consoleHostComponents(dir)
@@ -336,13 +345,20 @@ func TestRenderListsEveryComponentAndEachTextOnce(t *testing.T) {
 // and every module compiled into it, and a copyleft licence of its own is
 // refused with nothing written.
 func TestRunProgramListsTheProgramsOwnLicenceAndRefusesCopyleft(t *testing.T) {
-	for name, licence := range map[string]string{"MIT": mitText, "GPL": gplText} {
+	for name, licenceFiles := range map[string]map[string]string{
+		"MIT":                                    {"LICENSE": mitText},
+		"MIT beside an inventory naming the GPL": {"LICENSE": mitText, "LICENSE-3RD-PARTY.md": sqliteThirdPartyText},
+		"GPL":                                    {"LICENSE": gplText},
+	} {
 		t.Run(name, func(t *testing.T) {
-			dir := writeFiles(t, map[string]string{
+			files := map[string]string{
 				"go.mod":           "module example.com/tool\n\ngo 1.21\n",
 				"cmd/tool/main.go": "package main\n\nfunc main() {}\n",
-				"LICENSE":          licence,
-			})
+			}
+			for file, text := range licenceFiles {
+				files[file] = text
+			}
+			dir := writeFiles(t, files)
 			out := filepath.Join(t.TempDir(), "tool-NOTICES")
 
 			err := runProgram(dir, "./cmd/tool", out)
