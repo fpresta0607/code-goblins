@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // provisionFixture builds a project, its worktree, and the task temporary
@@ -1163,5 +1164,47 @@ func holdsNoStandInMCPValueIfThere(t *testing.T, path string) {
 	t.Helper()
 	if _, err := os.Stat(path); err == nil {
 		holdsNoStandInMCPValue(t, path)
+	}
+}
+
+// A read-only copy is flushed to disk while it is still open and before it
+// replaces the worktree's file, so a machine that stops after the rename
+// finds the copy whole rather than at full length and holding only zeros.
+func TestAReadOnlyCopyIsFlushedBeforeItReplacesTheWorktreesFile(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	source, destination := filepath.Join(dir, "checkout.env"), filepath.Join(dir, "worktree.env")
+	want, old := []byte("STANDIN_SETTING=current\n"), []byte("STANDIN_SETTING=old\n")
+	if err := os.WriteFile(source, want, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(destination, old, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var flushedWhole []string
+	t.Cleanup(fsx.ReplaceSync(func(file *os.File) error {
+		staged, _ := os.ReadFile(file.Name())
+		kept, _ := os.ReadFile(destination)
+		if file.Name() != destination && bytes.Equal(staged, want) && bytes.Equal(kept, old) {
+			flushedWhole = append(flushedWhole, file.Name())
+		}
+		return file.Sync()
+	}))
+
+	// Act
+	err := copyReadOnly(source, destination)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(flushedWhole) != 1 {
+		t.Fatalf("the whole copy was flushed %d times before it replaced the worktree's file, want once", len(flushedWhole))
+	}
+	if _, err := os.Stat(flushedWhole[0]); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the flushed copy %s is still beside the file, want it renamed into place: %v", flushedWhole[0], err)
+	}
+	if got, err := os.ReadFile(destination); err != nil || !bytes.Equal(got, want) {
+		t.Errorf("the worktree's file holds %q, %v; want %q", got, err, want)
 	}
 }

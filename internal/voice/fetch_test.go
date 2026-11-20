@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // Two fetches of one part at once, as the install's and the board's are
@@ -239,5 +241,49 @@ func TestADownloadTheServerFailsForAMomentIsTriedAgain(t *testing.T) {
 				t.Errorf("%d downloads after waits %v, want %d after %v", requests.Load(), waits, test.wantRequests, test.wantWaits)
 			}
 		})
+	}
+}
+
+// Each file of a part is flushed to disk while it is still open and before
+// its folder is renamed into place, since ready checks only the files'
+// sizes, which a file a stopped machine left holding only zero bytes keeps.
+func TestAFetchFlushesEachFileBeforeThePartIsPutInPlace(t *testing.T) {
+	// Arrange
+	server, _ := served(t)
+	dir := t.TempDir()
+	wanted := part("model", server.URL+"/model.tar.bz2")
+	folder := filepath.Join(dir, "model-1.0")
+	type flush struct {
+		name string
+		data []byte
+	}
+	var flushedBeforeThePlace []flush
+	t.Cleanup(fsx.ReplaceSync(func(file *os.File) error {
+		staged, _ := os.ReadFile(file.Name())
+		if _, err := os.Stat(folder); os.IsNotExist(err) {
+			flushedBeforeThePlace = append(flushedBeforeThePlace, flush{file.Name(), staged})
+		}
+		return file.Sync()
+	}))
+
+	// Act
+	err := (&Voice{Dir: dir, Client: server.Client()}).fetch(context.Background(), wanted, quietPart)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"program.txt", "library.txt", "tokens.txt"} {
+		placed, err := os.ReadFile(filepath.Join(folder, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		flushedWhole := slices.ContainsFunc(flushedBeforeThePlace, func(f flush) bool {
+			_, err := os.Stat(f.name)
+			return filepath.Base(f.name) == name && slices.Equal(f.data, placed) && os.IsNotExist(err)
+		})
+		if !flushedWhole {
+			t.Errorf("%s was not flushed whole before its folder was put in place", name)
+		}
 	}
 }
