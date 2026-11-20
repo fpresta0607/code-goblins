@@ -946,10 +946,17 @@ func (s *Service) retellRuns(ctx context.Context) error {
 
 // tellCEO sends a run's result to the CEO registered now, which may have
 // restarted since it created the item. A result submitted behind the CEO's
-// turn is told: the CEO takes it when the turn ends. An error that is
-// ErrRejected sent nothing; any other may have reached the CEO.
+// turn is told: the CEO takes it when the turn ends, and until then the board
+// keeps it among the notices that turn's queue holds (holdsUnrecorded). An
+// error that is ErrRejected sent nothing; any other may have reached the CEO.
 func (s *Service) tellCEO(ctx context.Context, text string, his bool) error {
-	_, err := s.sendToCEO(ctx, text, his)
+	told, err := s.sendToCEO(ctx, text, his)
+	if err == nil && told.Awaiting != nil && told.Awaiting.IsHeld {
+		// The notice was told whether or not that record is saved.
+		if heldErr := s.Store.holdNotice(*told.Awaiting); heldErr != nil {
+			s.publish(heldErr)
+		}
+	}
 	return err
 }
 

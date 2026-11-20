@@ -38,6 +38,13 @@ const (
 // nativePoll is how often a native spawn reads the terminal's screen.
 const nativePoll = 250 * time.Millisecond
 
+// nativeKeyPoll is how often a delivery reads the terminal's screen while it
+// waits for a key it sent to show taken before it sends the next. On
+// 2026-11-19 a Claude Code 2.1.328 drew typed words 46 ms after they went and
+// queued them 35 ms after their Enter, and reads nativePoll apart saw each a
+// quarter second late, which a line sent now waited out twice (#2759).
+const nativeKeyPoll = 50 * time.Millisecond
+
 // nativeStartup bounds a harness's startup, dialogs included; nativeKeyEffect
 // bounds how long one key takes to show on the screen; nativeAccepted bounds
 // how long a submitted instruction takes to show the harness working; and
@@ -710,7 +717,11 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 			}
 			return fmt.Errorf("spawn: native terminal %s never showed its harness working on the instruction: not within %s; its screen ends:\n%s", record.ID, within, host.ScreenTail(screen, 8))
 		}
-		if err := s.sleep(ctx, nativePoll); err != nil {
+		poll := nativePoll
+		if busy && s.ShouldSendNow && !isSentNow && screens.SendNow != "" {
+			poll = nativeKeyPoll
+		}
+		if err := s.sleep(ctx, poll); err != nil {
 			return err
 		}
 	}
@@ -887,8 +898,8 @@ func leftTyped(err error) error {
 	return fmt.Errorf("%w: %w", err, ErrLeftTyped)
 }
 
-// awaitTyped reads the terminal's screen until it shows typed, for at most
-// typedWait. A harness that can take typed text in slowly is given
+// awaitTyped reads the terminal's screen every nativeKeyPoll until it shows
+// typed, for at most typedWait. A harness that can take typed text in slowly is given
 // nativeKeyEffect more each time its screen changes while the text is still
 // arriving, up to nativeTypedCap: live after the 2026-09-29 reboot a resumed
 // Codex took a pointer line in at about a character a second. Such a harness,
@@ -931,7 +942,7 @@ func (s Service) awaitTyped(ctx context.Context, client *host.Client, record hos
 			}
 			nudged = time.Now()
 		}
-		if err := s.sleep(ctx, nativePoll); err != nil {
+		if err := s.sleep(ctx, nativeKeyPoll); err != nil {
 			return err
 		}
 	}
