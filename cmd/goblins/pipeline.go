@@ -19,6 +19,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/gatedb"
+	"github.com/fpresta0607/code-goblins/internal/gatehome"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -345,6 +346,18 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		// The gate's wrapper stands only commands.test behind goblins gate turn,
 		// which runs it in the task's container (issue 2244).
 		return fmt.Errorf("pipeline: task %s carries sandbox: needed, so its code never runs on this PC, and its gate would run it there, since only the Test step's command runs in the task's container: the agents of the Review, Test, Document and Lint steps run their own shells on the host, as do the prepare, lint and format commands a gate file names. No gate runs for a sandbox task, so goblins pipeline %s ran nothing. A sandbox task is delivered in mode direct-PR or local-only", meta.ID, args[0])
+	}
+	if args[0] == "run" {
+		// A move holds the gate's daemon off for its whole copy, so the
+		// native start would only name that daemon's pid and its locked file
+		// (#2817).
+		isMoving, err := gatehome.IsMoving(filepath.Join(h.State, gateHomeMoveLock))
+		if err != nil {
+			return fmt.Errorf("pipeline: whether the gate's home is moving could not be read: %w", err)
+		}
+		if isMoving {
+			return errors.New("pipeline: the gate's home is moving to the Dev Drive, and the gate starts no run until the move is done, so goblins pipeline run started nothing. Start this run again once the move is done")
+		}
 	}
 	if meta.PipelineHash == "" {
 		return errors.New("pipeline: task lacks a spawn-time policy; existing tasks require an explicit migration decision")

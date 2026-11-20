@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"maps"
 	"os"
 	"os/exec"
@@ -124,6 +125,7 @@ func newScratch(t *testing.T) scratch {
 	for _, runtime := range []string{"socket", "daemon.pid", "daemon.lock"} {
 		writeFile(t, filepath.Join(s.old, runtime), "the old daemon's\n")
 	}
+	writeFile(t, filepath.Join(s.old, "update-check.json"), `{"checked_at":"2026-11-18T12:00:00Z"}`)
 	db := openDB(t, filepath.Join(s.old, "state.sqlite"))
 	defer db.Close()
 	for _, statement := range []string{
@@ -169,7 +171,7 @@ func TestMoveCarriesTheHomeAndPointsEveryRecordAtIt(t *testing.T) {
 	if _, err := os.Lstat(s.old); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the old home is still there: %v", err)
 	}
-	for _, runtime := range []string{"socket", "daemon.pid", "daemon.lock"} {
+	for _, runtime := range []string{"socket", "daemon.pid", "daemon.lock", "update-check.json"} {
 		if _, err := os.Lstat(filepath.Join(s.target, runtime)); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("%s was carried: %v", runtime, err)
 		}
@@ -506,6 +508,69 @@ func TestAnInterruptedCopyUndoesTheMove(t *testing.T) {
 	// Assert
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want the copy's interruption", err)
+	}
+	if want := []string{"stop " + s.old, "hold " + s.old, "release " + s.old, "start " + s.old}; !slices.Equal(s.daemon.calls, want) {
+		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
+	}
+	assertUntouched(t, s)
+}
+
+// rewriteAfterCopy has copyOne rewrite the source at path just after it
+// copies it, as a stray write to the home during a move does, the first
+// times copies of it, and counts its copies.
+func rewriteAfterCopy(t *testing.T, path string, times int) *int {
+	t.Helper()
+	copies := new(int)
+	t.Cleanup(func() { copyOne = copyFile })
+	copyOne = func(source, destination string) error {
+		if err := copyFile(source, destination); err != nil || source != path {
+			return err
+		}
+		*copies++
+		if *copies <= times {
+			writeFile(t, source, fmt.Sprintf("rewritten after copy %d\n", *copies))
+		}
+		return nil
+	}
+	return copies
+}
+
+// A file the home rewrote after it was copied is copied and proved again, so
+// one stray write no longer undoes a whole move (#2817).
+func TestMoveCopiesAgainAFileRewrittenAfterItsCopy(t *testing.T) {
+	// Arrange
+	s := newScratch(t)
+	copies := rewriteAfterCopy(t, filepath.Join(s.old, "worktrees", "a1", "r1", "file.txt"), 1)
+
+	// Act
+	_, isCarried, err := s.mover().Move(context.Background(), s.old, s.devDrive)
+
+	// Assert
+	if err != nil || !isCarried {
+		t.Fatalf("carried %v, %v", isCarried, err)
+	}
+	if *copies != 2 {
+		t.Errorf("the rewritten file was copied %d times, want 2", *copies)
+	}
+	assertFile(t, filepath.Join(s.target, "worktrees", "a1", "r1", "file.txt"), "rewritten after copy 1\n")
+}
+
+// A source that keeps changing through every copy fails the move as a
+// changed file always did, and the move undoes every step.
+func TestAFileThatKeepsChangingFailsTheMoveAndUndoesIt(t *testing.T) {
+	// Arrange
+	s := newScratch(t)
+	copies := rewriteAfterCopy(t, filepath.Join(s.old, "worktrees", "a1", "r1", "file.txt"), copyRounds)
+
+	// Act
+	_, isCarried, err := s.mover().Move(context.Background(), s.old, s.devDrive)
+
+	// Assert
+	if err == nil || isCarried || !strings.Contains(err.Error(), "the copy to "+s.target+" failed, so nothing moved") || !strings.Contains(err.Error(), fmt.Sprintf("kept changing through %d copies", copyRounds)) {
+		t.Fatalf("carried %v, err = %v, want the copy refused after %d copies", isCarried, err, copyRounds)
+	}
+	if *copies != copyRounds {
+		t.Errorf("the file was copied %d times, want %d", *copies, copyRounds)
 	}
 	if want := []string{"stop " + s.old, "hold " + s.old, "release " + s.old, "start " + s.old}; !slices.Equal(s.daemon.calls, want) {
 		t.Errorf("daemon calls = %q, want %q", s.daemon.calls, want)
