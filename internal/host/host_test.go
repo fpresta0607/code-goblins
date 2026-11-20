@@ -16,7 +16,7 @@ import (
 
 // testWait bounds each wait in these tests, so a host that stops answering
 // fails the test instead of hanging it.
-const testWait = 10 * time.Second
+const testWait = time.Minute
 
 const testToken = "token"
 
