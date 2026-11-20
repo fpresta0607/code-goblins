@@ -173,17 +173,17 @@ func Record(stateDir string, journal *Journal, phase Phase, outcome string) erro
 // home writes, so restoring from it can only put this home's previous build
 // back in this home.
 func Validate(journal Journal, root, stateDir string) error {
-	if !strings.EqualFold(filepath.Clean(journal.Root), filepath.Clean(root)) {
+	if !fsx.EqualPath(filepath.Clean(journal.Root), filepath.Clean(root)) {
 		return fmt.Errorf("update: the journal is for %s, not this home %s", journal.Root, root)
 	}
-	if !strings.EqualFold(filepath.Clean(journal.Copy), filepath.Join(Dir(stateDir), "candidate.exe")) {
+	if !fsx.EqualPath(filepath.Clean(journal.Copy), filepath.Join(Dir(stateDir), "candidate.exe")) {
 		return fmt.Errorf("update: the journal's candidate copy %s is not this home's", journal.Copy)
 	}
 	if len(journal.Aliases) != len(Aliases) {
 		return fmt.Errorf("update: the journal names %d aliases, not %d", len(journal.Aliases), len(Aliases))
 	}
 	for i, alias := range journal.Aliases {
-		if alias.Name != Aliases[i] || !strings.EqualFold(filepath.Clean(alias.Backup), filepath.Join(Dir(stateDir), "previous-"+Aliases[i])) || len(alias.Previous) != 64 {
+		if alias.Name != Aliases[i] || !fsx.EqualPath(filepath.Clean(alias.Backup), filepath.Join(Dir(stateDir), "previous-"+Aliases[i])) || len(alias.Previous) != 64 {
 			return fmt.Errorf("update: the journal's alias %q is not this home's", alias.Name)
 		}
 		for _, aside := range alias.Aside {
@@ -198,7 +198,7 @@ func Validate(journal Journal, root, stateDir string) error {
 // isAside reports whether path is exactly a name moveAside gives the alias
 // name in root: <root>\<name>.<digits>.update-old.
 func isAside(path, root, name string) bool {
-	if filepath.Clean(path) != path || !strings.EqualFold(filepath.Dir(path), filepath.Clean(root)) {
+	if filepath.Clean(path) != path || !fsx.EqualPath(filepath.Dir(path), filepath.Clean(root)) {
 		return false
 	}
 	number, ok := strings.CutPrefix(filepath.Base(path), name+".")

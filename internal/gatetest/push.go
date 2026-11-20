@@ -224,7 +224,7 @@ func push(found findings, times Times) Push {
 		}
 		// A quick package the change reaches itself runs whole below, its
 		// guard among its tests.
-		if importPath, isPackage := importPathOf(dirs, guard.Package); !isPackage || whole[importPath] {
+		if importPath, isPackage := importPathOf(found.root, dirs, guard.Package); !isPackage || whole[importPath] {
 			continue
 		}
 		step := Step{What: "guard tests of " + named(guard.Package), Why: guard.Why, Command: append(slices.Clone(testArgs), target(guard.Package))}
@@ -301,11 +301,12 @@ func plural(count int, one, many string) string {
 	return many
 }
 
-// importPathOf is the import path of the package in dir, a directory as the
-// policy names one.
-func importPathOf(dirs map[string]string, dir string) (string, bool) {
+// importPathOf is the import path of the package in dir, a directory from
+// root as the policy names one.
+func importPathOf(root string, dirs map[string]string, dir string) (string, bool) {
+	holder := root + string(filepath.Separator)
 	for importPath, found := range dirs {
-		if strings.EqualFold(found, dir) {
+		if fsx.EqualPath(holder+found, holder+dir) {
 			return importPath, true
 		}
 	}

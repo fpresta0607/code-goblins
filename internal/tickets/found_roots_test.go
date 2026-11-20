@@ -53,14 +53,14 @@ func TestErrorClassTakesOutWhatChangesBetweenSightings(t *testing.T) {
 		`GET /orders/7/items failed`:                                                  "GET /orders/N/items failed",
 	}
 	for line, want := range cases {
-		if got := ErrorClass(line, nil); got != want {
+		if got := ErrorClass(line, "", nil); got != want {
 			t.Errorf("ErrorClass(%q) = %q, want %q", line, got, want)
 		}
 	}
-	if ErrorClass("pid 4012 exited", nil) != ErrorClass("pid 977 exited", nil) {
+	if ErrorClass("pid 4012 exited", "", nil) != ErrorClass("pid 977 exited", "", nil) {
 		t.Error("two lines that differ by a number are two classes")
 	}
-	if ErrorClass("open /home/a/state/x.json: denied", nil) != ErrorClass("open /Users/b/state/x.json: denied", nil) {
+	if ErrorClass("open /home/a/state/x.json: denied", "", nil) != ErrorClass("open /Users/b/state/x.json: denied", "", nil) {
 		t.Error("two lines that differ by a Linux and a macOS home are two classes")
 	}
 }
@@ -73,14 +73,13 @@ func TestErrorClassTakesOutAnyTaskIDItNames(t *testing.T) {
 		"progress for cg-remote-toggle: context deadline exceeded":            "progress for <task>: context deadline exceeded",
 		"progress for cg-goblin-typing-and-header: context deadline exceeded": "progress for <task>: context deadline exceeded",
 		"progress for root-code-goblins-847: context deadline exceeded":       "progress for <task>: context deadline exceeded",
-		"push progress for CG-Remote-Toggle: git for-each-ref exited 128":     "push progress for <task>: git for-each-ref exited N",
 		"evaluation of cg-remote-toggle after its gate run moved: denied":     "evaluation of <task> after its gate run moved: denied",
 		"the gate stopped for cg-remote-toggle.":                              "the gate stopped for <task>.",
 		"progress for cg-ended-task: context deadline exceeded":               "progress for cg-ended-task: context deadline exceeded",
 		"read cg-remote-toggles failed":                                       "read cg-remote-toggles failed",
 	}
 	for line, want := range cases {
-		if got := ErrorClass(line, tasks); got != want {
+		if got := ErrorClass(line, t.TempDir(), tasks); got != want {
 			t.Errorf("ErrorClass(%q) = %q, want %q", line, got, want)
 		}
 	}

@@ -118,7 +118,7 @@ func NestedGitRefusal(worktree string) error {
 		if err != nil {
 			return err
 		}
-		if strings.EqualFold(entry.Name(), ".git") && path != own {
+		if strings.EqualFold(entry.Name(), ".git") && fsx.EqualPath(path, filepath.Join(filepath.Dir(path), ".git")) && path != own {
 			found = path
 			return fs.SkipAll
 		}

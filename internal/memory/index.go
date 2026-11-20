@@ -302,7 +302,7 @@ func (index *Index) addFacts(directory string) error {
 	}
 	slices.Sort(paths)
 	for _, path := range paths {
-		if strings.EqualFold(filepath.Base(path), "MEMORY.md") {
+		if fsx.EqualPath(path, filepath.Join(directory, "MEMORY.md")) {
 			continue
 		}
 		content, err := fsx.ReadFile(path)

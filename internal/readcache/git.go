@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 var (
@@ -164,16 +165,20 @@ func status(s *stamper, repo repository, previous *execx.Result) {
 	for _, name := range globalExcludes() {
 		s.content(name)
 	}
-	ignored := ignoredPaths(previous.Stdout)
+	isFolded := fsx.FoldsCase(repo.worktree)
+	ignored := ignoredPaths(previous.Stdout, isFolded)
 	s.tree(repo.worktree, func(relative string) bool {
-		return strings.EqualFold(path.Base(relative), ".git") || ignored[strings.ToLower(relative)]
+		if isFolded {
+			return strings.EqualFold(path.Base(relative), ".git") || ignored[strings.ToLower(relative)]
+		}
+		return path.Base(relative) == ".git" || ignored[relative]
 	}, maxEntries)
 }
 
 // ignoredPaths are the paths a status with -z and --ignored=matching names
-// ignored, folded to lower case as Windows compares names, a folder without
-// its trailing slash.
-func ignoredPaths(porcelain []byte) map[string]bool {
+// ignored, folded to lower case when isFolded, as a file system that ignores
+// case compares names, a folder without its trailing slash.
+func ignoredPaths(porcelain []byte, isFolded bool) map[string]bool {
 	ignored := map[string]bool{}
 	entries := strings.Split(string(porcelain), "\x00")
 	for index := 0; index < len(entries); index++ {
@@ -183,7 +188,11 @@ func ignoredPaths(porcelain []byte) map[string]bool {
 		}
 		code, name := entry[:2], entry[3:]
 		if code == "!!" {
-			ignored[strings.ToLower(strings.TrimSuffix(name, "/"))] = true
+			name = strings.TrimSuffix(name, "/")
+			if isFolded {
+				name = strings.ToLower(name)
+			}
+			ignored[name] = true
 		}
 		// A rename or a copy names its source in the entry after it.
 		if strings.ContainsAny(code, "RC") {

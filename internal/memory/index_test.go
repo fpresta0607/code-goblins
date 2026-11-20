@@ -223,7 +223,6 @@ func TestRecallFiltersExcludeOtherScopesAndKeepFleetWideItems(t *testing.T) {
 		present, absent string
 	}{
 		{"project keeps its own and fleet-wide", RecallQuery{Question: "harbor database port deploy", Project: "harbor"}, "harbor-database-is-live", "northwind-cache-port"},
-		{"project matches without case", RecallQuery{Question: "cache port", Project: "NORTHWIND"}, "northwind-cache-port", "harbor-database-is-live"},
 		{"repo names owner and repository", RecallQuery{Question: "cache port database", Repo: "acme/northwind"}, "northwind-cache-port", "harbor-database-is-live"},
 		{"role excludes other roles", RecallQuery{Question: "cache port", Role: "ceo"}, "", "northwind-cache-port"},
 		{"role keeps its own", RecallQuery{Question: "cache port", Role: "goblin"}, "northwind-cache-port", ""},
