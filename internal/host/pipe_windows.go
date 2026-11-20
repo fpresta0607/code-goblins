@@ -80,7 +80,7 @@ func (l *listener) instance(first bool) (windows.Handle, error) {
 // fresh instance for the one after it. On any failure the waiting instance
 // is disconnected and kept to wait on again, so it never names a closed
 // handle.
-func (l *listener) accept() (*os.File, error) {
+func (l *listener) accept() (hostConnection, error) {
 	connected := l.waiting
 	if err := waitForClient(connected); err != nil {
 		windows.DisconnectNamedPipe(connected)
