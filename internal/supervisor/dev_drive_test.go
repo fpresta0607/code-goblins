@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -535,6 +536,52 @@ func TestAFailedCarryStaysFailedAcrossARestartUntilTryAgain(t *testing.T) {
 	}
 	g.carriedInto(t)
 	g.ended <- nil
+}
+
+// A failed carry whose failure cannot be written to config\dev-drive.json is
+// kept by the board in memory and says so: the row says why it failed and
+// waits for Try again, where the board once forgot the failure and started
+// the same hour-long carry again at its next look (#2817).
+func TestAFailedCarryThatCannotBeKeptWaitsForTryAgainAndSaysSo(t *testing.T) {
+	// Arrange
+	g := newGateStep(t, true)
+	path := home.DevDriveConfigPath(g.s.Store.Home.Root)
+	readable, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.s.Options.DevDrive.CarryGateHome = func(_ context.Context, folder string) error {
+		g.started <- folder
+		err := <-g.ended
+		if writeErr := os.WriteFile(path, []byte("not a config"), 0o600); writeErr != nil {
+			t.Error(writeErr)
+		}
+		return err
+	}
+	g.s.keepDevDrive(context.Background())
+	g.carriedInto(t)
+	const failed = `gate home: the copy to D:\CodeGoblins\no-mistakes failed, so nothing moved: disk full`
+	g.end(t, errors.New(failed))
+	if err := os.WriteFile(path, readable, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	g.s.keepDevDrive(context.Background())
+	g.s.keepDevDrive(context.Background())
+
+	// Assert
+	if g.isCarrying() || len(g.started) != 0 {
+		t.Fatal("the board started the failed carry again by itself")
+	}
+	view := g.s.devDriveViewNow()
+	if view.Action != devDriveTryAgain || !strings.HasPrefix(view.Status, gateStepDone+" It did not move: "+failed) || !strings.Contains(view.Status, "could not be kept for a restart of the board") {
+		t.Errorf("view = %+v, want why it failed, that it was not kept, and Try again", view)
+	}
+	config, err := home.ReadDevDriveConfig(g.s.Store.Home.Root)
+	if err != nil || config.GateCarryFailed != "" {
+		t.Errorf("config = %+v, %v; want the failure kept only in memory", config, err)
+	}
 }
 
 // The gate step is taken only on the person's word: until he asked for a Dev

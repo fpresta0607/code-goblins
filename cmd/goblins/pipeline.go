@@ -356,7 +356,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			return fmt.Errorf("pipeline: whether the gate's home is moving could not be read: %w", err)
 		}
 		if isMoving {
-			return fmt.Errorf("pipeline: the gate's home is moving to the Dev Drive, and the gate starts no run until the move is done, so goblins pipeline run started nothing. Report it with goblins notify %s --waiting-on gate-daemon \"the gate's home is moving\" and start this run again once the move is done", meta.ID)
+			return errors.New("pipeline: the gate's home is moving to the Dev Drive, and the gate starts no run until the move is done, so goblins pipeline run started nothing. Start this run again once the move is done")
 		}
 	}
 	if meta.PipelineHash == "" {

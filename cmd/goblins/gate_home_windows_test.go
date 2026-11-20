@@ -518,10 +518,13 @@ func TestPipelineRunSaysTheGateHomeIsMovingWhileAMoveHoldsItsLock(t *testing.T) 
 				}
 				return
 			}
-			for _, want := range []string{"the gate's home is moving to the Dev Drive", "goblins pipeline run started nothing", "start this run again once the move is done"} {
+			for _, want := range []string{"the gate's home is moving to the Dev Drive", "goblins pipeline run started nothing", "Start this run again once the move is done"} {
 				if err == nil || !strings.Contains(err.Error(), want) {
 					t.Fatalf("error = %v, want it to say %q", err, want)
 				}
+			}
+			if strings.Contains(err.Error(), "goblins notify") {
+				t.Errorf("error = %v, want no advice to report a wait on the gate daemon, whose health check a move does not hold off", err)
 			}
 			if len(runner.native) != 0 || out.Len() != 0 {
 				t.Fatalf("refused start ran native %+v and printed %q", runner.native, out.String())
