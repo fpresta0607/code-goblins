@@ -1,4 +1,4 @@
-package supervisor
+package localsocket
 
 import (
 	"net"
@@ -6,10 +6,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// peerProcess is the ID of the process at the other end of conn, as the
+// PeerProcess is the ID of the process at the other end of conn, as the
 // kernel recorded it when that process connected, or listened for the
 // connection (LOCAL_PEERPID).
-func peerProcess(conn *net.UnixConn) (int, error) {
+func PeerProcess(conn *net.UnixConn) (int, error) {
 	raw, err := conn.SyscallConn()
 	if err != nil {
 		return 0, err
