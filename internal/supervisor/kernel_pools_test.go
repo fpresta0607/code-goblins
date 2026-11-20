@@ -137,3 +137,30 @@ func TestThePoolsRecordCountsProcessesTokensAndTheBoardsOwnStarts(t *testing.T) 
 		t.Errorf("the record's board starts = %+v since %v, want this test's start of %s since the board started", record.Board, record.BoardStarted, program)
 	}
 }
+
+// The tokens the kernel holds are the allocations under Toke it has not
+// freed, read right after either count wrapped at 2^32, which thousands of
+// tokens a second reach in days of uptime (#2526).
+func TestTokensAliveCountsTheTokensTheKernelHasNotFreed(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		tags []PoolTag
+		want int64
+	}{
+		{"none freed", []PoolTag{{Tag: "Toke", PagedAllocs: 655_000}}, 655_000},
+		{"some freed", []PoolTag{{Tag: "Proc", PagedAllocs: 9, PagedFrees: 1}, {Tag: "Toke", PagedAllocs: 900_000, PagedFrees: 245_000}}, 655_000},
+		{"allocations wrapped and frees not yet", []PoolTag{{Tag: "Toke", PagedAllocs: 100_000, PagedFrees: 1<<32 - 555_000}}, 655_000},
+		{"no Toke tag", []PoolTag{{Tag: "Proc", PagedAllocs: 9}}, 0},
+		{"no tags", nil, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Act
+			got := TokensAlive(tc.tags)
+
+			// Assert
+			if got != tc.want {
+				t.Errorf("TokensAlive = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}

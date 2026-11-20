@@ -26,6 +26,24 @@ func TestMachineMemoryReadsThisMachine(t *testing.T) {
 	}
 }
 
+// Every process holds its own token, so a reading of fewer tokens than
+// processes read the wrong pool tag or the wrong counts.
+func TestMachineKernelReadsThisMachine(t *testing.T) {
+	// Act
+	kernel, err := MachineKernel()
+
+	// Assert
+	if err != nil {
+		t.Fatalf("MachineKernel: %v", err)
+	}
+	if kernel.Processes == 0 || kernel.Tokens < int64(kernel.Processes) {
+		t.Fatalf("%d tokens alive while %d processes run, want at least one token for each process", kernel.Tokens, kernel.Processes)
+	}
+	if kernel.PagedPool == 0 || kernel.NonpagedPool == 0 {
+		t.Fatalf("paged pool %d and nonpaged pool %d bytes, want a real kernel's pools", kernel.PagedPool, kernel.NonpagedPool)
+	}
+}
+
 func TestCommitHoldersReadsThisMachine(t *testing.T) {
 	// Act
 	holders, err := CommitHolders()
