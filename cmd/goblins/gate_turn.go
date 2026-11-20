@@ -18,6 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/gatedb"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/processor"
 	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/sandbox"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -281,6 +282,14 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 				took(waited)
 			}
 		}
+	}
+	// The gate daemon, whose Test step runs here, is started by Task
+	// Scheduler on every processor thread, and Windows keeps its hidden work
+	// on the efficiency cores (#2107), so the command keeps to the fleet's
+	// threads, as a goblin's terminal does. Threads that cannot be read hold
+	// no command back.
+	if err := processor.KeepToFleetThreads(); err != nil {
+		fmt.Fprintf(stderr, "goblins gate turn: the command runs on the processor threads this run was started on: %s\n", oneLine(err))
 	}
 	result, record, runError := executor.RunWithin(waiting, execx.Request{Dir: dir, Name: run[0], Args: run[1:], Env: environment}, 0)
 	// A command whose cleanup was not confirmed keeps the machine's line

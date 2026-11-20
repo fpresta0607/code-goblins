@@ -780,6 +780,8 @@ A cleanup that cannot be confirmed keeps its custody and reports uncertainty; la
 `--memory <size>`, as `--memory 7GiB` or `--memory 512MiB`, is the most memory the run is expected to use, which a line of two slots weighs before it starts the run beside another, as [Taking turns](#taking-turns) says.
 Without it a run is expected to use 2.5 GiB.
 `--light` has the run take a light turn beside the slots, which needs `--memory` and `--execution-limit`, as [Light runs beside the line](#light-runs-beside-the-line) says.
+On Windows the run keeps itself, and so its command and everything that starts, to the processor threads a goblin's terminal keeps to, as [docs/native-board.md](native-board.md) says, whoever started it: the gate daemon, which runs each Test step here, is started by Task Scheduler on every thread.
+A run that cannot read or set those threads says so in one line on standard error and keeps the threads it was started on.
 A caller such as a gate knows its repository, branch and run, which the command and the folder do not say, so it should give them: `--as "PrecisionDocs feat/x, run 01M4FG7F"`.
 A run is named `<name>: <command>` with `--as` and `<command> in <folder>` without it.
 `goblins` adds `, task <Goblin> (<id>)` when the run is a fleet task's: a goblin's own run by its terminal, and a gate's run by the task registered for the run's source worktree, as for `goblins gate test`.
