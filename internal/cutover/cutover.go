@@ -242,7 +242,7 @@ func (m Machine) plan(crossing *Crossing) (Plan, error) {
 	var skillNames []string
 	for _, entry := range skills {
 		if entry.IsDir() {
-			skillNames = append(skillNames, strings.ToLower(entry.Name()))
+			skillNames = append(skillNames, entry.Name())
 		}
 	}
 	p := &planner{machine: m, rules: newRules(m.Commands, skillNames), claimed: map[string]bool{}, crossing: crossing}
@@ -362,9 +362,10 @@ func (p *planner) programs() error {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
+	isFolded := fsx.FoldsCase(bin)
 	for _, entry := range entries {
 		name := entry.Name()
-		renamed := p.rules.renamed(name)
+		renamed := p.rules.renamed(name, isFolded)
 		if entry.IsDir() || !aside.MatchString(name) || renamed == name {
 			continue
 		}
@@ -460,9 +461,10 @@ func (p *planner) harnessFiles() error {
 			if err != nil {
 				return err
 			}
+			isFolded := fsx.FoldsCase(folder)
 			for _, entry := range entries {
 				name := entry.Name()
-				renamed := p.rules.renamedFile(name)
+				renamed := p.rules.renamedFile(name, isFolded)
 				if entry.IsDir() || renamed == name && !slices.Contains(harnessSettings, name) {
 					continue
 				}
@@ -595,10 +597,13 @@ func (p *planner) skills() error {
 		return err
 	}
 	claude, _ := p.machine.Harnesses.Harness("claude")
+	isFolded := fsx.FoldsCase(shared)
 	for _, entry := range entries {
 		name := entry.Name()
-		renamed := p.rules.renamed(name)
-		if !entry.IsDir() || !slices.Contains(p.rules.skills, strings.ToLower(renamed)) {
+		renamed := p.rules.renamed(name, isFolded)
+		if !entry.IsDir() || !slices.ContainsFunc(p.rules.skills, func(skill string) bool {
+			return fsx.EqualPath(filepath.Join(shared, skill), filepath.Join(shared, renamed))
+		}) {
 			continue
 		}
 		from, to := filepath.Join(shared, name), filepath.Join(shared, renamed)
@@ -621,7 +626,7 @@ func (p *planner) skills() error {
 			var steps []Step
 			if claude.Skills != "" {
 				link := filepath.Join(claude.Skills, name)
-				if target, err := os.Readlink(link); err == nil && strings.EqualFold(filepath.Clean(target), from) {
+				if target, err := os.Readlink(link); err == nil && fsx.EqualPath(filepath.Clean(target), from) {
 					steps = append(steps, Step{Kind: "link", Key: link, Before: &target})
 				}
 			}
@@ -758,9 +763,10 @@ func (p *planner) stateFiles() error {
 		if err != nil {
 			return err
 		}
+		isFolded := fsx.FoldsCase(folder)
 		for _, entry := range entries {
 			name := entry.Name()
-			renamed := p.rules.renamed(name)
+			renamed := p.rules.renamed(name, isFolded)
 			if renamed == name {
 				continue
 			}
@@ -797,8 +803,10 @@ func (p *planner) stateFiles() error {
 			return err
 		}
 	}
-	host := func(name string) bool { return strings.HasPrefix(strings.ToLower(name), oldName+".") }
 	hosts := filepath.Join(p.state(), "hosts")
+	host := func(name string) bool {
+		return fsx.HasPathPrefix(filepath.Join(hosts, name), filepath.Join(hosts, oldName+"."))
+	}
 	entries, err := os.ReadDir(hosts)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err

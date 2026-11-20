@@ -136,7 +136,7 @@ func (m Machine) tools(ctx context.Context, choices Choices) ([]Item, error) {
 		}
 		entries := strings.Split(raw, ";")
 		for _, added := range fetched.Path {
-			if slices.ContainsFunc(entries, func(entry string) bool { return strings.EqualFold(filepath.Clean(entry), filepath.Clean(added)) }) {
+			if slices.ContainsFunc(entries, func(entry string) bool { return fsx.EqualPath(filepath.Clean(entry), filepath.Clean(added)) }) {
 				items = append(items, Item{Action: action, Group: GroupTools, What: "its PATH entry " + added, Where: added, do: func(context.Context) error { return m.unpath(added) }})
 			}
 		}
@@ -182,7 +182,7 @@ func (m Machine) toolPlace(tool FetchedTool, npmRoot string) (string, []string, 
 			}
 			// npm leaves a scope's folder, such as @openai, once its last
 			// package has gone.
-			if scope := filepath.Dir(where); !strings.EqualFold(scope, filepath.Clean(npmRoot)) {
+			if scope := filepath.Dir(where); !fsx.EqualPath(scope, filepath.Clean(npmRoot)) {
 				removeIfEmpty(scope)
 			}
 			return nil
@@ -306,7 +306,7 @@ func (m Machine) unpath(entry string) error {
 	}
 	var kept []string
 	for _, existing := range strings.Split(raw, ";") {
-		if existing != "" && !strings.EqualFold(filepath.Clean(existing), filepath.Clean(entry)) {
+		if existing != "" && !fsx.EqualPath(filepath.Clean(existing), filepath.Clean(entry)) {
 			kept = append(kept, existing)
 		}
 	}

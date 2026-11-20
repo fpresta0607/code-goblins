@@ -4,9 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // DefaultRecallLimit is how many items recall returns unless asked.
@@ -66,6 +69,24 @@ func scoped(keys []string, wanted string) bool {
 	return wanted == "" || len(keys) == 0 || slices.ContainsFunc(keys, func(key string) bool { return strings.EqualFold(key, wanted) })
 }
 
+// inProject is scoped's rule for an item's projects, each a checkout's
+// folder name, compared by sameProject.
+func (index *Index) inProject(projects []string, project string) bool {
+	return project == "" || len(projects) == 0 || slices.ContainsFunc(projects, func(key string) bool { return index.sameProject(key, project) })
+}
+
+// sameProject reports whether two project names are one project by the case
+// rule of the home's data folder, under which each project has a folder.
+func (index *Index) sameProject(a, b string) bool {
+	return fsx.EqualPath(index.dataDir+string(filepath.Separator)+a, index.dataDir+string(filepath.Separator)+b)
+}
+
+// sameTask reports whether two task ids are one task by the case rule of the
+// state folder, which holds each task's record under its id.
+func (index *Index) sameTask(a, b string) bool {
+	return fsx.EqualPath(index.stateDir+string(filepath.Separator)+a, index.stateDir+string(filepath.Separator)+b)
+}
+
 // IncidentHalfLife is the age at which an incident, a done report or a fact
 // marked incident, counts half in recall. Rulings and other facts are rules:
 // they never fade, and only a fact that supersedes one hides it.
@@ -86,10 +107,10 @@ func (index *Index) Recall(query RecallQuery) (RecallResult, error) {
 	hidden := map[int]bool{}
 	isEligible := func(position int) bool {
 		item := index.Items[position]
-		if !scoped(item.Projects, query.Project) || !scoped(item.Projects, repo) || !scoped(item.Roles, query.Role) {
+		if !index.inProject(item.Projects, query.Project) || !scoped(item.Projects, repo) || !scoped(item.Roles, query.Role) {
 			return false
 		}
-		if query.Task != "" && item.Task != "" && !strings.EqualFold(item.Task, query.Task) {
+		if query.Task != "" && item.Task != "" && !index.sameTask(item.Task, query.Task) {
 			return false
 		}
 		if len(query.Kinds) > 0 && !slices.Contains(query.Kinds, item.Kind) {

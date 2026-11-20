@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // Package is what go list reports about one package. Imports holds the
@@ -130,12 +132,14 @@ func Classify(root, module string, files []string, packages []Package, policy Po
 	if !policy.Classifies() {
 		return Reach{Choices: owned.choices(packages, nil)}
 	}
+	holder := root + string(filepath.Separator)
 	byDir := make(map[string]string, len(packages))
 	for _, p := range packages {
 		if dir, err := filepath.Rel(root, p.Dir); err == nil {
-			byDir[strings.ToLower(filepath.ToSlash(dir))] = p.ImportPath
+			byDir[fsx.PathKey(holder+filepath.ToSlash(dir))] = p.ImportPath
 		}
 	}
+	isFolded := fsx.FoldsCase(root)
 	var reach Reach
 	read := map[string]*Choice{}
 	outside := make([]Set, len(policy.Outside))
@@ -143,12 +147,12 @@ func Classify(root, module string, files []string, packages []Package, policy Po
 		file := filepath.ToSlash(name)
 		contracted := false
 		for _, contract := range policy.Contracts {
-			if !slices.ContainsFunc(contract.Paths, func(pattern string) bool { return matches(pattern, file) }) {
+			if !slices.ContainsFunc(contract.Paths, func(pattern string) bool { return matches(pattern, file, isFolded) }) {
 				continue
 			}
 			contracted = true
 			for _, dir := range contract.Packages {
-				importPath, found := byDir[strings.ToLower(dir)]
+				importPath, found := byDir[fsx.PathKey(holder+dir)]
 				if !found {
 					continue
 				}
@@ -163,7 +167,7 @@ func Classify(root, module string, files []string, packages []Package, policy Po
 			continue
 		}
 		rule := slices.IndexFunc(policy.Outside, func(rule Outside) bool {
-			return slices.ContainsFunc(rule.Paths, func(pattern string) bool { return matches(pattern, file) })
+			return slices.ContainsFunc(rule.Paths, func(pattern string) bool { return matches(pattern, file, isFolded) })
 		})
 		if rule < 0 {
 			reach.Unknown = append(reach.Unknown, file)
@@ -198,23 +202,24 @@ type owned struct {
 }
 
 func ownership(root, module string, files []string, packages []Package) owned {
+	isFolded := fsx.FoldsCase(root)
 	dirs := make(map[string]bool, len(packages))
 	for _, p := range packages {
-		dirs[strings.ToLower(filepath.ToSlash(filepath.Clean(p.Dir)))] = true
+		dirs[caseKey(filepath.ToSlash(filepath.Clean(p.Dir)), isFolded)] = true
 	}
 	found := owned{changed: map[string]bool{}, gone: map[string]bool{}, files: map[string]bool{}}
 	for _, name := range files {
-		file := strings.ToLower(filepath.ToSlash(name))
+		file := caseKey(filepath.ToSlash(name), isFolded)
 		if file == "go.mod" || file == "go.sum" {
 			return owned{everything: true}
 		}
-		full := strings.ToLower(filepath.ToSlash(filepath.Join(root, file)))
+		full := caseKey(filepath.ToSlash(filepath.Join(root, file)), isFolded)
 		if slices.Contains(buildInputs, path.Ext(file)) && !dirs[path.Dir(full)] {
 			found.gone[path.Join(module, path.Dir(filepath.ToSlash(name)))] = true
 			found.files[name] = true
 		}
 		for _, p := range packages {
-			if rel, inside := strings.CutPrefix(full, strings.ToLower(filepath.ToSlash(filepath.Clean(p.Dir)))+"/"); inside && owns(rel, p.EmbedPatterns) {
+			if rel, inside := strings.CutPrefix(full, caseKey(filepath.ToSlash(filepath.Clean(p.Dir)), isFolded)+"/"); inside && owns(rel, p.EmbedPatterns, isFolded) {
 				found.changed[p.ImportPath] = true
 				found.files[name] = true
 			}
@@ -286,15 +291,15 @@ func (o owned) choices(packages []Package, readers []Choice) []Choice {
 	return append(choices, importers...)
 }
 
-// owns reports whether a package owns the file at rel, a lower-case slash
-// path relative to the package's directory, given the package's embed
-// patterns.
-func owns(rel string, embedPatterns []string) bool {
+// owns reports whether a package owns the file at rel, a slash path relative
+// to the package's directory, lower-case when isFolded, given the package's
+// embed patterns, which match it as matches matches.
+func owns(rel string, embedPatterns []string, isFolded bool) bool {
 	if !strings.Contains(rel, "/") && slices.Contains(buildInputs, path.Ext(rel)) || strings.HasPrefix(rel, "testdata/") {
 		return true
 	}
 	for _, pattern := range embedPatterns {
-		pattern = strings.ToLower(strings.TrimPrefix(pattern, "all:"))
+		pattern = caseKey(strings.TrimPrefix(pattern, "all:"), isFolded)
 		for name := rel; name != "."; name = path.Dir(name) {
 			if matched, _ := path.Match(pattern, name); matched {
 				return true

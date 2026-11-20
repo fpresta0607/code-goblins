@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -130,16 +131,17 @@ type EnvStore interface {
 	Broadcast() error
 }
 
-// SameDirectory compares two directory paths the way Windows does: case
-// insensitively, with either separator, and with a trailing separator or
-// surrounding quotes meaning nothing.
+// SameDirectory compares two directory paths by the file system's rule:
+// without case where it ignores case, as Windows does, with either separator
+// where the system has two, and with a trailing separator or surrounding
+// quotes meaning nothing.
 func SameDirectory(left, right string) bool {
 	normalize := func(value string) string {
 		value = strings.TrimSpace(value)
 		value = strings.Trim(value, `"`)
-		value = strings.ReplaceAll(value, "/", `\`)
-		value = strings.TrimRight(value, `\`)
-		return strings.ToLower(value)
+		value = filepath.FromSlash(value)
+		value = strings.TrimRight(value, string(filepath.Separator))
+		return fsx.PathKey(value)
 	}
 	return normalize(left) == normalize(right)
 }

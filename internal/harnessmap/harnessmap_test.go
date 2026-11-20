@@ -182,7 +182,7 @@ func TestCheckFlagsDuplicatesBrokenJunctionsAndMissingRoots(t *testing.T) {
 	user, m := profile(t)
 	codex, _ := m.Harness("codex")
 	claude, _ := m.Harness("claude")
-	for _, dir := range []string{filepath.Join(m.SharedSkills, "lavish"), filepath.Join(codex.Skills, "Lavish"), claude.Skills, filepath.Join(user, "gone")} {
+	for _, dir := range []string{filepath.Join(m.SharedSkills, "lavish"), filepath.Join(codex.Skills, "lavish"), claude.Skills, filepath.Join(user, "gone")} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}

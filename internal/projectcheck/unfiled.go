@@ -41,7 +41,7 @@ func Unfiled(o UnfiledOptions) ([]Finding, error) {
 	}
 	isFiled := func(checkout string) bool {
 		for _, name := range filed {
-			if sameName(name, checkout) {
+			if sameName(o.ProjectsRoot, name, checkout) {
 				return true
 			}
 		}
@@ -80,7 +80,7 @@ func Unfiled(o UnfiledOptions) ([]Finding, error) {
 	for _, name := range filed {
 		isHere := false
 		for _, checkout := range checkouts {
-			isHere = isHere || sameName(name, checkout)
+			isHere = isHere || sameName(o.ProjectsRoot, name, checkout)
 		}
 		if !isHere {
 			gone = append(gone, name)
