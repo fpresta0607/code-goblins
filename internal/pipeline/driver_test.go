@@ -766,3 +766,31 @@ func TestNativeEnvNamesTheGateHomeOnce(t *testing.T) {
 		})
 	}
 }
+
+// Every gate call the fleet makes runs with no-mistakes' own update check
+// off, whatever the caller's environment says, since its background program
+// rewrites update-check.json in the gate's home, which failed a move's proof
+// of its copy (#2817).
+func TestNativeEnvTurnsTheUpdateCheckOffOnce(t *testing.T) {
+	for _, inherited := range []string{"", "0"} {
+		t.Run("inherited "+inherited, func(t *testing.T) {
+			// Arrange
+			t.Setenv("NO_MISTAKES_NO_UPDATE_CHECK", inherited)
+			t.Setenv("no_mistakes_no_update_check", inherited)
+
+			// Act
+			env := NativeEnv(`D:\CodeGoblins\no-mistakes`)
+
+			// Assert
+			var values []string
+			for _, entry := range env {
+				if name, value, _ := strings.Cut(entry, "="); strings.EqualFold(name, "NO_MISTAKES_NO_UPDATE_CHECK") {
+					values = append(values, value)
+				}
+			}
+			if !slices.Equal(values, []string{"1"}) {
+				t.Errorf("NO_MISTAKES_NO_UPDATE_CHECK entries = %q, want only 1", values)
+			}
+		})
+	}
+}
