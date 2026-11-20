@@ -371,6 +371,7 @@ func runMeasuredTier(name string, cmds []projectcfg.Command, scope string, meta 
 		return nil, errors.Join(failure, verifyrun.Save(path, notRun(failure)))
 	}
 	executor.Admission.Priority = taskPriority(name, meta.ID, stderr, runtime)
+	executor.Admission.Task = meta.ID
 	executor.Source = func(ctx context.Context, dir string) (verifyrun.Source, error) {
 		return verifyrun.ReadSource(ctx, execx.OSRunner{}, dir)
 	}

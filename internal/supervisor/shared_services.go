@@ -490,11 +490,11 @@ func MachineSharedLine() (SharedLine, error) {
 		return SharedLine{}, err
 	}
 	holding = slices.DeleteFunc(holding, func(run verify.Standing) bool { return run.IsLight })
-	var estimate uint64
+	var head verify.Standing
 	if len(waiting) > 0 {
-		estimate = waiting[0].Estimate
+		head = waiting[0]
 	}
-	floor, err := verify.HeadFloor(dir, estimate, 0)
+	floor, err := verify.HeadFloor(dir, head, 0)
 	if err != nil {
 		return SharedLine{}, err
 	}

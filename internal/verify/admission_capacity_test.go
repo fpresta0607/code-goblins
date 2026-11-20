@@ -28,7 +28,7 @@ func admissionWithCapacity(t *testing.T, capacity int) Admission {
 // One slot's floor is 4 GiB. Two slots' is weighed, and on an empty line is
 // a run's default estimate and the desktop reserve, 4.5 GiB.
 func TestAdmissionSharedCapacityDeterminesTheMinimumFloor(t *testing.T) {
-	for capacity, floor := range map[int]uint64{1: 4 * gigabyte, 2: defaultEstimate + 2*gigabyte} {
+	for capacity, floor := range map[int]uint64{1: 4 * gigabyte, 2: DefaultEstimate + 2*gigabyte} {
 		t.Run(fmt.Sprint(capacity), func(t *testing.T) {
 			for _, sample := range []struct {
 				name          string
@@ -366,4 +366,206 @@ func TestAdmissionCapacityTwoCancellationPreservesBothHoldersAndTheNextWaiter(t 
 	}
 	second.Release()
 	within(t, waiting, "surviving waiter after release").Release()
+}
+
+// Whoever reads the line reads the fleet task each holder's card names, a
+// slot's and a light run's alike, as the memory floor reads whom to pause
+// last, and none for a run that names none (#2808).
+func TestLineNamesTheTaskOfEachRunHoldingATurn(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		task    string
+		isLight bool
+	}{
+		{name: "a slot of a task", task: "cg-example"},
+		{name: "a light turn of a task", task: "cg-example", isLight: true},
+		{name: "a slot of no task"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			a := admission(t)
+			a.Task = test.task
+			if test.isLight {
+				a.IsLight, a.Estimate, a.Budget = true, gigabyte, time.Minute
+			}
+			turn, err := a.Wait(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer turn.Release()
+
+			// Act
+			holding, _, err := Line(a.Dir)
+
+			// Assert
+			if err != nil || len(holding) != 1 || holding[0].Task != test.task || holding[0].IsLight != test.isLight {
+				t.Fatalf("holding = %+v, %v; want one run of task %q, light %v", holding, err, test.task, test.isLight)
+			}
+		})
+	}
+}
+
+// A run at the head of the line that starts Docker asks the floor, its own
+// estimate and the room Docker needs, and on a line of two what the holders
+// may still use on top, since Docker's engine, virtual machine and stack take
+// memory no process of the run's holds (#2808). The sums are the review's
+// worked examples: 4 + 2.5 + 2 GiB on one slot, and 4 + 3 + 2.5 + 3 GiB beside
+// a holder that may still use 3 GiB on two, where a run without Docker asks
+// the holder's 3, its 2.5 and the 2 GiB reserve.
+func TestTheHeadFloorOfARunThatStartsDockerAddsItsEstimateAndDocker(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		capacity int
+		isHeld   bool
+		head     Standing
+		want     uint64
+	}{
+		{name: "one slot, no stack declared", capacity: 1, head: Standing{IsDocker: true, Docker: 2 * gigabyte}, want: 4*gigabyte + DefaultEstimate + 2*gigabyte},
+		{name: "one slot, its stack up already", capacity: 1, head: Standing{IsDocker: true}, want: 4*gigabyte + DefaultEstimate},
+		{name: "one slot, no Docker", capacity: 1, want: 4 * gigabyte},
+		{name: "two slots beside a holder", capacity: 2, isHeld: true, head: Standing{IsDocker: true, Docker: 3 * gigabyte}, want: 4*gigabyte + 3*gigabyte + DefaultEstimate + 3*gigabyte},
+		{name: "two slots beside a holder, no Docker", capacity: 2, isHeld: true, want: 3*gigabyte + DefaultEstimate + 2*gigabyte},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			a := admissionWithCapacity(t, test.capacity)
+			if test.isHeld {
+				holder := a
+				holder.Estimate = 3 * gigabyte
+				defer within(t, take(t, holder), "the holder").Release()
+			}
+
+			// Act
+			floor, err := HeadFloor(a.Dir, test.head, 0)
+
+			// Assert
+			if err != nil || floor != test.want {
+				t.Fatalf("HeadFloor = %d, %v; want %d", floor, err, test.want)
+			}
+		})
+	}
+}
+
+// A run that starts Docker says so on its card while it waits, with the room
+// Docker needs, so whoever reads the line, as the supervisor's start hold and
+// its line-stall wake do, weighs the floor the run itself waits for: 6 GiB
+// free holds back a run of 1 GiB that needs 2 GiB for Docker on a 4 GiB floor
+// (#2808).
+func TestAWaitingRunThatStartsDockerSaysItsRoomToWhoeverReadsTheLine(t *testing.T) {
+	// Arrange
+	a := admission(t)
+	a.Available = func() (uint64, error) { return 6 * gigabyte, nil }
+	a.IsDocker, a.Docker, a.Estimate = true, 2*gigabyte, gigabyte
+	taken := take(t, a)
+	lineShows(t, a.Dir, "the run that starts Docker waits", func(waiting []Standing) bool { return len(waiting) == 1 && waiting[0].Who == a.Who })
+	_, waiting, err := Line(a.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	floor, err := HeadFloor(a.Dir, waiting[0], 0)
+
+	// Assert
+	if !waiting[0].IsDocker || waiting[0].Docker != 2*gigabyte || err != nil || floor != 7*gigabyte {
+		t.Fatalf("the line shows %+v, whose floor is %d (%v); want a run that starts Docker needing 2 GiB for it, and a 7 GiB floor", waiting[0], floor, err)
+	}
+	notYet(t, taken, "a run that starts Docker with 6 GiB free against its 7 GiB floor")
+}
+
+// A light run that starts Docker waits for the room Docker needs and the
+// floor, where a light run without Docker takes its turn on its estimate and
+// the 2 GiB reserve (#2808): 1 GiB, 2 GiB for Docker and the 4 GiB floor.
+func TestALightRunThatStartsDockerWaitsForDockersRoom(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		isDocker  bool
+		available uint64
+		isTaken   bool
+	}{
+		{name: "no Docker, 4 GiB free", available: 4 * gigabyte, isTaken: true},
+		{name: "Docker, 6 GiB free", isDocker: true, available: 6 * gigabyte},
+		{name: "Docker, 7 GiB free", isDocker: true, available: 7 * gigabyte, isTaken: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			a := lightAdmission(admission(t), gigabyte, test.available)
+			if test.isDocker {
+				a.IsDocker, a.Docker = true, 2*gigabyte
+			}
+
+			// Act
+			taken := take(t, a)
+
+			// Assert
+			if !test.isTaken {
+				notYet(t, taken, "a light run that starts Docker short of its room")
+				return
+			}
+			if err := within(t, taken, "a light run whose floor is free").Release(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+// A run that fits passes one ahead of it that starts Docker and waits for
+// Docker's room, which the line reads from that run's own card: 8 GiB free is
+// short of the 4 GiB floor, its 1 GiB and 4 GiB for Docker, and covers the
+// 2.5 GiB and 2 GiB reserve of the run behind it (#2808).
+func TestARunThatFitsPassesOneThatWaitsForDockersRoom(t *testing.T) {
+	// Arrange
+	var free atomic.Uint64
+	free.Store(8 * gigabyte)
+	holding := twoSlots(t, &free)
+	holding.Estimate = gigabyte
+	holder := within(t, take(t, holding), "the holder")
+	defer holder.Release()
+	holder.Measure(gigabyte)
+	docker := holding
+	docker.IsDocker, docker.Docker = true, 4*gigabyte
+	takenDocker := joined(t, docker, "the run that starts Docker")
+	small := holding
+	small.Estimate = 0
+
+	// Act
+	takenSmall := take(t, small)
+
+	// Assert
+	if err := within(t, takenSmall, "a run that fits, behind one that waits for Docker's room").Release(); err != nil {
+		t.Fatal(err)
+	}
+	notYet(t, takenDocker, "the run that starts Docker, short of its room")
+}
+
+// A run that starts Docker keeps the room Docker needs for its whole turn,
+// since Docker's engine and virtual machine come up after the turn is taken
+// and no measure of the run's own processes sees them. The review's traced
+// case: a run that starts Docker takes the one slot at 8.5 GiB free (4 + 2.5
+// + 2 GiB), and a light run of 3 GiB at 8.3 GiB free then waits, its floor
+// being the holder's 2.5 GiB and 2 GiB for Docker, its own 3 GiB and the
+// 2 GiB reserve, 9.5 GiB, which it takes once free (#2808).
+func TestAHolderThatStartsDockerKeepsDockersRoomForItsTurn(t *testing.T) {
+	// Arrange
+	var free atomic.Uint64
+	free.Store(17 * gigabyte / 2)
+	a := admission(t)
+	a.Available = func() (uint64, error) { return free.Load(), nil }
+	docker := a
+	docker.IsDocker, docker.Docker = true, 2*gigabyte
+	holder := within(t, take(t, docker), "the run that starts Docker")
+	defer holder.Release()
+	free.Store(83 * gigabyte / 10)
+	light := lightAdmission(a, 3*gigabyte, 0)
+	light.Available = func() (uint64, error) { return free.Load(), nil }
+
+	// Act
+	taken := take(t, light)
+
+	// Assert
+	notYet(t, taken, "a light run of 3 GiB at 8.3 GiB free beside a holder that starts Docker")
+	free.Store(19 * gigabyte / 2)
+	if err := within(t, taken, "the light run, once 9.5 GiB is free").Release(); err != nil {
+		t.Fatal(err)
+	}
 }
