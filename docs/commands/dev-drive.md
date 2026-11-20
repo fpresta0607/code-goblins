@@ -40,6 +40,7 @@ Once the person asked for a Dev Drive, the supervisor carries the gate's home it
 The board's Dev Drive row says what it waits on meanwhile, such as `Waiting for 1 gate run to finish, then the gate's home moves by itself.`
 A carry that failed for any other reason is not run again by itself: the row says why and offers **Try again**.
 That failure is kept in `config\dev-drive.json` (`gate_carry_failed` and `gate_carry_failed_at`), so a restarted board waits for **Try again** too.
+A failure that cannot be written there is kept by the running board alone, and the row says it could not be kept for a restart of the board.
 `goblins dev-drive` and `goblins doctor` say where the gate's home is (`gate home:`), and warn when the home's heavy folders are on a Dev Drive while it is not, or reaches the drive through junctions.
 Every no-mistakes the fleet starts is given `NM_HOME`, so a board or terminal started before the move works in the moved home, and a goblin started after it gets the variable from Windows.
 Each is also given `NO_MISTAKES_NO_UPDATE_CHECK=1`, since the fleet installs no-mistakes itself and the update check's background program rewrites `update-check.json` in the gate's home.
