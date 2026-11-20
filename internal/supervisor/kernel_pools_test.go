@@ -93,8 +93,9 @@ func TestABoardThatReadsNoPoolTagsKeepsNoRecord(t *testing.T) {
 }
 
 // Each sample keeps how many processes the PC has started and how many
-// tokens the kernel holds, so the record says how many tokens each process
-// start leaves behind, and the record names every process the board itself
+// tokens the kernel holds, read right across the wrap of Toke's allocation
+// count at 2^32, so the record says how many tokens each process start
+// leaves behind, and the record names every process the board itself
 // started by the code that started it, so what the board starts an hour is
 // measured rather than guessed.
 func TestThePoolsRecordCountsProcessesTokensAndTheBoardsOwnStarts(t *testing.T) {
@@ -107,7 +108,7 @@ func TestThePoolsRecordCountsProcessesTokensAndTheBoardsOwnStarts(t *testing.T) 
 		reads++
 		return []PoolTag{
 			{Tag: "Proc", Nonpaged: 1 << 20, NonpagedAllocs: 700_000 + 10_000*reads},
-			{Tag: "Toke", Paged: 500 << 20, PagedAllocs: 900_000 + 9_000*reads, PagedFrees: 600_000 + 5_000*reads},
+			{Tag: "Toke", Paged: 500 << 20, PagedAllocs: 1<<32 - 13_000 + 9_000*reads, PagedFrees: 1<<32 - 313_000 + 5_000*reads},
 		}, nil
 	}
 	if err := execx.Command(os.Args[0], "-test.run=^$").Run(); err != nil {
