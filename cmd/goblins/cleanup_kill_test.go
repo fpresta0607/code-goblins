@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/githubtest"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -28,7 +29,12 @@ import (
 func killedTask(t *testing.T) (home.Home, state.TaskMeta) {
 	t.Helper()
 	t.Setenv("NM_HOME", t.TempDir())
-	root := t.TempDir()
+	// git reports the canonical path of a checkout, so the task's paths are
+	// built from the canonical temp root, not a short name or a link to it.
+	root, err := fsx.Canonical(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	git := func(dir string, args ...string) {
 		t.Helper()
 		command := exec.Command("git", args...)
