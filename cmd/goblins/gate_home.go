@@ -114,7 +114,7 @@ func (d gateDaemon) reader(root string) pipeline.Reader {
 // no-mistakes' own refusal, a command that ran and exited nonzero, and no
 // command that could not run.
 func (d gateDaemon) run(ctx context.Context, root string, args ...string) (bool, error) {
-	result, err := d.commands.Run(ctx, execx.Request{Name: "no-mistakes", Args: args, Env: append(pipeline.NativeEnv(root), "NO_MISTAKES_NO_UPDATE_CHECK=1")})
+	result, err := d.commands.Run(ctx, execx.Request{Name: "no-mistakes", Args: args, Env: pipeline.NativeEnv(root)})
 	if err != nil {
 		return false, err
 	}

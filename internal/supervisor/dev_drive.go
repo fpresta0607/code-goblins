@@ -54,13 +54,15 @@ type DevDrive struct {
 }
 
 // gateCarry is the supervisor's own carry of the gate's home onto the Dev
-// Drive: whether one runs now, and why the last one failed for a reason
-// other than a busy gate, which waits for the person to ask again.
+// Drive: whether one runs now. Why the last one failed for a reason other
+// than a busy gate is kept in config\dev-drive.json, so it waits for the
+// person to ask again across a restart too (#2817); unkept and unkeptAt are
+// such a failure this supervisor could not write there.
 type gateCarry struct {
 	mu        sync.Mutex
 	isRunning bool
-	failed    string
-	failedAt  time.Time
+	unkept    string
+	unkeptAt  time.Time
 }
 
 // DevDriveView is the Dev Drive as the board's Workspace panel shows it.
@@ -221,7 +223,7 @@ func (s *Service) devDriveStep(ctx context.Context) (*DevDriveView, bool, error)
 	if plan.Step == devdrive.StepGate {
 		done += " The gate's home is not there yet."
 		if config.Choice == home.DevDriveWanted {
-			return view, s.keepGateCarry(ctx, view, done, plan.Folder, gateRoot, config.AskedAt), nil
+			return view, s.keepGateCarry(ctx, view, done, plan.Folder, gateRoot, config), nil
 		}
 	}
 	now := time.Now().UTC()
@@ -337,14 +339,18 @@ func devDriveDone(report devdrive.Report, m devdrive.Machine, h home.Home) strin
 // the first look that finds no gate run in flight, with no Command Center
 // item, and says in the row what it waits on. A carry that gave up because
 // the gate stayed busy is started again the same way; one that failed for
-// another reason waits for Try again, which only then is something to press.
-// It says whether another look is due soon.
-func (s *Service) keepGateCarry(ctx context.Context, view *DevDriveView, done, folder, gateRoot string, askedAt time.Time) bool {
+// another reason, as config says, waits for Try again, which only then is
+// something to press. It says whether another look is due soon.
+func (s *Service) keepGateCarry(ctx context.Context, view *DevDriveView, done, folder, gateRoot string, config home.DevDriveConfig) bool {
 	carry := &s.gateCarry
 	carry.mu.Lock()
 	defer carry.mu.Unlock()
-	if carry.failed != "" && carry.failedAt.After(askedAt) {
-		view.Action, view.Status = devDriveTryAgain, done+" It did not move: "+carry.failed
+	failed, failedAt := config.GateCarryFailed, config.GateCarryFailedAt
+	if carry.unkeptAt.After(failedAt) {
+		failed, failedAt = carry.unkept, carry.unkeptAt
+	}
+	if failed != "" && failedAt.After(config.AskedAt) {
+		view.Action, view.Status = devDriveTryAgain, done+" It did not move: "+failed
 		return false
 	}
 	runs, err := s.Options.DevDrive.GateRuns(ctx, gateRoot)
@@ -363,18 +369,40 @@ func (s *Service) keepGateCarry(ctx context.Context, view *DevDriveView, done, f
 	if carry.isRunning {
 		return true
 	}
-	carry.isRunning, carry.failed = true, ""
+	carry.isRunning = true
 	go func() {
 		err := s.Options.DevDrive.CarryGateHome(context.WithoutCancel(ctx), folder)
+		// The failure is kept before the carry stops running, so no look in
+		// between starts it again.
+		var unkept string
+		at := time.Now().UTC()
+		if err != nil && !errors.Is(err, gatehome.ErrGateBusy) {
+			if keepErr := s.keepGateCarryFailure(err.Error(), at); keepErr != nil {
+				unkept = fmt.Sprintf("%v (and this could not be kept for a restart of the board: %v)", err, keepErr)
+			}
+		}
 		carry.mu.Lock()
 		carry.isRunning = false
-		if err != nil && !errors.Is(err, gatehome.ErrGateBusy) {
-			carry.failed, carry.failedAt = err.Error(), time.Now().UTC()
+		if unkept != "" {
+			carry.unkept, carry.unkeptAt = unkept, at
 		}
 		carry.mu.Unlock()
 		s.devDriveAgain()
 	}()
 	return true
+}
+
+// keepGateCarryFailure writes why the board's own carry of the gate's home
+// failed, and when, to config\dev-drive.json.
+func (s *Service) keepGateCarryFailure(failed string, at time.Time) error {
+	s.devDriveConfig.Lock()
+	defer s.devDriveConfig.Unlock()
+	config, err := home.ReadDevDriveConfig(s.Store.Home.Root)
+	if err != nil {
+		return err
+	}
+	config.GateCarryFailed, config.GateCarryFailedAt = failed, at
+	return home.WriteDevDriveConfig(s.Store.Home.Root, config)
 }
 
 // devDriveWaiting is the step of the Dev Drive item that waits or runs, or "".
