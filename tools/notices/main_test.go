@@ -133,6 +133,54 @@ func TestGoComponentsRefusesACopyleftModuleAndReadsTheStandardLibraryFromGOROOT(
 	}
 }
 
+// sqliteThirdPartyText is the shape of modernc.org/sqlite v1.61.1's
+// LICENSE-3RD-PARTY.md: an inventory of other components that reproduces the
+// MPL-2.0 of a test-only dependency, whose Secondary License clause names the
+// GNU licences.
+const sqliteThirdPartyText = "# Third-Party Licenses\n\n`modernc.org/sqlite` is BSD-3-Clause; that license is in [LICENSE](LICENSE).\n\n" +
+	"## 2. Components used only by the test suite\n\n### L13: MPL-2.0\n\nMozilla Public License, version 2.0\n\n" +
+	"1.12. \"Secondary License\"\n    means either the GNU General Public License, Version 2.0, the GNU Lesser\n    General Public License, Version 2.1"
+
+func TestGoComponentsJudgesAModuleByItsOwnLicenceNotItsThirdPartyInventory(t *testing.T) {
+	cases := []struct {
+		name    string
+		files   map[string]string
+		licence string
+		refusal string
+	}{
+		{"modernc.org/sqlite v1.61.1: BSD-3-Clause beside an inventory naming the GPL", map[string]string{"LICENSE": bsd3Text, "LICENSE-3RD-PARTY.md": sqliteThirdPartyText}, "BSD-3-Clause", ""},
+		{"an inventory spelled THIRD_PARTY_LICENSES", map[string]string{"LICENSE": mitText, "THIRD_PARTY_LICENSES": mplText}, "MIT", ""},
+		{"a GPL licence beside a permissive inventory", map[string]string{"LICENSE": gplText, "LICENSE-3RD-PARTY.md": mitText}, "", "copyleft"},
+		{"a GPL COPYING beside a permissive licence", map[string]string{"LICENSE": mitText, "COPYING": gplText}, "", "copyleft"},
+		{"only an inventory, no licence of its own", map[string]string{"LICENSE-3RD-PARTY.md": mitText}, "", "unrecognised"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := writeFiles(t, tc.files)
+
+			s, problems, err := goComponents(t.TempDir(), []module{{Path: "example.com/m", Version: "v1.0.0", Dir: dir}})
+
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.refusal != "" {
+				if len(problems) != 1 || !strings.Contains(problems[0], tc.refusal) {
+					t.Fatalf("problems = %q, want one naming %q", problems, tc.refusal)
+				}
+				return
+			}
+			if len(problems) != 0 || s.components[0].licence != tc.licence {
+				t.Fatalf("licence = %q, problems = %q; want %q and none", s.components[0].licence, problems, tc.licence)
+			}
+			for _, text := range tc.files {
+				if !strings.Contains(s.components[0].text, text) {
+					t.Errorf("the notices text leaves out %q", text)
+				}
+			}
+		})
+	}
+}
+
 func TestGoComponentsFailsForAModuleWithNoLicenceFile(t *testing.T) {
 	_, _, err := goComponents(t.TempDir(), []module{{Path: "example.com/bare", Version: "v1.0.0", Dir: writeFiles(t, map[string]string{"go.mod": "module example.com/bare"})}})
 
