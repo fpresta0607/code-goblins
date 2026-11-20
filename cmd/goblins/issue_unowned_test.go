@@ -147,6 +147,52 @@ func TestIssueUnownedLeavesOutRootsAndIssuesALiveOrQueuedTaskNames(t *testing.T)
 	}
 }
 
+func TestIssueUnownedCountsTheIssuesAnAddedBriefSectionNamesInWordsAsOwned(t *testing.T) {
+	// Arrange: the live task's brief gains a section the CEO added, whose
+	// heading and body name issues 8, 9 and 10 in words, beside a bare #11 in
+	// its prose and a "## Added context" section naming issue 12, neither of
+	// which is an issue the task takes up.
+	github := &unownedGitHub{
+		pulls: map[string]map[string]any{
+			"https://github.com/acme/widgets/pull/50": {"url": "https://github.com/acme/widgets/pull/50", "body": "", "closingIssuesReferences": map[string]any{"nodes": []any{}}},
+			"https://github.com/acme/widgets/pull/51": {"url": "https://github.com/acme/widgets/pull/51", "body": "", "closingIssuesReferences": map[string]any{"nodes": []any{}}},
+		},
+		issues: []map[string]any{
+			openIssue(8, "Named in the added heading"),
+			openIssue(9, "Named in the added heading's list"),
+			openIssue(10, "Named in the added body"),
+			openIssue(11, "Named only as a bare number in added prose"),
+			openIssue(12, "Named only under a heading in another case"),
+		},
+	}
+	runtime, h := unownedHome(t, github)
+	writeFixtureFile(t, filepath.Join(h.State, "tasktmp", "live-task", "brief.md"), "# Brief live-task\n\n## Task\n\nTidy the docs.\n\n## ADDED 2026-11-19 - the stats page, issues 8 and 9\nAlso take Issue 10, the tab left open.\nThe other task (#11) adds a picker, so leave it.\n\n## Added context\nSee issue 12 for background.\n")
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := runIssue([]string{"unowned"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit=%d stderr=%q, want 0", exit, stderr.String())
+	}
+	output := stdout.String()
+	for _, want := range []string{
+		"acme/widgets (widgets): 5 open, 0 ops-root, 3 named by live or queued tasks, 0 named only by finished or parked tasks, 2 named by no task",
+		"    #11 Named only as a bare number in added prose https://github.com/acme/widgets/issues/11",
+		"    #12 Named only under a heading in another case https://github.com/acme/widgets/issues/12",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output lacks %q:\n%s", want, output)
+		}
+	}
+	for _, unwanted := range []string{"#8 ", "#9 ", "#10 "} {
+		if strings.Contains(output, unwanted) {
+			t.Errorf("output lists %q, which the added section names:\n%s", unwanted, output)
+		}
+	}
+}
+
 func TestIssueUnownedSaysWhatItCouldNotRead(t *testing.T) {
 	// Arrange
 	github := &unownedGitHub{issues: []map[string]any{openIssue(6, "Named by no task")}}

@@ -230,6 +230,25 @@ func TestCleanupChecksTheIssuesItsTaskNamesAndKillDoesNot(t *testing.T) {
 			t.Errorf("the task record after a refused cleanup: %v, want it kept", err)
 		}
 	})
+	t.Run("goblins cleanup refuses while an issue only an added brief section names is open", func(t *testing.T) {
+		// Arrange
+		h, meta := killedTask(t)
+		writeFixtureFile(t, filepath.Join(h.Data, meta.ID, "brief.md"), "# Brief g1\n\n## Task\n\nTidy the docs.\n\n## ADDED 2026-11-19 - the stats page\nIssue: https://github.com/acme/widgets/issues/7.\nThe other task (#185) adds a picker, so leave it.\n")
+
+		// Act
+		_, err := defaultCleanup(t.Context(), h, cleanupRequest{ID: meta.ID, ShouldCheckIssues: true}, github)
+
+		// Assert
+		if err == nil || !strings.Contains(err.Error(), "names the open issue(s) "+issue) {
+			t.Fatalf("the cleanup = %v, want a refusal naming %s", err, issue)
+		}
+		if strings.Contains(err.Error(), "#185") {
+			t.Errorf("the cleanup refusal %v names #185, a bare number in the added section's prose", err)
+		}
+		if _, err := state.ReadTaskMeta(h.State, meta.ID); err != nil {
+			t.Errorf("the task record after a refused cleanup: %v, want it kept", err)
+		}
+	})
 	t.Run("goblins cleanup retires the task with the issue kept open and records why", func(t *testing.T) {
 		// Arrange
 		h, meta := withOpenIssue(t)
