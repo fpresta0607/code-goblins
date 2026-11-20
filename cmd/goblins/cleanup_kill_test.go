@@ -96,7 +96,7 @@ func TestACleanupOfAPausedGoblinHandsItsKeptMessagesToTheCEO(t *testing.T) {
 	pausedWithKeptMessage(t, h, meta)
 
 	// Act
-	output, err := defaultCleanup(t.Context(), h, meta.ID, false)
+	output, err := defaultCleanup(t.Context(), h, cleanupRequest{ID: meta.ID}, nil)
 
 	// Assert
 	if err != nil {
@@ -122,7 +122,7 @@ func TestAKillOfAPausedGoblinHandsItsKeptMessagesToTheCEOOnce(t *testing.T) {
 	service := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
 		Stop: func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) { return nil, nil },
 		Archive: func(ctx context.Context, meta state.TaskMeta, _ *state.Lifecycle) (lifecycle.Preservation, error) {
-			_, err := defaultCleanup(ctx, h, meta.ID, false)
+			_, err := defaultCleanup(ctx, h, cleanupRequest{ID: meta.ID}, nil)
 			return lifecycle.Preservation{}, err
 		},
 		Notify: func(state.Lifecycle) error { return nil },
@@ -164,7 +164,7 @@ func TestKillStillArchivesThroughItsOwnCleanup(t *testing.T) {
 					heldDuringArchive = append(heldDuringArchive, name)
 				}
 			}
-			_, err := defaultCleanup(ctx, h, meta.ID, false)
+			_, err := defaultCleanup(ctx, h, cleanupRequest{ID: meta.ID}, nil)
 			return lifecycle.Preservation{}, err
 		},
 		Notify: func(state.Lifecycle) error { return nil },
@@ -221,7 +221,9 @@ func TestCleanupReadsTheTaskBranchsGateRunBeforeRetiringIt(t *testing.T) {
 		name  string
 		clean func(ctx context.Context, h home.Home, id string, forceArchive bool) (string, error)
 	}{
-		{name: "goblins cleanup", clean: defaultCleanup},
+		{name: "goblins cleanup", clean: func(ctx context.Context, h home.Home, id string, forceArchive bool) (string, error) {
+			return defaultCleanup(ctx, h, cleanupRequest{ID: id, ForceArchive: forceArchive}, nil)
+		}},
 		{name: "goblins reap", clean: func(ctx context.Context, h home.Home, id string, forceArchive bool) (string, error) {
 			return reapCleanup(ctx, h, &herdr.Client{Commands: execx.OSRunner{}, Session: herdrSession()}, id, forceArchive)
 		}},

@@ -30,8 +30,11 @@ const issueUsage = "goblins issue file --project <project> --title <title> [--bo
 var secretName = regexp.MustCompile(`(?i)token|secret|password|passwd|credential|api_?key|access_?key|private_?key|_pat$|^pat_`)
 
 func runIssue(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
+	if len(args) > 0 && args[0] == "unowned" {
+		return runIssueUnowned(args[1:], stdout, stderr, runtime)
+	}
 	if len(args) == 0 || args[0] != "file" {
-		fmt.Fprintf(stderr, "goblins issue: %s\n", issueUsage)
+		fmt.Fprintf(stderr, "goblins issue: %s | %s\n", issueUsage, issueUnownedUsage)
 		return 2
 	}
 	fs := flag.NewFlagSet("issue file", flag.ContinueOnError)

@@ -23,6 +23,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -87,6 +88,23 @@ type Service struct {
 	// whose gate cannot be read, is refused before anything changes: retired,
 	// the task would leave its run going on for nobody. Nil reads none.
 	OpenGateRun func(ctx context.Context, meta state.TaskMeta) (string, error)
+	// OpenIssues names each issue the task names that is still open, by its
+	// address owner/name#N, and nothing for an issue that is closed or a task
+	// that names none. A task's work is not settled while an issue it names is
+	// open, since the issue then still asks for work nobody is doing, so every
+	// retirement, a force archive and an empty folder's included, asks it
+	// first, and one that finds an issue open that the CEO has not kept open
+	// with KeepOpen, or whose issues cannot be read, is refused before
+	// anything changes. Nil reads none.
+	OpenIssues func(ctx context.Context, meta state.TaskMeta) ([]string, error)
+	// KeepOpen are the open issues, each by its address owner/name#N, that the
+	// CEO retires the task with anyway, and KeepReason is why: an issue that
+	// stays open on purpose, as one whose work another task carries on. The
+	// task's status log records each with the reason, so the issue left open is
+	// never a silent one. A keep naming an issue that is not open, or given with
+	// no reason, refuses the cleanup.
+	KeepOpen   []string
+	KeepReason string
 }
 
 // Result reports the exact returned task identity.
@@ -193,6 +211,10 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	if err := s.requireGateRunEnded(ctx, meta); err != nil {
 		return Result{}, err
 	}
+	keptOpen, err := s.requireIssuesSettled(ctx, meta)
+	if err != nil {
+		return Result{}, err
+	}
 	// A harness's own tooling leaves worktrees of its own, in the task's
 	// scratch folder or inside the checkout the goblin worked in, and they go
 	// with the task's own. They are returned before the guards read the
@@ -269,6 +291,10 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	if err := state.WriteOutcome(s.StateDir, outcome); err != nil {
 		return Result{}, err
 	}
+	keptNote, err := s.recordKeptIssues(id, keptOpen)
+	if err != nil {
+		return Result{}, err
+	}
 	if err := state.AppendStatus(s.StateDir, id, outcome.Phase+": "+returned+" via goblins cleanup"); err != nil {
 		return Result{}, fmt.Errorf("cleanup: record returned worktree: %w", err)
 	}
@@ -286,6 +312,7 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	if archive != "" {
 		result.Output += " archive=" + archive
 	}
+	result.Output += keptNote
 	for _, tag := range archived {
 		result.Output += "\nkept unlanded work as the local tag " + tag
 	}
@@ -387,6 +414,69 @@ func (s Service) requireGateRunEnded(ctx context.Context, meta state.TaskMeta) e
 		return fmt.Errorf("cleanup: the gate run %s of %s is still open, so nothing was removed; goblins kill %s aborts the run after keeping its commits and retires the task, but while the task's worktree is gone or no longer a Git worktree goblins kill cannot find the run (issue #2246), so end it with no-mistakes axi abort --run %s and run the cleanup again", run, meta.ID, meta.ID, run)
 	}
 	return nil
+}
+
+// requireIssuesSettled refuses a task that names an issue that is still open,
+// or whose issues cannot be read, before anything changes, unless the CEO keeps
+// that issue open with a reason, and returns the open issues the CEO keeps open,
+// each as the address OpenIssues spelled it. A keep that names no open issue is
+// a mistake to show, never one to ignore: it would otherwise sit beside a
+// retirement that its words never reached. Addresses compare without regard to
+// case, as GitHub spells an owner and a repository.
+func (s Service) requireIssuesSettled(ctx context.Context, meta state.TaskMeta) (kept []string, err error) {
+	if s.OpenIssues == nil {
+		return nil, nil
+	}
+	open, err := s.OpenIssues(ctx, meta)
+	if err != nil {
+		return nil, fmt.Errorf("cleanup: the issues %s names cannot be read, so nothing was removed, and the cleanup can run again once they can: %w", meta.ID, err)
+	}
+	if len(s.KeepOpen) > 0 && strings.TrimSpace(s.KeepReason) == "" {
+		return nil, fmt.Errorf("cleanup: keeping %s open needs a reason, so nothing was removed: give it with --reason \"<why>\"", strings.Join(s.KeepOpen, ", "))
+	}
+	for _, keep := range s.KeepOpen {
+		if !slices.ContainsFunc(open, func(issue string) bool { return strings.EqualFold(issue, keep) }) {
+			return nil, fmt.Errorf("cleanup: %s is not an issue %s names that is open, so nothing was removed; its open issues are %s", keep, meta.ID, openIssueList(open))
+		}
+	}
+	var unsettled []string
+	for _, issue := range open {
+		if !slices.ContainsFunc(s.KeepOpen, func(keep string) bool { return strings.EqualFold(issue, keep) }) {
+			unsettled = append(unsettled, issue)
+			continue
+		}
+		kept = append(kept, issue)
+	}
+	if len(unsettled) > 0 {
+		return nil, fmt.Errorf("cleanup: %s names the open issue(s) %s, so nothing was removed: close each once its work is on its project's main, or retire the task with it open by goblins cleanup %s --keep-issue-open <issue> --reason \"<why>\"", meta.ID, strings.Join(unsettled, ", "), meta.ID)
+	}
+	return kept, nil
+}
+
+// openIssueList says which issues are open, for a refusal that shows what a
+// keep could have named.
+func openIssueList(open []string) string {
+	if len(open) == 0 {
+		return "none"
+	}
+	return strings.Join(open, ", ")
+}
+
+// recordKeptIssues records in the task's status log each open issue the task
+// retires with, and why, and says so for the cleanup's output. It runs after
+// every check has passed, just before the line that records the retirement.
+func (s Service) recordKeptIssues(id string, kept []string) (string, error) {
+	// A reason is one line in a log of lines, so a line break in it cannot
+	// start a status line of its own.
+	reason := strings.Join(strings.Fields(s.KeepReason), " ")
+	output := ""
+	for _, issue := range kept {
+		if err := state.AppendStatus(s.StateDir, id, "issue-kept-open: "+issue+": "+reason); err != nil {
+			return "", fmt.Errorf("cleanup: record the open issue %s kept: %w", issue, err)
+		}
+		output += fmt.Sprintf("\nkept the issue %s open: %s", issue, reason)
+	}
+	return output, nil
 }
 
 // endLeft ends what the task's terminal left running and says what it ended.
@@ -529,6 +619,10 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 	if err := s.requireGateRunEnded(ctx, meta); err != nil {
 		return Result{}, err
 	}
+	keptOpen, err := s.requireIssuesSettled(ctx, meta)
+	if err != nil {
+		return Result{}, err
+	}
 	handedOver, err := s.handOver(meta)
 	if err != nil {
 		return Result{}, err
@@ -549,6 +643,10 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 	if err := state.WriteOutcome(s.StateDir, outcome); err != nil {
 		return Result{}, err
 	}
+	keptNote, err := s.recordKeptIssues(id, keptOpen)
+	if err != nil {
+		return Result{}, err
+	}
 	if err := state.AppendStatus(s.StateDir, id, outcome.Phase+": force-archived via goblins cleanup --force-archive; worktree "+worktreePath+" left in place"); err != nil {
 		return Result{}, fmt.Errorf("cleanup: record force archive: %w", err)
 	}
@@ -565,6 +663,7 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 	if archived != "" {
 		result.Output += " archive=" + archived
 	}
+	result.Output += keptNote
 	for _, note := range notes {
 		result.Output += "\nnote: " + note
 	}
@@ -590,6 +689,10 @@ func (s Service) retireEmptyFolder(ctx context.Context, meta state.TaskMeta, id,
 		return Result{}, err
 	}
 	if err := s.requireGateRunEnded(ctx, meta); err != nil {
+		return Result{}, err
+	}
+	keptOpen, err := s.requireIssuesSettled(ctx, meta)
+	if err != nil {
 		return Result{}, err
 	}
 	handedOver, err := s.handOver(meta)
@@ -633,6 +736,10 @@ func (s Service) retireEmptyFolder(ctx context.Context, meta state.TaskMeta, id,
 	if err := state.WriteOutcome(s.StateDir, outcome); err != nil {
 		return Result{}, err
 	}
+	keptNote, err := s.recordKeptIssues(id, keptOpen)
+	if err != nil {
+		return Result{}, err
+	}
 	if err := state.AppendStatus(s.StateDir, id, outcome.Phase+": "+removed+" via goblins cleanup"); err != nil {
 		return Result{}, fmt.Errorf("cleanup: record the removed folder: %w", err)
 	}
@@ -645,6 +752,7 @@ func (s Service) retireEmptyFolder(ctx context.Context, meta state.TaskMeta, id,
 	if archive != "" {
 		result.Output += " archive=" + archive
 	}
+	result.Output += keptNote
 	result.Output += warning
 	if archiveErr != nil {
 		result.Output += fmt.Sprintf("\nwarning: retained state for %s could not be archived, so respawning that id will be refused: %v", id, archiveErr)

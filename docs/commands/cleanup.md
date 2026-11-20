@@ -1,6 +1,6 @@
 # goblins cleanup
 
-`goblins cleanup <id>`
+`goblins cleanup <id> [--force-archive] [--keep-issue-open <issue>... --reason "<why>"]`
 
 Close the task tab and return a finished, proven-inactive task's worktrees and scratch: its worktree (in the home, or where its record says for a task an older build spawned), every extra worktree it recorded with `goblins worktree add`, and its scratch folder are removed and their git administrative entries pruned, an extra of another project's in that project's checkout, and the worktrees the project, or an extra's own project, registers inside those folders, which the task's own harness left there, are returned with them and named in its output, and work that is not on the default branch is first kept as a local tag, `archive/<branch>`.
 A task whose gate run is still open is refused before anything changes, as a paused goblin's is, since a pause of any reason leaves its run running, and so is one whose gate cannot be read, which is never taken for one with no run.
@@ -11,6 +11,16 @@ A task whose lifecycle record, where a pause saves its run, cannot be read is re
 The run of the worktree's branch is read as well while that folder is still a Git worktree, since a goblin that runs again can start a newer run there, and either run still open refuses.
 A worktree already gone, or a folder no longer a Git worktree, names no branch, so a task with no saved run retires without its run being read.
 A task whose project checkout is gone (issue #1578), or whose gate holds no database, names no run either way, as its kill aborts none, so the kill's own retirement goes through.
+A task that names an issue still open on GitHub is refused before anything changes, with each open issue named as `owner/name#N`, whichever way it retires, `--force-archive` and an empty folder's included.
+The issues a task names are those its brief names to take up in its Task or Acceptance criteria (by address, as "issue #N", or as a bare `#N` that opens a line of its Task), those its branch's gate runs were started to close with `goblins pipeline run --closes`, and those its pull requests name, which GitHub links them to close or their body names after a closing word or "Part of".
+Its pull requests are the one `goblins pr check` recorded, each its done reports named and each its ticket named.
+A bare number belongs to the project's issue repository, its project record's `issue_repository` or else its origin.
+An issue, a pull request or a repository GitHub will not show refuses the cleanup as well, since an issue it cannot read is never taken for a closed one.
+Close each issue once its work is on its project's main, or retire the task with it open by `--keep-issue-open <issue>`, written `owner/name#N` or as its address and repeated for each, with `--reason "<why>"`.
+The task's status log records each issue kept open as `issue-kept-open: <issue>: <reason>` and the output names it.
+A keep that names no open issue of the task, and a keep without a reason, are refused.
+`goblins kill`, which stops work unfinished, and `goblins reap --apply` check no issue.
+`goblins issue unowned` lists the open issues that no live or queued task names ([goblins help issue unowned](issue/unowned.md)).
 A task any of whose worktrees holds uncommitted work is refused before anything changes, never destroyed. goblins removes a worktree's files itself, by the removal every goblin folder goes through, which removes a link as a link and never walks into what it points at: a junction pnpm makes in `node_modules`, which can lead into the store every project on the machine shares, or one into the checkout.
 A path past 260 characters and a read-only file go the same way.
 It never runs `git worktree remove`, because Git for Windows takes a junction for a folder: it deletes what the junction points at, and it stopped with "Directory not empty" at a junction its own deletion had left dangling, having already deleted the worktree's `.git` link and its record of the worktree.
