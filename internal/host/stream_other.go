@@ -4,9 +4,6 @@ package host
 
 import "github.com/fpresta0607/code-goblins/internal/claudestream"
 
-// Answer refuses, since no host runs on this system yet.
-func Answer(record Record) error { return errNotPorted }
-
 // ReadStreamState refuses, since no host runs on this system yet.
 func ReadStreamState(record Record) (claudestream.Session, error) {
 	return claudestream.Session{}, errNotPorted
