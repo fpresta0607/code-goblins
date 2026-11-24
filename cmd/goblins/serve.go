@@ -182,10 +182,21 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	// The example board shows made-up tasks, which must never reach GitHub.
 	var ticketKeeping *supervisor.Tickets
 	var rootIssues *supervisor.RootIssues
+	var workReview *supervisor.WorkReview
 	if !*example {
 		ticketKeeping = ticketWriter(execx.OSRunner{}, runtime)
 		github := tickets.GitHub{Commands: execx.OSRunner{}, API: runtime.githubAPI}
 		rootIssues = &supervisor.RootIssues{Checkout: runtime.resolveProject, Repository: github.RepositoryOf, OpenRoots: github.OpenRoots, IssueState: github.IssueState, ClosingPullRequests: github.OpenClosingPullRequests}
+		// The resolver holds its lock while it reports, and each reading asks
+		// again for a project it could not read, so a problem is said once.
+		reported := map[string]bool{}
+		reportProblem := func(problem string) {
+			if !reported[problem] {
+				reported[problem] = true
+				fmt.Fprintf(stderr, "goblins serve: work review: %s\n", problem)
+			}
+		}
+		workReview = &supervisor.WorkReview{Resolve: workResolver(ctx, h, runtime.resolveProject, github.RepositoryOf, reportProblem), States: github.WorkStates}
 	}
 	// The board looks for a newer release of Code Goblins; an example board
 	// looks only at a release source it is pointed at.
@@ -278,6 +289,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		Example:          *example,
 		Tickets:          ticketKeeping,
 		RootIssues:       rootIssues,
+		WorkReview:       workReview,
 		CEO:              &supervisor.CEOConnection{State: h.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}, Sockets: herdr.NewSocketCache()})},
 		Gate:             gate,
 		MergedPRs:        supervisor.GitMergedPRs(supervisor.FleetRepos(h, projects)),

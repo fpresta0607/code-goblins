@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -48,29 +46,7 @@ func runBacklogReview(stdout, stderr io.Writer, runtime commandRuntime) int {
 			problems = append(problems, problem)
 		}
 	}
-	repositories := map[string]string{}
-	resolve := func(project string) (string, string) {
-		if project == "" {
-			return "", ""
-		}
-		checkout, err := runtime.resolveProject(project)
-		if err != nil {
-			addProblem(fmt.Sprintf("project %s is not read: %v", project, err))
-			return "", ""
-		}
-		key := strings.ToLower(filepath.Clean(checkout))
-		if repository, isKnown := repositories[key]; isKnown {
-			return repository, checkout
-		}
-		repository := ""
-		if _, err := os.Stat(checkout); err == nil {
-			if repository, err = issueRepository(ctx, h, runtime.repositoryOf, checkout); err != nil {
-				addProblem(fmt.Sprintf("the repository of %s cannot be read: %v", checkout, err))
-			}
-		}
-		repositories[key] = repository
-		return repository, checkout
-	}
+	resolve := workResolver(ctx, h, runtime.resolveProject, runtime.repositoryOf, addProblem)
 
 	report, err := workreview.Run(ctx, h, resolve, github.WorkStates, time.Now().UTC(), time.Duration(settings.StaleWorkDays)*24*time.Hour)
 	if err != nil {

@@ -103,6 +103,12 @@ func (s *Service) raiseAllowanceWakes(report quota.Report, watched *fleetWakes, 
 			continue
 		}
 		raised = raised || isNew
+		if isNew {
+			select {
+			case s.allowanceRenewed <- struct{}{}:
+			default:
+			}
+		}
 		delete(watched.AllowanceWalls, key)
 	}
 	if raised {

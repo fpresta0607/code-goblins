@@ -87,6 +87,11 @@ type Options struct {
 	// RootIssues picks up the open ops-root issues of each project's
 	// repository as queued work; without it none is.
 	RootIssues *RootIssues
+	// WorkReview reviews the queued rows, parked rows and paused tasks once a
+	// day and when an allowance renews, and holds the start of a queued task
+	// that names an issue a paused or live task of its project names; without
+	// it neither happens.
+	WorkReview *WorkReview
 	// VerifyReports reads a project's goblins gate test reports, the newest
 	// first, which put each task's newest run on its card; without it no
 	// card shows one.
@@ -354,6 +359,11 @@ type Service struct {
 	pushMu sync.Mutex
 	// ordering saves one list order at a time.
 	ordering sync.Mutex
+	// allowanceRenewed carries, without blocking its sender, that an allowance
+	// renewed, which makes the work review due.
+	allowanceRenewed chan struct{}
+	// folds keeps what each project's resolution read, for the start hold.
+	folds foldProjects
 	// starts guards starting, the task a Start is running goblins spawn for,
 	// overlordStart, the last task the Overlord's own Start ran goblins spawn
 	// for, and startErrors, why each task's last Start failed.
@@ -513,7 +523,7 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	s := &Service{Store: store, Options: options, Git: Git{Reads: options.Reads}, Instance: hex.EncodeToString(id[:]), Started: time.Now().UTC(), subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{}), work: make(chan struct{}, 1), looks: make(chan chan struct{}), releaseNow: make(chan struct{}, 1), devDriveNow: make(chan struct{}, 1), cancel: cancel, lifetime: ctx}
+	s := &Service{Store: store, Options: options, Git: Git{Reads: options.Reads}, Instance: hex.EncodeToString(id[:]), Started: time.Now().UTC(), subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{}), work: make(chan struct{}, 1), allowanceRenewed: make(chan struct{}, 1), looks: make(chan chan struct{}), releaseNow: make(chan struct{}, 1), devDriveNow: make(chan struct{}, 1), cancel: cancel, lifetime: ctx}
 	if options.Tickets != nil {
 		s.tickets = newTicketKeeper(h, options.Tickets)
 	}
@@ -717,6 +727,14 @@ func (s *Service) run(ctx context.Context) {
 		}
 	}()
 	defer func() { s.cancel(); <-rootsDone }()
+	reviewDone := make(chan struct{})
+	go func() {
+		defer close(reviewDone)
+		if s.Options.WorkReview != nil {
+			s.keepReviewingWork(ctx)
+		}
+	}()
+	defer func() { s.cancel(); <-reviewDone }()
 	updatesDone := make(chan struct{})
 	go func() {
 		defer close(updatesDone)

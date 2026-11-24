@@ -157,6 +157,9 @@ The product does this by itself in every home, with no setting, and wakes you fo
   A row has no time of its own, so its brief stands for it: a brief written since the retirement is new work for that id and starts.
   Instead of starting a retired task's row, the scheduler wakes you once with a `stale_row:` notify keyed by the task.
   Queue new work under a new id.
+- **A start that duplicates work in flight is held.** Before the scheduler starts a queued task, it reads the issues the task names in its brief and its row, and holds the start when a paused or live task of the same project names one of them.
+  It wakes you once for that pair with a `start_held:` notify keyed by the queued task, which proposes folding the queued task into the other, and reads local files only.
+  A Start on the board and `goblins spawn` still start it by hand; only the scheduler's own start is held.
 - **The queue cleans itself.** When `goblins cleanup` (with or without `--force-archive`, and through `goblins reap --apply`) retires a task, its row moves from `## Queued` to `## Done` with its detail lines, in one write that keeps every other line as it was, whatever the task last reported, so nothing starts it again from its row.
   The row closes as `done` when the task delivered and as `retired` when it did not, and the supervisor moves any row a delivered task left behind.
   A local-only task opens no pull request, so it is delivered when a done line of its current run names its report, `data/<task>/report.md`, by its full path or its path in the home, and that report is there.
