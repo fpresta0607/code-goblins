@@ -747,7 +747,14 @@ func TestExecutorLetsACommandSharingItsConsoleAnswerAnInterrupt(t *testing.T) {
 		if os.WriteFile("started", []byte("started"), 0o600) != nil {
 			os.Exit(8)
 		}
-		time.Sleep(time.Second)
+		// The command ends on its own only once its caller says the interrupt
+		// came (issue 2109): one that ended a second after it started could end
+		// before a loaded machine's late interrupt, with its own exit code.
+		for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			if _, err := os.Stat("interrupted"); err == nil {
+				break
+			}
+		}
 		os.Exit(3)
 	}
 	for _, test := range []struct {
@@ -767,7 +774,15 @@ func TestExecutorLetsACommandSharingItsConsoleAnswerAnInterrupt(t *testing.T) {
 			defer cancel()
 			go func() {
 				waitForFile(t, filepath.Join(root, "started"), time.Minute)
+				// The interrupt comes late, as a loaded machine's can.
+				time.Sleep(2 * time.Second)
 				cancel()
+				// Only a command left running hears that it may end.
+				if test.isConsoleShared {
+					if err := os.WriteFile(filepath.Join(root, "interrupted"), []byte("interrupted"), 0o600); err != nil {
+						t.Error(err)
+					}
+				}
 			}()
 
 			// Act
