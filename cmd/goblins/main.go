@@ -134,6 +134,7 @@ commands:
   goblins tickets <project> [--brief <file>] [--files <paths>] [--json]   read-only report of what others have in flight in the project's GitHub repository: whether it is collaborative, its active contributors, open issues, open and draft PRs with their files, and branches others pushed in the last 14 days; with --brief or --files it names the PRs, branches and issues that overlap that area
   goblins tickets <project> --allow-public-tickets   let the supervisor keep each task's ticket in the project's repository although it is public, where every issue is public; asked once per repository
   goblins issue file --project <project> --title <title> [--body-file <file>] [--evidence <text>]... [--root <key>]   file a root issue found outside your brief on the project's repository with the ops-root label, or comment on the open issue of the same root. On a public repository it refuses text naming a private project, a teammate, a local path or a secret
+  goblins issue unowned   read-only: for each project of the home, the open issues without the ops-root label that no live or queued task names in its brief, its backlog row or its pull requests, and apart those only finished or parked tasks name
   goblins brief <id> --project <name|path> [--kind <ship|scout>] [--mode <no-mistakes|direct-PR|local-only>] [--surface <internal|product|mixed|unknown>] [--risk <low|sensitive-surface>] [--reason "<assessment>"] [--delivery-exception "<authority and reason>"]
   goblins brief ready <id>   validate a completed queued brief and finalize its ready state, preserving its authored launch and auth choices
   goblins pr check <id> <url>
@@ -143,7 +144,7 @@ commands:
   goblins allowance-floor [<claude|codex> <percent>]   say each provider's weekly allowance floor, the percent of its week the fleet keeps back (5 unless set), or set one in the home's config/fleet.json; 0 keeps none, so goblins run until the provider refuses
   goblins start-hook accept <task-id> <file> [--fleet]   accept a start hook a goblin's seal stopped once you judged it safe: the file, by its name, its exact content and the distribution whose RECORD installs it, for the goblins of the task's project, or of every project with --fleet; their seals let it through at every install from then on and still stop it once any of the three differs
   goblins merge-local <id>
-  goblins cleanup <id>   return a finished task's worktree, every extra worktree it recorded and its scratch folder, refusing while any of them holds uncommitted work and keeping work that is not on the default branch as a local archive tag
+  goblins cleanup <id> [--force-archive] [--keep-issue-open <issue>... --reason "<why>"]   return a finished task's worktree, every extra worktree it recorded and its scratch folder, refusing while any of them holds uncommitted work and keeping work that is not on the default branch as a local archive tag, and refusing while an issue the task names is open or gone on GitHub unless --keep-issue-open <issue> --reason "<why>" keeps it open, which the task records
   goblins worktree add <id> <name> [--ref <commit>] [--project <name|path>] | remove <id> <name> [--project <name|path>]   give a task an extra worktree, <id>-<name>, beside its own in the home, of its own project or with --project of another, recorded on the task so cleanup removes it with the task, or return one early
   goblins backlog done <id>   close a retired delivered task's queued row, preserving its evidence and continuation under Done
   goblins pause <id> | resume <id> | kill <id>   pause, resume or stop a task while preserving its work
@@ -193,7 +194,7 @@ type commandRuntime struct {
 	idle          func(stateDir, id string, screens harness.Screens) (bool, error)
 	snapshot      func(context.Context, home.Home) (fleet.Snapshot, error)
 	localRuntime  func(context.Context, home.Home) (runtime.Inventory, error)
-	cleanup       func(context.Context, home.Home, string, bool) (string, error)
+	cleanup       func(context.Context, home.Home, cleanupRequest) (string, error)
 	taskLifecycle func(context.Context, home.Home, lifecycle.Request, string) (state.Lifecycle, error)
 	reap          func(context.Context, home.Home, reap.Options) (reap.Result, error)
 	// processPlan reads what the fleet's process sweeps would end now, and
@@ -531,7 +532,9 @@ func defaultCommandRuntime() commandRuntime {
 				DispatchNeed:      func() (uint64, error) { return dispatchNeed(h, fleettree.Processes, time.Now()) },
 			}.Collect(ctx)
 		},
-		cleanup:       defaultCleanup,
+		cleanup: func(ctx context.Context, h home.Home, request cleanupRequest) (string, error) {
+			return defaultCleanup(ctx, h, request, github)
+		},
 		taskLifecycle: defaultTaskLifecycle,
 		reap:          defaultReap,
 		processPlan:   defaultProcessPlan,
