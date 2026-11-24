@@ -84,6 +84,8 @@ func TestNativeGoblinKeyAlarmReportsQueueFailureWithoutRepeatingPayload(t *testi
 
 func TestNativeGoblinKeyAlarmHandlesOutputShapes(t *testing.T) {
 	key := keyShaped("sk" + "_test_")
+	pictureBytes := "iVBORw0KGgo/" + keyShaped("AIza") + "Ab12" + "AAAANSUhEUg"
+	pdfBytes := "JVBERi0xLjcK/" + keyShaped("AIza") + "Ab12" + "JSVFT0YK"
 	for _, harness := range []string{"claude", "codex", "pi"} {
 		for _, test := range []struct {
 			name, output string
@@ -98,6 +100,15 @@ func TestNativeGoblinKeyAlarmHandlesOutputShapes(t *testing.T) {
 			{"escaped key", `"\u0073` + key[1:] + `"`, 1},
 			{"large number before key", `{"number":1e1000,"text":"` + key + `"}`, 1},
 			{"large output with key at end", `"` + strings.Repeat("safe ", 1<<18) + key + `"`, 1},
+			{"read of a picture", `{"type":"image","file":{"base64":"` + pictureBytes + `","type":"image/jpeg","originalSize":1234}}`, 0},
+			{"picture typed after its bytes", `{"file":{"base64":"` + pictureBytes + `"},"type":"image"}`, 0},
+			{"picture block", `{"content":[{"type":"image","data":"` + pictureBytes + `","mimeType":"image/png"}]}`, 0},
+			{"read of a pdf", `{"type":"pdf","file":{"filePath":"/tmp/a.pdf","base64":"` + pdfBytes + `","originalSize":1234}}`, 0},
+			{"pdf bytes outside a pdf block", `{"type":"text","file":{"content":"` + pdfBytes + `"}}`, 1},
+			{"read of a notebook with a plot", `{"type":"notebook","file":{"filePath":"/tmp/a.ipynb","cells":[{"cellType":"code","source":"plot()","outputs":[{"output_type":"display_data","text":"","image":{"image_data":"` + pictureBytes + `","media_type":"image/png"}}]}]}}`, 0},
+			{"text output beside a notebook plot", `{"type":"notebook","file":{"filePath":"/tmp/a.ipynb","cells":[{"cellType":"code","source":"plot()","outputs":[{"output_type":"execute_result","text":"` + key + `","image":{"image_data":"` + pictureBytes + `","media_type":"image/png"}}]}]}}`, 1},
+			{"text beside a picture", `{"content":[{"type":"image","data":"` + pictureBytes + `"},{"type":"text","text":"` + key + `"}]}`, 1},
+			{"picture bytes outside a picture block", `{"content":[{"type":"text","text":"` + pictureBytes + `"}]}`, 1},
 		} {
 			t.Run(harness+"/"+test.name, func(t *testing.T) {
 				stateDir := goblinHookHome(t)
@@ -124,6 +135,33 @@ func TestNativeGoblinKeyAlarmHandlesOutputShapes(t *testing.T) {
 				assertAlarmFilesExclude(t, stateDir, key)
 			})
 		}
+	}
+}
+
+func TestNativeGoblinKeyAlarmNamesKindsInMemberNameOrder(t *testing.T) {
+	output := `{"d":"` + keyShaped("sk"+"_test_") + `","c":"` + keyShaped("ghp"+"_") + `","b":"` + keyShaped("sk"+"-ant-") + `","a":"` + keyShaped("AI"+"za") + `Ab12"}`
+	for _, harness := range []string{"claude", "codex", "pi"} {
+		t.Run(harness, func(t *testing.T) {
+			stateDir := goblinHookHome(t)
+			var payload map[string]json.RawMessage
+			if err := json.Unmarshal(alarmEvent(t, harness, "call-1", ""), &payload); err != nil {
+				t.Fatal(err)
+			}
+			payload["tool_response"] = json.RawMessage(output)
+			input, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var stdout, stderr bytes.Buffer
+
+			code := runNativeHook([]string{harness, "--home", filepath.Dir(stateDir), "--state", stateDir, "--key-alarm"}, bytes.NewReader(input), &stdout, &stderr, commandRuntime{})
+
+			pending, err := wake.Pending(stateDir)
+			want := "pd-keys's Read output held a Google API key, an Anthropic key, a GitHub token and a Stripe secret key, so"
+			if code != 0 || err != nil || len(pending) != 1 || !strings.Contains(pending[0].Detail, want) {
+				t.Fatalf("exit %d, wakes %+v, error %v; want one wake naming %q", code, pending, err, want)
+			}
+		})
 	}
 }
 
