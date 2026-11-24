@@ -133,7 +133,7 @@ func TestTheRepositoryPolicyNamesOnlyFieldsAndPackagesThatExist(t *testing.T) {
 				return
 			}
 		}
-		if !slices.ContainsFunc(tracked, func(file string) bool { return matches(pattern, file) }) {
+		if !slices.ContainsFunc(tracked, func(file string) bool { return matches(pattern, file, fsx.FoldsCase(root)) }) {
 			t.Errorf("%s has the pattern %q %s, and it names no file this repository tracks", PolicyPath, pattern, in)
 		}
 	}

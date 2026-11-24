@@ -30,6 +30,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/telemetry"
+	"github.com/fpresta0607/code-goblins/internal/verify"
 	"github.com/fpresta0607/code-goblins/internal/voice"
 )
 
@@ -102,6 +103,7 @@ func runDoctor(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	reportPermissions(stdout)
 	reportLongPaths(stdout)
 	reportDevDrive(stdout, runtime)
+	reportKernel(stdout, runtime)
 	reportRemoteAccess(stdout, runtime)
 
 	if *fix && !fixHarnesses(stdout, releases, versions) {
@@ -263,6 +265,20 @@ func reportDevDrive(stdout io.Writer, runtime commandRuntime) {
 		fmt.Fprintln(stdout, line)
 	}
 	fmt.Fprintln(stdout, gateHomeLine(runtime, h.DevDrive))
+}
+
+// reportKernel says how many access tokens the kernel holds beside how many
+// processes run, and how large its paged and nonpaged pools are, so tokens
+// the kernel keeps after their processes ended show while they grow, before
+// the pools take the memory goblins need (#2526). It never counts against
+// the health verdict: only a restart returns that memory.
+func reportKernel(stdout io.Writer, runtime commandRuntime) {
+	kernel, err := runtime.readKernel()
+	if err != nil {
+		fmt.Fprintf(stdout, "kernel: unreadable (%v)\n", err)
+		return
+	}
+	fmt.Fprintf(stdout, "kernel: %d access tokens alive while %d processes run; paged pool %.1f GB, nonpaged pool %.1f GB\n", kernel.Tokens, kernel.Processes, verify.Gigabytes(kernel.PagedPool), verify.Gigabytes(kernel.NonpagedPool))
 }
 
 // reportRemoteAccess says whether private phone access is off or on and what

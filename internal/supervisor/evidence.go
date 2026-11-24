@@ -667,17 +667,18 @@ func finishedTasks(h home.Home, reads *keptReads, now time.Time) []Task {
 		})
 	}
 	entries, _ := os.ReadDir(stateDir)
-	// live are the tasks with a record, by lowercase ID, as Windows names
-	// files.
+	// live are the tasks with a record, by fsx.PathKey of the ID in
+	// stateDir: in lowercase where its file system ignores case, as Windows
+	// names files.
 	live := map[string]bool{}
 	for _, entry := range entries {
 		if id, ok := strings.CutSuffix(entry.Name(), ".meta"); ok {
-			live[strings.ToLower(id)] = true
+			live[fsx.PathKey(filepath.Join(stateDir, id))] = true
 		}
 	}
 	for _, entry := range entries {
 		id, ok := strings.CutSuffix(entry.Name(), ".status")
-		if !ok || entry.IsDir() || live[strings.ToLower(id)] {
+		if !ok || entry.IsDir() || live[fsx.PathKey(filepath.Join(stateDir, id))] {
 			continue
 		}
 		if info, err := entry.Info(); err == nil {
@@ -765,7 +766,7 @@ func finishedTasks(h home.Home, reads *keptReads, now time.Time) []Task {
 		entries, _ := os.ReadDir(filepath.Join(stateDir, directory))
 		for _, entry := range entries {
 			id, ok := strings.CutSuffix(entry.Name(), ".json")
-			if !ok || state.ValidTaskID(id) != nil || live[strings.ToLower(id)] {
+			if !ok || state.ValidTaskID(id) != nil || live[fsx.PathKey(filepath.Join(stateDir, id))] {
 				continue
 			}
 			info, err := entry.Info()
@@ -1083,7 +1084,7 @@ func queuedBriefs(h home.Home, briefs briefReader) []Task {
 	records, _ := os.ReadDir(h.State)
 	recorded := make(map[string]bool, len(records))
 	for _, record := range records {
-		recorded[strings.ToLower(record.Name())] = true
+		recorded[fsx.PathKey(filepath.Join(h.State, record.Name()))] = true
 	}
 	// A task's archive entries are named by its ID and a dot, and an ID may
 	// hold dots itself, so each name stands for every task ID it begins with.
@@ -1099,7 +1100,7 @@ func queuedBriefs(h home.Home, briefs briefReader) []Task {
 	tasks := []Task{}
 	for _, entry := range entries {
 		id := entry.Name()
-		if !entry.IsDir() || state.ValidTaskID(id) != nil || recorded[strings.ToLower(id+".meta")] || recorded[strings.ToLower(id+".status")] || archived[id] {
+		if !entry.IsDir() || state.ValidTaskID(id) != nil || recorded[fsx.PathKey(state.TaskMetaPath(h.State, id))] || recorded[fsx.PathKey(state.StatusPath(h.State, id))] || archived[id] {
 			continue
 		}
 		brief := filepath.Join(h.Data, id, "brief.md")

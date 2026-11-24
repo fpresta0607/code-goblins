@@ -230,7 +230,7 @@ func (s *Store) nextQueued(ceoLive bool) int {
 	isHeld := s.answersWait(now) > 0
 	first := -1
 	for i, a := range s.db.Actions {
-		if a.Status == "queued" && !s.deferredUntil[a.ID].After(now) && (ceoLive || !s.waitsForCEO(a) || a.Kind == "message") && !(isHeld && a.Kind == "ceo_answer") && (!ceoLive || undoWait(a, now) == 0) && !s.followsHeldMessage(i, now) && !s.followsEarlierAnswer(i) && !s.followsEarlierMessage(i) {
+		if a.Status == "queued" && !s.deferredUntil[a.ID].After(now) && (ceoLive || !s.waitsForCEO(a) || a.Kind == "message") && !(isHeld && a.Kind == "ceo_answer") && (!ceoLive || undoWait(a, now) == 0) && !s.followsHeldMessage(i, now) && !s.followsEarlierAnswer(i) && !s.followsEarlierMessage(i) && !s.waitsForCommandSentNow(i) {
 			if a.Kind != "evaluate" {
 				return i
 			}
@@ -271,6 +271,21 @@ func (s *Store) followsEarlierMessage(i int) bool {
 	a := s.db.Actions[i]
 	return a.Kind == "message" && !a.IsSentNow && slices.ContainsFunc(s.db.Actions[:i], func(earlier Action) bool {
 		return earlier.Kind == "message" && earlier.TaskID == a.TaskID && (earlier.Status == "queued" || earlier.Status == "running" && earlier.Awaiting == nil)
+	})
+}
+
+// waitsForCommandSentNow reports whether action i is his words, a message
+// that is no command, which wait for a later command to the same session he
+// sent now, one still queued or tried and not yet handed over, whether or not
+// he sent them now too: a harness's send-now key takes its queue from the
+// head, so words typed into that queue first would go ahead of the command,
+// which would then wait out the turn they start (#2759). A command waits for
+// none, so two he sends now go in the order he sent them. The caller holds
+// s.mu.
+func (s *Store) waitsForCommandSentNow(i int) bool {
+	a := s.db.Actions[i]
+	return a.Kind == "message" && !isHarnessCommand(a.Text) && slices.ContainsFunc(s.db.Actions[i+1:], func(later Action) bool {
+		return later.Kind == "message" && later.TaskID == a.TaskID && later.IsSentNow && isHarnessCommand(later.Text) && (later.Status == "queued" || later.Status == "running" && later.Awaiting == nil)
 	})
 }
 

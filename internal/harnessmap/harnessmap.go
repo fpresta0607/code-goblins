@@ -327,7 +327,7 @@ func SkillFiles(skills fs.FS, name string) (map[string][]byte, error) {
 }
 
 func sameDir(a, b string) bool {
-	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
+	return fsx.EqualPath(filepath.Clean(a), filepath.Clean(b))
 }
 
 // Problem is one thing wrong with the harness folders.
@@ -367,7 +367,10 @@ func Check(m Map) []Problem {
 				continue
 			}
 			if entry.IsDir() {
-				key := strings.ToLower(entry.Name())
+				key := entry.Name()
+				if fsx.FoldsCase(path) {
+					key = strings.ToLower(key)
+				}
 				copies[key] = append(copies[key], path)
 			}
 		}

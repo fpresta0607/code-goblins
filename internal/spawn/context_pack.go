@@ -127,7 +127,7 @@ func (s Service) liveTasks(ctx context.Context, meta state.TaskMeta, project str
 			live = append(live, memory.LiveTask{ID: id, Title: "its task record could not be read: " + err.Error()})
 			continue
 		}
-		if !strings.EqualFold(filepath.Base(other.Project), project) {
+		if dir := filepath.Dir(other.Project); !fsx.EqualPath(filepath.Join(dir, filepath.Base(other.Project)), filepath.Join(dir, project)) {
 			continue
 		}
 		task := memory.LiveTask{ID: id, Title: other.Title, Goblin: other.GoblinName}

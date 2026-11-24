@@ -14,6 +14,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -457,7 +458,7 @@ func (c Collector) worktrees(ctx context.Context, tasks []Task, notes *[]string)
 			if slices.ContainsFunc(fleetInfos, func(info os.FileInfo) bool { return os.SameFile(entry.Info, info) }) {
 				continue
 			}
-			if strings.EqualFold(filepath.Base(filepath.Dir(entry.Path)), home.LegacyWorktreesDir) {
+			if parent := filepath.Dir(entry.Path); fsx.EqualPath(parent, filepath.Join(filepath.Dir(parent), home.LegacyWorktreesDir)) {
 				// A goblin worktree where an older build put them, placed above
 				// or left to goblins cleanup and goblins reap when it is another home's.
 				// The check is by folder name because git spells a junctioned
@@ -492,7 +493,7 @@ func claims(root, path string, tasks []Task, held map[string]string) bool {
 			}
 		}
 	}
-	name, ok := strings.CutPrefix(strings.ToLower(filepath.Base(path)), home.LegacyWorktreePrefix)
+	name, ok := strings.CutPrefix(fsx.PathKey(filepath.Base(path)), home.LegacyWorktreePrefix)
 	if !ok || name == "" {
 		return false
 	}
@@ -507,7 +508,7 @@ func claims(root, path string, tasks []Task, held map[string]string) bool {
 	return false
 }
 
-// heldIDs maps the id, lowercased as Windows compares it, of every task this
+// heldIDs maps the id, in its fsx.PathKey form, of every task this
 // home holds a record of to the checkout that record names, where one does:
 // a task record, readable or not, a status log, an outcome, or a record
 // cleanup or the sweep archived, <id>.<stamp> or <id>.status.<stamp>. Only a
@@ -516,8 +517,8 @@ func claims(root, path string, tasks []Task, held map[string]string) bool {
 func heldIDs(stateDir string, tasks []Task, notes *[]string) map[string]string {
 	held := map[string]string{}
 	hold := func(id, project string) {
-		if known := held[strings.ToLower(id)]; known == "" {
-			held[strings.ToLower(id)] = project
+		if known := held[fsx.PathKey(id)]; known == "" {
+			held[fsx.PathKey(id)] = project
 		}
 	}
 	for _, task := range tasks {

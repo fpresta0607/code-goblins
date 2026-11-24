@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/pipeline/pipelinetest"
 )
 
 type interruptionRunner struct {
@@ -226,8 +227,62 @@ func TestResumeInterruptedRefusesChangedIdentity(t *testing.T) {
 			// Act
 			_, err := (Reader{Root: root, Commands: runner}).ResumeInterrupted(t.Context(), "project", prior)
 			// Assert
-			if err == nil || !strings.Contains(err.Error(), test.want) || len(runner.commands) != 1 || !strings.HasPrefix(runner.commands[0], "sqlite3 -readonly -json ") {
+			isReadOnly := !slices.ContainsFunc(runner.commands, func(command string) bool { return !strings.HasPrefix(command, "sqlite3 -readonly -json ") })
+			if err == nil || !strings.Contains(err.Error(), test.want) || len(runner.commands) == 0 || !isReadOnly {
 				t.Fatalf("resume = %v, commands = %q", err, runner.commands)
+			}
+		})
+	}
+}
+
+// A run the CEO's validation admission continued the saved run with while its
+// task was paused is the same validation, so once it ends the task resumes
+// with it, and while it runs it owns the branch as any other run does (#2462).
+func TestResumeInterruptedTakesTheEndedRunAnAdmissionContinuedItWith(t *testing.T) {
+	sqlite, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Skip("sqlite3 CLI not available")
+	}
+	head, corrected := strings.Repeat("a", 40), strings.Repeat("b", 40)
+	for _, test := range []struct {
+		name, newer, status, admissions string
+		isResumed                       bool
+	}{
+		{name: "authored child cancelled", newer: "child", status: "cancelled", admissions: "('admission-1','child','saved-run','{}')", isResumed: true},
+		{name: "authored child completed", newer: "child", status: "completed", admissions: "('admission-1','child','saved-run','{}')", isResumed: true},
+		{name: "terminal grandchild failed", newer: "grandchild", status: "failed", admissions: "('admission-1','child','saved-run','{}'),('admission-2','grandchild','child','{}')", isResumed: true},
+		{name: "authored child running", newer: "child", status: "running", admissions: "('admission-1','child','saved-run','{}')"},
+		{name: "authored child pending", newer: "child", status: "pending", admissions: "('admission-1','child','saved-run','{}')"},
+		{name: "unrelated run cancelled", newer: "other-run", status: "cancelled", admissions: "('admission-1','child','saved-run','{}')"},
+		{name: "child of another run cancelled", newer: "child", status: "cancelled", admissions: "('admission-1','child','other-run','{}')"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			root := t.TempDir()
+			sql := `CREATE TABLE repos(id TEXT,working_path TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,status TEXT,head_sha TEXT,last_pushed_sha TEXT,intent TEXT,worktree_dir TEXT,created_at INTEGER);
+CREATE TABLE validation_admissions(id TEXT,child_id TEXT,predecessor_id TEXT,event_json TEXT);
+INSERT INTO repos VALUES('repo','C:/project');
+INSERT INTO runs VALUES('saved-run','repo','feat/task','failed','` + head + `','','retain history','',1),('other-run','repo','feat/task','failed','` + head + `','','retain history','',0),('` + test.newer + `','repo','feat/task','` + test.status + `','` + corrected + `','','retain history','',3);
+INSERT INTO validation_admissions VALUES` + test.admissions + `;`
+			if out, err := exec.Command(sqlite, filepath.Join(root, "state.sqlite"), sql).CombinedOutput(); err != nil {
+				t.Fatalf("fixture: %s %v", out, err)
+			}
+			reader := Reader{Root: root, Commands: pipelinetest.FixtureCommands{Runner: execx.OSRunner{}}}
+			prior := InterruptedRun{ID: "saved-run", Branch: "feat/task", Intent: "retain history"}
+
+			// Act
+			current, err := reader.ResumeInterrupted(t.Context(), "C:/project", prior)
+
+			// Assert
+			if !test.isResumed {
+				if err == nil || !strings.Contains(err.Error(), "another validation run owns the branch") {
+					t.Fatalf("resume = %+v, %v; want the newer run to own the branch", current, err)
+				}
+				return
+			}
+			if err != nil || current.ID != test.newer || current.Status != test.status || current.Head != corrected {
+				t.Fatalf("resume = %+v, %v; want the ended %s", current, err, test.newer)
 			}
 		})
 	}

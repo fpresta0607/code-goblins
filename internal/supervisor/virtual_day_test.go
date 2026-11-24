@@ -25,8 +25,7 @@ func TestScratchHomeVirtualDayResumesThreeReasonsWithoutReplacingWork(t *testing
 		Stop: func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) {
 			return []string{"scratch process fixture"}, nil
 		},
-		Memory: func() (uint64, uint64, error) { return 8 * gigabyte, 8 * gigabyte, nil },
-		Resume: func(_ context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
+		Resume: func(_ context.Context, meta state.TaskMeta, prior *state.Lifecycle) error {
 			if prior.Session != "saved-"+meta.ID || !prior.HandoffSaved {
 				t.Errorf("resume lost the session or handoff: %+v", prior)
 			}
@@ -89,18 +88,13 @@ func TestScratchHomeVirtualDayResumesThreeReasonsWithoutReplacingWork(t *testing
 	if shown != 3 {
 		t.Fatalf("board showed %d of three pause reasons", shown)
 	}
-	for index, moment := range []time.Duration{8 * time.Hour, 8*time.Hour + time.Minute} {
-		if err := handler.Service.checkFleet(t.Context(), day.Add(moment)); err != nil {
-			t.Fatal(err)
-		}
-		if index == 0 && len(spawner.recorded()) != 0 {
-			t.Fatal("memory resumed before the second reading")
-		}
+	if err := handler.Service.checkFleet(t.Context(), day.Add(8*time.Hour)); err != nil {
+		t.Fatal(err)
 	}
 	if calls := awaitDispatch(t, handler.Service, spawner, 1); calls[0][1] != "memory-task" {
 		t.Fatalf("memory boundary: %v", calls)
 	}
-	t.Log("08:01 memory-task resumed in place after the second 8 GB memory/commit reading")
+	t.Log("08:00 memory-task resumed in place at the first 8 GB memory/commit reading")
 	isMerged = true
 	if err := handler.Service.checkFleet(t.Context(), day.Add(14*time.Hour)); err != nil {
 		t.Fatal(err)

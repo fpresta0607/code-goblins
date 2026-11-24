@@ -212,13 +212,12 @@ func TestBuildSelectsByContractAndCarriesWhatIsOutside(t *testing.T) {
 }
 
 // A slow package is listed by its directory from the repository root, the
-// root package as a dot, in any spelling of case, as Windows names
-// directories.
+// root package as a dot.
 func TestBuildFindsASlowPackageByItsDirectoryFromTheRoot(t *testing.T) {
 	// Arrange
 	found := branch("home.go", "cmd/goblins/main.go", "internal/tickets/read.go")
 	found.packages = []Package{{ImportPath: "example.com/repo", Dir: root}, pkg("cmd/goblins"), pkg("internal/tickets")}
-	found.policy, found.hasPolicy = `{"version": 1, "slow_packages": [".", "CMD/goblins"]}`, true
+	found.policy, found.hasPolicy = `{"version": 1, "slow_packages": [".", "cmd/goblins"]}`, true
 
 	// Act
 	plan := build(found, Fast)

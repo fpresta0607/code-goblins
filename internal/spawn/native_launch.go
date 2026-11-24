@@ -18,7 +18,9 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/claudestream"
 	"github.com/fpresta0607/code-goblins/internal/codexguard"
 	"github.com/fpresta0607/code-goblins/internal/crawler"
+	"github.com/fpresta0607/code-goblins/internal/cutover"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
@@ -35,6 +37,13 @@ const (
 
 // nativePoll is how often a native spawn reads the terminal's screen.
 const nativePoll = 250 * time.Millisecond
+
+// nativeKeyPoll is how often a delivery reads the terminal's screen while it
+// waits for a key it sent to show taken before it sends the next. On
+// 2026-11-19 a Claude Code 2.1.328 drew typed words 46 ms after they went and
+// queued them 35 ms after their Enter, and reads nativePoll apart saw each a
+// quarter second late, which a line sent now waited out twice (#2759).
+const nativeKeyPoll = 50 * time.Millisecond
 
 // nativeStartup bounds a harness's startup, dialogs included; nativeKeyEffect
 // bounds how long one key takes to show on the screen; nativeAccepted bounds
@@ -100,9 +109,9 @@ var ErrSentNow = fmt.Errorf("its send-now key went: %w", fleet.ErrQueuedForToolC
 // submitted, and nothing typed is left for the next delivery to join.
 var ErrTakenBack = errors.New("it was taken back off the prompt line unsent")
 
-// ErrLeftTyped says a delivery that takes its text back (ShouldTakeBack)
-// typed it, ended before its submit key and never saw it leave the prompt
-// line: a harness that had not read it yet shows it there later.
+// ErrLeftTyped says a delivery typed its text, ended before its submit key
+// and never saw it leave the prompt line: a harness that had not read it yet
+// shows it there later.
 var ErrLeftTyped = errors.New("it may still be typed on the prompt line, unsent")
 
 // takeBackWait bounds how long TakeBack presses for an empty prompt line.
@@ -187,7 +196,7 @@ func (s Service) launchHost(id string, kind harness.Kind, launch harness.Launch,
 	if _, ok := harness.NativeScreens(kind); !ok {
 		return host.Record{}, fmt.Errorf("spawn: %s cannot run in a native terminal yet", kind)
 	}
-	program, err := nativeProgram(kind, launch)
+	program, err := s.goblinProgram(kind, launch, userEnv)
 	if err != nil {
 		return host.Record{}, err
 	}
@@ -708,7 +717,11 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 			}
 			return fmt.Errorf("spawn: native terminal %s never showed its harness working on the instruction: not within %s; its screen ends:\n%s", record.ID, within, host.ScreenTail(screen, 8))
 		}
-		if err := s.sleep(ctx, nativePoll); err != nil {
+		poll := nativePoll
+		if busy && s.ShouldSendNow && !isSentNow && screens.SendNow != "" {
+			poll = nativeKeyPoll
+		}
+		if err := s.sleep(ctx, poll); err != nil {
 			return err
 		}
 	}
@@ -829,21 +842,21 @@ func (s Service) submitNative(ctx context.Context, record host.Record, screens h
 	}
 	atPress, dismissed, err := s.DismissOffer(ctx, record, screens)
 	if err != nil {
-		return nil, s.leftTyped(err)
+		return nil, leftTyped(err)
 	}
 	if dismissed {
 		if err := s.sleep(ctx, nativePoll); err != nil {
-			return nil, s.leftTyped(err)
+			return nil, leftTyped(err)
 		}
 		if atPress, err = s.readNativeScreen(ctx, record); err != nil {
-			return nil, s.leftTyped(err)
+			return nil, leftTyped(err)
 		}
 	}
 	if _, hasDialog := screens.Dialog(atPress); hasDialog {
-		return nil, s.leftTyped(errNativeStartupDialog)
+		return nil, leftTyped(errNativeStartupDialog)
 	}
 	if !screens.Shows(atPress, instruction) {
-		return nil, s.leftTyped(fmt.Errorf("spawn: native terminal %s no longer shows the instruction, so it was not submitted", record.ID))
+		return nil, leftTyped(fmt.Errorf("spawn: native terminal %s no longer shows the instruction, so it was not submitted", record.ID))
 	}
 	if err := client.Input([]byte(submitKey(screens, instruction))); err != nil {
 		return nil, fmt.Errorf("spawn: submit the instruction in native terminal %s: %w", record.ID, err)
@@ -862,35 +875,31 @@ func submitKey(screens harness.Screens, instruction string) string {
 }
 
 // unsubmitted is how a delivery that typed instruction, which its screen
-// showed or never did, ends before its submit key: with err as it is, or,
-// for one that takes its text back (ShouldTakeBack), as ErrTakenBack too
-// once the text is off the prompt line and as leftTyped has it otherwise.
+// showed or never did, ends before its submit key: with err and ErrTakenBack
+// once the text is off the prompt line, and as leftTyped has it otherwise.
+// Every delivery takes its text back, a goblins send's as much as a board
+// one's, since words left there unsent hold every later delivery back
+// (#2104).
 func (s Service) unsubmitted(client *host.Client, record host.Record, screens harness.Screens, instruction string, err error) error {
-	if !s.ShouldTakeBack {
-		return err
-	}
 	read := s.ReadScreen
 	if read == nil {
 		read = host.ReadScreen
 	}
 	if !TakeBack(func() ([]string, error) { return read(record) }, client.Input, screens, instruction) {
-		return s.leftTyped(err)
+		return leftTyped(err)
 	}
 	return fmt.Errorf("%w: %w", err, ErrTakenBack)
 }
 
 // leftTyped is err for a delivery that ended after typing and before its
-// submit key with its text not seen to leave the prompt line: ErrLeftTyped
-// too, for one that takes its text back.
-func (s Service) leftTyped(err error) error {
-	if !s.ShouldTakeBack {
-		return err
-	}
+// submit key with its text not seen to leave the prompt line, with
+// ErrLeftTyped.
+func leftTyped(err error) error {
 	return fmt.Errorf("%w: %w", err, ErrLeftTyped)
 }
 
-// awaitTyped reads the terminal's screen until it shows typed, for at most
-// typedWait. A harness that can take typed text in slowly is given
+// awaitTyped reads the terminal's screen every nativeKeyPoll until it shows
+// typed, for at most typedWait. A harness that can take typed text in slowly is given
 // nativeKeyEffect more each time its screen changes while the text is still
 // arriving, up to nativeTypedCap: live after the 2026-09-29 reboot a resumed
 // Codex took a pointer line in at about a character a second. Such a harness,
@@ -933,7 +942,7 @@ func (s Service) awaitTyped(ctx context.Context, client *host.Client, record hos
 			}
 			nudged = time.Now()
 		}
-		if err := s.sleep(ctx, nativePoll); err != nil {
+		if err := s.sleep(ctx, nativeKeyPoll); err != nil {
 			return err
 		}
 	}
@@ -1027,6 +1036,68 @@ func nativeProgram(kind harness.Kind, launch harness.Launch) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("spawn: find %s: %w", kind, err)
 	}
+	return programAt(kind, path, launch)
+}
+
+// RealHarnessVariable, set to 1 in the process that runs goblins spawn, lets
+// a home other than the one the user's environment names start a harness
+// that lies outside it: the real harness, on the user's own profile and
+// sign-in, which spends his model allowance.
+const RealHarnessVariable = "GOBLINS_REAL_HARNESS"
+
+// goblinProgram is nativeProgram for a goblin of this home. A goblin's
+// terminal starts from the user's own environment whatever home spawned it,
+// so its harness reads his profile and his sign-in. A home other than the one
+// that environment names, such as the scratch home of a test or of a gate's
+// live check, therefore starts only a stand-in harness it holds itself, one
+// whose path lies inside the home, unless the spawning process asks for the
+// real one with RealHarnessVariable: a stand-in that PATH does not find
+// first is refused, never replaced by the real harness found behind it
+// (#2094).
+func (s Service) goblinProgram(kind harness.Kind, launch harness.Launch, userEnv []string) ([]string, error) {
+	path, err := exec.LookPath(cmp.Or(launch.Executable, string(kind)))
+	if err != nil {
+		return nil, fmt.Errorf("spawn: find %s: %w", kind, err)
+	}
+	users := usersHome(userEnv)
+	if os.Getenv(RealHarnessVariable) != "1" && !(users != "" && fsx.SamePath(s.HomeRoot, users)) && !isInside(path, s.HomeRoot) {
+		return nil, fmt.Errorf("spawn: %s resolves to %s, outside this home %s, which is not the home the user's environment names (%s): its goblin would run the real %s on the user's own profile and sign-in and spend real model allowance; put a stand-in %s inside this home first on PATH, or set %s=1 to start the real one", kind, path, s.HomeRoot, cmp.Or(users, "none"), kind, kind, RealHarnessVariable)
+	}
+	return programAt(kind, path, launch)
+}
+
+// usersHome is the home the user's environment userEnv names, as goblins
+// resolves one: GOBLINS_HOME, by its old name where a release before the
+// rename set that, or else the per-user home under LOCALAPPDATA. It is empty
+// when userEnv names neither. A native terminal runs only on Windows so far.
+func usersHome(userEnv []string) string {
+	if root := cutover.SettingIn(userEnv, "GOBLINS_HOME"); root != "" {
+		return root
+	}
+	if local := cutover.SettingIn(userEnv, "LOCALAPPDATA"); local != "" {
+		return filepath.Join(local, "CodeGoblins")
+	}
+	return ""
+}
+
+// isInside reports whether path, which exists, lies inside folder, both
+// compared by what they resolve to, so a symbolic link inside the folder to a
+// program outside it is outside.
+func isInside(path, folder string) bool {
+	resolved, err := fsx.Canonical(path)
+	if err != nil {
+		return false
+	}
+	root, err := fsx.Canonical(folder)
+	if err != nil {
+		return false
+	}
+	return fsx.HasPathPrefix(resolved, strings.TrimSuffix(root, string(filepath.Separator))+string(filepath.Separator))
+}
+
+// programAt is the command line a native terminal starts the harness kind at
+// path with, as nativeProgram describes.
+func programAt(kind harness.Kind, path string, launch harness.Launch) ([]string, error) {
 	if launch.Executable != "" {
 		return cmdProgram(path, launch.Args...)
 	}

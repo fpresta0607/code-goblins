@@ -13,6 +13,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // consoleHostChildVariable makes the test binary report the console host
@@ -259,4 +261,43 @@ func processImage(t *testing.T, process windows.Handle) string {
 		t.Fatal(err)
 	}
 	return windows.UTF16ToString(image[:size])
+}
+
+// The console host is flushed to disk while its staged copy is still open and
+// before it replaces the file there, so a machine that stops after the
+// rename finds the program whole rather than at full length and holding only
+// zero bytes.
+func TestTheConsoleHostIsFlushedBeforeItReplacesTheFileThere(t *testing.T) {
+	// Arrange
+	path := filepath.Join(t.TempDir(), "conpty.dll")
+	old, want := []byte("not the embedded copy"), []byte("the embedded copy")
+	if err := os.WriteFile(path, old, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var flushedWhole []string
+	t.Cleanup(fsx.ReplaceSync(func(file *os.File) error {
+		staged, _ := os.ReadFile(file.Name())
+		kept, _ := os.ReadFile(path)
+		if file.Name() != path && bytes.Equal(staged, want) && bytes.Equal(kept, old) {
+			flushedWhole = append(flushedWhole, file.Name())
+		}
+		return file.Sync()
+	}))
+
+	// Act
+	err := writeBeside(path, want)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(flushedWhole) != 1 {
+		t.Fatalf("the whole copy was flushed %d times before it replaced the file there, want once", len(flushedWhole))
+	}
+	if _, err := os.Stat(flushedWhole[0]); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the flushed copy %s is still beside the file, want it renamed into place: %v", flushedWhole[0], err)
+	}
+	if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, want) {
+		t.Errorf("the file holds %q, %v; want %q", got, err, want)
+	}
 }

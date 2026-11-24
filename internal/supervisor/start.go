@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -22,18 +23,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/verify"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
-
-const (
-	// memoryFloor is the free memory the fleet keeps: nothing starts under it.
-	memoryFloor = 4 << 30
-	// memoryNext is the free memory at which the CEO starts the next queued
-	// task: the floor and about 1 GB for the new session.
-	memoryNext = 5 << 30
-)
-
-// MemoryFloor is the free memory the fleet keeps, for what starts heavy work
-// outside the supervisor: a verification run waits for it before its tests.
-const MemoryFloor = memoryFloor
 
 // Claude engine catalog defaults, separate from automatic task routing.
 const (
@@ -70,6 +59,10 @@ type Dispatch struct {
 	// GPU reads the machine's graphics adapters and how busy each is; nil
 	// reads none.
 	GPU func() (GPU, error)
+	// Processes lists the machine's processes with their private working sets,
+	// for what a goblin that just started still has to take of memory
+	// (ReadRoom); nil reads none, and such a goblin counts its whole start.
+	Processes func() ([]fleettree.Process, error)
 	// HeavyLine reads the room the machine's heavy line keeps at the given
 	// reading of memory, whose Hold says why no goblin starts or resumes by
 	// itself, as SlotHold says it, or "" when one may; nil reads none, and
@@ -84,13 +77,18 @@ type Dispatch struct {
 	// machine's heavy line longTurnWait or longer at the given moment, as
 	// MachineLongTurnWaits reads them; nil reads none.
 	LongTurnWaits func(now time.Time) ([]verify.Standing, error)
+	// TurnHolders reads the tasks whose goblins hold a turn of the machine's
+	// heavy line, as MachineTurnHolders reads them, which the memory floor
+	// pauses last; nil reads none, and the floor spares no goblin for a turn.
+	TurnHolders func() ([]string, error)
 	// Spawn runs goblins with args and returns what it printed.
 	Spawn func(ctx context.Context, args []string) (string, error)
 }
 
 // Memory is the machine's available physical memory and available commit,
-// in bytes, beside the fleet's floor, under which nothing starts, and the mark
-// at which the CEO starts the next task: a start needs both to reach them.
+// in bytes, beside the fleet's floor, under which nothing starts, and the free
+// memory at which the next start of the costliest harness is admitted: a
+// start needs both to reach them.
 // The kernel's pools ride along, since a pool that keeps growing is a driver
 // leaking memory, with the line past which the PC is better restarted
 // (pc_restart.go) and the tags that grew most since the sign-in began, and so
@@ -98,7 +96,8 @@ type Dispatch struct {
 // SlotHold is why the supervisor starts and resumes no goblin by itself at
 // this reading, keeping the test slots open, or empty when it may or the
 // machine's heavy line is not read. HandleHolder is the process holding the
-// most handles open, whose leak fills the kernel's paged pool.
+// most handles open, whose leak fills the kernel's paged pool. Guard is the
+// reading the memory guard last acted on.
 type Memory struct {
 	Available       uint64         `json:"available"`
 	Total           uint64         `json:"total"`
@@ -113,21 +112,18 @@ type Memory struct {
 	SlotHold        string         `json:"slot_hold"`
 	Holders         []CommitHolder `json:"holders,omitempty"`
 	HandleHolder    *HandleHolder  `json:"handle_holder,omitempty"`
+	Guard           *GuardReading  `json:"guard,omitempty"`
 }
 
-// shortfall says how much of memory, of commit or of both is free when it is
-// under the mark at which a task starts, rounded down so memory just under
-// the mark never reads as the mark itself, and is empty when both reach it.
-func (m Memory) shortfall() string {
-	switch {
-	case m.Available < memoryNext && m.CommitAvailable < memoryNext:
-		return fmt.Sprintf("Only %.1f GB of memory and %.1f GB of commit (RAM plus page file) are free", gigabytes(m.Available), gigabytes(m.CommitAvailable))
-	case m.Available < memoryNext:
-		return fmt.Sprintf("Only %.1f GB of memory is free", gigabytes(m.Available))
-	case m.CommitAvailable < memoryNext:
-		return fmt.Sprintf("Only %.1f GB of commit (RAM plus page file) is free", gigabytes(m.CommitAvailable))
-	}
-	return ""
+// GuardReading is the reading under the floor that the memory guard last acted
+// on: when it read, the free memory and commit it read, the floor, and what it
+// did about it.
+type GuardReading struct {
+	At              time.Time `json:"at"`
+	Available       uint64    `json:"available"`
+	CommitAvailable uint64    `json:"commit_available"`
+	Floor           uint64    `json:"floor"`
+	Action          string    `json:"action"`
 }
 
 // startPlan is the goblins spawn a Start runs.
@@ -289,14 +285,15 @@ func (s *Service) startQueued(id string, isOverlord bool) error {
 			return StartRefusal{Reason: reason, Waits: true}
 		}
 	}
-	if short := memory.shortfall(); short != "" {
-		return StartRefusal{Reason: short + "; Start needs 5 GB to keep the 4 GB floor", Passing: true}
+	room, err := s.room(time.Now().UTC())
+	if err != nil {
+		return StartRefusal{Reason: "The room for a start cannot be read, so nothing starts: " + err.Error()}
 	}
 	disk, err := s.machineDisk()
 	if err != nil {
 		return StartRefusal{Reason: "Free disk cannot be read, so nothing starts: " + err.Error()}
 	}
-	if err := CheckLaunch(memory, disk); err != nil {
+	if err := CheckLaunch(memory, room, plan.harness, disk); err != nil {
 		return StartRefusal{Reason: err.Error(), Passing: true}
 	}
 	if plan.missingBrief != nil {

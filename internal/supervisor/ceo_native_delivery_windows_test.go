@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -421,6 +422,102 @@ func TestSendNowInterruptsTheCEOsTurnAndDeliversHisMessageOnce(t *testing.T) {
 			}
 			if sent := store.Snapshot().Actions[0]; !sent.IsSentNow || sent.CanSendNow || sent.Status != "running" || sent.Awaiting == nil || sent.Message != sentNowInTurn {
 				t.Errorf("after Send now = %+v; want it typed into the turn, awaiting the CEO, and Send now gone", sent)
+			}
+		})
+	}
+}
+
+// Send now on his message in its undo window types it into the CEO's turn,
+// submits it and presses the harness's send-now key, each once the screen
+// shows the key before it taken. On 2026-11-19 a Claude Code 2.1.328 drew his
+// typed words 46 ms after they went and queued them 35 ms after their Enter,
+// but the board looked at its screen only every 250 ms and saw each a quarter
+// second late, so its model had the message 962 ms after his press, against
+// 173 ms for one already in its queue (#2759). The board looks again within a
+// few frames of a look that did not yet show its key taken.
+func TestSendNowSeesEachOfItsKeysTakenWithinAFewFramesOfTheCEOsScreen(t *testing.T) {
+	// fewFrames is the longest the board may ask to wait between a look that
+	// did not yet show its key taken and the next: what the board asks for,
+	// never how long the runner took.
+	const fewFrames = 100 * time.Millisecond
+	for _, test := range []struct{ mode, harness, interrupt string }{
+		{mode: "claude-busy", harness: "claude", interrupt: "sent now"},
+		{mode: "busy", harness: "codex", interrupt: "interrupted"},
+	} {
+		t.Run(test.harness, func(t *testing.T) {
+			// Arrange
+			useConversations(t)
+			store, home := testStore(t)
+			terminal := nativeCEOComposer(t, home.State, test.mode)
+			screens, _ := harness.NativeScreens(harness.Kind(test.harness))
+			// A look is how long the board asked to wait since the look before
+			// it, and what it showed. The look that first meets a change of the
+			// screen still shows the screen before it, as a look just after a
+			// key meets a harness that has not drawn that key yet, so the board
+			// sees each key taken only on a look after a wait it asked for.
+			type look struct {
+				asked          time.Duration
+				isOnPromptLine bool
+			}
+			var mu sync.Mutex
+			var looks []look
+			var shown []string
+			var asked time.Duration
+			isHeldBack := false
+			read := func(record host.Record) ([]string, error) {
+				screen, err := host.ReadScreen(record)
+				if err != nil {
+					return nil, err
+				}
+				mu.Lock()
+				defer mu.Unlock()
+				switch {
+				case shown == nil || slices.Equal(screen, shown):
+					shown, isHeldBack = screen, false
+				case !isHeldBack:
+					isHeldBack = true
+				default:
+					shown, isHeldBack = screen, false
+				}
+				looks = append(looks, look{asked: asked, isOnPromptLine: screens.ComposerHoldsAllOf(shown, "stop and rebase")})
+				asked = 0
+				return shown, nil
+			}
+			after := func(wait time.Duration) <-chan time.Time {
+				mu.Lock()
+				defer mu.Unlock()
+				asked += wait
+				// stall-accepted: it waits as long as the board asked, which only spaces its looks, so a stall cannot fail the test.
+				return time.After(wait)
+			}
+			service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: home.State, ReadScreen: read, After: after}}}
+			if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: "stop and rebase"}); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			pressed := sendNow(service, "", "m1")
+			err := store.ProcessOne(context.Background(), service.execute)
+			input := terminal.waitForLines(t, 3)
+
+			// Assert
+			if pressed.Code != http.StatusAccepted || err != nil || !slices.Equal(input[1:], []string{"queued stop and rebase", test.interrupt}) {
+				t.Fatalf("Send now = %d %s, its try = %v, terminal input = %q; want the message queued into the turn and its send-now key pressed", pressed.Code, pressed.Body, err, input)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			changes := 0
+			for i := 1; i < len(looks); i++ {
+				if looks[i].isOnPromptLine == looks[i-1].isOnPromptLine {
+					continue
+				}
+				changes++
+				if looks[i].asked > fewFrames {
+					t.Errorf("the board saw its words on the prompt line = %t on a look it asked to wait %s for after its look before; want it within a few frames", looks[i].isOnPromptLine, looks[i].asked)
+				}
+			}
+			if changes < 2 {
+				t.Errorf("the board saw its words come onto or leave the prompt line %d times; want them seen typed and then taken", changes)
 			}
 		})
 	}
@@ -1187,6 +1284,41 @@ func TestWordsBesideHisMessageOnTheCEOsPromptLineAreNeverSubmittedWithIt(t *test
 	}
 }
 
+// Claude Code 2.1.328 draws a no-break space after its prompt line's glyph,
+// and the board read the glyph as words beside a message typed there, so it
+// refused every message to the CEO as input that changed and left it typed,
+// unsent, on 2026-11-19 (#2776). A message on such a prompt line is submitted
+// to a CEO idle or in a turn, and pressed again once a lost Enter adds a row.
+func TestAMessageAfterANoBreakSpaceOnTheCEOsPromptLineIsSubmitted(t *testing.T) {
+	for _, tc := range []struct {
+		mode  string
+		input []string
+	}{
+		{mode: "claude-ready-no-break-space", input: []string{"accepted stop and rebase"}},
+		{mode: "claude-ready-lost-enter-no-break-space", input: []string{"enter taken as a new line", "accepted stop and rebase"}},
+		{mode: "claude-busy-no-break-space", input: []string{"queued stop and rebase"}},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			// Arrange
+			useConversations(t)
+			store, home := testStore(t)
+			terminal := nativeCEOComposer(t, home.State, tc.mode)
+			service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: home.State}}}
+
+			// Act
+			result, err := service.deliverMessage(context.Background(), Action{Kind: "message", Text: "stop and rebase"})
+
+			// Assert
+			if err != nil || result.LeftTyped != nil {
+				t.Errorf("deliverMessage = %+v, %v; want it submitted, not refused as input that changed", result, err)
+			}
+			if input := terminal.lines(t)[1:]; !slices.Equal(input, tc.input) {
+				t.Errorf("terminal input = %q; want %q", input, tc.input)
+			}
+		})
+	}
+}
+
 // The Overlord, 2026-11-13: "Stale old messages that appear randomly when
 // memory gets low" (#2541). A machine short of memory reads a terminal slowly,
 // and a read that failed once a message's submit key went ended its delivery
@@ -1620,37 +1752,54 @@ func TestAnAnswerItsDeliveryGaveUpOnAfterItsSubmitKeyIsPromisedNoSent(t *testing
 // typed. A screen is read a row at a time, so one read can join the prompt
 // row drawn before those words came to the rows under it drawn after, and
 // show his words alone over the row the Enter added: one read like that never
-// presses the key again either.
+// presses the key again either, nor do the reads of a CEO in a turn, a few
+// frames apart, that meet that redraw twice (#2759).
 func TestASecondSubmitKeyNeverSendsWordsThatLandedBesideHisMessage(t *testing.T) {
 	const beside = " and the line beside it"
 	for _, tc := range []struct {
-		name   string
-		isTorn bool
+		name, mode string
+		// torn is how many reads in a row, from the second to show those
+		// words, are torn.
+		torn int
+		// shown, where set, bounds the wait of a delivery into a turn to see
+		// his words leave the prompt line, which they never do here.
+		shown time.Duration
 	}{
-		{name: "each read as the host gives it"},
-		{name: "one read torn across the redraw", isTorn: true},
+		{name: "each read as the host gives it", mode: "claude-ready-lost-enter-joined-at-enter"},
+		{name: "one read torn across the redraw", mode: "claude-ready-lost-enter-joined-at-enter", torn: 1},
+		{name: "a CEO in a turn read torn twice across the redraw", mode: "claude-busy-lost-enter-joined-at-enter", torn: 2, shown: 2 * time.Second},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
+			if tc.shown > 0 {
+				// The torn reads are chosen by count, but the quarter second
+				// pressAgain waits over his words alone is wall time, so a
+				// runner pause of about 200 ms between the two torn reads has
+				// the delivery press Enter again as designed, and this case
+				// fails whatever the delivery does.
+				previous := nativeShown
+				nativeShown = tc.shown
+				t.Cleanup(func() { nativeShown = previous })
+			}
 			useConversations(t)
 			store, home := testStore(t)
-			terminal := nativeCEOComposer(t, home.State, "claude-ready-lost-enter-joined-at-enter")
+			terminal := nativeCEOComposer(t, home.State, tc.mode)
 			connection := &CEOConnection{State: home.State}
-			sightings, hasTorn := 0, false
-			if tc.isTorn {
+			sightings, tornReads := 0, 0
+			if tc.torn > 0 {
 				connection.ReadScreen = func(record host.Record) ([]string, error) {
 					screen, err := host.ReadScreen(record)
 					if err != nil || !slices.ContainsFunc(screen, func(row string) bool { return strings.Contains(row, beside) }) {
 						return screen, err
 					}
-					// The second read to show those words is torn, so the
-					// read before it showed them and only this one shows his
-					// words alone over the new row, whatever the reads before
-					// caught of the redraw.
-					if sightings++; sightings != 2 {
+					// The reads from the second to show those words are torn,
+					// so the read before them showed those words and only
+					// these show his words alone over the new row, whatever
+					// the reads before caught of the redraw.
+					if sightings++; sightings < 2 || sightings > tc.torn+1 {
 						return screen, nil
 					}
-					hasTorn = true
+					tornReads++
 					torn := slices.Clone(screen)
 					for at, row := range torn {
 						torn[at] = strings.Replace(row, beside, strings.Repeat(" ", len(beside)), 1)
@@ -1672,8 +1821,8 @@ func TestASecondSubmitKeyNeverSendsWordsThatLandedBesideHisMessage(t *testing.T)
 			if processed != nil {
 				t.Fatal(processed)
 			}
-			if tc.isTorn && !hasTorn {
-				t.Fatal("no read showed the words beside his a second time, so none was torn")
+			if tornReads != tc.torn {
+				t.Fatalf("%d reads were torn; want %d after the first to show the words beside his", tornReads, tc.torn)
 			}
 			if input := terminal.lines(t)[1:]; !slices.Equal(input, []string{"enter taken as a new line"}) {
 				t.Errorf("terminal input = %q; want only its submit key taken as a new line, nothing sent", input)

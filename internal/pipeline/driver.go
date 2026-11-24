@@ -44,20 +44,27 @@ func DefaultRoot() (string, error) {
 // a bare NM_HOME entry would strip PATH, USERPROFILE and TEMP and the engine
 // could resolve neither its tools nor a home directory. A process started
 // before the gate's home moved carries no NM_HOME or the old one, so every
-// no-mistakes it starts is given the root.
+// no-mistakes it starts is given the root. It also turns off no-mistakes' own
+// update check, since the fleet installs no-mistakes itself: a call whose
+// cached check is a day old starts a background program that rewrites
+// update-check.json in the gate's home, which made a move's proof of its copy
+// fail on 2026-11-19 (#2817).
 func NativeEnv(root string) []string {
-	env := make([]string, 0, len(os.Environ())+1)
+	env := make([]string, 0, len(os.Environ())+2)
 	for _, entry := range os.Environ() {
 		// Windows matches environment names without case, so an existing
-		// NM_HOME has to be dropped rather than left beside the override.
+		// entry has to be dropped rather than left beside the override.
 		name, _, ok := strings.Cut(entry, "=")
-		if ok && strings.EqualFold(name, gatehome.Variable) {
+		if ok && (strings.EqualFold(name, gatehome.Variable) || strings.EqualFold(name, noUpdateCheckVariable)) {
 			continue
 		}
 		env = append(env, entry)
 	}
-	return append(env, gatehome.Variable+"="+root)
+	return append(env, gatehome.Variable+"="+root, noUpdateCheckVariable+"=1")
 }
+
+// noUpdateCheckVariable set to 1 turns off no-mistakes' own update check.
+const noUpdateCheckVariable = "NO_MISTAKES_NO_UPDATE_CHECK"
 
 // stateQueryTimeout bounds one read of the gate's database, so a wedged read
 // cannot hold a command forever. The fleet's runners answer a read in process
@@ -656,7 +663,8 @@ func (r Reader) RunBranch(ctx context.Context, project, run string) (string, err
 
 // Response is one answer to a parked gate. Accept names the open ask-user and
 // auto-fix findings the CEO, or on a spent review the task's own goblin, takes
-// as they stand, with approve only. A recognized blank configured Test failure
+// as they stand: with approve every open one, and with fix every open one the
+// fix leaves out. A recognized blank configured Test failure
 // also needs Accept and the CEO's Reason, which the native exception keeps.
 type Response struct{ Action, Findings, Instructions, Accept, Reason string }
 type finding struct {
@@ -775,9 +783,6 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 			args = append(args, "--run", gate.RunID)
 		}
 	case "fix":
-		if response.Accept != "" {
-			return nil, errors.New("pipeline: --accept goes with approve, never with fix")
-		}
 		if response.Reason != "" {
 			return nil, errors.New("pipeline: --reason goes with approve of the test step, never with fix")
 		}
@@ -797,6 +802,35 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 		}
 		args = append(args, "--findings", response.Findings)
 		var ignored []string
+		if response.Accept != "" {
+			// The native gate refuses a fix that leaves an open finding
+			// unaddressed, so the CEO declines the ones the fix leaves out by
+			// naming exactly them, and they reach it as --ignore (issue 2092).
+			// A finding with no action still needs its fix.
+			var leftOut []string
+			for id, action := range actions {
+				switch {
+				case seen[id]:
+				case action == "":
+					return nil, ErrUnresolved
+				default:
+					leftOut = append(leftOut, id)
+				}
+			}
+			named := strings.Split(response.Accept, ",")
+			sorted := slices.Sorted(slices.Values(named))
+			slices.Sort(leftOut)
+			switch {
+			case len(leftOut) == 0:
+				return nil, errors.New("pipeline: the fix selects every open finding, so none is left to accept; fix without --accept")
+			case !slices.Equal(sorted, leftOut):
+				return nil, fmt.Errorf("pipeline: --accept beside fix must name exactly the open ask-user and auto-fix findings the fix leaves out: %s", strings.Join(leftOut, ","))
+			}
+			for _, id := range named {
+				seen[id] = true
+			}
+			ignored = append(ignored, named...)
+		}
 		for _, id := range informational {
 			if _, isActionable := actions[id]; isActionable {
 				continue

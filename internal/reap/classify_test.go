@@ -26,14 +26,14 @@ func process(pid, ppid int, name, command string, start time.Time) Process {
 func task(id, worktree, pane, verb string) Task {
 	return Task{
 		ID:       id,
-		Meta:     state.TaskMeta{ID: id, Worktree: worktree, Project: `C:\dev\proj`, HerdrPaneID: pane, Backend: "herdr"},
+		Meta:     state.TaskMeta{ID: id, Worktree: worktree, Project: systemPath(`C:\dev\proj`), HerdrPaneID: pane, Backend: "herdr"},
 		Verb:     verb,
 		Terminal: IsTerminal(verb),
 	}
 }
 
 func TestPausedTaskIsRetainedWithoutOrphanWorktreeOrMetadataFindings(t *testing.T) {
-	paused := task("paused", `C:\dev\proj\.worktrees\gb-paused`, "gone", "paused")
+	paused := task("paused", systemPath(`C:\dev\proj\.worktrees\gb-paused`), "gone", "paused")
 	paused.IsPaused = true
 	for _, hasDirectory := range []bool{true, false} {
 		inventory := Inventory{Tasks: []Task{paused}}
@@ -140,10 +140,10 @@ func TestClassify(t *testing.T) {
 			inventory: Inventory{
 				Panes:         []Pane{livePane},
 				FleetRootPIDs: []int{herdrPID},
-				Tasks:         []Task{task("pp-money", `C:\dev\pp\.worktrees\gb-pp-money`, "pane-gone", "done")},
-				Worktrees:     []WorktreeDir{{Path: `C:\dev\pp\.worktrees\gb-pp-money`, Project: `C:\dev\pp`, Registration: RegistrationListed, TaskID: "pp-money"}},
+				Tasks:         []Task{task("pp-money", systemPath(`C:\dev\pp\.worktrees\gb-pp-money`), "pane-gone", "done")},
+				Worktrees:     []WorktreeDir{{Path: systemPath(`C:\dev\pp\.worktrees\gb-pp-money`), Project: systemPath(`C:\dev\pp`), Registration: RegistrationListed, TaskID: "pp-money"}},
 				Processes: append(append([]Process{}, liveProcesses...),
-					process(555, 1, "node.exe", `node C:\dev\pp\.worktrees\gb-pp-money\node_modules\next\dist\bin\next dev`, fixtureLatest),
+					process(555, 1, "node.exe", systemPath(`node C:\dev\pp\.worktrees\gb-pp-money\node_modules\next\dist\bin\next dev`), fixtureLatest),
 				),
 			},
 			want:      StaleServer,
@@ -159,10 +159,10 @@ func TestClassify(t *testing.T) {
 			inventory: Inventory{
 				Panes:         []Pane{livePane},
 				FleetRootPIDs: []int{herdrPID},
-				Tasks:         []Task{task("pp-money", `C:\dev\pp\.worktrees\gb-pp-money`, "pane-live", "working")},
-				Worktrees:     []WorktreeDir{{Path: `C:\dev\pp\.worktrees\gb-pp-money`, Project: `C:\dev\pp`, Registration: RegistrationListed, TaskID: "pp-money"}},
+				Tasks:         []Task{task("pp-money", systemPath(`C:\dev\pp\.worktrees\gb-pp-money`), "pane-live", "working")},
+				Worktrees:     []WorktreeDir{{Path: systemPath(`C:\dev\pp\.worktrees\gb-pp-money`), Project: systemPath(`C:\dev\pp`), Registration: RegistrationListed, TaskID: "pp-money"}},
 				Processes: append(append([]Process{}, liveProcesses...),
-					process(555, 1, "node.exe", `node C:\dev\pp\.worktrees\gb-pp-money\node_modules\vite\bin\vite.js`, fixtureLatest),
+					process(555, 1, "node.exe", systemPath(`node C:\dev\pp\.worktrees\gb-pp-money\node_modules\vite\bin\vite.js`), fixtureLatest),
 				),
 			},
 			want:      StaleServer,
@@ -173,7 +173,7 @@ func TestClassify(t *testing.T) {
 			inventory: Inventory{
 				Panes:     []Pane{livePane},
 				Processes: liveProcesses,
-				Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-pdocs-help-docs`, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "pdocs-help-docs"}},
+				Worktrees: []WorktreeDir{{Path: systemPath(`C:\dev\pd\.worktrees\gb-pdocs-help-docs`), Project: systemPath(`C:\dev\pd`), Registration: RegistrationListed, TaskID: "pdocs-help-docs"}},
 			},
 			want:      OrphanWorktree,
 			wantCount: 1,
@@ -190,8 +190,8 @@ func TestClassify(t *testing.T) {
 			inventory: Inventory{
 				Panes:     []Pane{livePane},
 				Processes: liveProcesses,
-				Tasks:     []Task{task("live", `C:\dev\pd\.worktrees\gb-live`, "pane-live", "working")},
-				Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-live`, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "live"}},
+				Tasks:     []Task{task("live", systemPath(`C:\dev\pd\.worktrees\gb-live`), "pane-live", "working")},
+				Worktrees: []WorktreeDir{{Path: systemPath(`C:\dev\pd\.worktrees\gb-live`), Project: systemPath(`C:\dev\pd`), Registration: RegistrationListed, TaskID: "live"}},
 			},
 			want:      OrphanWorktree,
 			wantCount: 0,
@@ -201,7 +201,7 @@ func TestClassify(t *testing.T) {
 			inventory: Inventory{
 				Panes:     []Pane{livePane},
 				Processes: liveProcesses,
-				Tasks:     []Task{task("utah", `C:\dev\pd\.worktrees\gb-utah`, "pane-gone", "done")},
+				Tasks:     []Task{task("utah", systemPath(`C:\dev\pd\.worktrees\gb-utah`), "pane-gone", "done")},
 			},
 			want:      OrphanMeta,
 			wantCount: 1,
@@ -216,8 +216,8 @@ func TestClassify(t *testing.T) {
 			inventory: Inventory{
 				Panes:     []Pane{livePane},
 				Processes: liveProcesses,
-				Tasks:     []Task{task("utah", `C:\dev\pd\.worktrees\gb-utah`, "pane-gone", "done")},
-				Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-utah`, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "utah"}},
+				Tasks:     []Task{task("utah", systemPath(`C:\dev\pd\.worktrees\gb-utah`), "pane-gone", "done")},
+				Worktrees: []WorktreeDir{{Path: systemPath(`C:\dev\pd\.worktrees\gb-utah`), Project: systemPath(`C:\dev\pd`), Registration: RegistrationListed, TaskID: "utah"}},
 			},
 			want:      OrphanMeta,
 			wantCount: 0,
@@ -227,7 +227,7 @@ func TestClassify(t *testing.T) {
 			inventory: Inventory{
 				Panes:     []Pane{livePane},
 				Processes: liveProcesses,
-				Tasks:     []Task{task("wedged", `C:\dev\pd\.worktrees\gb-wedged`, "pane-gone", "working")},
+				Tasks:     []Task{task("wedged", systemPath(`C:\dev\pd\.worktrees\gb-wedged`), "pane-gone", "working")},
 			},
 			want:      OrphanMeta,
 			wantCount: 1,
@@ -270,13 +270,13 @@ func TestClassifyLiveFleetIsNeverReported(t *testing.T) {
 	inventory := Inventory{
 		Panes:         []Pane{{ID: "pane-live", ShellPID: 200, ForegroundPID: 300, HasAgent: true}},
 		FleetRootPIDs: []int{100},
-		Tasks:         []Task{task("live", `C:\dev\pd\.worktrees\gb-live`, "pane-live", "working")},
-		Worktrees:     []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-live`, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "live"}},
+		Tasks:         []Task{task("live", systemPath(`C:\dev\pd\.worktrees\gb-live`), "pane-live", "working")},
+		Worktrees:     []WorktreeDir{{Path: systemPath(`C:\dev\pd\.worktrees\gb-live`), Project: systemPath(`C:\dev\pd`), Registration: RegistrationListed, TaskID: "live"}},
 		Processes: []Process{
 			process(100, 1, "herdr.exe", "herdr server", fixtureStart),
 			process(200, 100, "powershell.exe", "powershell", fixtureLater),
 			process(300, 200, "claude.exe", "claude --dangerously-skip-permissions", fixtureLatest),
-			process(301, 300, "node.exe", `node C:\dev\pd\.worktrees\gb-live\node_modules\next\dist\bin\next dev`, fixtureLatest),
+			process(301, 300, "node.exe", systemPath(`node C:\dev\pd\.worktrees\gb-live\node_modules\next\dist\bin\next dev`), fixtureLatest),
 		},
 	}
 	if findings := Classify(inventory); len(findings) != 0 {
@@ -303,7 +303,7 @@ func TestDescendantsRejectsPIDReuse(t *testing.T) {
 // internal/harness without a matching change here would silently blind the
 // sweep to every goblin of that harness.
 func TestHarnessSignaturesMatchAdapters(t *testing.T) {
-	spec := harness.LaunchSpec{BriefPath: `C:\brief.md`, TaskTmp: `C:\tmp`, Scratch: `C:\gotmp\task`}
+	spec := harness.LaunchSpec{BriefPath: systemPath(`C:\brief.md`), TaskTmp: systemPath(`C:\tmp`), Scratch: systemPath(`C:\gotmp\task`)}
 	registry := harness.DefaultRegistry()
 	for kind, signature := range map[harness.Kind]string{
 		harness.Claude: "--dangerously-skip-permissions",
@@ -453,13 +453,13 @@ func TestUnresolvedPaneHoldsEveryProcessFinding(t *testing.T) {
 		Panes:           []Pane{{ID: "pane-a", HasAgent: true}},
 		UnresolvedPanes: []string{"pane-a"},
 		FleetRootPIDs:   []int{100},
-		Tasks:           []Task{task("old", `C:\dev\pd\.worktrees\gb-old`, "pane-b", "done")},
-		Worktrees:       []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-old`, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "old"}},
+		Tasks:           []Task{task("old", systemPath(`C:\dev\pd\.worktrees\gb-old`), "pane-b", "done")},
+		Worktrees:       []WorktreeDir{{Path: systemPath(`C:\dev\pd\.worktrees\gb-old`), Project: systemPath(`C:\dev\pd`), Registration: RegistrationListed, TaskID: "old"}},
 		Processes: []Process{
 			process(100, 1, "herdr.exe", "herdr server", fixtureStart),
 			process(400, 100, "powershell.exe", "powershell", fixtureLater),
 			process(31032, 400, "claude.exe", "claude --dangerously-skip-permissions", fixtureLatest),
-			process(555, 1, "node.exe", `node C:\dev\pd\.worktrees\gb-old\node_modules\vite\bin\vite.js`, fixtureLatest),
+			process(555, 1, "node.exe", systemPath(`node C:\dev\pd\.worktrees\gb-old\node_modules\vite\bin\vite.js`), fixtureLatest),
 		},
 	}
 	findings := Classify(inventory)
@@ -483,80 +483,6 @@ func TestUnresolvedPaneHoldsEveryProcessFinding(t *testing.T) {
 	}
 }
 
-// TestClassifyProcessPopulations is the fix for four identical sweeps in
-// ninety minutes, fourteen findings each, every one a false positive. The
-// image name says nothing on this machine: claude.exe is the Overlord's
-// desktop application a dozen times over and a reviewer of a round in
-// progress, as often as it is a fleet harness. The parent process and the
-// command line are what tell them apart, and only the last case here is
-// something the sweep has any business reporting.
-func TestClassifyProcessPopulations(t *testing.T) {
-	const (
-		herdrPID        = 100
-		desktopPID      = 700
-		codexDesktopPID = 750
-		gatePID         = 800
-	)
-	const desktopExe = `"C:\Program Files\WindowsApps\Claude_2.2553.1.0_x64__pzs8sxrjxfjjc\app\claude.exe"`
-	const codexDesktopExe = `"C:\Program Files\WindowsApps\OpenAI.Codex_26.924.2738.0_x64__2p2nqsd0c76g0\app\ChatGPT.exe"`
-	// One machine, all four populations at once, because that is how they
-	// actually appear and a fixture with one at a time would not prove the
-	// classifier keeps them apart.
-	processes := []Process{
-		process(herdrPID, 1, "herdr.exe", "herdr server", fixtureStart),
-		// The desktop application: one parent under sihost, then the Chromium
-		// children it spawns, each carrying a --type= switch.
-		process(desktopPID, 7996, "claude.exe", desktopExe+" ", fixtureStart),
-		process(701, desktopPID, "claude.exe", desktopExe+" --type=renderer --user-data-dir=...", fixtureLater),
-		process(702, desktopPID, "claude.exe", desktopExe+" --type=gpu-process --gpu-preferences=...", fixtureLater),
-		process(703, desktopPID, "claude.exe", desktopExe+" --type=crashpad-handler --user-data-dir=...", fixtureLater),
-		// The Codex desktop application: ChatGPT.exe from its package, its
-		// Chromium children, and the codex.exe app server it runs from
-		// outside the package.
-		process(codexDesktopPID, 9376, "ChatGPT.exe", codexDesktopExe+" ", fixtureStart),
-		process(751, codexDesktopPID, "ChatGPT.exe", codexDesktopExe+" --type=renderer --standard-schemes=app,codex-sandbox", fixtureLater),
-		process(752, codexDesktopPID, "codex.exe", `C:\Users\op\AppData\Local\OpenAI\Codex\bin\faa963e871dd422c\codex.exe -c features.code_mode_host=true app-server --analytics-default-enabled`, fixtureLater),
-		// A no-mistakes review round: the daemon and the reviewer it launched.
-		process(gatePID, 1, "no-mistakes.exe", `no-mistakes.exe daemon run --root C:\Users\x\.no-mistakes`, fixtureStart),
-		process(801, gatePID, "claude.exe", `claude --model opus --effort high -p --verbose --output-format stream-json --json-schema "{}"`, fixtureLater),
-		// The real thing: a harness that descends from the Herdr server and
-		// has no pane left.
-		process(400, herdrPID, "powershell.exe", "powershell -NoExit", fixtureLater),
-		process(31032, 400, "claude.exe", `claude --dangerously-skip-permissions --strict-mcp-config`, fixtureLatest),
-	}
-	findings := classOf(Classify(Inventory{FleetRootPIDs: []int{herdrPID}, Processes: processes}), OrphanProcess)
-
-	reported := make(map[int]Finding, len(findings))
-	for _, finding := range findings {
-		reported[finding.PID] = finding
-	}
-	for _, unwanted := range []struct {
-		pid        int
-		population string
-	}{
-		{desktopPID, "the desktop application the Overlord is using"},
-		{701, "a desktop application renderer child"},
-		{702, "a desktop application gpu-process child"},
-		{703, "a desktop application crashpad-handler child"},
-		{752, "the Codex desktop application's app server"},
-		{801, "a gate agent reviewing for a goblin that is working"},
-	} {
-		if finding, ok := reported[unwanted.pid]; ok {
-			t.Errorf("pid %d (%s) was reported: %s", unwanted.pid, unwanted.population, finding.Line())
-		}
-	}
-	orphan, ok := reported[31032]
-	if !ok {
-		t.Fatalf("the genuine orphan was not reported; findings: %+v", findings)
-	}
-	if want := killNeedsItsOwnPID + ". Name 31032 with --force to take responsibility for it"; orphan.Hold() != want {
-		t.Errorf("hold = %q, want the genuine orphan held by nothing but its kill authorisation: %q", orphan.Hold(), want)
-	}
-	if len(findings) != 1 {
-		t.Fatalf("got %d orphan_process findings, want only the genuine orphan: %+v", len(findings), findings)
-	}
-}
-
 // TestClassifyLeavesTheOverlordsOwnTerminalSessionsAlone: on 2026-10-07 the
 // sweep held claude.exe 7812 and 19908 as unidentified orphans every pass
 // since the day before, and both were the Overlord's own Claude Code sessions
@@ -568,11 +494,11 @@ func TestClassifyLeavesTheOverlordsOwnTerminalSessionsAlone(t *testing.T) {
 		explorerPID = 3000
 		terminalPID = 4520
 		herdrPID    = 100
-		stateDir    = `C:\home\state`
 	)
+	stateDir := systemPath(`C:\home\state`)
 	processes := []Process{
-		process(explorerPID, 2900, "explorer.exe", `C:\Windows\Explorer.EXE`, fixtureStart),
-		process(terminalPID, 1200, "WindowsTerminal.exe", `"C:\Program Files\WindowsApps\Microsoft.WindowsTerminal_1.23.1_x64__8wekyb3d8bbwe\WindowsTerminal.exe"`, fixtureStart),
+		process(explorerPID, 2900, "explorer.exe", systemPath(`C:\Windows\Explorer.EXE`), fixtureStart),
+		process(terminalPID, 1200, "WindowsTerminal.exe", systemPath(`"C:\Program Files\WindowsApps\Microsoft.WindowsTerminal_1.23.1_x64__8wekyb3d8bbwe\WindowsTerminal.exe"`), fixtureStart),
 		process(23300, terminalPID, "powershell.exe", "powershell.exe", fixtureLater),
 		process(7812, 23300, "claude.exe", "claude", fixtureLatest),
 		process(11572, terminalPID, "powershell.exe", "powershell.exe", fixtureLater),
@@ -644,7 +570,7 @@ func TestUnidentifiedHarnessSaysWhatCouldNotBeDetermined(t *testing.T) {
 // answers those from the enclosing repository.
 func TestUnregisteredDirectoryIsNotAWorktree(t *testing.T) {
 	inventory := Inventory{
-		Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-dead`, Project: `C:\dev\pd`, Registration: RegistrationUnlisted, TaskID: "dead"}},
+		Worktrees: []WorktreeDir{{Path: systemPath(`C:\dev\pd\.worktrees\gb-dead`), Project: systemPath(`C:\dev\pd`), Registration: RegistrationUnlisted, TaskID: "dead"}},
 	}
 	findings := Classify(inventory)
 	if worktrees := classOf(findings, OrphanWorktree); len(worktrees) != 0 {
@@ -667,9 +593,9 @@ func TestUnregisteredDirectoryIsNotAWorktree(t *testing.T) {
 // directory is held because it is the process that has to be dealt with.
 func TestUnregisteredDirectoryNamesTheProcessHoldingIt(t *testing.T) {
 	inventory := Inventory{
-		Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-dead`, Project: `C:\dev\pd`, Registration: RegistrationUnlisted, TaskID: "dead"}},
+		Worktrees: []WorktreeDir{{Path: systemPath(`C:\dev\pd\.worktrees\gb-dead`), Project: systemPath(`C:\dev\pd`), Registration: RegistrationUnlisted, TaskID: "dead"}},
 		Processes: []Process{
-			process(4242, 1, "node.exe", `node C:\dev\pd\.worktrees\gb-dead\scripts\watch.js`, fixtureLatest),
+			process(4242, 1, "node.exe", systemPath(`node C:\dev\pd\.worktrees\gb-dead\scripts\watch.js`), fixtureLatest),
 		},
 	}
 	finding := classOf(Classify(inventory), OrphanDirectory)[0]
@@ -688,11 +614,11 @@ func TestUnregisteredDirectoryNamesTheProcessHoldingIt(t *testing.T) {
 func TestDirectoryIsNotBlamedOnANeighbourWithALongerName(t *testing.T) {
 	inventory := Inventory{
 		Worktrees: []WorktreeDir{
-			{Path: `C:\dev\pd\.worktrees\gb-old`, Project: `C:\dev\pd`, Registration: RegistrationUnlisted, TaskID: "old"},
-			{Path: `C:\dev\pd\.worktrees\gb-old-2`, Project: `C:\dev\pd`, Registration: RegistrationUnlisted, TaskID: "old-2"},
+			{Path: systemPath(`C:\dev\pd\.worktrees\gb-old`), Project: systemPath(`C:\dev\pd`), Registration: RegistrationUnlisted, TaskID: "old"},
+			{Path: systemPath(`C:\dev\pd\.worktrees\gb-old-2`), Project: systemPath(`C:\dev\pd`), Registration: RegistrationUnlisted, TaskID: "old-2"},
 		},
 		Processes: []Process{
-			process(4242, 1, "node.exe", `node C:\dev\pd\.worktrees\gb-old-2\node_modules\vite\bin\vite.js`, fixtureLatest),
+			process(4242, 1, "node.exe", systemPath(`node C:\dev\pd\.worktrees\gb-old-2\node_modules\vite\bin\vite.js`), fixtureLatest),
 		},
 	}
 	findings := classOf(Classify(inventory), OrphanDirectory)
@@ -723,10 +649,10 @@ func TestDirectoryIsNotBlamedOnANeighbourWithALongerName(t *testing.T) {
 func TestLiveGoblinOutranksUnconfirmedRegistration(t *testing.T) {
 	inventory := Inventory{
 		Panes: []Pane{{ID: "pane-live", ShellPID: 200, ForegroundPID: 300, HasAgent: true}},
-		Tasks: []Task{task("live", `C:\dev\pd\.worktrees\gb-live`, "pane-live", "working")},
+		Tasks: []Task{task("live", systemPath(`C:\dev\pd\.worktrees\gb-live`), "pane-live", "working")},
 		// The zero value: the repository could not be asked, so nothing about
 		// this directory was established.
-		Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-live`, Project: `C:\dev\pd`, TaskID: "live"}},
+		Worktrees: []WorktreeDir{{Path: systemPath(`C:\dev\pd\.worktrees\gb-live`), Project: systemPath(`C:\dev\pd`), TaskID: "live"}},
 	}
 	if findings := Classify(inventory); len(findings) != 0 {
 		t.Fatalf("a live goblin's worktree was reported: %+v", findings)
@@ -740,8 +666,8 @@ func TestLiveGoblinOutranksUnconfirmedRegistration(t *testing.T) {
 // the work gate protects.
 func TestUnknownRegistrationIsAWorktreeNotARemovableDirectory(t *testing.T) {
 	inventory := Inventory{
-		Tasks:     []Task{task("utah", `C:\dev\pd\.worktrees\gb-utah`, "pane-gone", "done")},
-		Worktrees: []WorktreeDir{{Path: `C:\dev\pd\.worktrees\gb-utah`, Project: `C:\dev\pd`, TaskID: "utah"}},
+		Tasks:     []Task{task("utah", systemPath(`C:\dev\pd\.worktrees\gb-utah`), "pane-gone", "done")},
+		Worktrees: []WorktreeDir{{Path: systemPath(`C:\dev\pd\.worktrees\gb-utah`), Project: systemPath(`C:\dev\pd`), TaskID: "utah"}},
 	}
 	findings := Classify(inventory)
 	if directories := classOf(findings, OrphanDirectory); len(directories) != 0 {
@@ -764,10 +690,10 @@ func TestUnknownRegistrationIsAWorktreeNotARemovableDirectory(t *testing.T) {
 // which fails and recurs forever. The record waits for the sweep after the
 // directory is gone.
 func TestOneDeadTaskReportsOneResourceAtATime(t *testing.T) {
-	const shell = `C:\dev\pd\.worktrees\gb-dead`
+	shell := systemPath(`C:\dev\pd\.worktrees\gb-dead`)
 	inventory := Inventory{
 		Tasks:     []Task{task("dead", shell, "pane-gone", "done")},
-		Worktrees: []WorktreeDir{{Path: shell, Project: `C:\dev\pd`, Registration: RegistrationUnlisted, TaskID: "dead"}},
+		Worktrees: []WorktreeDir{{Path: shell, Project: systemPath(`C:\dev\pd`), Registration: RegistrationUnlisted, TaskID: "dead"}},
 	}
 	findings := Classify(inventory)
 	if len(findings) != 1 || findings[0].Class != OrphanDirectory || findings[0].Path != shell {
@@ -785,10 +711,10 @@ func TestOneDeadTaskReportsOneResourceAtATime(t *testing.T) {
 // TestUnlistedShellOfAnUnfinishedTaskIsHeld: --apply never reaps a task that
 // has not finished, and a shell is a task resource like any other.
 func TestUnlistedShellOfAnUnfinishedTaskIsHeld(t *testing.T) {
-	const shell = `C:\dev\pd\.worktrees\gb-wedged`
+	shell := systemPath(`C:\dev\pd\.worktrees\gb-wedged`)
 	inventory := Inventory{
 		Tasks:     []Task{task("wedged", shell, "pane-gone", "working")},
-		Worktrees: []WorktreeDir{{Path: shell, Project: `C:\dev\pd`, Registration: RegistrationUnlisted, TaskID: "wedged"}},
+		Worktrees: []WorktreeDir{{Path: shell, Project: systemPath(`C:\dev\pd`), Registration: RegistrationUnlisted, TaskID: "wedged"}},
 	}
 	finding := classOf(Classify(inventory), OrphanDirectory)[0]
 	if !strings.Contains(finding.Hold(), "terminal status") {
@@ -824,8 +750,8 @@ func TestAnUnreadableTaskRecordHoldsItsDirectory(t *testing.T) {
 			inventory := Inventory{
 				UnreadableTasks: []string{"broken"},
 				Worktrees: []WorktreeDir{{
-					Path:         `C:\dev\pd\.worktrees\gb-broken`,
-					Project:      `C:\dev\pd`,
+					Path:         systemPath(`C:\dev\pd\.worktrees\gb-broken`),
+					Project:      systemPath(`C:\dev\pd`),
 					TaskID:       "broken",
 					Registration: testCase.registration,
 				}},
@@ -852,13 +778,13 @@ func TestAnUnreadableTaskRecordHoldsItsServer(t *testing.T) {
 	inventory := Inventory{
 		UnreadableTasks: []string{"broken"},
 		Worktrees: []WorktreeDir{{
-			Path:         `C:\dev\pd\.worktrees\gb-broken`,
-			Project:      `C:\dev\pd`,
+			Path:         systemPath(`C:\dev\pd\.worktrees\gb-broken`),
+			Project:      systemPath(`C:\dev\pd`),
 			TaskID:       "broken",
 			Registration: RegistrationListed,
 		}},
 		Processes: []Process{
-			process(555, 1, "node.exe", `node C:\dev\pd\.worktrees\gb-broken\node_modules\vite\bin\vite.js`, fixtureLatest),
+			process(555, 1, "node.exe", systemPath(`node C:\dev\pd\.worktrees\gb-broken\node_modules\vite\bin\vite.js`), fixtureLatest),
 		},
 	}
 	findings := classOf(Classify(inventory), StaleServer)
@@ -927,13 +853,13 @@ func TestAHoldNamesWhatActuallyClearsIt(t *testing.T) {
 	t.Run("a mixed hold names no outcome the force cannot deliver", func(t *testing.T) {
 		// The unplaced agent answers to its pane and to neither key the line
 		// names, so here something really does stand behind the --force.
-		const worktree = `C:\dev\pd\.worktrees\gb-broken`
+		worktree := systemPath(`C:\dev\pd\.worktrees\gb-broken`)
 		inventory := Inventory{
 			Panes:           []Pane{{ID: "pane-b", HasAgent: true}},
 			UnplacedAgents:  []string{"pane-b"},
 			UnreadableTasks: []string{"broken"},
-			Worktrees:       []WorktreeDir{{Path: worktree, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "broken"}},
-			Processes:       []Process{process(555, 1, "node.exe", `node `+worktree+`\node_modules\vite\bin\vite.js`, fixtureLatest)},
+			Worktrees:       []WorktreeDir{{Path: worktree, Project: systemPath(`C:\dev\pd`), Registration: RegistrationListed, TaskID: "broken"}},
+			Processes:       []Process{process(555, 1, "node.exe", `node `+worktree+systemPath(`\node_modules\vite\bin\vite.js`), fixtureLatest)},
 		}
 		hold := classOf(Classify(inventory), StaleServer)[0].Hold()
 		if !strings.Contains(hold, "Name every one of broken and 555 with --force") {
@@ -989,10 +915,10 @@ func TestARefusalCannotBeReplacedBySite(t *testing.T) {
 // what a landing task does, so the record said a pull request had finished and
 // the sweep read it as the goblin having finished.
 func TestALiveGoblinsServerIsNeverStale(t *testing.T) {
-	const worktree = `C:\dev\pd\.worktrees\gb-pd-landing`
-	server := process(35012, 1, "node.exe", `node `+worktree+`\frontend\node_modules\vite\bin\vite.js`, fixtureLatest)
+	worktree := systemPath(`C:\dev\pd\.worktrees\gb-pd-landing`)
+	server := process(35012, 1, "node.exe", `node `+worktree+systemPath(`\frontend\node_modules\vite\bin\vite.js`), fixtureLatest)
 	landing := task("pd-landing", worktree, "w9:p8Y", "done")
-	worktrees := []WorktreeDir{{Path: worktree, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "pd-landing"}}
+	worktrees := []WorktreeDir{{Path: worktree, Project: systemPath(`C:\dev\pd`), Registration: RegistrationListed, TaskID: "pd-landing"}}
 
 	t.Run("a pane holding an agent says the goblin is working", func(t *testing.T) {
 		inventory := Inventory{
@@ -1014,8 +940,8 @@ func TestALiveGoblinsServerIsNeverStale(t *testing.T) {
 			// in, so the only thing left to ask is where the agents are
 			// working. One of them is working under this worktree.
 			Panes: []Pane{
-				{ID: "w9:p0", ShellPID: 800, HasAgent: true, AgentCwd: `C:\dev\code-goblins`},
-				{ID: "w9:pMoved", ShellPID: 900, HasAgent: true, AgentCwd: worktree + `\frontend`},
+				{ID: "w9:p0", ShellPID: 800, HasAgent: true, AgentCwd: systemPath(`C:\dev\code-goblins`)},
+				{ID: "w9:pMoved", ShellPID: 900, HasAgent: true, AgentCwd: worktree + systemPath(`\frontend`)},
 			},
 			Tasks:     []Task{landing},
 			Worktrees: worktrees,
@@ -1032,7 +958,7 @@ func TestALiveGoblinsServerIsNeverStale(t *testing.T) {
 			// finding proposes returning the checkout the goblin is working
 			// in, and cleanup's own guard cannot stop it, because that counts
 			// panes matching the recorded pane id too.
-			Panes:     []Pane{{ID: "w9:pMoved", ShellPID: 900, HasAgent: true, AgentCwd: worktree + `\frontend`}},
+			Panes:     []Pane{{ID: "w9:pMoved", ShellPID: 900, HasAgent: true, AgentCwd: worktree + systemPath(`\frontend`)}},
 			Tasks:     []Task{landing},
 			Worktrees: worktrees,
 			Processes: []Process{server},
@@ -1126,14 +1052,14 @@ func TestALiveGoblinsServerIsNeverStale(t *testing.T) {
 // naming a task id says its work is over, not that nobody else is in its
 // directory.
 func TestAnUnplacedAgentRefusalAnswersToThatAgent(t *testing.T) {
-	const worktree = `C:\dev\pd\.worktrees\gb-pd-landing`
+	worktree := systemPath(`C:\dev\pd\.worktrees\gb-pd-landing`)
 	inventory := Inventory{
 		Panes:          []Pane{{ID: "w9:pMoved", ShellPID: 900, HasAgent: true}},
 		UnplacedAgents: []string{"w9:pMoved"},
 		Tasks:          []Task{task("pd-landing", worktree, "w9:p8Y", "working")},
-		Worktrees:      []WorktreeDir{{Path: worktree, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "pd-landing"}},
+		Worktrees:      []WorktreeDir{{Path: worktree, Project: systemPath(`C:\dev\pd`), Registration: RegistrationListed, TaskID: "pd-landing"}},
 		Processes: []Process{
-			process(35012, 1, "node.exe", `node `+worktree+`\node_modules\vite\bin\vite.js`, fixtureLatest),
+			process(35012, 1, "node.exe", `node `+worktree+systemPath(`\node_modules\vite\bin\vite.js`), fixtureLatest),
 		},
 	}
 

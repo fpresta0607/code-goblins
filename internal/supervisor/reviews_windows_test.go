@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -822,5 +823,38 @@ func TestTheCEOsAnswerLeavesTheGoblinsWaitsOnTheOverlord(t *testing.T) {
 	}
 	if audit, err := os.ReadFile(filepath.Join(h.State, "reviews.audit")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("reviews.audit = %q (%v), want no clear recorded", audit, err)
+	}
+}
+
+// Each image a review publishes is flushed to disk while its copy is still
+// open and before the folder of copies is renamed into place, so a machine
+// that stops after the rename finds the images whole rather than at full
+// length and holding only zero bytes.
+func TestAReviewsImagesAreFlushedBeforeTheyArePutInPlace(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta, _, _, _ := goblinFixture(t, store)
+	grid := filepath.Join(meta.Worktree, "grid.png")
+	want := writePNG(t, grid)
+	var flushedWhole []string
+	t.Cleanup(fsx.ReplaceSync(func(file *os.File) error {
+		if copied, _ := os.ReadFile(file.Name()); file.Name() != grid && bytes.Equal(copied, want) {
+			flushedWhole = append(flushedWhole, file.Name())
+		}
+		return file.Sync()
+	}))
+
+	// Act
+	err := PublishReview(h, meta.ID, "mockups-review-1", "Pick a layout", "", "", []string{grid})
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(flushedWhole) != 1 {
+		t.Fatalf("the image was flushed whole %d times, want once", len(flushedWhole))
+	}
+	if _, err := os.Stat(flushedWhole[0]); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the flushed copy %s is still where it was staged, want its folder renamed into place: %v", flushedWhole[0], err)
 	}
 }

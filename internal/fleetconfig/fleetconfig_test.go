@@ -27,11 +27,17 @@ func TestReadRefusesAFileThatDoesNotMeanWhatItSays(t *testing.T) {
 		// Goblin slots go by memory alone; a count of live goblins is no
 		// setting, so a file that still sets one is refused, not obeyed.
 		{name: "a live goblin count", settings: `{"max_live_goblins":128}`},
+		{name: "a memory floor of 0", settings: `{"memory_floor_gb":0}`},
+		{name: "a memory floor under 0", settings: `{"memory_floor_gb":-1}`},
+		{name: "a memory floor that is no number", settings: `{"memory_floor_gb":"4"}`},
 		{name: "a weekly floor under 0", settings: `{"weekly_floor_percent":{"claude":-1}}`},
 		{name: "a weekly floor of the whole week", settings: `{"weekly_floor_percent":{"claude":100}}`},
 		{name: "a weekly floor for a provider with no measured week", settings: `{"weekly_floor_percent":{"pi":0}}`},
 		{name: "a weekly floor for a misspelt provider", settings: `{"weekly_floor_percent":{"Claude":0}}`},
 		{name: "a weekly floor that is no number", settings: `{"weekly_floor_percent":{"claude":"0"}}`},
+		{name: "a clean mark under 0", settings: `{"disk_clean_gb":-1}`},
+		{name: "a tight caches cap of nothing", settings: `{"caches_tight_cap_gb":0}`},
+		{name: "a goblin's folders size of nothing", settings: `{"goblin_disk_gb":0}`},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			// Arrange
@@ -48,11 +54,82 @@ func TestReadRefusesAFileThatDoesNotMeanWhatItSays(t *testing.T) {
 	}
 }
 
+func TestMemoryFloorIsFourGigabytesUnlessTheFileSetsIt(t *testing.T) {
+	for _, testCase := range []struct {
+		name, settings string
+		want           float64
+	}{
+		{name: "no file", want: 4},
+		{name: "a file without the setting", settings: `{"disk_floor_gb":20}`, want: 4},
+		{name: "a file that sets it", settings: `{"memory_floor_gb":6.5}`, want: 6.5},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			root := t.TempDir()
+			if testCase.settings != "" {
+				root = writeSettings(t, testCase.settings)
+			}
+
+			// Act
+			settings, err := Read(root)
+
+			// Assert
+			if err != nil || settings.MemoryFloorGB != testCase.want {
+				t.Fatalf("memory floor %v, err %v, want %v", settings.MemoryFloorGB, err, testCase.want)
+			}
+		})
+	}
+}
+
 func TestReadWithoutAFileIsTheDefaults(t *testing.T) {
 	settings, err := Read(t.TempDir())
 
 	if err != nil || settings.DiskFloorGB != Defaults().DiskFloorGB {
 		t.Fatalf("settings=%+v err=%v, want the defaults", settings, err)
+	}
+}
+
+// A home that never set the clean mark or the tight caches cap cleans at once
+// from 25 GB free, ten above the floor, and trims the caches to 10 GB there;
+// a floor or a cap it set past either keeps that mark meaning what it says:
+// cleaning starts no later than the floor, and the tight cap never trims less
+// than the cap.
+func TestCleanMarkAndTightCapFollowTheFloorAndTheCap(t *testing.T) {
+	for _, testCase := range []struct {
+		name, settings     string
+		wantMark           float64
+		wantCap, wantLoose float64
+		wantGoblinDisk     float64
+	}{
+		{name: "the defaults", settings: `{}`, wantMark: 25, wantCap: 10, wantLoose: 20, wantGoblinDisk: 5},
+		{name: "a floor above the clean mark", settings: `{"disk_floor_gb":30,"disk_wake_gb":10}`, wantMark: 30, wantCap: 10, wantLoose: 20, wantGoblinDisk: 5},
+		{name: "a cap under the tight cap", settings: `{"caches_cap_gb":6}`, wantMark: 25, wantCap: 6, wantLoose: 6, wantGoblinDisk: 5},
+		{name: "every mark set", settings: `{"disk_clean_gb":40,"caches_tight_cap_gb":3,"goblin_disk_gb":8}`, wantMark: 40, wantCap: 3, wantLoose: 20, wantGoblinDisk: 8},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			root := writeSettings(t, testCase.settings)
+
+			// Act
+			settings, err := Read(root)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := settings.CleanMark(); got != Bytes(testCase.wantMark) {
+				t.Errorf("CleanMark() = %d, want %.0f GB", got, testCase.wantMark)
+			}
+			if got := settings.CachesCap(true); got != testCase.wantCap {
+				t.Errorf("CachesCap(tight) = %v, want %v", got, testCase.wantCap)
+			}
+			if got := settings.CachesCap(false); got != testCase.wantLoose {
+				t.Errorf("CachesCap(not tight) = %v, want %v", got, testCase.wantLoose)
+			}
+			if settings.GoblinDiskGB != testCase.wantGoblinDisk {
+				t.Errorf("GoblinDiskGB = %v, want %v", settings.GoblinDiskGB, testCase.wantGoblinDisk)
+			}
+		})
 	}
 }
 

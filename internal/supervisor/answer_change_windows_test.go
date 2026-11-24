@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -516,5 +518,52 @@ func TestAnAnswerChangeIsRefusedBeforeAnyoneHearsAnything(t *testing.T) {
 				t.Errorf("the goblin received %q, want nothing more", typed)
 			}
 		})
+	}
+}
+
+// A change its asker's terminal refused with nothing typed reached nobody: it
+// stays queued, never uncertain and never handed to the CEO, and is typed to
+// the asker once its terminal takes it (#2104).
+func TestAChangeRefusedWithNothingTypedWaitsAndLandsWithTheAsker(t *testing.T) {
+	// Arrange
+	store, meta, _, ceo, connection, q := overlordAnswered(t)
+	s := &Service{Store: store, Options: Options{CEO: connection}}
+	previous := typeIntoGoblin
+	t.Cleanup(func() { typeIntoGoblin = previous })
+	isRefused := true
+	var typed []string
+	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _, _, _ bool) error {
+		if isRefused {
+			return fmt.Errorf("spawn: native terminal %s: %w", meta.ID, fleet.ErrNotTyped)
+		}
+		typed = append(typed, text)
+		return nil
+	}
+	if _, err := change(store, "change-1", q, "Postgres"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	refused := store.ProcessOne(context.Background(), s.execute)
+	held := actionOf(store, "change-1")
+	isRefused = false
+	store.mu.Lock()
+	delete(store.deferredUntil, "change-1")
+	store.mu.Unlock()
+	landed := store.ProcessOne(context.Background(), s.execute)
+
+	// Assert
+	if !errors.Is(refused, ErrDeferred) || held.Status != "queued" || !strings.Contains(held.Message, "Nothing was typed") {
+		t.Errorf("refused try = %v, change %+v; want it queued with nothing typed", refused, held)
+	}
+	if landed != nil || len(typed) != 1 {
+		t.Fatalf("next try = %v, typed %q; want the change typed to the asker once", landed, typed)
+	}
+	wantTheChange(t, typed[0], "SQLite", "Postgres")
+	if lines := changeLines(ceo.lines(t)); len(lines) != 0 {
+		t.Errorf("the CEO was told %q, want the change left to the asker", lines)
+	}
+	if got := actionOf(store, "change-1"); got.Status != "succeeded" {
+		t.Errorf("change = %+v, want it delivered", got)
 	}
 }

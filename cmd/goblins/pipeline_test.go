@@ -1157,8 +1157,13 @@ func TestPipelineMigrationRacingSwitchPreservesBothUpdates(t *testing.T) {
 	}
 
 	// A switch starts the codex its validation found on PATH, so the one this
-	// test's adapter stands for is put there. It never runs.
-	stub := t.TempDir()
+	// test's adapter stands for is put there, inside the home, since a goblin
+	// of a home the user's environment does not name starts only a harness
+	// its home holds. It never runs.
+	stub := filepath.Join(root, "bin")
+	if err := os.MkdirAll(stub, 0700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(stub, "codex.cmd"), []byte("@exit /b 1\r\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -1173,6 +1178,7 @@ func TestPipelineMigrationRacingSwitchPreservesBothUpdates(t *testing.T) {
 			harness.Codex:  pipelineSwitchAdapter{kind: harness.Codex},
 		}},
 		Commands:        switchRunner,
+		HomeRoot:        h.Root,
 		StateDir:        h.State,
 		UserEnvironment: func() ([]string, error) { return os.Environ(), nil },
 	}
@@ -2006,7 +2012,8 @@ func TestPipelineRunRefusesAMissingRequiredEnvironmentBeforeStartingTheGate(t *t
 
 // taskWorktreesRunner answers git in each directory of branches as the top
 // level of a checkout with that branch checked out, the native database's run
-// lookup with runBranch and its custody record with recovery; every other
+// lookup with runBranch, its custody record with recovery, and the gate's
+// recovery refs as absent, as for a run that kept nothing; every other
 // command goes to the runner it wraps.
 type taskWorktreesRunner struct {
 	execx.Runner
@@ -2033,6 +2040,10 @@ func (r taskWorktreesRunner) Run(ctx context.Context, q execx.Request) (execx.Re
 		return execx.Result{Stdout: []byte(`[{"branch":"` + r.runBranch + `"}]`)}, nil
 	case q.Name == "sqlite3" && strings.Contains(command, "AS recorded_head"):
 		return execx.Result{Stdout: []byte(r.recovery)}, nil
+	case q.Name == "git" && strings.Contains(command, "symbolic-ref --quiet refs/no-mistakes/recovery/"):
+		return execx.Result{ExitCode: 1}, nil
+	case q.Name == "git" && strings.Contains(command, "show-ref --exists refs/no-mistakes/recovery/"):
+		return execx.Result{ExitCode: 2}, nil
 	}
 	return r.Runner.Run(ctx, q)
 }
@@ -2350,6 +2361,51 @@ func TestPipelineAcceptIsHonouredOnlyFromTheRegisteredCEO(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A mixed decision fixes one open finding and declines the other: the CEO's
+// decline is audited in the task's status log as an accept before the fix
+// reaches the gate, and reaches it as --ignore, so the gate no longer refuses
+// the declined finding as unaddressed. Declining a finding while cycles are
+// left is never a goblin's, so its decline is refused with nothing recorded
+// or sent (#2092).
+func TestPipelineFixCarriesTheCEOsDecline(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the primary CEO registration is verified on Windows only")
+	}
+	gate := pipeline.Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 2, Findings: `{"findings":[{"id":"ask","action":"ask-user"},{"id":"bug","action":"auto-fix"},{"id":"note","action":"no-op"}]}`}
+	arguments := []string{"respond", "task", "--action", "fix", "--findings", "bug", "--accept", "ask"}
+	t.Run("the CEO", func(t *testing.T) {
+		// Arrange
+		h, nm, runner := registeredCEOStage(t, "ceo", gate)
+		outsideGoblinTerminal(t)
+
+		// Act
+		err := pipelineCommand(context.Background(), h, nm, runner, arguments, &bytes.Buffer{})
+
+		// Assert
+		if err != nil || len(runner.native) != 1 || strings.Join(runner.native[0].Args, " ") != "axi respond --step review --action fix --findings bug --ignore ask,note --run run" {
+			t.Fatalf("the CEO's mixed decision: %v %+v, want one fix that ignores the declined finding", err, runner.native)
+		}
+		if lines, _ := state.TailStatus(h.State, "task", 10); len(lines) != 1 || !strings.HasSuffix(lines[0], "pipeline-findings-accepted: step=review run=run round=2 findings=ask by=ceo") {
+			t.Fatalf("status log %q, want the decline audited", lines)
+		}
+	})
+	t.Run("the task's own goblin", func(t *testing.T) {
+		// Arrange
+		h, nm, runner := registeredCEOStage(t, "goblin", gate)
+		inGoblinTerminal(t, h.State, "task")
+
+		// Act
+		err := pipelineCommand(context.Background(), h, nm, runner, arguments, &bytes.Buffer{})
+
+		// Assert
+		lines, _ := state.TailStatus(h.State, "task", 10)
+		pending, _ := wake.Pending(h.State)
+		if err == nil || !strings.Contains(err.Error(), "only once its 2 review repair cycles are spent") || len(runner.native) != 0 || len(lines) != 0 || len(pending) != 0 {
+			t.Fatalf("the goblin declining with cycles left: %v, %d native calls, status %q, wakes %+v; want it refused with nothing recorded or sent", err, len(runner.native), lines, pending)
+		}
+	})
 }
 
 // outsideGoblinTerminal runs the rest of the test as a process in no

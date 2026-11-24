@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -152,7 +151,7 @@ func RemoveBridges(root string, bridges []string) error {
 	}
 	for _, entry := range entries {
 		parts := aside.FindStringSubmatch(entry.Name())
-		if entry.IsDir() || parts == nil || !strings.HasPrefix(strings.ToLower(parts[1]), oldName) {
+		if entry.IsDir() || parts == nil || !fsx.HasPathPrefix(filepath.Join(bin, parts[1]), filepath.Join(bin, oldName)) {
 			continue
 		}
 		_ = os.Remove(filepath.Join(bin, entry.Name()))

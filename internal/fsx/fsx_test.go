@@ -1,7 +1,9 @@
 package fsx
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -46,6 +48,107 @@ func TestAtomicWriteFileLeavesNoTempOnSuccess(t *testing.T) {
 	}
 }
 
+// replaceSyncFile swaps the flush for flush until the test ends.
+func replaceSyncFile(t *testing.T, flush func(*os.File) error) {
+	t.Helper()
+	t.Cleanup(ReplaceSync(flush))
+}
+
+// Stage flushes the staged copy while it is still open and before Commit
+// renames it over path: NTFS can journal the rename before it writes cached
+// data, and a machine that stopped in between came back with each replaced
+// file at full length and holding only zero bytes.
+func TestStageFlushesBeforeTheCloseAndTheRename(t *testing.T) {
+	// Arrange
+	path := filepath.Join(t.TempDir(), "state.json")
+	if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	flushes := 0
+	replaceSyncFile(t, func(file *os.File) error {
+		flushes++
+		if _, err := file.Stat(); err != nil {
+			t.Errorf("the flush met a closed file: %v", err)
+		}
+		if got, err := os.ReadFile(path); err != nil || string(got) != "old" {
+			t.Errorf("at the flush path holds %q, %v; want the old copy still", got, err)
+		}
+		return file.Sync()
+	})
+
+	// Act
+	staged, err := Stage(path, []byte("new"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	commitErr := staged.Commit()
+
+	// Assert
+	if flushes != 1 {
+		t.Errorf("Stage flushed %d times, want 1", flushes)
+	}
+	if commitErr != nil {
+		t.Errorf("Commit = %v", commitErr)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != "new" {
+		t.Errorf("path = %q, %v; want %q", got, err, "new")
+	}
+}
+
+// A flush that fails fails the stage as a failed write does: the error comes
+// back and no staged file is left for anything to rename.
+func TestStageThatCannotFlushLeavesNoStagedFile(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	errFlush := errors.New("flush refused")
+	replaceSyncFile(t, func(*os.File) error { return errFlush })
+
+	// Act
+	staged, err := Stage(filepath.Join(dir, "state.json"), []byte("new"))
+
+	// Assert
+	if !errors.Is(err, errFlush) || staged != nil {
+		t.Errorf("Stage = %v, %v; want nil and the flush's error", staged, err)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Errorf("dir has %d entries, want 0 (no leftover staged file)", len(entries))
+	}
+}
+
+// WriteFileSynced flushes the file it wrote while it is still open, and
+// returns the flush's error.
+func TestWriteFileSyncedFlushesBeforeTheClose(t *testing.T) {
+	errFlush := errors.New("flush refused")
+	for _, flushErr := range []error{nil, errFlush} {
+		t.Run(fmt.Sprint(flushErr), func(t *testing.T) {
+			// Arrange
+			path := filepath.Join(t.TempDir(), "record")
+			flushes := 0
+			replaceSyncFile(t, func(file *os.File) error {
+				flushes++
+				if _, err := file.Stat(); err != nil {
+					t.Errorf("the flush met a closed file: %v", err)
+				}
+				return errors.Join(file.Sync(), flushErr)
+			})
+
+			// Act
+			err := WriteFileSynced(path, []byte("whole"), 0o600)
+
+			// Assert
+			if flushes != 1 {
+				t.Errorf("WriteFileSynced flushed %d times, want 1", flushes)
+			}
+			if !errors.Is(err, flushErr) {
+				t.Errorf("WriteFileSynced = %v, want %v", err, flushErr)
+			}
+			if got, err := os.ReadFile(path); err != nil || string(got) != "whole" {
+				t.Errorf("record = %q, %v; want %q", got, err, "whole")
+			}
+		})
+	}
+}
+
 // A commit of a new file puts it in a missing place whole, and refuses a
 // place already taken without touching what is there, keeping the staged
 // file for another try until Discard removes it.
@@ -86,6 +189,31 @@ func TestCommitNewPutsTheFileOnlyInAMissingPlace(t *testing.T) {
 				t.Errorf("dir has %d entries, want 1 (no leftover staged file)", len(entries))
 			}
 		})
+	}
+}
+
+// Staging can outlast the caller's deadline, and the place is still free: a
+// commit of a new file tries its rename once however late the context ended.
+func TestCommitNewTriesOnceWhenItsContextHasEnded(t *testing.T) {
+	// Arrange
+	path := filepath.Join(t.TempDir(), "record")
+	staged, err := Stage(path, []byte("ours"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer staged.Discard()
+	ended, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	// Act
+	err = staged.CommitNewContext(ended)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("commit into a free place after its context ended = %v, want it taken", err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != "ours" {
+		t.Errorf("record = %q, %v; want %q", got, err, "ours")
 	}
 }
 

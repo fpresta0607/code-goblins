@@ -56,7 +56,18 @@ export function meterScale(memory: Memory): { fill: number; floor: number; next:
 // What the memory bar's two marks mean, for its tip, and why nothing starts
 // by itself while memory reaches the mark.
 export function memoryMarks(memory: Memory): string {
-  return [`Red mark: the ${gigabytes(memory.floor)} GB floor. Nothing starts under it. White mark: ${gigabytes(memory.next)} GB, where the next task starts.`, slotHold(memory)].filter(Boolean).join(" ");
+  return [`Red mark: the ${gigabytes(memory.floor)} GB floor. Nothing starts under it. White mark: ${gigabytes(memory.next)} GB, where the next task starts.`, slotHold(memory), guardAction(memory)].filter(Boolean).join(" ");
+}
+
+// What the memory guard last did about a reading under the floor, when (local
+// time, HH:MM) and with how much free memory it read, or empty before it has
+// acted.
+function guardAction(memory: Memory): string {
+  const { guard } = memory;
+  if (!guard) return "";
+  const at = new Date(guard.at);
+  const time = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
+  return `The memory guard last acted at ${time} with ${freeGigabytes(Math.min(guard.available, guard.commit_available))} GB free: ${guard.action}.`;
 }
 
 // What a start or a resume needs while memory or commit is under the mark,

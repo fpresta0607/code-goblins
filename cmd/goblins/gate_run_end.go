@@ -92,7 +92,7 @@ func inWorktree(dir string, worktrees []string) bool {
 		if err != nil {
 			continue
 		}
-		relative, err := filepath.Rel(strings.ToLower(root), strings.ToLower(dir))
+		relative, err := filepath.Rel(fsx.PathKey(root), fsx.PathKey(dir))
 		if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 			return true
 		}

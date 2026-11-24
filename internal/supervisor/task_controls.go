@@ -209,14 +209,23 @@ func (s *Service) changeTask(input lifecycleRequest) error {
 		if err != nil {
 			return fmt.Errorf("free memory cannot be read, so the goblin does not resume: %w", err)
 		}
-		if short := memory.shortfall(); short != "" {
-			return taskRefusal{reason: short + "; Resume needs 5 GB to keep the 4 GB floor", isPassing: true}
+		meta, err := state.ReadTaskMeta(s.Store.Home.State, input.Task)
+		if err != nil {
+			return fmt.Errorf("the goblin's task record cannot be read, so it does not resume: %w", err)
+		}
+		harness, _, err := ResumeEngine(s.Store.Home.State, meta)
+		if err != nil {
+			return err
+		}
+		room, err := s.room(time.Now().UTC())
+		if err != nil {
+			return fmt.Errorf("the room for a start cannot be read, so the goblin does not resume: %w", err)
 		}
 		disk, err := s.machineDisk()
 		if err != nil {
 			return fmt.Errorf("free disk cannot be read, so the goblin does not resume: %w", err)
 		}
-		if err := CheckLaunch(memory, disk); err != nil {
+		if err := CheckLaunch(memory, room, harness, disk); err != nil {
 			return taskRefusal{reason: err.Error(), isPassing: true}
 		}
 	}

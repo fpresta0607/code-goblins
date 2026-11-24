@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -125,7 +126,11 @@ func (s *Service) acceptHelper(request HelperRequest) (HelperStart, error) {
 	if err != nil {
 		return HelperStart{}, fmt.Errorf("free disk cannot be read, so nothing starts: %w", err)
 	}
-	if err := CheckLaunch(memory, disk); err != nil {
+	room, err := s.room(time.Now().UTC())
+	if err != nil {
+		return HelperStart{}, fmt.Errorf("the room for a start cannot be read, so nothing starts: %w", err)
+	}
+	if err := CheckLaunch(memory, room, plan.engine.harness, disk); err != nil {
 		return HelperStart{}, fmt.Errorf("%w; ask again in ten minutes", err)
 	}
 	if busy := s.processorsBusy(); busy != "" {

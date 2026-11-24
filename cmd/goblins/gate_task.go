@@ -29,7 +29,7 @@ func gateTask(root string, runtime commandRuntime) (string, error) {
 	}
 	root = fsx.LongPath(root)
 	worktrees := filepath.Dir(filepath.Dir(root))
-	if !strings.EqualFold(filepath.Base(worktrees), "worktrees") {
+	if !fsx.EqualPath(worktrees, filepath.Join(filepath.Dir(worktrees), "worktrees")) {
 		return taskID(os.Getenv), nil
 	}
 	h, err := runtime.resolveHome()

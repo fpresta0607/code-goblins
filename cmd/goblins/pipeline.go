@@ -19,6 +19,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/gatedb"
+	"github.com/fpresta0607/code-goblins/internal/gatehome"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -129,7 +130,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		flags.StringVar(&response.Action, "action", "", "fix or approve")
 		flags.StringVar(&response.Findings, "findings", "", "comma-separated finding IDs")
 		flags.StringVar(&response.Instructions, "instructions", "", "guidance for selected findings")
-		flags.StringVar(&response.Accept, "accept", "", "with approve: every open ask-user and auto-fix finding the CEO, or the task's own goblin on its run's spent review, accepts as it stands")
+		flags.StringVar(&response.Accept, "accept", "", "with approve: every open ask-user and auto-fix finding the CEO, or the task's own goblin on its run's spent review, accepts as it stands; with fix: every open one the CEO declines to fix")
 		flags.StringVar(&response.Reason, "reason", "", "with approve of the test step: the operator's reason the native exception record keeps")
 		flags.StringVar(&scopeDecision, "scope-decision", "", "with a Review fix: an answered task decision sequence whose exact accepted scope reaches native; a blank one is refused")
 	} else if isAdmission {
@@ -329,10 +330,34 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		}
 		return errors.New(refusal)
 	}
+	if isAdmission {
+		// A paused task's lifecycle names the run its pause saved, which its
+		// resume continues, and no goblin is there to carry a new run on, so
+		// an admission waits for the resume (#2462).
+		record, err := state.ReadLifecycle(h.State, id)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if err == nil && record.Generation == meta.SpawnGen && (record.Phase == "pausing" || record.Phase == "paused") {
+			return fmt.Errorf("pipeline: task %s is %s, so goblins pipeline %s admitted nothing: its lifecycle keeps the validation run its pause saved for its resume, and no goblin is there to carry a new run on. Resume it with goblins resume %s, then admit the run", id, record.Phase, args[0], id)
+		}
+	}
 	if meta.SandboxImage != "" && (args[0] == "run" || args[0] == "respond" || args[0] == "handback" || isAdmission) {
 		// The gate's wrapper stands only commands.test behind goblins gate turn,
 		// which runs it in the task's container (issue 2244).
 		return fmt.Errorf("pipeline: task %s carries sandbox: needed, so its code never runs on this PC, and its gate would run it there, since only the Test step's command runs in the task's container: the agents of the Review, Test, Document and Lint steps run their own shells on the host, as do the prepare, lint and format commands a gate file names. No gate runs for a sandbox task, so goblins pipeline %s ran nothing. A sandbox task is delivered in mode direct-PR or local-only", meta.ID, args[0])
+	}
+	if args[0] == "run" {
+		// A move holds the gate's daemon off for its whole copy, so the
+		// native start would only name that daemon's pid and its locked file
+		// (#2817).
+		isMoving, err := gatehome.IsMoving(filepath.Join(h.State, gateHomeMoveLock))
+		if err != nil {
+			return fmt.Errorf("pipeline: whether the gate's home is moving could not be read: %w", err)
+		}
+		if isMoving {
+			return errors.New("pipeline: the gate's home is moving to the Dev Drive, and the gate starts no run until the move is done, so goblins pipeline run started nothing. Start this run again once the move is done")
+		}
 	}
 	if meta.PipelineHash == "" {
 		return errors.New("pipeline: task lacks a spawn-time policy; existing tasks require an explicit migration decision")

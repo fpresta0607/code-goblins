@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
@@ -346,6 +347,6 @@ func withinDirectory(path, directory string) bool {
 	if !filepath.IsAbs(path) {
 		return false
 	}
-	path, directory = strings.ToLower(filepath.Clean(path)), strings.ToLower(filepath.Clean(directory))
-	return path == directory || strings.HasPrefix(path, directory+string(filepath.Separator))
+	path, directory = filepath.Clean(path), filepath.Clean(directory)
+	return fsx.EqualPath(path, directory) || fsx.HasPathPrefix(path, directory+string(filepath.Separator))
 }

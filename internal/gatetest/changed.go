@@ -60,16 +60,17 @@ func changedScope(required Level, choices []Choice, everything bool, edited map[
 // alone changed is not edited, a test file the branch deleted names none, and
 // a base copy that does not parse counts each of its file's tests as edited.
 func editedTests(ctx context.Context, runner execx.Runner, found findings) (map[string][]string, error) {
+	holder := found.root + string(filepath.Separator)
 	byDir := make(map[string]string, len(found.packages))
 	for _, p := range found.packages {
 		if dir, err := filepath.Rel(found.root, p.Dir); err == nil {
-			byDir[strings.ToLower(filepath.ToSlash(dir))] = p.ImportPath
+			byDir[fsx.PathKey(holder+filepath.ToSlash(dir))] = p.ImportPath
 		}
 	}
 	edited := map[string][]string{}
 	for _, name := range found.changed {
 		file := filepath.ToSlash(name)
-		importPath, isPackage := byDir[strings.ToLower(path.Dir(file))]
+		importPath, isPackage := byDir[fsx.PathKey(holder+path.Dir(file))]
 		if !strings.HasSuffix(file, "_test.go") || !isPackage {
 			continue
 		}

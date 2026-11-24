@@ -225,6 +225,9 @@ Resume restores the contributor's terminal and retains its original validation r
 Pause persists that run's identity before process teardown, including terminal runs and the live runs every pause leaves running.
 Resume reads the saved run identity without recovering branch custody, starting validation or replacing the run.
 A different current run, unreadable state or a run without a saved pause identity refuses the resume instead of adopting another run.
+The one newer run it takes is one that has ended and whose chain of validation admissions reaches the saved run, since that is the same validation; the task's lifecycle then records that run, its intent and head as the task's run (issue 2462).
+A newer run still running, pending or parked, or one outside that chain, refuses the resume as before.
+While a task's current generation is pausing or paused, `validate-authored` and `validate-terminal` refuse it and admit nothing, since its lifecycle keeps the run its pause saved and no goblin is there to carry a new run on; resume it with `goblins resume <id>`, then admit the run.
 A direct-PR task whose current branch has no gate can resume even when its saved pause names an earlier branch's run.
 A still-live original run is named in the contributor's resume instruction, so it continues that run without starting another beside it.
 A run that ended while its goblin was paused, as a daemon restart ends a run whose step was executing, is named with its terminal status.
@@ -243,6 +246,7 @@ goblins pipeline run <id> --intent-file intent.md
 goblins pipeline run <id> --intent-file intent.md --closes 1996
 goblins pipeline run <id> --intent-file intent.md --size-override "a vendored drop that cannot be split"
 goblins pipeline respond <id> --action fix --findings finding-id --instructions "Concrete guidance"
+goblins pipeline respond <id> --action fix --findings bug-1 --accept ask-2
 goblins pipeline respond <id> --action fix --findings finding-id --scope-decision <answered-notify-sequence>
 goblins pipeline respond <id> --action approve
 goblins pipeline respond <id> --action approve --accept ask-1,bug-2 --reason "the only failure was the sandbox's missing compiler"
@@ -385,7 +389,10 @@ Review remains fail-closed for empty or unknown actions.
 Fix responses name concrete actionable finding IDs; selecting an `ask-user` finding is an explicit decision, never automatic consent.
 When a selected fix has verified `no-op` IDs to ignore, the driver forwards them from the current parked gate through native `--ignore` and binds the recorded run and step with `--run` and `--step`.
 An ID that also names an actionable row is never ignored, and duplicated or malformed ignored IDs are refused.
-There is no arbitrary managed `--ignore` input: unknown or actionable findings cannot be declined through this translation.
+There is no arbitrary managed `--ignore` input: unknown findings are never ignored, and an actionable one is declined only by the CEO's accept below.
+The native gate refuses a fix that leaves an open finding unaddressed, so a mixed decision, such as fixing an `auto-fix` finding while taking an `ask-user` one as it stands, names the declined findings with `respond <id> --action fix --findings <ids> --accept <ids>` (issue 2092).
+`--accept` beside fix must name exactly the open `ask-user` and `auto-fix` findings the fix leaves out, and they reach native `--ignore` beside the verified `no-op` IDs; a finding with an empty action still needs its fix, and a fix that selects every open finding takes no `--accept`.
+It is the registered primary CEO's decision under the authority rule below: no fix is left on a spent review, so a goblin's decline is always refused.
 Native refusal, including an earlier round's applied fix that cannot be declined, stays a refusal without a retry or replacement run.
 The native ordinary-fix API binds run and step but exposes no expected-round assertion; this translation uses the durable current gate and does not claim an atomic round assertion at native dispatch.
 Approval is accepted only when every finding is explicitly `no-op`, or the findings list is empty.
@@ -399,7 +406,7 @@ A configured Test command failure with an empty action can also be explicitly ac
 This exception recognizes only the native `test-command` category, `error` severity and configured-command failure description with a nonzero exit code; unrelated empty actions still need their fix.
 The response names the recorded native run with `--run`, preserves the failed command, findings, evidence and spent budgets, and records a Test exception rather than a successful command.
 Native refusal remains a refusal, including when the installed engine does not support the run binding.
-The task's status log records `pipeline-findings-accepted` with the step, run, round, IDs and who accepted (`by=ceo`, or `by=<task>` for its goblin) before approve reaches the gate.
+The task's status log records `pipeline-findings-accepted` with the step, run, round, IDs and who accepted (`by=ceo`, or `by=<task>` for its goblin) before the approve, or the fix that declines them, reaches the gate.
 A goblin's accept also reaches the CEO's wake queue as a notify with the same words, which asks nothing, so nothing waits on it; one that cannot be queued sends no approve.
 The goblin accepts as they stand only findings that are not correctness, security or regression defects, and a real defect among them goes in one follow-up commit on the same pull request after its first CI, named in its done report.
 An approved Test exception likewise keeps the operator's reason: `respond <id> --action approve --reason "<why>"` hands it to the native `--reason`, which no-mistakes records as the Test step's approval reason, and the task's status log records `pipeline-approval-reason` with the step, run, round and reason before approve reaches the gate.
@@ -452,6 +459,10 @@ A rebase's first-parent commits that no remote-tracking ref of the gate reposito
 A run under `rebase.strategy: merge` integrates with a merge commit instead, which must have exactly two parents, the submitted head first and a commit a remote-tracking ref holds second, and the tree `git merge-tree --write-tree` gives for those two.
 A gate fix commit or conflict resolution on the rebase or merge, or content from a base no remote-tracking ref holds, is refused, so keeping the submitted head drops nothing that neither it nor a remote-tracking ref holds.
 Before a compare-and-swap repairs the stale database field, the old commit is anchored under `refs/no-mistakes/recovery/<run>/recorded`.
+Native pins an unpublished head under `refs/no-mistakes/recover/<run>` in the gate when its run ends, and its recovery and terminal preflight both refuse a run whose recorded head that anchor contradicts (issue 2755).
+So the repair first requires that anchor to be absent or to name the stale commit, and refuses before any write otherwise.
+Once the database field names the submitted head, it compare-and-swaps that anchor from the stale commit to the submitted head, while the stale commit stays anchored under `refs/no-mistakes/recovery/<run>/recorded`.
+A recovery that stopped between the two moves the anchor when it runs again, provided the gate branch is still at the submitted head and the anchor still names exactly the commit the driver kept.
 The driver then invokes native `sync --recover --keep-local` and verifies that custody was durably returned without moving the local or gate head.
 A recorded head that holds the gate's own commits, such as a rebase followed by review fixes, would lose them if the submitted head were kept, so it is recovered at the recorded head instead, and the refusal from the submitted head names that head.
 With the clean task branch at the recorded head, native status offers plain `sync --recover`; the driver requires the gate branch to still name the submitted head, runs that recovery, which returns custody without moving the local or gate branch, and requires the local head unchanged.
@@ -479,11 +490,13 @@ The refusal names both runs and the published head, and says no supported recove
 A run whose custody already returned while native branch sync no longer answers for it has no same-run continuation, since native retry refuses a driver-started run (no-mistakes issue 323).
 The refusal says a fresh `goblins pipeline run` is the expected path only when the run spent no repair round, and otherwise names the rounds a fresh run would start over, which `goblins pipeline run` refuses, and names `terminal-preflight` and the CEO's terminal admission, `validate-terminal` or `validate-authored`, which keeps them.
 Rounds are counted over the run and every predecessor its terminal admissions continue, since an admitted child spends none of its own.
+When native branch sync instead names an earlier run of the branch as its owner, a failed or cancelled run that never published or returned custody, such as one that failed after the gate committed its review fixes before a later run was cancelled, `recover` recovers that earlier run rather than refusing, since it holds the branch and would refuse the fresh run (issue 2757).
+An owner that is no such earlier run is refused by name.
 
 A gate's fixer works in the run's worktree, which no-mistakes removes with force once the run is over, so the driver keeps what the fixer left uncommitted before anything takes that worktree away.
 Before unpublished recovery runs any native command, and before a stop aborts a live run, every tracked and untracked change in the run's worktree is committed and pinned under `refs/no-mistakes/recovery/<run>/worktree` in the gate repository, and that commit's parent is the head the run ended at.
 The commit is made from an index of the driver's own, so the goblin's staged and unstaged work is exactly as it left it, and a first capture stands rather than being replaced by a later one a goblin may already be restoring.
-The commit is named in the branch-sync evidence the recovery reads, in `goblins pipeline recover`'s output, and in the lifecycle record of a stop, so an interrupted fixer's repairs stay recoverable with `git cherry-pick -n <commit>` after the worktree is gone.
+The commit is named in the branch-sync evidence the recovery reads, in `goblins pipeline recover`'s output, in its error when the recovery stops short, and in the lifecycle record of a stop, so an interrupted fixer's repairs stay recoverable with `git cherry-pick -n <commit>` after the worktree is gone.
 On 2026-10-23 an allowance-interrupted review repair lost its frontend changes exactly this way: the step failed, custody returned at the submitted head, and native recovery swept the worktree before anything read it (issue 1416).
 
 This repository's committed automatic-fix overrides remain authoritative for a new submitted branch.
@@ -575,7 +588,7 @@ A contract selects its own packages and not the packages that import them.
 `outside` names the files no Go check reads, each rule with why: a doc nothing embeds, or the frontend's sources, which its own checks cover.
 A change to one of them selects no package, and the plan lists it under the rule's reason.
 
-A path is a pattern from the repository root with forward slashes: `*` and `?` match inside one name as Go's `path.Match` does, `**` stands for any number of folders, none included, and case does not count.
+A path is a pattern from the repository root with forward slashes: `*` and `?` match inside one name as Go's `path.Match` does, `**` stands for any number of folders, none included, and case does not count where the repository's file system ignores it, as Windows and a Mac's default volume do.
 A file a package owns is that package's whatever a pattern says of it, and a contract is read before `outside`.
 
 A policy that has `contracts` or `outside` says what every file is.
@@ -677,9 +690,9 @@ An older build's run takes its place by when it asked and never moves to the fro
 
 A command also waits while either physical or commit availability is under the shared floor.
 At capacity one the floor is 4 GiB.
-At capacity two it is weighed for the run at the head of the line: what each run holding a slot may still use, its expected memory less what it commits now, then the head's own expected memory and the desktop reserve, and never under 4 GiB.
+At capacity two it is weighed for the run at the head of the line: what each run holding a slot may still use, its expected memory less what it commits now and the room Docker needs for one that starts Docker, then the head's own expected memory and the desktop reserve, and never under 4 GiB.
 A run's expected memory is what `goblins gate turn --memory` declares, or 2.5 GiB without it, and a run's card in the line carries it with what the run commits, measured as it runs.
-At capacity two a run that fits the memory free goes past a run ahead of it that does not fit for its own expected memory, so a run that expects more than the machine has free holds back no run behind it.
+At capacity two a run that fits the memory free goes past a run ahead of it that does not fit for its own floor, so a run that expects more than the machine has free holds back no run behind it.
 A run that fits goes past a run ahead that does not fit only during that run's first 20 minutes in line.
 After those 20 minutes no run passes it, and the slots drain for it.
 A run that was passed starts its hour of floor waiting only once nothing can pass it, so a run past it whose turn ends within that hour leaves it its turn, and its longest wait for a turn is 20 and 60, 80 minutes, inside the line's two-hour overdue limit.
@@ -690,7 +703,7 @@ An unavailable reading or an hour of floor waiting refuses admission and starts 
 #### Light runs beside the line
 
 A light run takes a turn of its own beside the slots, however many runs hold them or wait for them, once free physical memory and free commit cover its floor.
-Its floor is what each run holding a slot and each light run beside it may still use, its expected memory less what it commits now, then its own expected memory and the desktop reserve.
+Its floor is what each run holding a slot and each light run beside it may still use, its expected memory less what it commits now and the room Docker needs for one that starts Docker, then its own expected memory and the desktop reserve.
 A heavy run still grows toward its expected memory, so a light run admitted on memory a heavy run is about to use would have that run ended at the desktop reserve.
 It is admitted by free memory, never by a count, so any number of light runs go beside the slots while memory covers them.
 A light run names its expected memory and its bound, as `goblins gate turn --light --memory 1GiB --execution-limit 15m` does, or takes no turn.
@@ -748,7 +761,7 @@ A store failure prevents commands from starting.
 `goblins gate test`, `goblins gate prepush` and `goblins gate turn` wait through the same admission code in the same store, so a run of any of them waits for a run of the others.
 
 ```text
-goblins gate turn [--as <name>] [--wait <duration>] [--execution-limit <duration>] [--memory <size>] [--low-priority] [--light] [--detach <log-file>] -- <program> [<argument>...]
+goblins gate turn [--as <name>] [--wait <duration>] [--execution-limit <duration>] [--memory <size>] [--low-priority] [--light] [--docker] [--detach <log-file>] -- <program> [<argument>...]
 ```
 
 Everything before `--` is `goblins`'s, and everything after it is the command's, its own flags and a `--` of its own included.
@@ -766,7 +779,10 @@ A cleanup that cannot be confirmed keeps its custody and reports uncertainty; la
 `--low-priority` has the run wait at the lowest priority: it takes its turn only while no ordinary run waits, and an ordinary run that joins the line after it still goes first, unless the low-priority run is already taking its turn or has waited the line's two hours, as the desktop's CI jobs wait, and `goblins gate turns` marks it.
 `--memory <size>`, as `--memory 7GiB` or `--memory 512MiB`, is the most memory the run is expected to use, which a line of two slots weighs before it starts the run beside another, as [Taking turns](#taking-turns) says.
 Without it a run is expected to use 2.5 GiB.
+A run whose command starts Docker, which `--docker` declares for a script whose words the run does not read and which the command says when the program it runs, or one a shell's command string among its arguments runs first or after `&`, `&&`, `|`, `||`, `;` or `(`, is the `docker` or `docker-compose` program or `goblins services up`, a light run's included, waits for the floor, its own expected memory and the room Docker needs, on top of what the runs holding a turn may still use on a line of two or beside the slots, since Docker's engine, its virtual machine and the stack on them take memory no process of the run's holds: the run's project's services stack's cost, measured or else declared in its `services.json`, nothing while a task holds that stack, and 2 GiB for the engine and virtual machine when the project declares no stack; while it waits it says so.
 `--light` has the run take a light turn beside the slots, which needs `--memory` and `--execution-limit`, as [Light runs beside the line](#light-runs-beside-the-line) says.
+On Windows the run keeps itself, and so its command and everything that starts, to the processor threads a goblin's terminal keeps to, as [docs/native-board.md](native-board.md) says, whoever started it: the gate daemon, which runs each Test step here, is started by Task Scheduler on every thread.
+A run that cannot read or set those threads says so in one line on standard error and keeps the threads it was started on.
 A caller such as a gate knows its repository, branch and run, which the command and the folder do not say, so it should give them: `--as "PrecisionDocs feat/x, run 01M4FG7F"`.
 A run is named `<name>: <command>` with `--as` and `<command> in <folder>` without it.
 `goblins` adds `, task <Goblin> (<id>)` when the run is a fleet task's: a goblin's own run by its terminal, and a gate's run by the task registered for the run's source worktree, as for `goblins gate test`.
@@ -1148,7 +1164,7 @@ Every `goblins gate prepush` run and every `goblins gate test` run adds what it 
 
 The run fits the machine.
 It waits for the machine's turn in the line `goblins gate test` runs wait in, so the two never run together, and it tests one package at a time.
-It starts a check only while free memory and commit are over the 4 GB floor, and none after its time limit, which is 15 minutes of running unless `--limit` says otherwise.
+It starts a check only while free memory and commit are over the memory floor (`memory_floor_gb`, 4 GB unless set), and none after its time limit, which is 15 minutes of running unless `--limit` says otherwise.
 Beside a working fleet free memory dips under the floor for seconds at a time, so a run waits for the floor, says once what it waits for, and leaves the rest to CI only when the limit passes first or memory cannot be read.
 A run that gave up at the first low reading ran 9 of its 42 checks on 2026-10-10 and left the two changed slow packages to CI.
 A check still running at the limit is ended, which is no failure.

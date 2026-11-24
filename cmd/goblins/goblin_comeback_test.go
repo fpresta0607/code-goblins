@@ -75,7 +75,7 @@ func comebackHome(t *testing.T, goblins map[string][2]string, lifecycles map[str
 func comebackRuntime(running []string, refused error, switched func(spawn.SwitchRequest) (spawn.SwitchResult, error), requests *[]spawn.SwitchRequest) commandRuntime {
 	return commandRuntime{
 		nativeTerminalRuns: func(_, id string) bool { return slices.Contains(running, id) },
-		admitLaunch:        func(home.Home) error { return refused },
+		admitLaunch:        func(home.Home, string) error { return refused },
 		switchTask: func(_ context.Context, _ home.Home, request spawn.SwitchRequest) (spawn.SwitchResult, error) {
 			*requests = append(*requests, request)
 			return switched(request)
@@ -152,7 +152,7 @@ func TestGoblinsResumeDoesNotRepeatPreparedResumeAdmission(t *testing.T) {
 				return state.Lifecycle{}, nil
 			}
 			if test.isLate {
-				runtime.admitLaunch = func(home.Home) error { save(); return nil }
+				runtime.admitLaunch = func(home.Home, string) error { save(); return nil }
 			}
 
 			comeback, _ := bringGoblinBack(t.Context(), h, runtime, meta.ID, restartNote, false)
@@ -380,7 +380,7 @@ func TestGoblinsResumeSaysWhichGoblinsCameBackAndGoblinsBringsNone(t *testing.T)
 				t.Fatal(err)
 			}
 			var requests []spawn.SwitchRequest
-			f.runtime.admitLaunch = func(home.Home) error { return nil }
+			f.runtime.admitLaunch = func(home.Home, string) error { return nil }
 			f.runtime.switchTask = func(_ context.Context, _ home.Home, request spawn.SwitchRequest) (spawn.SwitchResult, error) {
 				requests = append(requests, request)
 				return spawn.SwitchResult{}, nil

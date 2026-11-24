@@ -78,7 +78,7 @@ type Plan struct {
 // merges two homes.
 func PlanMove(from, to string, tracked map[string]bool, now time.Time) (Plan, error) {
 	from, to = filepath.Clean(from), filepath.Clean(to)
-	if strings.EqualFold(from, to) {
+	if fsx.EqualPath(from, to) {
 		return Plan{}, errors.New("homemove: the home is already there")
 	}
 	for _, folder := range []string{"state", "data"} {
@@ -88,6 +88,9 @@ func PlanMove(from, to string, tracked map[string]bool, now time.Time) (Plan, er
 	}
 	plan := Plan{From: from, To: to, Now: now.UTC().Truncate(time.Second)}
 	needles := mentionsOf(from)
+	// Two names in from that differ only in case are one where its file
+	// system ignores case.
+	isFolding := fsx.EqualPath(filepath.Join(from, "a"), filepath.Join(from, "A"))
 	for _, folder := range movedFolders {
 		root := filepath.Join(from, folder)
 		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
@@ -115,7 +118,7 @@ func PlanMove(from, to string, tracked map[string]bool, now time.Time) (Plan, er
 			plan.Files = append(plan.Files, File{Rel: rel, Hash: hash, Size: size, Copy: tracked[rel]})
 			if rewrite, ok := rewriteRecord(rel, content, from, to); ok {
 				plan.Rewrites = append(plan.Rewrites, rewrite)
-			} else if content != nil && names(content, needles) {
+			} else if content != nil && names(content, needles, isFolding) {
 				plan.Mentions = append(plan.Mentions, rel)
 			}
 			return nil
@@ -158,7 +161,7 @@ func leftBehind(from string, tracked map[string]bool) []string {
 	topTracked := map[string]bool{}
 	for rel := range tracked {
 		top, _, _ := strings.Cut(rel, "/")
-		topTracked[strings.ToLower(top)] = true
+		topTracked[fsx.PathKey(filepath.Join(from, top))] = true
 	}
 	entries, err := os.ReadDir(from)
 	if err != nil {
@@ -166,8 +169,9 @@ func leftBehind(from string, tracked map[string]bool) []string {
 	}
 	var left []string
 	for _, entry := range entries {
-		name := strings.ToLower(entry.Name())
-		if topTracked[name] || name == ".git" || name == ".worktrees" || name == cachesFolder || isMovedFolder(name) || isOldProgram(name) {
+		key := fsx.PathKey(filepath.Join(from, entry.Name()))
+		name := filepath.Base(key)
+		if topTracked[key] || name == ".git" || name == ".worktrees" || name == cachesFolder || isMovedFolder(name) || isOldProgram(name) {
 			continue
 		}
 		left = append(left, entry.Name()+" (no part of a home's layout, so it stays where it is)")
@@ -246,16 +250,21 @@ func count(root string) (int, int64, error) {
 }
 
 // mentionsOf are the spellings of a home's path a file may name it by: as
-// written, and with its separators escaped as JSON writes them.
+// written, and with its separators escaped as JSON writes them, each in its
+// fsx.PathKey form.
 func mentionsOf(root string) [][]byte {
-	lower := strings.ToLower(root)
-	return [][]byte{[]byte(lower), []byte(strings.ReplaceAll(lower, `\`, `\\`)), []byte(strings.ReplaceAll(lower, `\`, `/`))}
+	key := fsx.PathKey(root)
+	return [][]byte{[]byte(key), []byte(strings.ReplaceAll(key, `\`, `\\`)), []byte(strings.ReplaceAll(key, `\`, `/`))}
 }
 
-func names(content []byte, needles [][]byte) bool {
-	lower := bytes.ToLower(content)
+// names reports whether content holds any of needles, read in lowercase
+// where the home's file system ignores case.
+func names(content []byte, needles [][]byte, isFolding bool) bool {
+	if isFolding {
+		content = bytes.ToLower(content)
+	}
 	for _, needle := range needles {
-		if bytes.Contains(lower, needle) {
+		if bytes.Contains(content, needle) {
 			return true
 		}
 	}
@@ -277,9 +286,9 @@ func rewriteRecord(rel string, content []byte, from, to string) (Rewrite, bool) 
 			continue
 		}
 		for _, folder := range append(movedFolders, cachesFolder) {
-			prefix := filepath.Join(from, folder) + `\`
-			if len(value) > len(prefix) && strings.EqualFold(value[:len(prefix)], prefix) {
-				lines[i] = key + "=" + filepath.Join(to, folder) + `\` + value[len(prefix):]
+			prefix := filepath.Join(from, folder) + string(filepath.Separator)
+			if len(value) > len(prefix) && fsx.HasPathPrefix(value, prefix) {
+				lines[i] = key + "=" + filepath.Join(to, folder) + string(filepath.Separator) + value[len(prefix):]
 				changed = true
 				break
 			}

@@ -737,7 +737,7 @@ func shellOf(job job, commandLine string, commands map[string]string, children [
 			continue
 		}
 		_, taskID, _ := strings.Cut(child.ID, ":")
-		if command != "" && strings.TrimSpace(commands[child.ID]) == command || strings.Contains(commandLine, `\`+taskID+`.output" 2>&1`) {
+		if command != "" && strings.TrimSpace(commands[child.ID]) == command || strings.Contains(commandLine, string(filepath.Separator)+taskID+`.output" 2>&1`) {
 			if distance := job.root.Started.Sub(child.Started).Abs(); nearest == "" || distance < apart {
 				nearest, apart = child.ID, distance
 			}

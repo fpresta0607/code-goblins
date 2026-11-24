@@ -340,14 +340,13 @@ func restoreInheritedDefault(root string) {
 }
 
 func TestLocateWorktreeReadsBothLayouts(t *testing.T) {
-	root := `C:\Users\op\AppData\Local\CodeGoblins\worktrees`
+	root := systemPath(`C:\Users\op\AppData\Local\CodeGoblins\worktrees`)
 	cases := map[string]WorktreePlace{
-		root + `\app\task-1`:                                   {Root: root + `\app\task-1`, Project: "app", Name: "task-1"},
-		root + `\app\task-1\web\src`:                           {Root: root + `\app\task-1`, Project: "app", Name: "task-1"},
-		root + `\app\task-1-proof`:                             {Root: root + `\app\task-1-proof`, Project: "app", Name: "task-1-proof"},
-		`C:\dev\app\.worktrees\gb-task-2`:                      {Root: `C:\dev\app\.worktrees\gb-task-2`, Project: "app", Name: "task-2"},
-		`c:\DEV\app\.WORKTREES\GB-Task-3\internal`:             {Root: `c:\DEV\app\.WORKTREES\GB-Task-3`, Project: "app", Name: "Task-3"},
-		`C:\dev\app\.worktrees\gb-outer\x\.worktrees\gb-inner`: {Root: `C:\dev\app\.worktrees\gb-outer\x\.worktrees\gb-inner`, Project: "x", Name: "inner"},
+		root + systemPath(`\app\task-1`):                                   {Root: root + systemPath(`\app\task-1`), Project: "app", Name: "task-1"},
+		root + systemPath(`\app\task-1\web\src`):                           {Root: root + systemPath(`\app\task-1`), Project: "app", Name: "task-1"},
+		root + systemPath(`\app\task-1-proof`):                             {Root: root + systemPath(`\app\task-1-proof`), Project: "app", Name: "task-1-proof"},
+		systemPath(`C:\dev\app\.worktrees\gb-task-2`):                      {Root: systemPath(`C:\dev\app\.worktrees\gb-task-2`), Project: "app", Name: "task-2"},
+		systemPath(`C:\dev\app\.worktrees\gb-outer\x\.worktrees\gb-inner`): {Root: systemPath(`C:\dev\app\.worktrees\gb-outer\x\.worktrees\gb-inner`), Project: "x", Name: "inner"},
 	}
 	for dir, want := range cases {
 		got, ok := LocateWorktree([]string{root}, dir)
@@ -355,7 +354,7 @@ func TestLocateWorktreeReadsBothLayouts(t *testing.T) {
 			t.Errorf("LocateWorktree(%q) = %+v, %v; want %+v", dir, got, ok, want)
 		}
 	}
-	for _, dir := range []string{root, root + `\app`, `C:\dev\app`, `C:\dev\app\.worktrees\feature`, `C:\dev\app\.worktrees\gb-`, `C:\Users\op\AppData\Local\CodeGoblins\scratch\task-1`} {
+	for _, dir := range []string{root, root + systemPath(`\app`), systemPath(`C:\dev\app`), systemPath(`C:\dev\app\.worktrees\feature`), systemPath(`C:\dev\app\.worktrees\gb-`), systemPath(`C:\Users\op\AppData\Local\CodeGoblins\scratch\task-1`)} {
 		if got, ok := LocateWorktree([]string{root}, dir); ok {
 			t.Errorf("LocateWorktree(%q) = %+v, want no fleet worktree", dir, got)
 		}
@@ -438,16 +437,16 @@ func TestResolveRefusesADevDriveFileThatDoesNotMeanAFolder(t *testing.T) {
 }
 
 func TestLocateWorktreeFindsATaskInEveryRoot(t *testing.T) {
-	roots := []string{`D:\CodeGoblins\worktrees`, `C:\Users\op\AppData\Local\CodeGoblins\worktrees`}
+	roots := []string{systemPath(`D:\CodeGoblins\worktrees`), systemPath(`C:\Users\op\AppData\Local\CodeGoblins\worktrees`)}
 	for dir, want := range map[string]WorktreePlace{
-		roots[0] + `\app\new-task\src`: {Root: roots[0] + `\app\new-task`, Project: "app", Name: "new-task"},
-		roots[1] + `\app\old-task`:     {Root: roots[1] + `\app\old-task`, Project: "app", Name: "old-task"},
+		roots[0] + systemPath(`\app\new-task\src`): {Root: roots[0] + systemPath(`\app\new-task`), Project: "app", Name: "new-task"},
+		roots[1] + systemPath(`\app\old-task`):     {Root: roots[1] + systemPath(`\app\old-task`), Project: "app", Name: "old-task"},
 	} {
 		if got, ok := LocateWorktree(roots, dir); !ok || got != want {
 			t.Errorf("LocateWorktree(%q) = %+v, %v; want %+v", dir, got, ok, want)
 		}
 	}
-	if got, ok := LocateWorktree(roots, `D:\CodeGoblins\scratch\new-task`); ok {
+	if got, ok := LocateWorktree(roots, systemPath(`D:\CodeGoblins\scratch\new-task`)); ok {
 		t.Errorf("LocateWorktree found %+v in a scratch folder", got)
 	}
 }
@@ -476,10 +475,10 @@ func TestProgramsIsWhereTheHomeKeepsItsBuild(t *testing.T) {
 		files []string
 		want  string
 	}{
-		{"a home set up with bin", []string{`bin\goblins.exe`}, BinDir},
+		{"a home set up with bin", []string{filepath.Join(BinDir, "goblins.exe")}, BinDir},
 		{"a home set up before bin", []string{`goblins.exe`}, "."},
-		{"a home before bin whose bin holds only the window", []string{`goblins.exe`, `bin\goblins-window.exe`}, "."},
-		{"a home an install laid out over one before bin", []string{`goblins.exe`, `bin\goblins.exe`}, BinDir},
+		{"a home before bin whose bin holds only the window", []string{`goblins.exe`, filepath.Join(BinDir, "goblins-window.exe")}, "."},
+		{"a home an install laid out over one before bin", []string{`goblins.exe`, filepath.Join(BinDir, "goblins.exe")}, BinDir},
 		{"a home with no build yet", nil, BinDir},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -527,5 +526,101 @@ func TestWriteDevDriveConfigRoundTripsWhatResolveReads(t *testing.T) {
 	t.Setenv("GOBLINS_STATE_OVERRIDE", "")
 	if h, err := Resolve(); err != nil || h.DevDrive != drive {
 		t.Errorf("Resolve = %+v, %v; want its Dev Drive folder %s", h, err, drive)
+	}
+}
+
+// caseSpellings makes the folder parent\name, name in lowercase, and returns
+// its path, the same path with name in uppercase, and whether the file system
+// opens the folder by that second spelling: the oracle a case test here holds
+// a comparison to, read from the file system itself.
+func caseSpellings(t *testing.T, parent, name string) (string, string, bool) {
+	t.Helper()
+	lower := filepath.Join(parent, name)
+	if err := os.MkdirAll(lower, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	upper := filepath.Join(parent, strings.ToUpper(name))
+	_, err := os.Stat(upper)
+	return lower, upper, err == nil
+}
+
+// A worktree an older build put in <checkout>\.worktrees\gb-<name> is found
+// by those names in another case exactly where the file system reads them as
+// the same names.
+func TestLocateWorktreeReadsTheOlderLayoutsNamesByTheFileSystemsCase(t *testing.T) {
+	// Arrange
+	lower, upper, isOnePath := caseSpellings(t, filepath.Join(t.TempDir(), "app"), LegacyWorktreesDir)
+	cases := []struct {
+		name      string
+		dir       string
+		wantFound bool
+		wantName  string
+	}{
+		{name: "both names as written", dir: filepath.Join(lower, "gb-task-1", "src"), wantFound: true, wantName: "task-1"},
+		{name: "the folder in another case", dir: filepath.Join(upper, "gb-task-2"), wantFound: isOnePath, wantName: "task-2"},
+		{name: "the prefix in another case", dir: filepath.Join(lower, "GB-task-3"), wantFound: isOnePath, wantName: "task-3"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Act
+			place, isFound := LocateWorktree(nil, tc.dir)
+
+			// Assert
+			if isFound != tc.wantFound || (isFound && (place.Name != tc.wantName || place.Project != "app")) {
+				t.Fatalf("LocateWorktree(%s) = %+v, %t; want found %t named %s in app, as the file system opens %s by %s: %t", tc.dir, place, isFound, tc.wantFound, tc.wantName, lower, upper, isOnePath)
+			}
+		})
+	}
+}
+
+// A linked checkout's git and common directories are one folder exactly
+// where the file system reads their two spellings as one path, so a home
+// whose commondir names its git directory in another case is primary only
+// there.
+func TestIsPrimaryComparesTheGitDirectoriesByTheFileSystemsCase(t *testing.T) {
+	// Arrange
+	parent := t.TempDir()
+	gitDir, upper, isOnePath := caseSpellings(t, parent, "gitdir")
+	root := filepath.Join(parent, "home")
+	h := Home{Root: root, State: filepath.Join(root, "state")}
+	if err := os.MkdirAll(h.State, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for path, content := range map[string]string{
+		filepath.Join(root, "AGENTS.md"):     "x",
+		filepath.Join(root, InstalledMarker): "x",
+		filepath.Join(root, ".git"):          "gitdir: " + gitDir,
+		filepath.Join(gitDir, "commondir"):   upper,
+	} {
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Act
+	isPrimary := IsPrimary(h)
+
+	// Assert
+	if isPrimary != isOnePath {
+		t.Fatalf("IsPrimary with git directory %s and common directory %s = %t, want %t", gitDir, upper, isPrimary, isOnePath)
+	}
+}
+
+// The per-user home is also known by its spelling before it exists, and a
+// spelling in another case is it exactly where the file system reads the two
+// as one path.
+func TestUsesTheInheritedFleetComparesTheDefaultsSpellingByTheFileSystemsCase(t *testing.T) {
+	// Arrange
+	lower, upper, isOnePath := caseSpellings(t, t.TempDir(), "home")
+	defer restoreInheritedDefault(inheritedDefault)
+	inheritedDefault = filepath.Join(lower, "missing")
+	h := Home{Root: filepath.Join(upper, "missing")}
+
+	// Act
+	isInherited := usesTheInheritedFleet(h)
+
+	// Assert
+	if isInherited != isOnePath {
+		t.Fatalf("usesTheInheritedFleet(%s) with the default %s = %t, want %t", h.Root, inheritedDefault, isInherited, isOnePath)
 	}
 }

@@ -266,8 +266,12 @@ func (b *browserBroker) startFetch(ctx context.Context, task, project string, pr
 	if err != nil {
 		return refuse(*login, fmt.Errorf("free memory cannot be read, so no browser starts: %w", err))
 	}
-	if low := min(memory.Available, memory.CommitAvailable); low < memoryFloor {
-		return refuse(*login, fmt.Errorf("free memory is %.1f GB, under the %.0f GB a browser waits for. Ask again in a few minutes", gigabytes(low), gigabytes(memoryFloor)))
+	floor, err := b.floor()
+	if err != nil {
+		return refuse(*login, fmt.Errorf("no browser starts: %w", err))
+	}
+	if low := min(memory.Available, memory.CommitAvailable); low < floor {
+		return refuse(*login, fmt.Errorf("free memory is %.1f GB, under the %g GB a browser waits for. Ask again in a few minutes", gigabytes(low), gigabytes(floor)))
 	}
 	profile, err := browserlogin.MakeProfile(b.state, login.ID)
 	if err != nil {

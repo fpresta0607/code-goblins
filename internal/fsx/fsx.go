@@ -58,8 +58,30 @@ var stages atomic.Int64
 // through AtomicWriteFile included. A test holds a path under a lock to none.
 func Stages() int64 { return stages.Load() }
 
+// syncFile is (*os.File).Sync, which a test replaces to see the flush come
+// before the close and the rename.
+var syncFile = (*os.File).Sync
+
+// Sync flushes file's data to disk, as Stage flushes the file it stages, for
+// a writer that fills a staged file itself and then renames it over another.
+func Sync(file *os.File) error {
+	return syncFile(file)
+}
+
+// ReplaceSync makes every flush through this package call flush instead,
+// until the returned restore runs, so a test of a writer elsewhere sees it
+// flush its staged file before the rename. It is for tests alone.
+func ReplaceSync(flush func(*os.File) error) (restore func()) {
+	original := syncFile
+	syncFile = flush
+	return func() { syncFile = original }
+}
+
 // Stage writes data to a temporary file in path's directory, for Commit to
-// put in path's place.
+// put in path's place. The data is flushed to disk before the file closes:
+// NTFS can journal the rename before it writes data still cached, and a
+// machine that stopped in between came back with each file it had replaced
+// at full length and holding only zero bytes.
 func Stage(path string, data []byte) (*Staged, error) {
 	stages.Add(1)
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".goblins-tmp-*")
@@ -67,12 +89,25 @@ func Stage(path string, data []byte) (*Staged, error) {
 		return nil, err
 	}
 	_, werr := tmp.Write(data)
+	serr := syncFile(tmp)
 	cerr := tmp.Close()
-	if err := errors.Join(werr, cerr); err != nil {
+	if err := errors.Join(werr, serr, cerr); err != nil {
 		os.Remove(tmp.Name())
 		return nil, err
 	}
 	return &Staged{temp: tmp.Name(), path: path}, nil
+}
+
+// WriteFileSynced is os.WriteFile that flushes data to disk before the file
+// closes, for a file written whole and then renamed over another, as Stage
+// writes one.
+func WriteFileSynced(path string, data []byte, perm os.FileMode) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+	_, werr := file.Write(data)
+	return errors.Join(werr, syncFile(file), file.Close())
 }
 
 // Commit puts the staged file in its place, replacing what is there, and
@@ -122,10 +157,18 @@ func retryTransientContext(ctx context.Context, op func() error) error {
 // A reader finds the file whole or not at all, and a writer ended before the
 // commit leaves nothing in its place, where a file created and then written
 // is left empty. It waits out another process holding the place, a file
-// still being deleted included, while ctx lasts. A commit that fails keeps
-// the staged file for another try, and Discard removes it.
+// still being deleted included, while ctx lasts. The rename is tried once
+// whether or not ctx has ended, since staging is the slow part of a write and
+// a caller whose deadline staging outlasted would otherwise lose a place
+// nothing holds. A commit that fails keeps the staged file for another try,
+// and Discard removes it.
 func (s *Staged) CommitNewContext(ctx context.Context) error {
-	if err := retryTransientContext(ctx, func() error { return renameNew(s.temp, s.path) }); err != nil {
+	op := func() error { return renameNew(s.temp, s.path) }
+	err := op()
+	if err != nil && heldByAnother(err) {
+		err = retryTransientContext(ctx, op)
+	}
+	if err != nil {
 		return err
 	}
 	s.temp = ""

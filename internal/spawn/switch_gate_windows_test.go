@@ -63,8 +63,7 @@ func TestAMemoryPauseAfterManualSwitchDoesNotRestartAnEarlierGate(t *testing.T) 
 			}
 			return nil
 		},
-		Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
-		Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
+		Resume: func(ctx context.Context, meta state.TaskMeta, prior *state.Lifecycle) error {
 			if prior.GateRun != "" {
 				if _, err := gate.ResumeInterrupted(ctx, f.project, pipeline.InterruptedRun{ID: prior.GateRun, Branch: f.git.branch, Intent: prior.GateIntent}); err != nil {
 					return err

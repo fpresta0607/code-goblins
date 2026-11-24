@@ -16,6 +16,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -68,7 +69,7 @@ type Service struct {
 // it holds until it has started, so no test suite or other build starts
 // beside its build. While the start would leave memory or commit under the
 // floor it says why and waits, for up to wait, and then gives up saying why.
-func (s Service) Up(ctx context.Context, checkout, task string, wait time.Duration) (string, error) {
+func (s Service) Up(ctx context.Context, checkout, task string, wait time.Duration) (line string, err error) {
 	manifest, err := LoadManifest(s.DataDir, checkout)
 	if errors.Is(err, os.ErrNotExist) {
 		return "", fmt.Errorf("services: %s declares no local services: write %s", auth.ProjectName(checkout), ManifestPath(s.DataDir, checkout))
@@ -87,6 +88,12 @@ func (s Service) Up(ctx context.Context, checkout, task string, wait time.Durati
 		return "", fmt.Errorf("services: take the machine's turn for heavy runs: %w", err)
 	}
 	defer release()
+	// The supervisor reads this reservation, so it resumes and starts no
+	// goblin into the memory this start waits for (#2695).
+	if err := s.reserve(ctx, checkout, manifest, task); err != nil {
+		return "", err
+	}
+	defer func() { err = errors.Join(err, s.unreserve(ctx, checkout, task)) }()
 	began := s.Now()
 	var said time.Time
 	for {
@@ -110,6 +117,49 @@ func (s Service) Up(ctx context.Context, checkout, task string, wait time.Durati
 			return "", err
 		}
 	}
+}
+
+// reserve records that this process's start of the project's stack waits for
+// memory, with the cost it expects.
+func (s Service) reserve(ctx context.Context, checkout string, manifest Manifest, task string) (err error) {
+	release, err := s.lock(ctx, true)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, release()) }()
+	record, err := ReadRecord(s.StateDir)
+	if err != nil {
+		return err
+	}
+	project := auth.ProjectName(checkout)
+	cost, _ := record.Stacks[project].cost(manifest)
+	started, _ := proc.StartTime(os.Getpid())
+	if record.Admitting == nil {
+		record.Admitting = map[string]Admitting{}
+	}
+	record.Admitting[project] = Admitting{Task: task, Cost: cost, PID: os.Getpid(), Started: started, Since: s.Now().UTC()}
+	return WriteRecord(s.StateDir, record)
+}
+
+// unreserve removes this process's reservation for the project's stack,
+// whether the start ended well or not, and a cancelled start still does.
+func (s Service) unreserve(ctx context.Context, checkout, task string) (err error) {
+	ctx = context.WithoutCancel(ctx)
+	release, err := s.lock(ctx, true)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, release()) }()
+	record, err := ReadRecord(s.StateDir)
+	if err != nil {
+		return err
+	}
+	project := auth.ProjectName(checkout)
+	if held, isHeld := record.Admitting[project]; !isHeld || held.PID != os.Getpid() || held.Task != task {
+		return nil
+	}
+	delete(record.Admitting, project)
+	return WriteRecord(s.StateDir, record)
 }
 
 // tryJoin joins the stack when every service the check needs runs, and says
@@ -692,6 +742,32 @@ func (s Stack) cost(manifest Manifest) (uint64, string) {
 		return s.Cost.Bytes, "measured " + s.Cost.MeasuredAt.UTC().Format("2006-01-02 15:04Z")
 	}
 	return uint64(manifest.MemoryEstimateGB * (1 << 30)), "estimated, not measured yet"
+}
+
+// StartRoom is the memory a run that may start project's stack, and the
+// Docker engine under it, needs free on top of the floor, and what that rests
+// on: the stack's cost, measured or declared, while no task holds it, and
+// nothing once one does, since its start took that memory already.
+// isDeclared is false for a project that declares no stack.
+func StartRoom(stateDir, dataDir, project string) (room uint64, basis string, isDeclared bool, err error) {
+	manifest, err := LoadManifest(dataDir, project)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, "", false, nil
+	}
+	if err != nil {
+		return 0, "", false, err
+	}
+	record, err := ReadRecord(stateDir)
+	if err != nil {
+		return 0, "", true, err
+	}
+	name := auth.ProjectName(project)
+	stack := record.Stacks[name]
+	if stack.IsUp() {
+		return 0, name + "'s services are up already", true, nil
+	}
+	cost, basis := stack.cost(manifest)
+	return cost, name + "'s services, " + basis, true, nil
 }
 
 // shortfall says why a start costing cost does not fit, or is empty when it

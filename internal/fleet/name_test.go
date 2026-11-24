@@ -147,7 +147,7 @@ func TestFindByNameFindsEachTaskTheBoardCallsByThatName(t *testing.T) {
 		want []NameMatch
 	}{
 		{"wanda", []NameMatch{{ID: "live-task", GoblinName: "Wanda", GoblinTitle: "Cache Keeper", State: "unknown", Project: "example", Title: "Speed up the cache"}}},
-		{"OTTO", []NameMatch{{ID: "paused-task", GoblinName: "Otto", GoblinTitle: "Log Lumberjack", State: "paused", Project: "example", Title: "Trim the logs", WaitsOn: "Paused for memory; resumes after two readings with 5 GB of memory and commit free"}}},
+		{"OTTO", []NameMatch{{ID: "paused-task", GoblinName: "Otto", GoblinTitle: "Log Lumberjack", State: "paused", Project: "example", Title: "Trim the logs", WaitsOn: "Paused for memory; resumes once free memory, less its start's cost, stays above the floor"}}},
 		{"Mabel", []NameMatch{{ID: "other-task", GoblinName: "Mabel", GoblinTitle: "Bug Hunter", State: "finished", Project: "example", Title: "Hunt the bug"}}},
 		{" Sonny ", []NameMatch{
 			{ID: "queued-task", GoblinName: "Sonny", GoblinTitle: "Export Elf", State: "queued", Project: "example", Title: "Tidy the export page", WaitsOn: "memory 8 GB"},

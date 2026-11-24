@@ -33,6 +33,12 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 	if strings.HasPrefix(mode, "pi-") {
 		harness, mode = "pi", strings.TrimPrefix(mode, "pi-")
 	}
+	// Claude Code 2.1.328 draws a no-break space after its prompt line's glyph,
+	// before the words typed on it, live on 2026-11-19 (#2776).
+	prompt := "❯ "
+	if strings.HasSuffix(mode, "-no-break-space") {
+		prompt, mode = "❯\u00a0", strings.TrimSuffix(mode, "-no-break-space")
+	}
 	// A harness that draws late leaves the line typed into its turn on its
 	// screen once its turn queues it, and redraws a second after Escape
 	// interrupts the turn, so until then the screen still shows the turn
@@ -228,7 +234,7 @@ func TestNativeCEOComposerProgram(t *testing.T) {
 			case isManual:
 				footer = "⏸ manual mode on · ? for shortcuts"
 			}
-			rows = append(rows, rule, "❯ "+strings.ReplaceAll(shown, "\n", "\r\n  "), rule)
+			rows = append(rows, rule, prompt+strings.ReplaceAll(shown, "\n", "\r\n  "), rule)
 			if isAsking && hasQueued {
 				rows = append(rows, " Do you want to create nine.txt?", " ❯ 1. Yes", "   2. No")
 			} else {

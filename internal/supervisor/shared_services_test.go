@@ -488,6 +488,44 @@ func TestTheMachinesHeavyLineIsReadFromItsAdmissionStore(t *testing.T) {
 	}
 }
 
+// The machine's heavy line weighs the Docker of the run at its head: on a
+// line of one turn, a run that starts Docker with the default 2.5 GiB and
+// 2 GiB for Docker waits for the 4 GiB floor and both, 8.5 GiB (#2808).
+func TestTheMachinesHeavyLineWeighsTheDockerOfTheRunAtItsHead(t *testing.T) {
+	// Arrange
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
+	store, err := verify.AdmissionDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	ended := make(chan struct{})
+	go func() {
+		defer close(ended)
+		_, _ = verify.Admission{Dir: store, Floor: 4 * gigabyte, Available: func() (uint64, error) { return gigabyte, nil }, IsDocker: true, Docker: 2 * gigabyte, Who: "a run that starts Docker", Budget: time.Hour, Limit: time.Minute, Poll: 10 * time.Millisecond}.Wait(ctx)
+	}()
+	defer func() {
+		cancel()
+		<-ended
+	}()
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
+		if _, waiting, err := verify.Line(store); err == nil && len(waiting) == 1 && waiting[0].Who == "a run that starts Docker" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the run that starts Docker never joined the line")
+		}
+	}
+
+	// Act
+	line, err := MachineSharedLine()
+
+	// Assert
+	if err != nil || line.FloorBytes != 17*gigabyte/2 {
+		t.Fatalf("MachineSharedLine = %+v, %v; want the 8.5 GiB floor of the run that starts Docker", line, err)
+	}
+}
+
 // A light run beside the slots holds none of the heavy line's turns: with one
 // heavy run and one light run holding, a line of two reads the heavy run as
 // its only holder and one of its two turns free.

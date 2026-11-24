@@ -338,6 +338,78 @@ for (const who of ["CEO", "goblin"] as const) {
         await expect(panel).toHaveCount(0);
         await expect(field(page, name)).toHaveValue(DRAFT);
       });
+      // Claude Code 2.1.328 answers /cost and /status with a dialog that has
+      // nothing to choose and no Enter, and records nothing of it (#2759).
+      test("a dialog that only shows his command's result is drawn with Cancel, takes the arrows, and holds his message until it closes", async ({ page }) => {
+        // Arrange
+        const relay = await open(page);
+        const name = who === "CEO" ? "CEO" : NAME;
+        const posted: string[] = [];
+        await page.route("**/api/actions", (route) => {
+          posted.push((route.request().postDataJSON() as { text?: string }).text ?? "");
+          return route.fulfill({ status: 202, json: { status: "queued" } });
+        });
+        await openConnected(page, relay, who);
+        const panel = page.getByRole("group", { name: name + " asks", exact: true });
+        const before = typed(relay);
+        relay.say({ type: "screen", asking: false, open: true, working: false, submission: "cost-1", panel: { rows: ["Settings  Status   Config   Usage   Stats", "", "Session", "Estimated cost:         $0.0006", "Total duration (API):   0s"], choices: [], hints: ["←/→ to switch · Esc to close"] } });
+        await expect(panel).toContainText("Estimated cost:");
+
+        // Act
+        await field(page, name).press("ArrowRight");
+        await expect.poll(() => typed(relay).slice(before.length)).toBe("\x1b[C");
+        await field(page, name).fill("after the cost");
+        await field(page, name).press("Enter");
+        await expect.poll(() => posted).toEqual(["after the cost"]);
+        await (isTouch ? panel.getByRole("button", { name: "Cancel", exact: true }).tap() : panel.getByRole("button", { name: "Cancel", exact: true }).click());
+
+        // Assert
+        await expect.poll(() => typed(relay).slice(before.length)).toBe("\x1b[C\x1b");
+        relay.say({ type: "screen", asking: false, open: false, working: false, submission: "" });
+        await expect(panel).toHaveCount(0);
+      });
+      for (const [what, words] of [["an error", { rows: ["API Error: 529 Overloaded"], choices: [], hints: ["esc to dismiss"] }], ["its prompt line", { rows: [">"], choices: [], hints: [] }]] as const) {
+        test(`${what} with nothing to choose and nothing to close is not drawn, even after his own input`, async ({ page }) => {
+          // Arrange
+          const relay = await open(page);
+          const name = who === "CEO" ? "CEO" : NAME;
+          await openConnected(page, relay, who);
+
+          // Act
+          relay.say({ type: "screen", asking: false, open: true, working: false, submission: "words-1", panel: words });
+          await page.waitForTimeout(300);
+
+          // Assert
+          await expect(page.getByRole("group", { name: name + " asks", exact: true })).toHaveCount(0);
+        });
+      }
+      // A footer that also offers to close a dialog makes it no result when it
+      // asks for Enter or lists choices: it still asks, and takes what he
+      // writes as its answer.
+      for (const [what, asks] of [["a dialog that asks for Enter", { rows: ["Name this session"], choices: [], hints: ["Enter to submit · Esc to close"] }], ["a list of choices", { rows: ["Select model"], choices: [{ text: "Default", number: 1, focused: true }, { text: "Opus", number: 2 }], hints: ["Esc to close"] }]] as const) {
+        test(`${what} whose footer also offers to close it takes what he writes as its answer`, async ({ page }) => {
+          // Arrange
+          const relay = await open(page);
+          const name = who === "CEO" ? "CEO" : NAME;
+          const posted: string[] = [];
+          await page.route("**/api/actions", (route) => {
+            posted.push((route.request().postDataJSON() as { text?: string }).text ?? "");
+            return route.fulfill({ status: 202, json: { status: "queued" } });
+          });
+          await openConnected(page, relay, who);
+          relay.say({ type: "screen", asking: asks.choices.length > 0, open: true, working: false, submission: "asks-1", panel: asks });
+          await expect(page.getByRole("group", { name: name + " asks", exact: true })).toContainText(asks.rows[0]);
+          const before = typed(relay);
+
+          // Act
+          await field(page, name).fill("my answer");
+          await field(page, name).press("Enter");
+
+          // Assert
+          await expect.poll(() => typed(relay)).toBe(before + pasted("my answer"));
+          expect(posted).toEqual([]);
+        });
+      }
 
       test("a menu the harness drew for something other than his own input is not shown and takes no keys", async ({ page }) => {
         // Arrange

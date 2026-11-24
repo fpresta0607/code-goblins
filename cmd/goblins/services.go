@@ -24,9 +24,10 @@ data/projects/<project>/services.json for the task's full-stack check, or
 shares them with the tasks that already hold them up. A start first takes the
 machine's one turn for heavy runs, the line goblins gate turn stands in, and
 waits for it with no limit of its own. Then it starts anything only while
-free memory and commit stay above the 4 GB floor with the stack's measured
-cost added. Until they would, it says why and waits, for up to --wait (30m by
-default, 0 refuses at once).
+free memory and commit stay above the memory floor (memory_floor_gb in
+config/fleet.json, 4 GB by default) with the stack's measured cost added.
+Until they would, it says why and waits, for up to --wait (30m by default, 0
+refuses at once).
 
 It starts the Docker engine first when the engine is not running. Docker
 Desktop opens its dashboard window as it starts while its setting "Open the
@@ -36,7 +37,7 @@ Docker Desktop runs on in the tray. goblins changes no Docker Desktop setting.
 
 While compose up builds and starts the stack, goblins reads memory and commit
 every 2 seconds and hands the engine's file cache back every 10 seconds. The
-first reading under the 4 GB floor ends compose up with everything it
+first reading under the memory floor ends compose up with everything it
 started, and nothing else, and the start then stops what it started.
 
 A start whose compose up fails first saves, for each container that ran and
@@ -113,6 +114,12 @@ func runServices(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	ctx := context.Background()
 	var line string
 	if verb == "up" {
+		// Settings that cannot be read leave the floor unknown, so nothing
+		// starts, while a stack still stops.
+		if service.Floor, err = supervisor.MachineMemoryFloor(h); err != nil {
+			fmt.Fprintln(stderr, "goblins services:", err)
+			return 1
+		}
 		line, err = service.Up(ctx, checkout, *task, wait)
 	} else {
 		line, err = service.Down(ctx, checkout, *task)
@@ -126,11 +133,11 @@ func runServices(args []string, stdout, stderr io.Writer, runtime commandRuntime
 }
 
 // defaultProjectServices is the production services of a home: the docker
-// command and this machine's desktop, the machine's memory beside the
-// fleet's floor, the machine's one line for heavy runs, and the home's task
-// records. A start reads memory every 2 seconds while it builds and hands
-// the engine's file cache back every 10, as cg-services-pd-build's watch did
-// on 2026-10-11.
+// command and this machine's desktop, the machine's memory, the machine's one
+// line for heavy runs, and the home's task records. A start reads memory every
+// 2 seconds while it builds and hands the engine's file cache back every 10,
+// as cg-services-pd-build's watch did on 2026-10-11. Its floor is unset: only
+// a start reads it, from the home's settings.
 func defaultProjectServices(h home.Home, progress io.Writer) services.Service {
 	commands := execx.OSRunner{}
 	return services.Service{
@@ -142,14 +149,13 @@ func defaultProjectServices(h home.Home, progress io.Writer) services.Service {
 			memory, err := supervisor.MachineMemory()
 			return services.Memory{Available: memory.Available, CommitAvailable: memory.CommitAvailable}, err
 		},
-		Floor:  supervisor.MemoryFloor,
 		IsLive: services.LiveIn(h.State),
 		Now:    time.Now,
 		Sleep:  time.Sleep,
 		Poll:   15 * time.Second,
 		Out:    progress,
 		Turn: func(ctx context.Context, who string) (func(), error) {
-			turn, err := takeGateTurn(ctx, "goblins services", progress, progress, supervisor.MachineMemory, who, "", 0, verify.NoLimit, 0, 0)
+			turn, err := takeGateTurn(ctx, "goblins services", progress, progress, supervisor.MachineMemory, who, "", "", 0, verify.NoLimit, 0, 0)
 			return func() { _ = turn.Release() }, err
 		},
 		FloorEvery:  2 * time.Second,

@@ -4,11 +4,11 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // Options name the project to assess and how to look at it.
@@ -57,7 +57,7 @@ func Check(ctx context.Context, o Options) (Report, error) {
 		o.Checkout = absolute
 	}
 	c := &checker{Options: o, project: projectName(o.Checkout, o.DataDir)}
-	if typed := filepath.Base(o.Checkout); typed != c.project && sameName(typed, c.project) {
+	if typed := filepath.Base(o.Checkout); typed != c.project && sameName(filepath.Dir(o.Checkout), typed, c.project) {
 		c.Checkout = filepath.Join(filepath.Dir(o.Checkout), c.project)
 	}
 	repo, err := openRepository(ctx, o.Runner, c.Checkout, o.Now())
@@ -92,13 +92,11 @@ func Check(ctx context.Context, o Options) (Report, error) {
 	return Report{Project: c.project, Checkout: c.Checkout, Lines: c.lines, Draft: draft, DraftTier: tier, Unread: unread}, nil
 }
 
-// sameName reports whether two names are one project's. A Windows folder
-// answers to its name in any letter case, so there the case is not compared.
-func sameName(a, b string) bool {
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(a, b)
-	}
-	return a == b
+// sameName reports whether two names are one project's, as the names of two
+// folders in dir: without regard to case where dir's file system ignores
+// case, as Windows and a Mac's default volume do.
+func sameName(dir, a, b string) bool {
+	return fsx.EqualPath(dir+string(filepath.Separator)+a, dir+string(filepath.Separator)+b)
 }
 
 // projectName returns the name the home keys the project's files by: the
@@ -118,7 +116,7 @@ func projectName(checkout, dataDir string) string {
 			case !entry.IsDir():
 			case name == typed:
 				return typed
-			case sameName(name, typed):
+			case sameName(folder, name, typed):
 				spelled = name
 			}
 		}

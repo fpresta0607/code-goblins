@@ -286,8 +286,7 @@ func TestNativeResumeKeepsItsWorkWhenALateDialogCannotRecover(t *testing.T) {
 				t.Fatal(err)
 			}
 			controller := lifecycle.Service{StateDir: f.stateDir, Operations: lifecycle.Operations{
-				Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
-				Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
+				Resume: func(ctx context.Context, meta state.TaskMeta, prior *state.Lifecycle) error {
 					_, err := f.service.Switch(ctx, SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, IsResume: true, ResumeSession: prior.Session})
 					return err
 				},
@@ -379,8 +378,7 @@ func TestFailedNativeResumeCanRecoverOnItsExistingHost(t *testing.T) {
 	}
 	var handed []state.Lifecycle
 	controller := lifecycle.Service{StateDir: f.stateDir, Operations: lifecycle.Operations{
-		Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
-		Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
+		Resume: func(ctx context.Context, meta state.TaskMeta, prior *state.Lifecycle) error {
 			_, err := f.service.Switch(ctx, SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, IsResume: true, ResumeSession: prior.Session})
 			return err
 		},

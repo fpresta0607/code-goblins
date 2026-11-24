@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -136,7 +137,7 @@ func worktreeTask(owners map[string]string, worktreeRoots []string, dir string) 
 	if !ok {
 		return ""
 	}
-	if task, ok := owners[strings.ToLower(place.Root)]; ok {
+	if task, ok := owners[fsx.PathKey(place.Root)]; ok {
 		return task
 	}
 	if state.ValidTaskID(place.Name) == nil {
@@ -146,7 +147,7 @@ func worktreeTask(owners map[string]string, worktreeRoots []string, dir string) 
 }
 
 // recordedWorktrees maps every worktree a task record in stateDir names, its
-// own and its extras, lowercased, to the task. A record that cannot be read
+// own and its extras, by fsx.PathKey, to the task. A record that cannot be read
 // places nothing.
 func recordedWorktrees(stateDir string) map[string]string {
 	owners := map[string]string{}
@@ -164,7 +165,7 @@ func recordedWorktrees(stateDir string) map[string]string {
 		}
 		for _, path := range append([]string{meta.Worktree}, meta.Extras...) {
 			if path != "" {
-				owners[strings.ToLower(filepath.Clean(path))] = id
+				owners[fsx.PathKey(filepath.Clean(path))] = id
 			}
 		}
 	}
@@ -281,7 +282,7 @@ func (s Service) flagPrivatePoll(ctx context.Context, record *pollRecord, result
 	}
 	record.Flagged = kept
 	if result.Event == nil {
-		goblins := knownGoblins(entries)
+		goblins := knownGoblins(s.StateDir, entries)
 		sort.Slice(polls, func(i, j int) bool {
 			if !polls[i].Start.Equal(polls[j].Start) {
 				return polls[i].Start.Before(polls[j].Start)
@@ -289,7 +290,7 @@ func (s Service) flagPrivatePoll(ctx context.Context, record *pollRecord, result
 			return polls[i].PID < polls[j].PID
 		})
 		for _, poll := range polls {
-			goblin, known := goblins[strings.ToLower(poll.Task)]
+			goblin, known := goblins[fsx.PathKey(filepath.Join(s.StateDir, poll.Task))]
 			if flagged[poll.key()] || !known {
 				continue
 			}
@@ -314,8 +315,9 @@ type goblinRecord struct {
 
 // knownGoblins reads every goblin this home knows from its state listing:
 // live with a task record, retired with only its status log left, which goblins
-// cleanup keeps when it retires the record.
-func knownGoblins(entries []os.DirEntry) map[string]goblinRecord {
+// cleanup keeps when it retires the record. Each is keyed by fsx.PathKey of
+// its id in stateDir, the folder that lists it.
+func knownGoblins(stateDir string, entries []os.DirEntry) map[string]goblinRecord {
 	goblins := make(map[string]goblinRecord)
 	for _, entry := range entries {
 		name := entry.Name()
@@ -324,12 +326,13 @@ func knownGoblins(entries []os.DirEntry) map[string]goblinRecord {
 		}
 		extension := filepath.Ext(name)
 		id := strings.TrimSuffix(name, extension)
+		key := fsx.PathKey(filepath.Join(stateDir, id))
 		switch {
 		case strings.EqualFold(extension, ".meta"):
-			goblins[strings.ToLower(id)] = goblinRecord{id: id, live: true}
+			goblins[key] = goblinRecord{id: id, live: true}
 		case strings.EqualFold(extension, ".status"):
-			if _, seen := goblins[strings.ToLower(id)]; !seen {
-				goblins[strings.ToLower(id)] = goblinRecord{id: id}
+			if _, seen := goblins[key]; !seen {
+				goblins[key] = goblinRecord{id: id}
 			}
 		}
 	}

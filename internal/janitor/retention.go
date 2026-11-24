@@ -54,19 +54,19 @@ func isTextRecord(name string) bool {
 // keeps it in data because something still names it, whose deliverables also
 // stay, and in data what names it by path. A task is retired when no live
 // record of it is left; its folders keep everything for a day after that.
-func (cfg Config) trimRetiredTasks(processes []string, record *Record) {
+func (cfg Config) trimRetiredTasks(processes []commandLine, record *Record) {
 	if len(cfg.Inventory.UnreadableTasks) > 0 {
 		record.Notes = append(record.Notes, "a task record could not be read, so no retired task's folder was trimmed")
 		return
 	}
 	live := map[string]bool{}
 	for _, task := range cfg.Inventory.Tasks {
-		live[strings.ToLower(task.ID)] = true
+		live[fsx.PathKey(filepath.Join(cfg.Home.State, task.ID))] = true
 	}
 	archive := filepath.Join(cfg.Home.State, state.ArchiveDirName)
 	for _, entry := range cfg.readFolder(archive, record) {
 		match := archivedTask.FindStringSubmatch(entry.Name())
-		if match == nil || !entry.IsDir() || live[strings.ToLower(match[1])] {
+		if match == nil || !entry.IsDir() || live[fsx.PathKey(filepath.Join(cfg.Home.State, match[1]))] {
 			continue
 		}
 		archived, err := time.Parse("20060102T150405Z", match[2])
@@ -77,7 +77,7 @@ func (cfg Config) trimRetiredTasks(processes []string, record *Record) {
 	}
 	finished := filepath.Join(cfg.Home.Data, "archive", "finished")
 	for _, entry := range cfg.readFolder(finished, record) {
-		if !entry.IsDir() || live[strings.ToLower(entry.Name())] {
+		if !entry.IsDir() || live[fsx.PathKey(filepath.Join(cfg.Home.State, entry.Name()))] {
 			continue
 		}
 		cfg.keepTextRecord(filepath.Join(finished, entry.Name()), "a finished task's evidence", processes, record, nil)
@@ -88,7 +88,7 @@ func (cfg Config) trimRetiredTasks(processes []string, record *Record) {
 	}
 	for _, kept := range filing.Kept {
 		folder := filepath.Join(cfg.Home.Data, kept.ID)
-		if !kept.IsFinished || live[strings.ToLower(kept.ID)] {
+		if !kept.IsFinished || live[fsx.PathKey(filepath.Join(cfg.Home.State, kept.ID))] {
 			continue
 		}
 		// A pass since the record may have filed it.
@@ -114,11 +114,9 @@ func (cfg Config) readFolder(dir string, record *Record) []os.DirEntry {
 // would remove was written in the last day, cannot be read or is a link, or a
 // git repository is among it, whose work nothing here can prove landed. The
 // last two are reported.
-func (cfg Config) keepTextRecord(folder, what string, processes []string, record *Record, keep []string) {
-	for _, line := range processes {
-		if names(line, folder) {
-			return
-		}
+func (cfg Config) keepTextRecord(folder, what string, processes []commandLine, record *Record, keep []string) {
+	if anyNames(processes, folder) {
+		return
 	}
 	entries, err := os.ReadDir(folder)
 	if err != nil {
@@ -127,11 +125,12 @@ func (cfg Config) keepTextRecord(folder, what string, processes []string, record
 	}
 	var doomed []string
 	for _, entry := range entries {
-		isKept := slices.ContainsFunc(keep, func(name string) bool { return strings.EqualFold(name, entry.Name()) })
-		if entry.Type().IsRegular() && isTextRecord(entry.Name()) || entry.IsDir() && strings.EqualFold(entry.Name(), "deliverables") || isKept {
+		path := filepath.Join(folder, entry.Name())
+		isKept := slices.ContainsFunc(keep, func(name string) bool { return fsx.EqualPath(path, filepath.Join(folder, name)) })
+		if entry.Type().IsRegular() && isTextRecord(entry.Name()) || entry.IsDir() && fsx.EqualPath(path, filepath.Join(folder, "deliverables")) || isKept {
 			continue
 		}
-		doomed = append(doomed, filepath.Join(folder, entry.Name()))
+		doomed = append(doomed, path)
 	}
 	if len(doomed) == 0 {
 		return
@@ -169,7 +168,9 @@ func findRepository(path string) (string, error) {
 		if err != nil {
 			return err
 		}
-		if strings.EqualFold(entry.Name(), ".git") {
+		// The fold first spares the case rule's question for every other
+		// entry of a large tree.
+		if strings.EqualFold(entry.Name(), ".git") && fsx.EqualPath(current, filepath.Join(filepath.Dir(current), ".git")) {
 			found = current
 			return filepath.SkipAll
 		}
@@ -181,12 +182,12 @@ func findRepository(path string) (string, error) {
 // keepRecentBackups keeps the newest two backups of each kind in
 // state\backups. A backup whose name carries no time is a kind of its own and
 // stays.
-func (cfg Config) keepRecentBackups(processes []string, record *Record) {
+func (cfg Config) keepRecentBackups(processes []commandLine, record *Record) {
 	dir := filepath.Join(cfg.Home.State, "backups")
 	kinds := map[string][]string{}
 	for _, entry := range cfg.readFolder(dir, record) {
 		if match := backupName.FindStringSubmatch(entry.Name()); match != nil {
-			kind := strings.ToLower(match[1] + match[3])
+			kind := fsx.PathKey(filepath.Join(dir, match[1]+match[3]))
 			kinds[kind] = append(kinds[kind], entry.Name())
 		}
 	}
@@ -200,11 +201,9 @@ func (cfg Config) keepRecentBackups(processes []string, record *Record) {
 	}
 }
 
-func (cfg Config) removeBackup(path string, processes []string, record *Record) {
-	for _, line := range processes {
-		if names(line, path) {
-			return
-		}
+func (cfg Config) removeBackup(path string, processes []commandLine, record *Record) {
+	if anyNames(processes, path) {
+		return
 	}
 	_, bytes, err := newestWrite(path)
 	if err != nil {
@@ -234,7 +233,7 @@ func (cfg Config) reportDataSize(record *Record) {
 	why := map[string]string{}
 	if filing, err := layout.ReadRecord(cfg.Home.State); err == nil {
 		for _, kept := range filing.Kept {
-			why[strings.ToLower(kept.ID)] = kept.Reason
+			why[fsx.PathKey(filepath.Join(cfg.Home.Data, kept.ID))] = kept.Reason
 		}
 	}
 	type folder struct {
@@ -251,7 +250,7 @@ func (cfg Config) reportDataSize(record *Record) {
 	var largest []string
 	for _, f := range folders[:min(len(folders), largestDataShown)] {
 		line := fmt.Sprintf("data/%s %.1f MB", f.name, float64(f.bytes)/(1<<20))
-		if reason := why[strings.ToLower(f.name)]; reason != "" {
+		if reason := why[fsx.PathKey(filepath.Join(cfg.Home.Data, f.name))]; reason != "" {
 			line += " (" + reason + ")"
 		}
 		largest = append(largest, line)
