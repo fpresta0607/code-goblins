@@ -4,10 +4,14 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 // fixtureStates is what GitHub says of the numbers the fixture home names.
@@ -75,6 +79,69 @@ func TestRunRecordsAFailedReadAsAProblemAndSettlesNothingByIt(t *testing.T) {
 	for _, finding := range report.Findings {
 		if finding.Kind == KindDone {
 			t.Errorf("finding %s settled an issue that was never read", finding.Key())
+		}
+	}
+}
+
+func TestRunThatCannotReadARepositoryFindsNothingOfItsWorkAndTheNextReadFindsItAgain(t *testing.T) {
+	// Arrange: a paused task whose issue is closed and whose last activity is
+	// ten days old, and three queued rows that fold together, a and b by an
+	// open issue and b and c by a path.
+	root := t.TempDir()
+	h := home.Home{Root: root, Data: filepath.Join(root, "data"), State: filepath.Join(root, "state")}
+	checkout := filepath.Join(root, "widgets")
+	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	brief := filepath.Join(h.State, "tasktmp", "done-task", "brief.md")
+	writeFixture(t, brief, "# Brief done-task\n\n## Task\n\nShip https://github.com/acme/widgets/issues/12.\n", now.Add(-10*24*time.Hour))
+	if err := state.WriteMeta(state.TaskMetaPath(h.State, "done-task"), map[string]string{"project": checkout, "brief": brief, "spawn_gen": "g1", "backend": "native"}); err != nil {
+		t.Fatal(err)
+	}
+	pause, err := state.NewPauseCondition("memory", "", now.Add(-10*24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: "done-task", Generation: "g1", Operation: "pause-1", Action: "pause", Phase: "paused", Started: now.Add(-10 * 24 * time.Hour), Pause: &pause}); err != nil {
+		t.Fatal(err)
+	}
+	writeFixture(t, filepath.Join(h.Data, "fold-b", "brief.md"), "# Brief fold-b\n\n## Task\n\nSort internal/list.go.\n", time.Time{})
+	writeFixture(t, filepath.Join(h.Data, "fold-c", "brief.md"), "# Brief fold-c\n\n## Task\n\nSort internal/list.go again.\n", time.Time{})
+	writeFixture(t, filepath.Join(h.Data, "backlog.md"), "# Backlog\n\n## Queued\n- [ ] fold-a - Sort the list, issue 11 (repo: widgets)\n- [ ] fold-b - Sort the list, issue 11 (repo: widgets)\n- [ ] fold-c - Sort the list once more (repo: widgets)\n", time.Time{})
+	isUnread := false
+	read := func(_ context.Context, _ string, numbers []int) (map[int]string, error) {
+		if isUnread {
+			return nil, errors.New("GitHub is unreachable")
+		}
+		states := map[int]string{}
+		for _, number := range numbers {
+			states[number] = map[int]string{11: "open", 12: "closed"}[number]
+		}
+		return states, nil
+	}
+	steps := []struct {
+		name         string
+		isUnread     bool
+		wantFindings []string
+		wantProblems int
+	}{
+		{name: "a clean read", wantFindings: []string{"done already:done-task", "fold:fold-a,fold-b,fold-c"}},
+		{name: "a read that fails", isUnread: true, wantProblems: 1},
+		{name: "the next clean read", wantFindings: []string{"done already:done-task", "fold:fold-a,fold-b,fold-c"}},
+	}
+	for _, step := range steps {
+		// Act
+		isUnread = step.isUnread
+		report, err := Run(context.Background(), h, fixtureResolver(checkout), read, now, 7*24*time.Hour)
+
+		// Assert
+		if err != nil {
+			t.Fatalf("%s: %v", step.name, err)
+		}
+		var found []string
+		for _, finding := range report.Findings {
+			found = append(found, finding.Key())
+		}
+		if !slices.Equal(found, step.wantFindings) || len(report.Problems) != step.wantProblems {
+			t.Fatalf("%s: findings %q and problems %q, want %q and %d problems", step.name, found, report.Problems, step.wantFindings, step.wantProblems)
 		}
 	}
 }

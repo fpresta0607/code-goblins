@@ -13,6 +13,6 @@ review   say which queued rows, parked rows and paused tasks need a decision, ea
 `review` reads the backlog, the briefs and the task records, and asks GitHub one query for each repository for the state of every issue and pull request they name.
 It spends no model tokens and changes nothing.
 `stale_work_days` in `config/fleet.json` sets the stale threshold in days, 7 unless set.
-What it could not read, such as a repository GitHub would not answer for, is listed as `not read` and settles nothing.
+What it could not read, such as a repository GitHub would not answer for, is listed as `not read`, and the work that names its issues or pull requests, with the work that could fold with it, is left out of that review.
 
 Read the [applicable dispatch procedure](../contract/dispatch.md) before acting.
