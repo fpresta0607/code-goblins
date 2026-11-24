@@ -2,6 +2,7 @@ package spawn
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 
@@ -11,15 +12,18 @@ import (
 
 func TestSpawnStillRefusesAnIDThatCollidesWithALiveTask(t *testing.T) {
 	f := newFixture(t)
-	// A live task keeps its metadata, and on Windows two ids differing only in
-	// case would share every state file.
+	// A live task keeps its metadata, and where the file system ignores case,
+	// as Windows does, two ids differing only in case would share every state
+	// file.
 	if err := state.WriteTaskMeta(f.stateDir, state.TaskMeta{ID: strings.ToUpper(f.request.ID), Window: "native", Backend: "native"}); err != nil {
 		t.Fatal(err)
 	}
+	_, statErr := os.Stat(state.TaskMetaPath(f.stateDir, f.request.ID))
+	isOnePath := statErr == nil
 
 	_, err := f.service.Spawn(context.Background(), f.request)
-	if err == nil || !strings.Contains(err.Error(), "conflicts case-insensitively") {
-		t.Fatalf("err = %v, want the live-task collision still refused", err)
+	if isRefused := err != nil && strings.Contains(err.Error(), "conflicts case-insensitively"); isRefused != isOnePath {
+		t.Fatalf("err = %v, want the live-task collision still refused: %t, as the file system opens one record by both ids: %t", err, isOnePath, isOnePath)
 	}
 }
 

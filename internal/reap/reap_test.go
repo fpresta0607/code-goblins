@@ -271,13 +271,13 @@ func TestForceNamesOneProcess(t *testing.T) {
 // indistinguishable from an orphan, and that refusal answers to the pid alone,
 // so forcing the unreadable task behind this server must not kill it.
 func TestATaskForceNeverClearsARefusalAboutAProcess(t *testing.T) {
-	const worktree = `C:\dev\pd\.worktrees\gb-broken`
+	worktree := systemPath(`C:\dev\pd\.worktrees\gb-broken`)
 	inventory := Inventory{
 		Panes:           []Pane{{ID: "pane-b", HasAgent: true}},
 		UnresolvedPanes: []string{"pane-b"},
 		UnreadableTasks: []string{"broken"},
-		Worktrees:       []WorktreeDir{{Path: worktree, Project: `C:\dev\pd`, Registration: RegistrationListed, TaskID: "broken"}},
-		Processes:       []Process{process(555, 1, "node.exe", `node `+worktree+`\node_modules\vite\bin\vite.js`, fixtureLatest)},
+		Worktrees:       []WorktreeDir{{Path: worktree, Project: systemPath(`C:\dev\pd`), Registration: RegistrationListed, TaskID: "broken"}},
+		Processes:       []Process{process(555, 1, "node.exe", `node `+worktree+systemPath(`\node_modules\vite\bin\vite.js`), fixtureLatest)},
 	}
 	runner := &gitRunner{}
 	service := newService(t, testHome(t), inventory, runner)
@@ -443,7 +443,7 @@ func TestApplyReturnsACleanOrphanWorktree(t *testing.T) {
 	// A meta beside the record is what routes the removal through goblins cleanup
 	// rather than through the bare worktree return.
 	if err := state.WriteTaskMeta(h.State, state.TaskMeta{
-		ID: "old", Backend: "herdr", Project: `C:\dev\pd`, Worktree: `C:\dev\pd\.worktrees\gb-old`,
+		ID: "old", Backend: "herdr", Project: systemPath(`C:\dev\pd`), Worktree: systemPath(`C:\dev\pd\.worktrees\gb-old`),
 		HerdrSession: "default", HerdrWorkspaceID: "w", HerdrTabID: "t", HerdrPaneID: "p",
 	}); err != nil {
 		t.Fatal(err)
@@ -1290,10 +1290,10 @@ func TestOneTaskActedOnTwiceKeepsBothReapedLines(t *testing.T) {
 	inventory := Inventory{
 		Tasks:     []Task{task("old", worktree, "pane-gone", "done")},
 		Worktrees: []WorktreeDir{{Path: worktree, Project: filepath.Dir(filepath.Dir(worktree)), Registration: RegistrationListed, TaskID: "old"}},
-		Processes: []Process{process(555, 1, "node.exe", `node `+worktree+`\node_modules\vite\bin\vite.js`, fixtureLatest)},
+		Processes: []Process{process(555, 1, "node.exe", `node `+worktree+systemPath(`\node_modules\vite\bin\vite.js`), fixtureLatest)},
 	}
 	if err := state.WriteTaskMeta(h.State, state.TaskMeta{
-		ID: "old", Backend: "herdr", Project: `C:\dev\pd`, Worktree: worktree,
+		ID: "old", Backend: "herdr", Project: systemPath(`C:\dev\pd`), Worktree: worktree,
 		HerdrSession: "default", HerdrWorkspaceID: "w", HerdrTabID: "t", HerdrPaneID: "p",
 	}); err != nil {
 		t.Fatal(err)

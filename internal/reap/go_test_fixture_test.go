@@ -5,31 +5,31 @@ import (
 	"testing"
 )
 
-const boardGoTmp = `C:\Users\op\AppData\Local\goblins\gotmp\0b49f5f9\board`
+var boardGoTmp = systemPath(`C:\Users\op\AppData\Local\goblins\gotmp\0b49f5f9\board`)
 
 // fleetScratch is the home's scratch folder, where a goblin's TEMP, TMP and
 // GOTMPDIR point, one folder per task.
-const fleetScratch = `C:\Users\op\AppData\Local\CodeGoblins\scratch`
+var fleetScratch = systemPath(`C:\Users\op\AppData\Local\CodeGoblins\scratch`)
 
 // devDriveScratch is the scratch folder of a home whose heavy folders moved
 // to a Dev Drive; fleetScratch is still where a task made before the move
 // keeps its own.
-const devDriveScratch = `D:\CodeGoblins\scratch`
+var devDriveScratch = systemPath(`D:\CodeGoblins\scratch`)
 
 // boardTestDir is where go test runs the board goblin's spawn tests: the
 // package's directory in its own worktree.
-const boardTestDir = liveWorktree + `\internal\spawn`
+var boardTestDir = liveWorktree + systemPath(`\internal\spawn`)
 
 // withGoTest adds what a Go test leaves running when it drives a native
 // terminal: the test binary, built under goTmp and run from dir, serving as
 // the terminal's host, and the stand-in harness it runs from the test's own
 // temporary directory there.
 func withGoTest(inv Inventory, goTmp, dir string) Inventory {
-	testTmp := goTmp + `\TestANativeGoblinSwitchesInPlace1974485234`
-	host := process(700, 1, "spawn.test.exe", `"`+goTmp+`\go-build2247352313\b001\spawn.test.exe" native-spawn-host --state "`+testTmp+`\001\state" --id board -- "`+testTmp+`\003\codex.exe" --dangerously-bypass-approvals-and-sandbox`, fixtureLater)
+	testTmp := goTmp + systemPath(`\TestANativeGoblinSwitchesInPlace1974485234`)
+	host := process(700, 1, "spawn.test.exe", `"`+goTmp+systemPath(`\go-build2247352313\b001\spawn.test.exe" native-spawn-host --state "`)+testTmp+systemPath(`\001\state" --id board -- "`)+testTmp+systemPath(`\003\codex.exe" --dangerously-bypass-approvals-and-sandbox`), fixtureLater)
 	host.Cwd = dir
-	stub := process(710, 700, "codex.exe", `"`+testTmp+`\003\codex.exe" --dangerously-bypass-approvals-and-sandbox`, fixtureLatest)
-	stub.Cwd = testTmp + `\001`
+	stub := process(710, 700, "codex.exe", `"`+testTmp+systemPath(`\003\codex.exe" --dangerously-bypass-approvals-and-sandbox`), fixtureLatest)
+	stub.Cwd = testTmp + systemPath(`\001`)
 	inv.Processes = append(inv.Processes, host, stub)
 	return inv
 }
@@ -45,10 +45,10 @@ func TestAGoblinsGoTestStandInsAreItsFixture(t *testing.T) {
 		goTmp           string
 		alive, reported bool
 	}{
-		"a live goblin, its scratch folder":           {fleetScratch + `\board`, true, false},
-		"a dead goblin, its scratch folder":           {fleetScratch + `\board`, false, true},
-		"a live goblin, its scratch on the Dev Drive": {devDriveScratch + `\board`, true, false},
-		"a dead goblin, its scratch on the Dev Drive": {devDriveScratch + `\board`, false, true},
+		"a live goblin, its scratch folder":           {fleetScratch + systemPath(`\board`), true, false},
+		"a dead goblin, its scratch folder":           {fleetScratch + systemPath(`\board`), false, true},
+		"a live goblin, its scratch on the Dev Drive": {devDriveScratch + systemPath(`\board`), true, false},
+		"a dead goblin, its scratch on the Dev Drive": {devDriveScratch + systemPath(`\board`), false, true},
 		"a live goblin, an older build's Go temp dir": {boardGoTmp, true, false},
 		"a dead goblin, an older build's Go temp dir": {boardGoTmp, false, true},
 	} {
@@ -82,22 +82,21 @@ func TestAGoblinsGoTestStandInsAreItsFixture(t *testing.T) {
 
 // A test binary under a goblin's Go temporary directory is that goblin's when
 // it also runs from the goblin's own worktree, an extra worktree it made, its
-// task temporary directory or its Claude Code scratchpad.
+// task temporary directory or its scratch folder.
 func TestALiveGoblinsGoTestRunFromItsOwnDirectoriesIsItsFixture(t *testing.T) {
 	for name, dir := range map[string]string{
 		"its worktree":          boardTestDir,
-		"its extra worktree":    `C:\dev\proj\.worktrees\gb-board-2\internal\spawn`,
-		"its task temporary":    fleetState + `\tasktmp\board`,
-		"its scratch folder":    fleetScratch + `\board\TestSpawn123\001`,
-		"its Dev Drive scratch": devDriveScratch + `\board\TestSpawn123\001`,
-		"its Claude scratchpad": `C:\Users\op\AppData\Local\Temp\claude\c--dev-proj--worktrees-gb-board\5f0c2e1a\scratchpad`,
+		"its extra worktree":    systemPath(`C:\dev\proj\.worktrees\gb-board-2\internal\spawn`),
+		"its task temporary":    fleetState + systemPath(`\tasktmp\board`),
+		"its scratch folder":    fleetScratch + systemPath(`\board\TestSpawn123\001`),
+		"its Dev Drive scratch": devDriveScratch + systemPath(`\board\TestSpawn123\001`),
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			inv := fleetWithGoblin(true, "done: PR https://example.invalid/pull/1")
 			inv.StateDir = fleetState
 			inv.ScratchRoots = []string{devDriveScratch, fleetScratch}
-			inv.Worktrees = append(inv.Worktrees, WorktreeDir{Path: `C:\dev\proj\.worktrees\gb-board-2`, Project: `C:\dev\proj`, TaskID: "board-2", Registration: RegistrationListed, Created: fixtureLater})
+			inv.Worktrees = append(inv.Worktrees, WorktreeDir{Path: systemPath(`C:\dev\proj\.worktrees\gb-board-2`), Project: systemPath(`C:\dev\proj`), TaskID: "board-2", Registration: RegistrationListed, Created: fixtureLater})
 			inv = withGoTest(inv, boardGoTmp, dir)
 
 			// Act
@@ -118,7 +117,7 @@ func TestALiveGoblinsGoTestRunFromItsOwnDirectoriesIsItsFixture(t *testing.T) {
 // unsupervised harness is.
 func TestAGoTestStandInOfAnUnknownTaskIsReported(t *testing.T) {
 	// Arrange
-	inv := withGoTest(fleetWithGoblin(true, "done: PR https://example.invalid/pull/1"), `C:\Users\op\AppData\Local\goblins\gotmp\0b49f5f9\retired-task`, `C:\dev\proj\.worktrees\gb-retired-task\internal\spawn`)
+	inv := withGoTest(fleetWithGoblin(true, "done: PR https://example.invalid/pull/1"), systemPath(`C:\Users\op\AppData\Local\goblins\gotmp\0b49f5f9\retired-task`), systemPath(`C:\dev\proj\.worktrees\gb-retired-task\internal\spawn`))
 
 	// Act
 	orphans := classOf(Classify(inv), OrphanProcess)
@@ -143,7 +142,7 @@ func TestAGoTestStandInOfAnUnknownTaskIsReported(t *testing.T) {
 // borrowed can reach another goblin's gate.
 func TestAGoTestIsNotATasksOnItsGoTemporaryDirectoryAlone(t *testing.T) {
 	// Arrange
-	gateTestDir := `C:\Users\op\.no-mistakes\worktrees\540e35e237ee\01M3P21QWKPRZHZJ5HTMJMCPQ2\internal\spawn`
+	gateTestDir := systemPath(`C:\Users\op\.no-mistakes\worktrees\540e35e237ee\01M3P21QWKPRZHZJ5HTMJMCPQ2\internal\spawn`)
 	inv := withGoTest(fleetWithGoblin(false, "done: PR https://example.invalid/pull/1"), boardGoTmp, gateTestDir)
 
 	// Act

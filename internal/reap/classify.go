@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -527,7 +528,7 @@ var harnessExecutables = []string{"claude", "codex", "kimi", "pi"}
 // seconds at a time and each time as a new process: four in five minutes on
 // 2026-10-10, the day after the sweep woke the CEO about every 20 minutes for
 // a short-lived codex.exe with no pane.
-var desktopAppMarkers = []string{`\windowsapps\claude_`, `\windowsapps\openai.codex_`, `\appdata\roaming\claude\claude-code\`, `\appdata\local\openai\codex\`, `\appdata\local\siqshift\`}
+var desktopAppMarkers = []string{filepath.FromSlash("/windowsapps/claude_"), filepath.FromSlash("/windowsapps/openai.codex_"), filepath.FromSlash("/appdata/roaming/claude/claude-code/"), filepath.FromSlash("/appdata/local/openai/codex/"), filepath.FromSlash("/appdata/local/siqshift/")}
 
 // gateExecutable supervises a no-mistakes review round and launches the
 // reviewer harnesses under it. Those harnesses are as supervised as a goblin
@@ -920,7 +921,7 @@ func ownerOf(dir WorktreeDir, tasks map[string]Task, worktrees []WorktreeDir, un
 	var owner Task
 	found := false
 	for id, task := range tasks {
-		if !strings.HasPrefix(strings.ToLower(dir.TaskID), strings.ToLower(id)+"-") || (found && len(id) <= len(owner.ID)) {
+		if !strings.HasPrefix(fsx.PathKey(dir.TaskID), fsx.PathKey(id)+"-") || (found && len(id) <= len(owner.ID)) {
 			continue
 		}
 		if normalizePath(filepath.Clean(task.Meta.Project)) != normalizePath(filepath.Clean(dir.Project)) {
@@ -1063,7 +1064,7 @@ func namesPath(commandLine, path string) bool {
 
 func isPathBoundary(char byte) bool {
 	switch char {
-	case '\\', '"', '\'', ' ', '\t':
+	case filepath.Separator, '"', '\'', ' ', '\t':
 		return true
 	}
 	return false
@@ -1215,7 +1216,7 @@ func runsForTask(dir, task string, inv Inventory, tasks map[string]Task, unreada
 		return true
 	}
 	for _, root := range inv.ScratchRoots {
-		if root != "" && pathWithin(dir, root+`\`+task) {
+		if root != "" && pathWithin(dir, root+string(filepath.Separator)+task) {
 			return true
 		}
 	}
@@ -1223,11 +1224,11 @@ func runsForTask(dir, task string, inv Inventory, tasks map[string]Task, unreada
 	if !ok {
 		return false
 	}
-	if strings.EqualFold(worktree.TaskID, task) {
+	if fsx.EqualPath(worktree.TaskID, task) {
 		return true
 	}
 	owner, known := ownerOf(worktree, tasks, inv.Worktrees, unreadable)
-	return known && strings.EqualFold(owner.ID, task)
+	return known && fsx.EqualPath(owner.ID, task)
 }
 
 // fixtureOrigin is the process a test fixture's stand-ins run under: a Herdr
@@ -1257,16 +1258,16 @@ func goTestTask(process Process, scratchRoots []string) (string, bool) {
 		return "", false
 	}
 	for _, scratchRoot := range scratchRoots {
-		if root := strings.TrimSuffix(normalizePath(scratchRoot), `\`); root != "" {
-			if rest, ok := strings.CutPrefix(normalizePath(args[0]), root+`\`); ok {
-				task, _, _ := strings.Cut(rest, `\`)
+		if root := strings.TrimSuffix(normalizePath(scratchRoot), string(filepath.Separator)); root != "" {
+			if rest, ok := strings.CutPrefix(normalizePath(args[0]), root+string(filepath.Separator)); ok {
+				task, _, _ := strings.Cut(rest, string(filepath.Separator))
 				return task, task != ""
 			}
 		}
 	}
 	parts := strings.FieldsFunc(args[0], func(r rune) bool { return r == '\\' || r == '/' })
 	for index := 1; index+3 < len(parts); index++ {
-		if strings.EqualFold(parts[index-1], "goblins") && strings.EqualFold(parts[index], "gotmp") {
+		if fsx.EqualPath(parts[index-1], "goblins") && fsx.EqualPath(parts[index], "gotmp") {
 			return parts[index+2], true
 		}
 	}
@@ -1330,14 +1331,14 @@ func commandArgs(commandLine string) []string {
 // is not an ASCII letter or digit replaced by -; any other directory is its
 // own answer.
 func scratchpadOwner(dir string, worktrees []WorktreeDir) string {
-	parts := strings.Split(normalizePath(dir), `\`)
+	parts := strings.Split(normalizePath(dir), string(filepath.Separator))
 	for index := 0; index+2 < len(parts); index++ {
 		if parts[index] != "temp" || parts[index+1] != "claude" {
 			continue
 		}
 		for _, worktree := range worktrees {
 			slug := strings.Map(func(r rune) rune {
-				if ('a' <= r && r <= 'z') || ('0' <= r && r <= '9') {
+				if ('a' <= r && r <= 'z') || ('A' <= r && r <= 'Z') || ('0' <= r && r <= '9') {
 					return r
 				}
 				return '-'
@@ -1431,9 +1432,9 @@ func pathWithin(path, root string) bool {
 	if path == "" || root == "" {
 		return false
 	}
-	base := strings.TrimSuffix(normalizePath(root), `\`)
-	folded := strings.TrimSuffix(normalizePath(path), `\`)
-	return folded == base || strings.HasPrefix(folded, base+`\`)
+	base := strings.TrimSuffix(normalizePath(root), string(filepath.Separator))
+	folded := strings.TrimSuffix(normalizePath(path), string(filepath.Separator))
+	return folded == base || strings.HasPrefix(folded, base+string(filepath.Separator))
 }
 
 // taskHasProcess reports whether anything still running belongs to the task. A
@@ -1751,7 +1752,7 @@ func isServer(process Process) bool {
 	for _, module := range serverModules {
 		// The separators keep next from matching a directory called
 		// nextcloud, and npm from matching npmrc.
-		if strings.Contains(command, "\\"+module+"\\") || strings.Contains(command, " "+module+" ") || strings.HasSuffix(command, " "+module) {
+		if strings.Contains(command, string(filepath.Separator)+module+string(filepath.Separator)) || strings.Contains(command, " "+module+" ") || strings.HasSuffix(command, " "+module) {
 			return true
 		}
 	}
@@ -1832,10 +1833,12 @@ func IsTerminal(verb string) bool {
 	return verb == "done" || verb == "failed" || verb == "stopped"
 }
 
-// normalizePath folds a Windows path for comparison: lowercase, with forward
-// slashes rewritten as backslashes, so a path written either way matches.
+// normalizePath puts a path in the form every comparison here reads it in:
+// its separators the system's own, with forward slashes rewritten as
+// backslashes on Windows so a path written either way matches, and in
+// lowercase where its file system ignores case, as Windows does.
 func normalizePath(path string) string {
-	return strings.ToLower(strings.ReplaceAll(path, "/", "\\"))
+	return fsx.PathKey(filepath.FromSlash(path))
 }
 
 func executableName(name string) string {

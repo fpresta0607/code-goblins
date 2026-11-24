@@ -10,7 +10,7 @@ import (
 // evidence the attribution tests use.
 func reportFixture() Inventory {
 	inv := machineFixture()
-	inv.SystemRoot = `C:\WINDOWS`
+	inv.SystemRoot = systemPath(`C:\WINDOWS`)
 	inv.Containers = []Container{
 		{
 			Name: "supabase_edge_runtime_peakcraftsman-demo", Image: "edge-runtime:v1.74.3",
@@ -42,8 +42,8 @@ func reportFixture() Inventory {
 		{Port: 3200, PID: 21524, Process: "node.exe", WorkDir: peakRoot},
 		{Port: 3201, PID: 38896, Process: "node.exe", WorkDir: peakLiveTree},
 		{Port: 3300, PID: 36032, Process: "node.exe", WorkDir: peakDeadTree},
-		{Port: 54422, PID: 16248, Process: "com.docker.backend.exe", WorkDir: `C:\Users\x\Docker`},
-		{Port: 5432, PID: 4268, Process: "wslrelay.exe", WorkDir: `C:\WINDOWS\system32`},
+		{Port: 54422, PID: 16248, Process: "com.docker.backend.exe", WorkDir: systemPath(`C:\Users\x\Docker`)},
+		{Port: 5432, PID: 4268, Process: "wslrelay.exe", WorkDir: systemPath(`C:\WINDOWS\system32`)},
 		{Port: 49664, PID: 1520, Process: "lsass.exe"},
 	}
 	inv.Machine = Machine{MemoryTotal: 32 << 30, MemoryAvailable: 8 << 30, CommitLimit: 40 << 30, CommitAvailable: 6 << 30, WSL: 11 << 30}
@@ -54,7 +54,7 @@ func reportFixture() Inventory {
 // report rather than on the attribution alone: the stacks must actually come
 // out grouped this way.
 func TestBuildGroupsStacksByOwner(t *testing.T) {
-	report := Build(`C:\dev\code-goblins`, reportFixture())
+	report := Build(systemPath(`C:\dev\code-goblins`), reportFixture())
 
 	want := map[string]string{
 		"goblin peak-inbox-connect":    "supabase_edge_runtime_peakcraftsman-demo",
@@ -166,8 +166,8 @@ func TestBuildAnswersWhichServersAreSafeToStop(t *testing.T) {
 func TestBuildAttributesAServerStartedInsideAWorktree(t *testing.T) {
 	inv := reportFixture()
 	inv.Listeners = append(inv.Listeners,
-		Listener{Port: 3202, PID: 41000, Process: "node.exe", WorkDir: peakLiveTree + `\frontend`},
-		Listener{Port: 3301, PID: 41001, Process: "node.exe", WorkDir: peakDeadTree + `\frontend`},
+		Listener{Port: 3202, PID: 41000, Process: "node.exe", WorkDir: peakLiveTree + systemPath(`\frontend`)},
+		Listener{Port: 3301, PID: 41001, Process: "node.exe", WorkDir: peakDeadTree + systemPath(`\frontend`)},
 	)
 	servers := map[int]Server{}
 	for _, server := range Build("", inv).Servers {
@@ -189,7 +189,7 @@ func TestBuildAttributesAServerStartedInsideAWorktree(t *testing.T) {
 // that "safe" is how a working goblin's server gets stopped.
 func TestBuildRefusesToCallARecordlessWorktreeSafeToStop(t *testing.T) {
 	inv := reportFixture()
-	recordless := `C:\dev\peakCraftsman\.worktrees\gb-peak-no-record`
+	recordless := systemPath(`C:\dev\peakCraftsman\.worktrees\gb-peak-no-record`)
 	inv.Listeners = append(inv.Listeners,
 		Listener{Port: 3500, PID: 42000, Process: "node.exe", WorkDir: recordless})
 	inv.Present[normalize(recordless)] = true
@@ -352,7 +352,7 @@ func TestBuildNamesAVolumesProjectFromItsStackNameAlone(t *testing.T) {
 // refuse everything when that floor cannot be read, so the Dispatch line
 // goblins runtime prints must not read ready in either case.
 func TestMachineDispatchWaitsUnderTheDiskFloor(t *testing.T) {
-	roomy := Machine{MemoryAvailable: 16 << 30, CommitAvailable: 16 << 30, DiskName: "C:", DiskFree: 20 << 30, DiskFloor: 15 << 30}
+	roomy := Machine{MemoryAvailable: 16 << 30, CommitAvailable: 16 << 30, DispatchNeed: 5 << 30, DiskName: "C:", DiskFree: 20 << 30, DiskFloor: 15 << 30}
 	tests := []struct {
 		name   string
 		change func(*Machine)
@@ -391,10 +391,11 @@ func TestMachineDispatchWaitsUnderTheDiskFloor(t *testing.T) {
 	}
 }
 
-// The next goblin needs both memory and commit at the fleet's next-start
-// mark: commit running out stops a process starting however much memory
-// looks available, so a dispatch read from memory alone starts one anyway.
-func TestMachineDispatchNeedsMemoryAndCommitAtTheNextStartMark(t *testing.T) {
+// The next goblin needs both memory and commit at the figure the scheduler
+// admits a start by: commit running out stops a process starting however much
+// memory looks available, so a dispatch read from memory alone starts one
+// anyway, and a need that cannot be read holds every dispatch.
+func TestMachineDispatchNeedsMemoryAndCommitAtTheNextStartNeed(t *testing.T) {
 	tests := []struct {
 		name    string
 		machine Machine
@@ -402,23 +403,33 @@ func TestMachineDispatchNeedsMemoryAndCommitAtTheNextStartMark(t *testing.T) {
 	}{
 		{
 			name:    "memory short",
-			machine: Machine{MemoryAvailable: 2560 << 20, CommitAvailable: 16 << 30},
-			want:    Dispatch{Line: "Dispatch: wait, only 2.5 GB of memory is free; the next goblin starts at 5 GB of both"},
+			machine: Machine{MemoryAvailable: 2560 << 20, CommitAvailable: 16 << 30, DispatchNeed: 5 << 30},
+			want:    Dispatch{Line: "Dispatch: wait, only 2.5 GB of memory is free; the next goblin starts at 5.0 GB of both"},
 		},
 		{
 			name:    "commit short",
-			machine: Machine{MemoryAvailable: 16 << 30, CommitAvailable: 2560 << 20},
-			want:    Dispatch{Line: "Dispatch: wait, only 2.5 GB of commit (memory plus page file) is free; the next goblin starts at 5 GB of both"},
+			machine: Machine{MemoryAvailable: 16 << 30, CommitAvailable: 2560 << 20, DispatchNeed: 6<<30 + 512<<20},
+			want:    Dispatch{Line: "Dispatch: wait, only 2.5 GB of commit (memory plus page file) is free; the next goblin starts at 6.5 GB of both"},
 		},
 		{
 			name:    "both short",
-			machine: Machine{MemoryAvailable: 3 << 30, CommitAvailable: 1 << 30},
-			want:    Dispatch{Line: "Dispatch: wait, only 3.0 GB of memory and 1.0 GB of commit (memory plus page file) are free; the next goblin starts at 5 GB of both"},
+			machine: Machine{MemoryAvailable: 3 << 30, CommitAvailable: 1 << 30, DispatchNeed: 8 << 30},
+			want:    Dispatch{Line: "Dispatch: wait, only 3.0 GB of memory and 1.0 GB of commit (memory plus page file) are free; the next goblin starts at 8.0 GB of both"},
 		},
 		{
-			name:    "both at exactly the mark",
-			machine: Machine{MemoryAvailable: 5 << 30, CommitAvailable: 5 << 30},
-			want:    Dispatch{Ready: true, Line: "Dispatch: ready, 5.0 GB of memory and 5.0 GB of commit are free"},
+			name:    "need unread",
+			machine: Machine{MemoryAvailable: 16 << 30, CommitAvailable: 16 << 30, DispatchNeedUnread: "the memory floor cannot be read: config/fleet.json: invalid character"},
+			want:    Dispatch{Line: "Dispatch: wait, the memory the next start needs cannot be read, so nothing starts: the memory floor cannot be read: config/fleet.json: invalid character"},
+		},
+		{
+			name:    "both at exactly the need",
+			machine: Machine{MemoryAvailable: 6<<30 + 512<<20, CommitAvailable: 6<<30 + 512<<20, DispatchNeed: 6<<30 + 512<<20},
+			want:    Dispatch{Ready: true, Line: "Dispatch: ready, 6.5 GB of memory and 6.5 GB of commit are free"},
+		},
+		{
+			name:    "ready above the need",
+			machine: Machine{MemoryAvailable: 16 << 30, CommitAvailable: 12 << 30, DispatchNeed: 5 << 30},
+			want:    Dispatch{Ready: true, Line: "Dispatch: ready, 16.0 GB of memory and 12.0 GB of commit are free"},
 		},
 	}
 	for _, test := range tests {

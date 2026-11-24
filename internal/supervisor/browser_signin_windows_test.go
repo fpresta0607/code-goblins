@@ -124,7 +124,7 @@ func proveBrowserSignInWindow(t *testing.T) {
 	defer server.Close()
 	address := strings.Replace(server.URL, "127.0.0.1", "localhost", 1)
 	store, h := testStore(t)
-	broker := newBrowserBroker(h.State, h.Data, Options{KeyPages: keypages.Recipes{Providers: []keypages.Provider{{ID: "standin", Name: "Stand-in", Hosts: []string{"localhost"}, KeyPage: address + "/test/apikeys", SignedInPath: "^/test/apikeys$"}}}, Dispatch: &Dispatch{Memory: func() (Memory, error) { return Memory{Available: 8 << 30, CommitAvailable: 8 << 30}, nil }}}, func(err error) { t.Error(err) })
+	broker := newBrowserBroker(h, Options{KeyPages: keypages.Recipes{Providers: []keypages.Provider{{ID: "standin", Name: "Stand-in", Hosts: []string{"localhost"}, KeyPage: address + "/test/apikeys", SignedInPath: "^/test/apikeys$"}}}, Dispatch: &Dispatch{Memory: func() (Memory, error) { return Memory{Available: 8 << 30, CommitAvailable: 8 << 30}, nil }}}, func(err error) { t.Error(err) })
 	broker.live = func(string) error { return nil }
 	service := &Service{Store: store, Instance: "test-instance", browsers: broker}
 	brokerTask(t, broker, "pd-keys", "throwaway")

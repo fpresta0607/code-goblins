@@ -391,7 +391,7 @@ func TestClosedRootStopsRepeatedIdleAndTurnWarnings(t *testing.T) {
 				if got := WorkWaits(h); got != test.isWaiting {
 					t.Errorf("minute %d: WorkWaits=%v, want %v", minute, got, test.isWaiting)
 				}
-				if detail, err := IdleTurnWake(h, memory, now); err != nil || detail != "" {
+				if detail, err := IdleTurnWake(h, nil, memory, now); err != nil || detail != "" {
 					t.Errorf("minute %d: turn wake=%q err=%v, want no start instruction", minute, detail, err)
 				}
 			}
@@ -512,7 +512,7 @@ func TestIndependentRootReaderRequiresCurrentTypedClosure(t *testing.T) {
 
 			// Act
 			isWaiting := WorkWaits(h)
-			detail, err := IdleTurnWake(h, Memory{Available: 8 * gigabyte, CommitAvailable: 8 * gigabyte}, rootNow)
+			detail, err := IdleTurnWake(h, nil, Memory{Available: 8 * gigabyte, CommitAvailable: 8 * gigabyte}, rootNow)
 
 			// Assert: neither a partial record nor English text proves closure.
 			if !isWaiting || err != nil || detail != "" || len(spawner.recorded()) != 0 {

@@ -10,16 +10,17 @@ import (
 // project whose demo stack runs from a worktree its task no longer holds, one
 // live goblin that restarted a single service of that same stack from its own
 // worktree, and two stacks whose worktrees are gone.
-const (
-	peakRoot     = `C:\dev\peakCraftsman`
-	peakDemoTree = `C:\dev\peakCraftsman\.worktrees\gb-peak-demo-local`
-	peakLiveTree = `C:\dev\peakCraftsman\.worktrees\gb-peak-inbox-connect`
-	peakDeadTree = `C:\dev\peakCraftsman\.worktrees\gb-peak-compute-to-supabase`
-	sermonRoot   = `C:\dev\code-goblins\projects\siqsermon`
-	sermonGone   = `C:\dev\code-goblins\projects\siqsermon\.worktrees\gb-siqsermon-draft-flow`
-	demoStack    = "peakcraftsman-demo"
-	configToml   = `C:\dev\peakCraftsman\supabase\config.toml`
+var (
+	peakRoot     = systemPath(`C:\dev\peakCraftsman`)
+	peakDemoTree = systemPath(`C:\dev\peakCraftsman\.worktrees\gb-peak-demo-local`)
+	peakLiveTree = systemPath(`C:\dev\peakCraftsman\.worktrees\gb-peak-inbox-connect`)
+	peakDeadTree = systemPath(`C:\dev\peakCraftsman\.worktrees\gb-peak-compute-to-supabase`)
+	sermonRoot   = systemPath(`C:\dev\code-goblins\projects\siqsermon`)
+	sermonGone   = systemPath(`C:\dev\code-goblins\projects\siqsermon\.worktrees\gb-siqsermon-draft-flow`)
+	configToml   = systemPath(`C:\dev\peakCraftsman\supabase\config.toml`)
 )
+
+const demoStack = "peakcraftsman-demo"
 
 func machineFixture() Inventory {
 	return Inventory{
@@ -43,10 +44,10 @@ func machineFixture() Inventory {
 		// The demo worktree and the retired compute worktree are still on
 		// disk; the draft-flow one has been returned.
 		Present: map[string]bool{
-			normalize(peakDemoTree):     true,
-			normalize(peakDeadTree):     true,
-			normalize(sermonGone):       false,
-			normalize(`C:\dev\scratch`): true,
+			normalize(peakDemoTree):                 true,
+			normalize(peakDeadTree):                 true,
+			normalize(sermonGone):                   false,
+			normalize(systemPath(`C:\dev\scratch`)): true,
 		},
 	}
 }
@@ -122,7 +123,7 @@ func TestAttributionOfSeparatesTheDemoStackFromAGoblinsBenchStack(t *testing.T) 
 			// usually not the root of the worktree. Matching the worktree path
 			// alone reported a working goblin's server as nobody's.
 			name:     "live goblin's server in a subdirectory of its worktree",
-			workDir:  peakLiveTree + `\frontend`,
+			workDir:  peakLiveTree + systemPath(`\frontend`),
 			stack:    "",
 			want:     OwnerGoblin,
 			task:     "peak-inbox-connect",
@@ -131,7 +132,7 @@ func TestAttributionOfSeparatesTheDemoStackFromAGoblinsBenchStack(t *testing.T) 
 		},
 		{
 			name:     "leftover in a subdirectory of a retired worktree",
-			workDir:  peakDeadTree + `\frontend`,
+			workDir:  peakDeadTree + systemPath(`\frontend`),
 			stack:    "",
 			want:     OwnerUnowned,
 			task:     "peak-compute-to-supabase",
@@ -141,7 +142,7 @@ func TestAttributionOfSeparatesTheDemoStackFromAGoblinsBenchStack(t *testing.T) 
 		},
 		{
 			name:     "stack brought up in a subdirectory of a main checkout",
-			workDir:  peakRoot + `\apps\web`,
+			workDir:  peakRoot + systemPath(`\apps\web`),
 			stack:    "",
 			want:     OwnerProject,
 			project:  "peakCraftsman",
@@ -149,7 +150,7 @@ func TestAttributionOfSeparatesTheDemoStackFromAGoblinsBenchStack(t *testing.T) 
 		},
 		{
 			name:     "directory nothing in the fleet claims",
-			workDir:  `C:\dev\scratch`,
+			workDir:  systemPath(`C:\dev\scratch`),
 			stack:    "scratch",
 			want:     OwnerOverlord,
 			evidence: "no project manifest and no task record claims",
@@ -203,31 +204,13 @@ func TestAttributionOfSeparatesTheDemoStackFromAGoblinsBenchStack(t *testing.T) 
 	}
 }
 
-// A path written with forward slashes, a trailing separator or a different
-// case is the same directory. Docker labels, task metadata and the process
-// parameter block each spell them differently on this machine, so an
-// attribution that matched literally would report a live goblin as a leftover.
-func TestAttributionOfMatchesPathsWrittenAnyWay(t *testing.T) {
-	attribution := NewAttribution(machineFixture())
-	for _, spelling := range []string{
-		peakLiveTree,
-		strings.ToLower(peakLiveTree),
-		strings.ReplaceAll(peakLiveTree, `\`, "/"),
-		peakLiveTree + `\`,
-	} {
-		if owner := attribution.Of(spelling, ""); owner.Kind != OwnerGoblin {
-			t.Errorf("Of(%q) = %q, want goblin", spelling, owner.Kind)
-		}
-	}
-}
-
 // A directory that was never checked proves nothing. Only a directory checked
 // and found missing is evidence of a leftover, and conflating the two would
 // report every unexamined path as abandoned.
 func TestAttributionOfDoesNotCallAnUncheckedDirectoryAbandoned(t *testing.T) {
 	inv := machineFixture()
 	inv.Present = map[string]bool{}
-	owner := NewAttribution(inv).Of(`C:\dev\somewhere-unchecked`, "")
+	owner := NewAttribution(inv).Of(systemPath(`C:\dev\somewhere-unchecked`), "")
 	if owner.Kind != OwnerUnowned || owner.Reap {
 		t.Fatalf("owner = %+v, want unowned without a reap pointer", owner)
 	}
@@ -251,20 +234,20 @@ func TestWorktreeTaskIDOnlyAcceptsFleetWorktrees(t *testing.T) {
 		want string
 	}{
 		{peakLiveTree, "peak-inbox-connect"},
-		{peakLiveTree + `\`, "peak-inbox-connect"},
-		{peakLiveTree + `\frontend\src`, "peak-inbox-connect"},
-		{`C:/dev/peakCraftsman/.worktrees/gb-peak-inbox-connect`, "peak-inbox-connect"},
+		{peakLiveTree + systemPath(`\`), "peak-inbox-connect"},
+		{peakLiveTree + systemPath(`\frontend\src`), "peak-inbox-connect"},
+		{systemPath(`C:/dev/peakCraftsman/.worktrees/gb-peak-inbox-connect`), "peak-inbox-connect"},
 		{peakRoot, ""},
-		{`C:\dev\peakCraftsman\.worktrees\notagoblin`, ""},
-		{`C:\dev\peakCraftsman\.worktrees\notagoblin\frontend`, ""},
-		{`C:\dev\elsewhere\gb-peak-inbox-connect`, ""},
-		{`C:\home\worktrees\peakCraftsman\peak-inbox-connect\frontend`, "peak-inbox-connect"},
-		{`C:\home\worktrees\peakCraftsman`, ""},
-		{`C:\home\scratch\peak-inbox-connect`, ""},
-		{`D:\CodeGoblins\worktrees\peakCraftsman\peak-on-the-drive\src`, "peak-on-the-drive"},
-		{`D:\CodeGoblins\scratch\peak-on-the-drive`, ""},
+		{systemPath(`C:\dev\peakCraftsman\.worktrees\notagoblin`), ""},
+		{systemPath(`C:\dev\peakCraftsman\.worktrees\notagoblin\frontend`), ""},
+		{systemPath(`C:\dev\elsewhere\gb-peak-inbox-connect`), ""},
+		{systemPath(`C:\home\worktrees\peakCraftsman\peak-inbox-connect\frontend`), "peak-inbox-connect"},
+		{systemPath(`C:\home\worktrees\peakCraftsman`), ""},
+		{systemPath(`C:\home\scratch\peak-inbox-connect`), ""},
+		{systemPath(`D:\CodeGoblins\worktrees\peakCraftsman\peak-on-the-drive\src`), "peak-on-the-drive"},
+		{systemPath(`D:\CodeGoblins\scratch\peak-on-the-drive`), ""},
 	}
-	attribution := Attribution{worktreeRoots: []string{`D:\CodeGoblins\worktrees`, `C:\home\worktrees`}}
+	attribution := Attribution{worktreeRoots: []string{systemPath(`D:\CodeGoblins\worktrees`), systemPath(`C:\home\worktrees`)}}
 	for _, testCase := range cases {
 		got, ok := attribution.worktreeTaskID(testCase.path)
 		if !ok {

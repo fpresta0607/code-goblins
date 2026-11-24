@@ -25,8 +25,9 @@ A project declares them in `data/projects/<name>/services.json`, beside its auth
 A start first takes the machine's one turn for heavy runs ([Heavy local runs](dispatch.md#heavy-local-runs)), so no test suite or other build starts beside its build, and holds it until the stack is up or the start has failed.
 Joining a stack that already runs takes no turn, since it starts nothing.
 It waits for the turn with no limit of its own and says why as it waits, and a start run inside `goblins gate turn` runs inside that wrapper's turn.
-It starts Docker Desktop's engine first when the engine is not running, and starts anything only while free memory and free commit stay at or above the 4 GB floor with the stack's cost added: its last measured cost, or the estimate before the first.
+It starts Docker Desktop's engine first when the engine is not running, and starts anything only while free memory and free commit stay at or above the memory floor (`config/fleet.json`'s `memory_floor_gb`, 4 GB unless set) with the stack's cost added: its last measured cost, or the estimate before the first.
 Until they would, it says why once a minute and waits, for up to `--wait` (30 minutes by default, and `0` refuses at once).
+From the moment it holds the turn until it ends, the start records that cost under `admitting` in `state/services.json` with its process, and the supervisor keeps that much free beyond the floor for it: no goblin starts or resumes into the memory the start waits for or was admitted with (#2695).
 
 Docker Desktop 4.86 opens its dashboard window as it starts while its setting "Open the Docker Dashboard when Docker Desktop starts" is on, and the Overlord's settings leave it at Docker Desktop's default, which opened the dashboard on every start on record.
 `docker desktop start` takes no other word for it, and neither does Docker Desktop's launcher or the window process its backend starts with `--name=dashboard`.
@@ -42,7 +43,7 @@ Its code registers the window and its cleanup before a close can reach it, so it
 With the setting turned off the window process starts with no `--name=dashboard`, and goblins closes nothing.
 
 While compose up builds and starts the stack, the start holds the floor itself, as cg-services-pd-build's watch beside it did on 2026-10-11.
-It reads free memory and free commit every 2 seconds, and the first reading under the 4 GB floor ends compose up with everything it started, so its build and nothing else, and the start then stops what it started as any failed start does.
+It reads free memory and free commit every 2 seconds, and the first reading under the memory floor ends compose up with everything it started, so its build and nothing else, and the start then stops what it started as any failed start does.
 Every 10 seconds, one relief at a time, it hands the file cache of Docker's virtual machine back with `wsl.exe -d docker-desktop -u root -- sh -c "sync && echo 3 > /proc/sys/vm/drop_caches"`.
 A build fills that cache with every file it writes, and Windows counts all of it as used until the virtual machine hands it back, slowly: PrecisionDocs' second build reached the floor on 2026-10-10 in a burst of file copies alone.
 The build the watch guarded never fell under 9.21 GB free, where the two before it reached the floor, though how much of that was the relief is unmeasured.

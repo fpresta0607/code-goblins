@@ -153,8 +153,10 @@ func (a Awaiting) recipient() string {
 // still not taken. The harness's prompt hook proves nothing here: it runs
 // when the harness queues text typed during a turn, before the agent has it.
 // A delivery that did not arrive is still watched, so a late take delivers
-// it after all. look reads each terminal and record away from the store's
-// lock.
+// it after all. A notice held in the CEO's queue is forgotten once it can wait
+// there no longer: taken, its terminal gone, or no turn shown for
+// deliveryQuiet, since a harness holds no queue between turns. look reads
+// each terminal and record away from the store's lock.
 func (s *Store) settleDeliveries(now time.Time, look func(Awaiting) terminalLook) error {
 	s.mu.Lock()
 	looks := map[string]terminalLook{}
@@ -164,13 +166,31 @@ func (s *Store) settleDeliveries(now time.Time, look func(Awaiting) terminalLook
 			sent = append(sent, a)
 		}
 	}
+	notices := slices.Clone(s.db.HeldNotices)
 	s.mu.Unlock()
 	for _, a := range sent {
 		looks[a.ID] = look(*a.Awaiting)
 	}
+	noticeLooks := make([]terminalLook, len(notices))
+	for i, notice := range notices {
+		noticeLooks[i] = look(notice)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	changed := false
+	var held []Awaiting
+	for _, notice := range s.db.HeldNotices {
+		at := slices.Index(notices, notice)
+		if at >= 0 && noticeLooks[at].Working && now.Sub(notice.QuietSince) >= quietStep {
+			notice.QuietSince, changed = now, true
+		}
+		if now.Sub(notice.Since) >= deliveryForget || at >= 0 && (noticeLooks[at].Took || noticeLooks[at].Gone || !noticeLooks[at].Working && now.Sub(notice.QuietSince) >= deliveryQuiet) {
+			changed = true
+			continue
+		}
+		held = append(held, notice)
+	}
+	s.db.HeldNotices = held
 	for i := range s.db.Actions {
 		a := &s.db.Actions[i]
 		if a.Awaiting == nil {
@@ -229,6 +249,18 @@ func (s *Store) settleDeliveries(now time.Time, look func(Awaiting) terminalLook
 		return nil
 	}
 	s.updateQuestionOutcomes()
+	return s.save()
+}
+
+// holdNotice keeps notice, told to the CEO in a turn under way, among the
+// notices its harness holds in its own queue.
+func (s *Store) holdNotice(notice Awaiting) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if notice.QuietSince.IsZero() {
+		notice.QuietSince = notice.Since
+	}
+	s.db.HeldNotices = append(s.db.HeldNotices, notice)
 	return s.save()
 }
 

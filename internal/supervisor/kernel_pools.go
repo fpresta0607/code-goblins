@@ -55,6 +55,32 @@ type PoolTag struct {
 	NonpagedAllocs uint32 `json:"-"`
 }
 
+// Kernel is how many access tokens the kernel holds beside how many
+// processes run, and how large its paged and nonpaged pools are, in bytes.
+// Each process holds one token and a service holds a copy for a moment for
+// each client it serves, so tokens far past the processes are tokens of
+// processes that ended and that the kernel never freed, which only a
+// restart returns (#2526).
+type Kernel struct {
+	Tokens       int64
+	Processes    uint32
+	PagedPool    uint64
+	NonpagedPool uint64
+}
+
+// TokensAlive is how many access tokens the kernel holds: the allocations
+// under pool tag Toke it has not freed. Both counts wrap at 2^32, which
+// thousands of tokens a second reach in days, so the difference is taken in
+// their own width, where it stays right across a wrap.
+func TokensAlive(tags []PoolTag) int64 {
+	for _, tag := range tags {
+		if tag.Tag == "Toke" {
+			return int64(tag.PagedAllocs - tag.PagedFrees)
+		}
+	}
+	return 0
+}
+
 // PoolGrowth is a pool tag that grew in one pool, paged or nonpaged, since
 // this sign-in's first sample: how much it grew and how much it holds now.
 type PoolGrowth struct {
@@ -116,13 +142,10 @@ func (s *Service) keepPools(memory Memory, now time.Time) error {
 	if err != nil {
 		return fmt.Errorf("the kernel's pool tags cannot be read: %w", err)
 	}
-	sample := poolSample{At: now, Paged: memory.PagedPool, Nonpaged: memory.NonpagedPool}
+	sample := poolSample{At: now, Paged: memory.PagedPool, Nonpaged: memory.NonpagedPool, Tokens: TokensAlive(tags)}
 	for _, tag := range tags {
-		switch tag.Tag {
-		case "Proc":
+		if tag.Tag == "Proc" {
 			sample.Processes = tag.NonpagedAllocs
-		case "Toke":
-			sample.Tokens = int64(tag.PagedAllocs) - int64(tag.PagedFrees)
 		}
 		if tag.Paged >= poolTagKept || tag.Nonpaged >= poolTagKept {
 			sample.Tags = append(sample.Tags, tag)

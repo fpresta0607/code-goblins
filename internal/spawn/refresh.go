@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -680,10 +681,11 @@ func (r AuthRefresher) locked(id string, fn func() error) (err error) {
 
 // archived reports whether retained state for a cleaned-up task exists under
 // the state archive. Cleanup archives the scratch directory under a stamped
-// name, so the id prefix is the identity; the match is case-insensitive the
-// way task id aliases are.
+// name, so the id prefix is the identity; the match ignores case where the
+// archive's file system does, as Windows does, the way task id aliases are.
 func (r AuthRefresher) archived(id string) (bool, error) {
-	entries, err := os.ReadDir(filepath.Join(r.StateDir, state.ArchiveDirName))
+	archive := filepath.Join(r.StateDir, state.ArchiveDirName)
+	entries, err := os.ReadDir(archive)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
@@ -691,7 +693,7 @@ func (r AuthRefresher) archived(id string) (bool, error) {
 		return false, fmt.Errorf("spawn: list archived task state: %w", err)
 	}
 	for _, entry := range entries {
-		if strings.EqualFold(strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name())), id) {
+		if fsx.EqualPath(filepath.Join(archive, strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))), filepath.Join(archive, id)) {
 			return true, nil
 		}
 	}

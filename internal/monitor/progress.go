@@ -204,7 +204,7 @@ func (h *HostProgress) nativeCodexRollouts(ctx context.Context, worktree string,
 		isOwned, seen := owned[cwd]
 		if !seen {
 			resolved, err := fsx.Canonical(cwd)
-			isOwned = filepath.IsAbs(cwd) && err == nil && strings.EqualFold(resolved, worktree)
+			isOwned = filepath.IsAbs(cwd) && err == nil && fsx.EqualPath(resolved, worktree)
 			owned[cwd] = isOwned
 		}
 		if isOwned {

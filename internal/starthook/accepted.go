@@ -60,25 +60,30 @@ func Accept(stateDir string, acceptance Acceptance) error {
 }
 
 // Unaccepted are the hooks among hooks that the CEO accepted, as stateDir
-// records, neither for the goblins of project nor for the fleet's.
-func Unaccepted(stateDir, project string, hooks []Hook) ([]Hook, error) {
+// records, neither for the goblins of the project checked out at checkout,
+// which is empty when a goblin's project is unknown, nor for the fleet's.
+func Unaccepted(stateDir, checkout string, hooks []Hook) ([]Hook, error) {
 	acceptances, err := readAccepted(stateDir)
 	if err != nil {
 		return nil, err
 	}
 	return slices.DeleteFunc(slices.Clone(hooks), func(hook Hook) bool {
-		return slices.ContainsFunc(acceptances, func(acceptance Acceptance) bool { return acceptance.passes(project, hook) })
+		return slices.ContainsFunc(acceptances, func(acceptance Acceptance) bool { return acceptance.passes(checkout, hook) })
 	}), nil
 }
 
 // passes reports whether a lets hook through in an environment of a goblin of
-// project. A hook no installed distribution names never passes, nor does a
-// folder, which has no one content. Windows tells neither a project's folder
-// nor a file's name apart by case.
-func (a Acceptance) passes(project string, hook Hook) bool {
+// the project checked out at checkout. A hook no installed distribution names
+// never passes, nor does a folder, which has no one content. A project's
+// folder and a file's name are told apart by case where the file system that
+// holds them tells names apart, the project's in the folder its checkout is
+// in and the file's in its own: Windows tells neither apart by case.
+func (a Acceptance) passes(checkout string, hook Hook) bool {
+	projects := filepath.Dir(checkout) + string(filepath.Separator)
+	folder := filepath.Dir(hook.Path) + string(filepath.Separator)
 	return hook.Package != "" && hook.Digest != "" &&
-		(a.Project == "" || strings.EqualFold(a.Project, project)) &&
-		strings.EqualFold(a.File, filepath.Base(hook.Path)) &&
+		(a.Project == "" || checkout != "" && fsx.EqualPath(projects+filepath.Base(checkout), projects+a.Project)) &&
+		fsx.EqualPath(folder+filepath.Base(hook.Path), folder+a.File) &&
 		strings.EqualFold(a.SHA256, hook.Digest) &&
 		strings.EqualFold(a.Distribution, hook.Package)
 }

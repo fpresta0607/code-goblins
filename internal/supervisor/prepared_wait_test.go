@@ -110,8 +110,7 @@ func preparedPackage(t *testing.T) *preparedFixture {
 			Stop: func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) {
 				return []string{"synthetic terminal"}, nil
 			},
-			Memory: func() (uint64, uint64, error) { return 8 * gigabyte, 8 * gigabyte, nil },
-			Resume: func(_ context.Context, current state.TaskMeta, _ state.Lifecycle) error {
+			Resume: func(_ context.Context, current state.TaskMeta, _ *state.Lifecycle) error {
 				current.SpawnGen, current.ResumeOperation = "generation-resumed-rex", request.Operation
 				return state.WriteTaskMeta(h.State, current)
 			},
@@ -295,7 +294,7 @@ func TestPreparedResumeFailureAndInterruptedAdmissionDoNotRetry(t *testing.T) {
 			} else {
 				fixture.spawner.err, fixture.spawner.during = errors.New("resume failed"), nil
 				fixture.spawner.output = test.output
-				if _, err := fixture.service.schedule(t.Context(), fixture.now, &fleetWakes{}, Memory{Available: 8 * gigabyte}, ""); err != nil {
+				if _, err := fixture.service.schedule(t.Context(), fixture.now, &fleetWakes{}, Memory{Available: 8 * gigabyte, CommitAvailable: 8 * gigabyte}, Room{Floor: 4 * gigabyte}, ""); err != nil {
 					t.Fatal(err)
 				}
 				awaitDispatch(t, fixture.service, fixture.spawner, 2)
@@ -307,7 +306,7 @@ func TestPreparedResumeFailureAndInterruptedAdmissionDoNotRetry(t *testing.T) {
 			for scan := 0; scan < 2; scan++ {
 				fixture.reopen(t)
 				fixture.reconcile(t)
-				if _, err := fixture.service.schedule(t.Context(), fixture.now, &fleetWakes{}, Memory{Available: 8 * gigabyte}, ""); err != nil {
+				if _, err := fixture.service.schedule(t.Context(), fixture.now, &fleetWakes{}, Memory{Available: 8 * gigabyte, CommitAvailable: 8 * gigabyte}, Room{Floor: 4 * gigabyte}, ""); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -470,7 +469,7 @@ func TestPreparedSchedulerEvaluatesEachPullRequestPauseOnce(t *testing.T) {
 					return PullRequestInfo{State: phase}, nil
 				}
 
-				scheduling, err := fixture.service.schedule(t.Context(), fixture.now, &fleetWakes{}, Memory{Available: 8 * gigabyte}, "test slot held")
+				scheduling, err := fixture.service.schedule(t.Context(), fixture.now, &fleetWakes{}, Memory{Available: 8 * gigabyte, CommitAvailable: 8 * gigabyte}, Room{Floor: 4 * gigabyte}, "test slot held")
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -805,7 +804,7 @@ func TestPreparedPauseResumesOnceAfterDependencyDeliveryAndRestart(t *testing.T)
 				fixture.reconcile(t)
 			}
 			for scan := 0; scan < 2; scan++ {
-				if _, err := fixture.service.schedule(t.Context(), fixture.now, &fleetWakes{}, Memory{Available: 8 * gigabyte}, ""); err != nil {
+				if _, err := fixture.service.schedule(t.Context(), fixture.now, &fleetWakes{}, Memory{Available: 8 * gigabyte, CommitAvailable: 8 * gigabyte}, Room{Floor: 4 * gigabyte}, ""); err != nil {
 					t.Fatal(err)
 				}
 				awaitDispatch(t, fixture.service, fixture.spawner, 2)
@@ -827,7 +826,7 @@ func TestPreparedRexCleanupDoesNotInventDelivery(t *testing.T) {
 	fixture.reconcile(t)
 	fixture.reopen(t)
 	fixture.reconcile(t)
-	if _, err := fixture.service.schedule(t.Context(), fixture.now, &fleetWakes{}, Memory{Available: 8 * gigabyte}, ""); err != nil {
+	if _, err := fixture.service.schedule(t.Context(), fixture.now, &fleetWakes{}, Memory{Available: 8 * gigabyte, CommitAvailable: 8 * gigabyte}, Room{Floor: 4 * gigabyte}, ""); err != nil {
 		t.Fatal(err)
 	}
 	if calls := fixture.spawner.recorded(); len(calls) != 1 || calls[0][0] != "pause" {
@@ -876,7 +875,7 @@ func TestPreparedWaitPreservesAdmittedPhaseAcrossLifecycleReadErrors(t *testing.
 			for range 2 {
 				fixture.reopen(t)
 				fixture.reconcile(t)
-				if _, err := fixture.service.schedule(t.Context(), fixture.now, &fleetWakes{}, Memory{Available: 8 * gigabyte}, ""); err != nil {
+				if _, err := fixture.service.schedule(t.Context(), fixture.now, &fleetWakes{}, Memory{Available: 8 * gigabyte, CommitAvailable: 8 * gigabyte}, Room{Floor: 4 * gigabyte}, ""); err != nil {
 					t.Fatal(err)
 				}
 				if wantCalls == 2 {
@@ -1021,7 +1020,7 @@ func TestPreparedTransitionInFlightIsLeftToItsController(t *testing.T) {
 				return
 			}
 			fixture.deliver(t)
-			if _, err := fixture.service.schedule(t.Context(), fixture.now, &fleetWakes{}, Memory{Available: 8 * gigabyte}, ""); err != nil {
+			if _, err := fixture.service.schedule(t.Context(), fixture.now, &fleetWakes{}, Memory{Available: 8 * gigabyte, CommitAvailable: 8 * gigabyte}, Room{Floor: 4 * gigabyte}, ""); err != nil {
 				t.Fatal(err)
 			}
 			if calls := awaitDispatch(t, fixture.service, fixture.spawner, 2); len(calls) != 2 || calls[1][0] != "resume" || valueAfter(calls[1], "--operation") != "resume-"+record.Operation {
@@ -1130,7 +1129,7 @@ func TestPreparedResumeBeforeItsLifecycleRecordIsLeftInFlight(t *testing.T) {
 			admit(args)
 		}
 
-		if _, err := fixture.service.schedule(t.Context(), fixture.now, &fleetWakes{}, Memory{Available: 8 * gigabyte}, ""); err != nil {
+		if _, err := fixture.service.schedule(t.Context(), fixture.now, &fleetWakes{}, Memory{Available: 8 * gigabyte, CommitAvailable: 8 * gigabyte}, Room{Floor: 4 * gigabyte}, ""); err != nil {
 			t.Fatal(err)
 		}
 		calls := awaitDispatch(t, fixture.service, fixture.spawner, 2)
@@ -1202,7 +1201,7 @@ func TestPreparedPauseSupersededByAnotherLifecycleOperationIsNotFailed(t *testin
 	}
 
 	fixture.deliver(t)
-	if _, err := fixture.service.schedule(t.Context(), fixture.now, &fleetWakes{}, Memory{Available: 8 * gigabyte}, ""); err != nil {
+	if _, err := fixture.service.schedule(t.Context(), fixture.now, &fleetWakes{}, Memory{Available: 8 * gigabyte, CommitAvailable: 8 * gigabyte}, Room{Floor: 4 * gigabyte}, ""); err != nil {
 		t.Fatal(err)
 	}
 	if calls := fixture.spawner.recorded(); len(calls) != 1 || calls[0][0] != "pause" {

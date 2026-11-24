@@ -11,15 +11,25 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
-// runtimeFiles are what a running daemon keeps in its home for itself alone
-// and the next daemon makes again: they are not carried.
-var runtimeFiles = map[string]bool{"socket": true, "daemon.pid": true, "daemon.lock": true}
+// leftBehind are the files of the home a move does not carry, each made again
+// where the home is next: what a running daemon keeps for itself alone, and
+// update-check.json, the cache of no-mistakes' own update check, which a gate
+// call's background check rewrites, as one did during a move's copy on
+// 2026-11-19 (#2817).
+var leftBehind = map[string]bool{"socket": true, "daemon.pid": true, "daemon.lock": true, "update-check.json": true}
+
+// copyRounds is how many times a move copies a file whose source changed
+// after it was copied, the first copy among them, before the move gives up.
+const copyRounds = 3
+
+// copyOne copies one file of the home; a test stands in for it to change a
+// source as it is copied.
+var copyOne = copyFile
 
 // moveMarker is the file a copy puts in the Dev Drive folder first and a move
 // removes last, so a move ended outright, its terminal closed among other
@@ -148,10 +158,11 @@ func (p *copyPlan) done() error {
 	return errors.Join(err, removeTree(p.aside))
 }
 
-// copy copies the home into target, less the daemon's runtime files and the
+// copy copies the home into target, less the files it leaves behind and the
 // links a move by hand made into target, each link made again as its own
-// kind, then proves every copied file holds the same bytes and every link
-// leads where it should. It stops between files once ctx ends.
+// kind, then proves every copied file holds the same bytes, copying again a
+// file whose source changed since, and every link leads where it should. It
+// stops between files once ctx ends.
 func (p *copyPlan) copy(ctx context.Context) error {
 	if _, err := os.Lstat(p.target); errors.Is(err, os.ErrNotExist) {
 		if err := os.MkdirAll(p.target, 0o700); err != nil {
@@ -186,7 +197,7 @@ func (p *copyPlan) copy(ctx context.Context) error {
 		case entry.IsDir():
 			return os.Mkdir(destination, 0o700)
 		}
-		return copyFile(source, destination)
+		return copyOne(source, destination)
 	})
 	if err != nil {
 		return err
@@ -198,8 +209,31 @@ func (p *copyPlan) copy(ctx context.Context) error {
 		case entry.IsDir():
 			return nil
 		}
-		return sameFile(source, destination)
+		return proveFile(source, destination)
 	})
+}
+
+// proveFile proves destination holds source's bytes, copying source again
+// when it changed after it was copied, up to copyRounds copies in all, so
+// one stray write to the home does not undo the whole copy.
+func proveFile(source, destination string) error {
+	for round := 1; ; round++ {
+		isSame, err := isSameFile(source, destination)
+		switch {
+		case err != nil:
+			return err
+		case isSame:
+			return nil
+		case round == copyRounds:
+			return fmt.Errorf("%s does not hold the bytes of %s, which kept changing through %d copies", destination, source, copyRounds)
+		}
+		if err := os.Remove(destination); err != nil {
+			return err
+		}
+		if err := copyOne(source, destination); err != nil {
+			return err
+		}
+	}
 }
 
 // walk calls visit for each folder, file and link of the home the copy
@@ -215,7 +249,7 @@ func (p *copyPlan) walk(visit func(source, destination string, entry fs.DirEntry
 		if err != nil {
 			return err
 		}
-		if runtimeFiles[relative] {
+		if leftBehind[relative] {
 			return nil
 		}
 		linked, isLink := linkTarget(path)
@@ -331,20 +365,17 @@ func copyFile(source, destination string) error {
 	return errors.Join(copyErr, out.Sync(), out.Close())
 }
 
-// sameFile proves destination holds source's bytes.
-func sameFile(source, destination string) error {
+// isSameFile says whether destination holds source's bytes, by SHA-256.
+func isSameFile(source, destination string) (bool, error) {
 	want, err := hashOf(source)
 	if err != nil {
-		return err
+		return false, err
 	}
 	got, err := hashOf(destination)
 	if err != nil {
-		return err
+		return false, err
 	}
-	if !bytes.Equal(want, got) {
-		return fmt.Errorf("%s does not hold the bytes of %s", destination, source)
-	}
-	return nil
+	return bytes.Equal(want, got), nil
 }
 
 func hashOf(path string) ([]byte, error) {
@@ -382,5 +413,5 @@ func walkLinks(root string, visit func(path, linked string) error) error {
 }
 
 func sameFolder(left, right string) bool {
-	return strings.EqualFold(filepath.Clean(left), filepath.Clean(right))
+	return fsx.EqualPath(filepath.Clean(left), filepath.Clean(right))
 }

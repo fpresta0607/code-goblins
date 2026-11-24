@@ -153,14 +153,16 @@ func newRules(commands, skills []string) rules {
 }
 
 // renamed is the new name of name when it is one the old build gave, or name
-// itself.
-func (r rules) renamed(name string) string {
-	if program, isProgram := programs[strings.ToLower(name)]; isProgram {
+// itself: without regard to case when isFolded, as for a word of text or a
+// file the file system of its folder names without regard to case, and
+// exactly otherwise.
+func (r rules) renamed(name string, isFolded bool) string {
+	if program, isProgram := programs[folded(name, isFolded)]; isProgram {
 		return program
 	}
 	respelled := newSpelling(name)
-	lower := strings.ToLower(respelled)
-	if slices.Contains(names, lower) || slices.Contains(r.skills, lower) {
+	lower := folded(respelled, isFolded)
+	if slices.Contains(names, lower) || slices.ContainsFunc(r.skills, func(skill string) bool { return folded(skill, isFolded) == lower }) {
 		return respelled
 	}
 	for _, prefix := range prefixes {
@@ -169,7 +171,7 @@ func (r rules) renamed(name string) string {
 		}
 	}
 	if parts := aside.FindStringSubmatch(name); parts != nil {
-		if program := r.renamed(parts[1]); program != parts[1] {
+		if program := r.renamed(parts[1], isFolded); program != parts[1] {
 			return program + parts[2]
 		}
 	}
@@ -177,23 +179,33 @@ func (r rules) renamed(name string) string {
 }
 
 // renamedFile is the new name of a file the old build named, which may end
-// with one of the names, as a settings file's backup does, or name itself.
-func (r rules) renamedFile(name string) string {
-	if renamed := r.renamed(name); renamed != name {
+// with one of the names, as a settings file's backup does, or name itself,
+// matched as renamed matches.
+func (r rules) renamedFile(name string, isFolded bool) string {
+	if renamed := r.renamed(name, isFolded); renamed != name {
 		return renamed
 	}
+	lower := folded(name, isFolded)
 	for _, known := range names {
 		old := oldSpelling(known)
-		if strings.HasPrefix(known, ".") && strings.HasSuffix(strings.ToLower(name), old) {
+		if strings.HasPrefix(known, ".") && strings.HasSuffix(lower, old) {
 			return name[:len(name)-len(old)] + known
 		}
 	}
 	for old, program := range programs {
-		if strings.HasPrefix(old, ".") && strings.HasSuffix(strings.ToLower(name), old) {
+		if strings.HasPrefix(old, ".") && strings.HasSuffix(lower, old) {
 			return name[:len(name)-len(old)] + program
 		}
 	}
 	return name
+}
+
+// folded is text lowered when isFolded, and text otherwise.
+func folded(text string, isFolded bool) string {
+	if isFolded {
+		return strings.ToLower(text)
+	}
+	return text
 }
 
 // text rewrites text, outside the spans protected keeps as written.
@@ -242,7 +254,7 @@ func (r rules) words(text string) string {
 	return nameToken.ReplaceAllStringFunc(text, func(match string) string {
 		parts := nameToken.FindStringSubmatch(match)
 		token := strings.TrimRight(parts[2], ".")
-		return parts[1] + r.renamed(token) + parts[2][len(token):]
+		return parts[1] + r.renamed(token, true) + parts[2][len(token):]
 	})
 }
 

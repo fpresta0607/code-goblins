@@ -17,6 +17,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -561,6 +562,80 @@ func TestUpWaitsForMemoryAndStartsOnceItIsFree(t *testing.T) {
 	}
 	if !strings.Contains(line, "started") {
 		t.Errorf("line = %q, want the stack started", line)
+	}
+}
+
+// A start waiting for memory is written to the services record, with the cost
+// it expects, so the supervisor resumes no goblin into that memory (#2695), and
+// the record drops it however the start ends.
+func TestUpReservesItsCostWhileItWaitsForMemoryAndReleasesItAfter(t *testing.T) {
+	for _, testCase := range []struct {
+		name         string
+		giveMemory   bool
+		wantStartErr bool
+	}{
+		{name: "memory comes", giveMemory: true},
+		{name: "it gives up", wantStartErr: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			h := newHarness(t)
+			h.machine.available, h.machine.commit = 6*gigabyte, 6*gigabyte
+			var during Admitting
+			var isReserved bool
+			reads := 0
+			h.service.Memory = func() (Memory, error) {
+				reads++
+				if reads == 3 {
+					during, isReserved = h.record(t).Admitting["PrecisionDocs-AI"]
+					if testCase.giveMemory {
+						h.machine.give(4 * gigabyte)
+					}
+				}
+				return h.machine.read()
+			}
+
+			// Act
+			_, err := h.service.Up(context.Background(), h.checkout, "task-a", time.Minute)
+
+			// Assert
+			if (err != nil) != testCase.wantStartErr {
+				t.Fatalf("Up error = %v, want an error: %v", err, testCase.wantStartErr)
+			}
+			if !isReserved || during.Task != "task-a" || during.Cost != 3*gigabyte || during.PID != os.Getpid() || !during.IsLive() {
+				t.Errorf("reservation while waiting = %+v (present %v), want task-a at 3 GB held by this process", during, isReserved)
+			}
+			if after := h.record(t).Admitting; len(after) != 0 {
+				t.Errorf("reservations after Up returned = %+v, want none", after)
+			}
+		})
+	}
+}
+
+func TestAReservationOfAnotherProcessIsNotLive(t *testing.T) {
+	own, isKnown := proc.StartTime(os.Getpid())
+	if !isKnown {
+		t.Skip("this system cannot read a process's start")
+	}
+	for _, testCase := range []struct {
+		name        string
+		reservation Admitting
+		want        bool
+	}{
+		{name: "this process", reservation: Admitting{PID: os.Getpid(), Started: own}, want: true},
+		{name: "this pid started at another time", reservation: Admitting{PID: os.Getpid(), Started: own.Add(-time.Hour)}, want: false},
+		{name: "a start that could not read its own", reservation: Admitting{PID: os.Getpid()}, want: true},
+		{name: "a pid nothing runs", reservation: Admitting{PID: 1<<31 - 2, Started: own}, want: false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Act
+			got := testCase.reservation.IsLive()
+
+			// Assert
+			if got != testCase.want {
+				t.Errorf("IsLive() = %v, want %v", got, testCase.want)
+			}
+		})
 	}
 }
 
@@ -1179,5 +1254,48 @@ func TestAFailedReliefIsSaidOnceAndTheStartGoesOn(t *testing.T) {
 	}
 	if said := strings.Count(h.out.String(), "the cache relief failed"); said != 1 {
 		t.Errorf("said the relief failed %d times in %q, want once", said, h.out.String())
+	}
+}
+
+// A run that may start a project's stack needs its cost free on top of the
+// floor, the one measured or else the one declared, and nothing once a task
+// holds the stack; a project that declares none has no room of its own, and a
+// declaration that cannot be read is an error (#2808).
+func TestStartRoomIsTheStacksMeasuredOrDeclaredCostWhileItIsDown(t *testing.T) {
+	measured := time.Date(2026, 11, 18, 5, 43, 13, 0, time.UTC)
+	for _, test := range []struct {
+		name           string
+		project        string
+		manifest       string
+		stack          Stack
+		wantRoom       uint64
+		wantBasis      string
+		wantIsDeclared bool
+		wantErr        bool
+	}{
+		{name: "declared, never measured", project: "PrecisionDocs-AI", manifest: testManifest, wantRoom: 3 * gigabyte, wantBasis: "PrecisionDocs-AI's services, estimated, not measured yet", wantIsDeclared: true},
+		{name: "measured", project: "PrecisionDocs-AI", manifest: testManifest, stack: Stack{Cost: Cost{Bytes: 4 * gigabyte, MeasuredAt: measured}}, wantRoom: 4 * gigabyte, wantBasis: "PrecisionDocs-AI's services, measured 2026-11-18 05:43Z", wantIsDeclared: true},
+		{name: "up already", project: "PrecisionDocs-AI", manifest: testManifest, stack: Stack{Holders: []Hold{{Task: "task-a", Since: measured}}, Cost: Cost{Bytes: 4 * gigabyte, MeasuredAt: measured}}, wantBasis: "PrecisionDocs-AI's services are up already", wantIsDeclared: true},
+		{name: "no stack declared", project: "code-goblins"},
+		{name: "a declaration that cannot be read", project: "PrecisionDocs-AI", manifest: "{", wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			dataDir, stateDir := t.TempDir(), t.TempDir()
+			if test.manifest != "" {
+				writeManifest(t, dataDir, test.project, test.manifest)
+			}
+			if err := WriteRecord(stateDir, Record{Stacks: map[string]Stack{"PrecisionDocs-AI": test.stack}}); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			room, basis, isDeclared, err := StartRoom(stateDir, dataDir, filepath.Join(`C:\dev`, test.project))
+
+			// Assert
+			if (err != nil) != test.wantErr || room != test.wantRoom || basis != test.wantBasis || isDeclared != test.wantIsDeclared {
+				t.Fatalf("StartRoom = %d, %q, %v, %v; want %d, %q, %v, an error %v", room, basis, isDeclared, err, test.wantRoom, test.wantBasis, test.wantIsDeclared, test.wantErr)
+			}
+		})
 	}
 }

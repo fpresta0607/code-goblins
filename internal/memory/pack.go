@@ -133,8 +133,8 @@ func (index *Index) packCandidates(input PackInput) (map[string][]packEntry, err
 			// the brief says, so an accepted lesson is in its next pack.
 			var lessons []Item
 			for _, item := range index.Items {
-				if item.Lesson != "" && !index.superseded[item.ID] && slices.ContainsFunc(item.Projects, func(project string) bool { return strings.EqualFold(project, input.Project) }) &&
-					scoped(item.Roles, RoleGoblin) && (item.Task == "" || strings.EqualFold(item.Task, input.Task)) {
+				if item.Lesson != "" && !index.superseded[item.ID] && slices.ContainsFunc(item.Projects, func(project string) bool { return index.sameProject(project, input.Project) }) &&
+					scoped(item.Roles, RoleGoblin) && (item.Task == "" || index.sameTask(item.Task, input.Task)) {
 					lessons = append(lessons, item)
 				}
 			}
@@ -197,7 +197,7 @@ func (index *Index) packCandidates(input PackInput) (map[string][]packEntry, err
 	}
 	var done []Item
 	for _, item := range index.Items {
-		if item.Kind == KindDone && item.Task != input.Task && slices.ContainsFunc(item.Projects, func(project string) bool { return strings.EqualFold(project, input.Project) }) {
+		if item.Kind == KindDone && item.Task != input.Task && slices.ContainsFunc(item.Projects, func(project string) bool { return index.sameProject(project, input.Project) }) {
 			done = append(done, item)
 		}
 	}

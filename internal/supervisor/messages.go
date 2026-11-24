@@ -88,6 +88,11 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 		result, err := s.Options.CEO.sendNative(ctx, identity, typed, a.IsSentNow, true)
 		if errors.Is(err, ErrDeferred) {
 			result.SendNowWhy = "Its terminal is not ready to take it yet."
+			// No Send now is offered for a command that cannot go ahead of
+			// what its harness holds in its queue (#2759).
+			if result.CommandSendsNow {
+				_, _, _, result.CommandSendsNow = s.queueAhead(a.TaskID)
+			}
 		}
 		return result, err
 	}
@@ -213,7 +218,8 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 				if screens.SendNow != "" {
 					sendNow = "Send now has it take the message at once."
 				}
-				return Evaluation{Reason: "Queued until " + a.TaskID + "'s turn ends. " + sendNow, CanSendNow: true, CommandSendsNow: screens.SendNow != ""}, ErrDeferred
+				_, _, _, canGoAhead := s.queueAhead(a.TaskID)
+				return Evaluation{Reason: "Queued until " + a.TaskID + "'s turn ends. " + sendNow, CanSendNow: true, CommandSendsNow: screens.SendNow != "" && canGoAhead}, ErrDeferred
 			}
 			if errors.Is(err, spawn.ErrUnsentWords) {
 				return Evaluation{Reason: "Queued until " + a.TaskID + "'s prompt line is empty. It holds words that were never sent, and nothing is typed onto them.", SendNowWhy: "Its prompt line holds words that were never sent."}, ErrDeferred

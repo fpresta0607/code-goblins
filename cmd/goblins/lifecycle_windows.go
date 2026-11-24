@@ -11,6 +11,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/gatedb"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
@@ -45,15 +46,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 	runtime := defaultCommandRuntime()
 	var resources lifecycle.Resources
 	admit := func() error {
-		memory, err := supervisor.MachineMemory()
-		if err != nil {
-			return err
-		}
-		disk, err := supervisor.MachineDisk(h)
-		if err != nil {
-			return fmt.Errorf("free disk cannot be read, so nothing resumes: %w", err)
-		}
-		return supervisor.CheckLaunch(memory, disk)
+		return resumeAdmission(h, meta, supervisor.MachineMemory, fleettree.Processes, supervisor.MachineDisk, time.Now().UTC())
 	}
 	service := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
 		Helpers: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) ([]string, error) {
@@ -84,7 +77,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			record.Stopped = append(record.Stopped, "validation run "+preserved.ID)
 			return nil
 		},
-		Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
+		Resume: func(ctx context.Context, meta state.TaskMeta, prior *state.Lifecycle) error {
 			return resumeTask(ctx, h, runtime, commands, gate, meta, prior, admit)
 		},
 		IsRunning: func(ctx context.Context, meta state.TaskMeta) (bool, error) {
@@ -130,10 +123,6 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			_, err = runtime.cleanup(ctx, h, meta.ID, !preserved.CanRemove)
 			return preserved, err
 		},
-		Memory: func() (uint64, uint64, error) {
-			memory, err := supervisor.MachineMemory()
-			return memory.Available, memory.CommitAvailable, err
-		},
 		Admit: admit,
 		Notify: func(record state.Lifecycle) error {
 			return lifecycle.Report(h.State, record)
@@ -151,10 +140,36 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 	return service.Run(ctx, request)
 }
 
-// resumeTask relaunches a paused task in place. admit is the machine's room,
-// which the relaunch checks again under the home's spawn lock, around its
-// terminal's launch only.
-func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, commands execx.Runner, gate pipeline.Reader, meta state.TaskMeta, prior state.Lifecycle, admit func() error) error {
+// resumeAdmission says whether the machine has room to resume the paused task
+// meta on the engine it resumes on: it prices the start by that engine's
+// measured cost above the memory floor of the home's settings, and an error
+// says why nothing resumes. Memory, processes and disk are the readers of the
+// machine, and now is when the room is read.
+func resumeAdmission(h home.Home, meta state.TaskMeta, memoryReader func() (supervisor.Memory, error), processes func() ([]fleettree.Process, error), diskReader func(home.Home) (supervisor.Disk, error), now time.Time) error {
+	memory, err := memoryReader()
+	if err != nil {
+		return err
+	}
+	engine, _, err := supervisor.ResumeEngine(h.State, meta)
+	if err != nil {
+		return err
+	}
+	room, err := supervisor.ReadRoom(h, processes, now)
+	if err != nil {
+		return fmt.Errorf("the room for a start cannot be read, so nothing resumes: %w", err)
+	}
+	disk, err := diskReader(h)
+	if err != nil {
+		return fmt.Errorf("free disk cannot be read, so nothing resumes: %w", err)
+	}
+	return supervisor.CheckLaunch(memory, room, engine, disk)
+}
+
+// resumeTask relaunches a paused task in place, and names in prior's gate
+// fields the run it resumes with. admit is the machine's room, which the
+// relaunch checks again under the home's spawn lock, around its terminal's
+// launch only.
+func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, commands execx.Runner, gate pipeline.Reader, meta state.TaskMeta, prior *state.Lifecycle, admit func() error) error {
 	if meta.Backend != "native" {
 		return fmt.Errorf("resume: task %s runs in backend %q; only a task in a native terminal can resume; retire it with goblins cleanup %s --force-archive", meta.ID, meta.Backend, meta.ID)
 	}
@@ -174,6 +189,9 @@ func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, comman
 		// A direct-PR task may now be on a branch with no gate of its own.
 		if err != nil && !(meta.Mode == "direct-PR" && errors.Is(err, pipeline.ErrNoProgress)) {
 			return err
+		}
+		if retained.ID != "" && retained.ID != prior.GateRun {
+			prior.GateRun, prior.GateIntent, prior.GateHead = retained.ID, retained.Intent, retained.Head
 		}
 	} else {
 		current, err := lifecycle.TaskGate(ctx, meta, gate)

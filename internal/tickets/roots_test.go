@@ -153,7 +153,7 @@ func TestTwoGoblinsMeetingOneErrorFileOneIssueAndOneSighting(t *testing.T) {
 	// Act
 	var filings []FiledRoot
 	for _, line := range []string{"progress for cg-remote-toggle: context deadline exceeded", "progress for cg-goblin-typing-and-header: context deadline exceeded"} {
-		root := RepeatedErrorRoot(ErrorClass(line, tasks), "First met 2026-10-14 17:40Z, met again 2026-10-14 18:45Z.")
+		root := RepeatedErrorRoot(ErrorClass(line, t.TempDir(), tasks), "First met 2026-10-14 17:40Z, met again 2026-10-14 18:45Z.")
 		filed, err := github.FileRoot(context.Background(), rootRepository, rootRepository, root, rootNow)
 		if err != nil {
 			t.Fatal(err)
@@ -435,6 +435,16 @@ func TestScreenRefusesWhatAPublicIssueMayNotSay(t *testing.T) {
 		{"ran from /c/dev/repo", "it names a path on this machine (/c/...)"},
 		{"in ~/.codex/worktrees", "it names a path on this machine (~/...)"},
 		{"share \\\\server\\files\\x", "it names a path on this machine (\\\\server\\...)"},
+		{"built in /home/alice/repo", "it names a path on this machine (/home/...)"},
+		{"built in /Users/alice/repo", "it names a path on this machine (/Users/...)"},
+		{"config at /root/.config/goblins", "it names a path on this machine (/root/...)"},
+		{"left in /tmp/goblins-1/out", "it names a path on this machine (/tmp/...)"},
+		{"cache at /var/folders/xy/T/go-build", "it names a path on this machine (/var/folders/...)"},
+		{"cache at /private/var/folders/xy", "it names a path on this machine (/private/...)"},
+		{"WSL reads /mnt/d/CodeGoblins", "it names a path on this machine (/mnt/...)"},
+		{"the disk /Volumes/Work/repo", "it names a path on this machine (/Volumes/...)"},
+		{"under $HOME/.codex", "it names a path on this machine ($HOME...)"},
+		{"under ${HOME}/.codex", "it names a path on this machine (${HOME}...)"},
 		{"token=" + fakeGitHubToken, "it holds what has the shape of a key"},
 		{"key " + fakeAWSKeyID, "it holds what has the shape of a key"},
 		{fakePEMHeader, "it holds a private key"},
@@ -453,6 +463,7 @@ func TestScreenPassesWhatIssuesAboutCodeSay(t *testing.T) {
 		"TestInputLeftUnread in internal/conpty failed 2 of 5 at d1faafe41c2b9e0f3a7d5c4b8e6f1a2b3c4d5e6f",
 		"see https://github.com/fpresta0607/code-goblins/actions/runs/123456789 and @fpresta0607",
 		"GET /users/42 answers 500; mail jane@example.com; and/or a=b",
+		"internal/home/home.go and the /home page; GET /root answers 404; $HOMEPAGE stays a word",
 		"pocketpiggiesx and webhooks are other words",
 		"re_enable_the_wake_path_for_goblins stays a name",
 	}

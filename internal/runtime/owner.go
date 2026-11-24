@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
@@ -371,13 +372,15 @@ func projectName(path string) string {
 	return filepath.Base(strings.TrimRight(filepath.Clean(path), `\/`))
 }
 
-// normalize folds a Windows path for comparison, matching how internal/reap
-// compares them: lowercase, forward slashes rewritten as backslashes, and no
-// trailing separator, so a path written any of the three ways still matches.
+// normalize puts a path in the form comparisons read it in, matching how
+// internal/reap compares them: its separators the system's own, with forward
+// slashes rewritten as backslashes on Windows, in lowercase where its file
+// system ignores case, as Windows does, and with no trailing separator, so a
+// path written any of the three ways still matches.
 func normalize(path string) string {
 	if path == "" {
 		return ""
 	}
-	folded := strings.ToLower(strings.ReplaceAll(path, "/", `\`))
-	return strings.TrimRight(folded, `\`)
+	folded := fsx.PathKey(filepath.FromSlash(path))
+	return strings.TrimRight(folded, string(filepath.Separator))
 }

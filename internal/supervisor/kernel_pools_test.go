@@ -93,8 +93,9 @@ func TestABoardThatReadsNoPoolTagsKeepsNoRecord(t *testing.T) {
 }
 
 // Each sample keeps how many processes the PC has started and how many
-// tokens the kernel holds, so the record says how many tokens each process
-// start leaves behind, and the record names every process the board itself
+// tokens the kernel holds, read right across the wrap of Toke's allocation
+// count at 2^32, so the record says how many tokens each process start
+// leaves behind, and the record names every process the board itself
 // started by the code that started it, so what the board starts an hour is
 // measured rather than guessed.
 func TestThePoolsRecordCountsProcessesTokensAndTheBoardsOwnStarts(t *testing.T) {
@@ -107,7 +108,7 @@ func TestThePoolsRecordCountsProcessesTokensAndTheBoardsOwnStarts(t *testing.T) 
 		reads++
 		return []PoolTag{
 			{Tag: "Proc", Nonpaged: 1 << 20, NonpagedAllocs: 700_000 + 10_000*reads},
-			{Tag: "Toke", Paged: 500 << 20, PagedAllocs: 900_000 + 9_000*reads, PagedFrees: 600_000 + 5_000*reads},
+			{Tag: "Toke", Paged: 500 << 20, PagedAllocs: 1<<32 - 13_000 + 9_000*reads, PagedFrees: 1<<32 - 313_000 + 5_000*reads},
 		}, nil
 	}
 	if err := execx.Command(os.Args[0], "-test.run=^$").Run(); err != nil {
@@ -135,5 +136,32 @@ func TestThePoolsRecordCountsProcessesTokensAndTheBoardsOwnStarts(t *testing.T) 
 		return start.Program == program && strings.Contains(start.Caller, "supervisor/kernel_pools_test.go") && start.Count > 0
 	}) || !record.BoardStarted.Equal(s.Started) {
 		t.Errorf("the record's board starts = %+v since %v, want this test's start of %s since the board started", record.Board, record.BoardStarted, program)
+	}
+}
+
+// The tokens the kernel holds are the allocations under Toke it has not
+// freed, read right after either count wrapped at 2^32, which thousands of
+// tokens a second reach in days of uptime (#2526).
+func TestTokensAliveCountsTheTokensTheKernelHasNotFreed(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		tags []PoolTag
+		want int64
+	}{
+		{"none freed", []PoolTag{{Tag: "Toke", PagedAllocs: 655_000}}, 655_000},
+		{"some freed", []PoolTag{{Tag: "Proc", PagedAllocs: 9, PagedFrees: 1}, {Tag: "Toke", PagedAllocs: 900_000, PagedFrees: 245_000}}, 655_000},
+		{"allocations wrapped and frees not yet", []PoolTag{{Tag: "Toke", PagedAllocs: 100_000, PagedFrees: 1<<32 - 555_000}}, 655_000},
+		{"no Toke tag", []PoolTag{{Tag: "Proc", PagedAllocs: 9}}, 0},
+		{"no tags", nil, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Act
+			got := TokensAlive(tc.tags)
+
+			// Assert
+			if got != tc.want {
+				t.Errorf("TokensAlive = %d, want %d", got, tc.want)
+			}
+		})
 	}
 }

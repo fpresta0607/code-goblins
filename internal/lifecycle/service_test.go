@@ -31,11 +31,10 @@ func lifecycleFixture(t *testing.T) (Service, state.TaskMeta) {
 		Stop: func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) {
 			return []string{"fixture process"}, nil
 		},
-		Resume: func(context.Context, state.TaskMeta, state.Lifecycle) error { return nil },
+		Resume: func(context.Context, state.TaskMeta, *state.Lifecycle) error { return nil },
 		Archive: func(context.Context, state.TaskMeta, *state.Lifecycle) (Preservation, error) {
 			return Preservation{Kept: []string{"worktree"}}, nil
 		},
-		Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
 		Notify: func(state.Lifecycle) error { return nil },
 	}}, meta
 }
@@ -197,7 +196,7 @@ func TestAFailedPauseWhoseTerminalEndedSinceResumes(t *testing.T) {
 		t.Fatal(err)
 	}
 	resumed := 0
-	service.Operations.Resume = func(context.Context, state.TaskMeta, state.Lifecycle) error { resumed++; return nil }
+	service.Operations.Resume = func(context.Context, state.TaskMeta, *state.Lifecycle) error { resumed++; return nil }
 	service.Operations.IsRunning = func(context.Context, state.TaskMeta) (bool, error) { return false, nil }
 
 	// Act
@@ -519,23 +518,23 @@ func TestPublishedHandoffCancelsUnconfirmedDeliveryBeforeStopping(t *testing.T) 
 	}
 }
 
-func TestResumeRequiresFiveGigabytesAndKeepsPauseOnRefusal(t *testing.T) {
+func TestResumeThatTheMachineHasNoRoomForKeepsThePauseOnRefusal(t *testing.T) {
 	service, meta := lifecycleFixture(t)
 	if _, err := service.Run(context.Background(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Reason: "overlord"}); err != nil {
 		t.Fatal(err)
 	}
 	resumed := false
-	service.Operations.Memory = func() (uint64, uint64, error) { return (5 << 30) - 1, 40 << 30, nil }
-	service.Operations.Resume = func(context.Context, state.TaskMeta, state.Lifecycle) error { resumed = true; return nil }
+	service.Operations.Admit = func() error { return errors.New("Only 4.9 GB of memory is free") }
+	service.Operations.Resume = func(context.Context, state.TaskMeta, *state.Lifecycle) error { resumed = true; return nil }
 	_, err := service.Run(context.Background(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "resume-1", Action: "resume"})
 	if err == nil || resumed {
-		t.Fatal("resume ran under its memory floor")
+		t.Fatal("resume ran without room")
 	}
 	record, err := state.ReadLifecycle(service.StateDir, meta.ID)
 	if err != nil || record.Phase != "paused" {
 		t.Fatalf("memory refusal lost pause: %+v %v", record, err)
 	}
-	service.Operations.Memory = func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil }
+	service.Operations.Admit = func() error { return nil }
 	record, err = service.Run(context.Background(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "resume-2", Action: "resume"})
 	if err != nil || record.Phase != "running" || !resumed {
 		t.Fatalf("resume = %+v %v", record, err)
@@ -564,7 +563,7 @@ func TestAResumeThatOnlyWaitsForRoomLeavesThePauseAsItWas(t *testing.T) {
 		t.Fatal(err)
 	}
 	hasRoom := false
-	service.Operations.Resume = func(context.Context, state.TaskMeta, state.Lifecycle) error {
+	service.Operations.Resume = func(context.Context, state.TaskMeta, *state.Lifecycle) error {
 		if !hasRoom {
 			return fmt.Errorf("%w: %w", state.ErrNoRoom, errors.New("Only 4.9 GB of memory is free"))
 		}
@@ -607,12 +606,7 @@ func TestARefusedResumeLeavesTheTaskExactlyAsItWas(t *testing.T) {
 	const migrate = "pipeline: the machine's gate config has moved on from the policy task task is frozen at (agent). Run goblins pipeline migrate task, then resume it"
 	relaunch := func(refusal error) func(*Service, *Request) {
 		return func(service *Service, _ *Request) {
-			service.Operations.Resume = func(context.Context, state.TaskMeta, state.Lifecycle) error { return refusal }
-		}
-	}
-	memory := func(available, commit uint64, err error) func(*Service, *Request) {
-		return func(service *Service, _ *Request) {
-			service.Operations.Memory = func() (uint64, uint64, error) { return available, commit, err }
+			service.Operations.Resume = func(context.Context, state.TaskMeta, *state.Lifecycle) error { return refusal }
 		}
 	}
 	tests := []struct {
@@ -622,9 +616,6 @@ func TestARefusedResumeLeavesTheTaskExactlyAsItWas(t *testing.T) {
 		logged  string
 	}{
 		{name: "its session changed since the click", arrange: func(_ *Service, request *Request) { request.Generation = "another-session" }, want: "task session changed"},
-		{name: "available memory is short", arrange: memory((5<<30)-1, 40<<30, nil), want: "Resume needs at least 5 GB of available memory"},
-		{name: "commit is short", arrange: memory(16<<30, (5<<30)-1, nil), want: "Resume needs at least 5 GB of commit"},
-		{name: "free memory cannot be read", arrange: memory(0, 0, errors.New("the counter did not answer")), want: "read available memory"},
 		{name: "the machine has no room for one more terminal", arrange: func(service *Service, _ *Request) {
 			service.Operations.Admit = func() error { return errors.New("free disk is under its floor") }
 		}, want: "free disk is under its floor"},
@@ -700,7 +691,7 @@ func TestAResumeThatFailsAfterItsRelaunchBeganIsAFailedResume(t *testing.T) {
 	if _, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Reason: "overlord"}); err != nil {
 		t.Fatal(err)
 	}
-	service.Operations.Resume = func(_ context.Context, launched state.TaskMeta, _ state.Lifecycle) error {
+	service.Operations.Resume = func(_ context.Context, launched state.TaskMeta, _ *state.Lifecycle) error {
 		launched.SpawnGen, launched.ResumeOperation = "generation-2", "resume-1"
 		if err := state.WriteTaskMeta(service.StateDir, launched); err != nil {
 			return err
@@ -717,45 +708,6 @@ func TestAResumeThatFailsAfterItsRelaunchBeganIsAFailedResume(t *testing.T) {
 	}
 	if lines, _ := state.TailStatus(service.StateDir, meta.ID, 50); !slices.ContainsFunc(lines, func(line string) bool { return strings.Contains(line, "lifecycle-failed") }) {
 		t.Errorf("status log = %v, want the failed resume in it", lines)
-	}
-}
-
-func TestResumeNeedsFiveGigabytesOfBothMemoryAndCommitAndNamesWhatIsShort(t *testing.T) {
-	tests := []struct {
-		name              string
-		available, commit uint64
-		want, notWant     string
-	}{
-		{name: "memory short", available: (5 << 30) - 1, commit: 40 << 30, want: "Resume needs at least 5 GB of available memory to keep the 4 GB floor", notWant: "commit"},
-		{name: "commit short", available: 16 << 30, commit: (5 << 30) - 1, want: "Resume needs at least 5 GB of commit (RAM plus page file) to keep the 4 GB floor", notWant: "available memory"},
-		{name: "both short", available: 3 << 30, commit: 2 << 30, want: "Resume needs at least 5 GB of available memory and of commit (RAM plus page file) to keep the 4 GB floor"},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			// Arrange
-			service, meta := lifecycleFixture(t)
-			if _, err := service.Run(context.Background(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Reason: "overlord"}); err != nil {
-				t.Fatal(err)
-			}
-			resumed := false
-			service.Operations.Memory = func() (uint64, uint64, error) { return test.available, test.commit, nil }
-			service.Operations.Resume = func(context.Context, state.TaskMeta, state.Lifecycle) error { resumed = true; return nil }
-
-			// Act
-			_, err := service.Run(context.Background(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "resume-1", Action: "resume"})
-
-			// Assert
-			if err == nil || resumed || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("resume = %v, resumed %v, want a refusal saying %q", err, resumed, test.want)
-			}
-			if test.notWant != "" && strings.Contains(err.Error(), test.notWant) {
-				t.Fatalf("refusal %q names %q, which is not short", err, test.notWant)
-			}
-			record, err := state.ReadLifecycle(service.StateDir, meta.ID)
-			if err != nil || record.Phase != "paused" {
-				t.Fatalf("memory refusal lost pause: %+v %v", record, err)
-			}
-		})
 	}
 }
 
@@ -959,7 +911,7 @@ func TestResumeRecoversAnInterruptedController(t *testing.T) {
 		t.Fatal(err)
 	}
 	resumes := 0
-	service.Operations.Resume = func(_ context.Context, _ state.TaskMeta, prior state.Lifecycle) error {
+	service.Operations.Resume = func(_ context.Context, _ state.TaskMeta, prior *state.Lifecycle) error {
 		resumes++
 		if prior.Session != "original-session" {
 			t.Fatal("interrupted Resume lost its saved session")
@@ -990,7 +942,7 @@ func TestAResumeNoteIsToldAfterTheRecordsOwn(t *testing.T) {
 				t.Fatal(err)
 			}
 			var told string
-			service.Operations.Resume = func(_ context.Context, _ state.TaskMeta, prior state.Lifecycle) error {
+			service.Operations.Resume = func(_ context.Context, _ state.TaskMeta, prior *state.Lifecycle) error {
 				told = prior.ResumeNote
 				return nil
 			}
@@ -1017,7 +969,7 @@ func TestResumeRetryRecognizesItsPublishedReplacementGeneration(t *testing.T) {
 	if err := state.WriteTaskMeta(service.StateDir, meta); err != nil {
 		t.Fatal(err)
 	}
-	service.Operations.Resume = func(_ context.Context, got state.TaskMeta, prior state.Lifecycle) error {
+	service.Operations.Resume = func(_ context.Context, got state.TaskMeta, prior *state.Lifecycle) error {
 		if got.SpawnGen != meta.SpawnGen || prior.Session != "retained-session" {
 			t.Fatalf("lost interrupted launch identity: %+v %+v", got, prior)
 		}
@@ -1042,9 +994,9 @@ func TestResumeRetryCompletesAnExistingLaunchBelowTheMemoryThreshold(t *testing.
 				t.Fatal(err)
 			}
 			service.Operations.IsRunning = func(context.Context, state.TaskMeta) (bool, error) { return isRunning, nil }
-			service.Operations.Memory = func() (uint64, uint64, error) { return 4 << 30, 4 << 30, nil }
-			service.Operations.Resume = func(context.Context, state.TaskMeta, state.Lifecycle) error {
-				t.Fatal("retry launched another harness below the memory threshold")
+			service.Operations.Admit = func() error { return errors.New("Only 4.0 GB of memory is free") }
+			service.Operations.Resume = func(context.Context, state.TaskMeta, *state.Lifecycle) error {
+				t.Fatal("retry launched another harness without room")
 				return nil
 			}
 			record, err := service.Run(t.Context(), request)
@@ -1052,7 +1004,7 @@ func TestResumeRetryCompletesAnExistingLaunchBelowTheMemoryThreshold(t *testing.
 				t.Fatalf("existing launch was not recovered: %+v %v", record, err)
 			}
 			if !isRunning && err == nil {
-				t.Fatal("new launch bypassed the memory threshold")
+				t.Fatal("new launch bypassed the admission")
 			}
 		})
 	}
@@ -1103,7 +1055,7 @@ func TestAResumeOfAResumeAlreadyUpHandsOnItsRecordBeforeOverwritingIt(t *testing
 			}
 			service.Operations.IsRunning = func(context.Context, state.TaskMeta) (bool, error) { return tc.isRunning, nil }
 			var carried []string
-			service.Operations.Resume = func(_ context.Context, _ state.TaskMeta, prior state.Lifecycle) error {
+			service.Operations.Resume = func(_ context.Context, _ state.TaskMeta, prior *state.Lifecycle) error {
 				carried = append(carried, prior.ResumeNote)
 				return nil
 			}
@@ -1148,7 +1100,7 @@ func TestGateRecoverySurvivesAFailedResumeButNotASuccessfulOne(t *testing.T) {
 		return nil
 	}
 	var resumedWith []string
-	service.Operations.Resume = func(_ context.Context, _ state.TaskMeta, prior state.Lifecycle) error {
+	service.Operations.Resume = func(_ context.Context, _ state.TaskMeta, prior *state.Lifecycle) error {
 		resumedWith = append(resumedWith, prior.GateRun)
 		if len(resumedWith) == 1 {
 			return errors.New("harness failed to start")
@@ -1181,7 +1133,7 @@ func TestLifecycleOutcomesNeverHideTheTasksOwnReport(t *testing.T) {
 	if err := state.AppendStatus(service.StateDir, meta.ID, "needs-decision: pick a schema"); err != nil {
 		t.Fatal(err)
 	}
-	service.Operations.Resume = func(context.Context, state.TaskMeta, state.Lifecycle) error {
+	service.Operations.Resume = func(context.Context, state.TaskMeta, *state.Lifecycle) error {
 		return errors.New("harness failed to start")
 	}
 	for _, request := range []Request{{Operation: "pause-1", Action: "pause", Reason: "overlord"}, {Operation: "resume-1", Action: "resume"}} {

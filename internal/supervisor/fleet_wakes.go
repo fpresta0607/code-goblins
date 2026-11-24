@@ -92,11 +92,10 @@ type fleetWakes struct {
 	Progress  map[string]WorkProgress `json:"progress,omitempty"`
 	Durations []CIDuration            `json:"durations,omitempty"`
 	// MemoryAbove counts readings in a row with memory and commit both at or
-	// above the next-start mark, and MemoryBelow those with either under the
-	// floor, which AFK mode pauses a goblin at. MemorySpent says memory_ready
-	// woke since a reading last fell under the floor.
+	// above what a start of the costliest harness needs (Room.Need).
+	// MemorySpent says memory_ready woke since a reading last fell under the
+	// floor.
 	MemoryAbove  int       `json:"memory_above,omitempty"`
-	MemoryBelow  int       `json:"memory_below,omitempty"`
 	MemorySpent  bool      `json:"memory_spent,omitempty"`
 	MemoryReadAt time.Time `json:"memory_read_at,omitzero"`
 	// MemoryLow says the latest reading found memory or commit under the
@@ -129,6 +128,14 @@ type fleetWakes struct {
 	// DiskLow says disk_low woke since a reading was last at or above the
 	// disk floor.
 	DiskLow bool `json:"disk_low,omitempty"`
+	// GateCauses names each cause of the gate's home keeping finished runs'
+	// checkouts past its retention that gate_growth woke for, until a sweep
+	// finds it no more.
+	GateCauses []string `json:"gate_causes,omitempty"`
+	// GoblinFolders holds, by task and the generation it was first spawned
+	// on, each live goblin told its folders passed goblin_disk_gb, and how
+	// many sends to it failed.
+	GoblinFolders map[string]folderNotice `json:"goblin_folders,omitempty"`
 	// HandleHolder names the process past the handle line the CEO was woken
 	// for, by its pid and start, until a reading finds none past it.
 	HandleHolder string `json:"handle_holder,omitempty"`
@@ -348,7 +355,7 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 	w, readErr := readFleetWakes(stateDir)
 	err := errors.Join(readErr, s.pauseAtAllowanceFloor(ctx, &w, now), s.pollCI(ctx, &w, now, currentTime))
 	err = errors.Join(err, s.reconcilePreparedWaits(ctx, &w, now))
-	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkHandles(&w, now), s.checkDisk(&w, now), s.checkLongTurnWaits(&w, now), s.checkProgress(ctx, &w, now), s.checkDefender(ctx, &w, now), s.checkCEOWaits(&w, now), s.checkSharedServices(ctx, &w, now))
+	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkHandles(&w, now), s.checkDisk(&w, now), s.checkGateGrowth(&w, now), s.checkGoblinFolders(ctx, &w), s.checkLongTurnWaits(&w, now), s.checkProgress(ctx, &w, now), s.checkDefender(ctx, &w, now), s.checkCEOWaits(&w, now), s.checkSharedServices(ctx, &w, now))
 	w.RootReadings = s.currentRootReadings()
 	// The reading's end is its start and the time the machine was awake
 	// through it: a sleep that fell inside the reading, in its progress probe
@@ -386,13 +393,14 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 }
 
 // checkMemory raises memory_ready once memory and commit both read at or
-// above the next-start mark on two readings in a row while work waits for
+// above what a start of the costliest harness needs on two readings in a row
+// while work waits for
 // memory: a queued task a Start could start now, or a live goblin whose latest
 // report is a wait on memory, and a new goblin would still leave the
 // machine's heavy line its next floor. It wakes once per crossing: not
 // again until a reading falls under the floor and crosses back, and never
-// twice within memoryWakeGap. A reading under the floor goes to AFK mode's
-// memory floor.
+// twice within memoryWakeGap. A reading under the floor schedules nothing:
+// the memory guard (guardMemory) pauses a goblin at it.
 // Every check first plans the comeback for this sign-in, before memory is
 // read, so a sign-in that never reaches the floor still records itself; a
 // planning error is reported and the rest of the check still runs. Each
@@ -418,7 +426,7 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	memory, err := dispatch.Memory()
 	if err != nil {
 		// No reading is no evidence either way: the next two decide.
-		w.MemoryAbove, w.MemoryBelow = 0, 0
+		w.MemoryAbove = 0
 		w.LineStallSince, w.LineStallWoke = time.Time{}, false
 		return planningErr
 	}
@@ -432,12 +440,12 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	isRestarting := s.isRestartingPC()
 	s.starts.Unlock()
 	if isRestarting {
-		w.MemoryAbove, w.MemoryBelow = 0, 0
+		w.MemoryAbove = 0
 		w.LineStallSince, w.LineStallWoke = time.Time{}, false
 		return planningErr
 	}
 	if w.MemoryReadAt.IsZero() || now.Sub(w.MemoryReadAt) > 2*fleetWatchEvery || !now.After(w.MemoryReadAt) {
-		w.MemoryAbove, w.MemoryBelow = 0, 0
+		w.MemoryAbove = 0
 		w.LineStallSince, w.LineStallWoke = time.Time{}, false
 	}
 	w.MemoryReadAt = now
@@ -448,15 +456,27 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	w.IdleSince = time.Time{}
 	var scheduled *Scheduling
 	defer func() { s.setScheduling(scheduled) }()
-	if low < memoryFloor {
-		w.MemorySpent, w.MemoryAbove, w.MemoryLow = false, 0, true
-		w.MemoryBelow++
+	// A floor or a record that cannot be read leaves nothing admitted: no
+	// default stands in for it.
+	floor, err := MachineMemoryFloor(s.Store.Home)
+	if err != nil {
+		w.MemoryAbove = 0
 		w.LineStallSince, w.LineStallWoke = time.Time{}, false
-		return errors.Join(planningErr, s.pauseAtMemoryFloor(w, memory, now))
+		return errors.Join(planningErr, err)
+	}
+	if low < floor {
+		w.MemorySpent, w.MemoryAbove, w.MemoryLow = false, 0, true
+		w.LineStallSince, w.LineStallWoke = time.Time{}, false
+		return planningErr
+	}
+	room, err := s.room(now)
+	if err != nil {
+		w.MemoryAbove = 0
+		w.LineStallSince, w.LineStallWoke = time.Time{}, false
+		return errors.Join(planningErr, err)
 	}
 	stallErr := s.checkLineStall(w, memory, now)
-	w.MemoryBelow = 0
-	if low < memoryNext {
+	if low < room.Need(room.costliest()) {
 		w.MemoryAbove = 0
 	} else {
 		w.MemoryAbove++
@@ -468,8 +488,8 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	if update.Installing(s.Store.Home.State) {
 		return errors.Join(planningErr, stallErr)
 	}
-	room, lineErr := s.heavyLineRoom(w, memory)
-	hold := room.Hold
+	lineRoom, lineErr := s.heavyLineRoom(w, memory)
+	hold := lineRoom.Hold
 	// What a restart ended comes back before anything else starts by itself, and no
 	// memory wake offers its room to other work while it does.
 	if planningErr == nil {
@@ -478,16 +498,15 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 		}
 	}
 	planningErr = errors.Join(planningErr, lineErr, stallErr)
-	if low < memoryNext {
-		return planningErr
-	}
-	scheduled, err = s.schedule(ctx, now, w, memory, hold)
+	scheduled, err = s.schedule(ctx, now, w, memory, room, hold)
 	if err != nil {
 		return errors.Join(planningErr, err)
 	}
-	w.IdleSince = idleSince
-	if err := s.wakeWhenStalled(w, scheduled, memory, now); err != nil {
-		return errors.Join(planningErr, err)
+	if scheduled != nil && !scheduled.isWaitingForRoom {
+		w.IdleSince = idleSince
+		if err := s.wakeWhenStalled(w, scheduled, memory, now); err != nil {
+			return errors.Join(planningErr, err)
+		}
 	}
 	// Memory a new goblin would take from the heavy line's next floor is the
 	// test slots', so memory_ready offers it to nothing.
@@ -498,7 +517,7 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	if len(queued) == 0 && len(waiting) == 0 {
 		return planningErr
 	}
-	if err := raiseFleetWake(s.Store.Home.State, "memory", "memory", memoryReadyDetail(memory, room, queued, waiting)); err != nil {
+	if err := raiseFleetWake(s.Store.Home.State, "memory", "memory", memoryReadyDetail(memory, room.Need(room.costliest()), lineRoom, queued, waiting)); err != nil {
 		return errors.Join(planningErr, err)
 	}
 	w.MemorySpent = true
@@ -734,11 +753,12 @@ func inProgressOrder(h home.Home) ([]state.TaskMeta, error) {
 	return tasks, err
 }
 
-// memoryReadyDetail is the memory_ready wake, which names the floor it kept
-// for the heavy line's next test run and how many runs wait there, the rule
-// it woke by, and says what to do next. On 2026-11-11 a wake that named only
-// the 5 GB mark read as a start the line refused (#2369).
-func memoryReadyDetail(memory Memory, room LineRoom, queued, waiting []string) string {
+// memoryReadyDetail is the memory_ready wake, which names the free memory a
+// start needs, the floor it kept for the heavy line's next test run and how
+// many runs wait there, the rule it woke by, and says what to do next. On
+// 2026-11-11 a wake that named only the free memory a start needs read as a
+// start the line refused (#2369).
+func memoryReadyDetail(memory Memory, need uint64, room LineRoom, queued, waiting []string) string {
 	var next []string
 	if len(queued) > 0 {
 		step := "dispatch the next queued task, " + queued[0]
@@ -758,8 +778,8 @@ func memoryReadyDetail(memory Memory, room LineRoom, queued, waiting []string) s
 		}
 		kept = fmt.Sprintf(", and they keep the next test run's %.1f GB floor and 1 GB for a new goblin, with %s waiting in the test line", gigabytes(room.Floor), runs)
 	}
-	return fmt.Sprintf("memory_ready: %.1f GB of memory and %.1f GB of commit are free, both at or above the 5 GB mark on two readings in a row%s; next: %s",
-		gigabytes(memory.Available), gigabytes(memory.CommitAvailable), kept, strings.Join(next, ", and "))
+	return fmt.Sprintf("memory_ready: %.1f GB of memory and %.1f GB of commit are free, both at or above the %.1f GB a start needs on two readings in a row%s; next: %s",
+		gigabytes(memory.Available), gigabytes(memory.CommitAvailable), gigabytes(need), kept, strings.Join(next, ", and "))
 }
 
 // gigabytes rounds bytes down to a tenth of a gigabyte, so memory just under

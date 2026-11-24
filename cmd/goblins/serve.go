@@ -20,6 +20,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/boardweb"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/gatedb"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
@@ -124,7 +125,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	}
 	if *example {
 		rel, err := filepath.Rel(os.TempDir(), h.Root)
-		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || !strings.EqualFold(filepath.Clean(h.State), filepath.Join(h.Root, "state")) {
+		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || !fsx.EqualPath(filepath.Clean(h.State), filepath.Join(h.Root, "state")) {
 			fmt.Fprintln(stderr, "--example requires a separate home under the temporary directory with its own state directory")
 			return 2
 		}
@@ -443,7 +444,7 @@ func boardStartAtLogin(h home.Home) install.Service {
 
 // serveDispatch reads the machine for the supervisor's starts and wakes.
 func serveDispatch(h home.Home) *supervisor.Dispatch {
-	return &supervisor.Dispatch{Memory: supervisor.MachineMemory, Disk: func() (supervisor.Disk, error) { return supervisor.MachineDisk(h) }, CommitHolders: supervisor.CommitHolders, TopHandleHolder: supervisor.TopHandleHolder, Processors: supervisor.MachineProcessors, GPU: supervisor.MachineGPU, HeavyLine: supervisor.MachineHeavyLine, LineStall: supervisor.MachineLineStall, LongTurnWaits: supervisor.MachineLongTurnWaits, PoolTags: supervisor.PoolTags, Spawn: spawnFromBoard}
+	return &supervisor.Dispatch{Memory: supervisor.MachineMemory, Disk: func() (supervisor.Disk, error) { return supervisor.MachineDisk(h) }, CommitHolders: supervisor.CommitHolders, TopHandleHolder: supervisor.TopHandleHolder, Processors: supervisor.MachineProcessors, GPU: supervisor.MachineGPU, Processes: fleettree.Processes, HeavyLine: supervisor.MachineHeavyLine, LineStall: supervisor.MachineLineStall, LongTurnWaits: supervisor.MachineLongTurnWaits, TurnHolders: supervisor.MachineTurnHolders, PoolTags: supervisor.PoolTags, Spawn: spawnFromBoard}
 }
 
 // spawnFromBoard runs this goblins binary with args, as a queued task's Start

@@ -283,12 +283,16 @@ export interface Wait { kind: string; target: string; until: string; bytes: numb
 // tighter, the apps holding the most of it. slot_hold says why the supervisor
 // starts and resumes no goblin by itself, a new session leaving the machine's
 // heavy line short of the floor it keeps for its next test run, and is empty
-// when it may.
+// when it may. guard is the reading under the floor the memory guard last
+// acted on, or null before it has acted.
 export interface Memory {
   available: number; total: number; commit_available: number; commit_limit: number;
   paged_pool: number; nonpaged_pool: number; pool_line: number; pool_growth: PoolGrowth[];
-  floor: number; next: number; slot_hold: string; holders: CommitHolder[];
+  floor: number; next: number; slot_hold: string; holders: CommitHolder[]; guard: GuardReading | null;
 }
+// GuardReading is the reading under the floor the memory guard last acted on:
+// when it read, the free memory and commit it read, the floor, and what it did.
+export interface GuardReading { at: string; available: number; commit_available: number; floor: number; action: string }
 // PoolGrowth is a kernel pool tag that grew in one pool, paged or nonpaged,
 // since the sign-in began: how much, and how much it holds now.
 export interface PoolGrowth { tag: string; pool: string; grown: number; holds: number }
@@ -993,12 +997,13 @@ export function parseReadings(v: Record<string, unknown>): Readings {
   return {
     at: string(v.at),
     revision: number(v.revision),
-    memory: v.memory === undefined || v.memory === null ? null : (({ available, total, commit_available, commit_limit, paged_pool, nonpaged_pool, pool_line, pool_growth, floor, next, slot_hold, holders }) => ({
+    memory: v.memory === undefined || v.memory === null ? null : (({ available, total, commit_available, commit_limit, paged_pool, nonpaged_pool, pool_line, pool_growth, floor, next, slot_hold, holders, guard }) => ({
       available: number(available), total: number(total), commit_available: number(commit_available), commit_limit: number(commit_limit),
       paged_pool: number(paged_pool), nonpaged_pool: number(nonpaged_pool), pool_line: number(pool_line),
       pool_growth: array(pool_growth).map((value) => { const g = object(value); return { tag: string(g.tag), pool: string(g.pool), grown: number(g.grown), holds: number(g.holds) }; }),
       floor: number(floor), next: number(next), slot_hold: string(slot_hold),
       holders: array(holders).map((value) => { const h = object(value); return { name: string(h.name), commit: number(h.commit) }; }),
+      guard: guard === undefined || guard === null ? null : (({ at, available, commit_available, floor, action }) => ({ at: string(at), available: number(available), commit_available: number(commit_available), floor: number(floor), action: string(action) }))(object(guard)),
     }))(object(v.memory)),
     disk: v.disk === undefined || v.disk === null ? null : (({ drive, free, total, floor, wake, drives }) => ({
       drive: string(drive), free: number(free), total: number(total), floor: number(floor), wake: number(wake),

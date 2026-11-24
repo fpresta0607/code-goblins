@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/cutover"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -226,7 +227,7 @@ func (s *Service) bridgesInUse(bridges []string) (bool, error) {
 	}
 	for _, process := range running {
 		for _, bridge := range bridges {
-			if strings.EqualFold(filepath.Clean(process.Image), filepath.Clean(bridge)) {
+			if fsx.EqualPath(filepath.Clean(bridge), filepath.Clean(process.Image)) {
 				return true, nil
 			}
 		}

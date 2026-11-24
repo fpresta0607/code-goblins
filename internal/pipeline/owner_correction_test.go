@@ -161,7 +161,7 @@ func commitFiles(t *testing.T, dir string, files map[string]string) string {
 
 // correctionWorktree is a branch that changes a.go from origin's default
 // branch, at the head a run failed its Test step on: its log names b.go and
-// its finding internal/c/c.go, with Windows separators.
+// its finding internal/c/c.go, with the system's separators.
 func correctionWorktree(t *testing.T) (string, string, Handback) {
 	t.Helper()
 	worktree := t.TempDir()
@@ -172,7 +172,7 @@ func correctionWorktree(t *testing.T) (string, string, Handback) {
 	log := filepath.Join(t.TempDir(), "test.log")
 	writeFixtureFile(t, log, "ok  \tinternal/a\n--- FAIL: TestB (0.00s)\n    b.go:12: want 2, got 3\nFAIL\n")
 	run := Handback{RunID: handbackRun, RepoID: handbackRepo, Branch: handbackBranch, Head: head, SubmittedHead: head, Step: "test", Log: log,
-		Findings: []HandbackFinding{{ID: "test-failure", Severity: "error", Description: `go vet: internal\c\c.go:3: unreachable code`}}}
+		Findings: []HandbackFinding{{ID: "test-failure", Severity: "error", Description: "go vet: " + filepath.FromSlash("internal/c/c.go") + ":3: unreachable code"}}}
 	return worktree, trusted, run
 }
 

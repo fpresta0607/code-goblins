@@ -263,17 +263,19 @@ func readManifest(path string) ([]string, bool, error) {
 // removeUnshipped removes each file a previous install listed that the
 // running binary no longer ships. Only listed paths are touched, so a file the
 // operator added stays, and only those inside the home, since the list is read
-// from disk. Paths are compared without case, as Windows resolves them, so a
-// skill renamed only in case is not removed from under its new name.
+// from disk. Paths are compared by the case rule of the home's file system,
+// so where it ignores case, as Windows does, a skill renamed only in case is
+// not removed from under its new name.
 func (s Service) removeUnshipped(previous, manifest []string) (int, error) {
+	holder := s.Root + string(filepath.Separator)
 	shipped := make(map[string]bool, len(manifest))
 	for _, name := range manifest {
-		shipped[strings.ToLower(name)] = true
+		shipped[fsx.PathKey(holder+name)] = true
 	}
 	removed := 0
 	for _, name := range previous {
 		local := filepath.FromSlash(name)
-		if shipped[strings.ToLower(name)] || !filepath.IsLocal(local) {
+		if shipped[fsx.PathKey(holder+name)] || !filepath.IsLocal(local) {
 			continue
 		}
 		err := os.Remove(filepath.Join(s.Root, local))

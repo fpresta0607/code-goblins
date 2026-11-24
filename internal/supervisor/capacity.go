@@ -4,17 +4,20 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
-// CheckLaunch refuses a start, a resume or a spawn while memory or commit is
-// under the next-start mark or the disk under its floor. No count of goblins
+// CheckLaunch refuses a start, a resume or a spawn of harness while memory or
+// commit is under what room says it needs, or the disk under its floor. A
+// harness not chosen yet is priced as the costliest. No count of goblins
 // refuses one: memory alone says whether another fits.
-func CheckLaunch(memory Memory, disk Disk) error {
-	if short := memory.shortfall(); short != "" {
-		return errors.New(short + "; a start needs 5 GB of memory and commit to keep the 4 GB floor")
+func CheckLaunch(memory Memory, room Room, harness string, disk Disk) error {
+	if short := room.Shortfall(memory, room.startHarness(harness)); short != "" {
+		return errors.New(short)
 	}
 	if short := disk.Shortfall(); short != "" {
 		return errors.New(diskRefusal(short))
@@ -41,12 +44,9 @@ func (s *Service) processorsBusy() string {
 	return processors.shortfall()
 }
 
-// sessionMemory is about what a new goblin session takes: the next-start
-// mark is the fleet's floor and this.
-const sessionMemory = memoryNext - memoryFloor
-
 // SlotHold says why no goblin starts or resumes by itself at the reading
-// memory, or "" when one may: a new session takes about 1 GB, and memory and
+// memory, or "" when one may: a new session takes about 1 GB (a start
+// not yet measured costs unmeasuredStartCost), and memory and
 // commit less that must still meet floor, what the machine's heavy line keeps
 // for its next test run as goblins gate turns shows it, so both test slots stay
 // usable. The Overlord set this rule on 2026-11-02, by free memory and no
@@ -54,7 +54,7 @@ const sessionMemory = memoryNext - memoryFloor
 // paused at the memory floor minutes later while heavy steps waited (#1926).
 func SlotHold(floor uint64, memory Memory) string {
 	free := min(memory.Available, memory.CommitAvailable)
-	if free >= floor+sessionMemory {
+	if free >= floor+unmeasuredStartCost {
 		return ""
 	}
 	return fmt.Sprintf("%.1f GB of memory and commit is free; the next test run needs %.1f GB and a new goblin 1 GB", gigabytes(free), gigabytes(floor))
@@ -82,11 +82,11 @@ func MachineHeavyLine(memory Memory) (LineRoom, error) {
 	if err != nil {
 		return LineRoom{}, err
 	}
-	var estimate uint64
+	var head verify.Standing
 	if len(waiting) > 0 {
-		estimate = waiting[0].Estimate
+		head = waiting[0]
 	}
-	floor, err := verify.HeadFloor(dir, estimate, 0)
+	floor, err := verify.HeadFloor(dir, head, 0)
 	if err != nil {
 		return LineRoom{}, err
 	}
@@ -113,7 +113,7 @@ func MachineLineStall(memory Memory) (string, error) {
 	if err != nil || len(holding) >= capacity || len(waiting) == 0 {
 		return "", err
 	}
-	floor, err := verify.HeadFloor(dir, waiting[0].Estimate, 0)
+	floor, err := verify.HeadFloor(dir, waiting[0], 0)
 	if err != nil {
 		return "", err
 	}
@@ -153,6 +153,52 @@ func MachineLongTurnWaits(now time.Time) ([]verify.Standing, error) {
 	return slices.DeleteFunc(waiting, func(run verify.Standing) bool {
 		return run.IsTestStep || run.IsLowPriority || now.Sub(run.Since) < longTurnWait
 	}), nil
+}
+
+// MachineTurnHolders reads the tasks whose goblins hold a turn of the
+// machine's heavy line, a slot or a light turn beside them, any verification
+// a gate's Test step included: the task each holder's card names, as goblins
+// gate turn names its run's, or else the one its environment names in
+// GOBLINS_TASK_ID, which every run a goblin starts inherits from its
+// terminal, a detached run whose starter has ended too. A holder whose card
+// names none and whose environment cannot be read, or names none, is no
+// goblin's, as is one whose environment sets NO_MISTAKES_GATE: a gate's step
+// runs in the gate daemon's environment, which can be another goblin's.
+func MachineTurnHolders() ([]string, error) {
+	dir, err := verify.AdmissionDir()
+	if err != nil {
+		return nil, err
+	}
+	holding, _, err := verify.Line(dir)
+	if err != nil {
+		return nil, err
+	}
+	var tasks []string
+	for _, run := range holding {
+		if run.Task != "" {
+			tasks = append(tasks, run.Task)
+			continue
+		}
+		environment, err := proc.Environment(run.PID)
+		if err != nil {
+			continue
+		}
+		var task string
+		isUnderGate := false
+		for _, entry := range environment {
+			name, value, _ := strings.Cut(entry, "=")
+			switch {
+			case strings.EqualFold(name, "GOBLINS_TASK_ID"):
+				task = value
+			case strings.EqualFold(name, "NO_MISTAKES_GATE") && value != "":
+				isUnderGate = true
+			}
+		}
+		if task != "" && !isUnderGate {
+			tasks = append(tasks, task)
+		}
+	}
+	return tasks, nil
 }
 
 // heavyLineRoom is the room the machine's heavy line keeps at this reading,

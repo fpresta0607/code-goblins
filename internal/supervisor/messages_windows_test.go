@@ -547,8 +547,7 @@ func TestAResumeOfAFailedResumeAlreadyUpHandsItsKeptMessagesToTheCEO(t *testing.
 			var carried []string
 			controller := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
 				IsRunning: func(context.Context, state.TaskMeta) (bool, error) { return tc.isRunning, nil },
-				Memory:    func() (uint64, uint64, error) { return 8 << 30, 8 << 30, nil },
-				Resume: func(_ context.Context, _ state.TaskMeta, prior state.Lifecycle) error {
+				Resume: func(_ context.Context, _ state.TaskMeta, prior *state.Lifecycle) error {
 					_, carried = keptMessages(prior.ResumeNote)
 					return nil
 				},
@@ -2171,9 +2170,10 @@ func TestSendNowRunsACommandHeldForAGoblinsTurnAtOnce(t *testing.T) {
 
 // Claude Code's send-now chord takes its turn's queue from the head, so the
 // board presses it over a goblin's command only while that queue holds nothing
-// else: a Send now that finds his words queued ahead of the command is spent
-// by that try, which says it could not run it at once, and nothing is typed
-// or pressed for it at a later try (#1915). Those words stay until a new Send
+// else: a Send now that finds ahead of the command a line he typed into that
+// queue in its terminal, which the board takes back for no one, is spent by
+// that try, which says it could not run it at once, and nothing is typed or
+// pressed for it at a later try (#1915). Those words stay until a new Send
 // now, whose try says how it went, or until the turn ends and the command
 // runs. The fixture's turn ends only on Escape, which hands his words back
 // onto its prompt line, so he ends it here as he can in its terminal, with
@@ -2191,40 +2191,40 @@ func TestASendNowThatCannotRunACommandHeldForAGoblinsTurnIsSpentAndSaysSo(t *tes
 	gitWorktree(t, meta.Worktree)
 	terminal := nativeComposer(t, h.State, meta.ID, "claude-busy")
 	service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
-	messageTo(t, store, meta, "message-1", "first words")
-	messageTo(t, store, meta, "message-2", "/compact")
-	for range 2 {
-		if err := store.ProcessOne(t.Context(), service.execute); err != nil && !errors.Is(err, ErrDeferred) {
-			t.Fatal(err)
-		}
+	terminal.typeLine(t, "first words")
+	terminal.waitForLines(t, 2)
+	promptLineEmpties(t, terminal, "claude")
+	messageTo(t, store, meta, "message-1", "/compact")
+	if err := store.ProcessOne(t.Context(), service.execute); err != nil && !errors.Is(err, ErrDeferred) {
+		t.Fatal(err)
 	}
-	if words, command := actionOf(store, "message-1"), actionOf(store, "message-2"); !isHarnessHeld(words) || command.Status != "queued" {
-		t.Fatalf("his words = %+v, the command = %+v; want the words in the turn's queue and the command held on the board", words, command)
+	if command := actionOf(store, "message-1"); command.Status != "queued" {
+		t.Fatalf("the command = %+v; want it held on the board", command)
 	}
 	retry := func() error {
 		store.mu.Lock()
-		store.deferredUntil["message-2"] = time.Now().Add(-time.Second)
+		store.deferredUntil["message-1"] = time.Now().Add(-time.Second)
 		store.mu.Unlock()
 		return store.ProcessOne(t.Context(), service.execute)
 	}
 
 	// Act
-	pressed := sendNow(service, meta.ID, "message-2")
+	pressed := sendNow(service, meta.ID, "message-1")
 	err := store.ProcessOne(t.Context(), service.execute)
-	spent := actionOf(store, "message-2")
+	spent := actionOf(store, "message-1")
 	later := retry()
-	kept := actionOf(store, "message-2")
-	pressedAgain := sendNow(service, meta.ID, "message-2")
-	renewed := actionOf(store, "message-2")
+	kept := actionOf(store, "message-1")
+	pressedAgain := sendNow(service, meta.ID, "message-1")
+	renewed := actionOf(store, "message-1")
 	again := store.ProcessOne(t.Context(), service.execute)
-	spentAgain := actionOf(store, "message-2")
+	spentAgain := actionOf(store, "message-1")
 	terminal.typeKeys(t, "\x1b")
 	terminal.waitForLines(t, 3)
 	terminal.typeKeys(t, "\x15")
 	terminal.waitForLines(t, 4)
 	terminal.showsComposer(t, "claude")
 	ended := retry()
-	taken := actionOf(store, "message-2")
+	taken := actionOf(store, "message-1")
 	input := terminal.waitForLines(t, 5)
 
 	// Assert
@@ -2246,31 +2246,86 @@ func TestASendNowThatCannotRunACommandHeldForAGoblinsTurnIsSpentAndSaysSo(t *tes
 	if ended != nil || taken.Status != "succeeded" || taken.Message != "Accepted by the goblin in its native terminal." || taken.IsSendNowSpent {
 		t.Errorf("once its turn ended, its try = %v, the command = %+v; want it run, read as taken, and no longer marked spent", ended, taken)
 	}
-	if !slices.Equal(input[1:], []string{"queued CEO: " + routing.BoardMessagePrefix + "first words", "interrupted", "cleared", "accepted /compact"}) {
+	if !slices.Equal(input[1:], []string{"queued first words", "interrupted", "cleared", "accepted /compact"}) {
 		t.Errorf("terminal input = %q; want nothing typed or pressed for the command until its turn ended", input)
+	}
+}
+
+// A goblin's Claude Code runs a command he sends now ahead of his words in
+// its turn's queue as the CEO's does (#2759): Send now takes those words back
+// out of that queue first, runs the command at once with its send-now chord,
+// and types the words into the turn again after it.
+func TestSendNowRunsAGoblinsCommandAtOnceAheadOfHisWordsInClaudeCodesQueue(t *testing.T) {
+	// Arrange
+	useConversations(t)
+	store, h := testStore(t)
+	meta := makeNative(t, h.State, "task-1")
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	gitWorktree(t, meta.Worktree)
+	terminal := nativeComposer(t, h.State, meta.ID, "claude-busy")
+	service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+	messageTo(t, store, meta, "message-1", "first words")
+	messageTo(t, store, meta, "message-2", "/compact")
+	for range 2 {
+		if err := store.ProcessOne(t.Context(), service.execute); err != nil && !errors.Is(err, ErrDeferred) {
+			t.Fatal(err)
+		}
+		promptLineEmpties(t, terminal, "claude")
+	}
+	if words, command := actionOf(store, "message-1"), actionOf(store, "message-2"); !isHarnessHeld(words) || command.Status != "queued" || !command.CanSendNow {
+		t.Fatalf("his words = %+v, the command = %+v; want the words in the turn's queue and the command held on the board with Send now", words, command)
+	}
+
+	// Act
+	pressed := sendNow(service, meta.ID, "message-2")
+	back := actionOf(store, "message-1")
+	ran := store.ProcessOne(t.Context(), service.execute)
+	command := actionOf(store, "message-2")
+	promptLineEmpties(t, terminal, "claude")
+	again := store.ProcessOne(t.Context(), service.execute)
+	words := actionOf(store, "message-1")
+	input := terminal.waitForLines(t, 7)
+
+	// Assert
+	if pressed.Code != http.StatusAccepted || back.Status != "queued" || back.Message != "Queued. It left its session's queue so the command he sent now runs first, and is typed there again after it." {
+		t.Errorf("Send now = %d %s, his words = %+v; want it taken, and the words back on the board behind the command", pressed.Code, pressed.Body, back)
+	}
+	if ran != nil || command.Status != "succeeded" {
+		t.Errorf("the command's try = %v, the command = %+v; want it run at once", ran, command)
+	}
+	if again != nil || !isHarnessHeld(words) {
+		t.Errorf("the next try = %v, his words = %+v; want them typed into the turn again", again, words)
+	}
+	line := goblinLine(fromOverlord("first words"))
+	if want := []string{"queued " + line, "took back " + line, "cleared", "queued /compact", "sent now", "queued " + line}; !slices.Equal(input[1:], want) {
+		t.Errorf("terminal input = %q; want %q after its registration", input, want)
 	}
 }
 
 // Send now on a command held for a goblin's turn reads as run only once its
 // harness's key ran it (#1915). A Codex whose Escape ended its turn by handing
-// the line it queued back onto its prompt line leaves no empty prompt line, so
-// the command is never typed and the Send now is spent and says so. A Claude
-// Code that takes no Ctrl+X Ctrl+S leaves the command in its turn's queue,
-// typed and sent now, for the goblin to take from there. One whose turn asks
-// a question of its own as the command goes into its queue is pressed no key
-// at all, since the key would go to that question, and the command waits in
-// the turn's queue, typed and not sent now, as his words there do.
+// a line he typed into that turn in its terminal back onto its prompt line
+// leaves no empty prompt line, so the command is never typed and the Send now
+// is spent and says so. A Claude Code that takes no Ctrl+X Ctrl+S leaves the
+// command in its turn's queue, typed and sent now, for the goblin to take
+// from there. One whose turn asks a question of its own as the command goes
+// into its queue is pressed no key at all, since the key would go to that
+// question, and the command waits in the turn's queue, typed and not sent
+// now, as his words there do.
 func TestASendNowWhoseKeyDidNotRunAGoblinsCommandSaysWhereItWaits(t *testing.T) {
 	for _, test := range []struct {
 		name, harness, mode string
-		before              []string
+		typed               string
 		wantErr             error
 		wantStatus          string
 		wantMessage         string
 		isAwaited           bool
 		wantInput           []string
 	}{
-		{name: "a Codex that hands its queue back onto its prompt line", harness: "codex", mode: "busy", before: []string{"first words"}, wantErr: ErrDeferred, wantStatus: "queued", wantMessage: "Queued. Send now could not run it at once, so it runs when its turn ends.", wantInput: []string{"queued CEO: " + routing.BoardMessagePrefix + "first words", "interrupted"}},
+		{name: "a Codex that hands its queue back onto its prompt line", harness: "codex", mode: "busy", typed: "first words", wantErr: ErrDeferred, wantStatus: "queued", wantMessage: "Queued. Send now could not run it at once, so it runs when its turn ends.", wantInput: []string{"queued first words", "interrupted"}},
 		{name: "a Claude Code that ignores its send-now chord", harness: "claude", mode: "claude-busy-ignores-send-now", wantStatus: "running", wantMessage: "Typed while it was working and sent now.", isAwaited: true, wantInput: []string{"queued /compact", "send now ignored"}},
 		{name: "a Claude Code whose turn asks a question over its queue", harness: "claude", mode: "claude-busy-asks", wantStatus: "running", wantMessage: heldByGoblin, isAwaited: true, wantInput: []string{"queued /compact"}},
 	} {
@@ -2286,24 +2341,23 @@ func TestASendNowWhoseKeyDidNotRunAGoblinsCommandSaysWhereItWaits(t *testing.T) 
 			gitWorktree(t, meta.Worktree)
 			terminal := nativeComposer(t, h.State, meta.ID, test.mode)
 			service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
-			texts := append(test.before, "/compact")
-			command := fmt.Sprintf("message-%d", len(texts))
-			for i, text := range texts {
-				messageTo(t, store, meta, fmt.Sprintf("message-%d", i+1), text)
+			if test.typed != "" {
+				terminal.typeLine(t, test.typed)
+				terminal.waitForLines(t, 2)
+				promptLineEmpties(t, terminal, test.harness)
 			}
-			for range texts {
-				if err := store.ProcessOne(t.Context(), service.execute); err != nil && !errors.Is(err, ErrDeferred) {
-					t.Fatal(err)
-				}
+			messageTo(t, store, meta, "message-1", "/compact")
+			if err := store.ProcessOne(t.Context(), service.execute); err != nil && !errors.Is(err, ErrDeferred) {
+				t.Fatal(err)
 			}
-			if held := actionOf(store, command); held.Status != "queued" || !held.CanSendNow {
+			if held := actionOf(store, "message-1"); held.Status != "queued" || !held.CanSendNow {
 				t.Fatalf("the command = %+v; want it held on the board with Send now", held)
 			}
 
 			// Act
-			pressed := sendNow(service, meta.ID, command)
+			pressed := sendNow(service, meta.ID, "message-1")
 			err := store.ProcessOne(t.Context(), service.execute)
-			sent := actionOf(store, command)
+			sent := actionOf(store, "message-1")
 			input := terminal.lines(t)
 
 			// Assert
@@ -2466,17 +2520,28 @@ func TestAHeldGoblinMessageSaysWhatSendNowDoesForItsHarness(t *testing.T) {
 // harness the board reads, each of which has a send-now key that runs it at
 // once (#1915), and its words say so. One its terminal is not ready for
 // waits for nothing that key could end, so it offers none, its words promise
-// nothing sooner, and a press says why.
+// nothing sooner, and a press says why, as one does behind his words in a
+// turn's queue that its harness gives back to no key, which that key would
+// send ahead of it (#2759). A terminal started again since his words went
+// into its turn's queue holds nothing ahead of the command.
 func TestACommandHeldForAGoblinsTurnOffersSendNowWhereItsTerminalCanRunItAtOnce(t *testing.T) {
 	for _, test := range []struct {
 		name, harness, text string
-		refusal             error
-		isOffered           bool
+		ahead               string
+		// isStartedAgain starts its terminal again once his words ahead went
+		// into its turn's queue.
+		isStartedAgain bool
+		refusal        error
+		isOffered      bool
 	}{
 		{name: "a bang command for a Claude Code in a turn", harness: "claude", text: "!git status", refusal: spawn.ErrInTurn, isOffered: true},
 		{name: "a slash command for a Claude Code in a turn", harness: "claude", text: "/compact", refusal: spawn.ErrInTurn, isOffered: true},
 		{name: "a slash command for a Codex in a turn", harness: "codex", text: "/compact", refusal: spawn.ErrInTurn, isOffered: true},
 		{name: "a slash command for a pi in a turn", harness: "pi", text: "/compact", refusal: spawn.ErrInTurn, isOffered: true},
+		{name: "a slash command behind his words in a Claude Code's queue", harness: "claude", text: "/compact", ahead: "first words", refusal: spawn.ErrInTurn, isOffered: true},
+		{name: "a slash command behind his words in a Codex's queue", harness: "codex", text: "/compact", ahead: "first words", refusal: spawn.ErrInTurn},
+		{name: "a slash command behind his words in a pi's queue", harness: "pi", text: "/compact", ahead: "first words", refusal: spawn.ErrInTurn},
+		{name: "a slash command behind his words in the queue of a Claude Code started again since", harness: "claude", text: "/compact", ahead: "first words", isStartedAgain: true, refusal: spawn.ErrInTurn, isOffered: true},
 		{name: "a command its terminal is not ready for", harness: "claude", text: "!git status", refusal: ErrDeferred},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -2490,6 +2555,20 @@ func TestACommandHeldForAGoblinsTurnOffersSendNowWhereItsTerminalCanRunItAtOnce(
 			gitWorktree(t, meta.Worktree)
 			goblinTerminal(t, h.State, meta.ID)
 			service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+			if test.ahead != "" {
+				messageTo(t, store, meta, "message-0", test.ahead)
+				if err := store.ProcessOne(t.Context(), func(context.Context, Action) (Evaluation, error) {
+					return service.behindGoblinsTurn(meta.ID, time.Now().UTC(), test.ahead, ""), nil
+				}); err != nil || !isHarnessHeld(actionOf(store, "message-0")) {
+					t.Fatalf("his words = %+v, %v; want them held in the turn's queue", actionOf(store, "message-0"), err)
+				}
+			}
+			if test.isStartedAgain {
+				meta.SpawnGen = "g2"
+				if err := state.WriteTaskMeta(h.State, meta); err != nil {
+					t.Fatal(err)
+				}
+			}
 			messageTo(t, store, meta, "message-1", test.text)
 			previous := typeIntoGoblin
 			t.Cleanup(func() { typeIntoGoblin = previous })

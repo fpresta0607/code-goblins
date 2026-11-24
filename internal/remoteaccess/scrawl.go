@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 func (c Config) scrawlRoute() Config {
@@ -69,7 +70,7 @@ func readScrawl(ctx context.Context, c Config) (scrawlHealth, error) {
 	}
 	defer response.Body.Close()
 	var h scrawlHealth
-	if response.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(response.Body, 256<<10)).Decode(&h) != nil || h.App != "lavish-axi" || h.StateID == "" || !strings.EqualFold(filepath.Clean(h.StateDir), filepath.Clean(c.ScrawlState)) {
+	if response.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(response.Body, 256<<10)).Decode(&h) != nil || h.App != "lavish-axi" || h.StateID == "" || !fsx.EqualPath(filepath.Clean(h.StateDir), filepath.Clean(c.ScrawlState)) {
 		return scrawlHealth{}, errScrawlForeign
 	}
 	return h, nil

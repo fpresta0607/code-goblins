@@ -42,13 +42,22 @@ type Admission struct {
 	// supplies this or Available, never both. Floor applies to both dimensions.
 	Headroom func() (Headroom, error)
 	Reserve  Headroom
+	// Task is the fleet task whose run this is, for whoever reads who holds
+	// a turn, as the memory floor does, and empty for a run of none.
+	Task string
 	// Who names this run to the runs behind it, and Budget is how long its
 	// checks may run. Expiry does not release a live or uncertain owner.
 	Who    string
 	Budget time.Duration
 	// Estimate is the most memory, in bytes, this run is expected to use,
-	// which the line weighs when it has two slots. Zero is defaultEstimate.
+	// which the line weighs when it has two slots. Zero is DefaultEstimate.
 	Estimate uint64
+	// IsDocker says the run starts Docker, whose engine, virtual machine and
+	// the stack on them take memory no process of the run's holds, and
+	// Docker is the room they need: the run waits for the floor, its estimate
+	// and Docker on top of what the holders may still use (HeadFloor).
+	IsDocker bool
+	Docker   uint64
 	// Limit bounds the floor wait at the head of the line, and how long a run
 	// tries again while the line's lock is busy. Expiry refuses a turn.
 	Limit time.Duration
@@ -194,13 +203,20 @@ func (t Turn) Measure(used uint64) {
 // card is what a run says of itself beside its lock file. Now is what a run
 // that holds a turn says it is doing.
 type card struct {
-	Who           string  `json:"who"`
+	Who string `json:"who"`
+	// Task is the fleet task whose run holds the turn, or empty for a run of
+	// none, which the memory floor pauses last while the turn runs.
+	Task          string  `json:"task,omitempty"`
 	BudgetSeconds float64 `json:"budget_seconds,omitempty"`
 	Now           string  `json:"now,omitempty"`
 	// EstimateBytes is the most memory the run is expected to use, and
 	// UsedBytes what its job commits now, as it last measured.
 	EstimateBytes uint64 `json:"estimate_bytes,omitempty"`
 	UsedBytes     uint64 `json:"used_bytes,omitempty"`
+	// IsDocker says the run starts Docker, and DockerBytes is the room
+	// Docker needs, which every reader of the line weighs into its floor.
+	IsDocker    bool   `json:"is_docker,omitempty"`
+	DockerBytes uint64 `json:"docker_bytes,omitempty"`
 	// Priority is the priority of a waiting run's task, and Joined when a run
 	// that moved up the line first joined it, which its new lock does not say.
 	Priority string    `json:"priority,omitempty"`
@@ -212,50 +228,68 @@ type card struct {
 	IsLowPriority bool `json:"is_low_priority,omitempty"`
 }
 
-// defaultEstimate is a run's estimate when it names none: the most any run
+// DefaultEstimate is a run's estimate when it names none: the most any run
 // of a minute or longer committed in the store's record of 2026-10-14, 2.54
 // GiB, rounded to 2.5 GiB.
-const defaultEstimate uint64 = 5 << 29
+const DefaultEstimate uint64 = 5 << 29
 
 // estimate is the most memory this run is expected to use.
 func (a Admission) estimate() uint64 {
 	if a.Estimate > 0 {
 		return a.Estimate
 	}
-	return defaultEstimate
+	return DefaultEstimate
 }
 
-// weighedFloor is HeadFloor for this run, with its estimate and reserve.
+// weighedFloor is HeadFloor for this run, with its estimate, its Docker and
+// its reserve.
 func (a Admission) weighedFloor() (uint64, error) {
-	return HeadFloor(a.Dir, a.estimate(), max(a.Reserve.PhysicalAvailable, a.Reserve.CommitAvailable))
+	return HeadFloor(a.Dir, Standing{Estimate: a.estimate(), IsDocker: a.IsDocker, Docker: a.Docker}, max(a.Reserve.PhysicalAvailable, a.Reserve.CommitAvailable))
 }
 
 // headShort says how memory is short of the floor of the run at the head of
-// a line of capacity whose flat floor is floor, weighed for a line of two, or
-// nothing when it is not.
+// a line of capacity whose flat floor is floor, weighed for a line of two or
+// for a run that starts Docker, or nothing when it is not. A run that starts
+// Docker keeps its own floor under its estimate and Docker too.
 func (a Admission) headShort(capacity int, floor uint64) (string, error) {
-	if capacity == 2 {
+	if capacity == 2 || a.IsDocker {
 		weighed, err := a.weighedFloor()
 		if err != nil {
 			return "", err
 		}
 		floor = weighed
 	}
-	return a.short(max(a.Floor, floor))
+	own := a.Floor
+	if a.IsDocker {
+		own += a.estimate() + a.Docker
+	}
+	return a.short(max(own, floor))
 }
 
-// HeadFloor is the memory the run at the head of the line kept in dir needs
-// free to take a slot, for a run expected to use estimate, zero for the
-// default, beside a desktop reserve of reserve. A line of one slot has its
+// HeadFloor is the memory the run head, at the head of the line kept in dir,
+// needs free to take a slot, by its Estimate, zero for the default, and its
+// Docker, beside a desktop reserve of reserve. A line of one slot has its
 // flat floor. A line of two weighs what each holder may still use, its
 // estimate less what it commits now, the light runs beside the slots
 // included, then the run's own estimate and the reserve, and never asks less
 // than one slot's 4 GiB. The reserve is the one the run's monitor keeps: the
-// store's, which reserve may raise and never lower.
-func HeadFloor(dir string, estimate, reserve uint64) (uint64, error) {
+// store's, which reserve may raise and never lower. A run that starts Docker
+// asks its estimate and the room Docker needs on top of the flat floor, and
+// on a line of two on top of what the holders may still use and the larger
+// of one slot's 4 GiB and the reserve, since Docker's engine, its virtual
+// machine and the stack on them take memory no process of the run's holds,
+// and the memory floor would otherwise cut what the line admitted (#2808).
+func HeadFloor(dir string, head Standing, reserve uint64) (uint64, error) {
 	capacity, floor, err := AdmissionLimits(dir)
-	if err != nil || capacity == 1 {
-		return floor, err
+	if err != nil {
+		return 0, err
+	}
+	estimate := cmp.Or(head.Estimate, DefaultEstimate)
+	if capacity == 1 {
+		if head.IsDocker {
+			floor += estimate + head.Docker
+		}
+		return floor, nil
 	}
 	remaining, err := holdersRemaining(dir)
 	if err != nil {
@@ -270,16 +304,19 @@ func HeadFloor(dir string, estimate, reserve uint64) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	if estimate == 0 {
-		estimate = defaultEstimate
+	kept := max(reserve, stored.PhysicalAvailable, stored.CommitAvailable)
+	if head.IsDocker {
+		return max(4<<30, kept) + remaining + estimate + head.Docker, nil
 	}
-	return max(4<<30, remaining+estimate+max(reserve, stored.PhysicalAvailable, stored.CommitAvailable)), nil
+	return max(4<<30, remaining+estimate+kept), nil
 }
 
 // holdersRemaining is what the runs holding the slots in dir may still use:
-// each one's estimate less what it commits now, never below nothing. A
-// holder whose card names no estimate, as an older build's, is weighed at
-// defaultEstimate.
+// each one's estimate less what it commits now, never below nothing, and
+// the room Docker needs for one that starts Docker, which its turn keeps
+// whole since what Docker takes is no process of the run's. A holder whose
+// card names no estimate, as an older build's, is weighed at
+// DefaultEstimate.
 func holdersRemaining(dir string) (uint64, error) {
 	var remaining uint64
 	for slot := 1; slot <= 2; slot++ {
@@ -297,11 +334,12 @@ func holdersRemaining(dir string) (uint64, error) {
 		says := readCard(filepath.Join(dir, name))
 		estimate := says.EstimateBytes
 		if estimate == 0 {
-			estimate = defaultEstimate
+			estimate = DefaultEstimate
 		}
 		if says.UsedBytes < estimate {
 			remaining += estimate - says.UsedBytes
 		}
+		remaining += says.DockerBytes
 	}
 	return remaining, nil
 }
@@ -321,7 +359,9 @@ const lightPlace = "light-"
 var lightName = regexp.MustCompile(`^light-[0-9]{20}-[0-9]+-[0-9]+$`)
 
 // lightRemaining is what the light runs holding a turn in dir may still use:
-// each one's estimate less what it commits now, never below nothing.
+// each one's estimate less what it commits now, never below nothing, and
+// the room Docker needs for one that starts Docker, as holdersRemaining
+// weighs it.
 func lightRemaining(dir string) (uint64, error) {
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
@@ -350,6 +390,7 @@ func lightRemaining(dir string) (uint64, error) {
 		if says.UsedBytes < says.EstimateBytes {
 			remaining += says.EstimateBytes - says.UsedBytes
 		}
+		remaining += says.DockerBytes
 	}
 	return remaining, nil
 }
@@ -420,7 +461,9 @@ func (a Admission) waitLight(ctx context.Context, start time.Time) (Turn, error)
 }
 
 // takeLight takes a light turn when free memory reaches the run's floor, and
-// otherwise says how memory is short and takes none. The floor is read and
+// otherwise says how memory is short and takes none. A light run that starts
+// Docker counts the room Docker needs with its estimate and keeps its own
+// floor where that is above the reserve. The floor is read and
 // the turn taken under the line's lock, which every other light run takes to
 // do the same. A light run whose process is verifiably gone leaves its lock
 // file behind, which no later run's name reuses, so it is taken away here,
@@ -452,7 +495,11 @@ func (a Admission) takeLight() (turn Turn, short string, failure error) {
 			}
 		}
 	}
-	floor, err := lightFloor(a.Dir, a.estimate(), max(a.Reserve.PhysicalAvailable, a.Reserve.CommitAvailable))
+	reserve := max(a.Reserve.PhysicalAvailable, a.Reserve.CommitAvailable)
+	if a.IsDocker {
+		reserve = max(reserve, a.Floor)
+	}
+	floor, err := lightFloor(a.Dir, a.estimate()+a.Docker, reserve)
 	if err != nil {
 		return Turn{}, "", err
 	}
@@ -464,7 +511,7 @@ func (a Admission) takeLight() (turn Turn, short string, failure error) {
 	if err != nil {
 		return Turn{}, "", err
 	}
-	says := card{Who: a.Who, BudgetSeconds: a.Budget.Seconds(), EstimateBytes: a.estimate()}
+	says := card{Who: a.Who, Task: a.Task, BudgetSeconds: a.Budget.Seconds(), EstimateBytes: a.estimate(), IsDocker: a.IsDocker, DockerBytes: a.Docker}
 	if err := a.leave(a.Dir, name, says); err != nil {
 		lock.ReleaseExclusiveNamed(a.Dir, name)
 		return Turn{}, "", err
@@ -622,7 +669,7 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 		return Turn{}, err
 	}
 	defer func() { a.remove(line, place, owner) }()
-	says := card{Who: a.Who, EstimateBytes: a.estimate(), Priority: a.Priority, Joined: owner.Acquired, IsTestStep: a.IsTestStep, IsLowPriority: a.IsLowPriority}
+	says := card{Who: a.Who, EstimateBytes: a.estimate(), IsDocker: a.IsDocker, DockerBytes: a.Docker, Priority: a.Priority, Joined: owner.Acquired, IsTestStep: a.IsTestStep, IsLowPriority: a.IsLowPriority}
 	if err := a.leave(line, place, says); err != nil {
 		return Turn{}, err
 	}
@@ -848,8 +895,8 @@ func (a Admission) passing(line string, capacity int, floor uint64) (func(name s
 		if err != nil || time.Since(time.Unix(0, joined)) >= cmp.Or(a.passAfter, passLimit) {
 			return false, nil
 		}
-		ahead := a
-		ahead.Estimate = readCard(filepath.Join(line, name)).EstimateBytes
+		ahead, says := a, readCard(filepath.Join(line, name))
+		ahead.Estimate, ahead.IsDocker, ahead.Docker = says.EstimateBytes, says.IsDocker, says.DockerBytes
 		short, err := ahead.headShort(capacity, floor)
 		return short != "", err
 	}, nil
@@ -1129,7 +1176,7 @@ func (a Admission) take(capacity int, floor uint64) (turn Turn, short string, fa
 		if err != nil {
 			return Turn{}, "", err
 		}
-		says := card{Who: a.Who, BudgetSeconds: a.Budget.Seconds(), EstimateBytes: a.estimate()}
+		says := card{Who: a.Who, Task: a.Task, BudgetSeconds: a.Budget.Seconds(), EstimateBytes: a.estimate(), IsDocker: a.IsDocker, DockerBytes: a.Docker}
 		if err := a.leave(a.Dir, name, says); err != nil {
 			lock.ReleaseExclusiveNamed(a.Dir, name)
 			return Turn{}, "", err
@@ -1277,6 +1324,13 @@ func readCard(lockFile string) card {
 type Standing struct {
 	Who string
 	PID int
+	// Task is the fleet task whose run holds the turn, as its card names it,
+	// or empty when it names none.
+	Task string
+	// IsDocker says a waiting run starts Docker, and Docker is the room
+	// Docker needs, which HeadFloor weighs.
+	IsDocker bool
+	Docker   uint64
 	// Since is when it took its turn or joined the line.
 	Since time.Time
 	// Budget is how long its turn may last, for a run that holds one and
@@ -1363,7 +1417,7 @@ func Line(dir string) (holding, waiting []Standing, err error) {
 				if !says.Joined.IsZero() {
 					since = says.Joined
 				}
-				runs = append(runs, Standing{Who: says.Who, PID: record.PID, Since: since, Budget: time.Duration(says.BudgetSeconds * float64(time.Second)), Now: says.Now, IsLowPriority: says.IsLowPriority || strings.HasPrefix(name, lowPriorityPlace), IsTestStep: says.IsTestStep || strings.HasPrefix(name, testStepPlace), IsLight: lightName.MatchString(name), Estimate: says.EstimateBytes, Used: says.UsedBytes, place: name, priority: says.Priority})
+				runs = append(runs, Standing{Who: says.Who, PID: record.PID, Since: since, Budget: time.Duration(says.BudgetSeconds * float64(time.Second)), Now: says.Now, IsLowPriority: says.IsLowPriority || strings.HasPrefix(name, lowPriorityPlace), IsTestStep: says.IsTestStep || strings.HasPrefix(name, testStepPlace), IsLight: lightName.MatchString(name), Estimate: says.EstimateBytes, Used: says.UsedBytes, Task: says.Task, IsDocker: says.IsDocker, Docker: says.DockerBytes, place: name, priority: says.Priority})
 			}
 		}
 		return runs, nil

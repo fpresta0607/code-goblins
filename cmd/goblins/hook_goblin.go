@@ -115,7 +115,7 @@ func startHookRefusal(worktree, task string) string {
 	}
 	h, homeErr := home.Resolve()
 	if homeErr == nil {
-		if hooks, err = starthook.Unaccepted(h.State, taskProject(h.State, task), hooks); err != nil {
+		if hooks, err = starthook.Unaccepted(h.State, taskCheckout(h.State, task), hooks); err != nil {
 			return "This command waits: the start hooks the CEO accepted could not be read (" + err.Error() + "). Run it again in a minute."
 		}
 		if len(hooks) == 0 {
@@ -154,15 +154,15 @@ func startHookRefusal(worktree, task string) string {
 	return stopped + " The CEO has been told. Every shell command waits while it is there, so end your turn and wait for his word."
 }
 
-// taskProject names task's project by its checkout's folder, as the start
-// hooks the CEO accepts for one project name it, or is empty when its record
-// names none.
-func taskProject(stateDir, task string) string {
+// taskCheckout is the path of task's project's checkout, whose folder names
+// the project as the start hooks the CEO accepts for one project name it, or
+// is empty when its record names none.
+func taskCheckout(stateDir, task string) string {
 	meta, err := state.ReadTaskMeta(stateDir, task)
 	if err != nil || meta.Project == "" {
 		return ""
 	}
-	return filepath.Base(filepath.Clean(meta.Project))
+	return filepath.Clean(meta.Project)
 }
 
 // startHookPackage names the package a start hook came from.

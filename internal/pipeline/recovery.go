@@ -91,6 +91,13 @@ func (r Reader) RecoverKeepLocal(ctx context.Context, project, worktree, branch 
 			}
 		}
 	}
+	return r.recoverPreservingEdits(ctx, project, worktree, branch, env, run, run.RunID)
+}
+
+// recoverPreservingEdits recovers run's custody, latestID naming the branch's
+// latest run, which is run itself unless run is an earlier owner the latest
+// one left holding the branch.
+func (r Reader) recoverPreservingEdits(ctx context.Context, project, worktree, branch string, env []string, run recoveryRecord, latestID string) (RecoveryResult, error) {
 	// Native recovery removes a failed run's worktree with force, so the
 	// fixer's unfinished repairs are preserved before anything recovery runs.
 	// On 2026-10-23 an allowance-interrupted review repair lost its frontend
@@ -99,28 +106,40 @@ func (r Reader) RecoverKeepLocal(ctx context.Context, project, worktree, branch 
 	if err != nil {
 		return RecoveryResult{}, err
 	}
-	result, err := r.recoverRun(ctx, project, worktree, branch, env, run, edits)
+	result, err := r.recoverRun(ctx, project, worktree, branch, env, run, latestID, edits)
 	// A recovery that stops short keeps the artifact as firmly as one that
-	// finishes: the goblin restores its fixer's work either way.
-	result.WorktreeEdits = edits
+	// finishes: the goblin restores its fixer's work either way, so its error,
+	// all goblins pipeline recover prints of it, names where (issue 2755).
+	if err != nil || result.RunID == run.RunID {
+		result.WorktreeEdits = edits
+	}
+	if err != nil && edits != "" {
+		err = fmt.Errorf("%w; run %s's unfinished edits are kept at %s under %s; restore them with git cherry-pick -n %s", err, run.RunID, edits, WorktreeRef(run.RunID), edits)
+	}
 	return result, err
 }
 
-func (r Reader) recoverRun(ctx context.Context, project, worktree, branch string, env []string, run recoveryRecord, edits string) (RecoveryResult, error) {
+func (r Reader) recoverRun(ctx context.Context, project, worktree, branch string, env []string, run recoveryRecord, latestID, edits string) (RecoveryResult, error) {
+	bare := filepath.Join(r.Root, "repos", run.RepoID+".git")
+	if err := r.carryNativeRecoveryAnchor(ctx, bare, run); err != nil {
+		return RecoveryResult{}, err
+	}
 	status, output, err := r.readRecoverySync(ctx, worktree, env)
 	status.WorktreeEdits = edits
 	if err == nil && status.recoverableAtRecordedHead(run) {
 		if err := r.returnCustodyAtRecordedHead(ctx, worktree, branch, env, run); err != nil {
 			return RecoveryResult{}, err
 		}
-		returned, runErr := r.latestRecoveryRun(ctx, project, branch)
+		latest, runErr := r.latestRecoveryRun(ctx, project, branch)
 		if runErr != nil {
 			return RecoveryResult{}, runErr
 		}
-		if returned.RunID != run.RunID {
+		if latest.RunID != latestID {
 			return RecoveryResult{}, errors.New("pipeline: another run took the branch during custody recovery")
 		}
-		run = returned
+		if run, runErr = r.runRecord(ctx, run); runErr != nil {
+			return RecoveryResult{}, runErr
+		}
 		status, output, err = r.readRecoverySync(ctx, worktree, env)
 		status.WorktreeEdits = edits
 	}
@@ -133,13 +152,19 @@ func (r Reader) recoverRun(ctx context.Context, project, worktree, branch string
 		}
 	}
 	if run.CustodyReturnedAt != 0 {
+		if err == nil && status.State == "pipeline_owned" && status.Pipeline.Run != run.RunID {
+			owner, ownerErr := r.earlierOwner(ctx, run, status.Pipeline.Run)
+			if ownerErr != nil {
+				return RecoveryResult{}, ownerErr
+			}
+			return r.recoverPreservingEdits(ctx, project, worktree, branch, env, owner, latestID)
+		}
 		return RecoveryResult{}, r.returnedCustodyMismatch(ctx, run)
 	}
 
 	if err := r.requireCleanHead(ctx, worktree, run.SubmittedHead); err != nil {
 		return RecoveryResult{}, err
 	}
-	bare := filepath.Join(r.Root, "repos", run.RepoID+".git")
 	if err := r.requireRef(ctx, bare, "refs/heads/"+branch, run.SubmittedHead); err != nil {
 		return RecoveryResult{}, fmt.Errorf("pipeline: preserved gate branch is unsafe: %w", err)
 	}
@@ -157,6 +182,12 @@ func (r Reader) recoverRun(ctx context.Context, project, worktree, branch string
 		if !safe {
 			return RecoveryResult{}, fmt.Errorf("pipeline: recorded head is neither an ancestor of the submitted head nor the gate's rebase of it onto a published base or merge of one into it; to keep the gate's commits, put the clean task branch at the recorded head %s and recover again", run.RecordedHead)
 		}
+		nativeAnchor := "refs/no-mistakes/recover/" + run.RunID
+		if pinned, found, err := r.recoveryHead(ctx, bare, nativeAnchor, true); err != nil {
+			return RecoveryResult{}, err
+		} else if found && pinned != run.RecordedHead {
+			return RecoveryResult{}, fmt.Errorf("pipeline: native recovery anchor %s names %s, not the recorded head %s, so the recorded head was not repaired and nothing was changed", nativeAnchor, pinned, run.RecordedHead)
+		}
 		anchor := "refs/no-mistakes/recovery/" + run.RunID + "/recorded"
 		if err := r.preserveRecoveryHead(ctx, bare, anchor, run.RecordedHead); err != nil {
 			return RecoveryResult{}, err
@@ -168,6 +199,10 @@ func (r Reader) recoverRun(ctx context.Context, project, worktree, branch string
 			return RecoveryResult{}, fmt.Errorf("pipeline: preserved gate branch changed during recovery: %w", err)
 		}
 		if err := r.replaceRecordedHead(ctx, run); err != nil {
+			return RecoveryResult{}, err
+		}
+		run.RecordedHead = run.SubmittedHead
+		if err := r.carryNativeRecoveryAnchor(ctx, bare, run); err != nil {
 			return RecoveryResult{}, err
 		}
 	}
@@ -219,6 +254,42 @@ func (r Reader) latestRecoveryCandidate(ctx context.Context, project, branch str
 		return recoveryRecord{}, errors.New("pipeline: latest run is not an unpublished failed or cancelled custody recovery")
 	}
 	return run, nil
+}
+
+// earlierOwner is the run native branch sync names as the branch's owner
+// after latest, the branch's latest run, already returned custody: an earlier
+// failed or cancelled run of the branch that never published or returned
+// custody, such as one that failed after the gate committed its review fixes,
+// followed by a run that was cancelled. That earlier run holds the branch, so
+// it is the one recovered; refusing the latest as a mismatch instead sent the
+// branch to a fresh run that the earlier owner refuses (#2757).
+func (r Reader) earlierOwner(ctx context.Context, latest recoveryRecord, owner string) (recoveryRecord, error) {
+	refusal := fmt.Errorf("pipeline: run %s already returned custody, and native branch sync names run %s as this branch's owner, which is not an earlier unpublished failed or cancelled run of it holding custody, so no recovery is safe; report this to the CEO", latest.RunID, owner)
+	if !gateIdentity.MatchString(owner) {
+		return recoveryRecord{}, refusal
+	}
+	var runs []recoveryRecord
+	query := `SELECT id AS run_id, repo_id, branch, status, head_sha AS recorded_head, COALESCE(submitted_head_sha,'') AS submitted_head, COALESCE(last_pushed_sha,'') AS pushed_head, COALESCE(custody_returned_at,0) AS custody_returned_at FROM runs WHERE id=` + sqlString(owner) + ` AND repo_id=` + sqlString(latest.RepoID) + ` AND branch=` + sqlString(latest.Branch) + ` AND status IN ('failed','cancelled') AND COALESCE(head_sha,'')<>'' AND COALESCE(submitted_head_sha,'')<>'' AND COALESCE(last_pushed_sha,'')='' AND COALESCE(custody_returned_at,0)=0 AND (created_at,id)<(SELECT created_at,id FROM runs WHERE id=` + sqlString(latest.RunID) + `)`
+	if err := r.query(ctx, query, &runs); err != nil {
+		return recoveryRecord{}, err
+	}
+	if len(runs) != 1 {
+		return recoveryRecord{}, refusal
+	}
+	return runs[0], nil
+}
+
+// runRecord reads run's record again by its identity.
+func (r Reader) runRecord(ctx context.Context, run recoveryRecord) (recoveryRecord, error) {
+	var rows []recoveryRecord
+	query := `SELECT id AS run_id, repo_id, branch, status, head_sha AS recorded_head, COALESCE(submitted_head_sha,'') AS submitted_head, COALESCE(last_pushed_sha,'') AS pushed_head, COALESCE(custody_returned_at,0) AS custody_returned_at FROM runs WHERE id=` + sqlString(run.RunID) + ` AND repo_id=` + sqlString(run.RepoID) + ` AND branch=` + sqlString(run.Branch)
+	if err := r.query(ctx, query, &rows); err != nil {
+		return recoveryRecord{}, err
+	}
+	if len(rows) != 1 || rows[0].PushedHead != "" {
+		return recoveryRecord{}, errors.New("pipeline: the recovered run's record cannot be read")
+	}
+	return rows[0], nil
 }
 
 // cancelledDuplicate names the older run native branch sync still keeps as
@@ -1124,6 +1195,33 @@ func (r Reader) preserveRecoveryHead(ctx context.Context, repo, ref, head string
 		return errors.New("pipeline: could not anchor the stale recorded commit")
 	}
 	return r.requireRecoveryHead(ctx, repo, ref, head)
+}
+
+// carryNativeRecoveryAnchor finishes the recorded-head repair in the gate.
+// Native pins an unpublished run's head under refs/no-mistakes/recover/<run>
+// when the run ends, and its recovery and terminal preflight both refuse a run
+// whose recorded head that anchor contradicts (issue 2755). So once the run
+// records its submitted head, an anchor still naming the stale head the repair
+// kept under recovery/<run>/recorded is compare-and-swapped to the submitted
+// head, and the stale head stays anchored there. A recovery that stopped
+// between the two, as issue 2755's did, finishes the move when it runs again.
+func (r Reader) carryNativeRecoveryAnchor(ctx context.Context, bare string, run recoveryRecord) error {
+	if run.RecordedHead != run.SubmittedHead || run.CustodyReturnedAt != 0 {
+		return nil
+	}
+	stale, found, err := r.recoveryHead(ctx, bare, "refs/no-mistakes/recovery/"+run.RunID+"/recorded", true)
+	if err != nil || !found {
+		return err
+	}
+	nativeAnchor := "refs/no-mistakes/recover/" + run.RunID
+	pinned, found, err := r.recoveryHead(ctx, bare, nativeAnchor, true)
+	if err != nil || !found || pinned != stale {
+		return err
+	}
+	if err := r.requireRef(ctx, bare, "refs/heads/"+run.Branch, run.SubmittedHead); err != nil {
+		return fmt.Errorf("pipeline: preserved gate branch is unsafe: %w", err)
+	}
+	return r.moveRef(ctx, bare, nativeAnchor, run.SubmittedHead, stale)
 }
 
 func (r Reader) replaceRecordedHead(ctx context.Context, run recoveryRecord) error {

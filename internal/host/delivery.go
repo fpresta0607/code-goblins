@@ -2,11 +2,9 @@ package host
 
 import (
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/awake"
-	"github.com/fpresta0607/code-goblins/internal/conpty"
 )
 
 // deliveryTimeout bounds the wait for the host to write one part. A write
@@ -71,7 +69,7 @@ func (d *Delivery) Close() error {
 // serveDelivery writes each input frame a delivery sends into the terminal
 // and acknowledges it, with no history or output. What a connection that says
 // it is his types keeps his mark; anything else clears it.
-func serveDelivery(connection *os.File, console *conpty.Console, output *history) {
+func serveDelivery(connection hostConnection, console terminal, output *history) {
 	if writeHello(connection, hello{Version: Version, Deliver: true, His: true}) != nil {
 		return
 	}

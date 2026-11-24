@@ -47,12 +47,16 @@ type Operations struct {
 	Withdraw   func(context.Context, state.TaskMeta) error
 	Stop       func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error)
 	Checkpoint func(context.Context, state.TaskMeta, *state.Lifecycle) error
-	Resume     func(context.Context, state.TaskMeta, state.Lifecycle) error
-	IsRunning  func(context.Context, state.TaskMeta) (bool, error)
-	Archive    func(context.Context, state.TaskMeta, *state.Lifecycle) (Preservation, error)
-	Memory     func() (available, commit uint64, err error)
-	Admit      func() error
-	Notify     func(state.Lifecycle) error
+	// Resume relaunches the paused task its record describes. It names in
+	// that record's gate fields the validation run the task resumes with,
+	// which the resumed task's record keeps.
+	Resume    func(context.Context, state.TaskMeta, *state.Lifecycle) error
+	IsRunning func(context.Context, state.TaskMeta) (bool, error)
+	Archive   func(context.Context, state.TaskMeta, *state.Lifecycle) (Preservation, error)
+	// Admit says why the machine has no room for the resumed goblin's start,
+	// or nil when it has.
+	Admit  func() error
+	Notify func(state.Lifecycle) error
 	// HandOver hands on what the task's record keeps for a resume that
 	// never runs, as a resume whose session a later start replaced, before
 	// the operation writes its own record over it, and says whether it did:
@@ -177,20 +181,6 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 			}
 		}
 		if !isAlreadyRunning {
-			available, commit, err := service.Operations.Memory()
-			if err != nil {
-				return result, fmt.Errorf("read available memory: %w", err)
-			}
-			var short []string
-			if available < 5<<30 {
-				short = append(short, "available memory")
-			}
-			if commit < 5<<30 {
-				short = append(short, "commit (RAM plus page file)")
-			}
-			if len(short) > 0 {
-				return result, errors.New("Resume needs at least 5 GB of " + strings.Join(short, " and of ") + " to keep the 4 GB floor")
-			}
 			if service.Operations.Admit != nil {
 				if err := service.Operations.Admit(); err != nil {
 					return result, err
@@ -260,7 +250,7 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 			if request.ResumeNote != "" {
 				told.ResumeNote = strings.TrimPrefix(prior.ResumeNote+"\n"+request.ResumeNote, "\n")
 			}
-			err = service.Operations.Resume(ctx, meta, told)
+			err = service.Operations.Resume(ctx, meta, &told)
 			// A relaunch refused for room started nothing, so the record
 			// goes back to what it was, as for a Resume refused before the
 			// record changed: a goblin paused for memory stays paused for
@@ -282,6 +272,9 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 				err = fmt.Errorf("%w: %w", state.ErrResumeRefused, err)
 				return prior, errors.Join(err, state.WriteLifecycle(service.StateDir, prior), state.AppendStatus(service.StateDir, meta.ID, "lifecycle-refused: "+state.NormalizeStatusDetail(err.Error())))
 			}
+			// The run the relaunch resumed with is the task's, as the ended
+			// run an authored admission continued its saved run with (#2462).
+			result.GateRun, result.GateIntent, result.GateHead = told.GateRun, told.GateIntent, told.GateHead
 		}
 		if current, readErr := state.ReadTaskMeta(service.StateDir, meta.ID); readErr == nil {
 			result.Generation = current.SpawnGen

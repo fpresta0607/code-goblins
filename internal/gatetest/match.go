@@ -8,10 +8,19 @@ import (
 // matches reports whether a policy's path pattern names file, a slash path
 // from the repository root. Each segment of the pattern matches one segment
 // of the path as path.Match matches it, ** matches any number of segments,
-// none included, and case does not count, as Windows names files. A pattern
-// path.Match refuses matches nothing.
-func matches(pattern, file string) bool {
-	return matchSegments(strings.Split(strings.ToLower(pattern), "/"), strings.Split(strings.ToLower(file), "/"))
+// none included, and case does not count when isFolded, as a file system
+// that ignores case names files. A pattern path.Match refuses matches
+// nothing.
+func matches(pattern, file string, isFolded bool) bool {
+	return matchSegments(strings.Split(caseKey(pattern, isFolded), "/"), strings.Split(caseKey(file, isFolded), "/"))
+}
+
+// caseKey is text lowered when isFolded, and text otherwise.
+func caseKey(text string, isFolded bool) string {
+	if isFolded {
+		return strings.ToLower(text)
+	}
+	return text
 }
 
 func matchSegments(pattern, names []string) bool {

@@ -474,8 +474,7 @@ func TestBusyResumeRecovery(t *testing.T) {
 			nativeStartup = time.Minute
 			t.Cleanup(func() { nativeStartup = previous })
 			controller := lifecycle.Service{StateDir: f.stateDir, Operations: lifecycle.Operations{
-				Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
-				Resume: func(ctx context.Context, meta state.TaskMeta, paused state.Lifecycle) error {
+				Resume: func(ctx context.Context, meta state.TaskMeta, paused *state.Lifecycle) error {
 					_, err := f.service.Switch(ctx, SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, IsResume: true, ResumeSession: paused.Session})
 					return err
 				},
@@ -577,6 +576,9 @@ func TestTwoEndedNativeCodexTasksDoNotResumeTheForeignLatestSession(t *testing.T
 			if err != nil || host.Running(first) || host.Running(latest) {
 				t.Fatalf("both native tasks must have ended: %v", err)
 			}
+			// task-8's fixture put the fake its own home holds first on PATH,
+			// and task-7's home starts only the one it holds.
+			putFirstOnPath(t, filepath.Join(owned.service.HomeRoot, "bin", "codex.exe"))
 
 			result, err := owned.service.Switch(t.Context(), SwitchRequest{ID: before.ID, Effort: "xhigh", Generation: before.SpawnGen, ResumeSession: testCase.session})
 
@@ -723,8 +725,7 @@ func TestAResumeSubmitsOnceMoreOnlyWhenItsFirstEnterWasLost(t *testing.T) {
 				t.Fatal(err)
 			}
 			controller := lifecycle.Service{StateDir: f.stateDir, Operations: lifecycle.Operations{
-				Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
-				Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
+				Resume: func(ctx context.Context, meta state.TaskMeta, prior *state.Lifecycle) error {
 					_, err := f.service.Switch(ctx, SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, IsResume: true, ResumeSession: prior.Session})
 					return err
 				},
@@ -794,8 +795,7 @@ func TestAResumeSubmitsOnceMoreALaunchInstructionItsCodexLeftUnsent(t *testing.T
 				t.Fatal(err)
 			}
 			controller := lifecycle.Service{StateDir: f.stateDir, Operations: lifecycle.Operations{
-				Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
-				Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
+				Resume: func(ctx context.Context, meta state.TaskMeta, prior *state.Lifecycle) error {
 					_, err := f.service.Switch(ctx, SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, IsResume: true, ResumeSession: prior.Session})
 					return err
 				},
@@ -864,8 +864,7 @@ func TestAResumesRelaunchPublishesItsGenerationBeforeItStartsATerminal(t *testin
 			}
 			test.arrange(t, f)
 			controller := lifecycle.Service{StateDir: f.stateDir, Operations: lifecycle.Operations{
-				Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
-				Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
+				Resume: func(ctx context.Context, meta state.TaskMeta, prior *state.Lifecycle) error {
 					_, err := f.service.Switch(ctx, SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, IsResume: true, ResumeSession: prior.Session})
 					return err
 				},

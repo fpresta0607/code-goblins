@@ -49,7 +49,7 @@ func TestResumeUsesSavedSessionOnlyWithinOneDayOfThePause(t *testing.T) {
 			meta := state.TaskMeta{ID: "task", SpawnGen: "generation-1", Backend: "native", Worktree: t.TempDir()}
 			prior := state.Lifecycle{Session: "saved-session", Started: time.Now().Add(-testCase.age), Handoff: "retained-handoff.md", HandoffSaved: true, ResumeNote: "The Overlord answered: continue"}
 
-			err := resumeTask(t.Context(), h, runtime, &resumeRunner{}, pipeline.Reader{}, meta, prior, nil)
+			err := resumeTask(t.Context(), h, runtime, &resumeRunner{}, pipeline.Reader{}, meta, &prior, nil)
 
 			if err != nil || received.ResumeSession != testCase.wantSession || received.ResumeHandoff != prior.Handoff || received.ID != meta.ID || received.ResumeNote != prior.ResumeNote {
 				t.Fatalf("resume request=%+v error=%v", received, err)
@@ -70,7 +70,7 @@ func TestResumeRefusesATaskRecordedInHerdrBeforeRelaunch(t *testing.T) {
 	meta := state.TaskMeta{ID: "task", SpawnGen: "session-1", Backend: "herdr", Project: "project", Worktree: t.TempDir()}
 	prior := state.Lifecycle{ID: "task", Phase: "paused", GateRun: "run-1", GateIntent: "ship it"}
 
-	err := resumeTask(context.Background(), h, runtime, commands, gate, meta, prior, nil)
+	err := resumeTask(context.Background(), h, runtime, commands, gate, meta, &prior, nil)
 
 	want := `resume: task task runs in backend "herdr"; only a task in a native terminal can resume; retire it with goblins cleanup task --force-archive`
 	if err == nil || err.Error() != want {
@@ -110,7 +110,7 @@ func TestResumeUsesSavedEngineOnlyForItsSessionAndKeepsFailedChoices(t *testing.
 				return spawn.SwitchResult{}, nil
 			}}
 
-			err := resumeTask(context.Background(), h, runtime, &resumeRunner{}, pipeline.Reader{}, meta, state.Lifecycle{Session: "session-1", Started: time.Now().Add(-time.Hour), HandoffSaved: true, Handoff: "saved handoff"}, nil)
+			err := resumeTask(context.Background(), h, runtime, &resumeRunner{}, pipeline.Reader{}, meta, &state.Lifecycle{Session: "session-1", Started: time.Now().Add(-time.Hour), HandoffSaved: true, Handoff: "saved handoff"}, nil)
 
 			if (err != nil) != test.isFailed || request.ResumeSession != test.session || request.ResumeHandoff != "saved handoff" || !request.ForceDirty {
 				t.Fatalf("resume = %+v, %v", request, err)
@@ -194,7 +194,7 @@ func TestResumeTellsAGoblinWhichGateRunIsStillRunning(t *testing.T) {
 			prior := state.Lifecycle{ID: "task", Phase: "paused", Started: time.Now().Add(-time.Hour), ResumeNote: "The Overlord answered: continue", GateRun: testCase.pausedRun, GateIntent: "ship it"}
 
 			// Act
-			err := resumeTask(t.Context(), h, runtime, commands, pipeline.Reader{Root: root, Commands: commands}, meta, prior, nil)
+			err := resumeTask(t.Context(), h, runtime, commands, pipeline.Reader{Root: root, Commands: commands}, meta, &prior, nil)
 
 			// Assert
 			if testCase.refusal != "" {
@@ -345,8 +345,7 @@ func TestEachRefusalOfAResumesRelaunchLeavesTheTaskPausedAsItWas(t *testing.T) {
 				return spawn.SwitchResult{}, f.switched
 			}}
 			service := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
-				Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
-				Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
+				Resume: func(ctx context.Context, meta state.TaskMeta, prior *state.Lifecycle) error {
 					return resumeTask(ctx, h, runtime, f.commands, pipeline.Reader{Root: nm, Commands: f.commands}, meta, prior, nil)
 				},
 				Notify: func(state.Lifecycle) error { return nil },
@@ -419,7 +418,7 @@ func TestResumeGivesAWorkerWithoutARecordedBriefItsRealBriefUnderTheHome(t *test
 	prior := state.Lifecycle{ID: "task", Phase: "paused", Started: time.Now().Add(-time.Hour)}
 
 	// Act
-	if err := resumeTask(t.Context(), h, runtime, &resumedGateRunner{}, pipeline.Reader{Root: h.State, Commands: &resumedGateRunner{}}, meta, prior, nil); err != nil {
+	if err := resumeTask(t.Context(), h, runtime, &resumedGateRunner{}, pipeline.Reader{Root: h.State, Commands: &resumedGateRunner{}}, meta, &prior, nil); err != nil {
 		t.Fatalf("resume: %v", err)
 	}
 

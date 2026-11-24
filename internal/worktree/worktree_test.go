@@ -217,3 +217,35 @@ func TestServiceDelegatesReturnToGit(t *testing.T) {
 		t.Errorf("Return calls = %q, want project and worktree", git.returned)
 	}
 }
+
+// A gitdir's commondir that names the checkout's .git in another case leads
+// back to the checkout exactly where the file system reads the two names as
+// one folder.
+func TestCheckoutReadsTheCommonDirectoryByTheFileSystemsCase(t *testing.T) {
+	// Arrange
+	checkout := filepath.Join(t.TempDir(), "app")
+	gitDir := filepath.Join(checkout, ".git", "worktrees", "wt")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	upper := filepath.Join(checkout, ".GIT")
+	_, statErr := os.Stat(upper)
+	isOnePath := statErr == nil
+	worktree := filepath.Join(t.TempDir(), "wt")
+	if err := os.Mkdir(worktree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for path, content := range map[string]string{filepath.Join(worktree, ".git"): "gitdir: " + gitDir, filepath.Join(gitDir, "commondir"): upper} {
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Act
+	got, isFound := Checkout(worktree)
+
+	// Assert
+	if isFound != isOnePath || (isFound && got != checkout) {
+		t.Fatalf("Checkout(%s) with commondir %s = %q, %t; want %s found: %t", worktree, upper, got, isFound, checkout, isOnePath)
+	}
+}

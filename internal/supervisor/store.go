@@ -207,6 +207,10 @@ type Database struct {
 	// turn, held until its record shows the goblin took each; the board
 	// shows a receipt only then.
 	QueuedSends []BoardActivity `json:"queued_sends,omitempty"`
+	// HeldNotices are the notices the supervisor told the CEO in a turn under
+	// way, which its harness holds in its own queue with no action recording
+	// them, until they can wait there no longer (#2759).
+	HeldNotices []Awaiting `json:"held_notices,omitempty"`
 }
 
 type Store struct {
@@ -371,6 +375,7 @@ func cloneDatabase(d Database) Database {
 	d.Questions = slices.Clone(d.Questions)
 	d.Activity = slices.Clone(d.Activity)
 	d.QueuedSends = slices.Clone(d.QueuedSends)
+	d.HeldNotices = slices.Clone(d.HeldNotices)
 	d.Reviews = slices.Clone(d.Reviews)
 	d.Runs = slices.Clone(d.Runs)
 	d.CEOAnswers = slices.Clone(d.CEOAnswers)
@@ -648,17 +653,28 @@ var tryWait = 10 * time.Second
 // do not work while a Claude turn runs"). A try that typed the message into
 // a goblin's turn still runs while it waits to see the message taken.
 func (s *Store) awaitTry(ctx context.Context, id, task string) {
+	s.awaitTries(ctx, func(a Action) bool { return a.ID == id && a.TaskID == task && a.Kind == "message" })
+}
+
+// awaitTries waits out every try under way of an action isNamed names, for at
+// most tryWait, and reports whether none still runs. isNamed is called with
+// s.mu held.
+func (s *Store) awaitTries(ctx context.Context, isNamed func(Action) bool) bool {
 	for deadline := time.Now().Add(tryWait); ; {
 		s.mu.Lock()
-		at := slices.IndexFunc(s.db.Actions, func(a Action) bool { return a.ID == id && a.TaskID == task && a.Kind == "message" })
-		isTried := at >= 0 && (s.db.Actions[at].Status == "running" && s.db.Actions[at].Awaiting == nil || slices.Contains(s.trying, id))
+		isTried := slices.ContainsFunc(s.db.Actions, func(a Action) bool {
+			return isNamed(a) && (a.Status == "running" && a.Awaiting == nil || slices.Contains(s.trying, a.ID))
+		})
 		s.mu.Unlock()
-		if !isTried || time.Now().After(deadline) {
-			return
+		if !isTried {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
 		}
 		select {
 		case <-ctx.Done():
-			return
+			return false
 		case <-time.After(20 * time.Millisecond):
 		}
 	}
@@ -738,9 +754,10 @@ func (s *Store) markTyped(id, task string, awaiting *Awaiting) error {
 
 // holdCommand gives a queued message that is a command, which waits for its
 // turn to end, words of its own in place of what it was given: that Send now
-// runs it at once, where its session's harness can (sendsNow), and otherwise
-// no Send now. One whose Send now was spent says, with its Send now, that it
-// could not run it at once, whenever it is given one (#1915).
+// runs it at once, where its session's harness can or his press is the try
+// that finds whether it can (sendsNow), and otherwise no Send now. One whose
+// Send now was spent says, with its Send now, that it could not run it at
+// once, whenever it is given one (#1915).
 func (a *Action) holdCommand(sendsNow bool) {
 	if !a.CanSendNow || !isHarnessCommand(a.Text) {
 		return
@@ -969,16 +986,19 @@ func (s *Store) queue(a Action) (Action, error) {
 	s.db.Actions = append(s.db.Actions, a)
 	if message {
 		// The message reads at once what the first one queued for its session
-		// waits on, as a try gives those behind it, and a command has no Send
-		// now until a try finds whether its harness can run it at once. Those
-		// queued before it keep what their last try gave them, a held
-		// command's Send now with it (#1915).
+		// waits on, as a try gives those behind it. A command alone has no
+		// Send now until a try finds whether its harness can run it at once,
+		// and one behind a message he may send now with no reason against it
+		// has Send now too, as his words to the CEO in their undo window do,
+		// its press being the try that finds it (#2759). Those queued before
+		// it keep what their last try gave them, a held command's Send now
+		// with it (#1915).
 		held := s.db.Actions[slices.IndexFunc(s.db.Actions, func(queued Action) bool {
 			return queued.Kind == "message" && queued.TaskID == a.TaskID && queued.Status == "queued"
 		})]
 		added := &s.db.Actions[len(s.db.Actions)-1]
 		added.Message, added.CanSendNow, added.SendNowWhy = held.Message, held.CanSendNow, held.SendNowWhy
-		added.holdCommand(false)
+		added.holdCommand(held.SendNowWhy == "")
 	}
 	if answer {
 		for i := range s.db.Questions {
@@ -1211,9 +1231,9 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 		completed.Awaiting = nil
 		if runErr != nil {
 			completed.Status = "failed"
-			// A message whose words were taken back unsent reached nobody;
-			// any other delivery that ended in doubt may have arrived.
-			if a.Kind != "evaluate" && !errors.Is(runErr, ErrRejected) && !(a.Kind == "message" && errors.Is(runErr, ErrNotSent)) {
+			// A delivery whose words were taken back unsent reached nobody;
+			// any other that ended in doubt may have arrived.
+			if a.Kind != "evaluate" && !errors.Is(runErr, ErrRejected) && !errors.Is(runErr, ErrNotSent) {
 				completed.Status = "uncertain"
 			}
 			completed.Message = bounded(runErr.Error(), 1200)

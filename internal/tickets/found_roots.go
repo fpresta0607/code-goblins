@@ -1,9 +1,12 @@
 package tickets
 
 import (
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // The roots the fleet files by itself, from its own signals that already
@@ -49,7 +52,11 @@ func RedMainRoot(workflow, jobs, evidence string) Root {
 }
 
 var (
-	errorPath   = regexp.MustCompile(`(?i)(?:\b[a-z]:[\\/]|\\\\|/[a-z]/)\S*`)
+	// errorPath is a path on a machine: a drive, a network share, Git
+	// Bash's /c/, or a path in a folder that holds a Linux or macOS user's
+	// or machine's own files, which starts a word and ends at a space or a
+	// quote.
+	errorPath   = regexp.MustCompile(`(?i)(^|[\s"'(=\x60])(?-i:/(?:home|Users|root|tmp|var/folders|private|mnt|Volumes)/)[^\s"']*|(?:\b[a-z]:[\\/]|\\\\|/[a-z]/)\S*`)
 	errorQuoted = regexp.MustCompile(`"[^"]*"|'[^']*'`)
 	errorHex    = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
 	errorNumber = regexp.MustCompile(`\d+`)
@@ -69,16 +76,19 @@ func IsLostConnection(line string) bool {
 
 // ErrorClass is a line of the supervisor's errors with what changes from one
 // sighting to the next taken out: paths, quoted text, the id of any of tasks
-// it names, hashes and numbers. Two lines of one class are one root, so one
-// cause met by two goblins is one root (#1950).
-func ErrorClass(line string, tasks []string) string {
-	class := errorPath.ReplaceAllString(line, "<path>")
+// it names, by the case rule of stateDir, the state folder that names them,
+// hashes and numbers. Two lines of one class are one root, so one cause met
+// by two goblins is one root (#1950).
+func ErrorClass(line, stateDir string, tasks []string) string {
+	class := errorPath.ReplaceAllString(line, "${1}<path>")
 	class = errorQuoted.ReplaceAllString(class, "<text>")
 	class = errorWord.ReplaceAllStringFunc(class, func(word string) string {
 		// A task id never ends with a dot, so one that ends a sentence
 		// still names the task.
 		id := strings.TrimRight(word, ".")
-		if slices.ContainsFunc(tasks, func(task string) bool { return strings.EqualFold(task, id) }) {
+		if slices.ContainsFunc(tasks, func(task string) bool {
+			return fsx.EqualPath(filepath.Join(stateDir, task), filepath.Join(stateDir, id))
+		}) {
 			return "<task>" + word[len(id):]
 		}
 		return word

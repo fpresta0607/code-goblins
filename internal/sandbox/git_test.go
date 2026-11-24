@@ -344,8 +344,8 @@ func TestCheckGitLinkRefusesASubmoduleOfTheWorktree(t *testing.T) {
 }
 
 // A .git the container made anywhere in the worktree, a folder or a link
-// file, in any case, is refused naming it and how to remove it; the
-// worktree's own link and a name that only starts with .git are let be.
+// file, is refused naming it and how to remove it; the worktree's own
+// link and a name that only starts with .git are let be.
 func TestNestedGitRefusalFindsARepositoryAnywhereInTheWorktree(t *testing.T) {
 	for _, test := range []struct {
 		name, plant string
@@ -354,7 +354,6 @@ func TestNestedGitRefusalFindsARepositoryAnywhereInTheWorktree(t *testing.T) {
 	}{
 		{"a repository deep in the packages", "node_modules/pkg/.git", false, "goblins sandbox run -- rm -rf node_modules/pkg/.git"},
 		{"a submodule's link file", "vendor/x/.git", true, "goblins sandbox run -- rm -rf vendor/x/.git"},
-		{"a repository in another case", "src/.GIT", false, "goblins sandbox run -- rm -rf src/.GIT"},
 		{"a folder whose name starts with .git", ".github/workflows", false, ""},
 		{"the worktree's own link alone", "", false, ""},
 	} {

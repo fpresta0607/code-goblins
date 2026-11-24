@@ -163,9 +163,17 @@ func TestCleanupSaysNothingOfARowInAHomeWithNoBacklog(t *testing.T) {
 // is there, so its cleanup moves its row to ## Done as a pull request's does.
 // On 2026-10-09 Bruno's local-only scout reported done with his report and
 // no pull request, cleanup left his row under ## Queued, and the scheduler
-// started the same scout again as Trudy.
+// started the same scout again as Trudy. A path in the home spelled in
+// another case names the report exactly where the file system opens the
+// home's data folder by that spelling.
 func TestCleanupDeliversALocalOnlyTaskWhoseDoneLineNamesItsReport(t *testing.T) {
 	const backlog = "# Backlog\n\n## Queued\n\n- **g1** - Prove the strays (repo: project)\n- **after** - After\n\n## Done\n\n- [x] old - Old (done 2026-10-01)\n"
+	spellings := t.TempDir()
+	if err := os.Mkdir(filepath.Join(spellings, "data"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, err := os.Stat(filepath.Join(spellings, "DATA"))
+	isOnePath := err == nil
 	for _, testCase := range []struct {
 		name, mode, report string
 		done               func(data string) string
@@ -188,6 +196,11 @@ func TestCleanupDeliversALocalOnlyTaskWhoseDoneLineNamesItsReport(t *testing.T) 
 			name: "names its report by its path in the home", mode: "local-only", report: "Nineteen strays, each proven.",
 			done:        func(string) string { return "done: PR none. Report: data/g1/report.md" },
 			isDelivered: true,
+		},
+		{
+			name: "names its report by its path in the home in another case", mode: "local-only", report: "Nineteen strays, each proven.",
+			done:        func(string) string { return "done: PR none. Report: DATA/G1/REPORT.MD" },
+			isDelivered: isOnePath,
 		},
 		{
 			name: "names a report that is not there", mode: "local-only",

@@ -152,7 +152,7 @@ func emptyBut(folder string, made []string) bool {
 	}
 	for _, entry := range entries {
 		inner := filepath.Join(folder, entry.Name())
-		if !entry.IsDir() || !slices.ContainsFunc(made, func(path string) bool { return strings.EqualFold(path, inner) }) || !emptyBut(inner, made) {
+		if !entry.IsDir() || !slices.ContainsFunc(made, func(path string) bool { return fsx.EqualPath(path, inner) }) || !emptyBut(inner, made) {
 			return false
 		}
 	}
@@ -209,8 +209,8 @@ func (m Machine) conversations() ([]Item, error) {
 		entries, _ := os.ReadDir(projects)
 		for _, entry := range entries {
 			for _, folder := range folders {
-				name, root := strings.ToLower(entry.Name()), strings.ToLower(slug(folder))
-				if name == root && folder == m.Home.Root || folder != m.Home.Root && strings.HasPrefix(name, root+"-") {
+				name, root := filepath.Join(projects, entry.Name()), slug(folder)
+				if fsx.EqualPath(name, filepath.Join(projects, root)) && folder == m.Home.Root || folder != m.Home.Root && fsx.HasPathPrefix(name, filepath.Join(projects, root)+"-") {
 					items = append(items, removal(GroupHarnesses, "Claude Code's record of "+whose(entry.Name()[len(root):]), filepath.Join(projects, entry.Name())))
 					break
 				}
@@ -222,8 +222,8 @@ func (m Machine) conversations() ([]Item, error) {
 		entries, _ := os.ReadDir(sessions)
 		for _, entry := range entries {
 			for _, folder := range folders {
-				name, root := strings.ToLower(entry.Name()), strings.ToLower(piSlug(folder))
-				if name == root || folder != m.Home.Root && strings.HasPrefix(name, strings.TrimSuffix(root, "--")+"-") {
+				name, root := filepath.Join(sessions, entry.Name()), piSlug(folder)
+				if fsx.EqualPath(name, filepath.Join(sessions, root)) || folder != m.Home.Root && fsx.HasPathPrefix(name, filepath.Join(sessions, strings.TrimSuffix(root, "--"))+"-") {
 					rest := strings.TrimSuffix(entry.Name()[min(len(entry.Name()), len(strings.TrimSuffix(root, "--"))):], "--")
 					items = append(items, removal(GroupHarnesses, "pi's record of "+whose(rest), filepath.Join(sessions, entry.Name())))
 					break
@@ -284,12 +284,12 @@ func codexFolder(path string) string {
 	return record.Payload.Cwd
 }
 
-// unique is paths without the ones named twice, compared as Windows compares
-// paths.
+// unique is paths without the ones named twice, compared by the file
+// system's case rule.
 func unique(paths []string) []string {
 	var kept []string
 	for _, path := range paths {
-		if !slices.ContainsFunc(kept, func(known string) bool { return strings.EqualFold(filepath.Clean(known), filepath.Clean(path)) }) {
+		if !slices.ContainsFunc(kept, func(known string) bool { return fsx.EqualPath(filepath.Clean(known), filepath.Clean(path)) }) {
 			kept = append(kept, path)
 		}
 	}

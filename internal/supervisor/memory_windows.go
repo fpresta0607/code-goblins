@@ -59,10 +59,9 @@ func MachineMemory() (Memory, error) {
 	if ok, _, callErr := globalMemoryStatusEx.Call(uintptr(unsafe.Pointer(&status))); ok == 0 {
 		return Memory{}, callErr
 	}
-	performance := performanceInformation{}
-	performance.size = uint32(unsafe.Sizeof(performance))
-	if ok, _, callErr := getPerformanceInfo.Call(uintptr(unsafe.Pointer(&performance)), uintptr(performance.size)); ok == 0 {
-		return Memory{}, callErr
+	performance, err := machinePerformance()
+	if err != nil {
+		return Memory{}, err
 	}
 	return Memory{
 		Available:       status.availPhys,
@@ -72,6 +71,35 @@ func MachineMemory() (Memory, error) {
 		PagedPool:       uint64(performance.kernelPaged) * uint64(performance.pageSize),
 		NonpagedPool:    uint64(performance.kernelNonpaged) * uint64(performance.pageSize),
 	}, nil
+}
+
+// MachineKernel reads how many access tokens the kernel holds, how many
+// processes run and how large the kernel's paged and nonpaged pools are,
+// none of which needs administrator rights.
+func MachineKernel() (Kernel, error) {
+	performance, err := machinePerformance()
+	if err != nil {
+		return Kernel{}, err
+	}
+	tags, err := PoolTags()
+	if err != nil {
+		return Kernel{}, err
+	}
+	return Kernel{
+		Tokens:       TokensAlive(tags),
+		Processes:    performance.processCount,
+		PagedPool:    uint64(performance.kernelPaged) * uint64(performance.pageSize),
+		NonpagedPool: uint64(performance.kernelNonpaged) * uint64(performance.pageSize),
+	}, nil
+}
+
+func machinePerformance() (performanceInformation, error) {
+	performance := performanceInformation{}
+	performance.size = uint32(unsafe.Sizeof(performance))
+	if ok, _, callErr := getPerformanceInfo.Call(uintptr(unsafe.Pointer(&performance)), uintptr(performance.size)); ok == 0 {
+		return performanceInformation{}, callErr
+	}
+	return performance, nil
 }
 
 // CommitHolders reads every process's commit, its private memory, from one

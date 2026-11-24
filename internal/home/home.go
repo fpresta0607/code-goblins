@@ -143,6 +143,12 @@ type DevDriveConfig struct {
 	// VHD is the file the create step made the Dev Drive in, which the
 	// attach step attaches again.
 	VHD string `json:"vhd,omitempty"`
+	// GateCarryFailed is why the board's own carry of the gate's home last
+	// failed for a reason other than a busy gate, and GateCarryFailedAt
+	// when: the board starts it again only once the person asks after it,
+	// across a restart of the board too.
+	GateCarryFailed   string    `json:"gate_carry_failed,omitempty"`
+	GateCarryFailedAt time.Time `json:"gate_carry_failed_at,omitzero"`
 }
 
 // The answers to the offer of a Dev Drive.
@@ -281,7 +287,7 @@ func usesTheInheritedFleet(h Home) bool {
 	if inheritedRoot != "" && fsx.SamePath(h.Root, inheritedRoot) {
 		return true
 	}
-	if inheritedDefault != "" && (fsx.SamePath(h.Root, inheritedDefault) || strings.EqualFold(filepath.Clean(h.Root), filepath.Clean(inheritedDefault))) {
+	if inheritedDefault != "" && (fsx.SamePath(h.Root, inheritedDefault) || fsx.EqualPath(filepath.Clean(h.Root), filepath.Clean(inheritedDefault))) {
 		return true
 	}
 	return inheritedState != "" && fsx.SamePath(h.State, inheritedState)
@@ -347,7 +353,7 @@ func IsPrimary(h Home) bool {
 	// gitPaths builds both from the same files, so a plain checkout's are
 	// one path and a linked worktree's two; comparing them needs no symlink
 	// resolution, which costs this hot path tens of milliseconds a call.
-	return strings.EqualFold(gitDir, commonDir)
+	return fsx.EqualPath(gitDir, commonDir)
 }
 
 // gitPaths finds the git directory and common directory of the repository
@@ -464,9 +470,9 @@ func LocateWorktree(worktreesRoots []string, dir string) (WorktreePlace, bool) {
 	}
 	for cleaned != "" {
 		parent := filepath.Dir(cleaned)
-		if strings.EqualFold(filepath.Base(parent), LegacyWorktreesDir) {
+		if fsx.EqualPath(parent, filepath.Join(filepath.Dir(parent), LegacyWorktreesDir)) {
 			name := filepath.Base(cleaned)
-			if len(name) <= len(LegacyWorktreePrefix) || !strings.EqualFold(name[:len(LegacyWorktreePrefix)], LegacyWorktreePrefix) {
+			if len(name) <= len(LegacyWorktreePrefix) || !fsx.HasPathPrefix(cleaned, filepath.Join(parent, LegacyWorktreePrefix)) {
 				return WorktreePlace{}, false
 			}
 			return WorktreePlace{Root: cleaned, Project: filepath.Base(filepath.Dir(parent)), Name: name[len(LegacyWorktreePrefix):]}, true

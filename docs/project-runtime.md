@@ -190,9 +190,9 @@ An area that was not assessed never passes, so `--area gate` exits 1 for such a 
 
 ### Letter case
 
-On Windows a folder answers to its name in any letter case.
-The project is named as its checkout's folder is spelled on disk, however the path was typed.
-The names inside `project.json`, `worktree.json` and `auth.json` are compared with it without regard to case on Windows, and exactly elsewhere.
+Where the checkout's file system ignores case, as Windows and a Mac's default volume do, a folder answers to its name in any letter case.
+There the project is named as its checkout's folder is spelled on disk, however the path was typed.
+The names inside `project.json`, `worktree.json` and `auth.json` are compared with it by the same rule: without regard to case where the file system ignores it, and exactly elsewhere.
 One that names another project is a `medium` line in its area.
 
 ### What a command needs

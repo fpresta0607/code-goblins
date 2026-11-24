@@ -66,7 +66,7 @@ func (p *planner) taskFiles() error {
 				return err
 			}
 			if entry.IsDir() {
-				if slices.Contains(historyFolders, strings.ToLower(entry.Name())) {
+				if slices.ContainsFunc(historyFolders, func(history string) bool { return fsx.EqualPath(path, filepath.Join(filepath.Dir(path), history)) }) {
 					return filepath.SkipDir
 				}
 				return nil

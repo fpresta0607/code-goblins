@@ -333,7 +333,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   const post = (body: object) => request("/api/actions", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": snapshot.instance }, body: JSON.stringify(body) });
   const isHeld = !!live?.held;
   // A question with choices or an explicit Enter hint is drawn and answered
-  // here, and takes what he writes as its answer. Any other
+  // here, and takes what he writes as its answer. A dialog whose footer
+  // offers only to close it, as Claude Code answers /cost and /status with,
+  // is his command's result: it is drawn and takes the terminal's keys, but
+  // asks nothing, so his messages wait for it to close (#2759). Any other
   // screen, words with nothing to choose, such as the prompt line with his
   // message on it, an error or the harness's words for a usage limit, or one
   // the relay could not read, is never mirrored above the box, whether a turn
@@ -349,8 +352,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // board delivery, types into it, so a picker those drew is never shown as
   // his own menu and never takes his keys (cg-human-triggered-menus).
   const isHumanMenu = !!live?.screen?.submission;
-  const panel = screenPanel && isHumanMenu && (screenPanel.choices.length > 0 || screenPanel.hints.some((hint) => /\benter\b/i.test(hint))) ? screenPanel : null;
-  const isAsking = !!panel;
+  const asksEnter = !!screenPanel?.hints.some((hint) => /\benter\b/i.test(hint));
+  const isResult = !!screenPanel && !screenPanel.choices.length && !asksEnter && screenPanel.hints.some((hint) => /\bto close\b/i.test(hint));
+  const panel = screenPanel && isHumanMenu && (screenPanel.choices.length > 0 || asksEnter || isResult) ? screenPanel : null;
+  const isAsking = !!panel && !isResult;
   // The permission mode the session's terminal shows, which Shift+Tab cycles.
   const mode = live?.screen?.mode ?? "";
   const isUnread = !!live?.isUnread;

@@ -129,12 +129,12 @@ func runProgram(dir, pkg, out string) error {
 	if err != nil {
 		return err
 	}
-	text, err := licenceText(dir)
+	text, ownText, err := licenceText(dir)
 	if err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
 	var problems []string
-	licence, err := classify(text)
+	licence, err := classify(ownText)
 	if err != nil {
 		problems = append(problems, path+": "+err.Error())
 	}
@@ -230,14 +230,14 @@ func goComponents(goroot string, modules []module) (section, []string, error) {
 		if m.Path == "" {
 			name, dir = "Go standard library", goroot
 		}
-		text, err := licenceText(dir)
+		text, own, err := licenceText(dir)
 		if stated, ok := statedLicences[m.Path+"@"+m.Version]; ok && err != nil {
-			text, err = stated, nil
+			text, own, err = stated, stated, nil
 		}
 		if err != nil {
 			return s, nil, fmt.Errorf("%s: %w", name, err)
 		}
-		licence, err := classify(text)
+		licence, err := classify(own)
 		if err != nil {
 			problems = append(problems, name+": "+err.Error())
 		}
@@ -303,7 +303,7 @@ func npmComponents(frontend string) (section, []string, error) {
 		}
 		name := path[strings.LastIndex(path, "node_modules/")+len("node_modules/"):]
 		label := "npm " + name + " " + pkg.Version
-		text, err := licenceText(filepath.Join(frontend, filepath.FromSlash(path)))
+		text, own, err := licenceText(filepath.Join(frontend, filepath.FromSlash(path)))
 		if errors.Is(err, fs.ErrNotExist) {
 			return s, nil, fmt.Errorf("%s is not installed: run npm ci in frontend first", name)
 		}
@@ -312,7 +312,7 @@ func npmComponents(frontend string) (section, []string, error) {
 		}
 		if !permissiveExpression(pkg.License) {
 			problems = append(problems, fmt.Sprintf("%s: declares %q, which is not a permissive licence", label, pkg.License))
-		} else if _, err := classify(text); err != nil {
+		} else if _, err := classify(own); err != nil {
 			problems = append(problems, label+": "+err.Error())
 		}
 		s.components = append(s.components, component{name: label, licence: pkg.License, text: text})
@@ -362,26 +362,31 @@ func consoleHostComponents(dir string) (section, []string, error) {
 	if err != nil {
 		return section{}, nil, err
 	}
-	text, err := licenceText(dir)
+	text, own, err := licenceText(dir)
 	if err != nil {
 		return section{}, nil, err
 	}
 	name := "Microsoft.Windows.Console.ConPTY " + strings.TrimSpace(string(version)) + " (conpty.dll and OpenConsole.exe)"
 	var problems []string
-	licence, err := classify(text)
+	licence, err := classify(own)
 	if err != nil {
 		problems = append(problems, name+": "+err.Error())
 	}
 	return section{heading: "Microsoft's console host, embedded into goblins.exe", components: []component{{name: name, licence: licence, text: text}}}, problems, nil
 }
 
-// licenceText joins a package's licence and notice files, in name order.
-func licenceText(dir string) (string, error) {
+// licenceText joins a package's licence and notice files, in name order, as
+// text, and those that grant the package's own licence as own: the text to
+// classify it by. A file accounting for third-party software, such as
+// modernc.org/sqlite's LICENSE-3RD-PARTY.md, is carried in the notices but
+// does not decide the package's licence, since it reproduces the licences of
+// other components, among them test-only ones never compiled in.
+func licenceText(dir string) (text, own string, err error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	var texts []string
+	var texts, owned []string
 	for _, entry := range entries {
 		upper := strings.ToUpper(entry.Name())
 		if entry.IsDir() || !(isLicenceFile(entry.Name()) || strings.HasPrefix(upper, "NOTICE")) {
@@ -389,19 +394,30 @@ func licenceText(dir string) (string, error) {
 		}
 		raw, err := fsx.ReadFile(filepath.Join(dir, entry.Name()))
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
 		texts = append(texts, normalise(raw))
+		if !isThirdPartyFile(entry.Name()) {
+			owned = append(owned, normalise(raw))
+		}
 	}
 	if len(texts) == 0 {
-		return "", fmt.Errorf("no licence file in %s", dir)
+		return "", "", fmt.Errorf("no licence file in %s", dir)
 	}
-	return strings.Join(texts, "\n\n"), nil
+	return strings.Join(texts, "\n\n"), strings.Join(owned, "\n\n"), nil
 }
 
 func isLicenceFile(name string) bool {
 	upper := strings.ToUpper(name)
 	return strings.Contains(upper, "LICENSE") || strings.Contains(upper, "LICENCE") || strings.HasPrefix(upper, "COPYING") || strings.Contains(upper, "-OFL")
+}
+
+// isThirdPartyFile reports whether a licence file's name says it accounts
+// for third-party software, as LICENSE-3RD-PARTY.md and
+// THIRD_PARTY_LICENSES do.
+func isThirdPartyFile(name string) bool {
+	squashed := strings.NewReplacer("-", "", "_", "", ".", "", " ", "").Replace(strings.ToUpper(name))
+	return strings.Contains(squashed, "3RDPARTY") || strings.Contains(squashed, "THIRDPARTY")
 }
 
 // normalise gives every text LF line ends and no trailing blank space, so

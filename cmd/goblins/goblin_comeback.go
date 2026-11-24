@@ -108,7 +108,7 @@ func bringGoblinBack(ctx context.Context, h home.Home, runtime commandRuntime, i
 	if runtime.nativeTerminalRuns(h.State, id) {
 		return goblinComeback{}, false
 	}
-	if err := runtime.admitLaunch(h); err != nil {
+	if err := runtime.admitLaunch(h, meta.Harness); err != nil {
 		return goblinComeback{id: id, said: "waits for room: " + err.Error(), isWaiting: true}, true
 	}
 	// Only automatic recovery is held to a prepared admission, since only it
@@ -150,7 +150,7 @@ func bringGoblinBack(ctx context.Context, h home.Home, runtime commandRuntime, i
 		BriefPath:     filepath.Join(h.Data, id, "brief.md"),
 		ResumeSession: session,
 		ResumeNote:    note,
-		Admit:         func() error { return runtime.admitLaunch(h) },
+		Admit:         func() error { return runtime.admitLaunch(h, meta.Harness) },
 	})
 	switch {
 	case errors.Is(err, state.ErrNoRoom):

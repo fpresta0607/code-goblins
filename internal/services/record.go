@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -26,6 +27,32 @@ type Record struct {
 	// Stacks is each project's stack, by project name. A stack nobody holds
 	// stays in the record for its measured cost.
 	Stacks map[string]Stack `json:"stacks,omitempty"`
+	// Admitting is each project's start that holds the machine's turn and
+	// waits for the memory its services cost, by project name, so the
+	// supervisor starts and resumes no goblin into that memory.
+	Admitting map[string]Admitting `json:"admitting,omitempty"`
+}
+
+// Admitting is one start of a project's stack that waits for memory or is
+// starting, and the memory it was admitted with.
+type Admitting struct {
+	Task string `json:"task"`
+	// Cost is what the start is expected to take, in bytes.
+	Cost uint64 `json:"cost"`
+	// PID is the process that runs the start, and Started when that process
+	// began, which tells it from a later process the system gave its pid.
+	PID     int       `json:"pid"`
+	Started time.Time `json:"started,omitzero"`
+	Since   time.Time `json:"since"`
+}
+
+// IsLive reports whether the process that runs the start is still the same
+// process: its pid runs and began when the start's process did. A start that
+// could not read its own process's start cannot be told from a later process
+// and counts as live.
+func (a Admitting) IsLive() bool {
+	started, isRunning := proc.StartTime(a.PID)
+	return isRunning && (a.Started.IsZero() || started.Equal(a.Started))
 }
 
 // Engine is the Docker engine as goblins found it.

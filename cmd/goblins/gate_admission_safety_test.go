@@ -11,8 +11,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
+	"github.com/fpresta0607/code-goblins/internal/verify"
 )
+
+// defaultMemoryFloor is the free memory a gate run waits for when the home's
+// settings do not set another.
+var defaultMemoryFloor = fleetconfig.Bytes(fleetconfig.Defaults().MemoryFloorGB)
 
 func TestGateAdmissionFailureStartsNoCommand(t *testing.T) {
 	for _, cause := range []string{"memory", "missing_reader", "floor_expired", "store", "capacity", "slot_override", "corrupt_custody", "corrupt_second_slot"} {
@@ -28,7 +34,7 @@ func TestGateAdmissionFailureStartsNoCommand(t *testing.T) {
 				runtime.availableMemory = nil
 			case "floor_expired":
 				runtime.availableMemory = func() (supervisor.Memory, error) {
-					return supervisor.Memory{Available: supervisor.MemoryFloor - 1, CommitAvailable: 16 << 30}, nil
+					return supervisor.Memory{Available: defaultMemoryFloor - 1, CommitAvailable: 16 << 30}, nil
 				}
 				runtime.gateWaitLimit = 20 * time.Millisecond
 			case "store":
@@ -95,7 +101,7 @@ func TestGateAdmissionFailureStartsNoCommand(t *testing.T) {
 func TestGateAdmissionRequiresBothMemoryFloors(t *testing.T) {
 	// One slot's floor is flat. Two slots' is weighed, and on an empty line
 	// is a run's default estimate, 2.5 GiB, and the desktop reserve, 2 GiB.
-	for capacity, floor := range map[int]uint64{1: supervisor.MemoryFloor, 2: 9 << 29} {
+	for capacity, floor := range map[int]uint64{1: defaultMemoryFloor, 2: 9 << 29} {
 		t.Run(fmt.Sprint(capacity), func(t *testing.T) {
 			for _, sample := range []struct {
 				name             string
@@ -218,7 +224,7 @@ func TestGateTurnsReportsUnavailableCustodyOrMemory(t *testing.T) {
 // One slot's floor is flat. Two slots' is weighed, and on an empty line is a
 // run's default estimate, 2.5 GiB, and the desktop reserve, 2 GiB.
 func TestGateTurnsUsesSharedCapacityFloor(t *testing.T) {
-	for capacity, floor := range map[int]uint64{1: supervisor.MemoryFloor, 2: 9 << 29} {
+	for capacity, floor := range map[int]uint64{1: defaultMemoryFloor, 2: 9 << 29} {
 		for _, sample := range []struct {
 			name             string
 			physical, commit uint64
@@ -253,5 +259,74 @@ func TestGateTurnsUsesSharedCapacityFloor(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// A run of the heavy line waits for the floor its home's settings keep: with
+// 6 GB kept, 5.9 GB of both free gives no turn and 6 GB does.
+func TestAGateTurnWaitsForTheFloorTheHomeKeeps(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		free    uint64
+		isTaken bool
+	}{
+		{name: "under the floor", free: 6<<30 - 100<<20},
+		{name: "at the floor", free: 6 << 30, isTaken: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h := primaryHomeFixture(t)
+			writeTestFile(t, filepath.Join(h.Root, "config", "fleet.json"), `{"memory_floor_gb":6}`)
+			t.Setenv("GOBLINS_HOME", h.Root)
+			t.Setenv("GOBLINS_STATE_OVERRIDE", h.State)
+			t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
+			available := func() (supervisor.Memory, error) {
+				return supervisor.Memory{Available: test.free, CommitAvailable: test.free}, nil
+			}
+
+			// Act
+			var says, stderr bytes.Buffer
+			turn, err := takeGateTurn(t.Context(), "goblins gate", &says, &stderr, available, "a test run", "", "", time.Minute, 50*time.Millisecond, 0, 0)
+
+			// Assert
+			if err == nil {
+				defer func() { _ = turn.Release() }()
+			}
+			if (err == nil) != test.isTaken {
+				t.Fatalf("turn err = %v (said %q, stderr %q), want a turn %t", err, says.String(), stderr.String(), test.isTaken)
+			}
+		})
+	}
+}
+
+// A gate's step names on its card the task its caller resolved, since the
+// gate daemon's environment it runs in can name another goblin's, and the
+// memory floor spares the goblin a card names (#2808).
+func TestAGateTurnNamesItsTaskOnItsCard(t *testing.T) {
+	// Arrange
+	h := primaryHomeFixture(t)
+	t.Setenv("GOBLINS_HOME", h.Root)
+	t.Setenv("GOBLINS_STATE_OVERRIDE", h.State)
+	t.Setenv("GOBLINS_VERIFY_DIR", t.TempDir())
+	available := func() (supervisor.Memory, error) {
+		return supervisor.Memory{Available: 16 << 30, CommitAvailable: 16 << 30}, nil
+	}
+
+	// Act
+	var says, stderr bytes.Buffer
+	turn, err := takeGateTurn(t.Context(), "goblins gate test", &says, &stderr, available, "a gate's Test step", "", "cg-gated", time.Minute, 50*time.Millisecond, 0, 0)
+	if err != nil {
+		t.Fatalf("turn err = %v (said %q, stderr %q)", err, says.String(), stderr.String())
+	}
+	defer func() { _ = turn.Release() }()
+	store, err := verify.AdmissionDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	holding, _, err := verify.Line(store)
+
+	// Assert
+	if err != nil || len(holding) != 1 || holding[0].Task != "cg-gated" {
+		t.Fatalf("the line holds %+v, %v; want one turn whose card names cg-gated", holding, err)
 	}
 }

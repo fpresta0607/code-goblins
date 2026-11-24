@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -41,7 +42,7 @@ func handoffPlaces(h home.Home, id string, meta state.TaskMeta, metaErr error, l
 			name := filepath.Base(record.Handoff)
 			operation := strings.TrimSuffix(strings.TrimPrefix(name, "pause-"), ".md")
 			folder := filepath.Join(h.State, "tasktmp", id)
-			if strings.HasPrefix(name, "pause-") && strings.HasSuffix(name, ".md") && state.ValidTaskID(operation) == nil && strings.EqualFold(filepath.Dir(record.Handoff), folder) {
+			if strings.HasPrefix(name, "pause-") && strings.HasSuffix(name, ".md") && state.ValidTaskID(operation) == nil && fsx.EqualPath(folder, filepath.Dir(record.Handoff)) {
 				paths = append(paths, handoffPlace{h.State, filepath.Join("tasktmp", id, name)})
 			}
 		}
