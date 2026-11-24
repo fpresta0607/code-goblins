@@ -2544,7 +2544,7 @@ func TestACommandHeldForAGoblinsTurnOffersSendNowWhereItsTerminalCanRunItAtOnce(
 		{name: "a slash command for a pi in a turn", harness: "pi", text: "/compact", refusal: spawn.ErrInTurn, isOffered: true},
 		{name: "a slash command behind his words in a Claude Code's queue", harness: "claude", text: "/compact", ahead: "first words", refusal: spawn.ErrInTurn, isOffered: true},
 		{name: "a slash command behind his words in a Codex's queue", harness: "codex", text: "/compact", ahead: "first words", refusal: spawn.ErrInTurn},
-		{name: "a slash command behind his words in a pi's queue", harness: "pi", text: "/compact", ahead: "first words", refusal: spawn.ErrInTurn},
+		{name: "a slash command behind his words in a pi's queue", harness: "pi", text: "/compact", ahead: "first words", refusal: spawn.ErrInTurn, isOffered: true},
 		{name: "a slash command behind his words in the queue of a Claude Code started again since", harness: "claude", text: "/compact", ahead: "first words", isStartedAgain: true, refusal: spawn.ErrInTurn, isOffered: true},
 		{name: "a command its terminal is not ready for", harness: "claude", text: "!git status", refusal: ErrDeferred},
 	} {
