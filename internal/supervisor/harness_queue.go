@@ -281,18 +281,27 @@ func (s *Service) takeBackHeld(withdraw Action) (Action, bool, error) {
 // gives its queue back only whole: Claude Code's Up puts every queued line on
 // the prompt line, a row each, and pi's Alt+Q every one in its editor, an
 // empty row between each two. So the board presses that key where the empty
-// prompt line offers it, waits to read there exactly the lines it typed into
-// that queue and takes them off. Nothing is cleared that the board did not
-// type: a queue that also held a line typed in the terminal is left on the
-// prompt line for him, with the board's lines watched there as lines left
-// typed are. For a queue of the CEO's, its caller holds the CEO's typing
-// lock.
+// prompt line offers it and would show every row the key puts there, which
+// pi's editor, showing only its last rows, may not, waits to read there
+// exactly the lines it typed into that queue and takes them off. Nothing is
+// cleared that the board did not type: a queue that also held a line typed in
+// the terminal is left on the prompt line for him, with the board's lines
+// watched there as lines left typed are. For a queue of the CEO's, its caller
+// holds the CEO's typing lock.
 func (s *Service) takeQueueBack(held []Action, task string, record host.Record, screens harness.Screens) error {
 	who, subject := whoHolds(task)
 	read := func() ([]string, error) { return host.ReadScreen(record) }
+	typed, lines, words := make([]Awaiting, len(held)), make([]string, len(held)), ""
+	for i, a := range held {
+		typed[i], lines[i] = *a.Awaiting, a.Awaiting.Typed
+		words += a.Awaiting.Typed
+	}
 	rows, err := read()
-	if err != nil || !screens.OffersQueue(rows) {
+	switch {
+	case err != nil || !screens.OffersQueue(rows):
 		return errors.New(subject + "'s prompt line does not offer its queue now, so nothing was changed. Press again in a moment.")
+	case !screens.QueueFits(rows, lines):
+		return errors.New(subject + "'s editor is too short to show its queue whole, so it cannot be taken back. Send now has it taken at once.")
 	}
 	client, err := host.Dial(record)
 	if err != nil {
@@ -305,11 +314,6 @@ func (s *Service) takeQueueBack(held []Action, task string, record host.Record, 
 	restore := func(a *Action, was Action) { a.Awaiting = was.Awaiting }
 	if err := client.Input([]byte(screens.EditQueue)); err != nil {
 		return errors.Join(errors.New(subject+"'s terminal took no key, so its queue was left as it is."), s.Store.settleSetAside(held, restore))
-	}
-	typed, words := make([]Awaiting, len(held)), ""
-	for i, a := range held {
-		typed[i] = *a.Awaiting
-		words += a.Awaiting.Typed
 	}
 	isBack := false
 	for deadline := time.Now().Add(queueKeyWait); !isBack && time.Now().Before(deadline); time.Sleep(queueKeyPoll) {

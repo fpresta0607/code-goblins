@@ -125,6 +125,12 @@ type Screens struct {
 	EditQueue   string
 	Queued      *regexp.Regexp
 	QueuedAbove bool
+	// ComposerScrolls says the composer shows at most 30% of the terminal's
+	// rows, and no fewer than five, of the rows its text wraps to, wrapped at
+	// its rules' width less the column its cursor keeps, and scrolls the rest
+	// out of sight under "↑ N more", as pi-tui 1.4.0's Editor.render draws
+	// pi's editor.
+	ComposerScrolls bool
 }
 
 // Dialog is one startup prompt. A spawn answers it only while one of Markers
@@ -294,9 +300,10 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// that hint, above the editor, each row cut under "..." in a
 			// terminal too narrow for it (interactive mode's
 			// updatePendingMessagesDisplay), live on 2026-11-18 (#2340).
-			EditQueue:   "\x1bq",
-			Queued:      regexp.MustCompile(`^↳ (` + cutShort("Alt+Q to edit all queued messages", "...") + `)$`),
-			QueuedAbove: true,
+			EditQueue:       "\x1bq",
+			Queued:          regexp.MustCompile(`^↳ (` + cutShort("Alt+Q to edit all queued messages", "...") + `)$`),
+			QueuedAbove:     true,
+			ComposerScrolls: true,
 		}, true
 	}
 	return Screens{}, false
@@ -582,6 +589,46 @@ func (s Screens) OffersQueue(screen []string) bool {
 	}
 	composer, _ := s.composer(screen)
 	return s.Queued.MatchString(strings.TrimSpace(composer[0]))
+}
+
+// QueueFits reports whether the empty composer screen shows would show every
+// row of queued, the lines its harness's queue holds, once EditQueue put them
+// there, so that the board can read them all back. Only a composer that
+// scrolls hides any. pi 1.4.0's Alt+Q puts the lines in its editor an empty
+// row between each two, which takes a tab as four spaces (pi-tui's
+// Editor.setText). A line takes one row where it fits the width it wraps at,
+// and otherwise at most two for each full width it holds and one more:
+// pi-tui's wordWrapLine fills each row greedily, so any two rows in a row
+// hold more than that width. A character outside ASCII counts two columns,
+// the most pi-tui gives one, so no line counts fewer rows than it takes.
+func (s Screens) QueueFits(screen, queued []string) bool {
+	if !s.ComposerScrolls {
+		return true
+	}
+	_, bottom, isRuled := s.composerRules(screen)
+	if !isRuled {
+		return false
+	}
+	width := utf8.RuneCountInString(strings.TrimSpace(screen[bottom])) - 1
+	rows := 0
+	for _, line := range strings.Split(strings.Join(queued, "\n\n"), "\n") {
+		columns := 0
+		for _, character := range line {
+			switch {
+			case character == '\t':
+				columns += 4
+			case character < utf8.RuneSelf:
+				columns++
+			default:
+				columns += 2
+			}
+		}
+		rows++
+		if columns > width {
+			rows += 2 * (columns / width)
+		}
+	}
+	return rows <= max(5, len(screen)*3/10)
 }
 
 // TookCommand reports whether screen shows the harness took typed, a slash

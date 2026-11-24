@@ -355,6 +355,34 @@ func TestSendNowOnAMessageItsHarnessHoldsPressesThatHarnesssSendNowKeyOnce(t *te
 	}
 }
 
+// pi takes a line typed into its turn at its next tool call, and the board
+// sees that only in pi's record, at its next look, so Send now can find the
+// message still held while pi's turn runs over an empty editor that no longer
+// offers its queue. pi's Escape would then end the turn that reads the
+// message, so Send now presses it only while that queue is offered, as it
+// presses Claude Code's send-now key, and leaves the message held (#2340).
+func TestSendNowPressesNoEscapeWherePisTurnNoLongerOffersItsQueue(t *testing.T) {
+	// Arrange
+	store, service, terminal, task, _ := heldQueue(t, false, "pi-busy-takes-steers", "first words")
+
+	// Act
+	pressed := sendNow(service, task, "m1")
+	after := actionOf(store, "m1")
+	terminal.typeLine(t, "his own words")
+	input := terminal.waitForLines(t, 3)
+
+	// Assert
+	if pressed.Code != 202 {
+		t.Errorf("Send now = %d %s; want it taken", pressed.Code, pressed.Body)
+	}
+	if !isHarnessHeld(after) || after.Message != heldByCEO {
+		t.Errorf("after Send now = %+v; want it still held in the CEO's session, with no send-now key pressed", after)
+	}
+	if !slices.Equal(input[1:], []string{"queued first words", "queued his own words"}) {
+		t.Errorf("terminal input = %q; want no Escape, so its turn still queues the words typed after Send now", input)
+	}
+}
+
 // #2332: a queued message "can be edited and deleted from Modern Chat and the
 // change lands on the harness's own queued item". Claude Code gives its queue
 // back only whole, every line onto the prompt line for one Up, and pi 1.4.0
@@ -656,6 +684,34 @@ func TestAQueueTheBoardCannotTakeBackAloneIsNeverCleared(t *testing.T) {
 				t.Errorf("terminal input = %q; want nothing cleared, and no key where the queue was left", input)
 			}
 		})
+	}
+}
+
+// pi 1.4.0's editor shows at most 30% of its terminal's rows, and no fewer
+// than five, and scrolls the rest out of sight (pi-tui's Editor.render): seven
+// of the stand-in's 24. Alt+Q would put the five lines its queue holds there
+// in nine rows, an empty one between each two, and the board would read back
+// only the last four, so it could not take them off, and all five would wait
+// unsent in that editor. Cancel of one of them presses nothing, says why, and
+// leaves every one in pi's queue for its turn (#2340).
+func TestCancelOfAMessageInAQueueTallerThanPisEditorPressesNoKey(t *testing.T) {
+	// Arrange
+	store, service, terminal, _, _ := heldQueue(t, false, "pi-busy", "first words", "second words", "third words", "fourth words", "fifth words")
+
+	// Act
+	cancel := pressOnQueued(service, "message_withdraw", "", "m2", "second words")
+
+	// Assert
+	if cancel.Code != 409 || !strings.Contains(cancel.Body.String(), "too short to show its queue whole") {
+		t.Errorf("Cancel = %d %s; want it refused, saying pi's editor is too short to show its queue whole", cancel.Code, cancel.Body)
+	}
+	for _, id := range []string{"m1", "m2", "m3", "m4", "m5"} {
+		if after := actionOf(store, id); !isHarnessHeld(after) {
+			t.Errorf("%s after the press = %+v; want it still held in pi's queue", id, after)
+		}
+	}
+	if input := terminal.lines(t); slices.ContainsFunc(input, func(line string) bool { return strings.HasPrefix(line, "took back ") || line == "cleared" }) {
+		t.Errorf("terminal input = %q; want no key pressed", input)
 	}
 }
 
