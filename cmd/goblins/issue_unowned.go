@@ -215,10 +215,10 @@ func readNamingTasks(h home.Home, repositoryOf, projectRepository func(string) s
 		}
 		task := &namingTask{ID: id, Repository: repository}
 		var err error
-		if task.Brief, err = taskBrief(h, id, briefPath); err != nil {
+		if task.Brief, err = tickets.TaskBrief(h, id, briefPath); err != nil {
 			return nil, err
 		}
-		if task.PullRequests, err = taskPullRequests(h.State, id); err != nil {
+		if task.PullRequests, err = tickets.TaskPullRequests(h.State, id); err != nil {
 			return nil, err
 		}
 		tasks[id] = task
