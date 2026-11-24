@@ -123,6 +123,9 @@ The goblin stays the task's one validation owner, so the cloud's work passes the
 
 ## Open questions
 
+- Should a public repository, this one included, allow handoff at all, since the packet sits in a public pull request body?
+  The Overlord answered on 2026-11-24: allow it, screened like public issues.
+  So a public repository hands off as a private one does, and its packet passes the screening a public issue passes before anything is written, refusing a credential-shaped line and a private project's name.
 - Does a pull request a cloud session opens count as opened by the account `gh` works as on the PC?
   It depends on how the Claude GitHub App acts for the user, and the first pull request must read it from a real one rather than assume it.
 - Should **Hand off** offer to hand off every working goblin at once, as Restart PC pauses them all?
