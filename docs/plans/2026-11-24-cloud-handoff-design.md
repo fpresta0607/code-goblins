@@ -54,12 +54,14 @@ Before it changes anything it refuses, naming why, when:
 Then, in this order, each step recorded so a failure part-way says which ran:
 
 1. Pauses the goblin through `goblins pause` with a new reason, `handoff`, that only `goblins handoff return` or the Overlord's Resume clears.
-   The pause writes its handoff as every pause does, and for this reason the goblin writes it for publication: what is done and what is left, as it would put them in a public issue.
+   The pause asks the goblin for its handoff as every pause does, and for this reason the goblin writes it for publication: what is done and what is left, as it would put them in a public issue.
+   A goblin that writes none by its stopping point leaves the fallback the pause writes for it, which carries its last status line word for word ([pausing](../contract/dispatch.md#pausing-and-automatic-resume)).
+   A handoff never publishes that fallback: it stops here with nothing pushed or written and the task left paused, and a second `handoff` goes on once the goblin has written its own.
 2. Pushes the goblin's branch.
 3. Opens a draft pull request from it into the default branch, or reuses the goblin's open one.
    A draft starts no hosted CI ([delivery](../contract/delivery.md)).
 4. Writes the **handoff packet** into that pull request's body, between `<!-- goblins-handoff v1 -->` and `<!-- /goblins-handoff -->`, keeping the rest of the body:
-   - the goblin's pause handoff, written for publication;
+   - the handoff the goblin wrote for publication, never a fallback the pause wrote for it;
    - the issues the task claims;
    - the branch, its head and the commits since the default branch;
    - the delivery mode and the verification commands frozen in the task's delivery receipt, each marked Windows-only when its package is on the Linux CI job's EXCEPT list ([go workflow](../../.github/workflows/go.yml));
@@ -117,6 +119,7 @@ The goblin stays the task's one validation owner, so the cloud's work passes the
 - A failure at each step after the pause leaves the task paused with a record of the steps that ran, and a second `handoff` resumes from there.
 - On a private repository as on a public one, the packet's screening refuses a credential value, a private key, a key-shaped word, a path on this machine, a teammate's name, an @mention other than the owner and a private project's name.
 - A packet built from a task whose brief, decisions and status lines hold marker text carries none of it.
+- A pause that ends with the fallback handoff the pause wrote publishes nothing: the handoff stops after the pause with nothing pushed or written, the task stays paused, and a second `handoff` goes on once the goblin has written its own.
 - `handoff` and `return` refuse, with nothing pushed, while the branch's ready pull request has CI running.
 - `return` fast-forwards, merges, and stops on a conflict with the worktree unchanged.
 - `return` refuses when the goblin's branch moved since the handoff.
