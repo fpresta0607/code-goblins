@@ -54,9 +54,9 @@ func TestTheSchedulerHoldsAStartThatNamesAnIssueWorkOfItsProjectNames(t *testing
 			checkout := t.TempDir()
 			resolved := 0
 			if c.isReviewed {
-				handler.Service.Options.WorkReview = &WorkReview{Resolve: func(string) (string, string) {
+				handler.Service.Options.WorkReview = &WorkReview{Resolve: func(string) (string, string, error) {
 					resolved++
-					return "acme/widgets", checkout
+					return "acme/widgets", checkout, nil
 				}}
 			}
 			queueBriefedTask(t, h, "- [ ] next-task - Ship it (repo: widgets)", strings.Replace(plainBrief, "Ship it.", "Ship it: https://github.com/acme/widgets/issues/30.", 1))

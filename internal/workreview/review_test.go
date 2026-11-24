@@ -330,6 +330,21 @@ func TestReviewFold(t *testing.T) {
 			states: States{issue(7): "closed"},
 		},
 		{
+			name: "a shared issue whose state was not read does not link",
+			items: []Item{
+				{ID: "a", Source: SourceQueued, Repository: testRepository, Issues: []tickets.IssueRef{issue(7)}, Order: 1},
+				{ID: "b", Source: SourceQueued, Repository: testRepository, Issues: []tickets.IssueRef{issue(7)}, Order: 2},
+			},
+		},
+		{
+			name: "a shared issue GitHub says is missing does not link",
+			items: []Item{
+				{ID: "a", Source: SourceQueued, Repository: testRepository, Issues: []tickets.IssueRef{issue(7)}, Order: 1},
+				{ID: "b", Source: SourceQueued, Repository: testRepository, Issues: []tickets.IssueRef{issue(7)}, Order: 2},
+			},
+			states: States{issue(7): "missing"},
+		},
+		{
 			name: "a parked row is not folded",
 			items: []Item{
 				{ID: "a", Source: SourceQueued, Repository: testRepository, Issues: []tickets.IssueRef{issue(7)}, Order: 1},
@@ -387,14 +402,12 @@ func TestReviewStale(t *testing.T) {
 			}},
 		},
 		{
-			name: "held queued row with no activity on record is stale",
+			name: "held queued row with no activity on record is not stale",
 			item: Item{ID: "row", Source: SourceQueued, IsHeld: true},
-			want: []Finding{{
-				Kind:     KindStale,
-				Items:    []string{"row"},
-				Evidence: []string{"no activity on record"},
-				Proposal: proposal,
-			}},
+		},
+		{
+			name: "paused task with no activity on record is not stale",
+			item: Item{ID: "task", Source: SourcePaused},
 		},
 		{
 			name: "parked row with old activity is stale",
@@ -437,8 +450,8 @@ func TestReviewStale(t *testing.T) {
 
 func TestReviewListsFindingsByKindThenOrder(t *testing.T) {
 	items := []Item{
-		{ID: "stale-late", Source: SourcePaused, Order: 6},
-		{ID: "stale-early", Source: SourceParked, IsHeld: true, Order: 2},
+		{ID: "stale-late", Source: SourcePaused, LastActivity: testNow.Add(-30 * 24 * time.Hour), Order: 6},
+		{ID: "stale-early", Source: SourceParked, IsHeld: true, LastActivity: testNow.Add(-30 * 24 * time.Hour), Order: 2},
 		{ID: "fold-a", Source: SourceQueued, Repository: testRepository, Paths: []string{"x.go"}, Order: 4},
 		{ID: "fold-b", Source: SourceQueued, Repository: testRepository, Paths: []string{"x.go"}, Order: 5},
 		{ID: "overtaken", Source: SourceQueued, IsOwnerStep: true, Dates: []time.Time{testNow.Add(-time.Hour)}, Order: 3},

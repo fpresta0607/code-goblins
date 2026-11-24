@@ -187,16 +187,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		ticketKeeping = ticketWriter(execx.OSRunner{}, runtime)
 		github := tickets.GitHub{Commands: execx.OSRunner{}, API: runtime.githubAPI}
 		rootIssues = &supervisor.RootIssues{Checkout: runtime.resolveProject, Repository: github.RepositoryOf, OpenRoots: github.OpenRoots, IssueState: github.IssueState, ClosingPullRequests: github.OpenClosingPullRequests}
-		// The resolver holds its lock while it reports, and each reading asks
-		// again for a project it could not read, so a problem is said once.
-		reported := map[string]bool{}
-		reportProblem := func(problem string) {
-			if !reported[problem] {
-				reported[problem] = true
-				fmt.Fprintf(stderr, "goblins serve: work review: %s\n", problem)
-			}
-		}
-		workReview = &supervisor.WorkReview{Resolve: workResolver(ctx, h, runtime.resolveProject, github.RepositoryOf, reportProblem), States: github.WorkStates}
+		workReview = &supervisor.WorkReview{Resolve: workResolver(ctx, h, runtime.resolveProject, github.RepositoryOf), States: github.WorkStates}
 	}
 	// The board looks for a newer release of Code Goblins; an example board
 	// looks only at a release source it is pointed at.

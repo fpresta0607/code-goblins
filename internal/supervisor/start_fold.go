@@ -12,6 +12,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 	"github.com/fpresta0607/code-goblins/internal/wake"
+	"github.com/fpresta0607/code-goblins/internal/workreview"
 )
 
 // foldProject is a project's repository and checkout as WorkReview.Resolve
@@ -27,13 +28,16 @@ type foldProjects struct {
 	known map[string]foldProject
 }
 
-func (p *foldProjects) resolve(review *WorkReview, name string) foldProject {
+func (p *foldProjects) resolve(review *WorkReview, name string) (foldProject, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if project, isKnown := p.known[name]; isKnown {
-		return project
+		return project, nil
 	}
-	repository, checkout := review.Resolve(name)
+	repository, checkout, err := review.Resolve(name)
+	if err != nil {
+		return foldProject{}, err
+	}
 	project := foldProject{repository: repository, checkout: checkout}
 	if repository != "" {
 		if p.known == nil {
@@ -41,7 +45,7 @@ func (p *foldProjects) resolve(review *WorkReview, name string) foldProject {
 		}
 		p.known[name] = project
 	}
-	return project
+	return project, nil
 }
 
 // startHeldByFold says the scheduler's start of the queued task plan describes
@@ -55,9 +59,9 @@ func (s *Service) startHeldByFold(plan startPlan) (bool, error) {
 		return false, nil
 	}
 	h := s.Store.Home
-	project := s.folds.resolve(review, plan.project)
-	if project.repository == "" {
-		return false, nil
+	project, err := s.folds.resolve(review, plan.project)
+	if err != nil || project.repository == "" {
+		return false, err
 	}
 	backlog, err := fleet.ReadBacklog(h)
 	if err != nil {
@@ -111,11 +115,5 @@ func issuesOfTask(h home.Home, id, briefPath, repository string, backlog fleet.B
 			row = candidate.Raw
 		}
 	}
-	var issues []tickets.IssueRef
-	for _, ref := range slices.Concat(tickets.BriefIssueRefs(brief, repository), tickets.RowIssueRefs(row, repository)) {
-		if ref.Repository != "" && !slices.Contains(issues, ref) {
-			issues = append(issues, ref)
-		}
-	}
-	return issues, nil
+	return workreview.NamedIssues(brief, row, repository), nil
 }

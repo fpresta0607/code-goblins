@@ -28,8 +28,8 @@ var (
 
 // Resolver names the GitHub repository (owner/name, lower case, "" when it has
 // none) and the checkout of a project as a row or task record names it, a name
-// or a path.
-type Resolver func(project string) (repository, checkout string)
+// or a path, or says why it cannot.
+type Resolver func(project string) (repository, checkout string, err error)
 
 // Gather reads the home's queued rows, parked rows and paused tasks as items,
 // with what it could not read as problems. now places the note lines that
@@ -131,13 +131,16 @@ func pausedItem(h home.Home, resolve Resolver, id string, row fleet.BacklogRow, 
 	if err != nil {
 		return Item{}, time.Time{}, false, err
 	}
-	repository, checkout := resolve(meta.Project)
+	repository, checkout, err := resolve(meta.Project)
+	if err != nil {
+		return Item{}, time.Time{}, false, err
+	}
 	item = Item{
 		ID:           id,
 		Source:       SourcePaused,
 		Project:      meta.Project,
 		Repository:   repository,
-		Issues:       namedIssues(brief, row.Raw, repository),
+		Issues:       NamedIssues(brief, row.Raw, repository),
 		Pulls:        withPullRefs(pullRefs(strings.Join(pulls, " ")), rowPulls(row)),
 		Paths:        tickets.BriefArea(brief, inCheckout(checkout)).Paths,
 		LastActivity: latest,
@@ -165,7 +168,10 @@ func rowItem(h home.Home, resolve Resolver, source string, row fleet.BacklogRow,
 	if project == "" {
 		project = fleet.BriefProject(strings.Split(brief, "\n"))
 	}
-	repository, checkout := resolve(project)
+	repository, checkout, err := resolve(project)
+	if err != nil {
+		return Item{}, err
+	}
 	item := Item{
 		ID:           row.ID,
 		Source:       source,
@@ -173,7 +179,7 @@ func rowItem(h home.Home, resolve Resolver, source string, row fleet.BacklogRow,
 		Repository:   repository,
 		IsOwnerStep:  strings.EqualFold(row.Kind, "his") || strings.EqualFold(row.Kind, "ceo"),
 		IsHeld:       source == SourceParked,
-		Issues:       namedIssues(brief, row.Raw, repository),
+		Issues:       NamedIssues(brief, row.Raw, repository),
 		Paths:        tickets.BriefArea(brief, inCheckout(checkout)).Paths,
 		LastActivity: latest,
 	}
@@ -236,9 +242,9 @@ func withPullRefs(refs, more []tickets.IssueRef) []tickets.IssueRef {
 	return refs
 }
 
-// namedIssues are the issues a brief and a backlog row line name, each once,
+// NamedIssues are the issues a brief and a backlog row line name, each once,
 // leaving out the bare numbers of a project that has no repository.
-func namedIssues(brief, rowLine, repository string) []tickets.IssueRef {
+func NamedIssues(brief, rowLine, repository string) []tickets.IssueRef {
 	var issues []tickets.IssueRef
 	for _, ref := range append(tickets.BriefIssueRefs(brief, repository), tickets.RowIssueRefs(rowLine, repository)...) {
 		if ref.Repository != "" && !slices.Contains(issues, ref) {

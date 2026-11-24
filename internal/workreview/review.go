@@ -33,6 +33,7 @@ const (
 )
 
 const (
+	stateOpen   = "open"
 	stateClosed = "closed"
 	stateMerged = "merged"
 
@@ -181,8 +182,9 @@ func overtakenEvidence(item Item, states States, now time.Time) []string {
 }
 
 // staleEvidence is why a paused or held item that is not done already is
-// stale: it has no dated condition and no activity for staleAfter. It is empty
-// when item is not stale.
+// stale: it has no dated condition and its last activity on record is
+// staleAfter ago or more. It is empty when item is not stale, which an item
+// with no activity on record is not.
 func staleEvidence(item Item, states States, now time.Time, staleAfter time.Duration) []string {
 	if item.Source != SourcePaused && !item.IsHeld {
 		return nil
@@ -193,10 +195,7 @@ func staleEvidence(item Item, states States, now time.Time, staleAfter time.Dura
 	if _, isDone := doneEvidence(item, states); isDone {
 		return nil
 	}
-	if item.LastActivity.IsZero() {
-		return []string{"no activity on record"}
-	}
-	if now.Sub(item.LastActivity) >= staleAfter {
+	if !item.LastActivity.IsZero() && now.Sub(item.LastActivity) >= staleAfter {
 		return []string{"last activity " + item.LastActivity.Format(time.DateOnly)}
 	}
 	return nil
@@ -219,7 +218,7 @@ type foldLink struct {
 }
 
 // foldLinks are the links between items of the same group that name a common
-// issue not yet settled or share a path, for each pair in order.
+// issue GitHub says is open or share a path, for each pair in order.
 func foldLinks(items []Item, states States) []foldLink {
 	var links []foldLink
 	for first := range items {
@@ -230,7 +229,7 @@ func foldLinks(items []Item, states States) []foldLink {
 			}
 			var evidence []string
 			for _, ref := range a.Issues {
-				if slices.Contains(b.Issues, ref) && !isIssueSettled(states[ref]) {
+				if slices.Contains(b.Issues, ref) && states[ref] == stateOpen {
 					evidence = append(evidence, fmt.Sprintf("%s and %s both name %s", a.ID, b.ID, ref))
 				}
 			}

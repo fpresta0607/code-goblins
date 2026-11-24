@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"slices"
 	"strings"
 	"time"
 
@@ -40,20 +39,13 @@ func runBacklogReview(stdout, stderr io.Writer, runtime commandRuntime) int {
 	}
 	github := tickets.GitHub{Commands: commands, API: runtime.githubAPI}
 
-	var problems []string
-	addProblem := func(problem string) {
-		if !slices.Contains(problems, problem) {
-			problems = append(problems, problem)
-		}
-	}
-	resolve := workResolver(ctx, h, runtime.resolveProject, runtime.repositoryOf, addProblem)
-
+	resolve := workResolver(ctx, h, runtime.resolveProject, runtime.repositoryOf)
 	report, err := workreview.Run(ctx, h, resolve, github.WorkStates, time.Now().UTC(), time.Duration(settings.StaleWorkDays)*24*time.Hour)
 	if err != nil {
 		fmt.Fprintf(stderr, "goblins backlog review: %v\n", err)
 		return 1
 	}
-	renderBacklogReview(stdout, report.Findings, append(problems, report.Problems...))
+	renderBacklogReview(stdout, report.Findings, report.Problems)
 	return 0
 }
 

@@ -73,6 +73,8 @@ func (s *Service) keepReviewingWork(ctx context.Context) {
 
 // reviewWork runs the work review when it is due: it never ran, it last ran
 // workReviewEvery ago or more, or isRenewed says an allowance renewed since.
+// The supervisor's start alone does not make it due, so a restart within
+// workReviewEvery of the last run reviews nothing.
 // It costs no model tokens and one GitHub query for each repository the home's
 // work names. Each finding not reported before raises, all in one wake, a
 // notify keyed work-review; a run that finds nothing new raises none. What a

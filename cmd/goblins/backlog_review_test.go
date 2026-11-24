@@ -112,7 +112,7 @@ func TestBacklogReviewSaysWhatItCouldNotReadAndWhenThereIsNothing(t *testing.T) 
 		want    string
 	}{
 		{"nothing to review", "# Backlog\n\n## Queued\n- [ ] fresh - Sort the list, issue 30 (repo: widgets)\n", "nothing to review\n"},
-		{"a project that cannot be found", "# Backlog\n\n## Queued\n- [ ] lost - Find it (repo: missing)\n", "not read: project missing is not read: "},
+		{"a project that cannot be found", "# Backlog\n\n## Queued\n- [ ] lost - Find it (repo: missing)\n", "not read: row lost is not read: project missing is not read: "},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

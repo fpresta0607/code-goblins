@@ -45,7 +45,6 @@ func TestRunFindsEachKindWithOneReadForEachRepository(t *testing.T) {
 		"overtaken:his-step",
 		"fold:fold-a,fold-b",
 		"stale:paused-task",
-		"stale:held-elsewhere",
 		"stale:parked-old",
 	}
 	if !slices.Equal(found, want) {

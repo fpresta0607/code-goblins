@@ -1,6 +1,7 @@
 package workreview
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -76,11 +77,11 @@ func fixtureHome(t *testing.T) (home.Home, string) {
 }
 
 func fixtureResolver(checkout string) Resolver {
-	return func(project string) (string, string) {
+	return func(project string) (string, string, error) {
 		if project == "widgets" || project == checkout {
-			return "acme/widgets", checkout
+			return "acme/widgets", checkout, nil
 		}
-		return "", ""
+		return "", "", nil
 	}
 }
 
@@ -108,6 +109,34 @@ func TestGatherReadsPausedTasksThenQueuedRowsThenParkedRows(t *testing.T) {
 	}
 	if !reflect.DeepEqual(items, want) {
 		t.Errorf("items:\n got %+v\nwant %+v", items, want)
+	}
+}
+
+func TestGatherSaysAProjectItCannotResolveAndLeavesItsWorkOut(t *testing.T) {
+	// Arrange
+	h, checkout := fixtureHome(t)
+	resolve := func(project string) (string, string, error) {
+		if project == "gadgets" {
+			return "", "", errors.New("project gadgets is not read: no record")
+		}
+		return fixtureResolver(checkout)(project)
+	}
+
+	// Act
+	items, problems, err := Gather(h, resolve, time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC))
+
+	// Assert
+	wantProblems := []string{"row held-elsewhere is not read: project gadgets is not read: no record"}
+	if err != nil || !reflect.DeepEqual(problems, wantProblems) {
+		t.Fatalf("Gather: problems %q, err %v, want %q", problems, err, wantProblems)
+	}
+	for _, item := range items {
+		if item.ID == "held-elsewhere" {
+			t.Fatalf("items hold %+v, want the row of the unresolved project left out", item)
+		}
+	}
+	if len(items) != 6 {
+		t.Fatalf("%d items, want the other 6", len(items))
 	}
 }
 
