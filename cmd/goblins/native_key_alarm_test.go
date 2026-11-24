@@ -105,6 +105,8 @@ func TestNativeGoblinKeyAlarmHandlesOutputShapes(t *testing.T) {
 			{"picture block", `{"content":[{"type":"image","data":"` + pictureBytes + `","mimeType":"image/png"}]}`, 0},
 			{"read of a pdf", `{"type":"pdf","file":{"filePath":"/tmp/a.pdf","base64":"` + pdfBytes + `","originalSize":1234}}`, 0},
 			{"pdf bytes outside a pdf block", `{"type":"text","file":{"content":"` + pdfBytes + `"}}`, 1},
+			{"read of a notebook with a plot", `{"type":"notebook","file":{"filePath":"/tmp/a.ipynb","cells":[{"cellType":"code","source":"plot()","outputs":[{"output_type":"display_data","text":"","image":{"image_data":"` + pictureBytes + `","media_type":"image/png"}}]}]}}`, 0},
+			{"text output beside a notebook plot", `{"type":"notebook","file":{"filePath":"/tmp/a.ipynb","cells":[{"cellType":"code","source":"plot()","outputs":[{"output_type":"execute_result","text":"` + key + `","image":{"image_data":"` + pictureBytes + `","media_type":"image/png"}}]}]}}`, 1},
 			{"text beside a picture", `{"content":[{"type":"image","data":"` + pictureBytes + `"},{"type":"text","text":"` + key + `"}]}`, 1},
 			{"picture bytes outside a picture block", `{"content":[{"type":"text","text":"` + pictureBytes + `"}]}`, 1},
 		} {

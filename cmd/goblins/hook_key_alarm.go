@@ -87,8 +87,9 @@ func goblinKeyAlarm(harnessName, stateDir string, getenv func(string) string, st
 
 // exposedKeysIn adds to kinds the kinds of key the strings of a decoded tool
 // output hold, reading an array in order and an object's members by name. It
-// skips an image or PDF block, such as a Read of a picture or a PDF, since its
-// base64 bytes are no text the tool returned and match a key's shape by chance.
+// skips an image or PDF block, such as a Read of a picture or a PDF, and a
+// notebook's image output, since their base64 bytes are no text the tool
+// returned and match a key's shape by chance.
 func exposedKeysIn(value any, kinds []string) []string {
 	switch value := value.(type) {
 	case string:
@@ -102,7 +103,8 @@ func exposedKeysIn(value any, kinds []string) []string {
 			kinds = exposedKeysIn(item, kinds)
 		}
 	case map[string]any:
-		if value["type"] == "image" || value["type"] == "pdf" {
+		mediaType, _ := value["media_type"].(string)
+		if value["type"] == "image" || value["type"] == "pdf" || (strings.HasPrefix(mediaType, "image/") && value["image_data"] != nil) {
 			return kinds
 		}
 		for _, name := range slices.Sorted(maps.Keys(value)) {
