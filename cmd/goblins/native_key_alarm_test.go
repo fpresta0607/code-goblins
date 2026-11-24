@@ -85,6 +85,7 @@ func TestNativeGoblinKeyAlarmReportsQueueFailureWithoutRepeatingPayload(t *testi
 func TestNativeGoblinKeyAlarmHandlesOutputShapes(t *testing.T) {
 	key := keyShaped("sk" + "_test_")
 	pictureBytes := "iVBORw0KGgo/" + keyShaped("AIza") + "Ab12" + "AAAANSUhEUg"
+	pdfBytes := "JVBERi0xLjcK/" + keyShaped("AIza") + "Ab12" + "JSVFT0YK"
 	for _, harness := range []string{"claude", "codex", "pi"} {
 		for _, test := range []struct {
 			name, output string
@@ -102,6 +103,8 @@ func TestNativeGoblinKeyAlarmHandlesOutputShapes(t *testing.T) {
 			{"read of a picture", `{"type":"image","file":{"base64":"` + pictureBytes + `","type":"image/jpeg","originalSize":1234}}`, 0},
 			{"picture typed after its bytes", `{"file":{"base64":"` + pictureBytes + `"},"type":"image"}`, 0},
 			{"picture block", `{"content":[{"type":"image","data":"` + pictureBytes + `","mimeType":"image/png"}]}`, 0},
+			{"read of a pdf", `{"type":"pdf","file":{"filePath":"/tmp/a.pdf","base64":"` + pdfBytes + `","originalSize":1234}}`, 0},
+			{"pdf bytes outside a pdf block", `{"type":"text","file":{"content":"` + pdfBytes + `"}}`, 1},
 			{"text beside a picture", `{"content":[{"type":"image","data":"` + pictureBytes + `"},{"type":"text","text":"` + key + `"}]}`, 1},
 			{"picture bytes outside a picture block", `{"content":[{"type":"text","text":"` + pictureBytes + `"}]}`, 1},
 		} {
