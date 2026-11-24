@@ -7,13 +7,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
-func cleanupTestRuntime(h home.Home, cleanup func(context.Context, home.Home, string, bool) (string, error)) commandRuntime {
+func cleanupTestRuntime(h home.Home, cleanup func(context.Context, home.Home, cleanupRequest) (string, error)) commandRuntime {
 	return commandRuntime{
 		resolveHome: func() (home.Home, error) { return h, nil },
 		cleanup:     cleanup,
@@ -77,7 +78,7 @@ func TestCleanupArgumentValidation(t *testing.T) {
 func TestCleanupRefusesNonPrimaryHome(t *testing.T) {
 	h := home.Home{Root: t.TempDir(), State: t.TempDir(), Data: t.TempDir()}
 	called := false
-	runtime := cleanupTestRuntime(h, func(context.Context, home.Home, string, bool) (string, error) {
+	runtime := cleanupTestRuntime(h, func(context.Context, home.Home, cleanupRequest) (string, error) {
 		called = true
 		return "", nil
 	})
@@ -95,8 +96,8 @@ func TestCleanupRefusesNonPrimaryHome(t *testing.T) {
 func TestCleanupDelegatesToService(t *testing.T) {
 	h := primaryHomeFixture(t)
 	var gotID string
-	runtime := cleanupTestRuntime(h, func(_ context.Context, home home.Home, id string, _ bool) (string, error) {
-		gotID = id
+	runtime := cleanupTestRuntime(h, func(_ context.Context, home home.Home, request cleanupRequest) (string, error) {
+		gotID = request.ID
 		if home.State != h.State {
 			t.Errorf("home = %+v, want the resolved home", home)
 		}
@@ -118,7 +119,7 @@ func TestCleanupDelegatesToService(t *testing.T) {
 
 func TestCleanupSurfacesServiceFailure(t *testing.T) {
 	h := primaryHomeFixture(t)
-	runtime := cleanupTestRuntime(h, func(context.Context, home.Home, string, bool) (string, error) {
+	runtime := cleanupTestRuntime(h, func(context.Context, home.Home, cleanupRequest) (string, error) {
 		return "", errors.New("cleanup: worktree is dirty")
 	})
 
@@ -126,5 +127,62 @@ func TestCleanupSurfacesServiceFailure(t *testing.T) {
 	exit := runCleanup([]string{"g1"}, &stdout, &stderr, runtime)
 	if exit != 1 || !strings.Contains(stderr.String(), "worktree is dirty") || stdout.Len() != 0 {
 		t.Fatalf("exit=%d stdout=%q stderr=%q, want the service refusal on stderr", exit, stdout.String(), stderr.String())
+	}
+}
+
+func TestCleanupPassesTheKeptIssuesAndReason(t *testing.T) {
+	// Arrange
+	h := primaryHomeFixture(t)
+	var got cleanupRequest
+	runtime := cleanupTestRuntime(h, func(_ context.Context, _ home.Home, request cleanupRequest) (string, error) {
+		got = request
+		return "cleaned g1", nil
+	})
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := runCleanup([]string{"g1", "--keep-issue-open", "https://github.com/Acme/Widgets/issues/7", "--keep-issue-open", "acme/widgets#8", "--reason", "its second half is task g2's"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit=%d stderr=%q, want success", exit, stderr.String())
+	}
+	want := cleanupRequest{ID: "g1", ShouldCheckIssues: true, KeepOpen: []string{"acme/widgets#7", "acme/widgets#8"}, KeepReason: "its second half is task g2's"}
+	if got.ID != want.ID || !got.ShouldCheckIssues || got.ForceArchive || !slices.Equal(got.KeepOpen, want.KeepOpen) || got.KeepReason != want.KeepReason {
+		t.Fatalf("request = %+v, want %+v", got, want)
+	}
+}
+
+func TestCleanupRefusesAMalformedKeep(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"keep without reason", []string{"g1", "--keep-issue-open", "acme/widgets#7"}, "--keep-issue-open needs --reason"},
+		{"blank reason", []string{"g1", "--keep-issue-open", "acme/widgets#7", "--reason", "  "}, "--keep-issue-open needs --reason"},
+		{"reason without keep", []string{"g1", "--reason", "why"}, "it needs --keep-issue-open"},
+		{"bare number", []string{"g1", "--keep-issue-open", "7", "--reason", "why"}, `"7" is not an issue`},
+		{"pull request address", []string{"g1", "--keep-issue-open", "https://github.com/acme/widgets/pull/7", "--reason", "why"}, "is not an issue"},
+		{"keep with no value", []string{"g1", "--keep-issue-open"}, "--keep-issue-open needs a value"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			called := false
+			runtime := cleanupTestRuntime(primaryHomeFixture(t), func(context.Context, home.Home, cleanupRequest) (string, error) {
+				called = true
+				return "", nil
+			})
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runCleanup(test.args, &stdout, &stderr, runtime)
+
+			// Assert
+			if exit != 2 || !strings.Contains(stderr.String(), test.want) || called {
+				t.Fatalf("exit=%d stderr=%q called=%v, want 2 with %q and no cleanup", exit, stderr.String(), called, test.want)
+			}
+		})
 	}
 }

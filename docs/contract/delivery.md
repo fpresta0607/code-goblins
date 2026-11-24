@@ -79,6 +79,8 @@ Required Go guards and platform deferrals follow [Verification levels](../pipeli
 A ready result names the public PR URL and exact published head with required CI green, or a clean committed branch for local-only work.
 A draft, a different local commit or a commit present only in a disposable validation worktree is not ready for landing.
 Use existing PR check and guarded merge commands; confirm the forge's landed state before cleanup and never discard unlanded work.
+`goblins cleanup` refuses a task while an issue it names is still open or gone on GitHub; close an open issue once its work is on its project's main, or keep the issue open with `--keep-issue-open <issue> --reason "<why>"`, which the task records ([goblins help cleanup](../commands/cleanup.md)).
+`goblins issue unowned` lists the open issues no live or queued task names, and apart those only finished or parked tasks name.
 Delivery mode and merge authority remain independent.
 A scout leaves a self-contained report, and a recommendation or visual review grants no implementation authority.
 Keep a review artifact available while feedback is outstanding.

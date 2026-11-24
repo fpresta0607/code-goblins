@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"sync"
 
 	"github.com/fpresta0607/code-goblins/internal/awake"
@@ -13,7 +12,7 @@ import (
 
 // Client is one viewer of a host's terminal.
 type Client struct {
-	pipe *os.File
+	pipe hostConnection
 	// sending keeps one frame whole when input, a resize and a close request
 	// are sent at once.
 	sending sync.Mutex
