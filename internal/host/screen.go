@@ -4,12 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"sync"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/awake"
-	"github.com/fpresta0607/code-goblins/internal/conpty"
 )
 
 // screenTimeout bounds one read of a terminal's screen.
@@ -89,7 +87,7 @@ func readScreen(record Record, greeting hello) (screen, error) {
 // of the terminal's console, or why it could not be read. It reads while
 // holding screens shared, and never once the terminal's program has ended,
 // since its console closes with it.
-func serveScreen(connection *os.File, console *conpty.Console, screens *sync.RWMutex, output *history, request hello) {
+func serveScreen(connection hostConnection, console terminal, screens *sync.RWMutex, output *history, request hello) {
 	if writeHello(connection, hello{Version: Version}) != nil {
 		return
 	}
