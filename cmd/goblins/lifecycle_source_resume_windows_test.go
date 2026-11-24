@@ -671,7 +671,7 @@ INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.Repla
 			}
 			launches := 0
 			var resumed spawn.SwitchRequest
-			runtime := commandRuntime{resolveHome: func() (home.Home, error) { return h, nil }, cleanup: defaultCleanup, switchTask: func(_ context.Context, _ home.Home, request spawn.SwitchRequest) (spawn.SwitchResult, error) {
+			runtime := commandRuntime{resolveHome: func() (home.Home, error) { return h, nil }, cleanup: func(ctx context.Context, h home.Home, request cleanupRequest) (string, error) { return defaultCleanup(ctx, h, request, nil) }, switchTask: func(_ context.Context, _ home.Home, request spawn.SwitchRequest) (spawn.SwitchResult, error) {
 				if test.isProviderRefused {
 					return spawn.SwitchResult{}, errors.New("provider refused this session")
 				}

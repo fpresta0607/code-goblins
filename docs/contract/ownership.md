@@ -106,6 +106,7 @@ The extraction preserves the existing obligations, including gate budgets, merge
 | `goblins tickets <project> [--brief <file>] [--files <paths>] [--json]` | [goblins help tickets](../commands/tickets.md) |
 | `goblins tickets <project> --allow-public-tickets` | [goblins help tickets](../commands/tickets.md) |
 | `goblins issue file --project <p> --title <t> [--body-file <f>] [--evidence <text>]... [--root <key>]` | [goblins help issue file](../commands/issue/file.md) |
+| `goblins issue unowned` | [goblins help issue unowned](../commands/issue/unowned.md) |
 | `goblins brief <id> --project <p> [--kind <kind>] [--mode <m>] [--surface <s>] [--risk <r>] [--reason "<assessment>"] [--delivery-exception "<authority and reason>"]` | [goblins help brief](../commands/brief.md) |
 | `goblins pr check <id> <url>` | [goblins help pr check](../commands/pr/check.md) |
 | `goblins pr merge <url> [--method <m>] [--delete-branch] [--verified "<what verified it>"]` | [goblins help pr merge](../commands/pr/merge.md) |
@@ -114,7 +115,7 @@ The extraction preserves the existing obligations, including gate budgets, merge
 | `goblins allowance-floor [<claude\|codex> <percent>]` | [goblins help allowance-floor](../commands/allowance-floor.md) |
 | `goblins start-hook accept <task-id> <file> [--fleet]` | [goblins help start-hook accept](../commands/start-hook/accept.md) |
 | `goblins merge-local <id>` | [goblins help merge-local](../commands/merge-local.md) |
-| `goblins cleanup <id>` | [goblins help cleanup](../commands/cleanup.md) |
+| `goblins cleanup <id> [--force-archive] [--keep-issue-open <issue>... --reason "<why>"]` | [goblins help cleanup](../commands/cleanup.md) |
 | `goblins worktree add <id> <name> [--ref <commit>] [--project <name\|path>]` \| `remove <id> <name> [--project <name\|path>]` | [goblins help worktree](../commands/worktree.md) |
 | `goblins reap [--dry-run] [--apply] [--force <pid\|task-id>]` | [goblins help reap](../commands/reap.md) |
 | `goblins register` | [goblins help register](../commands/register.md) |

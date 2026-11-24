@@ -120,7 +120,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			} else if !errors.Is(err, fleet.ErrNotQueued) && !errors.Is(err, os.ErrNotExist) {
 				return preserved, err
 			}
-			_, err = runtime.cleanup(ctx, h, meta.ID, !preserved.CanRemove)
+			_, err = runtime.cleanup(ctx, h, cleanupRequest{ID: meta.ID, ForceArchive: !preserved.CanRemove})
 			return preserved, err
 		},
 		Admit: admit,
