@@ -118,6 +118,10 @@ const (
 	// something, or offers it a choice, in prose instead of with goblins notify
 	// --blocked, so it waits on an answer no question records.
 	GoblinAsks Reason = "goblin_asks"
+	// APIError is a goblin whose turn ended on an API error its harness gave
+	// up retrying, a connection that failed or a request that timed out,
+	// which the supervisor carries on once the API answers again (#2863).
+	APIError Reason = "api_error"
 )
 
 type EventSource string
@@ -393,7 +397,7 @@ func validateObservationState(observation Observation) error {
 		}
 		return requireProgress()
 	case HealthStale:
-		if observation.EndpointVerdict != ProbePresent || (observation.Reason != UnchangedIdle && observation.Reason != BusyTurnOverAge && observation.Reason != AwaitingAnswer && observation.Reason != GoblinIdle && observation.Reason != GoblinAsks) {
+		if observation.EndpointVerdict != ProbePresent || (observation.Reason != UnchangedIdle && observation.Reason != BusyTurnOverAge && observation.Reason != AwaitingAnswer && observation.Reason != GoblinIdle && observation.Reason != GoblinAsks && observation.Reason != APIError) {
 			return errors.New("monitor: stale observation has incompatible endpoint or reason")
 		}
 		if observation.StaleSince == nil || observation.NextEscalation == nil || observation.NextPauseResurface != nil {

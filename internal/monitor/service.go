@@ -469,6 +469,16 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		// The agent's turn ended and it is waiting on input - finished or
 		// blocked. This is the harness-agnostic wake the pane heuristics were
 		// blind to.
+		//
+		// A turn its harness gave up on the model's API wakes as that error,
+		// whatever the goblin last reported, and nobody owes it an answer:
+		// the supervisor carries it on once the API answers again (#2863).
+		if sample.Status == herdr.AgentDone {
+			screens, _ := harness.NativeScreens(harness.Kind(meta.Harness))
+			if failure, isEnded := screens.EndedOnAPIError(strings.Split(strings.ReplaceAll(string(sample.Capture), "\r\n", "\n"), "\n")); isEnded {
+				return apiErrorObservation(observation, failure, now), sample
+			}
+		}
 		if gated, ok := s.statusVerbObservation(observation, meta.ID, now, sample); ok {
 			return gated, sample
 		}
@@ -971,6 +981,29 @@ func awaitingInputObservation(observation Observation, detail string, now time.T
 	observation.DemandDeepInspection = true
 	if first && observation.PendingEvent == nil {
 		event := taskEvent(observation.TaskID, AwaitingAnswer, detail)
+		observation.PendingEvent = &event
+	}
+	return observation
+}
+
+// apiErrorObservation records a goblin whose turn ended on an API error its
+// harness gave up retrying. It wakes once with the error, in place of the
+// wake for a goblin stopped at its prompt, and demands no inspection: the
+// supervisor carries the goblin on once the API answers again (#2863).
+func apiErrorObservation(observation Observation, failure string, now time.Time) Observation {
+	first := observation.Reason != APIError
+	observation.IdleSince = nil
+	observation.Health = HealthStale
+	observation.Reason = APIError
+	observation.NextPauseResurface = nil
+	if observation.StaleSince == nil {
+		observation.StaleSince = timePointer(now)
+		observation.NextEscalation = timePointer(now.Add(time.Hour))
+	}
+	observation.Escalation = 0
+	observation.DemandDeepInspection = false
+	if first && observation.PendingEvent == nil {
+		event := taskEvent(observation.TaskID, APIError, "its turn ended on an API error: "+failure+"; the supervisor carries it on with a note once the API answers again, or restarts it in place if its prompt takes no typing")
 		observation.PendingEvent = &event
 	}
 	return observation
