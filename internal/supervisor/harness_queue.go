@@ -371,8 +371,10 @@ func (s *Store) holdsUnrecorded(task string) bool {
 // live on 2026-11-19 (#2759). It can only where that harness gives its queue
 // back to a key and holds there only his messages, which then wait on the
 // board behind the command, and no line that no action records, which that
-// key would give back with them. A queue in a terminal that has ended holds
-// nothing.
+// key would give back with them. Nor can it where the prompt line that offers
+// that queue would not show every row the key puts there, as pi's editor
+// shows only its last rows, since the board could not take them back off it
+// (takeQueueBack). A queue in a terminal that has ended holds nothing.
 func (s *Service) queueAhead(task string) ([]Action, host.Record, harness.Screens, bool) {
 	if s.Store.holdsUnrecorded(task) {
 		return nil, host.Record{}, harness.Screens{}, false
@@ -385,7 +387,17 @@ func (s *Service) queueAhead(task string) ([]Action, host.Record, harness.Screen
 	if !isLive {
 		return nil, host.Record{}, harness.Screens{}, true
 	}
-	return held, record, screens, !record.Stream && screens.EditQueue != "" && !slices.ContainsFunc(held, func(a Action) bool { return a.Kind != "message" })
+	canGoAhead := !record.Stream && screens.EditQueue != "" && !slices.ContainsFunc(held, func(a Action) bool { return a.Kind != "message" })
+	if canGoAhead && screens.ComposerScrolls {
+		lines := make([]string, len(held))
+		for i, a := range held {
+			lines[i] = a.Awaiting.Typed
+		}
+		if rows, err := host.ReadScreen(record); err == nil && screens.OffersQueue(rows) && !screens.QueueFits(rows, lines) {
+			canGoAhead = false
+		}
+	}
+	return held, record, screens, canGoAhead
 }
 
 // sendCommandFirst readies command id to task, which he sends now, to go

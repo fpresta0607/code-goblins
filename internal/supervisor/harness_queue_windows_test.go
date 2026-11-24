@@ -915,6 +915,92 @@ func TestSendNowRunsACommandAtOnceAheadOfHisWordsInClaudeCodesQueue(t *testing.T
 	}
 }
 
+// pi gives its turn's queue back to Alt+Q, so a command he sends now behind
+// his words in that queue goes ahead of them as on Claude Code (#2340,
+// #2759): Send now takes those words back out of the queue first, pi's
+// Escape then ends a turn whose queue no longer holds them, the command runs
+// at the prompt line that turn's end leaves, and his words go after it.
+func TestSendNowRunsACommandAtOnceAheadOfHisWordsInPisQueue(t *testing.T) {
+	// Arrange
+	store, service, terminal, _, _ := heldQueue(t, false, "pi-busy")
+	if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: "first words"}); err != nil {
+		t.Fatal(err)
+	}
+	pastUndoWindow(t, store)
+	tryNext(t, store, service, terminal, "pi")
+	if _, err := store.Queue(Action{ID: "m2", Kind: "message", Text: "/review"}); err != nil {
+		t.Fatal(err)
+	}
+	tryNext(t, store, service, terminal, "pi")
+	offered := actionOf(store, "m2")
+
+	// Act
+	pressed := sendNow(service, "", "m2")
+	back := actionOf(store, "m1")
+	ran := store.ProcessOne(context.Background(), service.execute)
+	command := actionOf(store, "m2")
+	promptLineEmpties(t, terminal, "pi")
+	again := store.ProcessOne(context.Background(), service.execute)
+	words := actionOf(store, "m1")
+	input := terminal.waitForLines(t, 7)
+
+	// Assert
+	if offered.Status != "queued" || !offered.CanSendNow || offered.Message != "Queued. "+commandWaits+" "+commandSendsNow {
+		t.Errorf("the command behind his words = %+v; want it held on the board with Send now", offered)
+	}
+	if pressed.Code != 202 || back.Status != "queued" || back.Message != "Queued. It left its session's queue so the command he sent now runs first, and is typed there again after it." {
+		t.Errorf("Send now = %d %s, his words = %+v; want it taken, and the words back on the board behind the command", pressed.Code, pressed.Body, back)
+	}
+	if ran != nil || command.Status != "succeeded" {
+		t.Errorf("the command's try = %v, the command = %+v; want it run at once", ran, command)
+	}
+	if again != nil || words.Status != "succeeded" {
+		t.Errorf("the next try = %v, his words = %+v; want them taken at the prompt line the turn's end left", again, words)
+	}
+	if want := []string{"queued first words", "took back first words", "cleared", "interrupted", "accepted /review", "accepted first words"}; !slices.Equal(input[1:], want) {
+		t.Errorf("terminal input = %q; want %q after its registration", input, want)
+	}
+}
+
+// Alt+Q would put his words back in pi's editor, but that editor shows only
+// its last rows, at most 30% of its terminal's and no fewer than five: seven
+// of the stand-in's 24, where five lines take nine. The board could not read
+// them all back to take them off, so a command behind them in that queue
+// cannot go ahead of them: it offers no Send now, and a press says it runs
+// when the turn ends, with no key pressed in his turn (#2340).
+func TestACommandBehindAQueueTallerThanPisEditorOffersNoSendNow(t *testing.T) {
+	// Arrange
+	store, service, terminal, _, _ := heldQueue(t, false, "pi-busy", "first words", "second words", "third words", "fourth words", "fifth words")
+	if _, err := store.Queue(Action{ID: "m6", Kind: "message", Text: "/review"}); err != nil {
+		t.Fatal(err)
+	}
+	pastUndoWindow(t, store)
+
+	// Act
+	tried := store.ProcessOne(context.Background(), service.execute)
+	held := actionOf(store, "m6")
+	pressed := sendNow(service, "", "m6")
+	after := actionOf(store, "m6")
+
+	// Assert
+	if !errors.Is(tried, ErrDeferred) || held.Status != "queued" || held.CanSendNow || held.SendNowWhy != commandWaits || held.Message != "Queued. "+commandWaits {
+		t.Errorf("its try = %v, the command = %+v; want it held for the turn's end with no Send now, saying so", tried, held)
+	}
+	if pressed.Code != 409 || !strings.Contains(pressed.Body.String(), commandWaits) || after.IsSentNow {
+		t.Errorf("Send now = %d %s, the command = %+v; want it refused, saying the command runs when the turn ends", pressed.Code, pressed.Body, after)
+	}
+	for _, id := range []string{"m1", "m2", "m3", "m4", "m5"} {
+		if words := actionOf(store, id); !isHarnessHeld(words) {
+			t.Errorf("%s after the press = %+v; want it still held in pi's queue", id, words)
+		}
+	}
+	if input := terminal.lines(t); slices.ContainsFunc(input, func(line string) bool {
+		return strings.HasPrefix(line, "took back ") || line == "cleared" || line == "interrupted"
+	}) {
+		t.Errorf("terminal input = %q; want no key pressed", input)
+	}
+}
+
 // His words he sent now leave Claude Code's queue at its send-now chord, and
 // the board reads them taken only once the session's record shows it, which
 // can come after he sends a command now behind them, as a record written on
