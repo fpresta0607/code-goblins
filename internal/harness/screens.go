@@ -181,7 +181,9 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			Resubmits:  1,
 			// Claude Code 2.1.288 encloses its bare prompt between rules, and
 			// 2.1.314 draws a hint on it while a message waits in its queue.
-			Empty:         regexp.MustCompile(`^[>❯][ \x{00a0}]*(` + cutShort("Press up to edit queued messages") + `)?$`),
+			// 2.1.331 draws one there after a turn ended on an API error, by
+			// the error's kind (#2862).
+			Empty:         regexp.MustCompile(`^[>❯][ \x{00a0}]*(` + cutShort("Press up to edit queued messages") + `|` + cutShort("Resend your message to try again") + `|` + cutShort("Once fixed, resend your message") + `|` + cutShort("Run /rewind to go back") + `)?$`),
 			RuledComposer: true,
 			// Claude Code 2.1.302 asks permission for a call under its
 			// diff, as in "Do you want to create nine.txt?", over

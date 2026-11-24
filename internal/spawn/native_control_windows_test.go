@@ -259,6 +259,47 @@ func TestADeliveryTypesNothingOntoAPromptLineHoldingWords(t *testing.T) {
 	}
 }
 
+// Claude Code 2.1.331 ends a turn on an API error with a hint in its empty
+// prompt line, "Resend your message to try again", as about 17 goblins' turns
+// ended when the network dropped on 2026-11-24. The hint is nothing anyone
+// typed, so a steer types onto that line and submits there, where it was
+// refused as words never sent until each goblin was paused and resumed
+// (#2862).
+func TestASteerTypesAndSubmitsIntoAPromptLineShowingClaudesResendHint(t *testing.T) {
+	// Arrange: the goblin's first turn ended on an API error. Claude Code's
+	// prompt hook reports each submit before it asks the API.
+	f := newNativeFixture(t, harness.Claude, "claude-api-error")
+	f.service.PromptSince = func(string, string, time.Time) (bool, error) { return true, nil }
+	if _, err := f.service.Spawn(t.Context(), f.request); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	meta, err := state.ReadTaskMeta(f.stateDir, "task-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := host.ReadRecord(f.stateDir, "task-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	screens, _ := harness.NativeScreens(harness.Claude)
+	showsHint := func(screen []string) bool { return screens.Shows(screen, "Resend your message to try again") }
+	if _, err := f.service.awaitScreen(t.Context(), record, 30*time.Second, showsHint); err != nil {
+		t.Fatalf("the goblin's turn never ended on its API error: %v", err)
+	}
+	steer := "CEO: the API answers again, so carry on"
+
+	// Act
+	err = f.service.SendNative(t.Context(), meta, steer)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("SendNative = %v, want the steer typed onto the hint and submitted", err)
+	}
+	if submitted := submittedLines(t, f, 2); !slices.Equal(submitted, []string{spawnPointer(t, f.fixture), steer}) {
+		t.Errorf("submitted = %q, want the instruction, then the steer", submitted)
+	}
+}
+
 // Text typed into a harness already in a turn is queued by the harness, so
 // with nothing showing the harness took it the send says it is queued, where
 // it once reported it delivered because the screen already showed the harness

@@ -1102,6 +1102,48 @@ func TestClaudesQueuedHintReadsEmptyWithoutMistakingADraft(t *testing.T) {
 	}
 }
 
+// Claude Code 2.1.331, live on 2026-11-24 when the network dropped: a turn
+// that ends on an API error leaves a hint in the empty prompt line under it,
+// one of the three its build holds for the error's kind, which is nothing
+// anyone typed. Read as words never sent, it had goblins send, goblins answer
+// and the board's modern view refuse to type into about 17 goblins (#2862).
+func TestClaudesAPIErrorHintsReadEmptyWithoutMistakingADraft(t *testing.T) {
+	rule := strings.Repeat("─", 120)
+	status := strings.Repeat(" ", 80) + "× Auto-update failed · Run claude doctor"
+	footer := "  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← 2 agents"
+	screens, _ := NativeScreens(Claude)
+	for name, test := range map[string]struct {
+		prompt string
+		empty  bool
+	}{
+		"resend hint":                 {"> Resend your message to try again", true},
+		"resend hint after its glyph": {"❯\u00a0Resend your message to try again", true},
+		"resend hint cut short":       {"> Resend your message to t…", true},
+		"once fixed hint":             {"> Once fixed, resend your message", true},
+		"rewind hint":                 {"> Run /rewind to go back", true},
+		"draft after the hint":        {"> Resend your message to try again now", false},
+		"draft that starts as it":     {"> Resend your message", false},
+		"draft that only ends as it":  {"> Please Resend your message to try again", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange: the screen a goblin's terminal ended on, captured in
+			// the supervisor's wake for it.
+			screen := []string{"● Reading the tests to place a red regression test.", "  Read 5 files, ran 5 shell commands", "", "● API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)", "", status, rule, test.prompt, rule, footer}
+
+			// Act
+			empty, holds := screens.ComposerEmpty(screen), screens.ComposerHoldsText(screen)
+
+			// Assert
+			if empty != test.empty || holds == test.empty {
+				t.Fatalf("ComposerEmpty = %v, ComposerHoldsText = %v; want empty %v", empty, holds, test.empty)
+			}
+			if test.empty && !screens.IsIdleAtEmptyComposer(screen) {
+				t.Fatal("IsIdleAtEmptyComposer = false, want the goblin idle at an empty prompt line")
+			}
+		})
+	}
+}
+
 // Claude Code 2.1.328, live on 2026-11-19: its prompt line holds a no-break
 // space after its glyph before the words typed on it, as its empty prompt line
 // does, so the board read a line that held only its own words as words it
