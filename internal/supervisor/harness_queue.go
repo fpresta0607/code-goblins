@@ -301,7 +301,7 @@ func (s *Service) takeQueueBack(held []Action, task string, record host.Record, 
 	case err != nil || !screens.OffersQueue(rows):
 		return errors.New(subject + "'s prompt line does not offer its queue now, so nothing was changed. Press again in a moment.")
 	case !screens.QueueFits(rows, lines):
-		return errors.New(subject + "'s editor is too short to show its queue whole, so it cannot be taken back. Send now has it taken at once.")
+		return errors.New(subject + "'s editor is too short to show its queue whole, so it cannot be taken back. It takes it at its next tool call, or as its turn ends.")
 	}
 	client, err := host.Dial(record)
 	if err != nil {

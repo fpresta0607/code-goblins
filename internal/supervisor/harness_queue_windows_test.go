@@ -702,8 +702,8 @@ func TestCancelOfAMessageInAQueueTallerThanPisEditorPressesNoKey(t *testing.T) {
 	cancel := pressOnQueued(service, "message_withdraw", "", "m2", "second words")
 
 	// Assert
-	if cancel.Code != 409 || !strings.Contains(cancel.Body.String(), "too short to show its queue whole") {
-		t.Errorf("Cancel = %d %s; want it refused, saying pi's editor is too short to show its queue whole", cancel.Code, cancel.Body)
+	if body := cancel.Body.String(); cancel.Code != 409 || !strings.Contains(body, "too short to show its queue whole") || !strings.Contains(body, "next tool call, or as its turn ends") {
+		t.Errorf("Cancel = %d %s; want it refused, saying pi's editor is too short to show its queue whole and pi takes it in its turn", cancel.Code, cancel.Body)
 	}
 	for _, id := range []string{"m1", "m2", "m3", "m4", "m5"} {
 		if after := actionOf(store, id); !isHarnessHeld(after) {
