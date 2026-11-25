@@ -61,12 +61,14 @@ const CLAUDE_TYPED_UP_TO = 512;
 
 // isSentAsKeys says whether a message goes into its harness as keys, as its
 // terminal's keyboard types them, rather than as one paste: a message to
-// Claude Code that names a slash skill after other words (#2848). Claude Code
-// 2.1.332 runs a skill named anywhere in typed words, but not one the model
-// may not run itself (disable-model-invocation) when its name came in a
-// paste. A command, which runs from a paste, stays one, as do a line starting
-// with ?, which typed would open Claude Code's shortcuts, and a message
-// holding a control key, which typed would press that key.
+// Claude Code that names a /word after other words (#2848). The word is not
+// checked against the session's skills, so a path such as /tmp/build.log is
+// typed too, and reaches Claude Code as the same words. Claude Code 2.1.332
+// runs a skill named anywhere in typed words, but not one the model may not
+// run itself (disable-model-invocation) when its name came in a paste. A
+// command, which runs from a paste, stays one, as do a line starting with ?,
+// which typed would open Claude Code's shortcuts, and a message holding a
+// control key, which typed would press that key.
 export function isSentAsKeys(harness: string, text: string): boolean {
   // eslint-disable-next-line no-control-regex
   return harness === "claude" && /\s\/[^\s/]/.test(text) && !/^[/?]/.test(text) && !/[\x00-\x09\x0b-\x1f\x7f]/.test(text) && inputBytes(text) <= CLAUDE_TYPED_UP_TO;

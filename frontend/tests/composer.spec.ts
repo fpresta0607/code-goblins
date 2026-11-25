@@ -308,6 +308,46 @@ test("a message sent while a typed message's Enter waits goes to the board's que
   await expect(box(page).getByRole("alert")).toHaveCount(0);
 });
 
+// The terminal takes no other input while a typed message's Enter waits, so
+// the model and effort controls wait with it, as they do while a session is
+// held: a pick or a command sent meanwhile was refused as though the
+// terminal were reconnecting, and a command typed in the box was lost.
+test("a /model or /effort typed while a typed message's Enter waits stays in the box, and the model's button is disabled until the Enter is pressed", async ({ page }) => {
+  // Arrange: the relay's screen shows an empty prompt line, so the controls can change the session.
+  const relay = await open(page);
+  await openGoblin(page);
+  await stopClock(page);
+  const actions: unknown[] = [];
+  await page.route("**/api/actions", (route) => { actions.push(route.request().postDataJSON()); return route.fulfill({ status: 202, json: {} }); });
+  await heard(page, relay, shows(false));
+  const model = box(page).getByRole("button", { name: "Change model", exact: true });
+  await expect(model).toBeEnabled();
+  await field(page).fill("please run /ship now");
+  await send(page).click();
+  await expect.poll(() => relay.typed.at(-1)).toBe("please run /ship now");
+  await expect(model).toBeDisabled();
+
+  for (const command of ["/model", "/effort high"]) {
+    // Act
+    await field(page).fill(command);
+    await field(page).press("Enter");
+
+    // Assert
+    await expect(box(page).getByRole("alert")).toHaveText("The model and effort controls need a connected, unheld session.");
+    await expect(field(page)).toHaveValue(command);
+  }
+  await expect(box(page).getByRole("menu")).toHaveCount(0);
+  expect(actions).toEqual([]);
+  expect(relay.typed.at(-1)).toBe("please run /ship now");
+
+  // Act: the Enter falls due at 3 s.
+  await page.clock.runFor(3000);
+
+  // Assert: the controls come back once it is pressed.
+  await expect.poll(() => relay.typed.slice(-2)).toEqual(["please run /ship now", "\r"]);
+  await expect(model).toBeEnabled();
+});
+
 // A question the harness opens in the prompt line's place while the Enter
 // waits, as a permission prompt in a turn does, would take the Enter as its
 // answer, so none is pressed, and the box says the words wait unsent.

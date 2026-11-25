@@ -202,10 +202,12 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
     setNotice((prior) => text ? { text, from: "box", count: prior.count + 1 } : prior.from === "box" && prior.text ? { ...prior, text: "" } : prior);
   };
   // refuse says over the box why it could not do what was no Send: a key, a
-  // pick, a file or a take-back. Nothing waits in the box for it, so, like
-  // what a press on a queued message could not do, it never keeps the box.
-  // Counted as a failed Send it kept an empty box under Classic's terminal
-  // long after its banner had faded (#2327).
+  // pick, a file or a take-back. It also says why a message sent as keys took
+  // no Enter (#2848), whose words wait on the terminal's prompt line. Nothing
+  // waits in the box for any of them, so, like what a press on a queued
+  // message could not do, it never keeps the box. Counted as a failed Send it
+  // kept an empty box under Classic's terminal long after its banner had faded
+  // (#2327).
   const refuse = (text: string) => setNotice((prior) => ({ text, from: "box", count: prior.count + 1 }));
   const [isRecentOpen, setRecentOpen] = useState(false);
   // A touch screen's + opens a menu of its two ways to add a picture.
@@ -367,7 +369,9 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // The harnesses' catalog is read as a box with a model button shows, so
   // its pane opens at once.
   useEngineCatalog(isShown && isEngineSupported);
-  const canChangeEngine = isEngineSupported && !queues && link?.phase === "live" && !link.isReconnecting && !!link.screen && !link.screen.isOpen && !link.isUnread && !link.held;
+  // While a message typed as keys waits for its Enter (#2848), the terminal
+  // takes no other input, so the controls wait with it.
+  const canChangeEngine = isEngineSupported && !queues && link?.phase === "live" && !link.isReconnecting && !!link.screen && !link.screen.isOpen && !link.isUnread && !link.held && link.typed?.state !== "waiting";
   const unsentWhy = live?.phase === "closed" ? "Not sent. The terminal is closed." : live?.phase === "live" || live?.isReconnecting ? "Not sent. The terminal is reconnecting." : "Not sent. The terminal is connecting.";
   const recordedModel = model || task?.model || "";
   const recordedEffort = effort || task?.effort || "";
