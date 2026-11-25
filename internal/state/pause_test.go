@@ -35,6 +35,8 @@ func TestPauseConditionsRequireTheEvidenceThatClearsThem(t *testing.T) {
 		{reason: "restart", until: "2026-10-18T11:13:27.2056637Z", isValid: true},
 		{reason: "restart"},
 		{reason: "restart", until: "next boot"},
+		{reason: "handoff", isValid: true},
+		{reason: "handoff", until: "pr:https://github.com/owner/repo/pull/42"},
 		{reason: "unknown"},
 	} {
 		t.Run(testCase.reason+"/"+testCase.until, func(t *testing.T) {

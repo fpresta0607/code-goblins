@@ -54,6 +54,10 @@ type Lifecycle struct {
 	// Watched says the request's own caller reads its outcome, so no notice
 	// is sent for it.
 	Watched bool `json:"watched,omitempty"`
+	// HandoffFallback says the pause wrote the saved handoff itself, from the
+	// task's record, since the goblin wrote none: it carries the goblin's last
+	// status line word for word, so it is never published.
+	HandoffFallback bool `json:"handoff_fallback,omitempty"`
 }
 
 type TeardownProcess struct {

@@ -52,7 +52,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 		Helpers: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) ([]string, error) {
 			return reachHelpers(ctx, h, meta, record, runtime.taskLifecycle)
 		},
-		Prepare:  pauseInstruction(runtime, h),
+		Prepare:  pauseInstruction(runtime, h, request.Reason),
 		Handoff:  lifecycle.HandoffWriter{StateDir: h.State, Commands: commands, GitHub: runtime.githubAPI, Owner: lifecycle.OwnerOf(h)}.Handoff,
 		Withdraw: pauseWithdrawal(runtime, h),
 		Stop: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) ([]string, error) {
@@ -251,10 +251,15 @@ func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, comman
 
 // pauseInstruction types the instruction to write its handoff file into the
 // goblin of a task being paused. A goblin in a turn takes it at its next tool
-// call, so the pause then waits for the handoff as for any delivered one.
-func pauseInstruction(runtime commandRuntime, h home.Home) func(context.Context, state.TaskMeta, string) error {
+// call, so the pause then waits for the handoff as for any delivered one. A
+// handoff pause asks for a handoff written for publication.
+func pauseInstruction(runtime commandRuntime, h home.Home, reason string) func(context.Context, state.TaskMeta, string) error {
 	return func(ctx context.Context, meta state.TaskMeta, handoff string) error {
-		if err := runtime.sendText(ctx, h, meta.ID, lifecycle.PauseInstruction(handoff)); !errors.Is(err, fleet.ErrQueuedForToolCall) {
+		instruction := lifecycle.PauseInstruction(handoff)
+		if reason == "handoff" {
+			instruction = lifecycle.HandoffPauseInstruction(handoff)
+		}
+		if err := runtime.sendText(ctx, h, meta.ID, instruction); !errors.Is(err, fleet.ErrQueuedForToolCall) {
 			return err
 		}
 		return nil
