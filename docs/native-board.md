@@ -2194,6 +2194,7 @@ Each goblin comes back as `goblins resume` brings one back, through the in-place
 One whose resume the restart cut short comes back through that resume, finished as its card's Resume would, so its record reads running again, with the same line.
 One that cannot come back is recorded stopped with the reason on its card, as its action error, and raises a `check` wake keyed by its id that names `goblins switch <id> --harness <its harness>`; the next goblin's turn comes at the next reading either way.
 The snapshot's `comeback` carries the record for the board's line, and each waiting or stopped goblin's card carries its own entry; the monitor's wake for a terminal with no host says the supervisor brings it back rather than naming `goblins resume`, whatever the goblin last reported, and for one the comeback does not hold whose latest report is `done` with a pull request, or with the issue it closed or the report it kept in place of one, it says that a restart leaves it down unless a prompt reached it since, and that `goblins switch <id> --harness <its harness>` brings it back if it has more work.
+A goblin that still waits has no running session, so it reads `Paused: comes back when memory frees` and its card is drawn as a paused one, with no running clock: it keeps its place in In progress, and the CEO's bar does not count it as at work.
 An example board brings nothing back.
 
 <a id="a-ceo-whose-terminal-ended"></a>

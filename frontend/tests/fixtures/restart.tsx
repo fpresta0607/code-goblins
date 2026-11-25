@@ -23,7 +23,7 @@ const snapshot = parseSnapshot({
       comeback: { id: "cg-site-hero", state: "stopped", reason: "Codex is not signed in" },
       action_error: "Did not come back after the restart: Codex is not signed in. The CEO was told." },
     { id: "cg-dials", title: "Subscription dials", project: "code-goblins", harness: "claude", phase: "working", generation: "s2", verified: false,
-      comeback: { id: "cg-dials", state: "waiting" } },
+      since: "2026-10-06T19:30:00Z", comeback: { id: "cg-dials", state: "waiting" } },
   ],
 });
 
