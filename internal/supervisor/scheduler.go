@@ -64,6 +64,7 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 	s.starts.Unlock()
 	finished := s.finishedWork()
 	var queued, roots []string
+	var foldProblems error
 	defect := ""
 	// harnesses is the harness each start or resume would run on, which the
 	// room prices it by.
@@ -88,6 +89,11 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 		if startHeldByAllowance(s.Store.Home, plan, watched, now) {
 			continue
 		}
+		isHeldByFold, foldErr := s.startHeldByFold(plan)
+		foldProblems = errors.Join(foldProblems, foldErr)
+		if isHeldByFold {
+			continue
+		}
 		if plan.isRoot {
 			roots = append(roots, id)
 			continue
@@ -100,6 +106,12 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 	// A root issue the supervisor picked up waits behind every task the
 	// Overlord or the CEO queued.
 	queued = append(queued, roots...)
+	// The fold check only advises: a start it cannot check goes ahead unheld,
+	// and its failure is said on the board without failing the reading, so
+	// the reading's wakes go on.
+	if foldProblems != nil {
+		s.publish(foldProblems)
+	}
 	problems := tellRetiredRows(s.Store.Home.State, finished.retired)
 	var ready []state.Lifecycle
 	memoryPending := ""

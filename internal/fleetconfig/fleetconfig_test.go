@@ -38,6 +38,9 @@ func TestReadRefusesAFileThatDoesNotMeanWhatItSays(t *testing.T) {
 		{name: "a clean mark under 0", settings: `{"disk_clean_gb":-1}`},
 		{name: "a tight caches cap of nothing", settings: `{"caches_tight_cap_gb":0}`},
 		{name: "a goblin's folders size of nothing", settings: `{"goblin_disk_gb":0}`},
+		{name: "a stale work age of 0 days", settings: `{"stale_work_days":0}`},
+		{name: "a stale work age under 0 days", settings: `{"stale_work_days":-3}`},
+		{name: "a stale work age that is no whole number", settings: `{"stale_work_days":1.5}`},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			// Arrange
@@ -327,5 +330,33 @@ func TestClaudeGoblinsOnStreamIsOffUnlessAHomeTurnsItOn(t *testing.T) {
 	}
 	if Defaults().ClaudeGoblinsOnStream {
 		t.Error("the defaults start Claude Code goblins on stream-json pipes")
+	}
+}
+
+func TestStaleWorkDaysIsSevenUnlessTheFileSetsIt(t *testing.T) {
+	for _, testCase := range []struct {
+		name, settings string
+		want           int
+	}{
+		{name: "no file", want: 7},
+		{name: "a file without the setting", settings: `{"disk_floor_gb":20}`, want: 7},
+		{name: "a file that sets it", settings: `{"stale_work_days":14}`, want: 14},
+		{name: "a file that sets the least", settings: `{"stale_work_days":1}`, want: 1},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			root := t.TempDir()
+			if testCase.settings != "" {
+				root = writeSettings(t, testCase.settings)
+			}
+
+			// Act
+			settings, err := Read(root)
+
+			// Assert
+			if err != nil || settings.StaleWorkDays != testCase.want {
+				t.Fatalf("stale work days %v, err %v, want %v", settings.StaleWorkDays, err, testCase.want)
+			}
+		})
 	}
 }

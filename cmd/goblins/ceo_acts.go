@@ -17,7 +17,8 @@ var notTheCEO = supervisor.NotTheCEO
 // actsAsCEO reports whether the command line args asks for something that is
 // the CEO's to decide for the fleet: dispatching a task (brief, spawn),
 // steering one (send, switch, title), stopping or retiring one (pause,
-// resume, kill, cleanup, supersede, backlog, a reap that acts), landing its
+// resume, kill, cleanup, supersede, a backlog that changes a row, a reap that
+// acts), landing its
 // work (pr, merge-local, deploy), acknowledging the wake queue (a drain that
 // acknowledges), setting the weekly allowance floor every goblin pauses at
 // (an allowance-floor that names one), accepting a Python start hook a
@@ -27,7 +28,8 @@ var notTheCEO = supervisor.NotTheCEO
 // exactly memory scope --list, the only one that cannot tag) and authorizing a
 // task to spend paid Codex credits (an auth grant --codex-credits). Reading
 // the fleet is anyone's:
-// fleet-view, peek, runtime, tickets, a drain that only prints, a reap that
+// fleet-view, peek, runtime, tickets, a backlog review, which only reads, a
+// drain that only prints, a reap that
 // only reports, an allowance-floor that only says the floors, the rest of
 // memory, and process-plan, which says what the process sweeps would end and
 // ends nothing, writes nothing into the home and acknowledges nothing.
@@ -45,8 +47,10 @@ func actsAsCEO(args []string) bool {
 		})
 	}
 	switch args[0] {
-	case "brief", "spawn", "send", "switch", "title", "pause", "resume", "kill", "cleanup", "supersede", "backlog", "pr", "merge-local", "deploy", "start-hook":
+	case "brief", "spawn", "send", "switch", "title", "pause", "resume", "kill", "cleanup", "supersede", "pr", "merge-local", "deploy", "start-hook":
 		return true
+	case "backlog":
+		return !slices.Equal(args[1:], []string{"review"})
 	case "drain":
 		return hasFlag("ack-through", "recovery-generation", "ack-blocking")
 	case "reap":

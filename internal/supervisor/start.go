@@ -460,7 +460,7 @@ func planStart(h home.Home, id string, finished *finishedWork, reading rowReadin
 		briefLines = strings.Split(strings.ReplaceAll(string(content), "\r\n", "\n"), "\n")
 		named = fleet.BriefDelivery(content)
 	}
-	plan := startPlan{id: id, brief: brief, briefRevision: briefRevision, project: parseBriefProject(briefLines), isProductionDefect: row.Priority == "production-defect", isRoot: row.Priority == RootPriority}
+	plan := startPlan{id: id, brief: brief, briefRevision: briefRevision, project: fleet.BriefProject(briefLines), isProductionDefect: row.Priority == "production-defect", isRoot: row.Priority == RootPriority}
 	if plan.project == "" {
 		plan.project = row.Repo
 	}

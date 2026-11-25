@@ -55,6 +55,7 @@ func TestSpentSessionWakesTheCEOOnceAtItsResetNamingTheGoblinsOnIt(t *testing.T)
 	}
 	reset := report.Providers["claude"].Resets["five_hour"]
 	s, h := fleetService(t)
+	s.allowanceRenewed = make(chan struct{}, 1)
 	s.Options.Dispatch = &Dispatch{Spawn: func(context.Context, []string) (string, error) {
 		t.Fatal("a used-up session is waited out, never paused")
 		return "", nil
@@ -68,6 +69,7 @@ func TestSpentSessionWakesTheCEOOnceAtItsResetNamingTheGoblinsOnIt(t *testing.T)
 	beforeReset := fleetWakeRecords(t, h, "allowance")
 	allowancePass(t, s, watched, report, reset.Add(-time.Second))
 	stillBefore := fleetWakeRecords(t, h, "allowance")
+	isSignalledBefore := len(s.allowanceRenewed) > 0
 	allowancePass(t, s, watched, report, reset)
 	allowancePass(t, s, watched, report, reset.Add(time.Minute))
 	records := fleetWakeRecords(t, h, "allowance")
@@ -78,6 +80,9 @@ func TestSpentSessionWakesTheCEOOnceAtItsResetNamingTheGoblinsOnIt(t *testing.T)
 	}
 	if len(records) != 2 {
 		t.Fatalf("allowance wakes=%+v, want the warning and one at the reset", records)
+	}
+	if isSignalledBefore || len(s.allowanceRenewed) != 1 {
+		t.Fatalf("the work review is signalled before the reset: %v, or not once at it: %d", isSignalledBefore, len(s.allowanceRenewed))
 	}
 	renewed := records[1]
 	if renewed.Key != "claude" || !strings.Contains(renewed.Detail, "renewed at "+reset.Format(time.RFC3339)) || !strings.Contains(renewed.Detail, "claude-goblin") || strings.Contains(renewed.Detail, "codex-goblin") {

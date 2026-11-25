@@ -8,12 +8,15 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
-const backlogUsage = "usage: goblins backlog done <id>\n"
+const backlogUsage = "usage: goblins backlog done <id> | review\n"
 
 func runBacklog(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
 		fmt.Fprint(stdout, backlogUsage)
 		return 0
+	}
+	if len(args) == 1 && args[0] == "review" {
+		return runBacklogReview(stdout, stderr, runtime)
 	}
 	if len(args) != 2 || args[0] != "done" {
 		fmt.Fprint(stderr, backlogUsage)

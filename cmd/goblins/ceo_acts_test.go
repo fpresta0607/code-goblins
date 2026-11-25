@@ -92,6 +92,7 @@ func TestReadingTheFleetIsNotActingAsTheCEO(t *testing.T) {
 		{"runtime"},
 		{"process-plan"},
 		{"tickets", "project"},
+		{"backlog", "review"},
 		{"doctor"},
 		{"version"},
 		{"session-start"},
