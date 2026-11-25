@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -28,6 +29,35 @@ func holdTask(t *testing.T, h home.Home, id, project string, number int, isPause
 	}
 	if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: id, Generation: "g1", Operation: "pause-1", Action: "pause", Phase: "paused", Started: time.Now(), Pause: &pause}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestAFoldCheckThatFailsLetsTheStartGoAheadAndFailsNoReading(t *testing.T) {
+	// Arrange
+	spawner := &spawnRecorder{}
+	handler, h := startBoard(t, 16*gigabyte, spawner)
+	handler.Service.Options.WorkReview = &WorkReview{Resolve: func(string) (string, string, error) {
+		return "", "", errors.New("project widgets is not read: no record")
+	}}
+	queueBriefedTask(t, h, "- [ ] next-task - Ship it (repo: widgets)", strings.Replace(plainBrief, "Ship it.", "Ship it: https://github.com/acme/widgets/issues/30.", 1))
+
+	// Act
+	err := handler.Service.checkFleet(t.Context(), time.Now().UTC())
+	handler.Service.mu.Lock()
+	reported := handler.Service.lastError
+	handler.Service.mu.Unlock()
+	calls := awaitCalls(t, spawner, 1)
+	awaitSettled(t, handler.Service)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("the reading failed: %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("dispatches=%v, want the start to go ahead", calls)
+	}
+	if !strings.Contains(reported, "project widgets is not read") {
+		t.Fatalf("board error %q, want the fold check's failure reported", reported)
 	}
 }
 

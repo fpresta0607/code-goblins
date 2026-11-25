@@ -106,7 +106,13 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 	// A root issue the supervisor picked up waits behind every task the
 	// Overlord or the CEO queued.
 	queued = append(queued, roots...)
-	problems := errors.Join(foldProblems, tellRetiredRows(s.Store.Home.State, finished.retired))
+	// The fold check only advises: a start it cannot check goes ahead unheld,
+	// and its failure is said on the board without failing the reading, so
+	// the reading's wakes go on.
+	if foldProblems != nil {
+		s.publish(foldProblems)
+	}
+	problems := tellRetiredRows(s.Store.Home.State, finished.retired)
 	var ready []state.Lifecycle
 	memoryPending := ""
 	// unreadPauses holds each paused goblin whose condition could not be

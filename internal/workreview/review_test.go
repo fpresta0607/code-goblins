@@ -433,7 +433,7 @@ func TestReviewStale(t *testing.T) {
 		},
 		{
 			name:   "an item that is done already is not also stale",
-			item:   Item{ID: "task", Source: SourcePaused, Issues: []tickets.IssueRef{issue(11)}},
+			item:   Item{ID: "task", Source: SourcePaused, Issues: []tickets.IssueRef{issue(11)}, LastActivity: testNow.Add(-30 * 24 * time.Hour)},
 			states: States{issue(11): "closed"},
 		},
 	}
