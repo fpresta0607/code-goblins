@@ -165,19 +165,19 @@ func (s *Snapshots) hasProject(name string) bool {
 	return true
 }
 
-// readGoblin reads one goblin's records again when its task record changed or
-// its session record grew, or whenever force says so, carrying forward what the
-// lines already read said.
+// readGoblin reads one goblin's records again when its task record, its
+// project's manifest or .mcp.json changed or its session record grew, or
+// whenever force says so, carrying forward what the lines already read said.
 func (s *Snapshots) readGoblin(meta state.TaskMeta, force bool) {
 	s.reading.Lock()
 	defer s.reading.Unlock()
 	transcript := s.Transcript(meta)
-	record := recordFingerprint(meta)
+	basis := recordFingerprint(meta) + "-" + s.projectBasis(auth.ProjectName(meta.Project), meta.Project)
 	s.mu.Lock()
 	kept, isKept := s.goblins[meta.ID]
 	s.mu.Unlock()
 	continues := isKept && !kept.CheckedAt.IsZero() && kept.Transcript == transcript && kept.Generation == meta.SpawnGen && kept.Harness == meta.Harness
-	if !force && continues && kept.Basis == record && sizeOf(transcript) == kept.Offset {
+	if !force && continues && kept.Basis == basis && sizeOf(transcript) == kept.Offset {
 		return
 	}
 	prior, from := Goblin{}, int64(0)
@@ -186,7 +186,7 @@ func (s *Snapshots) readGoblin(meta state.TaskMeta, force bool) {
 	}
 	goblin, offset := s.ReadGoblin(meta, transcript, from, prior)
 	now := s.Now().UTC()
-	goblin.CheckedAt, goblin.Items, goblin.Basis = now, stamped(goblin.Items, now), record
+	goblin.CheckedAt, goblin.Items, goblin.Basis = now, stamped(goblin.Items, now), basis
 	next := goblinFile{Goblin: goblin, Offset: offset, Transcript: transcript}
 	s.mu.Lock()
 	next.Checking = s.isQueued(job{RefreshGoblin, meta.ID})

@@ -1,6 +1,7 @@
 package connections
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -82,6 +83,54 @@ func TestProjectCheckOffersToStoreAMissingMCPTokenOnlyWhenTheManifestDeclaresIt(
 	}
 	if got := find(t, level.Items, "mcp:undeclared").Actions; len(got) != 0 {
 		t.Errorf("undeclared actions = %v, want none for a name no manifest declares", got)
+	}
+}
+
+// A server whose token variable this PC's user environment sets is given to
+// every goblin, as spawn gives it, though the project stores no such token and
+// its manifest declares no service; a harness billing key there counts as none.
+func TestProjectCheckCountsAnMCPTokenTheUserEnvironmentSets(t *testing.T) {
+	// Arrange
+	e := newTestEnvironment(t)
+	path := e.checkout(t, "acme")
+	writeFile(t, path+"/.mcp.json", `{"mcpServers":{
+		"env-api": {"url": "https://api.acme.example/mcp", "bearerTokenEnvVar": "ACME_USER_TOKEN"},
+		"billed-api": {"url": "https://billed.acme.example/mcp", "bearerTokenEnvVar": "ANTHROPIC_API_KEY"},
+		"unset-api": {"url": "https://other.acme.example/mcp", "bearerTokenEnvVar": "ACME_UNSET_TOKEN"}
+	}}`)
+	e.userEnv = []string{"Acme_User_Token", "ANTHROPIC_API_KEY"}
+
+	// Act
+	level := e.CheckProject(t.Context(), "acme", path)
+
+	// Assert
+	for id, want := range map[string]string{"mcp:env-api": StatusSet, "mcp:billed-api": StatusMissing, "mcp:unset-api": StatusMissing} {
+		if got := find(t, level.Items, id).Status; got != want {
+			t.Errorf("%s = %q, want %q", id, got, want)
+		}
+	}
+	if level.Error != "" {
+		t.Errorf("error = %q, want none", level.Error)
+	}
+}
+
+// A user environment that cannot be read says so on the project's level.
+func TestProjectCheckSaysWhenTheUserEnvironmentCouldNotBeRead(t *testing.T) {
+	// Arrange
+	e := newTestEnvironment(t)
+	path := e.checkout(t, "acme")
+	writeFile(t, path+"/.mcp.json", `{"mcpServers":{"env-api": {"url": "https://api.acme.example/mcp", "bearerTokenEnvVar": "ACME_USER_TOKEN"}}}`)
+	e.userEnvErr = os.ErrPermission
+
+	// Act
+	level := e.CheckProject(t.Context(), "acme", path)
+
+	// Assert
+	if !strings.Contains(level.Error, "user environment could not be read") {
+		t.Errorf("error = %q, want it to say the user environment could not be read", level.Error)
+	}
+	if got := find(t, level.Items, "mcp:env-api").Status; got != StatusMissing {
+		t.Errorf("env-api = %q, want missing", got)
 	}
 }
 

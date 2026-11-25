@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -208,6 +209,59 @@ func (b *connectorBoard) refresh(t *testing.T, level, scope string) {
 	}
 	if code, answer := b.ask(t, http.MethodPost, "/api/connectors/refresh", string(body), nil); code != http.StatusOK {
 		t.Fatalf("refresh %s %s = %d %s", level, scope, code, answer)
+	}
+}
+
+// The watch the supervisor starts reads every goblin whose records say it runs,
+// one with no lifecycle record among them, and no paused one, and checks this
+// PC.
+func TestConnectorsWatchReadsOnlyRunningGoblinsAndChecksThePC(t *testing.T) {
+	// Arrange
+	b := newConnectorBoard(t, false)
+	at := time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
+	for _, task := range []string{"acme-running", "acme-unrecorded", "acme-paused"} {
+		meta := state.TaskMeta{ID: task, SpawnGen: "generation-" + task, Harness: "codex", Backend: "native", Project: filepath.Join(b.projects, "acme")}
+		if err := state.WriteTaskMeta(b.state, meta); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := state.WriteLifecycle(b.state, state.Lifecycle{ID: "acme-running", Generation: "generation-acme-running", Operation: "resume-acme-running", Action: "resume", Phase: "running", Started: at, Updated: at}); err != nil {
+		t.Fatal(err)
+	}
+	condition, err := state.NewPauseCondition("overlord", "", at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteLifecycle(b.state, state.Lifecycle{ID: "acme-paused", Generation: "generation-acme-paused", Operation: "pause-acme-paused", Action: "pause", Phase: "paused", Started: at, Updated: at, Pause: &condition}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(func() {
+		cancel()
+		b.service.closeConnectors()
+	})
+
+	// Act
+	b.service.startConnectors(ctx)
+	b.machineChecked(t)
+	reply := b.read(t)
+
+	// Assert
+	var goblins []string
+	for _, goblin := range reply.Goblins {
+		if strings.HasPrefix(goblin.Task, "acme-") {
+			goblins = append(goblins, goblin.Task)
+		}
+	}
+	slices.Sort(goblins)
+	if !slices.Equal(goblins, []string{"acme-running", "acme-unrecorded"}) {
+		t.Fatalf("goblins = %v, want the running one and the one with no lifecycle record", goblins)
+	}
+	if got := b.fakes.count("goblin:acme-paused"); got != 0 {
+		t.Errorf("the paused goblin was read %d times, want none", got)
+	}
+	if got := b.fakes.count("machine"); got != 1 {
+		t.Errorf("the PC was checked %d times, want once", got)
 	}
 }
 

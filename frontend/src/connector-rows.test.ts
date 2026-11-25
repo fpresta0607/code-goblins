@@ -62,6 +62,19 @@ test("same-named services of two projects are two rows, each with its project an
   assert.equal(new Set(found.map(([, , , key]) => key)).size, 2);
 });
 
+test("two goblins of one project that carry the same item are two rows with their own keys", () => {
+  // Arrange
+  const view = snapshot();
+  const twin = { ...view.goblins[0], task: "t-3" };
+
+  // Act
+  const rows = allRows({ ...view, goblins: [view.goblins[0], twin] }, nameOf).filter((row) => row.level === "goblin" && row.connection === "mcp:acme-docs");
+
+  // Assert
+  assert.deepEqual(rows.map((row) => [row.project, row.task]), [["acme", "t-1"], ["acme", "t-3"]]);
+  assert.equal(new Set(rows.map((row) => row.key)).size, 2);
+});
+
 test("a search finds items at every level, the words in any order, and groups them by level", () => {
   // Arrange
   const rows = allRows(snapshot(), nameOf);

@@ -20,7 +20,9 @@ const mcpConfigLimit = 1 << 20
 // CheckProject checks one project, once however many goblins it has: each
 // service its manifest declares, with the probe and identity check the
 // manifest names, and each MCP server of its .mcp.json, by how a goblin of
-// the project gets it. path is the project's checkout, where the probes run.
+// the project gets it, its token resolving from the project's credentials or
+// this PC's user environment as at spawn. path is the project's checkout,
+// where the probes run.
 func (e Environment) CheckProject(ctx context.Context, name, path string) Level {
 	var level Level
 	manifest, err := auth.LoadManifest(e.DataDir, name)
@@ -28,7 +30,19 @@ func (e Environment) CheckProject(ctx context.Context, name, path string) Level 
 		level.Error = "This project's auth manifest could not be read."
 	}
 	services, resolves := e.serviceItems(ctx, name, path, manifest)
-	servers, err := mcpItems(name, path, manifest, resolves)
+	inUserEnvironment := map[string]bool{}
+	names, err := e.UserEnvNames()
+	if err != nil {
+		level.Error = strings.TrimSpace(level.Error + " This PC's user environment could not be read.")
+	}
+	for _, variable := range names {
+		if !auth.IsHarnessBillingKey(variable) {
+			inUserEnvironment[strings.ToUpper(variable)] = true
+		}
+	}
+	servers, err := mcpItems(name, path, manifest, func(variable string) bool {
+		return resolves(variable) || inUserEnvironment[strings.ToUpper(variable)]
+	})
 	if err != nil {
 		level.Error = strings.TrimSpace(level.Error + " This project's .mcp.json could not be read.")
 	}

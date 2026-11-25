@@ -190,8 +190,8 @@ func TestEachLevelIsCheckedOnceAndAgainOnlyWhenItChangedOrGrewOld(t *testing.T) 
 		}
 	}
 	for _, task := range []string{"acme-one", "acme-two", "globex-one"} {
-		if got := f.counters.get("goblin:" + task); got != 1 {
-			t.Errorf("goblin %s read %d times across six looks, want once: its record never changed", task, got)
+		if got := f.counters.get("goblin:" + task); got != 2 {
+			t.Errorf("goblin %s read %d times across six looks, want the first look and its own project's change only", task, got)
 		}
 	}
 }
@@ -410,6 +410,35 @@ func TestAGoblinIsReadAgainWhenItsTaskRecordChanges(t *testing.T) {
 	// Assert
 	if got := f.counters.get("goblin:acme-one"); got != 2 {
 		t.Fatalf("goblin read %d times, want the first look and the change only", got)
+	}
+}
+
+// A goblin whose session records nothing, a Codex goblin's, is read again when
+// its project's manifest or .mcp.json changes, as what it carries and is not
+// given comes from them.
+func TestAGoblinIsReadAgainWhenItsProjectsManifestOrMCPConfigChanges(t *testing.T) {
+	// Arrange
+	f := newSnapshotFixture(t)
+	meta := f.goblin("acme", "acme-one")
+	meta.Harness = "codex"
+	f.running = []state.TaskMeta{meta}
+	f.tick()
+	f.tick()
+
+	// Act
+	f.manifest(t, "acme", `[{"name":"sample","method":"env","env":["SAMPLE_VALUE"]},{"name":"extra","method":"env","env":["EXTRA_VALUE"]}]`)
+	f.tick()
+	afterManifest := f.counters.get("goblin:acme-one")
+	writeFile(t, filepath.Join(meta.Project, ".mcp.json"), `{"mcpServers":{"acme-docs":{"command":"acme-docs"}}}`)
+	f.tick()
+	f.tick()
+
+	// Assert
+	if afterManifest != 2 {
+		t.Errorf("goblin read %d times after the manifest changed, want the first look and the change", afterManifest)
+	}
+	if got := f.counters.get("goblin:acme-one"); got != 3 {
+		t.Errorf("goblin read %d times, want the first look and each change only", got)
 	}
 }
 

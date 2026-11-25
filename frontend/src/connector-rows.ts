@@ -80,7 +80,7 @@ function itemRow(item: ConnectorItem, context: RowContext): ConnectorRow {
   const name = SHOWN_AS_CONNECTOR.has(item.kind) ? connectorName(item.name) : item.name;
   const word = statusWord(item);
   return {
-    key: [item.level, context.project || context.task, item.id].join("|"), level: item.level, group: item.group, name, logoName: item.name,
+    key: [item.level, context.task || context.project, item.id].join("|"), level: item.level, group: item.group, name, logoName: item.name,
     origin: context.origin, target: item.target, about: item.source ? "read from " + item.source : "", word, tone: statusTone(item.status), detail: item.detail,
     checkedAt: hasChecked(item.checkedAt) ? item.checkedAt : context.level.checkedAt, isChecking: context.level.isChecking,
     credentials: item.credentials, tools: item.tools, actions: item.actions, grant: item.grant, connection: item.id, project: context.project, task: context.task,
