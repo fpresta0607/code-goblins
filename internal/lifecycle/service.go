@@ -150,10 +150,8 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 	}
 	// A handed-off task's branch is the cloud session's to build on until
 	// goblins handoff return or cancel resumes it, so nothing else resumes it
-	// or turns its pause into one that something else resumes. A helper paused
-	// with its parent takes the parent's reason but resumes with its parent,
-	// so the guard is the parent's alone.
-	if prior.Phase == "paused" && prior.Pause != nil && prior.Pause.Reason == "handoff" && !state.IsHelperOperation(prior.Operation) {
+	// or turns its pause into one that something else resumes.
+	if prior.IsHandedOff() {
 		if request.Action == "resume" && !request.IsHandoffEnd {
 			return result, errors.New("the task is handed off to a cloud session: goblins handoff return brings its work back and resumes it, and goblins handoff cancel resumes it without that work")
 		}

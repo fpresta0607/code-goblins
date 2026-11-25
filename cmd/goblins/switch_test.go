@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
@@ -242,5 +243,61 @@ func TestRunSwitchBindsABoardRequestToTheSelectedGeneration(t *testing.T) {
 
 	if exit != 0 || got.Generation != "s1" || !got.ForceDirty {
 		t.Fatalf("generation-bound switch = %d, %+v: %s", exit, got, stderr.String())
+	}
+}
+
+// A handed-off goblin's branch is the cloud session's to build on, so goblins
+// switch, which relaunches a paused goblin outside its lifecycle, refuses it
+// as a plain resume is refused; a pause whose handoff was only the fallback,
+// a helper paused with its parent and an earlier session's pause are not
+// handed off.
+func TestRunSwitchRefusesAHandedOffGoblin(t *testing.T) {
+	handoff := &state.PauseCondition{Reason: "handoff", At: time.Now().UTC()}
+	for _, test := range []struct {
+		name      string
+		record    state.Lifecycle
+		isRefused bool
+	}{
+		{name: "handed off", record: state.Lifecycle{Generation: "g1", Phase: "paused", Pause: handoff, Operation: "handoff-1"}, isRefused: true},
+		{name: "only the fallback handoff", record: state.Lifecycle{Generation: "g1", Phase: "paused", Pause: handoff, Operation: "handoff-1", HandoffFallback: true}},
+		{name: "a helper paused with its parent", record: state.Lifecycle{Generation: "g1", Phase: "paused", Pause: handoff, Operation: state.HelperOperation("handoff-1", "g4")}},
+		{name: "an earlier session's handoff pause", record: state.Lifecycle{Generation: "g0", Phase: "paused", Pause: handoff, Operation: "handoff-1"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h := testHome(t)
+			if err := os.MkdirAll(h.State, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			deps := testCommandRuntimeForHome(h)
+			if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "g4", Harness: "codex", SpawnGen: "g1"}); err != nil {
+				t.Fatal(err)
+			}
+			test.record.ID, test.record.Action = "g4", "pause"
+			if err := state.WriteLifecycle(h.State, test.record); err != nil {
+				t.Fatal(err)
+			}
+			isSwitched := false
+			deps.switchTask = func(context.Context, home.Home, spawn.SwitchRequest) (spawn.SwitchResult, error) {
+				isSwitched = true
+				return spawn.SwitchResult{Output: "switched g4"}, nil
+			}
+			deps.speedHint = func(context.Context, string) string { return "" }
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runWithRuntime([]string{"switch", "g4", "--restart"}, &stdout, &stderr, deps)
+
+			// Assert
+			if test.isRefused {
+				if exit != 1 || isSwitched || !strings.Contains(stderr.String(), "goblins handoff return") {
+					t.Fatalf("exit %d, switched %v, stderr %q; want it refused naming goblins handoff return", exit, isSwitched, stderr.String())
+				}
+				return
+			}
+			if exit != 0 || !isSwitched {
+				t.Fatalf("exit %d, switched %v, stderr %q; want it switched", exit, isSwitched, stderr.String())
+			}
+		})
 	}
 }

@@ -25,6 +25,11 @@ import (
 )
 
 func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Request, revision string) (state.Lifecycle, error) {
+	return runTaskLifecycle(ctx, h, defaultCommandRuntime(), request, revision)
+}
+
+// runTaskLifecycle runs request on its task through runtime.
+func runTaskLifecycle(ctx context.Context, h home.Home, runtime commandRuntime, request lifecycle.Request, revision string) (state.Lifecycle, error) {
 	meta, err := state.ReadTaskMeta(h.State, request.ID)
 	if errors.Is(err, os.ErrNotExist) && request.Action == "stop" {
 		return lifecycle.StopQueued(h, request, revision)
@@ -37,7 +42,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 	if request.Session, err = taskSession(h.State, meta); err != nil {
 		return state.Lifecycle{}, err
 	}
-	service, err := taskLifecycleService(h, meta, defaultCommandRuntime(), request.Reason)
+	service, err := taskLifecycleService(h, meta, runtime, request.Reason)
 	if err != nil {
 		return state.Lifecycle{}, err
 	}

@@ -68,11 +68,9 @@ func namesExcepted(command project.Command, except []string) bool {
 		return false
 	}
 	for _, argument := range command[1:] {
-		if argument == "./..." {
-			return true
-		}
+		tree, isTree := strings.CutSuffix(argument, "/...")
 		for _, excepted := range except {
-			if argument == excepted || argument == excepted+"/..." {
+			if argument == excepted || isTree && (tree == "." || excepted == tree || strings.HasPrefix(excepted, tree+"/")) {
 				return true
 			}
 		}
@@ -207,6 +205,13 @@ func MarkCancelled(body string) string {
 // A packet is screened as a public issue is on every repository, private or
 // public: it is written in a pull request body, never in the home.
 func Refusal(screen tickets.Screen, text string) string {
+	lines := strings.Split(text, "\n")
+	for number, line := range lines {
+		isOwnMarker := number == 0 || number == len(lines)-1
+		if !isOwnMarker && (strings.Contains(line, PacketStart) || strings.Contains(line, PacketEnd)) {
+			return fmt.Sprintf("line %d of the packet is refused: it holds the packet's own marker, which would end the packet there", number+1)
+		}
+	}
 	screen.IsPublic = true
 	reason := screen.Refusal(text)
 	if reason == "" {

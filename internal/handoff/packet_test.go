@@ -63,7 +63,7 @@ func TestVerificationCommandsSayWhatACloudSessionCannotRun(t *testing.T) {
 	// Arrange
 	verification := project.Verification{
 		Fast: []project.Command{{"go", "test", "./internal/handoff"}, {"go", "test", "./cmd/goblins"}},
-		Full: []project.Command{{"go", "test", "./..."}, {"goblins", "gate", "test"}},
+		Full: []project.Command{{"go", "test", "./..."}, {"goblins", "gate", "test"}, {"go", "test", "./internal/..."}, {"go", "test", "./cmd/..."}, {"go", "test", "./internal/handoff/..."}, {"go", "test", "./internal/super/..."}},
 	}
 
 	// Act
@@ -75,6 +75,10 @@ func TestVerificationCommandsSayWhatACloudSessionCannotRun(t *testing.T) {
 		{Text: "go test ./cmd/goblins", IsWindowsOnly: true},
 		{Text: "go test ./...", IsWindowsOnly: true},
 		{Text: "goblins gate test", NeedsGoblins: true},
+		{Text: "go test ./internal/...", IsWindowsOnly: true},
+		{Text: "go test ./cmd/...", IsWindowsOnly: true},
+		{Text: "go test ./internal/handoff/..."},
+		{Text: "go test ./internal/super/..."},
 	}
 	if !slices.Equal(commands, want) {
 		t.Fatalf("commands = %+v, want %+v", commands, want)
@@ -123,5 +127,31 @@ func TestMarkCancelledMarksThePacketOnce(t *testing.T) {
 	// Assert
 	if strings.Count(marked, cancelledLine) != 1 || !strings.HasPrefix(marked, "Intro.") {
 		t.Fatalf("marked body = %q", marked)
+	}
+}
+
+// The packet's own markers inside its content would end it there, so the
+// next splice or cancel would leave its tail outside it in the body.
+func TestAPacketWhoseContentHoldsItsOwnMarkerIsRefused(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		packet Packet
+	}{
+		{name: "a handoff naming the end marker", packet: Packet{Handoff: "The packet sits before " + PacketEnd + " now."}},
+		{name: "a handoff naming the start marker", packet: Packet{Handoff: "It starts at " + PacketStart + "."}},
+		{name: "a commit subject naming the end marker", packet: Packet{Handoff: "Done.", Commits: []string{"abc1234 docs: name " + PacketEnd}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			test.packet.Branch, test.packet.Head, test.packet.DefaultBranch = "feat/parser", strings.Repeat("a", 40), "main"
+
+			// Act
+			refusal := Refusal(tickets.Screen{Account: "acme"}, test.packet.Text())
+
+			// Assert
+			if !strings.Contains(refusal, "marker") {
+				t.Fatalf("refusal = %q, want the packet refused for holding its own marker", refusal)
+			}
+		})
 	}
 }

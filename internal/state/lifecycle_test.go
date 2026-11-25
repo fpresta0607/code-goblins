@@ -48,3 +48,31 @@ func TestLifecycleRejectsInvalidOrMismatchedState(t *testing.T) {
 		t.Fatal("a different task's lifecycle was accepted")
 	}
 }
+
+// A task is handed off only while its handoff pause holds a handoff the
+// goblin wrote for publication: a helper paused with its handed-off parent,
+// and a pause whose handoff was only the fallback it wrote, are not.
+func TestALifecycleIsHandedOffOnlyWhileItsGoblinsOwnHandoffPauseHoldsIt(t *testing.T) {
+	handoff := &PauseCondition{Reason: "handoff"}
+	for _, test := range []struct {
+		name   string
+		record Lifecycle
+		want   bool
+	}{
+		{name: "a handoff pause of the goblin's own handoff", record: Lifecycle{Phase: "paused", Pause: handoff, Operation: "handoff-1"}, want: true},
+		{name: "a handoff pause of the fallback handoff", record: Lifecycle{Phase: "paused", Pause: handoff, Operation: "handoff-1", HandoffFallback: true}},
+		{name: "a helper paused with its handed-off parent", record: Lifecycle{Phase: "paused", Pause: handoff, Operation: HelperOperation("handoff-1", "task-h1")}},
+		{name: "a memory pause", record: Lifecycle{Phase: "paused", Pause: &PauseCondition{Reason: "memory"}, Operation: "memory-1"}},
+		{name: "a resumed handoff", record: Lifecycle{Phase: "running", Pause: handoff, Operation: "handoff-end-1"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			got := test.record.IsHandedOff()
+
+			// Assert
+			if got != test.want {
+				t.Errorf("IsHandedOff() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}

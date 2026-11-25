@@ -96,7 +96,9 @@ func TestAPauseRecordsWhetherItWroteTheGoblinsHandoffItself(t *testing.T) {
 	}
 }
 
-func TestAHandoffPauseAsksTheGoblinToWriteForPublication(t *testing.T) {
+// The pause waits for the file its instruction names, written beside its
+// place and renamed onto it, as every pause does.
+func TestAHandoffPauseInstructionNamesTheFileThePauseWaitsFor(t *testing.T) {
 	// Arrange
 	handoff := "/tasktmp/task/pause-handoff.md"
 
@@ -104,13 +106,10 @@ func TestAHandoffPauseAsksTheGoblinToWriteForPublication(t *testing.T) {
 	instruction := HandoffPauseInstruction(handoff)
 
 	// Assert
-	for _, want := range []string{"public", "done", "left", handoff + ".partial", "rename it to " + handoff} {
+	for _, want := range []string{handoff + ".partial", "rename it to " + handoff} {
 		if !strings.Contains(instruction, want) {
-			t.Errorf("instruction %q does not say %q", instruction, want)
+			t.Errorf("instruction %q does not name %q", instruction, want)
 		}
-	}
-	if !strings.Contains(instruction, "brief") {
-		t.Errorf("instruction %q does not keep the brief out of the handoff", instruction)
 	}
 }
 
@@ -169,5 +168,46 @@ func TestAResumeKeepsTheMarkThatThePauseWroteTheHandoffItself(t *testing.T) {
 	// Assert
 	if err != nil || record.Phase != "running" || !record.HandoffFallback {
 		t.Fatalf("resume = %+v, %v; want it running with the fallback mark kept", record, err)
+	}
+}
+
+// A pause whose handoff was only the fallback it wrote published nothing, so
+// the task is not handed off and a plain resume clears it.
+func TestAHandoffPauseOfTheFallbackHandoffResumesPlainly(t *testing.T) {
+	// Arrange
+	service, meta := lifecycleFixture(t)
+	service.Operations.Prepare = func(context.Context, state.TaskMeta, string) error { return nil }
+	service.Operations.Handoff = func(context.Context, state.TaskMeta) []byte {
+		return []byte("Written for the goblin from its record.")
+	}
+	if _, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "handoff-pause", Action: "pause", Reason: "handoff"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	record, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "resume-1", Action: "resume"})
+
+	// Assert
+	if err != nil || record.Phase != "running" {
+		t.Fatalf("plain resume of a fallback handoff pause = %+v, %v; want it running", record, err)
+	}
+}
+
+// A parent's handoff pause reaches a helper its memory pause already holds,
+// which takes its parent's reason in place as a helper does.
+func TestAHelpersMemoryPauseTakesItsParentsHandoffReasonInPlace(t *testing.T) {
+	// Arrange
+	service, meta := lifecycleFixture(t)
+	if _, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "memory-pause", Action: "pause", Reason: "memory"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	_, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: state.HelperOperation("handoff-pause", meta.ID), Action: "pause", Reason: "handoff"})
+
+	// Assert
+	record, readErr := state.ReadLifecycle(service.StateDir, meta.ID)
+	if err != nil || readErr != nil || record.Pause == nil || record.Pause.Reason != "handoff" {
+		t.Fatalf("helper's handoff re-pause = %v, record %+v (%v); want it taken in place", err, record.Pause, readErr)
 	}
 }
