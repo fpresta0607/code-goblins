@@ -219,7 +219,14 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
     : null;
   const closed = <Notice form="box" icon="terminal" className={hasScreen ? "terminal-foot" : undefined}
     actions={!isEnded && <button className="primary" disabled={!visible} onClick={() => { retries.current = 0; setUnsent(false); setPhase(current.current ? "live" : "connecting"); setReconnecting(!!current.current); setAttempt((prior) => prior + 1); }}>Reconnect</button>}>{closedWhy}</Notice>;
-  return <section className={"native-terminal host-terminal" + (hasComposer ? " has-composer" : "")} hidden={!shown} aria-label={label}>
+  // A view still loading or reconnecting is hidden, and a hidden view can
+  // take no keyboard, so a click there gives the terminal itself the keyboard
+  // and its dictation keys until the view is shown and takes them: held there,
+  // they started nothing (#2904). A view's own keys stop at the view.
+  return <section className={"native-terminal host-terminal" + (hasComposer ? " has-composer" : "")} hidden={!shown} aria-label={label} tabIndex={-1}
+    onFocus={(event) => { if (event.target === event.currentTarget) (staged.current ?? current.current)?.focus(); }}
+    onKeyDown={(event) => { if (event.target === event.currentTarget) dictate(event.nativeEvent); }}
+    onKeyUp={(event) => { if (event.target === event.currentTarget) dictate(event.nativeEvent); }}>
     <div className="terminal-surface" ref={surface} />
     {/* Connecting is a plain line under the terminal's box, never a cover over
         it: he types into that box while it connects, and the loader must sit
