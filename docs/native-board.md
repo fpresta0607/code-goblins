@@ -3052,6 +3052,7 @@ A seal left behind lifts by itself three minutes after it was written, a minute 
 A seal the board does not answer refuses too: Claude Code blocks the call when the post fails (`onFailure: block`).
 The key alarm runs after every tool call, beside the goblin's native hook, as a post to the board's `/api/goblin-hook/tool`, and wakes the CEO once per call whose output holds a secret key, naming the goblin, the tool and the kind of key, never the key, so the key can be rolled.
 It matches each kind of secret key by its prefix and its length, and most kinds by their mix of letters and digits too, so a commit hash, a UUID, a publishable key or a masked key never wakes it, though a long name that starts like a key can.
+It skips an image or PDF block in the output, such as a Read of a picture or a PDF, and a notebook's image output, whose base64 bytes are no text the tool returned and match a key's shape by chance (#2099).
 The native hook is still held to its own limit and the alarm to Claude Code's default of ten minutes, a part past its limit left unfinished as Claude Code would have ended it.
 Each post carries the goblin's variables in headers Claude Code fills from its terminal's environment, such as `X-CEO-TASK-ID`.
 The board does a post's work only when the terminal's id and proof it carries (`GOBLINS_HOST_ID`, `GOBLINS_HOST_PROOF`) prove it came from the goblin's own terminal, and only for a post from this PC, so no web page, other goblin or other machine can speak for a goblin.
