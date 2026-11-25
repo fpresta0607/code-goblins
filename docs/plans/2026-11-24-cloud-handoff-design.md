@@ -53,10 +53,12 @@ Before it changes anything it refuses, naming why, when:
 
 Then, in this order, each step recorded so a failure part-way says which ran:
 
-1. Pauses the goblin through `goblins pause` with a new reason, `handoff`, that only `goblins handoff return` or the Overlord's Resume clears.
+1. Pauses the goblin through the task lifecycle with a new reason, `handoff`.
+   While the packet that pause's handoff publishes is out, only `goblins handoff return` or `goblins handoff cancel` clears it: a plain resume, and `goblins switch`, which would relaunch the goblin, are refused, since a second writer on the branch is the harm.
    The pause asks the goblin for its handoff as every pause does, and for this reason the goblin writes it for publication: what is done and what is left, as it would put them in a public issue.
    A goblin that writes none by its stopping point leaves the fallback the pause writes for it, which carries its last status line word for word ([pausing](../contract/dispatch.md#pausing-and-automatic-resume)).
    A handoff never publishes that fallback: it stops here with nothing pushed or written and the task left paused, and a second `handoff` goes on once the goblin has written its own.
+   A pause whose handoff was only that fallback, or that saved none, published nothing, so the task is not handed off: a plain resume clears it, and no refusal says it was handed off.
 2. Pushes the goblin's branch.
 3. Opens a draft pull request from it into the default branch, or reuses the goblin's open one.
    A draft starts no hosted CI ([delivery](../contract/delivery.md)).

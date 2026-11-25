@@ -219,6 +219,7 @@ func TestPauseTakesTheConditionThatResumesIt(t *testing.T) {
 		{name: "nothing resumes it", args: []string{}, wantRefusal: "--until-task"},
 		{name: "two conditions", args: []string{"--until-task", "other-task", "--until-pr", pullRequest}, wantRefusal: "one condition"},
 		{name: "an invalid task", args: []string{"--until-task", "Not A Task"}, wantRefusal: "task"},
+		{name: "a handoff pause, which only goblins handoff takes", args: []string{"--reason", "handoff"}, wantRefusal: "goblins handoff"},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {

@@ -542,3 +542,45 @@ func TestResumeRefusesAGoblinWhoseFailedPauseLeftItsStreamSessionRunning(t *test
 		t.Errorf("the stream session after the refused resume: %v, want it still running", err)
 	}
 }
+
+// The lifecycle a pause runs asks a handoff pause's goblin for a handoff
+// written for publication, and any other pause's for its ordinary handoff.
+func TestTheTaskLifecycleAsksAHandoffPauseForAHandoffWrittenForPublication(t *testing.T) {
+	for _, test := range []struct {
+		reason string
+		want   func(string) string
+	}{
+		{reason: "handoff", want: lifecycle.HandoffPauseInstruction},
+		{reason: "overlord", want: lifecycle.PauseInstruction},
+	} {
+		t.Run(test.reason, func(t *testing.T) {
+			// Arrange
+			h := testHome(t)
+			meta := state.TaskMeta{ID: "task-1", SpawnGen: "g1", Backend: "native", TaskTmp: filepath.Join(h.Root, "tasktmp", "task-1")}
+			for _, dir := range []string{meta.TaskTmp, h.State} {
+				if err := os.MkdirAll(dir, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			request := lifecycle.Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Reason: test.reason}
+			handoff := filepath.Join(meta.TaskTmp, "pause-"+request.Operation+".md")
+			runtime := testCommandRuntimeForHome(h)
+			var sent []string
+			runtime.sendText = func(_ context.Context, _ home.Home, target, text string) error {
+				sent = append(sent, text)
+				return os.WriteFile(handoff, []byte("Done and left."), 0o600)
+			}
+
+			// Act
+			_, _ = runTaskLifecycle(t.Context(), h, runtime, request, "")
+
+			// Assert
+			if len(sent) == 0 || sent[0] != test.want(handoff) {
+				t.Errorf("sent %q; want the %s pause's instruction first", sent, test.reason)
+			}
+		})
+	}
+}

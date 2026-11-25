@@ -54,12 +54,26 @@ type Lifecycle struct {
 	// Watched says the request's own caller reads its outcome, so no notice
 	// is sent for it.
 	Watched bool `json:"watched,omitempty"`
+	// HandoffFallback says the pause wrote the saved handoff itself, from the
+	// task's record, since the goblin wrote none: it carries the goblin's last
+	// status line word for word, so it is never published.
+	HandoffFallback bool `json:"handoff_fallback,omitempty"`
 }
 
 type TeardownProcess struct {
 	PID     int       `json:"pid"`
 	Started time.Time `json:"started"`
 	Name    string    `json:"name"`
+}
+
+// IsHandedOff says record is a handoff pause that holds a saved handoff its
+// goblin wrote for publication, so its branch is the cloud session's to build
+// on until goblins handoff return or cancel. A helper paused with its
+// handed-off parent resumes with that parent, and a pause that saved no
+// handoff, or only the fallback it wrote, published nothing, so none of them
+// is handed off. It says nothing of which session the record is of.
+func (record Lifecycle) IsHandedOff() bool {
+	return record.Phase == "paused" && record.Pause != nil && record.Pause.Reason == "handoff" && record.HandoffSaved && !record.HandoffFallback && !IsHelperOperation(record.Operation)
 }
 
 func (record Lifecycle) TeardownLabels() []string {
