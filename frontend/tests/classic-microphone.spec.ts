@@ -92,14 +92,31 @@ test.describe("with the microphone allowed", () => {
     const askedWhileLoading = await terminal.asked();
     terminal.loaded();
     await expect(page.locator(".host-terminal .terminal-view:not(.staged)")).toHaveCount(1);
-    await page.locator(".host-terminal").first().click();
+    await expect(page.getByRole("textbox", { name: "Terminal input" }), "the shown view took the keyboard").toBeFocused();
+    await page.keyboard.type("y");
     await dictate(page);
 
     // Assert
     expect(askedWhileLoading, "the keys asked for the microphone during the load").toBe(1);
+    await expect.poll(() => terminal.typed.join("")).toContain("y");
     await expect.poll(() => terminal.typed.join("")).toContain(WORDS);
     await expect(page.locator(".terminal-float"), "no note about the microphone").toHaveCount(0);
   });
+});
+
+test("a classic terminal clicked while it loads leaves the keyboard where he moved it once it is shown", async ({ page }) => {
+  // Arrange: he clicks the loading terminal, then moves the keyboard away.
+  const terminal = await openTerminal(page);
+  await expect(page.locator(".host-terminal .terminal-surface")).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.locator(".host-terminal .terminal-surface")).not.toBeFocused();
+
+  // Act
+  terminal.loaded();
+  await expect(page.locator(".host-terminal .terminal-view:not(.staged)")).toHaveCount(1);
+
+  // Assert
+  await expect(page.getByRole("textbox", { name: "Terminal input" })).not.toBeFocused();
 });
 
 test("a classic terminal whose microphone question was closed unanswered says to answer it, not that it is blocked", async ({ page }) => {
