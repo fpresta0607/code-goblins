@@ -469,6 +469,19 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		// The agent's turn ended and it is waiting on input - finished or
 		// blocked. This is the harness-agnostic wake the pane heuristics were
 		// blind to.
+		//
+		// A turn its harness gave up on the model's API wakes as that error,
+		// whatever the goblin last reported, and nobody owes it an answer:
+		// the supervisor carries a native goblin whose API it knows on once
+		// the API answers again (#2863).
+		if sample.Status == herdr.AgentDone {
+			kind := harness.Kind(meta.Harness)
+			screens, _ := harness.NativeScreens(kind)
+			if failure, isEnded := screens.EndedOnAPIError(strings.Split(strings.ReplaceAll(string(sample.Capture), "\r\n", "\n"), "\n")); isEnded {
+				_, isAPIKnown := harness.APIOrigin(kind, meta.Model)
+				return apiErrorObservation(observation, failure, meta.Backend == "native" && isAPIKnown, now), sample
+			}
+		}
 		if gated, ok := s.statusVerbObservation(observation, meta.ID, now, sample); ok {
 			return gated, sample
 		}
@@ -971,6 +984,34 @@ func awaitingInputObservation(observation Observation, detail string, now time.T
 	observation.DemandDeepInspection = true
 	if first && observation.PendingEvent == nil {
 		event := taskEvent(observation.TaskID, AwaitingAnswer, detail)
+		observation.PendingEvent = &event
+	}
+	return observation
+}
+
+// apiErrorObservation records a goblin whose turn ended on an API error its
+// harness gave up retrying. It wakes once with the error, in place of the
+// wake for a goblin stopped at its prompt, and demands no inspection. It says
+// the supervisor carries the goblin on once the API answers again where
+// isCarriedOn says it does, and otherwise that the CEO is to (#2863).
+func apiErrorObservation(observation Observation, failure string, isCarriedOn bool, now time.Time) Observation {
+	first := observation.Reason != APIError
+	observation.IdleSince = nil
+	observation.Health = HealthStale
+	observation.Reason = APIError
+	observation.NextPauseResurface = nil
+	if observation.StaleSince == nil {
+		observation.StaleSince = timePointer(now)
+		observation.NextEscalation = timePointer(now.Add(time.Hour))
+	}
+	observation.Escalation = 0
+	observation.DemandDeepInspection = false
+	if first && observation.PendingEvent == nil {
+		next := "the supervisor carries on only a native goblin whose API it knows, so carry this one on yourself once its API answers again"
+		if isCarriedOn {
+			next = "once the API answers again the supervisor carries it on with a note, or restarts it in place if its terminal takes no typing, but leaves it to you while its prompt line holds words never sent or its harness shows a screen of its own"
+		}
+		event := taskEvent(observation.TaskID, APIError, "its turn ended on an API error: "+failure+"; "+next)
 		observation.PendingEvent = &event
 	}
 	return observation

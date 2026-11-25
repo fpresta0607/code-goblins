@@ -208,6 +208,10 @@ type Options struct {
 	// reads the machine's.
 	UpdateCheck    func(context.Context, harness.Kind) (string, error)
 	HarnessCurrent func(context.Context, harness.Kind) (bool, error)
+	// APIAnswers checks that a model API's origin answers before the
+	// supervisor carries on a goblin whose turn ended on an API error; nil
+	// reaches the origin itself.
+	APIAnswers func(ctx context.Context, origin string) error
 	// KeyPages are the reviewed key page recipes the binary carries; the
 	// browser broker lends a login's browser only for a provider they name.
 	KeyPages keypages.Recipes
@@ -314,6 +318,9 @@ type Service struct {
 	harnessUpdates   map[string]harnessUpdateRead
 	ceoUpdating      bool
 	ceoUpdateProblem string
+	// apiErrorCarried is when the supervisor last carried each goblin on
+	// after its turn ended on an API error. Only its own loop reads it.
+	apiErrorCarried map[string]time.Time
 	// crossing is the home's move to goblins' names as the last look found
 	// it; isRelabelTried says this supervisor tried its labels once, and
 	// ceoCrossingTries how often it restarted the CEO under the new names.
@@ -723,6 +730,12 @@ func (s *Service) run(ctx context.Context) {
 		s.keepHarnessUpdates(ctx, harnessUpdateEvery)
 	}()
 	defer func() { s.cancel(); <-updatesDone }()
+	apiErrorsDone := make(chan struct{})
+	go func() {
+		defer close(apiErrorsDone)
+		s.keepCarryingOnAfterAPIErrors(ctx, apiErrorCarryOnEvery)
+	}()
+	defer func() { s.cancel(); <-apiErrorsDone }()
 	treesDone := make(chan struct{})
 	go func() {
 		defer close(treesDone)

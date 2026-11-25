@@ -173,3 +173,36 @@ func TestBuildRequiresAnAbsoluteScratch(t *testing.T) {
 		}
 	}
 }
+
+// A goblin's API is where its harness sends its model's requests, as the
+// supervision contract names them: Claude Code's to api.anthropic.com,
+// Codex's to chatgpt.com, and pi's to openrouter.ai when its model names
+// OpenRouter first, however the model's name is cased or spaced, as the key
+// spend dial reads it. A pi model that names no provider, or another one, is
+// an API not known here (#2863).
+func TestAGoblinsAPIIsWhereItsHarnessSendsItsModelsRequests(t *testing.T) {
+	for name, test := range map[string]struct {
+		kind    Kind
+		model   string
+		origin  string
+		isKnown bool
+	}{
+		"claude":                    {Claude, "claude-opus-5-5", "https://api.anthropic.com", true},
+		"codex":                     {Codex, "gpt-6-astra", "https://chatgpt.com", true},
+		"pi on openrouter":          {Pi, "openrouter/deepseek/deepseek-v4.1-flash", "https://openrouter.ai", true},
+		"pi on openrouter, cased":   {Pi, " OpenRouter/z-ai/glm-5.3-flash ", "https://openrouter.ai", true},
+		"pi naming no provider":     {Pi, "your-open-model", "", false},
+		"pi on another provider":    {Pi, "deepseek/deepseek-v4.1-flash", "", false},
+		"pi with an empty provider": {Pi, "/deepseek-v4.1-flash", "", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Act
+			origin, isKnown := APIOrigin(test.kind, test.model)
+
+			// Assert
+			if origin != test.origin || isKnown != test.isKnown {
+				t.Errorf("APIOrigin(%s, %q) = %q, %v; want %q, %v", test.kind, test.model, origin, isKnown, test.origin, test.isKnown)
+			}
+		})
+	}
+}

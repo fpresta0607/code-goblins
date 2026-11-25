@@ -74,6 +74,41 @@ func (s Screens) check(notice string) string {
 	return ""
 }
 
+// EndedOnAPIError reads the error screen's turn ended on once its harness gave
+// up its request to the model's API (Screens.APIError): the last block of rows
+// over its composer, past the status there, as one line. It is false while a
+// turn runs, while the composer cannot be read and while that block shows
+// anything else, as the conversation going on past an error.
+func (s Screens) EndedOnAPIError(screen []string) (string, bool) {
+	if s.APIError == nil || s.IsWorking(screen) {
+		return "", false
+	}
+	above, isRead := s.aboveComposer(screen)
+	if !isRead {
+		return "", false
+	}
+	if _, hasStatus := s.Status(screen); hasStatus {
+		above = above[:len(above)-1]
+	}
+	above = above[:len(above)-emptyRowsAtEnd(above)]
+	start := len(above)
+	for start > 0 && strings.TrimSpace(above[start-1]) != "" {
+		start--
+	}
+	if start == len(above) {
+		return "", false
+	}
+	match := s.APIError.FindStringSubmatch(above[start])
+	if match == nil {
+		return "", false
+	}
+	words := []string{strings.TrimSpace(match[1])}
+	for _, row := range above[start+1:] {
+		words = append(words, strings.TrimSpace(row))
+	}
+	return strings.Join(words, " "), true
+}
+
 // Retry reads the turn row of screen while it waits to retry, and false while
 // no turn shows or its turn row shows anything else.
 func (s Screens) Retry(screen []string) (Retry, bool) {

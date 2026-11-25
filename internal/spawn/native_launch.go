@@ -97,6 +97,10 @@ var ErrInTurn = errors.New("its harness was in a turn")
 // that were never sent, which what it typed would join, so nothing was typed.
 var ErrUnsentWords = errors.New("its prompt line holds words that were never sent")
 
+// ErrOwnScreen says a delivery found its harness showing a screen of its own
+// in its prompt line's place (Screens.IsOpen), so nothing was typed.
+var ErrOwnScreen = errors.New("waiting on its own screen")
+
 // ErrSentNow says a delivery into a turn pressed its harness's send-now key
 // once the text had gone into the harness's queue, so the harness takes it at
 // once rather than at its next tool call. Nothing proves it taken yet, so it
@@ -811,7 +815,7 @@ func (s Service) submitNative(ctx context.Context, record host.Record, screens h
 		}
 	}
 	if screens.IsOpen(before) {
-		return nil, fmt.Errorf("%w: native terminal %s is waiting on its own screen", fleet.ErrNotTyped, record.ID)
+		return nil, fmt.Errorf("%w: native terminal %s is %w", fleet.ErrNotTyped, record.ID, ErrOwnScreen)
 	}
 	if !isRecovering && screens.ComposerHoldsText(before) {
 		return nil, fmt.Errorf("spawn: native terminal %s: %w: %w", record.ID, fleet.ErrNotTyped, ErrUnsentWords)

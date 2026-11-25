@@ -73,7 +73,8 @@ const (
 // "claude-late-enter" taking the first seconds late, with "claude-asks"
 // losing it to a list of choices it then shows under its composer, and with
 // "claude-queues" queueing a line submitted during its turn until Ctrl+X
-// Ctrl+S sends it at once. With "pi-starting" it is
+// Ctrl+S sends it at once, and with "claude-api-error" ending its first turn
+// at once on an API error. With "pi-starting" it is
 // pi 0.85.1 at its editor while its startup completes for a few seconds,
 // with "pi-stuck" one whose startup never completes, and with "pi-stale" one
 // whose first turn ends with the startup row still in its chat and which then
@@ -237,7 +238,7 @@ func fakeHarness() {
 		piStartup(startup, mode == "pi-stale", keys, record, draw) // stall-accepted: the stand-in pi's startup refuses the first Enter however short a stall cuts it, so a test that needs a refusal still gets one.
 		return
 	}
-	if mode == "claude-ready" || mode == "claude-lost-enter" || mode == "claude-enters-lost" || mode == "claude-late-enter" || mode == "claude-asks" || mode == "claude-queues" {
+	if mode == "claude-ready" || mode == "claude-lost-enter" || mode == "claude-enters-lost" || mode == "claude-late-enter" || mode == "claude-asks" || mode == "claude-queues" || mode == "claude-api-error" {
 		claudeComposer(mode, keys, record, draw)
 		return
 	}
@@ -709,8 +710,13 @@ func piStartup(startup time.Duration, isTurnEnding bool, keys <-chan string, rec
 // above the composer, until Ctrl+X Ctrl+S sends what is queued at once. While
 // one waits its empty prompt line shows the hint Claude Code 2.1.314 drew
 // there, live, on 2026-10-30. A /model command it runs at once beside that
-// turn, as Claude Code 2.1.322 does, and queues none of it. A draft
-// fakeCodexDraft names shows in the composer as it starts.
+// turn, as Claude Code 2.1.322 does, and queues none of it. In
+// "claude-api-error" the first line submitted ends its turn at once on the
+// API error Claude Code 2.1.331 showed when the network dropped, live, on
+// 2026-11-24, and its empty prompt line shows the hint Claude Code draws
+// there after one until a key is typed; a line submitted after it starts a
+// turn as the API answers again. A draft fakeCodexDraft names shows in the
+// composer as it starts.
 func claudeComposer(mode string, keys <-chan string, record func(codexEvent), draw func(rows ...string)) {
 	rule := strings.Repeat("─", 80)
 	footer := "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
@@ -723,6 +729,7 @@ func claudeComposer(mode string, keys <-chan string, record func(codexEvent), dr
 	composer(strings.TrimSpace("> " + line.String()))
 	lost, isLate := 0, mode == "claude-late-enter"
 	var queued []string
+	hasFailed := false
 	turn := func(text string) {
 		above = []string{"", "> " + text, "", "✽ Reticulating… (esc to interrupt)"}
 		for _, waiting := range queued {
@@ -771,6 +778,12 @@ func claudeComposer(mode string, keys <-chan string, record func(codexEvent), dr
 				line.Reset()
 				break
 			}
+			if mode == "claude-api-error" && !hasFailed {
+				hasFailed = true
+				above = []string{"", "> " + line.String(), "", "● API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)", "", strings.Repeat(" ", 40) + "× Auto-update failed · Run claude doctor"}
+				line.Reset()
+				break
+			}
 			draw("", "> "+line.String(), "", "✽ Reticulating… (esc to interrupt)", rule, ">", rule, footer)
 			line.Reset()
 			continue
@@ -783,6 +796,9 @@ func claudeComposer(mode string, keys <-chan string, record func(codexEvent), dr
 		rows := []string{"> " + line.String()}
 		if line.Len() == 0 && len(queued) > 0 {
 			rows = []string{"> Press up to edit queued messages"}
+		}
+		if line.Len() == 0 && hasFailed {
+			rows = []string{"> Resend your message to try again"}
 		}
 		for range lost {
 			rows = append(rows, "")
