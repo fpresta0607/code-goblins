@@ -23,8 +23,19 @@ const (
 	StepPacket      = "packet"
 )
 
-// OutcomeCancelled is how a cancelled handoff ends.
-const OutcomeCancelled = "cancelled"
+// The steps a return takes, recorded the same way.
+const (
+	ReturnStepMerge  = "merge"
+	ReturnStepPush   = "push"
+	ReturnStepClose  = "close"
+	ReturnStepResume = "resume"
+)
+
+// The ways a handoff ends.
+const (
+	OutcomeReturned  = "returned"
+	OutcomeCancelled = "cancelled"
+)
 
 // Record is a task's handed_off: the handoff in progress, the task handed
 // off, or, once it ended, how it ended and what the cloud brought.
@@ -42,8 +53,14 @@ type Record struct {
 	Head         string     `json:"head,omitempty"`
 	PacketDigest string     `json:"packet_digest,omitempty"`
 	HandedOff    *time.Time `json:"handed_off,omitempty"`
-	Ended        *time.Time `json:"ended,omitempty"`
-	Outcome      string     `json:"outcome,omitempty"`
+	// ReturnSteps, ReturnHead and CloudPullRequest are what a return did
+	// so far: the head its merge made, before its push.
+	ReturnSteps      []string   `json:"return_steps,omitempty"`
+	ReturnHead       string     `json:"return_head,omitempty"`
+	CloudPullRequest string     `json:"cloud_pull_request,omitempty"`
+	CloudCommits     []string   `json:"cloud_commits,omitempty"`
+	Ended            *time.Time `json:"ended,omitempty"`
+	Outcome          string     `json:"outcome,omitempty"`
 }
 
 // IsActive says the handoff has not ended: it is in progress or the task is
@@ -59,6 +76,10 @@ func (record Record) IsHandedOff() bool {
 
 func (record Record) hasStep(step string) bool {
 	return slices.Contains(record.Steps, step)
+}
+
+func (record Record) hasReturnStep(step string) bool {
+	return slices.Contains(record.ReturnSteps, step)
 }
 
 func recordPath(stateDir, task string) (string, error) {
