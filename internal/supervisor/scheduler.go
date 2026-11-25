@@ -60,6 +60,7 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 	s.starts.Lock()
 	starting, changing := s.starting, maps.Clone(s.changing)
 	failed, changeErrors := maps.Clone(s.startErrors), maps.Clone(s.changeErrors)
+	retries := maps.Clone(s.startRetries)
 	asked := slices.Clone(s.asked)
 	s.starts.Unlock()
 	finished := s.finishedWork()
@@ -77,10 +78,13 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 			continue
 		}
 		// A queued task whose last start failed waits for a Start, so it
-		// neither holds the slot nor fails again every reading.
+		// neither holds the slot nor fails again every reading, unless the
+		// network failed it and its wait to try again has passed.
 		if failure, isFailed := failed[id]; isFailed {
-			record.Waiting = append(record.Waiting, WaitingWork{ID: id, Why: "its last start failed: " + failure})
-			continue
+			if retry, isRetrying := retries[id]; !isRetrying || now.Before(retry.at) {
+				record.Waiting = append(record.Waiting, WaitingWork{ID: id, Why: "its last start failed: " + failure})
+				continue
+			}
 		}
 		if err != nil {
 			record.Waiting = append(record.Waiting, WaitingWork{ID: id, Why: err.Error()})

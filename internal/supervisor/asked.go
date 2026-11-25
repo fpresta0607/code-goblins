@@ -136,6 +136,7 @@ func (s *Service) runAsked() {
 				s.startErrors = map[string]string{}
 			}
 			s.startErrors[next.task] = err.Error()
+			delete(s.startRetries, next.task)
 		}
 		s.starts.Unlock()
 		if err != nil && !started.Held && !isChangeRefusal {
