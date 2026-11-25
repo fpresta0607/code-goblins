@@ -7,21 +7,16 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
-	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 )
-
-// pullRequestAddress is a pull request's address on GitHub.
-var pullRequestAddress = regexp.MustCompile(`^https://github\.com/[\w.-]+/[\w.-]+/pull/\d+$`)
 
 // namingTask is one task as the issues it names are read from: its
 // project's issue repository, which a bare issue number belongs to, its
@@ -55,64 +50,6 @@ func (task namingTask) issues(pullIssues map[string][]tickets.IssueRef) []ticket
 		add(pullIssues[pull])
 	}
 	return named
-}
-
-// taskPullRequests are the pull requests task id is on record with, each
-// once: the one goblins pr check recorded, the one its retirement recorded,
-// each its done reports named and each its ticket named.
-func taskPullRequests(stateDir, id string) ([]string, error) {
-	var pulls []string
-	add := func(pull string) {
-		if pull = strings.TrimSpace(pull); pullRequestAddress.MatchString(pull) && !slices.Contains(pulls, pull) {
-			pulls = append(pulls, pull)
-		}
-	}
-	values, err := state.ReadMeta(state.TaskMetaPath(stateDir, id))
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, err
-	}
-	add(values["pr"])
-	outcome, err := state.ReadOutcome(stateDir, id)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, err
-	}
-	add(outcome.PR)
-	lines, err := fsx.ReadLines(state.StatusPath(stateDir, id))
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, err
-	}
-	for _, line := range lines {
-		if _, event := state.SplitStatus(line); strings.HasPrefix(event, "done: PR ") {
-			add(strings.TrimPrefix(event, "done: PR "))
-		}
-	}
-	record, err := tickets.ReadRecord(stateDir, id)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, err
-	}
-	for _, pull := range record.PullRequestsOnRecord() {
-		add(pull)
-	}
-	return pulls, nil
-}
-
-// taskBrief is the text of the brief at path, or of the task's brief in the
-// home's data folder when path names none or none is there, and "" when the
-// task has neither.
-func taskBrief(h home.Home, id, path string) (string, error) {
-	for _, candidate := range []string{path, filepath.Join(h.Data, id, "brief.md")} {
-		if candidate == "" {
-			continue
-		}
-		text, err := fsx.ReadFile(candidate)
-		if err == nil {
-			return string(text), nil
-		}
-		if !errors.Is(err, fs.ErrNotExist) {
-			return "", err
-		}
-	}
-	return "", nil
 }
 
 // issueRepository is the GitHub repository the issues of the project at
@@ -150,7 +87,7 @@ func openTaskIssues(h home.Home, github tickets.GitHub, gate pipeline.Reader) fu
 		} else if !errors.Is(err, fs.ErrNotExist) {
 			return nil, nil, err
 		}
-		brief, err := taskBrief(h, meta.ID, meta.Brief)
+		brief, err := tickets.TaskBrief(h, meta.ID, meta.Brief)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -158,7 +95,7 @@ func openTaskIssues(h home.Home, github tickets.GitHub, gate pipeline.Reader) fu
 		if task.Closes, err = gateClosingIssues(ctx, github.Commands, gate, meta); err != nil {
 			return nil, nil, err
 		}
-		if task.PullRequests, err = taskPullRequests(h.State, meta.ID); err != nil {
+		if task.PullRequests, err = tickets.TaskPullRequests(h.State, meta.ID); err != nil {
 			return nil, nil, err
 		}
 		pullIssues, unread, err := github.PullRequestIssues(ctx, task.PullRequests)

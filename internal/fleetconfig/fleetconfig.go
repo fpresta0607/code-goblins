@@ -74,6 +74,9 @@ type Settings struct {
 	// CLAUDE.md; any other start stays in the terminal. It is off unless a
 	// home sets it, and no release turns it on (#2374).
 	ClaudeGoblinsOnStream bool `json:"claude_goblins_on_stream"`
+	// StaleWorkDays is the days a paused task or a held backlog row may go
+	// without activity before the work review calls it stale.
+	StaleWorkDays int `json:"stale_work_days"`
 }
 
 // CleanMark is the free disk, in bytes, under which the janitor frees what is
@@ -126,6 +129,7 @@ func Defaults() Settings {
 		// profiles, audit runs and PrecisionDocs test homes.
 		TempPatterns:    []string{"Test*", "go-build*", "ceo-*", "playwright*", "scoped_dir*", "fallow-audit*", "pd-*"},
 		CheckForUpdates: true,
+		StaleWorkDays:   7,
 	}
 }
 
@@ -227,6 +231,9 @@ func parse(data []byte) (Settings, error) {
 	}
 	if settings.GoblinDiskGB <= 0 {
 		return Settings{}, errors.New("goblin_disk_gb must be more than 0")
+	}
+	if settings.StaleWorkDays < 1 {
+		return Settings{}, errors.New("stale_work_days must be at least 1")
 	}
 	for _, pattern := range settings.TempPatterns {
 		if _, err := filepath.Match(pattern, ""); err != nil || pattern == "" || pattern == "*" || filepath.Base(pattern) != pattern {

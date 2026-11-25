@@ -1124,25 +1124,7 @@ func briefProject(path string) string {
 	if err != nil {
 		return ""
 	}
-	return parseBriefProject(lines)
-}
-
-func parseBriefProject(lines []string) string {
-	for i, line := range lines {
-		if strings.TrimSpace(line) != "## Project" {
-			continue
-		}
-		for _, next := range lines[i+1:] {
-			if next = strings.TrimSpace(next); next != "" {
-				if strings.HasPrefix(next, "#") {
-					return ""
-				}
-				checkout, _, _ := strings.Cut(next, " (")
-				return strings.TrimSpace(checkout)
-			}
-		}
-	}
-	return ""
+	return fleet.BriefProject(lines)
 }
 
 // briefSays is what a brief names: the checkout of its project and the first
