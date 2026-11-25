@@ -273,7 +273,7 @@ func TestGoWorkflowBoundsTheBrowserJobThatHangs(t *testing.T) {
 
 	// Assert
 	if job.TimeoutMinutes < 30 || job.TimeoutMinutes > 60 {
-		t.Errorf("the browser job's timeout-minutes is %d, want 30 to 60, a few times its normal twelve", job.TimeoutMinutes)
+		t.Errorf("the browser job's timeout-minutes is %d, want 30 to 60, a few times a shard's normal run", job.TimeoutMinutes)
 	}
 	if len(webkit) != 1 {
 		t.Fatalf("the browser job installs WebKit and Media Foundation in %d steps, want one that shard 1 alone runs: %v", len(webkit), webkit)

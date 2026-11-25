@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { gatherDurations } from "../tests/browser-durations.ts";
+import { checkDurationsCoverListing, gatherDurations } from "../tests/browser-durations.ts";
 import FileDurations from "../tests/file-durations.ts";
 
 function inScratch(body: (scratch: string) => void) {
@@ -71,5 +71,21 @@ for (const { problem, records } of [
       // Act and Assert
       assert.throws(() => gatherDurations(scratch));
     });
+  });
+}
+
+test("a run's durations that record every listed spec file and no other are taken", () => {
+  assert.doesNotThrow(() => checkDurationsCoverListing({ "a.spec.ts": 10, "b.spec.ts": 20 }, ["b.spec.ts", "a.spec.ts"]));
+});
+
+// A share that kept no record leaves its spec files out, and a record whose
+// names are not the listing's would be ignored by the dealer: either way
+// the shares would go back to being dealt by count, so neither is written.
+for (const { problem, durations, refused } of [
+  { problem: "a listed spec file it has no duration for", durations: { "a.spec.ts": 10 }, refused: /no duration for b\.spec\.ts/ },
+  { problem: "a spec file the suite does not list", durations: { "a.spec.ts": 10, "b.spec.ts": 20, "tests/a.spec.ts": 10 }, refused: /not listed: tests\/a\.spec\.ts/ },
+]) {
+  test(`a run's durations are refused with ${problem}`, () => {
+    assert.throws(() => checkDurationsCoverListing(durations, ["a.spec.ts", "b.spec.ts"]), refused);
   });
 }
