@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "./site";
 import { recordingBegins, slowMicrophone } from "./dictation-hold";
-import { at, box, card, field, GOBLIN, NAME, open, openGoblin, pasted, send, snapshot, typed } from "./session-board";
+import { asks, at, box, card, field, GOBLIN, NAME, open, openGoblin, pasted, send, snapshot, typed } from "./session-board";
 
 test.describe("phone speech history", () => {
   test.use({ hasTouch: true });
@@ -130,6 +130,9 @@ test("Shift+Enter starts a new line, and the lines go as one paste", async ({ pa
 // never ran from Modern Chat. Claude Code runs a skill named there only from
 // keys, as its terminal types them, and Modern Chat pasted every message. A
 // skill as the first word is a command, which runs from a paste as before.
+// Typed words take their Enter once the relay's screen shows them on the
+// prompt line, as SHOWS_WORDS says.
+const SHOWS_WORDS = { type: "screen", working: false, open: false, asking: false, draft: true };
 for (const [words, sent] of [
   ["please run /ship now", ["please run /ship now", "\r"]],
   ["first line\nthen run /ship", ["first line\nthen run /ship", "\r"]],
@@ -141,12 +144,162 @@ for (const [words, sent] of [
     await openGoblin(page);
     await field(page).fill(words);
 
-    // Act
+    // Act: typed words show on the prompt line once they are in.
     await send(page).click();
+    if (sent[0] === words) {
+      await expect.poll(() => relay.typed.at(-1)).toBe(words);
+      relay.say(SHOWS_WORDS);
+    }
 
     // Assert
     await expect.poll(() => relay.typed.slice(-2)).toEqual(sent);
     await expect(field(page)).toHaveValue("");
+  });
+}
+
+// stopClock stands the board's clock still once its session is open, so a
+// test moves it on itself. The installed clock runs until it pauses, so it
+// pauses a second on, never at a moment a loaded machine has already passed.
+async function stopClock(page: Page) {
+  const now = new Date("2026-11-24T12:00:00Z");
+  await page.clock.install({ time: now });
+  await page.clock.pauseAt(new Date(now.getTime() + 1000));
+}
+
+// typeSkill sends a message that names a skill after other words to the
+// Claude Code goblin, on a stopped clock, once its words are in.
+async function typeSkill(page: Page, words = "please run /ship now") {
+  const relay = await open(page);
+  await openGoblin(page);
+  await stopClock(page);
+  await field(page).fill(words);
+  await send(page).click();
+  await expect.poll(() => relay.typed.at(-1)).toBe(words);
+  return relay;
+}
+
+// The board's own typed delivery presses its Enter once the words show on
+// the prompt line and have settled (submitNative), and so does the box: a
+// Claude Code that reads the words late, on a loaded machine, takes an Enter
+// that reaches it with them as part of them and leaves the message unsent.
+test("a message typed into Claude Code takes its Enter 300 ms after the relay's screen shows the words, and not before", async ({ page }) => {
+  // Arrange
+  const relay = await typeSkill(page);
+
+  // Act and Assert: a second on, the Enter still waits for the screen.
+  await page.clock.runFor(1000);
+  await page.waitForTimeout(250);
+  expect(relay.typed.at(-1)).toBe("please run /ship now");
+
+  // Act: the relay's screen shows the words on the prompt line.
+  relay.say(SHOWS_WORDS);
+  await expect(box(page)).toHaveAttribute("data-queues", "");
+
+  // Assert: the Enter follows 300 ms later, and not a moment sooner.
+  await page.clock.runFor(299);
+  await page.waitForTimeout(250);
+  expect(relay.typed.at(-1)).toBe("please run /ship now");
+  await page.clock.runFor(1);
+  await expect.poll(() => relay.typed.slice(-2)).toEqual(["please run /ship now", "\r"]);
+});
+
+test("a message typed into Claude Code whose words the relay's screen never shows takes its Enter 3 s after them", async ({ page }) => {
+  // Arrange
+  const relay = await typeSkill(page);
+
+  // Act
+  await page.clock.runFor(2999);
+
+  // Assert
+  await page.waitForTimeout(250);
+  expect(relay.typed.at(-1)).toBe("please run /ship now");
+  await page.clock.runFor(1);
+  await expect.poll(() => relay.typed.slice(-2)).toEqual(["please run /ship now", "\r"]);
+});
+
+// A question the harness opens in the prompt line's place while the Enter
+// waits, as a permission prompt in a turn does, would take the Enter as its
+// answer, so none is pressed and the words stay typed, as the board's own
+// delivery leaves them.
+test("a message typed into Claude Code takes no Enter once a question opens in its prompt line's place, when it falls due or at 3 s", async ({ page }) => {
+  // Arrange
+  const relay = await typeSkill(page);
+  relay.say(SHOWS_WORDS);
+  await expect(box(page)).toHaveAttribute("data-queues", "");
+
+  // Act: a question takes the line's place before the Enter falls due.
+  relay.say({ type: "screen", asking: true, open: true, working: false, panel: { rows: ["Do you want to proceed?"], choices: [{ text: "Yes", number: 1, focused: true }, { text: "No", number: 2 }] } });
+  await expect(asks(page)).toContainText("Do you want to proceed?");
+  await page.clock.runFor(300);
+  await page.clock.runFor(3000);
+
+  // Assert
+  await page.waitForTimeout(250);
+  expect(relay.typed.at(-1)).toBe("please run /ship now");
+});
+
+// The relay reads Claude Code's screen as open wherever its footer is gone,
+// as under a list drawn below the prompt line, while that line still shows
+// the words, so nothing has taken its place and a message that ends in a
+// skill is still sent by its Enter, as #2848 found it was.
+test("a message typed into Claude Code that ends in a skill takes its Enter while a screen is open under the prompt line that shows its words", async ({ page }) => {
+  // Arrange
+  const relay = await typeSkill(page, "first line\nthen run /ship");
+
+  // Act
+  relay.say({ ...SHOWS_WORDS, open: true });
+  await expect(box(page)).toHaveAttribute("data-queues", "");
+  await page.clock.runFor(300);
+
+  // Assert
+  await expect.poll(() => relay.typed.slice(-2)).toEqual(["first line\nthen run /ship", "\r"]);
+});
+
+test("a message typed into Claude Code whose view closes while its Enter waits takes the Enter before the view's connection closes", async ({ page }) => {
+  // Arrange: the clock stands still, so only the view's closing ends the wait.
+  const relay = await typeSkill(page);
+
+  // Act: he leaves for another goblin, which closes this one's view.
+  await card(page, "Ivy - Window Painter").click();
+
+  // Assert
+  await expect(page.locator("#panel-title")).toHaveText("Ivy - Window Painter");
+  await expect.poll(() => relay.typed.slice(-2)).toEqual(["please run /ship now", "\r"]);
+});
+
+// A file he added is named by its path, which Claude Code attaches only from
+// a paste.
+test("a message to Claude Code that names a skill after other words and carries a file goes as one paste naming the file, then Enter", async ({ page }) => {
+  // Arrange
+  const relay = await open(page);
+  const kept = "/home/goblin/composer-files/example.txt";
+  await page.route("**/api/composer/file**", (route) => route.fulfill({ status: 201, json: { path: kept } }));
+  await openGoblin(page);
+  await box(page).locator('input[type="file"]').setInputFiles({ name: "example.txt", mimeType: "text/plain", buffer: Buffer.from("read this attachment") });
+  await expect(box(page).getByRole("list", { name: "Attached files" })).toContainText("example.txt");
+  await field(page).fill("please run /ship now");
+
+  // Act
+  await send(page).click();
+
+  // Assert
+  await expect.poll(() => relay.typed.slice(-2)).toEqual([pasted("please run /ship now\r" + kept), "\r"]);
+});
+
+// Codex runs a skill named anywhere in a message, and pi one only as its
+// first word, from a paste as from keys, so their messages stay one paste.
+for (const harness of ["codex", "pi"] as const) {
+  test(`Send puts "please run /ship now" into ${harness} as one paste, then Enter`, async ({ page }) => {
+    // Arrange
+    const relay = await open(page, snapshot({}, { harness }));
+    await openGoblin(page);
+    await field(page).fill("please run /ship now");
+
+    // Act
+    await send(page).click();
+
+    // Assert
+    await expect.poll(() => relay.typed.slice(-2)).toEqual([pasted("please run /ship now"), "\r"]);
   });
 }
 
