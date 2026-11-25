@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { Action, Snapshot, Task } from "./types";
+import { object, type Action, type Snapshot, type Task } from "./types";
 import { message, reportToCeo, request, useResource } from "./api";
 import { ComposerAttachments } from "./composer-attachments";
 import { ComposerBanner } from "./composer-banner";
@@ -763,18 +763,24 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // that its harness still holds in its own queue, as the terminal's own Up
   // takes that queue back (the Overlord, 2026-11-17: "If I up arrow, it
   // actually pulls the message back into my input and unqueues it", #2622),
-  // but only from a harness that gives its queue back to a key, which Claude
-  // Code alone does (Screens.EditQueue), and only in a terminal, since on
+  // but only from a harness that gives its queue back to a key, as Claude
+  // Code and pi do (Screens.EditQueue, #2340), and only in a terminal, since on
   // stream-json pipes it gives its queue back to nothing; and never one out
   // of his hands, which has no Edit. Past those Up brings back what he sent
   // before, so he never meets the same refusal on every Up (the CEO,
   // 2026-11-18: "Up at an empty box brings back what he sent before, past a
-  // message a Codex or pi harness holds that no key can take back").
+  // message a Codex or pi harness holds that no key can take back"). So it
+  // passes a queue the board refused to take back for as long as it stays as
+  // it is, as one taller than pi's editor, until that queue changes, and asks
+  // again after a refusal that passes, as of a prompt line that holds his
+  // draft (#2340).
   // Edit on a queued message takes it back the same way, before any words he
   // has in the box since, and a message is taken back once however often he
   // presses (the Overlord, 2026-10-28: "lack of indmepotent click on teh
   // queue"), under the request ID a Cancel of it would use.
   const takenBack = useRef(new Set<string>());
+  const heldQueue = queued.filter(isHarnessHeld).map((action) => action.id).join(" ");
+  const refusedQueue = useRef("");
   // A take-back disables the box while the board answers, and a disabled box
   // gives up the keyboard. It takes the keyboard back in the commit that
   // enables it again: asked for a frame later, a key he pressed at once
@@ -796,6 +802,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
       setUnsent("");
     } catch (error: unknown) {
       takenBack.current.delete(action.id);
+      const cause = error instanceof Error && typeof error.cause === "object" && error.cause !== null ? object(error.cause) : {};
+      if (cause.is_lasting === true) refusedQueue.current = heldQueue;
       refuse("Not taken back. " + message(error));
       if (!(error instanceof Error && error.cause !== undefined)) reportToCeo("taking back a message to " + name, message(error));
     } finally {
@@ -826,8 +834,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // Down walks forward again to the empty box; any edit ends the recall.
   const recall = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const box = event.currentTarget;
-    const hasQueueKey = harness === "claude" && !live?.isStream;
-    const newest = queued.filter((action) => !action.awaiting || hasQueueKey && isHarnessHeld(action) && !handedOver.includes(action.id)).at(-1);
+    const hasQueueKey = (harness === "claude" || harness === "pi") && !live?.isStream;
+    const newest = queued.filter((action) => !action.awaiting || hasQueueKey && refusedQueue.current !== heldQueue && isHarnessHeld(action) && !handedOver.includes(action.id)).at(-1);
     if (event.key === "ArrowUp" && hasConversation && !draft && !attached.length && newest) {
       if (!isSending) void unqueue(newest);
       return true;
