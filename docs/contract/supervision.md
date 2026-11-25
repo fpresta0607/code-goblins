@@ -204,11 +204,11 @@ Only that session:
 - takes the session lock, from the SessionStart digest, the Stop hook, `goblins register` and `goblins session-start`.
 - registers as the primary CEO.
 - is given the digest, guarded by the pre-tool hooks, held at a blind turn end and rewoken by the Stop hook with the fleet's wakes.
-- acts as the CEO from a command: `goblins brief`, `spawn`, `send`, `switch`, `title`, `pause`, `resume`, `kill`, `cleanup`, `supersede`, `backlog`, `pr`, `merge-local`, `deploy` and `start-hook`, a `goblins drain` that acknowledges, a `goblins reap` that acts, a `goblins allowance-floor` that sets a floor, a `goblins memory lesson`, a `goblins memory sync`, every `goblins memory scope` but the one spelled exactly `goblins memory scope --list`, and a `goblins auth grant --codex-credits`.
+- acts as the CEO from a command: `goblins brief`, `spawn`, `send`, `switch`, `title`, `pause`, `resume`, `kill`, `cleanup`, `supersede`, `pr`, `merge-local`, `deploy` and `start-hook`, a `goblins backlog` that changes a row, a `goblins drain` that acknowledges, a `goblins reap` that acts, a `goblins allowance-floor` that sets a floor, a `goblins memory lesson`, a `goblins memory sync`, every `goblins memory scope` but the one spelled exactly `goblins memory scope --list`, and a `goblins auth grant --codex-credits`.
 
 Every other agent session is left alone.
 A Claude Code session the Overlord opens himself, in the desktop app or a terminal of his own, in any folder, gets nothing from any hook: no digest, no lock, no guard on its tools and no rewake.
-In it a command that acts as the CEO is refused, naming the harness that runs it, and changes nothing, while reading the fleet stays open: `goblins fleet-view`, `peek`, `runtime`, `tickets`, a `goblins drain` that only prints, a `goblins reap` that only reports and a `goblins allowance-floor` that only says the floors.
+In it a command that acts as the CEO is refused, naming the harness that runs it, and changes nothing, while reading the fleet stays open: `goblins fleet-view`, `peek`, `runtime`, `tickets`, a `goblins backlog review`, a `goblins drain` that only prints, a `goblins reap` that only reports and a `goblins allowance-floor` that only says the floors.
 A goblin and a gate agent keep the commands they have always had, and a terminal no agent harness runs, such as the Overlord's own PowerShell, runs every command as before.
 `goblins session-start` anywhere but in the CEO's own session, his own terminal included, prints the read-only digest and takes no lock.
 A Codex or pi session that is not the CEO's own registers nothing either: its native hooks only report its prompts.
