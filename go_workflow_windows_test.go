@@ -196,15 +196,19 @@ func TestGoWorkflowRunsEveryPackageOnce(t *testing.T) {
 }
 
 // The browser job runs the board's browser tests as shares of one suite, one
-// share to a job: Playwright deals the spec files out among as many shares as
-// the command names, and runs the share it is asked for. A list that skipped
-// a number, or a command that named another count than the list's length,
-// would leave a share run by no job, and the workflow would still pass. So
-// the list is 1 up to its length, and the command asks for this job's number
-// out of the number of jobs.
+// share to a job: tests/browser-share.ts deals the spec files out among as
+// many shares as the command names, and the job runs the share it is asked
+// for. A list that skipped a number, or a command that named another count
+// than the list's length, would leave a share run by no job, and the workflow
+// would still pass. So the list is 1 up to its length, and the command asks
+// for this job's number out of the number of jobs. Playwright's own --shard
+// cut its list of tests in order, and that list puts the slowest specs last,
+// so the last share took 19 of its 20 minutes (#2119): the job runs no share
+// of its cutting.
 func TestGoWorkflowRunsEveryBrowserTestOnce(t *testing.T) {
 	// Arrange
-	const share = "npm run test:browser -- --shard=${{ matrix.shard }}/${{ strategy.job-total }} --project=board --project=stepped-in"
+	const deal = "node tests/browser-share.ts ${{ matrix.shard }}/${{ strategy.job-total }} \"$env:RUNNER_TEMP/browser-tests.json\" \"$env:RUNNER_TEMP/browser-share.txt\""
+	const share = "npm run test:browser -- --test-list \"$env:RUNNER_TEMP/browser-share.txt\" --project=board --project=stepped-in"
 
 	// Act
 	shards := goWorkflowJobs(t)["browser"].Strategy.Matrix.Shard
@@ -233,6 +237,9 @@ func TestGoWorkflowRunsEveryBrowserTestOnce(t *testing.T) {
 	}
 	if runs := strings.Count(runners[0], "test:browser"); runs != 1 || !strings.Contains(runners[0], share) {
 		t.Errorf("the browser job's share runs the browser tests %d times as %q, want once, as %q", runs, runners[0], share)
+	}
+	if !strings.Contains(runners[0], deal) || strings.Contains(runners[0], "--shard") {
+		t.Errorf("the browser job's share step runs %q, want its share dealt by %q, and no --shard", runners[0], deal)
 	}
 	iphone := runners[1]
 	if !strings.Contains(iphone, "--project=iphone") || strings.Contains(iphone, "--shard") {

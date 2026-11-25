@@ -25,10 +25,10 @@ export default defineConfig<{ isSteppedIn: boolean }>({
   reporter: process.env.CI ? [["dot"], ["./tests/failed-once.ts"]] : "list",
   // A test that never finishes must fail a shard rather than hold the job to
   // its own limit, and every merge train waiting on the run with it (#1406).
-  // In CI the run ends after 20 minutes, a little over twice a shard's normal
-  // 8 to 12, so the job's rerun of its failed checks takes over. At a desk a
-  // whole suite runs on one worker and may take longer than a shard, so only
-  // CI is bounded.
+  // In CI the run ends after 20 minutes, a third more than a shard's normal
+  // 15 at the most (#2119), so the job's rerun of its failed checks takes
+  // over. At a desk a whole suite runs on one worker and may take longer than
+  // a shard, so only CI is bounded.
   globalTimeout: process.env.CI ? 20 * 60_000 : 0,
   // The tests load the board and their fixture pages from a build, which
   // tests/site.ts answers from files: there is no web server, and baseURL is
