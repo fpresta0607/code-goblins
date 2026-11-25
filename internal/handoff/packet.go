@@ -6,9 +6,12 @@
 package handoff
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
@@ -172,6 +175,46 @@ func (packet Packet) Text() string {
 	line("- Never mark any pull request ready, and never merge anything.")
 	text.WriteString(PacketEnd)
 	return text.String()
+}
+
+// Digest is the packet's sha256, which the task record keeps.
+func Digest(text string) string {
+	sum := sha256.Sum256([]byte(text))
+	return hex.EncodeToString(sum[:])
+}
+
+// copiedRun is how many words in a row a handoff line may not share with a
+// line of the task's private texts: a run that long is a copy of it.
+const copiedRun = 8
+
+// CopyRefusal says which line of handoff copies copiedRun words in a row of
+// a line of private, the task's brief, decisions and status lines, which the
+// packet never carries, or "" when none does. It never repeats what it found.
+func CopyRefusal(handoff string, private []string) string {
+	var runs []string
+	for _, text := range private {
+		for _, line := range strings.Split(text, "\n") {
+			words := wordsOf(line)
+			for start := 0; start+copiedRun <= len(words); start++ {
+				runs = append(runs, " "+strings.Join(words[start:start+copiedRun], " ")+" ")
+			}
+		}
+	}
+	for number, line := range strings.Split(handoff, "\n") {
+		joined := " " + strings.Join(wordsOf(line), " ") + " "
+		for _, run := range runs {
+			if strings.Contains(joined, run) {
+				return fmt.Sprintf("line %d of the goblin's handoff is refused: it copies the task's brief, a decision or a status line word for word", number+1)
+			}
+		}
+	}
+	return ""
+}
+
+// wordsOf is line's words in lower case, so neither case nor punctuation
+// hides a copy.
+func wordsOf(line string) []string {
+	return strings.FieldsFunc(strings.ToLower(line), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
 }
 
 // Splice is body with packet in place of the packet it holds, or after it

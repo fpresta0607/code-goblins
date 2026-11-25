@@ -48,32 +48,38 @@ Before it changes anything it refuses, naming why, when:
 - a gate run is active or parked on the branch, since the pipeline owns the branch while it runs ([delivery](../contract/delivery.md));
 - the goblin has helpers still working, or is itself a helper;
 - the task is already handed off;
+- the task is not running, since a goblin already paused, queued or stopped is not there to write its handoff for publication: resume it first.
+  The task lifecycle refuses a handoff pause over a pause of another reason on its own, so no caller takes one in place;
 - the branch's ready pull request has CI still running, since a push then cancels that run after it billed its minutes ([delivery](../contract/delivery.md));
 - the worktree is dirty, unless `--wip`, which commits everything in one commit titled `wip(handoff): <task>`.
+  The same holds after the pause: a goblin that left changes uncommitted by its stopping point stops the handoff with the task paused, and a second `handoff --wip` commits them.
 
 Then, in this order, each step recorded so a failure part-way says which ran:
 
 1. Pauses the goblin through the task lifecycle with a new reason, `handoff`.
    While the packet that pause's handoff publishes is out, only `goblins handoff return` or `goblins handoff cancel` clears it: a plain resume, and `goblins switch`, which would relaunch the goblin, are refused, since a second writer on the branch is the harm.
+   `goblins pause --reason handoff` is refused, naming `goblins handoff`, and the Overlord's Resume on the card of a handed-off task goes through `cancel` (the second pull request).
    The pause asks the goblin for its handoff as every pause does, and for this reason the goblin writes it for publication: what is done and what is left, as it would put them in a public issue.
    A goblin that writes none by its stopping point leaves the fallback the pause writes for it, which carries its last status line word for word ([pausing](../contract/dispatch.md#pausing-and-automatic-resume)).
-   A handoff never publishes that fallback: it stops here with nothing pushed or written and the task left paused, and a second `handoff` goes on once the goblin has written its own.
+   A handoff never publishes that fallback: it stops here with nothing pushed or written and the task left paused.
    A pause whose handoff was only that fallback, or that saved none, published nothing, so the task is not handed off: a plain resume clears it, and no refusal says it was handed off.
-2. Pushes the goblin's branch.
-3. Opens a draft pull request from it into the default branch, or reuses the goblin's open one.
+   A goblin paused is not asked again, so a new `handoff` asks it again once it has been resumed.
+2. With `--wip`, commits what the worktree holds.
+3. Pushes the goblin's branch.
+4. Opens a draft pull request from it into the default branch, or reuses the goblin's open one.
    A draft starts no hosted CI ([delivery](../contract/delivery.md)).
-4. Writes the **handoff packet** into that pull request's body, between `<!-- goblins-handoff v1 -->` and `<!-- /goblins-handoff -->`, keeping the rest of the body:
+5. Writes the **handoff packet** into that pull request's body, between `<!-- goblins-handoff v1 -->` and `<!-- /goblins-handoff -->`, keeping the rest of the body:
    - the handoff the goblin wrote for publication, never a fallback the pause wrote for it;
    - the issues the task claims;
    - the branch, its head and the commits since the default branch;
    - the delivery mode and the verification commands frozen in the task's delivery receipt, each marked Windows-only when its package is on the Linux CI job's EXCEPT list ([go workflow](../../.github/workflows/go.yml));
    - the rules for the cloud session: branch from this head, push only to your own branch, open your pull request into this branch, say in its body what you ran and what you could not, never mark anything ready, never merge.
 
-   The packet never copies the task's brief, its decisions or the goblin's status lines verbatim.
+   The packet never copies the task's brief, its decisions or the goblin's status lines verbatim: a handoff line that shares eight words in a row with a line of the brief, of a Markdown file in the task's data directory or of a status line stops the handoff before anything is pushed or written.
    This reverses nothing: the brief itself still never reaches a pull request body, as a gate run's `--no-publish-intent` keeps it out of the one the gate opens ([pipeline](../pipeline.md)).
    On every repository, private or public, the packet passes the screen `goblins issue file` applies to a public repository's issue before anything is written, and the handoff refuses, naming the line, rather than redacting it.
-5. Marks the task record `handed_off` with the pull request, whether the handoff opened it, the head and the packet's digest.
-6. Prints the cloud prompt: the repository, the pull request link, and one line telling the session to read the packet and follow its rules.
+6. Marks the handoff record `handed_off` with the pull request, whether the handoff opened it, the head and the packet's digest.
+7. Prints the cloud prompt: the repository, the pull request link, and one line telling the session to read the packet and follow its rules.
 
 While a task is handed off the supervisor raises no stall, idle or `pr_health` wake for it, and its card shows **In the cloud** with the pull request.
 The teammate-overlap read stops while the task is handed off, as it does for any paused goblin, and runs again on return.
@@ -96,12 +102,15 @@ An author other than the account `gh` works as is named on the item, and bringin
 
 1. Finds the cloud's pull request into the task's branch, or takes `--pr`.
    With more than one and no `--pr`, it lists them and changes nothing.
+   It refuses a pull request from a fork, and one whose author is not the account `gh` works as, which needs the Overlord's press on the Command Center item (the second pull request).
 2. Checks that the goblin's branch on GitHub and in its worktree are still at the head the handoff recorded and the worktree is clean, and refuses otherwise, or while the branch's ready pull request has CI still running.
 3. Fetches the cloud branch and fast-forwards the goblin's branch to it in the worktree, or merges it when it does not descend from that head.
+   It first checks that the fetched head is the one the pull request names.
    A conflict stops the return with the merge aborted, the worktree as it was and the task still handed off.
 4. Pushes the goblin's branch, which GitHub reads as the cloud's pull request merged, since its commits are now in its base.
 5. For a `no-mistakes` task, closes the draft the handoff itself opened, so the gate opens its own ready pull request ([delivery](../contract/delivery.md)); a ready pull request the handoff reused stays as it is.
-6. Clears the `handed_off` mark and resumes the goblin through `goblins resume`, with one more line in its instruction: which commits came from the cloud, the cloud pull request's link, what its body says it ran and could not, and that the task's delivery mode now validates the whole branch before it reports done.
+6. Ends the handoff record and resumes the goblin, with one more line in its instruction: which commits came from the cloud, the cloud pull request's link, that its body says what it ran and could not, and that the task's delivery mode now validates the whole branch before it reports done.
+   The note links the cloud pull request's body rather than copying it, so text the cloud session wrote never enters the goblin's instruction unread.
 
 The goblin stays the task's one validation owner, so the cloud's work passes the same gate, tests and review as the goblin's own.
 `return` deletes no branch and closes no pull request beyond what the push does and that draft.
@@ -110,7 +119,7 @@ The goblin stays the task's one validation owner, so the cloud's work passes the
 
 ## Records and the board
 
-- The task record gains `handed_off`: the pull request, whether the handoff opened it, the head, the packet's digest, when, and, after return, the cloud pull request and the commits it brought.
+- Each handoff keeps a record of its own, at `state/handoffs/<task>.json`, rather than a field of the task record, since it outlives the pause and holds the steps that ran: `handed_off`, the pull request, whether the handoff opened it, the head, the packet's digest, when, and, after return, the cloud pull request and the commits it brought.
 - The pause's `handoff` reason shows on the card as **In the cloud**, and the Command Center item as above.
 - `goblins status` names handed-off tasks, and the CEO's digest counts them.
 - AFK mode never hands off or brings back; both are the Overlord's.
@@ -134,6 +143,7 @@ The goblin stays the task's one validation owner, so the cloud's work passes the
 ## Pull requests
 
 1. The `internal/handoff` package, the task record's `handed_off`, the `handoff` pause reason, and `goblins handoff` and `return` and `cancel` on the command line.
+   It lands in four, each within the gate's 2000-line review: the `handoff` pause reason and the packet; the fallback mark kept across a retried pause; the task record's `handed_off` with `goblins handoff` and `cancel`; and `goblins handoff return`.
 2. The supervisor's watch for the cloud's pull request, the Command Center item, and the card's **Hand off** and **In the cloud**.
 
 ## Open questions
@@ -143,7 +153,8 @@ The goblin stays the task's one validation owner, so the cloud's work passes the
   So a public repository hands off as a private one does, and its packet passes the screening a public issue passes before anything is written, as every packet does.
   It refuses credential values, private keys and key-shaped words, paths on this machine, teammates' names, @mentions other than the owner, and private projects' names.
 - Does a pull request a cloud session opens count as opened by the account `gh` works as on the PC?
-  It depends on how the Claude GitHub App acts for the user, and the first pull request must read it from a real one rather than assume it.
+  Read from a real one on 2026-11-24: the design's own pull request was opened by a cloud session, and its author is the account `gh api user` names.
+  So a cloud pull request from the Overlord's own session returns with no press, and one from any other author needs it.
 - Should **Hand off** offer to hand off every working goblin at once, as Restart PC pauses them all?
   This design starts with one at a time.
 - Once the Linux port's installer lands ([linux port](2026-11-11-linux-port.md), layer 8), a second machine that stays on could take a task by the same packet, with a `goblins handoff adopt` that spawns a goblin there from it.

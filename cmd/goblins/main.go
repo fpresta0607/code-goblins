@@ -149,6 +149,7 @@ commands:
   goblins backlog done <id>   close a retired delivered task's queued row, preserving its evidence and continuation under Done
   goblins backlog review   say which queued rows, parked rows and paused tasks need a decision (done already, a step for the owner overtaken, work to fold, work gone stale), with evidence and a proposal for each; it reads only
   goblins pause <id> | resume <id> | kill <id>   pause, resume or stop a task while preserving its work
+  goblins handoff <id> [--wip] | handoff cancel <id>   hand a task to a cloud session through a screened packet in its pull request, or resume it without the cloud's work
   goblins reap [--dry-run] [--apply] [--force <pid|task-id>]... [--json]   find orphaned harness processes, stale dev servers, worktrees, task records and status logs; --apply retires the worktrees, records and logs, and ending a process needs its pid named with --force
   goblins process-plan   what the janitor's process sweep, and a cleanup or a relaunch of each task, would end on this machine now, with the rule that decides each; it reads only and ends nothing
   goblins notify <id> --done --pr <url> [--lesson "<one line>" --cites "<stamp or words of a status line>"]... | --done --closed <issue-url> --decision <sequence> | --done --report <file> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|run-id|overlord|ci|deploy|memory> "<why>" [--lavish <html-file>] [--link <https-url>] [--run <command-file>]   a goblin reports its outcome straight into the wake queue, or what it is working on or waiting on; a wait on the Overlord leads with one sentence, puts values he must enter in a Markdown table on the lines after it with each value in backticks, which his card copies, and gives the one link his card opens with --link; --run names a .ps1 or .sh file holding a command he must run, which his card runs with one click in a terminal on the card, where he types into it
@@ -791,6 +792,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runTickets(args[1:], stdout, stderr, runtime)
 	case "issue":
 		return runIssue(args[1:], stdout, stderr, runtime)
+	case "handoff":
+		return runHandoff(args[1:], stdout, stderr, runtime)
 	case "brief":
 		return runBrief(args[1:], stdout, stderr, runtime)
 	case "pr":
