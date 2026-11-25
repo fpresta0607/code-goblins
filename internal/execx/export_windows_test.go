@@ -1,6 +1,7 @@
 package execx
 
 import (
+	"context"
 	"syscall"
 	"testing"
 	"unsafe"
@@ -18,6 +19,41 @@ func (t *Tree) KillsOnCloseForTest() (bool, error) {
 		return false, err
 	}
 	return limits.BasicLimitInformation.LimitFlags&windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE != 0, nil
+}
+
+// EndJobAgainForTest calls slow before each end of a job's processes after
+// the first, until the test ends, as a loaded machine's reads of its
+// processes, which each such end makes, can take seconds.
+func EndJobAgainForTest(t testing.TB, slow func()) {
+	original := endJob
+	t.Cleanup(func() { endJob = original })
+	hasEnded := false
+	endJob = func(ctx context.Context, job windows.Handle) (ended, spared []proc.Entry, err error) {
+		if hasEnded {
+			slow()
+		}
+		hasEnded = true
+		return original(ctx, job)
+	}
+}
+
+// JoinAfterEndForTest puts process in the job once the first end of the
+// job's processes returns, until the test ends, as a process that starts
+// while the end waits joins the job.
+func JoinAfterEndForTest(t testing.TB, process windows.Handle) {
+	original := endJob
+	t.Cleanup(func() { endJob = original })
+	hasEnded := false
+	endJob = func(ctx context.Context, job windows.Handle) (ended, spared []proc.Entry, err error) {
+		ended, spared, err = original(ctx, job)
+		if !hasEnded {
+			hasEnded = true
+			if err := windows.AssignProcessToJobObject(job, process); err != nil {
+				t.Errorf("put a process in the job after its first end: %v", err)
+			}
+		}
+		return ended, spared, err
+	}
 }
 
 // CountUnlistedForTest makes the next reads of a job's members, until the
