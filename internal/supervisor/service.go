@@ -377,11 +377,13 @@ type Service struct {
 	folds foldProjects
 	// starts guards starting, the task a Start is running goblins spawn for,
 	// overlordStart, the last task the Overlord's own Start ran goblins spawn
-	// for, and startErrors, why each task's last Start failed.
+	// for, startErrors, why each task's last Start failed, and startRetries,
+	// when the scheduler tries again each start the network failed.
 	starts        sync.Mutex
 	starting      string
 	overlordStart string
 	startErrors   map[string]string
+	startRetries  map[string]startRetry
 	changing      map[string]string
 	engineFrom    map[string]state.TaskMeta
 	engineIdle    map[string]engineIdleReading

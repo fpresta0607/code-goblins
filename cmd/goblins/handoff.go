@@ -18,12 +18,12 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 )
 
-const handoffUsage = "goblins handoff <task> [--wip] | handoff cancel <task>"
+const handoffUsage = "goblins handoff <task> [--wip] | handoff return <task> [--pr <url>] | handoff cancel <task>"
 
-// runHandoff runs goblins handoff and handoff cancel.
+// runHandoff runs goblins handoff, handoff return and handoff cancel.
 func runHandoff(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	action := "handoff"
-	if len(args) > 0 && args[0] == "cancel" {
+	if len(args) > 0 && (args[0] == "return" || args[0] == "cancel") {
 		action, args = args[0], args[1:]
 	}
 	if len(args) == 0 || state.ValidTaskID(args[0]) != nil {
@@ -33,9 +33,12 @@ func runHandoff(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 	id := args[0]
 	flags := flag.NewFlagSet("handoff "+action, flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	isWIP := false
-	if action == "handoff" {
+	isWIP, pullRequest := false, ""
+	switch action {
+	case "handoff":
 		flags.BoolVar(&isWIP, "wip", false, "commit the worktree's uncommitted changes as wip(handoff): <task> before handing off")
+	case "return":
+		flags.StringVar(&pullRequest, "pr", "", "the cloud's pull request to bring back, when more than one targets the branch")
 	}
 	if !parseFlags(flags, args[1:]) {
 		return 2
@@ -60,13 +63,19 @@ func runHandoff(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 	switch action {
 	case "handoff":
 		record, prompt, err = service.Handoff(ctx, id, isWIP)
+	case "return":
+		record, err = service.Return(ctx, id, pullRequest)
 	case "cancel":
 		record, err = service.Cancel(ctx, id)
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "goblins handoff %s: %v\n", action, err)
-		if len(record.Steps) > 0 {
-			fmt.Fprintf(stderr, "steps that ran: %v\n", record.Steps)
+		steps := record.Steps
+		if action == "return" {
+			steps = record.ReturnSteps
+		}
+		if len(steps) > 0 {
+			fmt.Fprintf(stderr, "steps that ran: %v\n", steps)
 		}
 		return 1
 	}

@@ -20,6 +20,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/tickets"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -342,6 +343,23 @@ func (s *Service) runStart(dispatch *Dispatch, plan startPlan) {
 		failure = spawnFailure(output, err)
 	}
 	isBriefWaiting := err != nil && strings.Contains(failure, fleet.ErrBriefNotReady.Error())
+	// A start the network failed is tried again by the scheduler after a wait
+	// that doubles with each try, since DNS and GitHub came and went for
+	// minutes at a time on 2026-11-25, until networkStartTries tries have
+	// failed (#2905). Any other outcome ends the retries.
+	s.starts.Lock()
+	retry := s.startRetries[plan.id]
+	delete(s.startRetries, plan.id)
+	if failure != "" && !isBriefWaiting && tickets.IsLostConnection(failure) && retry.tries+1 < networkStartTries {
+		retry.tries++
+		retry.at = time.Now().UTC().Add(min(time.Minute<<(retry.tries-1), 30*time.Minute))
+		if s.startRetries == nil {
+			s.startRetries = map[string]startRetry{}
+		}
+		s.startRetries[plan.id] = retry
+		failure += "; the network could not be reached, so it tries again by itself at " + retry.at.Format("15:04Z")
+	}
+	s.starts.Unlock()
 	h := s.Store.Home
 	detail := "start failed: " + failure
 	if isBriefWaiting {
@@ -397,6 +415,17 @@ func (s *Service) runStart(dispatch *Dispatch, plan startPlan) {
 	s.starts.Unlock()
 	s.notify()
 	s.runAsked()
+}
+
+// networkStartTries is how many times a start the network keeps failing is
+// tried before it waits for a Start: about two and a half hours of waits.
+const networkStartTries = 10
+
+// startRetry is when the scheduler tries again a start the network failed,
+// and how many tries it has had again so far.
+type startRetry struct {
+	at    time.Time
+	tries int
 }
 
 // spawnFailure is why goblins spawn failed: the last line it printed, which is

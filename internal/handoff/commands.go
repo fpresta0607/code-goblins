@@ -33,6 +33,22 @@ func (c commands) git(ctx context.Context, args ...string) (string, error) {
 	return c.run(ctx, "git", append([]string{"-C", c.worktree}, args...)...)
 }
 
+// gitSucceeds runs a git command that answers with its exit code alone,
+// such as merge-base --is-ancestor, and says whether it exited 0.
+func (c commands) gitSucceeds(ctx context.Context, args ...string) (bool, error) {
+	result, err := c.runner.Run(ctx, execx.Request{Name: "git", Args: append([]string{"-C", c.worktree}, args...)})
+	if err != nil {
+		return false, fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+	}
+	switch result.ExitCode {
+	case 0:
+		return true, nil
+	case 1:
+		return false, nil
+	}
+	return false, fmt.Errorf("git %s: exit %d: %s", strings.Join(args, " "), result.ExitCode, strings.TrimSpace(string(result.Stderr)))
+}
+
 func (c commands) isClean(ctx context.Context) (bool, error) {
 	status, err := c.git(ctx, "status", "--porcelain=v1", "--untracked-files=all")
 	return status == "", err
@@ -50,8 +66,18 @@ func (c commands) branch(ctx context.Context) (string, error) {
 	return branch, nil
 }
 
-func (c commands) push(ctx context.Context, branch string) error {
-	_, err := c.git(ctx, "push", "origin", "HEAD:refs/heads/"+branch)
+// remoteHead is branch's head on GitHub, or "" when GitHub has no branch.
+func (c commands) remoteHead(ctx context.Context, branch string) (string, error) {
+	listed, err := c.git(ctx, "ls-remote", "origin", "refs/heads/"+branch)
+	if err != nil {
+		return "", err
+	}
+	head, _, _ := strings.Cut(listed, "\t")
+	return head, nil
+}
+
+func (c commands) push(ctx context.Context, revision, branch string) error {
+	_, err := c.git(ctx, "push", "origin", revision+":refs/heads/"+branch)
 	return err
 }
 
@@ -76,6 +102,10 @@ func (c commands) defaultBranch(ctx context.Context) (string, error) {
 	return c.gh(ctx, "repo", "view", c.repository, "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name")
 }
 
+func (c commands) account(ctx context.Context) (string, error) {
+	return c.gh(ctx, "api", "user", "--jq", ".login")
+}
+
 // pullRequest is an open pull request as gh lists it.
 type pullRequest struct {
 	URL               string       `json:"url"`
@@ -83,7 +113,14 @@ type pullRequest struct {
 	IsDraft           bool         `json:"isDraft"`
 	Body              string       `json:"body"`
 	HeadRefName       string       `json:"headRefName"`
+	HeadRefOid        string       `json:"headRefOid"`
+	IsCrossRepository bool         `json:"isCrossRepository"`
+	Author            author       `json:"author"`
 	StatusCheckRollup []checkState `json:"statusCheckRollup"`
+}
+
+type author struct {
+	Login string `json:"login"`
 }
 
 // checkState is one check of a pull request's head: a check run has a
@@ -103,7 +140,7 @@ func (pr pullRequest) isCIRunning() bool {
 	return false
 }
 
-const pullRequestFields = "url,state,isDraft,body,headRefName,statusCheckRollup"
+const pullRequestFields = "url,state,isDraft,body,headRefName,headRefOid,isCrossRepository,author,statusCheckRollup"
 
 func (c commands) pullRequests(ctx context.Context, side, branch string) ([]pullRequest, error) {
 	listed, err := c.gh(ctx, "pr", "list", "--repo", c.repository, side, branch, "--state", "open", "--json", pullRequestFields)
