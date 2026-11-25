@@ -9,7 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/gatehome"
 	"github.com/fpresta0607/code-goblins/internal/handoff"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -181,5 +183,95 @@ func TestTheHandoffsLifecycleIsTheTasksLifecycleInItsHome(t *testing.T) {
 	// Assert
 	if err != nil || paused.Phase != "paused" || gotHome.State != h.State || gotRequest != request {
 		t.Fatalf("lifecycle = %+v, %v; called in %+v with %+v", paused, err, gotHome, gotRequest)
+	}
+}
+
+// returnGH answers the git requests goblins handoff return makes of a
+// worktree on feat/parser of acme/widgets, and lists listed as the open pull
+// requests into that branch, with gh working as acme; every other gh fails
+// as GitHub down would.
+type returnGH struct{ listed string }
+
+func (f returnGH) Run(_ context.Context, request execx.Request) (execx.Result, error) {
+	asked := strings.Join(request.Args, " ")
+	switch {
+	case request.Name == "git" && strings.HasSuffix(asked, "remote get-url origin"):
+		return execx.Result{Stdout: []byte("https://github.com/acme/widgets.git\n")}, nil
+	case request.Name == "git" && strings.HasSuffix(asked, "symbolic-ref --quiet --short HEAD"):
+		return execx.Result{Stdout: []byte("feat/parser\n")}, nil
+	case request.Name == "gh" && strings.HasPrefix(asked, "pr list --repo acme/widgets --base feat/parser "):
+		return execx.Result{Stdout: []byte(f.listed)}, nil
+	case request.Name == "gh" && asked == "api user --jq .login":
+		return execx.Result{Stdout: []byte("acme\n")}, nil
+	}
+	return execx.Result{ExitCode: 1, Stderr: []byte("GitHub is down")}, nil
+}
+
+// handedOffRuntime is a primary home whose task is handed off as record
+// says, read through gh.
+func handedOffRuntime(t *testing.T, gh returnGH, record handoff.Record) commandRuntime {
+	t.Helper()
+	t.Setenv(gatehome.Variable, t.TempDir())
+	h := primaryHomeFixture(t)
+	meta := state.TaskMeta{ID: "task", SpawnGen: "generation-1", Backend: "native", Worktree: t.TempDir(), TaskTmp: t.TempDir(), Mode: "no-mistakes"}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	handedOff := time.Now().UTC()
+	record.Task, record.Started, record.HandedOff = meta.ID, handedOff, &handedOff
+	record.Steps = []string{handoff.StepPause, handoff.StepPush, handoff.StepPullRequest, handoff.StepPacket}
+	record.PullRequest, record.IsOpenedByHandoff = "https://github.com/acme/widgets/pull/1", true
+	if err := handoff.WriteRecord(h.State, record); err != nil {
+		t.Fatal(err)
+	}
+	return commandRuntime{
+		resolveHome: func() (home.Home, error) { return h, nil },
+		github:      gh,
+		taskLifecycle: func(context.Context, home.Home, lifecycle.Request, string) (state.Lifecycle, error) {
+			return state.Lifecycle{}, nil
+		},
+	}
+}
+
+func TestGoblinsHandoffReturnBringsBackThePullRequestPRNames(t *testing.T) {
+	const listed = `[{"url":"https://github.com/acme/widgets/pull/2","state":"OPEN","headRefName":"claude/a","author":{"login":"teammate"}},{"url":"https://github.com/acme/widgets/pull/3","state":"OPEN","headRefName":"claude/b","author":{"login":"teammate"}}]`
+	for _, test := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "no --pr", want: "2 open pull requests target feat/parser, so name one with --pr"},
+		{name: "--pr the first", args: []string{"--pr", "https://github.com/acme/widgets/pull/2"}, want: "https://github.com/acme/widgets/pull/2 was opened by teammate"},
+		{name: "--pr the second", args: []string{"--pr", "https://github.com/acme/widgets/pull/3"}, want: "https://github.com/acme/widgets/pull/3 was opened by teammate"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			runtime := handedOffRuntime(t, returnGH{listed: listed}, handoff.Record{Head: "0123456789abcdef0123456789abcdef01234567"})
+			var output, failure bytes.Buffer
+
+			// Act
+			code := runWithRuntime(append([]string{"handoff", "return", "task"}, test.args...), &output, &failure, runtime)
+
+			// Assert
+			if code != 1 || !strings.Contains(failure.String(), test.want) {
+				t.Fatalf("code=%d error=%q, want %q", code, failure.String(), test.want)
+			}
+		})
+	}
+}
+
+// A return that fails part-way names the steps of the return that ran, not
+// those of the handoff.
+func TestGoblinsHandoffReturnNamesTheReturnsStepsWhenItFails(t *testing.T) {
+	// Arrange
+	runtime := handedOffRuntime(t, returnGH{}, handoff.Record{Head: "0123456789abcdef0123456789abcdef01234567", ReturnSteps: []string{handoff.ReturnStepMerge, handoff.ReturnStepPush}})
+	var output, failure bytes.Buffer
+
+	// Act
+	code := runWithRuntime([]string{"handoff", "return", "task"}, &output, &failure, runtime)
+
+	// Assert
+	if code != 1 || !strings.Contains(failure.String(), "steps that ran: [merge push]\n") {
+		t.Fatalf("code=%d error=%q, want the return's steps named", code, failure.String())
 	}
 }

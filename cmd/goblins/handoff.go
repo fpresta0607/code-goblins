@@ -70,8 +70,12 @@ func runHandoff(args []string, stdout, stderr io.Writer, runtime commandRuntime)
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "goblins handoff %s: %v\n", action, err)
-		if len(record.Steps) > 0 {
-			fmt.Fprintf(stderr, "steps that ran: %v\n", record.Steps)
+		steps := record.Steps
+		if action == "return" {
+			steps = record.ReturnSteps
+		}
+		if len(steps) > 0 {
+			fmt.Fprintf(stderr, "steps that ran: %v\n", steps)
 		}
 		return 1
 	}

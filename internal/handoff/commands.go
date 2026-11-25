@@ -76,8 +76,8 @@ func (c commands) remoteHead(ctx context.Context, branch string) (string, error)
 	return head, nil
 }
 
-func (c commands) push(ctx context.Context, branch string) error {
-	_, err := c.git(ctx, "push", "origin", "HEAD:refs/heads/"+branch)
+func (c commands) push(ctx context.Context, revision, branch string) error {
+	_, err := c.git(ctx, "push", "origin", revision+":refs/heads/"+branch)
 	return err
 }
 

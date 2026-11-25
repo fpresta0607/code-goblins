@@ -35,6 +35,7 @@ type fakeGitHub struct {
 	failCreate   int
 	failEdit     int
 	failClose    int
+	failPush     int
 }
 
 func (f *fakeGitHub) answer(args []string) (string, int) {
@@ -131,10 +132,15 @@ func (f *fakeGitHub) find(url string) pullRequest {
 }
 
 // runner runs git for real, except that origin reads as a GitHub
-// repository, and gh against fakeGitHub.
+// repository that refuses the pushes failPush counts, and gh against
+// fakeGitHub.
 type runner struct{ github *fakeGitHub }
 
 func (r runner) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
+	if request.Name == "git" && slices.Contains(request.Args, "push") && r.github.failPush > 0 {
+		r.github.failPush--
+		return execx.Result{Stderr: []byte("GitHub is down"), ExitCode: 128}, nil
+	}
 	if request.Name == "gh" {
 		stdout, code := r.github.answer(request.Args)
 		if code != 0 {
@@ -295,11 +301,13 @@ func (f *fixture) openCloudPullRequest(t *testing.T, from, name, text, login str
 	if _, err := os.Stat(f.cloud); errors.Is(err, os.ErrNotExist) {
 		git(t, filepath.Dir(f.cloud), "clone", "--quiet", f.origin, f.cloud)
 	}
+	number := len(f.github.pullRequests) + 1
+	branch := fmt.Sprintf("claude/cloud-work-%d", number)
 	git(t, f.cloud, "fetch", "--quiet", "origin")
-	git(t, f.cloud, "checkout", "--quiet", "-B", "claude/cloud-work", from)
+	git(t, f.cloud, "checkout", "--quiet", "-B", branch, from)
 	head := commit(t, f.cloud, name, text, "feat(parser): name the bad header")
-	git(t, f.cloud, "push", "--quiet", "--force", "origin", "claude/cloud-work")
-	pr := pullRequest{URL: fmt.Sprintf("https://github.com/%s/pull/%d", testRepository, len(f.github.pullRequests)+1), State: "OPEN", HeadRefName: "claude/cloud-work", HeadRefOid: head, Author: author{Login: login}, Body: "Ran go test ./internal/parser: ok."}
+	git(t, f.cloud, "push", "--quiet", "origin", branch)
+	pr := pullRequest{URL: fmt.Sprintf("https://github.com/%s/pull/%d", testRepository, number), State: "OPEN", HeadRefName: branch, HeadRefOid: head, Author: author{Login: login}, Body: "Ran go test ./internal/parser: ok."}
 	f.github.pullRequests = append(f.github.pullRequests, pr)
 	f.github.bases[pr.URL] = testBranch
 	return pr
@@ -904,10 +912,11 @@ func TestReturnBringsTheCloudsWorkOntoTheGoblinsBranch(t *testing.T) {
 			if isMerge != test.isDiverged || f.remoteHead(t, testBranch) != head || !slices.Contains(strings.Fields(git(t, f.worktree, "rev-list", head)), cloud.HeadRefOid) {
 				t.Errorf("head %s (merge %v) on GitHub %s does not carry %s as it should", head, isMerge, f.remoteHead(t, testBranch), cloud.HeadRefOid)
 			}
-			if phase, _ := f.phase(t); phase != "running" || returned.Outcome != OutcomeReturned || returned.CloudPullRequest != cloud.URL || len(returned.CloudCommits) == 0 {
-				t.Errorf("phase %s, record %+v", phase, returned)
+			isCloudCommit := len(returned.CloudCommits) == 1 && returned.CloudCommits[0] != "" && strings.HasPrefix(cloud.HeadRefOid, returned.CloudCommits[0])
+			if phase, _ := f.phase(t); phase != "running" || returned.Outcome != OutcomeReturned || returned.CloudPullRequest != cloud.URL || !isCloudCommit {
+				t.Errorf("phase %s, record %+v; want the cloud's one commit %s named", phase, returned, cloud.HeadRefOid)
 			}
-			if len(f.resumes) != 1 || !strings.Contains(f.resumes[0].ResumeNote, cloud.URL) || !strings.Contains(f.resumes[0].ResumeNote, "validates the whole branch") {
+			if len(f.resumes) != 1 || !strings.Contains(f.resumes[0].ResumeNote, cloud.URL) || !isCloudCommit || !strings.Contains(f.resumes[0].ResumeNote, returned.CloudCommits[0]) || !strings.Contains(f.resumes[0].ResumeNote, "validates the whole branch") {
 				t.Errorf("resumes %+v", f.resumes)
 			}
 		})
@@ -934,18 +943,140 @@ func TestReturnStopsOnAConflictWithTheWorktreeUnchanged(t *testing.T) {
 	}
 }
 
-func TestReturnRefusesWhenTheGoblinsBranchMoved(t *testing.T) {
+// Each refusal of a return leaves the goblin's branch as it was, in the
+// worktree and on GitHub, and the task handed off.
+func TestEachReturnRefusalChangesNothing(t *testing.T) {
+	cloudWork := func(t *testing.T, f *fixture, record Record) pullRequest {
+		return f.openCloudPullRequest(t, record.Head, "errors.go", "package parser\n", testAccount)
+	}
+	for _, test := range []struct {
+		name string
+		// arrange readies the refusal and gives the pull request Return is
+		// asked for with --pr.
+		arrange func(*testing.T, *fixture, Record) string
+		want    string
+	}{
+		{name: "the branch moved in the worktree", want: "moved since the handoff", arrange: func(t *testing.T, f *fixture, record Record) string {
+			cloudWork(t, f, record)
+			commit(t, f.worktree, "late.go", "package parser\n", "fix(parser): a late fix")
+			return ""
+		}},
+		{name: "the branch moved on GitHub", want: "moved since the handoff", arrange: func(t *testing.T, f *fixture, record Record) string {
+			cloudWork(t, f, record)
+			commit(t, f.worktree, "late.go", "package parser\n", "fix(parser): a late fix")
+			git(t, f.worktree, "push", "--quiet", "origin", "HEAD:refs/heads/"+testBranch)
+			git(t, f.worktree, "reset", "--quiet", "--hard", record.Head)
+			return ""
+		}},
+		{name: "a dirty worktree", want: "uncommitted changes", arrange: func(t *testing.T, f *fixture, record Record) string {
+			cloudWork(t, f, record)
+			if err := os.WriteFile(filepath.Join(f.worktree, "notes.txt"), []byte("half a thought\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			return ""
+		}},
+		{name: "a pull request from a fork", want: "comes from another repository", arrange: func(t *testing.T, f *fixture, record Record) string {
+			cloudWork(t, f, record)
+			f.github.pullRequests[len(f.github.pullRequests)-1].IsCrossRepository = true
+			return ""
+		}},
+		{name: "a cloud head GitHub no longer has", want: "moved while it was fetched", arrange: func(t *testing.T, f *fixture, record Record) string {
+			cloudWork(t, f, record)
+			f.github.pullRequests[len(f.github.pullRequests)-1].HeadRefOid = record.Head
+			return ""
+		}},
+		{name: "several pull requests and no --pr", want: "name one with --pr", arrange: func(t *testing.T, f *fixture, record Record) string {
+			cloudWork(t, f, record)
+			f.openCloudPullRequest(t, record.Head, "names.go", "package parser\n", testAccount)
+			return ""
+		}},
+		{name: "a --pr that does not target the branch", want: "is not an open pull request into " + testBranch, arrange: func(t *testing.T, f *fixture, record Record) string {
+			cloudWork(t, f, record)
+			return "https://github.com/" + testRepository + "/pull/99"
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			f, record := handedOff(t)
+			url := test.arrange(t, f, record)
+			head, remote, status := git(t, f.worktree, "rev-parse", "HEAD"), f.remoteHead(t, testBranch), git(t, f.worktree, "status", "--porcelain")
+
+			// Act
+			_, err := f.service.Return(t.Context(), f.meta.ID, url)
+
+			// Assert
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("return = %v, want a refusal for %q", err, test.want)
+			}
+			if git(t, f.worktree, "rev-parse", "HEAD") != head || f.remoteHead(t, testBranch) != remote || git(t, f.worktree, "status", "--porcelain") != status {
+				t.Errorf("the branch changed: head %s, GitHub %s; want %s and %s", git(t, f.worktree, "rev-parse", "HEAD"), f.remoteHead(t, testBranch), head, remote)
+			}
+			kept, err := ReadRecord(f.service.StateDir, f.meta.ID)
+			if phase, reason := f.phase(t); err != nil || !kept.IsHandedOff() || len(kept.ReturnSteps) != 0 || phase != "paused" || reason != "handoff" || len(f.resumes) != 0 {
+				t.Errorf("record %+v (%v), lifecycle %s/%s, resumes %+v; want it still handed off", kept, err, phase, reason, f.resumes)
+			}
+		})
+	}
+}
+
+func TestReturnBringsBackThePullRequestPRNames(t *testing.T) {
 	// Arrange
 	f, record := handedOff(t)
-	f.openCloudPullRequest(t, record.Head, "errors.go", "package parser\n", testAccount)
-	moved := commit(t, f.worktree, "late.go", "package parser\n", "fix(parser): a late fix")
+	other := f.openCloudPullRequest(t, record.Head, "errors.go", "package parser\n", testAccount)
+	named := f.openCloudPullRequest(t, record.Head, "names.go", "package parser\n", testAccount)
 
 	// Act
-	_, err := f.service.Return(t.Context(), f.meta.ID, "")
+	returned, err := f.service.Return(t.Context(), f.meta.ID, named.URL)
 
 	// Assert
-	if err == nil || !strings.Contains(err.Error(), "moved since the handoff") || git(t, f.worktree, "rev-parse", "HEAD") != moved {
-		t.Fatalf("return = %v, want a refusal with the branch left at %s", err, moved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	carried := strings.Fields(git(t, f.worktree, "rev-list", "HEAD"))
+	if returned.CloudPullRequest != named.URL || !slices.Contains(carried, named.HeadRefOid) || slices.Contains(carried, other.HeadRefOid) {
+		t.Fatalf("record %+v; want only %s brought back", returned, named.URL)
+	}
+}
+
+// A return whose push failed pushes, when run again, only the head its
+// merge made, and only while the goblin is still paused for the handoff.
+func TestASecondReturnPushesOnlyWhatTheFirstMerged(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		move func(*testing.T, *fixture)
+		want string
+	}{
+		{name: "nothing moved", move: func(*testing.T, *fixture) {}},
+		{name: "a goblin of a later session runs", move: func(t *testing.T, f *fixture) { f.newSession(t) }, want: "not paused for its handoff"},
+		{name: "the branch moved since the merge", move: func(t *testing.T, f *fixture) {
+			commit(t, f.worktree, "late.go", "package parser\n", "fix(parser): a late fix")
+		}, want: "moved since the cloud's work was merged"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			f, record := handedOff(t)
+			cloud := f.openCloudPullRequest(t, record.Head, "errors.go", "package parser\n", testAccount)
+			f.github.failPush = 1
+			first, err := f.service.Return(t.Context(), f.meta.ID, "")
+			if err == nil || !slices.Contains(first.ReturnSteps, ReturnStepMerge) || slices.Contains(first.ReturnSteps, ReturnStepPush) {
+				t.Fatalf("first return = %v with steps %v, want it stopped at the push", err, first.ReturnSteps)
+			}
+			test.move(t, f)
+
+			// Act
+			returned, err := f.service.Return(t.Context(), f.meta.ID, "")
+
+			// Assert
+			if test.want == "" {
+				if phase, _ := f.phase(t); err != nil || phase != "running" || returned.Outcome != OutcomeReturned || f.remoteHead(t, testBranch) != cloud.HeadRefOid {
+					t.Fatalf("second return = %v, phase %s, GitHub at %s; want %s pushed and the goblin resumed", err, phase, f.remoteHead(t, testBranch), cloud.HeadRefOid)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.want) || f.remoteHead(t, testBranch) != record.Head || !returned.IsHandedOff() || len(f.resumes) != 0 {
+				t.Fatalf("second return = %v, GitHub at %s, record %+v; want %q refused with nothing pushed", err, f.remoteHead(t, testBranch), returned, test.want)
+			}
+		})
 	}
 }
 

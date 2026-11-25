@@ -219,7 +219,7 @@ func (service Service) Handoff(ctx context.Context, id string, isWIP bool) (reco
 	}
 
 	if !record.hasStep(StepPush) {
-		if err := run.push(ctx, current.branch); err != nil {
+		if err := run.push(ctx, "HEAD", current.branch); err != nil {
 			return record, "", err
 		}
 		if err := save(StepPush); err != nil {
@@ -423,6 +423,10 @@ func (service Service) Return(ctx context.Context, id, url string) (record Recor
 		if fetched != cloud.HeadRefOid {
 			return record, fmt.Errorf("%s moved while it was fetched; bring it back again", cloud.URL)
 		}
+		commits, err := run.git(ctx, "log", "--reverse", "--format=%h", record.Head+".."+cloud.HeadRefOid)
+		if err != nil {
+			return record, err
+		}
 		isDescendant, err := run.gitSucceeds(ctx, "merge-base", "--is-ancestor", record.Head, cloud.HeadRefOid)
 		if err != nil {
 			return record, err
@@ -439,16 +443,23 @@ func (service Service) Return(ctx context.Context, id, url string) (record Recor
 		if record.ReturnHead, err = run.head(ctx); err != nil {
 			return record, err
 		}
-		record.CloudPullRequest = cloud.URL
-		if commits, err := run.git(ctx, "log", "--reverse", "--format=%h", record.Head+".."+record.ReturnHead); err == nil && commits != "" {
-			record.CloudCommits = strings.Split(commits, "\n")
-		}
+		record.CloudPullRequest, record.CloudCommits = cloud.URL, strings.Fields(commits)
 		if err := save(ReturnStepMerge); err != nil {
 			return record, err
 		}
 	}
 	if !record.hasReturnStep(ReturnStepPush) {
-		if err := run.push(ctx, current.branch); err != nil {
+		if err := service.checkPaused(current); err != nil {
+			return record, err
+		}
+		head, err := run.head(ctx)
+		if err != nil {
+			return record, err
+		}
+		if head != record.ReturnHead {
+			return record, fmt.Errorf("%s moved since the cloud's work was merged into it at %s (now %s), so it is not pushed; bring the branch back to %s and return again", current.branch, record.ReturnHead, head, record.ReturnHead)
+		}
+		if err := run.push(ctx, record.ReturnHead, current.branch); err != nil {
 			return record, err
 		}
 		if err := save(ReturnStepPush); err != nil {
@@ -517,12 +528,8 @@ func (service Service) cloudPullRequest(ctx context.Context, current task, url s
 // GitHub or in the worktree, the worktree is not clean, or its ready pull
 // request's CI still runs.
 func (service Service) checkUnmoved(ctx context.Context, current task, record Record) error {
-	isPaused, err := isPausedForHandoff(service.StateDir, current.meta)
-	if err != nil {
+	if err := service.checkPaused(current); err != nil {
 		return err
-	}
-	if !isPaused {
-		return fmt.Errorf("%s is not paused for its handoff, since a goblin of a later session runs on %s, so the cloud's work is not brought onto it; cancel the handoff", current.meta.ID, current.branch)
 	}
 	run := current.commands
 	local, err := run.head(ctx)
@@ -549,6 +556,19 @@ func (service Service) checkUnmoved(ctx context.Context, current task, record Re
 	}
 	if !pr.IsDraft && pr.isCIRunning() {
 		return fmt.Errorf("CI is still running on %s, and a push now would cancel that run after it billed its minutes; bring the work back once it has ended", record.PullRequest)
+	}
+	return nil
+}
+
+// checkPaused says why the cloud's work may not be brought onto the
+// goblin's branch when a goblin of a later session runs on it.
+func (service Service) checkPaused(current task) error {
+	isPaused, err := isPausedForHandoff(service.StateDir, current.meta)
+	if err != nil {
+		return err
+	}
+	if !isPaused {
+		return fmt.Errorf("%s is not paused for its handoff, since a goblin of a later session runs on %s, so the cloud's work is not brought onto it; cancel the handoff", current.meta.ID, current.branch)
 	}
 	return nil
 }
