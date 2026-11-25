@@ -10,6 +10,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/githubtest"
 	"github.com/fpresta0607/code-goblins/internal/handoff"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/train"
 )
@@ -125,16 +126,17 @@ func TestCloudWorkLeavesOrBringsBackOnlyTheHeadTheItemShowed(t *testing.T) {
 
 // Bring back resumes the goblin, so while another goblin launches it waits
 // its turn, as a Resume does, rather than being refused. His press is
-// written only when its turn comes, so one a Pause withdrew before then
-// runs no return and leaves no press for one to take.
+// written only when its turn comes, so one a Pause or a Leave it withdrew
+// before then runs no return and leaves no press for one to take.
 func TestBringBackWaitsItsTurnWhileAnotherGoblinLaunches(t *testing.T) {
 	for _, test := range []struct {
 		name       string
-		isPaused   bool
+		withdrawBy string
 		wantReturn bool
 	}{
 		{name: "its turn comes", wantReturn: true},
-		{name: "a pause withdraws it first", isPaused: true},
+		{name: "a pause withdraws it first", withdrawBy: "pause"},
+		{name: "leave it withdraws it first", withdrawBy: "leave"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -159,9 +161,14 @@ func TestBringBackWaitsItsTurnWhileAnotherGoblinLaunches(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if test.isPaused {
+			switch test.withdrawBy {
+			case "pause":
 				taskControlRequest(handler, "/api/tasks/lifecycle", map[string]string{"task": "task", "generation": meta.SpawnGen, "operation": "pause-1", "action": "pause"})
 				waitForChange(t, handler, meta.ID)
+			case "leave":
+				if left := taskControlRequest(handler, "/api/tasks/cloud", map[string]string{"task": "task", "generation": meta.SpawnGen, "action": "leave", "pull_request": cloudPullRequest, "head": cloudHead}); left.Code != 202 {
+					t.Fatalf("leave it = %d %s, want 202", left.Code, left.Body)
+				}
 			}
 			s.starts.Lock()
 			s.starting = ""
@@ -184,9 +191,58 @@ func TestBringBackWaitsItsTurnWhileAnotherGoblinLaunches(t *testing.T) {
 	}
 }
 
+// A Bring back whose turn comes while a poll or a goblins handoff command
+// holds the handoff record waits for a later turn rather than failing, and
+// runs once the record is free.
+func TestBringBackWaitsWhileTheHandoffRecordIsInUse(t *testing.T) {
+	// Arrange
+	spawner := &spawnRecorder{}
+	handler, h := startBoard(t, 5*gigabyte, spawner)
+	meta := state.TaskMeta{ID: "task", Title: "Do work", SpawnGen: "generation-1", Project: h.Root, Worktree: h.Root, Backend: "native"}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	handOff(t, h, meta, "feat/parser", "https://github.com/o/r/pull/209", handoff.CloudSighting{PullRequest: cloudPullRequest, Title: "Name the bad header", Author: "teammate", Head: cloudHead, IsTeammates: true})
+	s := handler.Service
+	s.starts.Lock()
+	s.starting = "other-task"
+	s.starts.Unlock()
+	if response := taskControlRequest(handler, "/api/tasks/cloud", map[string]string{"task": "task", "generation": meta.SpawnGen, "action": "bring_back", "pull_request": cloudPullRequest, "head": cloudHead}); response.Code != 202 {
+		t.Fatalf("bring back = %d %s, want 202", response.Code, response.Body)
+	}
+	if _, err := lock.AcquireExclusiveNamed(h.State, ".handoff-task.lock"); err != nil {
+		t.Fatal(err)
+	}
+	s.starts.Lock()
+	s.starting = ""
+	s.starts.Unlock()
+
+	// Act
+	s.runAsked()
+	s.starts.Lock()
+	isWaiting := s.isAsked("task")
+	s.starts.Unlock()
+	heldCalls, heldNotifies := spawner.recorded(), fleetWakeRecords(t, h, "notify")
+	if err := lock.ReleaseExclusiveNamed(h.State, ".handoff-task.lock"); err != nil {
+		t.Fatal(err)
+	}
+	s.runAsked()
+	waitForChange(t, handler, meta.ID)
+
+	// Assert
+	if !isWaiting || len(heldCalls) != 0 || len(heldNotifies) != 0 {
+		t.Fatalf("while held: waiting %v, calls %v, notifies %+v; want it waiting with no call and nothing told", isWaiting, heldCalls, heldNotifies)
+	}
+	record, err := handoff.ReadRecord(h.State, meta.ID)
+	if err != nil || record.Press == nil || record.Press.Head != cloudHead || !slices.EqualFunc(spawner.recorded(), [][]string{{"handoff", "return", "task", "--pr", cloudPullRequest}}, slices.Equal) {
+		t.Fatalf("once free: record %+v (%v), calls %v; want the press and return on the pull request", record, err, spawner.recorded())
+	}
+}
+
 // A sighting is labelled a teammate's against the account gh works as, so
-// while that account cannot be read none is sighted, and the next poll that
-// reads it tells the account's own pull request as its own.
+// while that account cannot be read none is sighted, its failure is told as
+// the train's is once it failed failingPasses polls in a row, and the next
+// poll that reads it tells the account's own pull request as its own.
 func TestCloudWorkIsNotSightedWhileTheAccountIsUnread(t *testing.T) {
 	// Arrange
 	s, h := fleetService(t)
@@ -210,15 +266,20 @@ func TestCloudWorkIsNotSightedWhileTheAccountIsUnread(t *testing.T) {
 	now := time.Date(2026, 11, 25, 20, 0, 0, 0, time.UTC)
 
 	// Act
-	unreadErr := s.sightCloudWork(t.Context(), github, goblins, handedOff, listed, &fleetOwners{}, now)
+	var w fleetWakes
+	var unreadErrs []error
+	for range failingPasses {
+		unreadErrs = append(unreadErrs, s.sightCloudWork(t.Context(), github, &w, h.Root, goblins, handedOff, listed, &fleetOwners{}, now))
+	}
 	unread, unreadReadErr := handoff.ReadRecord(h.State, meta.ID)
 	isUnread = false
-	err := s.sightCloudWork(t.Context(), github, goblins, handedOff, listed, &fleetOwners{}, now)
+	err := s.sightCloudWork(t.Context(), github, &w, h.Root, goblins, handedOff, listed, &fleetOwners{}, now)
 
 	// Assert
 	record, readErr := handoff.ReadRecord(h.State, meta.ID)
-	if unreadErr == nil || unreadReadErr != nil || len(unread.Cloud) != 0 {
-		t.Fatalf("with the account unread: %v, cloud %+v (%v); want an error and nothing sighted", unreadErr, unread.Cloud, unreadReadErr)
+	isToldLast := unreadErrs[failingPasses-1] != nil && slices.IndexFunc(unreadErrs, func(err error) bool { return err != nil }) == failingPasses-1
+	if !isToldLast || unreadReadErr != nil || len(unread.Cloud) != 0 {
+		t.Fatalf("with the account unread: %v, cloud %+v (%v); want an error at poll %d alone and nothing sighted", unreadErrs, unread.Cloud, unreadReadErr, failingPasses)
 	}
 	if err != nil || readErr != nil || len(record.Cloud) != 1 || record.Cloud[0].IsTeammates {
 		t.Fatalf("with the account read: %v, cloud %+v (%v); want the account's own sighted", err, record.Cloud, readErr)

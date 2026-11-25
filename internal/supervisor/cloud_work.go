@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/githubapi"
 	"github.com/fpresta0607/code-goblins/internal/handoff"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/train"
 )
@@ -52,15 +54,17 @@ func isHandedOffWork(handedOff map[string]handoff.Record, goblin string, pr ghPu
 // sightCloudWork records, for each goblin of goblins handedOff names, the
 // open pull requests listed into its branch, and refreshes the board when
 // one is new or moved. With the account gh works as unread, it sights none,
-// so none is told as a teammate's against no account.
-func (s *Service) sightCloudWork(ctx context.Context, github *githubapi.Client, goblins []ciGoblin, handedOff map[string]handoff.Record, listed []train.PullRequest, owners *fleetOwners, now time.Time) error {
+// so none is told as a teammate's against no account, and that read fails
+// as the train's does, once it failed failingPasses polls of repo in a row.
+func (s *Service) sightCloudWork(ctx context.Context, github *githubapi.Client, w *fleetWakes, repo string, goblins []ciGoblin, handedOff map[string]handoff.Record, listed []train.PullRequest, owners *fleetOwners, now time.Time) error {
 	if len(handedOff) == 0 {
 		return nil
 	}
 	account, err := owners.account(ctx, github)
 	if err != nil {
-		return fmt.Errorf("cloud work: read the account gh works as: %w", err)
+		return w.failing("cloud viewer:"+repo, fmt.Errorf("cloud work: read the account gh works as in %s: %w", repo, err))
 	}
+	delete(w.Failing, "cloud viewer:"+repo)
 	open := make([]handoff.OpenPullRequest, 0, len(listed))
 	for _, pr := range listed {
 		open = append(open, handoff.OpenPullRequest{URL: pr.URL, Title: pr.Title, Base: pr.BaseRefName, Head: pr.HeadRefOid, Author: pr.Author.Login, IsCrossRepository: pr.IsCrossRepository})
@@ -158,11 +162,18 @@ func (s *Service) cloudSession(input cloudWorkRequest) (state.TaskMeta, error) {
 	return meta, nil
 }
 
+// leaveCloudWork closes the item and withdraws a Bring back on that pull
+// request still waiting its turn, so it neither presses nor returns it.
 func (s *Service) leaveCloudWork(input cloudWorkRequest) error {
 	meta, err := s.cloudSession(input)
 	if err != nil {
 		return err
 	}
+	s.starts.Lock()
+	s.asked = slices.DeleteFunc(s.asked, func(change askedChange) bool {
+		return change.task == input.Task && change.bringBack != nil && change.bringBack.PullRequest == input.PullRequest
+	})
+	s.starts.Unlock()
 	if err := handoff.Leave(s.Store.Home.State, meta, input.PullRequest, input.Head); err != nil {
 		return taskRefusal{reason: err.Error()}
 	}
@@ -222,7 +233,9 @@ func (s *Service) bringBack(input cloudWorkRequest) error {
 	if err := s.checkResumeRoom(input.Task); err != nil {
 		return err
 	}
-	if err := handoff.RecordPress(s.Store.Home.State, meta, input.PullRequest, input.Head, time.Now()); err != nil {
+	if err := handoff.RecordPress(s.Store.Home.State, meta, input.PullRequest, input.Head, time.Now()); errors.Is(err, lock.ErrHeld) {
+		return taskRefusal{reason: "The handoff record is in use", isPassing: true}
+	} else if err != nil {
 		return err
 	}
 	s.starts.Lock()

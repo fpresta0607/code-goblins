@@ -142,7 +142,8 @@ func TestPressAndLeaveNameOnlyTheHeadTheBoardShows(t *testing.T) {
 }
 
 // Leave it takes back the Overlord's press on that pull request, so no
-// return takes a press he withdrew, and keeps one on another.
+// return takes a press he withdrew, and keeps one on another; a pull
+// request he left is pressed again only once its head moves.
 func TestLeaveTakesBackThePressOnThatPullRequest(t *testing.T) {
 	const cloud = "https://github.com/" + testRepository + "/pull/7"
 	const other = "https://github.com/" + testRepository + "/pull/8"
@@ -167,11 +168,16 @@ func TestLeaveTakesBackThePressOnThatPullRequest(t *testing.T) {
 
 			// Act
 			err := Leave(f.service.StateDir, f.meta, cloud, "head-1")
+			checkErr := CheckSighting(f.service.StateDir, f.meta, cloud, "head-1")
+			pressErr := RecordPress(f.service.StateDir, f.meta, cloud, "head-1", time.Now())
 
 			// Assert
 			record, readErr := ReadRecord(f.service.StateDir, f.meta.ID)
 			if err != nil || readErr != nil || (record.Press != nil) != test.wantPress || test.wantPress && record.Press.PullRequest != other {
 				t.Fatalf("leave = %v, record %+v (%v); want a press %v", err, record, readErr, test.wantPress)
+			}
+			if checkErr == nil || pressErr == nil || !strings.Contains(pressErr.Error(), "was left") {
+				t.Fatalf("on the left pull request: check %v, press %v; want both refused", checkErr, pressErr)
 			}
 		})
 	}

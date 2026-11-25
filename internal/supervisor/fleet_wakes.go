@@ -945,7 +945,7 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 		listed, pullsUnreadable, pullsErr := pollPullRequests(ctx, runner, github, slug, s.Store.Home.State, w, repo, mine, handedOff, owners, now)
 		if listed != nil {
 			w.recordKeptOff(mine, listed)
-			errs = errors.Join(errs, s.sightCloudWork(ctx, github, mine, handedOff, listed, owners, now))
+			errs = errors.Join(errs, s.sightCloudWork(ctx, github, w, repo, mine, handedOff, listed, owners, now))
 		}
 		mainUnreadable, mainErr := pollMain(ctx, runner, github, slug, s.Store.Home.State, w, repo, now, s.fileFoundRoot)
 		// A refusal one of these reads met holds the overlap read and the

@@ -103,18 +103,26 @@ func sight(stateDir string, meta state.TaskMeta, open []OpenPullRequest, account
 }
 
 // CheckSighting refuses the cloud pull request url at head unless the
-// watch sees it there, the one the board showed him.
+// watch sees it there, the one the board showed him, and he has not left
+// it.
 func CheckSighting(stateDir string, meta state.TaskMeta, url, head string) error {
-	_, _, err := findSighting(stateDir, meta, url, head)
-	return err
+	record, index, err := findSighting(stateDir, meta, url, head)
+	if err != nil {
+		return err
+	}
+	return refuseLeft(record.Cloud[index])
 }
 
 // RecordPress records the Overlord's Bring back on the cloud pull request url at
 // head, the one the board showed him, and refuses a head the watch no
-// longer sees there.
+// longer sees there or one he left.
 func RecordPress(stateDir string, meta state.TaskMeta, url, head string, now time.Time) error {
-	return changeSighting(stateDir, meta, url, head, func(record *Record, _ int) {
+	return changeSighting(stateDir, meta, url, head, func(record *Record, index int) error {
+		if err := refuseLeft(record.Cloud[index]); err != nil {
+			return err
+		}
 		record.Press = &Press{PullRequest: url, Head: head, At: now.UTC()}
+		return nil
 	})
 }
 
@@ -122,15 +130,16 @@ func RecordPress(stateDir string, meta state.TaskMeta, url, head string, now tim
 // head, so its item closes until its head moves, and takes back his press
 // on it.
 func Leave(stateDir string, meta state.TaskMeta, url, head string) error {
-	return changeSighting(stateDir, meta, url, head, func(record *Record, index int) {
+	return changeSighting(stateDir, meta, url, head, func(record *Record, index int) error {
 		record.Cloud[index].IsLeft = true
 		if record.Press != nil && record.Press.PullRequest == url {
 			record.Press = nil
 		}
+		return nil
 	})
 }
 
-func changeSighting(stateDir string, meta state.TaskMeta, url, head string, change func(*Record, int)) (err error) {
+func changeSighting(stateDir string, meta state.TaskMeta, url, head string, change func(*Record, int) error) (err error) {
 	unlock, err := Service{StateDir: stateDir}.lock(meta.ID)
 	if err != nil {
 		return err
@@ -140,8 +149,17 @@ func changeSighting(stateDir string, meta state.TaskMeta, url, head string, chan
 	if err != nil {
 		return err
 	}
-	change(&record, index)
+	if err := change(&record, index); err != nil {
+		return err
+	}
 	return WriteRecord(stateDir, record)
+}
+
+func refuseLeft(seen CloudSighting) error {
+	if seen.IsLeft {
+		return fmt.Errorf("%s was left at %s, so it is not brought back", seen.PullRequest, seen.Head)
+	}
+	return nil
 }
 
 func findSighting(stateDir string, meta state.TaskMeta, url, head string) (Record, int, error) {
