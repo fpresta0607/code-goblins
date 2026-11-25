@@ -41,13 +41,16 @@ func streamGoblinHolding(t *testing.T, isWorking bool) (*Store, *Service, time.T
 
 // A stream goblin has no send-now key or queue for the board to press, so
 // Send now, Edit and Cancel on a message Claude Code holds say so, and the
-// message stays held for its next tool call (#2374).
+// message stays held for its next tool call (#2374). Edit and Cancel say it
+// lasts for as long as that queue stays as it is, so the board's Up passes
+// it (#2340).
 func TestSendNowEditAndCancelRefuseAMessageAStreamGoblinHolds(t *testing.T) {
 	for _, test := range []struct {
 		name, kind, wantSays string
+		wantLasting          bool
 	}{
 		{name: "Send now", kind: "message_now", wantSays: "runs on stream-json pipes, where Claude Code holds the message itself"},
-		{name: "Edit or Cancel", kind: "message_withdraw", wantSays: "own queue on stream-json pipes, which Claude Code gives back to nothing"},
+		{name: "Edit or Cancel", kind: "message_withdraw", wantSays: "own queue on stream-json pipes, which Claude Code gives back to nothing", wantLasting: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -58,8 +61,8 @@ func TestSendNowEditAndCancelRefuseAMessageAStreamGoblinHolds(t *testing.T) {
 			after := actionOf(store, "m1")
 
 			// Assert
-			if press.Code != 409 || !strings.Contains(press.Body.String(), test.wantSays) {
-				t.Errorf("%s = %d %s; want it refused saying %q", test.name, press.Code, press.Body, test.wantSays)
+			if press.Code != 409 || !strings.Contains(press.Body.String(), test.wantSays) || strings.Contains(press.Body.String(), `"is_lasting":true`) != test.wantLasting {
+				t.Errorf("%s = %d %s; want it refused saying %q, lasting %t", test.name, press.Code, press.Body, test.wantSays, test.wantLasting)
 			}
 			if !isHarnessHeld(after) {
 				t.Errorf("after %s = %+v; want it still held in the goblin's own queue", test.name, after)

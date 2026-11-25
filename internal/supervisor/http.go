@@ -637,13 +637,18 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// An Edit or a Cancel of a message its harness holds in its own queue
-	// takes it back out of that queue (#2332).
+	// takes it back out of that queue (#2332). A refusal that lasts for as
+	// long as that queue stays as it is says so (#2340).
 	if a.Kind == "message_withdraw" && a.Target != "" {
 		if withdrawn, isHeld, err := h.Service.takeBackHeld(a); isHeld {
 			h.Service.wakeActions()
 			h.Service.publish(nil)
 			if err != nil {
-				apiError(w, 409, err.Error())
+				var lasting lastingRefusal
+				respond(w, 409, struct {
+					Error     string `json:"error"`
+					IsLasting bool   `json:"is_lasting,omitempty"`
+				}{bounded(err.Error(), 1500), errors.As(err, &lasting)})
 				return
 			}
 			respond(w, 202, withdrawn)

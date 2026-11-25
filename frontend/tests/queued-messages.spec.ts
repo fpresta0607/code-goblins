@@ -921,6 +921,78 @@ for (const { what, task = GOBLIN.id, harness = "claude", isStream = false, await
   });
 }
 
+// A take-back the supervisor refuses for as long as the queue stays as it is,
+// as of a pi queue taller than its editor or a queue that also holds an
+// answer, says so, and Up meets that refusal once: the next brings back what
+// he sent before, past every message that queue holds, until it changes. A
+// refusal that passes, as of a prompt line that holds his draft, is asked
+// again at his next Up (#2340).
+const TOO_SHORT = GOBLIN.id + "'s editor is too short to show its queue whole, so it cannot be taken back. It takes it at its next tool call, or as its turn ends.";
+const LATER = "2026-10-22T09:01:30Z";
+const HELD_TWO = [
+  queued({ id: "h1", text: "first words", status: "running", can_send_now: false, send_now_why: "", message: HELD_WHY, awaiting: HELD, created_at: SINCE, updated_at: SINCE }),
+  queued({ id: "h2", text: WORDS, status: "running", can_send_now: false, send_now_why: "", message: HELD_WHY, awaiting: { ...HELD, since: LATER }, created_at: LATER, updated_at: LATER }),
+];
+for (const { what, harness, refusal, isLasting, recalled, asked } of [
+  { what: "for as long as a pi goblin's queue is taller than its editor", harness: "pi", refusal: TOO_SHORT, isLasting: true, recalled: "Read the brief", asked: ["h2"] },
+  { what: "for as long as a Claude Code goblin's queue also holds an answer", harness: "claude", isLasting: true, recalled: "Read the brief", asked: ["h2"],
+    refusal: GOBLIN.id + "'s queue also holds an answer the board typed, so this message cannot be taken back alone. Send now has it taken at once." },
+  { what: "only for now, as while its prompt line holds his draft", harness: "claude", isLasting: false, recalled: "", asked: ["h2", "h2"],
+    refusal: GOBLIN.id + "'s prompt line does not offer its queue now, so nothing was changed. Press again in a moment." },
+]) {
+  test(`Up after a take-back refused ${what} ${isLasting ? "brings back what he sent before" : "asks again"}`, async ({ page }) => {
+    // Arrange
+    await open(page, snapshot({ actions: HELD_TWO }, { harness }));
+    const asks: string[] = [];
+    await page.route("**/api/actions", (route) => {
+      asks.push((route.request().postDataJSON() as { target: string }).target);
+      return route.fulfill({ status: 409, json: isLasting ? { error: refusal, is_lasting: true } : { error: refusal } });
+    });
+    await openGoblin(page);
+    await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })), PAGE);
+    await expect(entry(page).filter({ hasText: WORDS }).locator(".queued-state")).toHaveText(WAITING);
+    await field(page).focus();
+    await page.keyboard.press("ArrowUp");
+    await expect(box(page).locator(".composer-banner")).toHaveText("Not taken back. " + refusal);
+
+    // Act
+    await page.keyboard.press("ArrowUp");
+
+    // Assert
+    await expect(field(page)).toHaveValue(recalled);
+    await expect.poll(() => asks).toEqual(asked);
+  });
+}
+
+test("Up takes back a message once the queue the supervisor refused for as long as it lasts has changed", async ({ page }) => {
+  // Arrange: pi's editor is too short for the queue of two, and not once pi
+  // has taken the first of them.
+  await open(page, snapshot({ actions: HELD_TWO }, { harness: "pi" }));
+  const asks: string[] = [];
+  await page.route("**/api/actions", (route) => {
+    asks.push((route.request().postDataJSON() as { target: string }).target);
+    return asks.length === 1 ? route.fulfill({ status: 409, json: { error: TOO_SHORT, is_lasting: true } }) : route.fulfill({ status: 202, json: { status: "succeeded" } });
+  });
+  await openGoblin(page);
+  await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })), PAGE);
+  await expect(entry(page).filter({ hasText: WORDS }).locator(".queued-state")).toHaveText(WAITING);
+  await field(page).focus();
+  await page.keyboard.press("ArrowUp");
+  await expect(box(page).locator(".composer-banner")).toHaveText("Not taken back. " + TOO_SHORT);
+  await page.keyboard.press("ArrowUp");
+  await expect(field(page)).toHaveValue("Read the brief");
+  await field(page).fill("");
+  await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2, actions: [HELD_TWO[1]] }, { harness: "pi" }));
+  await expect(entry(page)).toHaveCount(1);
+
+  // Act
+  await page.keyboard.press("ArrowUp");
+
+  // Assert
+  await expect(field(page)).toHaveValue(WORDS);
+  expect(asks).toEqual(["h2", "h2"]);
+});
+
 // Claude Code's record shows each message typed into its turn queued there
 // until that turn takes it, and Up takes such a message back as Edit does.
 test("Up in the empty box takes back a message the session's record shows queued in its harness", async ({ page }) => {

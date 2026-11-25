@@ -626,15 +626,19 @@ func startedAgain(t *testing.T, terminal hostedTerminal, task, mode string) host
 // which comes onto the prompt line with the board's and is never cleared with
 // them. Codex 0.160 has no such key: it sends a line typed into a turn to its
 // model at once, for its next tool call, and its Alt+Up gives back only a line
-// queued with Tab (live on 2026-11-18, #2340).
+// queued with Tab (live on 2026-11-18, #2340). Only the refusal that lasts for
+// as long as the queue stays as it is says so, Codex's, so the board's Up
+// passes that queue, and asks again after a draft's, which passes once the
+// prompt line is clear.
 func TestAQueueTheBoardCannotTakeBackAloneIsNeverCleared(t *testing.T) {
 	for _, test := range []struct {
 		name, mode, before string
 		kind               harness.Kind
 		wantSays           string
 		wantHeld           bool
+		wantLasting        bool
 	}{
-		{name: "Codex, which gives its queue back to no key", mode: "busy", kind: harness.Codex, wantSays: "gives back to no key", wantHeld: true},
+		{name: "Codex, which gives its queue back to no key", mode: "busy", kind: harness.Codex, wantSays: "gives back to no key", wantHeld: true, wantLasting: true},
 		{name: "his own draft on the prompt line", mode: "claude-busy", kind: harness.Claude, before: "a draft of his", wantSays: "does not offer its queue now", wantHeld: true},
 		{name: "a line typed in the terminal in the same queue", mode: "claude-busy", kind: harness.Claude, before: "typed in the terminal\r", wantSays: "holds words the board cannot take back alone"},
 		{name: "his own draft in pi's editor", mode: "pi-busy", kind: harness.Pi, before: "a draft of his", wantSays: "does not offer its queue now", wantHeld: true},
@@ -674,8 +678,8 @@ func TestAQueueTheBoardCannotTakeBackAloneIsNeverCleared(t *testing.T) {
 			after := actionOf(store, "m1")
 
 			// Assert
-			if cancel.Code != 409 || !strings.Contains(cancel.Body.String(), test.wantSays) {
-				t.Errorf("Cancel = %d %s; want it refused saying %q", cancel.Code, cancel.Body, test.wantSays)
+			if cancel.Code != 409 || !strings.Contains(cancel.Body.String(), test.wantSays) || strings.Contains(cancel.Body.String(), `"is_lasting":true`) != test.wantLasting {
+				t.Errorf("Cancel = %d %s; want it refused saying %q, lasting %t", cancel.Code, cancel.Body, test.wantSays, test.wantLasting)
 			}
 			if isHarnessHeld(after) != test.wantHeld || !test.wantHeld && (after.Status != "uncertain" || after.LeftTyped == nil) {
 				t.Errorf("after the press = %+v; want held %t, else watched where it was left typed", after, test.wantHeld)
@@ -692,7 +696,8 @@ func TestAQueueTheBoardCannotTakeBackAloneIsNeverCleared(t *testing.T) {
 // of the stand-in's 24. Alt+Q would put the five lines its queue holds there
 // in nine rows, an empty one between each two, and the board would read back
 // only the last four, so it could not take them off, and all five would wait
-// unsent in that editor. Cancel of one of them presses nothing, says why, and
+// unsent in that editor. Cancel of one of them presses nothing, says why, for
+// as long as the queue stays as it is, so the board's Up passes it, and
 // leaves every one in pi's queue for its turn (#2340).
 func TestCancelOfAMessageInAQueueTallerThanPisEditorPressesNoKey(t *testing.T) {
 	// Arrange
@@ -702,13 +707,48 @@ func TestCancelOfAMessageInAQueueTallerThanPisEditorPressesNoKey(t *testing.T) {
 	cancel := pressOnQueued(service, "message_withdraw", "", "m2", "second words")
 
 	// Assert
-	if body := cancel.Body.String(); cancel.Code != 409 || !strings.Contains(body, "too short to show its queue whole") || !strings.Contains(body, "next tool call, or as its turn ends") {
-		t.Errorf("Cancel = %d %s; want it refused, saying pi's editor is too short to show its queue whole and pi takes it in its turn", cancel.Code, cancel.Body)
+	if body := cancel.Body.String(); cancel.Code != 409 || !strings.Contains(body, "too short to show its queue whole") || !strings.Contains(body, "next tool call, or as its turn ends") || !strings.Contains(body, `"is_lasting":true`) {
+		t.Errorf("Cancel = %d %s; want it refused for as long as the queue stays as it is, saying pi's editor is too short to show its queue whole and pi takes it in its turn", cancel.Code, cancel.Body)
 	}
 	for _, id := range []string{"m1", "m2", "m3", "m4", "m5"} {
 		if after := actionOf(store, id); !isHarnessHeld(after) {
 			t.Errorf("%s after the press = %+v; want it still held in pi's queue", id, after)
 		}
+	}
+	if input := terminal.lines(t); slices.ContainsFunc(input, func(line string) bool { return strings.HasPrefix(line, "took back ") || line == "cleared" }) {
+		t.Errorf("terminal input = %q; want no key pressed", input)
+	}
+}
+
+// A harness gives its queue back only whole, so his words beside an answer the
+// board typed into Claude Code's queue cannot be taken back alone for as long
+// as that answer is there: Cancel of them presses nothing and says why, for as
+// long as the queue stays as it is, so the board's Up passes it (#2340).
+func TestCancelOfHisWordsBesideAnAnswerInClaudeCodesQueueIsRefusedForAsLongAsItLasts(t *testing.T) {
+	// Arrange
+	store, service, terminal, _, _ := heldQueue(t, false, "claude-busy", "first words")
+	identity := registrationIdentity(t, terminal.stateDir)
+	question := Question{ID: "held-question", Identity: identity, Text: "Choose", CreatedAt: time.Now().UTC()}
+	if err := store.acceptQuestion(question); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Queue(Action{ID: "held-answer", Kind: "ceo_answer", Generation: identity, QuestionID: question.ID, Text: "Reply received"}); err != nil {
+		t.Fatal(err)
+	}
+	tryNext(t, store, service, terminal, "claude")
+	if given := actionOf(store, "held-answer"); !isHarnessHeld(given) {
+		t.Fatalf("the answer = %+v; want it in the turn's queue beside his words", given)
+	}
+
+	// Act
+	cancel := pressOnQueued(service, "message_withdraw", "", "m1", "first words")
+
+	// Assert
+	if body := cancel.Body.String(); cancel.Code != 409 || !strings.Contains(body, "also holds an answer the board typed") || !strings.Contains(body, `"is_lasting":true`) {
+		t.Errorf("Cancel = %d %s; want it refused for as long as the answer is in the queue, saying so", cancel.Code, cancel.Body)
+	}
+	if words := actionOf(store, "m1"); !isHarnessHeld(words) {
+		t.Errorf("his words after the press = %+v; want them still in the turn's queue", words)
 	}
 	if input := terminal.lines(t); slices.ContainsFunc(input, func(line string) bool { return strings.HasPrefix(line, "took back ") || line == "cleared" }) {
 		t.Errorf("terminal input = %q; want no key pressed", input)

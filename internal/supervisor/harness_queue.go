@@ -230,6 +230,14 @@ func (s *Service) sendHeldNow(id, task string) (bool, error) {
 	return true, s.Store.sentHeldNow(id, task)
 }
 
+// lastingRefusal is a take-back refused for as long as its queue stays as it
+// is: one no key gives back, one that also holds an answer the board typed,
+// and one taller than the editor it would come back into. The board's Up then
+// passes that queue to bring back what he sent before, where it asks again
+// after a refusal that passes, as of a prompt line that holds his draft
+// (#2340).
+type lastingRefusal struct{ error }
+
 // takeBackHeld takes the message withdraw names back out of the queue of the
 // harness that holds it, for Edit and Cancel, and reports false when no
 // harness holds it, which the board then withdraws where it holds it. A
@@ -258,11 +266,11 @@ func (s *Service) takeBackHeld(withdraw Action) (Action, bool, error) {
 	case !isLive:
 		return Action{}, true, errors.New(subject + "'s terminal does not answer, so its queue was left as it is.")
 	case record.Stream:
-		return Action{}, true, errors.New("It waits in " + who + "'s own queue on stream-json pipes, which Claude Code gives back to nothing. It takes it at its next tool call, or as its turn ends.")
+		return Action{}, true, lastingRefusal{errors.New("It waits in " + who + "'s own queue on stream-json pipes, which Claude Code gives back to nothing. It takes it at its next tool call, or as its turn ends.")}
 	case screens.EditQueue == "":
-		return Action{}, true, errors.New("It waits in " + who + "'s own queue, which its harness gives back to no key. Send now has it taken at once.")
+		return Action{}, true, lastingRefusal{errors.New("It waits in " + who + "'s own queue, which its harness gives back to no key. Send now has it taken at once.")}
 	case slices.ContainsFunc(held, func(a Action) bool { return a.Kind != "message" }):
-		return Action{}, true, errors.New(subject + "'s queue also holds an answer the board typed, so this message cannot be taken back alone. Send now has it taken at once.")
+		return Action{}, true, lastingRefusal{errors.New(subject + "'s queue also holds an answer the board typed, so this message cannot be taken back alone. Send now has it taken at once.")}
 	}
 	if first.Host != "" && s.Options.CEO != nil {
 		s.Options.CEO.typing.Lock()
@@ -301,7 +309,7 @@ func (s *Service) takeQueueBack(held []Action, task string, record host.Record, 
 	case err != nil || !screens.OffersQueue(rows):
 		return errors.New(subject + "'s prompt line does not offer its queue now, so nothing was changed. Press again in a moment.")
 	case !screens.QueueFits(rows, lines):
-		return errors.New(subject + "'s editor is too short to show its queue whole, so it cannot be taken back. It takes it at its next tool call, or as its turn ends.")
+		return lastingRefusal{errors.New(subject + "'s editor is too short to show its queue whole, so it cannot be taken back. It takes it at its next tool call, or as its turn ends.")}
 	}
 	client, err := host.Dial(record)
 	if err != nil {
