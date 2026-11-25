@@ -379,6 +379,180 @@ func Prompt(repository, pullRequest string) string {
 	return fmt.Sprintf("Repository %s. Read the goblins handoff packet in the body of %s and follow its rules: branch from the head it names, push only to your own branch and open your pull request into the branch it names.", repository, pullRequest)
 }
 
+// Return brings the cloud session's pull request into the goblin's branch,
+// pushes it and resumes the goblin, which validates the whole branch
+// through its delivery mode before it reports done. url picks the cloud's
+// pull request when more than one targets the branch.
+func (service Service) Return(ctx context.Context, id, url string) (record Record, err error) {
+	unlock, err := service.lock(id)
+	if err != nil {
+		return Record{}, err
+	}
+	defer func() { err = errors.Join(err, unlock()) }()
+	record, err = ReadRecord(service.StateDir, id)
+	if err != nil || !record.IsHandedOff() {
+		return record, errors.Join(err, fmt.Errorf("%s is not handed off", id))
+	}
+	current, err := service.read(ctx, id)
+	if err != nil {
+		return record, err
+	}
+	run := current.commands
+	save := func(step string) error {
+		record.ReturnSteps = append(record.ReturnSteps, step)
+		return WriteRecord(service.StateDir, record)
+	}
+
+	// Once merged and pushed, GitHub reads the cloud's pull request as
+	// merged, so only a return that has not merged it yet looks it up.
+	if !record.hasReturnStep(ReturnStepMerge) {
+		cloud, err := service.cloudPullRequest(ctx, current, url)
+		if err != nil {
+			return record, err
+		}
+		if err := service.checkUnmoved(ctx, current, record); err != nil {
+			return record, err
+		}
+		if _, err := run.git(ctx, "fetch", "--quiet", "origin", "refs/heads/"+cloud.HeadRefName); err != nil {
+			return record, err
+		}
+		fetched, err := run.git(ctx, "rev-parse", "FETCH_HEAD")
+		if err != nil {
+			return record, err
+		}
+		if fetched != cloud.HeadRefOid {
+			return record, fmt.Errorf("%s moved while it was fetched; bring it back again", cloud.URL)
+		}
+		isDescendant, err := run.gitSucceeds(ctx, "merge-base", "--is-ancestor", record.Head, cloud.HeadRefOid)
+		if err != nil {
+			return record, err
+		}
+		if isDescendant {
+			_, err = run.git(ctx, "merge", "--quiet", "--ff-only", cloud.HeadRefOid)
+		} else {
+			_, err = run.git(ctx, "merge", "--quiet", "--no-ff", "--no-edit", cloud.HeadRefOid)
+		}
+		if err != nil {
+			_, abortErr := run.git(ctx, "merge", "--abort")
+			return record, errors.Join(fmt.Errorf("%s does not merge into %s, so the merge was aborted, the worktree is as it was and %s is still handed off: %w", cloud.URL, current.branch, id, err), abortErr)
+		}
+		if record.ReturnHead, err = run.head(ctx); err != nil {
+			return record, err
+		}
+		record.CloudPullRequest = cloud.URL
+		if commits, err := run.git(ctx, "log", "--reverse", "--format=%h", record.Head+".."+record.ReturnHead); err == nil && commits != "" {
+			record.CloudCommits = strings.Split(commits, "\n")
+		}
+		if err := save(ReturnStepMerge); err != nil {
+			return record, err
+		}
+	}
+	if !record.hasReturnStep(ReturnStepPush) {
+		if err := run.push(ctx, current.branch); err != nil {
+			return record, err
+		}
+		if err := save(ReturnStepPush); err != nil {
+			return record, err
+		}
+	}
+	if !record.hasReturnStep(ReturnStepClose) {
+		if err := service.closeOwnDraft(ctx, current, record); err != nil {
+			return record, err
+		}
+		if err := save(ReturnStepClose); err != nil {
+			return record, err
+		}
+	}
+	note := fmt.Sprintf("Your task was handed off to a cloud session, and goblins handoff return brought its work back onto your branch: commits %s from %s. Read that pull request's body for what the cloud session ran and what it could not run. Your delivery mode, %s, now validates the whole branch, the cloud's commits included, before you report done.", strings.Join(record.CloudCommits, ", "), record.CloudPullRequest, current.meta.Mode)
+	if err := service.resume(ctx, current.meta, note); err != nil {
+		return record, err
+	}
+	record.ReturnSteps = append(record.ReturnSteps, ReturnStepResume)
+	ended := time.Now().UTC()
+	record.Ended, record.Outcome = &ended, OutcomeReturned
+	return record, WriteRecord(service.StateDir, record)
+}
+
+// cloudPullRequest is the open pull request into the goblin's branch that
+// Return brings back: url when given, or the only one there is.
+func (service Service) cloudPullRequest(ctx context.Context, current task, url string) (pullRequest, error) {
+	prs, err := current.commands.pullRequests(ctx, "--base", current.branch)
+	if err != nil {
+		return pullRequest{}, err
+	}
+	var picked []pullRequest
+	for _, pr := range prs {
+		if url == "" || pr.URL == url {
+			picked = append(picked, pr)
+		}
+	}
+	switch {
+	case len(picked) == 0 && url != "":
+		return pullRequest{}, fmt.Errorf("%s is not an open pull request into %s", url, current.branch)
+	case len(picked) == 0:
+		return pullRequest{}, fmt.Errorf("no open pull request targets %s yet", current.branch)
+	case len(picked) > 1:
+		var urls []string
+		for _, pr := range picked {
+			urls = append(urls, pr.URL)
+		}
+		return pullRequest{}, fmt.Errorf("%d open pull requests target %s, so name one with --pr: %s", len(picked), current.branch, strings.Join(urls, ", "))
+	}
+	cloud := picked[0]
+	if cloud.IsCrossRepository {
+		return pullRequest{}, fmt.Errorf("%s comes from another repository, and a cloud session pushes to a branch of this one", cloud.URL)
+	}
+	account, err := current.commands.account(ctx)
+	if err != nil {
+		return pullRequest{}, err
+	}
+	if !strings.EqualFold(cloud.Author.Login, account) {
+		return pullRequest{}, fmt.Errorf("%s was opened by %s, not by %s, whom gh works as, and bringing a teammate's pull request onto a goblin's branch needs the Overlord's press", cloud.URL, cloud.Author.Login, account)
+	}
+	return cloud, nil
+}
+
+// checkUnmoved says why the goblin's branch may not take the cloud's work:
+// a goblin of a later session runs on it, it moved since the handoff on
+// GitHub or in the worktree, the worktree is not clean, or its ready pull
+// request's CI still runs.
+func (service Service) checkUnmoved(ctx context.Context, current task, record Record) error {
+	isPaused, err := isPausedForHandoff(service.StateDir, current.meta)
+	if err != nil {
+		return err
+	}
+	if !isPaused {
+		return fmt.Errorf("%s is not paused for its handoff, since a goblin of a later session runs on %s, so the cloud's work is not brought onto it; cancel the handoff", current.meta.ID, current.branch)
+	}
+	run := current.commands
+	local, err := run.head(ctx)
+	if err != nil {
+		return err
+	}
+	remote, err := run.remoteHead(ctx, current.branch)
+	if err != nil {
+		return err
+	}
+	if local != record.Head || remote != record.Head {
+		return fmt.Errorf("%s moved since the handoff (handed off at %s, now %s here and %s on GitHub), so the cloud's work is not brought onto it; cancel the handoff or bring the branch back to %s", current.branch, record.Head, local, remote, record.Head)
+	}
+	isClean, err := run.isClean(ctx)
+	if err != nil {
+		return err
+	}
+	if !isClean {
+		return fmt.Errorf("the worktree of %s holds uncommitted changes, so the cloud's work is not brought onto it", current.meta.ID)
+	}
+	pr, err := run.pullRequest(ctx, record.PullRequest)
+	if err != nil {
+		return err
+	}
+	if !pr.IsDraft && pr.isCIRunning() {
+		return fmt.Errorf("CI is still running on %s, and a push now would cancel that run after it billed its minutes; bring the work back once it has ended", record.PullRequest)
+	}
+	return nil
+}
+
 // closeOwnDraft closes the draft the handoff opened for a gated task, so its
 // gate opens its own ready pull request; a pull request the handoff reused
 // stays as it is.

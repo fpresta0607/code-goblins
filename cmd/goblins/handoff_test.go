@@ -19,7 +19,7 @@ import (
 )
 
 func TestGoblinsHandoffRefusesAMissingOrInvalidTaskBeforeItReadsTheHome(t *testing.T) {
-	for _, args := range [][]string{{"handoff"}, {"handoff", "Not A Task"}, {"handoff", "cancel"}, {"handoff", "cancel", "../outside"}} {
+	for _, args := range [][]string{{"handoff"}, {"handoff", "Not A Task"}, {"handoff", "return"}, {"handoff", "cancel"}, {"handoff", "cancel", "../outside"}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			// Arrange
 			isHomeRead := false
