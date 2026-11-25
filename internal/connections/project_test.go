@@ -211,6 +211,7 @@ func TestProjectCheckDoesNotRunWhatItCannotCheckAgainstACheckoutThatIsMissing(t 
 func TestProjectsKeepSameNamedServicesApartWithTheirOwnTargets(t *testing.T) {
 	// Arrange
 	e := newTestEnvironment(t)
+	t.Setenv("DATABASE_URL", "")
 	for project, host := range map[string]string{"acme": "db.acme.example", "globex": "db.globex.example"} {
 		e.manifest(t, project, `[{"name":"supabase","method":"env","env":["DATABASE_URL"],"identity":{"var":"DATABASE_URL","expect":"`+host+`"}}]`)
 		e.checkout(t, project)
