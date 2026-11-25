@@ -1155,3 +1155,40 @@ func TestReturnRefusesWhileTheGoblinOfALaterSessionRuns(t *testing.T) {
 		t.Fatalf("return = %v, record %+v, resumes %+v; want it refused with the branch as handed off", err, returned, f.resumes)
 	}
 }
+
+func TestReturnRefusesWhileNoPullRequestTargetsTheGoblinsBranch(t *testing.T) {
+	// Arrange
+	f, record := handedOff(t)
+
+	// Act
+	returned, err := f.service.Return(t.Context(), f.meta.ID, "")
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "no open pull request targets") || !returned.IsHandedOff() || git(t, f.worktree, "rev-parse", "HEAD") != record.Head || f.remoteHead(t, testBranch) != record.Head || len(f.resumes) != 0 {
+		t.Fatalf("return = %v, record %+v; want it refused with the branch as handed off", err, returned)
+	}
+}
+
+// Only a ready pull request's running CI holds the return back, so the
+// handoff's own draft with CI running does not.
+func TestReturnGoesOnWhileTheHandoffsDraftHasCIRunning(t *testing.T) {
+	// Arrange
+	f, record := handedOff(t)
+	cloud := f.openCloudPullRequest(t, record.Head, "errors.go", "package parser\n", testAccount)
+	for index := range f.github.pullRequests {
+		if f.github.pullRequests[index].URL == record.PullRequest {
+			f.github.pullRequests[index].StatusCheckRollup = []checkState{{State: "PENDING"}}
+		}
+	}
+	if draft := f.github.find(record.PullRequest); !draft.IsDraft || !draft.isCIRunning() {
+		t.Fatalf("the handoff's pull request %+v is not a draft with CI running", draft)
+	}
+
+	// Act
+	returned, err := f.service.Return(t.Context(), f.meta.ID, "")
+
+	// Assert
+	if err != nil || returned.Outcome != OutcomeReturned || f.remoteHead(t, testBranch) != cloud.HeadRefOid {
+		t.Fatalf("return = %v, record %+v, GitHub at %s; want %s brought back", err, returned, f.remoteHead(t, testBranch), cloud.HeadRefOid)
+	}
+}

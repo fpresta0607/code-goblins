@@ -17,6 +17,7 @@ It prints the prompt to paste into a cloud session, and the record as JSON.
 `return` finds the cloud's pull request into the goblin's branch, or takes `--pr` when there are several.
 It refuses a pull request from a fork or from an author other than the account `gh` works as, a goblin of a later session running on the branch, a goblin branch that moved since the handoff, a dirty worktree, and a ready pull request with CI still running.
 It fast-forwards the branch to the cloud's head, or merges it, aborting a conflict with the worktree as it was and the task still handed off, then pushes the branch, closes the draft the handoff opened for a `no-mistakes` task, and resumes the goblin with a note naming the cloud's commits and pull request.
+Each of its steps is recorded in the same record, so a second `return` finishes what the first began without merging again, and pushes only the head its merge made, while the goblin is still paused for the handoff.
 
 `cancel` resumes the goblin without the cloud's work, marks the packet cancelled and closes the draft as `return` does; a pull request the handoff reused stays as it was.
 
