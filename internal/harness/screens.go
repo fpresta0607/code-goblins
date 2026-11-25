@@ -35,6 +35,12 @@ type Screens struct {
 	// a request that failed again, its groups the failure, the attempt and
 	// the attempts it makes. Working matches it too.
 	Retrying *regexp.Regexp
+	// APIError matches the row a turn ends on once the harness gave up its
+	// request to the model's API for a connection that failed or a request
+	// that timed out, its first group the error in the harness's own words.
+	// A refusal of another kind, as a rate limit, a rejected credential or a
+	// provider's outage, is routing.Detect's, never this (#2863).
+	APIError *regexp.Regexp
 	// StatusLine matches the status a harness draws at the end of the row
 	// over its composer's top rule, its first group the context gauge and its
 	// second the notices after it, each after a mark. Checks are the checks
@@ -168,6 +174,13 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// 3/10", and its turn still runs (#2236).
 			Working:  regexp.MustCompile(`^[·✢✳*✶✻✽] \S.*(…| · Retrying in .+ · attempt \d+/\d+)`),
 			Retrying: regexp.MustCompile(`^[·✢✳*✶✻✽] (\S.*?) · Retrying in .+? · attempt (\d+)/(\d+)`),
+			// Once its retries run out, Claude Code 2.1.331 ends the turn on
+			// the failure, in the words its build holds for a connection that
+			// failed or a request that timed out, as "● API Error: Can't
+			// reach the API server …" or "● Request timed out. If the API is
+			// slow to answer, …". It draws a goblin's own reply under the same
+			// mark, so a reply that opens "Request timed out on …" is none.
+			APIError: regexp.MustCompile(`^[●⏺] ((?:API Error: (?:Can't reach the API server|Unable to connect to API \(|Connection (?:dropped|refused|error)|No internet route|Request timed out)|Request timed out\. If the API is slow to answer).*)$`),
 			// Over its composer, at the right, Claude Code 2.1.322 draws the
 			// context gauge once the context fills, as "83% context used",
 			// and its notices, as "✘ Auto-update failed · Run claude doctor";
@@ -181,7 +194,9 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			Resubmits:  1,
 			// Claude Code 2.1.288 encloses its bare prompt between rules, and
 			// 2.1.314 draws a hint on it while a message waits in its queue.
-			Empty:         regexp.MustCompile(`^[>❯][ \x{00a0}]*(` + cutShort("Press up to edit queued messages") + `)?$`),
+			// 2.1.331 draws one there after a turn ended on an API error, by
+			// the error's kind (#2862).
+			Empty:         regexp.MustCompile(`^[>❯][ \x{00a0}]*(` + cutShort("Press up to edit queued messages") + `|` + cutShort("Resend your message to try again") + `|` + cutShort("Once fixed, resend your message") + `|` + cutShort("Run /rewind to go back") + `)?$`),
 			RuledComposer: true,
 			// Claude Code 2.1.302 asks permission for a call under its
 			// diff, as in "Do you want to create nine.txt?", over
@@ -234,6 +249,10 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			Footer:            regexp.MustCompile(`^\s*(\? for shortcuts\b|\d+% context left\b|\S+ \S+ · \S|(?i:gpt-\S+)(?: \S+)* (minimal|low|medium|high|xhigh)(\s*$| · \S))`),
 			// Its working row names it: "• Working (5s • esc to interrupt)".
 			SendNow: "\x1b",
+			// Codex 0.160 ends a turn on its stream's failure as an error
+			// row, as "■ stream disconnected before completion: …"; its other
+			// error rows, as "■ Conversation interrupted", are not the API's.
+			APIError: regexp.MustCompile(`^■ ((?:stream disconnected before completion|Connection failed|idle timeout waiting for (?:SSE|websocket))\b.*)$`),
 		}, true
 	case Pi:
 		return Screens{
@@ -252,6 +271,12 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// A braille spinner in the rule above the editor, as in
 			// "── ⠸ Working ──".
 			Working: regexp.MustCompile(`[\x{2800}-\x{28FF}]\s+Working`),
+			// pi 1.4 ends a turn on the error it gave up retrying, as
+			// " Error: Retry failed after 3 attempts: fetch failed", and on
+			// the error itself while its retries are turned off, each its
+			// whole message. It draws a goblin's own reply with the same
+			// leading space, so a reply that opens "Error: …" is none.
+			APIError: regexp.MustCompile(`^ ?Error: (Retry failed after \d+ attempts: .*|Connection error\.|Request timed out\.|fetch failed)\s*$`),
 			// pi 0.85 draws its editor and footer, and takes typed text,
 			// before its startup completes, which on a machine without fd and
 			// rg includes downloading them (InteractiveMode.init); until then
@@ -668,8 +693,20 @@ func (s Screens) composer(screen []string) ([]string, bool) {
 	if s.RuledComposer {
 		return s.ruledComposer(screen)
 	}
-	if s.Footer == nil {
+	start, footer, isRead := s.unruledComposer(screen)
+	if !isRead {
 		return nil, false
+	}
+	composer := screen[start:footer]
+	return composer[:len(composer)-emptyRowsAtEnd(composer)], true
+}
+
+// unruledComposer returns the row of screen's last prompt row over its
+// footer, where an unruled composer starts, and the row its footer starts at,
+// and false when the screen shows no footer or no prompt row over it.
+func (s Screens) unruledComposer(screen []string) (int, int, bool) {
+	if s.Footer == nil {
+		return 0, 0, false
 	}
 	end := len(screen) - emptyRowsAtEnd(screen)
 	footer := end
@@ -677,16 +714,26 @@ func (s Screens) composer(screen []string) ([]string, bool) {
 		footer--
 	}
 	if footer == end {
-		return nil, false
+		return 0, 0, false
 	}
 	for start := footer - 1; start >= 0; start-- {
 		row := strings.TrimSpace(screen[start])
 		if row == "›" || strings.HasPrefix(row, "› ") {
-			composer := screen[start:footer]
-			return composer[:len(composer)-emptyRowsAtEnd(composer)], true
+			return start, footer, true
 		}
 	}
-	return nil, false
+	return 0, 0, false
+}
+
+// aboveComposer returns screen's rows over its composer, and false when the
+// screen shows no composer to read.
+func (s Screens) aboveComposer(screen []string) ([]string, bool) {
+	if s.RuledComposer {
+		top, _, isRuled := s.composerRules(screen)
+		return screen[:top], isRuled
+	}
+	start, _, isRead := s.unruledComposer(screen)
+	return screen[:start], isRead
 }
 
 // TookEnterAsNewLine reports whether screen shows the harness's ruled

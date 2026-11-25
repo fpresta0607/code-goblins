@@ -103,6 +103,17 @@ func piScreenArgs(capabilities piCapabilities) []string {
 	return []string{"--tui-mode", "fullscreen"}
 }
 
+// ModelProvider is the provider a Pi model names, in the provider/model form
+// Pi's launch takes: openrouter for openrouter/deepseek/..., and empty for a
+// model that names none, whose provider is Pi's own default.
+func ModelProvider(model string) string {
+	provider, rest, found := strings.Cut(strings.TrimSpace(model), "/")
+	if !found || provider == "" || rest == "" {
+		return ""
+	}
+	return strings.ToLower(provider)
+}
+
 func (adapter *piAdapter) capabilitiesSnapshot() (piCapabilities, error) {
 	adapter.mu.RLock()
 	defer adapter.mu.RUnlock()

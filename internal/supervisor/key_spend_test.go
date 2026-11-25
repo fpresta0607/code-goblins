@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/openrouter"
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
@@ -446,8 +447,8 @@ func TestKeySpendReadsPisProviderAndProfileRules(t *testing.T) {
 		{"openrouter/", ""},
 		{"/model", ""},
 	} {
-		if got := modelProvider(test.model); got != test.provider {
-			t.Errorf("modelProvider(%q) = %q, want %q", test.model, got, test.provider)
+		if got := harness.ModelProvider(test.model); got != test.provider {
+			t.Errorf("ModelProvider(%q) = %q, want %q", test.model, got, test.provider)
 		}
 	}
 	for _, test := range []struct{ dir, defaultDir, profile string }{

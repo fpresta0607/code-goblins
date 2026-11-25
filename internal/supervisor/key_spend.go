@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/openrouter"
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
@@ -179,7 +180,7 @@ func (s *Service) keySpendPlanFor(ceo ceoState, snapshot Snapshot) keySpendPlan 
 	seen := map[string]bool{}
 	bind := func(id, model string, since time.Time, project string) {
 		dir, profile, env := s.keySpendProfile(project, userEnv, defaultDir)
-		provider := modelProvider(model)
+		provider := harness.ModelProvider(model)
 		if provider == "" {
 			provider = strings.ToLower(openrouter.DefaultProvider(dir))
 		}
@@ -249,17 +250,6 @@ func keySpendProfileName(dir, defaultDir string) string {
 func keySpendSourceKey(dir, envKey string) string {
 	sum := sha256.Sum256([]byte(envKey))
 	return dir + "\x00" + hex.EncodeToString(sum[:8])
-}
-
-// modelProvider is the provider a Pi model names, in the provider/model form
-// Pi's launch takes: openrouter for openrouter/deepseek/..., and empty for a
-// model that names none, whose provider is Pi's own default.
-func modelProvider(model string) string {
-	provider, rest, found := strings.Cut(strings.TrimSpace(model), "/")
-	if !found || provider == "" || rest == "" {
-		return ""
-	}
-	return strings.ToLower(provider)
 }
 
 // ceoModel is the model the registered CEO's session in its harness reported,

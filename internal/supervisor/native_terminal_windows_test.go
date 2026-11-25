@@ -106,6 +106,10 @@ func TestNativeTerminalProgram(t *testing.T) {
 	// status is what Claude Code draws at the right of the row over its
 	// composer, its context gauge and notices, and turnRow its turn row.
 	status, turnRow := "", "✽ Pondering… (esc to interrupt)"
+	// hint is what Claude Code draws in its empty prompt line while no turn
+	// runs: after a turn that ended on an API error, its hint to resend the
+	// message under the error, as Claude Code 2.1.331 drew on 2026-11-24.
+	hint := ""
 	// said is the last line the harness took, which it shows in its
 	// conversation above the composer, as Claude Code does, never on the
 	// prompt line it empties for the turn.
@@ -150,11 +154,16 @@ func TestNativeTerminalProgram(t *testing.T) {
 			prompt, column = len(rows)+1, 1+len([]rune(text))
 			rows = append(rows, rule, text, rule, "0.0%/1.0M (auto)")
 		default:
+			shown := text
+			if hint != "" && text == "" && !isWorking {
+				rows = append(rows, "● API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)")
+				shown = hint
+			}
 			if status != "" {
 				rows = append(rows, strings.Repeat(" ", 80-len([]rune(status)))+status)
 			}
 			prompt, column = len(rows)+1, 3+len([]rune(text))
-			rows = append(rows, rule, "❯ "+text, rule, mode)
+			rows = append(rows, rule, "❯ "+shown, rule, mode)
 			if footer != "" {
 				rows = append(rows, footer)
 			}
@@ -234,6 +243,11 @@ func TestNativeTerminalProgram(t *testing.T) {
 			record("turn ended")
 		case strings.HasPrefix(line, "status"):
 			status = strings.TrimSpace(strings.TrimPrefix(line, "status"))
+			drawComposer("", false)
+		case line == "api error":
+			// The turn ended on an API error, with the context gauge Claude
+			// Code draws once a session is long.
+			hint, status = "Resend your message to try again", "1% until auto-compact"
 			drawComposer("", false)
 		case strings.HasPrefix(line, "retry "):
 			// Claude Code 2.1.322's turn row while it waits to send a
@@ -330,6 +344,7 @@ func TestNativeTerminalProgram(t *testing.T) {
 			os.Exit(code)
 		default:
 			record(line)
+			hint = ""
 			if harness && keep {
 				drawComposer(line, true)
 			} else if harness {
@@ -2294,6 +2309,43 @@ func TestANativeTerminalClosesWhenItsGenerationIsReplaced(t *testing.T) {
 	// Assert: it closed with the replaced-session reason, not a hold.
 	if !strings.Contains(closed.Reason, "restarted or was replaced") {
 		t.Fatalf("the view closed with %q, want the replaced session named", closed.Reason)
+	}
+}
+
+// Claude Code 2.1.331 leaves a hint to resend his message in its empty prompt
+// line once a turn ends on an API error, which is nothing anyone typed: the
+// view is told the line holds no words, so Modern Chat types his next message
+// into it and submits it, where it held the message as one that would join
+// words never sent and had him switch to the classic view to type (#2862).
+func TestANativeViewTypesIntoAPromptLineShowingClaudesResendHint(t *testing.T) {
+	// Arrange: a goblin whose turn ended on an API error.
+	h, server := nativeBoard(t, "direct")
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	terminal := hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+	v.send(t, websocket.MessageBinary, "harness\r")
+	v.send(t, websocket.MessageBinary, "api error\r")
+	v.waitFor(t, "Resend your message to try again")
+
+	// Assert: the line reads as holding nothing.
+	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":false,"submission":"his","mode":"bypass permissions","status":{"gauge":"1% until auto-compact"}}`)
+
+	// Act: Modern Chat types his message into the terminal and submits it.
+	v.send(t, websocket.MessageText, `{"type":"submit","submission":"next"}`)
+	v.send(t, websocket.MessageBinary, "carry on from where you stopped\r")
+
+	// Assert
+	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":true,"submission":"next",`)
+	if lines := terminal.waitForLines(t, 1); !slices.Equal(lines, []string{"carry on from where you stopped"}) {
+		t.Fatalf("the harness took %q, want his message alone", lines)
 	}
 }
 
