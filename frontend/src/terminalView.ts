@@ -21,7 +21,8 @@ export const LINE_HEIGHT = 1.2;
 // A resize while the panel is being dragged reaches the pseudo console once
 // the size has held for this long, so the program redraws once, not per frame.
 const RESIZE_SETTLE_MS = 120;
-// A view whose repaint never arrives is shown after this long all the same.
+// A view whose repaint never arrives is shown after this long all the same,
+// once its history is drawn.
 const READY_FALLBACK_MS = 600;
 // Keys that only change the next key send nothing of their own.
 const MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "AltGraph", "Meta", "CapsLock", "NumLock", "ScrollLock", "Fn"]);
@@ -100,6 +101,9 @@ export class TerminalView {
   // view's size; the repaint that size asked for follows it.
   private claimedAt = -1;
   private sized = false;
+  // Whether the repaint this view's size asked for is overdue, so the view is
+  // shown without it once its history is drawn.
+  private isRepaintOverdue = false;
   private isReady = false;
   // Whether ready reached the view's owner while its connection was open.
   // Only an accepted view's replay is shown after its connection closes.
@@ -413,7 +417,11 @@ export class TerminalView {
       else this.fallback ??= setTimeout(() => this.markReady(), READY_FALLBACK_MS);
       return;
     }
-    if (this.claimedAt >= 0 && this.history >= 0 && this.consumed > Math.max(this.history, this.claimedAt) && !this.frames.updating) this.markReady();
+    // A shown view waits for its whole history, however long the repaint
+    // takes: one shown before then scrolled through the history on screen on
+    // its way to the bottom (#2903).
+    if (this.history < 0 || this.consumed < this.history || this.frames.updating) return;
+    if (this.isRepaintOverdue || this.claimedAt >= 0 && this.consumed > Math.max(this.history, this.claimedAt)) this.markReady();
   }
 
   // took draws at the size the terminal took. Another view's size is drawn
@@ -478,7 +486,7 @@ export class TerminalView {
     if (this.sized) { this.settle = setTimeout(report, RESIZE_SETTLE_MS); return; }
     this.sized = true;
     report();
-    this.fallback = setTimeout(() => this.markReady(), READY_FALLBACK_MS);
+    this.fallback = setTimeout(() => { this.isRepaintOverdue = true; this.readyIfDrawn(); }, READY_FALLBACK_MS);
   }
 
   // repin draws the pinned line and tells where the history ends once a
