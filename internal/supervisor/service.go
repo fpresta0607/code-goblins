@@ -30,6 +30,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/githubapi"
 	"github.com/fpresta0607/code-goblins/internal/goblinname"
+	"github.com/fpresta0607/code-goblins/internal/handoff"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -1727,6 +1728,7 @@ type Task struct {
 	StartError    string              `json:"start_error"`
 	Finished      string              `json:"finished,omitempty"`
 	Lifecycle     *LifecycleStatus    `json:"lifecycle,omitempty"`
+	CloudHandoff  *CloudHandoff       `json:"cloud_handoff,omitempty"`
 	Teardown      []string            `json:"teardown,omitempty"`
 	ActionError   string              `json:"action_error,omitempty"`
 	QueueRevision string              `json:"queue_revision,omitempty"`
@@ -2231,7 +2233,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	asked := map[string]string{}
 	for _, change := range s.asked {
 		asked[change.task] = "start"
-		if change.resume != nil {
+		if change.isResume() {
 			asked[change.task] = "resume"
 		}
 	}
@@ -2274,6 +2276,13 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 		if lifecycleErr == nil && isCurrent && (record.Phase != "running" || len(record.Teardown) > 0) {
 			task.Lifecycle = lifecycleStatus(record)
+			if record.Phase == "paused" && record.Pause != nil && record.Pause.Reason == "handoff" {
+				if meta, err := s.taskMeta(task.ID); err == nil {
+					if handed, isHandedOff, err := handoff.HandedOff(s.Store.Home.State, meta); err == nil && isHandedOff {
+						task.CloudHandoff = &CloudHandoff{PullRequest: handed.PullRequest, Cloud: handed.Cloud}
+					}
+				}
+			}
 			if record.SuppressesMonitoring(s.Store.Home.State) {
 				task.Phase, task.Reason, task.At = record.Phase, record.Reason, record.Updated
 				if record.Pause != nil && record.Phase == "paused" {

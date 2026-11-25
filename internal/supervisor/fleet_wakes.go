@@ -943,6 +943,7 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 		listed, pullsUnreadable, pullsErr := pollPullRequests(ctx, runner, github, slug, s.Store.Home.State, w, repo, mine, owners, now)
 		if listed != nil {
 			w.recordKeptOff(mine, listed)
+			errs = errors.Join(errs, s.sightCloudWork(ctx, github, mine, listed, owners, now))
 		}
 		mainUnreadable, mainErr := pollMain(ctx, runner, github, slug, s.Store.Home.State, w, repo, now, s.fileFoundRoot)
 		// A refusal one of these reads met holds the overlap read and the
@@ -1576,6 +1577,7 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, github *githubap
 	var unreadHeads []ghPullRequest
 	var changes []prHealthChange
 	trainGoblins := sync.OnceValue(func() []train.Goblin { return TrainGoblins(stateDir, repo) })
+	handedOff := handedOffGoblins(stateDir, goblins)
 	for _, pr := range watched {
 		record := w.Health[pr.URL]
 		if record.Head != pr.HeadRefOid {
@@ -1597,7 +1599,7 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, github *githubap
 			unreadHeads = append(unreadHeads, pr)
 		}
 		comparison := comparisons[pr.Number]
-		if comparison == nil && pr.Mergeable != "CONFLICTING" || carried[pr.URL] || strings.HasPrefix(pr.HeadRefName, train.BranchPrefix) {
+		if comparison == nil && pr.Mergeable != "CONFLICTING" || carried[pr.URL] || strings.HasPrefix(pr.HeadRefName, train.BranchPrefix) || isHandedOffWork(handedOff, goblinOf[pr.URL], pr) {
 			continue
 		}
 		behind := 0

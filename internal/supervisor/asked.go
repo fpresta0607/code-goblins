@@ -11,10 +11,17 @@ import (
 // or resumes at a time, and only with memory and disk to spare, so a click
 // that comes while another runs, or while either is short, waits its turn
 // rather than being refused: one click starts or resumes a goblin. resume is
-// what a Resume's click named; a Start's is nil.
+// what a Resume's click named, and bringBack what a Bring back's named,
+// which resumes the goblin with the cloud's work; a Start's are nil.
 type askedChange struct {
-	task   string
-	resume *lifecycleRequest
+	task      string
+	resume    *lifecycleRequest
+	bringBack *cloudWorkRequest
+}
+
+// isResume says the change resumes its goblin rather than starting it.
+func (change askedChange) isResume() bool {
+	return change.resume != nil || change.bringBack != nil
 }
 
 // launching names the goblin that starts or resumes now, or is empty. The
@@ -101,10 +108,13 @@ func (s *Service) runAsked() {
 		next := s.asked[0]
 		s.starts.Unlock()
 		var err error
-		if next.resume == nil {
-			err = s.startQueued(next.task, true)
-		} else {
+		switch {
+		case next.bringBack != nil:
+			err = s.bringBack(*next.bringBack)
+		case next.resume != nil:
 			err = s.changeTask(*next.resume)
+		default:
+			err = s.startQueued(next.task, true)
 		}
 		var started StartRefusal
 		var changed taskRefusal
@@ -121,7 +131,7 @@ func (s *Service) runAsked() {
 		}
 		s.starts.Lock()
 		s.asked = slices.DeleteFunc(s.asked, func(change askedChange) bool { return change.task == next.task })
-		if err != nil && !started.Held && !isChangeRefusal && next.resume == nil {
+		if err != nil && !started.Held && !isChangeRefusal && !next.isResume() {
 			if s.startErrors == nil {
 				s.startErrors = map[string]string{}
 			}
@@ -130,7 +140,9 @@ func (s *Service) runAsked() {
 		s.starts.Unlock()
 		if err != nil && !started.Held && !isChangeRefusal {
 			verb := "start failed: "
-			if next.resume != nil {
+			if next.bringBack != nil {
+				verb = "Bring back failed: "
+			} else if next.resume != nil {
 				verb = "resume failed: "
 			}
 			s.tellCEOOfFailure(next.task, verb+err.Error())

@@ -196,8 +196,8 @@ func (s *Service) Items() (Items, uint64) {
 }
 
 // Waiting lists what waits on the Overlord as the board's page counts it,
-// read from the store's memory, with each goblin named as the newest snapshot
-// built names it, so a look builds none. The desktop window looks every three
+// read from the store's memory, with each goblin named, and its cloud work
+// told, as the newest snapshot built has them, so a look builds none. The desktop window looks every three
 // seconds, and it read the whole snapshot, a megabyte, at each look (#1716).
 func (s *Service) Waiting() (string, []waiting.Item, error) {
 	snapshot, err := s.SnapshotSince(0)
@@ -205,12 +205,13 @@ func (s *Service) Waiting() (string, []waiting.Item, error) {
 		return "", nil, err
 	}
 	type title struct {
-		ID    string `json:"id"`
-		Title string `json:"title"`
+		ID           string        `json:"id"`
+		Title        string        `json:"title"`
+		CloudHandoff *CloudHandoff `json:"cloud_handoff,omitempty"`
 	}
 	titles := make([]title, len(snapshot.Tasks))
 	for i, task := range snapshot.Tasks {
-		titles[i] = title{task.ID, task.Title}
+		titles[i] = title{task.ID, task.Title, task.CloudHandoff}
 	}
 	items, _ := s.Items()
 	items.Actions = nil

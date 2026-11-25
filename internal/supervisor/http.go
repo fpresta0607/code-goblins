@@ -281,6 +281,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.startTask(w, r)
 	case r.URL.Path == "/api/tasks/lifecycle" && r.Method == "POST":
 		h.lifecycleTask(w, r)
+	case r.URL.Path == "/api/tasks/cloud" && r.Method == "POST":
+		h.cloudWork(w, r)
 	case r.URL.Path == "/api/tasks/adjust" && r.Method == "POST":
 		h.adjustTask(w, r)
 	case r.URL.Path == "/api/tasks/engine" && r.Method == "POST":

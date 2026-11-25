@@ -27,6 +27,9 @@ export interface Evaluation {
 }
 export interface Task extends Evaluation {
   lifecycle?: LifecycleStatus;
+  // cloud_handoff is a task handed off to a cloud session: the pull request
+  // its packet is in, and the cloud's pull requests into its branch.
+  cloud_handoff?: CloudHandoff;
   // teardown names the task's stopped processes, from this or an earlier
   // session, that Windows is still tearing down.
   teardown: string[];
@@ -271,6 +274,11 @@ export interface LifecycleStatus {
   kept_messages?: string[];
 }
 export interface PauseCondition { reason: string; until: string; at: string }
+// CloudSighting is one of the cloud's pull requests into a handed-off
+// task's branch at its newest head: is_teammates says another account
+// opened it, so Bring back is his press, and is_left that he left it.
+export interface CloudSighting { pull_request: string; title: string; author: string; head: string; is_teammates: boolean; seen_at: string; is_left: boolean }
+export interface CloudHandoff { pull_request: string; cloud: CloudSighting[] }
 // Wait is one thing a queued row waits for: kind is time, memory, pr or task,
 // target its words as the row wrote them, until the time and bytes the free
 // memory it waits for, and problem why the scheduler cannot read it.
@@ -1096,7 +1104,11 @@ export function parseSnapshot(value: unknown): Snapshot {
     tasks: array(v.tasks).map((value) => {
       const t = object(value);
       return {
-        lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_kept: boolean(record.validation_kept),
+        ...(t.cloud_handoff == null ? {} : { cloud_handoff: ((handed) => ({ pull_request: string(handed.pull_request), cloud: array(handed.cloud).map((value) => {
+          const seen = object(value);
+          return { pull_request: string(seen.pull_request), title: string(seen.title), author: string(seen.author), head: string(seen.head), is_teammates: seen.is_teammates === undefined ? false : boolean(seen.is_teammates), seen_at: string(seen.seen_at), is_left: seen.is_left === undefined ? false : boolean(seen.is_left) };
+        }) }))(object(t.cloud_handoff)) }),
+        lifecycle: t.lifecycle == null ? undefined :((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_kept: boolean(record.validation_kept),
           ...(record.with_parent === undefined ? {} : { with_parent: boolean(record.with_parent) }),
           ...(record.kept_messages == null ? {} : { kept_messages: strings(record.kept_messages) }),
           ...(record.pause == null ? {} : { pause: ((pause) => ({ reason: string(pause.reason), until: string(pause.until), at: string(pause.at) }))(object(record.pause)) }) }))(object(t.lifecycle)),

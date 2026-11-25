@@ -14,8 +14,17 @@ A goblin that wrote no handoff of its own publishes nothing either, and the task
 Each step is recorded in `state/handoffs/<id>.json`, so a failure part-way leaves the task paused and a second `handoff` goes on from the step that failed.
 It prints the prompt to paste into a cloud session, and the record as JSON.
 
+While the task is handed off, the supervisor watches its branch at every pull request poll.
+Each open pull request into the branch from the same repository, other than the one the packet is in, is recorded in the handoff record at its head, and raises one **Cloud work ready** item in the Command Center, waiting on the Overlord, which names the goblin, the pull request, its title, its head, and a teammate's author.
+It alerts as every item waiting on him does: on the board, in the desktop window, and on his phone once a snapshot that shows it is built, as a board open anywhere builds one at each change.
+A head that moves raises the item again, and the pull requests of a handed-off task, its own and the cloud's into its branch, raise no `pr_health` wake.
+**Leave it** closes the item until its head moves.
+**Bring back** runs `return` on that pull request in its turn, since it resumes the goblin: like a Resume, it waits for memory, disk and another goblin's launch rather than being refused, and its failure reaches the CEO.
+Both name the head the item showed, and a head that moved since is refused, so a push after the press is brought back only by a new press.
+Bring back records the Overlord's press on that pull request and head, and it is the only thing that writes one: no command or flag does.
+
 `return` finds the cloud's pull request into the goblin's branch, or takes `--pr` when there are several.
-It refuses a pull request from a fork or from an author other than the account `gh` works as, a goblin of a later session running on the branch, a goblin branch that moved since the handoff, a dirty worktree, and a ready pull request with CI still running.
+It refuses a pull request from a fork, one from an author other than the account `gh` works as unless the Overlord pressed Bring back on it at its current head, one he pressed at another head whoever opened it, a goblin of a later session running on the branch, a goblin branch that moved since the handoff, a dirty worktree, and a ready pull request with CI still running.
 It fast-forwards the branch to the cloud's head, or merges it, aborting a conflict with the worktree as it was and the task still handed off, then pushes the branch, closes the draft the handoff opened for a `no-mistakes` task, and resumes the goblin with a note naming the cloud's commits and pull request.
 Each of its steps is recorded in the same record, so a second `return` finishes what the first began without merging again, and pushes only the head its merge made, while the goblin is still paused for the handoff.
 

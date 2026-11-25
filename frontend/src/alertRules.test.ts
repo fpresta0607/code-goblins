@@ -289,3 +289,21 @@ test("the board asks for notifications once, and only while the browser has not 
   assert.equal(asksPermission("denied", false), false);
   assert.equal(asksPermission("unsupported", false), false);
 });
+
+// A handed-off goblin's cloud work alerts once, as the window and the phone
+// tell it, under its pull request, head and sighting, and the alert leaves
+// once he brings it back or leaves it.
+test("cloud work ready alerts once and leaves with its item", () => {
+  const sighting = { pull_request: PR, title: "Name the **bad** header", author: "o", head: "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00", is_teammates: false, seen_at: "2026-11-25T19:00:00Z", is_left: false };
+  const handedOff = (cloud: typeof sighting[]) => snapshot({ tasks: [task("a", "paused", { cloud_handoff: { pull_request: "https://github.com/o/r/pull/6", cloud } })] });
+  const before = handedOff([]);
+  const ready = handedOff([sighting]);
+
+  const alerts = boardAlerts(before, ready);
+
+  assert.deepEqual(alerts.map(({ key, item, text }) => ({ key, item, text })), [{ key: "cloud:a:" + PR + "@" + sighting.head + "@" + sighting.seen_at, item: "cloud:a:" + PR + "@" + sighting.head, text: "Goblin a has cloud work ready: Name the bad header" }]);
+  assert.deepEqual(boardAlerts(ready, ready), []);
+  assert.equal(outlived(alerts[0], ready), false);
+  assert.equal(outlived(alerts[0], handedOff([{ ...sighting, is_left: true }])), true);
+  assert.equal(outlived(alerts[0], snapshot({ tasks: [task("a", "working")] })), true);
+});

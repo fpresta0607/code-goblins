@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/handoff"
 	"github.com/fpresta0607/code-goblins/internal/waiting"
 )
 
@@ -20,8 +21,9 @@ import (
 // snapshot built names it, so looks build no snapshot however much changes
 // between them (#1716).
 func TestTheWindowsLookAnswersWhatWaitsWithoutBuildingASnapshot(t *testing.T) {
-	// Arrange: the CEO's question and a goblin's question the CEO has left,
-	// on a board whose snapshot builds are counted.
+	// Arrange: the CEO's question, a goblin's question the CEO has left and
+	// the cloud's work into a handed-off goblin's branch, on a board whose
+	// snapshot builds are counted.
 	store, _ := testStore(t)
 	asked := time.Now().UTC().Add(-11 * time.Minute).Truncate(time.Second)
 	if err := store.acceptQuestion(Question{ID: "pick-a-store", Identity: strings.Repeat("c", 64), Text: "Which store?", CreatedAt: asked}); err != nil {
@@ -34,7 +36,7 @@ func TestTheWindowsLookAnswersWhatWaitsWithoutBuildingASnapshot(t *testing.T) {
 	var builds atomic.Int32
 	s.buildSnapshot = func() (Snapshot, error) {
 		builds.Add(1)
-		return Snapshot{Instance: s.Instance, Tasks: []Task{{ID: "olive-task", Title: "Olive"}}}, nil
+		return Snapshot{Instance: s.Instance, Tasks: []Task{{ID: "olive-task", Title: "Olive", CloudHandoff: &CloudHandoff{PullRequest: "https://github.com/o/r/pull/209", Cloud: []handoff.CloudSighting{{PullRequest: cloudPullRequest, Title: "Name the bad header", Author: "o", Head: cloudHead, SeenAt: asked}}}}}}, nil
 	}
 	handler := NewHTTP(s, "127.0.0.1:4310", nil)
 	look := func() (int, waiting.Look) {
@@ -61,6 +63,7 @@ func TestTheWindowsLookAnswersWhatWaitsWithoutBuildingASnapshot(t *testing.T) {
 	want := []waiting.Item{
 		{ID: "question:pick-a-store@" + at, Asker: "CEO", Text: "The CEO asks: Which store?"},
 		{ID: "question:notify-olive-1@" + at, Asker: "Olive", Text: "Olive asks: Which port?", IsQuiet: true},
+		{ID: "cloud:olive-task:" + cloudPullRequest + "@" + cloudHead + "@" + at, Asker: "Olive", Text: "Olive has cloud work ready: Name the bad header"},
 	}
 	if status != 200 || answer.Instance != "test-instance" || !slices.Equal(answer.Items, want) {
 		t.Fatalf("the look answered %d %+v, want 200 with instance test-instance and %+v", status, answer, want)
