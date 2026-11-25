@@ -1,7 +1,7 @@
 import type { Snapshot } from "./types.ts";
 import { leftByTheCEO, waitingItems } from "./commandQueue.ts";
 import { afkLine } from "./afk.ts";
-import { taskColumn } from "./workflow.ts";
+import { isAwaitingComeback, taskColumn } from "./workflow.ts";
 
 // The pinned CEO bar says how many goblins are at work, and how many
 // items wait on the Overlord, since every question and review reaches him
@@ -23,7 +23,7 @@ export function ceoSummary(snapshot: Snapshot, now = Date.now()): { waiting: num
   const away = afkLine(snapshot.afk, now);
   const waiting = waitingItems(snapshot).length;
   if (away) return { waiting, line: away };
-  const goblins = snapshot.tasks.filter((task) => !!task.generation && taskColumn(task) === "In progress" && !["paused", "pausing", "resuming"].includes(task.phase)).length;
+  const goblins = snapshot.tasks.filter((task) => !!task.generation && taskColumn(task) === "In progress" && !["paused", "pausing", "resuming"].includes(task.phase) && !isAwaitingComeback(task)).length;
   const fleet = goblins ? goblins + (goblins === 1 ? " goblin" : " goblins") + " at work." : "No goblins are at work.";
   const at = Date.parse(snapshot.at);
   const left = (snapshot.questions || []).filter((question) => leftByTheCEO(question, at));
