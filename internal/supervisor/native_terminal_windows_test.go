@@ -1338,15 +1338,83 @@ func TestANativeViewKeepsATurnBetweenScreenReads(t *testing.T) {
 }
 
 func TestANativeViewRejectsAnInvalidSubmissionID(t *testing.T) {
-	for _, submission := range []string{"", strings.Repeat("x", 129)} {
-		t.Run(strconv.Itoa(len(submission)), func(t *testing.T) {
+	for _, control := range []string{"submit", "enter"} {
+		for _, submission := range []string{"", strings.Repeat("x", 129)} {
+			t.Run(control+"/"+strconv.Itoa(len(submission)), func(t *testing.T) {
+				h, server := nativeBoard(t, "direct")
+				hostTask(t, h)
+				v := openNativeView(t, server, viewQuery)
+				v.waitFor(t, "program ready")
+				v.send(t, websocket.MessageText, `{"type":"`+control+`","submission":"`+submission+`","text":"please run /ship"}`)
+				if closed := v.waitForClose(t); closed.Code != websocket.StatusUnsupportedData {
+					t.Fatalf("invalid submission closed with %d, want unsupported data", closed.Code)
+				}
+			})
+		}
+	}
+}
+
+// A message the view typed as keys takes its Enter from the relay, which
+// reads the terminal's screen again and presses it only while the prompt line
+// holds the message's words alone, under no question, and tells the view
+// whether it did (#2848's review): pressed over words typed behind them it
+// sends those too, and pressed under a question it answers it.
+func TestTheRelayPressesATypedMessagesEnterOnlyWhileItsPromptLineHoldsItsWordsAlone(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		// before is typed ahead of the message, behind right behind its
+		// words, and enter names the submission whose Enter the view asks for.
+		before, behind, enter string
+		isPressed             bool
+	}{
+		{name: "its words alone", before: "harness\r", enter: "words", isPressed: true},
+		{name: "its words over a list under the prompt line", before: "harness\rmode   /ship    Ship the branch\r", enter: "words", isPressed: true},
+		{name: "words typed behind its own", before: "harness\r", behind: " and more", enter: "words"},
+		{name: "a question in the prompt line's place", before: "harness\rpermission\r", enter: "words"},
+		{name: "the Enter of a submission it never took", before: "harness\r", enter: "another"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
 			h, server := nativeBoard(t, "direct")
-			hostTask(t, h)
+			meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta.Harness = "claude"
+			if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			terminal := hostTask(t, h)
+			record, err := host.ReadRecord(h.Service.Store.Home.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
 			v := openNativeView(t, server, viewQuery)
 			v.waitFor(t, "program ready")
-			v.send(t, websocket.MessageText, `{"type":"submit","submission":"`+submission+`"}`)
-			if closed := v.waitForClose(t); closed.Code != websocket.StatusUnsupportedData {
-				t.Fatalf("invalid submission closed with %d, want unsupported data", closed.Code)
+			v.send(t, websocket.MessageBinary, test.before)
+			v.send(t, websocket.MessageText, `{"type":"submit","submission":"words"}`)
+			v.send(t, websocket.MessageBinary, "please run /ship"+test.behind)
+			for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
+				screen, err := host.ReadScreen(record)
+				if err == nil && strings.Contains(strings.Join(screen, "\n"), "please run /ship"+test.behind) {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("the terminal never showed the typed words; it shows %q, %v", screen, err)
+				}
+			}
+
+			// Act
+			v.send(t, websocket.MessageText, `{"type":"enter","submission":"`+test.enter+`","text":"please run /ship"}`)
+
+			// Assert
+			v.waitFor(t, fmt.Sprintf(`{"type":"entered","submission":%q,"pressed":%t}`, test.enter, test.isPressed))
+			var want []string
+			if test.isPressed {
+				want = []string{"please run /ship"}
+			}
+			if got := terminal.waitForLines(t, len(want)); !slices.Equal(got, want) {
+				t.Fatalf("the program took %q, want %q", got, want)
 			}
 		})
 	}

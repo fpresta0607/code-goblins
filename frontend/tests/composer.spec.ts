@@ -186,8 +186,9 @@ async function typeSkill(page: Page, words = "please run /ship now") {
 
 // heard says each of before to the goblin's view, then screen, and waits
 // until the box draws screen's gauge: the relay's messages arrive in order,
-// so the view has read them all.
-async function heard(page: Page, relay: Relay, screen: ReturnType<typeof shows>, ...before: object[]) {
+// so the view has read them all. A screen names the submission it is bound
+// to only when that is not the view's last.
+async function heard(page: Page, relay: Relay, screen: ReturnType<typeof shows> & { submission?: string }, ...before: object[]) {
   for (const message of [...before, screen]) relay.say(message);
   await expect(box(page).getByRole("status", { name: "Terminal status" })).toHaveText(screen.status.gauge);
 }
@@ -208,12 +209,106 @@ test("a message typed into Claude Code takes its Enter 300 ms after the relay's 
   // Act: the relay's screen shows the words on the prompt line.
   await heard(page, relay, SHOWS_WORDS);
 
-  // Assert: the Enter follows 300 ms later, and not a moment sooner.
+  // Assert: the Enter follows 300 ms later, and not a moment sooner, asked of
+  // the relay with the message's words, which it presses over them alone.
   await page.clock.runFor(299);
   await page.waitForTimeout(250);
   expect(relay.typed.at(-1)).toBe("please run /ship now");
   await page.clock.runFor(1);
   await expect.poll(() => relay.typed.slice(-2)).toEqual(["please run /ship now", "\r"]);
+  expect(relay.enters).toEqual([{ submission: relay.submissions.at(-1), text: "please run /ship now" }]);
+  // An Enter the relay pressed says nothing over the box.
+  await page.waitForTimeout(250);
+  await expect(box(page).getByRole("alert")).toHaveCount(0);
+});
+
+// The relay holds a view's keys until custody's first answer, which can take
+// seconds, and reads its screen once it takes them, so while it sends screens
+// a typed message's wait for its words counts from the first screen bound to
+// the message: counted from the keys, it asked for an Enter the relay would
+// press as it took them, in the burst that leaves the message unsent (#2848's
+// review).
+test("a message typed into Claude Code while the relay sends screens waits for the first screen bound to it, and asks for its Enter 3 s after that screen", async ({ page }) => {
+  // Arrange: the relay's screen shows an empty prompt line before he sends.
+  const relay = await open(page);
+  await openGoblin(page);
+  await stopClock(page);
+  await heard(page, relay, shows(false));
+  await field(page).fill("please run /ship now");
+  await send(page).click();
+  await expect.poll(() => relay.typed.at(-1)).toBe("please run /ship now");
+
+  // Act and Assert: 5 s on, the relay still holds the keys, and its screens
+  // are still bound to his input before them.
+  await heard(page, relay, { ...shows(false, 13), submission: "his" });
+  await page.clock.runFor(5000);
+  await page.waitForTimeout(250);
+  expect(relay.enters).toEqual([]);
+  expect(relay.typed.at(-1)).toBe("please run /ship now");
+
+  // Act: the relay takes the keys, and its screen is bound to the message.
+  await heard(page, relay, shows(false, 14));
+  await page.clock.runFor(2999);
+  await page.waitForTimeout(250);
+
+  // Assert: the Enter is asked for 3 s after that screen, and not before.
+  expect(relay.enters).toEqual([]);
+  await page.clock.runFor(1);
+  await expect.poll(() => relay.enters).toEqual([{ submission: relay.submissions.at(-1), text: "please run /ship now" }]);
+  await expect.poll(() => relay.typed.slice(-2)).toEqual(["please run /ship now", "\r"]);
+});
+
+// Keys another types meanwhile bind the relay's screens to nobody's input,
+// so a typed message that never sees one bound to it still ends its wait.
+test("a message typed into Claude Code while the relay sends screens asks for its Enter 10 s after its keys when no screen bound to it comes", async ({ page }) => {
+  // Arrange
+  const relay = await open(page);
+  await openGoblin(page);
+  await stopClock(page);
+  await heard(page, relay, shows(false));
+  await field(page).fill("please run /ship now");
+  await send(page).click();
+  await expect.poll(() => relay.typed.at(-1)).toBe("please run /ship now");
+
+  // Act
+  await page.clock.runFor(9999);
+  await page.waitForTimeout(250);
+
+  // Assert
+  expect(relay.enters).toEqual([]);
+  await page.clock.runFor(1);
+  await expect.poll(() => relay.enters).toEqual([{ submission: relay.submissions.at(-1), text: "please run /ship now" }]);
+});
+
+// Asked for while its keys sit unread, the Enter would find the words not yet
+// on the prompt line, and the relay would leave them unsent there once read.
+test("a message typed into Claude Code while the relay sends screens whose keys sit unread at 10 s asks for its Enter only 300 ms after they were read", async ({ page }) => {
+  // Arrange: no screen the relay reads is bound to the message.
+  const relay = await open(page);
+  await openGoblin(page);
+  await stopClock(page);
+  await heard(page, relay, shows(false));
+  await field(page).fill("please run /ship now");
+  await send(page).click();
+  await expect.poll(() => relay.typed.at(-1)).toBe("please run /ship now");
+  await page.clock.runFor(1000);
+  await heard(page, relay, { ...shows(false, 13), submission: "his" }, { type: "unread", unread: true });
+
+  // Act and Assert: at 10 s the keys still sit unread, so nothing is asked.
+  await page.clock.runFor(9000);
+  await page.waitForTimeout(250);
+  expect(relay.enters).toEqual([]);
+
+  // Act: at 10.5 s the relay says the keys were read.
+  await page.clock.runFor(500);
+  await heard(page, relay, { ...shows(false, 14), submission: "his" }, { type: "unread", unread: false });
+
+  // Assert: the Enter is asked for 300 ms later, and not a moment sooner.
+  await page.clock.runFor(299);
+  await page.waitForTimeout(250);
+  expect(relay.enters).toEqual([]);
+  await page.clock.runFor(1);
+  await expect.poll(() => relay.enters).toEqual([{ submission: relay.submissions.at(-1), text: "please run /ship now" }]);
 });
 
 test("a message typed into Claude Code whose words the relay's screen never shows takes its Enter 3 s after them", async ({ page }) => {
@@ -326,6 +421,8 @@ test("a /model or /effort typed while a typed message's Enter waits stays in the
   await send(page).click();
   await expect.poll(() => relay.typed.at(-1)).toBe("please run /ship now");
   await expect(model).toBeDisabled();
+  // The relay takes the keys, and its screen is bound to the message.
+  await heard(page, relay, shows(false, 13));
 
   for (const command of ["/model", "/effort high"]) {
     // Act
@@ -350,11 +447,14 @@ test("a /model or /effort typed while a typed message's Enter waits stays in the
 
 // A question the harness opens in the prompt line's place while the Enter
 // waits, as a permission prompt in a turn does, would take the Enter as its
-// answer, so none is pressed, and the box says the words wait unsent.
-test("a message typed into Claude Code takes no Enter once a question opens in its prompt line's place, when it falls due or at 3 s", async ({ page }) => {
+// answer. The relay reads the screen again as the Enter falls due and presses
+// none over it, which the view's last screen can be too old to show, and the
+// box says the words wait unsent.
+test("a message typed into Claude Code whose Enter the relay does not press, as under a question in its prompt line's place, says its words wait unsent and asks no more", async ({ page }) => {
   // Arrange
   const relay = await typeSkill(page);
   await heard(page, relay, SHOWS_WORDS);
+  relay.shouldPressEnter = false;
 
   // Act: a question takes the line's place before the Enter falls due.
   relay.say({ type: "screen", asking: true, open: true, working: false, panel: { rows: ["Do you want to proceed?"], choices: [{ text: "Yes", number: 1, focused: true }, { text: "No", number: 2 }] } });
@@ -365,11 +465,12 @@ test("a message typed into Claude Code takes no Enter once a question opens in i
   await expect(box(page).getByRole("alert")).toHaveText(WORDS_WAIT_UNSENT);
   await page.clock.runFor(3000);
   await page.waitForTimeout(250);
+  expect(relay.enters).toHaveLength(1);
   expect(relay.typed.at(-1)).toBe("please run /ship now");
 });
 
-// The relay drops what is typed while typing is held, so an Enter pressed
-// then would never reach the harness.
+// The relay drops what is typed while typing is held, and presses no Enter
+// asked for then.
 test("a message typed into Claude Code takes no Enter once typing is held, and the box says its words wait unsent", async ({ page }) => {
   // Arrange
   const relay = await typeSkill(page);
@@ -394,6 +495,26 @@ test("a message typed into Claude Code whose connection the relay closes while i
   // Assert
   await expect(box(page).getByRole("alert")).toHaveText(WORDS_WAIT_UNSENT);
   expect(relay.typed.at(-1)).toBe("please run /ship now");
+});
+
+// The box tells of the Enter of the message it sent last: the word that the
+// one before was sent is no word on the next.
+test("a second message typed into Claude Code whose connection closes while its Enter waits says its words wait unsent, though the first one's Enter was pressed", async ({ page }) => {
+  // Arrange: the first message's Enter is pressed, and its prompt line empties.
+  const relay = await typeSkill(page);
+  await heard(page, relay, SHOWS_WORDS);
+  await page.clock.runFor(300);
+  await expect.poll(() => relay.typed.slice(-2)).toEqual(["please run /ship now", "\r"]);
+  await heard(page, relay, shows(false, 13));
+  await field(page).fill("then run /review");
+  await send(page).click();
+  await expect.poll(() => relay.typed.at(-1)).toBe("then run /review");
+
+  // Act
+  relay.drop();
+
+  // Assert
+  await expect(box(page).getByRole("alert")).toHaveText(WORDS_WAIT_UNSENT);
 });
 
 // The relay reads Claude Code's screen as open wherever its footer is gone,
@@ -444,6 +565,23 @@ test("a list Claude Code draws under a typed message's words is no question: the
   await page.clock.runFor(300);
   // Assert
   await expect.poll(() => relay.typed.slice(-2)).toEqual(["first line\nthen run /ship", "\r"]);
+});
+
+// Only a list under the words of the message he typed as keys is that
+// message's: one under words of his own input is his menu, after a typed
+// message as before one.
+test("a list Claude Code draws under words of his own input after a typed message's Enter was pressed is drawn as his menu", async ({ page }) => {
+  // Arrange
+  const relay = await typeSkill(page, "first line\nthen run /ship");
+  await heard(page, relay, SHOWS_WORDS);
+  await page.clock.runFor(300);
+  await expect.poll(() => relay.typed.slice(-2)).toEqual(["first line\nthen run /ship", "\r"]);
+
+  // Act
+  relay.say({ ...SUGGESTS_SHIP, submission: "his" });
+
+  // Assert
+  await expect(asks(page)).toContainText("/ship");
 });
 
 test("a message typed into Claude Code whose view closes while its Enter waits takes the Enter before the view's connection closes", async ({ page }) => {

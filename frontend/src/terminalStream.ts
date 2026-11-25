@@ -123,6 +123,19 @@ export function parseStream(text: string): boolean {
   }
 }
 
+// The relay says whether it pressed the Enter a view asked for a message it
+// typed as keys, by the message's submission (#2848).
+export function parseEntered(text: string): { submission: string; isPressed: boolean } | null {
+  try {
+    const value: unknown = JSON.parse(text);
+    if (typeof value !== "object" || value === null) return null;
+    const { type, submission, pressed } = value as Record<string, unknown>;
+    return type === "entered" && typeof submission === "string" && typeof pressed === "boolean" ? { submission, isPressed: pressed } : null;
+  } catch {
+    return null;
+  }
+}
+
 // The relay says why typing is held while custody holds it, as a gate that
 // owns the task does, and an empty reason once it is free; the screen stays
 // live either way.

@@ -26,6 +26,12 @@ export interface Relay {
   resizes: { cols: number; rows: number }[];
   views: number;
   submissions: string[];
+  // The Enters views asked for the messages they typed as keys, and whether
+  // the relay presses one asked for while typing is free, as it does while
+  // its screen shows the prompt line holding the message's words alone. One
+  // it presses reaches the terminal as "\r" among what was typed.
+  enters: { submission: string; text: string }[];
+  shouldPressEnter: boolean;
   acknowledged: number[];
   addresses: string[];
   inputs: { address: string; text: string }[];
@@ -49,7 +55,7 @@ export interface Relay {
 export interface SessionReported { state?: "running" | "ended" | "unknown" | "none"; stale?: string; problem?: string }
 
 export async function open(page: Page, first: object = snapshot(), heard = "rebase onto main", messages: object = PAGE, output = "> ready\r\n", shouldRepaint = true): Promise<Relay> {
-  const relay: Relay = { typed: [], resizes: [], views: 0, submissions: [], acknowledged: [], addresses: [], inputs: [], write: () => {}, end: () => {}, say: () => {}, drop: () => {}, refuse: () => {}, accept: () => {} };
+  const relay: Relay = { typed: [], resizes: [], views: 0, submissions: [], enters: [], shouldPressEnter: true, acknowledged: [], addresses: [], inputs: [], write: () => {}, end: () => {}, say: () => {}, drop: () => {}, refuse: () => {}, accept: () => {} };
   let isRefused = false;
   let goblinSpoke = false;
   await page.addInitScript(() => {
@@ -216,6 +222,14 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
         submission = sent.submission
         relay.submissions.push(submission)
         return
+      }
+      if (typeof sent === "object" && sent !== null && "type" in sent && sent.type === "enter" && "submission" in sent && typeof sent.submission === "string" && "text" in sent && typeof sent.text === "string") {
+        relay.enters.push({ submission: sent.submission, text: sent.text });
+        const hold = holds.get(socket.url());
+        const isPressed = relay.shouldPressEnter && sent.submission === submission && !(hold && "reason" in hold && hold.reason);
+        if (isPressed) { relay.typed.push("\r"); relay.inputs.push({ address: socket.url(), text: "\r" }); }
+        socket.send(JSON.stringify({ type: "entered", submission: sent.submission, pressed: isPressed }));
+        return;
       }
       if (typeof sent !== "object" || sent === null || !("type" in sent) || sent.type !== "resize" || !("cols" in sent) || !("rows" in sent)) return;
       const size = { cols: Number(sent.cols), rows: Number(sent.rows) };
