@@ -127,7 +127,10 @@ test("a long session's terminal opens in the classic style already at its bottom
   expect(replayed, "frames that showed the history on the way to the bottom").toEqual([]);
   await page.locator(".host-terminal .terminal-view:not(.staged) > .xterm .xterm-screen").hover();
   await page.mouse.wheel(0, -4800);
-  await expect(page.locator(".host-terminal .terminal-view:not(.staged) > .xterm .xterm-rows")).toContainText("history line");
+  const rows = page.locator(".host-terminal .terminal-view:not(.staged) > .xterm .xterm-rows");
+  await expect(rows).not.toContainText(PROMPT.trim());
+  await expect(rows).not.toContainText("history line 30000");
+  await expect(rows).toContainText("history line");
 });
 
 test("a long session's terminal reconnects in the classic style at its bottom, with no replay on screen", async ({ page }) => {
