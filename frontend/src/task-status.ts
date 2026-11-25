@@ -32,7 +32,7 @@ export function taskStatus(task: Task, snapshot: Snapshot): TaskStatus {
   const waits = turnStatus(task, snapshot.memory, snapshot.disk);
   if (waits) return { text: waits, phase: task.phase };
   if (phase === task.phase && isStartingUp(task, snapshot)) return { text: "Starting", phase: "started" };
-  if (phase === "paused") return { text: pauseStatus(task.lifecycle?.pause, snapshot.tasks, snapshot.ci_usual, pausedWithParent(task, snapshot.tasks)), phase };
+  if (phase === "paused" && task.phase === "paused") return { text: pauseStatus(task.lifecycle?.pause, snapshot.tasks, snapshot.ci_usual, pausedWithParent(task, snapshot.tasks)), phase };
   const isWaitingOnYou = asksOverlord(snapshot, task.id) && hasItemWaitingOnHim(snapshot, task.id);
   return { text: nodeStatus({ id: task.id, title: task.title, task, relation: "" }, isWaitingOnYou, snapshot.tasks, trains), phase };
 }
