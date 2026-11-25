@@ -100,11 +100,13 @@ function boxText(text: string): string {
 
 // The message box under a session's messages, in place of its terminal's
 // input. With a live terminal Send, or Enter, types what he wrote as one
-// paste and presses Enter, through the terminal's own view (terminal-link.ts),
-// and Shift+Enter starts a new line. What keeps a message from the terminal
-// says so once beside the box: a busy program, typing a gate holds and a view
-// that is not live, connecting, reconnecting or closed, save it through the
-// durable queue, so a draft is never stranded in the box (2026-11-04). A
+// paste and presses Enter, or as keys where a message to Claude Code names a
+// /word after other words (#2848), through the terminal's own view
+// (terminal-link.ts), and Shift+Enter starts a new line. What keeps a
+// message from the terminal says so once beside the box: a busy program,
+// typing a gate holds and a view that is not live, connecting, reconnecting
+// or closed, save it through the durable queue, so a draft is never stranded
+// in the box (2026-11-04). A
 // screen of the harness's own open in its terminal that lists choices, a
 // question, a permission prompt or a picker, or one the relay could not read,
 // is drawn above the box as a list he picks from (harness-panel.tsx), and
@@ -357,9 +359,15 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // board delivery, types into it, so a picker those drew is never shown as
   // his own menu and never takes his keys (cg-human-triggered-menus).
   const isHumanMenu = !!live?.screen?.submission;
+  // A list under the prompt line while it still shows the words of a message
+  // he sent as keys, as Claude Code suggests the skills or files the /word or
+  // @file it ends in names, asks nothing: the view presses the message's Enter
+  // over it (#2848). So it is never drawn as his menu, and his messages wait
+  // for it, as for that line.
+  const isTypedList = !!live?.typed && live.typed.submission === live.screen?.submission && !!live.screen?.hasDraft;
   const asksEnter = !!screenPanel?.hints.some((hint) => /\benter\b/i.test(hint));
   const isResult = !!screenPanel && !screenPanel.choices.length && !asksEnter && screenPanel.hints.some((hint) => /\bto close\b/i.test(hint));
-  const panel = screenPanel && isHumanMenu && (screenPanel.choices.length > 0 || asksEnter || isResult) ? screenPanel : null;
+  const panel = screenPanel && isHumanMenu && !isTypedList && (screenPanel.choices.length > 0 || asksEnter || isResult) ? screenPanel : null;
   const isAsking = !!panel && !isResult;
   // The permission mode the session's terminal shows, which Shift+Tab cycles.
   const mode = live?.screen?.mode ?? "";

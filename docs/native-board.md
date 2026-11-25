@@ -1935,6 +1935,7 @@ At 3 s it is pressed, unless the relay says the keys still sit unread: then it w
 It is not pressed while a dialog or a picker is open in the prompt line's place, which it would answer, while typing is held, or once the connection has closed.
 The box then says the words wait unsent on the prompt line, a notice that is the banner's alone and keeps no box, and the words stay out of the box, since sent again they would be typed twice.
 A prompt line that still shows the words has nothing in their place, whatever the relay reads as open under it, so a message that ends in a skill or a file is still sent by its Enter.
+The list Claude Code suggests under those words, of the skills or files the message ends in, is no question either: the box draws none of it and gives it none of his keys or messages.
 A message sent while the Enter waits is held in the board's queue, as a prompt line holding words holds it.
 A command, a message starting with `?`, one carrying a file he added, one holding a control key and one longer than 512 bytes, the board's own limit for typing into its Claude Code CEO, still go as one paste.
 Codex and pi take a skill named after other words the same way from a paste as from keys, so their messages go as one paste as before: Codex 0.160.0 runs a `$` skill named anywhere in a message, and pi 1.4.0 runs a `/skill:` only as the first word.

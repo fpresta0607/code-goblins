@@ -412,6 +412,40 @@ test("a message typed into Claude Code that ends in a skill takes its Enter whil
   await expect.poll(() => relay.typed.slice(-2)).toEqual(["first line\nthen run /ship", "\r"]);
 });
 
+// Claude Code's list of the skills the /word a typed message ends in names,
+// under the prompt line that still shows its words, as the relay reads it:
+// an open screen bound to his message, whose focused row reads as a choice.
+const SUGGESTS_SHIP = { ...SHOWS_WORDS, open: true, panel: { rows: [], choices: [{ text: "/ship    Ship the branch", focused: true }, { text: "/ship-docs    Ship the docs" }] } };
+
+// That list asks nothing, as the Enter pressed over it says, so the box draws
+// no question of it, and a message sent while the Enter waits is held in the
+// board's queue. Read as his question, it took that message as an answer,
+// pasted after the typed words, which the Enter then sent with them as one
+// message (#2848's review).
+test("a list Claude Code draws under a typed message's words is no question: the box draws none and queues a message sent while the Enter waits", async ({ page }) => {
+  // Arrange
+  const relay = await typeSkill(page, "first line\nthen run /ship");
+  const posts: string[] = [];
+  await page.route("**/api/actions", (route) => {
+    posts.push((route.request().postDataJSON() as { text?: string }).text ?? "");
+    return route.fulfill({ status: 202, json: { status: "queued" } });
+  });
+  await heard(page, relay, SUGGESTS_SHIP);
+  await field(page).fill("and /review it");
+
+  // Act
+  await send(page).click();
+
+  // Assert
+  await expect.poll(() => posts).toEqual(["and /review it"]);
+  await expect(asks(page)).toHaveCount(0);
+  expect(relay.typed.at(-1)).toBe("first line\nthen run /ship");
+  // Act: the Enter falls due 300 ms after the words showed.
+  await page.clock.runFor(300);
+  // Assert
+  await expect.poll(() => relay.typed.slice(-2)).toEqual(["first line\nthen run /ship", "\r"]);
+});
+
 test("a message typed into Claude Code whose view closes while its Enter waits takes the Enter before the view's connection closes", async ({ page }) => {
   // Arrange: the clock stands still, so only the view's closing ends the wait.
   const relay = await typeSkill(page);
