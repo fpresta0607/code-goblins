@@ -25,10 +25,11 @@ export interface TerminalLink {
   // Whether the view shows a session on stream-json pipes, which is held for
   // typing yet still stops a turn on Escape.
   isStream: boolean;
-  // send types text as one paste and presses Enter, and says whether it was
-  // sent, by its submission ID, or null; paste types text as one paste with
-  // no Enter, and says whether it was sent; escape presses Escape.
-  send: (text: string) => string | null;
+  // send types text as one paste and presses Enter, or as keys where isTyped,
+  // and says whether it was sent, by its submission ID, or null; paste types
+  // text as one paste with no Enter, and says whether it was sent; escape
+  // presses Escape.
+  send: (text: string, isTyped?: boolean) => string | null;
   paste: (text: string) => boolean;
   escape: () => boolean;
   control: (keys: string) => boolean;

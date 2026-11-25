@@ -199,7 +199,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
       phase, isReconnecting: reconnecting || !visible, isDictating: dictation.listening, isUnread, held: heldWhy, screen, isStream,
       stopDictation: dictation.stop,
       feedback: feedback || dictation.note,
-      send: (text) => phase === "live" && !reconnecting && visible ? current.current?.submit(text) ?? null : null,
+      send: (text, isTyped) => phase === "live" && !reconnecting && visible ? current.current?.submit(text, isTyped) ?? null : null,
       paste: (text) => phase === "live" && !reconnecting && visible && !heldWhy ? current.current?.paste(text) ?? false : false,
       escape: () => !!current.current?.escape(),
       control: (keys) => phase === "live" && !reconnecting && visible ? current.current?.control(keys) ?? false : false,

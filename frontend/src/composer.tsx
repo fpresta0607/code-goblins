@@ -17,7 +17,7 @@ import { isHarnessHeld, isPendingMessage, messagesTo, takesMessages } from "./me
 import { mentionAt, mentionedFiles, mentionFile, parseFiles } from "./mentions";
 import { cycleMode, MODE_NOT_SENT } from "./mode-cycle";
 import { shortModel } from "./model-name";
-import { parseCommands, sendable, slashOptions } from "./commands";
+import { isSentAsKeys, parseCommands, sendable, slashOptions } from "./commands";
 import { addPendingSend, removePendingSend, usePendingSends } from "./pending-sends";
 import { panelKey } from "./panel-keys";
 import { PopupList } from "./popup-list";
@@ -520,7 +520,9 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
         if (live?.paste(text.replace(/\s*\n\s*/g, " "))) afterSend(); else setUnsent(unsentWhy);
         return;
       }
-      if (live?.send(text)) {
+      // A file he added is named by its path, which Claude Code attaches only
+      // from a paste, so a message carrying one stays a paste.
+      if (live?.send(text, !attached.length && isSentAsKeys(harness, text))) {
         afterSend();
         onSend?.();
       } else setUnsent(unsentWhy);

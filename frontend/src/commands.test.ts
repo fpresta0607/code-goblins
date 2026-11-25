@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseCommands, sendable, slashOptions, type HarnessCommand } from "./commands.ts";
+import { isSentAsKeys, parseCommands, sendable, slashOptions, type HarnessCommand } from "./commands.ts";
 
 const command = (name: string, description = "", source: HarnessCommand["source"] = "builtin", sigil: HarnessCommand["sigil"] = "/"): HarnessCommand => ({ name, description, source, sigil });
 
@@ -61,4 +61,23 @@ test("a message to Codex that ends in a $ word ends in a space, so Enter sends i
     ["claude", "/kit-one:tidy", "/kit-one:tidy"],
     ["pi", "$alpha-notes", "$alpha-notes"],
   ]) assert.equal(sendable(harness, text), want, harness + ": " + text);
+});
+
+test("a message to Claude Code that names a skill after other words goes as keys, and any other message as one paste", () => {
+  for (const [harness, text, want] of [
+    ["claude", "please run /ship now", true],
+    ["claude", "first line\nthen run /ship", true],
+    ["claude", "# notes, then /kit:tidy", true],
+    ["claude", "please run /ship ".padEnd(512, "x"), true],
+    ["claude", "please run /ship ".padEnd(513, "x"), false],
+    ["claude", "please run /ship ".padEnd(511, "x") + "é", false],
+    ["claude", "/ship now", false],
+    ["claude", "? what does /ship do", false],
+    ["claude", "please run /ship\tnow", false],
+    ["claude", "plain words", false],
+    ["claude", "this and/or that", false],
+    ["codex", "please run $ship now", false],
+    ["codex", "please run /ship now", false],
+    ["pi", "please run /skill:ship now", false],
+  ] as const) assert.equal(isSentAsKeys(harness, text), want, harness + ": " + JSON.stringify(text));
 });

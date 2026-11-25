@@ -126,6 +126,30 @@ test("Shift+Enter starts a new line, and the lines go as one paste", async ({ pa
   await expect.poll(() => typed(relay)).toContain(pasted("first line\rsecond line") + "\r");
 });
 
+// The Overlord, 2026-11-24 (#2848): a slash skill named after other words
+// never ran from Modern Chat. Claude Code runs a skill named there only from
+// keys, as its terminal types them, and Modern Chat pasted every message. A
+// skill as the first word is a command, which runs from a paste as before.
+for (const [words, sent] of [
+  ["please run /ship now", ["please run /ship now", "\r"]],
+  ["first line\nthen run /ship", ["first line\nthen run /ship", "\r"]],
+  ["/ship now", [pasted("/ship now"), "\r"]],
+] as const) {
+  test(`Send puts ${JSON.stringify(words)} into Claude Code as its terminal sends it, then Enter`, async ({ page }) => {
+    // Arrange
+    const relay = await open(page);
+    await openGoblin(page);
+    await field(page).fill(words);
+
+    // Act
+    await send(page).click();
+
+    // Assert
+    await expect.poll(() => relay.typed.slice(-2)).toEqual(sent);
+    await expect(field(page)).toHaveValue("");
+  });
+}
+
 test("a message that starts with ! wears the danger edge while it does, and Send hands it to the board rather than the terminal", async ({ page }) => {
   const relay = await open(page);
   await openGoblin(page);

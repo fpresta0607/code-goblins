@@ -23,6 +23,11 @@ export const LINE_HEIGHT = 1.2;
 const RESIZE_SETTLE_MS = 120;
 // A view whose repaint never arrives is shown after this long all the same.
 const READY_FALLBACK_MS = 600;
+// A message typed as keys is submitted this long after them, as the board
+// waits before its own Enter (typeSettle in internal/fleet/send.go): Claude
+// Code 2.1.332 took 512 typed bytes with Enter right behind them as one burst
+// and left the message unsent.
+const TYPED_ENTER_MS = 300;
 // Keys that only change the next key send nothing of their own.
 const MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "AltGraph", "Meta", "CapsLock", "NumLock", "ScrollLock", "Fn"]);
 // The mouse modes in which xterm hands the wheel to the program.
@@ -122,6 +127,8 @@ export class TerminalView {
   private frame = 0;
   private settle: ReturnType<typeof setTimeout> | undefined;
   private fallback: ReturnType<typeof setTimeout> | undefined;
+  // The Enter that submits a message typed as keys, while it waits.
+  private typedEnter: ReturnType<typeof setTimeout> | undefined;
   private readonly pin: PinnedLine;
   private pinFrame = 0;
   private historyEnd: number | null = null;
@@ -275,10 +282,18 @@ export class TerminalView {
     return true;
   }
 
-  submit(text: string): string | null {
+  // submit sends text as one paste and presses Enter, or, where isTyped, types
+  // it as keys and presses Enter TYPED_ENTER_MS later, and says whether it was
+  // sent, by its submission ID, or null.
+  submit(text: string, isTyped = false): string | null {
     if (!this.isReady || this.heldReason || this.isUnread || this.screenState?.isOpen || this.screenState?.hasDraft || !this.isSendable()) return null
     const submission = crypto.randomUUID()
     this.send(JSON.stringify({ type: "submit", submission }))
+    if (isTyped) {
+      this.term.input(text, true)
+      this.typedEnter = setTimeout(() => { this.typedEnter = undefined; this.enter() }, TYPED_ENTER_MS)
+      return submission
+    }
     if (!this.paste(text) || !this.enter()) return null
     return submission
   }
@@ -348,6 +363,9 @@ export class TerminalView {
   }
 
   dispose(): void {
+    // A message typed as keys is submitted before its connection closes,
+    // rather than left typed in the harness's box.
+    if (this.typedEnter) { clearTimeout(this.typedEnter); this.enter(); }
     this.disposed = true;
     cancelAnimationFrame(this.frame);
     cancelAnimationFrame(this.pinFrame);

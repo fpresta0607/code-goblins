@@ -1,3 +1,4 @@
+import { inputBytes } from "./terminalInput.ts";
 import { array, object, string } from "./types.ts";
 
 // A slash command one session's harness offers, as the supervisor reads it
@@ -50,4 +51,23 @@ export function slashOptions(commands: HarnessCommand[], draft: string): Harness
 // that ends in one ends in a space.
 export function sendable(harness: string, text: string): string {
   return harness === "codex" && /(^|\s)\$\S*$/.test(text) ? text + " " : text;
+}
+
+// CLAUDE_TYPED_UP_TO is the longest message typed into Claude Code as keys,
+// the board's own limit for its Claude Code CEO (claudeTypedUpTo in
+// internal/supervisor/ceo.go), since Claude Code reads a longer burst of keys
+// as a paste.
+const CLAUDE_TYPED_UP_TO = 512;
+
+// isSentAsKeys says whether a message goes into its harness as keys, as its
+// terminal's keyboard types them, rather than as one paste: a message to
+// Claude Code that names a slash skill after other words (#2848). Claude Code
+// 2.1.332 runs a skill named anywhere in typed words, but not one the model
+// may not run itself (disable-model-invocation) when its name came in a
+// paste. A command, which runs from a paste, stays one, as do a line starting
+// with ?, which typed would open Claude Code's shortcuts, and a message
+// holding a control key, which typed would press that key.
+export function isSentAsKeys(harness: string, text: string): boolean {
+  // eslint-disable-next-line no-control-regex
+  return harness === "claude" && /\s\/[^\s/]/.test(text) && !/^[/?]/.test(text) && !/[\x00-\x09\x0b-\x1f\x7f]/.test(text) && inputBytes(text) <= CLAUDE_TYPED_UP_TO;
 }
