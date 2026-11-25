@@ -6,9 +6,10 @@ import { isLeaveKey, isPasteKey, keyMessage, mouseMessage, pagePoint, wheelMessa
 import "./screen-view.css";
 
 // ScreenState is what the supervisor tells a view of the browser: who drives
-// it, whether this view may take it, its page by title and host alone, and
-// where on that page its goblin last pressed its mouse (#2537).
-interface ScreenState { isDriven: boolean; canDrive: boolean; title: string; host: string; hasPage: boolean; driveNote: string; pointer: PagePlace | null }
+// it, whether this view may take it, its page by title and host alone,
+// whether that page has an entry before in its history while he drives
+// (#2901), and where on that page its goblin last pressed its mouse (#2537).
+interface ScreenState { isDriven: boolean; canDrive: boolean; title: string; host: string; hasPage: boolean; canGoBack: boolean; driveNote: string; pointer: PagePlace | null }
 
 // PagePlace is a place on the goblin's page, in its CSS pixels.
 interface PagePlace { x: number; y: number }
@@ -20,7 +21,7 @@ function parseSaid(text: string): Said | null {
     const said = object(JSON.parse(text));
     if (said.type === "state") {
       const pointer = said.pointer == null ? null : object(said.pointer);
-      return { kind: "state", state: { isDriven: boolean(said.is_driven), canDrive: boolean(said.can_drive), title: string(said.title), host: string(said.host), hasPage: boolean(said.has_page), driveNote: string(said.drive_note), pointer: pointer && { x: number(pointer.x), y: number(pointer.y) } } };
+      return { kind: "state", state: { isDriven: boolean(said.is_driven), canDrive: boolean(said.can_drive), title: string(said.title), host: string(said.host), hasPage: boolean(said.has_page), canGoBack: boolean(said.can_go_back), driveNote: string(said.drive_note), pointer: pointer && { x: number(pointer.x), y: number(pointer.y) } } };
     }
     if (said.type === "frame") return { kind: "frame", data: string(said.data), size: { width: number(said.width), height: number(said.height) } };
   } catch { /* a message of no shape the view knows is passed by */ }
@@ -47,11 +48,13 @@ const isPageVisible = () => document.visibilityState === "visible";
 
 // ScreenView shows a goblin's own browser live: the page it has open, drawn
 // from the browser's screencast, and, once he takes control from the board
-// on his PC, his clicks and keys go to that page until he hands it back, with
-// a few words of what he did, which go to the goblin. The view streams only
-// while it is on screen in a visible tab: a view hidden, scrolled away,
-// closed or in a tab out of sight closes its connection, so the browser
-// sends no frame nobody sees. Nothing typed on the screen is kept or shown by
+// on his PC or his private board (#2900), his clicks and keys go to that
+// page, and Back takes it one entry back in its history (#2901), until he
+// hands it back, with a few words of what he did, which go to the goblin.
+// The view streams only while it is on screen in a visible tab: a view
+// hidden, scrolled away, closed or in a tab out of sight closes its
+// connection, so the browser sends no frame nobody sees. Nothing typed on
+// the screen is kept or shown by
 // the board: it goes to the page alone. A view that shouldFocus takes the
 // keyboard as it opens, as one a chat row opened does (#2362). Where the
 // goblin last pressed its mouse is marked on its page, a ring drawn over the
@@ -257,7 +260,7 @@ export function ScreenView({ task, generation, name, instance, connected, isFull
     : closedWhy ? ""
     : !state ? "Connecting to " + name + "'s browser"
     : isDriving ? "You are driving " + name + "'s browser. Your clicks and keys on the screen go to its page. F6 leaves the screen."
-    : state.isDriven ? name + "'s browser is being driven from the board on your PC."
+    : state.isDriven ? name + "'s browser is being driven from the board on your PC or your private board."
     : name + " drives its browser.";
   return <section ref={region} className={"screen-view" + (isFull ? " full" : "") + (isDriving ? " driving" : "")} aria-label={name + "'s browser"} tabIndex={-1}>
     <div className="screen-bar">
@@ -265,6 +268,7 @@ export function ScreenView({ task, generation, name, instance, connected, isFull
       {state && !state.isDriven && (state.canDrive
         ? <button type="button" className="primary" onClick={take}>Take control</button>
         : <span className="muted screen-note">{state.driveNote}</span>)}
+      {isDriving && <button type="button" disabled={!state.canGoBack} onClick={() => send({ type: "back" })}>Back</button>}
     </div>
     {state?.isDriven && <form className="screen-hand-back" onSubmit={handBack}>
       <label>What you did <input ref={handBackWords} value={words} maxLength={300} autoComplete="off" placeholder="Signed in" onChange={(event) => setWords(event.target.value)} /></label>

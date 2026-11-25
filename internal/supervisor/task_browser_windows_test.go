@@ -260,3 +260,92 @@ func clickShowsItsPointer(t *testing.T, isAutoAttach bool) {
 		t.Fatal("the browser the goblin just clicked in does not read as in use")
 	}
 }
+
+// End to end in a real Chrome: while he drives a goblin's browser, he follows
+// a link on the page its Screen view shows, and Back shows the page before
+// again. Back is offered only while the page has an entry before (#2901).
+func TestBackOnAGoblinsScreenShowsThePageBeforeAgain(t *testing.T) {
+	// Arrange
+	pages := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		if r.URL.Path == "/second" {
+			_, _ = w.Write([]byte("<title>Second</title><p>The page the link opens</p>"))
+			return
+		}
+		_, _ = w.Write([]byte(`<title>First</title><a href="/second" style="position:fixed;inset:0">Next</a>`))
+	}))
+	t.Cleanup(pages.Close)
+	store, _ := testStore(t)
+	service := &Service{Store: store, Instance: "test-instance"}
+	service.screens = newTaskBrowsers(store.Home.State, func() {}, func(string, string) {}, func(err error) { t.Errorf("a browser reported %v", err) })
+	t.Cleanup(service.screens.closeAll)
+	handler := NewHTTP(service, "", nil)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	handler.Host = server.Listener.Addr().String()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	b, err := service.screens.ensure(ctx, state.TaskMeta{ID: "task-1", SpawnGen: "g1", TaskTmp: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := b.source.Open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	if err := client.Call(ctx, "", "Target.createTarget", map[string]string{"url": pages.URL + "/"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	// The view opens on the first page once it loaded, as one that opens
+	// while a page's navigation swaps its renderer is told the browser did not
+	// answer.
+	for isLoaded := false; !isLoaded; time.Sleep(50 * time.Millisecond) {
+		var targets struct {
+			Infos []targetInfo `json:"targetInfos"`
+		}
+		if err := client.Call(ctx, "", "Target.getTargets", nil, &targets); err != nil {
+			t.Fatal(err)
+		}
+		for _, info := range targets.Infos {
+			isLoaded = isLoaded || info.Title == "First"
+		}
+	}
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/api/screen?task=task-1&generation=g1&token=test-instance", &websocket.DialOptions{HTTPHeader: http.Header{"Origin": {server.URL}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.CloseNow() })
+	view := testScreenView{conn}
+	toldOf := func(isWanted func(screenSaid) bool) screenSaid {
+		t.Helper()
+		for {
+			if said := view.next(t); said.Type == "state" && isWanted(said) {
+				return said
+			}
+		}
+	}
+	view.send(t, `{"type":"take"}`)
+	first := toldOf(func(said screenSaid) bool { return said.IsDriven && said.Title == "First" })
+
+	// Act
+	view.send(t, `{"type":"mouse","event":"mousePressed","x":200,"y":200,"button":"left","buttons":1,"click_count":1}`)
+	view.send(t, `{"type":"mouse","event":"mouseReleased","x":200,"y":200,"button":"left","click_count":1}`)
+	// Chrome names a page a link opened in the same tab by its address, which
+	// the view never shows, and tells no change of its title alone, so the
+	// view knows it by its entry before.
+	second := toldOf(func(said screenSaid) bool { return said.CanGoBack && said.Title != "First" })
+	view.send(t, `{"type":"back"}`)
+	back := toldOf(func(said screenSaid) bool { return said.Title == "First" })
+
+	// Assert
+	if first.CanGoBack {
+		t.Fatalf("the first page was told %s, want no entry before", first.raw)
+	}
+	if second.Host != strings.TrimPrefix(pages.URL, "http://") {
+		t.Fatalf("the page the link opened was told %s", second.raw)
+	}
+	if !back.IsDriven || back.CanGoBack {
+		t.Fatalf("after Back the view was told %s, want him still driving the first page, with no entry before", back.raw)
+	}
+}

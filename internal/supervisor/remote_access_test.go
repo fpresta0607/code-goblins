@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -47,6 +48,38 @@ func (c *remoteCommands) Run(ctx context.Context, r execx.Request) (execx.Result
 		return execx.Result{ExitCode: 1}, nil
 	}
 	return execx.Result{}, nil
+}
+
+// throughTheGate is s's board as remote access shares it, on, behind the gate
+// the board is served through.
+func throughTheGate(t *testing.T, s *Service) http.Handler {
+	t.Helper()
+	manager := &remoteaccess.Manager{State: s.Store.Home.State, Target: "http://127.0.0.1:4310", Commands: &remoteCommands{}}
+	if _, err := manager.Enable(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	return remoteaccess.NewGate(ctx, manager, NewHTTP(s, "127.0.0.1:4310", nil))
+}
+
+// postOnHisPhone posts body to path on his phone's private board, as
+// Tailscale Serve passes it to the board, with change made to it.
+func postOnHisPhone(t *testing.T, board http.Handler, path, body string, change func(*http.Request)) (int, string) {
+	t.Helper()
+	request := httptest.NewRequest("POST", "https://pc.example.ts.net:4311"+path, strings.NewReader(body))
+	request.RemoteAddr = "127.0.0.1:55432"
+	request.Header.Set("Origin", "https://pc.example.ts.net:4311")
+	request.Header.Set("Tailscale-User-Login", "owner@example.com")
+	request.Header.Set("X-Forwarded-For", "100.64.0.7")
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-CEO-Token", "test-instance")
+	if change != nil {
+		change(request)
+	}
+	response := httptest.NewRecorder()
+	board.ServeHTTP(response, request)
+	return response.Code, response.Body.String()
 }
 
 func TestRemoteBoardPreservesTokenAndPCOnlySettingsChecks(t *testing.T) {

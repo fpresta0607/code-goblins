@@ -2876,7 +2876,7 @@ This card carries the task, service and one-line reason, with Grant and Deny and
 Filing it grants nothing.
 Grant posts to `/api/connections/grant`, naming the card's ID and generation as `request` and `request_generation` beside the task generation and service; the existing owner-board check applies on the PC.
 His private board grants it too, as he decided on 2026-10-29 ("Allow it as is"), knowing the gate proves that board his only by Tailscale's headers, which a program on this PC can forge: a grant through the gate is recorded as from `his own private board (by Tailscale's headers, which a program on this PC can forge)`.
-Only a service grant card's Grant moves to the private board: granting or revoking a connector from the Connectors page, typing values and opening a browser sign-in window stay on the PC.
+A service grant card's Grant and Take control of a goblin's browser, on a step card or its Screen view (CEO decision 1028736), move to the private board: granting or revoking a connector from the Connectors page, typing values and opening a browser sign-in window stay on the PC.
 The card closes as `granted` only after the grant lands, the task is told to re-source, and the CEO gets the existing grant wake.
 Deny, withdrawal, expiry, a stale task or card generation, a different project or a missing service declaration grants nothing.
 
@@ -2938,7 +2938,7 @@ goblins auth request --project acme-shop --task shop-signup --why "Sign in to th
 - A goblin's step card is its wait on the Overlord: a `goblins notify --waiting-on overlord` without a page while a card the goblin filed itself is open opens no second item, and the notify names the card and tells the goblin to wait on it in the background with `goblins auth request --wait-on <card> --task <id>`, which ends when the card closes.
   The board reads the goblin as waiting until it reports again, as for a wait on a run card.
   Done on the card, his or the goblin's, its inputs arriving, or his answer from Something else?, also closes as answered each plain wait of that goblin opened while the card was open, so nothing asks him for the step again; a wait opened before the card, or on a page, stays its own item.
-- `--window`, which needs `--wait` and the asker's own browser session on the board, gives the card **Take control**, `POST /api/credentials/window`, taken only on this PC.
+- `--window`, which needs `--wait` and the asker's own browser session on the board, gives the card **Take control**, `POST /api/credentials/window`, taken on this PC or his private board, as the Screen view's is.
   The supervisor opens the card's link in the goblin's own browser (see [A goblin's own browser](#a-goblins-own-browser)), on the page it had open or a new one, gives him control of it, and the card shows that browser's Screen view, so no window opens on the desktop.
   A browser that could not open offers the button again, saying why, as does a card whose browser closed before the card did, because Chrome exited, the browser went unused or the supervisor restarted.
   His **Hand back** closes the card as done with his words, which the goblin's wait prints after its Done line, and any other close of the card gives the browser back to the goblin too.
@@ -2972,7 +2972,10 @@ A view streams only while it is on screen in a visible tab: one switched away fr
 At most 16 views are open at once; another is closed with "Too many screens are open."
 On a small screen (40rem or less) the screen's box takes the page's own shape at its full width, so the page never sits small between two bands, and a step card's Screen view draws Take control and Hand back as the Screen tab does (CEO decision 1019951).
 
-**Take control**, from the board on this PC only, makes him the browser's driver: each click, wheel turn, key and paste on the view's screen goes to the page through DevTools' Input domain, and while he drives the goblin's own commands are refused with "A person is driving this browser from the Code Goblins board. Wait until they hand it back, then try again.", except those that only set up a page the session attaches to.
+**Take control**, from the board on this PC or his private board, makes him the browser's driver: each click, wheel turn, key and paste on the view's screen goes to the page through DevTools' Input domain, and while he drives the goblin's own commands are refused with "A person is driving this browser from the Code Goblins board. Wait until they hand it back, then try again.", except those that only set up a page the session attaches to.
+He takes sign-in steps from his phone, so his private board takes control too (#2900, CEO decision 1028736), knowing the gate proves that board his only by Tailscale's headers, which a program on this PC can forge: a take from there tells the CEO, as `screen: the Overlord took control of its browser from his own private board (by Tailscale's headers, which a program on this PC can forge)`.
+A board at any other address is told "Take control from the board on this PC or your private board.", and its takes, clicks and keys are dropped.
+While he drives, **Back** takes the page shown one entry back in its history, as a browser's back arrow does, and is disabled while the page has no entry before (#2901): the view's state says `can_go_back` while he drives, read from the page's history by the entries' IDs alone, never their addresses or titles.
 Nothing typed on the screen is logged, kept or shown by the board.
 While the screen has the keyboard, F6 gives it back to the board.
 **Hand back**, from any view, gives the browser back to the goblin with a few words of what he did, at most 300 characters, as a paste is at most 4000, each counted in characters whatever bytes they take.

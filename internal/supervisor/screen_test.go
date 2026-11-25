@@ -17,6 +17,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/browserlogin"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 // screenBoard is a board whose goblin task-1 runs a fake browser, served on
@@ -90,6 +91,31 @@ func (board *screenBoard) open(t *testing.T) testScreenView {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return testScreenView{conn}
+}
+
+// openOnHisPhone opens a Screen view of task-1 on his phone's private board,
+// as Tailscale Serve passes it to the board: from this PC's loopback, for the
+// board's private name, with his login and his phone's address, through the
+// remote access gate.
+func (board *screenBoard) openOnHisPhone(t *testing.T) testScreenView {
+	t.Helper()
+	gate := throughTheGate(t, board.service)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Host = "pc.example.ts.net:4311"
+		r.Header.Set("Tailscale-User-Login", "owner@example.com")
+		r.Header.Set("X-Forwarded-For", "100.64.0.7")
+		gate.ServeHTTP(w, r)
+	}))
+	t.Cleanup(server.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	query := url.Values{"task": {"task-1"}, "generation": {"g1"}, "token": {board.service.Instance}}
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/api/screen?"+query.Encode(), &websocket.DialOptions{HTTPHeader: http.Header{"Origin": {"https://pc.example.ts.net:4311"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.CloseNow() })
 	return testScreenView{conn}
 }
 
@@ -449,10 +475,12 @@ func TestScreenViewPassesOnlyInputTheInputDomainTakes(t *testing.T) {
 	}
 }
 
-// Only a view on this PC takes control, and only once taken do its mouse
-// and keys reach the page. What a person types reaches the page alone: no
-// file in the home and no error the board shows holds it.
-func TestScreenViewDrivesTheBrowserOnlyFromThisPCAndOnlyOnceTaken(t *testing.T) {
+// A view on another machine never takes control, as one on this PC does or
+// one on his private board (TestHisPrivateBoardTakesControlOfAGoblinsBrowser),
+// and is told where to take it. Only once taken do a view's mouse and keys
+// reach the page. What a person types reaches the page alone: no file in the
+// home and no error the board shows holds it.
+func TestScreenViewDrivesTheBrowserOnlyFromThisPCOrHisPrivateBoardAndOnlyOnceTaken(t *testing.T) {
 	for _, test := range []struct {
 		name     string
 		isRemote bool
@@ -489,6 +517,9 @@ func TestScreenViewDrivesTheBrowserOnlyFromThisPCAndOnlyOnceTaken(t *testing.T) 
 			if first.CanDrive == test.isRemote || first.IsDriven {
 				t.Fatalf("first told %s", first.raw)
 			}
+			if test.isRemote && first.DriveNote != "Take control from the board on this PC or your private board." {
+				t.Fatalf("a view on another machine was told %s", first.raw)
+			}
 			if afterTake.IsDriven == test.isRemote || board.service.screens.isDriven(board.browser) == test.isRemote {
 				t.Fatalf("after take told %s", afterTake.raw)
 			}
@@ -515,6 +546,126 @@ func TestScreenViewDrivesTheBrowserOnlyFromThisPCAndOnlyOnceTaken(t *testing.T) 
 			service.mu.Unlock()
 			if strings.Contains(lastError, canary) {
 				t.Fatal("what was typed is in the board's error")
+			}
+		})
+	}
+}
+
+// He takes sign-in steps from his phone, whose private board the remote
+// access gate proves his only by Tailscale's headers, which a program on this
+// PC can forge. He lets it drive a goblin's browser as it switches AFK mode
+// and grants a service (CEO decision 1028736, #2900): its Take control takes
+// the browser, a swipe's wheel turns and a tap reach the page, and each take
+// is recorded for the CEO as made from his private board, by those headers.
+func TestHisPrivateBoardTakesControlOfAGoblinsBrowser(t *testing.T) {
+	// Arrange
+	chrome := &fakeGoblinChrome{browser: newFakeBrowser(targetInfo{ID: "login", Type: "page", Title: "Sign in", URL: "https://login.example.com/"})}
+	service := screenService(t)
+	board := newScreenBoard(t, service, chrome, false)
+	view := board.openOnHisPhone(t)
+	first := view.next(t)
+
+	// Act
+	view.send(t, `{"type":"take"}`)
+	afterTake := view.next(t)
+	view.send(t, `{"type":"mouse","event":"mouseWheel","x":640,"y":528,"delta_y":32}`)
+	view.send(t, `{"type":"mouse","event":"mousePressed","x":640,"y":400,"button":"left","buttons":1,"click_count":1}`)
+	view.send(t, `{"type":"mouse","event":"mouseReleased","x":640,"y":400,"button":"left","click_count":1}`)
+	eventually(t, "his three mouse events", func() bool { return len(chrome.browser.named("Input.dispatchMouseEvent")) == 3 })
+
+	// Assert
+	if !first.CanDrive || first.DriveNote != "" || first.IsDriven {
+		t.Fatalf("his private board was first told %s, want it offered control", first.raw)
+	}
+	if !afterTake.IsDriven || !board.service.screens.isDriven(board.browser) {
+		t.Fatalf("after his take his private board was told %s", afterTake.raw)
+	}
+	var reached []string
+	for _, call := range chrome.browser.named("Input.dispatchMouseEvent") {
+		var event struct {
+			Type   string  `json:"type"`
+			X      float64 `json:"x"`
+			Y      float64 `json:"y"`
+			DeltaY float64 `json:"deltaY"`
+		}
+		if err := json.Unmarshal(call.params, &event); err != nil || call.session != "session-login" {
+			t.Fatalf("the page got %+v", call)
+		}
+		reached = append(reached, fmt.Sprintf("%s %g,%g %g", event.Type, event.X, event.Y, event.DeltaY))
+	}
+	if want := []string{"mouseWheel 640,528 32", "mousePressed 640,400 0", "mouseReleased 640,400 0"}; !slices.Equal(reached, want) {
+		t.Fatalf("the page got %q, want %q", reached, want)
+	}
+	pending, err := wake.Pending(service.Store.Home.State)
+	if err != nil || len(pending) != 1 || pending[0].Kind != "notify" || pending[0].Key != "task-1" || pending[0].Detail != "screen: the Overlord took control of its browser from his own private board (by Tailscale's headers, which a program on this PC can forge)" {
+		t.Fatalf("the CEO's queue = %+v, %v, want his take recorded as from his private board", pending, err)
+	}
+}
+
+// While he drives, Back takes the page shown one entry back in its history.
+// A view is told only whether there is an entry before, never an entry's
+// address or title, as an address can carry a sign-in's code. Back does
+// nothing while he does not drive, from a view that may not drive, or on a
+// page with no entry before (#2901).
+func TestScreenViewGoesBackOnlyWhileHeDrivesAPageWithAnEntryBefore(t *testing.T) {
+	canary := newCanary(t)
+	before := `{"currentIndex":1,"entries":[{"id":7,"url":"https://login.example.com/?code=` + canary + `","title":"` + canary + `"},{"id":9,"url":"https://login.example.com/next","title":"Next"}]}`
+	for _, test := range []struct {
+		name              string
+		history           string
+		isRemote, isTaken bool
+		canGoBack         bool
+	}{
+		{"driving a page with an entry before", before, false, true, true},
+		{"driving a page with none", `{"currentIndex":0,"entries":[{"id":9,"url":"https://login.example.com/next","title":"Next"}]}`, false, true, false},
+		{"not driving", before, false, false, false},
+		{"from a view that may not drive", before, true, true, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			chrome := &fakeGoblinChrome{browser: newFakeBrowser(targetInfo{ID: "login", Type: "page", Title: "Next", URL: "https://login.example.com/next"})}
+			chrome.browser.history = json.RawMessage(test.history)
+			service := screenService(t)
+			board := newScreenBoard(t, service, chrome, test.isRemote)
+			view := board.open(t)
+			beforeBack := view.next(t)
+			if test.isTaken {
+				view.send(t, `{"type":"take"}`)
+				beforeBack = view.next(t)
+			}
+
+			// Act
+			view.send(t, `{"type":"back"}`)
+			// A take is answered with what the view shows, so once it is,
+			// Back, sent before it, has been taken.
+			view.send(t, `{"type":"take"}`)
+			afterBack := view.next(t)
+
+			// Assert
+			if beforeBack.CanGoBack != test.canGoBack {
+				t.Fatalf("before Back the view was told %s, want can_go_back %v", beforeBack.raw, test.canGoBack)
+			}
+			went := chrome.browser.named("Page.navigateToHistoryEntry")
+			if test.canGoBack {
+				if len(went) != 1 || went[0].session != "session-login" || string(went[0].params) != `{"entryId":7}` {
+					t.Fatalf("Back went to %+v, want the entry before", went)
+				}
+			} else if len(went) != 0 {
+				t.Fatalf("Back went to %+v, want nothing", went)
+			}
+			for _, said := range []screenSaid{beforeBack, afterBack} {
+				if strings.Contains(said.raw, canary) {
+					t.Fatalf("the view was told %s", said.raw)
+				}
+			}
+			if found := filesHolding(t, service.Store.Home.Root, canary); len(found) != 0 {
+				t.Fatalf("an address of the page's history is in %v", found)
+			}
+			service.mu.Lock()
+			lastError := service.lastError
+			service.mu.Unlock()
+			if strings.Contains(lastError, canary) {
+				t.Fatal("an address of the page's history is in the board's error")
 			}
 		})
 	}
@@ -762,7 +913,7 @@ func TestAStartedSupervisorOffersACardsTakeControlAgainOnceItsBrowserClosed(t *t
 	eventually(t, "the starting supervisor's offer", func() bool { return stored().WindowState == "" })
 	chrome := &fakeGoblinChrome{browser: newFakeBrowser()}
 	s.screens.launch = newFakeBrowsers(t, chrome).launch
-	pressErr := s.requestCredentialWindow(card.ID, card.Generation)
+	pressErr := s.requestCredentialWindow(card.ID, card.Generation, false)
 	s.credentialWork.Wait()
 	taken := stored()
 	chrome.browser.mu.Lock()
