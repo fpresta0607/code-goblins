@@ -228,6 +228,26 @@ func DefaultModel(kind Kind) string {
 	return ""
 }
 
+// apiOrigins is where each harness's requests to its model's API go, by
+// harness, and for pi by the provider its model names (ModelProvider):
+// Claude Code's Messages API, Codex's ChatGPT backend and OpenRouter.
+var apiOrigins = map[string]string{
+	string(Claude):  "https://api.anthropic.com",
+	string(Codex):   "https://chatgpt.com",
+	"pi/openrouter": "https://openrouter.ai",
+}
+
+// APIOrigin is where kind's requests to model's API go, and false for an API
+// not known here, as a pi model that names no provider or another one.
+func APIOrigin(kind Kind, model string) (string, bool) {
+	key := string(kind)
+	if kind == Pi {
+		key += "/" + ModelProvider(model)
+	}
+	origin, isKnown := apiOrigins[key]
+	return origin, isKnown
+}
+
 func validSharedEffort(effort string) bool {
 	return slices.Contains(Efforts(Claude), effort)
 }

@@ -178,8 +178,9 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// the failure, in the words its build holds for a connection that
 			// failed or a request that timed out, as "● API Error: Can't
 			// reach the API server …" or "● Request timed out. If the API is
-			// slow to answer, …".
-			APIError: regexp.MustCompile(`^[●⏺] ((?:API Error: (?:Can't reach the API server|Unable to connect to API \(|Connection (?:dropped|refused|error)|No internet route)|(?:API Error: )?Request timed out).*)$`),
+			// slow to answer, …". It draws a goblin's own reply under the same
+			// mark, so a reply that opens "Request timed out on …" is none.
+			APIError: regexp.MustCompile(`^[●⏺] ((?:API Error: (?:Can't reach the API server|Unable to connect to API \(|Connection (?:dropped|refused|error)|No internet route|Request timed out)|Request timed out\. If the API is slow to answer).*)$`),
 			// Over its composer, at the right, Claude Code 2.1.322 draws the
 			// context gauge once the context fills, as "83% context used",
 			// and its notices, as "✘ Auto-update failed · Run claude doctor";
@@ -272,8 +273,10 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			Working: regexp.MustCompile(`[\x{2800}-\x{28FF}]\s+Working`),
 			// pi 1.4 ends a turn on the error it gave up retrying, as
 			// " Error: Retry failed after 3 attempts: fetch failed", and on
-			// the error itself while its retries are turned off.
-			APIError: regexp.MustCompile(`^ ?Error: ((?:Retry failed after \d+ attempts: |.*(?i:fetch failed|ENOTFOUND|EAI_AGAIN|connection (?:error|refused|lost)|socket hang up|timed out|timeout|stream disconnected)).*)$`),
+			// the error itself while its retries are turned off, each its
+			// whole message. It draws a goblin's own reply with the same
+			// leading space, so a reply that opens "Error: …" is none.
+			APIError: regexp.MustCompile(`^ ?Error: (Retry failed after \d+ attempts: .*|Connection error\.|Request timed out\.|fetch failed)\s*$`),
 			// pi 0.85 draws its editor and footer, and takes typed text,
 			// before its startup completes, which on a machine without fd and
 			// rg includes downloading them (InteractiveMode.init); until then

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
@@ -35,28 +34,6 @@ const (
 // apiErrorNote is the note the supervisor types into a goblin it carries on.
 const apiErrorNote = "The API answers again after your last turn ended on an API error; carry on from where you stopped."
 
-// apiOrigins is where each harness's requests to its model's API go, by
-// harness, and for pi by the provider its model names first, as
-// "openrouter/deepseek/deepseek-v4.1-flash": Claude Code's Messages API,
-// Codex's ChatGPT backend and OpenRouter. A goblin whose API is not here is
-// not carried on, and its wake names its error for the CEO.
-var apiOrigins = map[string]string{
-	string(harness.Claude): "https://api.anthropic.com",
-	string(harness.Codex):  "https://chatgpt.com",
-	"pi/openrouter":        "https://openrouter.ai",
-}
-
-// apiOrigin is where meta's goblin's requests to its model's API go.
-func apiOrigin(meta state.TaskMeta) (string, bool) {
-	key := meta.Harness
-	if harness.Kind(meta.Harness) == harness.Pi {
-		provider, _, _ := strings.Cut(meta.Model, "/")
-		key += "/" + provider
-	}
-	origin, isKnown := apiOrigins[key]
-	return origin, isKnown
-}
-
 // keepCarryingOnAfterAPIErrors carries goblins on after API errors every
 // interval until ctx ends.
 func (s *Service) keepCarryingOnAfterAPIErrors(ctx context.Context, every time.Duration) {
@@ -75,9 +52,12 @@ func (s *Service) keepCarryingOnAfterAPIErrors(ctx context.Context, every time.D
 // carryOnAfterAPIErrors carries on each live goblin, not paused or changing,
 // whose screen shows its turn ended on an API error, once a check finds its
 // API answering again: it types the goblin a note, held for a turn, and
-// restarts it in place when its prompt takes no typing. An error routing
-// names as a provider's refusal, such as a rate limit, is the watcher's to
-// route, and a goblin carried on within apiErrorCarryOnGap waits.
+// restarts it in place when its terminal takes no typing. A goblin whose
+// prompt line holds words never sent, or whose harness shows a screen of its
+// own, is someone's at work there and is left to the CEO's api_error wake. An
+// error routing names as a provider's refusal, such as a rate limit, is the
+// watcher's to route, and a goblin carried on within apiErrorCarryOnGap
+// waits.
 func (s *Service) carryOnAfterAPIErrors(ctx context.Context, now time.Time) {
 	stateDir := s.Store.Home.State
 	answers := map[string]error{}
@@ -107,7 +87,7 @@ func (s *Service) carryOnAfterAPIErrors(ctx context.Context, now time.Time) {
 		if _, _, isRefusal := routing.Detect(failure); isRefusal {
 			continue
 		}
-		origin, isKnown := apiOrigin(meta)
+		origin, isKnown := harness.APIOrigin(harness.Kind(meta.Harness), meta.Model)
 		if !isKnown {
 			continue
 		}
@@ -125,8 +105,8 @@ func (s *Service) carryOnAfterAPIErrors(ctx context.Context, now time.Time) {
 		s.apiErrorCarried[meta.ID] = now
 		err = typeIntoGoblin(ctx, stateDir, meta, goblinLine(apiErrorNote), true, false, false)
 		switch {
-		case err == nil, errors.Is(err, spawn.ErrInTurn):
-		case errors.Is(err, spawn.ErrUnsentWords), errors.Is(err, fleet.ErrNotTyped):
+		case err == nil, errors.Is(err, spawn.ErrInTurn), errors.Is(err, spawn.ErrUnsentWords), errors.Is(err, spawn.ErrOwnScreen):
+		case errors.Is(err, fleet.ErrNotTyped):
 			s.restartAfterAPIError(meta)
 		default:
 			s.publish(fmt.Errorf("carrying %s on after its turn ended on an API error (%s): %w", meta.ID, failure, err))
@@ -155,8 +135,9 @@ func (s *Service) apiAnswers(ctx context.Context, origin string) error {
 
 // restartAfterAPIError starts restarting meta's goblin in place on its own
 // harness, model, effort and conversation, as a pause and resume does, unless
-// another change of it is under way. The restart runs on by itself, as a
-// switch the board started does, so the supervisor's stop never waits on it.
+// another change of it is under way, and tells it the supervisor restarted it
+// after its API error. The restart runs on by itself, as a switch the board
+// started does, so the supervisor's stop never waits on it.
 func (s *Service) restartAfterAPIError(meta state.TaskMeta) {
 	s.starts.Lock()
 	defer s.starts.Unlock()
@@ -165,7 +146,7 @@ func (s *Service) restartAfterAPIError(meta state.TaskMeta) {
 	}
 	s.markChanging(meta.ID, "switch")
 	go func() {
-		output, err := s.Options.Dispatch.Spawn(context.Background(), []string{"switch", meta.ID, "--generation", meta.SpawnGen, "--restart"})
+		output, err := s.Options.Dispatch.Spawn(context.Background(), []string{"switch", meta.ID, "--generation", meta.SpawnGen, "--restart", "--after-api-error"})
 		if err != nil {
 			s.publish(fmt.Errorf("restarting %s in place after its turn ended on an API error: %s", meta.ID, spawnFailure(output, err)))
 		}

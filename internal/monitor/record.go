@@ -120,7 +120,8 @@ const (
 	GoblinAsks Reason = "goblin_asks"
 	// APIError is a goblin whose turn ended on an API error its harness gave
 	// up retrying, a connection that failed or a request that timed out,
-	// which the supervisor carries on once the API answers again (#2863).
+	// which the supervisor carries on once the API answers again for a
+	// native goblin whose API it knows (#2863).
 	APIError Reason = "api_error"
 )
 

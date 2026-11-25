@@ -100,13 +100,58 @@ func TestAGoblinWhoseTurnEndedOnAnAPIErrorIsCarriedOnOnceTheAPIAnswersAgain(t *t
 	}
 }
 
-// A goblin whose prompt takes no typing once its turn ended on an API error
-// is restarted in place, on its own harness, model, effort and conversation,
-// once its API answers again (#2863).
-func TestAGoblinWhosePromptTakesNoTypingAfterAnAPIErrorIsRestartedInPlace(t *testing.T) {
+// The running supervisor carries such a goblin on by itself: its loop starts
+// with the service and looks at once (#2863).
+func TestTheRunningSupervisorCarriesOnAGoblinWhoseTurnEndedOnAnAPIError(t *testing.T) {
+	// Arrange
+	_, h := testStore(t)
+	meta := state.TaskMeta{ID: "goblin", SpawnGen: "s1", Harness: "claude", Model: "opus", Backend: "native", Worktree: h.Root, Project: h.Root}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	recordTerminal(t, h.State, meta.ID, time.Now().Add(-time.Hour))
+	standIn := &standInScreen{}
+	standIn.show(claudeAtAPIError)
+	typed := make(chan string, 16)
+	delivery := typeIntoGoblin
+	t.Cleanup(func() { typeIntoGoblin = delivery })
+	typeIntoGoblin = func(_ context.Context, _ string, meta state.TaskMeta, text string, shouldRefuseTurn, _, _ bool) error {
+		typed <- fmt.Sprintf("%s holds %v: %s", meta.ID, shouldRefuseTurn, text)
+		return nil
+	}
+	options := Options{ReadScreen: standIn.read, APIAnswers: func(context.Context, string) error { return nil }}
+
+	// Act
+	s, err := Start(t.Context(), h, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	// Assert
+	want := "goblin holds true: " + goblinLine(apiErrorNote)
+	deadline := time.After(time.Minute)
+	for {
+		select {
+		case got := <-typed:
+			if got == want {
+				return
+			}
+		case <-deadline:
+			t.Fatalf("the running supervisor typed no %q", want)
+		}
+	}
+}
+
+// A goblin whose terminal takes no typing once its turn ended on an API
+// error, for a reason other than someone at work in it, as a terminal that
+// cannot be read or a startup dialog, is restarted in place on its own
+// harness, model, effort and conversation once its API answers again, and
+// told the supervisor restarted it after its API error (#2863).
+func TestAGoblinWhoseTerminalTakesNoTypingAfterAnAPIErrorIsRestartedInPlace(t *testing.T) {
 	for name, refusal := range map[string]error{
-		"words never sent":      fmt.Errorf("%w: nothing was typed", spawn.ErrUnsentWords),
-		"a terminal not taking": fmt.Errorf("%w: its terminal is not ready", fleet.ErrNotTyped),
+		"an unreadable terminal": fmt.Errorf("%w: read native screen: the pipe has been ended", fleet.ErrNotTyped),
+		"a startup dialog":       fmt.Errorf("%w: %w", fleet.ErrNotTyped, errors.New("a startup dialog interrupted instruction delivery")),
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -118,7 +163,7 @@ func TestAGoblinWhosePromptTakesNoTypingAfterAnAPIErrorIsRestartedInPlace(t *tes
 			waitEngineChange(t, board.service, board.meta.ID)
 
 			// Assert
-			want := [][]string{{"switch", "goblin", "--generation", "s1", "--restart"}}
+			want := [][]string{{"switch", "goblin", "--generation", "s1", "--restart", "--after-api-error"}}
 			if calls := board.spawner.recorded(); len(calls) != 1 || !slices.Equal(calls[0], want[0]) {
 				t.Errorf("spawned %q, want %q", calls, want)
 			}
@@ -126,22 +171,64 @@ func TestAGoblinWhosePromptTakesNoTypingAfterAnAPIErrorIsRestartedInPlace(t *tes
 	}
 }
 
+// A goblin whose prompt line holds words never sent, whose harness shows a
+// screen of its own, as the picker /rewind opens, or whose turn started before
+// the note was typed, has someone at work in its terminal: it is not
+// restarted, which would lose what they did there, nor typed into again
+// within apiErrorCarryOnGap (#2863). Each refusal is the one spawn's delivery
+// gives.
+func TestAGoblinAtWorkInItsTerminalIsNotRestartedAfterAnAPIError(t *testing.T) {
+	for name, refusal := range map[string]error{
+		"words never sent":    fmt.Errorf("spawn: native terminal goblin: %w: %w", fleet.ErrNotTyped, spawn.ErrUnsentWords),
+		"a screen of its own": fmt.Errorf("%w: native terminal goblin is %w", fleet.ErrNotTyped, spawn.ErrOwnScreen),
+		"a turn under way":    fmt.Errorf("spawn: native terminal goblin: %w: %w", fleet.ErrNotTyped, spawn.ErrInTurn),
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			board := newAPIErrorBoard(t, "claude", "opus", claudeAtAPIError)
+			board.typing = refusal
+			now := time.Now()
+
+			// Act
+			board.service.carryOnAfterAPIErrors(t.Context(), now)
+			board.service.carryOnAfterAPIErrors(t.Context(), now.Add(apiErrorCarryOnEvery))
+			waitEngineChange(t, board.service, board.meta.ID)
+
+			// Assert
+			if calls := board.spawner.recorded(); len(calls) != 0 || len(board.typed) != 1 {
+				t.Errorf("typed %q, spawned %q; want one note tried and no restart", board.typed, calls)
+			}
+		})
+	}
+}
+
 // Nothing carries on a goblin at an ordinary prompt, nor one whose harness
 // gave up on a refusal routing names, as a rate limit, which the watcher
-// routes (#2863).
-func TestNoGoblinIsCarriedOnWhoseTurnDidNotEndOnAnAPIError(t *testing.T) {
+// routes, nor one on an API the supervisor does not know, as a pi model that
+// names no provider (docs/project-runtime.md), nor one paused or pausing
+// (#2863).
+func TestNoGoblinOutsideTheSupervisorsCarryOnIsCarriedOnAfterAnAPIError(t *testing.T) {
 	piRule := strings.Repeat("─", 120)
+	piFooter := "↑8.4k ↓357 R15k CH91.8% $0.001 0.8%/1.0M (auto)"
 	for name, test := range map[string]struct {
 		kind   string
 		model  string
 		screen []string
+		phase  string
 	}{
-		"at an ordinary prompt": {"claude", "opus", []string{"● Pushed the branch.", "", updateRule, "❯ ", updateRule, "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}},
-		"refused on quota":      {"pi", "openrouter/deepseek/deepseek-v4.1-flash", []string{" Reading the failing test first.", "", " Error: Retry failed after 3 attempts: 429 Too Many Requests: rate limit exceeded", piRule, "", piRule, "↑8.4k ↓357 R15k CH91.8% $0.001 0.8%/1.0M (auto)"}},
+		"at an ordinary prompt":      {"claude", "opus", []string{"● Pushed the branch.", "", updateRule, "❯ ", updateRule, "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}, ""},
+		"refused on quota":           {"pi", "openrouter/deepseek/deepseek-v4.1-flash", []string{" Reading the failing test first.", "", " Error: Retry failed after 3 attempts: 429 Too Many Requests: rate limit exceeded", piRule, "", piRule, piFooter}, ""},
+		"on an API it does not know": {"pi", "your-open-model", []string{" Reading the failing test first.", "", " Error: Retry failed after 3 attempts: fetch failed", piRule, "", piRule, piFooter}, ""},
+		"pausing":                    {"claude", "opus", claudeAtAPIError, "pausing"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			board := newAPIErrorBoard(t, test.kind, test.model, test.screen)
+			if test.phase != "" {
+				if err := state.WriteLifecycle(board.service.Store.Home.State, state.Lifecycle{ID: board.meta.ID, Generation: board.meta.SpawnGen, Operation: "pause-1", Action: "pause", Phase: test.phase}); err != nil {
+					t.Fatal(err)
+				}
+			}
 
 			// Act
 			board.service.carryOnAfterAPIErrors(t.Context(), time.Now())
