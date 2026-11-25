@@ -255,6 +255,11 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 		result.Pause = pause
 		result.Phase = "pausing"
 		result.Handoff = filepath.Join(meta.TaskTmp, "pause-"+request.Operation+".md")
+		// A pause cut short is retried with its own operation and finds at
+		// its handoff's place whatever it wrote there before.
+		if prior.Operation == request.Operation && prior.Phase == "pausing" {
+			result.HandoffFallback = prior.HandoffFallback
+		}
 	case "stop":
 		result.Phase = "stopping"
 	case "resume":
@@ -441,23 +446,31 @@ func (service Service) writeHandoff(ctx context.Context, meta state.TaskMeta, re
 	// is, so it is there whole or not at all: one created and then written
 	// was left empty by a pause ended between the two, and every later pause
 	// could neither count it nor write over it (#1707).
+	// The mark is saved before the fallback is, so a pause cut short after it
+	// and retried never takes the fallback for the goblin's own.
 	staged, err := fsx.Stage(record.Handoff, service.Operations.Handoff(ctx, meta))
 	if err == nil {
 		defer staged.Discard()
+		record.HandoffFallback = true
+		err = service.save(record)
+	}
+	if err == nil {
 		writingHandoff()
 		err = staged.CommitNewContext(ctx)
 	}
 	if errors.Is(err, os.ErrExist) {
+		record.HandoffFallback = false
 		if info, statErr := os.Stat(record.Handoff); statErr == nil && info.Mode().IsRegular() && info.Size() > 0 {
 			record.HandoffSaved = true
 			return
 		}
 	}
 	if err != nil {
+		record.HandoffFallback = false
 		record.Problems = append(record.Problems, "Stopping-point deadline reached or request failed, and the handoff the pause wrote for the goblin was not saved: "+err.Error())
 		return
 	}
-	record.HandoffSaved, record.HandoffFallback = true, true
+	record.HandoffSaved = true
 	record.Problems = append(record.Problems, "the goblin wrote no handoff by its stopping-point deadline, so the pause wrote one for it from the task's record")
 }
 

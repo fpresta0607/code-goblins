@@ -278,3 +278,40 @@ func TestASecondHandoffPauseIsTakenInPlaceOverTheFirst(t *testing.T) {
 		t.Fatalf("second handoff pause = %+v, %v; want it in place, keeping %s", second, err, first.Handoff)
 	}
 }
+
+// A pause cut short after it wrote the fallback handoff and retried with its
+// own operation finds that fallback at its handoff's place, and still knows
+// it for the fallback, so the task never reads as handed off with it.
+func TestAPauseRetriedAfterItWroteTheFallbackKeepsItsMark(t *testing.T) {
+	// Arrange
+	service, meta := lifecycleFixture(t)
+	service.Operations.Handoff = func(context.Context, state.TaskMeta) []byte {
+		return []byte("Written for the goblin from its record.")
+	}
+	stop := service.Operations.Stop
+	var cutShort state.Lifecycle
+	service.Operations.Stop = func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) ([]string, error) {
+		saved, err := state.ReadLifecycle(service.StateDir, meta.ID)
+		if err != nil {
+			return nil, err
+		}
+		cutShort = saved
+		return stop(ctx, meta, record)
+	}
+	request := Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "handoff-pause", Action: "pause", Reason: "handoff"}
+	if _, err := service.Run(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteLifecycle(service.StateDir, cutShort); err != nil {
+		t.Fatal(err)
+	}
+	service.Operations.Stop = stop
+
+	// Act
+	record, err := service.Run(t.Context(), request)
+
+	// Assert
+	if err != nil || record.Phase != "paused" || !record.HandoffFallback || record.IsHandedOff() {
+		t.Fatalf("retried pause = %+v, %v; want it paused, its handoff still marked the fallback", record, err)
+	}
+}
