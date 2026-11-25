@@ -166,7 +166,8 @@ The product does this by itself in every home, with no setting, and wakes you fo
   A local-only task opens no pull request, so it is delivered when a done line of its current run names its report, `data/<task>/report.md`, by its full path or its path in the home, and that report is there.
   [goblins notify --report](../commands/notify.md) keeps the report there and records that line.
   A task ruled finished with no pull request is delivered when a done line of its current run names the issue it closed, which [goblins notify --closed](../commands/notify.md) records from its answered decision.
-- **Work that cannot start wakes you again.** A start that failed is not retried by itself, and its card says why.
+- **Work that cannot start wakes you again.** A start that failed is not retried by itself, and its card says why, unless the network failed it, as `Could not resolve host` or `Failed to connect to github.com port 443` do.
+  The scheduler tries such a start again after a wait that doubles from one minute to at most thirty, its card and its `start failed:` notify say when, any other outcome ends the tries, and after ten failed tries it waits for a Start as any other failed start does.
   A brief changed during admission instead produces `start deferred: ...` and is reconsidered on the next scan with its final choices.
   Draft briefs remain held under the [brief readiness contract](../commands/brief.md), do not block ready work behind them and raise no idle-fleet wake.
   While work like that (a failed start or resume, or a row that needs you, such as one whose brief names no project) waits 30 minutes with memory free and nothing started, an `idle` wake keyed `fleet` names each task and why, and it comes again every 30 minutes that lasts.
