@@ -532,6 +532,7 @@ func TestTreeEndAndWaitEndsAMemberThatJoinsAfterItsFirstEnd(t *testing.T) {
 	}
 	// The end closed the job's handle, so a service still running a moment
 	// later shows the job no longer ends what it holds on close.
+	// stall-accepted: the test means this wait to run out, since the service still running when it does is the pass, so a stall cannot fail it.
 	if event, err := windows.WaitForSingleObject(held["com.docker.standin"], 500); err != nil || event != uint32(windows.WAIT_TIMEOUT) {
 		t.Fatal("the machine service was ended by an end that spares it")
 	}
