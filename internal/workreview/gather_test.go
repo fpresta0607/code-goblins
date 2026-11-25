@@ -92,11 +92,11 @@ func TestGatherReadsPausedTasksThenQueuedRowsThenParkedRows(t *testing.T) {
 	widgets := func(number int) tickets.IssueRef { return tickets.IssueRef{Repository: "acme/widgets", Number: number} }
 
 	// Act
-	items, problems, err := Gather(h, fixtureResolver(checkout), now)
+	items, dropped, problems, err := Gather(h, fixtureResolver(checkout), now)
 
 	// Assert
-	if err != nil || len(problems) != 0 {
-		t.Fatalf("Gather: problems %q, err %v", problems, err)
+	if err != nil || len(problems) != 0 || len(dropped) != 0 {
+		t.Fatalf("Gather: dropped %+v, problems %q, err %v", dropped, problems, err)
 	}
 	want := []Item{
 		{ID: "paused-task", Source: SourcePaused, Project: checkout, Repository: "acme/widgets", IsOwnerStep: true, Issues: []tickets.IssueRef{widgets(40), widgets(41)}, Pulls: []tickets.IssueRef{widgets(50)}, Paths: []string{"internal/export.go"}, LastActivity: time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC), Order: 0},
@@ -123,12 +123,15 @@ func TestGatherSaysAProjectItCannotResolveAndLeavesItsWorkOut(t *testing.T) {
 	}
 
 	// Act
-	items, problems, err := Gather(h, resolve, time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC))
+	items, dropped, problems, err := Gather(h, resolve, time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC))
 
 	// Assert
 	wantProblems := []string{"row held-elsewhere is not read: project gadgets is not read: no record"}
 	if err != nil || !reflect.DeepEqual(problems, wantProblems) {
 		t.Fatalf("Gather: problems %q, err %v, want %q", problems, err, wantProblems)
+	}
+	if wantDropped := []Item{{ID: "held-elsewhere", Source: SourceQueued, Project: "gadgets"}}; !reflect.DeepEqual(dropped, wantDropped) {
+		t.Fatalf("dropped %+v, want %+v", dropped, wantDropped)
 	}
 	for _, item := range items {
 		if item.ID == "held-elsewhere" {

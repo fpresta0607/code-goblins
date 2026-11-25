@@ -27,10 +27,11 @@ type Report struct {
 // repository, and returns what Review finds with what could not be read. A
 // repository whose states cannot be read is a problem, and Review leaves out
 // every item that names one of its issues or pull requests, with every item
-// that could fold with one left out, so a run that reads part of the home
-// finds nothing it would not find reading all of it.
+// that could fold with one left out or with a row or task Gather could not
+// read, so a run that reads part of the home finds nothing it would not find
+// reading all of it.
 func Run(ctx context.Context, h home.Home, resolve Resolver, read StateReader, now time.Time, staleAfter time.Duration) (Report, error) {
-	items, problems, err := Gather(h, resolve, now)
+	items, dropped, problems, err := Gather(h, resolve, now)
 	if err != nil {
 		return Report{}, err
 	}
@@ -55,14 +56,18 @@ func Run(ctx context.Context, h home.Home, resolve Resolver, read StateReader, n
 			states[tickets.IssueRef{Repository: repository, Number: number}] = state
 		}
 	}
-	return Report{Findings: Review(fullyRead(items, unread), states, now, staleAfter), Problems: problems}, nil
+	return Report{Findings: Review(fullyRead(items, dropped, unread), states, now, staleAfter), Problems: problems}, nil
 }
 
 // fullyRead are the items that name no issue or pull request of an unread
-// repository and could fold with no item that does, directly or through
-// others.
-func fullyRead(items []Item, unread map[string]bool) []Item {
-	var kept, leftOut []Item
+// repository and could fold with no such item and no dropped one, directly or
+// through others. A dropped item with neither a project nor a repository
+// could fold with any, so then none is fully read.
+func fullyRead(items, dropped []Item, unread map[string]bool) []Item {
+	if slices.ContainsFunc(dropped, func(out Item) bool { return out.Project == "" && out.Repository == "" }) {
+		return nil
+	}
+	kept, leftOut := []Item(nil), slices.Clone(dropped)
 	for _, item := range items {
 		if slices.ContainsFunc(slices.Concat(item.Issues, item.Pulls), func(ref tickets.IssueRef) bool { return unread[ref.Repository] }) {
 			leftOut = append(leftOut, item)

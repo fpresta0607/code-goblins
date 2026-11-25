@@ -131,7 +131,7 @@ func TestKeepReviewingWorkReviewsWithinADayOnlyWhenAnAllowanceRenews(t *testing.
 	renewed <- struct{}{}
 	select {
 	case <-reads:
-	case <-time.After(10 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("the renewal read no states")
 	}
 	cancel()

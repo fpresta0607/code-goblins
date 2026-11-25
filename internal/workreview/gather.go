@@ -32,23 +32,25 @@ var (
 type Resolver func(project string) (repository, checkout string, err error)
 
 // Gather reads the home's queued rows, parked rows and paused tasks as items,
-// with what it could not read as problems. now places the note lines that
-// carry no year. Paused tasks come first, by when they began, then the queued
-// rows and the parked rows in file order. A row whose task has a record is no
-// row item: the paused or live task stands for it.
-func Gather(h home.Home, resolve Resolver, now time.Time) (items []Item, problems []string, err error) {
+// with what it could not read as problems and, as dropped, each row or task
+// it could not read, with its ID, project and repository as far as they were
+// read. now places the note lines that carry no year. Paused tasks come
+// first, by when they began, then the queued rows and the parked rows in file
+// order. A row whose task has a record is no row item: the paused or live task
+// stands for it.
+func Gather(h home.Home, resolve Resolver, now time.Time) (items, dropped []Item, problems []string, err error) {
 	scan, err := state.ScanIDs(h.State)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	current, err := fleet.ReadCurrentBacklog(h)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	// A paused task's own row stays queued, which the current backlog leaves out.
 	written, err := fleet.ReadBacklog(h)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	ownRows := map[string]fleet.BacklogRow{}
 	for _, rows := range [][]fleet.BacklogRow{written.Queued, written.Parked} {
@@ -69,6 +71,7 @@ func Gather(h home.Home, resolve Resolver, now time.Time) (items []Item, problem
 		item, startedAt, isPaused, err := pausedItem(h, resolve, id, ownRows[id], now)
 		if err != nil {
 			problems = append(problems, fmt.Sprintf("task %s is not read: %v", id, err))
+			dropped = append(dropped, item)
 			continue
 		}
 		if isPaused {
@@ -90,6 +93,7 @@ func Gather(h home.Home, resolve Resolver, now time.Time) (items []Item, problem
 			item, err := rowItem(h, resolve, section.source, row, now)
 			if err != nil {
 				problems = append(problems, fmt.Sprintf("row %s is not read: %v", row.ID, err))
+				dropped = append(dropped, item)
 				continue
 			}
 			items = append(items, item)
@@ -98,53 +102,54 @@ func Gather(h home.Home, resolve Resolver, now time.Time) (items []Item, problem
 	for index := range items {
 		items[index].Order = index
 	}
-	return items, problems, nil
+	return items, dropped, problems, nil
 }
 
 // pausedItem is task id as an item, when its lifecycle says it is paused for
 // its current generation, with when it began. row is its backlog row, if it
-// has one.
+// has one. When it cannot read the task, item holds what it read of the
+// task's project and repository.
 func pausedItem(h home.Home, resolve Resolver, id string, row fleet.BacklogRow, now time.Time) (item Item, startedAt time.Time, isPaused bool, err error) {
+	item = Item{ID: id, Source: SourcePaused}
 	meta, err := state.ReadTaskMeta(h.State, id)
 	if err != nil {
-		return Item{}, time.Time{}, false, err
+		return item, time.Time{}, false, err
 	}
+	item.Project = meta.Project
+	// The project is resolved before the lifecycle is read, so a task whose
+	// lifecycle cannot be read is still placed by its repository. A failure to
+	// resolve matters only for a paused task.
+	repository, checkout, resolveErr := resolve(meta.Project)
+	item.Repository = repository
 	record, err := state.ReadLifecycle(h.State, id)
 	if errors.Is(err, fs.ErrNotExist) {
 		return Item{}, time.Time{}, false, nil
 	}
 	if err != nil {
-		return Item{}, time.Time{}, false, err
+		return item, time.Time{}, false, err
 	}
 	if record.Phase != "paused" || record.Generation != meta.SpawnGen {
 		return Item{}, time.Time{}, false, nil
 	}
+	if resolveErr != nil {
+		return item, time.Time{}, false, resolveErr
+	}
 	brief, err := tickets.TaskBrief(h, id, meta.Brief)
 	if err != nil {
-		return Item{}, time.Time{}, false, err
+		return item, time.Time{}, false, err
 	}
 	pulls, err := tickets.TaskPullRequests(h.State, id)
 	if err != nil {
-		return Item{}, time.Time{}, false, err
+		return item, time.Time{}, false, err
 	}
 	latest, err := lastActivity(h, id, meta.Brief, "", now)
 	if err != nil {
-		return Item{}, time.Time{}, false, err
+		return item, time.Time{}, false, err
 	}
-	repository, checkout, err := resolve(meta.Project)
-	if err != nil {
-		return Item{}, time.Time{}, false, err
-	}
-	item = Item{
-		ID:           id,
-		Source:       SourcePaused,
-		Project:      meta.Project,
-		Repository:   repository,
-		Issues:       NamedIssues(brief, row.Raw, repository),
-		Pulls:        withPullRefs(pullRefs(strings.Join(pulls, " ")), rowPulls(row)),
-		Paths:        tickets.BriefArea(brief, inCheckout(checkout)).Paths,
-		LastActivity: latest,
-	}
+	item.Issues = NamedIssues(brief, row.Raw, repository)
+	item.Pulls = withPullRefs(pullRefs(strings.Join(pulls, " ")), rowPulls(row))
+	item.Paths = tickets.BriefArea(brief, inCheckout(checkout)).Paths
+	item.LastActivity = latest
 	if record.Pause != nil {
 		item.IsOwnerStep = record.Pause.Reason == "overlord"
 		if date, isDate := pauseDate(record.Pause.Until); isDate {
@@ -154,35 +159,33 @@ func pausedItem(h home.Home, resolve Resolver, id string, row fleet.BacklogRow, 
 	return item, record.Started, true, nil
 }
 
-// rowItem is one queued or parked backlog row as an item.
+// rowItem is one queued or parked backlog row as an item. When it cannot read
+// the row, the item holds what it read of the row's project and repository.
 func rowItem(h home.Home, resolve Resolver, source string, row fleet.BacklogRow, now time.Time) (Item, error) {
-	brief, err := tickets.TaskBrief(h, row.ID, "")
+	item := Item{ID: row.ID, Source: source, Project: row.Repo}
+	brief, briefErr := tickets.TaskBrief(h, row.ID, "")
+	if briefErr == nil && item.Project == "" {
+		item.Project = fleet.BriefProject(strings.Split(brief, "\n"))
+	}
+	// The project is resolved even when the brief cannot be read, so the row
+	// is still placed by its repository.
+	repository, checkout, err := resolve(item.Project)
+	item.Repository = repository
+	if briefErr != nil {
+		return item, briefErr
+	}
 	if err != nil {
-		return Item{}, err
+		return item, err
 	}
 	latest, err := lastActivity(h, row.ID, "", row.Detail, now)
 	if err != nil {
-		return Item{}, err
+		return item, err
 	}
-	project := row.Repo
-	if project == "" {
-		project = fleet.BriefProject(strings.Split(brief, "\n"))
-	}
-	repository, checkout, err := resolve(project)
-	if err != nil {
-		return Item{}, err
-	}
-	item := Item{
-		ID:           row.ID,
-		Source:       source,
-		Project:      project,
-		Repository:   repository,
-		IsOwnerStep:  strings.EqualFold(row.Kind, "his") || strings.EqualFold(row.Kind, "ceo"),
-		IsHeld:       source == SourceParked,
-		Issues:       NamedIssues(brief, row.Raw, repository),
-		Paths:        tickets.BriefArea(brief, inCheckout(checkout)).Paths,
-		LastActivity: latest,
-	}
+	item.IsOwnerStep = strings.EqualFold(row.Kind, "his") || strings.EqualFold(row.Kind, "ceo")
+	item.IsHeld = source == SourceParked
+	item.Issues = NamedIssues(brief, row.Raw, repository)
+	item.Paths = tickets.BriefArea(brief, inCheckout(checkout)).Paths
+	item.LastActivity = latest
 	// A step for the Overlord or the CEO is about the pull request it waits
 	// on; other work only waits for it.
 	if item.IsOwnerStep {
