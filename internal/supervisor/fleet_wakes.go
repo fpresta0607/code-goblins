@@ -1369,6 +1369,7 @@ func (w *fleetWakes) watch(goblins []ciGoblin, now time.Time) []string {
 			delete(w.OverlapUnread, repo)
 			delete(w.Failing, "overlap:"+repo)
 			delete(w.Failing, "train viewer:"+repo)
+			delete(w.Failing, "cloud viewer:"+repo)
 			delete(w.Failing, "train repository:"+repo)
 			delete(w.Failing, "origin:"+repo)
 			delete(w.BackOff, repo)

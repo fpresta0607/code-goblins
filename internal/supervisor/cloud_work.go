@@ -58,6 +58,7 @@ func isHandedOffWork(handedOff map[string]handoff.Record, goblin string, pr ghPu
 // as the train's does, once it failed failingPasses polls of repo in a row.
 func (s *Service) sightCloudWork(ctx context.Context, github *githubapi.Client, w *fleetWakes, repo string, goblins []ciGoblin, handedOff map[string]handoff.Record, listed []train.PullRequest, owners *fleetOwners, now time.Time) error {
 	if len(handedOff) == 0 {
+		delete(w.Failing, "cloud viewer:"+repo)
 		return nil
 	}
 	account, err := owners.account(ctx, github)

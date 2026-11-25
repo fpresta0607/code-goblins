@@ -187,6 +187,10 @@ func TestBringBackWaitsItsTurnWhileAnotherGoblinLaunches(t *testing.T) {
 			if isReturned != test.wantReturn {
 				t.Fatalf("calls %v, want return on the pull request %v", spawner.recorded(), test.wantReturn)
 			}
+			// A Bring back he took back is no failure for the CEO to hear of.
+			if told := fleetWakeRecords(t, h, "notify"); len(told) != 0 {
+				t.Fatalf("the CEO was told %+v, want nothing", told)
+			}
 		})
 	}
 }
@@ -325,4 +329,34 @@ func waitForChange(t *testing.T, handler *HTTP, task string) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("%s is still changing", task)
+}
+
+// The cloud watch's read of the account counts its failed polls of a
+// repository, as the train's does, and the count ends with the repository's
+// watch and with its last handed-off task, so a failure while a later
+// handoff is watched waits out its own polls before it is told.
+func TestTheCloudWatchsFailedAccountReadsEndWithItsWatch(t *testing.T) {
+	for name, end := range map[string]func(s *Service, w *fleetWakes, now time.Time){
+		"the repository leaves the watch": func(_ *Service, w *fleetWakes, now time.Time) { w.watch(nil, now.Add(repoWatchFor)) },
+		"no task there is handed off": func(s *Service, w *fleetWakes, now time.Time) {
+			if err := s.sightCloudWork(t.Context(), nil, w, "o/r", nil, map[string]handoff.Record{}, nil, nil, now); err != nil {
+				t.Fatal(err)
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			s, _ := fleetService(t)
+			now := time.Date(2026, 11, 25, 19, 0, 0, 0, time.UTC)
+			w := &fleetWakes{Repos: map[string]time.Time{"o/r": now}, Failing: map[string]int{"cloud viewer:o/r": failingPasses - 1}}
+
+			// Act
+			end(s, w, now)
+
+			// Assert
+			if count, isCounted := w.Failing["cloud viewer:o/r"]; isCounted {
+				t.Fatalf("the failed account reads still count %d, want none", count)
+			}
+		})
+	}
 }
