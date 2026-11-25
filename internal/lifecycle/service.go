@@ -150,8 +150,10 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 	}
 	// A handed-off task's branch is the cloud session's to build on until
 	// goblins handoff return or cancel resumes it, so nothing else resumes it
-	// or turns its pause into one that something else resumes.
-	if prior.IsHandedOff() {
+	// or turns its pause into one that something else resumes. An earlier
+	// session's record holds none of the session that runs now.
+	isCurrentSession := prior.Generation == meta.SpawnGen
+	if isCurrentSession && prior.IsHandedOff() {
 		if request.Action == "resume" && !request.IsHandoffEnd {
 			return result, errors.New("the task is handed off to a cloud session: goblins handoff return brings its work back and resumes it, and goblins handoff cancel resumes it without that work")
 		}
@@ -161,7 +163,7 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 	}
 	// A handoff pause taken in place would keep the handoff the earlier pause
 	// asked for, which was not written for publication.
-	if request.Action == "pause" && pause.Reason == "handoff" && !state.IsHelperOperation(request.Operation) && prior.Phase == "paused" && prior.Pause != nil && prior.Pause.Reason != "handoff" {
+	if request.Action == "pause" && pause.Reason == "handoff" && !state.IsHelperOperation(request.Operation) && isCurrentSession && prior.Phase == "paused" && prior.Pause != nil && prior.Pause.Reason != "handoff" {
 		return result, fmt.Errorf("the task is paused for %s, and a handoff needs a handoff written for publication, which only a running goblin writes: resume it first", prior.Pause.Reason)
 	}
 	// A paused task paused again takes the new condition in place, so what

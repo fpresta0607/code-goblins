@@ -59,9 +59,10 @@ func TestALifecycleIsHandedOffOnlyWhileItsGoblinsOwnHandoffPauseHoldsIt(t *testi
 		record Lifecycle
 		want   bool
 	}{
-		{name: "a handoff pause of the goblin's own handoff", record: Lifecycle{Phase: "paused", Pause: handoff, Operation: "handoff-1"}, want: true},
-		{name: "a handoff pause of the fallback handoff", record: Lifecycle{Phase: "paused", Pause: handoff, Operation: "handoff-1", HandoffFallback: true}},
-		{name: "a helper paused with its handed-off parent", record: Lifecycle{Phase: "paused", Pause: handoff, Operation: HelperOperation("handoff-1", "task-h1")}},
+		{name: "a handoff pause of the goblin's own handoff", record: Lifecycle{Phase: "paused", Pause: handoff, Operation: "handoff-1", HandoffSaved: true}, want: true},
+		{name: "a handoff pause of the fallback handoff", record: Lifecycle{Phase: "paused", Pause: handoff, Operation: "handoff-1", HandoffSaved: true, HandoffFallback: true}},
+		{name: "a handoff pause that saved no handoff", record: Lifecycle{Phase: "paused", Pause: handoff, Operation: "handoff-1"}},
+		{name: "a helper paused with its handed-off parent", record: Lifecycle{Phase: "paused", Pause: handoff, Operation: HelperOperation("handoff-1", "task-h1"), HandoffSaved: true}},
 		{name: "a memory pause", record: Lifecycle{Phase: "paused", Pause: &PauseCondition{Reason: "memory"}, Operation: "memory-1"}},
 		{name: "a resumed handoff", record: Lifecycle{Phase: "running", Pause: handoff, Operation: "handoff-end-1"}},
 	} {

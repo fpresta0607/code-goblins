@@ -22,6 +22,7 @@ func TestAHandoffPauseResumesOnlyThroughHandoffReturnOrCancel(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			service, meta := lifecycleFixture(t)
+			writesOwnHandoff(&service)
 			if _, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "handoff-pause", Action: "pause", Reason: "handoff"}); err != nil {
 				t.Fatal(err)
 			}
@@ -49,6 +50,7 @@ func TestAHandoffPauseResumesOnlyThroughHandoffReturnOrCancel(t *testing.T) {
 func TestNoOtherPauseReplacesAHandoffPauseInPlace(t *testing.T) {
 	// Arrange
 	service, meta := lifecycleFixture(t)
+	writesOwnHandoff(&service)
 	if _, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "handoff-pause", Action: "pause", Reason: "handoff"}); err != nil {
 		t.Fatal(err)
 	}
@@ -119,6 +121,7 @@ func TestAHandoffPauseInstructionNamesTheFileThePauseWaitsFor(t *testing.T) {
 func TestAHelperPausedWithAHandedOffParentResumesWithIt(t *testing.T) {
 	// Arrange
 	service, meta := lifecycleFixture(t)
+	writesOwnHandoff(&service)
 	if _, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: state.HelperOperation("handoff-pause", meta.ID), Action: "pause", Reason: "handoff"}); err != nil {
 		t.Fatal(err)
 	}
@@ -209,5 +212,69 @@ func TestAHelpersMemoryPauseTakesItsParentsHandoffReasonInPlace(t *testing.T) {
 	record, readErr := state.ReadLifecycle(service.StateDir, meta.ID)
 	if err != nil || readErr != nil || record.Pause == nil || record.Pause.Reason != "handoff" {
 		t.Fatalf("helper's handoff re-pause = %v, record %+v (%v); want it taken in place", err, record.Pause, readErr)
+	}
+}
+
+// writesOwnHandoff has service's goblin write its own handoff when its pause
+// asks, as a goblin that reached its stopping point does.
+func writesOwnHandoff(service *Service) {
+	service.Operations.Prepare = func(_ context.Context, _ state.TaskMeta, path string) error {
+		return os.WriteFile(path, []byte("Done and left, for publication."), 0o600)
+	}
+}
+
+// A goblin relaunched outside its lifecycle, as goblins switch does, leaves
+// its earlier session's pause record behind: neither that pause nor an
+// earlier session's handoff holds the session that now runs.
+func TestAPauseOfAnEarlierSessionDoesNotHoldTheSessionThatRuns(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		earlier, next Request
+	}{
+		{name: "a handoff over an earlier session's Overlord pause", earlier: Request{Operation: "overlord-pause", Action: "pause", Reason: "overlord"}, next: Request{Operation: "handoff-pause", Action: "pause", Reason: "handoff"}},
+		{name: "a pause over an earlier session's handoff", earlier: Request{Operation: "handoff-pause", Action: "pause", Reason: "handoff"}, next: Request{Operation: "memory-pause", Action: "pause", Reason: "memory"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			service, meta := lifecycleFixture(t)
+			writesOwnHandoff(&service)
+			test.earlier.ID, test.earlier.Generation = meta.ID, meta.SpawnGen
+			if _, err := service.Run(t.Context(), test.earlier); err != nil {
+				t.Fatal(err)
+			}
+			meta.SpawnGen = "generation-2"
+			if err := state.WriteTaskMeta(service.StateDir, meta); err != nil {
+				t.Fatal(err)
+			}
+			test.next.ID, test.next.Generation = meta.ID, meta.SpawnGen
+
+			// Act
+			record, err := service.Run(t.Context(), test.next)
+
+			// Assert
+			if err != nil || record.Phase != "paused" || record.Pause == nil || record.Pause.Reason != test.next.Reason {
+				t.Fatalf("pause = %+v, %v; want the running session paused for %s", record, err, test.next.Reason)
+			}
+		})
+	}
+}
+
+// A second goblins handoff, retried after a publication failed part-way,
+// takes its pause in place over the first, keeping the goblin's handoff.
+func TestASecondHandoffPauseIsTakenInPlaceOverTheFirst(t *testing.T) {
+	// Arrange
+	service, meta := lifecycleFixture(t)
+	writesOwnHandoff(&service)
+	first, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "handoff-1", Action: "pause", Reason: "handoff"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	second, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "handoff-2", Action: "pause", Reason: "handoff"})
+
+	// Assert
+	if err != nil || second.Phase != "paused" || second.Handoff != first.Handoff || !second.HandoffSaved || !second.IsHandedOff() {
+		t.Fatalf("second handoff pause = %+v, %v; want it in place, keeping %s", second, err, first.Handoff)
 	}
 }

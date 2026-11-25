@@ -89,3 +89,22 @@ func TestAnUnknownPauseReasonNamesOnlyTheReasonsGoblinsPauseTakes(t *testing.T) 
 		t.Fatalf("unknown reason = %v, want the reasons goblins pause takes, without handoff", err)
 	}
 }
+
+// A handoff pause is not always a handed-off task: a helper paused with its
+// parent and a pause whose handoff was only the fallback carry the reason
+// too, so its description says only what it is.
+func TestAHandoffPauseDescriptionSaysOnlyThatItIsPausedForAHandoff(t *testing.T) {
+	// Arrange
+	condition, err := NewPauseCondition("handoff", "", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	got := condition.Description()
+
+	// Assert
+	if got != "Paused for a cloud handoff" {
+		t.Errorf("Description() = %q, want %q", got, "Paused for a cloud handoff")
+	}
+}

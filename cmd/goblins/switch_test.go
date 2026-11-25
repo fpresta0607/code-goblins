@@ -258,10 +258,11 @@ func TestRunSwitchRefusesAHandedOffGoblin(t *testing.T) {
 		record    state.Lifecycle
 		isRefused bool
 	}{
-		{name: "handed off", record: state.Lifecycle{Generation: "g1", Phase: "paused", Pause: handoff, Operation: "handoff-1"}, isRefused: true},
-		{name: "only the fallback handoff", record: state.Lifecycle{Generation: "g1", Phase: "paused", Pause: handoff, Operation: "handoff-1", HandoffFallback: true}},
-		{name: "a helper paused with its parent", record: state.Lifecycle{Generation: "g1", Phase: "paused", Pause: handoff, Operation: state.HelperOperation("handoff-1", "g4")}},
-		{name: "an earlier session's handoff pause", record: state.Lifecycle{Generation: "g0", Phase: "paused", Pause: handoff, Operation: "handoff-1"}},
+		{name: "handed off", record: state.Lifecycle{Generation: "g1", Phase: "paused", Pause: handoff, Operation: "handoff-1", HandoffSaved: true}, isRefused: true},
+		{name: "only the fallback handoff", record: state.Lifecycle{Generation: "g1", Phase: "paused", Pause: handoff, Operation: "handoff-1", HandoffSaved: true, HandoffFallback: true}},
+		{name: "no handoff saved", record: state.Lifecycle{Generation: "g1", Phase: "paused", Pause: handoff, Operation: "handoff-1"}},
+		{name: "a helper paused with its parent", record: state.Lifecycle{Generation: "g1", Phase: "paused", Pause: handoff, Operation: state.HelperOperation("handoff-1", "g4"), HandoffSaved: true}},
+		{name: "an earlier session's handoff pause", record: state.Lifecycle{Generation: "g0", Phase: "paused", Pause: handoff, Operation: "handoff-1", HandoffSaved: true}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange

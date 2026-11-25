@@ -105,7 +105,7 @@ func (condition PauseCondition) Description() string {
 	case "overlord":
 		return "Paused by the Overlord; resumes on Resume"
 	case "handoff":
-		return "In the cloud; resumes on goblins handoff return or cancel"
+		return "Paused for a cloud handoff"
 	case "question":
 		return "Paused until the Overlord answers " + condition.Until
 	case "dependency":
