@@ -125,12 +125,14 @@ test("a long session's terminal opens in the classic style already at its bottom
   const replayed = frames.filter((frame) => !frame.isBottom);
   test.info().annotations.push({ type: "open to bottom", description: `${took} ms` });
   expect(replayed, "frames that showed the history on the way to the bottom").toEqual([]);
-  await page.locator(".host-terminal .terminal-view:not(.staged) > .xterm .xterm-screen").hover();
-  await page.mouse.wheel(0, -4800);
+  // He scrolls back a page with Shift+PageUp, the terminal's own key, and
+  // finds the history above the last screen kept.
   const rows = page.locator(".host-terminal .terminal-view:not(.staged) > .xterm .xterm-rows");
+  await page.locator(".host-terminal .terminal-view:not(.staged) > .xterm .xterm-screen").click();
+  await page.keyboard.press("Shift+PageUp");
   await expect(rows).not.toContainText(PROMPT.trim());
   await expect(rows).not.toContainText("history line 30000");
-  await expect(rows).toContainText("history line");
+  await expect(rows, "a line from above the last screen").toContainText(/history line (29[0-8]\d\d|299[0-7]\d)\b/);
 });
 
 test("a long session's terminal reconnects in the classic style at its bottom, with no replay on screen", async ({ page }) => {
