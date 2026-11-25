@@ -230,6 +230,14 @@ func (s *Service) sendHeldNow(id, task string) (bool, error) {
 	return true, s.Store.sentHeldNow(id, task)
 }
 
+// lastingRefusal is a take-back refused for as long as its queue stays as it
+// is: one no key gives back, one that also holds an answer the board typed,
+// and one taller than the editor it would come back into. The board's Up then
+// passes that queue to bring back what he sent before, where it asks again
+// after a refusal that passes, as of a prompt line that holds his draft
+// (#2340).
+type lastingRefusal struct{ error }
+
 // takeBackHeld takes the message withdraw names back out of the queue of the
 // harness that holds it, for Edit and Cancel, and reports false when no
 // harness holds it, which the board then withdraws where it holds it. A
@@ -258,11 +266,11 @@ func (s *Service) takeBackHeld(withdraw Action) (Action, bool, error) {
 	case !isLive:
 		return Action{}, true, errors.New(subject + "'s terminal does not answer, so its queue was left as it is.")
 	case record.Stream:
-		return Action{}, true, errors.New("It waits in " + who + "'s own queue on stream-json pipes, which Claude Code gives back to nothing. It takes it at its next tool call, or as its turn ends.")
+		return Action{}, true, lastingRefusal{errors.New("It waits in " + who + "'s own queue on stream-json pipes, which Claude Code gives back to nothing. It takes it at its next tool call, or as its turn ends.")}
 	case screens.EditQueue == "":
-		return Action{}, true, errors.New("It waits in " + who + "'s own queue, which its harness gives back to no key. Send now has it taken at once.")
+		return Action{}, true, lastingRefusal{errors.New("It waits in " + who + "'s own queue, which its harness gives back to no key. Send now has it taken at once.")}
 	case slices.ContainsFunc(held, func(a Action) bool { return a.Kind != "message" }):
-		return Action{}, true, errors.New(subject + "'s queue also holds an answer the board typed, so this message cannot be taken back alone. Send now has it taken at once.")
+		return Action{}, true, lastingRefusal{errors.New(subject + "'s queue also holds an answer the board typed, so this message cannot be taken back alone. Send now has it taken at once.")}
 	}
 	if first.Host != "" && s.Options.CEO != nil {
 		s.Options.CEO.typing.Lock()
@@ -279,19 +287,29 @@ func (s *Service) takeBackHeld(withdraw Action) (Action, bool, error) {
 // the harness that runs in record and draws screens, back off its prompt line
 // unsubmitted, and leaves them set aside for its caller to settle. A harness
 // gives its queue back only whole: Claude Code's Up puts every queued line on
-// the prompt line, a row each. So the board presses that key where the empty
-// prompt line offers it, waits to read there exactly the lines it typed into
-// that queue and takes them off. Nothing is cleared that the board did not
-// type: a queue that also held a line typed in the terminal is left on the
-// prompt line for him, with the board's lines watched there as lines left
-// typed are. For a queue of the CEO's, its caller holds the CEO's typing
-// lock.
+// the prompt line, a row each, and pi's Alt+Q every one in its editor, an
+// empty row between each two. So the board presses that key where the empty
+// prompt line offers it and would show every row the key puts there, which
+// pi's editor, showing only its last rows, may not, waits to read there
+// exactly the lines it typed into that queue and takes them off. Nothing is
+// cleared that the board did not type: a queue that also held a line typed in
+// the terminal is left on the prompt line for him, with the board's lines
+// watched there as lines left typed are. For a queue of the CEO's, its caller
+// holds the CEO's typing lock.
 func (s *Service) takeQueueBack(held []Action, task string, record host.Record, screens harness.Screens) error {
 	who, subject := whoHolds(task)
 	read := func() ([]string, error) { return host.ReadScreen(record) }
+	typed, lines, words := make([]Awaiting, len(held)), make([]string, len(held)), ""
+	for i, a := range held {
+		typed[i], lines[i] = *a.Awaiting, a.Awaiting.Typed
+		words += a.Awaiting.Typed
+	}
 	rows, err := read()
-	if err != nil || !screens.OffersQueue(rows) {
+	switch {
+	case err != nil || !screens.OffersQueue(rows):
 		return errors.New(subject + "'s prompt line does not offer its queue now, so nothing was changed. Press again in a moment.")
+	case !screens.QueueFits(rows, lines):
+		return lastingRefusal{errors.New(subject + "'s editor is too short to show its queue whole, so it cannot be taken back. It takes it at its next tool call, or as its turn ends.")}
 	}
 	client, err := host.Dial(record)
 	if err != nil {
@@ -304,11 +322,6 @@ func (s *Service) takeQueueBack(held []Action, task string, record host.Record, 
 	restore := func(a *Action, was Action) { a.Awaiting = was.Awaiting }
 	if err := client.Input([]byte(screens.EditQueue)); err != nil {
 		return errors.Join(errors.New(subject+"'s terminal took no key, so its queue was left as it is."), s.Store.settleSetAside(held, restore))
-	}
-	typed, words := make([]Awaiting, len(held)), ""
-	for i, a := range held {
-		typed[i] = *a.Awaiting
-		words += a.Awaiting.Typed
 	}
 	isBack := false
 	for deadline := time.Now().Add(queueKeyWait); !isBack && time.Now().Before(deadline); time.Sleep(queueKeyPoll) {
@@ -366,8 +379,10 @@ func (s *Store) holdsUnrecorded(task string) bool {
 // live on 2026-11-19 (#2759). It can only where that harness gives its queue
 // back to a key and holds there only his messages, which then wait on the
 // board behind the command, and no line that no action records, which that
-// key would give back with them. A queue in a terminal that has ended holds
-// nothing.
+// key would give back with them. Nor can it where the prompt line that offers
+// that queue would not show every row the key puts there, as pi's editor
+// shows only its last rows, since the board could not take them back off it
+// (takeQueueBack). A queue in a terminal that has ended holds nothing.
 func (s *Service) queueAhead(task string) ([]Action, host.Record, harness.Screens, bool) {
 	if s.Store.holdsUnrecorded(task) {
 		return nil, host.Record{}, harness.Screens{}, false
@@ -380,7 +395,17 @@ func (s *Service) queueAhead(task string) ([]Action, host.Record, harness.Screen
 	if !isLive {
 		return nil, host.Record{}, harness.Screens{}, true
 	}
-	return held, record, screens, !record.Stream && screens.EditQueue != "" && !slices.ContainsFunc(held, func(a Action) bool { return a.Kind != "message" })
+	canGoAhead := !record.Stream && screens.EditQueue != "" && !slices.ContainsFunc(held, func(a Action) bool { return a.Kind != "message" })
+	if canGoAhead && screens.ComposerScrolls {
+		lines := make([]string, len(held))
+		for i, a := range held {
+			lines[i] = a.Awaiting.Typed
+		}
+		if rows, err := host.ReadScreen(record); err == nil && screens.OffersQueue(rows) && !screens.QueueFits(rows, lines) {
+			canGoAhead = false
+		}
+	}
+	return held, record, screens, canGoAhead
 }
 
 // sendCommandFirst readies command id to task, which he sends now, to go
