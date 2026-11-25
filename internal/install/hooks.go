@@ -243,14 +243,33 @@ func GoblinSettings(root, stateDir, board string) ([]byte, error) {
 // Claude Code or Codex goblin's Stop hook has its turn go on. A run that
 // already went on once, one aborted or that failed, and one with work queued
 // behind it are not asked, and a hook that cannot answer lets the run end.
+//
+// It gives the goblin the window a Claude Code goblin compacts in
+// (AutoCompactWindow): pi has no setting or flag for a window of its own and
+// compacts once its context passes its model's window less
+// compaction.reserveTokens, which for a 1M model was past any context a
+// goblin reached (issue #2844). So as each session starts, and each time its
+// model changes, the extension sets the session's model to a copy whose
+// window is no larger than AutoCompactWindow, keeping the thinking level pi
+// would reset, and pi's own threshold, overflow recovery and compaction
+// events do the rest.
+//
 // It is plain JavaScript, which pi loads as it loads TypeScript, so a test
 // runs it in Node as it is.
 func GoblinPiExtension(program string) string {
 	exe, _ := json.Marshal(program)
 	limit := strconv.Itoa(nativehook.TimeoutSeconds * 1000)
-	return `// Code Goblins goblin seal and turn-end nudge, written anew at each pi goblin's launch
+	return `// Code Goblins goblin seal, turn-end nudge and compaction window, written anew at each pi goblin's launch
 import { spawnSync } from "node:child_process";
 export default function (pi) {
+  const capWindow = async (_event, ctx) => {
+    if (!ctx.model || !(ctx.model.contextWindow > ` + strconv.Itoa(AutoCompactWindow) + `)) return;
+    const level = pi.getThinkingLevel();
+    await pi.setModel({...ctx.model, contextWindow: ` + strconv.Itoa(AutoCompactWindow) + `});
+    pi.setThinkingLevel(level);
+  };
+  pi.on("session_start", capWindow);
+  pi.on("model_select", capWindow);
   pi.on("tool_call", (event, ctx) => {
     const result = spawnSync(` + string(exe) + `, ["hook", "goblin-seal-pi"], {
       input: JSON.stringify({cwd: ctx.cwd, tool_name: event.toolName, tool_input: event.input}),

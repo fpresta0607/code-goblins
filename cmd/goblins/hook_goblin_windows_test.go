@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -255,6 +257,82 @@ process.stdout.write(JSON.stringify(answers));
 	for at, want := range []bool{true, false, false, false, false, false, false, false, false, true, true, false} {
 		if got := isNudged(answers[at]); got != want {
 			t.Errorf("settle %d answered %q, want nudged %v", at+1, output, want)
+		}
+	}
+}
+
+// piWindowSet is one model a pi goblin's extension set for its session, and
+// the thinking level the session held after it.
+type piWindowSet struct {
+	Provider      string `json:"provider"`
+	ID            string `json:"id"`
+	ContextWindow int    `json:"contextWindow"`
+	MaxTokens     int    `json:"maxTokens"`
+	Level         string `json:"level"`
+}
+
+// A pi goblin compacts in the window a Claude Code goblin does: as its
+// session starts and as its model changes, its extension sets the session's
+// model to the same model with a window of install.AutoCompactWindow, so
+// pi's own threshold, the window less compaction.reserveTokens, falls inside
+// it, and keeps the thinking level that setting a model resets. A model
+// whose window is already no larger is left as it is. Before #2844 a 1M
+// model kept its window and the goblin never compacted. The extension runs
+// in Node as pi loads it, with a stand-in for pi's API.
+func TestAPiGoblinsExtensionGivesItsModelTheFleetsCompactionWindow(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("pi runs on Node, so a machine with no node on PATH runs no pi goblin")
+	}
+	// Arrange
+	dir := t.TempDir()
+	driver := filepath.Join(dir, "driver.mjs")
+	files := map[string]string{
+		filepath.Join(dir, "extension.mjs"): install.GoblinPiExtension(filepath.Join(dir, "goblins-hook.exe")),
+		driver: `import extension from "./extension.mjs";
+const handlers = {};
+let level = "xhigh";
+let sets = [];
+extension({
+  on: (name, handler) => { handlers[name] = handler; },
+  getThinkingLevel: () => level,
+  setThinkingLevel: (next) => { level = next; },
+  setModel: async (model) => { level = "high"; sets.push(model); return true; },
+});
+const answers = [];
+for (const [event, contextWindow] of [["session_start", 1048576], ["model_select", 1048576], ["session_start", 128000], ["model_select", ` + strconv.Itoa(install.AutoCompactWindow) + `]]) {
+  sets = [];
+  await handlers[event]?.({type: event}, {model: {provider: "openrouter", id: "deepseek/deepseek-v4.1-flash", contextWindow, maxTokens: 65536}});
+  answers.push(sets.map((model) => ({...model, level})));
+}
+process.stdout.write(JSON.stringify(answers));
+`,
+	}
+	for path, content := range files {
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run := exec.Command(node, driver)
+	run.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
+	var stderr bytes.Buffer
+	run.Stderr = &stderr
+
+	// Act
+	output, err := run.Output()
+
+	// Assert
+	if err != nil {
+		t.Fatalf("node ended with %v (stderr %q)", err, stderr.String())
+	}
+	var answers [][]piWindowSet
+	if err := json.Unmarshal(output, &answers); err != nil {
+		t.Fatalf("the extension answered %q: %v", output, err)
+	}
+	capped := []piWindowSet{{Provider: "openrouter", ID: "deepseek/deepseek-v4.1-flash", ContextWindow: install.AutoCompactWindow, MaxTokens: 65536, Level: "xhigh"}}
+	for at, want := range [][]piWindowSet{capped, capped, {}, {}} {
+		if len(answers) != 4 || !slices.Equal(answers[at], want) {
+			t.Fatalf("the extension set %s, want the 1M model capped at %d on session_start and model_select with the thinking level kept, and the others left alone", output, install.AutoCompactWindow)
 		}
 	}
 }
