@@ -28,8 +28,8 @@ func TestHandoffWritingChild(t *testing.T) {
 		fmt.Println("writing")
 		time.Sleep(time.Hour)
 	}
-	service := Service{Operations: Operations{Handoff: func(context.Context, state.TaskMeta) []byte { return []byte("Written for the goblin.") }}}
-	service.writeHandoff(context.Background(), state.TaskMeta{}, &state.Lifecycle{Handoff: path})
+	service := Service{StateDir: filepath.Dir(path), Operations: Operations{Handoff: func(context.Context, state.TaskMeta) []byte { return []byte("Written for the goblin.") }}}
+	service.writeHandoff(context.Background(), state.TaskMeta{}, &state.Lifecycle{ID: "task", Operation: "memory-pause-1", Action: "pause", Phase: "pausing", Handoff: path})
 }
 
 // A pause ended while it writes the handoff for a goblin that wrote none, as
@@ -67,8 +67,8 @@ func TestAPauseEndedWhileWritingAHandoffLeavesNoneForTheNextToTrip(t *testing.T)
 	}
 	_ = child.Wait()
 	_, afterEnd := os.Stat(path)
-	service := Service{Operations: Operations{Handoff: func(context.Context, state.TaskMeta) []byte { return []byte("Written again.") }}}
-	record := state.Lifecycle{Handoff: path}
+	service := Service{StateDir: filepath.Dir(path), Operations: Operations{Handoff: func(context.Context, state.TaskMeta) []byte { return []byte("Written again.") }}}
+	record := state.Lifecycle{ID: "task", Operation: "memory-pause-1", Action: "pause", Phase: "pausing", Handoff: path}
 	service.writeHandoff(ctx, state.TaskMeta{}, &record)
 
 	// Assert
