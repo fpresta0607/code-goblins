@@ -37,6 +37,25 @@ func EndJobAgainForTest(t testing.TB, slow func()) {
 	}
 }
 
+// JoinAfterEndForTest puts process in the job once the first end of the
+// job's processes returns, until the test ends, as a process that starts
+// while the end waits joins the job.
+func JoinAfterEndForTest(t testing.TB, process windows.Handle) {
+	original := endJob
+	t.Cleanup(func() { endJob = original })
+	hasEnded := false
+	endJob = func(ctx context.Context, job windows.Handle) (ended, spared []proc.Entry, err error) {
+		ended, spared, err = original(ctx, job)
+		if !hasEnded {
+			hasEnded = true
+			if err := windows.AssignProcessToJobObject(job, process); err != nil {
+				t.Errorf("put a process in the job after its first end: %v", err)
+			}
+		}
+		return ended, spared, err
+	}
+}
+
 // CountUnlistedForTest makes the next reads of a job's members, until the
 // test ends, count one process beyond the list, as Windows does while a
 // process exits, and calls counted before each such read returns.

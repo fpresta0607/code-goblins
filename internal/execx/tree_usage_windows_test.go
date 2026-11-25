@@ -494,6 +494,49 @@ func TestTreeEndAndWaitFailsClosedOverAMemberItCannotEnd(t *testing.T) {
 	}
 }
 
+// A process that joins the job after the end's first pass, as one a spared
+// machine service starts can, is no service and still runs, so the end ends
+// it too before it confirms the job holds only what it spared, and the job
+// no longer ends what it holds when its last handle closes.
+func TestTreeEndAndWaitEndsAMemberThatJoinsAfterItsFirstEnd(t *testing.T) {
+	// Arrange
+	tree, _, pids, held := serviceTree(t, "")
+	programs := t.TempDir()
+	standin.RemoveAtCleanup(t, programs)
+	standin.Put(t, filepath.Join(programs, "joiner.exe"))
+	joiner := exec.Command(filepath.Join(programs, "joiner.exe"))
+	joiner.Env = append(os.Environ(), standin.Env("", standin.Rule{Any: true, Hold: true})...)
+	if err := joiner.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = joiner.Wait() })
+	joinerExit := standin.Hold(t, joiner.Process.Pid)
+	assignable, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(joiner.Process.Pid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = windows.CloseHandle(assignable) })
+	execx.JoinAfterEndForTest(t, assignable)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	// Act
+	_, spared, err := tree.EndAndWait(ctx)
+
+	// Assert
+	if err != nil || len(spared) != 1 || spared[0].PID != pids["com.docker.standin"] {
+		t.Fatalf("end = %+v, %v; want the machine service alone spared once the joined process was ended", spared, err)
+	}
+	if event, err := windows.WaitForSingleObject(joinerExit, 0); err != nil || event != windows.WAIT_OBJECT_0 {
+		t.Fatal("the process that joined the job still runs after the end confirmed it")
+	}
+	// The end closed the job's handle, so a service still running a moment
+	// later shows the job no longer ends what it holds on close.
+	if event, err := windows.WaitForSingleObject(held["com.docker.standin"], 500); err != nil || event != uint32(windows.WAIT_TIMEOUT) {
+		t.Fatal("the machine service was ended by an end that spares it")
+	}
+}
+
 // While a process exits, Windows can count one more in its job than it
 // lists, for as long as the exit takes (issue 1025). An end that spares a
 // machine service lets the job's handle close only once the job counts
