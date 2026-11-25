@@ -1552,7 +1552,7 @@ A goblin starts with a strict MCP configuration, so a connector or server of the
 Each project is checked once, however many goblins work in it.
 The check runs the project's auth manifest once, in its checkout, as `goblins auth check` does.
 Each service is Verified when its probe passed, Set when its credentials resolve and no check could say more, or the state the check named, with its declared variable names and whether each resolves, the target its manifest expects, and the repairs it offers.
-The project's `.mcp.json` is classified by how a goblin gets each server: every goblin of the project, only a goblin whose brief names it, none because its sign-in is a browser's, or none because its token variable is not stored.
+The project's `.mcp.json` is classified by how a goblin gets each server: every goblin of the project, only a goblin whose brief names it, none because its sign-in is a browser's, or none because its token variable is neither stored for the project nor named in this PC's user environment, as spawn counts it; a harness's billing key never counts.
 A server says what it points at: a Supabase project by the last four characters of its reference, whether the reference is `project_ref` in its address or `--project-ref` in its arguments, else its host, else a command on this PC.
 Services of two projects that share a name stay two items, each in its own project with its own target.
 A project whose checkout is not found says its services were not checked, and runs no probe.
@@ -1571,7 +1571,7 @@ A restart reads them back, shows them at once and rechecks only what is old or c
 Reading the snapshots starts nothing: opening the page, searching and polling run no check, no probe and no process.
 Checks run one at a time in a background worker, and a request for a level already waiting joins it.
 Every 15 seconds the supervisor looks, doing only what is cheap.
-It reads a goblin again when its task record changed or its session record grew, which is how a grant made with `goblins auth` shows.
+It reads a goblin again when its task record, its project's manifest or its project's `.mcp.json` changed or its session record grew, which is how a grant made with `goblins auth` shows.
 It checks a project again when its manifest or its `.mcp.json` changed or its check is an hour old.
 It checks the machine again when its check is six hours old or was never made.
 A goblin that no longer runs, and a project that nothing names any longer, are let go with their files.
