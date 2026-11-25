@@ -536,6 +536,11 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		return custody, true
 	}
 	view.SetReadLimit(1 << 20)
+	// isSubmissionTyped is whether keys were typed into the terminal since the
+	// relay took its last submission, which its answer to that submission's
+	// Enter tells the view: words a refused Enter left on the prompt line wait
+	// there, and the box takes back words a hold dropped (#2848's review).
+	isSubmissionTyped := false
 	for {
 		kind, data, err := view.Read(ctx)
 		if err != nil {
@@ -584,7 +589,8 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 					Type       string `json:"type"`
 					Submission string `json:"submission"`
 					IsPressed  bool   `json:"pressed"`
-				}{"entered", control.Submission, isPressed})
+					IsTyped    bool   `json:"typed"`
+				}{"entered", control.Submission, isPressed, isTaken && isSubmissionTyped})
 				relay.mu.Lock()
 				relay.entered = answer
 				relay.mu.Unlock()
@@ -614,6 +620,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 					look.Reset(screenSettle)
 				}
 				relay.mu.Unlock()
+				isSubmissionTyped = false
 				continue
 			}
 			if control.Type == "ack" {
@@ -644,6 +651,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 			_ = view.Close(websocket.StatusGoingAway, "Input outcome is unknown. Inspect the terminal before typing again.")
 			return
 		}
+		isSubmissionTyped = true
 	}
 }
 

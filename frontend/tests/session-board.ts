@@ -29,12 +29,20 @@ export interface Relay {
   // The Enters views asked for the messages they typed as keys, and whether
   // the relay presses one asked for while typing is free, as it does while
   // its screen shows the prompt line holding the message's words alone. One
-  // it presses reaches the terminal as "\r" among what was typed.
+  // it presses reaches the terminal as "\r" among what was typed. Its answer
+  // says too whether it typed keys since it took the message's submission,
+  // and it presses no Enter where it did not.
   enters: { submission: string; text: string }[];
   shouldPressEnter: boolean;
-  acknowledged: number[];
+  // Whether the relay drops each submission and every key unsaid, as while
+  // custody's first answer holds typing, which no view is told of.
+  shouldDropTyping: boolean;
+  // Each view's acknowledgements of the output it drew, by its address.
+  acknowledged: { address: string; bytes: number }[];
   addresses: string[];
   inputs: { address: string; text: string }[];
+  // The address of each view that closed its connection itself, in order.
+  closed: string[];
   write: (text: string) => void;
   end: () => void;
   // say tells the goblin's newest view a relay message, or another's while
@@ -55,7 +63,7 @@ export interface Relay {
 export interface SessionReported { state?: "running" | "ended" | "unknown" | "none"; stale?: string; problem?: string }
 
 export async function open(page: Page, first: object = snapshot(), heard = "rebase onto main", messages: object = PAGE, output = "> ready\r\n", shouldRepaint = true): Promise<Relay> {
-  const relay: Relay = { typed: [], resizes: [], views: 0, submissions: [], enters: [], shouldPressEnter: true, acknowledged: [], addresses: [], inputs: [], write: () => {}, end: () => {}, say: () => {}, drop: () => {}, refuse: () => {}, accept: () => {} };
+  const relay: Relay = { typed: [], resizes: [], views: 0, submissions: [], enters: [], shouldPressEnter: true, shouldDropTyping: false, acknowledged: [], addresses: [], inputs: [], closed: [], write: () => {}, end: () => {}, say: () => {}, drop: () => {}, refuse: () => {}, accept: () => {} };
   let isRefused = false;
   let goblinSpoke = false;
   await page.addInitScript(() => {
@@ -88,6 +96,9 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
       onerror: (() => void) | null = null;
       readyState = 1;
       private publish = (event: Event) => { if (event instanceof CustomEvent) this.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify(event.detail) })); };
+      // A fixture-board-error event fails the board's own stream, as a
+      // dropped connection does, which the board opens again.
+      private fail = () => this.onerror?.();
       alive: ReturnType<typeof setInterval> | undefined;
       // The conversation this stream last served and the newest message in
       // it, the session event's head, and the owner the session event is for.
@@ -150,11 +161,13 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
           return;
         }
         window.addEventListener("fixture-snapshot", this.publish);
+        window.addEventListener("fixture-board-error", this.fail);
         setTimeout(() => this.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify(data) })));
       }
       close() {
         this.readyState = 2;
         window.removeEventListener("fixture-snapshot", this.publish);
+        window.removeEventListener("fixture-board-error", this.fail);
         window.removeEventListener("fixture-snapshot", this.heard);
         window.removeEventListener("fixture-session", this.heard);
         window.removeEventListener("fixture-report", this.saySession);
@@ -178,6 +191,8 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
     if (!histories.has(socket.url())) histories.set(socket.url(), Buffer.from("\x1b[?2004h" + output));
     const isGoblin = new URL(socket.url()).searchParams.get("task") === GOBLIN.id;
     let submission = ""
+    // Whether keys were typed since the relay took that submission.
+    let isTyped = false
     const print = (text: string) => {
       const bytes = Buffer.from(text);
       histories.set(socket.url(), Buffer.concat([histories.get(socket.url()) ?? Buffer.alloc(0), bytes]));
@@ -211,24 +226,35 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
     relay.accept = () => { isRefused = false; };
     if (isGoblin && isRefused) { socket.close({ code: 1001 }); return; }
     whole();
+    socket.onClose(() => relay.closed.push(socket.url()));
     socket.onMessage((data) => {
-      if (typeof data !== "string") { const text = data.toString("utf8"); relay.typed.push(text); relay.inputs.push({ address: socket.url(), text }); return; }
+      if (typeof data !== "string") {
+        if (relay.shouldDropTyping) return;
+        const text = data.toString("utf8");
+        relay.typed.push(text);
+        relay.inputs.push({ address: socket.url(), text });
+        isTyped = true;
+        return;
+      }
       const sent: unknown = JSON.parse(data);
       if (typeof sent === "object" && sent !== null && "type" in sent && sent.type === "ack" && "bytes" in sent && typeof sent.bytes === "number") {
-        relay.acknowledged.push(sent.bytes);
+        relay.acknowledged.push({ address: socket.url(), bytes: sent.bytes });
         return;
       }
       if (typeof sent === "object" && sent !== null && "type" in sent && sent.type === "submit" && "submission" in sent && typeof sent.submission === "string") {
+        if (relay.shouldDropTyping) return
         submission = sent.submission
+        isTyped = false
         relay.submissions.push(submission)
         return
       }
       if (typeof sent === "object" && sent !== null && "type" in sent && sent.type === "enter" && "submission" in sent && typeof sent.submission === "string" && "text" in sent && typeof sent.text === "string") {
         relay.enters.push({ submission: sent.submission, text: sent.text });
         const hold = holds.get(socket.url());
-        const isPressed = relay.shouldPressEnter && sent.submission === submission && !(hold && "reason" in hold && hold.reason);
+        const isTypedHere = sent.submission === submission && isTyped;
+        const isPressed = relay.shouldPressEnter && isTypedHere && !(hold && "reason" in hold && hold.reason);
         if (isPressed) { relay.typed.push("\r"); relay.inputs.push({ address: socket.url(), text: "\r" }); }
-        socket.send(JSON.stringify({ type: "entered", submission: sent.submission, pressed: isPressed }));
+        socket.send(JSON.stringify({ type: "entered", submission: sent.submission, pressed: isPressed, typed: isTypedHere }));
         return;
       }
       if (typeof sent !== "object" || sent === null || !("type" in sent) || sent.type !== "resize" || !("cols" in sent) || !("rows" in sent)) return;

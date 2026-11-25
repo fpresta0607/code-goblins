@@ -1357,8 +1357,9 @@ func TestANativeViewRejectsAnInvalidSubmissionID(t *testing.T) {
 // A message the view typed as keys takes its Enter from the relay, which
 // reads the terminal's screen again and presses it only while the prompt line
 // holds the message's words alone, under no question, and tells the view
-// whether it did (#2848's review): pressed over words typed behind them it
-// sends those too, and pressed under a question it answers it.
+// whether it did, and whether it typed keys since it took the message's
+// submission (#2848's review): pressed over words typed behind them it sends
+// those too, and pressed under a question it answers it.
 func TestTheRelayPressesATypedMessagesEnterOnlyWhileItsPromptLineHoldsItsWordsAlone(t *testing.T) {
 	for _, test := range []struct {
 		name string
@@ -1408,13 +1409,85 @@ func TestTheRelayPressesATypedMessagesEnterOnlyWhileItsPromptLineHoldsItsWordsAl
 			v.send(t, websocket.MessageText, `{"type":"enter","submission":"`+test.enter+`","text":"please run /ship"}`)
 
 			// Assert
-			v.waitFor(t, fmt.Sprintf(`{"type":"entered","submission":%q,"pressed":%t}`, test.enter, test.isPressed))
+			v.waitFor(t, fmt.Sprintf(`{"type":"entered","submission":%q,"pressed":%t,"typed":%t}`, test.enter, test.isPressed, test.enter == "words"))
 			var want []string
 			if test.isPressed {
 				want = []string{"please run /ship"}
 			}
 			if got := terminal.waitForLines(t, len(want)); !slices.Equal(got, want) {
 				t.Fatalf("the program took %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// A gate that takes the task while a typed message's Enter waits holds that
+// Enter, though the relay took the message's submission, so no Enter goes
+// into a branch the gate owns (#2848's review). The relay says whether it
+// typed the message's keys before the hold, which drops keys that come after
+// it: words it typed wait on the prompt line, and the box takes back words it
+// never typed.
+func TestTheRelayPressesNoTypedMessagesEnterOnceAGateHoldsTyping(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		// isTypedFirst is whether the message's keys reach the relay before
+		// the gate takes the task, or after it.
+		isTypedFirst bool
+	}{
+		{name: "a hold after its keys were typed", isTypedFirst: true},
+		{name: "a hold between its submission and its keys"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h, server := nativeBoard(t, "no-mistakes")
+			gitFixture(t, taskWorktree(t, h))
+			gate := &takingGate{}
+			h.Service.Options.Gate = gate
+			h.terminalTick = 10 * time.Millisecond
+			meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta.Harness = "claude"
+			if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			terminal := hostTask(t, h)
+			record, err := host.ReadRecord(h.Service.Store.Home.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			v := openNativeView(t, server, viewQuery)
+			v.waitFor(t, "program ready")
+			v.send(t, websocket.MessageBinary, "harness\r")
+			v.send(t, websocket.MessageText, `{"type":"submit","submission":"words"}`)
+			// The relay took the submission once its screens are bound to it.
+			v.waitFor(t, `"submission":"words"`)
+			if test.isTypedFirst {
+				v.send(t, websocket.MessageBinary, "please run /ship")
+				for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
+					screen, err := host.ReadScreen(record)
+					if err == nil && strings.Contains(strings.Join(screen, "\n"), "please run /ship") {
+						break
+					}
+					if time.Now().After(deadline) {
+						t.Fatalf("the terminal never showed the typed words; it shows %q, %v", screen, err)
+					}
+				}
+			}
+
+			// Act: the gate takes the task, and the view asks for the Enter.
+			gate.taken.Store(true)
+			v.waitFor(t, `{"type":"held","reason":"pipeline owns this task"}`)
+			if !test.isTypedFirst {
+				v.send(t, websocket.MessageBinary, "please run /ship")
+			}
+			v.send(t, websocket.MessageText, `{"type":"enter","submission":"words","text":"please run /ship"}`)
+
+			// Assert
+			v.waitFor(t, fmt.Sprintf(`{"type":"entered","submission":"words","pressed":false,"typed":%t}`, test.isTypedFirst))
+			if got := terminal.lines(t); len(got) != 0 {
+				t.Fatalf("the program took %q, want nothing", got)
 			}
 		})
 	}

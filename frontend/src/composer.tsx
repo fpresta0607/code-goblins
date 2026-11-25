@@ -248,9 +248,9 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // One ID for what he is about to send to a goblin with no live terminal,
   // so a send retried after its answer was lost is the same message.
   const sendID = useRef("");
-  // The submission of the last message he sent through the terminal as keys,
-  // until the terminal tells what became of its Enter.
-  const [typedSent, setTypedSent] = useState("");
+  // The submission and words of the last message he sent through the
+  // terminal as keys, until the terminal tells what became of its Enter.
+  const [typedSent, setTypedSent] = useState<{ submission: string; words: string } | null>(null);
   const field = useRef<HTMLTextAreaElement>(null);
   // A press outside a pane closes it and leaves the keyboard where he pressed;
   // Escape and a pick hand it back to the box.
@@ -363,8 +363,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // he sent as keys, as Claude Code suggests the skills or files the /word or
   // @file it ends in names, asks nothing: the view presses the message's Enter
   // over it (#2848). So it is never drawn as his menu, and his messages wait
-  // for it, as for that line.
-  const isTypedList = !!live?.typed && live.typed.submission === live.screen?.submission && !!live.screen?.hasDraft;
+  // for it, as for that line. The screens stay bound to the message through
+  // his own input after it, so a list is the message's only until its prompt
+  // line has shown without words (#2848's review).
+  const isTypedList = !!live?.typed && ["waiting", "sent", "unsent"].includes(live.typed.state) && live.typed.submission === live.screen?.submission && !!live.screen?.hasDraft;
   const asksEnter = !!screenPanel?.hints.some((hint) => /\benter\b/i.test(hint));
   const isResult = !!screenPanel && !screenPanel.choices.length && !asksEnter && screenPanel.hints.some((hint) => /\bto close\b/i.test(hint));
   const panel = screenPanel && isHumanMenu && !isTypedList && (screenPanel.choices.length > 0 || asksEnter || isResult) ? screenPanel : null;
@@ -486,13 +488,19 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // hooks report holds it as a turn does.
   const holdsForTurn = !isAsking && (isScreenOpen || !!live?.screen?.hasDraft || live?.typed?.state === "waiting" || hasConversation && (isCompacting || !!live?.screen?.isWorking));
   // A message he sent as keys whose Enter the terminal did not press, or
-  // could not deliver, says so over the box. Its words stay out of the box:
-  // they wait on the terminal's prompt line, and put back they would be typed
-  // twice.
+  // could not deliver, says so over the box. Its words stay out of the box
+  // where the relay typed them: they wait on the terminal's prompt line, and
+  // put back they would be typed twice. Words the relay never typed, as while
+  // a hold no view was told of dropped them, go back into the box, as a send
+  // the board refused does (#2848's review).
   const typed = link?.typed;
-  if (typedSent && typed?.submission === typedSent && typed.state !== "waiting") {
-    setTypedSent("");
+  if (typedSent && typed?.submission === typedSent.submission && typed.state !== "waiting") {
+    setTypedSent(null);
     if (typed.state === "unsent") refuse("Not sent. Its words wait unsent on the terminal's prompt line.");
+    if (typed.state === "untyped") {
+      setDraft((prior) => prior || typedSent.words);
+      setUnsent("Not sent.");
+    }
   }
   // A send the board has shown as its own action is no longer drawn from here.
   const sending = usePendingSends();
@@ -551,7 +559,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
       const isTyped = !attached.length && isSentAsKeys(harness, text);
       const submission = live?.send(text, isTyped);
       if (submission) {
-        if (isTyped) setTypedSent(submission);
+        if (isTyped) setTypedSent({ submission, words });
         afterSend();
         onSend?.();
       } else setUnsent(unsentWhy);

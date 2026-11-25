@@ -71,8 +71,8 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   // What the view was last told of the harness's screen.
   const [screen, setScreen] = useState<ScreenState | null>(null);
   // What last became of a message the box typed as keys, from any of this
-  // terminal's views: one a reconnect replaced tells too, since its dispose
-  // presses an Enter that waited, or finds it cannot.
+  // terminal's views: one a reconnect replaced tells too, since it goes on
+  // with an Enter that waited once disposed.
   const [typed, setTyped] = useState<{ submission: string; state: TypedState } | null>(null);
   // What a touch tool or a pasted picture met, for a moment, and the
   // terminal's text while it is laid out to select.
