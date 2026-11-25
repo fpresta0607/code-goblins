@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
+	"github.com/fpresta0607/code-goblins/internal/connections"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -83,9 +84,10 @@ type Run struct {
 	RanAt      *time.Time `json:"ran_at,omitempty"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 
-	ConnectionTask       string         `json:"connection_task,omitempty"`
-	ConnectionGeneration string         `json:"connection_generation,omitempty"`
-	Billing              *BillingRepair `json:"billing,omitempty"`
+	// ConnectionProject is the project whose connection this repair is for,
+	// which is checked again when the repair ends.
+	ConnectionProject string         `json:"connection_project,omitempty"`
+	Billing           *BillingRepair `json:"billing,omitempty"`
 	// Untold is how the item ended, in the words the CEO is told, while no
 	// CEO has been told yet: one that was closed when the item ended hears it
 	// once it runs again.
@@ -415,9 +417,9 @@ func (s *Store) withdrawRun(id, reason string) error {
 	r := &s.db.Runs[i]
 	now := time.Now().UTC()
 	switch {
-	case r.ConnectionTask != "":
+	case r.ConnectionProject != "":
 		s.mu.Unlock()
-		return fmt.Errorf("run item %s is the connection repair the Overlord asked for on %s; it is not the CEO's to withdraw", r.ID, r.ConnectionTask)
+		return fmt.Errorf("run item %s is the connection repair the Overlord asked for on %s; it is not the CEO's to withdraw", r.ID, r.ConnectionProject)
 	case r.CredentialRequest != "":
 		s.mu.Unlock()
 		return fmt.Errorf("run item %s is the terminal the Overlord opened for a credential request; it is not the CEO's to withdraw", r.ID)
@@ -684,15 +686,6 @@ func (s *Service) startRun(ctx context.Context, a Action) (Evaluation, error) {
 		return Evaluation{}, fmt.Errorf("%w: the run item changed; nothing ran", ErrRejected)
 	}
 	r := runs[i]
-	if r.ConnectionTask != "" {
-		meta, err := s.connectionTask(r.ConnectionTask, r.ConnectionGeneration)
-		if err == nil {
-			err = s.verifyWorkspace(ctx, meta)
-		}
-		if err != nil {
-			return Evaluation{}, errors.Join(ErrRejected, err, s.completeRun(ctx, r, nil, "the task changed; nothing ran"))
-		}
-	}
 	dir := runDir(s.Store.Home.State, r)
 	name, _ := runScript(r)
 	script := filepath.Join(dir, name)
@@ -871,9 +864,9 @@ func (s *Service) endRun(ctx context.Context, r Run, state string, code *int, re
 	if r.RemoteFix != "" {
 		return err
 	}
-	if r.ConnectionTask != "" {
-		checks, _ := s.connections()
-		checks.Get(r.ConnectionTask+"\n"+r.ConnectionGeneration, true)
+	if r.ConnectionProject != "" {
+		// A project the snapshots no longer list has nothing to check again.
+		_ = s.connectors().Refresh(connections.RefreshProject, r.ConnectionProject)
 	}
 	// An update that did not install gets an item of its own again while
 	// its release is still the newest.

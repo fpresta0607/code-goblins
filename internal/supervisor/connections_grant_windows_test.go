@@ -26,8 +26,8 @@ import (
 
 // grantBoard is a supervisor whose task-1 is in project work, whose manifest
 // declares the services sample and other and whose .mcp.json defines docs,
-// with its credential store and its connection checks kept in the test, which
-// counts the checks.
+// with its goblin read from its task record by a fake that counts the reads
+// and shows what the record gives it.
 func grantBoard(t *testing.T) (*Service, string, *atomic.Int32) {
 	t.Helper()
 	t.Setenv(auth.StoreDirEnv, t.TempDir())
@@ -55,13 +55,22 @@ func grantBoard(t *testing.T) (*Service, string, *atomic.Int32) {
 		t.Fatal(err)
 	}
 	s := boardService(store)
-	checks := &atomic.Int32{}
-	s.connectionChecks = connections.NewCache(time.Minute, time.Second, func(context.Context, string) connections.Snapshot {
-		checks.Add(1)
-		return connections.Snapshot{Entries: []connections.Entry{}}
-	})
-	t.Cleanup(s.connectionChecks.Close)
-	return s, h.State, checks
+	reads := &atomic.Int32{}
+	snapshots := s.connectors()
+	t.Cleanup(snapshots.Close)
+	snapshots.ReadGoblin = func(meta state.TaskMeta, _ string, _ int64, _ connections.Goblin) (connections.Goblin, int64) {
+		reads.Add(1)
+		goblin := connections.Goblin{Task: meta.ID, Generation: meta.SpawnGen, Harness: meta.Harness, Project: auth.ProjectName(meta.Project)}
+		for _, name := range meta.Credentials {
+			goblin.Items = append(goblin.Items, connections.Item{ID: "service:" + name, Name: name, Status: connections.StatusSet, Grant: "revoke"})
+		}
+		for _, name := range meta.MCPServers {
+			goblin.Items = append(goblin.Items, connections.Item{ID: "mcp:" + name, Name: name, Status: connections.StatusSet, Grant: "revoke"})
+		}
+		return goblin, 0
+	}
+	snapshots.Transcript = func(state.TaskMeta) string { return "" }
+	return s, h.State, reads
 }
 
 // A connector's Connect gives the task the service or MCP server, and its
@@ -79,7 +88,7 @@ func TestAConnectorPressGivesAndTakesBackAServiceOrAnMCPServer(t *testing.T) {
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			s, stateDir, checks := grantBoard(t)
+			s, stateDir, reads := grantBoard(t)
 			asOverlordsBoard(s)
 			name := test.connection[strings.Index(test.connection, ":")+1:]
 
@@ -106,17 +115,26 @@ func TestAConnectorPressGivesAndTakesBackAServiceOrAnMCPServer(t *testing.T) {
 					t.Fatalf("wakes = %+v (%v), want the CEO told of the %s", pending, err, step.action)
 				}
 
-				// Act: the page reads the goblin once the press's check has ended.
-				waitForConnectionCheck(t, s.connectionChecks, "task-1\ng1")
-				before := checks.Load()
-				code, body = askTheBoard(t, s, "GET", "/api/connections?task=task-1&generation=g1", "", nil)
-
-				// Assert: the press's check answered for the record the press
-				// left, so the read shows it without checking the goblin again
-				// (#2394).
-				var read connections.Snapshot
-				if code != http.StatusOK || json.Unmarshal([]byte(body), &read) != nil || read.Checking || checks.Load() != before {
-					t.Fatalf("read after the %s = %d %s with %d more checks, want its result and no check", step.action, code, body, checks.Load()-before)
+				// Assert: the press's own answer shows the goblin as the record it
+				// left gives it, read once more for the press and not by the page's next
+				// read (#2394).
+				var answer struct {
+					Goblins []connections.Goblin `json:"goblins"`
+				}
+				if err := json.Unmarshal([]byte(body), &answer); err != nil || len(answer.Goblins) != 1 {
+					t.Fatalf("answer to the %s = %s (%v), want the goblin read again", step.action, body, err)
+				}
+				var shown []string
+				for _, item := range answer.Goblins[0].Items {
+					shown = append(shown, item.Name)
+				}
+				if !slices.Equal(shown, slices.Concat(meta.Credentials, meta.MCPServers)) {
+					t.Fatalf("the answer to the %s shows %v, want what the record names: %v and %v", step.action, shown, meta.Credentials, meta.MCPServers)
+				}
+				readsAfterPress := reads.Load()
+				askTheBoard(t, s, "GET", "/api/connectors", "", nil)
+				if reads.Load() != readsAfterPress {
+					t.Fatalf("a read after the %s read the goblin again", step.action)
 				}
 			}
 		})

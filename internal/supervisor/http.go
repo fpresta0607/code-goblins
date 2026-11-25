@@ -225,12 +225,12 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.recentDictations(w, r)
 	case r.URL.Path == "/api/dictations" && r.Method == "POST":
 		h.keepDictation(w, r)
-	case r.URL.Path == "/api/connections" && r.Method == "GET":
-		h.readConnections(w, r)
-	case r.URL.Path == "/api/connections/check" && r.Method == "POST":
-		h.refreshConnections(w, r)
-	case r.URL.Path == "/api/connections/fix" && r.Method == "POST":
-		h.fixConnection(w, r)
+	case r.URL.Path == "/api/connectors" && r.Method == "GET":
+		h.readConnectors(w, r)
+	case r.URL.Path == "/api/connectors/refresh" && r.Method == "POST":
+		h.refreshConnectors(w, r)
+	case r.URL.Path == "/api/connectors/fix" && r.Method == "POST":
+		h.fixConnector(w, r)
 	case r.URL.Path == "/api/connections/grant" && r.Method == "POST":
 		h.grantConnection(w, r)
 	case r.URL.Path == "/api/credentials/save" && r.Method == "POST":

@@ -1,16 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { message, reportToCeo, request } from "./api";
-import { parseBrowserLogins, type BrowserLogin } from "./browser-logins";
 import { useClickFeedback } from "./click-feedback";
-import { askKey, goblinKey } from "./connector-list";
-import { connectorReader, type ConnectorReader, type Connections } from "./connector-reader";
-import { parseConnections, type ConnectionEntry } from "./connections";
-import { goblinName } from "./task-words";
+import { isAnyChecking, parseConnectorSnapshot, type ConnectorSnapshot } from "./connector-snapshot";
+import type { RefreshTarget } from "./connector-rows";
 import { object, string, type Run, type Task } from "./types";
-
-// What the page last read of one goblin: its connections, when, and whether
-// that read failed.
-export interface Reading { connections?: Connections; readAt: number; hasFailed: boolean }
 
 // What a repair he started answered: its words, the Command Center card of
 // its run, and the sign-in page it opened.
@@ -18,115 +11,119 @@ export interface Repair { notice: string; runId: string; signIn: string }
 
 const NO_REPAIR: Repair = { notice: "", runId: "", signIn: "" };
 
-// When the latest repair of a goblin's connection ended, which its
-// connections are read again after.
-function repairedAt(task: Task, runs: Run[]): string {
-  return runs.filter((run) => run.connection_task === task.id && run.connection_generation === task.generation).map((run) => run.finished_at).sort().at(-1) || "";
+// How often the snapshot is read again while a level is being checked, and how
+// many times in a row: a check that never ends is read for a minute, then left
+// until the Overlord refreshes or the board changes.
+const POLL_MS = 2000;
+export const POLL_LIMIT = 30;
+
+export interface ConnectorActions {
+  isBusy: boolean;
+  refresh: (target: RefreshTarget) => void;
+  fix: (project: string, connection: string, action: string) => void;
+  grant: (task: string, connection: string, isGiving: boolean) => void;
+  endLogin: (project: string, login: string, action: "sign-out" | "forget") => void;
+  expectSignIn: (project: string) => void;
 }
 
-// useConnectors reads the connections of every running goblin for the
-// Connectors page and carries what the page does to them. Each goblin is
-// read until its check has ended and again only when a repair of it ends,
-// he gives or takes back one of its connectors, or he asks for a recheck,
-// so a page left open asks the supervisor nothing. A read that fails goes
-// to the CEO by goblin and task, and a refusal of his own click is said
-// beside it.
-export function useConnectors(goblins: Task[], runs: Run[], instance: string, onRepair: (key: string) => void) {
-  const [readings, setReadings] = useState<ReadonlyMap<string, Reading>>(new Map());
-  // What his Connect or Disconnect asked of a goblin's connector, shown at
-  // once and kept until a finished check shows it.
-  const [asked, setAsked] = useState<ReadonlyMap<string, boolean>>(new Map());
+// useConnectors reads the Connectors page's one snapshot, GET /api/connectors,
+// when the page opens, when the board's goblins or runs change and after what
+// he does here, and every 2 s only while a level says it is checking, up to a
+// limit. Searching reads nothing: it runs over what was read. A read that
+// fails goes to the CEO, and a refusal of his own click is said beside it.
+export function useConnectors(tasks: Task[], runs: Run[], instance: string, onRepair: (key: string) => void) {
+  const [view, setView] = useState<ConnectorSnapshot>();
+  const [isUnreadable, setIsUnreadable] = useState(false);
+  const [isCapped, setIsCapped] = useState(false);
+  const [reads, setReads] = useState(0);
   const [feedback, showFeedback] = useClickFeedback();
   const [repair, setRepair] = useState(NO_REPAIR);
   const [isBusy, setIsBusy] = useState(false);
-  const reader = useRef<ConnectorReader | null>(null);
-  const isSignInPending = useRef(false);
-  // The goblins that run, each with when its latest repair ended.
-  const live = goblins.map((task) => ({ task, repaired: repairedAt(task, runs) }));
-  const running = useRef(live);
-  useEffect(() => { running.current = live; });
+  const signInProject = useRef("");
+  const board = tasks.map((task) => task.id + ":" + task.generation).join(",") + "|" + runs.map((run) => run.id + ":" + run.finished_at).join(",");
+  const readAgain = useCallback(() => setReads((count) => count + 1), []);
   useEffect(() => {
-    const made = connectorReader(instance, (task, connections) => {
-      const goblin = goblinKey(task);
-      setReadings((prior) => new Map(prior).set(goblin, { connections, readAt: Date.now(), hasFailed: false }));
-      if (connections.checking) return;
-      setAsked((prior) => {
-        const kept = [...prior].filter(([key, isCarried]) => {
-          const entry = connections.entries.find((each) => askKey(goblin, each.id) === key);
-          return !key.startsWith(goblin + "\n") || !!entry && entry.grant !== (isCarried ? "revoke" : "grant");
-        });
-        return kept.length === prior.size ? prior : new Map(kept);
-      });
-    }, (task, error, isRecheck) => {
-      const goblin = goblinKey(task);
-      setReadings((prior) => {
-        const connections = prior.get(goblin)?.connections;
-        return new Map(prior).set(goblin, { connections: connections && { ...connections, checking: false }, readAt: Date.now(), hasFailed: true });
-      });
-      if (isRecheck) showFeedback(message(error));
-      else reportToCeo("reading the connections of " + goblinName(task) + " (" + task.id + ")", message(error));
-    });
-    reader.current = made;
-    return () => { made.stop(); reader.current = null; };
-  }, [instance, showFeedback]);
-  const wanted = live.map(({ task, repaired }) => goblinKey(task) + "\n" + repaired).join("\n\n");
-  useEffect(() => {
-    for (const { task, repaired } of running.current) reader.current?.read(task, repaired);
-  }, [wanted, instance]);
-  const post = useCallback((task: Task, endpoint: string, extra: Record<string, string> = {}) => {
-    return request(endpoint, undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance }, body: JSON.stringify({ task: task.id, generation: task.generation, ...extra }) });
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let polls = 0;
+    const read = async () => {
+      try {
+        const snapshot = parseConnectorSnapshot(await request("/api/connectors", controller.signal));
+        if (controller.signal.aborted) return;
+        setView(snapshot);
+        setIsUnreadable(false);
+        const isChecking = isAnyChecking(snapshot);
+        setIsCapped(isChecking && polls >= POLL_LIMIT);
+        if (isChecking && polls < POLL_LIMIT) {
+          polls += 1;
+          timer = setTimeout(() => void read(), POLL_MS);
+        }
+      } catch (error: unknown) {
+        if (controller.signal.aborted) return;
+        setIsUnreadable(true);
+        reportToCeo("reading the connectors", message(error));
+      }
+    };
+    void read();
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [board, instance, reads]);
+  const post = useCallback((path: string, body: Record<string, string>) => {
+    return request(path, undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": instance }, body: JSON.stringify(body) });
   }, [instance]);
-  const recheck = useCallback(() => {
-    setReadings((prior) => new Map([...prior].map(([goblin, reading]) => [goblin, reading.connections ? { ...reading, connections: { ...reading.connections, checking: true } } : reading])));
-    for (const { task } of running.current) reader.current?.recheck(task);
-  }, []);
+  const refresh = useCallback(async (target: RefreshTarget) => {
+    try {
+      await post("/api/connectors/refresh", { level: target.level, scope: target.scope });
+      readAgain();
+    } catch (error: unknown) { showFeedback(message(error)); }
+  }, [post, readAgain, showFeedback]);
+  // A goblin of the project whose session a login's sign-out or forget goes
+  // through, as the supervisor wants one of the project to act for it.
+  const goblinOf = (project: string) => view?.goblins.find((goblin) => goblin.project === project);
+  const act = async (run: () => Promise<void>) => {
+    setIsBusy(true);
+    try { await run(); } catch (error: unknown) { showFeedback(message(error)); } finally { setIsBusy(false); }
+  };
+  const fix = (project: string, connection: string, action: string) => act(async () => {
+    setRepair(NO_REPAIR);
+    const result = object(await post("/api/connectors/fix", { project, connection, action }));
+    const runId = string(result.run_id), url = string(result.url);
+    const signIn = url && new URL(url).protocol === "https:" ? url : "";
+    setRepair({ notice: string(result.message), runId, signIn });
+    if (runId) onRepair("run:" + runId);
+    if (signIn) {
+      signInProject.current = project;
+      window.open(signIn, "_blank", "noopener,noreferrer");
+    }
+    readAgain();
+  });
+  // Connect gives the goblin the connection and Disconnect takes it back, as
+  // goblins auth grant and goblins auth revoke do.
+  const grant = (task: string, connection: string, isGiving: boolean) => act(async () => {
+    const goblin = view?.goblins.find((each) => each.task === task);
+    if (!goblin) return;
+    await post("/api/connections/grant", { task, generation: goblin.generation, connection, action: isGiving ? "grant" : "revoke" });
+    readAgain();
+  });
+  const endLogin = (project: string, login: string, action: "sign-out" | "forget") => act(async () => {
+    const goblin = goblinOf(project);
+    if (!goblin) return;
+    await post("/api/browser-logins/" + action, { task: goblin.task, generation: goblin.generation, login });
+    readAgain();
+  });
   useEffect(() => {
     const returned = () => {
-      if (!isSignInPending.current) return;
-      isSignInPending.current = false;
-      recheck();
+      const project = signInProject.current;
+      if (!project) return;
+      signInProject.current = "";
+      void refresh({ level: "project", scope: project });
     };
     window.addEventListener("focus", returned);
     return () => window.removeEventListener("focus", returned);
-  }, [recheck]);
-  const fix = async (task: Task, entry: ConnectionEntry, action: string) => {
-    setIsBusy(true);
-    setRepair(NO_REPAIR);
-    try {
-      const result = object(await post(task, "/api/connections/fix", { connection: entry.id, action }));
-      const runId = string(result.run_id), url = string(result.url);
-      const signIn = url && new URL(url).protocol === "https:" ? url : "";
-      setRepair({ notice: string(result.message), runId, signIn });
-      if (runId) onRepair("run:" + runId);
-      if (signIn) {
-        isSignInPending.current = true;
-        window.open(signIn, "_blank", "noopener,noreferrer");
-      }
-    } catch (error: unknown) { showFeedback(message(error)); }
-    finally { setIsBusy(false); }
+  }, [refresh]);
+  const actions: ConnectorActions = {
+    isBusy, refresh: (target) => void refresh(target), fix: (project, connection, action) => void fix(project, connection, action),
+    grant: (task, connection, isGiving) => void grant(task, connection, isGiving), endLogin: (project, login, action) => void endLogin(project, login, action),
+    expectSignIn: (project) => { signInProject.current = project; },
   };
-  // Connect gives the goblin the connector and Disconnect takes it back, as
-  // goblins auth grant and goblins auth revoke do; its row changes at once.
-  const give = async (task: Task, entry: ConnectionEntry, isGiving: boolean) => {
-    const goblin = goblinKey(task);
-    setAsked((prior) => new Map(prior).set(askKey(goblin, entry.id), isGiving));
-    showFeedback("");
-    try {
-      const connections = parseConnections(await post(task, "/api/connections/grant", { connection: entry.id, action: isGiving ? "grant" : "revoke" }));
-      setReadings((prior) => new Map(prior).set(goblin, { connections, readAt: Date.now(), hasFailed: false }));
-    } catch (error: unknown) {
-      setAsked((prior) => { const next = new Map(prior); next.delete(askKey(goblin, entry.id)); return next; });
-      showFeedback(message(error));
-    } finally { reader.current?.again(task); }
-  };
-  const endLogin = async (task: Task, login: BrowserLogin, action: "sign-out" | "forget") => {
-    setIsBusy(true);
-    try {
-      const logins = parseBrowserLogins(object(await post(task, "/api/browser-logins/" + action, { login: login.id })).browser_logins);
-      const after = (each: BrowserLogin) => logins.find((next) => next.id === each.id) ?? each;
-      setReadings((prior) => new Map([...prior].map(([goblin, reading]) => [goblin, reading.connections ? { ...reading, connections: { ...reading.connections, browserLogins: reading.connections.browserLogins.filter((each) => action !== "forget" || each.id !== login.id).map(after) } } : reading])));
-    } catch (error: unknown) { showFeedback(message(error)); }
-    finally { setIsBusy(false); }
-  };
-  return { readings, asked, feedback, repair, isBusy, recheck, fix, give, endLogin, expectSignIn: () => { isSignInPending.current = true; } };
+  return { view, isUnreadable, isCapped, feedback, repair, actions, readAgain };
 }

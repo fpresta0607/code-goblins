@@ -83,7 +83,7 @@ func boardWriteRoutes(t *testing.T) []string {
 func TestNoBoardEndpointButTheCredentialSaveTakesASecretValue(t *testing.T) {
 	// Arrange
 	routes := boardWriteRoutes(t)
-	for _, known := range []string{"/api/credentials/save", "/api/actions", "/api/terminal/input", "/api/connections/fix", "/api/tasks/start", "/api/setup/start"} {
+	for _, known := range []string{"/api/credentials/save", "/api/actions", "/api/terminal/input", "/api/connectors/fix", "/api/tasks/start", "/api/setup/start"} {
 		if !slices.Contains(routes, known) {
 			t.Fatalf("the route table read as %v, without %s; the guard cannot see the board's endpoints", routes, known)
 		}

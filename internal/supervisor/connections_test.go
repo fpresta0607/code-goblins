@@ -3,798 +3,528 @@ package supervisor
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/connections"
-	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-func TestConnectionAPIRejectsTaskChangesDuringAsynchronousInspection(t *testing.T) {
-	for _, change := range []string{"none", "generation", "grants", "workspace"} {
-		t.Run(change, func(t *testing.T) {
-			store, home := testStore(t)
-			meta, err := state.ReadTaskMeta(home.State, "task-1")
-			if err != nil {
-				t.Fatal(err)
-			}
-			meta.Project = gitFixture(t)
-			meta.Worktree = filepath.Join(home.Root, "linked")
-			command := execx.Command("git", "-C", meta.Project, "worktree", "add", "--detach", meta.Worktree, "HEAD")
-			if output, err := command.CombinedOutput(); err != nil {
-				t.Fatalf("linked fixture: %s %v", output, err)
-			}
-			if err := state.WriteTaskMeta(home.State, meta); err != nil {
-				t.Fatal(err)
-			}
-			inspector := connections.NewInspector(home.Root, home.Data, home.State)
-			inspector.Runtime = func(context.Context, string, state.TaskMeta) (connections.RuntimeObservation, error) {
-				return connections.RuntimeObservation{Identity: connections.RuntimeIdentity{ProcessID: 42, StartedAt: time.Unix(100, 0), Workspace: meta.Worktree}, Args: []string{"--strict-mcp-config"}}, nil
-			}
-			inspector.Claude = func(context.Context, string, []string, []string) ([]connections.Entry, error) {
-				current := meta
-				switch change {
-				case "generation":
-					current.SpawnGen = "replacement"
-				case "grants":
-					current.HasCredentials, current.Credentials = true, []string{"repo"}
-				case "workspace":
-					current.Worktree = meta.Project
-				}
-				if err := state.WriteTaskMeta(home.State, current); err != nil {
-					return nil, err
-				}
-				return []connections.Entry{{ID: "mcp:tools", Name: "tools", Kind: "mcp", Status: "connected"}}, nil
-			}
-			meta.Harness = "claude"
-			if err := state.WriteTaskMeta(home.State, meta); err != nil {
-				t.Fatal(err)
-			}
-			service := &Service{Store: store, Instance: "test-instance", connectionInspector: inspector}
-			checks, _ := service.connections()
-			defer checks.Close()
-
-			checks.Get(meta.ID+"\n"+meta.SpawnGen, false)
-			result := waitForConnectionCheck(t, checks, meta.ID+"\n"+meta.SpawnGen)
-
-			if change != "none" {
-				if result.Error == "" || len(result.Entries) != 0 || result.Runtime != nil {
-					t.Fatalf("published changed task: %+v", result)
-				}
-				if change == "generation" {
-					return
-				}
-			}
-			handler := NewHTTP(service, "board.local", nil)
-			response := httptest.NewRecorder()
-			handler.ServeHTTP(response, httptest.NewRequest("GET", "http://board.local/api/connections?task=task-1&generation=g1", nil))
-			var snapshot connections.Snapshot
-			if err := json.Unmarshal(response.Body.Bytes(), &snapshot); err != nil {
-				t.Fatal(err)
-			}
-			if change != "none" {
-				if response.Code != 200 || snapshot.Generation != "g1" || snapshot.Error == "" || len(snapshot.Entries) != 0 {
-					t.Fatalf("error response lost its generation: %s", response.Body)
-				}
-				return
-			}
-			if response.Code != 200 || snapshot.Generation != "g1" || snapshot.Runtime == nil || snapshot.Runtime.Workspace != meta.Worktree {
-				t.Fatalf("lost runtime provenance: %s", response.Body)
-			}
-			for _, entry := range snapshot.Entries {
-				if entry.ID == "mcp:tools" && entry.Status == "probe_succeeded" && entry.Scope == "separate_probe" && entry.LiveStatus == "unknown" {
-					return
-				}
-			}
-			t.Fatalf("API omitted separate probe scope: %s", response.Body)
-		})
-	}
+// connectorFakes stand in for the snapshots' checks, which count themselves and
+// start nothing. A check made while a test says it is only reading fails it.
+type connectorFakes struct {
+	t         *testing.T
+	isReading atomic.Bool
+	mu        sync.Mutex
+	counts    map[string]int
+	// hold keeps the check of the project it names until it is closed.
+	hold     chan struct{}
+	holdName string
 }
 
-// #2394: the Connectors page reads every running goblin each time it opens,
-// and each goblin's check starts a harness process. A result stood a minute,
-// so every open after one started a harness for each goblin. A result now
-// stands ten minutes: an open within them starts none, one after them shows
-// each goblin's last result at once while its recheck runs behind it, and a
-// grant made with goblins auth, which changes the task's record, rechecks
-// that goblin at the next open.
-func TestConnectorsPageOpenStartsHarnessesOnlyForOldResultsAndChangedRecords(t *testing.T) {
-	// Arrange: three running goblins of one repository.
-	store, home := testStore(t)
-	project := gitFixture(t)
-	var tasks []state.TaskMeta
-	for _, id := range []string{"task-1", "task-2", "task-3"} {
-		meta := state.TaskMeta{ID: id, Project: project, Worktree: filepath.Join(home.Root, id), Harness: "claude", Backend: "native", SpawnGen: "g1"}
-		if output, err := execx.Command("git", "-C", project, "worktree", "add", "--detach", meta.Worktree, "HEAD").CombinedOutput(); err != nil {
-			t.Fatalf("linked fixture: %s %v", output, err)
-		}
-		if err := state.WriteTaskMeta(home.State, meta); err != nil {
+func (f *connectorFakes) add(key string) {
+	f.t.Helper()
+	if f.isReading.Load() {
+		f.t.Errorf("%s was checked by a read", key)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.counts[key]++
+}
+
+func (f *connectorFakes) count(key string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.counts[key]
+}
+
+func (f *connectorFakes) total() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var sum int
+	for _, count := range f.counts {
+		sum += count
+	}
+	return sum
+}
+
+// connectorsReply is the page's answer.
+type connectorsReply struct {
+	Instance string            `json:"instance"`
+	Machine  connections.Level `json:"machine"`
+	Projects []struct {
+		connections.Project
+		BrowserLogins []browserLoginEntry `json:"browser_logins"`
+	} `json:"projects"`
+	Goblins []connections.Goblin `json:"goblins"`
+}
+
+// connectorBoard is a supervisor over the made-up projects acme and globex
+// whose manifests, checkouts and credential store are in the test.
+type connectorBoard struct {
+	service  *Service
+	handler  *HTTP
+	home     string
+	state    string
+	projects string
+	fakes    *connectorFakes
+	store    *Store
+}
+
+const acmeManifest = `{"project":"acme","services":[
+	{"name":"sample","method":"oauth","url":"https://login.acme.example/start"},
+	{"name":"tokens","method":"env","env":["ACME_TOKEN"]},
+	{"name":"tool","method":"cli","login":["acme-cli","login"]}
+]}`
+
+// newConnectorBoard makes the board, with the snapshots' checks replaced by
+// fakes that answer the items a fix needs of acme unless real says to run the
+// project check as it is.
+func newConnectorBoard(t *testing.T, isRealProjectCheck bool) *connectorBoard {
+	t.Helper()
+	store, h := testStore(t)
+	projects := filepath.Join(h.Root, "projects")
+	t.Setenv(install.ProjectsRootVariable, projects)
+	t.Setenv(auth.StoreDirEnv, filepath.Join(h.Root, "credentials"))
+	for name, manifest := range map[string]string{"acme": acmeManifest, "globex": `{"project":"globex","services":[{"name":"tokens","method":"env","env":["GLOBEX_TOKEN"]}]}`} {
+		if err := os.MkdirAll(filepath.Join(projects, name), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		tasks = append(tasks, meta)
-	}
-	inspector := connections.NewInspector(home.Root, home.Data, home.State)
-	inspector.Runtime = func(_ context.Context, _ string, meta state.TaskMeta) (connections.RuntimeObservation, error) {
-		return connections.RuntimeObservation{Identity: connections.RuntimeIdentity{ProcessID: 42, StartedAt: time.Unix(100, 0), Workspace: meta.Worktree}, Args: []string{"--strict-mcp-config"}}, nil
-	}
-	var harnesses atomic.Int32
-	inspector.Claude = func(context.Context, string, []string, []string) ([]connections.Entry, error) {
-		harnesses.Add(1)
-		return []connections.Entry{{ID: "mcp:tools", Name: "tools", Kind: "mcp", Status: "connected"}}, nil
-	}
-	service := &Service{Store: store, Instance: "test-instance", connectionInspector: inspector}
-	checks, _ := service.connections()
-	defer checks.Close()
-	var ahead atomic.Int64
-	checks.Now = func() time.Time { return time.Now().Add(time.Duration(ahead.Load())) } // stall-accepted: the offset the test moves the cache's clock by, not a wait.
-	handler := NewHTTP(service, "board.local", nil)
-	read := func(meta state.TaskMeta) connections.Snapshot {
-		t.Helper()
-		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, httptest.NewRequest("GET", "http://board.local/api/connections?task="+meta.ID+"&generation="+meta.SpawnGen, nil))
-		var snapshot connections.Snapshot
-		if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &snapshot) != nil {
-			t.Fatalf("read %s: %d %s", meta.ID, response.Code, response.Body)
+		path := auth.ManifestPath(h.Data, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
 		}
-		return snapshot
+		if err := os.WriteFile(path, []byte(manifest), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
-	// open reads every goblin as the page does, each until its check has
-	// ended, and gives what each one's first read showed.
-	open := func() []connections.Snapshot {
-		t.Helper()
-		var shown []connections.Snapshot
-		for _, meta := range tasks {
-			first := read(meta)
-			shown = append(shown, first)
-			deadline := time.Now().Add(time.Minute)
-			for latest := first; latest.Checking; latest = read(meta) {
-				if time.Now().After(deadline) {
-					t.Fatalf("the check of %s did not end", meta.ID)
+	service := &Service{Store: store, Instance: "test-instance"}
+	fakes := &connectorFakes{t: t, counts: map[string]int{}}
+	snapshots := service.connectors()
+	t.Cleanup(snapshots.Close)
+	snapshots.CheckMachine = func(context.Context) connections.Level {
+		fakes.add("machine")
+		return connections.Level{Items: []connections.Item{{ID: "cli:acme-cli", Level: connections.LevelPC, Name: "acme-cli", Status: connections.StatusSet}}}
+	}
+	if !isRealProjectCheck {
+		snapshots.CheckProject = func(ctx context.Context, name, _ string) connections.Level {
+			fakes.add("project:" + name)
+			if fakes.hold != nil && name == fakes.holdName {
+				select {
+				case <-fakes.hold:
+				case <-ctx.Done():
 				}
-				time.Sleep(time.Millisecond)
+			}
+			if name != "acme" {
+				return connections.Level{Items: []connections.Item{}}
+			}
+			return connections.Level{Items: []connections.Item{
+				{ID: "service:sample", Name: "sample", Status: connections.StatusUnauthorized, Actions: []string{"login", "cli"}},
+				{ID: "service:tokens", Name: "tokens", Status: connections.StatusMissing, Actions: []string{"store:ACME_TOKEN", "store:LOOSE_TOKEN"}},
+				{ID: "service:tool", Name: "tool", Status: connections.StatusUnauthorized, Actions: []string{"cli"}},
+			}}
+		}
+	}
+	snapshots.ReadGoblin = func(meta state.TaskMeta, _ string, _ int64, _ connections.Goblin) (connections.Goblin, int64) {
+		fakes.add("goblin:" + meta.ID)
+		return connections.Goblin{Task: meta.ID, Generation: meta.SpawnGen, Harness: meta.Harness, Project: auth.ProjectName(meta.Project)}, 0
+	}
+	snapshots.Transcript = func(state.TaskMeta) string { return "" }
+	return &connectorBoard{service: service, handler: NewHTTP(service, "board.local", nil), home: h.Root, state: h.State, projects: projects, fakes: fakes, store: store}
+}
+
+// ask sends the page's request, with the headers of a board of its own unless
+// change says otherwise.
+func (b *connectorBoard) ask(t *testing.T, method, path, body string, change func(*http.Request)) (int, string) {
+	t.Helper()
+	request := httptest.NewRequest(method, "http://board.local"+path, strings.NewReader(body))
+	if method != http.MethodGet {
+		request.Header.Set("Origin", "http://board.local")
+		request.Header.Set("X-CEO-Token", "test-instance")
+		request.Header.Set("Content-Type", "application/json")
+	}
+	if change != nil {
+		change(request)
+	}
+	response := httptest.NewRecorder()
+	b.handler.ServeHTTP(response, request)
+	return response.Code, response.Body.String()
+}
+
+func (b *connectorBoard) read(t *testing.T) connectorsReply {
+	t.Helper()
+	code, body := b.ask(t, http.MethodGet, "/api/connectors", "", nil)
+	var reply connectorsReply
+	if code != http.StatusOK || json.Unmarshal([]byte(body), &reply) != nil {
+		t.Fatalf("read = %d %s", code, body)
+	}
+	return reply
+}
+
+// checked waits until the project's check has ended, the project listed.
+func (b *connectorBoard) checked(t *testing.T, project string) {
+	t.Helper()
+	deadline := time.Now().Add(time.Minute)
+	for {
+		for _, listed := range b.read(t).Projects {
+			if listed.Name == project && !listed.Checking && !listed.CheckedAt.IsZero() {
+				return
 			}
 		}
-		return shown
-	}
-	open()
-	if harnesses.Load() != 3 {
-		t.Fatalf("the first open started %d harnesses, want one for each of 3 goblins", harnesses.Load())
-	}
-
-	// Act: the page opens again five minutes later.
-	ahead.Store(int64(5 * time.Minute))
-	shown := open()
-
-	// Assert: no harness, and each goblin's result at once.
-	if harnesses.Load() != 3 {
-		t.Fatalf("an open five minutes later started %d harnesses, want none", harnesses.Load()-3)
-	}
-	for at, snapshot := range shown {
-		if snapshot.Checking || len(snapshot.Entries) == 0 {
-			t.Fatalf("%s showed %+v, want its last result and no check", tasks[at].ID, snapshot)
-		}
-	}
-
-	// Act: the page opens eleven minutes after the checks.
-	ahead.Store(int64(11 * time.Minute))
-	shown = open()
-
-	// Assert: each goblin's last result shows at once while one recheck
-	// each runs behind it.
-	if harnesses.Load() != 6 {
-		t.Fatalf("an open after ten minutes started %d harnesses, want one for each of 3 goblins", harnesses.Load()-3)
-	}
-	for at, snapshot := range shown {
-		if !snapshot.Checking || !slices.ContainsFunc(snapshot.Entries, func(entry connections.Entry) bool { return entry.ID == "mcp:tools" }) {
-			t.Fatalf("%s showed %+v, want its last result while its recheck runs", tasks[at].ID, snapshot)
-		}
-	}
-
-	// Act: a grant made with goblins auth gives the second goblin a server,
-	// and the page opens again at once.
-	tasks[1].MCPServers = []string{"tools"}
-	if err := state.WriteTaskMeta(home.State, tasks[1]); err != nil {
-		t.Fatal(err)
-	}
-	shown = open()
-
-	// Assert: only the goblin whose record changed is checked again, and its
-	// last result shows while it is.
-	if harnesses.Load() != 7 {
-		t.Fatalf("an open after a grant started %d harnesses, want one for the granted goblin", harnesses.Load()-6)
-	}
-	if !shown[1].Checking || len(shown[1].Entries) == 0 {
-		t.Fatalf("the granted goblin showed %+v, want its last result while its recheck runs", shown[1])
-	}
-}
-
-func TestConnectionAPIIsCachedAndRejectsStaleTasksAndUntrustedRefreshes(t *testing.T) {
-	store, _ := testStore(t)
-	release := make(chan struct{})
-	checks := connections.NewCache(time.Minute, time.Second, func(ctx context.Context, _ string) connections.Snapshot {
-		select {
-		case <-release:
-		case <-ctx.Done():
-		}
-		return connections.Snapshot{Entries: []connections.Entry{{ID: "mcp:tools", Status: "connected"}}}
-	})
-	defer checks.Close()
-	service := &Service{Store: store, Instance: "test-instance", connectionChecks: checks}
-	handler := NewHTTP(service, "board.local", nil)
-	for _, test := range []struct {
-		method, path, body, origin, token string
-		code                              int
-	}{
-		{"GET", "/api/connections?task=task-1&generation=g1", "", "", "", 200},
-		{"GET", "/api/connections?task=task-1&generation=old", "", "", "", 409},
-		{"POST", "/api/connections/check", `{"task":"task-1","generation":"g1"}`, "http://elsewhere", "test-instance", 403},
-		{"POST", "/api/connections/check", `{"task":"task-1","generation":"g1"}`, "http://board.local", "wrong", 403},
-		{"POST", "/api/connections/check", `{"task":"task-1","generation":"g1"}`, "http://board.local", "test-instance", 200},
-		{"POST", "/api/connections/check", `{"task":"task-1","generation":"old"}`, "http://board.local", "test-instance", 409},
-	} {
-		request := httptest.NewRequest(test.method, "http://board.local"+test.path, strings.NewReader(test.body))
-		request.Header.Set("Origin", test.origin)
-		request.Header.Set("X-CEO-Token", test.token)
-		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, request)
-		if response.Code != test.code {
-			t.Fatalf("%s %s: %d %s", test.method, test.path, response.Code, response.Body)
-		}
-		if response.Code == 200 && !strings.Contains(response.Body.String(), `"checking":true`) {
-			t.Fatal("request blocked on the checker")
-		}
-	}
-	close(release)
-}
-
-func TestConnectionFixDerivesOAuthURLAndRejectsInjectedOrStaleRepairs(t *testing.T) {
-	store, h := testStore(t)
-	meta, _ := state.ReadTaskMeta(h.State, "task-1")
-	manifestPath := auth.ManifestPath(h.Data, meta.Project)
-	if err := os.MkdirAll(filepath.Dir(manifestPath), 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(manifestPath, []byte(`{"project":"work","services":[{"name":"sample","method":"oauth","url":"https://example.invalid/login"}]}`), 0600); err != nil {
-		t.Fatal(err)
-	}
-	checks := connections.NewCache(time.Minute, time.Minute, func(context.Context, string) connections.Snapshot {
-		return connections.Snapshot{Entries: []connections.Entry{{ID: "service:sample", Status: "unauthorized", Actions: []string{"login"}}}}
-	})
-	defer checks.Close()
-	checks.Get("task-1\ng1", false)
-	deadline := time.Now().Add(time.Minute)
-	for checks.Get("task-1\ng1", false).Checking {
 		if time.Now().After(deadline) {
-			t.Fatal("cache did not finish")
+			t.Fatalf("project %s was not checked in a minute", project)
 		}
 		time.Sleep(time.Millisecond)
 	}
-	handler := NewHTTP(&Service{Store: store, Instance: "test-instance", connectionChecks: checks}, "board.local", nil)
-	for _, test := range []struct {
-		body string
-		code int
+}
+
+// machineChecked waits until the PC's check has ended.
+func (b *connectorBoard) machineChecked(t *testing.T) {
+	t.Helper()
+	deadline := time.Now().Add(time.Minute)
+	for machine := b.read(t).Machine; machine.Checking || machine.CheckedAt.IsZero(); machine = b.read(t).Machine {
+		if time.Now().After(deadline) {
+			t.Fatal("the PC was not checked in a minute")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func (b *connectorBoard) refresh(t *testing.T, level, scope string) {
+	t.Helper()
+	body, err := json.Marshal(connectorRefreshRequest{Level: level, Scope: scope})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, answer := b.ask(t, http.MethodPost, "/api/connectors/refresh", string(body), nil); code != http.StatusOK {
+		t.Fatalf("refresh %s %s = %d %s", level, scope, code, answer)
+	}
+}
+
+// Reading the page asks for no check: however often it is read, and whatever it
+// is read for, no check is made and nothing is started.
+func TestConnectorsReadChecksNothing(t *testing.T) {
+	// Arrange
+	b := newConnectorBoard(t, false)
+	b.refresh(t, connections.RefreshMachine, "")
+	b.refresh(t, connections.RefreshProject, "acme")
+	b.checked(t, "acme")
+	b.fakes.isReading.Store(true)
+	before := b.fakes.total()
+
+	// Act
+	var reply connectorsReply
+	for range 100 {
+		reply = b.read(t)
+	}
+
+	// Assert
+	if b.fakes.total() != before || before != 2 {
+		t.Fatalf("checks = %d after the reads and %d before them, want the two the refreshes made and none for a read", b.fakes.total(), before)
+	}
+	if len(reply.Projects) != 1 || reply.Projects[0].Name != "acme" || len(reply.Projects[0].Items) != 3 || reply.Instance != "test-instance" || len(reply.Machine.Items) != 1 {
+		t.Fatalf("reply = %+v, want the one checked project and the machine", reply)
+	}
+	if reply.Projects[0].BrowserLogins == nil {
+		t.Error("browser_logins is null, want a list")
+	}
+}
+
+func TestConnectorsRefreshChecksOnlyTheLevelNamed(t *testing.T) {
+	cases := []struct {
+		name, level, scope string
+		want               map[string]int
 	}{
-		{`{"task":"task-1","generation":"g1","connection":"service:sample","action":"login"}`, 200},
-		{`{"task":"task-1","generation":"old","connection":"service:sample","action":"login"}`, 409},
-		{`{"task":"task-1","generation":"g1","connection":"service:other","action":"login"}`, 409},
-		{`{"task":"task-1","generation":"g1","connection":"service:sample","action":"cli","command":"evil"}`, 400},
-	} {
-		request := httptest.NewRequest("POST", "http://board.local/api/connections/fix", strings.NewReader(test.body))
-		request.Header.Set("Origin", "http://board.local")
-		request.Header.Set("X-CEO-Token", "test-instance")
-		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, request)
-		if response.Code != test.code {
-			t.Fatalf("fix returned %d: %s", response.Code, response.Body)
-		}
-		if test.code == 200 {
-			var result map[string]string
-			if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || result["url"] != "https://example.invalid/login" {
-				t.Fatal("wrong sign-in destination", result, err)
-			}
-		}
+		{"the machine", connections.RefreshMachine, "", map[string]int{"machine": 1}},
+		{"one project", connections.RefreshProject, "acme", map[string]int{"project:acme": 1}},
 	}
-}
-
-func TestConnectionClipboardCardNeverReadsClipboardAndCannotRunForReplacedTask(t *testing.T) {
-	store, h := testStore(t)
-	meta, _ := state.ReadTaskMeta(h.State, "task-1")
-	service := &Service{Store: store, Instance: "test-instance"}
-	run, err := service.connectionRun(meta, connectionRequest{Task: meta.ID, Generation: meta.SpawnGen, Connection: "credential:TEST_TOKEN", Action: "store:TEST_TOKEN"}, connections.Repair{Credential: "TEST_TOKEN"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(run.Command, "Get-Clipboard -Raw |") || strings.Contains(run.Command, "Set-Clipboard") || run.ConnectionTask != meta.ID || run.ConnectionGeneration != meta.SpawnGen {
-		t.Fatal("unsafe clipboard card")
-	}
-	meta.SpawnGen = "replacement"
-	if err := state.WriteTaskMeta(h.State, meta); err != nil {
-		t.Fatal(err)
-	}
-	store.mu.Lock()
-	for index := range store.db.Runs {
-		store.db.Runs[index].RunAction = "action"
-		store.db.Runs[index].State = "running"
-	}
-	err = store.save()
-	store.mu.Unlock()
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = service.startRun(context.Background(), Action{ID: "action", RunID: run.ID, Generation: run.Identity})
-	if err == nil {
-		t.Fatal("ran a stale repair")
-	}
-	if service.connectionChecks != nil {
-		service.connectionChecks.Close()
-	}
-	if stored := store.Snapshot().Runs[0]; stored.State != "failed" {
-		t.Fatalf("stale run stayed pending: %s", stored.State)
-	}
-}
-
-// A clipboard card says whether it stores a missing variable or replaces a
-// set one, and runs the same store either way (#2389).
-func TestAClipboardCardSaysWhetherItStoresOrReplacesTheVariable(t *testing.T) {
-	for _, test := range []struct{ action, want string }{
-		{"store:TEST_TOKEN", "Store TEST_TOKEN from clipboard for "},
-		{"replace:TEST_TOKEN", "Replace TEST_TOKEN from clipboard for "},
-	} {
-		t.Run(test.action, func(t *testing.T) {
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			store, h := testStore(t)
-			meta, _ := state.ReadTaskMeta(h.State, "task-1")
-			service := &Service{Store: store, Instance: "test-instance"}
+			b := newConnectorBoard(t, false)
 
 			// Act
-			run, err := service.connectionRun(meta, connectionRequest{Task: meta.ID, Generation: meta.SpawnGen, Connection: "credential:TEST_TOKEN", Action: test.action}, connections.Repair{Credential: "TEST_TOKEN"})
+			b.refresh(t, test.level, test.scope)
+			if test.level == connections.RefreshProject {
+				b.checked(t, test.scope)
+			} else {
+				b.machineChecked(t)
+			}
 
 			// Assert
-			if err != nil {
-				t.Fatal(err)
+			for key, want := range test.want {
+				if got := b.fakes.count(key); got != want {
+					t.Errorf("%s checked %d times, want %d", key, got, want)
+				}
 			}
-			if run.Title != test.want+filepath.Base(meta.Project) {
-				t.Fatalf("title = %q, want %q", run.Title, test.want+filepath.Base(meta.Project))
-			}
-			if !strings.Contains(run.Command, "Get-Clipboard -Raw | & ") || !strings.Contains(run.Command, " auth store --project ") || !strings.HasSuffix(run.Command, " 'TEST_TOKEN'\nexit $LASTEXITCODE\n") {
-				t.Fatalf("not the clipboard store: %q", run.Command)
+			if b.fakes.total() != 1 {
+				t.Errorf("%d checks, want only the one asked for", b.fakes.total())
 			}
 		})
 	}
 }
 
-// The board's Replace and Store from clipboard reach their card through the
-// fix endpoint the board posts to, on the check the page shows: a variable the
-// goblin's terminal holds and its repository declares gets a card titled
-// Replace, a missing one gets Store's, each piping the clipboard into goblins
-// auth store for that repository, and a replace the check did not offer, for
-// a variable the terminal does not hold or no manifest declares, is refused
-// and records no card (#2389).
-func TestConnectionFixMakesTheClipboardCardItsCheckOffers(t *testing.T) {
-	// Arrange
-	store, home := testStore(t)
-	meta, err := state.ReadTaskMeta(home.State, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	meta.Project = gitFixture(t)
-	meta.Worktree = filepath.Join(home.Root, "linked")
-	if output, err := execx.Command("git", "-C", meta.Project, "worktree", "add", "--detach", meta.Worktree, "HEAD").CombinedOutput(); err != nil {
-		t.Fatalf("linked fixture: %s %v", output, err)
-	}
-	meta.Harness = "claude"
-	meta.Credentials, meta.HasCredentials = []string{"repo"}, true
-	if err := state.WriteTaskMeta(home.State, meta); err != nil {
-		t.Fatal(err)
-	}
-	manifestPath := auth.ManifestPath(home.Data, meta.Project)
-	if err := os.MkdirAll(filepath.Dir(manifestPath), 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(manifestPath, []byte(`{"project":"work","services":[{"name":"repo","method":"env","env":["TEST_TOKEN","UNSET_TOKEN"]}]}`), 0600); err != nil {
-		t.Fatal(err)
-	}
-	credentials, err := auth.OpenFileStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	inspector := connections.NewInspector(home.Root, home.Data, home.State)
-	inspector.OpenStore = func() (auth.Store, error) { return credentials, nil }
-	inspector.Runtime = func(context.Context, string, state.TaskMeta) (connections.RuntimeObservation, error) {
-		return connections.RuntimeObservation{Identity: connections.RuntimeIdentity{ProcessID: 42, StartedAt: time.Unix(100, 0), Workspace: meta.Worktree}, Env: []string{"TEST_TOKEN=synthetic-value", "LOOSE_TOKEN=synthetic-value"}, Args: []string{"--strict-mcp-config"}}, nil
-	}
-	inspector.Claude = func(context.Context, string, []string, []string) ([]connections.Entry, error) { return nil, nil }
-	service := &Service{Store: store, Instance: "test-instance", connectionInspector: inspector}
-	checks, _ := service.connections()
-	defer checks.Close()
-	checks.Get(meta.ID+"\n"+meta.SpawnGen, false)
-	waitForConnectionCheck(t, checks, meta.ID+"\n"+meta.SpawnGen)
-	handler := NewHTTP(service, "board.local", nil)
-
-	for _, test := range []struct {
-		name, variable, action, wantTitle string
-		wantCode                          int
+func TestConnectorsRefreshRefusesWhatIsNotAskedForRightOrNotListed(t *testing.T) {
+	cases := []struct {
+		name, body, origin, token string
+		want                      int
 	}{
-		{"replace a set declared variable", "TEST_TOKEN", "replace:TEST_TOKEN", "Replace TEST_TOKEN from clipboard for " + filepath.Base(meta.Project), 200},
-		{"store a missing declared variable", "UNSET_TOKEN", "store:UNSET_TOKEN", "Store UNSET_TOKEN from clipboard for " + filepath.Base(meta.Project), 200},
-		{"replace an unset variable", "UNSET_TOKEN", "replace:UNSET_TOKEN", "", 409},
-		{"replace an undeclared variable", "LOOSE_TOKEN", "replace:LOOSE_TOKEN", "", 409},
-	} {
+		{"unknown level", `{"level":"pc","scope":""}`, "http://board.local", "test-instance", http.StatusBadRequest},
+		{"unlisted project", `{"level":"project","scope":"initech"}`, "http://board.local", "test-instance", http.StatusNotFound},
+		{"unlisted goblin", `{"level":"goblin","scope":"no-such-task"}`, "http://board.local", "test-instance", http.StatusNotFound},
+		{"a field the request does not have", `{"level":"project","scope":"acme","command":"evil"}`, "http://board.local", "test-instance", http.StatusBadRequest},
+		{"not JSON", `level=project`, "http://board.local", "test-instance", http.StatusBadRequest},
+		{"another origin", `{"level":"project","scope":"acme"}`, "http://elsewhere", "test-instance", http.StatusForbidden},
+		{"wrong token", `{"level":"project","scope":"acme"}`, "http://board.local", "wrong", http.StatusForbidden},
+	}
+	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			before := len(store.Snapshot().Runs)
-			body, err := json.Marshal(connectionRequest{Task: meta.ID, Generation: meta.SpawnGen, Connection: "credential:" + test.variable, Action: test.action})
-			if err != nil {
-				t.Fatal(err)
-			}
-			request := httptest.NewRequest("POST", "http://board.local/api/connections/fix", strings.NewReader(string(body)))
-			request.Header.Set("Origin", "http://board.local")
-			request.Header.Set("X-CEO-Token", "test-instance")
-			response := httptest.NewRecorder()
+			b := newConnectorBoard(t, false)
 
 			// Act
-			handler.ServeHTTP(response, request)
+			code, body := b.ask(t, http.MethodPost, "/api/connectors/refresh", test.body, func(request *http.Request) {
+				request.Header.Set("Origin", test.origin)
+				request.Header.Set("X-CEO-Token", test.token)
+			})
 
 			// Assert
-			if response.Code != test.wantCode || strings.Contains(response.Body.String(), "synthetic-value") {
-				t.Fatalf("fix returned %d: %s", response.Code, response.Body)
+			if code != test.want || b.fakes.total() != 0 {
+				t.Fatalf("refresh = %d %s after %d checks, want %d and no check", code, body, b.fakes.total(), test.want)
 			}
-			runs := store.Snapshot().Runs
-			if test.wantCode != 200 {
+		})
+	}
+}
+
+// The fix endpoint makes the repair the project's item offers and nothing the
+// request brings: the manifest's sign-in page, a card that stores the clipboard
+// under a name the manifest declares, or a card that runs the service's login.
+func TestConnectorsFixMakesOnlyTheRepairTheProjectItemOffers(t *testing.T) {
+	cases := []struct {
+		name, body string
+		want       int
+	}{
+		{"sign-in page", `{"project":"acme","connection":"service:sample","action":"login"}`, 200},
+		{"clipboard store", `{"project":"acme","connection":"service:tokens","action":"store:ACME_TOKEN"}`, 200},
+		{"login command", `{"project":"acme","connection":"service:tool","action":"cli"}`, 200},
+		{"action the item offers and the manifest cannot do", `{"project":"acme","connection":"service:sample","action":"cli"}`, 409},
+		{"variable no manifest declares", `{"project":"acme","connection":"service:tokens","action":"store:LOOSE_TOKEN"}`, 409},
+		{"action the item does not offer", `{"project":"acme","connection":"service:tool","action":"login"}`, 409},
+		{"project that is not listed", `{"project":"initech","connection":"service:sample","action":"login"}`, 409},
+		{"a command in the request", `{"project":"acme","connection":"service:tool","action":"cli","command":"evil"}`, 400},
+		{"a value in the request", `{"project":"acme","connection":"service:tokens","action":"store:ACME_TOKEN","value":"pasted-secret-1"}`, 400},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			b := newConnectorBoard(t, false)
+			b.refresh(t, connections.RefreshProject, "acme")
+			b.checked(t, "acme")
+			before := len(b.store.Snapshot().Runs)
+
+			// Act
+			code, body := b.ask(t, http.MethodPost, "/api/connectors/fix", test.body, nil)
+
+			// Assert
+			runs := b.store.Snapshot().Runs
+			if code != test.want {
+				t.Fatalf("fix = %d %s, want %d", code, body, test.want)
+			}
+			if test.want != 200 {
 				if len(runs) != before {
 					t.Fatalf("a refused fix recorded a card: %d runs, want %d", len(runs), before)
 				}
 				return
 			}
-			var result map[string]string
-			if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+			var reply map[string]string
+			if err := json.Unmarshal([]byte(body), &reply); err != nil {
 				t.Fatal(err)
 			}
-			index := slices.IndexFunc(runs, func(run Run) bool { return run.ID == result["run_id"] })
-			if index < 0 {
-				t.Fatalf("run %q was not recorded", result["run_id"])
+			if hasURL, hasCard := reply["url"] != "", reply["run_id"] != ""; hasURL == hasCard {
+				t.Fatalf("reply = %v, want a sign-in page or a card, not both or neither", reply)
 			}
-			run := runs[index]
-			if run.Title != test.wantTitle {
-				t.Fatalf("title = %q, want %q", run.Title, test.wantTitle)
+			if reply["url"] != "" {
+				if reply["url"] != "https://login.acme.example/start" || len(runs) != before {
+					t.Fatalf("reply = %v with %d runs, want the manifest's page and no card", reply, len(runs))
+				}
+				return
 			}
-			if !strings.Contains(run.Command, "Get-Clipboard -Raw | & ") || !strings.HasSuffix(run.Command, " auth store --project '"+meta.Project+"' '"+test.variable+"'\nexit $LASTEXITCODE\n") || strings.Contains(run.Command, "synthetic-value") {
-				t.Fatalf("not the clipboard store for %s: %q", test.variable, run.Command)
+			var run Run
+			for _, made := range runs {
+				if made.ID == reply["run_id"] {
+					run = made
+				}
+			}
+			project := filepath.Join(b.projects, "acme")
+			if run.ID == "" || run.ConnectionProject != "acme" || run.Cwd != project || strings.Contains(run.Command, "Set-Clipboard") {
+				t.Fatalf("card = %+v, want one for acme that runs in its checkout and never writes the clipboard", run)
+			}
+			isStore := strings.Contains(test.body, "store:")
+			if isStore && (!strings.Contains(run.Command, "Get-Clipboard -Raw | & ") || !strings.HasSuffix(run.Command, " auth store --project '"+project+"' 'ACME_TOKEN'\nexit $LASTEXITCODE\n") || run.Title != "Store ACME_TOKEN from clipboard for acme") {
+				t.Fatalf("card = %q %q, want the clipboard stored under ACME_TOKEN for acme", run.Title, run.Command)
+			}
+			if !isStore && !strings.Contains(run.Command, " connection-repair '"+project+"' 'service:tool' 'cli'\n") {
+				t.Fatalf("card command = %q, want goblins connection-repair for the project, connection and action", run.Command)
 			}
 		})
 	}
 }
 
-func TestCompletedConnectionRepairRechecksItsTaskAndPublishesTheOwner(t *testing.T) {
-	store, h := testStore(t)
-	meta, _ := state.ReadTaskMeta(h.State, "task-1")
-	var calls atomic.Int32
-	checks := connections.NewCache(time.Minute, time.Minute, func(context.Context, string) connections.Snapshot {
-		calls.Add(1)
-		return connections.Snapshot{Entries: []connections.Entry{{ID: "credential:TEST_TOKEN", Status: "provided"}}}
-	})
-	defer checks.Close()
-	key := meta.ID + "\n" + meta.SpawnGen
-	checks.Get(key, false)
-	deadline := time.Now().Add(time.Minute)
-	for checks.Get(key, false).Checking {
-		if time.Now().After(deadline) {
-			t.Fatal("cache did not finish")
-		}
-		time.Sleep(time.Millisecond)
+// A project whose check is still running cannot be fixed from what it showed
+// before: the page says to wait.
+func TestConnectorsFixWaitsForAProjectThatIsBeingChecked(t *testing.T) {
+	// Arrange
+	b := newConnectorBoard(t, false)
+	b.refresh(t, connections.RefreshProject, "acme")
+	b.checked(t, "acme")
+	b.fakes.hold, b.fakes.holdName = make(chan struct{}), "acme"
+	var release sync.Once
+	unblock := func() { release.Do(func() { close(b.fakes.hold) }) }
+	t.Cleanup(unblock)
+	b.refresh(t, connections.RefreshProject, "acme")
+
+	// Act
+	code, body := b.ask(t, http.MethodPost, "/api/connectors/fix", `{"project":"acme","connection":"service:sample","action":"login"}`, nil)
+	unblock()
+
+	// Assert
+	if code != http.StatusConflict || !strings.Contains(body, "Wait for the connection check") {
+		t.Fatalf("fix = %d %s, want it refused until the check ends", code, body)
 	}
-	service := &Service{Store: store, Instance: "test-instance", connectionChecks: checks}
-	run, err := service.connectionRun(meta, connectionRequest{Task: meta.ID, Generation: meta.SpawnGen, Connection: "credential:TEST_TOKEN", Action: "store:TEST_TOKEN"}, connections.Repair{Credential: "TEST_TOKEN"})
+}
+
+// A repair that ended checks its project again, and its run item says whose it
+// is.
+func TestCompletedConnectionRepairChecksItsProjectAgainAndPublishesTheOwner(t *testing.T) {
+	// Arrange
+	b := newConnectorBoard(t, false)
+	b.refresh(t, connections.RefreshProject, "acme")
+	b.checked(t, "acme")
+	project := connections.Project{Name: "acme", Path: filepath.Join(b.projects, "acme")}
+	run, err := b.service.connectionRun(project, connectorFixRequest{Project: "acme", Connection: "service:tokens", Action: "store:ACME_TOKEN"}, connections.Repair{Credential: "ACME_TOKEN"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for index := range store.db.Runs {
-		store.db.Runs[index].RunAction = "action"
-		store.db.Runs[index].State = "running"
+	b.store.mu.Lock()
+	for index := range b.store.db.Runs {
+		b.store.db.Runs[index].RunAction = "action"
+		b.store.db.Runs[index].State = "running"
 	}
+	b.store.mu.Unlock()
 	run.RunAction = "action"
 	code := 0
-	if err := service.completeRun(context.Background(), run, &code, ""); err != nil {
-		t.Fatalf("completion error = %v", err)
-	}
-	for checks.Get(key, false).Checking {
-		if time.Now().After(deadline.Add(time.Second)) {
-			t.Fatal("recheck did not finish")
-		}
+
+	// Act
+	err = b.service.completeRun(context.Background(), run, &code, "")
+	deadline := time.Now().Add(time.Minute)
+	for b.fakes.count("project:acme") < 2 && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
-	if calls.Load() != 2 {
-		t.Fatalf("checks = %d, want a recheck after the repair", calls.Load())
+	b.checked(t, "acme")
+
+	// Assert
+	if err != nil {
+		t.Fatalf("completion error = %v", err)
 	}
-	data, err := json.Marshal(store.Snapshot().Runs[0])
-	if err != nil || !strings.Contains(string(data), `"connection_task":"task-1"`) || !strings.Contains(string(data), `"finished_at"`) {
+	if got := b.fakes.count("project:acme"); got != 2 {
+		t.Fatalf("acme checked %d times, want a recheck after the repair", got)
+	}
+	data, err := json.Marshal(b.store.Snapshot().Runs[0])
+	if err != nil || !strings.Contains(string(data), `"connection_project":"acme"`) || !strings.Contains(string(data), `"finished_at"`) {
 		t.Fatalf("published run = %s, %v", data, err)
 	}
 }
 
-func waitForConnectionCheck(t *testing.T, checks *connections.Cache, key string) connections.Snapshot {
-	t.Helper()
-	deadline := time.Now().Add(time.Minute)
-	for {
-		snapshot := checks.Cached(key)
-		if !snapshot.Checking && !snapshot.CheckedAt.IsZero() {
-			return snapshot
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("connection check did not finish")
-		}
-		time.Sleep(time.Millisecond)
-	}
-}
-
-func TestIdleRepairClickUsesTheShownCheckWithoutStartingAnother(t *testing.T) {
+// A clipboard card never reads the clipboard itself, and says whether it stores
+// a variable for its project.
+func TestConnectionClipboardCardNeverWritesTheClipboardAndNamesTheProject(t *testing.T) {
+	// Arrange
 	store, h := testStore(t)
-	meta, _ := state.ReadTaskMeta(h.State, "task-1")
-	manifestPath := auth.ManifestPath(h.Data, meta.Project)
-	if err := os.MkdirAll(filepath.Dir(manifestPath), 0700); err != nil {
+	service := &Service{Store: store, Instance: "test-instance"}
+	project := connections.Project{Name: "acme", Path: filepath.Join(h.Root, "acme")}
+	if err := os.MkdirAll(project.Path, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(manifestPath, []byte(`{"project":"work","services":[{"name":"sample","method":"oauth","url":"https://example.invalid/login"}]}`), 0600); err != nil {
-		t.Fatal(err)
-	}
-	var calls atomic.Int32
-	release := make(chan struct{})
-	checks := connections.NewCache(10*time.Millisecond, time.Minute, func(context.Context, string) connections.Snapshot {
-		if calls.Add(1) > 1 {
-			<-release
-		}
-		return connections.Snapshot{Entries: []connections.Entry{{ID: "service:sample", Status: "unauthorized", Actions: []string{"login"}}}}
-	})
-	defer checks.Close()
-	defer close(release)
-	key := "task-1\ng1"
-	checks.Get(key, false)
-	waitForConnectionCheck(t, checks, key)
-	time.Sleep(20 * time.Millisecond)
-	handler := NewHTTP(&Service{Store: store, Instance: "test-instance", connectionChecks: checks}, "board.local", nil)
-	fix := func() *httptest.ResponseRecorder {
-		request := httptest.NewRequest("POST", "http://board.local/api/connections/fix", strings.NewReader(`{"task":"task-1","generation":"g1","connection":"service:sample","action":"login"}`))
-		request.Header.Set("Origin", "http://board.local")
-		request.Header.Set("X-CEO-Token", "test-instance")
-		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, request)
-		return response
-	}
-	if response := fix(); response.Code != 200 || !strings.Contains(response.Body.String(), "https://example.invalid/login") {
-		t.Fatalf("idle click returned %d: %s", response.Code, response.Body)
-	}
-	if calls.Load() != 1 || checks.Cached(key).Checking {
-		t.Fatalf("idle click started a check: %d", calls.Load())
-	}
-	checks.Get(key, true)
-	if response := fix(); response.Code != 409 {
-		t.Fatalf("click during a running check returned %d: %s", response.Code, response.Body)
-	}
-}
 
-func TestRepairFinishedDuringARunningCheckRechecksAfterIt(t *testing.T) {
-	store, h := testStore(t)
-	meta, _ := state.ReadTaskMeta(h.State, "task-1")
-	var calls atomic.Int32
-	release := make(chan struct{})
-	checks := connections.NewCache(time.Minute, time.Minute, func(context.Context, string) connections.Snapshot {
-		status := "provided"
-		if calls.Add(1) == 1 {
-			<-release
-			status = "missing"
-		}
-		return connections.Snapshot{Entries: []connections.Entry{{ID: "credential:TEST_TOKEN", Status: status}}}
-	})
-	defer checks.Close()
-	key := meta.ID + "\n" + meta.SpawnGen
-	checks.Get(key, false)
-	service := &Service{Store: store, Instance: "test-instance", connectionChecks: checks}
-	run, err := service.connectionRun(meta, connectionRequest{Task: meta.ID, Generation: meta.SpawnGen, Connection: "credential:TEST_TOKEN", Action: "store:TEST_TOKEN"}, connections.Repair{Credential: "TEST_TOKEN"})
+	// Act
+	run, err := service.connectionRun(project, connectorFixRequest{Project: "acme", Connection: "service:tokens", Action: "store:ACME_TOKEN"}, connections.Repair{Credential: "ACME_TOKEN"})
+
+	// Assert
 	if err != nil {
 		t.Fatal(err)
 	}
-	for index := range store.db.Runs {
-		store.db.Runs[index].RunAction = "action"
-		store.db.Runs[index].State = "running"
+	if run.Title != "Store ACME_TOKEN from clipboard for acme" || run.ConnectionProject != "acme" || run.Cwd != project.Path {
+		t.Fatalf("card = %q for %q in %q", run.Title, run.ConnectionProject, run.Cwd)
 	}
-	run.RunAction = "action"
-	code := 0
-	if err := service.completeRun(context.Background(), run, &code, ""); err != nil {
-		t.Fatalf("completion error = %v", err)
-	}
-	close(release)
-	snapshot := waitForConnectionCheck(t, checks, key)
-	if calls.Load() != 2 || len(snapshot.Entries) != 1 || snapshot.Entries[0].Status != "provided" {
-		t.Fatalf("checks=%d snapshot=%+v, want the post-repair result", calls.Load(), snapshot)
+	if !strings.Contains(run.Command, "Get-Clipboard -Raw | & ") || strings.Contains(run.Command, "Set-Clipboard") || !strings.HasSuffix(run.Command, " auth store --project '"+project.Path+"' 'ACME_TOKEN'\nexit $LASTEXITCODE\n") {
+		t.Fatalf("not the clipboard store: %q", run.Command)
 	}
 }
 
-// #2547, measured on the live board on 2026-11-18: 15 of 28 goblins' checks
-// failed with "Goblin runtime changed. Refresh connections.", and 14 of them
-// were paused, with no harness to check. A paused goblin is not checked: its
-// read shows its last result, not running, and a recheck starts nothing.
-// The results are kept in the state folder, so a restarted supervisor shows
-// each goblin's last result at once and starts no harness within ten
-// minutes of its check.
-func TestAPausedGoblinIsNotCheckedAndKeptResultsOutliveARestart(t *testing.T) {
-	// Arrange: two running goblins of one repository, each checked once.
-	store, home := testStore(t)
-	project := gitFixture(t)
-	var tasks []state.TaskMeta
-	for _, id := range []string{"task-1", "task-2"} {
-		meta := state.TaskMeta{ID: id, Project: project, Worktree: filepath.Join(home.Root, id), Harness: "claude", Backend: "native", SpawnGen: "g1"}
-		if output, err := execx.Command("git", "-C", project, "worktree", "add", "--detach", meta.Worktree, "HEAD").CombinedOutput(); err != nil {
-			t.Fatalf("linked fixture: %s %v", output, err)
+// No credential value reaches the page's answers or the snapshot files kept
+// under the state folder: a stored credential and a process variable are
+// planted, the real project check runs against them, and the refresh's answer,
+// the read and every file are searched.
+func TestConnectorsAnswersAndFilesHoldNoCredentialValue(t *testing.T) {
+	// Arrange
+	const storedSecret, environmentSecret = "stored-secret-8d41f0", "process-secret-02be7c"
+	b := newConnectorBoard(t, true)
+	t.Setenv("ACME_TOKEN", environmentSecret)
+	credentials, err := auth.OpenFileStore(os.Getenv(auth.StoreDirEnv))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := credentials.Set(auth.Scoped("acme", "ACME_TOKEN"), storedSecret); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	_, refresh := b.ask(t, http.MethodPost, "/api/connectors/refresh", `{"level":"project","scope":"acme"}`, nil)
+	b.checked(t, "acme")
+	_, read := b.ask(t, http.MethodGet, "/api/connectors", "", nil)
+	answers := []string{refresh, read}
+	var files strings.Builder
+	err = filepath.WalkDir(filepath.Join(b.state, connectorsFolder), func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil || entry.IsDir() {
+			return walkErr
 		}
-		if err := state.WriteTaskMeta(home.State, meta); err != nil {
-			t.Fatal(err)
+		data, readErr := os.ReadFile(path)
+		files.Write(data)
+		return readErr
+	})
+
+	// Assert
+	if err != nil || files.Len() == 0 {
+		t.Fatalf("snapshot files = %d bytes (%v), want the project's", files.Len(), err)
+	}
+	var reply connectorsReply
+	if json.Unmarshal([]byte(read), &reply) != nil || len(reply.Projects) != 1 {
+		t.Fatalf("read = %s", read)
+	}
+	var tokens connections.Item
+	for _, item := range reply.Projects[0].Items {
+		if item.ID == "service:tokens" {
+			tokens = item
 		}
-		tasks = append(tasks, meta)
 	}
-	inspector := connections.NewInspector(home.Root, home.Data, home.State)
-	inspector.Runtime = func(_ context.Context, _ string, meta state.TaskMeta) (connections.RuntimeObservation, error) {
-		return connections.RuntimeObservation{Identity: connections.RuntimeIdentity{ProcessID: 42, StartedAt: time.Unix(100, 0), Workspace: meta.Worktree}, Args: []string{"--strict-mcp-config"}}, nil
+	if tokens.Status != connections.StatusSet || len(tokens.Credentials) != 1 || !tokens.Credentials[0].IsResolved {
+		t.Fatalf("tokens = %+v, want its stored variable resolved, so the check read the planted values", tokens)
 	}
-	var harnesses atomic.Int32
-	inspector.Claude = func(context.Context, string, []string, []string) ([]connections.Entry, error) {
-		harnesses.Add(1)
-		return []connections.Entry{{ID: "mcp:tools", Name: "tools", Kind: "mcp", Status: "connected"}}, nil
-	}
-	supervise := func() (*HTTP, *connections.Cache) {
-		service := &Service{Store: store, Instance: "test-instance", connectionInspector: inspector}
-		checks, _ := service.connections()
-		return NewHTTP(service, "board.local", nil), checks
-	}
-	ask := func(handler *HTTP, request *http.Request) connections.Snapshot {
-		t.Helper()
-		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, request)
-		var snapshot connections.Snapshot
-		if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &snapshot) != nil {
-			t.Fatalf("%s: %d %s", request.URL, response.Code, response.Body)
-		}
-		return snapshot
-	}
-	read := func(handler *HTTP, meta state.TaskMeta) connections.Snapshot {
-		return ask(handler, httptest.NewRequest("GET", "http://board.local/api/connections?task="+meta.ID+"&generation="+meta.SpawnGen, nil))
-	}
-	settled := func(handler *HTTP, meta state.TaskMeta) connections.Snapshot {
-		t.Helper()
-		deadline := time.Now().Add(time.Minute)
-		latest := read(handler, meta)
-		for ; latest.Checking; latest = read(handler, meta) {
-			if time.Now().After(deadline) {
-				t.Fatalf("the check of %s did not end", meta.ID)
+	for _, text := range append(answers, files.String()) {
+		for _, secret := range []string{storedSecret, environmentSecret} {
+			if strings.Contains(text, secret) {
+				t.Fatalf("the value %q reached an answer or a snapshot file", secret)
 			}
-			time.Sleep(time.Millisecond)
 		}
-		return latest
-	}
-	handler, checks := supervise()
-	for _, meta := range tasks {
-		settled(handler, meta)
-	}
-	if harnesses.Load() != 2 {
-		t.Fatalf("the first open started %d harnesses, want 2", harnesses.Load())
-	}
-
-	// Act: the second goblin is paused, and the page reads it and rechecks it.
-	paused := time.Now().UTC()
-	if err := state.WriteLifecycle(home.State, state.Lifecycle{ID: "task-2", Generation: "g1", Operation: "pause-1", Action: "pause", Phase: "paused", Started: paused, Updated: paused, Reason: "memory"}); err != nil {
-		t.Fatal(err)
-	}
-	shown := read(handler, tasks[1])
-	body := strings.NewReader(`{"task":"task-2","generation":"g1"}`)
-	recheck := httptest.NewRequest("POST", "http://board.local/api/connections/check", body)
-	recheck.Header.Set("Origin", "http://board.local")
-	recheck.Header.Set("X-CEO-Token", "test-instance")
-	rechecked := ask(handler, recheck)
-
-	// Assert: its last result, not running, no failure and no harness.
-	for _, snapshot := range []connections.Snapshot{shown, rechecked} {
-		if snapshot.Checking || snapshot.Error != "" || len(snapshot.Entries) == 0 || snapshot.CheckedAt.IsZero() ||
-			!snapshot.NotRunning {
-			t.Fatalf("the paused goblin showed %+v, want its last result, not running", snapshot)
-		}
-	}
-	if harnesses.Load() != 2 {
-		t.Fatalf("a paused goblin started %d harnesses, want none", harnesses.Load()-2)
-	}
-
-	// Act: the supervisor restarts.
-	checks.Close()
-	handler, checks = supervise()
-	defer checks.Close()
-	first := read(handler, tasks[0])
-
-	// Assert: its last result at once, with its age, and no harness.
-	if first.Checking || len(first.Entries) == 0 || first.CheckedAt.IsZero() || harnesses.Load() != 2 {
-		t.Fatalf("after a restart the first read showed %+v with %d harnesses, want the kept result and none", first, harnesses.Load()-2)
-	}
-	if _, err := os.Stat(filepath.Join(home.State, connectionChecksFile)); err != nil {
-		t.Fatalf("kept file: %v", err)
-	}
-}
-
-// #2547: an unreadable kept file is reported to the CEO once, as the
-// supervisor's other errors are, and written over by the next check.
-func TestAnUnreadableKeptFileIsReportedToTheCEOOnceAndWrittenOver(t *testing.T) {
-	// Arrange: a running goblin, and a kept file that is not JSON.
-	store, home := testStore(t)
-	project := gitFixture(t)
-	meta := state.TaskMeta{ID: "task-1", Project: project, Worktree: filepath.Join(home.Root, "task-1"), Harness: "claude", Backend: "native", SpawnGen: "g1"}
-	if output, err := execx.Command("git", "-C", project, "worktree", "add", "--detach", meta.Worktree, "HEAD").CombinedOutput(); err != nil {
-		t.Fatalf("linked fixture: %s %v", output, err)
-	}
-	if err := state.WriteTaskMeta(home.State, meta); err != nil {
-		t.Fatal(err)
-	}
-	kept := filepath.Join(home.State, connectionChecksFile)
-	if err := os.WriteFile(kept, []byte("{not json"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	inspector := connections.NewInspector(home.Root, home.Data, home.State)
-	inspector.Runtime = func(_ context.Context, _ string, meta state.TaskMeta) (connections.RuntimeObservation, error) {
-		return connections.RuntimeObservation{Identity: connections.RuntimeIdentity{ProcessID: 42, StartedAt: time.Unix(100, 0), Workspace: meta.Worktree}, Args: []string{"--strict-mcp-config"}}, nil
-	}
-	inspector.Claude = func(context.Context, string, []string, []string) ([]connections.Entry, error) {
-		return []connections.Entry{{ID: "mcp:tools", Name: "tools", Kind: "mcp", Status: "connected"}}, nil
-	}
-	service := &Service{Store: store, Instance: "test-instance", connectionInspector: inspector}
-	handler := NewHTTP(service, "board.local", nil)
-	defer func() {
-		checks, _ := service.connections()
-		checks.Close()
-	}()
-
-	// Act: the page reads the goblin until its check ends.
-	deadline := time.Now().Add(time.Minute)
-	for {
-		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, httptest.NewRequest("GET", "http://board.local/api/connections?task="+meta.ID+"&generation="+meta.SpawnGen, nil))
-		var snapshot connections.Snapshot
-		if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &snapshot) != nil {
-			t.Fatalf("read: %d %s", response.Code, response.Body)
-		}
-		if !snapshot.Checking {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("the check did not end")
-		}
-		time.Sleep(time.Millisecond)
-	}
-
-	// Assert: one wake names it, and the file holds the check.
-	var reports []string
-	for _, record := range boardWakes(t, home.State) {
-		if strings.HasPrefix(record.Detail, "board: keeping connection checks: ") {
-			reports = append(reports, record.Detail)
-		}
-	}
-	if len(reports) != 1 {
-		t.Fatalf("the CEO was told %d times, want once: %q", len(reports), reports)
-	}
-	// The check is written to the file just after the read finds it ended.
-	key := meta.ID + "\n" + meta.SpawnGen
-	deadline = time.Now().Add(time.Minute)
-	for {
-		var held map[string]json.RawMessage
-		if data, err := os.ReadFile(kept); err == nil && json.Unmarshal(data, &held) == nil && held[key] != nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("the kept file was not written over with the check")
-		}
-		time.Sleep(time.Millisecond)
 	}
 }
