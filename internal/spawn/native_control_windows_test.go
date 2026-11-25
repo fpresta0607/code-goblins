@@ -215,7 +215,7 @@ func TestNativeDeliveryDoesNotTypeIntoAnOpenCodexPicker(t *testing.T) {
 		return []string{"Select a model", "› 1. Current", "  2. Another model", "Enter to confirm · Esc to exit"}, nil
 	}
 	err = f.service.SendNative(t.Context(), meta, "do not select a model")
-	if !errors.Is(err, fleet.ErrNotTyped) || !strings.Contains(err.Error(), "waiting on its own screen") {
+	if !errors.Is(err, fleet.ErrNotTyped) || !errors.Is(err, ErrOwnScreen) {
 		t.Fatalf("delivery = %v, want the picker to refuse input", err)
 	}
 	if after := len(named(f.events(t), "submitted")); after != before {

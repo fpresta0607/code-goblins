@@ -39,7 +39,8 @@ func nativeSample(meta state.TaskMeta, status, text string) EndpointSample {
 	}
 	return EndpointSample{
 		Verdict: ProbePresent, TabLabel: "gb-" + meta.ID, Agent: herdr.AgentAlive,
-		Capture: capture(text), Harness: meta.Harness, CountersUnavailable: true,
+		Endpoint: herdr.Endpoint{Target: herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}, WorkspaceID: meta.HerdrWorkspaceID, TabID: meta.HerdrTabID, PaneID: meta.HerdrPaneID},
+		Capture:  capture(text), Harness: meta.Harness, CountersUnavailable: true,
 		Status: status, Busy: busy,
 	}
 }
