@@ -381,6 +381,8 @@ type toolCallGoblin struct {
 	toolCPU      time.Duration
 	screen       string
 	conversation string
+	// isAtAPIError says the monitor read its turn as ended on an API error.
+	isAtAPIError bool
 }
 
 func newToolCallGoblin(t *testing.T, now time.Time) *toolCallGoblin {
@@ -425,7 +427,11 @@ func newToolCallGoblin(t *testing.T, now time.Time) *toolCallGoblin {
 func (g *toolCallGoblin) read(t *testing.T, at time.Time) {
 	t.Helper()
 	g.clock = at
-	if err := monitor.WriteObservation(g.home.State, monitor.Observation{TaskID: "slow-task", Endpoint: (herdr.Target{}).String(), EndpointVerdict: monitor.ProbePresent, Digest: g.screen, OutputDigest: g.screen, LastObserved: at, LastSeen: at, LastProgress: at, Health: monitor.HealthBusy, Reason: monitor.None}); err != nil {
+	observation := monitor.Observation{TaskID: "slow-task", Endpoint: (herdr.Target{}).String(), EndpointVerdict: monitor.ProbePresent, Digest: g.screen, OutputDigest: g.screen, LastObserved: at, LastSeen: at, LastProgress: at, Health: monitor.HealthBusy, Reason: monitor.None}
+	if g.isAtAPIError {
+		observation.Health, observation.Reason, observation.StaleSince, observation.NextEscalation = monitor.HealthStale, monitor.APIError, &at, &at
+	}
+	if err := monitor.WriteObservation(g.home.State, observation); err != nil {
 		t.Fatal(err)
 	}
 	g.service.readTrees(t.Context())
@@ -1488,6 +1494,27 @@ func TestAWedgedGoblinWithAStillScreenAndAnIdleTreeWakesOnce(t *testing.T) {
 		if !strings.Contains(detail, want) {
 			t.Errorf("wake %q lacks %q", detail, want)
 		}
+	}
+}
+
+// A goblin whose turn ended on an API error draws one wake from the monitor
+// that names the error, and the supervisor carries it on once the API answers
+// again, so no progress_stalled wake calls it stalled however long the API
+// stays down (#2863).
+func TestAGoblinWhoseTurnEndedOnAnAPIErrorIsNotCalledStalled(t *testing.T) {
+	// Arrange
+	now := time.Date(2026, 11, 24, 21, 40, 0, 0, time.UTC)
+	goblin := newToolCallGoblin(t, now)
+	goblin.isAtAPIError = true
+
+	// Act: still for 41 minutes.
+	for minute := 0; minute <= 41; minute++ {
+		goblin.read(t, now.Add(time.Duration(minute)*time.Minute))
+	}
+
+	// Assert
+	if got := progressWakeCount(t, goblin.service); got != 0 {
+		t.Errorf("a goblin at an API error drew %d progress_stalled wakes over 41 minutes, want none", got)
 	}
 }
 

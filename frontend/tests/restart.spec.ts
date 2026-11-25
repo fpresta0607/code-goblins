@@ -8,7 +8,7 @@ import { expect, test } from "./site";
 // at device scale 1.5.
 test.use({ viewport: { width: 1707, height: 900 }, deviceScaleFactor: 1.5 });
 
-test("while the fleet comes back the line says what is back, and a waiting card that it waits for memory", async ({ page }, testInfo) => {
+test("while the fleet comes back the line says what is back, and a waiting card reads paused until memory frees", async ({ page }, testInfo) => {
   // Act
   await page.goto("/tests/fixtures/restart.html?state=coming");
 
@@ -16,7 +16,10 @@ test("while the fleet comes back the line says what is back, and a waiting card 
   const line = page.getByRole("status").filter({ hasText: "after a restart" });
   await expect(line).toHaveText("Coming back after a restart: the CEO is back, 1 of 6 goblins is back.");
   await expect(line.getByRole("button")).toHaveCount(0);
-  await expect(page.getByText("Comes back when memory frees")).toBeVisible();
+  const card = page.locator(".task-card-shell").filter({ hasText: "Subscription dials" });
+  await expect(card.locator(".plain-status")).toHaveText("Paused: comes back when memory frees");
+  await expect(card.locator(".plain-status")).toHaveClass("plain-status phase-paused");
+  await expect(card.locator(".card-clock")).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("restart-coming.png") });
 });
 
