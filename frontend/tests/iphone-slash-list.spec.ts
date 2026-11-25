@@ -34,7 +34,7 @@ test("iPhone: with the keyboard up, a slash opens the list on screen above the b
     const viewport = new EventTarget();
     Object.defineProperties(viewport, {
       width: { get: () => real.width }, height: { get: () => real.height - keyboard },
-      offsetTop: { get: () => 0 }, offsetLeft: { get: () => 0 }, scale: { get: () => 1 },
+      offsetTop: { get: () => 0 }, offsetLeft: { get: () => 0 }, pageTop: { get: () => 0 }, pageLeft: { get: () => 0 }, scale: { get: () => 1 },
     });
     Object.defineProperty(window, "visualViewport", { value: viewport, configurable: true });
   }, KEYBOARD_PX);
