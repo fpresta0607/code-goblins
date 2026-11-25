@@ -258,7 +258,9 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 		// A pause cut short is retried with its own operation and finds at
 		// its handoff's place whatever it wrote there before.
 		if prior.Operation == request.Operation && prior.Phase == "pausing" {
-			result.HandoffFallback = prior.HandoffFallback
+			if info, statErr := os.Stat(result.Handoff); statErr == nil && info.Mode().IsRegular() && info.Size() > 0 {
+				result.HandoffFallback = prior.HandoffFallback
+			}
 		}
 	case "stop":
 		result.Phase = "stopping"
@@ -458,15 +460,19 @@ func (service Service) writeHandoff(ctx context.Context, meta state.TaskMeta, re
 		writingHandoff()
 		err = staged.CommitNewContext(ctx)
 	}
-	if errors.Is(err, os.ErrExist) {
+	if err != nil {
 		record.HandoffFallback = false
+		if saveErr := service.save(record); saveErr != nil {
+			record.Problems = append(record.Problems, "the pause's record could not be saved without its fallback handoff mark: "+saveErr.Error())
+		}
+	}
+	if errors.Is(err, os.ErrExist) {
 		if info, statErr := os.Stat(record.Handoff); statErr == nil && info.Mode().IsRegular() && info.Size() > 0 {
 			record.HandoffSaved = true
 			return
 		}
 	}
 	if err != nil {
-		record.HandoffFallback = false
 		record.Problems = append(record.Problems, "Stopping-point deadline reached or request failed, and the handoff the pause wrote for the goblin was not saved: "+err.Error())
 		return
 	}

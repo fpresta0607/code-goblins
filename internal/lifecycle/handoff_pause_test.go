@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -279,39 +280,112 @@ func TestASecondHandoffPauseIsTakenInPlaceOverTheFirst(t *testing.T) {
 	}
 }
 
-// A pause cut short after it wrote the fallback handoff and retried with its
-// own operation finds that fallback at its handoff's place, and still knows
-// it for the fallback, so the task never reads as handed off with it.
-func TestAPauseRetriedAfterItWroteTheFallbackKeepsItsMark(t *testing.T) {
-	// Arrange
-	service, meta := lifecycleFixture(t)
-	service.Operations.Handoff = func(context.Context, state.TaskMeta) []byte {
-		return []byte("Written for the goblin from its record.")
-	}
-	stop := service.Operations.Stop
-	var cutShort state.Lifecycle
-	service.Operations.Stop = func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) ([]string, error) {
-		saved, err := state.ReadLifecycle(service.StateDir, meta.ID)
-		if err != nil {
-			return nil, err
-		}
-		cutShort = saved
-		return stop(ctx, meta, record)
-	}
-	request := Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "handoff-pause", Action: "pause", Reason: "handoff"}
-	if _, err := service.Run(t.Context(), request); err != nil {
-		t.Fatal(err)
-	}
-	if err := state.WriteLifecycle(service.StateDir, cutShort); err != nil {
-		t.Fatal(err)
-	}
-	service.Operations.Stop = stop
+// A pause cut short once it saved its record to write the fallback handoff,
+// and retried with its own operation, keeps the mark while the fallback is at
+// its handoff's place, so the task never reads as handed off with it, and
+// drops it when the fallback never landed and the goblin then wrote its own.
+func TestAPauseRetriedAfterItSavedTheFallbackMarkKnowsWhoseHandoffItFinds(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		isFallbackKept bool
+		wantFallback   bool
+	}{
+		{name: "the fallback was put in place", isFallbackKept: true, wantFallback: true},
+		{name: "the fallback never landed and the goblin wrote its own"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			service, meta := lifecycleFixture(t)
+			service.Operations.Handoff = func(context.Context, state.TaskMeta) []byte {
+				return []byte("Written for the goblin from its record.")
+			}
+			var cutShort state.Lifecycle
+			var readErr error
+			t.Cleanup(func() { writingHandoff = func() {} })
+			writingHandoff = func() { cutShort, readErr = state.ReadLifecycle(service.StateDir, meta.ID) }
+			request := Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "handoff-pause", Action: "pause", Reason: "handoff"}
+			if _, err := service.Run(t.Context(), request); err != nil || readErr != nil {
+				t.Fatal(err, readErr)
+			}
+			writingHandoff = func() {}
+			if err := state.WriteLifecycle(service.StateDir, cutShort); err != nil {
+				t.Fatal(err)
+			}
+			if !test.isFallbackKept {
+				if err := os.Remove(filepath.Join(meta.TaskTmp, "pause-handoff-pause.md")); err != nil {
+					t.Fatal(err)
+				}
+				writesOwnHandoff(&service)
+			}
 
-	// Act
-	record, err := service.Run(t.Context(), request)
+			// Act
+			record, err := service.Run(t.Context(), request)
 
-	// Assert
-	if err != nil || record.Phase != "paused" || !record.HandoffFallback || record.IsHandedOff() {
-		t.Fatalf("retried pause = %+v, %v; want it paused, its handoff still marked the fallback", record, err)
+			// Assert
+			if err != nil || record.Phase != "paused" || !record.HandoffSaved || record.HandoffFallback != test.wantFallback || record.IsHandedOff() == test.wantFallback {
+				t.Fatalf("retried pause = %+v, %v; want it paused, its handoff's fallback mark %v", record, err, test.wantFallback)
+			}
+		})
+	}
+}
+
+// A pause saves its fallback handoff mark before it puts the fallback in
+// place, and saves it cleared as soon as the fallback is not put there, so a
+// pause cut short at any point never leaves the mark over a handoff the pause
+// did not write.
+func TestAPauseSavesItsFallbackMarkOnlyWhileItsFallbackMayLand(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		interfere     func(meta state.TaskMeta) error
+		wantSaved     bool
+		wantHandedOff bool
+	}{
+		{name: "the goblin's own handoff lands first", interfere: func(meta state.TaskMeta) error {
+			return os.WriteFile(filepath.Join(meta.TaskTmp, "pause-handoff-pause.md"), []byte("Done and left, for publication."), 0o600)
+		}, wantSaved: true, wantHandedOff: true},
+		{name: "the fallback cannot be put in place", interfere: func(meta state.TaskMeta) error {
+			return os.RemoveAll(meta.TaskTmp)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			service, meta := lifecycleFixture(t)
+			service.Operations.Handoff = func(context.Context, state.TaskMeta) []byte {
+				return []byte("Written for the goblin from its record.")
+			}
+			var beforeFallback, atStop state.Lifecycle
+			var beforeErr, interfereErr error
+			t.Cleanup(func() { writingHandoff = func() {} })
+			writingHandoff = func() {
+				beforeFallback, beforeErr = state.ReadLifecycle(service.StateDir, meta.ID)
+				interfereErr = test.interfere(meta)
+			}
+			stop := service.Operations.Stop
+			service.Operations.Stop = func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) ([]string, error) {
+				saved, err := state.ReadLifecycle(service.StateDir, meta.ID)
+				if err != nil {
+					return nil, err
+				}
+				atStop = saved
+				return stop(ctx, meta, record)
+			}
+
+			// Act
+			record, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "handoff-pause", Action: "pause", Reason: "handoff"})
+
+			// Assert
+			if beforeErr != nil || interfereErr != nil || !beforeFallback.HandoffFallback {
+				t.Fatalf("record before the fallback = %+v, %v, %v; want it saved with the fallback mark", beforeFallback, beforeErr, interfereErr)
+			}
+			if atStop.HandoffFallback {
+				t.Fatalf("record at the stop = %+v; want it saved without the fallback mark", atStop)
+			}
+			finished, readErr := state.ReadLifecycle(service.StateDir, meta.ID)
+			for _, got := range []state.Lifecycle{record, finished} {
+				if err != nil || readErr != nil || got.Phase != "paused" || got.HandoffSaved != test.wantSaved || got.HandoffFallback || got.IsHandedOff() != test.wantHandedOff {
+					t.Fatalf("pause = %+v, %v, %v; want it paused, handoff saved %v, no fallback mark", got, err, readErr, test.wantSaved)
+				}
+			}
+		})
 	}
 }
