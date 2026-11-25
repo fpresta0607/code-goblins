@@ -103,10 +103,9 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   const reportAsValue = useRef(reportAs);
   useEffect(() => { reportAsValue.current = reportAs; }, [reportAs]);
   // A switch to this terminal hands it the keyboard, at once or once it is whole.
-  const wantFocus = useRef(false);
   useEffect(() => {
     if (!focus || !shownValue.current) return;
-    if (current.current) current.current.focus(); else wantFocus.current = true;
+    if (current.current) current.current.focus(); else surface.current?.focus();
   }, [focus]);
   useEffect(() => {
     const container = surface.current;
@@ -125,7 +124,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
         const reading = prior?.readingPosition() ?? null;
         // Disposing the view it replaces takes the keyboard from the page, so
         // where the keyboard was is read first.
-        const hadKeyboard = !!prior?.element.contains(document.activeElement);
+        const hadKeyboard = document.activeElement === container || !!prior?.element.contains(document.activeElement);
         current.current = view;
         if (staged.current === view) staged.current = null;
         view.promote();
@@ -144,8 +143,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
         setEnded(false);
         setPhase("live");
         view.restoreReading(reading);
-        if (shownValue.current && (wantFocus.current || hadKeyboard)) view.focus();
-        wantFocus.current = false;
+        if (shownValue.current && hadKeyboard) view.focus();
       },
       closed: (code, why) => {
         if (!isActive) return;
@@ -219,8 +217,15 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
     : null;
   const closed = <Notice form="box" icon="terminal" className={hasScreen ? "terminal-foot" : undefined}
     actions={!isEnded && <button className="primary" disabled={!visible} onClick={() => { retries.current = 0; setUnsent(false); setPhase(current.current ? "live" : "connecting"); setReconnecting(!!current.current); setAttempt((prior) => prior + 1); }}>Reconnect</button>}>{closedWhy}</Notice>;
+  // A view still loading or reconnecting is hidden, and a hidden view can
+  // take no keyboard, so a click there gives the terminal itself the keyboard
+  // and its dictation keys until the view is shown and takes them: held there,
+  // they started nothing (#2904). A view's own keys stop at the view.
   return <section className={"native-terminal host-terminal" + (hasComposer ? " has-composer" : "")} hidden={!shown} aria-label={label}>
-    <div className="terminal-surface" ref={surface} />
+    <div className="terminal-surface" ref={surface} tabIndex={-1}
+      onFocus={(event) => { if (event.target === event.currentTarget) current.current?.focus(); }}
+      onKeyDown={(event) => { if (event.target === event.currentTarget) dictate(event.nativeEvent); }}
+      onKeyUp={(event) => { if (event.target === event.currentTarget) dictate(event.nativeEvent); }} />
     {/* Connecting is a plain line under the terminal's box, never a cover over
         it: he types into that box while it connects, and the loader must sit
         outside it (the Overlord, 2026-10-27: "the connecting loader overlays
