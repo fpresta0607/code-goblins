@@ -102,6 +102,13 @@ func sight(stateDir string, meta state.TaskMeta, open []OpenPullRequest, account
 	return isNew, WriteRecord(stateDir, record)
 }
 
+// CheckSighting refuses the cloud pull request url at head unless the
+// watch sees it there, the one the board showed him.
+func CheckSighting(stateDir string, meta state.TaskMeta, url, head string) error {
+	_, _, err := findSighting(stateDir, meta, url, head)
+	return err
+}
+
 // RecordPress records the Overlord's Bring back on the cloud pull request url at
 // head, the one the board showed him, and refuses a head the watch no
 // longer sees there.
@@ -112,10 +119,14 @@ func RecordPress(stateDir string, meta state.TaskMeta, url, head string, now tim
 }
 
 // Leave records the Overlord's Leave it on the cloud pull request url at
-// head, so its item closes until its head moves.
+// head, so its item closes until its head moves, and takes back his press
+// on it.
 func Leave(stateDir string, meta state.TaskMeta, url, head string) error {
 	return changeSighting(stateDir, meta, url, head, func(record *Record, index int) {
 		record.Cloud[index].IsLeft = true
+		if record.Press != nil && record.Press.PullRequest == url {
+			record.Press = nil
+		}
 	})
 }
 
@@ -125,17 +136,25 @@ func changeSighting(stateDir string, meta state.TaskMeta, url, head string, chan
 		return err
 	}
 	defer func() { err = errors.Join(err, unlock()) }()
-	record, isHandedOff, err := HandedOff(stateDir, meta)
+	record, index, err := findSighting(stateDir, meta, url, head)
 	if err != nil {
 		return err
 	}
+	change(&record, index)
+	return WriteRecord(stateDir, record)
+}
+
+func findSighting(stateDir string, meta state.TaskMeta, url, head string) (Record, int, error) {
+	record, isHandedOff, err := HandedOff(stateDir, meta)
+	if err != nil {
+		return record, -1, err
+	}
 	if !isHandedOff {
-		return fmt.Errorf("%s is not handed off", meta.ID)
+		return record, -1, fmt.Errorf("%s is not handed off", meta.ID)
 	}
 	index := slices.IndexFunc(record.Cloud, func(seen CloudSighting) bool { return seen.PullRequest == url && seen.Head == head })
 	if index < 0 {
-		return fmt.Errorf("%s is not open into %s at %s, or its head moved; refresh the board", url, record.Branch, head)
+		return record, -1, fmt.Errorf("%s is not open into %s at %s, or its head moved; refresh the board", url, record.Branch, head)
 	}
-	change(&record, index)
-	return WriteRecord(stateDir, record)
+	return record, index, nil
 }

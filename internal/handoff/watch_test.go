@@ -141,6 +141,42 @@ func TestPressAndLeaveNameOnlyTheHeadTheBoardShows(t *testing.T) {
 	}
 }
 
+// Leave it takes back the Overlord's press on that pull request, so no
+// return takes a press he withdrew, and keeps one on another.
+func TestLeaveTakesBackThePressOnThatPullRequest(t *testing.T) {
+	const cloud = "https://github.com/" + testRepository + "/pull/7"
+	const other = "https://github.com/" + testRepository + "/pull/8"
+	for _, test := range []struct {
+		name               string
+		pressed, pressHead string
+		wantPress          bool
+	}{
+		{name: "pressed on it", pressed: cloud, pressHead: "head-1"},
+		{name: "pressed on another", pressed: other, pressHead: "head-8", wantPress: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			f, _ := handedOff(t)
+			open := []OpenPullRequest{cloudInto(testBranch, cloud, "head-1", "teammate"), cloudInto(testBranch, other, "head-8", "teammate")}
+			if _, err := Sight(f.service.StateDir, f.meta, open, testAccount, time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			if err := RecordPress(f.service.StateDir, f.meta, test.pressed, test.pressHead, time.Now()); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			err := Leave(f.service.StateDir, f.meta, cloud, "head-1")
+
+			// Assert
+			record, readErr := ReadRecord(f.service.StateDir, f.meta.ID)
+			if err != nil || readErr != nil || (record.Press != nil) != test.wantPress || test.wantPress && record.Press.PullRequest != other {
+				t.Fatalf("leave = %v, record %+v (%v); want a press %v", err, record, readErr, test.wantPress)
+			}
+		})
+	}
+}
+
 // A teammate's pull request is brought back only with the Overlord's press
 // on it at the head GitHub reports now, so a push after the press needs a
 // new one.

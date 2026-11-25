@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -48,15 +49,18 @@ func isHandedOffWork(handedOff map[string]handoff.Record, goblin string, pr ghPu
 	return false
 }
 
-// sightCloudWork records, for each goblin of goblins whose task is handed
-// off, the open pull requests listed into its branch, and refreshes the
-// board when one is new or moved.
-func (s *Service) sightCloudWork(ctx context.Context, github *githubapi.Client, goblins []ciGoblin, listed []train.PullRequest, owners *fleetOwners, now time.Time) error {
-	handedOff := handedOffGoblins(s.Store.Home.State, goblins)
+// sightCloudWork records, for each goblin of goblins handedOff names, the
+// open pull requests listed into its branch, and refreshes the board when
+// one is new or moved. With the account gh works as unread, it sights none,
+// so none is told as a teammate's against no account.
+func (s *Service) sightCloudWork(ctx context.Context, github *githubapi.Client, goblins []ciGoblin, handedOff map[string]handoff.Record, listed []train.PullRequest, owners *fleetOwners, now time.Time) error {
 	if len(handedOff) == 0 {
 		return nil
 	}
-	account, _ := owners.account(ctx, github)
+	account, err := owners.account(ctx, github)
+	if err != nil {
+		return fmt.Errorf("cloud work: read the account gh works as: %w", err)
+	}
 	open := make([]handoff.OpenPullRequest, 0, len(listed))
 	for _, pr := range listed {
 		open = append(open, handoff.OpenPullRequest{URL: pr.URL, Title: pr.Title, Base: pr.BaseRefName, Head: pr.HeadRefOid, Author: pr.Author.Login, IsCrossRepository: pr.IsCrossRepository})
@@ -90,10 +94,10 @@ type cloudWorkRequest struct {
 
 // cloudWork serves POST /api/tasks/cloud. Leave it closes the item until
 // its head moves. Bring back records the Overlord's press on the head the
-// item showed, which is what lets a teammate's pull request back, then runs
-// goblins handoff return on that pull request in its turn, since it resumes
-// the goblin: like a Resume, it waits for memory, disk and a launch under
-// way rather than being refused.
+// item showed, which is what lets a teammate's pull request back, as it
+// runs goblins handoff return on that pull request in its turn, since it
+// resumes the goblin: like a Resume, it waits for memory, disk and a launch
+// under way rather than being refused.
 func (h *HTTP) cloudWork(w http.ResponseWriter, r *http.Request) {
 	var input cloudWorkRequest
 	if err := decodeBody(w, r, &input, 4096); err != nil {
@@ -166,8 +170,8 @@ func (s *Service) leaveCloudWork(input cloudWorkRequest) error {
 	return nil
 }
 
-// askBringBack records the Overlord's press on the head the item showed and
-// files the Bring back to run in its turn.
+// askBringBack files the Bring back on the head the item showed to run in
+// its turn, refusing a head the watch no longer sees.
 func (s *Service) askBringBack(input cloudWorkRequest) error {
 	meta, err := s.cloudSession(input)
 	if err != nil {
@@ -179,18 +183,20 @@ func (s *Service) askBringBack(input cloudWorkRequest) error {
 	if isUnderWay {
 		return taskRefusal{reason: "This task is already changing"}
 	}
-	if err := handoff.RecordPress(s.Store.Home.State, meta, input.PullRequest, input.Head, time.Now()); err != nil {
+	if err := handoff.CheckSighting(s.Store.Home.State, meta, input.PullRequest, input.Head); err != nil {
 		return taskRefusal{reason: err.Error()}
 	}
 	s.ask(askedChange{task: input.Task, bringBack: &input})
 	return nil
 }
 
-// bringBack runs a Bring back whose turn has come: goblins handoff return on
-// the pull request it names, which resumes the goblin. One that must wait
-// for memory, disk or another launch is a passing refusal.
+// bringBack runs a Bring back whose turn has come: it records the
+// Overlord's press on the head the item showed, then runs goblins handoff
+// return on the pull request it names, which resumes the goblin. One that
+// must wait for memory, disk or another launch is a passing refusal.
 func (s *Service) bringBack(input cloudWorkRequest) error {
-	if _, err := s.cloudSession(input); err != nil {
+	meta, err := s.cloudSession(input)
+	if err != nil {
 		return err
 	}
 	s.starts.Lock()
@@ -214,6 +220,9 @@ func (s *Service) bringBack(input cloudWorkRequest) error {
 		}
 	}()
 	if err := s.checkResumeRoom(input.Task); err != nil {
+		return err
+	}
+	if err := handoff.RecordPress(s.Store.Home.State, meta, input.PullRequest, input.Head, time.Now()); err != nil {
 		return err
 	}
 	s.starts.Lock()

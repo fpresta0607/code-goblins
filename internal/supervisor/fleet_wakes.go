@@ -24,6 +24,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/githubapi"
+	"github.com/fpresta0607/code-goblins/internal/handoff"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/janitor"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -940,10 +941,11 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 		hold := githubHold{state: w, repo: repo, now: currentTime}
 		github := s.Options.GitHub.Guarded(hold)
 		pollRunner := githubPollRunner{commands: runner, hold: hold}
-		listed, pullsUnreadable, pullsErr := pollPullRequests(ctx, runner, github, slug, s.Store.Home.State, w, repo, mine, owners, now)
+		handedOff := handedOffGoblins(s.Store.Home.State, mine)
+		listed, pullsUnreadable, pullsErr := pollPullRequests(ctx, runner, github, slug, s.Store.Home.State, w, repo, mine, handedOff, owners, now)
 		if listed != nil {
 			w.recordKeptOff(mine, listed)
-			errs = errors.Join(errs, s.sightCloudWork(ctx, github, mine, listed, owners, now))
+			errs = errors.Join(errs, s.sightCloudWork(ctx, github, mine, handedOff, listed, owners, now))
 		}
 		mainUnreadable, mainErr := pollMain(ctx, runner, github, slug, s.Store.Home.State, w, repo, now, s.fileFoundRoot)
 		// A refusal one of these reads met holds the overlap read and the
@@ -1504,7 +1506,7 @@ func (c ghCheck) outcome() string {
 // It returns the pull requests as a merge train reads them, and why they
 // could not be listed, apart from what went wrong raising a wake; health
 // left unread stays in w.PRUnread.
-func pollPullRequests(ctx context.Context, runner execx.Runner, github *githubapi.Client, repository, stateDir string, w *fleetWakes, repo string, goblins []ciGoblin, owners *fleetOwners, now time.Time) (listed []train.PullRequest, unreadable, err error) {
+func pollPullRequests(ctx context.Context, runner execx.Runner, github *githubapi.Client, repository, stateDir string, w *fleetWakes, repo string, goblins []ciGoblin, handedOff map[string]handoff.Record, owners *fleetOwners, now time.Time) (listed []train.PullRequest, unreadable, err error) {
 	probe, cancel := context.WithTimeout(ctx, ghCallTimeout)
 	read, err := train.ListPullRequests(probe, github, repository, "", "")
 	cancel()
@@ -1577,7 +1579,6 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, github *githubap
 	var unreadHeads []ghPullRequest
 	var changes []prHealthChange
 	trainGoblins := sync.OnceValue(func() []train.Goblin { return TrainGoblins(stateDir, repo) })
-	handedOff := handedOffGoblins(stateDir, goblins)
 	for _, pr := range watched {
 		record := w.Health[pr.URL]
 		if record.Head != pr.HeadRefOid {
