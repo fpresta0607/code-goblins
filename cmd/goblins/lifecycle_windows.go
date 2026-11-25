@@ -37,13 +37,22 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 	if request.Session, err = taskSession(h.State, meta); err != nil {
 		return state.Lifecycle{}, err
 	}
-	root, err := pipeline.DefaultRoot()
+	service, err := taskLifecycleService(h, meta, defaultCommandRuntime(), request.Reason)
 	if err != nil {
 		return state.Lifecycle{}, err
 	}
+	return service.Run(ctx, request)
+}
+
+// taskLifecycleService is the lifecycle that runs a request of reason on
+// meta's task through runtime.
+func taskLifecycleService(h home.Home, meta state.TaskMeta, runtime commandRuntime, reason string) (lifecycle.Service, error) {
+	root, err := pipeline.DefaultRoot()
+	if err != nil {
+		return lifecycle.Service{}, err
+	}
 	commands := gatedb.Runner{Next: execx.OSRunner{}}
 	gate := pipeline.Reader{Root: root, Commands: commands}
-	runtime := defaultCommandRuntime()
 	var resources lifecycle.Resources
 	admit := func() error {
 		return resumeAdmission(h, meta, supervisor.MachineMemory, fleettree.Processes, supervisor.MachineDisk, time.Now().UTC())
@@ -52,7 +61,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 		Helpers: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) ([]string, error) {
 			return reachHelpers(ctx, h, meta, record, runtime.taskLifecycle)
 		},
-		Prepare:  pauseInstruction(runtime, h, request.Reason),
+		Prepare:  pauseInstruction(runtime, h, reason),
 		Handoff:  lifecycle.HandoffWriter{StateDir: h.State, Commands: commands, GitHub: runtime.githubAPI, Owner: lifecycle.OwnerOf(h)}.Handoff,
 		Withdraw: pauseWithdrawal(runtime, h),
 		Stop: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) ([]string, error) {
@@ -137,7 +146,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			return supervisor.HandOverEndedNote(h.State, meta, prior, action)
 		},
 	}}
-	return service.Run(ctx, request)
+	return service, nil
 }
 
 // resumeAdmission says whether the machine has room to resume the paused task

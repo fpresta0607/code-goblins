@@ -11,7 +11,6 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/home"
-	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -81,20 +80,6 @@ func TestASteerQueuedForTheGoblinsNextToolCallIsDeliveredForEveryCommand(t *test
 		// Assert
 		if err != nil || len(sent) != 1 {
 			t.Errorf("err %v, sent %d; want the queued pause instruction delivered once, so the pause waits for its handoff", err, len(sent))
-		}
-	})
-	t.Run("the handoff pause instruction", func(t *testing.T) {
-		// Arrange
-		runtime := testCommandRuntime(t)
-		var sent []string
-		runtime.sendText = queuedSender(&sent)
-
-		// Act
-		err := pauseInstruction(runtime, testHome(t), "handoff")(context.Background(), state.TaskMeta{ID: "task-1"}, `C:\work\handoff.md`)
-
-		// Assert
-		if err != nil || len(sent) != 1 || sent[0] != "task-1: "+lifecycle.HandoffPauseInstruction(`C:\work\handoff.md`) {
-			t.Errorf("err %v, sent %q; want the handoff's publication instruction delivered once", err, sent)
 		}
 	})
 	t.Run("the pause withdrawal", func(t *testing.T) {

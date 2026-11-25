@@ -6,8 +6,6 @@
 package handoff
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -176,12 +174,6 @@ func (packet Packet) Text() string {
 	line("- Never mark any pull request ready, and never merge anything.")
 	text.WriteString(PacketEnd)
 	return text.String()
-}
-
-// Digest is the packet's sha256, which the task record keeps.
-func Digest(text string) string {
-	sum := sha256.Sum256([]byte(text))
-	return hex.EncodeToString(sum[:])
 }
 
 // Splice is body with packet in place of the packet it holds, or after it

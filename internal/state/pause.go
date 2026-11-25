@@ -61,7 +61,7 @@ func NewPauseCondition(reason, until string, at time.Time) (PauseCondition, erro
 			return condition, err
 		}
 	default:
-		return condition, errors.New("pause requires --reason memory, allowance, overlord, dependency, question, ci, deploy, restart or handoff")
+		return condition, errors.New("pause requires --reason memory, allowance, overlord, dependency, question, ci, deploy or restart")
 	}
 	return condition, nil
 }

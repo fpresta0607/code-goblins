@@ -542,3 +542,36 @@ func TestResumeRefusesAGoblinWhoseFailedPauseLeftItsStreamSessionRunning(t *test
 		t.Errorf("the stream session after the refused resume: %v, want it still running", err)
 	}
 }
+
+// The lifecycle a pause runs asks a handoff pause's goblin for a handoff
+// written for publication, and any other pause's for its ordinary handoff.
+func TestTheTaskLifecycleAsksAHandoffPauseForAHandoffWrittenForPublication(t *testing.T) {
+	for _, test := range []struct {
+		reason string
+		want   func(string) string
+	}{
+		{reason: "handoff", want: lifecycle.HandoffPauseInstruction},
+		{reason: "overlord", want: lifecycle.PauseInstruction},
+	} {
+		t.Run(test.reason, func(t *testing.T) {
+			// Arrange
+			h := testHome(t)
+			runtime := testCommandRuntime(t)
+			var sent []string
+			runtime.sendText = queuedSender(&sent)
+			meta := state.TaskMeta{ID: "task-1"}
+			service, err := taskLifecycleService(h, meta, runtime, test.reason)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			err = service.Operations.Prepare(context.Background(), meta, `C:\work\handoff.md`)
+
+			// Assert
+			if err != nil || len(sent) != 1 || sent[0] != "task-1: "+test.want(`C:\work\handoff.md`) {
+				t.Errorf("err %v, sent %q; want the %s pause's instruction sent once", err, sent, test.reason)
+			}
+		})
+	}
+}

@@ -77,3 +77,15 @@ func TestADependencyPauseSaysWhatItWaitsFor(t *testing.T) {
 		})
 	}
 }
+
+// goblins pause refuses the handoff reason, which only goblins handoff
+// takes, so the reasons a mistyped pause is told of leave it out.
+func TestAnUnknownPauseReasonNamesOnlyTheReasonsGoblinsPauseTakes(t *testing.T) {
+	// Act
+	_, err := NewPauseCondition("memroy", "", time.Now())
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "restart") || strings.Contains(err.Error(), "handoff") {
+		t.Fatalf("unknown reason = %v, want the reasons goblins pause takes, without handoff", err)
+	}
+}
