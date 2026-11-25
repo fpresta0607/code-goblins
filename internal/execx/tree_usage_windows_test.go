@@ -535,6 +535,11 @@ func TestTreeEndAndWaitWaitsUntilTheJobCountsNothingBeyondItsList(t *testing.T) 
 				counted = cancel
 			}
 			execx.CountUnlistedForTest(t, test.unlistedReads, counted)
+			// The process counted beyond the list is one whose end has begun, so
+			// the wait for it ends nothing again: on a loaded machine another
+			// end's reads of the machine's processes spent the caller's whole
+			// deadline (issue 2111).
+			execx.EndJobAgainForTest(t, cancel)
 
 			// Act
 			_, spared, err := tree.EndAndWait(ctx)
