@@ -21,8 +21,10 @@ export default defineConfig<{ isSteppedIn: boolean }>({
   // loaded runner, and tests/failed-once.ts names each test that passed only
   // then, so none passes unseen. A test that fails twice fails the run. At a
   // desk a failure is the answer wanted, so nothing runs again.
+  // tests/file-durations.ts records how long each spec file took, for the
+  // browser job to keep.
   retries: process.env.CI ? 1 : 0,
-  reporter: process.env.CI ? [["dot"], ["./tests/failed-once.ts"]] : "list",
+  reporter: process.env.CI ? [["dot"], ["./tests/failed-once.ts"], ["./tests/file-durations.ts"]] : "list",
   // A test that never finishes must fail a shard rather than hold the job to
   // its own limit, and every merge train waiting on the run with it (#1406).
   // In CI the run ends after 20 minutes, a third more than a shard's normal

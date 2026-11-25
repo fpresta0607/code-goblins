@@ -285,11 +285,13 @@ jobs:
   # one worker, and grow with nearly every change to the board. So each job
   # runs a share of them on a runner of its own, still on one worker, and
   # every test runs in exactly one job. tests/browser-share.ts deals the spec
-  # files out by their number of tests, the largest first: Playwright's own
-  # --shard cut its list in order, and that list puts the slowest specs last,
-  # so the last of five shares took 19 of its 20 minutes while another took 9
-  # (#2119). The share is of strategy.job-total, so one more number in the
-  # list is one more job and no test is left out.
+  # files out by the seconds tests/browser-durations.json records for each,
+  # the longest first: Playwright's own --shard cut its list in order, and
+  # that list puts the slowest specs last, so the last of five shares took 19
+  # of its 20 minutes while another took 9 (#2119). Each job keeps how long
+  # its spec files took, and node tests/browser-durations.ts <run-id> writes
+  # a run's into that file. The share is of strategy.job-total, so one more
+  # number in the list is one more job and no test is left out.
   # TestGoWorkflowRunsEveryBrowserTestOnce holds the list to 1 up to its
   # length.
   #
@@ -362,6 +364,9 @@ jobs:
           # this record, under this job's name.
           FAILED_ONCE_JOB: browser (${{ matrix.shard }}/${{ strategy.job-total }})
           FAILED_ONCE_RECORD: ${{ runner.temp }}/failed-once.jsonl
+          # tests/file-durations.ts writes how long each of this share's spec
+          # files took here, which the job keeps below.
+          BROWSER_DURATIONS_RECORD: ${{ runner.temp }}/browser-durations.json
       - name: Run the iPhone tests in WebKit
         if: matrix.shard == 1
         working-directory: frontend
@@ -378,6 +383,16 @@ jobs:
           name: failed-once-browser-${{ matrix.shard }}
           path: ${{ runner.temp }}/failed-once.jsonl
           if-no-files-found: ignore
+          retention-days: 14
+      # Of a job whose tests passed, how long each spec file took, which node
+      # tests/browser-durations.ts <run-id> gathers into the durations the
+      # shares are dealt by.
+      - name: Keep how long this share's spec files took
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-durations-${{ matrix.shard }}
+          path: ${{ runner.temp }}/browser-durations.json
+          if-no-files-found: error
           retention-days: 14
       # A browser test that fails leaves its page snapshot (error-context.md)
       # and trace in test-results, on its first try too when its second

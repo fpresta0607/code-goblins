@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import type { JSONReport, JSONReportSuite } from "@playwright/test/reporter";
-import { dealSpecFiles, testCount, type ListedSuite } from "../tests/browser-share.ts";
+import { dealSpecFiles, specWeights, testCount, type ListedSuite } from "../tests/browser-share.ts";
 
 const SOURCE = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
 const FRONTEND = path.dirname(SOURCE);
@@ -69,11 +69,39 @@ test("the shares' tests differ by no more than the largest file's", () => {
   assert.ok(Math.max(...counts) - Math.min(...counts) <= 62, `shares of ${counts.join(", ")} tests`);
 });
 
+test("a spec weighs the seconds the durations record, and one they do not record its tests times their seconds a test", () => {
+  // Arrange
+  const listed = [suite("slow.spec.ts", 10), suite("quick.spec.ts", 10), suite("new.spec.ts", 5)];
+
+  // Act
+  const weights = specWeights(listed, { "slow.spec.ts": 100, "quick.spec.ts": 20, "gone.spec.ts": 500 });
+
+  // Assert
+  assert.deepEqual([...weights], [["slow.spec.ts", 100], ["quick.spec.ts", 20], ["new.spec.ts", 30]]);
+});
+
+test("with no durations recorded, a spec weighs its number of tests", () => {
+  assert.deepEqual([...specWeights(LISTED.slice(0, 3), {})], LISTED.slice(0, 3).map((listed) => [listed.file, testCount(listed)]));
+});
+
+// Dealt by their number of tests, the shares took 13 to 15 minutes but one
+// 18 of its 20 (#2119): some specs take far longer a test than others.
+test("a spec that takes long is dealt apart from quicker ones with more tests", () => {
+  // Arrange
+  const listed = [suite("slow.spec.ts", 2), suite("first.spec.ts", 10), suite("second.spec.ts", 10)];
+
+  // Act
+  const dealt = dealSpecFiles(listed, 2, { "slow.spec.ts": 300, "first.spec.ts": 150, "second.spec.ts": 150 });
+
+  // Assert
+  assert.deepEqual(dealt, [["slow.spec.ts"], ["first.spec.ts", "second.spec.ts"]]);
+});
+
 // Playwright's own --shard gave the last of five shares every spec it lists
 // after the rest, the whole stepped-in project among them, and that share
 // took 19 of its 20 minutes while another took 9 (#2119). This deals the
-// suite the browser job lists, as the job does, and lists what Playwright
-// would run of each share.
+// suite the browser job lists, by the durations it deals by, as the job
+// does, and lists what Playwright would run of each share.
 test("the board's suite is dealt into five even shares, each test in exactly one, the stepped-in project spread among them", () => {
   // Arrange
   const scratch = mkdtempSync(path.join(tmpdir(), "browser-share-"));
@@ -94,9 +122,10 @@ test("the board's suite is dealt into five even shares, each test in exactly one
 
     // Assert
     assert.deepEqual(shares.flat().sort(), [...everyTest].sort());
-    const counts = shares.map((tests) => tests.length);
-    const largest = Math.max(...full.suites.map((listed) => testCount(listed)));
-    assert.ok(Math.max(...counts) - Math.min(...counts) <= largest, `shares of ${counts.join(", ")} tests, the largest file ${largest}`);
+    const weights = specWeights(full.suites, JSON.parse(readFileSync(path.join(FRONTEND, "tests", "browser-durations.json"), "utf8")) as Record<string, number>);
+    const seconds = shares.map((tests) => [...new Set(tests.map((listed) => listed.split(" ")[1].replace(/:\d+:\d+$/, "")))].reduce((sum, file) => sum + (weights.get(file) ?? 0), 0));
+    const largest = Math.max(...weights.values());
+    assert.ok(Math.max(...seconds) - Math.min(...seconds) <= largest, `shares of ${seconds.map(Math.round).join(", ")} s, the longest file ${Math.round(largest)} s`);
     const steppedIn = shares.map((tests) => tests.filter((listed) => listed.startsWith("stepped-in ")).length);
     assert.ok(steppedIn.filter((count) => count > 0).length > 1, `the shares hold ${steppedIn.join(", ")} stepped-in tests`);
   } finally {
