@@ -20,14 +20,14 @@ import type { JSONReport } from "@playwright/test/reporter";
 // The part of a listed suite the dealing reads: a JSONReportSuite is one.
 export interface ListedSuite {
   file: string;
-  specs: { tests: { projectName: string }[] }[];
+  specs: { tests: unknown[] }[];
   suites?: ListedSuite[];
 }
 
-// The tests of suite, of every project, or of project alone when it is named.
-export function testCount(suite: ListedSuite, project?: string): number {
-  const own = suite.specs.reduce((sum, spec) => sum + spec.tests.filter((listed) => project === undefined || listed.projectName === project).length, 0);
-  return own + (suite.suites ?? []).reduce((sum, inner) => sum + testCount(inner, project), 0);
+// The tests of suite, of every project.
+export function testCount(suite: ListedSuite): number {
+  const own = suite.specs.reduce((sum, spec) => sum + spec.tests.length, 0);
+  return own + (suite.suites ?? []).reduce((sum, inner) => sum + testCount(inner), 0);
 }
 
 // The spec files of each share, given the report's top-level suites, one to a
