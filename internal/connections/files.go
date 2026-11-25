@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -50,12 +51,15 @@ func manifestProjects(dataDir string) []string {
 	return names
 }
 
-// projectName is the name a goblin's project is listed under: the folder of
-// the manifest that names it, matched without case as Windows matches a
-// folder, else the name its path ends in. A checkout named Acme and a
-// manifest folder named acme are one project.
+// projectName is the name a goblin's project is listed under: the name its
+// path ends in, or on Windows, whose folders ignore case, the folder of the
+// manifest that names it in any case. There a checkout named Acme and a
+// manifest folder named acme are one project; elsewhere they are two.
 func projectName(dataDir, project string) string {
 	name := auth.ProjectName(project)
+	if runtime.GOOS != "windows" {
+		return name
+	}
 	for _, listed := range manifestProjects(dataDir) {
 		if strings.EqualFold(listed, name) {
 			return listed

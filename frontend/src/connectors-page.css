@@ -43,7 +43,7 @@
 .connector-group > h3 small { color: var(--muted); font-size: 1rem; font-weight: 400; }
 .connector-why { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
 .connector-rows, .connector-logins { display: grid; margin: 0; padding: 0; list-style: none; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--ghost-bg); }
-.connector-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 7rem) minmax(0, 11rem) auto; align-items: center; gap: 4px 14px; min-width: 0; padding: 11px 14px; border-top: 1px solid var(--border); }
+.connector-row { position: relative; display: grid; grid-template-columns: minmax(10rem, 1fr) minmax(0, 7rem) minmax(0, 11rem) auto; align-items: center; gap: 4px 14px; min-width: 0; padding: 11px 14px; border-top: 1px solid var(--border); }
 .connector-row:first-child, .browser-login:first-child { border-top: 0; }
 .connector-row.is-open:hover { background: #ffffff08; }
 .connector-name { display: flex; align-items: center; gap: 12px; min-width: 0; }

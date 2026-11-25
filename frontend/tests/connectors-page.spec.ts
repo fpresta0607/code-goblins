@@ -42,6 +42,8 @@ async function expectFits(page: Page, main: Locator) {
   const small = await main.locator(".connectors-page").evaluate((element) => [...element.querySelectorAll("h2, h3, p, span, strong, button, input, summary, li, small, b")]
     .filter((node) => node.textContent?.trim() && parseFloat(getComputedStyle(node).fontSize) < 16).map((node) => node.textContent));
   expect(small).toEqual([]);
+  const narrowNames = await main.locator(".connector-name").evaluateAll((names) => names.filter((name) => name.getBoundingClientRect().width < 150).map((name) => name.textContent));
+  expect(narrowNames, "no row's buttons squeeze its name to a word a line").toEqual([]);
 }
 
 for (const width of [1440, 390]) {
