@@ -142,8 +142,8 @@ The goblin stays the task's one validation owner, so the cloud's work passes the
 
 ## Pull requests
 
-1. The `internal/handoff` package, the task record's `handed_off`, the `handoff` pause reason, and `goblins handoff` and `return` and `cancel` on the command line.
-   It lands in four, each within the gate's 2000-line review: the `handoff` pause reason and the packet; the fallback mark kept across a retried pause; the task record's `handed_off` with `goblins handoff` and `cancel`; and `goblins handoff return`.
+1. The `internal/handoff` package, the handoff record's `handed_off`, the `handoff` pause reason, and `goblins handoff` and `return` and `cancel` on the command line.
+   It lands in four, each within the gate's 2000-line review: the `handoff` pause reason and the packet; the fallback mark kept across a retried pause; the handoff record's `handed_off` with `goblins handoff` and `cancel`; and `goblins handoff return`.
 2. The supervisor's watch for the cloud's pull request, the Command Center item, and the card's **Hand off** and **In the cloud**.
 
 ## Open questions

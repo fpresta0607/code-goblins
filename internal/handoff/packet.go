@@ -177,7 +177,7 @@ func (packet Packet) Text() string {
 	return text.String()
 }
 
-// Digest is the packet's sha256, which the task record keeps.
+// Digest is the packet's sha256, which the handoff record keeps.
 func Digest(text string) string {
 	sum := sha256.Sum256([]byte(text))
 	return hex.EncodeToString(sum[:])

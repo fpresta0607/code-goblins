@@ -32,6 +32,7 @@ type fakeGitHub struct {
 	pullRequests []pullRequest
 	calls        [][]string
 	failCreate   int
+	failEdit     int
 	failClose    int
 }
 
@@ -76,6 +77,10 @@ func (f *fakeGitHub) answer(args []string) (string, int) {
 		f.pullRequests = append(f.pullRequests, pullRequest{URL: url, State: "OPEN", IsDraft: slices.Contains(args, "--draft"), Body: string(body), HeadRefName: flag("--head")})
 		return "Creating draft pull request\n" + url, 0
 	case args[0] == "pr" && args[1] == "edit":
+		if f.failEdit > 0 {
+			f.failEdit--
+			return "GitHub is down", 1
+		}
 		body, _ := os.ReadFile(flag("--body-file"))
 		for index := range f.pullRequests {
 			if f.pullRequests[index].URL == args[2] {
@@ -271,13 +276,25 @@ func (f *fixture) phase(t *testing.T) (string, string) {
 	return record.Phase, record.Pause.Reason
 }
 
+// runningChecks are a check run queued or in progress and a commit status
+// pending or expected, as gh lists the checks of a head that has not
+// finished.
+var runningChecks = []checkState{{Status: "IN_PROGRESS"}, {Status: "QUEUED"}, {State: "PENDING"}, {State: "EXPECTED"}}
+
 func TestEachRefusalChangesNothing(t *testing.T) {
-	for _, test := range []struct {
+	type refusalCase struct {
 		name    string
 		arrange func(t *testing.T, f *fixture)
 		isWIP   bool
 		want    string
-	}{
+	}
+	var ciCases []refusalCase
+	for _, check := range runningChecks {
+		ciCases = append(ciCases, refusalCase{name: fmt.Sprintf("CI %s%s on the branch's ready pull request", check.Status, check.State), arrange: func(_ *testing.T, f *fixture) {
+			f.github.pullRequests = append(f.github.pullRequests, pullRequest{URL: "https://github.com/acme/widgets/pull/1", State: "OPEN", HeadRefName: testBranch, StatusCheckRollup: []checkState{{Status: "COMPLETED"}, check}})
+		}, want: "CI is still running"})
+	}
+	for _, test := range append([]refusalCase{
 		{name: "a local-only task", arrange: func(t *testing.T, f *fixture) {
 			f.writeMeta(t, func(meta *state.TaskMeta) { meta.Mode = "local-only" })
 		}, want: "local-only"},
@@ -293,15 +310,12 @@ func TestEachRefusalChangesNothing(t *testing.T) {
 				t.Fatal(err)
 			}
 		}, want: "--wip"},
-		{name: "CI running on the branch's ready pull request", arrange: func(_ *testing.T, f *fixture) {
-			f.github.pullRequests = append(f.github.pullRequests, pullRequest{URL: "https://github.com/acme/widgets/pull/1", State: "OPEN", HeadRefName: testBranch, StatusCheckRollup: []checkState{{Status: "IN_PROGRESS"}}})
-		}, want: "CI is still running"},
 		{name: "a paused goblin", arrange: func(t *testing.T, f *fixture) {
 			if _, err := f.lifecycle.Run(t.Context(), lifecycle.Request{ID: f.meta.ID, Generation: f.meta.SpawnGen, Operation: "memory-1", Action: "pause", Reason: "memory"}); err != nil {
 				t.Fatal(err)
 			}
 		}, want: "resume it first"},
-	} {
+	}, ciCases...) {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			f := newFixture(t)
@@ -752,5 +766,75 @@ func TestAHandoffCopyingTheBriefADecisionOrAStatusLineIsRefused(t *testing.T) {
 				t.Errorf("pushed or published: head %s, calls %v", f.remoteHead(t, testBranch), f.github.published())
 			}
 		})
+	}
+}
+
+// Only a ready pull request's CI holds a handoff back, so CI running on the
+// goblin's draft does not.
+func TestCIRunningOnTheGoblinsDraftDoesNotRefuseAHandoff(t *testing.T) {
+	// Arrange
+	f := newFixture(t)
+	draft := pullRequest{URL: "https://github.com/acme/widgets/pull/1", State: "OPEN", IsDraft: true, HeadRefName: testBranch, StatusCheckRollup: runningChecks}
+	f.github.pullRequests = append(f.github.pullRequests, draft)
+
+	// Act
+	record, _, err := f.service.Handoff(t.Context(), f.meta.ID, false)
+
+	// Assert
+	if err != nil || !record.IsHandedOff() || record.PullRequest != draft.URL {
+		t.Fatalf("handoff = %+v, %v; want the draft carrying the packet", record, err)
+	}
+}
+
+// The CI a handoff's own push starts does not refuse the second handoff that
+// goes on after it, since no push is left to cut that run short.
+func TestTheCIAHandoffsOwnPushStartedDoesNotRefuseItsSecondHandoff(t *testing.T) {
+	// Arrange
+	f := newFixture(t)
+	ready := pullRequest{URL: "https://github.com/acme/widgets/pull/1", State: "OPEN", HeadRefName: testBranch, StatusCheckRollup: []checkState{{Status: "COMPLETED"}}}
+	f.github.pullRequests = append(f.github.pullRequests, ready)
+	f.github.failEdit = 1
+	failed, _, first := f.service.Handoff(t.Context(), f.meta.ID, false)
+	if first == nil || !slices.Contains(failed.Steps, StepPush) || slices.Contains(failed.Steps, StepPacket) {
+		t.Fatalf("first handoff = %v with steps %v, want it failed after the push", first, failed.Steps)
+	}
+	f.github.pullRequests[0].StatusCheckRollup = []checkState{{Status: "IN_PROGRESS"}}
+
+	// Act
+	record, _, err := f.service.Handoff(t.Context(), f.meta.ID, false)
+
+	// Assert
+	if err != nil || !record.IsHandedOff() || !strings.Contains(f.github.find(ready.URL).Body, PacketStart) {
+		t.Fatalf("second handoff = %+v, %v; want it to go on and write the packet", record, err)
+	}
+}
+
+// Changes the goblin left in its worktree while it paused are never pushed
+// without --wip: the handoff stops after the pause, with nothing pushed or
+// written, and the goblin stays paused for it.
+func TestChangesLeftAtThePauseWithoutWIPPublishNothing(t *testing.T) {
+	// Arrange
+	f := newFixture(t)
+	prepare := f.lifecycle.Operations.Prepare
+	f.lifecycle.Operations.Prepare = func(ctx context.Context, meta state.TaskMeta, path string) error {
+		if err := os.WriteFile(filepath.Join(f.worktree, "draft.go"), []byte("package parser\n"), 0o600); err != nil {
+			return err
+		}
+		return prepare(ctx, meta, path)
+	}
+	head := f.remoteHead(t, testBranch)
+
+	// Act
+	record, _, err := f.service.Handoff(t.Context(), f.meta.ID, false)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "--wip") {
+		t.Fatalf("handoff = %v, want it stopped for the changes left at the pause", err)
+	}
+	if !slices.Equal(record.Steps, []string{StepPause}) || f.remoteHead(t, testBranch) != head || len(f.github.published()) > 0 {
+		t.Errorf("steps %v, head %s, calls %v; want nothing committed, pushed or published", record.Steps, f.remoteHead(t, testBranch), f.github.published())
+	}
+	if phase, reason := f.phase(t); phase != "paused" || reason != "handoff" {
+		t.Errorf("lifecycle = %s/%s, want it left paused for handoff", phase, reason)
 	}
 }

@@ -34,7 +34,6 @@ type Service struct {
 	// Screen is what a public issue on the task's repository holding text
 	// may not say, as goblins issue file reads it.
 	Screen func(ctx context.Context, meta state.TaskMeta, repository, text string) (tickets.Screen, error)
-	Now    func() time.Time
 }
 
 // task is what every handoff command reads of the task first.
@@ -43,13 +42,6 @@ type task struct {
 	commands   commands
 	branch     string
 	repository string
-}
-
-func (service Service) now() time.Time {
-	if service.Now != nil {
-		return service.Now().UTC()
-	}
-	return time.Now().UTC()
 }
 
 func (service Service) read(ctx context.Context, id string) (task, error) {
@@ -130,7 +122,7 @@ func (service Service) Handoff(ctx context.Context, id string, isWIP bool) (reco
 	if err != nil {
 		return record, "", err
 	}
-	if goblinPR != nil && !goblinPR.IsDraft && goblinPR.isCIRunning() {
+	if !record.hasStep(StepPush) && goblinPR != nil && !goblinPR.IsDraft && goblinPR.isCIRunning() {
 		return record, "", fmt.Errorf("CI is still running on %s, and a push now would cancel that run after it billed its minutes; hand off once it has ended", goblinPR.URL)
 	}
 	save := func(step string) error {
@@ -143,7 +135,7 @@ func (service Service) Handoff(ctx context.Context, id string, isWIP bool) (reco
 		// though its answer was lost is taken up by a second handoff, or ended
 		// by cancel.
 		if !isActive {
-			record.Started, record.Branch = service.now(), current.branch
+			record.Started, record.Branch = time.Now().UTC(), current.branch
 			if err := WriteRecord(service.StateDir, record); err != nil {
 				return record, "", err
 			}
@@ -153,7 +145,7 @@ func (service Service) Handoff(ctx context.Context, id string, isWIP bool) (reco
 			return record, "", err
 		}
 		if !isPaused {
-			paused, err := service.Lifecycle(ctx, lifecycle.Request{ID: id, Generation: meta.SpawnGen, Operation: fmt.Sprintf("handoff-%d", service.now().UnixNano()), Action: "pause", Reason: "handoff", IsWatched: true})
+			paused, err := service.Lifecycle(ctx, lifecycle.Request{ID: id, Generation: meta.SpawnGen, Operation: fmt.Sprintf("handoff-%d", time.Now().UnixNano()), Action: "pause", Reason: "handoff", IsWatched: true})
 			if err != nil {
 				return record, "", fmt.Errorf("pause %s for its handoff: %w; goblins handoff again goes on if the pause took hold, and goblins handoff cancel resumes it", id, err)
 			}
@@ -260,7 +252,7 @@ func (service Service) Handoff(ctx context.Context, id string, isWIP bool) (reco
 			return record, "", err
 		}
 	}
-	handedOff := service.now()
+	handedOff := time.Now().UTC()
 	record.Head, record.PacketDigest, record.HandedOff = head, Digest(text), &handedOff
 	if err := WriteRecord(service.StateDir, record); err != nil {
 		return record, "", err
@@ -418,7 +410,7 @@ func (service Service) resume(ctx context.Context, meta state.TaskMeta, note str
 	if err != nil || !isPaused {
 		return err
 	}
-	_, err = service.Lifecycle(ctx, lifecycle.Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: fmt.Sprintf("handoff-end-%d", service.now().UnixNano()), Action: "resume", Reason: "handoff ended", ResumeNote: note, IsWatched: true, IsHandoffEnd: true})
+	_, err = service.Lifecycle(ctx, lifecycle.Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: fmt.Sprintf("handoff-end-%d", time.Now().UnixNano()), Action: "resume", Reason: "handoff ended", ResumeNote: note, IsWatched: true, IsHandoffEnd: true})
 	if err != nil {
 		return fmt.Errorf("resume %s: %w", meta.ID, err)
 	}
@@ -465,7 +457,7 @@ func (service Service) Cancel(ctx context.Context, id string) (record Record, er
 	if err := service.resume(ctx, current.meta, note); err != nil {
 		return record, err
 	}
-	ended := service.now()
+	ended := time.Now().UTC()
 	record.Ended, record.Outcome = &ended, OutcomeCancelled
 	return record, WriteRecord(service.StateDir, record)
 }

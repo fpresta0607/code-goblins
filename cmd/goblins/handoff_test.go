@@ -2,10 +2,20 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"database/sql"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/gatehome"
+	"github.com/fpresta0607/code-goblins/internal/handoff"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/lifecycle"
+	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/tickets"
 )
 
 func TestGoblinsHandoffRefusesAMissingOrInvalidTaskBeforeItReadsTheHome(t *testing.T) {
@@ -42,5 +52,134 @@ func TestGoblinsHandoffRefusesAHomeThatIsNotPrimary(t *testing.T) {
 	// Assert
 	if code != 1 || !strings.Contains(failure.String(), "primary home") {
 		t.Fatalf("code=%d error=%q, want a primary home required", code, failure.String())
+	}
+}
+
+// handoffRuntime is issueRuntime's home, whose projects root holds widgets
+// and secret-project, a private one, with acme/widgets private too and a
+// teammate kept, and a gate home of its own.
+func handoffRuntime(t *testing.T) (commandRuntime, home.Home, state.TaskMeta) {
+	t.Helper()
+	t.Setenv(gatehome.Variable, t.TempDir())
+	runtime, h := issueRuntime(t, &issueGH{private: map[string]bool{"acme/widgets": true, "acme/secret-project": true}})
+	runtime.taskLifecycle = func(context.Context, home.Home, lifecycle.Request, string) (state.Lifecycle, error) {
+		return state.Lifecycle{}, nil
+	}
+	if err := tickets.RememberTeammates(h.State, []tickets.Actor{{Login: "jdoe", Name: "Jane Doe"}}); err != nil {
+		t.Fatal(err)
+	}
+	root, err := runtime.projectsRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return runtime, h, state.TaskMeta{ID: "task", Project: filepath.Join(root, "widgets")}
+}
+
+// A packet is public wherever it is published, so on a private repository
+// too it may name no teammate and no private project.
+func TestTheHandoffsScreenRefusesATeammateOrAPrivateProjectOnAPrivateRepository(t *testing.T) {
+	for _, test := range []struct{ name, text, want string }{
+		{name: "a teammate", text: "Ask Jane Doe how the parser reads headers.", want: "Jane Doe, a teammate"},
+		{name: "a private project", text: "The parser mirrors secret-project's reader.", want: "secret-project, whose repository is not public"},
+		{name: "neither", text: "The parser reads headers; its error messages are left.", want: ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			runtime, h, meta := handoffRuntime(t)
+			service, err := handoffService(runtime, h)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			screen, err := service.Screen(context.Background(), meta, "acme/widgets", test.text)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			refusal := handoff.Refusal(screen, test.text)
+			if test.want == "" && refusal != "" || !strings.Contains(refusal, test.want) {
+				t.Fatalf("refusal = %q, want %q", refusal, test.want)
+			}
+		})
+	}
+}
+
+// The handoff reads the gate run on the task's branch from the gate's
+// database: only a run that has not finished holds the branch, and a
+// database that cannot be read may hide one.
+func TestTheHandoffsGateRunIsTheUnfinishedRunOnTheBranch(t *testing.T) {
+	const head = "0123456789abcdef0123456789abcdef01234567"
+	for _, test := range []struct {
+		name, status string
+		isUnreadable bool
+		want         string
+		wantErr      bool
+	}{
+		{name: "no run on the branch"},
+		{name: "a finished run", status: "completed"},
+		{name: "a running run", status: "running", want: "run-1"},
+		{name: "a parked run", status: "awaiting_approval", want: "run-1"},
+		{name: "an unreadable database", isUnreadable: true, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			runtime, h, meta := handoffRuntime(t)
+			database := filepath.Join(os.Getenv(gatehome.Variable), "state.sqlite")
+			if test.isUnreadable {
+				if err := os.WriteFile(database, []byte("not a database"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				writer, err := sql.Open("sqlite", database)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, err = writer.Exec(`CREATE TABLE repos(id TEXT, working_path TEXT); CREATE TABLE runs(id TEXT, repo_id TEXT, branch TEXT, status TEXT, head_sha TEXT, last_pushed_sha TEXT, intent TEXT, worktree_dir TEXT, created_at INTEGER); INSERT INTO repos VALUES ('repo-1', ?);`, filepath.ToSlash(meta.Project))
+				if err == nil && test.status != "" {
+					_, err = writer.Exec(`INSERT INTO runs VALUES ('run-1', 'repo-1', 'feat/parser', ?, ?, '', '', '', 1)`, test.status, head)
+				}
+				if err := errors.Join(err, writer.Close()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			service, err := handoffService(runtime, h)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			run, err := service.GateRun(context.Background(), meta, "feat/parser")
+
+			// Assert
+			if (err != nil) != test.wantErr || run != test.want {
+				t.Fatalf("gate run = %q, %v; want %q with an error %v", run, err, test.want, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestTheHandoffsLifecycleIsTheTasksLifecycleInItsHome(t *testing.T) {
+	// Arrange
+	runtime, h, meta := handoffRuntime(t)
+	var gotHome home.Home
+	var gotRequest lifecycle.Request
+	runtime.taskLifecycle = func(_ context.Context, called home.Home, request lifecycle.Request, _ string) (state.Lifecycle, error) {
+		gotHome, gotRequest = called, request
+		return state.Lifecycle{ID: request.ID, Phase: "paused"}, nil
+	}
+	service, err := handoffService(runtime, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := lifecycle.Request{ID: meta.ID, Generation: "generation-1", Operation: "handoff-1", Action: "pause", Reason: "handoff"}
+
+	// Act
+	paused, err := service.Lifecycle(context.Background(), request)
+
+	// Assert
+	if err != nil || paused.Phase != "paused" || gotHome.State != h.State || gotRequest != request {
+		t.Fatalf("lifecycle = %+v, %v; called in %+v with %+v", paused, err, gotHome, gotRequest)
 	}
 }
