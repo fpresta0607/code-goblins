@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -236,5 +237,104 @@ func TestMemoryReadyNamesTheFloorItKeptAndTheRunsWaiting(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// lostNetwork is what goblins spawn printed last when the scheduler's start
+// of a queued task failed at its fetch on 2026-11-25, as DNS failed.
+const lostNetwork = "spawn: acquire task worktree: worktree: fetch origin: worktree: git fetch --quiet origin exited with code 128: fatal: unable to access 'https://github.com/example/project.git/': Could not resolve host: github.com"
+
+// failingSpawn answers the first failures spawns with output and an error, and
+// every later one as started, recording each.
+func failingSpawn(spawner *spawnRecorder, output string, failures int) func(context.Context, []string) (string, error) {
+	return func(ctx context.Context, args []string) (string, error) {
+		_, _ = spawner.spawn(ctx, args)
+		if len(spawner.recorded()) <= failures {
+			return output, errors.New("exit status 1")
+		}
+		return "", nil
+	}
+}
+
+// On 2026-11-25 the scheduler's start of a queued task failed on a DNS fault
+// at its fetch, and the task then waited for a Start by hand though the
+// network came back minutes later (#2905). A start that failed because the
+// network could not be reached is tried again by the scheduler once its wait
+// has passed, and the board says when; any other failure still waits for a
+// Start.
+func TestAStartThatLostTheNetworkIsTriedAgainByItself(t *testing.T) {
+	cases := []struct {
+		name       string
+		output     string
+		wantSpawns int
+		wantError  string
+	}{
+		{name: "the network could not be reached", output: lostNetwork, wantSpawns: 2, wantError: lostNetwork + "; the network could not be reached, so it tries again by itself at "},
+		{name: "the start was refused", output: "refused: the auth preflight is red", wantSpawns: 1, wantError: "refused: the auth preflight is red"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			spawner := &spawnRecorder{}
+			handler, h := startBoard(t, 8*gigabyte, spawner)
+			queueBriefedTask(t, h, "- **next-task** - Ship it (repo: code-goblins)", plainBrief)
+			handler.Service.Options.Dispatch.Spawn = failingSpawn(spawner, testCase.output, 1)
+			now := time.Now().UTC()
+			if err := handler.Service.checkFleet(t.Context(), now); err != nil {
+				t.Fatal(err)
+			}
+			awaitDispatch(t, handler.Service, spawner, 1)
+			snapshot, err := handler.Service.Snapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			failed := slices.IndexFunc(snapshot.Tasks, func(task Task) bool { return task.ID == "next-task" })
+
+			// Act: a reading after the first wait has passed.
+			if err := handler.Service.checkFleet(t.Context(), now.Add(2*time.Minute)); err != nil {
+				t.Fatal(err)
+			}
+			awaitDispatch(t, handler.Service, spawner, testCase.wantSpawns)
+
+			// Assert
+			if failed < 0 || !strings.HasPrefix(snapshot.Tasks[failed].StartError, testCase.wantError) {
+				t.Fatalf("board's start error = %+v, want it to start with %q", snapshot.Tasks, testCase.wantError)
+			}
+			if calls := spawner.recorded(); len(calls) != testCase.wantSpawns {
+				t.Fatalf("spawns = %d, want %d", len(calls), testCase.wantSpawns)
+			}
+		})
+	}
+}
+
+// A network that stays away is not tried for ever: the waits double from a
+// minute up to half an hour, and after networkStartTries failed tries the task
+// waits for a Start, as any other failed start does.
+func TestAStartThatKeepsLosingTheNetworkStopsTryingAfterItsTries(t *testing.T) {
+	// Arrange
+	spawner := &spawnRecorder{}
+	handler, h := startBoard(t, 8*gigabyte, spawner)
+	queueBriefedTask(t, h, "- **next-task** - Ship it (repo: code-goblins)", plainBrief)
+	handler.Service.Options.Dispatch.Spawn = failingSpawn(spawner, lostNetwork, 1000)
+	now := time.Now().UTC()
+
+	// Act: a reading each half hour and a minute for eight hours.
+	for reading := range 16 {
+		if err := handler.Service.checkFleet(t.Context(), now.Add(time.Duration(reading)*31*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+		awaitDispatch(t, handler.Service, spawner, 0)
+	}
+
+	// Assert
+	if calls := spawner.recorded(); len(calls) != networkStartTries {
+		t.Fatalf("spawns = %d, want %d", len(calls), networkStartTries)
+	}
+	snapshot, err := handler.Service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Scheduling == nil || len(snapshot.Scheduling.Waiting) != 1 || snapshot.Scheduling.Waiting[0].Why != "its last start failed: "+lostNetwork {
+		t.Fatalf("scheduling = %+v, want the task waiting for a Start on its last failure", snapshot.Scheduling)
 	}
 }
