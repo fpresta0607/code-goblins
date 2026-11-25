@@ -155,3 +155,33 @@ func TestAPacketWhoseContentHoldsItsOwnMarkerIsRefused(t *testing.T) {
 		})
 	}
 }
+
+// A handoff line that shares eight words in a row with a line of the task's
+// private texts copies it; seven in a row, or the same words apart, do not.
+// Case and punctuation do not hide a copy.
+func TestAHandoffLineCopyingEightWordsOfAPrivateTextIsRefused(t *testing.T) {
+	private := []string{"Intro line.\nThe parser must reject a header longer than the buffer it reads."}
+	for _, test := range []struct {
+		name      string
+		handoff   string
+		isRefused bool
+	}{
+		{name: "eight words in a row", handoff: "Done.\nNote: the parser must reject a header longer than the limit.", isRefused: true},
+		{name: "in another case and punctuation", handoff: "THE PARSER, MUST reject; a header longer -- than", isRefused: true},
+		{name: "seven words in a row", handoff: "the parser must reject a header longer, and more"},
+		{name: "the same words apart", handoff: "the parser must reject\na header longer than the buffer"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			refusal := CopyRefusal(test.handoff, private)
+
+			// Assert
+			if isRefused := refusal != ""; isRefused != test.isRefused {
+				t.Fatalf("CopyRefusal = %q, want refused %v", refusal, test.isRefused)
+			}
+			if test.isRefused && strings.Contains(refusal, "parser") {
+				t.Errorf("CopyRefusal = %q repeats what it found", refusal)
+			}
+		})
+	}
+}
