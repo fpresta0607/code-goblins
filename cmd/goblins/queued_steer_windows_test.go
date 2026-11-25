@@ -75,7 +75,7 @@ func TestASteerQueuedForTheGoblinsNextToolCallIsDeliveredForEveryCommand(t *test
 		runtime.sendText = queuedSender(&sent)
 
 		// Act
-		err := pauseInstruction(runtime, testHome(t))(context.Background(), state.TaskMeta{ID: "task-1"}, `C:\work\handoff.md`)
+		err := pauseInstruction(runtime, testHome(t), "overlord")(context.Background(), state.TaskMeta{ID: "task-1"}, `C:\work\handoff.md`)
 
 		// Assert
 		if err != nil || len(sent) != 1 {

@@ -17,7 +17,7 @@ type PauseCondition struct {
 func NewPauseCondition(reason, until string, at time.Time) (PauseCondition, error) {
 	condition := PauseCondition{Reason: reason, Until: until, At: at}
 	switch reason {
-	case "memory", "overlord":
+	case "memory", "overlord", "handoff":
 		if until != "" {
 			return condition, fmt.Errorf("%s pause does not take --until", reason)
 		}
@@ -104,6 +104,8 @@ func (condition PauseCondition) Description() string {
 		return "Paused for the PC's restart; resumes once the PC has restarted"
 	case "overlord":
 		return "Paused by the Overlord; resumes on Resume"
+	case "handoff":
+		return "Paused for a cloud handoff"
 	case "question":
 		return "Paused until the Overlord answers " + condition.Until
 	case "dependency":

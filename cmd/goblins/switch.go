@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -74,6 +75,17 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	meta, err := state.ReadTaskMeta(h.State, id)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	// A handed-off goblin's branch is the cloud session's to build on, and a
+	// switch relaunches a paused goblin outside its lifecycle.
+	record, err := state.ReadLifecycle(h.State, id)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if err == nil && record.Generation == meta.SpawnGen && record.IsHandedOff() {
+		fmt.Fprintln(stderr, "goblins switch: the task is handed off to a cloud session: goblins handoff return brings its work back and resumes it, and goblins handoff cancel resumes it without that work")
 		return 1
 	}
 	// The switch is pinned to the session the caller chose or, with none

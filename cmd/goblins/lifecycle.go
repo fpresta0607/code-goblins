@@ -45,6 +45,10 @@ func runLifecycle(command string, args []string, stdout, stderr io.Writer, runti
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
+	if action == "pause" && *reason == "handoff" {
+		fmt.Fprintln(stderr, "a handoff pause is taken by goblins handoff, which publishes the task's packet with it")
+		return 2
+	}
 	if action == "pause" {
 		var err error
 		if *reason, *until, err = pauseCondition(*reason, *until, *untilTask, *untilPR); err != nil {
