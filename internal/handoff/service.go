@@ -181,7 +181,11 @@ func (service Service) Handoff(ctx context.Context, id string, isWIP bool) (reco
 			if _, err := run.git(ctx, "add", "--all"); err != nil {
 				return record, "", err
 			}
-			if _, err := run.git(ctx, "commit", "--quiet", "--message", "wip(handoff): "+id); err != nil {
+			err := withBodyFile("wip(handoff): "+id, func(path string) error {
+				_, err := run.git(ctx, "commit", "--quiet", "--file", path)
+				return err
+			})
+			if err != nil {
 				return record, "", err
 			}
 		}
@@ -360,7 +364,7 @@ func (service Service) packet(ctx context.Context, current task, written, head, 
 		return Packet{}, err
 	}
 	if delivery != nil {
-		workflow, err := os.ReadFile(filepath.Join(current.meta.Worktree, workflowPath))
+		workflow, err := fsx.ReadFile(filepath.Join(current.meta.Worktree, workflowPath))
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return Packet{}, err
 		}

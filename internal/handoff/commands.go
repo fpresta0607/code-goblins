@@ -142,7 +142,8 @@ func (c commands) pullRequest(ctx context.Context, url string) (pullRequest, err
 }
 
 // withBodyFile runs run with the path of a file holding body, which gh
-// reads with --body-file, since the runner hands a command no input.
+// reads with --body-file and git commit with --file, since the runner hands a
+// command no input.
 func withBodyFile(body string, run func(path string) error) error {
 	file, err := os.CreateTemp("", "goblins-handoff-*.md")
 	if err != nil {
