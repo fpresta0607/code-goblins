@@ -96,9 +96,10 @@ func TestRunAllToolsPresent(t *testing.T) {
 // still healthy: only install.ps1 uses winget.
 func TestRunMissingWingetIsInstallerOnly(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi"} {
+	for _, name := range []string{"git", "gh", "tasks-axi", "quota-axi", "no-mistakes"} {
 		fakeTool(t, dir, name, name+" ok", 0)
 	}
+	fakeTool(t, dir, "gh-axi", "0.1.52", 0)
 	fakeTool(t, dir, "chrome-devtools-axi", "0.1.40-codegoblins.4", 0)
 	fakeTool(t, dir, "lavish-axi", "0.1.79-codegoblins.19", 0)
 	t.Setenv("PATH", dir)
@@ -148,9 +149,10 @@ func TestRunLavishBelowFloorOrMissingIsPresentationOnly(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			for _, name := range []string{"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi"} {
+			for _, name := range []string{"git", "gh", "tasks-axi", "quota-axi", "no-mistakes"} {
 				fakeTool(t, dir, name, name+" ok", 0)
 			}
+			fakeTool(t, dir, "gh-axi", "0.1.52", 0)
 			fakeTool(t, dir, "chrome-devtools-axi", "0.1.40-codegoblins.4", 0)
 			if tc.version != "" {
 				fakeTool(t, dir, "lavish-axi", tc.version, 0)
@@ -204,9 +206,10 @@ func TestRunChromeDevtoolsAxiThatIsNotTheForkReleaseIsMissing(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
 			dir := t.TempDir()
-			for _, name := range []string{"git", "gh", "tasks-axi", "quota-axi", "no-mistakes", "gh-axi"} {
+			for _, name := range []string{"git", "gh", "tasks-axi", "quota-axi", "no-mistakes"} {
 				fakeTool(t, dir, name, name+" ok", 0)
 			}
+			fakeTool(t, dir, "gh-axi", "0.1.52", 0)
 			fakeTool(t, dir, "lavish-axi", "0.1.79-codegoblins.19", 0)
 			if tc.version != "" {
 				fakeTool(t, dir, "chrome-devtools-axi", tc.version, 0)
@@ -234,6 +237,91 @@ func TestRunChromeDevtoolsAxiThatIsNotTheForkReleaseIsMissing(t *testing.T) {
 				t.Errorf("Healthy = %v with chrome-devtools-axi %q, want %v: %+v", Healthy(checks), tc.version, tc.wantErr == "", checks)
 			}
 		})
+	}
+}
+
+// gh-axi before 0.1.52 passes a --body-file's contents to gh on the command
+// line, which fails on Windows with spawn ENAMETOOLONG for a body over about
+// 32 KB (#2115), so doctor reads every earlier release as unhealthy, with the
+// install command for the release at the floor as the fix.
+func TestRunGhAxiBelowTheBodyFileFloorIsUnhealthy(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		version string
+		wantErr string
+	}{
+		{name: "missing", wantErr: "not found on PATH"},
+		{name: "the release on the machine that failed", version: "0.1.30", wantErr: "version 0.1.30 is below the floor"},
+		{name: "the release install.ps1 pinned", version: "0.1.35", wantErr: "version 0.1.35 is below the floor"},
+		{name: "the last release before the fix", version: "0.1.51", wantErr: "version 0.1.51 is below the floor"},
+		{name: "unparseable", version: "gh-axi dev", wantErr: "version gh-axi dev is below the floor"},
+		{name: "the release with the fix", version: "0.1.52"},
+		{name: "a later release", version: "0.2.0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			dir := t.TempDir()
+			for _, name := range []string{"git", "gh", "tasks-axi", "quota-axi", "no-mistakes"} {
+				fakeTool(t, dir, name, name+" ok", 0)
+			}
+			fakeTool(t, dir, "chrome-devtools-axi", "0.1.40-codegoblins.4", 0)
+			fakeTool(t, dir, "lavish-axi", "0.1.79-codegoblins.19", 0)
+			if tc.version != "" {
+				fakeTool(t, dir, "gh-axi", tc.version, 0)
+			}
+			t.Setenv("PATH", dir)
+			t.Setenv("GOBLINS_HOME", t.TempDir())
+
+			// Act
+			checks := Run()
+
+			// Assert
+			var ghAxi Check
+			for _, check := range checks {
+				if check.Name == "gh-axi" {
+					ghAxi = check
+				}
+			}
+			if ghAxi.Presentation || ghAxi.Installer || ghAxi.Hint != "npm install -g gh-axi@0.1.52" {
+				t.Errorf("gh-axi check = %+v, want a required check with the command that installs 0.1.52", ghAxi)
+			}
+			if ghAxi.Err != tc.wantErr {
+				t.Errorf("gh-axi Err = %q, want %q", ghAxi.Err, tc.wantErr)
+			}
+			if Healthy(checks) != (tc.wantErr == "") {
+				t.Errorf("Healthy = %v with gh-axi %q, want %v: %+v", Healthy(checks), tc.version, tc.wantErr == "", checks)
+			}
+		})
+	}
+}
+
+// The install puts in gh-axi at the doctor's floor, so a new install never
+// starts with the release whose --body-file fails on Windows (#2115).
+func TestInstallScriptPinsGhAxiAtTheDoctorsFloor(t *testing.T) {
+	// Arrange
+	script, err := os.ReadFile(filepath.Join("..", "..", "install.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var floor string
+	for _, tool := range tools {
+		if tool.name == "gh-axi" {
+			floor = tool.floor
+		}
+	}
+
+	// Act
+	pinned := ""
+	if match := regexp.MustCompile(`Name = "gh-axi";\s+Kind = "npm";\s+Cmd = "npm\.cmd install -g gh-axi@([^"]+)"`).FindSubmatch(script); match != nil {
+		pinned = string(match[1])
+	}
+
+	// Assert
+	if floor == "" {
+		t.Fatal("the doctor sets no floor for gh-axi")
+	}
+	if pinned != floor {
+		t.Errorf("install.ps1 pins gh-axi at %q, want the doctor's floor %s", pinned, floor)
 	}
 }
 
