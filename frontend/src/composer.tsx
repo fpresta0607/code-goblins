@@ -244,6 +244,9 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // One ID for what he is about to send to a goblin with no live terminal,
   // so a send retried after its answer was lost is the same message.
   const sendID = useRef("");
+  // The submission of the last message he sent through the terminal as keys,
+  // until the terminal tells what became of its Enter.
+  const [typedSent, setTypedSent] = useState("");
   const field = useRef<HTMLTextAreaElement>(null);
   // A press outside a pane closes it and leaves the keyboard where he pressed;
   // Escape and a pick hand it back to the box.
@@ -463,11 +466,22 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // screen of its own, not on the task being under way, which a goblin's is
   // while its harness waits at an empty prompt. A prompt line that holds words
   // never sent, typed in the terminal itself or put back when the harness was
-  // stopped, holds it too, since typed now it would join them. A box with no
-  // conversation, Classic's or the deck's, holds at such a screen or line too,
-  // through the board's queue it lists, and in a turn types into the
-  // harness's own queue. A compaction its hooks report holds it as a turn does.
-  const holdsForTurn = !isAsking && (isScreenOpen || !!live?.screen?.hasDraft || hasConversation && (isCompacting || !!live?.screen?.isWorking));
+  // stopped, holds it too, since typed now it would join them, and so does a
+  // message he sent as keys whose Enter still waits (#2848), whose words the
+  // screen may not show yet. A box with no conversation, Classic's or the
+  // deck's, holds at such a screen or line too, through the board's queue it
+  // lists, and in a turn types into the harness's own queue. A compaction its
+  // hooks report holds it as a turn does.
+  const holdsForTurn = !isAsking && (isScreenOpen || !!live?.screen?.hasDraft || live?.typed?.state === "waiting" || hasConversation && (isCompacting || !!live?.screen?.isWorking));
+  // A message he sent as keys whose Enter the terminal did not press, or
+  // could not deliver, says so over the box. Its words stay out of the box:
+  // they wait on the terminal's prompt line, and put back they would be typed
+  // twice.
+  const typed = link?.typed;
+  if (typedSent && typed?.submission === typedSent && typed.state !== "waiting") {
+    setTypedSent("");
+    if (typed.state === "unsent") refuse("Not sent. Its words wait unsent on the terminal's prompt line.");
+  }
   // A send the board has shown as its own action is no longer drawn from here.
   const sending = usePendingSends();
   useEffect(() => {
@@ -522,7 +536,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
       }
       // A file he added is named by its path, which Claude Code attaches only
       // from a paste, so a message carrying one stays a paste.
-      if (live?.send(text, !attached.length && isSentAsKeys(harness, text))) {
+      const isTyped = !attached.length && isSentAsKeys(harness, text);
+      const submission = live?.send(text, isTyped);
+      if (submission) {
+        if (isTyped) setTypedSent(submission);
         afterSend();
         onSend?.();
       } else setUnsent(unsentWhy);

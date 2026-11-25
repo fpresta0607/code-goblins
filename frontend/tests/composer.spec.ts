@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "./site";
 import { recordingBegins, slowMicrophone } from "./dictation-hold";
-import { asks, at, box, card, field, GOBLIN, NAME, open, openGoblin, pasted, send, snapshot, typed } from "./session-board";
+import { asks, at, box, card, field, GOBLIN, NAME, open, openGoblin, pasted, send, snapshot, typed, type Relay } from "./session-board";
 
 test.describe("phone speech history", () => {
   test.use({ hasTouch: true });
@@ -131,8 +131,14 @@ test("Shift+Enter starts a new line, and the lines go as one paste", async ({ pa
 // keys, as its terminal types them, and Modern Chat pasted every message. A
 // skill as the first word is a command, which runs from a paste as before.
 // Typed words take their Enter once the relay's screen shows them on the
-// prompt line, as SHOWS_WORDS says.
-const SHOWS_WORDS = { type: "screen", working: false, open: false, asking: false, draft: true };
+// prompt line, as SHOWS_WORDS says. shows is what the relay's screen says of
+// the prompt line, holding the typed words or not, under a context gauge
+// reading percent, which the box draws, so a test can wait until the view
+// has read the screen.
+const shows = (hasWords: boolean, percent = 12) => ({ type: "screen", working: false, open: false, asking: false, draft: hasWords, status: { gauge: percent + "% context used" } });
+const SHOWS_WORDS = shows(true);
+// What the box says of a typed message whose Enter was not pressed.
+const WORDS_WAIT_UNSENT = "Not sent. Its words wait unsent on the terminal's prompt line.";
 for (const [words, sent] of [
   ["please run /ship now", ["please run /ship now", "\r"]],
   ["first line\nthen run /ship", ["first line\nthen run /ship", "\r"]],
@@ -178,6 +184,14 @@ async function typeSkill(page: Page, words = "please run /ship now") {
   return relay;
 }
 
+// heard says each of before to the goblin's view, then screen, and waits
+// until the box draws screen's gauge: the relay's messages arrive in order,
+// so the view has read them all.
+async function heard(page: Page, relay: Relay, screen: ReturnType<typeof shows>, ...before: object[]) {
+  for (const message of [...before, screen]) relay.say(message);
+  await expect(box(page).getByRole("status", { name: "Terminal status" })).toHaveText(screen.status.gauge);
+}
+
 // The board's own typed delivery presses its Enter once the words show on
 // the prompt line and have settled (submitNative), and so does the box: a
 // Claude Code that reads the words late, on a loaded machine, takes an Enter
@@ -192,8 +206,7 @@ test("a message typed into Claude Code takes its Enter 300 ms after the relay's 
   expect(relay.typed.at(-1)).toBe("please run /ship now");
 
   // Act: the relay's screen shows the words on the prompt line.
-  relay.say(SHOWS_WORDS);
-  await expect(box(page)).toHaveAttribute("data-queues", "");
+  await heard(page, relay, SHOWS_WORDS);
 
   // Assert: the Enter follows 300 ms later, and not a moment sooner.
   await page.clock.runFor(299);
@@ -217,24 +230,129 @@ test("a message typed into Claude Code whose words the relay's screen never show
   await expect.poll(() => relay.typed.slice(-2)).toEqual(["please run /ship now", "\r"]);
 });
 
+test("a message typed into Claude Code takes its Enter 300 ms after the screen first shows the words, however the screen changes meanwhile", async ({ page }) => {
+  // Arrange
+  const relay = await typeSkill(page);
+  await heard(page, relay, SHOWS_WORDS);
+
+  // Act: 200 ms on, the screen changes, the words still on its prompt line.
+  await page.clock.runFor(200);
+  await heard(page, relay, shows(true, 13));
+  await page.clock.runFor(100);
+
+  // Assert
+  await expect.poll(() => relay.typed.slice(-2)).toEqual(["please run /ship now", "\r"]);
+});
+
+// The relay says typed keys sit unread once one has waited 1 s, as under a
+// Claude Code that reads nothing while it starts a tool, and that they were
+// read once it takes them (internal/conpty/unread_windows.go). An Enter
+// pressed while they sit unread is read with them as one burst.
+test("a message typed into Claude Code whose keys the relay says sit unread takes no Enter at 3 s, and takes it 300 ms after they were read", async ({ page }) => {
+  // Arrange
+  const relay = await typeSkill(page);
+  await page.clock.runFor(1000);
+  await heard(page, relay, shows(false, 13), { type: "unread", unread: true });
+
+  // Act and Assert: at 3 s the keys still sit unread, so no Enter comes.
+  await page.clock.runFor(2000);
+  await page.waitForTimeout(250);
+  expect(relay.typed.at(-1)).toBe("please run /ship now");
+
+  // Act: at 3.5 s the relay says the keys were read.
+  await page.clock.runFor(500);
+  await heard(page, relay, shows(false, 14), { type: "unread", unread: false });
+
+  // Assert: the Enter follows 300 ms later, and not a moment sooner.
+  await page.clock.runFor(299);
+  await page.waitForTimeout(250);
+  expect(relay.typed.at(-1)).toBe("please run /ship now");
+  await page.clock.runFor(1);
+  await expect.poll(() => relay.typed.slice(-2)).toEqual(["please run /ship now", "\r"]);
+});
+
+test("a message typed into Claude Code whose keys the relay says were read takes its Enter 300 ms later, before 3 s", async ({ page }) => {
+  // Arrange
+  const relay = await typeSkill(page);
+  await page.clock.runFor(1000);
+  await heard(page, relay, shows(false, 13), { type: "unread", unread: true });
+
+  // Act: at 1.5 s the relay says the keys were read, and 300 ms pass.
+  await page.clock.runFor(500);
+  await heard(page, relay, shows(false, 14), { type: "unread", unread: false });
+  await page.clock.runFor(300);
+
+  // Assert
+  await expect.poll(() => relay.typed.slice(-2)).toEqual(["please run /ship now", "\r"]);
+});
+
+// A message he sends while a typed message's Enter waits would join its
+// words on the prompt line, so the board's queue holds it, as it does while
+// the line holds words.
+test("a message sent while a typed message's Enter waits goes to the board's queue, and nothing says it was not sent", async ({ page }) => {
+  // Arrange
+  const relay = await typeSkill(page);
+  const posts: string[] = [];
+  await page.route("**/api/actions", (route) => {
+    posts.push((route.request().postDataJSON() as { text?: string }).text ?? "");
+    return route.fulfill({ status: 202, json: { status: "queued" } });
+  });
+  await field(page).fill("and /review it");
+
+  // Act
+  await send(page).click();
+
+  // Assert
+  await expect.poll(() => posts).toEqual(["and /review it"]);
+  expect(relay.typed.at(-1)).toBe("please run /ship now");
+  await expect(box(page).getByRole("alert")).toHaveCount(0);
+});
+
 // A question the harness opens in the prompt line's place while the Enter
 // waits, as a permission prompt in a turn does, would take the Enter as its
-// answer, so none is pressed and the words stay typed, as the board's own
-// delivery leaves them.
+// answer, so none is pressed, and the box says the words wait unsent.
 test("a message typed into Claude Code takes no Enter once a question opens in its prompt line's place, when it falls due or at 3 s", async ({ page }) => {
   // Arrange
   const relay = await typeSkill(page);
-  relay.say(SHOWS_WORDS);
-  await expect(box(page)).toHaveAttribute("data-queues", "");
+  await heard(page, relay, SHOWS_WORDS);
 
   // Act: a question takes the line's place before the Enter falls due.
   relay.say({ type: "screen", asking: true, open: true, working: false, panel: { rows: ["Do you want to proceed?"], choices: [{ text: "Yes", number: 1, focused: true }, { text: "No", number: 2 }] } });
   await expect(asks(page)).toContainText("Do you want to proceed?");
   await page.clock.runFor(300);
-  await page.clock.runFor(3000);
 
   // Assert
+  await expect(box(page).getByRole("alert")).toHaveText(WORDS_WAIT_UNSENT);
+  await page.clock.runFor(3000);
   await page.waitForTimeout(250);
+  expect(relay.typed.at(-1)).toBe("please run /ship now");
+});
+
+// The relay drops what is typed while typing is held, so an Enter pressed
+// then would never reach the harness.
+test("a message typed into Claude Code takes no Enter once typing is held, and the box says its words wait unsent", async ({ page }) => {
+  // Arrange
+  const relay = await typeSkill(page);
+  await heard(page, relay, SHOWS_WORDS);
+
+  // Act: typing is held before the Enter falls due.
+  await heard(page, relay, shows(true, 13), { type: "held", reason: "pipeline owns this task" });
+  await page.clock.runFor(300);
+
+  // Assert
+  await expect(box(page).getByRole("alert")).toHaveText(WORDS_WAIT_UNSENT);
+  expect(relay.typed.at(-1)).toBe("please run /ship now");
+});
+
+test("a message typed into Claude Code whose connection the relay closes while its Enter waits takes no Enter, and the box says its words wait unsent", async ({ page }) => {
+  // Arrange
+  const relay = await typeSkill(page);
+
+  // Act
+  relay.drop();
+
+  // Assert
+  await expect(box(page).getByRole("alert")).toHaveText(WORDS_WAIT_UNSENT);
   expect(relay.typed.at(-1)).toBe("please run /ship now");
 });
 
@@ -247,8 +365,7 @@ test("a message typed into Claude Code that ends in a skill takes its Enter whil
   const relay = await typeSkill(page, "first line\nthen run /ship");
 
   // Act
-  relay.say({ ...SHOWS_WORDS, open: true });
-  await expect(box(page)).toHaveAttribute("data-queues", "");
+  await heard(page, relay, { ...SHOWS_WORDS, open: true });
   await page.clock.runFor(300);
 
   // Assert

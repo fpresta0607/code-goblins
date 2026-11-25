@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { ScreenState } from "./terminalStream";
+import type { TypedState } from "./terminalView";
 
 // A live terminal's link, which its HostTerminal offers by the terminal
 // deck's key for it, so the Messages view's box types through the terminal's
@@ -25,6 +26,11 @@ export interface TerminalLink {
   // Whether the view shows a session on stream-json pipes, which is held for
   // typing yet still stops a turn on Escape.
   isStream: boolean;
+  // What last became of a message send typed as keys, named by the
+  // submission send returned: its Enter waits, was pressed, or was not
+  // pressed or could not reach the terminal, so its words wait unsent on the
+  // prompt line; null until one is typed.
+  typed: { submission: string; state: TypedState } | null;
   // send types text as one paste and presses Enter, or as keys where isTyped,
   // and says whether it was sent, by its submission ID, or null; paste types
   // text as one paste with no Enter, and says whether it was sent; escape

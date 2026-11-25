@@ -10,7 +10,7 @@ import { TerminalTouchTools } from "./terminal-touch-tools";
 import { isDetachedHold } from "./terminalInput";
 import { closedReason, ended, reconnects, type ScreenState, storedFontSize, storeFontSize } from "./terminalStream";
 import { offerLink } from "./terminal-link";
-import { TerminalView } from "./terminalView";
+import { TerminalView, type TypedState } from "./terminalView";
 import { useDictation } from "./useDictation";
 import { VoiceBubble } from "./VoiceBubble";
 
@@ -70,6 +70,10 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   const [isUnsent, setUnsent] = useState(false);
   // What the view was last told of the harness's screen.
   const [screen, setScreen] = useState<ScreenState | null>(null);
+  // What last became of a message the box typed as keys, from any of this
+  // terminal's views: one a reconnect replaced tells too, since its dispose
+  // presses an Enter that waited, or finds it cannot.
+  const [typed, setTyped] = useState<{ submission: string; state: TypedState } | null>(null);
   // What a touch tool or a pasted picture met, for a moment, and the
   // terminal's text while it is laid out to select.
   const [feedback, showFeedback] = useClickFeedback();
@@ -179,6 +183,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
       stream: () => { if (current.current === view || !current.current) setStream(true); },
       unsent: () => { if (current.current === view) setUnsent(true); },
       screen: (state) => { if (current.current === view) setScreen(state); },
+      typed: (submission, state) => setTyped({ submission, state }),
       history: () => { if (current.current === view) onHistoryValue.current?.(); },
     });
     staged.current = view;
@@ -196,7 +201,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   useEffect(() => {
     if (!link) return;
     offerLink(link, {
-      phase, isReconnecting: reconnecting || !visible, isDictating: dictation.listening, isUnread, held: heldWhy, screen, isStream,
+      phase, isReconnecting: reconnecting || !visible, isDictating: dictation.listening, isUnread, held: heldWhy, screen, isStream, typed,
       stopDictation: dictation.stop,
       feedback: feedback || dictation.note,
       send: (text, isTyped) => phase === "live" && !reconnecting && visible ? current.current?.submit(text, isTyped) ?? null : null,
@@ -205,7 +210,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
       control: (keys) => phase === "live" && !reconnecting && visible ? current.current?.control(keys) ?? false : false,
     });
     return () => offerLink(link, null);
-  }, [link, phase, reconnecting, visible, isUnread, heldWhy, screen, isStream, dictation.listening, dictation.stop, dictation.note, feedback]);
+  }, [link, phase, reconnecting, visible, isUnread, heldWhy, screen, isStream, typed, dictation.listening, dictation.stop, dictation.note, feedback]);
   // While the view is live one notice says what keeps his keys from the
   // program, the most pressing first, never two at once (the Overlord,
   // 2026-11-04): a key it could not send while it reconnects, the reconnect,
