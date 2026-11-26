@@ -118,9 +118,10 @@ func TestPRMergeCommandRefusesAHeldProjectsPullRequestThatNeverCarriedHold(t *te
 	}
 }
 
-// A held project's checkout the fleet knows only from a goblin's task, kept
-// outside the projects root, guards its pull requests as the trains do, and
-// so does it on a machine with no projects root recorded.
+// A held project's checkout the fleet knows only from a goblin's task in the
+// home goblins pr merge runs in, kept outside the projects root, guards its
+// pull requests as the trains do, and so does it on a machine with no projects
+// root recorded.
 func TestPRMergeRefusesAHeldProjectKnownOnlyFromATasksCheckout(t *testing.T) {
 	for name, isRootRecorded := range map[string]bool{
 		"outside the projects root":    true,
@@ -147,11 +148,16 @@ func TestPRMergeRefusesAHeldProjectKnownOnlyFromATasksCheckout(t *testing.T) {
 			if err := state.WriteTaskMeta(stateDir, state.TaskMeta{ID: "root-widgets-7", Project: checkout, Harness: "claude", Backend: "native", SpawnGen: "s1"}); err != nil {
 				t.Fatal(err)
 			}
-			runner := &prMergeRunner{origins: map[string]string{checkout: "git@github.com:o/r.git"}}
+			runner := &prMergeRunner{localOid: prMergeHeadOID, origins: map[string]string{checkout: "git@github.com:o/r.git"}}
+			runtime := commandRuntime{
+				githubAPI:    githubtest.Client(runner),
+				resolveHome:  func() (home.Home, error) { return home.Home{Data: data, State: stateDir}, nil },
+				projectsRoot: func() (string, error) { return root, nil },
+			}
 			var stdout, stderr bytes.Buffer
 
 			// Act
-			exit := runPRMerge([]string{queuedPRURL}, &stdout, &stderr, runner, githubtest.Client(runner), nil, data, stateDir, root)
+			exit := runPR("merge", []string{queuedPRURL}, &stdout, &stderr, runner, runtime)
 
 			// Assert
 			if calls := mergeCalls(runner); exit != 1 || len(calls) != 0 {
