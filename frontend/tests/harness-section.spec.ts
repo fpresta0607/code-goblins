@@ -3,11 +3,14 @@ import { CEO_DOOR, expect, openTaskList, taskList, type Page, test } from "./sit
 // The Overlord, 2026-10-13: every harness control belongs in a category of
 // its own named Harness, for queued tasks, active goblins and the CEO.
 // Nothing stands below the selectors, and an active goblin gets the CEO's
-// Restart with its harness, model and effort.
+// Restart with its harness.
 const catalog = { harnesses: [
   { id: "codex", name: "Codex", models: [
     { id: "current-model", name: "Current model", efforts: ["low", "high", "xhigh"], default_effort: "high" },
     { id: "next-model", name: "Next model", efforts: ["low", "high"], default_effort: "low" },
+  ] },
+  { id: "claude", name: "Claude Code", models: [
+    { id: "claude-model", name: "Claude model", efforts: ["high", "xhigh"], default_effort: "xhigh" },
   ] },
 ] };
 const task = (phase: string) => ({ id: "engine-task", title: "Choose the task engine", project: "code-goblins", harness: "codex", model: "current-model", effort: "xhigh", phase, verified: false, backend: "native", generation: phase === "queued" ? "" : "s1", queue_revision: "q1", brief: true });
@@ -55,73 +58,6 @@ async function openCeo(page: Page) {
 }
 
 const harness = (page: Page) => page.locator("details.harness");
-
-test("the CEO engine is saved for a safe turn without restarting on selection", async ({ page }) => {
-  const posts = await open(page, []);
-  await openCeo(page);
-  await harness(page).locator("> summary").click();
-  const engine = harness(page).getByRole("group", { name: "CEO engine" });
-  await engine.getByRole("combobox", { name: "Model" }).selectOption("current-model");
-  await engine.getByRole("combobox", { name: "Effort" }).selectOption("xhigh");
-  expect(posts).toHaveLength(0);
-  await engine.getByRole("button", { name: "Save" }).click();
-  await expect.poll(() => posts).toEqual([{ path: "/api/ceo/engine", body: { harness: "codex", model: "current-model", effort: "xhigh" } }]);
-});
-
-// A selection waits for the CEO's own safe turn, and the board says so beside
-// its selectors rather than showing it as applied.
-test("a CEO engine the CEO cannot take yet shows as pending with its reason", async ({ page }) => {
-  const waiting = "Waiting for python.exe (pid 2) in the CEO's terminal to finish";
-  await open(page, [], { ceo_engine: { harness: "codex", model: "next-model", effort: "low", pending: true, problem: "", waiting } });
-  await openCeo(page);
-  await harness(page).locator("> summary").click();
-  const engine = harness(page).getByRole("group", { name: "CEO engine" });
-  await expect(engine.getByRole("combobox", { name: "Model" })).toHaveValue("next-model");
-  await expect(engine.getByRole("combobox", { name: "Effort" })).toHaveValue("low");
-  await expect(engine.locator(".engine-pending")).toHaveText("Pending: next-model low · " + waiting);
-});
-
-// The CEO's engine record names the effort default where its session named
-// no level a start takes (internal/supervisor/session_engine.go): the
-// selector shows it as Default, as a task's selector does, never as an effort
-// the model lacks.
-test("a CEO engine at the harness's own effort shows Default, not an unavailable effort", async ({ page }) => {
-  // Arrange
-  await open(page, [], { ceo_engine: { harness: "codex", model: "current-model", effort: "default", pending: false, problem: "", waiting: "" } });
-
-  // Act
-  await openCeo(page);
-  await harness(page).locator("> summary").click();
-
-  // Assert
-  const engine = harness(page).getByRole("group", { name: "CEO engine" });
-  const effort = engine.getByRole("combobox", { name: "Effort" });
-  await expect(effort).toHaveValue("default");
-  await expect(effort.locator("option:checked")).toHaveText("Default");
-  await expect(engine).not.toContainText("unavailable");
-});
-
-// The server takes harness, model and effort only and refuses any other key,
-// so a saved engine's pending, problem and waiting never ride along (#1581).
-for (const change of [
-  { combobox: "Model", option: "current-model", body: { harness: "codex", model: "current-model", effort: "high" } },
-  { combobox: "Effort", option: "high", body: { harness: "codex", model: "next-model", effort: "high" } },
-] as const) {
-  test(`a saved CEO engine's ${change.combobox.toLowerCase()} change posts only its harness, model and effort`, async ({ page }) => {
-    // Arrange
-    const posts = await open(page, [], { ceo_engine: { harness: "codex", model: "next-model", effort: "low", pending: false, problem: "", waiting: "" } });
-    await openCeo(page);
-    await harness(page).locator("> summary").click();
-    const engine = harness(page).getByRole("group", { name: "CEO engine" });
-
-    // Act
-    await engine.getByRole("combobox", { name: change.combobox }).selectOption(change.option);
-    await engine.getByRole("button", { name: "Save" }).click();
-
-    // Assert
-    await expect.poll(() => posts).toEqual([{ path: "/api/ceo/engine", body: change.body }]);
-  });
-}
 
 for (const who of ["goblin", "CEO"] as const) {
   for (const transition of ["breakpoint", "maximize", "disclosure"] as const) {
@@ -188,7 +124,13 @@ for (const phase of ["queued", "paused"]) {
   });
 }
 
-test("an active goblin's Harness has Restart beside its selectors: unchanged it restarts the goblin, changed it switches at once", async ({ page }) => {
+// The Overlord, 2026-11-24: "also in task paenl harness selector page you
+// shouldnt be able to select the saved default model just ahrenss type and
+// restart" (#2846). The model's button in the chat box sets a running
+// session's model and effort, so a running goblin's Harness and the CEO's
+// hold the harness and Restart alone; a queued or paused task, which no
+// chat runs yet, keeps its selectors.
+test("an active goblin's Harness holds its harness and Restart and no model or effort: unchanged it restarts the goblin, on another harness it switches at once", async ({ page }) => {
   // Arrange
   const posts = await open(page, [task("working")]);
   await openTask(page);
@@ -200,16 +142,36 @@ test("an active goblin's Harness has Restart beside its selectors: unchanged it 
   await restart.click();
 
   // Assert
+  await expect(engine.getByRole("combobox", { name: "Harness", exact: true })).toHaveValue("codex");
+  await expect(engine.getByRole("combobox", { name: "Model", exact: true })).toHaveCount(0);
+  await expect(engine.getByRole("combobox", { name: "Effort", exact: true })).toHaveCount(0);
   await expect.poll(() => posts).toEqual([{ path: "/api/tasks/engine", body: { task: "engine-task", generation: "s1", revision: "q1", harness: "codex", model: "current-model", effort: "xhigh", when: "restart" } }]);
 
   // Act
-  await engine.getByRole("combobox", { name: "Model", exact: true }).selectOption("next-model");
+  await engine.getByRole("combobox", { name: "Harness", exact: true }).selectOption("claude");
   await restart.click();
 
-  // Assert: no dialog and no words, the switch goes at once.
+  // Assert: no dialog and no words, the switch goes at once, onto the
+  // harness's first model at its own effort.
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect.poll(() => posts.length).toBe(2);
-  expect(posts[1]).toEqual({ path: "/api/tasks/engine", body: { task: "engine-task", generation: "s1", revision: "q1", harness: "codex", model: "next-model", effort: "low", when: "now" } });
+  expect(posts[1]).toEqual({ path: "/api/tasks/engine", body: { task: "engine-task", generation: "s1", revision: "q1", harness: "claude", model: "claude-model", effort: "xhigh", when: "now" } });
+});
+
+test("the CEO's Harness holds Restart and its harness, and no model or effort of its own", async ({ page }) => {
+  // Arrange: a CEO whose engine record names its model and effort.
+  const posts = await open(page, [], { ceo_engine: { harness: "codex", model: "next-model", effort: "low", pending: false, problem: "", waiting: "" } });
+  await openCeo(page);
+
+  // Act
+  await harness(page).locator("> summary").click();
+  await harness(page).getByRole("button", { name: "Restart the CEO" }).click();
+
+  // Assert
+  await expect(harness(page).getByRole("button", { name: "Harness: Codex" })).toBeVisible();
+  await expect(harness(page).getByRole("combobox", { name: "Model" })).toHaveCount(0);
+  await expect(harness(page).getByRole("combobox", { name: "Effort" })).toHaveCount(0);
+  await expect.poll(() => posts).toEqual([{ path: "/api/ceo/restart", body: { harness: "codex" } }]);
 });
 
 test("the CEO's Restart and harness are under Harness in its panel, not in its header", async ({ page }) => {

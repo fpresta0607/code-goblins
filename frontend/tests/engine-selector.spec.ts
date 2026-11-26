@@ -5,6 +5,9 @@ const catalog = { harnesses: [
     { id: "current-model", name: "Current model", efforts: ["low", "high", "xhigh"], default_effort: "high" },
     { id: "next-model", name: "Next model", efforts: ["low", "high"], default_effort: "low" },
   ] },
+  { id: "claude", name: "Claude Code", models: [
+    { id: "claude-model", name: "Claude model", efforts: ["low", "high"], default_effort: "high" },
+  ] },
   { id: "pi", name: "pi", reason: "Sign in to pi", models: [] },
 ] };
 const task = (phase: string) => ({ id: "engine-task", title: "Choose the task engine", project: "code-goblins", harness: "codex", model: "current-model", effort: "xhigh", phase, verified: false, backend: "native", generation: phase === "queued" ? "" : "s1", queue_revision: "q1", brief: true, archived: phase === "done" });
@@ -152,18 +155,18 @@ for (const width of [1440, 390]) {
       const posts: unknown[] = [];
       await open(page, "working", posts);
       const engine = page.getByRole("group", { name: "Task engine", exact: true });
-      await engine.getByRole("combobox", { name: "Model", exact: true }).selectOption("next-model");
+      await engine.getByRole("combobox", { name: "Harness", exact: true }).selectOption("claude");
       await engine.getByRole("button", { name: /^Restart/ }).click();
       await expect.poll(() => posts.length).toBe(1);
-      expect(posts[0]).toMatchObject({ when: "now", model: "next-model" });
+      expect(posts[0]).toMatchObject({ when: "now", harness: "claude", model: "claude-model", effort: "high" });
       await expect(page.getByRole("dialog")).toHaveCount(0);
-      await expect(engine.getByRole("combobox", { name: "Model", exact: true })).toHaveValue("current-model");
-      await page.evaluate((live) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: { instance: "fixture", ceo_runs: true, healthy: true, revision: 3, tasks: [live] } })), { ...task("working"), generation: "s2", model: "next-model", effort: "low" });
+      await expect(engine.getByRole("combobox", { name: "Harness", exact: true })).toHaveValue("codex");
+      await page.evaluate((live) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: { instance: "fixture", ceo_runs: true, healthy: true, revision: 3, tasks: [live] } })), { ...task("working"), generation: "s2", harness: "claude", model: "claude-model", effort: "high" });
       // A new generation remounts the panel, which folds its task list again, so
       // the header he reads the harness in is opened once more.
       await openTaskList(page);
       await page.locator("details.harness > summary").click();
-      await expect(engine.getByRole("combobox", { name: "Model", exact: true })).toHaveValue("next-model");
+      await expect(engine.getByRole("combobox", { name: "Harness", exact: true })).toHaveValue("claude");
     });
 
     test("completed engine is read only and includes its effort", async ({ page }) => {
@@ -197,7 +200,6 @@ test("pending turn-end choice can be cancelled", async ({ page }) => {
   await expect.poll(() => posts).toEqual([{ task: "engine-task", generation: "s1", revision: "q1", harness: "codex", model: "current-model", effort: "xhigh", when: "cancel" }]);
   await page.evaluate((live) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: { instance: "fixture", ceo_runs: true, healthy: true, revision: 2, tasks: [live] } })), task("working"));
   await expect(engine).not.toContainText("Pending:");
-  await expect(engine.getByRole("combobox", { name: "Model", exact: true })).toHaveValue("current-model");
 });
 
 test("current unavailable model is preserved until a valid choice is made", async ({ page }) => {

@@ -7,7 +7,6 @@ import { ConnectorMark } from "./ConnectorMark";
 import { Disclosure } from "./Disclosure";
 import { Icon } from "./Icon";
 import { EngineSelector } from "./engine-selector";
-import { CeoEngineSelector } from "./ceo-engine-selector";
 import { DevDriveSetting } from "./dev-drive-setting";
 import { isCeoRestartOffered, RestartCeoButton } from "./restart-ceo-button";
 import { RemoteAccessSetting } from "./remote-access-setting";
@@ -60,7 +59,6 @@ export function WorkspaceDetails({ task, node, snapshot, connected, onConnectors
           {model && <li><ConnectorMark mark={provider.mark} label={provider.provider} /><span className="connection-name">{model}<span className="chip">Model</span></span></li>}
         </ul>}
         {isCeo && <RestartCeoButton snapshot={snapshot} />}
-        {isCeo && <CeoEngineSelector snapshot={snapshot} />}
       </>}
     </Disclosure>
     {hasConnectors && <button type="button" className="connectors-link" onClick={onConnectors}><Icon name="plug" />Connectors<Icon name="next" /></button>}
