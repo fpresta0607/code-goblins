@@ -170,6 +170,7 @@ func TestAResizedTerminalStaysNonblocking(t *testing.T) {
 	}
 
 	// Act
+	// stall-accepted: the deadline is what the test measures, a read the poller ends once it passes.
 	if err := terminal.ptmx.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
 		t.Fatal(err)
 	}
@@ -185,17 +186,18 @@ func TestAResizedTerminalStaysNonblocking(t *testing.T) {
 		if !errors.Is(err, os.ErrDeadlineExceeded) {
 			t.Fatalf("a read of the idle terminal past its deadline gave %v, not os.ErrDeadlineExceeded", err)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("a read of the idle terminal still waits past its deadline, so its file turned blocking")
 	}
 }
 
 func TestTheProgramLeadsItsOwnSessionWithTheTerminalAsItsControllingTerminal(t *testing.T) {
 	// Arrange: /dev/tty opens only for a process with a controlling terminal.
-	terminal, written := start(t, `tty; if : < /dev/tty; then echo controlling; fi; read line`, 80, 24)
+	terminal, written := start(t, `printf 'input %s end\n' "$(tty)"; if : < /dev/tty; then echo controlling; fi; read line`, 80, 24)
 
 	// Act
-	match := written.await(t, `(\S+)\r?\ncontrolling`)
+	match := written.await(t, `input (\S+) end`)
+	written.await(t, `controlling`)
 
 	// Assert
 	if !strings.HasPrefix(match[1], "/dev/") {

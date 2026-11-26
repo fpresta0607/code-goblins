@@ -64,10 +64,7 @@ func Start(spec Spec) (*Terminal, error) {
 		return nil, err
 	}
 	ptmx := os.NewFile(uintptr(fd), "/dev/ptmx")
-	if err := resize(ptmx, spec.Cols, spec.Rows); err != nil {
-		ptmx.Close()
-		return nil, err
-	}
+	// macOS refuses to size the terminal until its device has been opened.
 	tty, err := os.OpenFile(name, os.O_RDWR|unix.O_NOCTTY, 0)
 	if err != nil {
 		ptmx.Close()
@@ -76,6 +73,10 @@ func Start(spec Spec) (*Terminal, error) {
 	// The process holds the terminal from here, so once it and everything it
 	// starts have closed it, Linux reads the terminal as an input/output error.
 	defer tty.Close()
+	if err := resize(ptmx, spec.Cols, spec.Rows); err != nil {
+		ptmx.Close()
+		return nil, err
+	}
 	cmd := execx.Command(spec.Args[0], spec.Args[1:]...)
 	cmd.Dir = spec.Dir
 	cmd.Env = spec.Env
