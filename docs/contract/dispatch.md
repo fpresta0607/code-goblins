@@ -206,9 +206,12 @@ Pausing or stopping a goblin first pauses or stops each of its [helpers](dispatc
 Resume is one card at a time, a helper's included, since each start needs its own memory; a helper paused with its parent needs no Resume of its own, since the scheduler resumes it once its parent runs again, when memory allows.
 Resume keeps the task id, worktree and branch; it continues the saved session less than a day after pausing where supported, then uses the retained handoff.
 A goblin given no engine while paused resumes on the harness and model it paused on only while they can still run: its harness's own model catalog still offers the model, and the quota reading finds that allowance neither used up nor at its weekly floor (issue #2164).
-When they cannot, the lane table routes the task's brief to a lane that can, the resume starts there as on an engine chosen while paused, and the task's status log gains one `resume-rerouted:` line naming both engines and why.
+When they cannot, the lane table routes the task's brief to a lane that can, the resume starts there as on an engine chosen while paused, and once it starts the task's status log gains one `resume-rerouted:` line naming both engines and why.
+A verification helper is routed as at its spawn, away from its parent's recorded model, and one whose parent's model cannot be read is refused.
+A resume refused or with no room after that routing leaves no engine choice behind, so the next resume checks its recorded engine again.
 A goblin whose harness was chosen by hand, or one no lane can take, is refused as below, with the reason.
 A catalog or quota reading that cannot be read is no evidence, so it never stops a resume.
+Nor is Pi's catalog, which omits the models Pi's own `models.json` defines, and a hidden Codex model still counts as offered.
 A goblin that writes no handoff by its stopping point still leaves one: the pause writes it for the goblin before its stop, saying so, with the task's branch and head, its open pull requests, its last status line and its runs in the machine's heavy line, which the stop ends, and its report to you says it did.
 Claude goblins kept answering the pause's request with text alone and no tool call, so between 2026-10-16 and 2026-10-22 at least six pauses ended with nothing recorded beyond the worktree (issue #1338).
 A handoff the goblin publishes meanwhile is its own, and the pause never writes over it.

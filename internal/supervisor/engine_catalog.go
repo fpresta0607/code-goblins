@@ -34,6 +34,8 @@ type EngineModel struct {
 	Name          string   `json:"name"`
 	Efforts       []string `json:"efforts"`
 	DefaultEffort string   `json:"default_effort"`
+	// Hidden is a model the harness runs but keeps out of its own picker.
+	Hidden bool `json:"hidden,omitempty"`
 }
 
 func (s *Service) engineCatalog(ctx context.Context, runner execx.Runner) (EngineCatalog, error) {
@@ -68,6 +70,7 @@ func (s *Service) engineCatalog(ctx context.Context, runner execx.Runner) (Engin
 			if err != nil {
 				item.Reason = "Model catalog could not be read: " + err.Error()
 			}
+			item.Models = slices.DeleteFunc(item.Models, func(model EngineModel) bool { return model.Hidden })
 		}
 		if item.Reason == "" {
 			add := func(id, effort string) {
@@ -178,10 +181,10 @@ func ReadEngineModels(root string, kind harness.Kind) ([]EngineModel, error) {
 			return nil, err
 		}
 		for _, model := range cache.Models {
-			if model.Visibility == "hide" || !spawnValue.MatchString(model.Slug) {
+			if !spawnValue.MatchString(model.Slug) {
 				continue
 			}
-			item := EngineModel{ID: model.Slug, Name: model.DisplayName, Efforts: []string{}, DefaultEffort: model.DefaultReasoning}
+			item := EngineModel{ID: model.Slug, Name: model.DisplayName, Efforts: []string{}, DefaultEffort: model.DefaultReasoning, Hidden: model.Visibility == "hide"}
 			if item.Name == "" {
 				item.Name = item.ID
 			}

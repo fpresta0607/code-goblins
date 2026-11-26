@@ -67,7 +67,15 @@ func resumeLane(h home.Home, runtime commandRuntime, meta state.TaskMeta, briefP
 	if err != nil {
 		return recorded, "", fmt.Errorf("%s, and its brief cannot be routed: %w", cannot, err)
 	}
-	choice, err := routing.Choose(routing.Classify(string(brief)), inputs.Table, usable(inputs.Table.StartFloorPercent))
+	assessment := routing.Classify(string(brief))
+	if meta.Parent != "" && assessment.IsVerification {
+		parent, err := state.ReadTaskMeta(h.State, meta.Parent)
+		if err != nil || parent.Model == "" || parent.Model == "default" {
+			return recorded, "", fmt.Errorf("%s, and verification requires its parent's recorded model", cannot)
+		}
+		assessment.CheckedHarness, assessment.CheckedModel = parent.Harness, parent.Model
+	}
+	choice, err := routing.Choose(assessment, inputs.Table, usable(inputs.Table.StartFloorPercent))
 	if err != nil {
 		return recorded, "", fmt.Errorf("%s, and %w", cannot, err)
 	}
@@ -77,9 +85,10 @@ func resumeLane(h home.Home, runtime commandRuntime, meta state.TaskMeta, briefP
 // offersModel says whether lane's harness still offers its model, by the
 // catalog the harness keeps for its signed-in account. The harness's default
 // model, and a catalog that is empty or cannot be read, are no evidence
-// against it.
+// against it. Nor is Pi's catalog, which omits the models Pi's own
+// models.json defines and lists every model under its provider.
 func offersModel(runtime commandRuntime, lane routing.ExecutionLane) (bool, string) {
-	if runtime.harnessModels == nil || lane.Model == "" || lane.Model == "default" {
+	if runtime.harnessModels == nil || lane.Model == "" || lane.Model == "default" || harness.Kind(lane.Harness) == harness.Pi {
 		return true, ""
 	}
 	models, err := runtime.harnessModels(harness.Kind(lane.Harness))

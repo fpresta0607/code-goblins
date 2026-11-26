@@ -202,20 +202,15 @@ func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, comman
 	// A recorded engine that can no longer run starts no terminal: the lane
 	// the table routes to instead becomes the resume's engine choice, so the
 	// relaunch's admission prices the harness that starts.
+	rerouted := ""
 	if !hasChoice {
-		lane, rerouted, err := resumeLane(h, runtime, meta, briefPath)
+		lane, why, err := resumeLane(h, runtime, meta, briefPath)
 		if err != nil {
 			return err
 		}
-		if rerouted != "" {
-			choice = state.EngineChoice{ID: meta.ID, Generation: meta.SpawnGen, Harness: lane.Harness, Model: lane.Model, Effort: lane.Effort, When: "resume", Requested: time.Now().UTC()}
-			if err := state.WriteEngineChoice(h.State, choice); err != nil {
-				return err
-			}
-			if err := state.AppendStatus(h.State, meta.ID, rerouted); err != nil {
-				return err
-			}
-			hasChoice = true
+		if why != "" {
+			choice = state.EngineChoice{ID: meta.ID, Generation: meta.SpawnGen, Harness: lane.Harness, Model: lane.Model, Effort: lane.Effort, When: "resume"}
+			rerouted, hasChoice = why, true
 		}
 	}
 	var retained pipeline.InterruptedRun
@@ -275,9 +270,26 @@ func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, comman
 			request.ResumeSession = ""
 		}
 	}
+	if rerouted != "" {
+		choice.Requested = time.Now().UTC()
+		if err := state.WriteEngineChoice(h.State, choice); err != nil {
+			return err
+		}
+	}
 	_, err := runtime.switchTask(ctx, h, request)
-	if err == nil && hasChoice {
-		return state.RemoveEngineChoice(h.State, meta.ID)
+	if err != nil {
+		if rerouted != "" {
+			if removeErr := state.RemoveEngineChoice(h.State, meta.ID); removeErr != nil {
+				return errors.Join(err, removeErr)
+			}
+		}
+		return err
+	}
+	if rerouted != "" {
+		err = state.AppendStatus(h.State, meta.ID, rerouted)
+	}
+	if hasChoice {
+		err = errors.Join(err, state.RemoveEngineChoice(h.State, meta.ID))
 	}
 	return err
 }
