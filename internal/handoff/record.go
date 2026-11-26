@@ -53,6 +53,10 @@ type Record struct {
 	Head         string     `json:"head,omitempty"`
 	PacketDigest string     `json:"packet_digest,omitempty"`
 	HandedOff    *time.Time `json:"handed_off,omitempty"`
+	// Cloud is the cloud's pull requests into the branch the supervisor
+	// sees, and Press the Overlord's Bring back on one of them.
+	Cloud []CloudSighting `json:"cloud,omitempty"`
+	Press *Press          `json:"press,omitempty"`
 	// ReturnSteps, ReturnHead and CloudPullRequest are what a return did
 	// so far: the head its merge made, before its push.
 	ReturnSteps      []string   `json:"return_steps,omitempty"`

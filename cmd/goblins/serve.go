@@ -278,6 +278,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		Push:             &http.Client{Timeout: 15 * time.Second},
 		Dictation:        dictation,
 		Example:          *example,
+		KeepConnectors:   !*example,
 		Tickets:          ticketKeeping,
 		RootIssues:       rootIssues,
 		WorkReview:       workReview,

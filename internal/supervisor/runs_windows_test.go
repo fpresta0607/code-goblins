@@ -332,7 +332,7 @@ func TestARunWithdrawalIsRefusedWhenItCannotHold(t *testing.T) {
 		isRegistered      bool
 		id, reason        string
 		age               time.Duration
-		connectionTask    string
+		connectionProject string
 		credentialRequest string
 		remoteFix         string
 		ran               bool
@@ -342,7 +342,7 @@ func TestARunWithdrawalIsRefusedWhenItCannotHold(t *testing.T) {
 		{name: "an item that is not on the board", isRegistered: true, id: "no-such-item", reason: "not needed", refusal: "no run item with that ID"},
 		{name: "an item that already ran", isRegistered: true, id: "install-tool", reason: "not needed", ran: true, refusal: "already running"},
 		{name: "an item past its lifetime", isRegistered: true, id: "install-tool", reason: "not needed", age: 25 * time.Hour, refusal: "expired"},
-		{name: "a connection repair the Overlord asked for", isRegistered: true, id: "install-tool", reason: "not needed", connectionTask: "task-1", refusal: "connection repair the Overlord asked for on task-1"},
+		{name: "a connection repair the Overlord asked for", isRegistered: true, id: "install-tool", reason: "not needed", connectionProject: "acme", refusal: "connection repair the Overlord asked for on acme"},
 		{name: "the terminal the Overlord opened for a credential request", isRegistered: true, id: "install-tool", reason: "not needed", credentialRequest: "cred-0123456789abcdef", refusal: "terminal the Overlord opened for a credential request"},
 		{name: "a command the Overlord ran from Remote access", isRegistered: true, id: "install-tool", reason: "not needed", remoteFix: "tailscale", refusal: "command the Overlord ran from Remote access"},
 		{name: "no reason", isRegistered: true, id: "install-tool", reason: " ", refusal: "reason"},
@@ -353,13 +353,10 @@ func TestARunWithdrawalIsRefusedWhenItCannotHold(t *testing.T) {
 			_, identity, _, connection := primaryFixture(t, store)
 			s := &Service{Store: store, Options: Options{CEO: connection, Runs: &fakeRunLauncher{started: liveStart(t)}}}
 			var r Run
-			if c.connectionTask == "" && c.credentialRequest == "" && c.remoteFix == "" {
+			if c.connectionProject == "" && c.credentialRequest == "" && c.remoteFix == "" {
 				r = readyRun(t, store, identity, "install-tool", "powershell", false, time.Now().UTC().Add(-c.age))
 			} else {
-				r = Run{ID: "install-tool", Identity: identity, Title: "Run install-tool", Shell: "powershell", Command: "Write-Output ready\n", Cwd: store.Home.Root, CreatedAt: time.Now().UTC(), ConnectionTask: c.connectionTask, CredentialRequest: c.credentialRequest, RemoteFix: c.remoteFix}
-				if c.connectionTask != "" {
-					r.ConnectionGeneration = "1"
-				}
+				r = Run{ID: "install-tool", Identity: identity, Title: "Run install-tool", Shell: "powershell", Command: "Write-Output ready\n", Cwd: store.Home.Root, CreatedAt: time.Now().UTC(), ConnectionProject: c.connectionProject, CredentialRequest: c.credentialRequest, RemoteFix: c.remoteFix}
 				name, script := runScript(r)
 				dir := runDir(store.Home.State, r)
 				if err := os.MkdirAll(dir, 0700); err != nil {

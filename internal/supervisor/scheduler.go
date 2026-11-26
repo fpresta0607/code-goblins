@@ -243,7 +243,7 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 		record.Text = id + " is " + changingVerbs[changing[id]]
 	case len(asked) > 0:
 		record.Text = "starting " + asked[0].task + ", which the Overlord started"
-		if asked[0].resume != nil {
+		if asked[0].isResume() {
 			record.Text = "resuming " + asked[0].task + ", which the Overlord resumed"
 		}
 		s.runAsked()

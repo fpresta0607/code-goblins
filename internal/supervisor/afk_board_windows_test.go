@@ -648,7 +648,7 @@ func TestACommandTheBoardMadeItselfIsNotHeld(t *testing.T) {
 		case "credential-terminal":
 			store.db.Runs[i].CredentialRequest = "request-1"
 		case "connection-repair":
-			store.db.Runs[i].ConnectionTask = "task-1"
+			store.db.Runs[i].ConnectionProject = "acme"
 		case "remote-fix-tailscale":
 			store.db.Runs[i].RemoteFix = "tailscale"
 		}

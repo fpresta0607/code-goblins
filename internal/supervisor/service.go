@@ -30,6 +30,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/githubapi"
 	"github.com/fpresta0607/code-goblins/internal/goblinname"
+	"github.com/fpresta0607/code-goblins/internal/handoff"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -65,8 +66,12 @@ type Options struct {
 	RemoteAccess   *remoteaccess.Manager
 	// Push sends the app badge's pushes to the push services browsers
 	// subscribe through; nil turns the app badge off.
-	Push           *http.Client
-	Example        bool
+	Push    *http.Client
+	Example bool
+	// KeepConnectors keeps the Connectors page's snapshots current in the
+	// background, checking this PC, each project and each goblin as they
+	// change or grow old; without it nothing is checked until a refresh asks.
+	KeepConnectors bool
 	CEO            *CEOConnection
 	Gate           ProgressReader
 	Reconcile      func(context.Context) error
@@ -260,8 +265,8 @@ type Service struct {
 	// same one.
 	registration         string
 	registrationIdentity string
-	connectionChecks     *connections.Cache
-	connectionInspector  *connections.Inspector
+	connectionSnapshots  *connections.Snapshots
+	connectorWork        sync.WaitGroup
 	history              []Task
 	revision             uint64
 	subscribers          map[chan struct{}]struct{}
@@ -542,6 +547,9 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 		options.Tree.Recorded = store.recordedSession
 		options.Tree.Awaited = s.awaited
 	}
+	if options.KeepConnectors {
+		s.startConnectors(ctx)
+	}
 	go s.run(ctx)
 	return s, nil
 }
@@ -549,12 +557,7 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 func (s *Service) Close() {
 	s.cancel()
 	<-s.done
-	s.mu.Lock()
-	checks := s.connectionChecks
-	s.mu.Unlock()
-	if checks != nil {
-		checks.Close()
-	}
+	s.closeConnectors()
 }
 
 func (s *Service) Done() <-chan struct{} { return s.done }
@@ -1729,6 +1732,7 @@ type Task struct {
 	StartError    string              `json:"start_error"`
 	Finished      string              `json:"finished,omitempty"`
 	Lifecycle     *LifecycleStatus    `json:"lifecycle,omitempty"`
+	CloudHandoff  *CloudHandoff       `json:"cloud_handoff,omitempty"`
 	Teardown      []string            `json:"teardown,omitempty"`
 	ActionError   string              `json:"action_error,omitempty"`
 	QueueRevision string              `json:"queue_revision,omitempty"`
@@ -2233,7 +2237,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	asked := map[string]string{}
 	for _, change := range s.asked {
 		asked[change.task] = "start"
-		if change.resume != nil {
+		if change.isResume() {
 			asked[change.task] = "resume"
 		}
 	}
@@ -2276,6 +2280,13 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 		if lifecycleErr == nil && isCurrent && (record.Phase != "running" || len(record.Teardown) > 0) {
 			task.Lifecycle = lifecycleStatus(record)
+			if record.Phase == "paused" && record.Pause != nil && record.Pause.Reason == "handoff" {
+				if meta, err := s.taskMeta(task.ID); err == nil {
+					if handed, isHandedOff, err := handoff.HandedOff(s.Store.Home.State, meta); err == nil && isHandedOff {
+						task.CloudHandoff = &CloudHandoff{PullRequest: handed.PullRequest, Cloud: handed.Cloud}
+					}
+				}
+			}
 			if record.SuppressesMonitoring(s.Store.Home.State) {
 				task.Phase, task.Reason, task.At = record.Phase, record.Reason, record.Updated
 				if record.Pause != nil && record.Phase == "paused" {

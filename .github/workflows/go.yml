@@ -282,11 +282,16 @@ jobs:
         run: go run ./tools/notices -check
 
   # The board's browser tests took 18 of a run's 20 minutes as one job, on
-  # one worker, and grow with nearly every change to the board. Playwright
-  # deals the spec files out by their number of tests, so each job runs its
-  # share on a runner of its own, still on one worker, and every test runs in
-  # exactly one job. The share is of strategy.job-total, so one more number
-  # in the list is one more job and no test is left out.
+  # one worker, and grow with nearly every change to the board. So each job
+  # runs a share of them on a runner of its own, still on one worker, and
+  # every test runs in exactly one job. tests/browser-share.ts deals the spec
+  # files out by the seconds tests/browser-durations.json records for each,
+  # the longest first: Playwright's own --shard cut its list in order, and
+  # that list puts the slowest specs last, so the last of five shares took 19
+  # of its 20 minutes while another took 9 (#2119). Each job keeps how long
+  # its spec files took, and node tests/browser-durations.ts <run-id> writes
+  # a run's into that file. The share is of strategy.job-total, so one more
+  # number in the list is one more job and no test is left out.
   # TestGoWorkflowRunsEveryBrowserTestOnce holds the list to 1 up to its
   # length.
   #
@@ -303,7 +308,7 @@ jobs:
     runs-on: windows-latest
     # A shard that hangs must fail rather than run to GitHub's six-hour job
     # limit, with every merge train waiting on the run with it. 40 minutes is
-    # a few times a shard's normal 12 minutes, and Playwright's own
+    # over twice a shard's normal 15 minutes, and Playwright's own
     # globalTimeout bounds the test run inside it sooner still, so the run's
     # rerun of its failed checks takes over (#1406).
     timeout-minutes: 40
@@ -347,13 +352,21 @@ jobs:
         working-directory: frontend
         shell: pwsh
         run: |
-          npm run test:browser -- --shard=${{ matrix.shard }}/${{ strategy.job-total }} --project=board --project=stepped-in
+          $env:PLAYWRIGHT_JSON_OUTPUT_FILE = "$env:RUNNER_TEMP/browser-tests.json"
+          npx playwright test --list --reporter=json --project=board --project=stepped-in
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/browser-share.ts ${{ matrix.shard }}/${{ strategy.job-total }} "$env:RUNNER_TEMP/browser-tests.json" "$env:RUNNER_TEMP/browser-share.txt"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run test:browser -- --test-list "$env:RUNNER_TEMP/browser-share.txt" --project=board --project=stepped-in
         env:
           # A test that fails runs once more (playwright.config.ts), and
           # tests/failed-once.ts appends each one that passed only then to
           # this record, under this job's name.
           FAILED_ONCE_JOB: browser (${{ matrix.shard }}/${{ strategy.job-total }})
           FAILED_ONCE_RECORD: ${{ runner.temp }}/failed-once.jsonl
+          # tests/file-durations.ts writes how long each of this share's spec
+          # files took here, which the job keeps below.
+          BROWSER_DURATIONS_RECORD: ${{ runner.temp }}/browser-durations.json
       - name: Run the iPhone tests in WebKit
         if: matrix.shard == 1
         working-directory: frontend
@@ -370,6 +383,16 @@ jobs:
           name: failed-once-browser-${{ matrix.shard }}
           path: ${{ runner.temp }}/failed-once.jsonl
           if-no-files-found: ignore
+          retention-days: 14
+      # Of a job whose tests passed, how long each spec file took, which node
+      # tests/browser-durations.ts <run-id> gathers into the durations the
+      # shares are dealt by.
+      - name: Keep how long this share's spec files took
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-durations-${{ matrix.shard }}
+          path: ${{ runner.temp }}/browser-durations.json
+          if-no-files-found: error
           retention-days: 14
       # A browser test that fails leaves its page snapshot (error-context.md)
       # and trace in test-results, on its first try too when its second

@@ -5,34 +5,41 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-func TestConnectionRepairCLIRefusesMissingAndReplacedTasksBeforeLogin(t *testing.T) {
+func TestConnectionRepairCLIRefusesWhatItCannotRepairBeforeLogin(t *testing.T) {
 	directory := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(directory, "state"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("GOBLINS_HOME", directory)
 	t.Setenv("GOBLINS_STATE_OVERRIDE", filepath.Join(directory, "state"))
-	if err := state.WriteTaskMeta(filepath.Join(directory, "state"), state.TaskMeta{ID: "sample", SpawnGen: "current", Project: directory, Worktree: directory, Backend: "native", Harness: "claude"}); err != nil {
+	project := filepath.Join(directory, "acme")
+	if err := os.MkdirAll(project, 0700); err != nil {
 		t.Fatal(err)
 	}
 	for _, test := range []struct {
+		name    string
 		args    []string
 		code    int
 		message string
 	}{
-		{nil, 2, "usage:"},
-		{[]string{"missing", "current", "service:repo", "cli"}, 1, "Task changed"},
-		{[]string{"sample", "old", "service:repo", "cli"}, 1, "Task changed"},
-		{[]string{"sample", "current", "service:repo", "unoffered"}, 1, "Refresh this connection"},
+		{"no arguments", nil, 2, "usage:"},
+		{"the earlier task form", []string{"acme", "current", "service:repo", "cli"}, 2, "usage:"},
+		{"project folder that is not there", []string{filepath.Join(directory, "globex"), "service:repo", "cli"}, 1, "Project folder was not found."},
+		{"connection the project does not offer", []string{project, "service:repo", "unoffered"}, 1, "Refresh this connection"},
 	} {
-		var stdout, stderr strings.Builder
-		code := runConnectionRepair(test.args, &stdout, &stderr)
-		if code != test.code || !strings.Contains(stderr.String(), test.message) || stdout.Len() != 0 {
-			t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
-		}
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			var stdout, stderr strings.Builder
+
+			// Act
+			code := runConnectionRepair(test.args, &stdout, &stderr)
+
+			// Assert
+			if code != test.code || !strings.Contains(stderr.String(), test.message) || stdout.Len() != 0 {
+				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+		})
 	}
 }

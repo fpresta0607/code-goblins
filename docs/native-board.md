@@ -334,6 +334,7 @@ A PR is a live goblin's when the goblin recorded it or reported it `done`, when 
 The supervisor reads those branches from each worktree's reflog at every poll and keeps none of it in memory, so a goblin on its second branch still owns the PR of its first, before and after a restart of the supervisor or of the goblin.
 On 2026-10-10 seven wakes called a goblin's own PR a teammate's, each raised after its worktree had moved to the goblin's next branch and before the goblin reported the PR `done`.
 A PR another account opened is a goblin's only when the goblin said so or has its branch checked out, so a branch a goblin only looked at makes no teammate's PR its own.
+A task handed off to a cloud session raises no `pr_health` wake for its own PR or for any PR into its branch; each PR from the same repository into that branch is recorded at its head as a **Cloud work ready** item in the Command Center instead, with **Bring back** and **Leave it**, as [goblins handoff](commands/handoff.md) says.
 A PR no live goblin holds is a teammate's when another account than the one `gh` works as opened it, and the fleet's own account's, the Overlord's own or a finished task's, when that account did: each is reported with its author and link, and the fleet pushes to neither.
 While that account cannot be read, such a wake says only that no live goblin holds the PR.
 One rule decides a behind head for every PR a live goblin holds that the account `gh` works as opened in this repository: once its checks have passed it wakes no one, since a merge train tests the default branch and its riders together, whether the goblin reported the PR `done` yet, whichever of its branches it is on, and whether it is held.
@@ -1347,7 +1348,7 @@ Any start as the selection's own harness carries those flags and, once its termi
 `goblins --harness claude|codex|pi` chooses the harness the CEO starts as, and the home remembers it in `state/ceo-harness`; without a harness named, a home with a saved CEO engine starts as that engine's harness, or as the harness an explicit start chose over it since, else as the remembered one, which is why the quick start asks only where neither is there to read.
 The board's first-run page reads the same remembered harness, shows it as chosen, and remembers the one it starts, so the terminal and the board hold one answer.
 In a native terminal Claude Code runs as `claude.exe` and codex and pi as their npm script shims through `cmd /c`, as a native goblin's do; goblins starts no CEO in Herdr.
-Each is the program the launcher's `PATH` finds, started by its path, so a stub harness first on a rig's `PATH` is the one that starts, never the one the terminal's `PATH`, the user's, would find, and a harness the launcher cannot find is refused; the board's connection checks and repairs start `codex` the same way.
+Each is the program the launcher's `PATH` finds, started by its path, so a stub harness first on a rig's `PATH` is the one that starts, never the one the terminal's `PATH`, the user's, would find, and a harness the launcher cannot find is refused.
 A harness that is not installed or not signed in goes to the quick start's install or sign-in step, and nothing is remembered or started until it is ready.
 Its command line ends with one first prompt, which has it run `goblins register` in that terminal and then do what AGENTS.md says a CEO does at the start of a session; Claude Code needs none, since its SessionStart hook registers it and prints the digest.
 That is a home's first CEO, which waits for the Overlord.
@@ -1536,55 +1537,69 @@ pi writes a session's file only when its first reply ends and exits on a `--sess
 The panel keeps its live values while the switch runs, then shows the resulting session and any failure reason.
 The CEO receives one digest line in the notify wake queue, never a prompt, for each saved queued or Resume choice, each switch that completed or failed, and each pending choice removed because its session changed or its selection became unavailable.
 Completed outcomes record the last harness, model and effort, while older outcomes without those fields say Engine not recorded.
-Connectors, the header's third view, is one page of everything the running goblins can reach, laid out as Claude's own connectors page is: a list, and a page for each connector (`frontend/src/connectors-page.tsx`, `frontend/tests/connectors-page.spec.ts`, #2303).
-The list holds MCP servers, the default connectors every goblin carries, such as the [crawler](crawler.md), repository services and the CLI variables present in a goblin's launch environment, one row for each however many goblins have it, with 16px or larger text.
-A row has the service's logo on a tile, a file of its own bundled with the board from `frontend/src/connector-logos` (Simple Icons marks, Context7's own MIT icon, Runpod's from its brand kit and a PrecisionDocs mark drawn after its public logo, #2623) that loads only once its row is near the screen, or its initial where the board has none, such as Microsoft 365, Playwright and Slack, whose owners' terms allow no use of their logos here, then its name without a harness's prefix, its type and its status.
-Its type says how it reaches a goblin: `MCP server`, `Claude MCP connector` or `Plugin MCP server` for an MCP server, `CLI variable` for a variable in the goblin's terminal, `Repository service` for a service the auth manifest declares, or `Built in`.
-The status is one word, the one of the goblin whose check says least, so a row never reads better than any goblin's check: Verified with a check mark only when every goblin's check confirmed it, Set for a variable or a service whose credentials resolve and that no check confirms, Installed for the crawler on a goblin's PATH, a green Sign in button when a goblin must sign in and the board can start it, the trouble's own word when its check failed, such as Expired or Unverified, Checking while a check runs, Not checked where no check could run, and a Connect button when no goblin carries it.
-Sign in and Connect each open the connector's page, where the goblin that signs in or takes it is chosen; where he must act it is a button in the board's look, never coloured words (the Overlord, 2026-11-11).
-Only Verified is green and only a failed check is amber, with no warning mark (the Overlord, 2026-11-11: "clean up the sign in and amber alerts to make it much more simple and user friendly especially with verification and difference between mcp and env cli variables", #2358).
-A Connect or Disconnect that waits for a goblin's next terminal says Applies at its next terminal in one quiet line under the row, and the connector's page says why.
-The page says how old its oldest result is, Checked 12 minutes ago, with rechecking... while a recheck runs behind it, Checking connectors... only while a goblin has no result yet, and Check failed in its place for a check that failed, Check failed, rechecking... while a recheck runs behind it (#2394).
-On a phone, what the page is doing takes a line of its own under the heading, clear of the heading and the recheck button.
-Yours lists the connectors at least one goblin carries and Discover those on offer that none does, and Browser logins is a third list where a goblin's project uses one.
-Words in the search box show every connector and login whose name or type holds them, whichever list holds it: the tabs give way to each list under its name with its count, Yours first, then Discover, then Browser logins, and Nothing matches only when none does; an empty search box brings the tabs back as he left them (the Overlord, 2026-11-13: "It needs to be in the yours list to actually search by name", #2547).
-A row opens the connector's own page and Back returns to the list as it was left: the logo, name, type and one line on what a known service does, each goblin that can use it with its state in a word and the reason its check gave, and then what reaches a goblin through it in labelled parts.
-An MCP server's part says the goblin's harness starts it and calls its tools, and holds the tools its harness reports, grouped as read-only and write, each group closed until opened.
-A repository service's CLI variables part says command line tools in the goblin's terminal read them and names each variable the auth manifest declares for it, one another service shares included, with what each goblin's terminal holds of it, Set, Not set, Not given or Not checked, and a variable's own part names every service that declares it; neither shows a value.
-No harness reports a permission for a tool, so the page shows none.
-With no goblin running the page says so and lists nothing, since a connector is read from a goblin.
-The page has the canvas to itself while no panel has anything to show, with no placeholder asking for a task beside it; a goblin's or the CEO's panel that is open stays beside it, and on a phone, or maximized, it closes when the page is chosen.
-A goblin's row on that page offers Connect for a repository service the task does not carry or a project MCP server its harness was not given, and Disconnect for one the task's record names; a credential variable and an MCP server from outside the project's `.mcp.json` offer neither, and a credential variable no goblin carries has no row in the list, since its service's row offers it.
-Every name wraps whole, so a long name reads in full.
-A goblin whose connector is failing shows its trouble's word in amber with its reason under its name, and its repair buttons beside it, and one that must sign in shows its reason beside its green Sign in button, as Connect is green, with no word; a verified one says Verified alone, a change that waits for its next terminal says why in a quiet line, and no state shows a warning mark.
-Check details, closed until opened, holds for each goblin what its check proved and did not, when it ran and what it read of its session, so Verified carries no words on how it was checked (the Overlord, 2026-11-11).
-Claude checks use its MCP health report and the goblin's strict/config-file arguments; Codex inventory preserves the goblin's disabled-server overrides, and enabled servers earn Connected only from a fresh app-server runtime report, never from stored auth or cached tools.
-Repository services reuse the auth manifest's probes and status words: one whose credentials resolve and that declares no probe is Provided, which reads Set, and says it declares no connection check, one whose probe or identity check needs a program this machine does not have is Provided and says it was not checked here and why, and a token present in the goblin's environment is Provided rather than Connected.
-A check that could not run, because the credential store could not be opened, the goblin's terminal could not be read or its harness is not running, is Not checked and says why, on the connector's page and in one quiet line under its row; a Claude MCP server still starting when its check's time ran out is Unverified alone, and a failed, expired, missing or unreachable connector keeps reading so.
-A service the task does not carry is not probed, and its goblin's row offers Connect with nothing to store, since the value is stored and only kept from this task ([Credentials by need](contract/authentication.md#credentials-by-need)).
-Workspace says in one line which services' credentials the goblin's terminal carries, by name.
-Checks are cached for ten minutes and limited to two concurrent workers and 45 seconds per check, counted from when a check takes its worker, and return Checking immediately instead of blocking the board; a result older than ten minutes keeps its verdicts, each with the time it was checked, while its recheck runs.
-Each check starts the goblin's harness, so with a one-minute cache every open of the page after the first minute started one harness for each goblin and said Checking connectors... until the last had ended, minutes with fourteen goblins; an open within ten minutes of the checks now starts none (#2394).
-A grant or revoke made with `goblins auth` changes the task's record, which rechecks that goblin at the page's next read.
-A paused or stopped goblin has no harness to check, so it is not checked, Recheck included: its last result shows as it was, and the page's age and its Check failed are those of the goblins that run (#2547).
-Its read carries `not_running`: the goblin is not running, and its connections are checked again when it resumes.
-Each finished check is kept in `state/connection-checks.json`, each goblin's entries with the time of its check and never a stored value, and read back when the supervisor starts, so the first open after a restart shows every goblin's last result at once and rechecks one older than ten minutes behind it; a result older than a day is not read back, and a check the supervisor's close cut short leaves the result before it (#2547).
-A file it cannot read or write is reported to the CEO as the board's errors are, and an unreadable one is written over by the next finished check.
-The page reads `GET /api/connections` for every running goblin at once, so each one's last result shows at once while the checks queue behind it, and nothing reads it while the page is closed.
-Opening the page starts a goblin's check only when its cached result is older than ten minutes or its record changed; Recheck and the first return to the board after each sign-in click always start one for every goblin, and a finished repair card, a Connect or a Disconnect has its own goblin read again.
-The page polls a goblin only while its check runs, so an open page never rechecks on its own.
-A recheck or finished repair that arrives while a goblin is being read has it read once more after that reading, and repair buttons act on the shown result without starting a check.
-Native environment reads verify the host, process ancestry, working folder and spawn generation; a terminal that cannot be read leaves its variables and the crawler Not checked.
-Herdr environment reads first verify the pane's registered harness, working folder, foreground process and shell ancestry, then the spawn generation in the process itself.
-Project MCP servers omitted from the goblin's configuration show with Connect on that goblin's row, and a token action when the project names a token variable and they are failing.
-CLI sign-in is offered only when the service's declared credentials resolve, and launch-disabled MCP servers offer no sign-in.
-Sign in opens the manifest's HTTPS login page and CLI sign-in a server-generated repair card using the existing Command Center run machinery; Store from clipboard creates a store-from-clipboard card without reading the clipboard in the browser.
-A variable a goblin's terminal holds, that its repository's auth manifest declares for a service the goblin carries and that is no harness's billing key, offers a button that says Replace, named Replace from clipboard with the variable and the goblin for a screen reader, beside that goblin on the variable's own page (#2389; the Overlord, 2026-11-12: "i hate this much text on a button"): it creates the same card, titled Replace, which stores what he copied for that goblin's repository through `goblins auth store`, so every running goblin of it is told to load it again, and the page says so and that Set does not say which value a goblin holds; nothing shows either value.
-Fix requests accept connection and action identities only, require the board token and origin, and reject replaced tasks; repair cards verify the task again before running.
-`POST /api/connections/grant` takes a task, its spawn generation, a `service:`, `mcp:` or `withheld:` connection and `grant` or `revoke`, and does what `goblins auth grant` and `goblins auth revoke` (with `--mcp` for a server) do. Past the token and origin checks it takes only a board proven to be the Overlord's own, as AFK mode's switch does, since any program on the PC can read the token. The task's status credits his board, the CEO gets a notify wake, a live native goblin is told to load a granted service's credentials, and the response is the check that follows. The goblin's row shows his press at once and keeps it until a finished check shows it, or puts it back with the supervisor's reason.
-Finishing a repair refreshes the cached status, and returning from a browser sign-in rechecks it.
-A stored token does not change an already running native process's environment, so its goblin's row keeps its Missing state until the goblin receives it.
-Environment values, full process environments, dotenv, auth scripts, MCP commands and headers are never exposed.
+Connectors, the header's third view, shows what the fleet can reach on three levels, drilled into from a home page: this PC and its accounts, each project, and each goblin (`frontend/src/connectors-page.tsx`, `internal/connections`, #2902).
+The home page has one tile for each level and Needs a look, which lists every item of any level whose status is a trouble.
+Search covers the whole snapshot in the browser, groups its results by level and opens each result at its place; services of different projects that share a name show their project and what each points at.
+Every row says its level, its status in a word and when it was checked, Stale when its check is older than its level's life, and Rechecking while its level is being checked again.
+Only Verified is green; Missing, Unauthorized, Expired, Wrong target, Unreachable, Failed and Everywhere are amber; every other status is quiet.
+
+The three levels read different facts, each from where it is true.
+This PC and its accounts is checked once for the machine, however many projects and goblins there are.
+It holds the command line tools the projects' auth manifests name, the harnesses, the connectors the user's own accounts hold, the MCP servers of the user's own Claude and Codex configuration, the credential-like names in the user environment, and the connectors every goblin carries, such as the [crawler](crawler.md).
+A tool with a sign-in status command (`gh auth status`, `vercel whoami`, `flyctl auth whoami`, `railway whoami`, `claude auth status`, `codex login status`) is Verified or Unauthorized by that command's exit code alone, with 20 seconds to answer; what the command prints is never read.
+A tool without one is Set when it is installed and Missing when it is not, and no process starts to say so.
+The user's Claude settings and Codex configuration are read for names only: the account's connector names and server names from `~/.claude.json`, and the server headers of `~/.codex/config.toml`.
+Their fields and values are never decoded.
+The user environment is read as names only, from the user's registry environment on Windows, and a credential-like name that is no harness's billing key shows as Everywhere, since every terminal and goblin carries it with no grant, with the projects whose manifests declare it.
+A goblin starts with a strict MCP configuration, so a connector or server of the user's own Claude configuration is Not given to goblins and says so; the servers of the Codex configuration are Set, since Codex goblins get them.
+
+Each project is checked once, however many goblins work in it.
+The check runs the project's auth manifest once, in its checkout, as `goblins auth check` does.
+Each service is Verified when its probe passed, Set when its credentials resolve and no check could say more, or the state the check named, with its declared variable names and whether each resolves, the target its manifest expects, and the repairs it offers.
+The project's `.mcp.json` is classified by how a goblin gets each server: every goblin of the project, only a goblin whose brief names it, none because its sign-in is a browser's, or none because its token variable is neither stored for the project nor named in this PC's user environment, as spawn counts it; a harness's billing key never counts.
+A server says what it points at: a Supabase project by the last four characters of its reference, whether the reference is `project_ref` in its address or `--project-ref` in its arguments, else its host, else a command on this PC.
+Services of two projects that share a name stay two items, each in its own project with its own target.
+A project whose checkout is not found says its services were not checked, and runs no probe.
+
+A goblin is read from its own records, and no harness process is ever started to find it.
+The task's record says which services and which project MCP servers it carries and which it is not given, with a Connect or Disconnect for each.
+For a Claude goblin its session record says which MCP servers loaded and with which tools, which failed to load and with what error, and which were still starting, from the `deferred_tools_delta` lines of the record.
+The latest line's failed and pending lists replace the earlier ones, and a failure's words are cut of any address's sign-in part or query and of any value written after a credential's name.
+The record is read from the byte offset the last read ended at, whole lines only, with the servers already read carried forward, so a long session costs only what it appended.
+A record shorter than the offset was replaced, and is read again from the start.
+A goblin whose session has not recorded its servers yet, or whose harness does not record them, says so in its note instead of listing servers.
+It shows only what differs from its project and this PC.
+
+The snapshots are kept in memory and in files under `state/connectors`: `machine.json`, `projects/<name>.json` and `goblins/<task>.json`, each written whole in one step and holding names, states and times and never a value.
+A restart reads them back, shows them at once and rechecks only what is old or changed.
+Reading the snapshots starts nothing: opening the page, searching and polling run no check, no probe and no process.
+Checks run one at a time in a background worker, and a request for a level already waiting joins it.
+Every 15 seconds the supervisor looks, doing only what is cheap.
+It reads a goblin again when its task record, its project's manifest or its project's `.mcp.json` changed or its session record grew, which is how a grant made with `goblins auth` shows.
+It checks a project again when its manifest or its `.mcp.json` changed or its check is an hour old.
+It checks the machine again when its check is six hours old or was never made.
+A goblin that no longer runs, and a project that nothing names any longer, are let go with their files.
+A check the time limit ended keeps the items it showed before and says it did not finish in five minutes; a check the supervisor's close cut short leaves the snapshot as it was.
+A file that cannot be written is reported to the CEO as the board's errors are.
+The supervisor deletes the `state/connection-checks.json` an earlier build kept, once, when it starts.
+
+`GET /api/connectors` answers `instance`, `machine`, `projects` and `goblins` from the snapshots alone, each project with the browser logins its goblins may use.
+`POST /api/connectors/refresh` takes a `level` of `machine`, `project` or `goblin` and the project's name or the task's ID as `scope`, queues one background recheck of that level only, marks it Checking and answers at once with the snapshots.
+An unknown level is refused as 400, and a project or goblin that is not listed as 404.
+The page polls `GET /api/connectors` every two seconds only while a level says it is checking.
+`POST /api/connectors/fix` takes a `project`, a `connection` and an `action` and nothing else; a request with any other field is refused as 400, so a value cannot travel in it.
+It is planned from the project's snapshot and its auth manifest, never from the request.
+Sign in answers the manifest's HTTPS login page.
+CLI sign-in makes a Command Center card that runs `goblins connection-repair <project> <connection> <action>` in the project's checkout.
+Store from clipboard makes a card that pipes the clipboard into `goblins auth store --project` for a variable the manifest declares, without reading the clipboard in the browser.
+An action the project's item does not offer, a variable no manifest declares or a harness's billing key is refused as 409, and so is a project whose check is running.
+A finished repair card checks its project again.
+`goblins connection-repair` checks the project once itself, so the repair is planned from what is true then, and runs only a service login the project still offers.
+`POST /api/connections/grant` takes a task, its spawn generation, a `service:`, `mcp:` or `withheld:` connection and `grant` or `revoke`, and does what `goblins auth grant` and `goblins auth revoke` (with `--mcp` for a server) do.
+Past the token and origin checks it takes only a board proven to be the Overlord's own, as AFK mode's switch does, since any program on the PC can read the token.
+The task's status credits his board, the CEO gets a notify wake, a live native goblin is told to load a granted service's credentials, and the goblin is read again from the record the change left and answered with the snapshots.
+A stored token does not change an already running native process's environment, so a goblin keeps its Missing state until it receives it.
+Credential values, full process environments, dotenv, auth scripts, MCP commands, headers and the fields of the user's own configuration are never read into, kept in or returned by any of it.
 
 ### A session read as messages
 
@@ -2411,7 +2426,7 @@ A card whose answer did not arrive keeps its place and says what to do, and a ru
 Drafts survive closing, reconnecting and moving between cards, and the header button, whose badge counts what waits on the Overlord, opens an inbox of those items under Waiting on you, then a history of what he answered, cleared or ran, newest first by when each closed.
 The board is sent the items still open and those closed in the last hour, with `history_count`, how many closed items its History lists, at most 20: History, closed until he opens it, reads the newest 20 closed items of every kind from `GET /api/items/closed` when it opens, and again whenever the newest closed item the board holds changes (#1611).
 A Change answer for a question the board no longer holds, such as one from his page of an AFK stretch, reads that one question from `GET /api/items/closed?question=<id>`.
-Waiting on you lists everything that needs him, and only that: every open question, review item and run item, and each live browser walkthrough its goblin asked him to watch with `goblins present --watch`, as its line with a Watch button (an eye) that opens it, counted in the badge.
+Waiting on you lists everything that needs him, and only that: every open question, review item and run item, and each live browser walkthrough its goblin asked him to watch with `goblins present --watch`, as its line with a Watch button (an eye) that opens it, and each Cloud work ready item of a handed-off task, with Bring back and Leave it, as [goblins handoff](commands/handoff.md) says, all counted in the badge.
 A click anywhere on an item's row, or on its button, opens that item's card in the Command Center, so a page opens only from its card (the Overlord, 2026-10-17: "the button didn't open up the Command Center modal, it just took me right to the page").
 A review he is asked to watch is a review item, never a presentation: [Nonblocking presentation notices](#nonblocking-presentation-notices) says how.
 A presentation without `--watch`, such as a goblin's own test walkthrough, stays off the Command Center; its task card still shows **Browser active**.
@@ -3094,7 +3109,7 @@ The payloads it reads are those of Claude Code 2.1.322, Codex 0.160.0 and pi 1.4
 
 ### Logins on the Connectors page
 
-The **Connectors** page lists **Browser logins** as rows like its connectors': each login a running goblin's project uses, signed in or out, the projects it serves, when he signed in and when it was last used.
+The **Connectors** page lists **Browser logins** on each project's page as rows like its services': each login a running goblin's project uses, signed in or out, the projects it serves, when he signed in and when it was last used.
 Its **Sign out** button deletes the login's profile and keeps the login, so the next fetch brings his sign-in card.
 **Forget** asks first, then deletes the profile and the login.
 His account and its keys at the provider are not touched.

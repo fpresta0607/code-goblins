@@ -7,6 +7,7 @@ import { countedTitle, showBadge } from "./arrivals";
 import { boardPage } from "./board-page";
 import { CommandCenterButton } from "./command-center-button";
 import { waitingItems } from "./commandQueue";
+import { cloudWork } from "./cloud-work";
 
 const CommandCenter = boardPage(() => import("./CommandCenter").then((module) => module.CommandCenter), "Command Center");
 
@@ -22,8 +23,9 @@ export function CommandCenterMenu({ snapshot, connected, presentations, now, foc
   const [opening, setOpening] = useState<Opening | null>(null);
   if (focus && !opening) setOpening({ isInboxOpen: false, hasFocus: false });
   // A presentation reaches him only when its goblin asks him to watch it; a
-  // goblin's own test run stays off the Command Center.
-  const needing = waitingItems(snapshot).length + presentations.filter((event) => event.watch).length;
+  // goblin's own test run stays off the Command Center. Cloud work ready
+  // waits on him until he brings it back or leaves it.
+  const needing = waitingItems(snapshot).length + presentations.filter((event) => event.watch).length + cloudWork(snapshot).length;
   const baseTitle = useRef(document.title);
   useEffect(() => {
     document.title = countedTitle(baseTitle.current, needing);

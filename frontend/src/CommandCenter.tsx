@@ -25,6 +25,8 @@ import { ReviewCard, reviewImages } from "./ReviewCard";
 import { ImageGallery } from "./ImageGallery";
 import { Disclosure } from "./Disclosure";
 import { CommandCenterButton } from "./command-center-button";
+import { cloudWork } from "./cloud-work";
+import { CloudWorkRow } from "./cloud-work-row";
 import { DoneCard } from "./DoneCard";
 import { HistoryMark } from "./history-mark";
 import { HistoryStoredCard } from "./history-stored-card";
@@ -463,7 +465,7 @@ export function CommandCenter({ snapshot, connected, presentations, now, focus, 
             <span className="inbox-text"><strong>{presenter(event)}</strong><span className="inbox-summary">{event.watch}</span></span>
             <time>{rowAge(event.at, now)}</time>
             <a className="icon-button raised" href={event.url} target="_blank" rel="noreferrer" aria-label={"Watch: " + event.watch}><Icon name="watch" /></a>
-          </li>)}</ul> : <p className="muted">Nothing is waiting on you.</p>}
+          </li>)}{cloudWork(snapshot).map((work) => <CloudWorkRow key={work.key} work={work} instance={snapshot.instance} now={now} />)}</ul> : <p className="muted">Nothing is waiting on you.</p>}
         </section>
         {(settled.length > 0 || snapshot.history_count > 0) && <Disclosure kind="inbox-history" open={isHistoryOpen} onOpenChange={setHistoryOpen}
           title={<>History <span className="column-count">{Math.max(settled.length, snapshot.history_count)}</span></>}>

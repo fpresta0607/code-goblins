@@ -225,12 +225,12 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.recentDictations(w, r)
 	case r.URL.Path == "/api/dictations" && r.Method == "POST":
 		h.keepDictation(w, r)
-	case r.URL.Path == "/api/connections" && r.Method == "GET":
-		h.readConnections(w, r)
-	case r.URL.Path == "/api/connections/check" && r.Method == "POST":
-		h.refreshConnections(w, r)
-	case r.URL.Path == "/api/connections/fix" && r.Method == "POST":
-		h.fixConnection(w, r)
+	case r.URL.Path == "/api/connectors" && r.Method == "GET":
+		h.readConnectors(w, r)
+	case r.URL.Path == "/api/connectors/refresh" && r.Method == "POST":
+		h.refreshConnectors(w, r)
+	case r.URL.Path == "/api/connectors/fix" && r.Method == "POST":
+		h.fixConnector(w, r)
 	case r.URL.Path == "/api/connections/grant" && r.Method == "POST":
 		h.grantConnection(w, r)
 	case r.URL.Path == "/api/credentials/save" && r.Method == "POST":
@@ -281,6 +281,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.startTask(w, r)
 	case r.URL.Path == "/api/tasks/lifecycle" && r.Method == "POST":
 		h.lifecycleTask(w, r)
+	case r.URL.Path == "/api/tasks/cloud" && r.Method == "POST":
+		h.cloudWork(w, r)
 	case r.URL.Path == "/api/tasks/adjust" && r.Method == "POST":
 		h.adjustTask(w, r)
 	case r.URL.Path == "/api/tasks/engine" && r.Method == "POST":

@@ -406,7 +406,7 @@ func (service Service) Return(ctx context.Context, id, url string) (record Recor
 	// Once merged and pushed, GitHub reads the cloud's pull request as
 	// merged, so only a return that has not merged it yet looks it up.
 	if !record.hasReturnStep(ReturnStepMerge) {
-		cloud, err := service.cloudPullRequest(ctx, current, url)
+		cloud, err := service.cloudPullRequest(ctx, current, url, record.Press)
 		if err != nil {
 			return record, err
 		}
@@ -485,8 +485,11 @@ func (service Service) Return(ctx context.Context, id, url string) (record Recor
 }
 
 // cloudPullRequest is the open pull request into the goblin's branch that
-// Return brings back: url when given, or the only one there is.
-func (service Service) cloudPullRequest(ctx context.Context, current task, url string) (pullRequest, error) {
+// Return brings back: url when given, or the only one there is. A
+// teammate's is brought back only with the Overlord's press on it at the
+// head GitHub reports now, and one he pressed at another head is not
+// brought back whoever opened it, since his press named the head he saw.
+func (service Service) cloudPullRequest(ctx context.Context, current task, url string, press *Press) (pullRequest, error) {
 	prs, err := current.commands.pullRequests(ctx, "--base", current.branch)
 	if err != nil {
 		return pullRequest{}, err
@@ -517,8 +520,12 @@ func (service Service) cloudPullRequest(ctx context.Context, current task, url s
 	if err != nil {
 		return pullRequest{}, err
 	}
-	if !strings.EqualFold(cloud.Author.Login, account) {
-		return pullRequest{}, fmt.Errorf("%s was opened by %s, not by %s, whom gh works as, and bringing a teammate's pull request onto a goblin's branch needs the Overlord's press", cloud.URL, cloud.Author.Login, account)
+	if press != nil && press.PullRequest == cloud.URL && press.Head != cloud.HeadRefOid {
+		return pullRequest{}, fmt.Errorf("%s moved to %s since the Overlord pressed Bring back on it at %s, and bringing back its new head needs the Overlord's press on it", cloud.URL, cloud.HeadRefOid, press.Head)
+	}
+	isPressed := press != nil && press.PullRequest == cloud.URL
+	if !strings.EqualFold(cloud.Author.Login, account) && !isPressed {
+		return pullRequest{}, fmt.Errorf("%s was opened by %s, not by %s, whom gh works as, and bringing a teammate's pull request onto a goblin's branch needs the Overlord's press: Bring back on its Cloud work ready item at its head %s", cloud.URL, cloud.Author.Login, account, cloud.HeadRefOid)
 	}
 	return cloud, nil
 }

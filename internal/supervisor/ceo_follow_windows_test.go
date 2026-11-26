@@ -16,7 +16,6 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/connections"
 	"github.com/fpresta0607/code-goblins/internal/host"
-	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 // reopenCEO opens native terminal ceo again with a program that registers as
@@ -422,16 +421,9 @@ func TestARunTheBoardMadeDoesNotFollowTheCEO(t *testing.T) {
 	primary, _, _, connection := primaryFixture(t, store)
 	launcher := &fakeRunLauncher{started: liveStart(t)}
 	s := &Service{Store: store, Instance: "test-instance", work: make(chan struct{}, 1), Options: Options{CEO: connection, Runs: launcher}}
-	t.Cleanup(func() {
-		if s.connectionChecks != nil {
-			s.connectionChecks.Close()
-		}
-	})
-	meta, err := state.ReadTaskMeta(h.State, "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	repair, err := s.connectionRun(meta, connectionRequest{Task: meta.ID, Generation: meta.SpawnGen, Connection: "credential:TEST_TOKEN", Action: "store:TEST_TOKEN"}, connections.Repair{Credential: "TEST_TOKEN"})
+	t.Cleanup(s.closeConnectors)
+	project := connections.Project{Name: "acme", Path: filepath.Join(h.Root, "acme")}
+	repair, err := s.connectionRun(project, connectorFixRequest{Project: "acme", Connection: "mcp:acme-db", Action: "store:ACME_TOKEN"}, connections.Repair{Credential: "ACME_TOKEN"})
 	if err != nil {
 		t.Fatal(err)
 	}
