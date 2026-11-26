@@ -116,7 +116,7 @@ const ceoFirstPrompt = "You are the CEO of this Code Goblins home. First run the
 // why it started again, why it is on a new conversation when fresh says so,
 // and to take up the fleet's work at once. Claude Code's SessionStart hook
 // registers it and prints the digest; a Codex or pi CEO registers itself. It passes through cmd /c for Codex and pi, so it holds none of the
-// characters cmd reads (spawn's cmdProgram).
+// characters cmd reads (spawn's scriptProgram).
 func ceoBackPrompt(harness, why, fresh string, isResumed bool) string {
 	prompt := "You are the CEO of this Code Goblins home, started again because " + why + "."
 	if fresh != "" {

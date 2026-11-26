@@ -4,7 +4,6 @@ package home
 
 import (
 	"errors"
-	"os"
 	"path/filepath"
 )
 
@@ -13,11 +12,11 @@ import (
 // directory rules say to ignore. macOS takes the same folder, not
 // ~/Library/Application Support, whose space every hook and card command
 // would have to quote (docs/plans/2026-11-11-linux-port.md).
-func defaultRoot() (string, error) {
-	if data := os.Getenv("XDG_DATA_HOME"); filepath.IsAbs(data) {
+func defaultRoot(getenv func(string) string) (string, error) {
+	if data := getenv("XDG_DATA_HOME"); filepath.IsAbs(data) {
 		return filepath.Join(filepath.Clean(data), "code-goblins"), nil
 	}
-	user := os.Getenv("HOME")
+	user := getenv("HOME")
 	if !filepath.IsAbs(user) {
 		return "", errors.New("home: neither XDG_DATA_HOME nor HOME names an absolute folder, so there is no per-user folder for a CEO home; set GOBLINS_HOME")
 	}

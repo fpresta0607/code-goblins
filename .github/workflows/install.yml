@@ -496,6 +496,25 @@ jobs:
           node-version: '24.13.0'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      # The job's first pwsh writes its own startup cache,
+      # StartupProfileData-NonInteractive, some seconds after it starts.
+      # When go build of tools/leftovers is fast, from a restored build
+      # cache, the snapshot runs before that write, the next pwsh step
+      # writes the file, and the comparison reports it as left by the
+      # uninstall. Let a pwsh write it before the snapshot is taken.
+      - name: Warm pwsh's startup cache before the snapshot
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -NonInteractive -Command exit
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $cache = Join-Path $env:LOCALAPPDATA "Microsoft\PowerShell\StartupProfileData-NonInteractive"
+          $deadline = (Get-Date).AddSeconds(60)
+          while (-not (Test-Path -LiteralPath $cache)) {
+            if ((Get-Date) -ge $deadline) {
+              throw "pwsh did not write $cache within 60 seconds, so the snapshot would race its write and the uninstall would be blamed for it"
+            }
+            Start-Sleep -Seconds 1
+          }
       - name: Snapshot the profile before the install
         shell: pwsh
         run: |
