@@ -31,9 +31,9 @@ type GateSample struct {
 	// round runs the step again; zero where the gate keeps no round timer.
 	RoundFor     time.Duration
 	LastActivity string
-	// MovedAt is when the step last showed progress of its own: its last
-	// activity, such as its agent producing output, or the machine's heavy
-	// line moving for its run. It is zero when neither could be read.
+	// MovedAt is when the step last showed progress of its own: its agent
+	// producing output, or the machine's heavy line moving for its run. It is
+	// zero when neither was read.
 	MovedAt time.Time
 	// Allowance is how long nine in ten of the step's rounds on the task's
 	// harness took on this machine, and IsMeasured says any is on record.
@@ -109,15 +109,16 @@ func (p ExecGateProber) InspectGate(ctx context.Context, meta state.TaskMeta) (G
 }
 
 // stepEvidence adds to an active step's sample what tells a long step from a
-// stalled one: when its last activity was, read at now; what the machine's
-// heavy line shows of its run, which a Test step holds or waits in while it
-// shows nothing of its own; and how long its rounds take on harness on this
-// machine (#2165).
+// stalled one: when its agent last produced output, read at now, since a log
+// or status line of the gate's own, such as a ci step polling for checks, is
+// not the step moving; what the machine's heavy line shows of its run, which
+// a Test step holds or waits in while it shows nothing of its own; and how
+// long its rounds take on harness on this machine (#2165).
 func (p ExecGateProber) stepEvidence(ctx context.Context, root, harness string, sample GateSample, now time.Time) GateSample {
-	if quiet, ok := activityAge(sample.LastActivity); ok {
-		sample.MovedAt = now.Add(-quiet)
-	} else {
+	if quiet, ok := activityAge(sample.LastActivity); !ok {
 		sample.Unread = append(sample.Unread, "when the step last showed activity")
+	} else if _, said, _ := strings.Cut(sample.LastActivity, " ago: "); strings.Contains(said, "producing output") {
+		sample.MovedAt = now.Add(-quiet)
 	}
 	switch {
 	case p.Line == nil:
@@ -154,10 +155,12 @@ func (p ExecGateProber) stepEvidence(ctx context.Context, root, harness string, 
 // stands there. A run of it that holds a turn within the budget its turn
 // names is at work, since its caller ends it at that budget, so the line
 // moved for it now; past that budget, or with none named, it last moved when
-// the run took its turn. A run of it that waits moved when the turn last
-// passed to a run that holds one, or when it joined the line, whichever is
-// later, as fleettree reads a goblin's own wait. A gate's run is named by
-// its worktree, which no-mistakes names by the run.
+// the run took its turn. A run of it that waits moves now while a run that
+// holds a turn is within its turn's budget, since the turn passes on at that
+// budget at the latest; otherwise it moved when the turn last passed to a run
+// that holds one, or when it joined the line, whichever is later, as
+// fleettree reads a goblin's own wait. A gate's run is named by its worktree,
+// which no-mistakes names by the run.
 func lineMoved(holding, waiting []verify.Standing, runID string, now time.Time) (time.Time, string) {
 	for _, run := range holding {
 		if !strings.Contains(run.Who, runID) {
@@ -178,6 +181,9 @@ func lineMoved(holding, waiting []verify.Standing, runID string, now time.Time) 
 		}
 		moved := run.Since
 		for _, holder := range holding {
+			if holder.Budget > 0 && now.Before(holder.Since.Add(holder.Budget)) {
+				return now, "its run waits in the heavy line behind a turn within its " + holder.Budget.String() + " budget"
+			}
 			if holder.Since.After(moved) {
 				moved = holder.Since
 			}
@@ -189,26 +195,31 @@ func lineMoved(holding, waiting []verify.Standing, runID string, now time.Time) 
 
 // activityAge reads how long ago a step's last activity was from the
 // last_activity column of axi status, as "1s ago: claude producing output",
-// "quiet 22m30s ago: log: ..." or "unknown". Its durations are no-mistakes'
-// compact ones, whose longest form counts days as "2d3h".
+// "quiet 22m30s ago: log: ..." or "unknown".
 func activityAge(activity string) (time.Duration, bool) {
 	age, _, ok := strings.Cut(strings.TrimPrefix(activity, "quiet "), " ago")
 	if !ok {
 		return 0, false
 	}
+	return compactDuration(age)
+}
+
+// compactDuration reads one of no-mistakes' compact durations, whose longest
+// form counts days as "2d3h".
+func compactDuration(text string) (time.Duration, bool) {
 	var days time.Duration
-	if count, rest, isDays := strings.Cut(age, "d"); isDays {
+	if count, rest, isDays := strings.Cut(text, "d"); isDays {
 		parsed, err := strconv.Atoi(count)
 		if err != nil {
 			return 0, false
 		}
-		days, age = time.Duration(parsed)*24*time.Hour, rest
+		days, text = time.Duration(parsed)*24*time.Hour, rest
 	}
-	quiet, err := time.ParseDuration(age)
+	duration, err := time.ParseDuration(text)
 	if err != nil {
 		return 0, false
 	}
-	return days + quiet, true
+	return days + duration, true
 }
 
 // gateProbeEvery is how long one reading of a worktree's gate stands for. The
@@ -298,10 +309,10 @@ func parseGateStatus(out string, sample GateSample) GateSample {
 		}
 		sample.Active = true
 		sample.Step = field("step")
-		if d, err := time.ParseDuration(field("active_for")); err == nil {
+		if d, ok := compactDuration(field("active_for")); ok {
 			sample.ActiveFor = d
 		}
-		if d, err := time.ParseDuration(field("round_active_for")); err == nil {
+		if d, ok := compactDuration(field("round_active_for")); ok {
 			sample.RoundFor = d
 		}
 		sample.LastActivity = strings.TrimSpace(field("last_activity"))

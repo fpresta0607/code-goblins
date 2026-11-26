@@ -151,16 +151,51 @@ func TestAStalledGateStepWakeNamesWhatItReadAndWhatItCouldNot(t *testing.T) {
 	}
 }
 
-func TestParseGateStatusReadsTheRunAndItsRoundTimer(t *testing.T) {
-	// Arrange
-	status := "run:\n  id: \"01M7NCG1RFG6GPHEQA7J40ZD06\"\n  status: running\n  active_steps[1]{step,status,active_for,round_active_for,last_activity,agent_pid,round}:\n    ci,fixing,1h9m,12m3s,\"1s ago: pi producing output\",\"48204\",fix 2\n"
+// A ci step that polls for checks no workflow reports logs a line every
+// couple of minutes, and that line is the gate's own, not the step moving: a
+// step that shows nothing else past its allowance is stalled (#2165).
+func TestAGateStepWhoseOnlyActivityIsTheGatesOwnPollingIsStalled(t *testing.T) {
+	// Arrange: a ci step 70 minutes into its round that last logged a poll
+	// 1m51s ago, whose run stands nowhere in the heavy line.
+	now := time.Date(2026, 11, 7, 21, 0, 0, 0, time.UTC)
+	started := now
+	prober := ExecGateProber{Line: func() ([]verify.Standing, []verify.Standing, error) { return nil, nil, nil }}
+	service, probe, meta := gateStallService(t, &now, func(now time.Time) GateSample {
+		round := 70*time.Minute + now.Sub(started)
+		sample := GateSample{Active: true, RunID: "01M7CI", Step: "ci", ActiveFor: round, RoundFor: round, LastActivity: "1m51s ago: log: no CI checks reported yet, waiting for checks to register..."}
+		return prober.stepEvidence(context.Background(), "", "pi", sample, now)
+	})
 
 	// Act
-	got := parseGateStatus(status, GateSample{})
+	woke := scanGateFor(t, service, probe, meta, &now, time.Hour)
 
 	// Assert
-	if got.RunID != "01M7NCG1RFG6GPHEQA7J40ZD06" || got.ActiveFor != 69*time.Minute || got.RoundFor != 12*time.Minute+3*time.Second {
-		t.Fatalf("parsed = %+v, want run 01M7NCG1RFG6GPHEQA7J40ZD06 active 1h9m in a round of 12m3s", got)
+	if woke == nil || !strings.Contains(woke.Detail, "gate step ci round active for") {
+		t.Fatalf("wake = %+v, want the polling ci step named as stalled", woke)
+	}
+}
+
+func TestParseGateStatusReadsTheRunAndItsRoundTimer(t *testing.T) {
+	for name, test := range map[string]struct {
+		activeFor, roundFor string
+		wantActive          time.Duration
+		wantRound           time.Duration
+	}{
+		"a ci fix round":                  {"1h9m", "12m3s", 69 * time.Minute, 12*time.Minute + 3*time.Second},
+		"a round that has run for a day+": {"2d3h", "1d2h5m", 51 * time.Hour, 26*time.Hour + 5*time.Minute},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			status := "run:\n  id: \"01M7NCG1RFG6GPHEQA7J40ZD06\"\n  status: running\n  active_steps[1]{step,status,active_for,round_active_for,last_activity,agent_pid,round}:\n    ci,fixing," + test.activeFor + "," + test.roundFor + ",\"1s ago: pi producing output\",\"48204\",fix 2\n"
+
+			// Act
+			got := parseGateStatus(status, GateSample{})
+
+			// Assert
+			if got.RunID != "01M7NCG1RFG6GPHEQA7J40ZD06" || got.ActiveFor != test.wantActive || got.RoundFor != test.wantRound {
+				t.Fatalf("parsed = %+v, want run 01M7NCG1RFG6GPHEQA7J40ZD06 active %v in a round of %v", got, test.wantActive, test.wantRound)
+			}
+		})
 	}
 }
 
@@ -200,11 +235,17 @@ func TestLineMovedIsTheHeavyLinesOwnProgressForTheRun(t *testing.T) {
 			want:      now.Add(-2 * time.Hour),
 			wantWords: "no budget left",
 		},
-		"its run waits while the turn passes": {
-			holding:   []verify.Standing{{Who: "another goblin's suite", Since: passed, Budget: time.Hour}},
-			waiting:   []verify.Standing{{Who: who, Since: now.Add(-30 * time.Minute)}},
-			want:      passed,
-			wantWords: "waits in the heavy line, which last moved 4m0s ago",
+		"its run waits behind a turn within its budget": {
+			holding:   []verify.Standing{{Who: "another goblin's suite", Since: now.Add(-70 * time.Minute), Budget: 3 * time.Hour}},
+			waiting:   []verify.Standing{{Who: who, Since: now.Add(-80 * time.Minute)}},
+			want:      now,
+			wantWords: "waits in the heavy line behind a turn within its 3h0m0s budget",
+		},
+		"its run waits behind a turn past its budget": {
+			holding:   []verify.Standing{{Who: "another goblin's suite", Since: now.Add(-2 * time.Hour), Budget: 90 * time.Minute}},
+			waiting:   []verify.Standing{{Who: who, Since: now.Add(-3 * time.Hour)}},
+			want:      now.Add(-2 * time.Hour),
+			wantWords: "waits in the heavy line, which last moved 2h0m0s ago",
 		},
 		"only another run stands in the line": {
 			holding: []verify.Standing{{Who: "another goblin's suite", Since: passed, Budget: time.Hour}},
@@ -227,18 +268,7 @@ func TestLineMovedIsTheHeavyLinesOwnProgressForTheRun(t *testing.T) {
 func TestStepEvidenceReadsTheStepsActivityTheHeavyLineAndItsMeasuredRounds(t *testing.T) {
 	// Arrange
 	root := t.TempDir()
-	result, err := (execx.OSRunner{}).Run(context.Background(), execx.Request{Name: "sqlite3", Args: []string{filepath.Join(root, "state.sqlite"), `CREATE TABLE step_results(id TEXT,run_id TEXT,step_name TEXT);
-CREATE TABLE step_rounds(step_result_id TEXT,round INTEGER,duration_ms INTEGER);
-CREATE TABLE agent_invocations(run_id TEXT,step_name TEXT,agent TEXT);
-INSERT INTO step_results VALUES('p1','p','review'),('c1','c','review');
-INSERT INTO step_rounds VALUES('p1',1,6960000),('c1',1,600000);
-INSERT INTO agent_invocations VALUES('p','review','pi'),('c','review','claude');`}})
-	if err != nil {
-		t.Skipf("sqlite3 unavailable: %v", err)
-	}
-	if result.ExitCode != 0 {
-		t.Fatal(string(result.Stderr))
-	}
+	writeReviewRounds(t, root)
 	now := time.Date(2026, 11, 7, 21, 0, 0, 0, time.UTC)
 	const who = `code-goblins at 514b8830, fast level, in C:\gate\worktrees\repo\01M7RUN`
 	prober := ExecGateProber{
@@ -260,5 +290,23 @@ INSERT INTO agent_invocations VALUES('p','review','pi'),('c','review','claude');
 	want := []string{"when the step last showed activity", "the heavy line (access denied)", "how long its rounds take on this machine, which no reader was given"}
 	if !unread.MovedAt.IsZero() || unread.IsMeasured || unread.IsLineRead || strings.Join(unread.Unread, "|") != strings.Join(want, "|") {
 		t.Fatalf("stepEvidence with nothing readable = %+v, want unread %q", unread, want)
+	}
+}
+
+// writeReviewRounds writes into root a gate database holding a pi review
+// round of 116 minutes and a Claude one of 10, or skips without sqlite3.
+func writeReviewRounds(t *testing.T, root string) {
+	t.Helper()
+	result, err := (execx.OSRunner{}).Run(context.Background(), execx.Request{Name: "sqlite3", Args: []string{filepath.Join(root, "state.sqlite"), `CREATE TABLE step_results(id TEXT,run_id TEXT,step_name TEXT);
+CREATE TABLE step_rounds(step_result_id TEXT,round INTEGER,duration_ms INTEGER);
+CREATE TABLE agent_invocations(run_id TEXT,step_name TEXT,agent TEXT);
+INSERT INTO step_results VALUES('p1','p','review'),('c1','c','review');
+INSERT INTO step_rounds VALUES('p1',1,6960000),('c1',1,600000);
+INSERT INTO agent_invocations VALUES('p','review','pi'),('c','review','claude');`}})
+	if err != nil {
+		t.Skipf("sqlite3 unavailable: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatal(string(result.Stderr))
 	}
 }

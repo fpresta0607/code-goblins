@@ -361,9 +361,11 @@ INSERT INTO step_results VALUES('now','test','running',1000,1000,NULL),('cut','l
 // and from every recorded round, fix rounds included (#2165).
 func TestUsualRoundTimesIsWhatNineInTenRoundsOfAStepOnAHarnessTook(t *testing.T) {
 	// Arrange: ten review rounds of 1 to 10 minutes on Claude, one of them a
-	// fix round of the same step; two review rounds on kimi, recorded as
-	// acp:kimi; a pi review of 116 minutes; and a run whose agents ran on
-	// none, which has no harness to measure it by.
+	// fix round of the same step, so nine of the ten took 9 minutes or less;
+	// two review rounds on kimi, recorded as acp:kimi, of which only one in
+	// two took 2 minutes or less, so nine in ten took the longer 4; a pi
+	// review of 116 minutes; and a run whose agents ran on none, which has no
+	// harness to measure it by.
 	sql := `CREATE TABLE step_results(id TEXT,run_id TEXT,step_name TEXT);
 CREATE TABLE step_rounds(step_result_id TEXT,round INTEGER,duration_ms INTEGER);
 CREATE TABLE agent_invocations(run_id TEXT,step_name TEXT,agent TEXT);`
@@ -382,7 +384,7 @@ INSERT INTO step_results VALUES('n1','n','test');INSERT INTO step_rounds VALUES(
 	// Assert
 	want := map[StepHarness]time.Duration{
 		{Step: "review", Harness: "claude"}: 9 * time.Minute,
-		{Step: "review", Harness: "kimi"}:   2 * time.Minute,
+		{Step: "review", Harness: "kimi"}:   4 * time.Minute,
 		{Step: "review", Harness: "pi"}:     116 * time.Minute,
 	}
 	if err != nil || fmt.Sprint(usual) != fmt.Sprint(want) {

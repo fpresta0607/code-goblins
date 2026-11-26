@@ -681,8 +681,8 @@ func (s Service) busyOverAge(ctx context.Context, meta state.TaskMeta, sample En
 // is moving while its current round is inside its allowance: the time nine in
 // ten of its rounds on the task's harness took on this machine, or the busy
 // budget when none is on record. Past that it is moving while it showed
-// progress of its own within the busy budget: its last activity, such as its
-// agent producing output, or the heavy line moving for its run. A stalled
+// progress of its own within the busy budget: its agent producing output, or
+// the heavy line moving for its run. A stalled
 // step's detail names what was read and what could not be.
 func (s Service) gateStepStalled(gate GateSample, harness string, now time.Time) (string, bool) {
 	round := gate.RoundFor
