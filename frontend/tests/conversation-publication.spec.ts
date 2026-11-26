@@ -138,7 +138,8 @@ test("a subagent row keeps its child presentation until the latest page is publi
   const talk = talkOf(page);
   const baby = talk.locator('[data-message="m999"] .message-baby');
   await expect(baby).toContainText("Original helper");
-  await expect(baby.getByRole("button", { name: "Open" })).toHaveCount(1);
+  const opens = talk.locator('[data-message="m999"] button.message-baby');
+  await expect(opens).toHaveCount(1);
   const place = await readNearEnd(talk, page);
   const before = await baby.textContent() ?? "";
   const rows = await captureRows(talk);
@@ -146,12 +147,13 @@ test("a subagent row keeps its child presentation until the latest page is publi
   await expect(baby).toHaveText(before);
   await sendBoard(page, snapshot({ revision: 3 }, { tree: tree([]) }));
   await expect(baby).toHaveText(before);
-  await expect(baby.getByRole("button", { name: "Open" })).toHaveCount(1);
+  await expect(opens).toHaveCount(1);
   expect(await reading(talk)).toEqual(place);
   expect(await currentRows(talk)).toEqual({ sameNodes: true, rows });
   await page.getByRole("button", { name: "Jump to latest" }).click();
-  await expect(baby).toContainText("Baby goblin");
-  await expect(baby.getByRole("button", { name: "Open" })).toHaveCount(0);
+  await expect(baby).toContainText("inspect");
+  await expect(baby).not.toContainText("Baby goblin");
+  await expect(opens).toHaveCount(0);
 });
 
 test("queued presentation stays until publication while settled controls cannot act", async ({ page }) => {

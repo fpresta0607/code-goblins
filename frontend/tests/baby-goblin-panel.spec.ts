@@ -80,6 +80,9 @@ async function open(page: Page, width = 1600, height = 1000) {
 
 const baby = (page: Page, label: string) => page.locator(".tree-branches").getByRole("button", { name: new RegExp("^" + label) });
 const title = (page: Page) => page.locator("#panel-title");
+// Grub's baby goblins in the fixture: its four running sub-agents, never its process.
+const GRUB_BABIES = ["Grub Jr. - Map harness plumbing", "Grub II - Research MCP OAuth", "Grub III - Run the affected Go tests", "Grub IV - Review the development server"];
+const grubBabies = (page: Page) => page.getByRole("list", { name: "What runs under Grub - Tree Surgeon" }).locator(".tree-child strong");
 
 // A heading on one line: its box no taller than one of its lines.
 const isOneLine = (page: Page) => title(page).evaluate((heading) => heading.getBoundingClientRect().height < parseFloat(getComputedStyle(heading).lineHeight) * 1.5);
@@ -87,10 +90,10 @@ const isOneLine = (page: Page) => title(page).evaluate((heading) => heading.getB
 test("clicking a sub-agent opens its own transcript live, under its name and its task on one line", async ({ page }) => {
   await open(page);
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
-  await baby(page, "Grub Jr. - Plumbing Mapper").click();
-  await expect(title(page)).toHaveText(/^Grub Jr\. - Plumbing Mapper.*Find where the harness starts sub-agents/);
+  await baby(page, "Grub Jr. - Map harness plumbing").click();
+  await expect(title(page)).toHaveText(/^Grub Jr\. - Map harness plumbing.*Find where the harness starts sub-agents/);
   expect(await isOneLine(page)).toBe(true);
-  const terminal = page.getByRole("log", { name: "Terminal of Grub Jr. - Plumbing Mapper" });
+  const terminal = page.getByRole("log", { name: "Terminal of Grub Jr. - Map harness plumbing" });
   await expect(terminal).toBeVisible();
   for (const line of DRAWN) await expect(terminal).toContainText(line);
   expect((await terminal.boundingBox())!.y, "under its name and task").toBeGreaterThan((await title(page).boundingBox())!.y);
@@ -118,10 +121,10 @@ for (const width of [1600, 390]) {
     await page.getByRole("button", { name: "Orchestration", exact: true }).click();
     if (width === 390) {
       await page.getByRole("button", { name: /^Show what runs under Grub - Tree Surgeon/ }).click();
-      await page.getByRole("list", { name: "What runs under Grub - Tree Surgeon" }).getByRole("button", { name: /^Grub Jr\. - Plumbing Mapper/ }).click();
-    } else await baby(page, "Grub Jr. - Plumbing Mapper").click();
+      await page.getByRole("list", { name: "What runs under Grub - Tree Surgeon" }).getByRole("button", { name: /^Grub Jr\. - Map harness plumbing/ }).click();
+    } else await baby(page, "Grub Jr. - Map harness plumbing").click();
 
-    const terminal = page.getByRole("log", { name: "Terminal of Grub Jr. - Plumbing Mapper" });
+    const terminal = page.getByRole("log", { name: "Terminal of Grub Jr. - Map harness plumbing" });
     await expect(terminal).toBeVisible();
     await expect(terminal).toContainText("Reading internal/fleettree/claude.go");
     await expect(views).toHaveCount(0);
@@ -135,7 +138,7 @@ for (const width of [1600, 390]) {
 test("clicking two other baby goblins shows each one's own output under its name and task, never its goblin's terminal", async ({ page }) => {
   await open(page);
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
-  for (const [name, task, node, other] of [["Grub III - Test Runner", /Review the affected Go tests/, "subagent:tests", "subagent:server"], ["Grub IV - Server Reviewer", /Review the development server/, "subagent:server", "subagent:tests"]] as const) {
+  for (const [name, task, node, other] of [["Grub III - Run the affected Go tests", /Review the affected Go tests/, "subagent:tests", "subagent:server"], ["Grub IV - Review the development server", /Review the development server/, "subagent:server", "subagent:tests"]] as const) {
     await baby(page, name).click();
     const terminal = page.getByRole("log", { name: "Terminal of " + name });
     await expect(terminal, "never the last child's output while its own is on its way").not.toContainText(OUTPUTS[other].at(-1)!, { timeout: 500 });
@@ -155,8 +158,8 @@ for (const [name, output] of [["transcript", { entries: [] }], ["output", { line
     // Arrange
     await open(page);
     await page.getByRole("button", { name: "Orchestration", exact: true }).click();
-    await baby(page, "Grub III - Test Runner").click();
-    const terminal = page.getByRole("log", { name: "Terminal of Grub III - Test Runner" });
+    await baby(page, "Grub III - Run the affected Go tests").click();
+    const terminal = page.getByRole("log", { name: "Terminal of Grub III - Run the affected Go tests" });
     await expect(terminal).toContainText(OUTPUTS["subagent:tests"].at(-1)!);
     const stream = (next: object) => page.evaluate((detail) => window.dispatchEvent(new CustomEvent("child-output", { detail })), { node: "subagent:tests", output: next });
 
@@ -179,8 +182,8 @@ test("an address a baby goblin's terminal draws opens in a tab of its own", asyn
   await context.route(/^https:\/\/github\.com\//, (route) => route.fulfill({ contentType: "text/plain", body: "fixture page" }));
   await open(page);
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
-  await baby(page, "Grub III - Test Runner").click();
-  const terminal = page.getByRole("log", { name: "Terminal of Grub III - Test Runner" });
+  await baby(page, "Grub III - Run the affected Go tests").click();
+  const terminal = page.getByRole("log", { name: "Terminal of Grub III - Run the affected Go tests" });
   await expect(terminal).toContainText(OUTPUTS["subagent:tests"].at(-1)!);
   await page.evaluate((detail) => window.dispatchEvent(new CustomEvent("child-output", { detail })), { node: "subagent:tests", output: { lines: ["The affected tests pass, see " + address] } });
   const rows = terminal.locator(".xterm-rows");
@@ -197,30 +200,30 @@ test("hovering a baby goblin shows its task at once", async ({ page }) => {
   await page.clock.install();
   await open(page);
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
-  await expect(baby(page, "Grub Jr. - Plumbing Mapper")).toBeVisible();
+  await expect(baby(page, "Grub Jr. - Map harness plumbing")).toBeVisible();
   // Time stands still, so no wait of any length lets a tip show.
   await page.clock.pauseAt(Date.now() + 60_000);
-  await baby(page, "Grub Jr. - Plumbing Mapper").hover();
+  await baby(page, "Grub Jr. - Map harness plumbing").hover();
   await expect(page.getByRole("tooltip")).toHaveText("Find where the harness starts sub-agents and what each one records");
-  await baby(page, "Grub Jr. - Plumbing Mapper").locator(".tree-child-model").hover();
+  await baby(page, "Grub Jr. - Map harness plumbing").locator(".tree-child-model").hover();
   await expect(page.getByRole("tooltip")).toHaveText("Find where the harness starts sub-agents and what each one records");
 });
 
 test("dragging from a baby goblin moves the canvas and opens nothing, and a key still opens it", async ({ page }) => {
   await open(page);
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
-  const before = (await baby(page, "Kip Jr. - Export Tracer").boundingBox())!;
+  const before = (await baby(page, "Kip Jr. - Trace the export").boundingBox())!;
   await page.mouse.move(before.x + 20, before.y + 20);
   await page.mouse.down();
   await page.mouse.move(before.x + 140, before.y + 80, { steps: 8 });
   await page.mouse.up();
-  const after = (await baby(page, "Kip Jr. - Export Tracer").boundingBox())!;
+  const after = (await baby(page, "Kip Jr. - Trace the export").boundingBox())!;
   expect(after.x - before.x).toBeCloseTo(120, 0);
   await expect(title(page)).toHaveText("CEO");
   // A key still opens it after the pan.
-  await baby(page, "Kip Jr. - Export Tracer").focus();
+  await baby(page, "Kip Jr. - Trace the export").focus();
   await page.keyboard.press("Enter");
-  await expect(title(page)).toHaveText(/^Kip Jr\. - Export Tracer/);
+  await expect(title(page)).toHaveText(/^Kip Jr\. - Trace the export/);
 });
 
 // A goblin's card is one row since 2026-10-17, so it shows no count of what
@@ -239,28 +242,28 @@ test("at phone width a baby goblin on its rail opens its panel too", async ({ pa
   await open(page, 390);
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
   await page.getByRole("button", { name: /^Show what runs under Grub - Tree Surgeon/ }).click();
-  await page.getByRole("list", { name: "What runs under Grub - Tree Surgeon" }).getByRole("button", { name: /^Grub Jr\. - Plumbing Mapper/ }).click();
-  await expect(title(page)).toHaveText(/^Grub Jr\. - Plumbing Mapper/);
-  await expect(page.getByRole("log", { name: "Terminal of Grub Jr. - Plumbing Mapper" })).toContainText("● Search(subagents/agent-)");
+  await page.getByRole("list", { name: "What runs under Grub - Tree Surgeon" }).getByRole("button", { name: /^Grub Jr\. - Map harness plumbing/ }).click();
+  await expect(title(page)).toHaveText(/^Grub Jr\. - Map harness plumbing/);
+  await expect(page.getByRole("log", { name: "Terminal of Grub Jr. - Map harness plumbing" })).toContainText("● Search(subagents/agent-)");
 });
 
-test("baby goblins are named after their goblin in the order they started, each with a title from its own description", async ({ page }) => {
+test("baby goblins are named after their goblin in the order they started, each with its own description", async ({ page }) => {
   await open(page);
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
   const names = (label: string) => page.getByRole("list", { name: "What runs under " + label }).locator(".tree-child strong");
-  await expect(names("Grub - Tree Surgeon")).toHaveText(["Grub Jr. - Plumbing Mapper", "Grub II - OAuth Researcher", "Grub III - Test Runner", "Grub IV - Server Reviewer"]);
-  await expect(names("Kip - Echo Chaser")).toHaveText(["Kip Jr. - Export Tracer"]);
-  await expect(names("Moss - Pixel Wrangler"), "a helper goblin keeps its own name").toHaveText(["Moss Jr. - Branch Measurer", "Moss II - List Checker", "Pip - Rail Fitter"]);
+  await expect(names("Grub - Tree Surgeon")).toHaveText(GRUB_BABIES);
+  await expect(names("Kip - Echo Chaser")).toHaveText(["Kip Jr. - Trace the export"]);
+  await expect(names("Moss - Pixel Wrangler"), "a helper goblin keeps its own name").toHaveText(["Moss Jr. - Measure the branches", "Moss II - Check the phone list", "Pip - Rail Fitter"]);
 });
 
 test("working subagents open their panels and processes have no baby card", async ({ page }) => {
   await open(page);
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
   for (const child of await page.locator(".tree-branches .tree-child").all()) expect(await child.evaluate((node) => getComputedStyle(node).opacity), await child.locator("strong").textContent() || "").toBe("1");
-  await baby(page, "Grub IV - Server Reviewer").click();
-  await expect(title(page)).toHaveText(/^Grub IV - Server Reviewer.*Review the development server/);
+  await baby(page, "Grub IV - Review the development server").click();
+  await expect(title(page)).toHaveText(/^Grub IV - Review the development server.*Review the development server/);
   await page.getByRole("button", { name: "Back to the CEO", exact: true }).click();
-  await expect(baby(page, "Grub V - Process Wrangler")).toHaveCount(0)
+  await expect(grubBabies(page)).toHaveText(GRUB_BABIES)
 });
 
 test("a baby goblin shows no raw command line, its task is in its tip and its panel, and its state is a plain chip that is never yellow", async ({ page }) => {
@@ -269,11 +272,11 @@ test("a baby goblin shows no raw command line, its task is in its tip and its pa
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
   await expect(page.locator(".tree-branches").first()).toBeVisible();
   for (const branches of await page.locator(".tree-branches").all()) await expect(branches).not.toContainText(/cmd\.exe|WINDOWS/);
-  const reviewer = baby(page, "Grub III - Test Runner");
+  const reviewer = baby(page, "Grub III - Run the affected Go tests");
   const chip = reviewer.locator(".state-chip");
   await expect(chip).toHaveText("Working 40m");
   const look = (locator: typeof chip) => locator.evaluate((node) => ({ color: getComputedStyle(node).color, dot: getComputedStyle(node.querySelector(".status-dot")!).backgroundColor }));
-  const working = await look(baby(page, "Grub Jr. - Plumbing Mapper").locator(".state-chip"));
+  const working = await look(baby(page, "Grub Jr. - Map harness plumbing").locator(".state-chip"));
   expect(await look(chip)).toEqual(working);
   // A working baby's row shows the plain dot, with nothing that moves.
   await expect(chip.locator(".working-indicator")).toHaveCount(0);
@@ -283,8 +286,8 @@ test("a baby goblin shows no raw command line, its task is in its tip and its pa
 });
 
 for (const [name, node, last, output, next] of [
-  ["Grub III - Test Runner", "subagent:tests", OUTPUTS["subagent:tests"].at(-1)!, { lines: [...OUTPUTS["subagent:tests"], "", "The new test also passes"] }, "The new test also passes"],
-  ["Grub Jr. - Plumbing Mapper", AGENT, DRAWN.at(-1)!, { entries: [...TRANSCRIPT, { kind: "reply", text: "Found the output capture" }] }, "● Found the output capture"],
+  ["Grub III - Run the affected Go tests", "subagent:tests", OUTPUTS["subagent:tests"].at(-1)!, { lines: [...OUTPUTS["subagent:tests"], "", "The new test also passes"] }, "The new test also passes"],
+  ["Grub Jr. - Map harness plumbing", AGENT, DRAWN.at(-1)!, { entries: [...TRANSCRIPT, { kind: "reply", text: "Found the output capture" }] }, "● Found the output capture"],
 ] as const) {
   test(`${name} follows new output without reopening the panel`, async ({ page }) => {
     await open(page)
@@ -314,8 +317,8 @@ test("a sub-agent's transcript is drawn in the goblin terminal's surface with Cl
   // Tall enough to show the whole transcript.
   await open(page, 1600, 1500)
   await page.getByRole("button", { name: "Orchestration", exact: true }).click()
-  await baby(page, "Grub Jr. - Plumbing Mapper").click()
-  const terminal = page.getByRole("log", { name: "Terminal of Grub Jr. - Plumbing Mapper" })
+  await baby(page, "Grub Jr. - Map harness plumbing").click()
+  const terminal = page.getByRole("log", { name: "Terminal of Grub Jr. - Map harness plumbing" })
   await expect(terminal.locator(".xterm-rows")).toContainText("● Search(subagents/agent-)")
   const look = await terminal.locator(".xterm").evaluate((xterm) => ({ size: getComputedStyle(xterm.querySelector(".xterm-rows")!).fontSize, family: getComputedStyle(xterm.querySelector(".xterm-rows")!).fontFamily, background: getComputedStyle(xterm.querySelector(".xterm-viewport")!).backgroundColor }))
   expect(look, "a goblin terminal's font, size and background").toEqual({ size: "20px", family: '"JetBrains Mono", "Cascadia Mono", Consolas, monospace', background: "rgb(7, 16, 21)" })
@@ -334,7 +337,7 @@ for (const width of [1600, 390]) {
     await open(page, width)
     await page.getByRole("button", { name: "Orchestration", exact: true }).click()
     if (width < 600) await page.getByRole("button", { name: /^Show what runs under Grub - Tree Surgeon/ }).click()
-    await page.getByRole("list", { name: "What runs under Grub - Tree Surgeon" }).getByRole("button", { name: /^Grub Jr\. - Plumbing Mapper/ }).click()
+    await page.getByRole("list", { name: "What runs under Grub - Tree Surgeon" }).getByRole("button", { name: /^Grub Jr\. - Map harness plumbing/ }).click()
     const rows = page.locator(".agent-terminal .xterm-rows")
     await expect(rows).toContainText("● Read(")
     const lines = await rows.locator(":scope > div").evaluateAll((divs) => divs.map((div) => div.textContent!.replace(/\s+$/, "")))
@@ -352,7 +355,7 @@ for (const width of [1600, 390]) {
 test("a working sub-agent keeps its last lines in view as its transcript grows past the screen", async ({ page }) => {
   await open(page)
   await page.getByRole("button", { name: "Orchestration", exact: true }).click()
-  await baby(page, "Grub Jr. - Plumbing Mapper").click()
+  await baby(page, "Grub Jr. - Map harness plumbing").click()
   const rows = page.locator(".agent-terminal .xterm-rows")
   await expect(rows).toContainText("● Reading internal/fleettree/claude.go")
   const steps = Array.from({ length: 60 }, (_, index) => ({ kind: "call", tool: "Bash", subject: `go test -run TestStep${index}`, state: "done", result: [`ok  step ${index}`] }))
@@ -365,7 +368,7 @@ test("a working sub-agent keeps its last lines in view as its transcript grows p
 test("a transcript replaced while its previous output is queued starts on a clean terminal", async ({ page }) => {
   await open(page)
   await page.getByRole("button", { name: "Orchestration", exact: true }).click()
-  await baby(page, "Grub Jr. - Plumbing Mapper").click()
+  await baby(page, "Grub Jr. - Map harness plumbing").click()
   await expect(page.locator(".agent-terminal .xterm-rows")).toContainText("Reading internal/fleettree/claude.go")
   await page.evaluate(() => {
     const send = (entries: unknown[]) => window.dispatchEvent(new CustomEvent("child-output", { detail: { node: "subagent:toolu_A", output: { entries } } }))
@@ -380,9 +383,9 @@ test("a transcript replaced while its previous output is queued starts on a clea
 test("a process has no baby goblin card even when it starts working", async ({ page }) => {
   const fleet = await open(page)
   await page.getByRole("button", { name: "Orchestration", exact: true }).click()
-  await expect(baby(page, "Grub V - Process Wrangler")).toHaveCount(0)
+  await expect(grubBabies(page)).toHaveText(GRUB_BABIES)
   fleet.tasks[0].tree!.children.find(child => child.id === "process:6100:2")!.state = "working"
   fleet.revision++
   await page.evaluate(snapshot => window.dispatchEvent(new CustomEvent("fleet-snapshot", { detail: snapshot })), fleet)
-  await expect(baby(page, "Grub V - Process Wrangler")).toHaveCount(0)
+  await expect(grubBabies(page)).toHaveText(GRUB_BABIES)
 })

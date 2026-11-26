@@ -59,7 +59,7 @@ function Fixture() {
     document.addEventListener("keydown", close);
     return () => document.removeEventListener("keydown", close);
   }, []);
-  const board = <Board afkToggle={RESTING_AFK_TOGGLE} onOpenScreen={() => {}} snapshot={snapshot} layout="stacked" selected={selected} now={now} freshNow={now} presentations={presentations} onSelect={select} onSelectTrain={() => {}} onOpenCeo={() => {}} onOpenCommand={() => {}} onStartCeo={() => {}} />;
+  const board = <Board afkToggle={RESTING_AFK_TOGGLE} onOpenScreen={() => {}} snapshot={snapshot} layout="stacked" selected={selected} now={now} freshNow={now} presentations={presentations} onSelect={select} onChild={() => {}} onSelectTrain={() => {}} onOpenCeo={() => {}} onOpenCommand={() => {}} onStartCeo={() => {}} />;
   if (search.has("queue")) return <aside className="context-pane" style={{ width: "calc(100vw - 16px)" }}><div className="panel-content"><section className="ceo-queue" aria-label="Queued tasks">
     <QueuedTasks snapshot={snapshot} selected={selected} now={now} presentations={presentations} hasMeters onSelect={select} />
   </section></div></aside>;
