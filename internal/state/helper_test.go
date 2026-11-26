@@ -152,6 +152,37 @@ func TestNextHelperIDCountsAHelperSpelledInAnotherCaseByTheFileSystemsCase(t *te
 	}
 }
 
+func TestHelperNumberReadsOnlyAnIDNextHelperIDGives(t *testing.T) {
+	for _, test := range []struct {
+		id, parent string
+		want       int
+		isNumbered bool
+	}{
+		{"g1-h1", "g1", 1, true},
+		{"g1-h12", "g1", 12, true},
+		{"cg-board-h3", "cg-board", 3, true},
+		{"G1-H2", "g1", 2, true},
+		{"g1-7", "g1", 0, false},
+		{"g1-h07", "g1", 0, false},
+		{"g1-h0", "g1", 0, false},
+		{"g1-h+1", "g1", 0, false},
+		{"g1-hx", "g1", 0, false},
+		{"g1-h1-h1", "g1", 0, false},
+		{"g2-h1", "g1", 0, false},
+		{"g1-h1", "", 0, false},
+	} {
+		t.Run(test.id+" of "+test.parent, func(t *testing.T) {
+			// Act
+			n, isNumbered := HelperNumber(test.id, test.parent)
+
+			// Assert
+			if isNumbered != test.isNumbered || isNumbered && n != test.want {
+				t.Errorf("HelperNumber(%q, %q) = %d, %t; want %d, %t", test.id, test.parent, n, isNumbered, test.want, test.isNumbered)
+			}
+		})
+	}
+}
+
 func TestNextHelperIDRefusesAParentWhoseHelperIDWouldNotFit(t *testing.T) {
 	dir := t.TempDir()
 	parent := strings.Repeat("p", 62)

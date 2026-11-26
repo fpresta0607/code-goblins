@@ -115,3 +115,12 @@ func NextHelperID(stateDir, parent string) (string, error) {
 	}
 	return id, nil
 }
+
+// HelperNumber is n of task id when id is <parent>-h<n>, as NextHelperID
+// names parent's helpers, in any case, as a spawn reads a helper's id, and
+// false for an id of any other shape.
+func HelperNumber(id, parent string) (int, bool) {
+	digits, isHelper := strings.CutPrefix(strings.ToLower(id), strings.ToLower(parent)+"-h")
+	n, err := strconv.Atoi(digits)
+	return n, isHelper && err == nil && n > 0 && strconv.Itoa(n) == digits
+}

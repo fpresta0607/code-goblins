@@ -488,7 +488,7 @@ export function CommandCenter({ snapshot, connected, presentations, now, focus, 
             const isUnfolded = unfolded.has(candidate.key);
             const detail = "history-detail-" + candidate.key;
             const why = "history-why-" + candidate.key;
-            // A folded row names a goblin by its first name alone, which leaves
+            // A folded row names a goblin by its name alone, which leaves
             // the line to what it was about.
             const goblin = snapshot.tasks.find((task) => task.id === taskOf(candidate));
             const asker = !isUnfolded && !release(candidate) && goblin?.goblin_name || askerOf(candidate);

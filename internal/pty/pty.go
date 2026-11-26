@@ -2,7 +2,8 @@
 
 // Package pty runs one process in a pseudo terminal, the terminal a goblin's
 // harness sees on Linux and macOS, and hands its caller the raw byte stream
-// both ways, as internal/conpty does with a pseudo console on Windows.
+// both ways, as internal/conpty does with a pseudo console on Windows. Raw
+// and Size work on the caller's own terminal, for a command that reads keys.
 package pty
 
 import (
@@ -31,6 +32,10 @@ type Spec struct {
 	// process's.
 	Env        []string
 	Cols, Rows int
+	// Processors is the mask of the processor threads the process and
+	// everything it starts may run on; 0 leaves them where this process may
+	// run. Only Linux keeps a process to threads.
+	Processors uintptr
 }
 
 // Terminal is one running pseudo terminal and the process in it. The process
@@ -91,7 +96,7 @@ func Start(spec Spec) (*Terminal, error) {
 	// terminal of the session Setsid starts.
 	cmd.SysProcAttr.Setsid = true
 	cmd.SysProcAttr.Setctty = true
-	tree, err := execx.StartTree(cmd)
+	tree, err := startTree(cmd, spec.Processors)
 	if err != nil {
 		ptmx.Close()
 		return nil, fmt.Errorf("pty: start %s: %w", spec.Args[0], err)
