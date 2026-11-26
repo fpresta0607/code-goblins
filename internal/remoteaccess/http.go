@@ -16,7 +16,7 @@ import (
 // the board's CSRF and WebSocket token checks. Proxy/identity headers stay in
 // place so credential entry and other PC-only actions remain PC-only. What it
 // admits it marks (Admitted), for what the Overlord chose to allow from his
-// private board too: AFK mode's switch and a service grant card's Grant.
+// private board too (docs/remote-access.md).
 type Gate struct {
 	manager *Manager
 	parent  context.Context
