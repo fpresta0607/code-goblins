@@ -94,8 +94,9 @@ func Start(spec Spec) (*Terminal, error) {
 	return terminal, nil
 }
 
-// wait records the process's exit code once it exits, closes Done and wakes
-// a Read waiting for output, so it drains what is left.
+// wait records the process's exit code once it exits, closes Done and sets a
+// read deadline that has passed, so a Read waiting for output, and each Read
+// after it, drains what is left.
 func (t *Terminal) wait(cmd *exec.Cmd) {
 	_ = cmd.Wait()
 	t.code = exitCode(cmd.ProcessState)
@@ -122,11 +123,6 @@ func (t *Terminal) PID() int {
 // process holding the terminal has closed it, Read returns io.EOF, so a
 // helper that still holds the terminal does not hold its output open.
 func (t *Terminal) Read(p []byte) (int, error) {
-	select {
-	case <-t.done:
-		return t.drain(p)
-	default:
-	}
 	n, err := t.ptmx.Read(p)
 	if errors.Is(err, os.ErrDeadlineExceeded) {
 		return t.drain(p)
