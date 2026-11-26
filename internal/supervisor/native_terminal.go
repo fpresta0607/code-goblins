@@ -545,8 +545,8 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 	// pressTyped presses the Enter of a message the view typed as keys and
 	// says whether it did. It waits for the terminal's screen to show the
-	// words, read every nativeKeyPoll for at most nativeShown, and reads it
-	// again nativeSubmitSettle later, as the CEO's typed delivery does
+	// words, read every nativeKeyPoll until shown ends, and reads it again
+	// nativeSubmitSettle later, as the CEO's typed delivery does
 	// (sendNative), since a harness busy or slow to read shows typed words
 	// seconds late, and takes an Enter that reaches it with them as part of
 	// them: read once as the view asked, the screen showed no words, and the
@@ -557,7 +557,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	// would take the Enter as its answer. The wait ends with no Enter once
 	// the view has gone, typing is held, the relay took another submission
 	// or the harness asks.
-	pressTyped := func(submission, text string) bool {
+	pressTyped := func(shown context.Context, submission, text string) bool {
 		if refused, isReading := settled(); !isReading || refused != nil || binding.harness == nil {
 			return false
 		}
@@ -573,8 +573,6 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 			defer relay.mu.Unlock()
 			return refused == nil && relay.submission == submission
 		}
-		shown, cancelShown := awake.WithTimeout(ctx, nativeShown)
-		defer cancelShown()
 		for {
 			screen, err := host.ReadScreen(record)
 			if err != nil || screens.IsAsking(screen) || !isFree() {
@@ -596,6 +594,29 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		}
 		screen, err := host.ReadScreen(record)
 		return err == nil && ctx.Err() == nil && isFree() && typedAlone(screens, screen, text)
+	}
+	// awaitTaken waits, within shown, for the terminal's screen to show the
+	// words of a message whose Enter the relay pressed gone from the prompt
+	// line, read every nativeKeyPoll, so a delivery the Enter held finds the
+	// line as the harness left it: released as the Enter went, one read the
+	// words still drawn there, as a harness draws them away late, and refused
+	// to type onto them.
+	awaitTaken := func(shown context.Context, text string) {
+		screens, readable := harness.NativeScreens(harness.Kind(binding.harness()))
+		if !readable {
+			return
+		}
+		for {
+			screen, err := host.ReadScreen(record)
+			if err != nil || !screens.ComposerHoldsPartOf(screen, text) {
+				return
+			}
+			select {
+			case <-shown.Done():
+				return
+			case <-time.After(nativeKeyPoll):
+			}
+		}
 	}
 	view.SetReadLimit(1 << 20)
 	// isSubmissionTyped is whether keys were typed into the terminal since the
@@ -629,7 +650,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				// The Enter waits beside the view's input, so its
 				// acknowledgements and resizes go on meanwhile. Its keys came
 				// before it, so whether the relay typed them is known now. No
-				// board delivery types into the terminal while it waits
+				// board delivery types into the terminal until it is answered
 				// (CEOConnection.awaitEnter).
 				relay.mu.Lock()
 				isTaken := control.Submission == relay.submission
@@ -643,10 +664,19 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				go func() {
 					defer entering.Done()
 					defer answered()
-					isPressed := isTaken && pressTyped(submission, text)
+					// One bound holds both the wait for the words to show and
+					// the one for the Enter to take them, so the deliveries the
+					// Enter holds wait for its answer no longer than that bound
+					// and the settle before the Enter.
+					shown, cancelShown := awake.WithTimeout(ctx, nativeShown)
+					defer cancelShown()
+					isPressed := isTaken && pressTyped(shown, submission, text)
 					if isPressed && terminal.Input([]byte("\r")) != nil {
 						_ = view.Close(websocket.StatusGoingAway, "Input outcome is unknown. Inspect the terminal before typing again.")
 						return
+					}
+					if isPressed {
+						awaitTaken(shown, text)
 					}
 					answer, _ := json.Marshal(struct {
 						Type       string `json:"type"`

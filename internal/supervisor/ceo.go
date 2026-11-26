@@ -71,9 +71,9 @@ type CEOConnection struct {
 	// typing lets one writer at a time read and type into the CEO's native
 	// terminal, so a typed wake and a board send never share its composer.
 	typing sync.Mutex
-	// enters counts, by the terminal's key, the messages its views typed as
+	// enters holds, by the terminal's key, the messages its views typed as
 	// keys and wait to press the Enter of, and entersMu guards it.
-	enters   map[string]int
+	enters   map[string]*enterWait
 	entersMu sync.Mutex
 	// skipped is the newest untyped wake and why, as last recorded in
 	// ceoWakeSkipsFile, so each is recorded once.
@@ -528,6 +528,14 @@ func (c *CEOConnection) SendNotice(ctx context.Context, identity, text string) (
 	return c.sendNative(ctx, identity, stampedForCEO(text), false, false)
 }
 
+// enterWait is the messages a terminal's views typed as keys and wait to
+// press the Enter of: how many, and answered, closed once the last of them is
+// answered.
+type enterWait struct {
+	count    int
+	answered chan struct{}
+}
+
 // awaitEnter records that a view of the terminal key names waits to press the
 // Enter of a message it typed as keys, until the func it returns is called.
 // No board delivery types into that terminal meanwhile: keys its harness has
@@ -537,15 +545,21 @@ func (c *CEOConnection) awaitEnter(key string) func() {
 	c.entersMu.Lock()
 	defer c.entersMu.Unlock()
 	if c.enters == nil {
-		c.enters = map[string]int{}
+		c.enters = map[string]*enterWait{}
 	}
-	c.enters[key]++
+	wait := c.enters[key]
+	if wait == nil {
+		wait = &enterWait{answered: make(chan struct{})}
+		c.enters[key] = wait
+	}
+	wait.count++
 	return func() {
 		c.entersMu.Lock()
 		defer c.entersMu.Unlock()
-		c.enters[key]--
-		if c.enters[key] == 0 {
+		wait.count--
+		if wait.count == 0 {
 			delete(c.enters, key)
+			close(wait.answered)
 		}
 	}
 }
@@ -555,7 +569,25 @@ func (c *CEOConnection) awaitEnter(key string) func() {
 func (c *CEOConnection) isEnterAwaited(key string) bool {
 	c.entersMu.Lock()
 	defer c.entersMu.Unlock()
-	return c.enters[key] > 0
+	return c.enters[key] != nil
+}
+
+// awaitEntersAnswered waits until no view of the terminal key names waits to
+// press the Enter of a message it typed as keys, and returns ctx's error if
+// ctx ends first.
+func (c *CEOConnection) awaitEntersAnswered(ctx context.Context, key string) error {
+	c.entersMu.Lock()
+	wait := c.enters[key]
+	c.entersMu.Unlock()
+	if wait == nil {
+		return nil
+	}
+	select {
+	case <-wait.answered:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // nativeSubmitSettle lets a harness take typed text before its submit key:

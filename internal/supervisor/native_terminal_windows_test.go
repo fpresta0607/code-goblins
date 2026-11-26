@@ -31,6 +31,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -39,7 +40,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/pipeline/pipelinetest"
 	"github.com/fpresta0607/code-goblins/internal/proc"
-	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -119,6 +119,10 @@ func TestNativeTerminalProgram(t *testing.T) {
 	// runs, as a screen that turns to work without clearing its input does,
 	// such as one where Enter chose a dialog's option behind it.
 	keep := false
+	// redrawLate is how long each line taken stays drawn on the prompt line
+	// before the screen drawn for it wipes it, as a harness on a loaded
+	// machine draws late: none until a redraw after line names it.
+	redrawLate := time.Duration(0)
 	// A screen is drawn in one write, so a read never finds it half drawn. The
 	// turn's line reads as a turn to both Claude Code's and Codex's screens.
 	// The cursor then rests at the end of the prompt line, as a harness keeps
@@ -322,6 +326,14 @@ func TestNativeTerminalProgram(t *testing.T) {
 				continue
 			}
 			fmt.Printf("size %dx%d\n", info.Window.Right-info.Window.Left+1, info.Window.Bottom-info.Window.Top+1)
+		case strings.HasPrefix(line, "redraw after "):
+			late, err := time.ParseDuration(strings.TrimPrefix(line, "redraw after "))
+			if err != nil {
+				record("redraw error: " + err.Error())
+				continue
+			}
+			redrawLate = late
+			drawComposer("", false)
 		case strings.HasPrefix(line, "start a tool for "):
 			// A harness starting a tool reads nothing meanwhile, as Claude
 			// Code read nothing for a second or more in the Overlord's
@@ -350,6 +362,7 @@ func TestNativeTerminalProgram(t *testing.T) {
 		default:
 			record(line)
 			hint = ""
+			time.Sleep(redrawLate)
 			if harness && keep {
 				drawComposer(line, true)
 			} else if harness {
@@ -1592,6 +1605,53 @@ func TestTheRelayPressesNoTypedMessagesEnterWhoseWordsNeverShow(t *testing.T) {
 	}
 }
 
+// The relay answers a typed message's Enter it pressed once the screen shows
+// the words gone from the prompt line, or once the wait for that ends, which
+// shares the bound of the wait for them to show: a harness that leaves them
+// there, as one whose Enter chose a dialog's option behind them does, holds
+// the board's deliveries to its terminal no longer (#2848's review).
+func TestTheRelayAnswersATypedMessagesEnterWhoseWordsStayOnThePromptLineOnceItsBoundEnds(t *testing.T) {
+	// Arrange: the bound is cut to 1 s, and the harness keeps each line it
+	// takes on its prompt line.
+	previous := nativeShown
+	nativeShown = time.Second
+	t.Cleanup(func() { nativeShown = previous })
+	h, server := nativeBoard(t, "direct")
+	h.Service.Options.CEO = &CEOConnection{State: h.Service.Store.Home.State}
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	terminal := hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+	v.send(t, websocket.MessageBinary, "harness\rkeep\r")
+	v.send(t, websocket.MessageText, `{"type":"submit","submission":"words"}`)
+	v.send(t, websocket.MessageBinary, "please run /ship")
+	asked := time.Now()
+
+	// Act
+	v.send(t, websocket.MessageText, `{"type":"enter","submission":"words","text":"please run /ship"}`)
+
+	// Assert
+	v.waitFor(t, `{"type":"entered","submission":"words","pressed":true,"typed":true}`)
+	if waited := time.Since(asked); waited < nativeShown {
+		t.Fatalf("the relay answered %s after it was asked, want it to wait %s for the words to leave the prompt line", waited, nativeShown)
+	}
+	if got, want := terminal.waitForLines(t, 1), []string{"please run /ship"}; !slices.Equal(got, want) {
+		t.Fatalf("the program took %q, want %q", got, want)
+	}
+	for deadline := time.Now().Add(30 * time.Second); h.Service.Options.CEO.isEnterAwaited("task-1"); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the board still holds its deliveries once the relay answered the Enter")
+		}
+	}
+}
+
 // A gate that takes the task while a typed message's Enter waits for its
 // words holds that Enter at once, though the words show on the prompt line
 // later, so no Enter goes into a branch the gate owns (#2848's review).
@@ -1705,7 +1765,10 @@ func TestTheRelayPressesNoTypedMessagesEnterOnceItTakesAnotherSubmissionAsItsWor
 // prompt line holds: keys Claude Code has not read yet show nothing there,
 // and words typed behind them joined the message's, which one Enter then sent
 // as one message, or none did, though the box said they wait unsent (#2848's
-// review).
+// review). A goblin's delivery waits for the relay's answer, which comes once
+// the screen shows the message's words gone from the prompt line, though the
+// harness draws that late, and is then typed as a message of its own; the
+// CEO's is queued, as one is while its input holds words.
 func TestNoBoardDeliveryTypesIntoATerminalWhileAViewWaitsToPressATypedMessagesEnter(t *testing.T) {
 	for name, test := range map[string]struct {
 		query, key string
@@ -1714,16 +1777,18 @@ func TestNoBoardDeliveryTypesIntoATerminalWhileAViewWaitsToPressATypedMessagesEn
 		start    string
 		recorded int
 		deliver  func(*testing.T, context.Context, *HTTP) error
-		refusal  error
+		// refusal is how the delivery is refused while the Enter waits, or
+		// nil for one typed once the Enter is answered.
+		refusal error
 	}{
-		"a goblin's": {viewQuery, "task-1", "harness", 0, func(t *testing.T, ctx context.Context, h *HTTP) error {
+		"a goblin's": {viewQuery, "task-1", "harness\rredraw after 1s", 0, func(t *testing.T, ctx context.Context, h *HTTP) error {
 			meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
 			if err != nil {
 				t.Fatal(err)
 			}
 			_, err = h.Service.Options.CEO.SendGoblin(ctx, meta.ID, goblinIdentity(meta), "and /review it")
 			return err
-		}, spawn.ErrUnsentWords},
+		}, nil},
 		"the CEO's": {ceoQuery, NativeCEOTerminal, "register", 1, func(t *testing.T, ctx context.Context, h *HTTP) error {
 			_, err := h.Service.Options.CEO.Send(ctx, registrationIdentity(t, h.Service.Store.Home.State), "and /review it")
 			return err
@@ -1760,16 +1825,24 @@ func TestNoBoardDeliveryTypesIntoATerminalWhileAViewWaitsToPressATypedMessagesEn
 			// Act
 			err = test.deliver(t, ctx, h)
 
-			// Assert: nothing was typed, and the Enter goes over the words
-			// alone once the tool ends, after which the board holds nothing.
-			if !errors.Is(err, test.refusal) {
+			// Assert: the Enter goes over the words alone once the tool ends,
+			// and a delivery typed after it goes as a message of its own,
+			// after which the board holds nothing.
+			if test.refusal != nil && !errors.Is(err, test.refusal) {
 				t.Errorf("the delivery returned %v, want it refused as %v while the Enter waits", err, test.refusal)
 			}
+			if test.refusal == nil && err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
+				t.Errorf("the delivery returned %v, want it typed once the Enter was answered", err)
+			}
 			v.waitFor(t, `{"type":"entered","submission":"words","pressed":true,"typed":true}`)
-			if got, want := terminal.waitForLines(t, test.recorded+3)[test.recorded:], []string{"starting a tool", "started the tool", "please run /ship"}; !slices.Equal(got, want) {
+			want := []string{"starting a tool", "started the tool", "please run /ship"}
+			if test.refusal == nil {
+				want = append(want, goblinLine("and /review it"))
+			}
+			if got := terminal.waitForLines(t, test.recorded+len(want))[test.recorded:]; !slices.Equal(got, want) {
 				t.Fatalf("the program took %q, want %q", got, want)
 			}
-			for deadline := time.Now().Add(time.Second); h.Service.Options.CEO.isEnterAwaited(test.key); time.Sleep(10 * time.Millisecond) {
+			for deadline := time.Now().Add(30 * time.Second); h.Service.Options.CEO.isEnterAwaited(test.key); time.Sleep(10 * time.Millisecond) {
 				if time.Now().After(deadline) {
 					t.Fatal("the board still holds its deliveries once the relay pressed the Enter")
 				}
