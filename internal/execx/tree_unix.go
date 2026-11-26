@@ -37,7 +37,11 @@ const gentleFor = time.Second
 // of its own, and everything those started, by their parent chain. A
 // process that clears its environment, leaves the group and outlives the
 // process between it and the tree is not found
-// (docs/plans/2026-11-11-linux-port.md, "Left out on macOS at first").
+// (docs/plans/2026-11-11-linux-port.md, "Left out on macOS at first"). A
+// process that starts a session of its own and was read to drop the tree's
+// mark leaves the tree at once, with all it starts: the parent chain stops
+// at it. That is how a launched host leaves its launcher's tree, as
+// breaking away from the job does on Windows.
 type Tree struct {
 	cmd   *exec.Cmd
 	mark  string
@@ -50,10 +54,11 @@ type Tree struct {
 	// marks says of each process read whether it started with the tree's
 	// mark. What a process started with never changes, so what was read is
 	// kept, a failed read as no mark, since a process this one may not read
-	// never becomes readable. Only an empty read is tried again, once, on the
-	// next pass, as a process part-way through exec reads empty on Linux for
-	// a moment; a second empty read is kept as no mark, as a kernel thread's
-	// stays empty.
+	// never becomes readable, though never as a mark read to be dropped.
+	// Only an empty read is tried again, once, on the next pass, as a
+	// process part-way through exec reads empty on Linux for a moment; a
+	// second empty read is kept as no mark, as a kernel thread's stays
+	// empty.
 	marks map[run]markState
 	// seen holds every process of the tree read, which TotalProcesses counts.
 	seen map[run]bool
@@ -69,6 +74,7 @@ type markState int
 const (
 	markUnread markState = iota
 	markReadEmpty
+	markUnreadable
 	markAbsent
 	markCarried
 )
@@ -189,6 +195,9 @@ func (t *Tree) readMembers() (members []proc.Entry, hasProcessEnded bool, err er
 	}
 	marks := make(map[run]markState, len(processes))
 	isMember := map[int]bool{}
+	// isLeaving holds each process that leads a session of its own and was
+	// read to drop the tree's mark, at which the parent chain stops.
+	isLeaving := map[int]bool{}
 	children := map[int][]int{}
 	for _, process := range processes {
 		key := run{process.PID, process.Start}
@@ -207,12 +216,15 @@ func (t *Tree) readMembers() (members []proc.Entry, hasProcessEnded bool, err er
 				if _, lookupErr := proc.Lookup(process.PID); errors.Is(lookupErr, fs.ErrNotExist) {
 					hasProcessEnded = true
 				}
-				state = markAbsent
+				state = markUnreadable
 			}
 		}
 		marks[key] = state
 		if state == markCarried || (t.group != 0 && process.Group == t.group) {
 			isMember[process.PID] = true
+		}
+		if process.IsSessionLeader && state == markAbsent {
+			isLeaving[process.PID] = true
 		}
 		children[process.ParentPID] = append(children[process.ParentPID], process.PID)
 	}
@@ -225,7 +237,7 @@ func (t *Tree) readMembers() (members []proc.Entry, hasProcessEnded bool, err er
 		pid := queue[len(queue)-1]
 		queue = queue[:len(queue)-1]
 		for _, child := range children[pid] {
-			if !isMember[child] {
+			if !isMember[child] && !isLeaving[child] {
 				isMember[child] = true
 				queue = append(queue, child)
 			}

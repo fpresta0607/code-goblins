@@ -27,16 +27,17 @@ var (
 )
 
 // status is what /proc/<pid>/stat says of a process: its name, which the
-// kernel cuts to 15 bytes, its state, its parent, its process group, the
-// ticks of processor time it and the children it collected used, and how
-// many ticks after the machine started it was created. It also says whether
-// its exec has not yet set up the arguments and the environment it was
-// started with.
+// kernel cuts to 15 bytes, its state, its parent, its process group, its
+// session, the ticks of processor time it and the children it collected
+// used, and how many ticks after the machine started it was created. It also
+// says whether its exec has not yet set up the arguments and the environment
+// it was started with.
 type status struct {
 	name    string
 	state   byte
 	parent  int
 	group   int
+	session int
 	used    uint64
 	started uint64
 
@@ -82,9 +83,9 @@ func readAnyStatus(pid int) (status, error) {
 // parseStatus reads a line of /proc/<pid>/stat. The name stands in brackets
 // and may itself hold spaces and brackets, so the fields after it are counted
 // from the last closing bracket: the state is the first, the parent the
-// second, the group the third, the flags the seventh, the processor time the
-// twelfth to the fifteenth, the start the twentieth and where the environment
-// ends the forty-ninth. That end is 0 for a kernel thread, and for a process
+// second, the group the third, the session the fourth, the flags the
+// seventh, the processor time the twelfth to the fifteenth, the start the
+// twentieth and where the environment ends the forty-ninth. That end is 0 for a kernel thread, and for a process
 // whose exec has installed its new program but not yet set up its arguments
 // and environment, which it sets up together; a kernel older than 3.5 does
 // not give it.
@@ -104,6 +105,10 @@ func parseStatus(line []byte) (status, error) {
 	group, err := strconv.Atoi(string(fields[2]))
 	if err != nil {
 		return status{}, fmt.Errorf("its process group %q is no number", fields[2])
+	}
+	session, err := strconv.Atoi(string(fields[3]))
+	if err != nil {
+		return status{}, fmt.Errorf("its session %q is no number", fields[3])
 	}
 	var used uint64
 	for _, field := range fields[11:15] {
@@ -129,7 +134,7 @@ func parseStatus(line []byte) (status, error) {
 		}
 		isExecSettingUp = environmentEnd == 0 && flags&kernelThreadFlag == 0
 	}
-	return status{name: string(line[open+1 : shut]), state: fields[0][0], parent: parent, group: group, used: used, started: started, isExecSettingUp: isExecSettingUp}, nil
+	return status{name: string(line[open+1 : shut]), state: fields[0][0], parent: parent, group: group, session: session, used: used, started: started, isExecSettingUp: isExecSettingUp}, nil
 }
 
 // bootTime is when the machine started, as /proc/stat gives it in whole
@@ -190,7 +195,7 @@ func Instance(pid int) (string, error) {
 
 // entry is pid as read, started that long after boot.
 func (s status) entry(pid int, boot time.Time) Entry {
-	return Entry{PID: pid, ParentPID: s.parent, Group: s.group, ExeBase: s.name, Start: boot.Add(time.Duration(s.started) * (time.Second / ticksPerSecond))}
+	return Entry{PID: pid, ParentPID: s.parent, Group: s.group, IsSessionLeader: s.session == pid, ExeBase: s.name, Start: boot.Add(time.Duration(s.started) * (time.Second / ticksPerSecond))}
 }
 
 // UseOf reads what the running process pid uses now: the processor time it

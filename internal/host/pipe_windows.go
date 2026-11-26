@@ -15,6 +15,13 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/awake"
 )
 
+// pipeClosing reports whether err is a write to a pipe whose host end is
+// closed or closing: ERROR_NO_DATA ("The pipe is being closed."),
+// ERROR_BROKEN_PIPE or ERROR_PIPE_NOT_CONNECTED.
+func pipeClosing(err error) bool {
+	return errors.Is(err, windows.ERROR_NO_DATA) || errors.Is(err, windows.ERROR_BROKEN_PIPE) || errors.Is(err, windows.ERROR_PIPE_NOT_CONNECTED)
+}
+
 // pipeName is a fresh, unguessable pipe for one host.
 func pipeName() (string, error) {
 	var random [16]byte

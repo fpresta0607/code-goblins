@@ -41,14 +41,6 @@ func TestCloseEndsOnlyTheHostItWasHanded(t *testing.T) {
 	}
 }
 
-// setCloseTerminal stands send in for Close's close request for one test.
-func setCloseTerminal(t *testing.T, send func(*Client) error) {
-	t.Helper()
-	previous := closeTerminal
-	closeTerminal = send
-	t.Cleanup(func() { closeTerminal = previous })
-}
-
 // A host told /exit closes its end of the pipe as it ends, so a Close that
 // reaches it in that moment has its request refused with "The pipe is being
 // closed." (2026-10-01, the gate's spawn cleanup). The host ending is the

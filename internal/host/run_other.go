@@ -5,6 +5,7 @@ package host
 import (
 	"errors"
 	"fmt"
+	"time"
 )
 
 // errNotPorted is what running or reaching a host returns on this system:
@@ -17,3 +18,16 @@ func Run(stateDir string, spec Spec) error { return errNotPorted }
 
 // dialPipe refuses, since no host runs on this system.
 func dialPipe(name string, hostPID int) (hostConnection, error) { return nil, errNotPorted }
+
+// Launch refuses, since no host runs on this system.
+func Launch(stateDir string, command, env []string, spec Spec) (Record, error) {
+	return Record{}, errNotPorted
+}
+
+// Close refuses, since no host runs on this system.
+func Close(stateDir string, launched Record, answerWait time.Duration) error {
+	return errNotPorted
+}
+
+// Running reports no host running, since no host runs on this system.
+func Running(record Record) bool { return false }
