@@ -1,7 +1,9 @@
 /* A baby goblin's terminal: the goblin's terminal surface, its grid padded
    evenly to the panel by the fit, as a goblin's is (see panelFit). */
 .agent-terminal { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; background: #071015; color: #d8e9e2; }
+.agent-screen { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
 .agent-output { position: relative; flex: 1; min-height: 0; min-width: 0; }
+.agent-screen > .terminal-jump { bottom: 12px; translate: -50% 0; }
 .agent-output .xterm { height: 100%; box-sizing: border-box; }
 .agent-output, .agent-output .xterm-viewport { background: #071015 !important; }
 .agent-terminal > .notice { flex: none; margin: 8px 18px; }

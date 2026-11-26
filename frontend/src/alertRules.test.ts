@@ -294,8 +294,8 @@ test("the board asks for notifications once, and only while the browser has not 
 // tell it, under its pull request, head and sighting, and the alert leaves
 // once he brings it back or leaves it.
 test("cloud work ready alerts once and leaves with its item", () => {
-  const sighting = { pull_request: PR, title: "Name the **bad** header", author: "o", head: "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00", is_teammates: false, seen_at: "2026-11-25T19:00:00Z", is_left: false };
-  const handedOff = (cloud: typeof sighting[]) => snapshot({ tasks: [task("a", "paused", { cloud_handoff: { pull_request: "https://github.com/o/r/pull/6", cloud } })] });
+  const sighting = { pull_request: PR, title: "Name the **bad** header", author: "o", head: "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00", commits: 1, body: "", is_teammates: false, seen_at: "2026-11-25T19:00:00Z", is_left: false };
+  const handedOff = (cloud: typeof sighting[]) => snapshot({ tasks: [task("a", "paused", { cloud_handoff: { pull_request: "https://github.com/o/r/pull/6", prompt: "", cloud } })] });
   const before = handedOff([]);
   const ready = handedOff([sighting]);
 

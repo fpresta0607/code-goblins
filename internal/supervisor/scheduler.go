@@ -294,7 +294,7 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 }
 
 // changingVerbs says what a task in the middle of a change is doing.
-var changingVerbs = map[string]string{"resume": "resuming", "switch": "switching", "pause": "pausing", "stop": "stopping", "save": "being edited", "note": "being edited"}
+var changingVerbs = map[string]string{"resume": "resuming", "switch": "switching", "pause": "pausing", "handoff": "handing off", "stop": "stopping", "save": "being edited", "note": "being edited"}
 
 // pauseCleared says whether the pause condition has cleared at this reading.
 // A pause for memory clears at one reading, once isRoomFree says the machine

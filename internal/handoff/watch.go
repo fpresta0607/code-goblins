@@ -20,6 +20,10 @@ type CloudSighting struct {
 	Title       string `json:"title"`
 	Author      string `json:"author"`
 	Head        string `json:"head"`
+	// Commits is how many commits it holds at Head, and Body how its body
+	// begins there, on one line, which says what the cloud session ran.
+	Commits int    `json:"commits,omitempty"`
+	Body    string `json:"body,omitempty"`
 	// IsTeammates says its author is not the account gh works as, so only
 	// the Overlord's press brings it back.
 	IsTeammates bool      `json:"is_teammates,omitempty"`
@@ -38,10 +42,44 @@ type Press struct {
 }
 
 // OpenPullRequest is an open pull request of the task's repository as the
-// supervisor's watch lists it.
+// supervisor's watch lists it, with its commits and body, which the watch
+// reads only for one the record has not seen at its head.
 type OpenPullRequest struct {
 	URL, Title, Base, Head, Author string
 	IsCrossRepository              bool
+	Commits                        int
+	Body                           string
+}
+
+// bodyRunes is how much of a cloud pull request's body a sighting keeps.
+const bodyRunes = 280
+
+// isCloud says pr is one of the cloud's into the handoff's branch: from the
+// same repository and not the one the packet is in.
+func (record Record) isCloud(pr OpenPullRequest) bool {
+	return pr.Base == record.Branch && !pr.IsCrossRepository && pr.URL != record.PullRequest
+}
+
+// sightingOf is the index of the record's sighting of pr at its head, or -1.
+func (record Record) sightingOf(pr OpenPullRequest) int {
+	return slices.IndexFunc(record.Cloud, func(seen CloudSighting) bool { return seen.PullRequest == pr.URL && seen.Head == pr.Head })
+}
+
+// IsUnseen says pr is one of the cloud's the record has not seen at its
+// head, or saw there without its commits, whose commits and body the watch
+// reads before it sights it.
+func (record Record) IsUnseen(pr OpenPullRequest) bool {
+	index := record.sightingOf(pr)
+	return record.isCloud(pr) && (index < 0 || record.Cloud[index].Commits == 0)
+}
+
+// excerpt is how body begins, its words on one line, cut at bodyRunes.
+func excerpt(body string) string {
+	words := []rune(strings.Join(strings.Fields(body), " "))
+	if len(words) <= bodyRunes {
+		return string(words)
+	}
+	return string(words[:bodyRunes]) + "..."
 }
 
 // HandedOff reads the handoff record of the task meta names and says
@@ -61,8 +99,9 @@ func HandedOff(stateDir string, meta state.TaskMeta) (Record, bool, error) {
 // Sight records, for a task handed off in its current session, the open
 // pull requests into its branch from its own repository other than the
 // handoff's own: one sighting each at its newest head, keeping one the
-// Overlord left only while its head stays the same. It says whether a pull
-// request or a head is new. A task not handed off is left as it is, and so
+// Overlord left only while its head stays the same. One seen at its head
+// without its commits takes what was read, staying left if it was. It says
+// whether a pull request, a head or what one holds is new. A task not handed off is left as it is, and so
 // is one whose handoff lock a command holds, for the next watch to see.
 func Sight(stateDir string, meta state.TaskMeta, open []OpenPullRequest, account string, now time.Time) (bool, error) {
 	unlock, err := Service{StateDir: stateDir}.lock(meta.ID)
@@ -84,16 +123,20 @@ func sight(stateDir string, meta state.TaskMeta, open []OpenPullRequest, account
 	var sightings []CloudSighting
 	isNew := false
 	for _, pr := range open {
-		if pr.Base != record.Branch || pr.IsCrossRepository || pr.URL == record.PullRequest {
+		if !record.isCloud(pr) {
 			continue
 		}
-		index := slices.IndexFunc(record.Cloud, func(seen CloudSighting) bool { return seen.PullRequest == pr.URL && seen.Head == pr.Head })
-		if index >= 0 {
+		index := record.sightingOf(pr)
+		if !record.IsUnseen(pr) {
 			sightings = append(sightings, record.Cloud[index])
 			continue
 		}
-		isNew = true
-		sightings = append(sightings, CloudSighting{PullRequest: pr.URL, Title: pr.Title, Author: pr.Author, Head: pr.Head, IsTeammates: !strings.EqualFold(pr.Author, account), SeenAt: now.UTC()})
+		sighting := CloudSighting{PullRequest: pr.URL, Title: pr.Title, Author: pr.Author, Head: pr.Head, Commits: pr.Commits, Body: excerpt(pr.Body), IsTeammates: !strings.EqualFold(pr.Author, account), SeenAt: now.UTC()}
+		if index >= 0 {
+			sighting.SeenAt, sighting.IsLeft = record.Cloud[index].SeenAt, record.Cloud[index].IsLeft
+		}
+		isNew = isNew || index < 0 || sighting != record.Cloud[index]
+		sightings = append(sightings, sighting)
 	}
 	if slices.Equal(sightings, record.Cloud) {
 		return false, nil
