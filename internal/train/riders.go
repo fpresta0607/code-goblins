@@ -25,7 +25,12 @@ type PullRequest struct {
 	ReviewDecision          string  `json:"reviewDecision"`
 	Labels                  []Label `json:"labels"`
 	Checks                  Checks  `json:"statusCheckRollup"`
-	Author                  struct {
+	// LandsHeld says its repository's pull requests land held
+	// (Repository.LandsHeld), and HasCarriedHold that it carries HoldLabel
+	// or its label history says it once did.
+	LandsHeld      bool `json:"-"`
+	HasCarriedHold bool `json:"-"`
+	Author         struct {
 		Login string `json:"login"`
 	} `json:"author"`
 }
@@ -385,16 +390,25 @@ func ownerOf(goblins []Goblin, url string) (Goblin, time.Time) {
 }
 
 // KeptOff says why no train takes pr however its checks stand: it is a
-// draft, or it carries HoldLabel. It is empty for a pull request neither
-// keeps off.
+// draft, it carries HoldLabel, or its repository's pull requests land held
+// and it never carried HoldLabel, so it never waited on its owner's word
+// (issue 2724). It is empty for a pull request none of these keeps off.
 func KeptOff(pr PullRequest) string {
 	switch {
 	case pr.IsDraft:
 		return "it is a draft"
 	case isHeld(pr):
 		return "it is held: it carries the " + HoldLabel + " label"
+	case pr.LandsHeld && !pr.HasCarriedHold:
+		return NeverHeld(pr.URL)
 	}
 	return ""
+}
+
+// NeverHeld is why a pull request whose project's pull requests land held,
+// at url, lands neither on a train nor by goblins pr merge.
+func NeverHeld(url string) string {
+	return "its project's pull requests land held and it never carried the " + HoldLabel + " label, so it never waited on its owner's word: hold it with gh pr edit " + url + " --add-label " + HoldLabel + ", and it lands once its owner takes the label off"
 }
 
 func isHeld(pr PullRequest) bool {

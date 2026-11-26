@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
@@ -23,6 +24,7 @@ import (
 	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
+	"github.com/fpresta0607/code-goblins/internal/train"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
@@ -253,7 +255,22 @@ func runPR(sub string, args []string, stdout, stderr io.Writer, commands execx.R
 			fmt.Fprintln(stderr, "goblins pr merge: "+err.Error())
 			return 1
 		}
-		return runPRMerge(args, stdout, stderr, commands, runtime.githubAPI, away)
+		data, stateDir, root := "", "", ""
+		if runtime.resolveHome != nil {
+			h, err := runtime.resolveHome()
+			if err != nil {
+				fmt.Fprintln(stderr, "goblins pr merge: "+err.Error())
+				return 1
+			}
+			data, stateDir = h.Data, h.State
+		}
+		if runtime.projectsRoot != nil {
+			if root, err = runtime.projectsRoot(); err != nil {
+				fmt.Fprintln(stderr, "goblins pr merge: read the projects root: "+err.Error())
+				return 1
+			}
+		}
+		return runPRMerge(args, stdout, stderr, commands, runtime.githubAPI, away, data, stateDir, root)
 	case "train":
 		return runPRTrain(args, stdout, stderr, commands, runtime)
 	default:
@@ -335,7 +352,13 @@ func recordPR(stateDir, id, url, head string) (err error) {
 //
 // GitHub's API, through github, reads the merge queue and what AFK mode
 // checks of a pull request on github.com; gh reads them on another host.
-func runPRMerge(args []string, stdout, stderr io.Writer, commands execx.Runner, github *githubapi.Client, away *afkAuthority) int {
+//
+// data is the home's data directory, whose project records say whether a
+// project's pull requests land held, and stateDir and root the home's state
+// directory and the machine's projects root, whose task checkouts and
+// checkouts say by their origins which record is the pull request's; with no
+// data, or neither of the others, no project declares it.
+func runPRMerge(args []string, stdout, stderr io.Writer, commands execx.Runner, github *githubapi.Client, away *afkAuthority, data, stateDir, root string) int {
 	if len(args) < 1 {
 		fmt.Fprintln(stderr, "goblins pr merge: <url> is required")
 		return 2
@@ -370,6 +393,11 @@ func runPRMerge(args []string, stdout, stderr io.Writer, commands execx.Runner, 
 		}
 	}
 	ctx := context.Background()
+	landsHeld, err := pullRequestsLandHeld(ctx, commands, data, stateDir, root, url)
+	if err != nil {
+		fmt.Fprintln(stderr, "goblins pr merge: "+err.Error())
+		return 1
+	}
 	github = apiFor(url, github)
 	proof, err := verifyPRReady(ctx, url, commands)
 	if err != nil {
@@ -382,6 +410,10 @@ func runPRMerge(args []string, stdout, stderr io.Writer, commands execx.Runner, 
 	queue, err := readMergeQueue(ctx, url, commands, github)
 	if err != nil {
 		fmt.Fprintln(stderr, "goblins pr merge: "+err.Error())
+		return 1
+	}
+	if landsHeld && !queue.HasCarriedHold {
+		fmt.Fprintf(stderr, "goblins pr merge: %s stays unmerged: %s\n", url, train.NeverHeld(url))
 		return 1
 	}
 	base := emptyAs(proof.BaseRefName, "the base")
@@ -445,6 +477,61 @@ func runPRMerge(args []string, stdout, stderr io.Writer, commands execx.Runner, 
 		deleteMergedBranch(ctx, url, stdout, stderr, commands)
 	}
 	return 0
+}
+
+// pullRequestsLandHeld reads whether the project whose pull request url
+// names declares that its pull requests land held. Its records, in data, are
+// those of the checkouts whose origin is the pull request's repository, read
+// as a merge train reads a checkout's: the checkout of every task the fleet
+// records in stateDir, the ones the trains read, and every checkout under
+// root, so a project kept outside the projects root, or a machine with none
+// recorded, is read too. It lands held when any of them says so. A
+// repository with no such checkout, or a checkout with no record, declares
+// nothing; a record that cannot be read is an error, never a merge.
+func pullRequestsLandHeld(ctx context.Context, commands execx.Runner, data, stateDir, root, url string) (bool, error) {
+	if data == "" {
+		return false, nil
+	}
+	repository, err := pullRequestRepository(url)
+	if err != nil {
+		return false, err
+	}
+	var checkouts []string
+	if stateDir != "" {
+		checkouts = supervisor.TaskCheckouts(stateDir)
+	}
+	if root != "" {
+		underRoot, err := supervisor.ProjectCheckouts(root)
+		if err != nil {
+			return false, fmt.Errorf("read the projects root %s: %w", root, err)
+		}
+		for _, checkout := range underRoot {
+			if !slices.ContainsFunc(checkouts, func(known string) bool { return fsx.SamePath(known, checkout) }) {
+				checkouts = append(checkouts, checkout)
+			}
+		}
+	}
+	for _, checkout := range checkouts {
+		result, err := commands.Run(ctx, execx.Request{Dir: checkout, Name: "git", Args: []string{"config", "--get", "remote.origin.url"}})
+		if err != nil {
+			return false, fmt.Errorf("read the origin of %s: %w", checkout, err)
+		}
+		slug, isGitHub := githubapi.RemoteRepository(strings.TrimSpace(string(result.Stdout)))
+		if result.ExitCode != 0 || !isGitHub || !strings.EqualFold(slug, repository) {
+			continue
+		}
+		manifest, _, err := projectcfg.LoadForCheckout(data, checkout)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return false, err
+		}
+		if manifest.Delivery.PullRequestsLandHeld {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // deleteMergedBranch removes the head branch of a merged PR, remote ref first.

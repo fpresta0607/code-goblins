@@ -63,6 +63,9 @@ type Repository struct {
 	Base           string
 	LandsLoneRider bool
 	LoneRiderWait  time.Duration
+	// LandsHeld says the repository's pull requests land held
+	// (project.DeliveryPolicy.PullRequestsLandHeld).
+	LandsHeld bool
 }
 
 // Engine builds trains and takes them a step at a time. Every git command
