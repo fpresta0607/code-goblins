@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/routing"
 )
 
@@ -1100,7 +1101,7 @@ var (
 )
 
 // ceoBrief ends the line a goblin starts on, which names its brief
-// (internal/spawn/native_launch.go).
+// (internal/spawn/native_launch.go), after harness.RESUME_LEAD on a resume.
 const ceoBrief = ": it is your instruction from the CEO."
 
 func (l *messageLog) prompt(message Message, text string) {
@@ -1174,7 +1175,7 @@ func promptSource(text string) (string, string) {
 			return FromPage, words
 		}
 		return FromAnswer, words
-	case isStamped, strings.HasPrefix(text, "Read ") && strings.HasSuffix(text, ceoBrief):
+	case isStamped, strings.HasPrefix(strings.TrimPrefix(text, harness.RESUME_LEAD+" "), "Read ") && strings.HasSuffix(text, ceoBrief):
 		return FromCEO, words
 	}
 	return FromOverlord, text
