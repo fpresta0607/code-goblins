@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/hero.webp" alt="Code Goblins example workspace: queued, active and completed tasks beside the CEO's Modern Chat conversation" width="1000" />
+  <img src="docs/images/hero.webp" alt="Code Goblins example workspace: a queued task, three goblins in progress with one second in line for the machine, a paused goblin and a completed one, beside the CEO's Modern Chat conversation" width="1000" />
   <br />
   <sub>Every screenshot shows a disposable example workspace with made-up projects, tasks and conversations.</sub>
 </p>
@@ -28,6 +28,7 @@
   <a href="#quick-start">Quick start</a>
   · <a href="#using-the-board">Explore the app</a>
   · <a href="#your-phone">Connect your phone</a>
+  · <a href="#how-the-pieces-run">How it runs</a>
   · <a href="docs/install.md">Installation guide</a>
 </p>
 
@@ -35,7 +36,7 @@ The **CEO** (Chief Executive Officer) is your supervisor and main conversation.
 It breaks a request into tasks, gives **goblins** isolated git worktrees, follows their progress and brings decisions back to you.
 Workers can use **Claude Code, Codex or pi**, with a harness, model and effort suited to the task.
 
-- **See the work.** A board of queued, active and completed tasks, with a conversation and task details for each goblin.
+- **See the work.** A board of queued, active, paused and completed tasks, with a conversation and task details for each goblin.
 - **Stay involved when it matters.** Steer a task, inspect its changes, answer a decision or annotate a review.
 - **Keep your place.** Sessions run independently of the window; closing the app does not stop the fleet.
 - **Deliver with evidence.** Review, tests and CI back the result, with bounded repair cycles and explicit merge authority.
@@ -78,25 +79,29 @@ The hero above shows Modern selected.
 
 ### Follow a goblin
 
-**Board** groups work into **Tasks**, **In progress** and **Completed**.
-Open a card to follow the goblin, or use **Orchestration** for the crew's graph and child processes.
+**Board** groups work into **Tasks**, **In progress** and **Completed**, with paused goblins in their own **Paused** group under In progress.
+Open a card to follow the goblin, use **Orchestration** for the crew's graph and child processes, or **Connectors** for what the fleet can reach.
 The memory and disk meters show whether the machine has room for more work.
-Queued tasks have **Start**; running tasks have **Pause** and **Stop**, and paused tasks have **Resume**.
+A goblin whose heavy test run waits for room on the machine says so on its card, such as **2nd in line for the machine**, and goes on when its turn comes.
+Queued tasks have **Start** and **Remove**; running tasks have **Pause** and **Stop**, and paused tasks have **Resume**.
 
 In the panel, **Chat** opens the conversation and **Task** opens the work details.
-**Maximize** gives the panel the window, with the task details beside the conversation on a wide screen; **Restore** returns to the board.
-Open **Workspace** to find the branch and working folder, **Harness** to inspect its engine, and **Changes** to load the files you want to review.
+While a goblin drives its own browser, **Screen** shows that browser live.
+**Maximize the panel** gives the panel the window, with the task details beside the conversation on a wide screen; **Restore** returns to the board.
+Open **Workspace** to find the branch and working folder, **Harness** to inspect its engine, and **Changes** to load the files you want to review; the **Connectors** line opens the Connectors page.
 **Files on GitHub** opens the pull request's complete diff.
 
 <p align="center">
-  <img src="docs/images/board-review.webp" alt="Example goblin's Task panel with Pause and Stop, Workspace, Harness, Connections and an expanded search-filter diff under Changes" width="620" />
+  <img src="docs/images/board-review.webp" alt="Example goblin's Task view with Pause and Stop, the Workspace, Harness, Connectors, Activity and History lines, and a search-filter diff open under Changes" width="560" />
   <br />
   <sub>Example workspace: inspect one task's controls and changes without leaving the board.</sub>
 </p>
 
 ### Chat, Terminal and steering
 
-Modern Chat presents prompts, replies, folded thinking and tool results as a conversation.
+Modern Chat presents prompts, replies, folded thinking and tool results as a conversation, with a turn's tool calls folded into one line such as **Ran 1 command, read 1 file**.
+Pictures in a conversation show as thumbnails that open full size.
+A PowerShell block in a finished reply has **Run** beside **Copy**, and nothing runs until you press it.
 Type in the message box and press **Enter** to send; **Shift+Enter** adds a line.
 The composer offers files, the session's permission mode, model and effort, plus local dictation where available.
 Type `/` for harness commands or `@` for files.
@@ -107,7 +112,7 @@ The native terminal keeps the harness's own keyboard controls and prompts.
 **Open in Windows Terminal** offers another view of the same session on the PC.
 
 <p align="center">
-  <img src="docs/images/goblin-panel.webp" alt="Example task in Classic: the native terminal beside its Task details" width="1000" />
+  <img src="docs/images/goblin-panel.webp" alt="Example task in Classic, maximized: the goblin's native Claude Code terminal with a passing test run, beside its Task details with Pause, Stop, Workspace, Harness, Connectors, Changes, Activity and History" width="1000" />
   <br />
   <sub>Example workspace: Classic shows the harness's terminal; Modern is a saved display choice.</sub>
 </p>
@@ -126,21 +131,37 @@ A decision card explains the question, offers named choices and accepts your own
 Pick an answer and press **Send decision**.
 
 <p align="center">
-  <img src="docs/images/command-center.webp" alt="Example Command Center decision with a recommended answer, alternative choices, Other and Send decision" width="620" />
+  <img src="docs/images/command-center.webp" alt="Example Command Center decision from the CEO with a recommended answer, two other choices, Other and Send decision" width="560" />
   <br />
   <sub>Example workspace: answer a concrete decision and let the CEO continue.</sub>
 </p>
 
 A browser step arrives as a card with the reason, the page and the steps only you can take.
-Open it to sign in, approve access or complete the requested check, then mark it done.
-For a step tied to the goblin's browser, the card shows that browser's screen: take control there, and hand it back once the step is done.
+Open it to sign in, approve access or complete the requested check, then press **Done**.
+For a step in the goblin's own browser, **Take control** opens that browser's screen for you to drive; say what you did and **Hand back** once the step is done.
 Credential fields store secrets in the vault rather than sending their values through the conversation.
 A command card shows the exact command before you press **Run** and records how it ended.
 
 <p align="center">
-  <img src="docs/images/browser-step.webp" alt="Example browser-step card asking the owner to sign in to a demo shop, with numbered steps and a browser-window action" width="620" />
+  <img src="docs/images/browser-step.webp" alt="Example browser-step card from a goblin asking you to sign in to a demo shop in its browser, with three numbered steps, Take control and Done" width="560" />
   <br />
   <sub>Example workspace: a browser step stays with the task that needs it.</sub>
+</p>
+
+A goblin's task can also be handed to a cloud session through GitHub with `goblins handoff`.
+When the cloud session opens a pull request into the goblin's branch, **Cloud work ready** appears in Command Center: **Bring back** resumes the goblin with that work, and **Leave it** sets the item aside until the pull request changes.
+See the [handoff command reference](docs/commands/handoff.md).
+
+### Connectors
+
+**Connectors** in the header shows what the fleet can reach, on three levels: this PC and its accounts, each project, and each goblin's session.
+**Needs a look** gathers only what failed or is out of place, from every level, with the action that fixes it where there is one.
+Search looks through every level, and the page shows names and states, never a secret's value.
+
+<p align="center">
+  <img src="docs/images/connectors.webp" alt="Example Connectors page with its three levels and one missing project key under Needs a look, with a button to store it from the clipboard" width="1000" />
+  <br />
+  <sub>Example workspace: check what each level can reach before a goblin needs it.</sub>
 </p>
 
 ### Review and annotate
@@ -169,7 +190,7 @@ See the [board and review guide](docs/native-board.md) and the [review-surface s
    On iPhone, Safari's **Share → Add to Home Screen** keeps the board beside your apps.
 
 <p align="center">
-  <img src="docs/images/phone-chat.webp" alt="Example phone-sized Modern Chat with a task conversation, a queued follow-up and the composer" width="320" />
+  <img src="docs/images/phone-chat.webp" alt="Example phone-sized Modern Chat with a goblin's replies, a folded tool-call line, a queued follow-up with its Send now, Edit and Cancel buttons, and the composer" width="320" />
   <br />
   <sub>Example workspace at phone width: follow a conversation and inspect a queued follow-up.</sub>
 </p>
@@ -186,13 +207,26 @@ Turn it on from the CEO's controls, then review the recorded decisions when you 
 It does not grant the agent authority over steps reserved for you.
 The switch shows loading or refusal feedback when it cannot change state.
 Turning AFK off opens a report of what changed, decisions made for you and work still under way.
-Use **Change answer** to revise a decision, **Go through what needs you** to handle pending items, or **Open your last AFK report** in the CEO's Task view to reopen it.
+Use **Change answer** to revise a decision, **Go through what needs you** to handle pending items, or **Open your last AFK report** in the CEO panel's header to reopen it.
 See the [AFK contract](docs/contract/afk.md) for authority, limits and the return report.
+
+## How the pieces run
+
+<p align="center">
+  <img src="docs/images/how-it-runs.webp" alt="Layout drawing. Your Windows PC holds the Code Goblins app, your terminal, the supervisor, the CEO session, goblin sessions in their own worktrees and the CEO home. The app and your terminal talk to the supervisor, which starts and watches the sessions and keeps fleet state in the home. Your phone's browser reaches the supervisor over a private Tailscale link. Goblins push pull requests to GitHub and can hand work to cloud sessions there. Each harness calls its model provider with your own account." width="1000" />
+</p>
+
+Everything but GitHub, your phone and the model providers runs on your PC.
+The supervisor, `goblins serve`, serves the board on `127.0.0.1` to the app window, starts the CEO and goblin sessions and watches them.
+The CEO directs the work with `goblins` commands, as you can from a terminal of your own.
+Each goblin works in its own git worktree under the CEO home, pushes its branch and opens a pull request on GitHub.
+Your phone is an optional second view of the same board, reached only over your private Tailscale link.
+Each harness calls its model provider with the account you signed it in with.
 
 ## Opening, closing and restarting
 
 Closing the desktop window, browser or attached terminal stops no work.
-**Start at login** can bring the app back after sign-in; the fleet can resume work a restart ended.
+The app starts at login in the tray unless you turned that off in the installer, and the fleet can resume work a restart ended.
 Use task controls when you intend to pause or stop a goblin.
 See [desktop and session behavior](docs/native-board.md) for recovery and native-terminal details.
 
@@ -218,6 +252,7 @@ Use `goblins help` to list topics, then ask for one command, such as `goblins he
 The [help reference](docs/commands/help.md), [operator contract](AGENTS.md) and [pipeline guide](docs/pipeline.md) cover fleet operation and verification levels.
 See the [update command reference](docs/commands/update.md) for installing a candidate build and recovering an update.
 See the [memory command reference](docs/commands/memory.md) for startup memory retrieval, budget reports and read-only migration and retention plans.
+`goblins backlog review` lists the queued work and paused tasks that need a decision, each with its evidence and a proposal; see the [backlog command reference](docs/commands/backlog.md).
 
 For persistent Command Center reviews:
 
@@ -291,7 +326,7 @@ For a development install, see [building and installing from source](docs/instal
 | Path | Purpose |
 | --- | --- |
 | `cmd/goblins/` | Windows CLI and launcher. |
-| `frontend/` | Board, conversations, task panels and Command Center. |
+| `frontend/` | Board, conversations, task panels, Connectors and Command Center. |
 | `internal/` | Native terminal hosting, dispatch, supervision, credentials and delivery. |
 | `.agents/skills/` | Repository-owned procedures and review-surface integration. |
 | `docs/` | Installation, phone access, operator contracts and development guides. |
