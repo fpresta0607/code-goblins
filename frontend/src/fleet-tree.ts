@@ -69,18 +69,24 @@ function ordinal(index: number): string {
   return numeral;
 }
 
+// A helper named after its goblin, as goblinname.Helper names it: the goblin's
+// first name and its helper number, Jr. or a roman numeral, as Grub VII.
+const NUMBERED_HELPER = /^\S+ (Jr\.|[IVXLC]+)$/;
+
 // babyName is what a goblin's baby goblin is called: its goblin's name, the
 // order they started in, Kip Jr., then Kip II, Kip III and on (finished
 // ones count, so a baby keeps its name as its siblings finish), and its own
 // description as it wrote it, as "Kip II - Map harness plumbing". A goblin
 // with no name yet leaves the description alone. A helper is a goblin of its
-// own and keeps its own name.
+// own and keeps its own name. A numbered helper's name ends in its number, so
+// its own baby goblins count in digits from 1, Grub VII 1, then Grub VII 2.
 export function babyName(goblin: Task, node: TreeNode): string {
   if (node.kind === "helper") return node.label;
   if (!goblin.goblin_name) return node.label;
   const order = (goblin.tree?.children || []).filter((child) => child.kind === "subagent")
     .sort((one, other) => one.started.localeCompare(other.started) || one.id.localeCompare(other.id));
-  return goblin.goblin_name + " " + ordinal(Math.max(0, order.findIndex((child) => child.id === node.id))) + " - " + node.label;
+  const index = Math.max(0, order.findIndex((child) => child.id === node.id));
+  return goblin.goblin_name + " " + (NUMBERED_HELPER.test(goblin.goblin_name) ? index + 1 : ordinal(index)) + " - " + node.label;
 }
 
 // babyTask is what a baby goblin was asked to do, which its tip and its

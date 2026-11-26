@@ -428,8 +428,6 @@ func TestAssignGivesTheTitleTheBriefGivesAndAQueuedTaskKeepsItsName(t *testing.T
 	}
 }
 
-// The examples of issue 2396, each told in the issue's words, with the title
-// it had before: each title now names the task's own subject.
 // A helper is named after its parent with its number as the board numbers
 // a goblin's baby goblins, Jr. and then II on, and its title is the one its
 // brief gives, or else its best subject's first, or the first generic one
@@ -459,6 +457,8 @@ func TestHelperIsNamedAfterItsParentWithItsNumberAndOneTitleForItsRole(t *testin
 	}
 }
 
+// The examples of issue 2396, each told in the issue's words, with the title
+// it had before: each title now names the task's own subject.
 func TestAssignNamesTheTasksOwnSubjectForTheIssuesExamples(t *testing.T) {
 	cases := []struct {
 		before string

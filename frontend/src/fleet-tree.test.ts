@@ -487,7 +487,7 @@ test("a baby goblin says what it runs in plain words: the program its command st
   ] as [Partial<TreeNode>, string][]) assert.equal(whatItRuns(child(fields)), runs, JSON.stringify(fields));
 });
 
-test("baby goblins are named after their goblin in the order they started, Jr. then II and on, named by their own description, and a helper keeps its own name", () => {
+test("baby goblins are named after their goblin in the order they started, Jr. then II and on, or 1 then 2 under a numbered helper, named by their own description, and a helper keeps its own name", () => {
   const children = [
     child({ id: "c", label: "Check the list", started: ago(30) }), child({ id: "a", label: "Start the board", started: ago(50) }),
     child({ id: "h", kind: "helper", label: "Pip - Rail Fitter", started: ago(45) }), child({ id: "b", label: "Test dictation", started: ago(40), state: "done" }),
@@ -496,5 +496,10 @@ test("baby goblins are named after their goblin in the order they started, Jr. t
   const goblin = parseSnapshot({ healthy: true, tasks: [{ id: "g", title: "Fix it", goblin_name: "Kip", goblin_title: "Echo Chaser", phase: "working", verified: false, tree: tree(children) }] }).tasks[0];
   const name = (id: string) => babyName(goblin, children.find((node) => node.id === id)!);
   assert.deepEqual(["a", "b", "c", "z0", "z7", "h"].map(name), ["Kip Jr. - Start the board", "Kip II - Test dictation", "Kip III - Check the list", "Kip IV - Trace the export", "Kip XI - Trace the export", "Pip - Rail Fitter"]);
+  for (const [goblinName, names] of [
+    ["Vi", ["Vi Jr. - Start the board", "Vi II - Test dictation", "Vi XI - Trace the export"]],
+    ["Grub VII", ["Grub VII 1 - Start the board", "Grub VII 2 - Test dictation", "Grub VII 11 - Trace the export"]],
+    ["Grub Jr.", ["Grub Jr. 1 - Start the board", "Grub Jr. 2 - Test dictation", "Grub Jr. 11 - Trace the export"]],
+  ] as [string, string[]][]) assert.deepEqual(["a", "b", "z7"].map((id) => babyName({ ...goblin, goblin_name: goblinName }, children.find((node) => node.id === id)!)), names, goblinName);
   assert.equal(babyName({ ...goblin, goblin_name: "" }, children[1]), "Start the board", "a goblin with no name yet: the description alone");
 });

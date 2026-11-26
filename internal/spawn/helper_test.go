@@ -2,6 +2,7 @@ package spawn
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/goblinname"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -166,8 +168,9 @@ func TestSpawnRefusesASecondHelperUnderTheSpawnLockBeforeAnyMutation(t *testing.
 // goblins are, Grub Jr. for g1-h1 and Grub VII for g1-h7, and keep one title
 // for their role round after round, though another goblin holds it. Each
 // took a name and a title of its own before, so one builder read as a new
-// goblin every round (#2959). A top-level goblin started after them, and a
-// helper of a goblin with no name yet, still take a name from the pool.
+// goblin every round (#2959). A helper whose id has no number, a top-level
+// goblin started after them and a helper of a goblin with no name yet still
+// take a name from the pool, and only their pairs join the recent ones.
 func TestSpawnNamesAHelperAfterItsParentWithItsNumberAndKeepsOneTitleForItsRole(t *testing.T) {
 	// Arrange: goblin g1, called Grub, at work on a branch; each start's
 	// build is refused, so nothing starts and its record is retired.
@@ -198,11 +201,12 @@ func TestSpawnNamesAHelperAfterItsParentWithItsNumberAndKeepsOneTitleForItsRole(
 		return result.Meta
 	}
 
-	// Act: its first helper builds round 1 and its seventh round 7, then a
-	// goblin of its own builds another page, and goblin g3, with no name yet,
-	// starts a helper.
+	// Act: its first helper builds round 1, its seventh round 7 and a helper
+	// whose id has no number reviews them, then a goblin of its own builds
+	// another page, and goblin g3, with no name yet, starts a helper.
 	first := start("g1-h1", "g1", "Round 1 builder")
 	seventh := start("g1-h7", "g1", "Round 7 builder")
+	unnumbered := start("g1-review", "g1", "Review the rounds")
 	topLevel := start("g2", "", "Round 8 builder")
 	unnamedParents := start("g3-h1", "g3", "Round 9 builder")
 
@@ -213,13 +217,26 @@ func TestSpawnNamesAHelperAfterItsParentWithItsNumberAndKeepsOneTitleForItsRole(
 	if first.GoblinTitle != "Builder Bender" || seventh.GoblinTitle != first.GoblinTitle {
 		t.Errorf("helpers titled %q and %q, want Builder Bender for both", first.GoblinTitle, seventh.GoblinTitle)
 	}
-	for _, pooled := range []state.TaskMeta{topLevel, unnamedParents} {
+	var pooledPairs []goblinname.Pair
+	for _, pooled := range []state.TaskMeta{unnumbered, topLevel, unnamedParents} {
 		if name := pooled.GoblinName; name == "" || strings.Contains(name, " ") {
 			t.Errorf("%s named %q, want a first name of the pool's", pooled.ID, name)
 		}
+		pooledPairs = append(pooledPairs, goblinname.Pair{Name: pooled.GoblinName, Title: pooled.GoblinTitle})
 	}
 	if topLevel.GoblinTitle == "Builder Bender" {
 		t.Errorf("a top-level goblin titled %q, want one clear of the title a live goblin holds", topLevel.GoblinTitle)
+	}
+	data, err := os.ReadFile(filepath.Join(f.stateDir, ".goblin-names.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var recent []goblinname.Pair
+	if err := json.Unmarshal(data, &recent); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(recent, pooledPairs) {
+		t.Errorf("recent pairs = %v, want those of the goblins named from the pool, %v, and no numbered helper's", recent, pooledPairs)
 	}
 }
 
