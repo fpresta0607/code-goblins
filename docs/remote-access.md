@@ -208,7 +208,11 @@ headers remain attached, so credential entry and other existing PC-only
 actions remain PC-only. AFK mode turns on and off from the private board, and
 a service grant card grants from it, as the owner decided on 2026-10-29
 knowing those headers can be forged on the PC
-([native board guide](native-board.md#afk-mode)). The local process trust
+([native board guide](native-board.md#afk-mode)). Take control of a goblin's
+browser, on a step card or its Screen view, is taken from it too, since the
+owner takes sign-in steps from his phone (CEO decision 1028736), and a take
+from there is recorded for the CEO; typing a card's values and opening a
+browser sign-in window stay on the PC. The local process trust
 boundary is unchanged: this does not authenticate against a process already
 running on the PC. Do not point a different reverse proxy or Funnel at the
 board.

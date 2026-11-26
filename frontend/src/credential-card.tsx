@@ -221,9 +221,10 @@ export function CredentialCard({ request, snapshot, connected, now, pager }: { r
     </header>
     {request.mail && <CardMail mail={request.mail} />}
     {open && request.window && <div className="step-window">
-      {request.window_state !== "open" && (local
-        ? <button type="button" className="primary" disabled={!connected || !!pressing || request.window_state !== ""} onClick={() => void press("/api/credentials/window", {}, "window")}><Icon name="screen" />Take control</button>
-        : <p className="credential-remote"><Icon name="lock" />Take control from the board on your PC.</p>)}
+      {/* Take control is his on his private board too (CEO decision
+          1028736), and the board refuses any other with why, as it does
+          Grant. */}
+      {request.window_state !== "open" && <button type="button" className="primary" disabled={!connected || !!pressing || request.window_state !== ""} onClick={() => void press("/api/credentials/window", {}, "window")}><Icon name="screen" />Take control</button>}
       {windowNote && <p className="signin-waiting" role="status">{request.window_state === "requested" && <span className="credential-ring storing" aria-hidden="true" />}{windowNote}</p>}
       {request.window_state === "open" && <ScreenView key={request.task_generation} task={request.task} generation={request.task_generation} name={asker} instance={snapshot.instance} connected={connected} />}
       {request.window_state === "" && request.reason && <Notice tone="warning" icon="warning">{linkedText(request.reason)}</Notice>}
