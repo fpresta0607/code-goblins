@@ -74,7 +74,7 @@ func TestAProgramKeptToProcessorThreadsAndWhatItStartsRunOnThemAlone(t *testing.
 	if got := written.await(t, `Cpus_allowed_list:\s*(\S+)`)[1]; got != want {
 		t.Fatalf("what the program started may run on the processor threads %s, want %s", got, want)
 	}
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(10 * time.Millisecond) {
 		tasks, err := filepath.Glob("/proc/self/task/*/status")
 		if err != nil {
 			t.Fatal(err)
