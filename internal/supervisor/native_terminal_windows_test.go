@@ -40,6 +40,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/pipeline/pipelinetest"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -1566,7 +1567,8 @@ func TestTheRelayPressesATypedMessagesEnterOnceItsWordsShowLate(t *testing.T) {
 // A typed message whose words never show on the prompt line takes no Enter:
 // the relay waits for them at most nativeShown, as the board's own typed
 // delivery does, and then says it pressed none, so the box says they wait
-// unsent (#2848's review).
+// unsent (#2848's review). The answer to an Enter refused once its keys were
+// typed waits for the words to show within that bound, and no longer.
 func TestTheRelayPressesNoTypedMessagesEnterWhoseWordsNeverShow(t *testing.T) {
 	// Arrange: the wait is cut to 1 s, and a tool reads nothing for 4 s.
 	previous := nativeShown
@@ -1599,6 +1601,9 @@ func TestTheRelayPressesNoTypedMessagesEnterWhoseWordsNeverShow(t *testing.T) {
 	v.waitFor(t, `{"type":"entered","submission":"words","pressed":false,"typed":true}`)
 	if waited := time.Since(asked); waited < nativeShown {
 		t.Fatalf("the relay answered %s after it was asked, want it to wait %s for the words", waited, nativeShown)
+	}
+	if slices.Contains(terminal.lines(t), "started the tool") {
+		t.Fatal("the relay answered once the words could show, past its bound, want it answered as the bound ended")
 	}
 	if got, want := terminal.waitForLines(t, 2), []string{"starting a tool", "started the tool"}; !slices.Equal(got, want) {
 		t.Fatalf("the program took %q, want %q", got, want)
@@ -1654,14 +1659,20 @@ func TestTheRelayAnswersATypedMessagesEnterWhoseWordsStayOnThePromptLineOnceItsB
 
 // A gate that takes the task while a typed message's Enter waits for its
 // words holds that Enter at once, though the words show on the prompt line
-// later, so no Enter goes into a branch the gate owns (#2848's review).
-func TestTheRelayPressesNoTypedMessagesEnterOnceAGateTakesTheTaskWhileItWaits(t *testing.T) {
+// later, so no Enter goes into a branch the gate owns. The relay answers only
+// once the words show, since the keys it typed sit unread meanwhile and show
+// nothing there: a delivery the Enter held, released as the gate took the
+// task, typed behind them, and its own Enter sent both as one message
+// (#2848's review).
+func TestTheRelayPressesNoTypedMessagesEnterOnceAGateTakesTheTaskAndAnswersItOnceItsWordsShow(t *testing.T) {
 	// Arrange: a tool that reads nothing for 3 s, the message's keys typed and
-	// unread, and its Enter asked for.
+	// unread, its Enter asked for, and a notice for the goblin waiting for its
+	// answer.
 	h, server := nativeBoard(t, "no-mistakes")
 	gitFixture(t, taskWorktree(t, h))
 	gate := &takingGate{}
 	h.Service.Options.Gate = gate
+	h.Service.Options.CEO = &CEOConnection{State: h.Service.Store.Home.State}
 	h.terminalTick = 10 * time.Millisecond
 	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
 	if err != nil {
@@ -1687,15 +1698,28 @@ func TestTheRelayPressesNoTypedMessagesEnterOnceAGateTakesTheTaskWhileItWaits(t 
 	v.send(t, websocket.MessageText, `{"type":"enter","submission":"words","text":"please run /ship"}`)
 	// The relay typed the keys once it says they sit unread.
 	v.waitFor(t, `{"type":"unread","unread":true}`)
+	for deadline := time.Now().Add(30 * time.Second); !h.Service.Options.CEO.isEnterAwaited("task-1"); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the board never held its deliveries for the Enter")
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	told := make(chan error, 1)
+	go func() {
+		_, err := h.Service.Options.CEO.SendGoblin(ctx, meta.ID, goblinIdentity(meta), "and /review it")
+		told <- err
+	}()
 
 	// Act
 	gate.taken.Store(true)
 
-	// Assert: the Enter is answered while the tool still runs, and the words
-	// that show once it ends take none.
+	// Assert: the Enter is refused, the notice finds the words on the prompt
+	// line once the tool ends and types nothing onto them, and the words take
+	// no Enter.
 	v.waitFor(t, `{"type":"entered","submission":"words","pressed":false,"typed":true}`)
-	if slices.Contains(terminal.lines(t), "started the tool") {
-		t.Fatal("the relay answered the Enter only once the words could show, want it answered as the gate took the task")
+	if err := <-told; !errors.Is(err, spawn.ErrUnsentWords) {
+		t.Errorf("the notice returned %v, want it refused onto the words the refused Enter left", err)
 	}
 	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		screen, err := host.ReadScreen(record)

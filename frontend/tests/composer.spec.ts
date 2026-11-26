@@ -589,9 +589,10 @@ test("a list Claude Code draws under a typed message's words is no question on a
 // When custody's first answer is a hold, the relay drops the submission and
 // the keys it held for that answer and tells the view of the hold only after,
 // so the words of a message sent as keys meanwhile are on no prompt line. The
-// relay says it never typed them, and they go back into the box (#2848's
-// review).
-test("a message typed into Claude Code whose keys the relay dropped, as under custody's first answer, goes back into the box, which says it was not sent", async ({ page }) => {
+// relay says it never typed them, and they go back into the box, and the
+// message holds no prompt line after, so a list Claude Code draws under words
+// of his own input is his menu (#2848's review).
+test("a message typed into Claude Code whose keys the relay dropped, as under custody's first answer, goes back into the box, which says it was not sent, and a list drawn after under his own words is his menu", async ({ page }) => {
   // Arrange: the relay sends screens, and drops what is typed.
   const relay = await open(page);
   await openGoblin(page);
@@ -610,6 +611,12 @@ test("a message typed into Claude Code whose keys the relay dropped, as under cu
   await expect(field(page)).toHaveValue("please run /ship now");
   expect(relay.enters).toHaveLength(1);
   expect(relay.typed).toEqual([]);
+
+  // Act: Claude Code lists the skills a /word of his own input names.
+  await heard(page, relay, { ...SUGGESTS_SHIP, submission: "his", status: { gauge: "13% context used" } });
+
+  // Assert
+  await expect(asks(page)).toContainText("/ship");
 });
 
 // The relay tells the view that typed a message whose keys it dropped, though

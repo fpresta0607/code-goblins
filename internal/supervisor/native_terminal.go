@@ -595,20 +595,18 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		screen, err := host.ReadScreen(record)
 		return err == nil && ctx.Err() == nil && isFree() && typedAlone(screens, screen, text)
 	}
-	// awaitTaken waits, within shown, for the terminal's screen to show the
-	// words of a message whose Enter the relay pressed gone from the prompt
-	// line, read every nativeKeyPoll, so a delivery the Enter held finds the
-	// line as the harness left it: released as the Enter went, one read the
-	// words still drawn there, as a harness draws them away late, and refused
-	// to type onto them.
-	awaitTaken := func(shown context.Context, text string) {
+	// awaitScreen reads the terminal's screen every nativeKeyPoll, within
+	// shown, until isSettled says it shows what the deliveries a typed
+	// message's Enter held must find once that Enter is answered, or the
+	// screen cannot be read.
+	awaitScreen := func(shown context.Context, isSettled func(harness.Screens, []string) bool) {
 		screens, readable := harness.NativeScreens(harness.Kind(binding.harness()))
 		if !readable {
 			return
 		}
 		for {
 			screen, err := host.ReadScreen(record)
-			if err != nil || !screens.ComposerHoldsPartOf(screen, text) {
+			if err != nil || isSettled(screens, screen) {
 				return
 			}
 			select {
@@ -665,9 +663,9 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 					defer entering.Done()
 					defer answered()
 					// One bound holds both the wait for the words to show and
-					// the one for the Enter to take them, so the deliveries the
-					// Enter holds wait for its answer no longer than that bound
-					// and the settle before the Enter.
+					// the one for the screen the answer waits for, so the
+					// deliveries the Enter holds wait for its answer no longer
+					// than that bound and the settle before the Enter.
 					shown, cancelShown := awake.WithTimeout(ctx, nativeShown)
 					defer cancelShown()
 					isPressed := isTaken && pressTyped(shown, submission, text)
@@ -675,8 +673,23 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 						_ = view.Close(websocket.StatusGoingAway, "Input outcome is unknown. Inspect the terminal before typing again.")
 						return
 					}
-					if isPressed {
-						awaitTaken(shown, text)
+					// The answer releases the deliveries the Enter held, so it
+					// waits until the screen shows what they must find: once
+					// the Enter went, the words gone from the prompt line, as a
+					// harness draws them away late, and once an Enter whose
+					// keys the relay typed was refused, the words drawn there,
+					// since keys the harness has not read yet show nothing, and
+					// a delivery typed behind them joined them, which its own
+					// Enter then sent as one message (#2848's review).
+					switch {
+					case isPressed:
+						awaitScreen(shown, func(screens harness.Screens, screen []string) bool {
+							return !screens.ComposerHoldsPartOf(screen, text)
+						})
+					case isTyped:
+						awaitScreen(shown, func(screens harness.Screens, screen []string) bool {
+							return screens.Shows(screen, text)
+						})
 					}
 					answer, _ := json.Marshal(struct {
 						Type       string `json:"type"`
