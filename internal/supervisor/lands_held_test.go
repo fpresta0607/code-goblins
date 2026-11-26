@@ -4,7 +4,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/githubtest"
 	"github.com/fpresta0607/code-goblins/internal/train"
@@ -52,5 +54,29 @@ func TestTheSupervisorsTrainTakesNoRootPickupsPullRequestThatNeverCarriedHoldInA
 				t.Fatalf("trains = %+v, %v, train pull requests opened %d: want a train %v", trains, err, project.created, test.isRiding)
 			}
 		})
+	}
+}
+
+// Issue 2724: the CI poll reads the held declaration too, so a goblin that
+// reported done a green pull request no train takes in a held project wakes
+// the CEO naming why it waits and the command that holds it.
+func TestTheCIPollSaysAHeldProjectsPullRequestThatNeverCarriedHoldWaits(t *testing.T) {
+	// Arrange
+	s, h, forge := waitingFleet(t, pull209(false))
+	writeFile(t, filepath.Join(h.Data, "projects", filepath.Base(forge.repo), "project.json"), `{"project": "app", "delivery": {"pull_requests_land_held": true}}`)
+	report(t, h, ceoWaitStarted, donePull209)
+	now := ceoWaitStarted
+
+	// Act
+	woke := sweepUntil(t, s, h, &now, ceoWaitStarted.Add(15*time.Minute))
+
+	// Assert
+	if len(woke) != 1 {
+		t.Fatalf("the wait woke the CEO %d times, want once: %+v", len(woke), woke)
+	}
+	for _, want := range []string{donePull209 + ", which no merge train takes: its project's pull requests land held and it never carried the hold label", "gh pr edit https://github.com/o/r/pull/209 --add-label hold"} {
+		if !strings.Contains(woke[0].Detail, want) {
+			t.Errorf("wake %q lacks %q", woke[0].Detail, want)
+		}
 	}
 }

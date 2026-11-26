@@ -247,7 +247,7 @@ A project whose every pull request waits on its owner's word declares it in its 
 Its pull requests then land only once they carried `hold`: no train takes one, and `goblins pr merge` refuses one, whose labels and label history never held it, whoever opened it, and the reason names the `gh pr edit` that holds it.
 Taking the label off is the owner's word, and the pull request rides again.
 The gate opens a pull request with no label, so the declaration guards where a pull request lands rather than where it opens.
-`goblins pr merge` finds the record by the repository's name, which is the name of the project's checkout folder.
+`goblins pr merge` finds the record through the checkouts under the machine's projects root whose origin is the pull request's repository, whatever their folders are named, and refuses the pull request when any of their records holds it.
 A pull request a train found broken stays off trains until its head changes.
 
 **Firstmate attribution.**
