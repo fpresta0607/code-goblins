@@ -2,7 +2,8 @@
 
 // Package pty runs one process in a pseudo terminal, the terminal a goblin's
 // harness sees on Linux and macOS, and hands its caller the raw byte stream
-// both ways, as internal/conpty does with a pseudo console on Windows.
+// both ways, as internal/conpty does with a pseudo console on Windows. Raw
+// and Size work on the caller's own terminal, for a command that reads keys.
 package pty
 
 import (
