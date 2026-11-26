@@ -18,6 +18,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // isProgram reports true: Linux starts any program as itself, and a script
@@ -164,7 +165,7 @@ func loginEnvironment(user account, sources loginSources, timeout time.Duration)
 func seedEnvironment(user account, sources loginSources, timeout time.Duration) ([]string, error) {
 	seed := map[string]string{}
 	for _, file := range []string{sources.EnvironmentFile, sources.LocaleFile} {
-		text, err := os.ReadFile(file)
+		text, err := fsx.ReadFile(file)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}

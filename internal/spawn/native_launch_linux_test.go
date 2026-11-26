@@ -107,7 +107,7 @@ func TestLoginEnvironmentFailsAShellThatDoesNotPrint(t *testing.T) {
 	start := time.Now()
 
 	// Act
-	_, err := loginEnvironment(user, noLoginSources(t), 500*time.Millisecond) // stall-accepted: the test means the shell's timeout to run out
+	_, err := loginEnvironment(user, noLoginSources(t), 500*time.Millisecond)
 
 	// Assert
 	if err == nil {
@@ -336,7 +336,7 @@ func TestSeedEnvironmentFailsASystemctlThatDoesNotPrint(t *testing.T) {
 	start := time.Now()
 
 	// Act
-	_, err := seedEnvironment(account{Name: "harbor", Home: "/home/harbor", Shell: "/bin/bash"}, sources, 500*time.Millisecond) // stall-accepted: the test means systemctl's timeout to run out
+	_, err := seedEnvironment(account{Name: "harbor", Home: "/home/harbor", Shell: "/bin/bash"}, sources, 500*time.Millisecond)
 
 	// Assert
 	if err == nil {
