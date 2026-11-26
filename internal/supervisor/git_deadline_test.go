@@ -51,6 +51,12 @@ func TestMain(m *testing.M) {
 		time.Sleep(time.Minute)
 		os.Exit(0)
 	}
+	// A test's stand-in Windows PowerShell never answers, as CI's sat past
+	// the run syntax check's wait.
+	if strings.EqualFold(filepath.Base(os.Args[0]), "powershell.exe") {
+		time.Sleep(time.Minute)
+		os.Exit(0)
+	}
 	if stateDir := os.Getenv(lockHolderVariable); stateDir != "" {
 		os.Exit(holdWatcherLock(stateDir, os.Getenv(lockHolderModeVariable)))
 	}

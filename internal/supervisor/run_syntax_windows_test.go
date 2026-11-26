@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -109,6 +110,35 @@ func TestARunCommandItsShellDoesNotAnswerInTimeIsRefusedAsUnchecked(t *testing.T
 	// Assert
 	if err == nil || !strings.Contains(err.Error(), "powershell did not answer within 1ms") || strings.Contains(err.Error(), "exit status") {
 		t.Fatalf("checkRunCommand(a shell given 1ms) = %v, want it refused because the shell did not answer in time", err)
+	}
+}
+
+// A shell that sits out the whole wait is refused with what it did in that
+// time, so the next stall says whether the shell worked slowly, as from a
+// cold disk, or sat blocked: CI's powershell.exe sat past the 30 s wait on
+// 2026-10-14 (#866) and 2026-11-07 (#2142), and each refusal said only that
+// it did not answer.
+func TestAShellThatSitsOutTheWaitIsRefusedWithWhatItDidInThatTime(t *testing.T) {
+	// Arrange
+	program, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	system := t.TempDir()
+	shellDir := filepath.Join(system, "System32", "WindowsPowerShell", "v1.0")
+	if err := os.MkdirAll(shellDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	copyExecutable(t, program, filepath.Join(shellDir, "powershell.exe"))
+	t.Setenv("SystemRoot", system)
+
+	// Act
+	err = checkRunCommand("powershell", repairHome, time.Second)
+
+	// Assert
+	said := regexp.MustCompile(`^powershell did not answer within 1s \(in that time it used \S+ of processor time, [1-9]\d* page faults and \d+ bytes read in \d+ reads\), so the command was not checked: try again$`)
+	if err == nil || !said.MatchString(err.Error()) {
+		t.Fatalf("checkRunCommand(a shell that never answers) = %v, want it refused with the processor time, page faults and reads of the shell", err)
 	}
 }
 
