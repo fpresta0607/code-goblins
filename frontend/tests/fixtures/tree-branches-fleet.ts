@@ -1,8 +1,9 @@
 // A fleet whose branches run every way a branch can: one goblin with five
 // running baby goblins in two rows, one of them idle and one silent, and a
-// goblin of its own under them, one with a single baby goblin, and one with
-// two sub-agents and a helper goblin. Its snapshot is what the supervisor
-// serves, before the board parses it.
+// goblin of its own under them, one with a single baby goblin and its seventh
+// helper, Kip VII, under it with a sub-agent of its own, and one with two
+// sub-agents and a helper goblin. Its snapshot is what the supervisor serves,
+// before the board parses it.
 export function treeFleet(now: number) {
   const ago = (minutes: number) => new Date(now - minutes * 60_000).toISOString();
   const child = (fields: Record<string, unknown>) => ({ parent: "", detail: "", task: "", last_line: "", memory: 0, finished: "", started: ago(10), last_activity: ago(1), source_updated_at: ago(1), fetched_at: ago(0), ...fields });
@@ -18,6 +19,7 @@ export function treeFleet(now: number) {
       session("s-canvas", "goblin", "s-ceo", "canvas"),
       session("s-notes", "goblin", "s-fleet", "notes"),
       session("s-helper-one", "goblin", "s-canvas", "helper-one"),
+      session("s-billing-h7", "goblin", "s-billing", "billing-h7"),
     ],
     tasks: [
       task("fleet", "Build the fleet tree", { goblin_name: "Grub", goblin_title: "Tree Surgeon", tree: tree("fleet", [
@@ -38,6 +40,9 @@ export function treeFleet(now: number) {
       ]) }),
       task("notes", "Draft the release notes"),
       task("helper-one", "Fit the phone rails", { parent: "canvas", goblin_name: "Pip", goblin_title: "Rail Fitter" }),
+      task("billing-h7", "Time the CSV export", { parent: "billing", goblin_name: "Kip VII", goblin_title: "Export Tester", tree: tree("billing-h7", [
+        child({ id: "subagent:toolu_G", kind: "subagent", label: "Time a large export", detail: "general-purpose", task: "Time the CSV export of a year of invoices", state: "working" }),
+      ]) }),
     ],
   };
 }

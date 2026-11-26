@@ -57,13 +57,13 @@ async function wrongLines(page: Page, isArranged: boolean): Promise<string[]> {
   return wrong;
 }
 
-const CHILDREN = 11;
+const CHILDREN = 13;
 
 test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/tests/fixtures/tree-branches.html");
-  await expect(page.locator(".tree-branches > li")).toHaveCount(7);
-  await expect(page.locator(".flow-node")).toHaveCount(5);
+  await expect(page.locator(".tree-branches > li")).toHaveCount(8);
+  await expect(page.locator(".flow-node")).toHaveCount(6);
 });
 
 test("every branch ends at the top center of its goblin or baby goblin, at every zoom", async ({ page }) => {
@@ -107,7 +107,7 @@ test("at phone width every line from a rail ends at the top center of its child"
   const counts = page.getByRole("button", { name: /^Show what runs under/ });
   while (await counts.count()) await counts.first().click();
   const children = page.locator(".workflow-children > li > .node-group > .workflow-node, .tree-rail > li");
-  await expect(children, "four goblins and seven working baby goblins").toHaveCount(11);
+  await expect(children, "five goblins and eight working baby goblins").toHaveCount(13);
   const misses = await children.evaluateAll((elements) => elements.flatMap((element) => {
     const box = element.getBoundingClientRect(), line = getComputedStyle(element, "::after");
     const end = { x: box.left + element.clientLeft + parseFloat(line.left) + parseFloat(line.width) - parseFloat(line.borderRightWidth) / 2, y: box.top + element.clientTop + parseFloat(line.top) + parseFloat(line.height) };
