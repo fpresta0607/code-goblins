@@ -524,8 +524,8 @@ func (c *CEOConnection) SendNotice(ctx context.Context, identity, text string) (
 	return c.sendNative(ctx, identity, stampedForCEO(text), false, false)
 }
 
-// nativeSubmitSettle lets the CEO's harness take typed text before its submit
-// key.
+// nativeSubmitSettle lets a harness take typed text before its submit key:
+// the CEO's, and one a native view typed a message into (nativeTerminal).
 const nativeSubmitSettle = 300 * time.Millisecond
 
 // claudeTypedUpTo is the longest line typed into a Claude Code CEO as keys.
@@ -549,7 +549,9 @@ const (
 )
 
 // nativeKeyPoll spaces the looks of a delivery to the native CEO that waits
-// for its screen to show a key taken before it presses the next. On
+// for its screen to show a key taken before it presses the next, and of a
+// native view's relay that waits for a typed message's words to show before
+// their Enter (nativeTerminal). On
 // 2026-11-19 a Claude Code 2.1.328 drew typed words 46 ms after they went and
 // queued them 35 ms after their Enter, and looks nativeConfirmPoll apart saw
 // each a quarter second late, so a message sent now reached its model 962 ms
@@ -557,7 +559,9 @@ const (
 const nativeKeyPoll = 50 * time.Millisecond
 
 // nativeShown bounds how long a delivery to the native CEO waits for the
-// text it typed to show on the CEO's prompt line, in time the machine ran. A
+// text it typed to show on the CEO's prompt line, and a native view's relay
+// for the words of a message the view typed (nativeTerminal), in time the
+// machine ran. A
 // harness busy in a turn reads its input late: on 2026-11-10 the live CEO's
 // Claude Code left typed input unread for more than three seconds again and
 // again, and a delivery that gave up after five left its words on the prompt

@@ -1,4 +1,4 @@
-import { expect, type Page } from "./site";
+import { expect, type Page, type WebSocketRoute } from "./site";
 
 // A board with two Claude Code goblins, Zeke and Ivy, each in a native
 // terminal, and a CEO, for the specs of a session's messages and its box. The
@@ -27,13 +27,16 @@ export interface Relay {
   views: number;
   submissions: string[];
   // The Enters views asked for the messages they typed as keys, and whether
-  // the relay presses one asked for while typing is free, as it does while
-  // its screen shows the prompt line holding the message's words alone. One
-  // it presses reaches the terminal as "\r" among what was typed. Its answer
-  // says too whether it typed keys since it took the message's submission,
-  // and it presses no Enter where it did not.
+  // the relay presses one while typing is free, as it does once its screen
+  // shows the prompt line holding the message's words alone. Each waits until
+  // answer ends the wait of the oldest, whose answer goes to the view that
+  // asked, whichever view is the terminal's by then. One it presses reaches
+  // the terminal as "\r" among what was typed. Its answer says too whether it
+  // typed keys since it took the message's submission, and it presses no
+  // Enter where it did not.
   enters: { submission: string; text: string }[];
   shouldPressEnter: boolean;
+  answer: () => Promise<void>;
   // Whether the relay drops each submission and every key unsaid, as it drops
   // what was typed while it waited for custody's first answer when that
   // answer is a hold, which it tells the view of only after.
@@ -64,7 +67,20 @@ export interface Relay {
 export interface SessionReported { state?: "running" | "ended" | "unknown" | "none"; stale?: string; problem?: string }
 
 export async function open(page: Page, first: object = snapshot(), heard = "rebase onto main", messages: object = PAGE, output = "> ready\r\n", shouldRepaint = true): Promise<Relay> {
-  const relay: Relay = { typed: [], resizes: [], views: 0, submissions: [], enters: [], shouldPressEnter: true, shouldDropTyping: false, acknowledged: [], addresses: [], inputs: [], closed: [], write: () => {}, end: () => {}, say: () => {}, drop: () => {}, refuse: () => {}, accept: () => {} };
+  const holds = new Map<string, object>();
+  // The Enters views asked for that wait for answer, oldest first, each with
+  // the connection it was asked on and whether keys were typed there since
+  // the relay took its submission.
+  const waiting: { socket: WebSocketRoute; submission: string; isTyped: boolean }[] = [];
+  const answer = async () => {
+    await expect.poll(() => waiting.length, { message: "an Enter waits for the relay" }).toBeGreaterThan(0);
+    const [{ socket, submission, isTyped }] = waiting.splice(0, 1);
+    const hold = holds.get(socket.url());
+    const isPressed = relay.shouldPressEnter && isTyped && !(hold && "reason" in hold && hold.reason);
+    if (isPressed) { relay.typed.push("\r"); relay.inputs.push({ address: socket.url(), text: "\r" }); }
+    socket.send(JSON.stringify({ type: "entered", submission, pressed: isPressed, typed: isTyped }));
+  };
+  const relay: Relay = { typed: [], resizes: [], views: 0, submissions: [], enters: [], shouldPressEnter: true, answer, shouldDropTyping: false, acknowledged: [], addresses: [], inputs: [], closed: [], write: () => {}, end: () => {}, say: () => {}, drop: () => {}, refuse: () => {}, accept: () => {} };
   let isRefused = false;
   let goblinSpoke = false;
   await page.addInitScript(() => {
@@ -181,7 +197,6 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
   await page.route("**/api/dictation/warm", (route) => route.fulfill({ status: 202 }));
   await page.route("**/api/dictation", (route) => route.request().method() === "GET" ? route.fulfill({ json: { engine: "test-model", state: "ready" } }) : route.fulfill({ json: { text: heard, engine: "test-model" } }));
-  const holds = new Map<string, object>();
   // What each terminal printed, by its address, which a view that connects to
   // it again replays as its history before the repaint, as the supervisor's
   // relay does.
@@ -251,11 +266,7 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
       }
       if (typeof sent === "object" && sent !== null && "type" in sent && sent.type === "enter" && "submission" in sent && typeof sent.submission === "string" && "text" in sent && typeof sent.text === "string") {
         relay.enters.push({ submission: sent.submission, text: sent.text });
-        const hold = holds.get(socket.url());
-        const isTypedHere = sent.submission === submission && isTyped;
-        const isPressed = relay.shouldPressEnter && isTypedHere && !(hold && "reason" in hold && hold.reason);
-        if (isPressed) { relay.typed.push("\r"); relay.inputs.push({ address: socket.url(), text: "\r" }); }
-        socket.send(JSON.stringify({ type: "entered", submission: sent.submission, pressed: isPressed, typed: isTypedHere }));
+        waiting.push({ socket, submission: sent.submission, isTyped: sent.submission === submission && isTyped });
         return;
       }
       if (typeof sent !== "object" || sent === null || !("type" in sent) || sent.type !== "resize" || !("cols" in sent) || !("rows" in sent)) return;

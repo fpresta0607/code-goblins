@@ -10,7 +10,10 @@ import (
 // The relay presses a typed message's Enter over Claude Code's screen only
 // while its prompt line holds the message's words alone, read to their end,
 // under no question (#2848's review): pressed over words beside them it sends
-// those too, and pressed under a question it answers it.
+// those too, and pressed under a question it answers it. A screen whose
+// prompt line cannot be read shows no words beside them, so it takes the
+// Enter once the words show, as the board's own typed delivery submits over
+// one (sendNative).
 func TestATypedMessagesEnterGoesOnlyOverItsWordsAloneUnderNoQuestion(t *testing.T) {
 	rule := strings.Repeat("─", 80)
 	mode := "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
@@ -22,6 +25,7 @@ func TestATypedMessagesEnterGoesOnlyOverItsWordsAloneUnderNoQuestion(t *testing.
 		{name: "its words alone", typed: "please run /ship now", screen: []string{"> rebase onto main", "", rule, "❯ please run /ship now", rule, mode}, isPressed: true},
 		{name: "its lines alone", typed: "first line\nthen run /ship", screen: []string{rule, "❯ first line", "  then run /ship", rule, mode}, isPressed: true},
 		{name: "its words over the skills they end in", typed: "please run /ship", screen: []string{rule, "❯ please run /ship", rule, "  /ship          Ship the branch", "  /ship-docs     Ship the docs"}, isPressed: true},
+		{name: "its words where no prompt line can be read", typed: "please run /ship now", screen: []string{"> rebase onto main", "", rule, "❯ please run /ship now"}, isPressed: true},
 		{name: "words typed behind its own", typed: "please run /ship now", screen: []string{rule, "❯ please run /ship nowand /review it", rule, mode}},
 		{name: "words typed ahead of its own", typed: "please run /ship now", screen: []string{rule, "❯ and /review itplease run /ship now", rule, mode}},
 		{name: "its words not yet read to their end", typed: "please run /ship now", screen: []string{rule, "❯ please run /sh", rule, mode}},

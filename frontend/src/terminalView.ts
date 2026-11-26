@@ -23,29 +23,6 @@ export const LINE_HEIGHT = 1.2;
 const RESIZE_SETTLE_MS = 120;
 // A view whose repaint never arrives is shown after this long all the same.
 const READY_FALLBACK_MS = 600;
-// A message typed as keys asks the relay for its Enter this long after the
-// relay's screen first shows its words on the prompt line, or the relay says
-// the typed keys were read, as the board's own typed delivery settles once its
-// words show before its Enter (submitNative in
-// internal/spawn/native_launch.go, typeSettle in internal/fleet/send.go):
-// Claude Code 2.1.332 took 512 typed bytes with Enter right behind them as one
-// burst and left the message unsent.
-const TYPED_ENTER_MS = 300;
-// A message typed as keys whose words no screen from the relay has shown, and
-// whose keys it has not said were read, this long after them asks for its
-// Enter all the same, as a screen the relay cannot read never shows them,
-// unless the relay says the keys still sit unread: its Enter then waits until
-// they are read. While the relay sends screens the wait counts from the first
-// one it read once it took the keys, since custody's first answer can hold
-// them for seconds (#2848's review).
-const TYPED_SHOWN_WITHIN_MS = 3000;
-// A message typed as keys while the relay sends screens asks for its Enter
-// this long after them if no screen the relay read once it took them has come
-// by then, as when keys another typed meanwhile bound its screens to nobody's
-// input, unless the relay says the keys still sit unread, as at
-// TYPED_SHOWN_WITHIN_MS: longer than custody's first answer takes, which a
-// probe bounds at 8 s.
-const TYPED_TAKEN_WITHIN_MS = 10_000;
 // Keys that only change the next key send nothing of their own.
 const MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "AltGraph", "Meta", "CapsLock", "NumLock", "ScrollLock", "Fn"]);
 // The mouse modes in which xterm hands the wheel to the program.
@@ -93,9 +70,10 @@ export interface ViewEvents {
   // The relay read the harness's screen anew: whether it waits on an answer
   // at a screen of its own, and whether something of its own is open.
   screen: (state: ScreenState) => void;
-  // What became of a message typed as keys, named by its submission: said
-  // as submit types its words, and again as the wait for its Enter ends.
-  typed: (submission: string, state: TypedState) => void;
+  // What became of a message typed as keys, named by its submission, with
+  // its words: said as submit types them, and again as the relay answers for
+  // its Enter, or the connection closes first.
+  typed: (submission: string, words: string, state: TypedState) => void;
   // Full-screen programs own their history; while input is held or closed,
   // the conversation record is the readable history instead.
   history?: () => void;
@@ -153,16 +131,9 @@ export class TerminalView {
   private frame = 0;
   private settle: ReturnType<typeof setTimeout> | undefined;
   private fallback: ReturnType<typeof setTimeout> | undefined;
-  // The Enter that submits a message typed as keys, while it waits: the
-  // message's submission and words, the timer it waits on, if any, and its
-  // step. It is taking while the relay sends screens and none it read once it
-  // took the keys has come, at most TYPED_TAKEN_WITHIN_MS; showing while it
-  // waits for the relay's screen to show the words or the relay to say the
-  // typed keys were read, at most TYPED_SHOWN_WITHIN_MS, and past either, with
-  // no timer, for keys the relay says sit unread to be read; settling in its
-  // last TYPED_ENTER_MS, which nothing restarts; and pressing once the relay
-  // is asked for it, until the relay says whether it pressed it.
-  private typedEnter: { submission: string; text: string; timer: ReturnType<typeof setTimeout> | undefined; step: "taking" | "showing" | "settling" | "pressing" } | undefined;
+  // The message typed as keys whose Enter the relay was asked for, by its
+  // submission and words, until the relay says whether it pressed it.
+  private typedEnter: { submission: string; text: string } | undefined;
   private readonly pin: PinnedLine;
   private pinFrame = 0;
   private historyEnd: number | null = null;
@@ -317,21 +288,24 @@ export class TerminalView {
   }
 
   // submit sends text as one paste and presses Enter, or, where isTyped, types
-  // it as keys and leaves its Enter to wait, as typedEnter says, telling typed
-  // that it waits and, once the wait ends, whether the relay pressed it, and
-  // says whether it was sent, by its submission ID, or null. While that Enter
-  // waits it sends nothing, since what it sent would join the typed words, as
-  // it would words a screen shows left unsent.
+  // it as keys and asks the relay for its Enter at once, which the relay
+  // presses once its screen shows the words on the prompt line alone and they
+  // have settled, as the board's own typed delivery does (sendNative). Timed
+  // here, the Enter was asked for before Claude Code had drawn the words, and
+  // the relay pressed none (#2848's review). It tells typed that the Enter
+  // waits and, once the relay answers, whether it pressed it, and says
+  // whether the message was sent, by its submission ID, or null. While that
+  // Enter waits it sends nothing, since what it sent would join the typed
+  // words, as it would words a screen shows left unsent.
   submit(text: string, isTyped = false): string | null {
     if (!this.isReady || this.heldReason || this.isUnread || this.typedEnter || this.screenState?.isOpen || this.screenState?.hasDraft || !this.isSendable()) return null
     const submission = crypto.randomUUID()
     this.send(JSON.stringify({ type: "submit", submission }))
     if (isTyped) {
       this.term.input(text, true)
-      this.typedEnter = this.screenState
-        ? { submission, text, timer: setTimeout(() => this.capTypedEnter(), TYPED_TAKEN_WITHIN_MS), step: "taking" }
-        : { submission, text, timer: setTimeout(() => this.capTypedEnter(), TYPED_SHOWN_WITHIN_MS), step: "showing" }
-      this.events.typed(submission, "waiting")
+      this.typedEnter = { submission, text }
+      this.events.typed(submission, text, "waiting")
+      this.send(JSON.stringify({ type: "enter", submission, text }))
       return submission
     }
     if (!this.paste(text) || !this.enter()) return null
@@ -421,16 +395,16 @@ export class TerminalView {
     this.term.element?.removeEventListener("wheel", this.wheelHistory, true);
     window.removeEventListener("pointerup", this.copy);
     if (this.typedEnter) {
-      // A view disposed while a message typed as keys waits for its Enter
-      // keeps its connection and goes on with the wait, as a shown view does,
-      // asking the relay for the Enter only once the wait ends: asked at once,
-      // the relay read the screen before the harness had read the keys or
-      // drawn the words, and pressed none (#2848's review). It acknowledges
-      // all the output it is sent, which the relay sends its screens behind.
+      // A view disposed while the Enter of a message typed as keys waits, as
+      // when a reconnect replaces it or he leaves for another goblin, keeps
+      // its connection until the relay says whether it pressed it, and tells
+      // typed then, though nothing shows the view (#2848's review). It
+      // acknowledges all the output it is sent meanwhile, so the relay never
+      // closes it as one fallen behind.
       this.consumed = this.written;
       this.send(JSON.stringify({ type: "ack", bytes: this.consumed }));
       this.socket.onmessage = (event: MessageEvent<ArrayBuffer | string>) => {
-        if (typeof event.data === "string") { this.carryTypedEnter(event.data); return; }
+        if (typeof event.data === "string") { this.answerTypedEnter(event.data); return; }
         this.consumed += event.data.byteLength;
         this.send(JSON.stringify({ type: "ack", bytes: this.consumed }));
       };
@@ -454,7 +428,6 @@ export class TerminalView {
       const unread = parseUnread(data);
       if (unread !== null) {
         this.isUnread = unread;
-        if (!unread) this.settleTypedEnter();
         this.events.unread(unread);
         return;
       }
@@ -465,7 +438,6 @@ export class TerminalView {
       const screen = parseScreen(data);
       if (screen !== null) {
         this.screenState = screen;
-        if (screen.submission === this.typedEnter?.submission) this.showTypedEnter(screen.hasDraft);
         this.events.screen(screen);
         this.readyIfDrawn();
         return;
@@ -673,57 +645,6 @@ export class TerminalView {
     return false;
   }
 
-  // showTypedEnter goes on with the wait of a message typed as keys as a
-  // screen the relay read once it took them comes: the wait for its words to
-  // show counts from the first one, and one whose prompt line shows words
-  // starts the wait's last TYPED_ENTER_MS.
-  private showTypedEnter(hasDraft: boolean): void {
-    if (this.typedEnter?.step === "taking") {
-      clearTimeout(this.typedEnter.timer);
-      this.typedEnter = { ...this.typedEnter, timer: setTimeout(() => this.capTypedEnter(), TYPED_SHOWN_WITHIN_MS), step: "showing" };
-    }
-    if (hasDraft) this.settleTypedEnter();
-  }
-
-  // settleTypedEnter starts the last TYPED_ENTER_MS of the wait of a message
-  // typed as keys, once the relay's screen shows its words or the relay says
-  // its keys were read, unless that has started already. Keys the relay says
-  // were read before it took them are another's.
-  private settleTypedEnter(): void {
-    if (this.typedEnter?.step !== "showing") return;
-    clearTimeout(this.typedEnter.timer);
-    this.typedEnter = { ...this.typedEnter, timer: setTimeout(() => this.pressTypedEnter(), TYPED_ENTER_MS), step: "settling" };
-  }
-
-  // capTypedEnter asks for the Enter of a message typed as keys at
-  // TYPED_SHOWN_WITHIN_MS, or at TYPED_TAKEN_WITHIN_MS when no screen bound to
-  // it came, unless the relay says its keys sit unread: the wait then goes on
-  // with no timer, showing, until the relay says they were read.
-  private capTypedEnter(): void {
-    if (!this.isUnread) this.pressTypedEnter();
-    else if (this.typedEnter) this.typedEnter = { ...this.typedEnter, timer: undefined, step: "showing" };
-  }
-
-  // pressTypedEnter ends the wait of a message typed as keys, if one waits
-  // and has not asked for its Enter yet, by asking the relay for it. The
-  // relay reads the screen again and presses it only while typing is free and
-  // the prompt line shows the message's words alone, under no question, which
-  // the view's last screen is too old to tell: words typed behind keys the
-  // harness had not read yet join them, and a question drawn meanwhile would
-  // take the Enter as its answer (#2848's review). A list the harness draws
-  // under those words, as Claude Code suggests the skills they end in, asks
-  // nothing, so a message that ends in a skill or a file is still sent. Once
-  // the connection has closed nothing is asked, and the words are taken to
-  // wait unsent on the prompt line, since the relay may have typed them.
-  private pressTypedEnter(): void {
-    if (!this.typedEnter || this.typedEnter.step === "pressing") return;
-    clearTimeout(this.typedEnter.timer);
-    const { submission, text } = this.typedEnter;
-    this.typedEnter = { ...this.typedEnter, timer: undefined, step: "pressing" };
-    if (this.socket.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify({ type: "enter", submission, text }));
-    else this.endTypedEnter(false, true);
-  }
-
   // answerTypedEnter takes the relay's word on whether it pressed the Enter of
   // the message typed as keys that asked for it, and whether it typed its
   // words, and says whether text was such a word.
@@ -734,22 +655,6 @@ export class TerminalView {
     return true;
   }
 
-  // carryTypedEnter takes what the relay says to a disposed view while the
-  // Enter of its message typed as keys waits: its word on that Enter, and
-  // whether keys sit unread and the screens bound to the message, which go on
-  // with the wait as they do for a shown view.
-  private carryTypedEnter(text: string): void {
-    if (this.answerTypedEnter(text)) return;
-    const unread = parseUnread(text);
-    if (unread !== null) {
-      this.isUnread = unread;
-      if (!unread) this.settleTypedEnter();
-      return;
-    }
-    const screen = parseScreen(text);
-    if (screen !== null && screen.submission === this.typedEnter?.submission) this.showTypedEnter(screen.hasDraft);
-  }
-
   // endTypedEnter ends the wait of a message typed as keys, if one waits,
   // telling typed whether its Enter was pressed and, where it was not,
   // whether the relay typed its words, which is taken to be so when the
@@ -757,10 +662,9 @@ export class TerminalView {
   // open for the relay's word on it.
   private endTypedEnter(isPressed: boolean, isTyped: boolean): void {
     if (!this.typedEnter) return;
-    const { submission, timer } = this.typedEnter;
-    clearTimeout(timer);
+    const { submission, text } = this.typedEnter;
     this.typedEnter = undefined;
-    this.events.typed(submission, isPressed ? "sent" : isTyped ? "unsent" : "untyped");
+    this.events.typed(submission, text, isPressed ? "sent" : isTyped ? "unsent" : "untyped");
     if (this.disposed) this.socket.close(1000);
   }
 

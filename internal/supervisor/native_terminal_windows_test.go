@@ -324,11 +324,15 @@ func TestNativeTerminalProgram(t *testing.T) {
 		case strings.HasPrefix(line, "start a tool for "):
 			// A harness starting a tool reads nothing meanwhile, as Claude
 			// Code read nothing for a second or more in the Overlord's
-			// terminal on 2026-10-09.
+			// terminal on 2026-10-09, and keeps its screen drawn, so keys typed
+			// meanwhile show on its prompt line only once it reads them.
 			busy, err := time.ParseDuration(strings.TrimPrefix(line, "start a tool for "))
 			if err != nil {
 				record("tool error: " + err.Error())
 				continue
+			}
+			if isShown {
+				drawComposer(shownText, isShownWorking)
 			}
 			record("starting a tool")
 			time.Sleep(busy)
@@ -1355,8 +1359,9 @@ func TestANativeViewRejectsAnInvalidSubmissionID(t *testing.T) {
 }
 
 // A message the view typed as keys takes its Enter from the relay, which
-// reads the terminal's screen again and presses it only while the prompt line
-// holds the message's words alone, under no question, and tells the view
+// waits for the words to show on the terminal's screen, reads it again once
+// they settled and presses it only while the prompt line holds the message's
+// words alone, under no question, and tells the view
 // whether it did, and whether it typed keys since it took the message's
 // submission (#2848's review): pressed over words typed behind them it sends
 // those too, and pressed under a question it answers it.
@@ -1490,6 +1495,159 @@ func TestTheRelayPressesNoTypedMessagesEnterOnceAGateHoldsTyping(t *testing.T) {
 				t.Fatalf("the program took %q, want nothing", got)
 			}
 		})
+	}
+}
+
+// A typed message's Enter waits for its words to show on the prompt line, as
+// the board's own typed delivery waits for its words (sendNative): a Claude
+// Code that reads nothing while it starts a tool, as one does on a loaded
+// machine, shows them only seconds after the view asked, and a relay that
+// read its screen once as it was asked found no words and pressed nothing,
+// which left them unsent (#2848's review). The wait runs beside the view's
+// connection, which goes on meanwhile: a resize the view sends then reaches
+// the terminal before the Enter is answered.
+func TestTheRelayPressesATypedMessagesEnterOnceItsWordsShowLate(t *testing.T) {
+	// Arrange: Claude Code's composer, and a tool that reads nothing for 2 s.
+	h, server := nativeBoard(t, "direct")
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	terminal := hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+	v.send(t, websocket.MessageBinary, "harness\rstart a tool for 2s\r")
+	if lines := terminal.waitForLines(t, 1); !slices.Equal(lines, []string{"starting a tool"}) {
+		t.Fatalf("the program never started its tool; it recorded %q", lines)
+	}
+	v.send(t, websocket.MessageText, `{"type":"submit","submission":"words"}`)
+	v.send(t, websocket.MessageBinary, "please run /ship")
+
+	// Act: the view asks for the Enter as it types the words, and resizes the
+	// terminal while the Enter waits.
+	v.send(t, websocket.MessageText, `{"type":"enter","submission":"words","text":"please run /ship"}`)
+	v.send(t, websocket.MessageText, `{"type":"resize","cols":100,"rows":30}`)
+
+	// Assert
+	v.waitFor(t, `{"type":"entered","submission":"words"`)
+	v.mu.Lock()
+	seen := v.screen.String()
+	v.mu.Unlock()
+	entered := strings.Index(seen, `{"type":"entered"`)
+	if answer := seen[entered:]; !strings.HasPrefix(answer, `{"type":"entered","submission":"words","pressed":true,"typed":true}`) {
+		t.Fatalf("the relay answered %q, want the Enter pressed once the words showed", answer[:min(len(answer), 80)])
+	}
+	if resized := strings.Index(seen, `{"type":"size","cols":100,"rows":30}`); resized < 0 || resized > entered {
+		t.Fatal("the view's resize reached the terminal only once the Enter was answered, want it to while the Enter waits")
+	}
+	if got, want := terminal.waitForLines(t, 3), []string{"starting a tool", "started the tool", "please run /ship"}; !slices.Equal(got, want) {
+		t.Fatalf("the program took %q, want %q", got, want)
+	}
+}
+
+// A typed message whose words never show on the prompt line takes no Enter:
+// the relay waits for them at most nativeShown, as the board's own typed
+// delivery does, and then says it pressed none, so the box says they wait
+// unsent (#2848's review).
+func TestTheRelayPressesNoTypedMessagesEnterWhoseWordsNeverShow(t *testing.T) {
+	// Arrange: the wait is cut to 1 s, and a tool reads nothing for 4 s.
+	previous := nativeShown
+	nativeShown = time.Second
+	t.Cleanup(func() { nativeShown = previous })
+	h, server := nativeBoard(t, "direct")
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	terminal := hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+	v.send(t, websocket.MessageBinary, "harness\rstart a tool for 4s\r")
+	if lines := terminal.waitForLines(t, 1); !slices.Equal(lines, []string{"starting a tool"}) {
+		t.Fatalf("the program never started its tool; it recorded %q", lines)
+	}
+	v.send(t, websocket.MessageText, `{"type":"submit","submission":"words"}`)
+	v.send(t, websocket.MessageBinary, "please run /ship")
+	asked := time.Now()
+
+	// Act
+	v.send(t, websocket.MessageText, `{"type":"enter","submission":"words","text":"please run /ship"}`)
+
+	// Assert
+	v.waitFor(t, `{"type":"entered","submission":"words","pressed":false,"typed":true}`)
+	if waited := time.Since(asked); waited < nativeShown {
+		t.Fatalf("the relay answered %s after it was asked, want it to wait %s for the words", waited, nativeShown)
+	}
+	if got, want := terminal.waitForLines(t, 2), []string{"starting a tool", "started the tool"}; !slices.Equal(got, want) {
+		t.Fatalf("the program took %q, want %q", got, want)
+	}
+}
+
+// A gate that takes the task while a typed message's Enter waits for its
+// words holds that Enter at once, though the words show on the prompt line
+// later, so no Enter goes into a branch the gate owns (#2848's review).
+func TestTheRelayPressesNoTypedMessagesEnterOnceAGateTakesTheTaskWhileItWaits(t *testing.T) {
+	// Arrange: a tool that reads nothing for 3 s, the message's keys typed and
+	// unread, and its Enter asked for.
+	h, server := nativeBoard(t, "no-mistakes")
+	gitFixture(t, taskWorktree(t, h))
+	gate := &takingGate{}
+	h.Service.Options.Gate = gate
+	h.terminalTick = 10 * time.Millisecond
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	terminal := hostTask(t, h)
+	record, err := host.ReadRecord(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+	v.send(t, websocket.MessageBinary, "harness\rstart a tool for 3s\r")
+	if lines := terminal.waitForLines(t, 1); !slices.Equal(lines, []string{"starting a tool"}) {
+		t.Fatalf("the program never started its tool; it recorded %q", lines)
+	}
+	v.send(t, websocket.MessageText, `{"type":"submit","submission":"words"}`)
+	v.send(t, websocket.MessageBinary, "please run /ship")
+	v.send(t, websocket.MessageText, `{"type":"enter","submission":"words","text":"please run /ship"}`)
+	// The relay typed the keys once it says they sit unread.
+	v.waitFor(t, `{"type":"unread","unread":true}`)
+
+	// Act
+	gate.taken.Store(true)
+
+	// Assert: the Enter is answered while the tool still runs, and the words
+	// that show once it ends take none.
+	v.waitFor(t, `{"type":"entered","submission":"words","pressed":false,"typed":true}`)
+	if slices.Contains(terminal.lines(t), "started the tool") {
+		t.Fatal("the relay answered the Enter only once the words could show, want it answered as the gate took the task")
+	}
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
+		screen, err := host.ReadScreen(record)
+		if err == nil && strings.Contains(strings.Join(screen, "\n"), "please run /ship") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the terminal never showed the typed words; it shows %q, %v", screen, err)
+		}
+	}
+	time.Sleep(2 * nativeSubmitSettle)
+	if got, want := terminal.lines(t), []string{"starting a tool", "started the tool"}; !slices.Equal(got, want) {
+		t.Fatalf("the program took %q, want %q", got, want)
 	}
 }
 

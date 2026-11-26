@@ -9,7 +9,7 @@ import { TerminalTextSheet } from "./terminal-text-sheet";
 import { TerminalTouchTools } from "./terminal-touch-tools";
 import { isDetachedHold } from "./terminalInput";
 import { closedReason, ended, reconnects, type ScreenState, storedFontSize, storeFontSize } from "./terminalStream";
-import { offerLink, type TerminalLink } from "./terminal-link";
+import { clearTyped, offerLink, recordTyped } from "./terminal-link";
 import { TerminalView } from "./terminalView";
 import { useDictation } from "./useDictation";
 import { VoiceBubble } from "./VoiceBubble";
@@ -70,17 +70,6 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   const [isUnsent, setUnsent] = useState(false);
   // What the view was last told of the harness's screen.
   const [screen, setScreen] = useState<ScreenState | null>(null);
-  // What last became of a message the box typed as keys, from any of this
-  // terminal's views: one a reconnect replaced tells too, since it goes on
-  // with an Enter that waited once disposed.
-  const [typed, setTyped] = useState<TerminalLink["typed"]>(null);
-  // The submission of the message the box typed as keys whose Enter sent its
-  // words or left them on the prompt line, until the terminal's current view
-  // shows that line without words, when the message's claim on it ends. A
-  // screen's binding cannot tell: the host keeps it through his own input
-  // after the message, and binds a view a reconnect opens to his input, never
-  // to the message (#2848's review).
-  const typedOnLine = useRef("");
   // What a touch tool or a pasted picture met, for a moment, and the
   // terminal's text while it is laid out to select.
   const [feedback, showFeedback] = useClickFeedback();
@@ -131,12 +120,12 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
     url.search = params.toString();
     // showScreen makes state the terminal's screen, which ends the claim of a
     // message typed as keys on the prompt line once it shows that line
-    // without words.
+    // without words. A screen's binding cannot tell: the host keeps it
+    // through his own input after the message, and binds a view a reconnect
+    // opens to his input, never to the message (#2848's review).
     const showScreen = (state: ScreenState | null) => {
       setScreen(state);
-      if (!typedOnLine.current || !state || state.hasDraft) return;
-      setTyped({ submission: typedOnLine.current, state: "cleared" });
-      typedOnLine.current = "";
+      if (link && state && !state.hasDraft) clearTyped(link);
     };
     const view: TerminalView = new TerminalView(container, url, storedFontSize(), {
       ready: () => {
@@ -199,10 +188,10 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
       stream: () => { if (current.current === view || !current.current) setStream(true); },
       unsent: () => { if (current.current === view) setUnsent(true); },
       screen: (state) => { if (current.current === view) showScreen(state); },
-      typed: (submission, state) => {
-        typedOnLine.current = state === "sent" || state === "unsent" ? submission : "";
-        setTyped({ submission, state });
-      },
+      // Any of this terminal's views tells, since one a reconnect replaced,
+      // or one he left for another goblin, goes on with an Enter that waited
+      // once disposed.
+      typed: (submission, words, state) => { if (link) recordTyped(link, { submission, words, state }); },
       history: () => { if (current.current === view) onHistoryValue.current?.(); },
     });
     staged.current = view;
@@ -215,12 +204,12 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
       // A view that is on screen stays until its replacement is whole.
       if (current.current !== view) view.dispose();
     };
-  }, [query, instance, visible, attempt, dictate, showFeedback]);
+  }, [query, instance, visible, attempt, dictate, showFeedback, link]);
   useEffect(() => () => { current.current?.dispose(); current.current = null; }, []);
   useEffect(() => {
     if (!link) return;
     offerLink(link, {
-      phase, isReconnecting: reconnecting || !visible, isDictating: dictation.listening, isUnread, held: heldWhy, screen, isStream, typed,
+      phase, isReconnecting: reconnecting || !visible, isDictating: dictation.listening, isUnread, held: heldWhy, screen, isStream,
       stopDictation: dictation.stop,
       feedback: feedback || dictation.note,
       send: (text, isTyped) => phase === "live" && !reconnecting && visible ? current.current?.submit(text, isTyped) ?? null : null,
@@ -229,7 +218,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
       control: (keys) => phase === "live" && !reconnecting && visible ? current.current?.control(keys) ?? false : false,
     });
     return () => offerLink(link, null);
-  }, [link, phase, reconnecting, visible, isUnread, heldWhy, screen, isStream, typed, dictation.listening, dictation.stop, dictation.note, feedback]);
+  }, [link, phase, reconnecting, visible, isUnread, heldWhy, screen, isStream, dictation.listening, dictation.stop, dictation.note, feedback]);
   // While the view is live one notice says what keeps his keys from the
   // program, the most pressing first, never two at once (the Overlord,
   // 2026-11-04): a key it could not send while it reconnects, the reconnect,
