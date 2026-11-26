@@ -70,6 +70,7 @@ func TestStartCreatesAMissingBriefFromTheQueuedTask(t *testing.T) {
 	spawner := &spawnRecorder{}
 	handler, h := startBoard(t, 5*gigabyte, spawner)
 	writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n- **next-task** - Improve search (repo: code-goblins, mode: direct-PR)\n  Search by project name.\n")
+	approveDelivery(t, h, "next-task", "code-goblins", "direct-PR")
 	response := postStart(handler, `{"task":"next-task"}`, "board.local", "http://board.local", orderToken)
 	if response.Code != 202 {
 		t.Fatalf("start=%d %s", response.Code, response.Body)
