@@ -12,6 +12,9 @@ import (
 // starts that goblins' own commands must not take first, or says that its
 // arguments name none: a build stand-in takes serve as its own.
 func runWindowsTestProgram() (int, bool) {
+	if code, ok := runStandInShell(); ok {
+		return code, true
+	}
 	// A build stand-in an update test installs runs as that build.
 	if code, ok := runStandInBuild(); ok {
 		return code, true
