@@ -51,9 +51,9 @@ func TestMain(m *testing.M) {
 		time.Sleep(time.Minute)
 		os.Exit(0)
 	}
-	// A test's stand-in Windows PowerShell never answers, as CI's sat past
-	// the run syntax check's wait.
-	if strings.EqualFold(filepath.Base(os.Args[0]), "powershell.exe") {
+	// A test's stand-in Windows PowerShell or Git Bash never answers, as
+	// CI's PowerShell sat past the run syntax check's wait.
+	if name := filepath.Base(os.Args[0]); strings.EqualFold(name, "powershell.exe") || strings.EqualFold(name, "bash.exe") {
 		time.Sleep(time.Minute)
 		os.Exit(0)
 	}

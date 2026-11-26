@@ -142,6 +142,37 @@ func TestAShellThatSitsOutTheWaitIsRefusedWithWhatItDidInThatTime(t *testing.T) 
 	}
 }
 
+// Git's bin\bash.exe only starts the bash that parses and waits for it, so
+// what it did in the wait says nothing of the parse: a Git Bash that sits out
+// the wait is refused only as one that did not answer.
+func TestAGitBashThatSitsOutTheWaitIsRefusedWithoutWhatItsLauncherDid(t *testing.T) {
+	// Arrange
+	program, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	git := t.TempDir()
+	for _, dir := range []string{filepath.Join(git, "cmd"), filepath.Join(git, "bin")} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	copyExecutable(t, program, filepath.Join(git, "bin", "bash.exe"))
+	if err := os.WriteFile(filepath.Join(git, "cmd", "git.exe"), nil, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", filepath.Join(git, "cmd")+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	// Act
+	err = checkRunCommand("bash", "cd /c/dev && echo ready\n", time.Second)
+
+	// Assert
+	want := "bash did not answer within 1s, so the command was not checked: try again"
+	if err == nil || err.Error() != want {
+		t.Fatalf("checkRunCommand(a Git Bash that never answers) = %v, want %q", err, want)
+	}
+}
+
 func TestABashRunCommandItCannotParseIsRefused(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("Git Bash is not installed here")

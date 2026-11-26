@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,15 +15,23 @@ import (
 // standInShellVariable names the file a stand-in shell writes when it starts.
 const standInShellVariable = "GOBLINS_TEST_STAND_IN_SHELL"
 
+// standInShellParseErrorVariable names the parse error a stand-in shell says
+// of line 1 at once, as a shell says of a command that does not parse.
+const standInShellParseErrorVariable = "GOBLINS_TEST_STAND_IN_SHELL_PARSE_ERROR"
+
 // runStandInShell runs this binary as the Windows PowerShell or Git Bash a
-// test put where the run check looks for its shells: it says it started and
-// never answers, as CI's powershell.exe sat past the check's 30 s wait on
-// 2026-11-07.
+// test put where the run check looks for its shells: it says at once that
+// line 1 does not parse, or it says it started and never answers, as CI's
+// powershell.exe sat past the check's 30 s wait on 2026-11-07.
 func runStandInShell() (int, bool) {
-	started := os.Getenv(standInShellVariable)
+	started, parseError := os.Getenv(standInShellVariable), os.Getenv(standInShellParseErrorVariable)
 	name := filepath.Base(os.Args[0])
-	if started == "" || (!strings.EqualFold(name, "powershell.exe") && !strings.EqualFold(name, "bash.exe")) {
+	if (started == "" && parseError == "") || (!strings.EqualFold(name, "powershell.exe") && !strings.EqualFold(name, "bash.exe")) {
 		return 0, false
+	}
+	if parseError != "" {
+		fmt.Println("line 1: " + parseError)
+		return 1, true
 	}
 	if err := os.WriteFile(started, []byte(name+"\n"), 0o600); err != nil {
 		return 2, true
@@ -83,5 +92,42 @@ func TestAFKLogTakesACommandWhileNoShellOfTheMachineCanAnswer(t *testing.T) {
 				t.Errorf("the test started a shell of the machine, %s, which can sit past the check's wait", started)
 			}
 		})
+	}
+}
+
+// goblins afk log checks a command with its shell where the runtime names no
+// check of its own, as production's does: a command its shell says does not
+// parse is refused and nothing is logged. The stand-in powershell.exe says
+// so at once, so no shell of the machine is started.
+func TestAFKLogChecksACommandWithItsShellWhereTheRuntimeNamesNoCheck(t *testing.T) {
+	// Arrange
+	program, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	system := t.TempDir()
+	powershell := filepath.Join(system, "System32", "WindowsPowerShell", "v1.0")
+	if err := os.MkdirAll(powershell, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	copyFile(t, program, filepath.Join(powershell, "powershell.exe"))
+	t.Setenv("SystemRoot", system)
+	parseError := "Missing closing '}' in statement block or type definition."
+	t.Setenv(standInShellParseErrorVariable, parseError)
+	runtime, _ := afkRuntime(t)
+	runtime.checkRunCommand = nil
+	sent := 0
+	runtime.logAFK = func(home.Home, afk.Entry) error { sent++; return nil }
+	file := filepath.Join(t.TempDir(), "refresh.ps1")
+	if err := os.WriteFile(file, []byte("gh auth refresh -h github.com -s user\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	exit, _, stderr := afkCommand(runtime, "log", "--kind", "his", "--what", "Let the fleet read what GitHub bills", "--evidence", "his own sign-in", "--run", file)
+
+	// Assert
+	if exit != 2 || sent != 0 || !strings.Contains(stderr, file+": the command does not parse in powershell, so it would run nothing: line 1: "+parseError) {
+		t.Errorf("exit=%d sent=%d stderr=%q, want the command refused with what its shell said before anything is logged", exit, sent, stderr)
 	}
 }

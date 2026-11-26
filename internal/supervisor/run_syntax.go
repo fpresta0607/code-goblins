@@ -61,14 +61,17 @@ func checkRunCommand(shell, command string, wait time.Duration) error {
 		check = execx.CommandContext(ctx, program, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", powershellParse)
 		check.Env = append(os.Environ(), "GOBLINS_RUN_SYNTAX="+path)
 	}
-	// What the shell did in the wait is read as the wait ends it, before
+	// What a PowerShell did in the wait is read as the wait ends it, before
 	// it is killed: on 2026-10-14 and 2026-11-07 a CI runner's powershell.exe
 	// sat past the whole wait, and a parse it starts takes 0.3 s on a desktop,
 	// so the refusal says whether it worked slowly, as from a cold disk, or
-	// sat blocked.
+	// sat blocked. Git's bin\bash.exe only starts the bash that parses and
+	// waits for it, so what it did says nothing of the parse.
 	var use string
 	check.Cancel = func() error {
-		use = shellUse(check.Process)
+		if shell != "bash" {
+			use = shellUse(check.Process)
+		}
 		return check.Process.Kill()
 	}
 	output, err := check.CombinedOutput()
