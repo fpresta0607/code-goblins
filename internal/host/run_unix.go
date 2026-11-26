@@ -40,9 +40,6 @@ func Run(stateDir string, spec Spec) error {
 	if spec.IsStream {
 		return fmt.Errorf("host: terminal %s: %w", spec.ID, errStreamNotPorted)
 	}
-	if spec.ShouldLeaveCoresForApps {
-		fmt.Fprintf(os.Stderr, "%s host: the terminal runs on every processor core, since keeping it off the cores left to apps is not ported to this system yet\n", time.Now().UTC().Format(time.RFC3339Nano))
-	}
 	var proof [32]byte
 	if _, err := rand.Read(proof[:]); err != nil {
 		return err
@@ -51,7 +48,7 @@ func Run(stateDir string, spec Spec) error {
 	if err != nil {
 		return err
 	}
-	started, err := pty.Start(pty.Spec{Args: spec.Args, Dir: spec.Dir, Env: terminalEnvironment(spec.ID, hex.EncodeToString(proof[:])), Cols: spec.Cols, Rows: spec.Rows})
+	started, err := pty.Start(pty.Spec{Args: spec.Args, Dir: spec.Dir, Env: terminalEnvironment(spec.ID, hex.EncodeToString(proof[:])), Cols: spec.Cols, Rows: spec.Rows, Processors: terminalProcessors(spec)})
 	if err != nil {
 		return err
 	}
