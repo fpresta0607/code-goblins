@@ -1701,8 +1701,9 @@ func typedBrief(t *testing.T, f *fixture, id string) (string, string) {
 // points at, or the line itself.
 func delivered(t *testing.T, line string) string {
 	t.Helper()
-	path, found := strings.CutPrefix(line, "Read ")
-	path, pointed := strings.CutSuffix(path, " and follow it exactly: it is your instruction from the CEO.")
+	start := strings.LastIndex(line, "Read ")
+	path, pointed := strings.CutSuffix(line[max(start, 0):], " and follow it exactly: it is your instruction from the CEO.")
+	path, found := strings.CutPrefix(path, "Read ")
 	if !found || !pointed {
 		return line
 	}
@@ -1784,20 +1785,21 @@ func TestAnInstructionIsTypedAsOneShortLineIntoEveryHarness(t *testing.T) {
 	}
 	for _, kind := range []harness.Kind{harness.Claude, harness.Codex, harness.Pi} {
 		for name, testCase := range map[string]struct {
-			instruction string
-			isPointed   bool
+			lead, instruction string
+			isPointed         bool
 		}{
-			"what a goblin is resumed with":             {resume, true},
-			"a short instruction with a note under it":  {"Continue the task.\nThe Overlord answered: Blue", true},
-			"a short instruction of one line":           {harness.BriefInstruction(`C:\home\data\task-7\brief.md`), false},
-			"a line as long as the longest typed whole": {strings.Repeat("x", typedInstructionLimit), false},
+			"what a goblin is resumed with":             {"", resume, true},
+			"what a paused goblin is resumed with":      {harness.RESUME_LEAD, harness.RESUME_LEAD + "\n\n" + resume, true},
+			"a short instruction with a note under it":  {"", "Continue the task.\nThe Overlord answered: Blue", true},
+			"a short instruction of one line":           {"", harness.BriefInstruction(`C:\home\data\task-7\brief.md`), false},
+			"a line as long as the longest typed whole": {"", strings.Repeat("x", typedInstructionLimit), false},
 		} {
 			t.Run(string(kind)+": "+name, func(t *testing.T) {
 				// Arrange
 				service := Service{StateDir: t.TempDir()}
 
 				// Act
-				typed, err := service.typedInstruction("task-7", testCase.instruction)
+				typed, err := service.typedInstruction("task-7", testCase.lead, testCase.instruction)
 
 				// Assert
 				if err != nil {
@@ -1811,7 +1813,7 @@ func TestAnInstructionIsTypedAsOneShortLineIntoEveryHarness(t *testing.T) {
 				}
 				path := filepath.Join(service.StateDir, "tasktmp", "task-7", "instruction.md")
 				written, readErr := os.ReadFile(path)
-				if typed != instructionPointer(path) || strings.ContainsAny(typed, "\r\n") || len([]rune(typed)) > typedInstructionLimit {
+				if typed != strings.TrimPrefix(testCase.lead+" "+instructionPointer(path), " ") || strings.ContainsAny(typed, "\r\n") || len([]rune(typed)) > typedInstructionLimit {
 					t.Errorf("typed %d characters, want the one short line pointing at %s:\n%s", len([]rune(typed)), path, typed)
 				}
 				if readErr != nil || string(written) != testCase.instruction+"\n" {

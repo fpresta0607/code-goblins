@@ -280,7 +280,7 @@ func (s Service) briefNativeHarness(ctx context.Context, id string, record host.
 	if screens.ComposerHoldsText(screen) {
 		return record, fmt.Errorf("spawn: native terminal %s holds a draft, so nothing was typed into it", record.ID)
 	}
-	instruction, err := s.typedInstruction(id, launch.PromptInstruction())
+	instruction, err := s.typedInstruction(id, launch.Lead, launch.PromptInstruction())
 	if err != nil {
 		return record, err
 	}
@@ -355,8 +355,9 @@ const typedInstructionLimit = 400
 // with nothing written beside it, which a model does not take as the
 // operator's own words: three goblins asked whether to proceed and sat until
 // someone said yes. One short typed line is the operator's own message to
-// every harness.
-func (s Service) typedInstruction(id, instruction string) (string, error) {
+// every harness. A pointed instruction's lead, its own opening line, is typed
+// in front of the pointer (harness.Launch.Lead).
+func (s Service) typedInstruction(id, lead, instruction string) (string, error) {
 	if utf8.RuneCountInString(instruction) <= typedInstructionLimit && !strings.ContainsAny(instruction, "\r\n") {
 		return instruction, nil
 	}
@@ -368,7 +369,7 @@ func (s Service) typedInstruction(id, instruction string) (string, error) {
 	if err := os.WriteFile(path, []byte(instruction+"\n"), 0o600); err != nil {
 		return "", fmt.Errorf("spawn: write the instruction for native terminal %s: %w", id, err)
 	}
-	return instructionPointer(path), nil
+	return strings.TrimPrefix(lead+" "+instructionPointer(path), " "), nil
 }
 
 // instructionPointer is the line typed in place of an instruction written to

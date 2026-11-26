@@ -446,7 +446,18 @@ func TestPauseResumeSupersedesTheStopAndPreservesRecovery(t *testing.T) {
 			if len(submitted) != 1 {
 				t.Fatalf("submitted %q; want one recovery instruction", submitted)
 			}
+			// A conversation resumed with its pause handoff unwritten reads
+			// the typed line before the instruction it points at, and took a
+			// bare pointer as leave to finish that pause (#2149).
+			for _, want := range []string{"Resume now.", "supersedes the earlier pause request", "do not write or rename its handoff", "and follow it exactly"} {
+				if !strings.Contains(submitted[0], want) {
+					t.Errorf("the typed line %q lacks %q", submitted[0], want)
+				}
+			}
 			instruction := delivered(t, submitted[0])
+			if instruction == submitted[0] {
+				t.Errorf("the typed line %q points at no instruction", submitted[0])
+			}
 			for _, want := range []string{"Resume now.", "supersedes the earlier pause", "Do not repeat the pause handoff", "Preserve unfinished work", "Check interrupted commands", "Do not ask again for a decision already answered", "Decision 42: keep the existing branch."} {
 				if !strings.Contains(instruction, want) {
 					t.Errorf("resume instruction lacks %q", want)
