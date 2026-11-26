@@ -338,9 +338,9 @@ test("a baby goblin's row opens that baby goblin's own terminal", async ({ page 
   await open(page);
   await openGoblin(page);
   const row = list(page, "Zeke - Touch Wrangler").locator(".message-baby");
-  await expect(row).toContainText("Zeke Jr. - ");
-  await expect(row).toContainText("Zeke Jr. - Find the touch handlers");
-  await expect(row).toContainText("Explore");
+  await expect(row).toHaveAccessibleName(/^Open Zeke Jr\. - Find the touch handlers, /);
+  await expect(row).toContainText("Find the touch handlers");
+  await expect(row).toContainText("Zeke Jr. · Explore");
   await expect(row).toContainText("Done");
 
   await row.click();

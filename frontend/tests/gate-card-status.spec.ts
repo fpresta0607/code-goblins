@@ -8,7 +8,12 @@ for (const width of [390, 1440]) {
     await open(page, snapshot({}, task));
     const board = page.locator(".task-board .task-card-shell").filter({ hasText: "Hugo - Build Tamer" });
     await expect(board.locator(".card-status-text")).toHaveText("Waiting on the CEO: rebase gate");
-    await expect(board.locator(".card-status-text")).toHaveAttribute("data-tip", task.reason);
+    // The status carries no tip of its own, so hovering it shows the card's
+    // own tip, never the gate's question, which runs to many paragraphs (#2955).
+    await expect(board.locator(".card-status-text")).not.toHaveAttribute("data-tip");
+    await board.locator(".card-status-text").hover();
+    await expect(page.getByRole("tooltip")).toBeVisible();
+    await expect(page.getByRole("tooltip")).not.toContainText(task.reason);
     await expect(board.locator(".card-activity")).toHaveText("Terminal active · Last report: working");
 
     await page.getByRole("button", { name: "Orchestration", exact: true }).click();
