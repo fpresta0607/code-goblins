@@ -5,7 +5,7 @@ import { callWords, commandLanguage } from "./call-words";
 import { ConnectorLogo } from "./connector-logo";
 import { callPictures } from "./conversation-pictures";
 import { Disclosure } from "./Disclosure";
-import { babyName, phaseOf, stateWord } from "./fleet-tree";
+import { babyName, babyShortName, phaseOf, stateWord } from "./fleet-tree";
 import { Icon, type IconName } from "./Icon";
 import { MessagePictures } from "./message-pictures";
 import { PlanCard } from "./plan-card";
@@ -37,12 +37,15 @@ const RESULTS: Partial<Record<CallState, Omit<TerminalResult, "icon">>> = { runn
 // one, the diff of what a call edited in place of what it printed (#2534),
 // its pictures, and under a command that drove the goblin's browser its
 // Screen view (CallOpens). A call that started a
-// sub-agent is its baby goblin's row instead. While its goblin's tree holds
-// the baby goblin, the row is one button that opens that baby goblin's
-// terminal, saying its name, the kind of agent and the baby goblin's own
-// state, not the call's, as a background sub-agent's call is done at once
-// while its baby goblin works. Otherwise it says the call's own description
-// and state, with nothing to open. A call that wrote a plan is that plan's
+// sub-agent is its baby goblin's row instead, which leads with its
+// description, as the rows of one round of sub-agents differ only in that
+// (#2957), and says what every row repeats on one quiet line under it. While
+// its goblin's tree holds the baby goblin, the row is one button named by its
+// whole name that opens that baby goblin's terminal, its quiet line saying its
+// short name, the kind of agent and the baby goblin's own state, not the
+// call's, as a background sub-agent's call is done at once while its baby
+// goblin works. Otherwise it says the call's own description, kind and state,
+// with nothing to open. A call that wrote a plan is that plan's
 // checklist card. Whether its fold is open is the
 // view's to keep (open, onOpenChange).
 export function MessageCall({ call, task, picture, onChild, open, onOpenChange }: {
@@ -54,17 +57,18 @@ export function MessageCall({ call, task, picture, onChild, open, onOpenChange }
     const child = task?.tree?.children.find((each) => each.id === node);
     if (task && child) {
       const name = babyName(task, child), state = stateWord(child);
+      const whoAndKind = [babyShortName(task, child), call.agent.type].filter(Boolean).join(" · ");
       return <button type="button" className={"message-baby " + call.state} aria-label={"Open " + name + ", " + state} onClick={(event) => onChild(child, event.currentTarget)}>
         <BabyGoblin baby="subagent" small hasTip={false} />
-        <span className="baby-what"><strong>{name}</strong>{call.agent.type && <small>{call.agent.type}</small>}</span>
-        <span className={"plain-status phase-" + phaseOf(child)}><span className="status-dot" />{state}</span>
+        <span className="baby-what"><strong>{child.label}</strong>
+          <small>{whoAndKind && <span>{whoAndKind}</span>}<span className={"plain-status phase-" + phaseOf(child)}><span className="status-dot" />{state}</span></small></span>
         <Icon name="next" />
       </button>;
     }
     return <div className={"message-baby " + call.state}>
       <BabyGoblin baby="subagent" small hasTip={false} />
-      <span className="baby-what"><strong>{call.subject || "Sub-agent"}</strong>{call.agent.type && <small>{call.agent.type}</small>}</span>
-      <span className="call-end">{call.state === "done" ? "Done" : STATE_WORDS[call.state]}</span>
+      <span className="baby-what"><strong>{call.subject || "Sub-agent"}</strong>
+        <small>{call.agent.type && <span>{call.agent.type}</span>}<span className="call-end">{call.state === "done" ? "Done" : STATE_WORDS[call.state]}</span></small></span>
     </div>;
   }
   if (call.plan.length) return <PlanCard steps={call.plan} />;
