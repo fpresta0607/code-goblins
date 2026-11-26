@@ -296,15 +296,16 @@ func (s *Service) backlog() (fleet.BacklogRows, error) {
 
 // queuedTask reads a queued task from everything fleet.ReadQueuedTask
 // consults: the backlog, the task's brief, its task record and status log,
-// the archive's listing and the done archive. That a task is not queued is
-// an answer like any other, and is kept.
+// its outcome and accepted delivery, the archive's listing and the done
+// archive. That a task is not queued is an answer like any other, and is
+// kept.
 func (s *Service) queuedTask(id string) (fleet.QueuedTask, error) {
 	type answer struct {
 		task      fleet.QueuedTask
 		notQueued bool
 	}
 	h := s.Store.Home
-	paths := []string{filepath.Join(h.Data, "backlog.md"), filepath.Join(h.Data, id, "brief.md"), state.TaskMetaPath(h.State, id), state.StatusPath(h.State, id), filepath.Join(h.State, state.ArchiveDirName), filepath.Join(h.State, "outcomes", id+".json"), filepath.Join(h.Data, fleet.DoneArchiveName)}
+	paths := []string{filepath.Join(h.Data, "backlog.md"), filepath.Join(h.Data, id, "brief.md"), state.TaskMetaPath(h.State, id), state.StatusPath(h.State, id), filepath.Join(h.State, state.ArchiveDirName), filepath.Join(h.State, "outcomes", id+".json"), state.AcceptedDeliveryPath(h.State, id), filepath.Join(h.Data, fleet.DoneArchiveName)}
 	read, err := kept(&s.reads, "queued", paths, func() (answer, error) {
 		backlog, err := s.backlog()
 		if err != nil {

@@ -147,6 +147,7 @@ commands:
   goblins cleanup <id> [--force-archive] [--keep-issue-open <issue>... --reason "<why>"]   return a finished task's worktree, every extra worktree it recorded and its scratch folder, refusing while any of them holds uncommitted work and keeping work that is not on the default branch as a local archive tag, and refusing while an issue the task names is open or gone on GitHub unless --keep-issue-open <issue> --reason "<why>" keeps it open, which the task records
   goblins worktree add <id> <name> [--ref <commit>] [--project <name|path>] | remove <id> <name> [--project <name|path>]   give a task an extra worktree, <id>-<name>, beside its own in the home, of its own project or with --project of another, recorded on the task so cleanup removes it with the task, or return one early
   goblins backlog done <id>   close a retired delivered task's queued row, preserving its evidence and continuation under Done
+  goblins backlog accept <id> --generation <generation> --report <file> --receipt <file>   registered CEO accepts one generation of a task as delivered from its saved acceptance report and an installation receipt this machine bears out; what waits on the task then goes on, its retirement outcome is never rewritten, and a cleaned up task's backlog row closes
   goblins backlog review   say which queued rows, parked rows and paused tasks need a decision (done already, a step for the owner overtaken, work to fold, work gone stale), with evidence and a proposal for each; it reads only
   goblins pause <id> | resume <id> | kill <id>   pause, resume or stop a task while preserving its work
   goblins handoff <id> [--wip] | handoff return <id> [--pr <url>] | handoff cancel <id>   hand a task to a cloud session through a screened packet in its pull request, bring the cloud's pull request back onto its branch and resume it, or resume it without that work
@@ -271,6 +272,9 @@ type commandRuntime struct {
 	// readDevDrive reads what this machine says about Dev Drives, for goblins
 	// dev-drive and goblins doctor.
 	readDevDrive func(context.Context) (devdrive.Machine, error)
+	// installation reads what an installation receipt names on this machine,
+	// for goblins backlog accept.
+	installation fleet.Installation
 	// readKernel reads the kernel's access tokens and pools, for goblins
 	// doctor.
 	readKernel func() (supervisor.Kernel, error)
@@ -565,6 +569,7 @@ func defaultCommandRuntime() commandRuntime {
 			return openrouter.Reader{Source: source}.Read(ctx)
 		},
 		projectsRoot:  install.MachineProjectsRoot,
+		installation:  machineInstallation(),
 		readDevDrive:  func(ctx context.Context) (devdrive.Machine, error) { return devdrive.Read(ctx, execx.OSRunner{}) },
 		readKernel:    supervisor.MachineKernel,
 		gateHome:      gatehome.Root,

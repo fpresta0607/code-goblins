@@ -197,9 +197,10 @@ ready: false
 }
 
 // primaryApproval is the registration of the registered primary CEO this
-// process runs under, which alone approves a delivery exception: a goblin, a
-// gate agent or a helper descends from that process too, so its environment
-// label is what keeps one from approving its own.
+// process runs under, which alone approves a delivery exception or accepts a
+// task's delivery: a goblin, a gate agent or a helper descends from that
+// process too, so its environment label is what keeps one from approving its
+// own.
 func primaryApproval(stateDir string) (string, error) {
 	if os.Getenv(gateAgentVariable) != "" || os.Getenv(harness.RoleVariable) == harness.RoleGoblin {
 		return "", errors.New("a gate agent, goblin or helper cannot act as the registered primary CEO")

@@ -545,12 +545,15 @@ func (s Service) closeRow(outcome state.Outcome) string {
 	switch {
 	case errors.Is(err, fleet.ErrNotQueued):
 		return ""
-	case err != nil && outcome.Phase == "done":
-		return "\nwarning: its backlog row stays under ## Queued for now (" + err.Error() + "); the supervisor moves it to ## Done once it can"
-	case err != nil:
-		return "\nwarning: its backlog row stays under ## Queued (" + err.Error() + "), where the scheduler does not start it again and wakes you about the row"
+	case err == nil:
+		return "\nits backlog row is under ## Done"
 	}
-	return "\nits backlog row is under ## Done"
+	// Delivery evidence that cannot be read delivers nothing, and the row's
+	// error already names it.
+	if _, isDelivered, _ := state.DeliveredAt(s.StateDir, outcome.ID); isDelivered {
+		return "\nwarning: its backlog row stays under ## Queued for now (" + err.Error() + "); the supervisor moves it to ## Done once it can"
+	}
+	return "\nwarning: its backlog row stays under ## Queued (" + err.Error() + "), where the scheduler does not start it again and wakes you about the row"
 }
 
 // checkoutWorktree is a worktree the cleanup returns and the checkout it is
