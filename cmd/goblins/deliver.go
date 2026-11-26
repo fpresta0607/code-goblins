@@ -17,10 +17,12 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/githubapi"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
@@ -111,9 +113,27 @@ func runBrief(args []string, stdout, stderr io.Writer, runtime commandRuntime) (
 	if loadErr != nil {
 		manifest = projectcfg.Manifest{}
 	}
+	approvedBy := ""
+	if *deliveryException != "" {
+		if approvedBy, err = primaryApproval(h.State); err != nil {
+			fmt.Fprintf(stderr, "goblins brief: --delivery-exception is honoured only from the registered primary CEO: %v\n", err)
+			return 1
+		}
+	}
 	selected := projectcfg.SelectDelivery(manifest, assessment, *mode, *deliveryException)
 	if *mode != "" && selected.Mode != *mode {
 		fmt.Fprintf(stderr, "goblins brief: --mode %s was not selected: %s\n", *mode, selected.Reason)
+	}
+	// The exception that selected a narrower mode is kept beside the brief, so
+	// the start that comes first, automatic or explicit, selects it too.
+	if approvedBy != "" && selected.Mode == *mode && *mode != "no-mistakes" {
+		err = projectcfg.RecordDeliveryException(h.Data, id, *mode, *deliveryException, approvedBy, manifest)
+	} else {
+		err = projectcfg.ClearDeliveryException(h.Data, id)
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
 	}
 	*mode = selected.Mode
 	body := fmt.Sprintf(`# Brief %s
@@ -172,6 +192,23 @@ ready: false
 	}
 	fmt.Fprintln(stdout, path)
 	return 0
+}
+
+// primaryApproval is the registration of the registered primary CEO this
+// process runs under, which alone approves a delivery exception: a goblin, a
+// gate agent or a helper descends from that process too, so its environment
+// label is what keeps one from approving its own.
+func primaryApproval(stateDir string) (string, error) {
+	if os.Getenv(gateAgentVariable) != "" || os.Getenv(harness.RoleVariable) == harness.RoleGoblin {
+		return "", errors.New("a gate agent, goblin or helper cannot act as the registered primary CEO")
+	}
+	ceo := supervisor.CEOConnection{State: stateDir}
+	identity, release, err := ceo.CallerIdentity()
+	if err != nil {
+		return "", err
+	}
+	release()
+	return identity, nil
 }
 
 // briefAuthentication is the Authentication section of a new brief. Its

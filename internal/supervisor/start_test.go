@@ -417,6 +417,8 @@ func TestStartDispatchesThroughCeoSpawnAndTellsTheCEO(t *testing.T) {
 		row   string
 		brief string
 		want  []string
+		// approved is the narrower mode the primary CEO's exception approves.
+		approved string
 	}{
 		{
 			name:  "automatic routing",
@@ -425,10 +427,11 @@ func TestStartDispatchesThroughCeoSpawnAndTellsTheCEO(t *testing.T) {
 			want:  []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`, "--mode", "no-mistakes"},
 		},
 		{
-			name:  "what the row and the brief name, the row first",
-			row:   "- **next-task** - Ship it (repo: code-goblins, harness: codex, model: gpt-6-astra)",
-			brief: strings.ReplaceAll(plainBrief, "mode: no-mistakes", "mode: direct-PR") + "kind: ship\neffort: high\nmodel: ignored-behind-the-row\n",
-			want:  []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`, "--harness", "codex", "--model", "gpt-6-astra", "--effort", "high", "--mode", "direct-PR"},
+			name:     "what the row and the brief name, the row first",
+			row:      "- **next-task** - Ship it (repo: code-goblins, harness: codex, model: gpt-6-astra)",
+			brief:    strings.ReplaceAll(plainBrief, "mode: no-mistakes", "mode: direct-PR") + "kind: ship\neffort: high\nmodel: ignored-behind-the-row\n",
+			want:     []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`, "--harness", "codex", "--model", "gpt-6-astra", "--effort", "high", "--mode", "direct-PR"},
+			approved: "direct-PR",
 		},
 		{
 			name:  "the row's repo when the brief names no project",
@@ -455,10 +458,11 @@ func TestStartDispatchesThroughCeoSpawnAndTellsTheCEO(t *testing.T) {
 			want:  []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`, "--effort", "medium", "--mode", "no-mistakes"},
 		},
 		{
-			name:  "the row's engine over the brief's, and the brief's Delivery mode over the row's",
-			row:   "- **next-task** - Ship it (harness: codex, model: gpt-6.1-sol, effort: medium, mode: local-only)",
-			brief: strings.ReplaceAll(plainBrief, "mode: no-mistakes", "mode: direct-PR") + "harness: claude\nmodel: opus\neffort: high\n",
-			want:  []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`, "--harness", "codex", "--model", "gpt-6.1-sol", "--effort", "medium", "--mode", "direct-PR"},
+			name:     "the row's engine over the brief's, and the brief's Delivery mode over the row's",
+			row:      "- **next-task** - Ship it (harness: codex, model: gpt-6.1-sol, effort: medium, mode: local-only)",
+			brief:    strings.ReplaceAll(plainBrief, "mode: no-mistakes", "mode: direct-PR") + "harness: claude\nmodel: opus\neffort: high\n",
+			want:     []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`, "--harness", "codex", "--model", "gpt-6.1-sol", "--effort", "medium", "--mode", "direct-PR"},
+			approved: "direct-PR",
 		},
 		{
 			name:  "launch choices in the task text name nothing",
@@ -473,6 +477,9 @@ func TestStartDispatchesThroughCeoSpawnAndTellsTheCEO(t *testing.T) {
 			spawner := &spawnRecorder{output: "spawned next-task harness=claude kind=ship"}
 			handler, h := startBoard(t, 5*gigabyte, spawner)
 			queueBriefedTask(t, h, test.row, test.brief)
+			if test.approved != "" {
+				approveDelivery(t, h, "next-task", `C:\dev\code-goblins`, test.approved)
+			}
 			if err := fleet.WriteAttention(h, []string{"task-1"}); err != nil {
 				t.Fatal(err)
 			}
