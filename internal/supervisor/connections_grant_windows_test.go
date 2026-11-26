@@ -300,6 +300,7 @@ func TestAConnectorGrantReportsOnlyANoticeThatDidNotReachTheGoblin(t *testing.T)
 			// Arrange
 			s, stateDir, _ := grantBoard(t)
 			asOverlordsBoard(s)
+			s.Options.CEO = &CEOConnection{State: stateDir}
 			liveNativeGoblin(t, stateDir, "task-1")
 			notices := deliverNotices(t, test.delivery)
 
@@ -318,5 +319,36 @@ func TestAConnectorGrantReportsOnlyANoticeThatDidNotReachTheGoblin(t *testing.T)
 				t.Fatalf("supervisor error = %q, want it reported: %v", lastError, test.isReportable)
 			}
 		})
+	}
+}
+
+// A connector's grant types no re-source notice into a goblin's terminal
+// while a view of it waits to press the Enter of a message typed there as
+// keys, as no board delivery does, since keys its harness has not read yet
+// show nothing on the prompt line and the notice would join their words. The
+// supervisor says the notice did not reach the goblin (#2848's review).
+func TestAConnectorGrantTypesNoNoticeWhileAViewWaitsToPressATypedMessagesEnter(t *testing.T) {
+	// Arrange
+	s, stateDir, _ := grantBoard(t)
+	asOverlordsBoard(s)
+	s.Options.CEO = &CEOConnection{State: stateDir}
+	liveNativeGoblin(t, stateDir, "task-1")
+	notices := deliverNotices(t, nil)
+	answered := s.Options.CEO.awaitEnter("task-1")
+	defer answered()
+
+	// Act
+	code, body := askTheBoard(t, s, "POST", "/api/connections/grant", `{"task":"task-1","generation":"g1","connection":"service:sample","action":"grant"}`, nil)
+	s.credentialWork.Wait()
+
+	// Assert
+	if code != http.StatusOK || len(*notices) != 0 {
+		t.Fatalf("grant = %d %s, notices %q, want the grant and no notice typed", code, body, *notices)
+	}
+	s.mu.Lock()
+	lastError := s.lastError
+	s.mu.Unlock()
+	if !strings.Contains(lastError, "telling task-1 to load the credentials the Overlord granted") || !strings.Contains(lastError, "waits to press the Enter") {
+		t.Fatalf("supervisor error = %q, want the notice the wait held reported", lastError)
 	}
 }

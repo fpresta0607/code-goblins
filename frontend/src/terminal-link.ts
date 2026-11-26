@@ -63,17 +63,17 @@ export function useTerminalLink(key: string): TerminalLink | undefined {
 }
 
 // The message a link's send last typed as keys into the terminal the deck
-// keeps as key, named by the submission send returned, with its words, and
-// what became of it (TypedState), as any view of that terminal tells it: one
-// a reconnect replaced, or one he left for another goblin, goes on with the
-// Enter that waited. It holds the prompt line while its Enter waits, and once
-// that Enter was pressed or left its words there, until the terminal's
-// current view shows that line without words (clearTyped). It is kept here,
-// beside the links, since a switch to another goblin takes the terminal and
-// the box off the page, and a box drawn again knew nothing of it: it took the
-// list under its words as his question, or typed onto them, and the closed
-// view's answer reached no one (#2848's review).
-export interface TypedMessage { submission: string; words: string; state: TypedState }
+// keeps as key, its words and what became of it (TypedState), as any view of
+// that terminal tells it: one a reconnect replaced, or one he left for
+// another goblin, goes on with the Enter that waited. It holds the prompt line
+// while its Enter waits, and once that Enter was pressed or left its words
+// there, until the terminal's current view shows that line without words
+// (clearTyped). It is kept here, beside the links, since a switch to another
+// goblin takes the terminal and the box off the page, and a box drawn again
+// knew nothing of it: it took the list under its words as his question, or
+// typed onto them, and the closed view's answer reached no one (#2848's
+// review).
+export interface TypedMessage { words: string; state: TypedState }
 
 const typedMessages = new Map<string, TypedMessage>();
 // What the box drawn for each key says of its message once the Enter left

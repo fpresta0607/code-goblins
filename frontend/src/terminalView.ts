@@ -70,10 +70,10 @@ export interface ViewEvents {
   // The relay read the harness's screen anew: whether it waits on an answer
   // at a screen of its own, and whether something of its own is open.
   screen: (state: ScreenState) => void;
-  // What became of a message typed as keys, named by its submission, with
-  // its words: said as submit types them, and again as the relay answers for
-  // its Enter, or the connection closes first.
-  typed: (submission: string, words: string, state: TypedState) => void;
+  // What became of a message typed as keys, with its words: said as submit
+  // types them, and again as the relay answers for its Enter, or the
+  // connection closes first.
+  typed: (words: string, state: TypedState) => void;
   // Full-screen programs own their history; while input is held or closed,
   // the conversation record is the readable history instead.
   history?: () => void;
@@ -304,7 +304,7 @@ export class TerminalView {
     if (isTyped) {
       this.term.input(text, true)
       this.typedEnter = { submission, text }
-      this.events.typed(submission, text, "waiting")
+      this.events.typed(text, "waiting")
       this.send(JSON.stringify({ type: "enter", submission, text }))
       return submission
     }
@@ -662,9 +662,9 @@ export class TerminalView {
   // open for the relay's word on it.
   private endTypedEnter(isPressed: boolean, isTyped: boolean): void {
     if (!this.typedEnter) return;
-    const { submission, text } = this.typedEnter;
+    const { text } = this.typedEnter;
     this.typedEnter = undefined;
-    this.events.typed(submission, text, isPressed ? "sent" : isTyped ? "unsent" : "untyped");
+    this.events.typed(text, isPressed ? "sent" : isTyped ? "unsent" : "untyped");
     if (this.disposed) this.socket.close(1000);
   }
 

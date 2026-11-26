@@ -191,7 +191,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
       // Any of this terminal's views tells, since one a reconnect replaced,
       // or one he left for another goblin, goes on with an Enter that waited
       // once disposed.
-      typed: (submission, words, state) => { if (link) recordTyped(link, { submission, words, state }); },
+      typed: (words, state) => { if (link) recordTyped(link, { words, state }); },
       history: () => { if (current.current === view) onHistoryValue.current?.(); },
     });
     staged.current = view;
