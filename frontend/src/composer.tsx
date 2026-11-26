@@ -596,15 +596,6 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
       if (hadKeyboard) setSendsEnded((count) => count + 1);
     }
   };
-  // Retry on the terminal's notice of a failed update has the supervisor run
-  // the harness's own update check outside the session, which the snapshot
-  // then shows running and ended (#2333). Nothing is typed into the session.
-  const retryUpdateCheck = () => {
-    request("/api/harness/update-check", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": snapshot.instance }, body: JSON.stringify({ harness }) }).catch((error: unknown) => {
-      setNotice((prior) => ({ text: message(error), from: "queued", count: prior.count + 1 }));
-      if (!(error instanceof Error && error.cause !== undefined)) reportToCeo("the update check of " + name, message(error));
-    });
-  };
   // A delete names the message by its goblin and its words, which the
   // supervisor takes out of the resume note.
   // A queued message is withdrawn by its own identity, so two messages with the
@@ -1064,7 +1055,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
       </div>
     </div>
     {/* The terminal's gauge and notices go under the box, as the terminal
-        draws them under its prompt (#2294). */}
-    {hasConversation && live?.screen?.status && <TerminalStatus status={live.screen.status} check={snapshot.update_checks[harness]} onRetry={retryUpdateCheck} />}
+        draws them under its prompt (#2294), all but a failed update, which
+        the panel's header offers as Retry update (#2956). */}
+    {hasConversation && live?.screen?.status && <TerminalStatus status={live.screen.status} />}
   </section>;
 }
