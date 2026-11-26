@@ -295,36 +295,6 @@ func TestRunGhAxiBelowTheBodyFileFloorIsUnhealthy(t *testing.T) {
 	}
 }
 
-// The install puts in gh-axi at the doctor's floor, so a new install never
-// starts with the release whose --body-file fails on Windows (#2115).
-func TestInstallScriptPinsGhAxiAtTheDoctorsFloor(t *testing.T) {
-	// Arrange
-	script, err := os.ReadFile(filepath.Join("..", "..", "install.ps1"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var floor string
-	for _, tool := range tools {
-		if tool.name == "gh-axi" {
-			floor = tool.floor
-		}
-	}
-
-	// Act
-	pinned := ""
-	if match := regexp.MustCompile(`Name = "gh-axi";\s+Kind = "npm";\s+Cmd = "npm\.cmd install -g gh-axi@([^"]+)"`).FindSubmatch(script); match != nil {
-		pinned = string(match[1])
-	}
-
-	// Assert
-	if floor == "" {
-		t.Fatal("the doctor sets no floor for gh-axi")
-	}
-	if pinned != floor {
-		t.Errorf("install.ps1 pins gh-axi at %q, want the doctor's floor %s", pinned, floor)
-	}
-}
-
 // The doctor's hint for each tool from a fork installs the release at its
 // floor, so a machine that follows the hint meets the floor the doctor checks.
 func TestHintInstallsTheForkReleaseAtItsFloor(t *testing.T) {

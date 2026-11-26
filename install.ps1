@@ -720,20 +720,25 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         return [version]("{0}.{1}.{2}.{3}" -f $parts.Groups[1].Value, $parts.Groups[2].Value, $parts.Groups[3].Value, [int]$parts.Groups[4].Value)
     }
 
-    # Test-ForkBuild says why the build of $Tool, an npm-file tool, that its
-    # command runs is replaced with the tool's release file, or "" when it is
-    # kept: goblins doctor's check fails a build older than the file and one that
-    # is not the fork's, such as the upstream package of the same name or one
-    # that does not run, and passes the file's build and a later one of the
-    # fork's. The build is the last word of the first line of what the
-    # command prints for --version, read only when it succeeds, and the
-    # file's is in its name, as npm pack names the file. The command runs as
-    # goblins doctor finds it, by an extension PATHEXT names, such as npm's .cmd
-    # shim: the execution policy may refuse npm's .ps1 shim, and Windows would
-    # ask how to open its extensionless shell script.
-    function Test-ForkBuild($Tool) {
-        $file = Split-Path -Leaf $Tool.Cmd
-        $pinned = $file.Substring($Tool.Name.Length + 1, $file.Length - $Tool.Name.Length - 1 - ".tgz".Length)
+    # Test-PinnedBuild says why the build of $Tool that its command runs is
+    # replaced with the one the install pins, or "" when it is kept, as goblins
+    # doctor's check fails or passes it. An npm-file tool's pinned build is in
+    # its release file's name, as npm pack names the file: the check fails a
+    # build older than the file and one that is not the fork's, such as the
+    # upstream package of the same name or one that does not run, and passes
+    # the file's build and a later one of the fork's. An npm tool with a floor
+    # pins its release at the end of its command: the check fails an older
+    # release and a version that is not a release, and passes the pinned
+    # release and a later one. Every other tool is kept. The build is the last
+    # word of the first line of what the command prints for --version, read
+    # only when it succeeds. The command runs as goblins doctor finds it, by an
+    # extension PATHEXT names, such as npm's .cmd shim: the execution policy
+    # may refuse npm's .ps1 shim, and Windows would ask how to open its
+    # extensionless shell script.
+    function Test-PinnedBuild($Tool) {
+        if ($Tool.Kind -ne "npm-file" -and -not $Tool.HasFloor) {
+            return ""
+        }
         $extensions = @($env:PATHEXT -split ';' | Where-Object { $_ })
         $program = Get-Command $Tool.Name -CommandType Application -ErrorAction SilentlyContinue | Where-Object { $extensions -contains [IO.Path]::GetExtension($_.Source) } | Select-Object -First 1
         $line = ""
@@ -744,12 +749,26 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
             }
         }
         $version = @($line.Trim() -split '\s+')[-1]
-        $build = Get-ForkBuildOrder $version
-        if (-not $build) {
-            return "$($Tool.Name) $(if ($version) { "is $version" } else { "reports no version" }), not the Code Goblins build $pinned"
+        $reported = if ($version) { "is $version" } else { "reports no version" }
+        if ($Tool.Kind -eq "npm-file") {
+            $file = Split-Path -Leaf $Tool.Cmd
+            $pinned = $file.Substring($Tool.Name.Length + 1, $file.Length - $Tool.Name.Length - 1 - ".tgz".Length)
+            $build = Get-ForkBuildOrder $version
+            if (-not $build) {
+                return "$($Tool.Name) $reported, not the Code Goblins build $pinned"
+            }
+            if ($build -lt (Get-ForkBuildOrder $pinned)) {
+                return "$($Tool.Name) is $version, older than the Code Goblins build $pinned"
+            }
+            return ""
         }
-        if ($build -lt (Get-ForkBuildOrder $pinned)) {
-            return "$($Tool.Name) is $version, older than the Code Goblins build $pinned"
+        $pinned = [regex]::Match($Tool.Cmd, '@([^@\s]+)$').Groups[1].Value
+        $release = [regex]::Match($version, '^v?(\d+\.\d+\.\d+)(?:-.*)?$')
+        if (-not $release.Success) {
+            return "$($Tool.Name) $reported, not a release at or after $pinned"
+        }
+        if ([version]$release.Groups[1].Value -lt [version]$pinned) {
+            return "$($Tool.Name) is $version, older than $pinned"
         }
         return ""
     }
@@ -762,13 +781,17 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     # installed:
     #   winget     - a winget package (needs winget), for this user alone,
     #                so its installer asks for no administrator
-    #   npm        - a global npm package (needs npm, i.e. Node.js)
+    #   npm        - a global npm package (needs npm, i.e. Node.js). One
+    #                with HasFloor, which goblins doctor fails below its
+    #                pinned release, is replaced when it is older, as
+    #                Test-PinnedBuild says, and counts as a failed install
+    #                when it still runs afterwards
     #   npm-file   - a global npm package from a release file of a Code
     #                Goblins fork, which npm would install unchecked: the file
     #                is downloaded here and handed to npm only when it matches
     #                the SHA256 pinned beside it. A build already there is
     #                replaced with it when it is older or not the fork's, as
-    #                Test-ForkBuild says, and counts as a failed install when
+    #                Test-PinnedBuild says, and counts as a failed install when
     #                it still runs afterwards
     #   powershell - an official install.ps1, saved to a file and run from it
     #                in a child shell, so its own `exit` cannot kill this
@@ -787,7 +810,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         @{ Name = "tasks-axi";           Kind = "npm";        Cmd = "npm.cmd install -g tasks-axi@0.2.6" },
         @{ Name = "quota-axi";           Kind = "npm";        Cmd = "npm.cmd install -g quota-axi@0.1.58" },
         @{ Name = "no-mistakes";         Kind = "release";    Cmd = $(if ($Dev) { "tools\build-no-mistakes.ps1, $noMistakesRepository at $noMistakesCommit" } else { "$releaseBase/no-mistakes.exe" }) },
-        @{ Name = "gh-axi";              Kind = "npm";        Cmd = "npm.cmd install -g gh-axi@0.1.52" },
+        @{ Name = "gh-axi";              Kind = "npm";        Cmd = "npm.cmd install -g gh-axi@0.1.52"; HasFloor = $true },
         @{ Name = "chrome-devtools-axi"; Kind = "npm-file";   Cmd = "https://github.com/fpresta0607/chrome-devtools-axi/releases/download/v0.1.40-codegoblins.4/chrome-devtools-axi-0.1.40-codegoblins.4.tgz"; Sha256 = "74BA3A616B598B931527E306753BFCEB672A0D17F8F40693DEAB69D88842D57F" },
         @{ Name = "lavish-axi";          Kind = "npm-file";   Cmd = "https://github.com/fpresta0607/lavish-axi/releases/download/v0.1.79-codegoblins.19/lavish-axi-0.1.79-codegoblins.19.tgz"; Sha256 = "AFEADA08E260F0EF38792D28B65B8A5D79B200C9C89F9BCD916837345679E714" }
     )
@@ -834,12 +857,13 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
                 }
             }
         }
-        # A tool from a fork's release file keeps no build of its command
-        # that goblins doctor would fail, and replacing one adds nothing to the
-        # record, so the uninstall removes only a command an install fetched.
+        # A tool from a fork's release file, or with a floor, keeps no build
+        # of its command that goblins doctor would fail, and replacing one adds
+        # nothing to the record, so the uninstall removes only a command an
+        # install fetched.
         $isReplacing = $false
-        if ($found -and $tool.Kind -eq "npm-file") {
-            $problem = Test-ForkBuild $tool
+        if ($found) {
+            $problem = Test-PinnedBuild $tool
             if ($problem) {
                 Write-Detail ("update   {0,-20} {1}" -f $tool.Name, $problem)
                 $found = $null
@@ -900,14 +924,6 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
                     Write-Detail "Verified $file against the SHA256 this install pins ($actual)."
                     $code = Invoke-Logged "npm.cmd" @("install", "-g", $saved)
                     if ($code -ne 0) { throw "exited with code $code" }
-                    # npm replaces only the copy in its own folder, so one in
-                    # a folder ahead of that on PATH goes on answering.
-                    if ($isReplacing) {
-                        $problem = Test-ForkBuild $tool
-                        if ($problem) {
-                            throw "npm installed the release, but $($problem): the copy in $(Split-Path -Parent (Get-Command $tool.Name).Source) comes first on PATH, so remove it"
-                        }
-                    }
                 }
                 finally {
                     Remove-Temporary $download
@@ -919,6 +935,14 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
                 $code = Invoke-Logged $command[0] @($command | Select-Object -Skip 1)
                 if ($code -ne 0) { throw "exited with code $code" }
                 $installedAny = $true
+            }
+            # npm replaces only the copy in its own folder, so one in a folder
+            # ahead of that on PATH goes on answering.
+            if ($isReplacing) {
+                $problem = Test-PinnedBuild $tool
+                if ($problem) {
+                    throw "npm installed the release, but $($problem): the copy in $(Split-Path -Parent (Get-Command $tool.Name).Source) comes first on PATH, so remove it"
+                }
             }
             Write-Detail ("ok       {0,-20} installed" -f $tool.Name)
             # The package a person's own installer removes it by: the winget
