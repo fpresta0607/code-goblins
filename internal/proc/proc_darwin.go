@@ -14,6 +14,10 @@ import (
 // only waits for its parent to collect it.
 const zombie = 5
 
+// sessionLeaderFlag is the flag sys/sysctl.h names EPROC_SLEADER, which the
+// kernel sets in a process's entry while it leads its session.
+const sessionLeaderFlag = 0x02
+
 // readProcess reads what the kernel keeps of pid (kern.proc.pid). A process
 // that is gone, or that has exited and only waits for its parent to collect
 // it, is fs.ErrNotExist.
@@ -60,11 +64,12 @@ func ChildStartTime(pid int) (time.Time, error) {
 func entryOf(process unix.KinfoProc) Entry {
 	started := process.Proc.P_starttime
 	return Entry{
-		PID:       int(process.Proc.P_pid),
-		ParentPID: int(process.Eproc.Ppid),
-		Group:     int(process.Eproc.Pgid),
-		ExeBase:   unix.ByteSliceToString(process.Proc.P_comm[:]),
-		Start:     time.Unix(started.Sec, int64(started.Usec)*int64(time.Microsecond)).UTC(),
+		PID:             int(process.Proc.P_pid),
+		ParentPID:       int(process.Eproc.Ppid),
+		Group:           int(process.Eproc.Pgid),
+		IsSessionLeader: process.Eproc.Flag&sessionLeaderFlag != 0,
+		ExeBase:         unix.ByteSliceToString(process.Proc.P_comm[:]),
+		Start:           time.Unix(started.Sec, int64(started.Usec)*int64(time.Microsecond)).UTC(),
 	}
 }
 

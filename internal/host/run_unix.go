@@ -159,9 +159,13 @@ func pipeClosing(err error) bool {
 // another run of a program than the host's instance, does not. A process
 // that cannot be read may still be the host.
 func Running(record Record) bool {
-	instance, err := proc.Instance(record.HostPID)
+	instance, err := readInstance(record.HostPID)
 	if errors.Is(err, fs.ErrNotExist) {
 		return false
 	}
 	return err != nil || instance == record.HostInstance
 }
+
+// readInstance reads the instance Running compares; a test stands in for it
+// to fail the read the way a process this one may not read does.
+var readInstance = proc.Instance

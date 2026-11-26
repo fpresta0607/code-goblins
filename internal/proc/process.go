@@ -13,9 +13,14 @@ type Entry struct {
 	ParentPID int
 	// Group is the process group it is in, off Windows, where a tree of
 	// processes is found by it (execx.StartTree). Windows leaves it 0.
-	Group   int
-	ExeBase string
-	Start   time.Time
+	Group int
+	// IsSessionLeader says it leads a session of its own, off Windows: its
+	// session id is its own pid. A tree's parent chain stops at such a
+	// process that does not carry the tree's mark (execx.Tree). Windows
+	// leaves it false.
+	IsSessionLeader bool
+	ExeBase         string
+	Start           time.Time
 }
 
 // Self returns the current process's PID.

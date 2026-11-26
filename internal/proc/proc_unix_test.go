@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
@@ -349,6 +351,51 @@ func TestAChildStartedInAGroupOfItsOwnLeadsIt(t *testing.T) {
 	}
 	if self.Group != syscall.Getpgrp() {
 		t.Errorf("this process is in group %d, want %d", self.Group, syscall.Getpgrp())
+	}
+}
+
+func TestOnlyAChildStartedInASessionOfItsOwnLeadsASession(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		attributes *syscall.SysProcAttr
+		isLeader   bool
+	}{
+		{"a session of its own", &syscall.SysProcAttr{Setsid: true}, true},
+		{"a group of its own", &syscall.SysProcAttr{Setpgid: true}, false},
+		{"this process's session", nil, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			cmd := exec.Command("sleep", "600")
+			cmd.SysProcAttr = test.attributes
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+			session, err := unix.Getsid(cmd.Process.Pid)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			child, lookupErr := Lookup(cmd.Process.Pid)
+			processes, processesErr := Processes()
+
+			// Assert
+			if lookupErr != nil || processesErr != nil {
+				t.Fatal(lookupErr, processesErr)
+			}
+			if (session == cmd.Process.Pid) != test.isLeader {
+				t.Fatalf("the premise failed: the child is in session %d", session)
+			}
+			if child.IsSessionLeader != test.isLeader {
+				t.Errorf("Lookup read the child as leading a session %t, want %t", child.IsSessionLeader, test.isLeader)
+			}
+			at := slices.IndexFunc(processes, func(entry Entry) bool { return entry.PID == cmd.Process.Pid })
+			if at < 0 || processes[at].IsSessionLeader != test.isLeader {
+				t.Errorf("Processes did not list the child as leading a session %t", test.isLeader)
+			}
+		})
 	}
 }
 
