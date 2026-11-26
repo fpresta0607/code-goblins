@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -142,6 +143,26 @@ func TestAnUnreadableAcceptedDeliveryStaysVisibleAndClearsNothing(t *testing.T) 
 	}
 	if isCleared || pauseErr == nil {
 		t.Fatalf("pause cleared=%v err=%v", isCleared, pauseErr)
+	}
+}
+
+func TestAKeptQueuedTaskIsReadAgainOnceItsDeliveryIsAccepted(t *testing.T) {
+	// Arrange
+	fixture := preparedPackage(t)
+	fixture.retirePackage(t)
+	writeFile(t, filepath.Join(fixture.home.Data, "backlog.md"), "## Queued\n- [ ] package-delivery - Install the tool\n")
+	before, beforeErr := fixture.service.queuedTask("package-delivery")
+	fixture.acceptPackage(t)
+
+	// Act
+	_, err := fixture.service.queuedTask("package-delivery")
+
+	// Assert
+	if beforeErr != nil || before.Row.ID != "package-delivery" {
+		t.Fatalf("cleanup alone took the row off the queue: %+v %v", before, beforeErr)
+	}
+	if !errors.Is(err, fleet.ErrNotQueued) {
+		t.Fatalf("the board kept an accepted delivery's row queued: %v", err)
 	}
 }
 

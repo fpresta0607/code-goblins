@@ -20,10 +20,10 @@ import (
 
 // finishedWork is what says a queued task already finished, for a pass over
 // the queue: the archived status logs, listed once on the first need, and the
-// fleet's history. A task whose outcome says it delivered is not queued at
-// all (fleet.ReadQueuedTask); this reads everything else that says so. On
-// 2026-10-07 the CEO had left 24 finished rows under Queued, each with its
-// brief on disk, which the scheduler would have started again.
+// fleet's history. A task that delivered (state.DeliveredAt) is not queued at
+// all (fleet.ReadQueuedTask); this reads everything else that says it
+// finished. On 2026-10-07 the CEO had left 24 finished rows under Queued,
+// each with its brief on disk, which the scheduler would have started again.
 type finishedWork struct {
 	home     home.Home
 	history  []Task

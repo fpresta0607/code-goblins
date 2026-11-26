@@ -279,11 +279,9 @@ func ReadCurrentBacklog(h home.Home) (BacklogRows, error) {
 			continue
 		}
 		if row.Structured && state.ValidTaskID(row.ID) == nil {
-			outcome, err := state.ReadOutcome(h.State, row.ID)
-			if err != nil && !errors.Is(err, os.ErrNotExist) {
+			if _, isDelivered, err := state.DeliveredAt(h.State, row.ID); err != nil {
 				return BacklogRows{}, err
-			}
-			if err == nil && outcome.Phase == "done" {
+			} else if isDelivered {
 				continue
 			}
 		}

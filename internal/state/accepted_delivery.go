@@ -76,7 +76,8 @@ func (record AcceptedDelivery) validate() error {
 	return nil
 }
 
-func acceptedDeliveryPath(directory, id string) string {
+// AcceptedDeliveryPath is the file that holds the delivery accepted for task id.
+func AcceptedDeliveryPath(directory, id string) string {
 	return filepath.Join(directory, "accepted-deliveries", id+".json")
 }
 
@@ -86,7 +87,7 @@ func ReadAcceptedDelivery(directory, id string) (AcceptedDelivery, error) {
 	if err := ValidTaskID(id); err != nil {
 		return AcceptedDelivery{}, err
 	}
-	data, err := fsx.ReadFile(acceptedDeliveryPath(directory, id))
+	data, err := fsx.ReadFile(AcceptedDeliveryPath(directory, id))
 	if err != nil {
 		return AcceptedDelivery{}, err
 	}
@@ -112,7 +113,7 @@ func WriteAcceptedDelivery(directory string, record AcceptedDelivery) error {
 	if err != nil {
 		return err
 	}
-	path := acceptedDeliveryPath(directory, record.Receipt.Task)
+	path := AcceptedDeliveryPath(directory, record.Receipt.Task)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
@@ -144,6 +145,20 @@ func TaskGeneration(directory, id string) (string, error) {
 // accepted delivery of any other generation delivers nothing, and evidence
 // that cannot be read is an error, never an answer.
 func DeliveredAt(directory, id string) (time.Time, bool, error) {
+	if err := ValidTaskID(id); err != nil {
+		return time.Time{}, false, err
+	}
+	isRecorded := false
+	for _, path := range []string{filepath.Join(directory, "outcomes", id+".json"), AcceptedDeliveryPath(directory, id)} {
+		_, err := os.Stat(path)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return time.Time{}, false, fmt.Errorf("read the delivery of %s: %w", id, err)
+		}
+		isRecorded = isRecorded || err == nil
+	}
+	if !isRecorded {
+		return time.Time{}, false, nil
+	}
 	outcome, err := ReadOutcome(directory, id)
 	if err == nil && outcome.Phase == "done" {
 		return outcome.At, true, nil

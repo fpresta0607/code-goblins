@@ -21,19 +21,27 @@ func TestBacklogAcceptTakesADeliveryOnlyFromTheRegisteredPrimaryCEO(t *testing.T
 	if runtime.GOOS != "windows" {
 		t.Skip("the primary CEO registration is verified on Windows only")
 	}
+	const unauthorized = "registered primary CEO"
 	for _, test := range []struct {
-		name, registered, variable, value string
-		isAccepted                        bool
+		name, registered, variable, value, refusal string
+		isLive, isNotPrimary                       bool
 	}{
-		{name: "the registered CEO", registered: "ceo", isAccepted: true},
-		{name: "an unregistered caller"},
-		{name: "another registration", registered: "other"},
-		{name: "a goblin", registered: "ceo", variable: harness.RoleVariable, value: harness.RoleGoblin},
-		{name: "a gate agent", registered: "ceo", variable: gateAgentVariable, value: "1"},
+		{name: "the registered CEO after cleanup", registered: "ceo"},
+		{name: "the registered CEO before cleanup", registered: "ceo", isLive: true},
+		{name: "an unregistered caller", refusal: unauthorized},
+		{name: "another registration", registered: "other", refusal: unauthorized},
+		{name: "a goblin", registered: "ceo", variable: harness.RoleVariable, value: harness.RoleGoblin, refusal: unauthorized},
+		{name: "a gate agent", registered: "ceo", variable: gateAgentVariable, value: "1", refusal: unauthorized},
+		{name: "a home that is not primary", registered: "ceo", isNotPrimary: true, refusal: "not a primary home"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			h := primaryHomeFixture(t)
+			if test.isNotPrimary {
+				if err := os.Remove(filepath.Join(h.Root, home.InstalledMarker)); err != nil {
+					t.Fatal(err)
+				}
+			}
 			outsideGoblinTerminal(t)
 			if test.registered != "" {
 				registeredPrimary(t, h, test.registered)
@@ -60,7 +68,12 @@ func TestBacklogAcceptTakesADeliveryOnlyFromTheRegisteredPrimaryCEO(t *testing.T
 				}
 			}
 			retired := state.Outcome{ID: "install", Generation: "s1", Phase: "stopped", Reason: "Worktree returned by cleanup", At: time.Date(2026, 11, 25, 9, 0, 0, 0, time.UTC)}
-			if err := state.WriteOutcome(h.State, retired); err != nil {
+			if test.isLive {
+				if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "install", SpawnGen: "s1"}); err != nil {
+					t.Fatal(err)
+				}
+				retired = state.Outcome{}
+			} else if err := state.WriteOutcome(h.State, retired); err != nil {
 				t.Fatal(err)
 			}
 			commands := commandRuntime{resolveHome: func() (home.Home, error) { return h, nil }, installation: fleet.Installation{
@@ -75,22 +88,28 @@ func TestBacklogAcceptTakesADeliveryOnlyFromTheRegisteredPrimaryCEO(t *testing.T
 
 			// Assert
 			_, isDelivered, err := state.DeliveredAt(h.State, "install")
-			if err != nil || isDelivered != test.isAccepted {
+			if err != nil || isDelivered != (test.refusal == "") {
 				t.Fatalf("delivered=%v %v; exit=%d stderr=%s", isDelivered, err, exit, &stderr)
 			}
-			if outcome, err := state.ReadOutcome(h.State, "install"); err != nil || outcome != retired {
+			if outcome, err := state.ReadOutcome(h.State, "install"); outcome != retired || test.isLive != errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("outcome=%+v %v", outcome, err)
 			}
 			data, err := os.ReadFile(backlog)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !test.isAccepted {
-				if exit != 1 || !strings.Contains(stderr.String(), "registered primary CEO") || string(data) != source {
+			if test.refusal != "" {
+				if exit != 1 || !strings.Contains(stderr.String(), test.refusal) || string(data) != source {
 					t.Fatalf("exit=%d stderr=%s backlog=%s", exit, &stderr, data)
 				}
 				if _, err := state.ReadAcceptedDelivery(h.State, "install"); !errors.Is(err, os.ErrNotExist) {
 					t.Fatalf("a refused caller left a record: %v", err)
+				}
+				return
+			}
+			if test.isLive {
+				if exit != 0 || !strings.Contains(stdout.String(), "install is not cleaned up yet") || string(data) != source {
+					t.Fatalf("exit=%d stdout=%s stderr=%s backlog=%s", exit, &stdout, &stderr, data)
 				}
 				return
 			}

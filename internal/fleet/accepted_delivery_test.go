@@ -351,6 +351,50 @@ func TestCompleteQueuedTaskClosesAnAcceptedRetiredRow(t *testing.T) {
 	}
 }
 
+func TestReadQueuedTaskRefusesARowWhoseDeliveryWasAccepted(t *testing.T) {
+	// Arrange
+	fixture := newAcceptanceFixture(t)
+	fixture.retire(t)
+	writeFileAt(t, filepath.Join(fixture.home.Data, "backlog.md"), "## Queued\n- [ ] install - Install the tool (repo: project)\n")
+	before, beforeErr := ReadQueuedTask(fixture.home, "install")
+	if _, err := AcceptDelivery(fixture.home, fixture.request, fixture.installation); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	_, err := ReadQueuedTask(fixture.home, "install")
+
+	// Assert
+	if beforeErr != nil || before.Row.ID != "install" {
+		t.Fatalf("cleanup alone took the row off the queue: %+v %v", before, beforeErr)
+	}
+	if !errors.Is(err, ErrNotQueued) {
+		t.Fatalf("an accepted delivery's row is dispatchable: %v", err)
+	}
+}
+
+func TestReadCurrentBacklogLeavesOutARowWhoseDeliveryWasAccepted(t *testing.T) {
+	// Arrange
+	fixture := newAcceptanceFixture(t)
+	fixture.retire(t)
+	writeFileAt(t, filepath.Join(fixture.home.Data, "backlog.md"), "## Queued\n- [ ] install - Install the tool\n- [ ] next - Next task\n")
+	before, beforeErr := ReadCurrentBacklog(fixture.home)
+	if _, err := AcceptDelivery(fixture.home, fixture.request, fixture.installation); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	after, err := ReadCurrentBacklog(fixture.home)
+
+	// Assert
+	if beforeErr != nil || len(before.Queued) != 2 {
+		t.Fatalf("cleanup alone took the row off the queue: %+v %v", before.Queued, beforeErr)
+	}
+	if err != nil || len(after.Queued) != 1 || after.Queued[0].ID != "next" {
+		t.Fatalf("queued=%+v %v; want only the undelivered row", after.Queued, err)
+	}
+}
+
 func writeFileAt(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {

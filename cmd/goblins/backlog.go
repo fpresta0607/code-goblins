@@ -121,12 +121,14 @@ func runBacklogAccept(id string, args []string, stdout, stderr io.Writer, runtim
 	return 0
 }
 
+var identifyProcess = proc.Identify
+
 // machineInstallation reads installation receipts against this machine.
 func machineInstallation() fleet.Installation {
 	return fleet.Installation{
 		Hash: update.HashFile,
 		DaemonImage: func(pid int, started time.Time) (string, error) {
-			identity, err := proc.Identify(pid, started)
+			identity, err := identifyProcess(pid, started)
 			return identity.Image, err
 		},
 	}
