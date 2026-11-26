@@ -26,11 +26,15 @@ type Record struct {
 	ID string `json:"id"`
 	// Pipe is where the host serves its clients: a named pipe on Windows, a
 	// Unix socket elsewhere.
-	Pipe     string `json:"pipe"`
-	Token    string `json:"token"`
-	Version  int    `json:"version"`
-	HostPID  int    `json:"host_pid"`
-	ChildPID int    `json:"child_pid"`
+	Pipe    string `json:"pipe"`
+	Token   string `json:"token"`
+	Version int    `json:"version"`
+	HostPID int    `json:"host_pid"`
+	// HostInstance names the host's run of its program off Windows
+	// (proc.Instance), which Running compares exactly: a process given the
+	// host's pid later names another, and no step of the clock changes it.
+	HostInstance string `json:"host_instance,omitempty"`
+	ChildPID     int    `json:"child_pid"`
 	// ChildStart is when the terminal's program was created, which tells it
 	// from a later process the system gave its pid.
 	ChildStart time.Time `json:"child_start,omitzero"`
@@ -41,9 +45,10 @@ type Record struct {
 	// Stream is set for a host that runs its program on pipes, speaking
 	// lines (WatchStream, DialStreamWriter), rather than in a terminal.
 	Stream bool `json:"stream,omitempty"`
-	// Contained is what Launch knows and no record keeps: its launcher's job
-	// forbids breaking away, so the host runs inside that job and ends when
-	// the job closes.
+	// Contained is what Launch knows and no record keeps: the host could not
+	// leave its launcher, whose job forbids breaking away on Windows or whose
+	// user manager gives no scope on Linux, so it ends when that job closes
+	// or that cgroup's unit stops.
 	Contained bool `json:"-"`
 }
 

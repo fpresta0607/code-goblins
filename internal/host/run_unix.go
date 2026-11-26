@@ -7,15 +7,18 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/localsocket"
 	"github.com/fpresta0607/code-goblins/internal/priority"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/pty"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -95,6 +98,10 @@ func announce(stateDir, id string, childPID int, childStart time.Time, proof str
 	if err != nil {
 		return Record{}, nil, err
 	}
+	instance, err := proc.Instance(os.Getpid())
+	if err != nil {
+		return Record{}, nil, fmt.Errorf("host: read this host's instance: %w", err)
+	}
 	var random [16]byte
 	if _, err := rand.Read(random[:]); err != nil {
 		return Record{}, nil, err
@@ -108,7 +115,7 @@ func announce(stateDir, id string, childPID int, childStart time.Time, proof str
 	if err != nil {
 		return Record{}, nil, fmt.Errorf("host: listen on %s: %w", path, err)
 	}
-	record := Record{ID: id, Pipe: path, Token: hex.EncodeToString(secret[:]), Version: Version, HostPID: os.Getpid(), ChildPID: childPID, ChildStart: childStart, Started: time.Now().UTC(), ProofSum: ProofSum(proof)}
+	record := Record{ID: id, Pipe: path, Token: hex.EncodeToString(secret[:]), Version: Version, HostPID: os.Getpid(), HostInstance: instance, ChildPID: childPID, ChildStart: childStart, Started: time.Now().UTC(), ProofSum: ProofSum(proof)}
 	if err := writeRecord(stateDir, record); err != nil {
 		socket.Close()
 		return Record{}, nil, fmt.Errorf("host: record the host: %w", err)
@@ -140,3 +147,25 @@ func dialPipe(name string, hostPID int) (hostConnection, error) {
 	}
 	return connection, nil
 }
+
+// pipeClosing reports whether err is a write to a socket whose host end is
+// closed or closing: EPIPE, ECONNRESET or ENOTCONN.
+func pipeClosing(err error) bool {
+	return errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.ENOTCONN)
+}
+
+// Running reports whether the host record names may still run: only a pid
+// that names no process, or one that has exited, or a process that is
+// another run of a program than the host's instance, does not. A process
+// that cannot be read may still be the host.
+func Running(record Record) bool {
+	instance, err := readInstance(record.HostPID)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false
+	}
+	return err != nil || instance == record.HostInstance
+}
+
+// readInstance reads the instance Running compares; a test stands in for it
+// to fail the read the way a process this one may not read does.
+var readInstance = proc.Instance
