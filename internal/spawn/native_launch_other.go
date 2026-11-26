@@ -1,4 +1,4 @@
-//go:build !windows
+//go:build !windows && !linux
 
 package spawn
 
@@ -7,9 +7,15 @@ import (
 	"fmt"
 )
 
-// cmdProgram refuses a script: a native terminal runs only on Windows so far,
-// where cmd /c starts it.
-func cmdProgram(path string, args ...string) ([]string, error) {
+// isProgram reports false: a native terminal runs only on Windows and Linux
+// so far.
+func isProgram(string) bool {
+	return false
+}
+
+// scriptProgram refuses a script: a native terminal runs only on Windows and
+// Linux so far.
+func scriptProgram(path string, args ...string) ([]string, error) {
 	return nil, fmt.Errorf("spawn: %s is a script, and running one in a native terminal is not ported to this system yet: %w", path, errors.ErrUnsupported)
 }
 

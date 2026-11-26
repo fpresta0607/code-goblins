@@ -647,7 +647,6 @@ jobs:
             ./internal/pathguard
             ./internal/pipeline
             ./internal/sandbox
-            ./internal/spawn
             ./internal/startwatch
             ./internal/supervisor
             ./internal/update

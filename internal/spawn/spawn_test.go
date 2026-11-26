@@ -1033,11 +1033,12 @@ func TestServicesInstructionNamesTheCommandsThatHoldAndReleaseThem(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := servicesInstruction(state.TaskMeta{ID: "pd-check", Project: `C:\dev\PrecisionDocs-AI`})
+	project := filepath.Join(t.TempDir(), "harbor")
+	got := servicesInstruction(state.TaskMeta{ID: "harbor-check", Project: project})
 	for _, want := range []string{
-		"Your brief needs PrecisionDocs-AI's local services for its full-stack check.",
-		"run " + exe + ` services up C:\dev\PrecisionDocs-AI --task pd-check`,
-		"run " + exe + ` services down C:\dev\PrecisionDocs-AI --task pd-check`,
+		"Your brief needs harbor's local services for its full-stack check.",
+		"run " + exe + " services up " + project + " --task harbor-check",
+		"run " + exe + " services down " + project + " --task harbor-check",
 		"waits while memory is short",
 	} {
 		if !strings.Contains(got, want) {
