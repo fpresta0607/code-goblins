@@ -5,7 +5,7 @@ import { callWords, commandLanguage } from "./call-words";
 import { ConnectorLogo } from "./connector-logo";
 import { callPictures } from "./conversation-pictures";
 import { Disclosure } from "./Disclosure";
-import { babyName } from "./fleet-tree";
+import { babyName, phaseOf, stateWord } from "./fleet-tree";
 import { Icon, type IconName } from "./Icon";
 import { MessagePictures } from "./message-pictures";
 import { PlanCard } from "./plan-card";
@@ -37,9 +37,13 @@ const RESULTS: Partial<Record<CallState, Omit<TerminalResult, "icon">>> = { runn
 // one, the diff of what a call edited in place of what it printed (#2534),
 // its pictures, and under a command that drove the goblin's browser its
 // Screen view (CallOpens). A call that started a
-// sub-agent is its baby goblin's row instead, whose Open shows that baby
-// goblin's terminal while its goblin's tree holds it, and a call that wrote
-// a plan is that plan's checklist card. Whether its fold is open is the
+// sub-agent is its baby goblin's row instead. While its goblin's tree holds
+// the baby goblin, the row is one button that opens that baby goblin's
+// terminal, saying its name, the kind of agent and the baby goblin's own
+// state, not the call's, as a background sub-agent's call is done at once
+// while its baby goblin works. Otherwise it says the call's own description
+// and state, with nothing to open. A call that wrote a plan is that plan's
+// checklist card. Whether its fold is open is the
 // view's to keep (open, onOpenChange).
 export function MessageCall({ call, task, picture, onChild, open, onOpenChange }: {
   call: MessageBlock; task?: Task; picture: (id: string) => string; onChild: (child: TreeNode, source: HTMLElement) => void;
@@ -48,11 +52,19 @@ export function MessageCall({ call, task, picture, onChild, open, onOpenChange }
   if (call.agent) {
     const node = call.agent.node;
     const child = task?.tree?.children.find((each) => each.id === node);
+    if (task && child) {
+      const name = babyName(task, child), state = stateWord(child);
+      return <button type="button" className={"message-baby " + call.state} aria-label={"Open " + name + ", " + state} onClick={(event) => onChild(child, event.currentTarget)}>
+        <BabyGoblin baby="subagent" small hasTip={false} />
+        <span className="baby-what"><strong>{name}</strong>{call.agent.type && <small>{call.agent.type}</small>}</span>
+        <span className={"plain-status phase-" + phaseOf(child)}><span className="status-dot" />{state}</span>
+        <Icon name="next" />
+      </button>;
+    }
     return <div className={"message-baby " + call.state}>
       <BabyGoblin baby="subagent" small hasTip={false} />
-      <span className="call-what"><strong>{task && child ? babyName(task, child) : "Baby goblin"}</strong> <span className="call-subject">{[call.agent.type, call.subject].filter(Boolean).join(" · ")}</span></span>
-      <span className="call-end">{STATE_WORDS[call.state]}
-        {child && <button type="button" className="text-button" onClick={(event) => onChild(child, event.currentTarget)}>Open<Icon name="next" /></button>}</span>
+      <span className="baby-what"><strong>{call.subject || "Sub-agent"}</strong>{call.agent.type && <small>{call.agent.type}</small>}</span>
+      <span className="call-end">{call.state === "done" ? "Done" : STATE_WORDS[call.state]}</span>
     </div>;
   }
   if (call.plan.length) return <PlanCard steps={call.plan} />;

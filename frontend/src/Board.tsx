@@ -1,8 +1,9 @@
 import { useRef } from "react";
-import type { BoardActivity, MergeTrain, Snapshot, Task } from "./types";
+import type { BoardActivity, MergeTrain, Snapshot, Task, TreeNode } from "./types";
 import { CeoPin } from "./CeoPin";
 import { Disclosure } from "./Disclosure";
 import { FitList } from "./FitList";
+import { hasRunningChildren } from "./fleet-tree";
 import { trainSection } from "./merge-train";
 import { MergeTrainCard } from "./MergeTrainCard";
 import { QueuedTasks } from "./QueuedTasks";
@@ -10,6 +11,8 @@ import { RankedCards } from "./RankedCards";
 import { RenderBoundary } from "./render-boundary";
 import { nextInOrder, resumeOrder } from "./start";
 import { cardFacts, TaskCard } from "./TaskCard";
+import { goblinName } from "./task-words";
+import { TreeUnder } from "./TreeUnder";
 import { completedCards, inProgressCards, taskColumn } from "./workflow";
 import type { AfkToggleState } from "./useAfkToggle";
 
@@ -27,12 +30,15 @@ export type BoardLayout = "kanban" | "stacked";
 // first as they resume. In progress shows every goblin at once; Tasks, Paused
 // and Completed page past ten cards. In progress and Paused are one attention
 // order to the supervisor, which resumes paused goblins by it, so a drop in
-// either saves both. A merge train's card opens its panel, and selectedTrain
-// is the train whose panel shows.
-export function Board({ snapshot, layout, selected, selectedTrain, now, freshNow, afkToggle, onSelect, onSelectTrain, onOpenCeo, onOpenCommand, onStartCeo, presentations }: {
+// either saves both. A goblin's card shows its running baby goblins under it,
+// as a count that opens a rail of them, each of which opens its panel, and
+// selectedChild is the baby goblin whose panel shows. A merge train's card
+// opens its panel, and selectedTrain is the train whose panel shows.
+export function Board({ snapshot, layout, selected, selectedChild, selectedTrain, now, freshNow, afkToggle, onSelect, onChild, onSelectTrain, onOpenCeo, onOpenCommand, onStartCeo, presentations }: {
   presentations:BoardActivity[]; layout: BoardLayout;
-  snapshot: Snapshot; selected?: string; selectedTrain?: string; now: number; freshNow: number;
+  snapshot: Snapshot; selected?: string; selectedChild?: string; selectedTrain?: string; now: number; freshNow: number;
   onSelect: (task: Task, source: HTMLElement) => void;
+  onChild: (task: Task, child: TreeNode, source: HTMLElement) => void;
   onSelectTrain: (train: MergeTrain, source: HTMLElement) => void;
   afkToggle: AfkToggleState;
   onOpenCeo: (source: HTMLElement) => void;
@@ -40,7 +46,10 @@ export function Board({ snapshot, layout, selected, selectedTrain, now, freshNow
   onStartCeo: () => void;
 }) {
   const next = nextInOrder(snapshot, now);
-  const card = (task: Task, rank?: string) => <TaskCard key={task.id} task={task} {...cardFacts(task, snapshot, presentations)} selected={selected === task.id} now={now} rank={rank} {...(task.id === next?.id ? { nextText: next.text, nextTone: next.tone } : {})} onSelect={onSelect} />;
+  const card = (task: Task, rank?: string) => <>
+    <TaskCard task={task} {...cardFacts(task, snapshot, presentations)} selected={selected === task.id} now={now} rank={rank} {...(task.id === next?.id ? { nextText: next.text, nextTone: next.tone } : {})} onSelect={onSelect} />
+    {task.tree && hasRunningChildren(task.tree) && <TreeUnder goblin={task} tree={task.tree} title={goblinName(task)} now={now} selected={selectedChild} onOpen={(child, source) => onChild(task, child, source)} />}
+  </>;
   const paused = resumeOrder(snapshot.tasks.filter((task) => taskColumn(task) === "Paused"), snapshot.tasks, now);
   const working = inProgressCards(snapshot.tasks.filter((task) => taskColumn(task) === "In progress"));
   const ids = (tasks: Task[]) => tasks.map((task) => task.id);

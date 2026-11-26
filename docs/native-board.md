@@ -802,15 +802,16 @@ A child whose process still runs stays however quiet, such as a shell waiting in
 While the command line of one of the harness's processes cannot be read, no child is ended by its processes, since that process may be any child's.
 Once the goblin's harness has ended, every child its record left open ended with it.
 Each also carries when its source last changed and when it was read.
-Each child is drawn as a baby goblin whose prop says its kind (a magnifying glass for a sub-agent, a laptop for a shell, binoculars for a monitor, glasses and a shield for the gate, an antenna for a dev server, goggles for a test run, a hard hat for a build, a tablet for a browser).
-Its tip is its task: a sub-agent's prompt, a background shell's or monitor's command, what a job runs without its shell or its program's folder, a helper's task, or else what it does.
-A baby goblin is named after its goblin in the order its goblin's children started, Kip Jr., then Kip II, Kip III and on, with a short title for its own job, as goblins are called by name and title.
-The title is made from its own description as the one who does it, such as Board Starter for Start the board or Dictation Tester for Test dictation, and is its kind's own, such as Server Keeper or Process Wrangler, when the description starts with no such deed.
+Each child wears a baby goblin's head whose prop says its kind (a magnifying glass for a sub-agent, a laptop for a shell, binoculars for a monitor, glasses and a shield for the gate, an antenna for a dev server, goggles for a test run, a hard hat for a build, a tablet for a browser).
+A baby goblin's tip is its task: a sub-agent's prompt or a helper's task.
+A goblin's running sub-agents and helper goblins are its baby goblins; its shells, monitors, jobs and gate run are rows of its panel's What's working, each with the head of its kind, and count on the goblin's count.
+A baby goblin is named after its goblin in the order its goblin's sub-agents started, finished ones included, Kip Jr., then Kip II, Kip III and on, so it keeps its name as the others finish, with its own description as its title, as in Kip II - Map harness plumbing, so the name says at a glance whose it is and what it does (the Overlord, 2026-11-26: "naming is hard to discern"; #2932).
+It reads the same on the canvas, in the lineage list, on the goblin's board card, in its panel and in the goblin's Modern Chat.
 A helper goblin keeps its own name.
 A [helper goblin](contract/dispatch.md#helper-goblins) the supervisor started for a goblin is a child of that goblin's tree too, drawn with the sub-agent's head and named Helper goblin in its tip: its title, its own tree's memory, and where its own records say it stands, working or silent by its own activity, waiting while it is paused or asks its parent, done once it reported done and failed once it reported failure.
 A helper its parent's tree holds while its parent is in progress is not drawn again as a card of its own on the canvas or in the lineage list, as a sub-agent never is; any other keeps its card and hangs under its parent's card, the parent's session or, with none reported, its task, while its parent is in progress, and under the CEO while its parent is paused or finished, even while the last tree the supervisor read for that parent still lists it, as one its parent waits on keeps working, and every helper's card on the board says whose helper it is.
-On the canvas a goblin's running children hang on branches under its card, each a baby goblin with its name and title, what it runs in plain words, its state and for how long in a plain chip, and its memory, and the rows below make room.
-What it runs is the program its job starts, such as Docker Desktop, the Stripe listener, the app server on its port or a shell running a script, a sub-agent's, shell's or monitor's own description, or Helper goblin, and a command it cannot put in plain words reads as its program's name (`whatItRuns` in `frontend/src/fleet-tree.ts`).
+On the canvas a goblin's running baby goblins hang on branches under its card, each with its name and title, what it runs in plain words, its state and for how long in a plain chip, and its memory, and the rows below make room.
+What it runs is a sub-agent's kind of agent, such as Explore agent, since its description is its title, or Helper goblin (`whatItRuns` in `frontend/src/fleet-tree.ts`).
 None is dimmed, idle and silent ones included, since each can be opened, none shows a command line, and none is yellow: a silent one's chip and dot are as plain as an idle one's.
 They hang in about as many columns as rows, up to four columns, centred under the card, so a big family grows down rather than across.
 Each baby goblin has a branch of its own, and the branches leave the card's bottom side by side, a line's gap apart in the order they run, so none sits on another, none crosses another and none comes nearer than that gap to another line or to a baby goblin it does not lead to (`frontend/tests/tree-routes.spec.ts`).
@@ -822,11 +823,14 @@ The chevron under the card folds them, with any cards under it, to their count, 
 A finished child is not drawn there, so a goblin whose children have all finished shows neither; its panel still lists them.
 At phone width the lineage list shows the count under the goblin's card, and pressing it opens each child on a rail, which runs down beside them and turns into the middle of each one's top, as the rail of a goblin's goblins does into the middle of each card's top.
 The goblin's panel opens with What's working: its counts, then one row per running child with what it does, its state, for how long and its memory, a silent child's last line, the finished ones folded away, and when it was read.
-A goblin's card on the board shows nothing of what runs under it: the canvas and its panel's What's working do.
-Baby goblins live on the canvas and in the lineage list, never as cards of their own on the board's columns.
+A goblin's card on the board, in the kanban and the stacked layout alike, shows its running baby goblins under it as the lineage list does: their count, and pressing it opens each on a rail, which opens its panel (#2932).
+Baby goblins are never cards of their own on the board's columns, and the card itself is the same `TaskCard` the canvas draws.
 
-Pressing a baby goblin, on the canvas or on its rail, opens the same panel a goblin opens, with the baby goblin's name and its task on one line above its terminal.
+Pressing a baby goblin, on the canvas, on a rail of the lineage list or of the goblin's board card, or its row in the goblin's Modern Chat, opens the same panel a goblin opens, with the baby goblin's name and its task on one line above its terminal, which fills the rest of the panel.
 One whose output holds nothing yet says No output yet, never a blank terminal.
+Its terminal connects as a goblin's does (#2932): Connecting to the terminal is a plain line under it until the first output, and a stream that drops, as the supervisor ends every stream after ten minutes, or that the supervisor refuses for now, is opened again after a short wait that grows with each try, up to five tries in a row, with Reconnecting in its corner while the screen it showed stays.
+A refusal that will not pass, such as a child's output asked for over Remote access or a child the tree no longer holds, closes it at once with the supervisor's own reason, and five failed tries close it with why; either way Reconnect tries again, and nothing says Reconnecting while no try is under way.
+While the Overlord reads above its last screen, Jump to bottom takes him back to the live end.
 A sub-agent's terminal is its own record as its goblin's harness keeps it, Claude Code's transcript of the sub-agent or a Codex child agent's rollout, which the board reads again every half second while it shows and draws as Claude Code draws a conversation, in the same terminal surface, font, size and colours as a goblin's terminal (the Overlord, 2026-10-15: "Baby goblins should look and feel just like the same Claude shells").
 Its task is a block after > on Claude Code's grey, what the agent said follows ●, and each tool it called follows a ● in the colour of its outcome, green when it succeeded, red when it failed and grey while it runs, with the tool's name in bold and what it was called on.
 Under a call, what came back follows ⎿ in grey, its first lines with the rest folded into +N lines, and an error in red.
@@ -834,7 +838,7 @@ Every line wraps where the terminal's row ends and goes on under the text, never
 It follows new lines while its last lines show and keeps its place while the Overlord reads further up.
 Claude Code can draw a transcript itself only by running a session on it, which would not follow the record as it grows, so the board draws it with Claude Code's marks and colours (`frontend/src/claude-transcript.ts`).
 A sub-agent runs inside its goblin's harness and has no terminal of its own to type into, so this terminal only reads.
-Any other baby goblin's terminal is its own output too, never its goblin's terminal: a background shell's command after > and the newest lines it wrote to its output file, a monitor's command and its events, a job's command and each of its processes with its memory and what it runs, and a gate run's steps with each one's status and what it last did.
+The supervisor serves any other child's own output too, never its goblin's terminal: a background shell's command after > and the newest lines it wrote to its output file, a monitor's command and its events, a job's command and each of its processes with its memory and what it runs, and a gate run's steps with each one's status and what it last did.
 `GET /api/tasks/<id>/agent?node=<child id>` answers a child's newest lines, only for a child the goblin's tree holds and from the record the supervisor's own read of that tree found, never a path the browser names.
 A helper goblin opens its own panel and terminal, since it is a goblin of its own.
 None of it wakes the CEO: the monitor's stale and idle rules read their progress evidence through the same reader, so a goblin counts as working while any child works, and the board and the wakes never disagree about it.
@@ -1823,7 +1827,9 @@ A picture that is gone or cannot be read is a quiet mark in its row, its card an
 An open row shows its pictures under what came back, at a size he can read, in place of its thumbnails.
 A message still waiting in the queue opens its pictures among its own.
 `frontend/tests/chat-pictures.spec.ts` checks these at a desktop's and a phone's width, and `frontend/tests/iphone-chat-pictures.spec.ts` by touch in WebKit at an iPhone 15's size.
-A call that started a sub-agent is its baby goblin's row, named as the canvas names it, with Open, which shows that baby goblin's terminal while its goblin's tree holds it.
+A call that started a sub-agent is its baby goblin's row, never folded (#2932).
+While its goblin's tree holds that sub-agent, the whole row is one button named Open and the baby goblin's name: it shows the baby goblin's head, its name as the canvas names it, its kind of agent, its own state, which a sub-agent started in the background keeps after its call came back at once, and a chevron, and it opens the same panel the canvas opens.
+A call whose sub-agent the tree no longer holds, or holds not yet, goes by its own description and its call's state and opens nothing, so no row reads Baby goblin.
 A compaction is folded to its summary, an interrupt is a plain Interrupted row, and a background task's notice is a quiet line.
 Each prompt he sent keeps a small row under it with Copy, which copies its words as written, and when it was sent; the row stays hidden until he taps the message or points at it where there is a pointer, and closes when he taps away.
 Nothing else shows under his message: no receipt of when it was sent or replied to (the Overlord, 2026-10-29: "We don't need the sent just now if we already have the hover where it shows a timestamp and copy").

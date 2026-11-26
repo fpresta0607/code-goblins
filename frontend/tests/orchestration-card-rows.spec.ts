@@ -247,7 +247,7 @@ test("a narrow list card whose marks fit beside its clock keeps them on the cloc
 
 // A baby goblin's name takes up to three lines and what it runs up to two,
 // each ending in an ellipsis past them. At the card's width Bartholomew II -
-// Observability Investigator needs three lines for its name, the helper that
+// Investigate the observability pipeline needs three lines for its name, the helper that
 // reconciles the exports needs more, and what Bartholomew II runs needs at
 // least two.
 for (const { title, baby, part, least, most, shows } of [

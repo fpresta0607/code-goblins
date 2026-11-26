@@ -58,43 +58,6 @@ export function forHowLong(node: TreeNode, now: number): string {
   return clockText(node.state === "working" ? known(node.started) : known(node.last_activity) || known(node.started), now, "running");
 }
 
-// What a baby goblin of each kind is called when its own description says
-// nothing a title can be made of.
-const KIND_TITLES: Record<Baby, string> = {
-  subagent: "Scout", shell: "Shell Runner", monitor: "Watcher", gate: "Gatekeeper", server: "Server Keeper",
-  test: "Test Runner", build: "Builder", browser: "Browser Pilot", other: "Process Wrangler", helper: "Helper",
-};
-
-// The one who does each thing a description can start with.
-const DOERS: Record<string, string> = {
-  add: "Adder", analyze: "Analyst", audit: "Auditor", build: "Builder", check: "Checker", clean: "Cleaner", compare: "Comparer",
-  confirm: "Confirmer", count: "Counter", debug: "Debugger", design: "Designer", draft: "Drafter", explore: "Explorer", fetch: "Fetcher",
-  find: "Finder", fix: "Fixer", gather: "Gatherer", inspect: "Inspector", investigate: "Investigator", list: "Lister", locate: "Locator",
-  map: "Mapper", measure: "Measurer", migrate: "Migrator", monitor: "Monitor", plan: "Planner", poll: "Poller", probe: "Prober",
-  prove: "Prover", read: "Reader", refactor: "Refactorer", render: "Renderer", research: "Researcher", review: "Reviewer", run: "Runner",
-  scan: "Scanner", search: "Searcher", start: "Starter", summarize: "Summarizer", survey: "Surveyor", test: "Tester", trace: "Tracer",
-  track: "Tracker", update: "Updater", verify: "Verifier", watch: "Watcher", write: "Writer",
-};
-
-// Words a description's object is never.
-const SMALL_WORDS = new Set(["a", "an", "the", "of", "for", "to", "in", "on", "at", "and", "or", "with", "by", "from", "its", "it", "this", "that", "all", "each", "every"]);
-
-// titleFor is a short fun title for what a baby goblin does, made from its
-// own description as the one who does it: "Start the board" is a Board
-// Starter, "Test dictation" a Dictation Tester. A description that starts
-// with no such deed leaves the title of its kind.
-export function titleFor(node: TreeNode): string {
-  const words = node.label.split(/\s+/).map((word) => word.replace(/^[^\p{L}\d]+|[^\p{L}\d]+$/gu, "")).filter(Boolean);
-  const doer = words.length ? DOERS[words[0].toLowerCase()] : undefined;
-  if (!doer) return KIND_TITLES[babyFor(node)];
-  const object = words.slice(1).reverse().find((word) => /^\p{L}[\p{L}\d'-]*$/u.test(word) && !SMALL_WORDS.has(word.toLowerCase()));
-  if (!object) return doer;
-  const one = object !== object.toLowerCase() ? object
-    : /(ch|sh|x|ss)es$/.test(object) ? object.slice(0, -2) : /ies$/.test(object) ? object.slice(0, -3) + "y"
-      : /[^su]s$/.test(object) && object.length > 3 ? object.slice(0, -1) : object;
-  return one[0].toUpperCase() + one.slice(1) + " " + doer;
-}
-
 // The ordinal after a goblin's name its baby goblins take in turn: Jr., then
 // II, III and on.
 function ordinal(index: number): string {
@@ -106,17 +69,18 @@ function ordinal(index: number): string {
   return numeral;
 }
 
-// babyName is what a goblin's baby goblin is called: after its goblin, in
-// the order they started, Kip Jr., then Kip II, Kip III and on, each with a
-// title for its own job, as goblins are called by name and title. A helper
-// is a goblin of its own and keeps its own name.
+// babyName is what a goblin's baby goblin is called: its goblin's name, the
+// order they started in, Kip Jr., then Kip II, Kip III and on (finished
+// ones count, so a baby keeps its name as its siblings finish), and its own
+// description as it wrote it, as "Kip II - Map harness plumbing". A goblin
+// with no name yet leaves the description alone. A helper is a goblin of its
+// own and keeps its own name.
 export function babyName(goblin: Task, node: TreeNode): string {
   if (node.kind === "helper") return node.label;
-  const title = titleFor(node);
-  if (!goblin.goblin_name) return title;
+  if (!goblin.goblin_name) return node.label;
   const order = (goblin.tree?.children || []).filter((child) => child.kind === "subagent")
     .sort((one, other) => one.started.localeCompare(other.started) || one.id.localeCompare(other.id));
-  return goblin.goblin_name + " " + ordinal(Math.max(0, order.findIndex((child) => child.id === node.id))) + " - " + title;
+  return goblin.goblin_name + " " + ordinal(Math.max(0, order.findIndex((child) => child.id === node.id))) + " - " + node.label;
 }
 
 // babyTask is what a baby goblin was asked to do, which its tip and its
@@ -150,15 +114,18 @@ const CMD_WRAPPER = /^(?:"(?:[^"]*[\\/])?cmd(?:\.exe)?"|(?:\S*[\\/])?cmd(?:\.exe
 const PROGRAM = /^(?:"(?:[^"]*[\\/])?([^"\\/]+?)(?:\.exe)?"|(?:\S*[\\/])?([^\s"\\/]+?)(?:\.exe)?)(?=\s|$)(.*)$/i;
 
 // whatItRuns is what a baby goblin runs, in plain words, which its card says
-// under its name: a helper is a helper goblin, a sub-agent, shell or monitor
-// is its own description, and a job, or a shell given no description, is
-// the program its command starts, such as Docker Desktop, the Stripe
-// listener, the app server on its port or a shell running a script. A test
-// run, a build or a browser it cannot name better is what it is, and any
+// under its name: a helper is a helper goblin, a sub-agent is the kind of
+// agent it is (an Explore agent, a General-purpose agent, or a Sub-agent when
+// its harness named none, since its description is already in its name), a
+// shell or monitor is its own description, and a job, or a shell given no
+// description, is the program its command starts, such as Docker Desktop, the
+// Stripe listener, the app server on its port or a shell running a script. A
+// test run, a build or a browser it cannot name better is what it is, and any
 // other command reads as its program's name: no baby goblin shows a command
 // line (the Overlord, 2026-10-08).
 export function whatItRuns(node: TreeNode): string {
   if (node.kind === "helper") return BABY_NAMES.helper;
+  if (node.kind === "subagent") return node.detail ? node.detail[0].toUpperCase() + node.detail.slice(1) + " agent" : BABY_NAMES.subagent;
   const isCommand = node.kind === "process" || (node.kind === "shell" || node.kind === "monitor") && !!node.task && node.task.startsWith(node.label);
   if (!isCommand) return node.label;
   const typed = (node.task || node.label).trim().replace(CMD_WRAPPER, "$1");

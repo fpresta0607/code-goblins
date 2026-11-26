@@ -102,11 +102,11 @@ test("resting on a baby goblin or a card, or the keyboard on it, lights its own 
   expect(await lit(), "nothing rests on a node").toEqual([]);
   const baby = page.locator(".tree-branches > li").filter({ hasText: "Grub VII" });
   await baby.hover();
-  await expect.poll(lit, "resting on a baby goblin").toEqual(["Grub VII - Branch Measurer"]);
+  await expect.poll(lit, "resting on a baby goblin").toEqual(["Grub VII - Measure the branches"]);
   await page.mouse.move(2, 2);
   await expect.poll(lit, "the pointer gone").toEqual([]);
   await page.locator(".tree-branches > li").filter({ hasText: "Grub V -" }).getByRole("button").focus();
-  await expect.poll(lit, "the keyboard on a baby goblin").toEqual(["Grub V - Export Tracer"]);
+  await expect.poll(lit, "the keyboard on a baby goblin").toEqual(["Grub V - Trace the export"]);
   await page.locator(".flow-node").filter({ hasText: "Kip - Echo Chaser" }).getByRole("button").first().focus();
   await expect.poll(lit, "the keyboard on a goblin's card").toEqual(["Kip - Echo Chaser"]);
   await page.locator(".flow-node").filter({ hasText: "Draft the release notes" }).hover();

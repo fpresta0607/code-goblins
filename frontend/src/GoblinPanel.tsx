@@ -88,7 +88,7 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, v
     {!maximized && <div ref={taskMount} className="panel-task" hidden={view !== "task"} />}
     {createPortal(taskList, taskHost)}
   </>;
-  return <section className={"goblin-panel" + (view === "terminal" && !child ? " showing-terminal" : "")} aria-labelledby="panel-title">
+  return <section className={"goblin-panel" + ((child ? task : view === "terminal") ? " showing-terminal" : "")} aria-labelledby="panel-title">
     {child && task ? <><PanelRow {...row} /><BabyHeader goblin={task} child={child} now={now} /></> : <PanelHeader task={task} node={node} snapshot={snapshot} row={row} switcher={<PanelViewSwitch view={view} views={maximized ? views.filter((each) => each !== "task") : views} onView={onView} />} onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} styleChoice={styleChoice} chatState={chatState} />}
     {list}
     {task?.browser && view === "screen" && <div className="panel-screen">

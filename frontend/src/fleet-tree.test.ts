@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { babyFor, babyName, BABY_HEIGHT, BABY_WIDTH, branchLayout, elbows, finished, hasRunningChildren, forHowLong, formatMemory, isDimmed, LINE_GAP, running, stateWord, summarize, titleFor, whatItRuns } from "./fleet-tree.ts";
+import { babyFor, babyName, BABY_HEIGHT, BABY_WIDTH, branchLayout, elbows, finished, hasRunningChildren, forHowLong, formatMemory, isDimmed, LINE_GAP, running, stateWord, summarize, whatItRuns } from "./fleet-tree.ts";
 import { arrange, detours, makeRoom, NODE_HEIGHT, NODE_WIDTH, ROW, settle, waitingOn, workflowNodes, type Extent } from "./workflow.ts";
 import { parseSnapshot, type FleetTree, type TreeNode } from "./types.ts";
 
@@ -457,23 +457,10 @@ test("a goblin waiting on the helper hung under it draws no dashed line to it", 
   assert.deepEqual(waitingOn(otherWait, workflowNodes(otherWait)), { "task:g": "task:o" });
 });
 
-// The Overlord, 2026-10-08: "the same goblin naming convention like Kip Jr.
-// Kip II etc with a job title for that specific agent session".
-test("a baby goblin's title is the one who does what its own description says, or else its kind's", () => {
-  for (const [fields, title] of [
-    [{ label: "Start the board" }, "Board Starter"], [{ label: "Test dictation" }, "Dictation Tester"],
-    [{ label: "Map harness plumbing" }, "Plumbing Mapper"], [{ label: "Research MCP OAuth" }, "OAuth Researcher"],
-    [{ label: "Run the affected Go tests", kind: "shell" }, "Test Runner"], [{ label: "Measure the branches" }, "Branch Measurer"],
-    [{ label: "Verify the replies." }, "Reply Verifier"], [{ label: "review hosted producer" }, "Producer Reviewer"], [{ label: "Explore" }, "Explorer"],
-    [{ label: "Dev server :5173", kind: "process", group: "dev-server" }, "Server Keeper"], [{ label: "CI checks on PR 398", kind: "monitor" }, "Watcher"],
-    [{ label: 'C:\\WINDOWS\\System32\\cmd.exe /d /s /c "npm run dev"', kind: "process", group: "other" }, "Process Wrangler"], [{ label: "Sub-agent" }, "Scout"],
-  ] as [Partial<TreeNode>, string][]) assert.equal(titleFor(child(fields)), title, JSON.stringify(fields));
-});
-
 // The Overlord, 2026-10-12, of Mabel's four baby goblins, which said only
 // Process Wrangler and Server Keeper: he asked whether they were duplicates
 // or errors. A baby goblin's card names what it runs in plain words.
-test("a baby goblin says what it runs in plain words: the program its command starts, or its own description", () => {
+test("a baby goblin says what it runs in plain words: the program its command starts, the kind of agent a sub-agent is, or its own description", () => {
   for (const [fields, runs] of [
     [{ kind: "process", group: "dev-server", label: "Dev server :2375", task: "Docker Desktop" }, "Docker Desktop"],
     [{ kind: "process", group: "dev-server", label: "Dev server :2375", task: "\"C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe\" --minimized" }, "Docker Desktop"],
@@ -491,13 +478,15 @@ test("a baby goblin says what it runs in plain words: the program its command st
     [{ kind: "shell", label: "terraform apply -auto-approve", task: "terraform apply -auto-approve" }, "terraform"],
     [{ kind: "shell", label: "Start the dev server", task: "npm run dev" }, "Start the dev server"],
     [{ kind: "shell", label: "bash scripts/listen.sh", task: "bash scripts/listen.sh" }, "Shell running listen.sh"],
-    [{ kind: "subagent", label: "Map harness plumbing" }, "Map harness plumbing"],
+    [{ kind: "subagent", label: "Map harness plumbing", detail: "Explore" }, "Explore agent"],
+    [{ kind: "subagent", label: "Map harness plumbing", detail: "general-purpose" }, "General-purpose agent"],
+    [{ kind: "subagent", label: "Map harness plumbing" }, "Sub-agent"],
     [{ kind: "gate", label: "Gate: test" }, "Gate: test"],
     [{ kind: "helper", label: "Pip - Rail Fitter", task: "Fit the rails" }, "Helper goblin"],
   ] as [Partial<TreeNode>, string][]) assert.equal(whatItRuns(child(fields)), runs, JSON.stringify(fields));
 });
 
-test("baby goblins are named after their goblin in the order they started, Jr. then II and on, and a helper keeps its own name", () => {
+test("baby goblins are named after their goblin in the order they started, Jr. then II and on, named by their own description, and a helper keeps its own name", () => {
   const children = [
     child({ id: "c", label: "Check the list", started: ago(30) }), child({ id: "a", label: "Start the board", started: ago(50) }),
     child({ id: "h", kind: "helper", label: "Pip - Rail Fitter", started: ago(45) }), child({ id: "b", label: "Test dictation", started: ago(40), state: "done" }),
@@ -505,6 +494,6 @@ test("baby goblins are named after their goblin in the order they started, Jr. t
   ];
   const goblin = parseSnapshot({ healthy: true, tasks: [{ id: "g", title: "Fix it", goblin_name: "Kip", goblin_title: "Echo Chaser", phase: "working", verified: false, tree: tree(children) }] }).tasks[0];
   const name = (id: string) => babyName(goblin, children.find((node) => node.id === id)!);
-  assert.deepEqual(["a", "b", "c", "z0", "z7", "h"].map(name), ["Kip Jr. - Board Starter", "Kip II - Dictation Tester", "Kip III - List Checker", "Kip IV - Export Tracer", "Kip XI - Export Tracer", "Pip - Rail Fitter"]);
-  assert.equal(babyName({ ...goblin, goblin_name: "" }, children[1]), "Board Starter", "a goblin with no name yet: the title alone");
+  assert.deepEqual(["a", "b", "c", "z0", "z7", "h"].map(name), ["Kip Jr. - Start the board", "Kip II - Test dictation", "Kip III - Check the list", "Kip IV - Trace the export", "Kip XI - Trace the export", "Pip - Rail Fitter"]);
+  assert.equal(babyName({ ...goblin, goblin_name: "" }, children[1]), "Start the board", "a goblin with no name yet: the description alone");
 });
