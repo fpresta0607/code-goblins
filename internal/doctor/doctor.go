@@ -75,7 +75,10 @@ var tools = []struct {
 	// fleet's gate needs; no-mistakes' own installer would put in an upstream
 	// release without its launch selection.
 	{name: "no-mistakes", hint: "rerun the Code Goblins install: irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install.ps1 | iex"},
-	{name: "gh-axi", hint: "npm install -g gh-axi"},
+	// gh-axi before 0.1.52 passes a --body-file's contents to gh on the
+	// command line, so a body over about 32 KB fails on Windows with spawn
+	// ENAMETOOLONG (#2115).
+	{name: "gh-axi", hint: "npm install -g gh-axi@0.1.52", floor: "0.1.52"},
 	{name: "chrome-devtools-axi", hint: "npm install -g " + ChromeDevtoolsRelease, floor: "0.1.40-codegoblins.4", build: "codegoblins"},
 	{name: "lavish-axi", hint: "npm install -g " + LavishRelease, floor: "0.1.79-codegoblins.19", build: "codegoblins", presentation: true},
 	{name: "winget", hint: "App Installer from the Microsoft Store, https://apps.microsoft.com/detail/9NBLGGH4NNS1", installer: true},

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/routing"
 )
 
@@ -1219,6 +1220,7 @@ func TestMessagesReadEachKindOfEntry(t *testing.T) {
 					prompted("u3", "CEO: The Overlord answered your question on the board. Question: Which first? Answer: Fix it next"),
 					prompted("u4", "User answer to CEO question q-1. Question: Ship it? Answer: Yes"),
 					prompted("u5", "Overlord: keep the tests\n<system-reminder>Claude Code's own note</system-reminder>"),
+					prompted("u6", harness.RESUME_LEAD+` Read C:\work\state\instruction.md and follow it exactly: it is your instruction from the CEO.`),
 				}
 			},
 			want: []Message{
@@ -1227,6 +1229,7 @@ func TestMessagesReadEachKindOfEntry(t *testing.T) {
 				prompt(2, "u3", FromAnswer, "The Overlord answered your question on the board. Question: Which first? Answer: Fix it next"),
 				prompt(3, "u4", FromAnswer, "User answer to CEO question q-1. Question: Ship it? Answer: Yes"),
 				prompt(4, "u5", FromOverlord, "Overlord: keep the tests"),
+				prompt(5, "u6", FromCEO, harness.RESUME_LEAD+` Read C:\work\state\instruction.md and follow it exactly: it is your instruction from the CEO.`),
 			},
 		},
 		{
