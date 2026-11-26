@@ -54,10 +54,11 @@ type Tree struct {
 	// marks says of each process read whether it started with the tree's
 	// mark. What a process started with never changes, so what was read is
 	// kept, a failed read as no mark, since a process this one may not read
-	// never becomes readable, though never as a mark read to be dropped. Only an empty read is tried again, once, on the
-	// next pass, as a process part-way through exec reads empty on Linux for
-	// a moment; a second empty read is kept as no mark, as a kernel thread's
-	// stays empty.
+	// never becomes readable, though never as a mark read to be dropped.
+	// Only an empty read is tried again, once, on the next pass, as a
+	// process part-way through exec reads empty on Linux for a moment; a
+	// second empty read is kept as no mark, as a kernel thread's stays
+	// empty.
 	marks map[run]markState
 	// seen holds every process of the tree read, which TotalProcesses counts.
 	seen map[run]bool
