@@ -104,6 +104,14 @@ async function open(page: Page, width: number, height: number, refused: Record<s
 }
 
 const title = (page: Page) => page.locator("#panel-title");
+// say sends an event on the newest stream the page opened for a child, and
+// streamsOf counts the streams it opened for that child.
+type HeldStreams = { node: string; stream: { say: (type: string, data: unknown) => void } }[];
+const say = (page: Page, node: string, type: string, data: unknown) => page.evaluate(({ node, type, data }) => {
+  const held = (window as unknown as { childStreams: HeldStreams }).childStreams.filter((child) => child.node === node);
+  held[held.length - 1].stream.say(type, data);
+}, { node, type, data });
+const streamsOf = (page: Page, node: string) => page.evaluate((node) => (window as unknown as { childStreams: HeldStreams }).childStreams.filter((child) => child.node === node).length, node);
 // A baby goblin found by what it does, whatever it is called, so a test of
 // another part than its name never fails by its name.
 const MAPPING = /Map harness plumbing/, CHECKING = /Check the lineage list at phone width/;
@@ -173,6 +181,58 @@ test.describe("1. a baby goblin's terminal connects as a goblin's does", () => {
     await expect(terminal).toContainText("Child output is available only on this computer");
     await expect(terminal.getByRole("button", { name: "Reconnect" })).toBeVisible();
     await expect(terminal.getByText(/Reconnecting/)).toHaveCount(0);
+  });
+
+  test("a stream the supervisor keeps refusing for now closes after five tries again and offers Reconnect", async ({ page }) => {
+    await open(page, 1600, 1000, { "subagent:toolu_A": { times: 6, status: 429, error: "Too many event streams" } });
+    await (await orchestrationBabies(page, false)).getByRole("button", { name: MAPPING }).click();
+    const terminal = page.locator(".agent-terminal");
+    await expect(terminal.getByRole("button", { name: "Reconnect" })).toBeVisible({ timeout: 15_000 });
+    await expect(terminal).toContainText("The output connection closed");
+    await expect(terminal.getByText(/Reconnecting/)).toHaveCount(0);
+    expect(await streamsOf(page, "subagent:toolu_A"), "its first try and five more").toBe(6);
+  });
+
+  test("Reconnect after a refusal for good opens the stream again and draws its output", async ({ page }) => {
+    await open(page, 1600, 1000, { "subagent:toolu_A": { times: 1, status: 403, error: "Child output is available only on this computer" } });
+    await (await orchestrationBabies(page, false)).getByRole("button", { name: MAPPING }).click();
+    const terminal = page.locator(".agent-terminal");
+    await expect(terminal).toContainText("Child output is available only on this computer");
+    await terminal.getByRole("button", { name: "Reconnect" }).click();
+    await expect(terminal).toContainText("Search(subagents/agent-)");
+    await expect(terminal).not.toContainText("Child output is available only on this computer");
+    await expect(terminal.getByRole("button", { name: "Reconnect" })).toHaveCount(0);
+  });
+
+  test("a stream whose output is unavailable for now is tried again, never closed", async ({ page }) => {
+    await open(page, 1600, 1000);
+    await (await orchestrationBabies(page, false)).getByRole("button", { name: MAPPING }).click();
+    const terminal = await expectBabyPanel(page, MAPPING_TASK);
+    await say(page, "subagent:toolu_A", "unavailable", {});
+    await expect.poll(() => streamsOf(page, "subagent:toolu_A")).toBe(2);
+    await expect(terminal).toContainText("Search(subagents/agent-)");
+    await expect(terminal.getByRole("button", { name: "Reconnect" })).toHaveCount(0);
+    await expect(terminal).not.toContainText("no longer available");
+  });
+
+  test("Jump to bottom shows while its output is read further up and returns to its end", async ({ page }) => {
+    await open(page, 1600, 1000);
+    await (await orchestrationBabies(page, false)).getByRole("button", { name: MAPPING }).click();
+    const terminal = await expectBabyPanel(page, MAPPING_TASK);
+    await say(page, "subagent:toolu_A", "output", { entries: Array.from({ length: 200 }, (_, index) => ({ kind: "reply", text: "Step " + index })) });
+    const rows = terminal.locator(".xterm-rows");
+    await expect(rows).toContainText("Step 199");
+    const jump = terminal.getByRole("button", { name: "Jump to bottom" });
+    await expect(jump).toHaveCount(0);
+    await terminal.locator(".agent-output").hover();
+    await expect(async () => {
+      await page.mouse.wheel(0, -2400);
+      await expect(rows).not.toContainText("Step 199", { timeout: 1000 });
+    }).toPass();
+    await expect(jump).toBeVisible();
+    await jump.click();
+    await expect(jump).toHaveCount(0);
+    await expect(rows).toContainText("Step 199");
   });
 
   test("a stream that drops keeps its screen while it connects again", async ({ page }) => {

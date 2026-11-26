@@ -80,6 +80,9 @@ async function open(page: Page, width = 1600, height = 1000) {
 
 const baby = (page: Page, label: string) => page.locator(".tree-branches").getByRole("button", { name: new RegExp("^" + label) });
 const title = (page: Page) => page.locator("#panel-title");
+// Grub's baby goblins in the fixture: its four running sub-agents, never its process.
+const GRUB_BABIES = ["Grub Jr. - Map harness plumbing", "Grub II - Research MCP OAuth", "Grub III - Run the affected Go tests", "Grub IV - Review the development server"];
+const grubBabies = (page: Page) => page.getByRole("list", { name: "What runs under Grub - Tree Surgeon" }).locator(".tree-child strong");
 
 // A heading on one line: its box no taller than one of its lines.
 const isOneLine = (page: Page) => title(page).evaluate((heading) => heading.getBoundingClientRect().height < parseFloat(getComputedStyle(heading).lineHeight) * 1.5);
@@ -248,7 +251,7 @@ test("baby goblins are named after their goblin in the order they started, each 
   await open(page);
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
   const names = (label: string) => page.getByRole("list", { name: "What runs under " + label }).locator(".tree-child strong");
-  await expect(names("Grub - Tree Surgeon")).toHaveText(["Grub Jr. - Map harness plumbing", "Grub II - Research MCP OAuth", "Grub III - Run the affected Go tests", "Grub IV - Review the development server"]);
+  await expect(names("Grub - Tree Surgeon")).toHaveText(GRUB_BABIES);
   await expect(names("Kip - Echo Chaser")).toHaveText(["Kip Jr. - Trace the export"]);
   await expect(names("Moss - Pixel Wrangler"), "a helper goblin keeps its own name").toHaveText(["Moss Jr. - Measure the branches", "Moss II - Check the phone list", "Pip - Rail Fitter"]);
 });
@@ -260,7 +263,7 @@ test("working subagents open their panels and processes have no baby card", asyn
   await baby(page, "Grub IV - Review the development server").click();
   await expect(title(page)).toHaveText(/^Grub IV - Review the development server.*Review the development server/);
   await page.getByRole("button", { name: "Back to the CEO", exact: true }).click();
-  await expect(baby(page, "Grub V - ")).toHaveCount(0)
+  await expect(grubBabies(page)).toHaveText(GRUB_BABIES)
 });
 
 test("a baby goblin shows no raw command line, its task is in its tip and its panel, and its state is a plain chip that is never yellow", async ({ page }) => {
@@ -380,9 +383,9 @@ test("a transcript replaced while its previous output is queued starts on a clea
 test("a process has no baby goblin card even when it starts working", async ({ page }) => {
   const fleet = await open(page)
   await page.getByRole("button", { name: "Orchestration", exact: true }).click()
-  await expect(baby(page, "Grub V - ")).toHaveCount(0)
+  await expect(grubBabies(page)).toHaveText(GRUB_BABIES)
   fleet.tasks[0].tree!.children.find(child => child.id === "process:6100:2")!.state = "working"
   fleet.revision++
   await page.evaluate(snapshot => window.dispatchEvent(new CustomEvent("fleet-snapshot", { detail: snapshot })), fleet)
-  await expect(baby(page, "Grub V - ")).toHaveCount(0)
+  await expect(grubBabies(page)).toHaveText(GRUB_BABIES)
 })

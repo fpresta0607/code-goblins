@@ -481,6 +481,7 @@ test("a baby goblin says what it runs in plain words: the program its command st
     [{ kind: "subagent", label: "Map harness plumbing", detail: "Explore" }, "Explore agent"],
     [{ kind: "subagent", label: "Map harness plumbing", detail: "general-purpose" }, "General-purpose agent"],
     [{ kind: "subagent", label: "Map harness plumbing" }, "Sub-agent"],
+    [{ kind: "subagent", label: "Child agent", detail: "child agent" }, "Child agent"],
     [{ kind: "gate", label: "Gate: test" }, "Gate: test"],
     [{ kind: "helper", label: "Pip - Rail Fitter", task: "Fit the rails" }, "Helper goblin"],
   ] as [Partial<TreeNode>, string][]) assert.equal(whatItRuns(child(fields)), runs, JSON.stringify(fields));

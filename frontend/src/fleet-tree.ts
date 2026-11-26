@@ -125,7 +125,7 @@ const PROGRAM = /^(?:"(?:[^"]*[\\/])?([^"\\/]+?)(?:\.exe)?"|(?:\S*[\\/])?([^\s"\
 // line (the Overlord, 2026-10-08).
 export function whatItRuns(node: TreeNode): string {
   if (node.kind === "helper") return BABY_NAMES.helper;
-  if (node.kind === "subagent") return node.detail ? node.detail[0].toUpperCase() + node.detail.slice(1) + " agent" : BABY_NAMES.subagent;
+  if (node.kind === "subagent") return node.detail ? node.detail[0].toUpperCase() + node.detail.slice(1) + (/\bagent$/i.test(node.detail) ? "" : " agent") : BABY_NAMES.subagent;
   const isCommand = node.kind === "process" || (node.kind === "shell" || node.kind === "monitor") && !!node.task && node.task.startsWith(node.label);
   if (!isCommand) return node.label;
   const typed = (node.task || node.label).trim().replace(CMD_WRAPPER, "$1");
