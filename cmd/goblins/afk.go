@@ -235,7 +235,7 @@ func runAFKLog(h home.Home, args []string, stdout, stderr io.Writer, runtime com
 	entry := afk.Entry{Kind: *kind, What: strings.TrimSpace(*what), Evidence: strings.TrimSpace(*evidence), Link: strings.TrimSpace(*link), Diagnosis: strings.TrimSpace(*diagnosis), Tried: strings.TrimSpace(*tried), Options: options, Recommendation: *recommend, Answer: *answer, Admin: *admin}
 	if *run != "" {
 		var err error
-		if entry.Shell, entry.Command, err = hisCommand(*run); err != nil {
+		if entry.Shell, entry.Command, err = hisCommand(*run, runtime.runCommandCheck()); err != nil {
 			fmt.Fprintf(stderr, "goblins afk log: --run %v\n", err)
 			return 2
 		}
@@ -266,8 +266,9 @@ func runAFKLog(h home.Home, args []string, stdout, stderr io.Writer, runtime com
 }
 
 // hisCommand reads the command file of a step only the Overlord can take, with
-// the shell its extension names, as goblins notify --run reads one.
-func hisCommand(file string) (shell, command string, err error) {
+// the shell its extension names, as goblins notify --run reads one, and has
+// check check it with that shell.
+func hisCommand(file string, check func(shell, command string) error) (shell, command string, err error) {
 	switch strings.ToLower(filepath.Ext(file)) {
 	case ".ps1":
 		shell = "powershell"
@@ -282,10 +283,19 @@ func hisCommand(file string) (shell, command string, err error) {
 	if strings.TrimSpace(command) == "" {
 		return "", "", fmt.Errorf("%s is empty", file)
 	}
-	if err := supervisor.CheckRunCommand(shell, command); err != nil {
+	if err := check(shell, command); err != nil {
 		return "", "", fmt.Errorf("%s: %w", file, err)
 	}
 	return shell, command, nil
+}
+
+// runCommandCheck is how goblins afk log checks a command the Overlord runs:
+// with its shell, unless the runtime names another way.
+func (r commandRuntime) runCommandCheck() func(shell, command string) error {
+	if r.checkRunCommand != nil {
+		return r.checkRunCommand
+	}
+	return supervisor.CheckRunCommand
 }
 
 // pullRequestReadTimeout bounds the one read of a pull request that logging a
