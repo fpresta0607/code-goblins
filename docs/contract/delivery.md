@@ -17,7 +17,8 @@ The approved exception is kept beside the brief in `data/<id>/delivery-exception
 Once the project's checks change or the brief asks another mode, the kept exception approves nothing until the primary CEO gives it again.
 Defined fast-tier checks remain required for an exception.
 A narrower requested mode, from `--mode` or the brief, with neither a qualifying assessment nor that exception selects no-mistakes and records why, and brief and spawn print the reason.
-Such a queued task does not start automatically or from the board: its start waits and says how the primary CEO approves it, so it never freezes no-mistakes ahead of the spawn that brings the exception.
+Such a queued task does not start automatically or from the board: its start waits and names the `goblins spawn` command with which the primary CEO approves it, so it never freezes no-mistakes ahead of the spawn that brings the exception.
+A queued row with no brief first gets its brief written from the row, and the waiting reason names that brief.
 An explicit no-mistakes mode can always increase rigor.
 At spawn `--mode` only repeats the brief: one that differs from the `mode:` line under the brief's Delivery heading is refused and names both, so a stricter or a narrower mode is chosen in the brief.
 

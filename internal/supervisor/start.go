@@ -523,6 +523,11 @@ func planStart(h home.Home, id string, finished *finishedWork, reading rowReadin
 		content = []byte(fleet.QueuedBriefText(queued, nil))
 	}
 	if refusal := deliveryWait(h, plan, content); refusal != "" {
+		if plan.missingBrief != nil {
+			if err := fleet.WriteQueuedBrief(h, *plan.missingBrief); err != nil && !errors.Is(err, os.ErrExist) {
+				return startPlan{}, err
+			}
+		}
 		return startPlan{}, StartRefusal{Reason: refusal}
 	}
 	return plan, nil
@@ -551,13 +556,13 @@ func deliveryWait(h home.Home, plan startPlan, brief []byte) string {
 	if exceptionErr != nil {
 		reason += "; " + exceptionErr.Error()
 	}
-	approval := fmt.Sprintf("goblins spawn %s --project %s --brief %s --mode %s", plan.id, plan.project, plan.brief, plan.mode)
-	change := "the brief's mode: line"
+	approval := plan
+	approval.briefRevision = ""
+	briefPath := plan.brief
 	if plan.missingBrief != nil {
-		approval = fmt.Sprintf("goblins brief %s --project %s --mode %s", plan.id, plan.project, plan.mode)
-		change = "the backlog row's mode"
+		briefPath += ", written from its queued row,"
 	}
-	return fmt.Sprintf("%s asks for %s delivery and waits for its approval, since %s. The registered primary CEO approves it with %s --delivery-exception \"<authority and reason>\", or %s changes to no-mistakes", plan.id, plan.mode, reason, approval, change)
+	return fmt.Sprintf("%s asks for %s delivery and waits for its approval, since %s. The registered primary CEO approves it with goblins %s --delivery-exception \"<authority and reason>\", or the mode: line of its brief %s changes to no-mistakes", plan.id, plan.mode, reason, commandLine(approval.args()), briefPath)
 }
 
 func (p startPlan) validateEngine() error {
