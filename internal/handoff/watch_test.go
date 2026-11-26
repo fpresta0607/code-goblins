@@ -28,6 +28,8 @@ func TestSightRecordsEachPullRequestIntoTheBranchAtItsNewestHead(t *testing.T) {
 			wantCloud: []CloudSighting{{PullRequest: cloud, Title: "Name the bad header", Author: testAccount, Head: "head-1", Commits: 3, Body: "## What I ran - `go test ./internal/handoff`: passed - the Windows tests: not run here", SeenAt: at}}},
 		{name: "a pull request seen at its head keeps what it said then", before: []CloudSighting{{PullRequest: cloud, Title: "Name the bad header", Author: testAccount, Head: "head-1", Commits: 3, Body: "It passed."}}, open: []OpenPullRequest{cloudInto(testBranch, cloud, "head-1", testAccount)},
 			wantCloud: []CloudSighting{{PullRequest: cloud, Title: "Name the bad header", Author: testAccount, Head: "head-1", Commits: 3, Body: "It passed."}}},
+		{name: "a pull request seen at its head without its commits takes what was read and stays left", before: []CloudSighting{{PullRequest: cloud, Title: "Name the bad header", Author: testAccount, Head: "head-1", IsLeft: true, SeenAt: at.Add(-time.Hour)}}, open: []OpenPullRequest{{URL: cloud, Title: "Name the bad header", Base: testBranch, Head: "head-1", Author: testAccount, Commits: 2, Body: "It passed."}}, wantNew: true,
+			wantCloud: []CloudSighting{{PullRequest: cloud, Title: "Name the bad header", Author: testAccount, Head: "head-1", Commits: 2, Body: "It passed.", IsLeft: true, SeenAt: at.Add(-time.Hour)}}},
 		{name: "a teammate's pull request", open: []OpenPullRequest{cloudInto(testBranch, cloud, "head-1", "teammate")}, wantNew: true,
 			wantCloud: []CloudSighting{{PullRequest: cloud, Title: "Name the bad header", Author: "teammate", Head: "head-1", IsTeammates: true, SeenAt: at}}},
 		{name: "the same head left alone stays left", before: []CloudSighting{{PullRequest: cloud, Title: "Name the bad header", Author: testAccount, Head: "head-1", IsLeft: true}}, open: []OpenPullRequest{cloudInto(testBranch, cloud, "head-1", testAccount)},
@@ -67,13 +69,13 @@ func TestSightRecordsEachPullRequestIntoTheBranchAtItsNewestHead(t *testing.T) {
 }
 
 // The watch reads a cloud pull request's commits and body only at a head
-// it has not seen it at, into the branch of the handoff, so a poll asks
-// GitHub nothing more of one it already saw.
-func TestOnlyACloudPullRequestAtANewHeadIsUnseen(t *testing.T) {
+// it has not seen it at with its commits, into the branch of the handoff,
+// so a poll asks GitHub nothing more of one it already saw.
+func TestACloudPullRequestIsUnseenUntilSeenAtItsHeadWithItsCommits(t *testing.T) {
 	// Arrange
 	const cloud = "https://github.com/" + testRepository + "/pull/7"
 	_, record := handedOff(t)
-	record.Cloud = []CloudSighting{{PullRequest: cloud, Head: "head-1"}}
+	record.Cloud = []CloudSighting{{PullRequest: cloud, Head: "head-1", Commits: 2}, {PullRequest: cloud + "1", Head: "head-1"}}
 	for _, test := range []struct {
 		name     string
 		pr       OpenPullRequest
@@ -81,6 +83,7 @@ func TestOnlyACloudPullRequestAtANewHeadIsUnseen(t *testing.T) {
 	}{
 		{"at the head it was seen at", cloudInto(testBranch, cloud, "head-1", testAccount), false},
 		{"at a new head", cloudInto(testBranch, cloud, "head-2", testAccount), true},
+		{"at the head it was seen at without its commits", cloudInto(testBranch, cloud+"1", "head-1", testAccount), true},
 		{"a new pull request", cloudInto(testBranch, cloud+"0", "head-1", testAccount), true},
 		{"into another branch", cloudInto("main", cloud+"0", "head-1", testAccount), false},
 		{"from a fork", OpenPullRequest{URL: cloud + "0", Base: testBranch, Head: "head-1", IsCrossRepository: true}, false},
