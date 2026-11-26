@@ -19,6 +19,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 	"github.com/fpresta0607/code-goblins/internal/verify"
@@ -473,9 +474,10 @@ func planStart(h home.Home, id string, finished *finishedWork, reading rowReadin
 	}
 	var briefLines []string
 	var named map[string]string
+	var content []byte
 	briefRevision := ""
 	if briefErr == nil {
-		content, err := fsx.ReadFile(brief)
+		content, err = fsx.ReadFile(brief)
 		if err != nil {
 			return startPlan{}, err
 		}
@@ -518,8 +520,49 @@ func planStart(h home.Home, id string, finished *finishedWork, reading rowReadin
 	if errors.Is(briefErr, os.ErrNotExist) {
 		queued.Row.Repo, queued.Row.Mode, queued.Row.Harness, queued.Row.Model, queued.Row.Effort = plan.project, plan.mode, plan.harness, plan.model, plan.effort
 		plan.missingBrief = &queued
+		content = []byte(fleet.QueuedBriefText(queued, nil))
+	}
+	if refusal := deliveryWait(h, plan, content); refusal != "" {
+		if plan.missingBrief != nil {
+			if err := fleet.WriteQueuedBrief(h, *plan.missingBrief); err != nil && !errors.Is(err, os.ErrExist) {
+				return startPlan{}, err
+			}
+		}
+		return startPlan{}, StartRefusal{Reason: refusal}
 	}
 	return plan, nil
+}
+
+// deliveryWait is why the task's start waits on a delivery exception, or ""
+// when it may start: a mode narrower than the project's posture and the
+// brief's assessment select starts only under the exception the registered
+// primary CEO approved for it. Started without one, goblins spawn would
+// freeze no-mistakes, and an explicit spawn bringing the exception would find
+// the task already started under it (issue 2146).
+func deliveryWait(h home.Home, plan startPlan, brief []byte) string {
+	if plan.mode == "" || plan.mode == "no-mistakes" {
+		return ""
+	}
+	manifest, _, err := project.LoadForCheckout(h.Data, plan.project)
+	if err != nil {
+		manifest = project.Manifest{}
+	}
+	authority, exceptionErr := project.ApprovedDeliveryException(h.Data, plan.id, plan.mode, manifest)
+	selected := project.SelectDelivery(manifest, string(brief), plan.mode, authority)
+	if selected.Mode == plan.mode {
+		return ""
+	}
+	reason := selected.Reason
+	if exceptionErr != nil {
+		reason += "; " + exceptionErr.Error()
+	}
+	approval := plan
+	approval.briefRevision = ""
+	briefPath := plan.brief
+	if plan.missingBrief != nil {
+		briefPath += ", written from its queued row,"
+	}
+	return fmt.Sprintf("%s asks for %s delivery and waits for its approval, since %s. The registered primary CEO approves it with goblins %s --delivery-exception \"<authority and reason>\", or the mode: line of its brief %s changes to no-mistakes", plan.id, plan.mode, reason, commandLine(approval.args()), briefPath)
 }
 
 func (p startPlan) validateEngine() error {

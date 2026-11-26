@@ -12,9 +12,13 @@ The conditional posture chooses direct-PR only for known internal, low-risk work
 Mixed, unknown or malformed assessments, missing or unreadable policy, credentials, authorization, state recovery, migrations and publication use no-mistakes.
 An explicitly configured direct-PR or local-only posture is standing Overlord authority for assessed low-risk internal or product work with a concrete reason and defined fast-tier checks.
 It does not narrow the strict boundaries for sensitive, mixed, unknown or malformed work.
-Only a concrete separate Overlord exception may narrow the selection beyond that standing posture, recorded with `--delivery-exception` and an explicit mode at brief and spawn.
+Only a concrete separate Overlord exception may narrow the selection beyond that standing posture, given with `--delivery-exception` and an explicit mode by the registered primary CEO at brief or spawn; an exception from a goblin, a gate agent or any other caller is refused and approves nothing.
+The approved exception is kept beside the brief in `data/<id>/delivery-exception.json`, with the mode it approves and a digest of the project's checks at that moment, and every start of the task, automatic, from the board or explicit, selects from it, so whichever start comes first freezes the approved mode.
+Once the project's checks change or the brief asks another mode, the kept exception approves nothing until the primary CEO gives it again.
 Defined fast-tier checks remain required for an exception.
 A narrower requested mode, from `--mode` or the brief, with neither a qualifying assessment nor that exception selects no-mistakes and records why, and brief and spawn print the reason.
+Such a queued task does not start automatically or from the board: its start waits and names the `goblins spawn` command with which the primary CEO approves it, so it never freezes no-mistakes ahead of the spawn that brings the exception.
+A queued row with no brief first gets its brief written from the row, and the waiting reason names that brief.
 An explicit no-mistakes mode can always increase rigor.
 At spawn `--mode` only repeats the brief: one that differs from the `mode:` line under the brief's Delivery heading is refused and names both, so a stricter or a narrower mode is chosen in the brief.
 
