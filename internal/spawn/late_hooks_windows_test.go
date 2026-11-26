@@ -321,7 +321,7 @@ func TestNativeResumeKeepsItsWorkWhenALateDialogCannotRecover(t *testing.T) {
 					t.Errorf("lost keys = %+v, want one Escape with no blind retry", losses)
 				}
 			} else {
-				if len(submissions) != 2 || submissions[1].Text != spawnPointer(t, f.fixture) {
+				if len(submissions) != 2 || submissions[1].Text != harness.RESUME_LEAD+" "+spawnPointer(t, f.fixture) {
 					t.Errorf("recovery submissions = %+v", submissions)
 				}
 				if answers := named(events, "hook prompt"); len(answers) != 1 || !strings.HasPrefix(answers[0].Text, "3. Continue without trusting") {

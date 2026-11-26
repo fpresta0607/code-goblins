@@ -93,6 +93,12 @@ type Launch struct {
 	Dir                 string
 	Executable          string
 	ResumeSession       string
+	// Lead is the opening line of Instruction, typed as it stands before the
+	// line that points at an instruction too long to type whole: a resumed
+	// conversation still holding a pause it was interrupted in reads the
+	// typed line before any file, and one shown only the pointer finished
+	// that pause instead of resuming (#2149).
+	Lead string
 }
 
 // PromptInstruction is the single instruction the harness receives once it is
@@ -104,6 +110,13 @@ func (launch Launch) PromptInstruction() string {
 	}
 	return BriefInstruction(launch.PromptFile)
 }
+
+// RESUME_LEAD opens what a resumed pause is told, and is typed into its
+// terminal as it stands (Launch.Lead): a conversation resumed while its pause
+// handoff was still unwritten took the bare instruction pointer as leave to
+// finish that pause, rewrote its handoff, said it was paused and sat idle
+// while its task ran (#2149).
+const RESUME_LEAD = "Resume now. This current CEO instruction supersedes the earlier pause request: that pause has ended, so do not write or rename its handoff and do not stop for it."
 
 // BriefInstruction is the single prompt every goblin receives once its
 // harness is ready, typed into its composer.
