@@ -226,7 +226,13 @@ func ReadDevDriveConfig(root string) (DevDriveConfig, error) {
 // on Linux and macOS. GOBLINS_HOME overrides it, for a test or a deliberate
 // choice.
 func DefaultRoot() (string, error) {
-	return defaultRoot()
+	return defaultRoot(os.Getenv)
+}
+
+// DefaultRootIn is DefaultRoot as the environment getenv reads names it, such
+// as the user's own environment a goblin's terminal starts from.
+func DefaultRootIn(getenv func(string) string) (string, error) {
+	return defaultRoot(getenv)
 }
 
 // inheritedRoot and inheritedState capture the fleet home the process was

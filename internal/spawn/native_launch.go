@@ -22,6 +22,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/remoteaccess"
@@ -1034,8 +1035,8 @@ func (s Service) readNativeScreen(ctx context.Context, record host.Record) ([]st
 // the program this process's PATH finds, where the spawn validated it, started
 // by its path, so the terminal, whose PATH is the user's, never starts another
 // (#1075). A harness installed as a script shim names it as its Executable and
-// runs through cmd /c. Any other must be a program: one found only as a script
-// shim is refused.
+// runs as a script (scriptProgram). Any other must be a program the system
+// starts as itself (isProgram): one found only as a script shim is refused.
 func nativeProgram(kind harness.Kind, launch harness.Launch) ([]string, error) {
 	path, err := exec.LookPath(cmp.Or(launch.Executable, string(kind)))
 	if err != nil {
@@ -1073,16 +1074,18 @@ func (s Service) goblinProgram(kind harness.Kind, launch harness.Launch, userEnv
 
 // usersHome is the home the user's environment userEnv names, as goblins
 // resolves one: GOBLINS_HOME, by its old name where a release before the
-// rename set that, or else the per-user home under LOCALAPPDATA. It is empty
-// when userEnv names neither. A native terminal runs only on Windows so far.
+// rename set that, or else the per-user home it names (home.DefaultRootIn),
+// under LOCALAPPDATA on Windows and XDG_DATA_HOME or HOME on Linux. It is
+// empty when userEnv names neither.
 func usersHome(userEnv []string) string {
 	if root := cutover.SettingIn(userEnv, "GOBLINS_HOME"); root != "" {
 		return root
 	}
-	if local := cutover.SettingIn(userEnv, "LOCALAPPDATA"); local != "" {
-		return filepath.Join(local, "CodeGoblins")
+	root, err := home.DefaultRootIn(func(name string) string { return cutover.SettingIn(userEnv, name) })
+	if err != nil {
+		return ""
 	}
-	return ""
+	return root
 }
 
 // isInside reports whether path, which exists, lies inside folder, both
@@ -1104,9 +1107,9 @@ func isInside(path, folder string) bool {
 // path with, as nativeProgram describes.
 func programAt(kind harness.Kind, path string, launch harness.Launch) ([]string, error) {
 	if launch.Executable != "" {
-		return cmdProgram(path, launch.Args...)
+		return scriptProgram(path, launch.Args...)
 	}
-	if !strings.EqualFold(filepath.Ext(path), ".exe") {
+	if !isProgram(path) {
 		return nil, fmt.Errorf("spawn: %s resolves to %s, which a native terminal cannot start without a shell", kind, path)
 	}
 	return append([]string{path}, launch.Args...), nil
@@ -1116,18 +1119,18 @@ func programAt(kind harness.Kind, path string, launch harness.Launch) ([]string,
 // followed by args: the program this process's PATH finds, started by its
 // path, so a terminal or command whose PATH is the user's, such as the CEO's,
 // never starts another (#1155), and a name this PATH does not find is
-// refused. CreateProcess runs only executables, so a .exe runs as itself, and
-// anything else, such as the npm .cmd shims codex and pi install, runs
-// through cmd /c.
+// refused. A program the system starts as itself (isProgram) runs so, and
+// anything else, such as the npm .cmd shims codex and pi install on Windows,
+// runs as a script (scriptProgram).
 func NativeProgram(name string, args ...string) ([]string, error) {
 	path, err := exec.LookPath(name)
 	if err != nil {
 		return nil, fmt.Errorf("%s is not on PATH: %w", name, err)
 	}
-	if strings.EqualFold(filepath.Ext(path), ".exe") {
+	if isProgram(path) {
 		return append([]string{path}, args...), nil
 	}
-	return cmdProgram(path, args...)
+	return scriptProgram(path, args...)
 }
 
 // inheritedSessionVariables name what a session marks its own processes with

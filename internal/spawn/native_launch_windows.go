@@ -9,13 +9,18 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// cmdProgram runs the script at path with args through cmd /c, which exits
+// isProgram reports whether CreateProcess starts path as itself: a .exe.
+func isProgram(path string) bool {
+	return strings.EqualFold(filepath.Ext(path), ".exe")
+}
+
+// scriptProgram runs the script at path with args through cmd /c, which exits
 // with it. cmd reads its command line itself, so an argument it would
 // interpret is refused. A path with a space in it is quoted on that line, and
 // once another argument is quoted too, cmd drops the path's opening quote and
 // runs the path's first word instead: such a path runs by its short name, and
 // one on a volume that keeps no short names is refused.
-func cmdProgram(path string, args ...string) ([]string, error) {
+func scriptProgram(path string, args ...string) ([]string, error) {
 	if strings.ContainsAny(path, " \t") {
 		long, err := windows.UTF16PtrFromString(path)
 		if err != nil {

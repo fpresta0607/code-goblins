@@ -25,12 +25,13 @@ func packHome(t *testing.T) (Service, state.TaskMeta) {
 	t.Helper()
 	root := t.TempDir()
 	data, stateDir := filepath.Join(root, "data"), filepath.Join(root, "state")
+	projects, worktrees := filepath.Join(root, "dev"), filepath.Join(root, "wt")
 	for name, content := range map[string]string{
 		"data/overlord.md":             "## Harbor deploys, 2026-11-05\n\nMerging to main deploys the harbor site to production.\n",
 		"data/memory/harbor-saves.md":  "---\nname: harbor-saves\ndescription: harbor saves go to the hosted database\nmetadata:\n  projects: [harbor]\n---\nharbor saves body\n",
-		"state/harbor-other.meta":      "project=C:\\dev\\harbor\ntitle=Gallery captions\ngoblin_name=Ivy\nworktree=C:\\wt\\harbor-other\n",
+		"state/harbor-other.meta":      "project=" + filepath.Join(projects, "harbor") + "\ntitle=Gallery captions\ngoblin_name=Ivy\nworktree=" + filepath.Join(worktrees, "harbor-other") + "\n",
 		"state/harbor-other.status":    "2026-11-09T09:00:00Z working: PR https://github.com/acme/harbor/pull/11 opened\n2026-11-09T10:00:00Z working: captions under review\n",
-		"state/northwind-task.meta":    "project=C:\\dev\\northwind\ntitle=Northwind cache\nworktree=C:\\wt\\northwind-task\n",
+		"state/northwind-task.meta":    "project=" + filepath.Join(projects, "northwind") + "\ntitle=Northwind cache\nworktree=" + filepath.Join(worktrees, "northwind-task") + "\n",
 		"state/northwind-task.status":  "2026-11-09T10:00:00Z working: cache\n",
 		"state/tasktmp/harbor-saves/x": "",
 	} {
@@ -47,7 +48,7 @@ func packHome(t *testing.T) (Service, state.TaskMeta) {
 		"merge-base": {Stdout: []byte("base123\n")},
 		"log":        {Stdout: []byte("abc1234 feat(gallery): lazy images\n")},
 	}
-	meta := state.TaskMeta{ID: "harbor-saves", Project: `C:\dev\harbor`, Title: "Harbor configurator saves", Worktree: filepath.Join(root, "wt"), TaskTmp: filepath.Join(stateDir, "tasktmp", "harbor-saves")}
+	meta := state.TaskMeta{ID: "harbor-saves", Project: filepath.Join(projects, "harbor"), Title: "Harbor configurator saves", Worktree: worktrees, TaskTmp: filepath.Join(stateDir, "tasktmp", "harbor-saves")}
 	return Service{StateDir: stateDir, DataDir: data, Commands: git}, meta
 }
 
@@ -112,7 +113,8 @@ func TestWriteContextPackLeadsWithALessonAcceptedForItsRepository(t *testing.T) 
 		}
 		return name
 	}
-	// meta.Project is C:\dev\harbor, so its lessons are the harbor repository's.
+	// meta.Project is the harbor checkout, so its lessons are the harbor
+	// repository's.
 	harbor := accept("harbor-quay", "harbor", "Kelp beds slow the ferry.")
 	northwind := accept("northwind-quay", "northwind", "Gulls steal unattended lunches.")
 
