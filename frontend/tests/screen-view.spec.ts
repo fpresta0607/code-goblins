@@ -314,11 +314,11 @@ test("a view on another machine watches the browser, can hand it back, and canno
   await expect(screen(page).getByRole("application")).toHaveCount(0);
 });
 
-test("only a goblin whose browser runs offers its screen, and its card's Browser active opens it full size in a tab of its own", async ({ page, context }) => {
+test("only a goblin whose browser runs offers its screen, which its address shows full size in a tab of its own", async ({ page }) => {
   // Arrange
   const relay = await relayScreens(page);
   await open(page, IN_USE);
-  const opener = page.locator(".task-board .task-card-shell").filter({ hasText: NAME }).getByRole("button", { name: "Browser active: open " + NAME + "'s screen in a new tab" });
+  const opener = page.locator(".task-board .task-card-shell").filter({ hasText: NAME }).getByRole("button", { name: "Browser active: show " + NAME + "'s screen" });
   const otherShell = page.locator(".task-board .task-card-shell").filter({ hasText: OTHER.goblin_name });
   const clock = page.locator(".task-board .task-card-shell").filter({ hasText: NAME }).locator(".card-clock");
 
@@ -333,16 +333,10 @@ test("only a goblin whose browser runs offers its screen, and its card's Browser
   await card(page, OTHER.goblin_name).click();
   await expect(page.getByRole("group", { name: "Panel view", exact: true }).getByRole("button", { name: "Screen" })).toHaveCount(0);
 
-  // Act
-  const opened = context.waitForEvent("page");
-  await opener.click();
-  const tab = await opened;
+  // Act: the board's address of his screen, which other places may link to.
+  await page.goto("/?screen=" + GOBLIN.id);
 
-  // Assert: the tab is the board's address of his screen, which shows it.
-  const address = new URL(tab.url());
-  expect(address.pathname + address.search).toBe("/?screen=" + GOBLIN.id);
-  await tab.close();
-  await page.goto(address.pathname + address.search);
+  // Assert
   await expect(page.getByRole("heading", { level: 1, name: NAME + "'s browser" })).toBeVisible();
   await expect.poll(() => relay.views).toBe(1);
   relay.frame({ data: await aFrame(page, 1280, 800), width: 1280, height: 800 });
@@ -415,7 +409,7 @@ test("a card reads Browser active only while its goblin uses its browser, and it
   // Arrange
   await open(page, BROWSING);
   const shell = page.locator(".task-board .task-card-shell").filter({ hasText: NAME });
-  const opener = shell.getByRole("button", { name: "Browser active: open " + NAME + "'s screen in a new tab" });
+  const opener = shell.getByRole("button", { name: "Browser active: show " + NAME + "'s screen" });
   const screenButton = page.getByRole("group", { name: "Panel view", exact: true }).getByRole("button", { name: "Screen", exact: true });
   await card(page, NAME).click();
 

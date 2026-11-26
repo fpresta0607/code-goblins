@@ -4,10 +4,9 @@ import { goblinName } from "./task-words";
 import { ScreenView } from "./screen-view";
 import goblinApp from "/assets/goblin-app.png";
 
-// ScreenPage is a goblin's Screen view at full size in a tab of its own, the
-// address its card's Browser active opens (screenAddress): the same view as
-// the panel's, with the board's live record saying whose browser it is and
-// whether it still runs.
+// ScreenPage is a goblin's Screen view at full size in a tab of its own, at
+// /?screen=<task> (screenTaskOf): the same view as the panel's, with the
+// board's live record saying whose browser it is and whether it still runs.
 export function ScreenPage({ task: id }: { task: string }) {
   const { snapshot, connection } = useRuntimeStream();
   const task = snapshot?.tasks.find((candidate) => candidate.id === id);
