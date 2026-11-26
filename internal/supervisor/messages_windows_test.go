@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1112,6 +1113,78 @@ func TestAGateHeldMessageIsQueuedAfterCustodyIsReadAndDeliveredAfterRelease(t *t
 	}
 	if waiting != 1 {
 		t.Fatalf("the queue holds %d copies of the message, want exactly one", waiting)
+	}
+}
+
+// A message for a goblin whose prompt line a view's typed message holds waits
+// for that message's Enter to be answered before it reads the gate's custody:
+// a gate taking the branch is one way the wait ends, as the relay refuses the
+// Enter on its custody tick, and custody read before the wait had the message
+// typed into a goblin its gate then owned (#2848's review). One whose time
+// ends first reads no custody and is queued as one onto words the line holds.
+func TestAMessageReadsItsGatesCustodyOnlyOnceATypedMessagesEnterItWaitsForIsAnswered(t *testing.T) {
+	for name, test := range map[string]struct {
+		// end ends the message's wait for the Enter.
+		end func(gate *gateFake, answer func(), cancel context.CancelFunc)
+		// reason is what the queued message says, and isAsked whether its
+		// gate's custody was read.
+		reason  string
+		isAsked bool
+	}{
+		"the gate takes the branch, and the relay's refusal answers the Enter": {func(gate *gateFake, answer func(), _ context.CancelFunc) {
+			gate.err = pipeline.ErrCustodyHeld
+			answer()
+		}, "Its gate holds the branch", true},
+		"the message's time ends first": {func(_ *gateFake, _ func(), cancel context.CancelFunc) {
+			cancel()
+		}, "prompt line is empty", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange: custody reads clear, and the message waits for a typed
+			// message's Enter.
+			store, h := testStore(t)
+			meta := makeNative(t, h.State, gatedGoblin(t, h).ID)
+			goblinTerminal(t, h.State, meta.ID)
+			gate := &gateFake{}
+			service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: gate}}
+			action := messageTo(t, store, meta, "message-1", "and /review it")
+			var typed []string
+			previous := typeIntoGoblin
+			t.Cleanup(func() { typeIntoGoblin = previous })
+			typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _, _, _ bool) error {
+				typed = append(typed, text)
+				return nil
+			}
+			answer := sync.OnceFunc(service.Options.CEO.awaitEnter(meta.ID))
+			defer answer()
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			type delivery struct {
+				result Evaluation
+				err    error
+			}
+			delivered := make(chan delivery, 1)
+			go func() {
+				result, err := service.deliverMessage(ctx, action)
+				delivered <- delivery{result, err}
+			}()
+			time.Sleep(500 * time.Millisecond)
+
+			// Act
+			test.end(gate, answer, cancel)
+			got := <-delivered
+
+			// Assert
+			if len(typed) != 0 {
+				t.Fatalf("the message was typed as %q while a typed message's Enter held its goblin's prompt line, want nothing typed", typed)
+			}
+			if !errors.Is(got.err, ErrDeferred) || !strings.Contains(got.result.Reason, test.reason) {
+				t.Fatalf("the message came back as %+v %v, want it queued, saying %q", got.result, got.err, test.reason)
+			}
+			if isAsked := gate.asks > 0; isAsked != test.isAsked {
+				t.Fatalf("its gate's custody was read %d times, want it read: %t", gate.asks, test.isAsked)
+			}
+		})
 	}
 }
 

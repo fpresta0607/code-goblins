@@ -6,7 +6,7 @@ import { attachDictatedInput } from "./dictated-input";
 import { clipboardInput, imageKey, readClipboard, terminalKey } from "./terminal-keys";
 import { FrameWriter } from "./terminalFrames";
 import { stripPasteEscapes, wheelLines } from "./terminalInput";
-import { ackDue, DEFAULT_FONT_SIZE, type FitEvent, type FitState, followFontSize, fontSizeFor, inputMessages, nextFit, panelFit, parseHeld, parseHistory, parseScreen, parseSize, parseStream, parseUnread, type ScreenState } from "./terminalStream";
+import { ackDue, DEFAULT_FONT_SIZE, type FitEvent, type FitState, followFontSize, fontSizeFor, inputMessages, nextFit, panelFit, parseEntered, parseHeld, parseHistory, parseScreen, parseSize, parseStream, parseUnread, type ScreenState } from "./terminalStream";
 import { PinnedLine } from "./pinned-line";
 import { attachZoomGesture } from "./terminal-zoom";
 import { attachTouchScroll, terminalText } from "./terminal-touch";
@@ -28,6 +28,11 @@ const READY_FALLBACK_MS = 600;
 const MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "AltGraph", "Meta", "CapsLock", "NumLock", "ScrollLock", "Fn"]);
 // The mouse modes in which xterm hands the wheel to the program.
 const WHEEL_MOUSE_MODES = new Set(["vt200", "drag", "any"]);
+
+// What became of a message typed as keys: its Enter waits, was pressed, or
+// was not pressed or could not reach the terminal, so its words wait unsent
+// on the harness's prompt line; or the relay never typed its words.
+export type TypedState = "waiting" | "sent" | "unsent" | "untyped";
 
 export interface ViewEvents {
   // The input link is ready after replay; an opened surface also waits for
@@ -66,6 +71,10 @@ export interface ViewEvents {
   // The relay read the harness's screen anew: whether it waits on an answer
   // at a screen of its own, and whether something of its own is open.
   screen: (state: ScreenState) => void;
+  // What became of a message typed as keys, with its words: said as submit
+  // types them, and again as the relay answers for its Enter, or the
+  // connection closes first.
+  typed: (words: string, state: TypedState) => void;
   // Full-screen programs own their history; while input is held or closed,
   // the conversation record is the readable history instead.
   history?: () => void;
@@ -126,6 +135,9 @@ export class TerminalView {
   private frame = 0;
   private settle: ReturnType<typeof setTimeout> | undefined;
   private fallback: ReturnType<typeof setTimeout> | undefined;
+  // The message typed as keys whose Enter the relay was asked for, by its
+  // submission and words, until the relay says whether it pressed it.
+  private typedEnter: { submission: string; text: string } | undefined;
   private readonly pin: PinnedLine;
   private pinFrame = 0;
   private historyEnd: number | null = null;
@@ -169,7 +181,7 @@ export class TerminalView {
     this.socket.binaryType = "arraybuffer";
     this.socket.onopen = () => this.claim();
     this.socket.onmessage = (event: MessageEvent<ArrayBuffer | string>) => this.receive(event.data);
-    this.socket.onclose = (event) => { if (!this.disposed) { this.term.options.disableStdin = true; this.events.closed(event.code, event.reason); } };
+    this.socket.onclose = (event) => { if (!this.disposed) { this.term.options.disableStdin = true; this.endTypedEnter(false, true); this.events.closed(event.code, event.reason); } };
     this.term.onData((data) => {
       // The claim may wait for the grid to be drawn; the claim then made takes
       // the terminal back all the same.
@@ -279,10 +291,27 @@ export class TerminalView {
     return true;
   }
 
-  submit(text: string): string | null {
-    if (!this.isReady || this.heldReason || this.isUnread || this.screenState?.isOpen || this.screenState?.hasDraft || !this.isSendable()) return null
+  // submit sends text as one paste and presses Enter, or, where isTyped, types
+  // it as keys and asks the relay for its Enter at once, which the relay
+  // presses once its screen shows the words on the prompt line alone and they
+  // have settled, as the board's own typed delivery does (sendNative). Timed
+  // here, the Enter was asked for before Claude Code had drawn the words, and
+  // the relay pressed none (#2848's review). It tells typed that the Enter
+  // waits and, once the relay answers, whether it pressed it, and says
+  // whether the message was sent, by its submission ID, or null. While that
+  // Enter waits it sends nothing, since what it sent would join the typed
+  // words, as it would words a screen shows left unsent.
+  submit(text: string, isTyped = false): string | null {
+    if (!this.isReady || this.heldReason || this.isUnread || this.typedEnter || this.screenState?.isOpen || this.screenState?.hasDraft || !this.isSendable()) return null
     const submission = crypto.randomUUID()
     this.send(JSON.stringify({ type: "submit", submission }))
+    if (isTyped) {
+      this.term.input(text, true)
+      this.typedEnter = { submission, text }
+      this.events.typed(text, "waiting")
+      this.send(JSON.stringify({ type: "enter", submission, text }))
+      return submission
+    }
     if (!this.paste(text) || !this.enter()) return null
     return submission
   }
@@ -369,8 +398,25 @@ export class TerminalView {
     this.element.removeEventListener("paste", this.pasteClipboard, true);
     this.term.element?.removeEventListener("wheel", this.wheelHistory, true);
     window.removeEventListener("pointerup", this.copy);
-    this.socket.onclose = null;
-    this.socket.close(1000);
+    if (this.typedEnter) {
+      // A view disposed while the Enter of a message typed as keys waits, as
+      // when a reconnect replaces it or he leaves for another goblin, keeps
+      // its connection until the relay says whether it pressed it, and tells
+      // typed then, though nothing shows the view (#2848's review). It
+      // acknowledges all the output it is sent meanwhile, so the relay never
+      // closes it as one fallen behind.
+      this.consumed = this.written;
+      this.send(JSON.stringify({ type: "ack", bytes: this.consumed }));
+      this.socket.onmessage = (event: MessageEvent<ArrayBuffer | string>) => {
+        if (typeof event.data === "string") { this.answerTypedEnter(event.data); return; }
+        this.consumed += event.data.byteLength;
+        this.send(JSON.stringify({ type: "ack", bytes: this.consumed }));
+      };
+      this.socket.onclose = () => this.endTypedEnter(false, true);
+    } else {
+      this.socket.onclose = null;
+      this.socket.close(1000);
+    }
     this.term.dispose();
     this.element.remove();
   }
@@ -384,12 +430,22 @@ export class TerminalView {
       const history = parseHistory(data);
       if (history !== null) { this.history = history; this.readyIfDrawn(); return; }
       const unread = parseUnread(data);
-      if (unread !== null) { this.isUnread = unread; this.events.unread(unread); return; }
+      if (unread !== null) {
+        this.isUnread = unread;
+        this.events.unread(unread);
+        return;
+      }
       const held = parseHeld(data);
       if (held !== null) { this.heldReason = held; this.events.held(held); return; }
       if (parseStream(data)) { this.isStreamSession = true; this.events.stream(); return; }
+      if (this.answerTypedEnter(data)) return;
       const screen = parseScreen(data);
-      if (screen !== null) { this.screenState = screen; this.events.screen(screen); this.readyIfDrawn(); return; }
+      if (screen !== null) {
+        this.screenState = screen;
+        this.events.screen(screen);
+        this.readyIfDrawn();
+        return;
+      }
       // The terminal took a size here in its output. xterm parses writes in
       // order and calls back after each, so the grid changes once the output
       // before the size is drawn, and before the output after it.
@@ -595,6 +651,29 @@ export class TerminalView {
     if (this.socket.readyState === WebSocket.OPEN) return true;
     this.events.unsent();
     return false;
+  }
+
+  // answerTypedEnter takes the relay's word on whether it pressed the Enter of
+  // the message typed as keys that asked for it, and whether it typed its
+  // words, and says whether text was such a word.
+  private answerTypedEnter(text: string): boolean {
+    const entered = parseEntered(text);
+    if (entered === null) return false;
+    if (entered.submission === this.typedEnter?.submission) this.endTypedEnter(entered.isPressed, entered.isTyped);
+    return true;
+  }
+
+  // endTypedEnter ends the wait of a message typed as keys, if one waits,
+  // telling typed whether its Enter was pressed and, where it was not,
+  // whether the relay typed its words, which is taken to be so when the
+  // connection closes first, and closes the connection a disposed view kept
+  // open for the relay's word on it.
+  private endTypedEnter(isPressed: boolean, isTyped: boolean): void {
+    if (!this.typedEnter) return;
+    const { text } = this.typedEnter;
+    this.typedEnter = undefined;
+    this.events.typed(text, isPressed ? "sent" : isTyped ? "unsent" : "untyped");
+    if (this.disposed) this.socket.close(1000);
   }
 
   private readonly copy = (): void => {

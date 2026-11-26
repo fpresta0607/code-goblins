@@ -17,14 +17,14 @@ import { isHarnessHeld, isPendingMessage, messagesTo, takesMessages } from "./me
 import { mentionAt, mentionedFiles, mentionFile, parseFiles } from "./mentions";
 import { cycleMode, MODE_NOT_SENT } from "./mode-cycle";
 import { shortModel } from "./model-name";
-import { parseCommands, sendable, slashOptions } from "./commands";
+import { isSentAsKeys, parseCommands, sendable, slashOptions } from "./commands";
 import { addPendingSend, removePendingSend, usePendingSends } from "./pending-sends";
 import { panelKey } from "./panel-keys";
 import { PopupList } from "./popup-list";
 import { QUEUED_NOTICE, QueuedMessage, TAKE_BACK_MESSAGE } from "./queued-message";
 import { RecentDictations } from "./recent-dictations";
 import { TOUCH_SCREEN } from "./small-screen";
-import { useTerminalLink, watchLink } from "./terminal-link";
+import { tellTyped, useTerminalLink, useTypedMessage, watchLink } from "./terminal-link";
 import { readClipboard } from "./terminal-keys";
 import { keepFile } from "./terminal-image";
 import { TerminalStatus } from "./terminal-status";
@@ -100,11 +100,13 @@ function boxText(text: string): string {
 
 // The message box under a session's messages, in place of its terminal's
 // input. With a live terminal Send, or Enter, types what he wrote as one
-// paste and presses Enter, through the terminal's own view (terminal-link.ts),
-// and Shift+Enter starts a new line. What keeps a message from the terminal
-// says so once beside the box: a busy program, typing a gate holds and a view
-// that is not live, connecting, reconnecting or closed, save it through the
-// durable queue, so a draft is never stranded in the box (2026-11-04). A
+// paste and presses Enter, or as keys where a message to Claude Code names a
+// /word after other words (#2848), through the terminal's own view
+// (terminal-link.ts), and Shift+Enter starts a new line. What keeps a
+// message from the terminal says so once beside the box: a busy program,
+// typing a gate holds and a view that is not live, connecting, reconnecting
+// or closed, save it through the durable queue, so a draft is never stranded
+// in the box (2026-11-04). A
 // screen of the harness's own open in its terminal that lists choices, a
 // question, a permission prompt or a picker, or one the relay could not read,
 // is drawn above the box as a list he picks from (harness-panel.tsx), and
@@ -171,6 +173,9 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   const queues = !!task && takesMessages(task);
   const link = useTerminalLink(terminal);
   const live = queues ? undefined : link;
+  // The message he last sent the terminal as keys, kept beside its link, so
+  // a box drawn again after he visited another goblin holds for it too.
+  const typedMessage = useTypedMessage(terminal);
   const draftKey = task?.id || terminal;
   const [draft, setDraft] = useState(() => storedDraft(draftKey));
   useEffect(() => storeDraft(draftKey, draft), [draftKey, draft]);
@@ -352,9 +357,19 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // board delivery, types into it, so a picker those drew is never shown as
   // his own menu and never takes his keys (cg-human-triggered-menus).
   const isHumanMenu = !!live?.screen?.submission;
+  // A list under the prompt line while it still shows the words of a message
+  // he sent as keys, as Claude Code suggests the skills or files the /word or
+  // @file it ends in names, asks nothing: the relay presses the message's
+  // Enter over it (#2848). So it is never drawn as his menu, and his messages
+  // wait for it, as for that line. The message holds the prompt line until,
+  // once its Enter is answered, the terminal shows that line without words
+  // (clearTyped in terminal-link.ts): a screen's binding to the message cannot
+  // tell, since the host keeps it through his own input after the message and
+  // binds a view a reconnect opens to his input (#2848's review).
+  const isTypedList = !!live && !!typedMessage && typedMessage.state !== "untyped" && !!live.screen?.hasDraft;
   const asksEnter = !!screenPanel?.hints.some((hint) => /\benter\b/i.test(hint));
   const isResult = !!screenPanel && !screenPanel.choices.length && !asksEnter && screenPanel.hints.some((hint) => /\bto close\b/i.test(hint));
-  const panel = screenPanel && isHumanMenu && (screenPanel.choices.length > 0 || asksEnter || isResult) ? screenPanel : null;
+  const panel = screenPanel && isHumanMenu && !isTypedList && (screenPanel.choices.length > 0 || asksEnter || isResult) ? screenPanel : null;
   const isAsking = !!panel && !isResult;
   // The permission mode the session's terminal shows, which Shift+Tab cycles.
   const mode = live?.screen?.mode ?? "";
@@ -364,7 +379,9 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // The harnesses' catalog is read as a box with a model button shows, so
   // its pane opens at once.
   useEngineCatalog(isShown && isEngineSupported);
-  const canChangeEngine = isEngineSupported && !queues && link?.phase === "live" && !link.isReconnecting && !!link.screen && !link.screen.isOpen && !link.isUnread && !link.held;
+  // While a message typed as keys waits for its Enter (#2848), the terminal
+  // takes no other input, so the controls wait with it.
+  const canChangeEngine = isEngineSupported && !queues && link?.phase === "live" && !link.isReconnecting && !!link.screen && !link.screen.isOpen && !link.isUnread && !link.held && typedMessage?.state !== "waiting";
   const unsentWhy = live?.phase === "closed" ? "Not sent. The terminal is closed." : live?.phase === "live" || live?.isReconnecting ? "Not sent. The terminal is reconnecting." : "Not sent. The terminal is connecting.";
   const recordedModel = model || task?.model || "";
   const recordedEffort = effort || task?.effort || "";
@@ -463,11 +480,30 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
   // screen of its own, not on the task being under way, which a goblin's is
   // while its harness waits at an empty prompt. A prompt line that holds words
   // never sent, typed in the terminal itself or put back when the harness was
-  // stopped, holds it too, since typed now it would join them. A box with no
-  // conversation, Classic's or the deck's, holds at such a screen or line too,
-  // through the board's queue it lists, and in a turn types into the
-  // harness's own queue. A compaction its hooks report holds it as a turn does.
-  const holdsForTurn = !isAsking && (isScreenOpen || !!live?.screen?.hasDraft || hasConversation && (isCompacting || !!live?.screen?.isWorking));
+  // stopped, holds it too, since typed now it would join them, and so does a
+  // message he sent as keys whose Enter still waits (#2848), whose words the
+  // screen may not show yet. A box with no conversation, Classic's or the
+  // deck's, holds at such a screen or line too, through the board's queue it
+  // lists, and in a turn types into the harness's own queue. A compaction its
+  // hooks report holds it as a turn does.
+  const holdsForTurn = !isAsking && (isScreenOpen || !!live?.screen?.hasDraft || !!live && typedMessage?.state === "waiting" || hasConversation && (isCompacting || !!live?.screen?.isWorking));
+  // A message he sent as keys whose Enter the terminal did not press, or
+  // could not deliver, says so over the box, the one drawn when the relay
+  // answered or, where he had left for another goblin, the one drawn once he
+  // is back. Its words stay out of the box where the relay typed them: they
+  // wait on the terminal's prompt line, and put back they would be typed
+  // twice. Words the relay never typed, as when custody's first answer is a
+  // hold, which drops what was typed while the relay waited for it and is
+  // told only after, go back into the box, as a send the board refused does
+  // (#2848's review).
+  useEffect(() => tellTyped(terminal, (message) => {
+    const text = message.state === "unsent" ? "Not sent. Its words wait unsent on the terminal's prompt line." : "Not sent.";
+    if (message.state === "untyped") {
+      setDraft((prior) => prior || message.words);
+      setUnsentText(text);
+    }
+    setNotice((prior) => ({ text, from: "box", count: prior.count + 1 }));
+  }), [terminal]);
   // A send the board has shown as its own action is no longer drawn from here.
   const sending = usePendingSends();
   useEffect(() => {
@@ -520,7 +556,11 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
         if (live?.paste(text.replace(/\s*\n\s*/g, " "))) afterSend(); else setUnsent(unsentWhy);
         return;
       }
-      if (live?.send(text)) {
+      // A file he added is named by its path, which Claude Code attaches only
+      // from a paste, so a message carrying one stays a paste.
+      const isTyped = !attached.length && isSentAsKeys(harness, text);
+      const submission = live?.send(text, isTyped);
+      if (submission) {
         afterSend();
         onSend?.();
       } else setUnsent(unsentWhy);

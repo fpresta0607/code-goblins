@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "./site";
 import { recordingBegins, slowMicrophone } from "./dictation-hold";
-import { at, box, card, field, GOBLIN, NAME, open, openGoblin, pasted, send, snapshot, typed } from "./session-board";
+import { asks, at, box, card, field, GOBLIN, NAME, open, openGoblin, pasted, send, snapshot, typed, type Relay } from "./session-board";
 
 test.describe("phone speech history", () => {
   test.use({ hasTouch: true });
@@ -125,6 +125,563 @@ test("Shift+Enter starts a new line, and the lines go as one paste", async ({ pa
 
   await expect.poll(() => typed(relay)).toContain(pasted("first line\rsecond line") + "\r");
 });
+
+// The Overlord, 2026-11-24 (#2848): a slash skill named after other words
+// never ran from Modern Chat. Claude Code runs a skill named there only from
+// keys, as its terminal types them, and Modern Chat pasted every message. A
+// skill as the first word is a command, which runs from a paste as before.
+// Typed words take their Enter from the relay, which presses it once its
+// screen shows them on the prompt line alone (relay.answer). shows is what the
+// relay's screen says of the prompt line, holding the typed words or not,
+// under a context gauge reading percent, which the box draws, so a test can
+// wait until the view has read the screen.
+const shows = (hasWords: boolean, percent = 12) => ({ type: "screen", working: false, open: false, asking: false, draft: hasWords, status: { gauge: percent + "% context used" } });
+const SHOWS_WORDS = shows(true);
+// What the box says of a typed message whose Enter was not pressed.
+const WORDS_WAIT_UNSENT = "Not sent. Its words wait unsent on the terminal's prompt line.";
+for (const [words, sent] of [
+  ["please run /ship now", ["please run /ship now", "\r"]],
+  ["first line\nthen run /ship", ["first line\nthen run /ship", "\r"]],
+  ["/ship now", [pasted("/ship now"), "\r"]],
+] as const) {
+  test(`Send puts ${JSON.stringify(words)} into Claude Code as its terminal sends it, then Enter`, async ({ page }) => {
+    // Arrange
+    const relay = await open(page);
+    await openGoblin(page);
+    await field(page).fill(words);
+
+    // Act: the relay presses typed words' Enter once they show.
+    await send(page).click();
+    if (sent[0] === words) {
+      await expect.poll(() => relay.typed.at(-1)).toBe(words);
+      await relay.answer();
+    }
+
+    // Assert
+    await expect.poll(() => relay.typed.slice(-2)).toEqual(sent);
+    await expect(field(page)).toHaveValue("");
+  });
+}
+
+// stopClock stands the board's clock still once its session is open, so a
+// test moves it on itself. The installed clock runs until it pauses, so it
+// pauses a second on, never at a moment a loaded machine has already passed.
+async function stopClock(page: Page) {
+  const now = new Date("2026-11-24T12:00:00Z");
+  await page.clock.install({ time: now });
+  await page.clock.pauseAt(new Date(now.getTime() + 1000));
+}
+
+// typeSkill sends a message that names a skill after other words to the
+// Claude Code goblin, on a stopped clock, once its words are in.
+async function typeSkill(page: Page, words = "please run /ship now") {
+  const relay = await open(page);
+  await openGoblin(page);
+  await stopClock(page);
+  await field(page).fill(words);
+  await send(page).click();
+  await expect.poll(() => relay.typed.at(-1)).toBe(words);
+  return relay;
+}
+
+// heard says each of before to the goblin's view, then screen, and waits
+// until the box draws screen's gauge: the relay's messages arrive in order,
+// so the view has read them all. A screen names the submission it is bound
+// to only when that is not the view's last.
+async function heard(page: Page, relay: Relay, screen: ReturnType<typeof shows> & { submission?: string }, ...before: object[]) {
+  for (const message of [...before, screen]) relay.say(message);
+  await expect(box(page).getByRole("status", { name: "Terminal status" })).toHaveText(screen.status.gauge);
+}
+
+// The relay presses a typed message's Enter once its screen shows the words
+// on the prompt line and they have settled, as the board's own typed delivery
+// does (sendNative), so the view asks for it as it types them, on a clock of
+// its own no more. Timed by the view, the Enter was asked for before Claude
+// Code had shown the words, and the relay pressed none (#2848's review).
+test("a message typed into Claude Code asks the relay for its Enter with its words as it types them, and nothing shows once the relay presses it", async ({ page }) => {
+  // Arrange and Act: the board's clock stands still.
+  const relay = await typeSkill(page);
+
+  // Assert
+  await expect.poll(() => relay.enters).toEqual([{ submission: relay.submissions.at(-1), text: "please run /ship now" }]);
+
+  // Act
+  await relay.answer();
+
+  // Assert: an Enter the relay pressed says nothing over the box.
+  await expect.poll(() => relay.typed.slice(-2)).toEqual(["please run /ship now", "\r"]);
+  await page.waitForTimeout(250);
+  await expect(box(page).getByRole("alert")).toHaveCount(0);
+});
+
+// A message he sends while a typed message's Enter waits would join its
+// words on the prompt line, so the board's queue holds it, as it does while
+// the line holds words.
+test("a message sent while a typed message's Enter waits goes to the board's queue, and nothing says it was not sent", async ({ page }) => {
+  // Arrange
+  const relay = await typeSkill(page);
+  const posts: string[] = [];
+  await page.route("**/api/actions", (route) => {
+    posts.push((route.request().postDataJSON() as { text?: string }).text ?? "");
+    return route.fulfill({ status: 202, json: { status: "queued" } });
+  });
+  await field(page).fill("and /review it");
+
+  // Act
+  await send(page).click();
+
+  // Assert
+  await expect.poll(() => posts).toEqual(["and /review it"]);
+  expect(relay.typed.at(-1)).toBe("please run /ship now");
+  await expect(box(page).getByRole("alert")).toHaveCount(0);
+});
+
+// The terminal takes no other input while a typed message's Enter waits, so
+// the model and effort controls wait with it, as they do while a session is
+// held: a pick or a command sent meanwhile was refused as though the
+// terminal were reconnecting, and a command typed in the box was lost.
+test("a /model or /effort typed while a typed message's Enter waits stays in the box, and the model's button is disabled until the Enter is pressed", async ({ page }) => {
+  // Arrange: the relay's screen shows an empty prompt line, so the controls can change the session.
+  const relay = await open(page);
+  await openGoblin(page);
+  await stopClock(page);
+  const actions: unknown[] = [];
+  await page.route("**/api/actions", (route) => { actions.push(route.request().postDataJSON()); return route.fulfill({ status: 202, json: {} }); });
+  await heard(page, relay, shows(false));
+  const model = box(page).getByRole("button", { name: "Change model", exact: true });
+  await expect(model).toBeEnabled();
+  await field(page).fill("please run /ship now");
+  await send(page).click();
+  await expect.poll(() => relay.typed.at(-1)).toBe("please run /ship now");
+  await expect(model).toBeDisabled();
+
+  for (const command of ["/model", "/effort high"]) {
+    // Act
+    await field(page).fill(command);
+    await field(page).press("Enter");
+
+    // Assert
+    await expect(box(page).getByRole("alert")).toHaveText("The model and effort controls need a connected, unheld session.");
+    await expect(field(page)).toHaveValue(command);
+  }
+  await expect(box(page).getByRole("menu")).toHaveCount(0);
+  expect(actions).toEqual([]);
+  expect(relay.typed.at(-1)).toBe("please run /ship now");
+
+  // Act: the relay presses the Enter.
+  await relay.answer();
+
+  // Assert: the controls come back once it is pressed.
+  await expect.poll(() => relay.typed.slice(-2)).toEqual(["please run /ship now", "\r"]);
+  await expect(model).toBeEnabled();
+});
+
+// A question the harness opens in the prompt line's place while the Enter
+// waits, as a permission prompt in a turn does, would take the Enter as its
+// answer, so the relay presses none over it, and the box says the words wait
+// unsent.
+test("a message typed into Claude Code whose Enter the relay does not press, as under a question in its prompt line's place, says its words wait unsent and asks no more", async ({ page }) => {
+  // Arrange
+  const relay = await typeSkill(page);
+  relay.shouldPressEnter = false;
+
+  // Act: a question takes the line's place while the Enter waits, and the
+  // relay presses none.
+  relay.say({ type: "screen", asking: true, open: true, working: false, panel: { rows: ["Do you want to proceed?"], choices: [{ text: "Yes", number: 1, focused: true }, { text: "No", number: 2 }] } });
+  await expect(asks(page)).toContainText("Do you want to proceed?");
+  await relay.answer();
+
+  // Assert
+  await expect(box(page).getByRole("alert")).toHaveText(WORDS_WAIT_UNSENT);
+  await page.waitForTimeout(250);
+  expect(relay.enters).toHaveLength(1);
+  expect(relay.typed.at(-1)).toBe("please run /ship now");
+});
+
+// The relay drops what is typed while typing is held, and presses no Enter
+// then.
+test("a message typed into Claude Code takes no Enter once typing is held, and the box says its words wait unsent", async ({ page }) => {
+  // Arrange
+  const relay = await typeSkill(page);
+
+  // Act: typing is held while the Enter waits.
+  await heard(page, relay, shows(true, 13), { type: "held", reason: "pipeline owns this task" });
+  await relay.answer();
+
+  // Assert
+  await expect(box(page).getByRole("alert")).toHaveText(WORDS_WAIT_UNSENT);
+  expect(relay.typed.at(-1)).toBe("please run /ship now");
+});
+
+test("a message typed into Claude Code whose connection the relay closes while its Enter waits takes no Enter, and the box says its words wait unsent", async ({ page }) => {
+  // Arrange
+  const relay = await typeSkill(page);
+
+  // Act
+  relay.drop();
+
+  // Assert
+  await expect(box(page).getByRole("alert")).toHaveText(WORDS_WAIT_UNSENT);
+  expect(relay.typed.at(-1)).toBe("please run /ship now");
+});
+
+// The box tells of the Enter of the message it sent last: the word that the
+// one before was sent is no word on the next.
+test("a second message typed into Claude Code whose connection closes while its Enter waits says its words wait unsent, though the first one's Enter was pressed", async ({ page }) => {
+  // Arrange: the first message's Enter is pressed, and its prompt line empties.
+  const relay = await typeSkill(page);
+  await relay.answer();
+  await expect.poll(() => relay.typed.slice(-2)).toEqual(["please run /ship now", "\r"]);
+  await heard(page, relay, shows(false, 13));
+  await field(page).fill("then run /review");
+  await send(page).click();
+  await expect.poll(() => relay.typed.at(-1)).toBe("then run /review");
+
+  // Act
+  relay.drop();
+
+  // Assert
+  await expect(box(page).getByRole("alert")).toHaveText(WORDS_WAIT_UNSENT);
+});
+
+// Claude Code's list of the skills the /word a typed message ends in names,
+// under the prompt line that still shows its words, as the relay reads it:
+// an open screen bound to his message, whose focused row reads as a choice.
+const SUGGESTS_SHIP = { ...SHOWS_WORDS, open: true, panel: { rows: [], choices: [{ text: "/ship    Ship the branch", focused: true }, { text: "/ship-docs    Ship the docs" }] } };
+
+// That list asks nothing, as the Enter pressed over it says, so the box draws
+// no question of it, and a message sent while the Enter waits is held in the
+// board's queue. Read as his question, it took that message as an answer,
+// pasted after the typed words, which the Enter then sent with them as one
+// message (#2848's review).
+test("a list Claude Code draws under a typed message's words is no question: the box draws none and queues a message sent while the Enter waits", async ({ page }) => {
+  // Arrange
+  const relay = await typeSkill(page, "first line\nthen run /ship");
+  const posts: string[] = [];
+  await page.route("**/api/actions", (route) => {
+    posts.push((route.request().postDataJSON() as { text?: string }).text ?? "");
+    return route.fulfill({ status: 202, json: { status: "queued" } });
+  });
+  await heard(page, relay, SUGGESTS_SHIP);
+  await field(page).fill("and /review it");
+
+  // Act
+  await send(page).click();
+
+  // Assert
+  await expect.poll(() => posts).toEqual(["and /review it"]);
+  await expect(asks(page)).toHaveCount(0);
+  expect(relay.typed.at(-1)).toBe("first line\nthen run /ship");
+  // Act: the relay presses the Enter over the list.
+  await relay.answer();
+  // Assert
+  await expect.poll(() => relay.typed.slice(-2)).toEqual(["first line\nthen run /ship", "\r"]);
+});
+
+// Only a list under the words of the message he typed as keys is that
+// message's. The relay's screens stay bound to the message through his own
+// input after it, so once its Enter was pressed and its prompt line has shown
+// without words, a list under words of his own input is his menu, after a
+// typed message as before one (#2848's review). Until then a screen can
+// still show its words under the list it drew for them.
+test("a list Claude Code draws under words of his own input once a typed message's Enter was pressed and its prompt line emptied is drawn as his menu", async ({ page }) => {
+  // Arrange: the Enter is pressed.
+  const relay = await typeSkill(page, "first line\nthen run /ship");
+  await relay.answer();
+  await expect.poll(() => relay.typed.slice(-2)).toEqual(["first line\nthen run /ship", "\r"]);
+
+  // Act and Assert: a screen read as the Enter went still shows the list
+  // under the message's words, which is still no question.
+  await heard(page, relay, { ...SUGGESTS_SHIP, status: { gauge: "13% context used" } });
+  await expect(asks(page)).toHaveCount(0);
+
+  // Act: the prompt line empties, and he types a skill's name in the
+  // terminal, under which Claude Code lists it.
+  await heard(page, relay, shows(false, 14));
+  await heard(page, relay, { ...SUGGESTS_SHIP, status: { gauge: "15% context used" } });
+
+  // Assert
+  await expect(asks(page)).toContainText("/ship");
+});
+
+// He leaves for another goblin while a typed message's Enter waits, which
+// takes the terminal and the box off the page, and comes back. The view that
+// typed the message keeps its connection until the relay answers,
+// acknowledging the output it is sent meanwhile, and the box holds the prompt
+// line for the message once he is back, as before he left. Back with nothing
+// of the message, the box stopped holding, or drew the list Claude Code
+// suggests under its words as his question, so his next message joined the
+// typed words, and the closed view's answer reached no one (#2848's review).
+for (const [how, screen] of [
+  ["shows no words yet", { ...shows(false, 13), submission: "his" }],
+  ["shows its words under the list Claude Code draws for them", { ...SUGGESTS_SHIP, submission: "his", status: { gauge: "13% context used" } }],
+] as const) {
+  test(`a typed message whose Enter waits while he visits another goblin holds the box once he is back and the terminal ${how}, and the box says what the relay did with it`, async ({ page }) => {
+    // Arrange: he leaves for another goblin while the Enter waits, and the
+    // view that typed the message acknowledges output it is sent meanwhile.
+    const relay = await typeSkill(page, "first line\nthen run /ship");
+    const posts: string[] = [];
+    await page.route("**/api/actions", (route) => {
+      posts.push((route.request().postDataJSON() as { text?: string }).text ?? "");
+      return route.fulfill({ status: 202, json: { status: "queued" } });
+    });
+    const address = relay.inputs.at(-1)?.address ?? "";
+    const acknowledged = () => relay.acknowledged.filter((ack) => ack.address === address).length;
+    const goblinViews = () => relay.addresses.filter((each) => new URL(each).searchParams.get("task") === GOBLIN.id).length;
+    const views = goblinViews();
+    await card(page, "Ivy - Window Painter").click();
+    await expect(page.locator("#panel-title")).toHaveText("Ivy - Window Painter");
+    const before = acknowledged();
+    relay.write("\r\n");
+    await expect.poll(acknowledged).toBeGreaterThan(before);
+
+    // Act: he comes back, and sends another message.
+    await card(page, NAME).click();
+    await expect(page.locator("#panel-title")).toHaveText(NAME);
+    await expect.poll(goblinViews).toBe(views + 1);
+    relay.say(screen);
+    await expect.poll(async () => {
+      await page.clock.runFor(50);
+      return box(page).getByRole("status", { name: "Terminal status" }).allTextContents();
+    }).toEqual(["13% context used"]);
+    await field(page).fill("and /review it");
+    await send(page).click();
+
+    // Assert
+    await expect.poll(() => posts).toEqual(["and /review it"]);
+    await expect(field(page)).toBeEnabled();
+    await expect(asks(page)).toHaveCount(0);
+    expect(relay.typed.at(-1)).toBe("first line\nthen run /ship");
+
+    // Act: the relay presses no Enter.
+    relay.shouldPressEnter = false;
+    await relay.answer();
+
+    // Assert
+    await expect(box(page).getByRole("alert")).toHaveText(WORDS_WAIT_UNSENT);
+    await expect.poll(() => relay.closed).toContain(address);
+  });
+}
+
+// The view he left keeps its connection only until the relay answers, and one
+// the relay closes first, as the board's restart does, ends the wait with no
+// box drawn: once he is back, the box says the words wait unsent, gives the
+// model back and types his next message. Still waiting, it queued every
+// message through the board and kept the model's button disabled until the
+// page reloaded (#2848's review).
+test("a typed message whose view he left is closed before its Enter is answered says its words wait unsent once he is back, and the box types his next one", async ({ page }) => {
+  // Arrange: he leaves for another goblin while the Enter waits.
+  const relay = await typeSkill(page);
+  const posts: string[] = [];
+  await page.route("**/api/actions", (route) => {
+    posts.push((route.request().postDataJSON() as { text?: string }).text ?? "");
+    return route.fulfill({ status: 202, json: { status: "queued" } });
+  });
+  await card(page, "Ivy - Window Painter").click();
+  await expect(page.locator("#panel-title")).toHaveText("Ivy - Window Painter");
+
+  // Act: the relay closes the view he left, and he comes back.
+  relay.drop();
+  await card(page, NAME).click();
+  await expect(page.locator("#panel-title")).toHaveText(NAME);
+
+  // Assert
+  await expect(box(page).getByRole("alert")).toHaveText(WORDS_WAIT_UNSENT);
+
+  // Act: the prompt line shows no words, and he sends another message.
+  relay.say({ ...shows(false, 13), submission: "his" });
+  await expect.poll(async () => {
+    await page.clock.runFor(50);
+    return box(page).getByRole("status", { name: "Terminal status" }).allTextContents();
+  }).toEqual(["13% context used"]);
+  await expect(box(page).getByRole("button", { name: "Change model", exact: true })).toBeEnabled();
+  await field(page).fill("then run /review");
+  await send(page).click();
+
+  // Assert
+  await expect.poll(() => relay.typed.at(-1)).toBe("then run /review");
+  expect(posts).toEqual([]);
+});
+
+// A view a reconnect replaced keeps its connection in the same way, and the
+// box hears what became of its Enter, though another view is the terminal's
+// now.
+test("a message typed into Claude Code whose view a reconnect replaces while its Enter waits says its words wait unsent when the relay then presses no Enter", async ({ page }) => {
+  // Arrange
+  const relay = await typeSkill(page);
+  const goblinViews = () => relay.addresses.filter((address) => new URL(address).searchParams.get("task") === GOBLIN.id).length;
+  const views = goblinViews();
+
+  // Act: the board's own stream drops and comes back, which opens the
+  // terminal's view again, and the new view replaces this one once whole;
+  // then the relay presses no Enter.
+  await page.evaluate(() => window.dispatchEvent(new Event("fixture-board-error")));
+  await page.clock.runFor(600);
+  await expect.poll(goblinViews).toBe(views + 1);
+  relay.say(shows(true, 13));
+  await expect.poll(async () => {
+    await page.clock.runFor(50);
+    return box(page).getByRole("status", { name: "Terminal status" }).allTextContents();
+  }).toEqual(["13% context used"]);
+  relay.shouldPressEnter = false;
+  await relay.answer();
+
+  // Assert
+  await expect(box(page).getByRole("alert")).toHaveText(WORDS_WAIT_UNSENT);
+});
+
+// A view a reconnect opens never took the typed message's submission, so the
+// host binds its screens to his own input, and the box read the list Claude
+// Code draws under the message's words as his question: it took his next
+// message as an answer, pasted onto the typed words (#2848's review). The
+// message holds the prompt line from its typing until, once its Enter is
+// answered, the terminal's screen shows that line without words, whatever
+// input the screen is bound to.
+test("a list Claude Code draws under a typed message's words is no question on a view a reconnect opened, until the prompt line shows without words", async ({ page }) => {
+  // Arrange: the board's own stream drops and comes back while the Enter
+  // waits, and the new view, bound to his input, is the terminal's.
+  const relay = await typeSkill(page, "first line\nthen run /ship");
+  relay.shouldPressEnter = false;
+  const posts: string[] = [];
+  await page.route("**/api/actions", (route) => {
+    posts.push((route.request().postDataJSON() as { text?: string }).text ?? "");
+    return route.fulfill({ status: 202, json: { status: "queued" } });
+  });
+  const goblinViews = () => relay.addresses.filter((address) => new URL(address).searchParams.get("task") === GOBLIN.id).length;
+  const views = goblinViews();
+  await page.evaluate(() => window.dispatchEvent(new Event("fixture-board-error")));
+  await page.clock.runFor(600);
+  await expect.poll(goblinViews).toBe(views + 1);
+  relay.say({ ...SUGGESTS_SHIP, submission: "his", status: { gauge: "13% context used" } });
+  await expect.poll(async () => {
+    await page.clock.runFor(50);
+    return box(page).getByRole("status", { name: "Terminal status" }).allTextContents();
+  }).toEqual(["13% context used"]);
+  await field(page).fill("and /review it");
+
+  // Act
+  await send(page).click();
+
+  // Assert
+  await expect.poll(() => posts).toEqual(["and /review it"]);
+  await expect(field(page)).toBeEnabled();
+  await expect(asks(page)).toHaveCount(0);
+  expect(relay.typed.at(-1)).toBe("first line\nthen run /ship");
+
+  // Act: the relay presses no Enter, so the words wait on the prompt line,
+  // under the list.
+  await relay.answer();
+  await expect(box(page).getByRole("alert")).toHaveText(WORDS_WAIT_UNSENT);
+  await heard(page, relay, { ...SUGGESTS_SHIP, submission: "his", status: { gauge: "14% context used" } });
+
+  // Assert
+  await expect(asks(page)).toHaveCount(0);
+
+  // Act: the prompt line empties, and he types a skill's name in the
+  // terminal, under which Claude Code lists it.
+  await heard(page, relay, { ...shows(false, 15), submission: "his" });
+  await heard(page, relay, { ...SUGGESTS_SHIP, submission: "his", status: { gauge: "16% context used" } });
+
+  // Assert
+  await expect(asks(page)).toContainText("/ship");
+});
+
+// When custody's first answer is a hold, the relay drops the submission and
+// the keys it held for that answer and tells the view of the hold only after,
+// so the words of a message sent as keys meanwhile are on no prompt line. The
+// relay says it never typed them, and they go back into the box, and the
+// message holds no prompt line after, so a list Claude Code draws under words
+// of his own input is his menu (#2848's review).
+test("a message typed into Claude Code whose keys the relay dropped, as under custody's first answer, goes back into the box, which says it was not sent, and a list drawn after under his own words is his menu", async ({ page }) => {
+  // Arrange: the relay sends screens, and drops what is typed.
+  const relay = await open(page);
+  await openGoblin(page);
+  await stopClock(page);
+  await heard(page, relay, shows(false));
+  relay.shouldDropTyping = true;
+  await field(page).fill("please run /ship now");
+  await send(page).click();
+  await expect(field(page)).toHaveValue("");
+
+  // Act: the relay answers the Enter, having typed none of the words.
+  await relay.answer();
+
+  // Assert
+  await expect(box(page).getByRole("alert")).toHaveText("Not sent.");
+  await expect(field(page)).toHaveValue("please run /ship now");
+  expect(relay.enters).toHaveLength(1);
+  expect(relay.typed).toEqual([]);
+
+  // Act: Claude Code lists the skills a /word of his own input names.
+  await heard(page, relay, { ...SUGGESTS_SHIP, submission: "his", status: { gauge: "13% context used" } });
+
+  // Assert
+  await expect(asks(page)).toContainText("/ship");
+});
+
+// The relay tells the view that typed a message whose keys it dropped, though
+// he has left for another goblin and that view is off the page, and the words
+// are back in the box once he comes back (#2848's review).
+test("a typed message whose keys the relay dropped while he visits another goblin is back in the box once he comes back, which says it was not sent", async ({ page }) => {
+  // Arrange: the relay sends screens and drops what is typed, and he leaves
+  // for another goblin while the Enter waits.
+  const relay = await open(page);
+  await openGoblin(page);
+  await stopClock(page);
+  await heard(page, relay, shows(false));
+  relay.shouldDropTyping = true;
+  await field(page).fill("please run /ship now");
+  await send(page).click();
+  await expect(field(page)).toHaveValue("");
+  await card(page, "Ivy - Window Painter").click();
+  await expect(page.locator("#panel-title")).toHaveText("Ivy - Window Painter");
+
+  // Act: the relay answers while he is away, and he comes back.
+  await relay.answer();
+  await card(page, NAME).click();
+  await expect(page.locator("#panel-title")).toHaveText(NAME);
+
+  // Assert
+  await expect(box(page).getByRole("alert")).toHaveText("Not sent.");
+  await expect(field(page)).toHaveValue("please run /ship now");
+  expect(relay.typed).toEqual([]);
+});
+
+// A file he added is named by its path, which Claude Code attaches only from
+// a paste.
+test("a message to Claude Code that names a skill after other words and carries a file goes as one paste naming the file, then Enter", async ({ page }) => {
+  // Arrange
+  const relay = await open(page);
+  const kept = "/home/goblin/composer-files/example.txt";
+  await page.route("**/api/composer/file**", (route) => route.fulfill({ status: 201, json: { path: kept } }));
+  await openGoblin(page);
+  await box(page).locator('input[type="file"]').setInputFiles({ name: "example.txt", mimeType: "text/plain", buffer: Buffer.from("read this attachment") });
+  await expect(box(page).getByRole("list", { name: "Attached files" })).toContainText("example.txt");
+  await field(page).fill("please run /ship now");
+
+  // Act
+  await send(page).click();
+
+  // Assert
+  await expect.poll(() => relay.typed.slice(-2)).toEqual([pasted("please run /ship now\r" + kept), "\r"]);
+});
+
+// Codex runs a skill named anywhere in a message, and pi one only as its
+// first word, from a paste as from keys, so their messages stay one paste.
+for (const harness of ["codex", "pi"] as const) {
+  test(`Send puts "please run /ship now" into ${harness} as one paste, then Enter`, async ({ page }) => {
+    // Arrange
+    const relay = await open(page, snapshot({}, { harness }));
+    await openGoblin(page);
+    await field(page).fill("please run /ship now");
+
+    // Act
+    await send(page).click();
+
+    // Assert
+    await expect.poll(() => relay.typed.slice(-2)).toEqual([pasted("please run /ship now"), "\r"]);
+  });
+}
 
 test("a message that starts with ! wears the danger edge while it does, and Send hands it to the board rather than the terminal", async ({ page }) => {
   const relay = await open(page);

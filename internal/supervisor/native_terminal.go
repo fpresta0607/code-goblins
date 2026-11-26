@@ -16,6 +16,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -62,6 +63,9 @@ type nativeRelay struct {
 	// held tells the view whether typing is held, and why, while the view has
 	// not been told that yet.
 	held []byte
+	// entered tells the view whether the Enter it asked for a message typed
+	// as keys was pressed, while the view has not been told that yet.
+	entered []byte
 	// screen tells the view what its harness's screen shows, while the view
 	// has not been told that yet, told is what the view was last told,
 	// and looking says a read of the screen is due. screenAt is how much
@@ -186,8 +190,19 @@ func (h *HTTP) announce(key string, cols, rows int) {
 // open the report carries it as a panel: its rows, its choices with the one in
 // focus, and the keys its footer names (harness.ReadPanel), so the board offers
 // it as a list he picks from, and the terminal's columns as its screen was
-// read, where its words wrapped. A goblin's session on stream-json pipes has
-// no terminal, and streamView relays its view instead.
+// read, where its words wrapped. A message the view typed as keys takes its
+// Enter from the relay (#2848): the view asks with
+// `{"type":"enter","submission":"...","text":"..."}` as it types the words,
+// and the relay waits for them to show on the terminal's screen and settle
+// before it presses Enter, as the board's own typed deliveries wait before
+// their submit key, beside the view's input and acknowledgements, which go
+// on meanwhile. It presses Enter only while typing is free, the submission
+// is the one it took last, no question takes the prompt line's place and
+// that line holds the message's words alone, and tells the view as
+// `{"type":"entered","submission":"...","pressed":true,"typed":true}` whether
+// it did, and whether it typed keys since it took that submission. A
+// goblin's session on stream-json pipes has no terminal, and streamView
+// relays its view instead.
 // custodyProbeBudget is how long a custody check has. no-mistakes'
 // sync --check reads the whole branch state and takes several seconds, and a
 // probe shorter than it reports every check as a failure of the check rather
@@ -271,6 +286,10 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	defer terminal.Close()
 	_ = terminal.MarkHis()
 
+	// entering counts the waits for a typed message's Enter, which end once
+	// the view has gone, before the terminal they press it in is closed.
+	var entering sync.WaitGroup
+	defer entering.Wait()
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	// mu guards custody: the hold until a first answer arrives, then the latest
@@ -397,8 +416,8 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		for {
 			relay.mu.Lock()
-			history, unread, held := relay.history, relay.unread, relay.held
-			relay.history, relay.unread, relay.held = nil, nil, nil
+			history, unread, held, entered := relay.history, relay.unread, relay.held, relay.entered
+			relay.history, relay.unread, relay.held, relay.entered = nil, nil, nil, nil
 			var size, output []byte
 			if len(relay.sizes) > 0 && relay.sizes[0].at == relay.sent {
 				size = relay.sizes[0].message
@@ -422,14 +441,14 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				screen, relay.screen = relay.screen, nil
 			}
 			closing := relay.closing
-			if len(relay.pending) > 0 || output != nil || size != nil || history != nil || unread != nil || held != nil || screen != nil {
+			if len(relay.pending) > 0 || output != nil || size != nil || history != nil || unread != nil || held != nil || screen != nil || entered != nil {
 				closing = nil
 			}
 			relay.mu.Unlock()
 			for _, message := range []struct {
 				kind websocket.MessageType
 				data []byte
-			}{{websocket.MessageText, history}, {websocket.MessageText, held}, {websocket.MessageText, size}, {websocket.MessageBinary, output}, {websocket.MessageText, unread}, {websocket.MessageText, screen}} {
+			}{{websocket.MessageText, history}, {websocket.MessageText, held}, {websocket.MessageText, size}, {websocket.MessageBinary, output}, {websocket.MessageText, unread}, {websocket.MessageText, screen}, {websocket.MessageText, entered}} {
 				if message.data == nil {
 					continue
 				}
@@ -444,7 +463,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				_ = view.Close(closing.Code, closing.Reason)
 				return
 			}
-			if history == nil && size == nil && output == nil && unread == nil && held == nil && screen == nil {
+			if history == nil && size == nil && output == nil && unread == nil && held == nil && screen == nil && entered == nil {
 				select {
 				case <-relay.wake:
 				case <-ctx.Done():
@@ -524,7 +543,85 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		defer mu.Unlock()
 		return custody, true
 	}
+	// pressTyped presses the Enter of a message the view typed as keys and
+	// says whether it did. It waits for the terminal's screen to show the
+	// words, read every nativeKeyPoll until shown ends, and reads it again
+	// nativeSubmitSettle later, as the CEO's typed delivery does
+	// (sendNative), since a harness busy or slow to read shows typed words
+	// seconds late, and takes an Enter that reaches it with them as part of
+	// them: read once as the view asked, the screen showed no words, and the
+	// relay pressed none (#2848's review). The screen is read, not taken from
+	// what the view was last told, which can be 300 ms or more behind: words
+	// another delivery typed behind keys the harness had not read yet join the
+	// message's, and a question drawn meanwhile in the prompt line's place
+	// would take the Enter as its answer. The wait ends with no Enter once
+	// the view has gone, typing is held, the relay took another submission
+	// or the harness asks.
+	pressTyped := func(shown context.Context, submission, text string) bool {
+		if refused, isReading := settled(); !isReading || refused != nil || binding.harness == nil {
+			return false
+		}
+		screens, readable := harness.NativeScreens(harness.Kind(binding.harness()))
+		if !readable {
+			return false
+		}
+		isFree := func() bool {
+			mu.Lock()
+			refused := custody
+			mu.Unlock()
+			relay.mu.Lock()
+			defer relay.mu.Unlock()
+			return refused == nil && relay.submission == submission
+		}
+		for {
+			screen, err := host.ReadScreen(record)
+			if err != nil || screens.IsAsking(screen) || !isFree() {
+				return false
+			}
+			if screens.Shows(screen, text) {
+				break
+			}
+			select {
+			case <-shown.Done():
+				return false
+			case <-time.After(nativeKeyPoll):
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(nativeSubmitSettle):
+		}
+		screen, err := host.ReadScreen(record)
+		return err == nil && ctx.Err() == nil && isFree() && typedAlone(screens, screen, text)
+	}
+	// awaitScreen reads the terminal's screen every nativeKeyPoll, within
+	// shown, until isSettled says it shows what the deliveries a typed
+	// message's Enter held must find once that Enter is answered, or the
+	// screen cannot be read.
+	awaitScreen := func(shown context.Context, isSettled func(harness.Screens, []string) bool) {
+		screens, readable := harness.NativeScreens(harness.Kind(binding.harness()))
+		if !readable {
+			return
+		}
+		for {
+			screen, err := host.ReadScreen(record)
+			if err != nil || isSettled(screens, screen) {
+				return
+			}
+			select {
+			case <-shown.Done():
+				return
+			case <-time.After(nativeKeyPoll):
+			}
+		}
+	}
 	view.SetReadLimit(1 << 20)
+	// isSubmissionTyped is whether keys were typed into the terminal since the
+	// relay took its last submission, which its answer to that submission's
+	// Enter tells the view: words a refused Enter left on the prompt line wait
+	// there, and the box takes back words a hold dropped (#2848's review).
+	isSubmissionTyped := false
 	for {
 		kind, data, err := view.Read(ctx)
 		if err != nil {
@@ -537,16 +634,77 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				Rows       int    `json:"rows"`
 				Bytes      int64  `json:"bytes"`
 				Submission string `json:"submission"`
+				Text       string `json:"text"`
 			}
-			if json.Unmarshal(data, &control) != nil || control.Type != "resize" && control.Type != "ack" && control.Type != "submit" {
-				_ = view.Close(websocket.StatusUnsupportedData, "A text message must be a resize, an acknowledgement or a submission.")
+			if json.Unmarshal(data, &control) != nil || control.Type != "resize" && control.Type != "ack" && control.Type != "submit" && control.Type != "enter" {
+				_ = view.Close(websocket.StatusUnsupportedData, "A text message must be a resize, an acknowledgement, a submission or its Enter.")
 				return
 			}
-			if control.Type == "submit" {
-				if control.Submission == "" || len(control.Submission) > 128 {
-					_ = view.Close(websocket.StatusUnsupportedData, "A submission needs an ID of at most 128 bytes.")
-					return
+			if (control.Type == "submit" || control.Type == "enter") && (control.Submission == "" || len(control.Submission) > 128) {
+				_ = view.Close(websocket.StatusUnsupportedData, "A submission needs an ID of at most 128 bytes.")
+				return
+			}
+			if control.Type == "enter" {
+				// The Enter waits beside the view's input, so its
+				// acknowledgements and resizes go on meanwhile. Its keys came
+				// before it, so whether the relay typed them is known now. No
+				// board delivery types into the terminal until it is answered
+				// (CEOConnection.awaitEnter).
+				relay.mu.Lock()
+				isTaken := control.Submission == relay.submission
+				relay.mu.Unlock()
+				submission, text, isTyped := control.Submission, control.Text, isTaken && isSubmissionTyped
+				answered := func() {}
+				if ceo := h.Service.Options.CEO; ceo != nil {
+					answered = ceo.awaitEnter(binding.key)
 				}
+				entering.Add(1)
+				go func() {
+					defer entering.Done()
+					defer answered()
+					// One bound holds both the wait for the words to show and
+					// the one for the screen the answer waits for, so the
+					// deliveries the Enter holds wait for its answer no longer
+					// than that bound and the settle before the Enter.
+					shown, cancelShown := awake.WithTimeout(ctx, nativeShown)
+					defer cancelShown()
+					isPressed := isTaken && pressTyped(shown, submission, text)
+					if isPressed && terminal.Input([]byte("\r")) != nil {
+						_ = view.Close(websocket.StatusGoingAway, "Input outcome is unknown. Inspect the terminal before typing again.")
+						return
+					}
+					// The answer releases the deliveries the Enter held, so it
+					// waits until the screen shows what they must find: once
+					// the Enter went, the words gone from the prompt line, as a
+					// harness draws them away late, and once an Enter whose
+					// keys the relay typed was refused, the words drawn there,
+					// since keys the harness has not read yet show nothing, and
+					// a delivery typed behind them joined them, which its own
+					// Enter then sent as one message (#2848's review).
+					switch {
+					case isPressed:
+						awaitScreen(shown, func(screens harness.Screens, screen []string) bool {
+							return !screens.ComposerHoldsPartOf(screen, text)
+						})
+					case isTyped:
+						awaitScreen(shown, func(screens harness.Screens, screen []string) bool {
+							return screens.Shows(screen, text)
+						})
+					}
+					answer, _ := json.Marshal(struct {
+						Type       string `json:"type"`
+						Submission string `json:"submission"`
+						IsPressed  bool   `json:"pressed"`
+						IsTyped    bool   `json:"typed"`
+					}{"entered", submission, isPressed, isTyped})
+					relay.mu.Lock()
+					relay.entered = answer
+					relay.mu.Unlock()
+					relay.signal()
+				}()
+				continue
+			}
+			if control.Type == "submit" {
 				refused, isReading := settled()
 				// The hold until the first answer refuses every submission, and
 				// so does every later refusal.
@@ -569,6 +727,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 					look.Reset(screenSettle)
 				}
 				relay.mu.Unlock()
+				isSubmissionTyped = false
 				continue
 			}
 			if control.Type == "ack" {
@@ -599,7 +758,23 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 			_ = view.Close(websocket.StatusGoingAway, "Input outcome is unknown. Inspect the terminal before typing again.")
 			return
 		}
+		isSubmissionTyped = true
 	}
+}
+
+// typedAlone reports whether screen shows the prompt line holding typed, the
+// words of a message sent as keys, and nothing beside them, under no question
+// that would take an Enter as its answer: what the relay presses that
+// message's Enter over. The words show to their end, so the harness has read
+// them all, and the line holds them or a run of them alone, as the CEO's
+// delivery submits only over its own words alone (#2541). Only a prompt line
+// the screen reads can show words beside them, so a screen whose prompt line
+// cannot be read takes the Enter once the words show, as that delivery
+// submits over one (#2848's review). A list the harness draws under that
+// line, as Claude Code suggests the skills a /word names, asks nothing, and
+// the Enter still sends the words over it (#2848).
+func typedAlone(screens harness.Screens, screen []string, typed string) bool {
+	return !screens.IsAsking(screen) && screens.Shows(screen, typed) && (!screens.ComposerHoldsText(screen) || screens.ComposerHoldsPartOf(screen, typed))
 }
 
 // nativeBinding is the terminal a native view shows: a task's, the

@@ -71,6 +71,10 @@ type CEOConnection struct {
 	// typing lets one writer at a time read and type into the CEO's native
 	// terminal, so a typed wake and a board send never share its composer.
 	typing sync.Mutex
+	// enters holds, by the terminal's key, the messages its views typed as
+	// keys and wait to press the Enter of, and entersMu guards it.
+	enters   map[string]*enterWait
+	entersMu sync.Mutex
 	// skipped is the newest untyped wake and why, as last recorded in
 	// ceoWakeSkipsFile, so each is recorded once.
 	skipped string
@@ -524,8 +528,70 @@ func (c *CEOConnection) SendNotice(ctx context.Context, identity, text string) (
 	return c.sendNative(ctx, identity, stampedForCEO(text), false, false)
 }
 
-// nativeSubmitSettle lets the CEO's harness take typed text before its submit
-// key.
+// enterWait is the messages a terminal's views typed as keys and wait to
+// press the Enter of: how many, and answered, closed once the last of them is
+// answered.
+type enterWait struct {
+	count    int
+	answered chan struct{}
+}
+
+// awaitEnter records that a view of the terminal key names waits to press the
+// Enter of a message it typed as keys, until the func it returns is called.
+// No board delivery types into that terminal meanwhile: keys its harness has
+// not read yet show nothing on its prompt line, and words typed behind them
+// would join the message's, as words the line shows would (#2848's review).
+func (c *CEOConnection) awaitEnter(key string) func() {
+	c.entersMu.Lock()
+	defer c.entersMu.Unlock()
+	if c.enters == nil {
+		c.enters = map[string]*enterWait{}
+	}
+	wait := c.enters[key]
+	if wait == nil {
+		wait = &enterWait{answered: make(chan struct{})}
+		c.enters[key] = wait
+	}
+	wait.count++
+	return func() {
+		c.entersMu.Lock()
+		defer c.entersMu.Unlock()
+		wait.count--
+		if wait.count == 0 {
+			delete(c.enters, key)
+			close(wait.answered)
+		}
+	}
+}
+
+// isEnterAwaited says whether a view of the terminal key names waits to press
+// the Enter of a message it typed as keys.
+func (c *CEOConnection) isEnterAwaited(key string) bool {
+	c.entersMu.Lock()
+	defer c.entersMu.Unlock()
+	return c.enters[key] != nil
+}
+
+// awaitEntersAnswered waits until no view of the terminal key names waits to
+// press the Enter of a message it typed as keys, and returns ctx's error if
+// ctx ends first.
+func (c *CEOConnection) awaitEntersAnswered(ctx context.Context, key string) error {
+	c.entersMu.Lock()
+	wait := c.enters[key]
+	c.entersMu.Unlock()
+	if wait == nil {
+		return nil
+	}
+	select {
+	case <-wait.answered:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// nativeSubmitSettle lets a harness take typed text before its submit key:
+// the CEO's, and one a native view typed a message into (nativeTerminal).
 const nativeSubmitSettle = 300 * time.Millisecond
 
 // claudeTypedUpTo is the longest line typed into a Claude Code CEO as keys.
@@ -549,7 +615,9 @@ const (
 )
 
 // nativeKeyPoll spaces the looks of a delivery to the native CEO that waits
-// for its screen to show a key taken before it presses the next. On
+// for its screen to show a key taken before it presses the next, and of a
+// native view's relay that waits for a typed message's words to show before
+// their Enter (nativeTerminal). On
 // 2026-11-19 a Claude Code 2.1.328 drew typed words 46 ms after they went and
 // queued them 35 ms after their Enter, and looks nativeConfirmPoll apart saw
 // each a quarter second late, so a message sent now reached its model 962 ms
@@ -557,7 +625,9 @@ const (
 const nativeKeyPoll = 50 * time.Millisecond
 
 // nativeShown bounds how long a delivery to the native CEO waits for the
-// text it typed to show on the CEO's prompt line, in time the machine ran. A
+// text it typed to show on the CEO's prompt line, and a native view's relay
+// for the words of a message the view typed (nativeTerminal), in time the
+// machine ran. A
 // harness busy in a turn reads its input late: on 2026-11-10 the live CEO's
 // Claude Code left typed input unread for more than three seconds again and
 // again, and a delivery that gave up after five left its words on the prompt
@@ -615,6 +685,11 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 	}
 	c.typing.Lock()
 	defer c.typing.Unlock()
+	// A message a view typed as keys holds the CEO's input until its Enter is
+	// pressed or refused, as words the input shows do (awaitEnter).
+	if c.isEnterAwaited(primary.Host) {
+		return Evaluation{Reason: "The CEO's input is not empty and ready. Your answer is queued; nothing was sent."}, ErrDeferred
+	}
 	delivery, err := host.DialDelivery(record)
 	if errors.Is(err, host.ErrNoDelivery) {
 		return Evaluation{}, fmt.Errorf("%w: %v; start the CEO again so its terminal can confirm what the board sends", ErrRejected, err)

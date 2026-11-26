@@ -318,6 +318,7 @@ func TestAConnectorGrantReportsOnlyANoticeThatDidNotReachTheGoblin(t *testing.T)
 			// Arrange
 			s, stateDir, _ := grantBoard(t)
 			asOverlordsBoard(s)
+			s.Options.CEO = &CEOConnection{State: stateDir}
 			liveNativeGoblin(t, stateDir, "task-1")
 			notices := deliverNotices(t, test.delivery)
 
@@ -336,5 +337,43 @@ func TestAConnectorGrantReportsOnlyANoticeThatDidNotReachTheGoblin(t *testing.T)
 				t.Fatalf("supervisor error = %q, want it reported: %v", lastError, test.isReportable)
 			}
 		})
+	}
+}
+
+// A connector's grant tells a goblin to re-source its credentials only once a
+// view of its terminal has answered the Enter of a message typed there as
+// keys, as every board delivery to a goblin waits for that answer: keys its
+// harness has not read yet show nothing on the prompt line, and the notice
+// typed behind them would join their words. Refused instead, the notice never
+// reached the goblin, since nothing sends it again (#2848's review).
+func TestAConnectorGrantTellsTheGoblinOnceAViewAnswersATypedMessagesEnter(t *testing.T) {
+	// Arrange
+	s, stateDir, _ := grantBoard(t)
+	asOverlordsBoard(s)
+	s.Options.CEO = &CEOConnection{State: stateDir}
+	liveNativeGoblin(t, stateDir, "task-1")
+	notices := deliverNotices(t, nil)
+	answered := s.Options.CEO.awaitEnter("task-1")
+
+	// Act: the grant, what it typed while the Enter waits, and the Enter's
+	// answer.
+	code, body := askTheBoard(t, s, "POST", "/api/connections/grant", `{"task":"task-1","generation":"g1","connection":"service:sample","action":"grant"}`, nil)
+	time.Sleep(300 * time.Millisecond)
+	held := slices.Clone(*notices)
+	answered()
+	s.credentialWork.Wait()
+
+	// Assert
+	if code != http.StatusOK || len(held) != 0 {
+		t.Fatalf("grant = %d %s, notices %q while the Enter waits, want the grant and none typed", code, body, held)
+	}
+	if len(*notices) != 1 || !strings.Contains((*notices)[0], "credentials refreshed: re-source") {
+		t.Fatalf("notices = %q once the Enter was answered, want the one re-source notice", *notices)
+	}
+	s.mu.Lock()
+	lastError := s.lastError
+	s.mu.Unlock()
+	if strings.Contains(lastError, "telling task-1 to load the credentials the Overlord granted") {
+		t.Fatalf("supervisor error = %q, want none for a notice that reached the goblin", lastError)
 	}
 }

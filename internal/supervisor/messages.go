@@ -140,6 +140,16 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 	if isRecorded && record.Phase == "stopped" {
 		return Evaluation{}, s.messageToCEO(a, a.TaskID+" was stopped before it could take it")
 	}
+	// A message a view typed as keys holds the goblin's prompt line until the
+	// relay answers its Enter (CEOConnection.awaitEnter), and a gate taking the
+	// branch is one way that wait ends, as the relay refuses the Enter on its
+	// custody tick. So the message waits for the answer before custody is read:
+	// read first, it let the message be typed into a goblin its gate then owned
+	// (#2848's review). sendGoblin waits as well, for the notices, which read
+	// no custody.
+	if s.Options.CEO.awaitEntersAnswered(ctx, a.TaskID) != nil {
+		return Evaluation{Reason: "Queued until " + a.TaskID + "'s prompt line is empty. It holds words that were never sent, and nothing is typed onto them.", SendNowWhy: "Its prompt line holds words that were never sent."}, ErrDeferred
+	}
 	// A goblin whose gate owns its branch takes no typing, so a message for it
 	// is kept as a durable queued action and delivered once custody is released.
 	// It never expires and is never handed to the CEO, because nothing is lost by
