@@ -30,6 +30,11 @@ func attachNative(stateDir, id string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "goblins attach: a native terminal is shown in a terminal, and this command has none")
 		return 1
 	}
+	client, ok := viewRecord(record, id, stderr)
+	if !ok {
+		return 1
+	}
+	defer client.Close()
 	resized := make(chan os.Signal, 1)
 	signal.Notify(resized, unix.SIGWINCH)
 	defer signal.Stop(resized)
@@ -39,11 +44,6 @@ func attachNative(stateDir, id string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	defer restore()
-	client, ok := viewRecord(record, id, stderr)
-	if !ok {
-		return 1
-	}
-	defer client.Close()
 	size := func() (int, int) {
 		cols, rows, err := pty.Size(out)
 		if err != nil {

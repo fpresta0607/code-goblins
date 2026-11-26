@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -134,5 +135,46 @@ func TestAskConsoleReadsKeysInATerminalAndPutsItBack(t *testing.T) {
 				t.Errorf("the keys typed at the menu were echoed: %q", before)
 			}
 		})
+	}
+}
+
+// The quick start's menu refuses where its output is no terminal, even with a
+// terminal for its keys, and leaves that terminal reading lines.
+func TestAskConsoleRefusesWhereItsOutputIsNoTerminal(t *testing.T) {
+	// Arrange
+	output := filepath.Join(t.TempDir(), "output")
+	terminal, err := pty.Start(pty.Spec{Args: []string{"sh", "-c", `exec "$0" "$1" >"$2"`, os.Args[0], "-test.run=^$", output}, Env: append(os.Environ(), askRole+"=1"), Cols: 80, Rows: 24})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = terminal.Close() })
+	go func() {
+		chunk := make([]byte, 4096)
+		for {
+			if _, err := terminal.Read(chunk); err != nil {
+				return
+			}
+		}
+	}()
+
+	// Act
+	if _, err := terminal.Write([]byte("hello\r")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	select {
+	case <-terminal.Done():
+	case <-time.After(30 * time.Second):
+		t.Fatal("the menu's program did not end")
+	}
+	written, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"chose 0, " + ErrNoConsole.Error(), `read line "hello", <nil>`} {
+		if !strings.Contains(string(written), want) {
+			t.Errorf("the menu's program wrote %q, want %q", written, want)
+		}
 	}
 }
