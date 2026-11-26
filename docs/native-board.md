@@ -2975,9 +2975,9 @@ On a small screen (40rem or less) the screen's box takes the page's own shape at
 **Take control**, from the board on this PC or his private board, makes him the browser's driver: each click, wheel turn, key and paste on the view's screen goes to the page through DevTools' Input domain, and while he drives the goblin's own commands are refused with "A person is driving this browser from the Code Goblins board. Wait until they hand it back, then try again.", except those that only set up a page the session attaches to.
 He takes sign-in steps from his phone, so his private board takes control too (#2900, CEO decision 1028736), knowing the gate proves that board his only by Tailscale's headers, which a program on this PC can forge: a take from there tells the CEO, as `screen: the Overlord took control of its browser from his own private board (by Tailscale's headers, which a program on this PC can forge)`.
 A board at any other address is told "Take control from the board on this PC or your private board.", and its takes, clicks and keys are dropped.
-While he drives, **Back** takes the page shown one entry back in its history, as a browser's back arrow does, and is disabled while the page has no entry before (#2901): the view's state says `can_go_back` while he drives, read from the page's history by the entries' IDs alone, never their addresses or titles.
+While he drives, **Back** takes the page shown exactly one entry back in its history, to the entry just before the one it is on, even one a browser's back arrow can skip, such as a page that sent itself on before he did anything on it, and is disabled while the page has no entry before (#2901): the view's state says `can_go_back` while he drives, read from the page's history by the entries' IDs alone, never their addresses or titles.
 Nothing typed on the screen is logged, kept or shown by the board.
-While the screen has the keyboard, F6 gives it back to the board.
+Take control and Back give the screen the keyboard, and while the screen has it, F6 gives it back to the board.
 **Hand back**, from any view, gives the browser back to the goblin with a few words of what he did, at most 300 characters, as a paste is at most 4000, each counted in characters whatever bytes they take.
 Control that no view shows for 30 minutes goes back to the goblin by itself.
 

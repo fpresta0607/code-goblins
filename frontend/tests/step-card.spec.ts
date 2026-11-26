@@ -166,12 +166,14 @@ test("Take control opens the goblin's own browser at the page, whose screen the 
 // He takes a sign-in step from his phone, on his private board, so a step
 // card's Take control drives the goblin's browser there as on the PC (CEO
 // decision 1028736), and a finger swiped up its screen scrolls the page down
-// as the wheel does, as he reads further down a sign-in page (#2900).
+// as the wheel does, as he reads further down a sign-in page, and leaves the
+// board under it where it was, while a tap still clicks and a swipe never
+// does (#2900).
 test.describe("on his private board at phone width", () => {
   const { viewport, userAgent, deviceScaleFactor, isMobile, hasTouch } = devices["Pixel 7"];
   test.use({ viewport, userAgent, deviceScaleFactor, isMobile, hasTouch });
 
-  test("Take control drives the goblin's browser, and a swipe up its screen scrolls the page down", async ({ page }) => {
+  test("Take control drives the goblin's browser, and a swipe up its screen scrolls the page down while a tap still clicks", async ({ page }) => {
     // Arrange
     const board = "https://pc.example.ts.net:4311";
     await servePages(page.context(), board);
@@ -215,12 +217,29 @@ test.describe("on his private board at phone width", () => {
     await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
 
     // Assert: the page is sent the wheel that scrolls 40% of its 800 pixels
-    // down, and no click.
+    // down, and no click, and the board under the screen did not move.
     expect(sent[0]).toEqual({ path: "/api/credentials/window", token: "fixture-token", body: { id: WINDOW, generation: "c".repeat(32) } });
     const scrolled = () => said.filter((message) => message.type === "mouse" && message.event === "mouseWheel").reduce((sum, message) => sum + Number(message.delta_y), 0);
     await expect.poll(scrolled).toBeGreaterThan(300);
     expect(scrolled()).toBeLessThan(340);
     expect(said.filter((message) => message.event === "mousePressed")).toEqual([]);
+    expect((await screen.boundingBox())!.y).toBeCloseTo(box.y, 0);
+
+    // Act: one finger taps the screen a quarter of the way across, half way
+    // down.
+    await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: box.x + box.width / 4, y: box.y + box.height / 2 }] });
+    await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+
+    // Assert: the tap is the one click the page is sent, where it was drawn.
+    const clicks = () => said.filter((message) => message.event === "mousePressed" || message.event === "mouseReleased");
+    await expect.poll(() => clicks().length).toBe(2);
+    const [pressed, released] = clicks();
+    expect(pressed).toMatchObject({ event: "mousePressed", button: "left", click_count: 1 });
+    expect(released).toMatchObject({ event: "mouseReleased", button: "left", click_count: 1 });
+    for (const click of [pressed, released]) {
+      expect(click.x as number).toBeCloseTo(320, -1);
+      expect(click.y as number).toBeCloseTo(400, -1);
+    }
   });
 });
 

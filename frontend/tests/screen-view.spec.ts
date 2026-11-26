@@ -205,9 +205,14 @@ for (const { width, height, label } of [{ width: 1440, height: 1200, label: "des
       await expect(back).toBeEnabled();
       await testInfo.attach(`back-${label}.png`, { body: await page.screenshot(), contentType: "image/png" });
       await back.click();
+      await page.keyboard.press("Enter");
 
-      // Assert: the view asks for the entry before, and names no page.
-      await expect.poll(() => relay.said.filter((message) => message.type === "back")).toEqual([{ type: "back" }]);
+      // Assert: the view asks for the entry before, names no page, and gives
+      // the screen the keyboard, so the Enter he presses next goes to the
+      // page and presses no second Back.
+      await expect.poll(() => relay.said.filter((message) => message.type === "key" && message.event === "keyDown").map((message) => message.key)).toEqual(["Enter"]);
+      expect(relay.said.filter((message) => message.type === "back")).toEqual([{ type: "back" }]);
+      await expect(screen(page).getByRole("application")).toBeFocused();
       relay.tell({ title: "Sign in", can_go_back: false });
       await expect(back).toBeDisabled();
       relay.tell({ is_driven: false });
@@ -338,7 +343,9 @@ test("a view on another machine watches the browser, can hand it back, and canno
   // Act: he drives it from the board on his PC.
   relay.tell({ is_driven: true, can_go_back: true });
 
-  // Assert: this view can hand it back, but sends nothing to the page.
+  // Assert: this view says where he drives it from, can hand it back, but
+  // sends nothing to the page.
+  await expect(screen(page).getByRole("status")).toHaveText(NAME + "'s browser is being driven from the board on your PC or your private board.");
   await expect(screen(page).getByRole("button", { name: "Hand back", exact: true })).toBeVisible();
   await expect(screen(page).getByRole("application")).toHaveCount(0);
   await expect(screen(page).getByRole("button", { name: "Back", exact: true })).toHaveCount(0);

@@ -255,6 +255,10 @@ export function ScreenView({ task, generation, name, instance, connected, isFull
     wantsKeyboard.current = true;
     send({ type: "take" });
   };
+  const back = () => {
+    send({ type: "back" });
+    canvas.current?.focus();
+  };
   const pageName = state?.hasPage ? (state.title || "an untitled page") + (state.host ? " on " + state.host : "") : "no page";
   const status = !isLive ? (connected ? "" : "Reconnecting to the board")
     : closedWhy ? ""
@@ -268,7 +272,7 @@ export function ScreenView({ task, generation, name, instance, connected, isFull
       {state && !state.isDriven && (state.canDrive
         ? <button type="button" className="primary" onClick={take}>Take control</button>
         : <span className="muted screen-note">{state.driveNote}</span>)}
-      {isDriving && <button type="button" disabled={!state.canGoBack} onClick={() => send({ type: "back" })}>Back</button>}
+      {isDriving && <button type="button" disabled={!state.canGoBack} onClick={back}>Back</button>}
     </div>
     {state?.isDriven && <form className="screen-hand-back" onSubmit={handBack}>
       <label>What you did <input ref={handBackWords} value={words} maxLength={300} autoComplete="off" placeholder="Signed in" onChange={(event) => setWords(event.target.value)} /></label>

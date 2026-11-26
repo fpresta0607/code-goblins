@@ -477,9 +477,10 @@ func TestScreenViewPassesOnlyInputTheInputDomainTakes(t *testing.T) {
 
 // A view on another machine never takes control, as one on this PC does or
 // one on his private board (TestHisPrivateBoardTakesControlOfAGoblinsBrowser),
-// and is told where to take it. Only once taken do a view's mouse and keys
-// reach the page. What a person types reaches the page alone: no file in the
-// home and no error the board shows holds it.
+// and is told where to take it. A take from this PC is not recorded for the
+// CEO, as one from his private board is. Only once taken do a view's mouse
+// and keys reach the page. What a person types reaches the page alone: no
+// file in the home and no error the board shows holds it.
 func TestScreenViewDrivesTheBrowserOnlyFromThisPCOrHisPrivateBoardAndOnlyOnceTaken(t *testing.T) {
 	for _, test := range []struct {
 		name     string
@@ -522,6 +523,10 @@ func TestScreenViewDrivesTheBrowserOnlyFromThisPCOrHisPrivateBoardAndOnlyOnceTak
 			}
 			if afterTake.IsDriven == test.isRemote || board.service.screens.isDriven(board.browser) == test.isRemote {
 				t.Fatalf("after take told %s", afterTake.raw)
+			}
+			pending, err := wake.Pending(service.Store.Home.State)
+			if err != nil || slices.ContainsFunc(pending, func(record wake.Record) bool { return strings.HasPrefix(record.Detail, "screen: ") }) {
+				t.Fatalf("the CEO's queue = %+v, %v, want no take recorded as from his private board", pending, err)
 			}
 			if !test.isRemote {
 				chrome.browser.waitFor(t, "Input.dispatchMouseEvent")
@@ -671,10 +676,56 @@ func TestScreenViewGoesBackOnlyWhileHeDrivesAPageWithAnEntryBefore(t *testing.T)
 	}
 }
 
+// While he drives a goblin's browser from this PC, a view of it on another
+// machine still sends its page nothing: its Back, mouse, key and paste are
+// dropped, and it is told it can neither take control nor go back, though
+// the page has an entry before.
+func TestScreenViewOnAnotherMachineNeitherDrivesNorGoesBackWhileHeDrivesFromThisPC(t *testing.T) {
+	// Arrange
+	chrome := &fakeGoblinChrome{browser: newFakeBrowser(targetInfo{ID: "login", Type: "page", Title: "Next", URL: "https://login.example.com/next"})}
+	chrome.browser.history = json.RawMessage(`{"currentIndex":1,"entries":[{"id":7},{"id":9}]}`)
+	service := screenService(t)
+	here := newScreenBoard(t, service, chrome, false).open(t)
+	elsewhere := newScreenBoard(t, service, chrome, true).open(t)
+	here.next(t)
+	elsewhere.next(t)
+	here.send(t, `{"type":"take"}`)
+	drivenHere, drivenElsewhere := here.next(t), elsewhere.next(t)
+
+	// Act
+	elsewhere.send(t, `{"type":"back"}`)
+	elsewhere.send(t, `{"type":"mouse","event":"mousePressed","x":10,"y":20,"button":"left","buttons":1,"click_count":1}`)
+	elsewhere.send(t, `{"type":"key","event":"keyDown","key":"a","code":"KeyA","key_code":65,"text":"a"}`)
+	elsewhere.send(t, `{"type":"text","text":"typed elsewhere"}`)
+	// A take is answered with what the view shows, so once it is, what the
+	// view sent before it has been taken.
+	elsewhere.send(t, `{"type":"take"}`)
+	afterSent := elsewhere.next(t)
+
+	// Assert
+	if !drivenHere.IsDriven || !drivenHere.CanGoBack {
+		t.Fatalf("the view on this PC was told %s, want him driving a page with an entry before", drivenHere.raw)
+	}
+	for _, told := range []screenSaid{drivenElsewhere, afterSent} {
+		if !told.IsDriven || told.CanDrive || told.CanGoBack {
+			t.Fatalf("the view on another machine was told %s, want him driving and no control or Back for it", told.raw)
+		}
+	}
+	chrome.browser.mu.Lock()
+	reached := slices.DeleteFunc(slices.Clone(chrome.browser.calls), func(call fakeCall) bool {
+		return !strings.HasPrefix(call.method, "Input.") && call.method != "Page.navigateToHistoryEntry"
+	})
+	chrome.browser.mu.Unlock()
+	if len(reached) != 0 {
+		t.Fatalf("the view on another machine reached the page with %+v", reached)
+	}
+}
+
 // End to end on the board: his Take control on a goblin's card opens the
 // card's link in the goblin's own browser, on the page it was on or a new
-// one, and gives him control there; his Hand back closes the card as done
-// with his words and gives the browser back to the goblin.
+// one, and gives him control there, which, taken on this PC, is not recorded
+// for the CEO as a take from his private board is; his Hand back closes the
+// card as done with his words and gives the browser back to the goblin.
 func TestStepCardTakeControlOpensItsLinkAndHandBackClosesItWithHisWords(t *testing.T) {
 	for _, test := range []struct {
 		name  string
@@ -705,6 +756,10 @@ func TestStepCardTakeControlOpensItsLinkAndHandBackClosesItWithHisWords(t *testi
 			// Assert
 			if response.Code != http.StatusOK || taken.WindowState != "open" || !isDrivenOnceTaken {
 				t.Fatalf("take control = %d %s, card %+v, driven %v", response.Code, response.Body, taken, isDrivenOnceTaken)
+			}
+			pending, err := wake.Pending(b.service.Store.Home.State)
+			if err != nil || slices.ContainsFunc(pending, func(record wake.Record) bool { return strings.HasPrefix(record.Detail, "screen: ") }) {
+				t.Fatalf("the CEO's queue = %+v, %v, want his take from this PC not recorded as from his private board", pending, err)
 			}
 			if test.pages == nil {
 				if created := chrome.browser.named("Target.createTarget"); len(created) != 1 || string(created[0].params) != `{"url":"https://example.com/login"}` {
