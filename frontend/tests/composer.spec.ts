@@ -669,10 +669,66 @@ test("a message typed into Claude Code whose view a reconnect replaces while its
   await expect(box(page).getByRole("alert")).toHaveText(WORDS_WAIT_UNSENT);
 });
 
-// Custody's first answer, a hold, is told to no view, and the relay drops the
-// submission and the keys it held for that answer, so the words of a message
-// sent as keys meanwhile are on no prompt line. The relay says it never typed
-// them, and they go back into the box (#2848's review).
+// A view a reconnect opens never took the typed message's submission, so the
+// host binds its screens to his own input, and the box read the list Claude
+// Code draws under the message's words as his question: it took his next
+// message as an answer, pasted onto the typed words (#2848's review). The
+// message holds the prompt line from its typing until, once its Enter is
+// answered, the terminal's screen shows that line without words, whatever
+// input the screen is bound to.
+test("a list Claude Code draws under a typed message's words is no question on a view a reconnect opened, until the prompt line shows without words", async ({ page }) => {
+  // Arrange: the board's own stream drops and comes back while the Enter
+  // waits, and the new view, bound to his input, is the terminal's.
+  const relay = await typeSkill(page, "first line\nthen run /ship");
+  relay.shouldPressEnter = false;
+  const posts: string[] = [];
+  await page.route("**/api/actions", (route) => {
+    posts.push((route.request().postDataJSON() as { text?: string }).text ?? "");
+    return route.fulfill({ status: 202, json: { status: "queued" } });
+  });
+  const goblinViews = () => relay.addresses.filter((address) => new URL(address).searchParams.get("task") === GOBLIN.id).length;
+  const views = goblinViews();
+  await page.evaluate(() => window.dispatchEvent(new Event("fixture-board-error")));
+  await page.clock.runFor(600);
+  await expect.poll(goblinViews).toBe(views + 1);
+  relay.say({ ...SUGGESTS_SHIP, submission: "his", status: { gauge: "13% context used" } });
+  await expect.poll(async () => {
+    await page.clock.runFor(50);
+    return box(page).getByRole("status", { name: "Terminal status" }).allTextContents();
+  }).toEqual(["13% context used"]);
+  await field(page).fill("and /review it");
+
+  // Act
+  await send(page).click();
+
+  // Assert
+  await expect.poll(() => posts).toEqual(["and /review it"]);
+  await expect(asks(page)).toHaveCount(0);
+  expect(relay.typed.at(-1)).toBe("first line\nthen run /ship");
+
+  // Act: the replaced view's wait ends and the relay presses no Enter, so
+  // the words wait on the prompt line, under the list.
+  await page.clock.runFor(3000);
+  await expect(box(page).getByRole("alert")).toHaveText(WORDS_WAIT_UNSENT);
+  await heard(page, relay, { ...SUGGESTS_SHIP, submission: "his", status: { gauge: "14% context used" } });
+
+  // Assert
+  await expect(asks(page)).toHaveCount(0);
+
+  // Act: the prompt line empties, and he types a skill's name in the
+  // terminal, under which Claude Code lists it.
+  await heard(page, relay, { ...shows(false, 15), submission: "his" });
+  await heard(page, relay, { ...SUGGESTS_SHIP, submission: "his", status: { gauge: "16% context used" } });
+
+  // Assert
+  await expect(asks(page)).toContainText("/ship");
+});
+
+// When custody's first answer is a hold, the relay drops the submission and
+// the keys it held for that answer and tells the view of the hold only after,
+// so the words of a message sent as keys meanwhile are on no prompt line. The
+// relay says it never typed them, and they go back into the box (#2848's
+// review).
 test("a message typed into Claude Code whose keys the relay dropped, as under custody's first answer, goes back into the box, which says it was not sent", async ({ page }) => {
   // Arrange: the relay sends screens, and drops what is typed.
   const relay = await open(page);

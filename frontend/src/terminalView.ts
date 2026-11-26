@@ -53,9 +53,8 @@ const WHEEL_MOUSE_MODES = new Set(["vt200", "drag", "any"]);
 
 // What became of a message typed as keys: its Enter waits, was pressed, or
 // was not pressed or could not reach the terminal, so its words wait unsent
-// on the harness's prompt line; the relay never typed its words; or, once
-// they were pressed or wait unsent, the prompt line showed without words.
-export type TypedState = "waiting" | "sent" | "unsent" | "untyped" | "cleared";
+// on the harness's prompt line; or the relay never typed its words.
+export type TypedState = "waiting" | "sent" | "unsent" | "untyped";
 
 export interface ViewEvents {
   // The input link is ready after replay; an opened surface also waits for
@@ -95,8 +94,7 @@ export interface ViewEvents {
   // at a screen of its own, and whether something of its own is open.
   screen: (state: ScreenState) => void;
   // What became of a message typed as keys, named by its submission: said
-  // as submit types its words, again as the wait for its Enter ends, and once
-  // a screen then shows its prompt line without words.
+  // as submit types its words, and again as the wait for its Enter ends.
   typed: (submission: string, state: TypedState) => void;
   // Full-screen programs own their history; while input is held or closed,
   // the conversation record is the readable history instead.
@@ -165,11 +163,6 @@ export class TerminalView {
   // last TYPED_ENTER_MS, which nothing restarts; and pressing once the relay
   // is asked for it, until the relay says whether it pressed it.
   private typedEnter: { submission: string; text: string; timer: ReturnType<typeof setTimeout> | undefined; step: "taking" | "showing" | "settling" | "pressing" } | undefined;
-  // The submission of the message typed as keys whose words its Enter sent
-  // or left on the prompt line, until a screen bound to it shows that line
-  // without words: the relay's screens stay bound to it through his own input
-  // after it, whose lists are his menus.
-  private typedOnLine = "";
   private readonly pin: PinnedLine;
   private pinFrame = 0;
   private historyEnd: number | null = null;
@@ -473,10 +466,6 @@ export class TerminalView {
       if (screen !== null) {
         this.screenState = screen;
         if (screen.submission === this.typedEnter?.submission) this.showTypedEnter(screen.hasDraft);
-        if (screen.submission === this.typedOnLine && !screen.hasDraft) {
-          this.typedOnLine = "";
-          this.events.typed(screen.submission, "cleared");
-        }
         this.events.screen(screen);
         this.readyIfDrawn();
         return;
@@ -771,9 +760,7 @@ export class TerminalView {
     const { submission, timer } = this.typedEnter;
     clearTimeout(timer);
     this.typedEnter = undefined;
-    const state = isPressed ? "sent" : isTyped ? "unsent" : "untyped";
-    if (state !== "untyped") this.typedOnLine = submission;
-    this.events.typed(submission, state);
+    this.events.typed(submission, isPressed ? "sent" : isTyped ? "unsent" : "untyped");
     if (this.disposed) this.socket.close(1000);
   }
 

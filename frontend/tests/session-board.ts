@@ -34,8 +34,9 @@ export interface Relay {
   // and it presses no Enter where it did not.
   enters: { submission: string; text: string }[];
   shouldPressEnter: boolean;
-  // Whether the relay drops each submission and every key unsaid, as while
-  // custody's first answer holds typing, which no view is told of.
+  // Whether the relay drops each submission and every key unsaid, as it drops
+  // what was typed while it waited for custody's first answer when that
+  // answer is a hold, which it tells the view of only after.
   shouldDropTyping: boolean;
   // Each view's acknowledgements of the output it drew, by its address.
   acknowledged: { address: string; bytes: number }[];

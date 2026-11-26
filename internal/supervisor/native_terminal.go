@@ -196,7 +196,8 @@ func (h *HTTP) announce(key string, cols, rows int) {
 // their submit key, and presses Enter only while typing is free, the
 // submission is the one it took last, no question takes the prompt line's
 // place and that line holds the message's words alone. It tells the view as
-// `{"type":"entered","submission":"...","pressed":true}` whether it did. A
+// `{"type":"entered","submission":"...","pressed":true,"typed":true}` whether
+// it did, and whether it typed keys since it took that submission. A
 // goblin's session on stream-json pipes has no terminal, and streamView
 // relays its view instead.
 // custodyProbeBudget is how long a custody check has. no-mistakes'

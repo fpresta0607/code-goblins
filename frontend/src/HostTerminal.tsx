@@ -9,8 +9,8 @@ import { TerminalTextSheet } from "./terminal-text-sheet";
 import { TerminalTouchTools } from "./terminal-touch-tools";
 import { isDetachedHold } from "./terminalInput";
 import { closedReason, ended, reconnects, type ScreenState, storedFontSize, storeFontSize } from "./terminalStream";
-import { offerLink } from "./terminal-link";
-import { TerminalView, type TypedState } from "./terminalView";
+import { offerLink, type TerminalLink } from "./terminal-link";
+import { TerminalView } from "./terminalView";
 import { useDictation } from "./useDictation";
 import { VoiceBubble } from "./VoiceBubble";
 
@@ -73,7 +73,14 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   // What last became of a message the box typed as keys, from any of this
   // terminal's views: one a reconnect replaced tells too, since it goes on
   // with an Enter that waited once disposed.
-  const [typed, setTyped] = useState<{ submission: string; state: TypedState } | null>(null);
+  const [typed, setTyped] = useState<TerminalLink["typed"]>(null);
+  // The submission of the message the box typed as keys whose Enter sent its
+  // words or left them on the prompt line, until the terminal's current view
+  // shows that line without words, when the message's claim on it ends. A
+  // screen's binding cannot tell: the host keeps it through his own input
+  // after the message, and binds a view a reconnect opens to his input, never
+  // to the message (#2848's review).
+  const typedOnLine = useRef("");
   // What a touch tool or a pasted picture met, for a moment, and the
   // terminal's text while it is laid out to select.
   const [feedback, showFeedback] = useClickFeedback();
@@ -122,6 +129,15 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
     const params = new URLSearchParams(query);
     params.set("token", instance);
     url.search = params.toString();
+    // showScreen makes state the terminal's screen, which ends the claim of a
+    // message typed as keys on the prompt line once it shows that line
+    // without words.
+    const showScreen = (state: ScreenState | null) => {
+      setScreen(state);
+      if (!typedOnLine.current || !state || state.hasDraft) return;
+      setTyped({ submission: typedOnLine.current, state: "cleared" });
+      typedOnLine.current = "";
+    };
     const view: TerminalView = new TerminalView(container, url, storedFontSize(), {
       ready: () => {
         if (!isActive) return;
@@ -141,7 +157,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
         setUnread(view.unread);
         setHeldWhy(view.held);
         setStream(view.stream);
-        setScreen(view.screen);
+        showScreen(view.screen);
         setUnsent(false);
         setReconnecting(false);
         setClosedWhy("");
@@ -182,8 +198,11 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
       held: (reason) => { if (current.current === view || !current.current) setHeldWhy(reason); },
       stream: () => { if (current.current === view || !current.current) setStream(true); },
       unsent: () => { if (current.current === view) setUnsent(true); },
-      screen: (state) => { if (current.current === view) setScreen(state); },
-      typed: (submission, state) => setTyped({ submission, state }),
+      screen: (state) => { if (current.current === view) showScreen(state); },
+      typed: (submission, state) => {
+        typedOnLine.current = state === "sent" || state === "unsent" ? submission : "";
+        setTyped({ submission, state });
+      },
       history: () => { if (current.current === view) onHistoryValue.current?.(); },
     });
     staged.current = view;

@@ -29,9 +29,10 @@ export interface TerminalLink {
   // What last became of a message send typed as keys, named by the
   // submission send returned: its Enter waits, was pressed, or was not
   // pressed or could not reach the terminal, so its words wait unsent on the
-  // prompt line, the relay never typed its words, or the prompt line has
-  // since shown without words (TypedState); null until one is typed.
-  typed: { submission: string; state: TypedState } | null;
+  // prompt line, or the relay never typed its words (TypedState); or, once
+  // they were pressed or wait unsent, the terminal's screen has since shown
+  // the prompt line without words (cleared); null until one is typed.
+  typed: { submission: string; state: TypedState | "cleared" } | null;
   // send types text as one paste and presses Enter, or as keys where isTyped,
   // and says whether it was sent, by its submission ID, or null; paste types
   // text as one paste with no Enter, and says whether it was sent; escape
