@@ -3,8 +3,8 @@ import { GOBLIN, NAME, open, snapshot } from "./session-board";
 
 // The Overlord, 2026-11-13: "if there's browser that's active I should always
 // have be able to click into it on the car" (#2559). A card that shows
-// Browser active opens what is active in a new tab: the Screen view of the
-// goblin's own browser while it runs, else the page it presents, on the
+// Browser active opens what is active: the goblin's panel on its Screen view
+// while its own browser runs, else the page it presents in a new tab, on the
 // board, on the Orchestration canvas and in the list the canvas becomes at
 // phone width, the CEO's card included.
 
@@ -55,21 +55,47 @@ test("a goblin that presents a page and runs no browser of its own has a Browser
   expect(address).toBe(PAGE_ADDRESS);
 });
 
-test("a goblin using its own browser opens its screen from Browser active, even while it presents a page", async ({ page }) => {
-  // Arrange
-  await open(page, presenting({ browser: true, browser_in_use: true }));
-  const shell = page.locator(".task-board .task-card-shell").filter({ hasText: NAME });
+// The Overlord, 2026-11-26: "browser active button in kanban and goblin cards
+// takes you to a different browser control window than the toggle in banner"
+// (#2930). While the goblin uses its own browser, Browser active selects its
+// card and shows its panel on the Screen view, the view the panel header's
+// switch and the chat's browser row show, in every layout that draws the
+// card, even while the goblin presents a page too.
+const LAYOUTS = [
+  { layout: "kanban board", width: 1440, cards: ".task-board .task-card-shell" },
+  { layout: "stacked board", width: 1440, cards: ".task-board .task-card-shell" },
+  { layout: "Orchestration canvas", width: 1440, cards: ".flow-node" },
+  { layout: "Orchestration list", width: 390, cards: ".workflow-node" },
+];
+for (const { layout, width, cards } of LAYOUTS) {
+  test(`on the ${layout} a goblin using its own browser shows it from Browser active in its panel's Screen view, as the panel's switch does`, async ({ page }) => {
+    // Arrange
+    await page.setViewportSize({ width, height: 900 });
+    await page.addInitScript((stacked) => localStorage.setItem("ceo-board-layout", stacked ? "stacked" : "kanban"), layout === "stacked board");
+    await page.routeWebSocket("**/api/screen?*", (socket) => socket.send(JSON.stringify({ type: "state", is_driven: false, can_drive: true, title: "Sign in", host: "shop.example.com", has_page: true })));
+    await open(page, presenting({ browser: true, browser_in_use: true }));
+    if (layout.startsWith("Orchestration")) await page.getByRole("button", { name: "Orchestration", exact: true }).click();
+    else await expect(page.locator(".workspace.kanban")).toHaveCount(layout === "kanban board" ? 1 : 0);
+    const shell = page.locator(cards).filter({ hasText: NAME });
+    const opener = shell.getByRole("button", { name: /^Browser active/ });
+    const tabs: string[] = [];
+    page.context().on("page", (tab) => tabs.push(tab.url()));
 
-  // Assert
-  await expect(shell.getByText("Browser active", { exact: true })).toHaveCount(1);
-  await expect(pageOpener(shell, NAME)).toHaveCount(0);
+    // Assert: the card says Browser active once and offers no presented page.
+    await expect(shell.getByText("Browser active", { exact: true })).toHaveCount(1);
+    await expect(pageOpener(shell, NAME)).toHaveCount(0);
 
-  // Act
-  const address = await opensInTab(page, shell.getByRole("button", { name: "Browser active: open " + NAME + "'s screen in a new tab", exact: true }));
+    // Act
+    await opener.click();
 
-  // Assert
-  expect(address).toBe("/?screen=" + GOBLIN.id);
-});
+    // Assert: the goblin's card is selected and its panel shows its browser
+    // on the Screen view, in this tab.
+    await expect(shell.locator(".task-card")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("group", { name: "Panel view", exact: true }).getByRole("button", { name: "Screen", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("region", { name: NAME + "'s browser", exact: true })).toBeVisible();
+    expect(tabs).toEqual([]);
+  });
+}
 
 for (const { view, width } of [{ view: "canvas", width: 1440 }, { view: "list", width: 390 }]) {
   test(`on the Orchestration ${view} the goblin's card and the CEO's each open the page they present`, async ({ page }) => {

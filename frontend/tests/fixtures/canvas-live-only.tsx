@@ -45,6 +45,6 @@ const isList = new URLSearchParams(location.search).has("list");
 
 createRoot(document.getElementById("root")!).render(<main style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
   {isList
-    ? <Lineage afkToggle={RESTING_AFK_TOGGLE} onOpenCeo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} />
-    : <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenCeo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} />}
+    ? <Lineage afkToggle={RESTING_AFK_TOGGLE} onOpenScreen={() => {}} onOpenCeo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} />
+    : <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenScreen={() => {}} onOpenCeo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} />}
 </main>);

@@ -34,11 +34,12 @@ export type BoardLayout = "kanban" | "stacked";
 // as a count that opens a rail of them, each of which opens its panel, and
 // selectedChild is the baby goblin whose panel shows. A merge train's card
 // opens its panel, and selectedTrain is the train whose panel shows.
-export function Board({ snapshot, layout, selected, selectedChild, selectedTrain, now, freshNow, afkToggle, onSelect, onChild, onSelectTrain, onOpenCeo, onOpenCommand, onStartCeo, presentations }: {
+export function Board({ snapshot, layout, selected, selectedChild, selectedTrain, now, freshNow, afkToggle, onSelect, onChild, onOpenScreen, onSelectTrain, onOpenCeo, onOpenCommand, onStartCeo, presentations }: {
   presentations:BoardActivity[]; layout: BoardLayout;
   snapshot: Snapshot; selected?: string; selectedChild?: string; selectedTrain?: string; now: number; freshNow: number;
   onSelect: (task: Task, source: HTMLElement) => void;
   onChild: (task: Task, child: TreeNode, source: HTMLElement) => void;
+  onOpenScreen: (task: Task, source: HTMLElement) => void;
   onSelectTrain: (train: MergeTrain, source: HTMLElement) => void;
   afkToggle: AfkToggleState;
   onOpenCeo: (source: HTMLElement) => void;
@@ -47,7 +48,7 @@ export function Board({ snapshot, layout, selected, selectedChild, selectedTrain
 }) {
   const next = nextInOrder(snapshot, now);
   const card = (task: Task, rank?: string) => <>
-    <TaskCard task={task} {...cardFacts(task, snapshot, presentations)} selected={selected === task.id} now={now} rank={rank} {...(task.id === next?.id ? { nextText: next.text, nextTone: next.tone } : {})} onSelect={onSelect} />
+    <TaskCard task={task} {...cardFacts(task, snapshot, presentations)} selected={selected === task.id} now={now} rank={rank} {...(task.id === next?.id ? { nextText: next.text, nextTone: next.tone } : {})} onSelect={onSelect} onOpenScreen={onOpenScreen} />
     {task.tree && hasRunningChildren(task.tree) && <TreeUnder goblin={task} tree={task.tree} title={goblinName(task)} now={now} selected={selectedChild} onOpen={(child, source) => onChild(task, child, source)} />}
   </>;
   const paused = resumeOrder(snapshot.tasks.filter((task) => taskColumn(task) === "Paused"), snapshot.tasks, now);

@@ -30,10 +30,10 @@ const snapshot = parseSnapshot({
 });
 
 function Fixture() {
-  if (view === "lineage") return <main className="canvas-region" style={{ width: "100%" }}><Lineage afkToggle={RESTING_AFK_TOGGLE} onOpenCeo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} /></main>;
-  if (view === "cards") return <Board afkToggle={RESTING_AFK_TOGGLE} snapshot={snapshot} layout="stacked" now={now} freshNow={now} presentations={[]} onSelect={() => {}} onChild={() => {}} onSelectTrain={() => {}} onOpenCeo={() => {}} onOpenCommand={() => {}} onStartCeo={() => {}} />;
+  if (view === "lineage") return <main className="canvas-region" style={{ width: "100%" }}><Lineage afkToggle={RESTING_AFK_TOGGLE} onOpenScreen={() => {}} onOpenCeo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} /></main>;
+  if (view === "cards") return <Board afkToggle={RESTING_AFK_TOGGLE} onOpenScreen={() => {}} onChild={() => {}} snapshot={snapshot} layout="stacked" now={now} freshNow={now} presentations={[]} onSelect={() => {}} onSelectTrain={() => {}} onOpenCeo={() => {}} onOpenCommand={() => {}} onStartCeo={() => {}} />;
   return <main style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
-    <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenCeo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} />
+    <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenScreen={() => {}} onOpenCeo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} />
   </main>;
 }
 watchTips();

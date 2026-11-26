@@ -14,7 +14,7 @@ import { cardFacts, TaskCard } from "./TaskCard";
 import { CeoCardFacts } from "./ceo-card-facts";
 import type { AfkToggleState } from "./useAfkToggle";
 
-export function Lineage({ snapshot, project, selected, onSelect, onOpenCeo, afkToggle, effects, presentations, now, freshNow }: {
+export function Lineage({ snapshot, project, selected, onSelect, onOpenScreen, onOpenCeo, afkToggle, effects, presentations, now, freshNow }: {
   presentations:BoardActivity[];
   snapshot: Snapshot;
   now: number;
@@ -23,6 +23,9 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCeo, afkT
   project: string;
   selected: Selection | null;
   onSelect: (selection: Selection, source: HTMLElement) => void;
+  // onOpenScreen shows a goblin's panel on its Screen view, from its card's
+  // Browser active.
+  onOpenScreen: (task: Task, source: HTMLElement) => void;
   // onOpenCeo opens the CEO's terminal, from its card's button.
   onOpenCeo: (source: HTMLElement) => void;
   afkToggle: AfkToggleState;
@@ -84,14 +87,14 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCeo, afkT
         <div className={"workflow-node role-" + node.role + (owner && task ? " has-task" : "") + (activity.created ? " node-enter" : "") + (selected?.session === node.id ? " selected" : "")}>
           {glow && <span key={glow.id} ref={playFrom(glow.expires - EFFECT_MS)} className="activity-glow" aria-hidden="true" />}
           {owner && task ? <TaskCard task={task} {...cardFacts(task, snapshot, presentations)} selected={selected?.session === node.id || selected?.task === task.id} now={now}
-            onSelect={selectTask} /> : <button className="node-select" aria-pressed={selected?.session === node.id}
+            onSelect={selectTask} onOpenScreen={onOpenScreen} /> : <button className="node-select" aria-pressed={selected?.session === node.id}
             onClick={(event) => onSelect(node.id === CEO_ROOT ? {} : { session: node.id }, event.currentTarget)}>
             <Avatar persona={personaFor(task, node)} small /><span className="node-role">{sessionRole(node)}</span>
             <strong>{title}</strong>{task?.project && <span className="project-label">{task.project}</span>}
             {(!owner || task?.goblin_name) && node.role !== "ceo" && task?.title && <span className="node-task">Task: {withoutHarness(task.title)}</span>}
             <span className="node-status">{nodeStatus(node.id === CEO_ROOT && family.ceo ? family.ceo : { id: node.id, title, task, session: node, relation: node.relation }, false, snapshot.tasks, snapshot.merge_trains)}</span>
           </button>}
-          {(page || hasCeoFacts) && <div className="node-facts"><BrowserActive name={title} screen="" page={page} />{hasCeoFacts && <CeoCardFacts snapshot={snapshot} now={freshNow} afkToggle={afkToggle} onOpenCeo={onOpenCeo} />}</div>}
+          {(page || hasCeoFacts) && <div className="node-facts"><BrowserActive name={title} page={page} />{hasCeoFacts && <CeoCardFacts snapshot={snapshot} now={freshNow} afkToggle={afkToggle} onOpenCeo={onOpenCeo} />}</div>}
           {descendants.length > 0 && <button className="node-disclosure" aria-expanded={!isCollapsed}
             aria-label={(isCollapsed ? "Expand" : "Collapse") + " children of " + title} onClick={() => toggle(node.id)}>
             <Chevron collapsed={isCollapsed} />
@@ -110,7 +113,7 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCeo, afkT
     return <li className="workflow-branch" key={"task:" + task.id}>
       <div className="node-group">
         <div className={"workflow-node has-task" + (selected?.task === task.id ? " selected" : "")}>
-          <TaskCard task={task} {...cardFacts(task, snapshot, presentations)} selected={selected?.task === task.id} now={now} onSelect={selectTask} />
+          <TaskCard task={task} {...cardFacts(task, snapshot, presentations)} selected={selected?.task === task.id} now={now} onSelect={selectTask} onOpenScreen={onOpenScreen} />
         </div>
       </div>
       {task.tree && hasRunningChildren(task.tree) && <TreeUnder goblin={task} tree={task.tree} title={title} now={now} selected={selected?.task === task.id ? selected.child : undefined} onOpen={(child, source) => onSelect(childSelection(task, child), source)} />}
