@@ -81,8 +81,9 @@ type run struct {
 
 // StartTree starts cmd, made with Command or CommandContext, as a tree:
 // every process it starts inherits the tree's mark (TreeVariable), and a cmd
-// started in a process group of its own (Setpgid) keeps what it starts in
-// that group, so End ends all of it, a helper whose parent already exited
+// started in a process group of its own (Setpgid), or in a session of its
+// own (Setsid), whose leader leads a group too, keeps what it starts in that
+// group, so End ends all of it, a helper whose parent already exited
 // included. Nothing ends the tree should this process end first, as a job
 // that ends with its last handle does on Windows. A cmd made with
 // CommandContext is ended as a tree when its context ends. Once cmd has been
@@ -125,7 +126,7 @@ func startMarked(cmd *exec.Cmd, mark string) (*Tree, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	if attributes := cmd.SysProcAttr; attributes != nil && attributes.Setpgid && attributes.Pgid == 0 {
+	if attributes := cmd.SysProcAttr; attributes != nil && (attributes.Setsid || attributes.Setpgid && attributes.Pgid == 0) {
 		tree.group = cmd.Process.Pid
 	}
 	return tree, nil
