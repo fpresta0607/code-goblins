@@ -195,3 +195,34 @@ func (r Reader) UsualStepTimes(ctx context.Context) (map[string]time.Duration, e
 	}
 	return usual, nil
 }
+
+// StepHarness is a gate step on the harness its run's agents ran on.
+type StepHarness struct {
+	Step    string
+	Harness string
+}
+
+// UsualRoundTimes is how long a round of each step usually runs on this
+// machine on each harness: the time nine in ten of its recorded rounds took,
+// a fix round counted as a round of its own. A run's harness is the one its
+// agents ran on, kimi's recorded as acp:kimi read as kimi, and a run whose
+// agents ran on none has no harness to measure it by. A step that has no
+// round on record on a harness has no time for it.
+func (r Reader) UsualRoundTimes(ctx context.Context) (map[StepHarness]time.Duration, error) {
+	var rows []struct {
+		Step    string `json:"step"`
+		Harness string `json:"harness"`
+		Seconds int64  `json:"seconds"`
+	}
+	q := `WITH harnesses AS (SELECT run_id,MAX(CASE WHEN instr(agent,':')>0 THEN substr(agent,instr(agent,':')+1) ELSE agent END) AS harness FROM agent_invocations GROUP BY run_id),
+rounds AS (SELECT s.step_name AS step,h.harness,d.duration_ms AS ms FROM step_rounds d JOIN step_results s ON s.id=d.step_result_id JOIN harnesses h ON h.run_id=s.run_id WHERE d.duration_ms>0)
+SELECT step,harness,MAX(ms)/1000 AS seconds FROM (SELECT step,harness,ms,PERCENT_RANK() OVER (PARTITION BY step,harness ORDER BY ms) AS ranked FROM rounds) WHERE ranked<=0.9 GROUP BY step,harness`
+	if err := r.query(ctx, q, &rows); err != nil {
+		return nil, err
+	}
+	usual := map[StepHarness]time.Duration{}
+	for _, row := range rows {
+		usual[StepHarness{Step: row.Step, Harness: row.Harness}] = time.Duration(row.Seconds) * time.Second
+	}
+	return usual, nil
+}
