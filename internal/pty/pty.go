@@ -31,6 +31,10 @@ type Spec struct {
 	// process's.
 	Env        []string
 	Cols, Rows int
+	// Processors is the mask of the processor threads the process and
+	// everything it starts may run on; 0 leaves them where this process may
+	// run. Only Linux keeps a process to threads.
+	Processors uintptr
 }
 
 // Terminal is one running pseudo terminal and the process in it. The process
@@ -91,7 +95,7 @@ func Start(spec Spec) (*Terminal, error) {
 	// terminal of the session Setsid starts.
 	cmd.SysProcAttr.Setsid = true
 	cmd.SysProcAttr.Setctty = true
-	tree, err := execx.StartTree(cmd)
+	tree, err := startTree(cmd, spec.Processors)
 	if err != nil {
 		ptmx.Close()
 		return nil, fmt.Errorf("pty: start %s: %w", spec.Args[0], err)

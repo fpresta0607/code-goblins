@@ -32,7 +32,14 @@ type output struct {
 // as it comes, and closes the terminal when the test ends.
 func start(t *testing.T, script string, cols, rows int) (*Terminal, *output) {
 	t.Helper()
-	terminal, err := Start(Spec{Args: []string{"sh", "-c", script}, Cols: cols, Rows: rows})
+	return startSpec(t, Spec{Args: []string{"sh", "-c", script}, Cols: cols, Rows: rows})
+}
+
+// startSpec runs spec in a terminal, reads its output as it comes, and closes
+// the terminal when the test ends.
+func startSpec(t *testing.T, spec Spec) (*Terminal, *output) {
+	t.Helper()
+	terminal, err := Start(spec)
 	if err != nil {
 		t.Fatal(err)
 	}
