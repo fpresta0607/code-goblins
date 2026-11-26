@@ -40,5 +40,5 @@ const snapshot = parseSnapshot({
 });
 watchTips();
 createRoot(document.getElementById("root")!).render(<main style={{ height: "100vh", width: isNarrow ? 836 : "100%", display: "flex", flexDirection: "column" }}>
-  <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenCeo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} />
+  <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenScreen={() => {}} onOpenCeo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} />
 </main>);
