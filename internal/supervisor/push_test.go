@@ -27,6 +27,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/handoff"
 	"github.com/fpresta0607/code-goblins/internal/remoteaccess"
 	"github.com/fpresta0607/code-goblins/internal/webpush"
 )
@@ -203,6 +204,43 @@ func TestEachNewItemIsPushedWithHowManyWait(t *testing.T) {
 	payload := pushed(t, sent[0])
 	if payload["title"] != "CEO" || payload["body"] != "The CEO asks: May I merge the release train now?" || payload["count"] != float64(2) || !strings.HasPrefix(payload["tag"].(string), "question:ceo-question-2@") {
 		t.Errorf("pushed %v, want the new question in the CEO's words, its key, and a count of 2", payload)
+	}
+}
+
+// The cloud's work into a handed-off goblin's branch is pushed once a
+// snapshot that shows it is built, as the board open on his phone builds one
+// at each change, in the words the desktop window notifies it.
+func TestCloudWorkIsPushedOnceASnapshotShowsIt(t *testing.T) {
+	// Arrange
+	p := newPushService(t, http.StatusCreated)
+	s, _ := badgeBoard(t, p, phone)
+	var mu sync.Mutex
+	var seenInTheCloud []handoff.CloudSighting
+	s.buildSnapshot = func() (Snapshot, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		return Snapshot{Instance: s.Instance, Tasks: []Task{{ID: "olive-task", Title: "Olive", CloudHandoff: &CloudHandoff{PullRequest: "https://github.com/o/r/pull/209", Cloud: seenInTheCloud}}}}, nil
+	}
+	seen := pushNewly(t, s, nil)
+
+	// Act
+	mu.Lock()
+	seenInTheCloud = []handoff.CloudSighting{{PullRequest: cloudPullRequest, Title: "Name the bad header", Author: "o", Head: cloudHead, SeenAt: time.Now().UTC()}}
+	mu.Unlock()
+	s.notify()
+	if _, err := s.SnapshotSince(s.Revision()); err != nil {
+		t.Fatal(err)
+	}
+	pushNewly(t, s, seen)
+
+	// Assert
+	sent := p.sent()
+	if len(sent) != 1 {
+		t.Fatalf("pushed %d, want one push for the cloud's work", len(sent))
+	}
+	payload := pushed(t, sent[0])
+	if payload["title"] != "Olive" || payload["body"] != "Olive has cloud work ready: Name the bad header" || payload["count"] != float64(1) || !strings.HasPrefix(payload["tag"].(string), "cloud:olive-task:"+cloudPullRequest+"@"+cloudHead+"@") {
+		t.Errorf("pushed %v, want the cloud's work in Olive's words, its key, and a count of 1", payload)
 	}
 }
 

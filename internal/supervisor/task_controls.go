@@ -205,28 +205,8 @@ func (s *Service) changeTask(input lifecycleRequest) error {
 	// An interrupted launch may already be using its memory. The shared
 	// CLI proves it is running, or enforces the floor before a new launch.
 	if input.Action == "resume" && !isInterrupted {
-		memory, err := s.Options.Dispatch.Memory()
-		if err != nil {
-			return fmt.Errorf("free memory cannot be read, so the goblin does not resume: %w", err)
-		}
-		meta, err := state.ReadTaskMeta(s.Store.Home.State, input.Task)
-		if err != nil {
-			return fmt.Errorf("the goblin's task record cannot be read, so it does not resume: %w", err)
-		}
-		harness, _, err := ResumeEngine(s.Store.Home.State, meta)
-		if err != nil {
+		if err := s.checkResumeRoom(input.Task); err != nil {
 			return err
-		}
-		room, err := s.room(time.Now().UTC())
-		if err != nil {
-			return fmt.Errorf("the room for a start cannot be read, so the goblin does not resume: %w", err)
-		}
-		disk, err := s.machineDisk()
-		if err != nil {
-			return fmt.Errorf("free disk cannot be read, so the goblin does not resume: %w", err)
-		}
-		if err := CheckLaunch(memory, room, harness, disk); err != nil {
-			return taskRefusal{reason: err.Error(), isPassing: true}
 		}
 	}
 	command := input.Action
@@ -277,6 +257,36 @@ func (s *Service) changeTask(input lifecycleRequest) error {
 		s.runAsked()
 	}()
 	s.notify()
+	return nil
+}
+
+// checkResumeRoom says why task's goblin may not resume now: memory, the
+// room for a start or disk is short, which passes by itself, or one of them
+// cannot be read.
+func (s *Service) checkResumeRoom(task string) error {
+	memory, err := s.Options.Dispatch.Memory()
+	if err != nil {
+		return fmt.Errorf("free memory cannot be read, so the goblin does not resume: %w", err)
+	}
+	meta, err := state.ReadTaskMeta(s.Store.Home.State, task)
+	if err != nil {
+		return fmt.Errorf("the goblin's task record cannot be read, so it does not resume: %w", err)
+	}
+	harness, _, err := ResumeEngine(s.Store.Home.State, meta)
+	if err != nil {
+		return err
+	}
+	room, err := s.room(time.Now().UTC())
+	if err != nil {
+		return fmt.Errorf("the room for a start cannot be read, so the goblin does not resume: %w", err)
+	}
+	disk, err := s.machineDisk()
+	if err != nil {
+		return fmt.Errorf("free disk cannot be read, so the goblin does not resume: %w", err)
+	}
+	if err := CheckLaunch(memory, room, harness, disk); err != nil {
+		return taskRefusal{reason: err.Error(), isPassing: true}
+	}
 	return nil
 }
 

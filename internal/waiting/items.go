@@ -45,7 +45,8 @@ type Look struct {
 // decision stands for; a command ready or running that no credential card or Remote
 // access setting opened, since that terminal shows there; an open request for
 // credentials, by its project alone, so the credential names stay out of a
-// notification; and a browser sign-in under way. A question that names a
+// notification; a browser sign-in under way; and a handed-off goblin's cloud
+// work he has not left, by its pull request and head. A question that names a
 // task is a goblin's, which the CEO answers: it is listed only once the CEO
 // has left it ceoQuietAfter, by the snapshot's time, and then quiet, as the
 // page counts it but never alerts it. Nothing else on the
@@ -57,7 +58,15 @@ func Items(snapshot []byte) (string, []Item, error) {
 		Instance string    `json:"instance"`
 		At       time.Time `json:"at"`
 		Tasks    []struct {
-			ID, Title string
+			ID, Title    string
+			CloudHandoff *struct {
+				Cloud []struct {
+					PullRequest string `json:"pull_request"`
+					Title, Head string
+					SeenAt      string `json:"seen_at"`
+					IsLeft      bool   `json:"is_left"`
+				}
+			} `json:"cloud_handoff"`
 		} `json:"tasks"`
 		Questions []struct {
 			ID, Text, Status, Task string
@@ -177,6 +186,16 @@ func Items(snapshot []byte) (string, []Item, error) {
 	for _, b := range view.BrowserSignIns {
 		if b.State == "ready" || b.State == "opening" || b.State == "open" {
 			items = append(items, item("browser-signin:"+b.ID, b.CreatedAt, b.Task, asker(b.Task)+" asks: Sign in to "+b.Provider+" for "+b.Project))
+		}
+	}
+	for _, t := range view.Tasks {
+		if t.CloudHandoff == nil {
+			continue
+		}
+		for _, cloud := range t.CloudHandoff.Cloud {
+			if !cloud.IsLeft {
+				items = append(items, item("cloud:"+t.ID+":"+cloud.PullRequest+"@"+cloud.Head, cloud.SeenAt, t.ID, asker(t.ID)+" has cloud work ready: "+plain(cloud.Title)))
+			}
 		}
 	}
 	return view.Instance, items, nil
