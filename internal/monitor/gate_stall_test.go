@@ -57,9 +57,10 @@ func scanGateFor(t *testing.T, service Service, probe *fakeProber, meta state.Ta
 // its agent's output or the heavy line moving for its run, is not stalled
 // whatever its age.
 func TestAGateStepPastTheHourIsNotStalledWhileItsOwnEvidenceMoves(t *testing.T) {
+	lineWithoutTheRun := ExecGateProber{Line: func() ([]verify.Standing, []verify.Standing, error) { return nil, nil, nil }}
 	for name, sample := range map[string]func(now time.Time) GateSample{
 		"a review whose pi agent produced output a second before the reading": func(now time.Time) GateSample {
-			return GateSample{Active: true, RunID: "01M7REVIEW", Step: "review", ActiveFor: 61 * time.Minute, RoundFor: 61 * time.Minute, LastActivity: "1s ago: pi producing output", MovedAt: now.Add(-time.Second)}
+			return lineWithoutTheRun.stepEvidence(context.Background(), "", "pi", GateSample{Active: true, RunID: "01M7REVIEW", Step: "review", ActiveFor: 61 * time.Minute, RoundFor: 61 * time.Minute, LastActivity: "1s ago: pi producing output"}, now)
 		},
 		"a test step whose run holds the heavy line at package 52": func(now time.Time) GateSample {
 			return GateSample{Active: true, RunID: "01M7TEST", Step: "test", ActiveFor: 65 * time.Minute, RoundFor: 65 * time.Minute, LastActivity: "quiet 1h4m ago: log: running tests: goblins gate test", MovedAt: now, Line: "its run has held a turn in the heavy line for 50m0s (go test: 52 package(s) done), within its 1h30m0s budget", IsLineRead: true}
@@ -68,7 +69,7 @@ func TestAGateStepPastTheHourIsNotStalledWhileItsOwnEvidenceMoves(t *testing.T) 
 			return GateSample{Active: true, RunID: "01M7LINE", Step: "test", ActiveFor: 65 * time.Minute, RoundFor: 65 * time.Minute, LastActivity: "quiet 30m0s ago: log: running tests: goblins gate test", MovedAt: now.Add(-2 * time.Minute), Line: "its run waits in the heavy line, which last moved 2m0s ago", IsLineRead: true}
 		},
 		"a ci step producing output on its second fix round": func(now time.Time) GateSample {
-			return GateSample{Active: true, RunID: "01M7CI", Step: "ci", ActiveFor: 69 * time.Minute, RoundFor: 69 * time.Minute, LastActivity: "1s ago: pi producing output", MovedAt: now.Add(-time.Second)}
+			return lineWithoutTheRun.stepEvidence(context.Background(), "", "pi", GateSample{Active: true, RunID: "01M7CI", Step: "ci", ActiveFor: 69 * time.Minute, RoundFor: 69 * time.Minute, LastActivity: "1s ago: pi producing output"}, now)
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -290,6 +291,29 @@ func TestStepEvidenceReadsTheStepsActivityTheHeavyLineAndItsMeasuredRounds(t *te
 	want := []string{"when the step last showed activity", "the heavy line (access denied)", "how long its rounds take on this machine, which no reader was given"}
 	if !unread.MovedAt.IsZero() || unread.IsMeasured || unread.IsLineRead || strings.Join(unread.Unread, "|") != strings.Join(want, "|") {
 		t.Fatalf("stepEvidence with nothing readable = %+v, want unread %q", unread, want)
+	}
+}
+
+// A step's agent producing output is the step moving, at the age the gate
+// gives it, while the gate's own log line is not (#2165).
+func TestStepEvidenceCountsOnlyItsAgentsOutputAsTheStepMoving(t *testing.T) {
+	now := time.Date(2026, 11, 7, 21, 0, 0, 0, time.UTC)
+	for activity, want := range map[string]time.Time{
+		"1s ago: claude producing output":                                              now.Add(-time.Second),
+		"1m51s ago: log: no CI checks reported yet, waiting for checks to register...": {},
+	} {
+		t.Run(activity, func(t *testing.T) {
+			// Arrange: a heavy line in which the step's run stands nowhere.
+			prober := ExecGateProber{Line: func() ([]verify.Standing, []verify.Standing, error) { return nil, nil, nil }}
+
+			// Act
+			got := prober.stepEvidence(context.Background(), "", "claude", GateSample{Active: true, RunID: "01M7RUN", Step: "review", LastActivity: activity}, now)
+
+			// Assert
+			if !got.MovedAt.Equal(want) {
+				t.Fatalf("MovedAt = %v, want %v", got.MovedAt, want)
+			}
+		})
 	}
 }
 
