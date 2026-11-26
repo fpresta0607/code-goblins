@@ -32,9 +32,9 @@ type screen struct {
 }
 
 // ReadScreen reads the screen of the terminal record's host runs, as the
-// terminal's console holds it: one string per row of its window, each as wide
-// as the window. A read that fails is an error naming the terminal, never an
-// empty screen.
+// terminal's console holds it, or the host's emulator off Windows: one string
+// per row of its window, each as wide as the window. A read that fails is an
+// error naming the terminal, never an empty screen.
 func ReadScreen(record Record) ([]string, error) {
 	rows, err := requestScreen(record)
 	if err != nil {

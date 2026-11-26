@@ -4,38 +4,36 @@ package host
 
 import (
 	"errors"
-	"strings"
 	"testing"
 )
 
-func TestEntryPointsRefuseAsUnsupportedOffWindows(t *testing.T) {
+func TestLaunchAndCloseRefuseAsUnsupportedOffWindows(t *testing.T) {
 	tests := []struct {
-		name       string
-		call       func(record Record) error
-		wantPrefix string
+		name string
+		call func() error
 	}{
-		{name: "Dial", call: func(record Record) error { _, err := Dial(record); return err }},
-		{name: "View", call: func(record Record) error { _, err := View(record); return err }},
-		{name: "Watch", call: func(record Record) error { _, err := Watch(record); return err }},
-		{name: "DialDelivery", call: func(record Record) error { _, err := DialDelivery(record); return err }},
-		{name: "Answer", call: Answer},
-		{name: "ReadScreen", call: func(record Record) error { _, err := ReadScreen(record); return err }, wantPrefix: "host: read the screen of terminal t1: "},
+		{name: "Launch", call: func() error { _, err := Launch(t.TempDir(), []string{"goblins"}, nil, Spec{ID: "t1"}); return err }},
+		{name: "Close", call: func() error { return Close(t.TempDir(), Record{ID: "t1"}, 0) }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			// Arrange
-			record := Record{ID: "t1"}
-
 			// Act
-			err := test.call(record)
+			err := test.call()
 
 			// Assert
 			if !errors.Is(err, errors.ErrUnsupported) {
 				t.Fatalf("%s returned %v, want an error wrapping errors.ErrUnsupported", test.name, err)
 			}
-			if !strings.HasPrefix(err.Error(), test.wantPrefix) {
-				t.Errorf("%s returned %q, want it to start %q", test.name, err, test.wantPrefix)
-			}
 		})
+	}
+}
+
+func TestNoHostReadsAsRunningOffWindows(t *testing.T) {
+	// Act
+	isRunning := Running(Record{ID: "t1", HostPID: 1})
+
+	// Assert
+	if isRunning {
+		t.Fatal("Running reported a host off Windows, where nothing reads whether one runs yet")
 	}
 }

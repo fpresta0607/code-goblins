@@ -21,16 +21,18 @@ import (
 
 // Record is how a running host is found again: by a supervisor started later,
 // or by a view opened after it. It lives in the CEO home's state directory,
-// which only this Windows user can read, because it holds the token.
+// which only this user can read, because it holds the token.
 type Record struct {
-	ID       string `json:"id"`
+	ID string `json:"id"`
+	// Pipe is where the host serves its clients: a named pipe on Windows, a
+	// Unix socket elsewhere.
 	Pipe     string `json:"pipe"`
 	Token    string `json:"token"`
 	Version  int    `json:"version"`
 	HostPID  int    `json:"host_pid"`
 	ChildPID int    `json:"child_pid"`
 	// ChildStart is when the terminal's program was created, which tells it
-	// from a later process Windows gave its pid.
+	// from a later process the system gave its pid.
 	ChildStart time.Time `json:"child_start,omitzero"`
 	Started    time.Time `json:"started"`
 	// ProofSum is the SHA-256 of the proof value the host put in its

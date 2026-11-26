@@ -1,0 +1,142 @@
+//go:build linux || darwin
+
+package host
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"net"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/localsocket"
+	"github.com/fpresta0607/code-goblins/internal/priority"
+	"github.com/fpresta0607/code-goblins/internal/pty"
+	"github.com/fpresta0607/code-goblins/internal/state"
+)
+
+// Run hosts spec's terminal until it ends or a viewer closes it: it records
+// itself under stateDir, serves viewers over its socket, and removes its
+// record on the way out. The terminal's program leads a session of its own
+// in a pseudo terminal, and Close ends it and everything it started.
+func Run(stateDir string, spec Spec) error {
+	defer priority.AboveTheWork()()
+	if err := state.ValidTaskID(spec.ID); err != nil {
+		return err
+	}
+	// One live host per terminal: a second would take over the record that
+	// finds the first, and leave the first unreachable.
+	if running, err := ReadRecord(stateDir, spec.ID); err == nil && isServing(running) {
+		return fmt.Errorf("host: terminal %s already runs in host pid %d", spec.ID, running.HostPID)
+	}
+	if spec.IsStream {
+		return fmt.Errorf("host: terminal %s: %w", spec.ID, errStreamNotPorted)
+	}
+	if spec.ShouldLeaveCoresForApps {
+		fmt.Fprintf(os.Stderr, "%s host: the terminal runs on every processor core, since keeping it off the cores left to apps is not ported to this system yet\n", time.Now().UTC().Format(time.RFC3339Nano))
+	}
+	var proof [32]byte
+	if _, err := rand.Read(proof[:]); err != nil {
+		return err
+	}
+	output, err := newHistory(spec.Cols, spec.Rows)
+	if err != nil {
+		return err
+	}
+	started, err := pty.Start(pty.Spec{Args: spec.Args, Dir: spec.Dir, Env: terminalEnvironment(spec.ID, hex.EncodeToString(proof[:])), Cols: spec.Cols, Rows: spec.Rows})
+	if err != nil {
+		return err
+	}
+	record, socket, err := announce(stateDir, spec.ID, started.PID(), started.StartTime(), hex.EncodeToString(proof[:]))
+	if err != nil {
+		_ = started.Close()
+		return err
+	}
+	defer socket.Close()
+	defer removeRecord(stateDir, spec.ID, record.HostPID)
+	accept := func() (hostConnection, error) {
+		connection, err := socket.AcceptUnix()
+		if err != nil {
+			return nil, err
+		}
+		return connection, nil
+	}
+	return runTerminal(stateDir, spec, record, emulatedTerminal{Terminal: started, output: output}, output, accept)
+}
+
+// terminalEnvironment is this host's environment with IDVariable naming
+// terminal id and ProofVariable carrying its proof, in place of any value
+// inherited from a terminal the host was launched in.
+func terminalEnvironment(id, proof string) []string {
+	env := slices.DeleteFunc(os.Environ(), func(entry string) bool {
+		return strings.HasPrefix(entry, IDVariable+"=") || strings.HasPrefix(entry, ProofVariable+"=")
+	})
+	return append(env, IDVariable+"="+id, ProofVariable+"="+proof)
+}
+
+// announce opens the host's socket, in the folder only this user may enter
+// that holds the home's sockets, and records where to find it, with when the
+// terminal's program started and the digest of the proof value its terminal
+// carries.
+func announce(stateDir, id string, childPID int, childStart time.Time, proof string) (Record, *net.UnixListener, error) {
+	folder := localsocket.Folder(stateDir)
+	if err := os.Mkdir(folder, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+		return Record{}, nil, fmt.Errorf("host: make the socket folder: %w", err)
+	}
+	if err := localsocket.CheckFolder(folder); err != nil {
+		return Record{}, nil, fmt.Errorf("host: %w", err)
+	}
+	machineStart, err := machineStarted()
+	if err != nil {
+		return Record{}, nil, err
+	}
+	var random [16]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return Record{}, nil, err
+	}
+	var secret [32]byte
+	if _, err := rand.Read(secret[:]); err != nil {
+		return Record{}, nil, err
+	}
+	path := filepath.Join(folder, "host-"+hex.EncodeToString(random[:])+".sock")
+	socket, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
+	if err != nil {
+		return Record{}, nil, fmt.Errorf("host: listen on %s: %w", path, err)
+	}
+	record := Record{ID: id, Pipe: path, Token: hex.EncodeToString(secret[:]), Version: Version, HostPID: os.Getpid(), ChildPID: childPID, ChildStart: childStart, Started: time.Now().UTC(), ProofSum: ProofSum(proof)}
+	if err := writeRecord(stateDir, record); err != nil {
+		socket.Close()
+		return Record{}, nil, fmt.Errorf("host: record the host: %w", err)
+	}
+	// The record goes when this host does and is replaced by the next one's.
+	// The terminal's proofs outlast both, for what it leaves running.
+	if err := keepProof(stateDir, id, record.ProofSum, record.Started, machineStart); err != nil {
+		removeRecord(stateDir, id, record.HostPID)
+		socket.Close()
+		return Record{}, nil, fmt.Errorf("host: keep the terminal's proof: %w", err)
+	}
+	return record, socket, nil
+}
+
+// dialPipe connects to the host's socket and proves the host serves it: the
+// socket must sit in a folder only this user may enter, and its server must
+// be the host the record names.
+func dialPipe(name string, hostPID int) (hostConnection, error) {
+	if err := localsocket.CheckFolder(filepath.Dir(name)); err != nil {
+		return nil, fmt.Errorf("host: connect to %s: %w", name, err)
+	}
+	connection, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: name, Net: "unix"})
+	if err != nil {
+		return nil, fmt.Errorf("host: connect to %s: %w", name, err)
+	}
+	if server, err := localsocket.PeerProcess(connection); err != nil || server != hostPID {
+		connection.Close()
+		return nil, fmt.Errorf("host: %s is not served by host pid %d", name, hostPID)
+	}
+	return connection, nil
+}
