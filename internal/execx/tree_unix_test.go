@@ -175,25 +175,43 @@ func TestEndEndsAHelperWhoseParentExitedAndNothingOutsideTheTree(t *testing.T) {
 	}
 }
 
+// A tree whose first process leads a group of its own, by Setpgid or as the
+// leader of a session of its own (Setsid), as a pseudo terminal's program
+// does, finds what it started in that group.
 func TestATreeInAGroupOfItsOwnFindsAHelperThatClearedItsEnvironment(t *testing.T) {
-	// Arrange: env -i starts the helper with no mark, and its parent exits,
-	// so only the group still finds it.
-	tree, helper := startLeaving(t, "env -i sleep 600", true, StartTree)
+	inSession := func(cmd *exec.Cmd) (*Tree, error) {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		return StartTree(cmd)
+	}
+	for _, test := range []struct {
+		name      string
+		isGrouped bool
+		start     func(*exec.Cmd) (*Tree, error)
+	}{
+		{"a group of its own", true, StartTree},
+		{"a session of its own", false, inSession},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange: env -i starts the helper with no mark, and its parent
+			// exits, so only the group still finds it.
+			tree, helper := startLeaving(t, "env -i sleep 600", test.isGrouped, test.start)
 
-	// Act
-	members, err := tree.Members()
+			// Act
+			members, err := tree.Members()
 
-	// Assert
-	if err != nil {
-		t.Fatal(err)
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !isAmong(members, helper) {
+				t.Fatalf("the tree lists %v, without the helper %d in its group", members, helper)
+			}
+			if _, err := tree.End(); err != nil {
+				t.Fatal(err)
+			}
+			awaitGone(t, helper)
+		})
 	}
-	if !isAmong(members, helper) {
-		t.Fatalf("the tree lists %v, without the helper %d in its group", members, helper)
-	}
-	if _, err := tree.End(); err != nil {
-		t.Fatal(err)
-	}
-	awaitGone(t, helper)
 }
 
 // heldBytes is the memory the helper of the usage test touches.
