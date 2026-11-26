@@ -96,3 +96,31 @@ func TestOneLineInstallPutsInGhAxiAtTheDoctorsFloor(t *testing.T) {
 		})
 	}
 }
+
+// npm replaces only the gh-axi in its own folder, so an older one in a folder
+// ahead of that one goes on answering. The install then says so and names the
+// copy that comes first, rather than report a release nothing runs.
+func TestOneLineInstallPutsInGhAxiAtTheDoctorsFloorUnlessACopyComesFirstOnPath(t *testing.T) {
+	// Arrange
+	const tool = "gh-axi"
+	floor := doctorFloor(t, tool)
+	stale := map[string]string{tool: "@echo 0.1.35\r\n@exit /b 0\r\n"}
+
+	// Act
+	run := runInstallWithForkDownload(t, []byte("a stand-in for a release file"), nil, stale, "")
+
+	// Assert
+	if want, calls := "npm install -g "+tool+"@"+floor, npmCallsFor(run.recorded, tool); len(calls) != 1 || strings.TrimSpace(calls[0]) != want {
+		t.Fatalf("npm was called for %s as %q, want %q once:\n%s", tool, calls, want, run.output)
+	}
+	if regexp.MustCompile(`ok\s+` + tool + `\s+installed`).MatchString(run.output) {
+		t.Errorf("the install says it installed the release, which the command does not run:\n%s", run.output)
+	}
+	if !regexp.MustCompile(`WARN\s+` + tool + `\s+.*is 0\.1\.35, older than ` + regexp.QuoteMeta(floor) + `.*the copy in \S+ comes first on PATH`).MatchString(run.output) {
+		t.Errorf("the install does not name the stale copy that comes first on PATH:\n%s", run.output)
+	}
+	if !regexp.MustCompile(`Note: These could not be installed[^\r\n]*\b` + tool + `[,.]`).MatchString(run.output) {
+		t.Errorf("the closing note does not name %s:\n%s", tool, run.output)
+	}
+	assertNotRecorded(t, run, tool)
+}

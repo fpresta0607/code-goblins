@@ -59,7 +59,8 @@ var forkRelease = regexp.MustCompile(`/releases/download/v[^/"]+/([a-z-]+)-(\d[^
 // release at base, as internal/installtest gives one, with a stand-in for
 // every tool the install looks for, so nothing installs onto this machine:
 // a script for each it runs as a command, which for a tool from a fork's
-// release file answers the build the script pins, the stand-in program as
+// release file answers the build the script pins and for gh-axi the release
+// at goblins doctor's floor, the stand-in program as
 // claude.exe, which a native terminal needs, and as the managed no-mistakes,
 // which answers the version the script pins and takes what the fleet's gate
 // gives it, as the pinned build does. The release's goblins.exe is the
@@ -78,6 +79,7 @@ func strippedInstall(t *testing.T, base, name string, args ...string) (*exec.Cmd
 	for _, release := range releases {
 		stubs[string(release[1])] = "@echo " + string(release[2]) + "\r\n@exit /b 0\r\n"
 	}
+	stubs["gh-axi"] = "@echo 0.1.52\r\n@exit /b 0\r\n"
 	cmd, local, temp := installtest.StrippedCommand(t, base, stubs, name, args...)
 	tools := t.TempDir()
 	for _, program := range []string{filepath.Join(tools, "claude.exe"), filepath.Join(local, "no-mistakes", "no-mistakes.exe")} {
