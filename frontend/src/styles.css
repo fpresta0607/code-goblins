@@ -1497,9 +1497,8 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 }
 .fills-phone .panel-header.one-row { padding: 4px 6px; }
 /* The CEO's rare states, Restart PC and Update, take a line of their own under
-   its header's row, at the row's end, and the line takes no room while
-   neither shows. A goblin's panel has the same line while Retry update shows
-   on it (#2956). */
+   its header's row, at the row's end, and so does Retry update, on the CEO's
+   panel or a goblin's (#2956). The line takes no room while none shows. */
 :is(.ceo-header-line, .panel-header-line) { position: relative; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; margin: 0 8px; }
 :is(.ceo-header-line, .panel-header-line):has(> :is(button, .muted)) { padding-block: 6px; }
 .fills-phone :is(.ceo-header-line, .panel-header-line) { margin-inline: 6px; }
