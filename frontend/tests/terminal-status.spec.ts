@@ -73,6 +73,21 @@ test("the chat shows the terminal's gauge and other notices under the box and it
   await expect(checkOf(page)).toHaveCount(0);
 });
 
+test("a notice of the terminal's that is no failed update stays under the box, and the header offers no Retry update for it", async ({ page }) => {
+  // Arrange
+  const relay = await open(page);
+  await openGoblin(page);
+  await expect.poll(() => relay.views).toBeGreaterThan(0);
+
+  // Act
+  relay.say({ ...idle, status: { ...STATUS, notices: [{ text: "Low disk space", check: "" }] } });
+
+  // Assert
+  await expect(statusOf(page).locator("span")).toHaveText(["83% context used", "Low disk space"]);
+  await expect(retryOf(page)).toHaveCount(0);
+  await expect(checkOf(page)).toHaveCount(0);
+});
+
 test("a retry the terminal shows reads Retrying with its attempt and failure, and gives way to the turn once a request goes through", async ({ page }) => {
   // Arrange
   const relay = await open(page);
@@ -199,6 +214,32 @@ test("a check that ended well over an install that is not the newest says what i
   await expect(box(page).locator(".composer-banner")).toHaveCount(0);
 });
 
+test("a goblin's Retry update checks the goblin's own harness, not the CEO's, and goes once that harness's install is current", async ({ page }) => {
+  // Arrange
+  const relay = await open(page, snapshot({ ceo_harness: "codex" }));
+  const checks: unknown[] = [];
+  await page.route("**/api/harness/update-check", (route) => {
+    checks.push(route.request().postDataJSON());
+    return route.fulfill({ status: 202, json: { running: true } });
+  });
+  await openGoblin(page);
+  await expect.poll(() => relay.views).toBeGreaterThan(0);
+  relay.say({ ...idle, status: STATUS });
+
+  // Act
+  await retryOf(page).click();
+
+  // Assert
+  await expect.poll(() => checks).toEqual([{ harness: "claude" }]);
+
+  // Act: Claude Code's check finds its install the newest.
+  await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2, ceo_harness: "codex", update_checks: { claude: { current: true, result: "Claude Code is up to date (2.1.322)" } } }));
+
+  // Assert
+  await expect(retryOf(page)).toHaveCount(0);
+  await expect(checkOf(page)).toHaveCount(0);
+});
+
 test("the CEO's chat offers a failed update as Retry update beside its Update, under its header row, and nothing of it under the box", async ({ page }) => {
   // Arrange
   const relay = await open(page, snapshot({ ceo_update: { harness: "claude", line: "✓ Update installed · Restart to update", installed: "2026-10-07T14:10:37Z" } }));
@@ -235,3 +276,22 @@ test("the Terminal style leaves a failed update to the terminal, with no Retry u
   await pickStyle(page, "Modern chat");
   await expect(retryOf(page)).toBeVisible();
 });
+
+for (const phase of ["paused", "resuming"] as const) {
+  test(`a ${phase} goblin offers no Retry update, though its terminal said its update failed`, async ({ page }) => {
+    // Arrange
+    const relay = await open(page);
+    await openGoblin(page);
+    await expect.poll(() => relay.views).toBeGreaterThan(0);
+    relay.say({ ...idle, status: STATUS });
+    await expect(retryOf(page)).toBeVisible();
+
+    // Act
+    await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2 }, { phase }));
+
+    // Assert
+    await expect(retryOf(page)).toHaveCount(0);
+    await expect(checkOf(page)).toHaveCount(0);
+    await expect(header(page).locator("#panel-title")).toHaveText(NAME);
+  });
+}

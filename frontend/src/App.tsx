@@ -447,7 +447,7 @@ export function App() {
   // line, which the panel's header offers as Retry update until the install
   // is the newest, as the box drew it before (#2956). The Terminal style
   // leaves it to the terminal.
-  const updateNotice = messagesShown && !takesTyping && !snapshot?.update_checks[panelHarness]?.current ? live?.screen?.status?.notices.find((notice) => notice.check === "update") : undefined;
+  const updateNotice = messagesShown && !snapshot?.update_checks[panelHarness]?.current ? live?.screen?.status?.notices.find((notice) => notice.check === "update") : undefined;
   const failedUpdate = updateNotice && { harness: panelHarness, notice: updateNotice.text };
   // The conversation portals its one mounted composer to the shared footer.
   // The deck owns the box for a paused goblin without a conversation, and for
