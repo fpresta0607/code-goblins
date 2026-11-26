@@ -2,8 +2,9 @@
 
 package processor
 
-// KeepToFleetThreads changes nothing: the fleet's threads are read on Windows
-// alone, so elsewhere a process keeps the threads it was started on.
+// KeepToFleetThreads changes nothing: off Windows a process keeps the
+// threads it was started on, and on Linux a goblin's terminal is kept to the
+// fleet's threads by the host that starts it.
 func KeepToFleetThreads() error {
 	return nil
 }
