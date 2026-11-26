@@ -4,7 +4,9 @@ package host
 
 import (
 	"errors"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -177,6 +179,16 @@ func TestAUnixHostTypesAViewersInputAndSendsItsOutputBack(t *testing.T) {
 	if _, err := ReadRecord(run.stateDir, hostID); err == nil {
 		t.Fatal("the host's record outlived it")
 	}
+	if _, err := os.Stat(run.record.Pipe); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the host's socket outlived it: %v", err)
+	}
+	sums, err := Proofs(run.stateDir, hostID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(sums, run.record.ProofSum) {
+		t.Fatalf("the terminal's kept proofs %v lost its own %s with the host's record", sums, run.record.ProofSum)
+	}
 }
 
 func TestAUnixHostReadsItsScreenFromItsEmulator(t *testing.T) {
@@ -229,7 +241,9 @@ func TestAViewerResizesAUnixHostsTerminal(t *testing.T) {
 }
 
 func TestAUnixHostsTerminalKnowsItsIDAndCarriesAProofItsRecordProves(t *testing.T) {
-	// Arrange
+	// Arrange: the host was launched in another host's terminal.
+	t.Setenv(IDVariable, "cg-stale")
+	t.Setenv(ProofVariable, strings.Repeat("0", 64))
 	run := runHost(t, `echo "id=$GOBLINS_HOST_ID proof=$GOBLINS_HOST_PROOF"; read line`)
 	viewer := watch(t, run.record)
 
@@ -331,6 +345,80 @@ func TestAClientRefusesASocketItsRecordsHostDoesNotServe(t *testing.T) {
 	// Assert
 	if err == nil || !strings.Contains(err.Error(), "is not served by host pid") {
 		t.Fatalf("a dial of a socket another process serves gave %v", err)
+	}
+}
+
+func TestAClientRefusesASocketInAFolderAnotherUserCouldEnter(t *testing.T) {
+	// Arrange
+	run := runHost(t, `read line`)
+	folder := t.TempDir()
+	if err := os.Chmod(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(folder, "s")
+	if err := os.Symlink(run.record.Pipe, link); err != nil {
+		t.Fatal(err)
+	}
+	other := run.record
+	other.Pipe = link
+
+	// Act
+	_, err := Dial(other)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "is not this user's own with mode 0700") {
+		t.Fatalf("a dial of a socket in a folder others may enter gave %v", err)
+	}
+}
+
+func TestAUnixHostRefusesASocketFolderAnotherUserCouldEnter(t *testing.T) {
+	// Arrange
+	stateDir := t.TempDir()
+	folder := localsocket.Folder(stateDir)
+	if err := os.Mkdir(folder, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(folder) })
+	if err := os.Chmod(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	err := Run(stateDir, Spec{ID: hostID, Args: []string{"sh", "-c", "exit 0"}, Cols: 80, Rows: 24})
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "is not this user's own with mode 0700") {
+		t.Fatalf("a host given a socket folder others may enter gave %v", err)
+	}
+	if _, err := ReadRecord(stateDir, hostID); err == nil {
+		t.Fatal("a host that refused its socket folder recorded itself")
+	}
+}
+
+func TestAUnixHostThatCannotKeepItsProofLeavesNoRecordOrSocket(t *testing.T) {
+	// Arrange
+	stateDir := t.TempDir()
+	t.Cleanup(func() { _ = os.Remove(localsocket.Folder(stateDir)) })
+	if err := os.MkdirAll(proofsPath(stateDir, hostID), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	err := Run(stateDir, Spec{ID: hostID, Args: []string{"sh", "-c", "exit 0"}, Cols: 80, Rows: 24})
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "keep the terminal's proof") {
+		t.Fatalf("a host that cannot keep its proof gave %v", err)
+	}
+	if _, err := ReadRecord(stateDir, hostID); err == nil {
+		t.Fatal("a host that could not keep its proof left its record")
+	}
+	sockets, err := filepath.Glob(filepath.Join(localsocket.Folder(stateDir), "host-*.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sockets) != 0 {
+		t.Fatalf("a host that could not keep its proof left the sockets %v", sockets)
 	}
 }
 

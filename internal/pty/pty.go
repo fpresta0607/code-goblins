@@ -48,6 +48,10 @@ type Terminal struct {
 	code  uint32
 }
 
+// beforeStartRead, when a test sets it, is called with the process's pid
+// just before Start reads when it started.
+var beforeStartRead func(pid int)
+
 // Start runs spec.Args in a new pseudo terminal of spec.Cols by spec.Rows.
 func Start(spec Spec) (*Terminal, error) {
 	if len(spec.Args) == 0 {
@@ -92,14 +96,17 @@ func Start(spec Spec) (*Terminal, error) {
 		ptmx.Close()
 		return nil, fmt.Errorf("pty: start %s: %w", spec.Args[0], err)
 	}
+	if beforeStartRead != nil {
+		beforeStartRead(cmd.Process.Pid)
+	}
 	// Nothing has waited for the process yet, so even one that has exited
-	// still has its start to read.
-	start, isRead := proc.StartTime(cmd.Process.Pid)
-	if !isRead {
+	// keeps its ID, and its start is read as its own.
+	start, err := proc.ChildStartTime(cmd.Process.Pid)
+	if err != nil {
 		_, _ = tree.End()
 		_ = cmd.Wait()
 		ptmx.Close()
-		return nil, fmt.Errorf("pty: read when %s started", spec.Args[0])
+		return nil, fmt.Errorf("pty: read when %s started: %w", spec.Args[0], err)
 	}
 	terminal := &Terminal{ptmx: ptmx, tree: tree, pid: cmd.Process.Pid, start: start, done: make(chan struct{})}
 	go terminal.wait(cmd)
@@ -130,7 +137,7 @@ func (t *Terminal) PID() int {
 	return t.pid
 }
 
-// StartTime is when the process started (proc.StartTime), read before
+// StartTime is when the process started (proc.ChildStartTime), read before
 // anything waited for it, so a process that exits at once still has one.
 func (t *Terminal) StartTime() time.Time {
 	return t.start
