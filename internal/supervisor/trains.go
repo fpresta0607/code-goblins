@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"math"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -87,6 +88,22 @@ func TrainGoblins(stateDir, checkout string) []train.Goblin {
 		}
 	}
 	return goblins
+}
+
+// TaskCheckouts is the checkout of every task the fleet records in
+// stateDir, the checkouts the trains read, each once and only while it is
+// there.
+func TaskCheckouts(stateDir string) []string {
+	var checkouts []string
+	for _, meta := range liveTasks(stateDir) {
+		if meta.Project == "" || slices.ContainsFunc(checkouts, func(known string) bool { return fsx.SamePath(known, meta.Project) }) {
+			continue
+		}
+		if info, err := os.Stat(meta.Project); err == nil && info.IsDir() {
+			checkouts = append(checkouts, meta.Project)
+		}
+	}
+	return checkouts
 }
 
 // doneReports returns each pull request a goblin's status log reports done

@@ -42,7 +42,7 @@ func TestPRMergeAddsThePullRequestToARequiredMergeQueue(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 
 			// Act
-			exit := runPRMerge([]string{queuedPRURL}, &stdout, &stderr, runner, githubtest.Client(runner), nil, "", "")
+			exit := runPRMerge([]string{queuedPRURL}, &stdout, &stderr, runner, githubtest.Client(runner), nil, "", "", "")
 
 			// Assert
 			calls := mergeCalls(runner)
@@ -75,7 +75,7 @@ func TestPRMergeMergesNothingAroundAMergeQueue(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 
 			// Act
-			exit := runPRMerge(append([]string{queuedPRURL}, test.args...), &stdout, &stderr, test.runner, githubtest.Client(test.runner), nil, "", "")
+			exit := runPRMerge(append([]string{queuedPRURL}, test.args...), &stdout, &stderr, test.runner, githubtest.Client(test.runner), nil, "", "", "")
 
 			// Assert
 			if exit != test.exit || !strings.Contains(stdout.String()+stderr.String(), test.says) {

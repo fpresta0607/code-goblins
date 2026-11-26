@@ -9,6 +9,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/githubtest"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 const (
@@ -78,7 +79,7 @@ func TestPRMergeRefusesAHeldProjectsPullRequestThatNeverCarriedHold(t *testing.T
 			var stdout, stderr bytes.Buffer
 
 			// Act
-			exit := runPRMerge([]string{queuedPRURL}, &stdout, &stderr, runner, githubtest.Client(runner), nil, data, root)
+			exit := runPRMerge([]string{queuedPRURL}, &stdout, &stderr, runner, githubtest.Client(runner), nil, data, "", root)
 
 			// Assert
 			calls := mergeCalls(runner)
@@ -114,5 +115,51 @@ func TestPRMergeCommandRefusesAHeldProjectsPullRequestThatNeverCarriedHold(t *te
 	}
 	if want := "gh pr edit " + queuedPRURL + " --add-label hold"; !strings.Contains(stderr.String(), want) {
 		t.Errorf("stderr %q does not say %q", stderr.String(), want)
+	}
+}
+
+// A held project's checkout the fleet knows only from a goblin's task, kept
+// outside the projects root, guards its pull requests as the trains do, and
+// so does it on a machine with no projects root recorded.
+func TestPRMergeRefusesAHeldProjectKnownOnlyFromATasksCheckout(t *testing.T) {
+	for name, isRootRecorded := range map[string]bool{
+		"outside the projects root":    true,
+		"with no projects root at all": false,
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			data, root, _ := heldProjects(t, nil)
+			if !isRootRecorded {
+				root = ""
+			}
+			checkout := filepath.Join(t.TempDir(), "widgets")
+			if err := os.MkdirAll(filepath.Join(checkout, ".git"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			records := filepath.Join(data, "projects", "widgets")
+			if err := os.MkdirAll(records, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(records, "project.json"), []byte(heldRecord), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			stateDir := t.TempDir()
+			if err := state.WriteTaskMeta(stateDir, state.TaskMeta{ID: "root-widgets-7", Project: checkout, Harness: "claude", Backend: "native", SpawnGen: "s1"}); err != nil {
+				t.Fatal(err)
+			}
+			runner := &prMergeRunner{origins: map[string]string{checkout: "git@github.com:o/r.git"}}
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runPRMerge([]string{queuedPRURL}, &stdout, &stderr, runner, githubtest.Client(runner), nil, data, stateDir, root)
+
+			// Assert
+			if calls := mergeCalls(runner); exit != 1 || len(calls) != 0 {
+				t.Fatalf("exit=%d gh pr merge calls %q, want exit 1 and no merge; stderr=%s", exit, calls, stderr.String())
+			}
+			if want := "gh pr edit " + queuedPRURL + " --add-label hold"; !strings.Contains(stderr.String(), want) {
+				t.Errorf("stderr %q does not say %q", stderr.String(), want)
+			}
+		})
 	}
 }
