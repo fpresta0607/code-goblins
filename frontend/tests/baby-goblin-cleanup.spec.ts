@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from "./site";
-import { babyGoblinFleet, TALK, TRANSCRIPT } from "./fixtures/baby-goblin-fleet";
+import { babyGoblinFleet, talkOf, TRANSCRIPT } from "./fixtures/baby-goblin-fleet";
 
 // The Overlord, 2026-11-26 (#2932): "Gotta clean up baby goblin display
 // terminals don't connect like other goblins and naming is hard to discern
@@ -20,8 +20,9 @@ interface Refusal { status: number; error: string }
 
 // open shows the board at a size, its baby goblins' output streams held:
 // refused names a child whose stream the supervisor refuses, once or for
-// good, with the refusal a plain read of that child's output answers.
-async function open(page: Page, width: number, height: number, refused: Record<string, { times: number } & Refusal> = {}) {
+// good, with the refusal a plain read of that child's output answers, and
+// round the descriptions of more sub-agents the goblin started together.
+async function open(page: Page, width: number, height: number, refused: Record<string, { times: number } & Refusal> = {}, round: readonly string[] = []) {
   await page.setViewportSize({ width, height });
   await page.addInitScript(() => localStorage.setItem("ceo-first-open", "shown"));
   // No WebGL, so a baby goblin's terminal draws its text with xterm's DOM
@@ -83,7 +84,7 @@ async function open(page: Page, width: number, height: number, refused: Record<s
       close() { this.readyState = 2; }
     }
     Object.defineProperty(window, "EventSource", { value: Stream });
-  }, { snapshot: JSON.stringify(babyGoblinFleet(Date.now())), talk: TALK, transcript: TRANSCRIPT, refusals: refused });
+  }, { snapshot: JSON.stringify(babyGoblinFleet(Date.now(), round)), talk: talkOf(round), transcript: TRANSCRIPT, refusals: refused });
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
     const refusal = refused[url.searchParams.get("node") || ""];
@@ -257,8 +258,8 @@ test.describe("2. a baby goblin reads by one name, whose it is and what it does,
     await canvas.getByRole("button", { name: new RegExp("^" + CHECKER) }).click();
     await expect(title(page)).toHaveText(new RegExp("^" + CHECKER));
     const chat = await openChat(page);
-    await expect(chat.locator(".message-baby").nth(0)).toContainText(MAPPER);
-    await expect(chat.locator(".message-baby").nth(1)).toContainText(CHECKER);
+    await expect(chat.locator(".message-baby").nth(0)).toHaveAccessibleName(new RegExp("^Open " + MAPPER + ", "));
+    await expect(chat.locator(".message-baby").nth(1)).toHaveAccessibleName(new RegExp("^Open " + CHECKER + ", "));
   });
 
   for (const layout of ["kanban", "stacked"] as const) {
@@ -312,6 +313,69 @@ test.describe("4. every sub-agent call in Modern Chat is linked to its baby gobl
       await expect(gone.getByRole("button")).toHaveCount(0);
       await mapper.click();
       await expectBabyPanel(page, MAPPING_TASK);
+    });
+  }
+});
+
+// One round of a design review, whose six critics the goblin started
+// together: their descriptions begin alike and run longer than a phone's
+// chat is wide, so only their ends tell the rows apart.
+const ROUND = [
+  "Design review round 11 brief critic: check every page against its brief",
+  "Design review round 11 system critic: check spacing, type and color tokens",
+  "Design review round 11 craft critic: check alignment, finish and detail",
+  "Design review round 11 motion critic: check every transition and its timing",
+  "Design review round 11 copy critic: check every word on every page",
+  "Design review round 11 access critic: check contrast, focus and labels",
+];
+
+// The Overlord, 2026-11-26 (#2957), of a round's rows cut short: "see how
+// truncationg can be fixed". A baby goblin's row leads with what it does,
+// whole and across the row's width, and says what every row repeats, its
+// name, its kind of agent and its state, on one quiet line under it.
+test.describe("5. a baby goblin's row in Modern Chat leads with its whole description", () => {
+  test("at 390px its description is its first line, with its name, kind and state on one line under it", async ({ page }) => {
+    // Arrange
+    await open(page, 390, 844, {}, ROUND);
+    const chat = await openChat(page);
+    const row = chat.getByRole("button", { name: "Open Grub V - " + ROUND[1] + ", Working", exact: true });
+
+    // Act
+    await row.scrollIntoViewIfNeeded();
+
+    // Assert: the row's words begin with what its baby goblin does, and what
+    // every row of the round repeats sits under that, not beside it.
+    await expect(row).toHaveText(new RegExp("^" + ROUND[1]));
+    const description = (await row.getByText(ROUND[1], { exact: true }).boundingBox())!;
+    for (const repeated of ["Grub V · general-purpose", "Working"]) {
+      const box = (await row.getByText(repeated, { exact: true }).boundingBox())!;
+      expect(box.y, repeated).toBeGreaterThanOrEqual(description.y + description.height - 1);
+    }
+  });
+
+  for (const [width, height] of [[1600, 1000], [390, 844]]) {
+    test(`at ${width}px a description longer than its line shows whole, so the rows of a round read apart`, async ({ page }) => {
+      // Arrange
+      await open(page, width, height, {}, ROUND);
+      const chat = await openChat(page);
+
+      // Act: each description, by the lines its words take and whether
+      // anything cuts them, by the row's own box or the chat's edge.
+      const shown = [];
+      for (const label of ROUND) {
+        const description = chat.getByRole("button", { name: new RegExp("^Open Grub [IVX]+ - " + label + ", Working$") }).getByText(label);
+        await description.scrollIntoViewIfNeeded();
+        shown.push(await description.evaluate((element) => {
+          const words = document.createRange();
+          words.selectNodeContents(element);
+          const lines = new Set([...words.getClientRects()].map((rect) => Math.round(rect.top))).size;
+          const own = element.getBoundingClientRect(), pane = element.closest("[role=log]")?.getBoundingClientRect();
+          return { isWrapped: lines > 1, isCut: element.scrollWidth > element.clientWidth || element.scrollHeight > element.clientHeight || own.right > (pane?.right ?? 0) + 1 };
+        }));
+      }
+
+      // Assert: every description runs past one line, and none is cut.
+      expect(shown).toEqual(ROUND.map(() => ({ isWrapped: true, isCut: false })));
     });
   }
 });

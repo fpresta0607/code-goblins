@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { babyFor, babyName, BABY_HEIGHT, BABY_WIDTH, branchLayout, elbows, finished, hasRunningChildren, forHowLong, formatMemory, isDimmed, LINE_GAP, running, stateWord, summarize, whatItRuns } from "./fleet-tree.ts";
+import { babyFor, babyName, babyShortName, BABY_HEIGHT, BABY_WIDTH, branchLayout, elbows, finished, hasRunningChildren, forHowLong, formatMemory, isDimmed, LINE_GAP, running, stateWord, summarize, whatItRuns } from "./fleet-tree.ts";
 import { arrange, detours, makeRoom, NODE_HEIGHT, NODE_WIDTH, ROW, settle, waitingOn, workflowNodes, type Extent } from "./workflow.ts";
 import { parseSnapshot, type FleetTree, type TreeNode } from "./types.ts";
 
@@ -487,7 +487,7 @@ test("a baby goblin says what it runs in plain words: the program its command st
   ] as [Partial<TreeNode>, string][]) assert.equal(whatItRuns(child(fields)), runs, JSON.stringify(fields));
 });
 
-test("baby goblins are named after their goblin in the order they started, Jr. then II and on, named by their own description, and a helper keeps its own name", () => {
+test("baby goblins are named after their goblin in the order they started, Jr. then II and on, named by their own description, which their short name leaves out, and a helper keeps its own name", () => {
   const children = [
     child({ id: "c", label: "Check the list", started: ago(30) }), child({ id: "a", label: "Start the board", started: ago(50) }),
     child({ id: "h", kind: "helper", label: "Pip - Rail Fitter", started: ago(45) }), child({ id: "b", label: "Test dictation", started: ago(40), state: "done" }),
@@ -497,4 +497,7 @@ test("baby goblins are named after their goblin in the order they started, Jr. t
   const name = (id: string) => babyName(goblin, children.find((node) => node.id === id)!);
   assert.deepEqual(["a", "b", "c", "z0", "z7", "h"].map(name), ["Kip Jr. - Start the board", "Kip II - Test dictation", "Kip III - Check the list", "Kip IV - Trace the export", "Kip XI - Trace the export", "Pip - Rail Fitter"]);
   assert.equal(babyName({ ...goblin, goblin_name: "" }, children[1]), "Start the board", "a goblin with no name yet: the description alone");
+  const shortName = (id: string) => babyShortName(goblin, children.find((node) => node.id === id)!);
+  assert.deepEqual(["a", "c", "z7", "h"].map(shortName), ["Kip Jr.", "Kip III", "Kip XI", ""], "the goblin's name and the order alone, and none of its goblin's for a helper");
+  assert.equal(babyShortName({ ...goblin, goblin_name: "" }, children[1]), "", "a goblin with no name yet gives none");
 });
