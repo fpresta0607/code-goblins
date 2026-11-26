@@ -1,4 +1,5 @@
 import { isOpen, itemFor, openKeys, waitingItems, waitReason, waitsOnOverlord, type Item } from "./commandQueue.ts";
+import { cloudWork, type CloudWork } from "./cloud-work.ts";
 import { credentialAsk } from "./credentials.ts";
 import { signInHeading } from "./browser-signins.ts";
 import { publishedAt } from "./item-state.ts";
@@ -59,15 +60,26 @@ function itemAlert(item: Item, tasks: Task[]): BoardAlert {
   return alert("", "A command waits for you to run it: " + item.run.title);
 }
 
+// A handed-off goblin's cloud work is keyed by its pull request and head,
+// with the sighting it stands for, as the window and the phone key it.
+function cloudAlert(work: CloudWork, tasks: Task[]): BoardAlert {
+  const text = shortened(nameOf(tasks, work.task.id), NAME_LIMIT) + " has cloud work ready: " + plainMessage(work.sighting.title);
+  return { key: work.key + "@" + work.sighting.seen_at, says: "item:" + work.task.id + ":" + text, speaker: nameOf(tasks, work.task.id), text: shortened(text), item: work.key };
+}
+
 // boardAlerts is the items new in the Command Center between two snapshots
-// that ask the Overlord something: a question, review, command or credential
-// request. The first snapshot a page sees alerts nothing: what already waits
+// that ask the Overlord something: a question, review, command, credential
+// request or cloud work ready. The first snapshot a page sees alerts nothing: what already waits
 // is under the badge. A goblin's question the CEO left waits in the Command
 // Center without an alert: the CEO falling behind is said on its bar.
 export function boardAlerts(previous: Snapshot | null, next: Snapshot): BoardAlert[] {
   if (!previous) return [];
   const known = openKeys(previous);
-  return waitingItems(next).filter((item) => !known.has(item.key) && !(item.kind === "question" && item.question.task)).map((item) => itemAlert(item, next.tasks));
+  const knownCloud = new Set(cloudWork(previous).map((work) => work.key));
+  return [
+    ...waitingItems(next).filter((item) => !known.has(item.key) && !(item.kind === "question" && item.question.task)).map((item) => itemAlert(item, next.tasks)),
+    ...cloudWork(next).filter((work) => !knownCloud.has(work.key)).map((work) => cloudAlert(work, next.tasks)),
+  ];
 }
 
 // An alert a browser showed: its key, what it said, and when.
@@ -124,6 +136,7 @@ export const announceKey = (alert: BoardAlert) => "alert:" + alert.key;
 // anywhere else. An item the snapshot does not hold, as while the supervisor
 // restarts, is not known to be closed.
 export function outlived(alert: BoardAlert, snapshot: Snapshot): boolean {
+  if (alert.item.startsWith("cloud:")) return !cloudWork(snapshot).some((work) => work.key === alert.item);
   const item = itemFor(snapshot, alert.item);
   return !!item && (!isOpen(item) || itemAlertKey(item) !== alert.key);
 }

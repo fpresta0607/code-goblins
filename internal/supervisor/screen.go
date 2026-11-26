@@ -17,6 +17,8 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/fpresta0607/code-goblins/internal/browserlogin"
+	"github.com/fpresta0607/code-goblins/internal/remoteaccess"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 const (
@@ -35,15 +37,19 @@ const (
 
 // screenView relays one Screen view: the frames of the page its goblin's
 // browser shows, each sent once the view drew the one before, and, while a
-// person drives the browser from this PC, their mouse and keys to that page.
-// Nothing the view sends is logged or kept: what a person types reaches the
-// page alone.
+// person drives the browser from this PC or his private board, their mouse
+// and keys to that page. Nothing the view sends is logged or kept: what a
+// person types reaches the page alone.
 type screenView struct {
-	h       *HTTP
-	b       *taskBrowser
-	view    *websocket.Conn
-	client  screenClient
-	isLocal bool
+	h      *HTTP
+	b      *taskBrowser
+	view   *websocket.Conn
+	client screenClient
+	// mayDrive says the view may take control: it is on this PC, or on his
+	// private board, which the remote access gate admitted as his by
+	// Tailscale's headers alone (CEO decision 1028736). isPrivateBoard says
+	// it is the latter, whose takes are recorded for the CEO.
+	mayDrive, isPrivateBoard bool
 	// target is the page shown and session the view's own session on it.
 	target, session string
 	// pages are the page targets the browser has, the one opened or sent
@@ -63,7 +69,8 @@ type screenPage struct {
 
 // screenMessage is what a view sends: ack once it drew a frame; take and
 // hand-back, with the words it hands back with; and while it drives, mouse,
-// key and text, which the browser's Input domain takes as they are named.
+// key and text, which the browser's Input domain takes as they are named, and
+// back, which takes the page one entry back in its history.
 type screenMessage struct {
 	Type   string `json:"type"`
 	Reason string `json:"reason"`
@@ -85,8 +92,10 @@ type screenMessage struct {
 
 // browserScreenState is what a view is told of the browser: who drives it, whether
 // this view may, the page shown, by its title and its host alone, since an
-// address can carry a sign-in's code, and where on that page its goblin last
-// pressed its mouse, a place and nothing else (#2537).
+// address can carry a sign-in's code, whether that page has an entry before in
+// its history for a view that drives it to go back to (#2901), and where on
+// that page its goblin last pressed its mouse, a place and nothing else
+// (#2537).
 type browserScreenState struct {
 	Type      string       `json:"type"`
 	IsDriven  bool         `json:"is_driven"`
@@ -94,6 +103,7 @@ type browserScreenState struct {
 	Title     string       `json:"title"`
 	Host      string       `json:"host"`
 	HasPage   bool         `json:"has_page"`
+	CanGoBack bool         `json:"can_go_back"`
 	DriveNote string       `json:"drive_note,omitempty"`
 	Pointer   *screenPlace `json:"pointer,omitempty"`
 }
@@ -148,7 +158,8 @@ func (h *HTTP) screen(w http.ResponseWriter, r *http.Request) {
 	defer client.Close()
 	wake, release := h.Service.screens.watch(b)
 	defer release()
-	s := &screenView{h: h, b: b, view: view, client: client, isLocal: offMachine(r, h.Host) == ""}
+	isPrivateBoard := remoteaccess.Admitted(r)
+	s := &screenView{h: h, b: b, view: view, client: client, mayDrive: offMachine(r, h.Host) == "" || isPrivateBoard, isPrivateBoard: isPrivateBoard}
 	reason := s.run(ctx, wake)
 	if s.session != "" {
 		stop, done := context.WithTimeout(context.Background(), 2*time.Second)
@@ -345,14 +356,33 @@ func (s *screenView) tell(ctx context.Context) error {
 	if at := slices.IndexFunc(s.pages, func(each screenPage) bool { return each.id == s.target }); at >= 0 {
 		page = s.pages[at]
 	}
-	told := browserScreenState{Type: "state", IsDriven: isDriven, CanDrive: s.isLocal, Title: page.title, Host: page.address, HasPage: s.target != ""}
+	told := browserScreenState{Type: "state", IsDriven: isDriven, CanDrive: s.mayDrive, Title: page.title, Host: page.address, HasPage: s.target != ""}
+	if isDriven && s.mayDrive && s.session != "" {
+		_, told.CanGoBack = s.entryBefore(ctx)
+	}
 	if pointer := s.h.Service.screens.pointerOf(s.b); pointer.target == s.target && s.target != "" {
 		told.Pointer = &screenPlace{X: pointer.x, Y: pointer.y}
 	}
-	if !s.isLocal {
-		told.DriveNote = "Take control from the board on this PC."
+	if !s.mayDrive {
+		told.DriveNote = "Take control from the board on this PC or your private board."
 	}
 	return s.send(ctx, told)
+}
+
+// entryBefore is the ID of the entry before the one the page shown is on in
+// its history, when it has one. Only the entries' IDs are read: never their
+// addresses, which can carry a sign-in's code, nor their titles.
+func (s *screenView) entryBefore(ctx context.Context) (int, bool) {
+	var history struct {
+		Current int `json:"currentIndex"`
+		Entries []struct {
+			ID int `json:"id"`
+		} `json:"entries"`
+	}
+	if err := s.call(ctx, s.session, "Page.getNavigationHistory", nil, &history); err != nil || history.Current < 1 || history.Current >= len(history.Entries) {
+		return 0, false
+	}
+	return history.Entries[history.Current-1].ID, true
 }
 
 func (s *screenView) send(ctx context.Context, message any) error {
@@ -431,9 +461,9 @@ var (
 	keyEvents    = []string{"keyDown", "keyUp"}
 )
 
-// message takes what the view sends. Only a view on this PC takes control,
-// and only while a person drives does its mouse and keys reach the page;
-// any view may hand it back.
+// message takes what the view sends. Only a view on this PC or his private
+// board takes control, and only while a person drives do its mouse, keys and
+// Back reach the page; any view may hand it back.
 func (s *screenView) message(ctx context.Context, m screenMessage) error {
 	switch m.Type {
 	case "ack":
@@ -447,20 +477,30 @@ func (s *screenView) message(ctx context.Context, m screenMessage) error {
 		_ = s.call(ctx, s.session, "Page.screencastFrameAck", map[string]int{"sessionId": frame}, nil)
 		return nil
 	case "take":
-		if !s.isLocal || !s.h.Service.screens.drive(s.b, true) {
+		if !s.mayDrive || !s.h.Service.screens.drive(s.b, true) {
 			return s.tell(ctx)
+		}
+		if s.isPrivateBoard {
+			s.h.Service.tookFromPrivateBoard(s.b.task)
 		}
 		return nil
 	case "hand-back":
 		s.h.Service.handBackScreen(s.b, m.Reason)
 		return nil
 	case "mouse", "key", "text":
-		if s.isLocal && s.session != "" && s.h.Service.screens.isDriven(s.b) {
+		if s.mayDrive && s.session != "" && s.h.Service.screens.isDriven(s.b) {
 			s.input(ctx, m)
 		}
 		return nil
+	case "back":
+		if s.mayDrive && s.session != "" && s.h.Service.screens.isDriven(s.b) {
+			if entry, hasEntry := s.entryBefore(ctx); hasEntry {
+				_ = s.call(ctx, s.session, "Page.navigateToHistoryEntry", map[string]int{"entryId": entry}, nil)
+			}
+		}
+		return nil
 	}
-	return errors.New("a screen view sends ack, take, hand-back, mouse, key or text")
+	return errors.New("a screen view sends ack, take, hand-back, mouse, key, text or back")
 }
 
 // input dispatches one of the person's mouse or key events, or a paste, to
@@ -510,6 +550,18 @@ func (s *screenView) input(ctx context.Context, m screenMessage) {
 			return
 		}
 		_ = s.call(ctx, s.session, "Input.insertText", map[string]string{"text": m.Text}, nil)
+	}
+}
+
+// tookFromPrivateBoard records his take of task's browser from his private
+// board for the CEO, as a grant from there is, since the gate proves that
+// board his only by headers a program on this PC can forge.
+func (s *Service) tookFromPrivateBoard(task string) {
+	stateDir := s.Store.Home.State
+	if _, err := wake.Append(stateDir, "notify", task, "screen: the Overlord took control of its browser from "+privateBoard); err != nil {
+		s.publish(err)
+	} else if _, err := wake.PublishEpisode(stateDir); err != nil {
+		s.publish(err)
 	}
 }
 

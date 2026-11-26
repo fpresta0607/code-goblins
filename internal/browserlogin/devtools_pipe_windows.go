@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 )
 
 const devToolsMessageLimit = 32 << 20
@@ -54,6 +55,8 @@ type devToolsPipe struct {
 	once    sync.Once
 	// why is what closed the pipe, set before done is closed.
 	why error
+	// received counts the messages the browser has sent.
+	received atomic.Int64
 }
 
 func newDevToolsPipe(reader io.ReadCloser, writer io.WriteCloser) *devToolsPipe {
@@ -185,6 +188,7 @@ func (p *devToolsPipe) read() {
 		return 0, nil, nil
 	})
 	for scanner.Scan() {
+		p.received.Add(1)
 		var message devToolsMessage
 		if json.Unmarshal(scanner.Bytes(), &message) != nil {
 			why = errors.New("the browser sent a message that is not JSON")

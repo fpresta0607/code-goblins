@@ -35,6 +35,12 @@ type Screens struct {
 	// a request that failed again, its groups the failure, the attempt and
 	// the attempts it makes. Working matches it too.
 	Retrying *regexp.Regexp
+	// APIError matches the row a turn ends on once the harness gave up its
+	// request to the model's API for a connection that failed or a request
+	// that timed out, its first group the error in the harness's own words.
+	// A refusal of another kind, as a rate limit, a rejected credential or a
+	// provider's outage, is routing.Detect's, never this (#2863).
+	APIError *regexp.Regexp
 	// StatusLine matches the status a harness draws at the end of the row
 	// over its composer's top rule, its first group the context gauge and its
 	// second the notices after it, each after a mark. Checks are the checks
@@ -104,14 +110,33 @@ type Screens struct {
 	// in internal/supervisor). A harness with none would take a line typed
 	// during a turn only at its next tool call.
 	SendNow string
+	// SendNowRunsCommand says a slash command typed into the harness's turn
+	// waits in its queue as typed, where SendNow runs it at once, as Claude
+	// Code 2.1.322's does. Codex 0.160 refuses such a command in a turn and
+	// pi 1.4.0 expands one into a steer, so their SendNow, which ends the
+	// turn, goes before the command instead.
+	SendNowRunsCommand bool
 	// EditQueue is the key that, at an empty prompt line, takes every line
-	// the harness holds in its queue back onto that line, a row each, and
-	// Queued matches the empty prompt line's row while the harness offers
-	// it: Claude Code 2.1.322's Up under "Press up to edit queued messages"
-	// (live, 2026-11-10, #2332). A harness with none gives a queued line up
-	// only to a turn.
-	EditQueue string
-	Queued    *regexp.Regexp
+	// the harness holds in its queue back onto that line, and Queued matches
+	// the row that offers it while the harness does: the empty prompt line's
+	// own row, or with QueuedAbove the last row above the composer that is
+	// not blank. Claude Code 2.1.322's Up under "Press up to edit queued
+	// messages" puts the lines there a row each (live, 2026-11-10, #2332),
+	// and pi 1.4.0's Alt+Q under "↳ Alt+Q to edit all queued messages" an
+	// empty row between each two (live, 2026-11-18, #2340). Codex 0.160 has
+	// none: it hands a line typed into its turn to its agent as it is
+	// submitted, and its Alt+Up gives back only the newest line queued with
+	// Tab or turned away as a steer. A harness with none gives a queued line
+	// up only to a turn.
+	EditQueue   string
+	Queued      *regexp.Regexp
+	QueuedAbove bool
+	// ComposerScrolls says the composer shows at most 30% of the terminal's
+	// rows, and no fewer than five, of the rows its text wraps to, wrapped at
+	// its rules' width less the column its cursor keeps, and scrolls the rest
+	// out of sight under "↑ N more", as pi-tui 1.4.0's Editor.render draws
+	// pi's editor.
+	ComposerScrolls bool
 }
 
 // Dialog is one startup prompt. A spawn answers it only while one of Markers
@@ -168,6 +193,13 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// 3/10", and its turn still runs (#2236).
 			Working:  regexp.MustCompile(`^[·✢✳*✶✻✽] \S.*(…| · Retrying in .+ · attempt \d+/\d+)`),
 			Retrying: regexp.MustCompile(`^[·✢✳*✶✻✽] (\S.*?) · Retrying in .+? · attempt (\d+)/(\d+)`),
+			// Once its retries run out, Claude Code 2.1.331 ends the turn on
+			// the failure, in the words its build holds for a connection that
+			// failed or a request that timed out, as "● API Error: Can't
+			// reach the API server …" or "● Request timed out. If the API is
+			// slow to answer, …". It draws a goblin's own reply under the same
+			// mark, so a reply that opens "Request timed out on …" is none.
+			APIError: regexp.MustCompile(`^[●⏺] ((?:API Error: (?:Can't reach the API server|Unable to connect to API \(|Connection (?:dropped|refused|error)|No internet route|Request timed out)|Request timed out\. If the API is slow to answer).*)$`),
 			// Over its composer, at the right, Claude Code 2.1.322 draws the
 			// context gauge once the context fills, as "83% context used",
 			// and its notices, as "✘ Auto-update failed · Run claude doctor";
@@ -181,7 +213,9 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			Resubmits:  1,
 			// Claude Code 2.1.288 encloses its bare prompt between rules, and
 			// 2.1.314 draws a hint on it while a message waits in its queue.
-			Empty:         regexp.MustCompile(`^[>❯][ \x{00a0}]*(` + cutShort("Press up to edit queued messages") + `)?$`),
+			// 2.1.331 draws one there after a turn ended on an API error, by
+			// the error's kind (#2862).
+			Empty:         regexp.MustCompile(`^[>❯][ \x{00a0}]*(` + cutShort("Press up to edit queued messages", "…") + `|` + cutShort("Resend your message to try again", "…") + `|` + cutShort("Once fixed, resend your message", "…") + `|` + cutShort("Run /rewind to go back", "…") + `)?$`),
 			RuledComposer: true,
 			// Claude Code 2.1.302 asks permission for a call under its
 			// diff, as in "Do you want to create nine.txt?", over
@@ -193,9 +227,10 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// Claude Code 2.1.275's chat:sendNow chord, Ctrl+X Ctrl+S: a
 			// message it queued during a turn is sent "right away, as its key
 			// does" (its changelog for the click on that hint).
-			SendNow:   "\x18\x13",
-			EditQueue: "\x1b[A",
-			Queued:    regexp.MustCompile(`^[>❯][ \x{00a0}]*(` + cutShort("Press up to edit queued messages") + `)$`),
+			SendNow:            "\x18\x13",
+			SendNowRunsCommand: true,
+			EditQueue:          "\x1b[A",
+			Queued:             regexp.MustCompile(`^[>❯][ \x{00a0}]*(` + cutShort("Press up to edit queued messages", "…") + `)$`),
 		}, true
 	case Codex:
 		hookMenu := `(?m)^[ \t]*(?:› )?1\. Review hooks[ \t]*\n[ \t]*(?:› )?2\. Trust all and continue[ \t]*\n[ \t]*(?:› )?3\. Continue without trusting(?: \(hooks won't run\))?[ \t]*\n[ \t\n]*`
@@ -234,6 +269,10 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			Footer:            regexp.MustCompile(`^\s*(\? for shortcuts\b|\d+% context left\b|\S+ \S+ · \S|(?i:gpt-\S+)(?: \S+)* (minimal|low|medium|high|xhigh)(\s*$| · \S))`),
 			// Its working row names it: "• Working (5s • esc to interrupt)".
 			SendNow: "\x1b",
+			// Codex 0.160 ends a turn on its stream's failure as an error
+			// row, as "■ stream disconnected before completion: …"; its other
+			// error rows, as "■ Conversation interrupted", are not the API's.
+			APIError: regexp.MustCompile(`^■ ((?:stream disconnected before completion|Connection failed|idle timeout waiting for (?:SSE|websocket))\b.*)$`),
 		}, true
 	case Pi:
 		return Screens{
@@ -252,6 +291,12 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// A braille spinner in the rule above the editor, as in
 			// "── ⠸ Working ──".
 			Working: regexp.MustCompile(`[\x{2800}-\x{28FF}]\s+Working`),
+			// pi 1.4 ends a turn on the error it gave up retrying, as
+			// " Error: Retry failed after 3 attempts: fetch failed", and on
+			// the error itself while its retries are turned off, each its
+			// whole message. It draws a goblin's own reply with the same
+			// leading space, so a reply that opens "Error: …" is none.
+			APIError: regexp.MustCompile(`^ ?Error: (Retry failed after \d+ attempts: .*|Connection error\.|Request timed out\.|fetch failed)\s*$`),
 			// pi 0.85 draws its editor and footer, and takes typed text,
 			// before its startup completes, which on a machine without fd and
 			// rg includes downloading them (InteractiveMode.init); until then
@@ -274,16 +319,27 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// pi binds app.interrupt to Escape: it ends the run, keeps the
 			// session, and returns the lines the editor queued to the editor.
 			SendNow: "\x1b",
+			// pi 1.4.0 binds app.message.dequeue to Alt+Q, which puts every
+			// line its queue holds in its editor and leaves the run going.
+			// While lines wait there it draws each as "Steering: <line>" over
+			// that hint, above the editor, each row cut under "..." in a
+			// terminal too narrow for it (interactive mode's
+			// updatePendingMessagesDisplay), live on 2026-11-18 (#2340).
+			EditQueue:       "\x1bq",
+			Queued:          regexp.MustCompile(`^↳ (` + cutShort("Alt+Q to edit all queued messages", "...") + `)$`),
+			QueuedAbove:     true,
+			ComposerScrolls: true,
 		}, true
 	}
 	return Screens{}, false
 }
 
 // ClearLine is the key that takes typed words back off a harness's prompt
-// line: Ctrl+U, in a turn or out of one. Codex 0.160 and pi 1.4 take the whole
-// prompt line off with it, and Claude Code 2.1.322 the one row its cursor is
-// in, so it is pressed until the prompt line reads empty; each does nothing
-// with it over an empty one (live, 2026-11-10, #2306).
+// line: Ctrl+U, in a turn or out of one. Codex 0.160 takes the whole prompt
+// line off with it, and Claude Code 2.1.322 and pi 1.4.0 only the row their
+// cursor is in, or an empty one with the line break before it (live,
+// 2026-11-10, #2306, and 2026-11-18, #2340), so it is pressed until the
+// prompt line reads empty; each does nothing with it over an empty one.
 const ClearLine = "\x15"
 
 // trailingMention matches text that ends in a $ word.
@@ -300,13 +356,14 @@ func (s Screens) Submittable(text string) string {
 }
 
 // cutShort returns a pattern for text as a terminal draws it, whole or cut
-// under an ellipsis wherever its width falls, as Claude Code 2.1.314 cut its
-// hint to "Press up to edit queued …" at 27 columns. A line that only starts
-// like text does not match: that is words somebody typed.
-func cutShort(text string) string {
+// under ellipsis wherever its width falls, as Claude Code 2.1.314 cut its
+// hint to "Press up to edit queued …" at 27 columns, and pi 1.4.0 cuts its
+// own under "...". A line that only starts like text does not match: that is
+// words somebody typed.
+func cutShort(text, ellipsis string) string {
 	cuts := []string{regexp.QuoteMeta(text)}
 	for end := 1; end < len(text); end++ {
-		cuts = append(cuts, regexp.QuoteMeta(text[:end])+"…")
+		cuts = append(cuts, regexp.QuoteMeta(text[:end]+ellipsis))
 	}
 	return strings.Join(cuts, "|")
 }
@@ -546,8 +603,57 @@ func (s Screens) OffersQueue(screen []string) bool {
 	if s.EditQueue == "" || s.Queued == nil || !s.ComposerEmpty(screen) {
 		return false
 	}
+	if s.QueuedAbove {
+		top, _, _ := s.composerRules(screen)
+		for row := top - 1; row >= 0; row-- {
+			if offer := strings.TrimSpace(screen[row]); offer != "" {
+				return s.Queued.MatchString(offer)
+			}
+		}
+		return false
+	}
 	composer, _ := s.composer(screen)
 	return s.Queued.MatchString(strings.TrimSpace(composer[0]))
+}
+
+// QueueFits reports whether the empty composer screen shows would show every
+// row of queued, the lines its harness's queue holds, once EditQueue put them
+// there, so that the board can read them all back. Only a composer that
+// scrolls hides any. pi 1.4.0's Alt+Q puts the lines in its editor an empty
+// row between each two, which takes a tab as four spaces (pi-tui's
+// Editor.setText). A line takes one row where it fits the width it wraps at,
+// and otherwise at most two for each full width it holds and one more:
+// pi-tui's wordWrapLine fills each row greedily, so any two rows in a row
+// hold more than that width. A character outside ASCII counts two columns,
+// the most pi-tui gives one, so no line counts fewer rows than it takes.
+func (s Screens) QueueFits(screen, queued []string) bool {
+	if !s.ComposerScrolls {
+		return true
+	}
+	_, bottom, isRuled := s.composerRules(screen)
+	if !isRuled {
+		return false
+	}
+	width := utf8.RuneCountInString(strings.TrimSpace(screen[bottom])) - 1
+	rows := 0
+	for _, line := range strings.Split(strings.Join(queued, "\n\n"), "\n") {
+		columns := 0
+		for _, character := range line {
+			switch {
+			case character == '\t':
+				columns += 4
+			case character < utf8.RuneSelf:
+				columns++
+			default:
+				columns += 2
+			}
+		}
+		rows++
+		if columns > width {
+			rows += 2 * (columns / width)
+		}
+	}
+	return rows <= max(5, len(screen)*3/10)
 }
 
 // TookCommand reports whether screen shows the harness took typed, a slash
@@ -668,8 +774,20 @@ func (s Screens) composer(screen []string) ([]string, bool) {
 	if s.RuledComposer {
 		return s.ruledComposer(screen)
 	}
-	if s.Footer == nil {
+	start, footer, isRead := s.unruledComposer(screen)
+	if !isRead {
 		return nil, false
+	}
+	composer := screen[start:footer]
+	return composer[:len(composer)-emptyRowsAtEnd(composer)], true
+}
+
+// unruledComposer returns the row of screen's last prompt row over its
+// footer, where an unruled composer starts, and the row its footer starts at,
+// and false when the screen shows no footer or no prompt row over it.
+func (s Screens) unruledComposer(screen []string) (int, int, bool) {
+	if s.Footer == nil {
+		return 0, 0, false
 	}
 	end := len(screen) - emptyRowsAtEnd(screen)
 	footer := end
@@ -677,16 +795,26 @@ func (s Screens) composer(screen []string) ([]string, bool) {
 		footer--
 	}
 	if footer == end {
-		return nil, false
+		return 0, 0, false
 	}
 	for start := footer - 1; start >= 0; start-- {
 		row := strings.TrimSpace(screen[start])
 		if row == "›" || strings.HasPrefix(row, "› ") {
-			composer := screen[start:footer]
-			return composer[:len(composer)-emptyRowsAtEnd(composer)], true
+			return start, footer, true
 		}
 	}
-	return nil, false
+	return 0, 0, false
+}
+
+// aboveComposer returns screen's rows over its composer, and false when the
+// screen shows no composer to read.
+func (s Screens) aboveComposer(screen []string) ([]string, bool) {
+	if s.RuledComposer {
+		top, _, isRuled := s.composerRules(screen)
+		return screen[:top], isRuled
+	}
+	start, _, isRead := s.unruledComposer(screen)
+	return screen[:start], isRead
 }
 
 // TookEnterAsNewLine reports whether screen shows the harness's ruled

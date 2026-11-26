@@ -30,6 +30,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/githubapi"
 	"github.com/fpresta0607/code-goblins/internal/goblinname"
+	"github.com/fpresta0607/code-goblins/internal/handoff"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -65,8 +66,12 @@ type Options struct {
 	RemoteAccess   *remoteaccess.Manager
 	// Push sends the app badge's pushes to the push services browsers
 	// subscribe through; nil turns the app badge off.
-	Push           *http.Client
-	Example        bool
+	Push    *http.Client
+	Example bool
+	// KeepConnectors keeps the Connectors page's snapshots current in the
+	// background, checking this PC, each project and each goblin as they
+	// change or grow old; without it nothing is checked until a refresh asks.
+	KeepConnectors bool
 	CEO            *CEOConnection
 	Gate           ProgressReader
 	Reconcile      func(context.Context) error
@@ -87,6 +92,11 @@ type Options struct {
 	// RootIssues picks up the open ops-root issues of each project's
 	// repository as queued work; without it none is.
 	RootIssues *RootIssues
+	// WorkReview reviews the queued rows, parked rows and paused tasks once a
+	// day and when an allowance renews, and holds the start of a queued task
+	// that names an issue a paused or live task of its project names; without
+	// it neither happens.
+	WorkReview *WorkReview
 	// VerifyReports reads a project's goblins gate test reports, the newest
 	// first, which put each task's newest run on its card; without it no
 	// card shows one.
@@ -208,6 +218,10 @@ type Options struct {
 	// reads the machine's.
 	UpdateCheck    func(context.Context, harness.Kind) (string, error)
 	HarnessCurrent func(context.Context, harness.Kind) (bool, error)
+	// APIAnswers checks that a model API's origin answers before the
+	// supervisor carries on a goblin whose turn ended on an API error; nil
+	// reaches the origin itself.
+	APIAnswers func(ctx context.Context, origin string) error
 	// KeyPages are the reviewed key page recipes the binary carries; the
 	// browser broker lends a login's browser only for a provider they name.
 	KeyPages keypages.Recipes
@@ -251,8 +265,8 @@ type Service struct {
 	// same one.
 	registration         string
 	registrationIdentity string
-	connectionChecks     *connections.Cache
-	connectionInspector  *connections.Inspector
+	connectionSnapshots  *connections.Snapshots
+	connectorWork        sync.WaitGroup
 	history              []Task
 	revision             uint64
 	subscribers          map[chan struct{}]struct{}
@@ -314,6 +328,9 @@ type Service struct {
 	harnessUpdates   map[string]harnessUpdateRead
 	ceoUpdating      bool
 	ceoUpdateProblem string
+	// apiErrorCarried is when the supervisor last carried each goblin on
+	// after its turn ended on an API error. Only its own loop reads it.
+	apiErrorCarried map[string]time.Time
 	// crossing is the home's move to goblins' names as the last look found
 	// it; isRelabelTried says this supervisor tried its labels once, and
 	// ceoCrossingTries how often it restarted the CEO under the new names.
@@ -354,13 +371,20 @@ type Service struct {
 	pushMu sync.Mutex
 	// ordering saves one list order at a time.
 	ordering sync.Mutex
+	// allowanceRenewed carries, without blocking its sender, that an allowance
+	// renewed, which makes the work review due.
+	allowanceRenewed chan struct{}
+	// folds keeps what each project's resolution read, for the start hold.
+	folds foldProjects
 	// starts guards starting, the task a Start is running goblins spawn for,
 	// overlordStart, the last task the Overlord's own Start ran goblins spawn
-	// for, and startErrors, why each task's last Start failed.
+	// for, startErrors, why each task's last Start failed, and startRetries,
+	// when the scheduler tries again each start the network failed.
 	starts        sync.Mutex
 	starting      string
 	overlordStart string
 	startErrors   map[string]string
+	startRetries  map[string]startRetry
 	changing      map[string]string
 	engineFrom    map[string]state.TaskMeta
 	engineIdle    map[string]engineIdleReading
@@ -513,7 +537,7 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	s := &Service{Store: store, Options: options, Git: Git{Reads: options.Reads}, Instance: hex.EncodeToString(id[:]), Started: time.Now().UTC(), subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{}), work: make(chan struct{}, 1), looks: make(chan chan struct{}), releaseNow: make(chan struct{}, 1), devDriveNow: make(chan struct{}, 1), cancel: cancel, lifetime: ctx}
+	s := &Service{Store: store, Options: options, Git: Git{Reads: options.Reads}, Instance: hex.EncodeToString(id[:]), Started: time.Now().UTC(), subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{}), work: make(chan struct{}, 1), allowanceRenewed: make(chan struct{}, 1), looks: make(chan chan struct{}), releaseNow: make(chan struct{}, 1), devDriveNow: make(chan struct{}, 1), cancel: cancel, lifetime: ctx}
 	if options.Tickets != nil {
 		s.tickets = newTicketKeeper(h, options.Tickets)
 	}
@@ -523,6 +547,9 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 		options.Tree.Recorded = store.recordedSession
 		options.Tree.Awaited = s.awaited
 	}
+	if options.KeepConnectors {
+		s.startConnectors(ctx)
+	}
 	go s.run(ctx)
 	return s, nil
 }
@@ -530,12 +557,7 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 func (s *Service) Close() {
 	s.cancel()
 	<-s.done
-	s.mu.Lock()
-	checks := s.connectionChecks
-	s.mu.Unlock()
-	if checks != nil {
-		checks.Close()
-	}
+	s.closeConnectors()
 }
 
 func (s *Service) Done() <-chan struct{} { return s.done }
@@ -717,12 +739,26 @@ func (s *Service) run(ctx context.Context) {
 		}
 	}()
 	defer func() { s.cancel(); <-rootsDone }()
+	reviewDone := make(chan struct{})
+	go func() {
+		defer close(reviewDone)
+		if s.Options.WorkReview != nil {
+			s.keepReviewingWork(ctx)
+		}
+	}()
+	defer func() { s.cancel(); <-reviewDone }()
 	updatesDone := make(chan struct{})
 	go func() {
 		defer close(updatesDone)
 		s.keepHarnessUpdates(ctx, harnessUpdateEvery)
 	}()
 	defer func() { s.cancel(); <-updatesDone }()
+	apiErrorsDone := make(chan struct{})
+	go func() {
+		defer close(apiErrorsDone)
+		s.keepCarryingOnAfterAPIErrors(ctx, apiErrorCarryOnEvery)
+	}()
+	defer func() { s.cancel(); <-apiErrorsDone }()
 	treesDone := make(chan struct{})
 	go func() {
 		defer close(treesDone)
@@ -1696,6 +1732,7 @@ type Task struct {
 	StartError    string              `json:"start_error"`
 	Finished      string              `json:"finished,omitempty"`
 	Lifecycle     *LifecycleStatus    `json:"lifecycle,omitempty"`
+	CloudHandoff  *CloudHandoff       `json:"cloud_handoff,omitempty"`
 	Teardown      []string            `json:"teardown,omitempty"`
 	ActionError   string              `json:"action_error,omitempty"`
 	QueueRevision string              `json:"queue_revision,omitempty"`
@@ -2200,7 +2237,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	asked := map[string]string{}
 	for _, change := range s.asked {
 		asked[change.task] = "start"
-		if change.resume != nil {
+		if change.isResume() {
 			asked[change.task] = "resume"
 		}
 	}
@@ -2243,6 +2280,14 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 		if lifecycleErr == nil && isCurrent && (record.Phase != "running" || len(record.Teardown) > 0) {
 			task.Lifecycle = lifecycleStatus(record)
+			if record.Phase == "paused" && record.Pause != nil && record.Pause.Reason == "handoff" {
+				if meta, err := s.taskMeta(task.ID); err == nil {
+					if handed, isHandedOff, err := handoff.HandedOff(s.Store.Home.State, meta); err == nil && isHandedOff {
+						owner, name := pullRequestRepository(handed.PullRequest)
+						task.CloudHandoff = &CloudHandoff{PullRequest: handed.PullRequest, Prompt: handoff.Prompt(owner+"/"+name, handed.PullRequest), Cloud: handed.Cloud}
+					}
+				}
+			}
 			if record.SuppressesMonitoring(s.Store.Home.State) {
 				task.Phase, task.Reason, task.At = record.Phase, record.Reason, record.Updated
 				if record.Pause != nil && record.Phase == "paused" {
@@ -2292,7 +2337,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 				prior := engineFrom[task.ID]
 				task.Harness, task.Model, task.Effort = prior.Harness, prior.Model, prior.Effort
 			} else {
-				task.Phase = map[string]string{"pause": "pausing", "resume": "resuming", "stop": "stopping"}[action]
+				task.Phase = map[string]string{"pause": "pausing", "handoff": "pausing", "resume": "resuming", "stop": "stopping"}[action]
 			}
 		}
 	}

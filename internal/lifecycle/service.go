@@ -30,6 +30,9 @@ type Request struct {
 	// typed, so finishing the operation sends no notice: the CEO retiring a
 	// goblin must not be woken by its own pause.
 	IsWatched bool
+	// IsHandoffEnd says the resume is goblins handoff return or cancel, the
+	// only resumes that clear a handoff pause.
+	IsHandoffEnd bool
 }
 
 type Operations struct {
@@ -145,6 +148,24 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 	if meta.SpawnGen != request.Generation && !isSameResume {
 		return result, errors.New("task session changed; refresh before trying again")
 	}
+	// A handed-off task's branch is the cloud session's to build on until
+	// goblins handoff return or cancel resumes it, so nothing else resumes it
+	// or turns its pause into one that something else resumes. An earlier
+	// session's record holds none of the session that runs now.
+	isCurrentSession := prior.Generation == meta.SpawnGen
+	if isCurrentSession && prior.IsHandedOff() {
+		if request.Action == "resume" && !request.IsHandoffEnd {
+			return result, errors.New("the task is handed off to a cloud session: goblins handoff return brings its work back and resumes it, and goblins handoff cancel resumes it without that work")
+		}
+		if request.Action == "pause" && pause.Reason != "handoff" {
+			return result, errors.New("the task is handed off to a cloud session, so its handoff pause stays until goblins handoff return or cancel")
+		}
+	}
+	// A handoff pause taken in place would keep the handoff the earlier pause
+	// asked for, which was not written for publication.
+	if request.Action == "pause" && pause.Reason == "handoff" && !state.IsHelperOperation(request.Operation) && isCurrentSession && prior.Phase == "paused" && prior.Pause != nil && prior.Pause.Reason != "handoff" {
+		return result, fmt.Errorf("the task is paused for %s, and a handoff needs a handoff written for publication, which only a running goblin writes: resume it first", prior.Pause.Reason)
+	}
 	// A paused task paused again takes the new condition in place, so what
 	// resumes it can be changed; what its pause stopped and kept stays, and
 	// nothing is stopped again.
@@ -234,12 +255,19 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 		result.Pause = pause
 		result.Phase = "pausing"
 		result.Handoff = filepath.Join(meta.TaskTmp, "pause-"+request.Operation+".md")
+		// A pause cut short is retried with its own operation and finds at
+		// its handoff's place whatever it wrote there before.
+		if prior.Operation == request.Operation && prior.Phase == "pausing" {
+			if info, statErr := os.Stat(result.Handoff); statErr == nil && info.Mode().IsRegular() && info.Size() > 0 {
+				result.HandoffFallback = prior.HandoffFallback
+			}
+		}
 	case "stop":
 		result.Phase = "stopping"
 	case "resume":
 		result.Phase = "resuming"
 		result.ResumeNote = prior.ResumeNote
-		result.Handoff, result.HandoffSaved = prior.Handoff, prior.HandoffSaved
+		result.Handoff, result.HandoffSaved, result.HandoffFallback = prior.Handoff, prior.HandoffSaved, prior.HandoffFallback
 	}
 	if err := service.save(&result); err != nil {
 		return result, err
@@ -400,6 +428,13 @@ func PauseInstruction(handoff string) string {
 	return "Pause requested. You have five seconds to reach a stopping point: finish the step in hand, then push your branch if its mode allows. As your very last action, write your handoff to " + handoff + ".partial and rename it to " + handoff + "; that file ends the wait, and your session and processes stop right after it appears. Retain all work and never bypass a gate."
 }
 
+// HandoffPauseInstruction asks the task handed off to a cloud session for
+// its handoff as PauseInstruction does, written for the pull request body it
+// is published in.
+func HandoffPauseInstruction(handoff string) string {
+	return "Pause requested: your task is being handed off to a cloud session, which reads your handoff in a pull request body anyone with access to the repository can see. You have five seconds to reach a stopping point: finish the step in hand and commit it. As your very last action, write your handoff to " + handoff + ".partial and rename it to " + handoff + "; that file ends the wait, and your session and processes stop right after it appears. Write it as you would write a public issue: what is done and what is left, with no path on this machine, no credential, no brief text and no private project's name, since a handoff that holds one is refused rather than published. Retain all work and never bypass a gate."
+}
+
 // writeHandoff writes the handoff of record's goblin, which wrote none by its
 // pause's deadline, before the stop ends the runs it names, and says so in
 // record's problems. A handoff the goblin published meanwhile is its own and
@@ -413,11 +448,23 @@ func (service Service) writeHandoff(ctx context.Context, meta state.TaskMeta, re
 	// is, so it is there whole or not at all: one created and then written
 	// was left empty by a pause ended between the two, and every later pause
 	// could neither count it nor write over it (#1707).
+	// The mark is saved before the fallback is, so a pause cut short after it
+	// and retried never takes the fallback for the goblin's own.
 	staged, err := fsx.Stage(record.Handoff, service.Operations.Handoff(ctx, meta))
 	if err == nil {
 		defer staged.Discard()
+		record.HandoffFallback = true
+		err = service.save(record)
+	}
+	if err == nil {
 		writingHandoff()
 		err = staged.CommitNewContext(ctx)
+	}
+	if err != nil {
+		record.HandoffFallback = false
+		if saveErr := service.save(record); saveErr != nil {
+			record.Problems = append(record.Problems, "the pause's record could not be saved without its fallback handoff mark: "+saveErr.Error())
+		}
 	}
 	if errors.Is(err, os.ErrExist) {
 		if info, statErr := os.Stat(record.Handoff); statErr == nil && info.Mode().IsRegular() && info.Size() > 0 {

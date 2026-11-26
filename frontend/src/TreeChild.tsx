@@ -2,8 +2,8 @@ import type { TreeNode } from "./types";
 import { BABY_NAMES, babyFor, babyTask, forHowLong, formatMemory, isDimmed, phaseOf, stateWord, whatItRuns } from "./fleet-tree";
 import { TreeChildContent } from "./tree-child-content";
 
-// One child of a goblin as a small card under it: its baby goblin, its name
-// and title, what it runs in plain words, its state and for how long as a
+// One child of a goblin as a small card under it: its baby goblin, its name,
+// what it runs in plain words, its state and for how long as a
 // plain chip, and its memory.
 // Its tip is its task, as every card's is. A finished child is dimmed. With
 // onOpen it is a button that opens its panel, pressed while its panel shows.

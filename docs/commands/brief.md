@@ -6,7 +6,7 @@
 
 Scaffold a task brief at `data/<id>/brief.md`.
 `--surface internal|product|mixed|unknown`, `--risk low|<sensitive-surface>` and `--reason "<assessment>"` describe the concrete change for the project's delivery posture.
-Omitted or uncertain inputs select no-mistakes; `--mode` can request stricter validation, and a narrower exception needs explicit Overlord authority recorded with `--delivery-exception` at brief and spawn.
+Omitted or uncertain inputs select no-mistakes; `--mode` can request stricter validation, and a narrower exception needs explicit Overlord authority, which the registered primary CEO gives with `--delivery-exception` and which is kept for every later start of the task, as [Delivery intake](../contract/delivery.md#delivery) says; from any other caller it is refused and no brief is written.
 A narrower `--mode` with neither a qualifying assessment nor that exception writes no-mistakes and prints why on stderr.
 The Delivery section records this assessment for the spawn's resolver; see [Delivery intake](../contract/delivery.md#delivery).
 The brief records the resolved checkout, so a bare name and its path write the same brief.
@@ -29,6 +29,6 @@ For an existing completed queued brief without a ready marker, review its requir
 This is an explicit lifecycle transition: it validates the full brief before adding `ready: true` or replacing `ready: false`.
 It preserves all other authored bytes, including mode, credentials and policy choices, and leaves queue holds and existing task metadata and policies untouched.
 Already-ready valid briefs are unchanged.
-When the brief's `mode:` line differs from the mode its project's posture and its finished Delivery assessment select, as when the assessment was recorded after the scaffold wrote the line, `goblins brief ready` still finalizes it and prints on stderr which mode they select and why, so the line is changed or kept on purpose.
+When the brief's `mode:` line differs from the mode its project's posture and its finished Delivery assessment select, as when the assessment was recorded after the scaffold wrote the line, `goblins brief ready` still finalizes it and prints on stderr which mode they select and why, so the line is changed or kept on purpose, unless the delivery exception kept for the task approves the line.
 Incomplete or malformed briefs, missing explicit choices, and tasks with execution state or archived history refuse finalization without changing the brief.
 There is no automatic conversion of existing briefs and no missing-marker admission fallback.

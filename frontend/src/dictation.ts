@@ -53,7 +53,7 @@ export function dictationProblem(error: string): string {
   switch (error) {
     case "aborted": return "";
     case "not-allowed":
-    case "service-not-allowed": return "The microphone is blocked for the board. Allow it in the browser's site settings, then hold Ctrl+Shift+Space again.";
+    case "service-not-allowed": return "The microphone is blocked for the board. To allow it, click the site icon at the left of the address bar, set Microphone to Allow, then hold Ctrl+Shift+Space again.";
     case "audio-capture": return "No microphone was found.";
     case "network": return "Speech recognition in this browser needs a network connection.";
     case "no-speech": return "Nothing was heard.";
@@ -82,19 +82,36 @@ export function inDesktopApp(): boolean {
 }
 
 // microphoneProblem explains a microphone that could not be opened, by the
-// error's name. The desktop app's WebView2 grants the page every permission
-// itself, so a microphone refused there was refused by Windows, which is
-// where it is allowed again.
-export function microphoneProblem(name: string, app: boolean): string {
+// error's name and what the browser says of the page's microphone since. The
+// desktop app's WebView2 grants the page every permission itself, so a
+// microphone refused there was refused by Windows, which is where it is
+// allowed again. A browser tab's is blocked only where the browser denies it:
+// one it would still ask for had its question closed unanswered, and one it
+// grants was kept from the browser by Windows.
+export function microphoneProblem(name: string, app: boolean, permission: PermissionState): string {
   if (name === "NotAllowedError" || name === "SecurityError") {
-    return app ? "The microphone is blocked for Code Goblins by Windows. Turn on Microphone access and Let desktop apps access your microphone in Windows Settings > Privacy & security > Microphone, then hold Ctrl+Shift+Space again." : dictationProblem("not-allowed");
+    if (app) return "The microphone is blocked for Code Goblins by Windows. Turn on Microphone access and Let desktop apps access your microphone in Windows Settings > Privacy & security > Microphone, then hold Ctrl+Shift+Space again.";
+    if (permission === "prompt") return "The browser's question about the microphone closed before it was answered. Hold Ctrl+Shift+Space again and choose Allow when it asks.";
+    if (permission === "granted") return "Windows keeps the browser from the microphone. Turn on Microphone access and Let desktop apps access your microphone in Windows Settings > Privacy & security > Microphone, then hold Ctrl+Shift+Space again.";
+    return dictationProblem("not-allowed");
   }
   if (name === "NotFoundError" || name === "NotReadableError") return dictationProblem("audio-capture");
   return "Dictation stopped: the microphone could not be opened.";
 }
 
-function captureProblem(error: unknown): string {
-  return microphoneProblem(error instanceof Error ? error.name : "", inDesktopApp());
+// microphonePermission is what the browser says of the page's microphone. A
+// browser that cannot say, having no microphone permission to query, is taken
+// to deny it, as one that refused without asking does.
+async function microphonePermission(): Promise<PermissionState> {
+  try {
+    return (await navigator.permissions.query({ name: "microphone" as PermissionName })).state;
+  } catch {
+    return "denied";
+  }
+}
+
+async function captureProblem(error: unknown): Promise<string> {
+  return microphoneProblem(error instanceof Error ? error.name : "", inDesktopApp(), await microphonePermission());
 }
 
 const RECOGNITION_MS = 120_000;
@@ -175,8 +192,9 @@ export class Dictation {
       this.begin(hold);
     }, (error: unknown) => {
       if (this.hold !== hold) return;
-      this.events.problem(captureProblem(error));
       this.finish(hold, "");
+      // A later press says its own.
+      void captureProblem(error).then((note) => { if (this.latest === hold) this.events.problem(note); });
     });
   }
 

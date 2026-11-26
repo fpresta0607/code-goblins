@@ -62,10 +62,13 @@ function readLayout(): { positions: Record<string, Point> } {
   } catch { return { positions: {} }; }
 }
 
-export function Orchestration({ snapshot, selected, connected, effects, onSelect, onChild, onOpenCeo, afkToggle, presentations, now, freshNow }: {
+export function Orchestration({ snapshot, selected, connected, effects, onSelect, onOpenScreen, onChild, onOpenCeo, afkToggle, presentations, now, freshNow }: {
   presentations:BoardActivity[];
   snapshot: Snapshot; selected: string; connected: boolean; effects: ActivityEffect[]; now: number; freshNow: number;
   onSelect: (node: WorkflowNode, source: HTMLElement) => void;
+  // onOpenScreen shows a goblin's panel on its Screen view, from its card's
+  // Browser active.
+  onOpenScreen: (task: Task, source: HTMLElement) => void;
   // onChild opens a goblin's baby goblin.
   onChild: (task: Task, child: TreeNode, source: HTMLElement) => void;
   // onOpenCeo opens the CEO's terminal, from its card's button.
@@ -433,7 +436,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
           return <article key={node.id} className={"flow-node" + (owner && node.task ? " has-task" : "") + (WORKING.has(phase || "") ? " is-working" : "") + (activity.created ? " node-enter" : "") + (selected === node.id ? " selected" : "")} style={{ left: p.x, top: p.y, width: NODE_WIDTH, height: NODE_HEIGHT }} {...lights(node.id)}>
             {effect && <span key={effect.id} ref={playFrom(effect.expires - EFFECT_MS)} className="activity-glow" aria-hidden="true" />}
             {owner && node.task ? <>
-              <TaskCard task={node.task} {...cardFacts(node.task, snapshot, presentations)} selected={selected === node.id} now={now} buttonProps={handlers.buttonProps} onSelect={handlers.onCardSelect} />
+              <TaskCard task={node.task} {...cardFacts(node.task, snapshot, presentations)} selected={selected === node.id} now={now} buttonProps={handlers.buttonProps} onSelect={handlers.onCardSelect} onOpenScreen={onOpenScreen} />
               {!node.session && <p className="flow-session-details">{taskSessionDetails(node.task)}</p>}
             </> : <button className="flow-node-main" {...handlers.buttonProps}
               onClick={(event) => handlers.onSelect(event.currentTarget)} aria-pressed={selected === node.id}
@@ -441,7 +444,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
               <OrchestrationCard title={node.title} status={status} phase={phase} persona={node.ceo ? "ceo" : personaFor(node.task, node.session)}
                 project={node.task?.project || ""} relation={!node.parent && node.session?.role !== "ceo" && !node.ceo ? node.relation : ""} />
             </button>}
-            {(page || hasCeoFacts) && <div className="flow-node-foot"><BrowserActive name={node.title} screen="" page={page} />{hasCeoFacts && <CeoCardFacts snapshot={snapshot} now={freshNow} afkToggle={afkToggle} onOpenCeo={onOpenCeo} />}</div>}
+            {(page || hasCeoFacts) && <div className="flow-node-foot"><BrowserActive name={node.title} page={page} />{hasCeoFacts && <CeoCardFacts snapshot={snapshot} now={freshNow} afkToggle={afkToggle} onOpenCeo={onOpenCeo} />}</div>}
             {children && <button className="node-disclosure" aria-label={(collapsed.has(node.id) ? "Expand" : "Collapse") + " descendants of " + node.title} aria-expanded={!collapsed.has(node.id)} onClick={() => toggle(node.id)}><Chevron collapsed={collapsed.has(node.id)} /></button>}
           </article>;
         })}

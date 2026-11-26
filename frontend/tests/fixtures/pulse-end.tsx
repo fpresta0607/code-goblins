@@ -44,8 +44,8 @@ function PulseEnd() {
     <button onClick={watch}>Watch</button>
     <div id="effects" style={{ height: 900, display: "flex", flexDirection: "column" }}>
       {mode.startsWith("compact-")
-        ? <Lineage afkToggle={RESTING_AFK_TOGGLE} onOpenCeo={() => {}} snapshot={snapshot} project="" selected={null} effects={effects} presentations={[]} now={FIXED_NOW} freshNow={FIXED_NOW} onSelect={() => {}} />
-        : <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenCeo={() => {}} snapshot={snapshot} selected="" connected effects={effects} presentations={[]} now={FIXED_NOW} freshNow={FIXED_NOW} onSelect={() => {}} onChild={() => {}} />}
+        ? <Lineage afkToggle={RESTING_AFK_TOGGLE} onOpenScreen={() => {}} onOpenCeo={() => {}} snapshot={snapshot} project="" selected={null} effects={effects} presentations={[]} now={FIXED_NOW} freshNow={FIXED_NOW} onSelect={() => {}} />
+        : <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenScreen={() => {}} onOpenCeo={() => {}} snapshot={snapshot} selected="" connected effects={effects} presentations={[]} now={FIXED_NOW} freshNow={FIXED_NOW} onSelect={() => {}} onChild={() => {}} />}
     </div>
   </main>;
 }

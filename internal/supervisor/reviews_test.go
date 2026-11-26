@@ -218,6 +218,64 @@ func TestACommandCenterClearOfAWaitIsAuditedAndTold(t *testing.T) {
 	}
 }
 
+// The Command Center's skip of a wait tells its goblin only once a view of
+// the goblin's terminal has answered the Enter of a message typed there as
+// keys, as every board delivery to a goblin waits for that answer. One whose
+// time ends first types nothing, and the CEO hears the goblin could not be
+// told (#2848's review).
+func TestASkippedWaitsNoticeWhoseTimeEndsWhileATypedMessagesEnterWaitsIsReportedUntold(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta := state.TaskMeta{ID: "olive-task", Backend: "native", SpawnGen: "g1", Worktree: h.Root}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	wait := openReview("waiting-olive-task-1001404", meta.ID)
+	wait.Identity, wait.Title = goblinIdentity(meta), "Sign in to Google Groups"
+	if err := store.acceptReview(wait); err != nil {
+		t.Fatal(err)
+	}
+	previous := typeIntoGoblin
+	t.Cleanup(func() { typeIntoGoblin = previous })
+	var told []string
+	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _, _, _ bool) error {
+		told = append(told, text)
+		return nil
+	}
+	s := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}}}
+	answered := s.Options.CEO.awaitEnter(meta.ID)
+	defer answered()
+	if _, err := store.Queue(Action{ID: "clear-wait", Kind: "review_clear", ReviewID: wait.ID, Generation: wait.Identity}); err != nil {
+		t.Fatal(err)
+	}
+	// stall-accepted: a context the test means to run out while the Enter waits.
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+
+	// Act
+	err := store.ProcessOne(ctx, s.execute)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ctx.Err() == nil {
+		t.Error("the notice was refused while its time lasted, want it to wait for the Enter's answer")
+	}
+	if len(told) != 0 {
+		t.Errorf("the goblin was told %q, want nothing typed while the Enter waits", told)
+	}
+	records, err := wake.Pending(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(records, func(r wake.Record) bool {
+		return r.Kind == "review" && r.Key == meta.ID && strings.Contains(r.Detail, "but the goblin could not be told") && strings.Contains(r.Detail, "waits to press the Enter")
+	}) {
+		t.Errorf("wakes = %+v, want the CEO told the goblin could not be told while the Enter waits", records)
+	}
+}
+
 // Every clear is in state/reviews.audit, a page the Overlord ended as much as
 // a card he cleared: a page's cards close as cleared when he ends its review,
 // whether the page is still watched or settles.

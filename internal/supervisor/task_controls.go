@@ -79,16 +79,16 @@ func (r taskRefusal) Error() string { return r.reason }
 
 // lifecycleTask serves POST /api/tasks/lifecycle. A Resume waits its turn
 // rather than being refused while another goblin starts or resumes, or while
-// memory or disk is short; a Pause or Stop runs at once and takes back a
-// Resume of the same task that still waits. A click on what is already under
-// way is accepted and changes nothing.
+// memory or disk is short; a Pause, Hand off or Stop runs at once and takes
+// back a Resume of the same task that still waits. A click on what is
+// already under way is accepted and changes nothing.
 func (h *HTTP) lifecycleTask(w http.ResponseWriter, r *http.Request) {
 	var input lifecycleRequest
 	if err := decodeBody(w, r, &input, 4096); err != nil {
 		apiError(w, 400, err.Error())
 		return
 	}
-	if state.ValidTaskID(input.Task) != nil || state.ValidTaskID(input.Operation) != nil || input.Action != "pause" && input.Action != "resume" && input.Action != "stop" {
+	if state.ValidTaskID(input.Task) != nil || state.ValidTaskID(input.Operation) != nil || input.Action != "pause" && input.Action != "handoff" && input.Action != "resume" && input.Action != "stop" {
 		apiError(w, 400, "Invalid task action")
 		return
 	}
@@ -167,9 +167,13 @@ func (s *Service) checkChange(input lifecycleRequest) (meta state.TaskMeta, prio
 	return meta, prior, isInterrupted, nil
 }
 
-// changeTask runs a Pause, Resume or Stop through the CLI once the click
-// still applies and, for a Resume, once nothing else starts or resumes and
-// memory and disk allow; what it waits on is a passing taskRefusal. The
+// changeTask runs a Pause, Hand off, Resume or Stop through the CLI once the
+// click still applies and, for a Resume, once nothing else starts or resumes
+// and memory and disk allow; what it waits on is a passing taskRefusal. Hand
+// off runs goblins handoff, and a Resume of a task whose handoff pause holds
+// the handoff its goblin wrote for publication runs goblins handoff cancel,
+// since goblins resume refuses it, whether the handoff finished or stopped
+// part-way. The
 // card shows the change from the moment it is taken, and a change the CLI
 // refuses or fails goes to the CEO unless the CLI's own lifecycle record
 // already told it.
@@ -198,35 +202,15 @@ func (s *Service) changeTask(input lifecycleRequest) error {
 			s.notify()
 		}
 	}()
-	_, prior, isInterrupted, err := s.checkChange(input)
+	meta, prior, isInterrupted, err := s.checkChange(input)
 	if err != nil {
 		return err
 	}
 	// An interrupted launch may already be using its memory. The shared
 	// CLI proves it is running, or enforces the floor before a new launch.
 	if input.Action == "resume" && !isInterrupted {
-		memory, err := s.Options.Dispatch.Memory()
-		if err != nil {
-			return fmt.Errorf("free memory cannot be read, so the goblin does not resume: %w", err)
-		}
-		meta, err := state.ReadTaskMeta(s.Store.Home.State, input.Task)
-		if err != nil {
-			return fmt.Errorf("the goblin's task record cannot be read, so it does not resume: %w", err)
-		}
-		harness, _, err := ResumeEngine(s.Store.Home.State, meta)
-		if err != nil {
+		if err := s.checkResumeRoom(input.Task); err != nil {
 			return err
-		}
-		room, err := s.room(time.Now().UTC())
-		if err != nil {
-			return fmt.Errorf("the room for a start cannot be read, so the goblin does not resume: %w", err)
-		}
-		disk, err := s.machineDisk()
-		if err != nil {
-			return fmt.Errorf("free disk cannot be read, so the goblin does not resume: %w", err)
-		}
-		if err := CheckLaunch(memory, room, harness, disk); err != nil {
-			return taskRefusal{reason: err.Error(), isPassing: true}
 		}
 	}
 	command := input.Action
@@ -234,8 +218,15 @@ func (s *Service) changeTask(input lifecycleRequest) error {
 		command = "kill"
 	}
 	args := []string{command, input.Task, "--generation", input.Generation, "--revision", input.Revision, "--operation", input.Operation, "--reason", "Requested from the board"}
-	if input.Action == "pause" {
+	switch input.Action {
+	case "pause":
 		args[len(args)-1] = "overlord"
+	case "handoff":
+		args = []string{"handoff", input.Task}
+	case "resume":
+		if prior.Generation == meta.SpawnGen && prior.IsHandedOff() {
+			args = []string{"handoff", "cancel", input.Task}
+		}
 	}
 	requestGeneration := input.Generation
 	if requestGeneration == "" {
@@ -277,6 +268,36 @@ func (s *Service) changeTask(input lifecycleRequest) error {
 		s.runAsked()
 	}()
 	s.notify()
+	return nil
+}
+
+// checkResumeRoom says why task's goblin may not resume now: memory, the
+// room for a start or disk is short, which passes by itself, or one of them
+// cannot be read.
+func (s *Service) checkResumeRoom(task string) error {
+	memory, err := s.Options.Dispatch.Memory()
+	if err != nil {
+		return fmt.Errorf("free memory cannot be read, so the goblin does not resume: %w", err)
+	}
+	meta, err := state.ReadTaskMeta(s.Store.Home.State, task)
+	if err != nil {
+		return fmt.Errorf("the goblin's task record cannot be read, so it does not resume: %w", err)
+	}
+	harness, _, err := ResumeEngine(s.Store.Home.State, meta)
+	if err != nil {
+		return err
+	}
+	room, err := s.room(time.Now().UTC())
+	if err != nil {
+		return fmt.Errorf("the room for a start cannot be read, so the goblin does not resume: %w", err)
+	}
+	disk, err := s.machineDisk()
+	if err != nil {
+		return fmt.Errorf("free disk cannot be read, so the goblin does not resume: %w", err)
+	}
+	if err := CheckLaunch(memory, room, harness, disk); err != nil {
+		return taskRefusal{reason: err.Error(), isPassing: true}
+	}
 	return nil
 }
 

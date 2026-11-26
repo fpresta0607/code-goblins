@@ -60,7 +60,7 @@ const snapshot = parseSnapshot({ healthy: true, instance: "fixture", at, ceo_run
     goblin({ id: "cg-dispatch", title: "Dispatch the nightly builds", goblin_name: "Cornelius", goblin_title: "Senior Dispatcher", generation: "g-dispatch", phase: "waiting", waiting_on: "cg-plumbing", since: ago(52) }),
     goblin({ id: "cg-archive", title: "Archive the old infrastructure notes", goblin_name: "Bartholomew", goblin_title: "Distinguished Infrastructure Archivist", project: "code-goblins-infrastructure-observability-monorepo", generation: "g-archive", phase: "working", since: ago(isFresh ? 0.5 : 135), pr: REPOSITORY + "/pull/12345", ...everyMark, ...(params.has("browser") ? { browser: true, browser_in_use: true } : {}),
       tree: tree("cg-archive", [
-        child({ id: "subagent:observability", kind: "subagent", label: "Investigate the infrastructure observability", state: "working", started: ago(42), last_activity: ago(1) }),
+        child({ id: "subagent:observability", kind: "subagent", label: "Investigate the observability pipeline", detail: "senior infrastructure observability investigator", state: "working", started: ago(42), last_activity: ago(1) }),
         child({ id: "subagent:server", kind: "subagent", label: "Review the development server", state: "working", started: ago(779), last_activity: ago(1), memory: 1.4 * 2 ** 30 }),
         ...(isFresh ? [child({ id: "subagent:fresh", kind: "subagent", label: "Start the fresh run", state: "working", started: ago(0.5), last_activity: ago(0) }),
           child({ id: "subagent:lost", kind: "subagent", label: "Find the lost run", state: "mystery", started: ago(0.5), last_activity: ago(0.5) })] : []),
@@ -89,10 +89,10 @@ const now = Date.parse(at);
 const opened = window as Window & { ceoOpened?: number };
 
 function Fixture() {
-  if (view === "lineage") return <main className="canvas-region" style={{ width: "100%" }}><Lineage afkToggle={RESTING_AFK_TOGGLE} onOpenCeo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={presentations} now={now} freshNow={now} onSelect={() => {}} /></main>;
-  if (view === "board") return <Board afkToggle={RESTING_AFK_TOGGLE} snapshot={snapshot} layout="stacked" now={now} freshNow={now} presentations={presentations} onSelect={() => {}} onSelectTrain={() => {}} onOpenCeo={() => {}} onOpenCommand={() => {}} onStartCeo={() => {}} />;
+  if (view === "lineage") return <main className="canvas-region" style={{ width: "100%" }}><Lineage afkToggle={RESTING_AFK_TOGGLE} onOpenScreen={() => {}} onOpenCeo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={presentations} now={now} freshNow={now} onSelect={() => {}} /></main>;
+  if (view === "board") return <Board afkToggle={RESTING_AFK_TOGGLE} onOpenScreen={() => {}} onChild={() => {}} snapshot={snapshot} layout="stacked" now={now} freshNow={now} presentations={presentations} onSelect={() => {}} onSelectTrain={() => {}} onOpenCeo={() => {}} onOpenCommand={() => {}} onStartCeo={() => {}} />;
   return <main style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
-    <Orchestration afkToggle={RESTING_AFK_TOGGLE} snapshot={snapshot} selected="" connected effects={[]} presentations={presentations} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} onOpenCeo={() => { opened.ceoOpened = (opened.ceoOpened || 0) + 1; }} />
+    <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenScreen={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={presentations} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} onOpenCeo={() => { opened.ceoOpened = (opened.ceoOpened || 0) + 1; }} />
   </main>;
 }
 createRoot(document.getElementById("root")!).render(<Fixture />);

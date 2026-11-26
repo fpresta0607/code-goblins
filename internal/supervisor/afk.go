@@ -756,7 +756,7 @@ func waitingOnOverlord(d Database) []heldItem {
 		// connection's repair, a Remote access fix or billing consent, is
 		// ready only for the moment after his own click, and was never
 		// something that waited on him.
-		if r.State == "ready" && r.CredentialRequest == "" && r.ConnectionTask == "" && r.RemoteFix == "" && r.Billing == nil {
+		if r.State == "ready" && r.CredentialRequest == "" && r.ConnectionProject == "" && r.RemoteFix == "" && r.Billing == nil {
 			items = append(items, heldItem{"run", r.ID, r.Task, r.Title, ""})
 		}
 	}

@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1115,6 +1116,78 @@ func TestAGateHeldMessageIsQueuedAfterCustodyIsReadAndDeliveredAfterRelease(t *t
 	}
 }
 
+// A message for a goblin whose prompt line a view's typed message holds waits
+// for that message's Enter to be answered before it reads the gate's custody:
+// a gate taking the branch is one way the wait ends, as the relay refuses the
+// Enter on its custody tick, and custody read before the wait had the message
+// typed into a goblin its gate then owned (#2848's review). One whose time
+// ends first reads no custody and is queued as one onto words the line holds.
+func TestAMessageReadsItsGatesCustodyOnlyOnceATypedMessagesEnterItWaitsForIsAnswered(t *testing.T) {
+	for name, test := range map[string]struct {
+		// end ends the message's wait for the Enter.
+		end func(gate *gateFake, answer func(), cancel context.CancelFunc)
+		// reason is what the queued message says, and isAsked whether its
+		// gate's custody was read.
+		reason  string
+		isAsked bool
+	}{
+		"the gate takes the branch, and the relay's refusal answers the Enter": {func(gate *gateFake, answer func(), _ context.CancelFunc) {
+			gate.err = pipeline.ErrCustodyHeld
+			answer()
+		}, "Its gate holds the branch", true},
+		"the message's time ends first": {func(_ *gateFake, _ func(), cancel context.CancelFunc) {
+			cancel()
+		}, "prompt line is empty", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange: custody reads clear, and the message waits for a typed
+			// message's Enter.
+			store, h := testStore(t)
+			meta := makeNative(t, h.State, gatedGoblin(t, h).ID)
+			goblinTerminal(t, h.State, meta.ID)
+			gate := &gateFake{}
+			service := &Service{Store: store, Options: Options{CEO: &CEOConnection{State: h.State}, Gate: gate}}
+			action := messageTo(t, store, meta, "message-1", "and /review it")
+			var typed []string
+			previous := typeIntoGoblin
+			t.Cleanup(func() { typeIntoGoblin = previous })
+			typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _, _, _ bool) error {
+				typed = append(typed, text)
+				return nil
+			}
+			answer := sync.OnceFunc(service.Options.CEO.awaitEnter(meta.ID))
+			defer answer()
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			type delivery struct {
+				result Evaluation
+				err    error
+			}
+			delivered := make(chan delivery, 1)
+			go func() {
+				result, err := service.deliverMessage(ctx, action)
+				delivered <- delivery{result, err}
+			}()
+			time.Sleep(500 * time.Millisecond)
+
+			// Act
+			test.end(gate, answer, cancel)
+			got := <-delivered
+
+			// Assert
+			if len(typed) != 0 {
+				t.Fatalf("the message was typed as %q while a typed message's Enter held its goblin's prompt line, want nothing typed", typed)
+			}
+			if !errors.Is(got.err, ErrDeferred) || !strings.Contains(got.result.Reason, test.reason) {
+				t.Fatalf("the message came back as %+v %v, want it queued, saying %q", got.result, got.err, test.reason)
+			}
+			if isAsked := gate.asks > 0; isAsked != test.isAsked {
+				t.Fatalf("its gate's custody was read %d times, want it read: %t", gate.asks, test.isAsked)
+			}
+		})
+	}
+}
+
 // A custody nobody could read is not a hold: nothing is typed, and the board
 // says so in words he can act on rather than claiming the gate has it.
 func TestACustodyThatCannotBeReadQueuesAndTypesNothing(t *testing.T) {
@@ -2121,14 +2194,18 @@ func TestACommandAGoblinsHarnessRunsBesideATurnIsTypedIntoThatTurn(t *testing.T)
 // command into its turn's queue and runs it at once with Ctrl+X Ctrl+S, as
 // he does in its terminal, while Codex 0.160 refuses such a command in a turn
 // ("'/compact' is disabled while a task is in progress") and ends its turn on
-// Escape, so the command goes at the prompt line the turn's end leaves.
+// Escape, so the command goes at the prompt line the turn's end leaves. pi,
+// which runs /compact beside its turn and expands another command into a
+// steer, ends its turn on Escape first too, though Alt+Q gives its queue back
+// (#2340).
 func TestSendNowRunsACommandHeldForAGoblinsTurnAtOnce(t *testing.T) {
 	for _, test := range []struct {
-		name, harness, mode string
-		wantInput           []string
+		name, harness, mode, command string
+		wantInput                    []string
 	}{
-		{name: "Claude Code", harness: "claude", mode: "claude-busy", wantInput: []string{"queued /compact", "sent now"}},
-		{name: "Codex", harness: "codex", mode: "busy", wantInput: []string{"interrupted", "accepted /compact"}},
+		{name: "Claude Code", harness: "claude", mode: "claude-busy", command: "/compact", wantInput: []string{"queued /compact", "sent now"}},
+		{name: "Codex", harness: "codex", mode: "busy", command: "/compact", wantInput: []string{"interrupted", "accepted /compact"}},
+		{name: "pi", harness: "pi", mode: "pi-busy", command: "/review", wantInput: []string{"interrupted", "accepted /review"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -2142,7 +2219,7 @@ func TestSendNowRunsACommandHeldForAGoblinsTurnAtOnce(t *testing.T) {
 			gitWorktree(t, meta.Worktree)
 			terminal := nativeComposer(t, h.State, meta.ID, test.mode)
 			service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
-			messageTo(t, store, meta, "message-1", "/compact")
+			messageTo(t, store, meta, "message-1", test.command)
 			if err := store.ProcessOne(t.Context(), service.execute); !errors.Is(err, ErrDeferred) {
 				t.Fatalf("delivery = %v; want the command held for the turn's end", err)
 			}
@@ -2540,7 +2617,7 @@ func TestACommandHeldForAGoblinsTurnOffersSendNowWhereItsTerminalCanRunItAtOnce(
 		{name: "a slash command for a pi in a turn", harness: "pi", text: "/compact", refusal: spawn.ErrInTurn, isOffered: true},
 		{name: "a slash command behind his words in a Claude Code's queue", harness: "claude", text: "/compact", ahead: "first words", refusal: spawn.ErrInTurn, isOffered: true},
 		{name: "a slash command behind his words in a Codex's queue", harness: "codex", text: "/compact", ahead: "first words", refusal: spawn.ErrInTurn},
-		{name: "a slash command behind his words in a pi's queue", harness: "pi", text: "/compact", ahead: "first words", refusal: spawn.ErrInTurn},
+		{name: "a slash command behind his words in a pi's queue", harness: "pi", text: "/compact", ahead: "first words", refusal: spawn.ErrInTurn, isOffered: true},
 		{name: "a slash command behind his words in the queue of a Claude Code started again since", harness: "claude", text: "/compact", ahead: "first words", isStartedAgain: true, refusal: spawn.ErrInTurn, isOffered: true},
 		{name: "a command its terminal is not ready for", harness: "claude", text: "!git status", refusal: ErrDeferred},
 	} {

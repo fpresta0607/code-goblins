@@ -19,13 +19,15 @@ import (
 )
 
 // fakeBrowser stands in for a goblin's Chrome: it answers the target
-// commands the supervisor's own clients send from its pages, records every
-// command, and raises the events a test hands it.
+// commands the supervisor's own clients send from its pages, and a page's
+// history with history, records every command, and raises the events a test
+// hands it.
 type fakeBrowser struct {
-	mu     sync.Mutex
-	pages  []targetInfo
-	calls  []fakeCall
-	events chan browserlogin.Event
+	mu      sync.Mutex
+	pages   []targetInfo
+	history json.RawMessage
+	calls   []fakeCall
+	events  chan browserlogin.Event
 	// hear is what the goblin's last DevTools connection was served with.
 	hear                   func(browserlogin.Command) string
 	clients, closedClients int
@@ -122,6 +124,10 @@ func (c fakeClient) Call(_ context.Context, session, method string, params, resu
 		id := fmt.Sprintf("page-%d", len(f.pages)+1)
 		f.pages = append(f.pages, targetInfo{ID: id, Type: "page", URL: target.URL})
 		answer = map[string]string{"targetId": id}
+	case "Page.getNavigationHistory":
+		if f.history != nil {
+			answer = f.history
+		}
 	}
 	f.mu.Unlock()
 	if err != nil || result == nil || answer == nil {

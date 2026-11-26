@@ -718,16 +718,17 @@ func TestStatusLineSpeaksTheBoardsWords(t *testing.T) {
 		snapshot launcherSnapshot
 		want     string
 	}{
-		"a quiet fleet": {launcherSnapshot{}, "CEO supervising · 0 goblins working · 0 waiting on you"},
-		"one goblin": {launcherSnapshot{Tasks: []struct {
-			Phase string `json:"phase"`
-		}{{Phase: "working"}}}, "CEO supervising · 1 goblin working · 0 waiting on you"},
+		"a quiet fleet":          {launcherSnapshot{}, "CEO supervising · 0 goblins working · 0 waiting on you"},
+		"one goblin":             {launcherSnapshot{Tasks: []launcherTask{{Phase: "working"}}}, "CEO supervising · 1 goblin working · 0 waiting on you"},
 		"a CEO the board misses": {launcherSnapshot{Registration: "no CEO has registered"}, "CEO not connected · 0 goblins working · 0 waiting on you"},
 		"a run already finished": {launcherSnapshot{Runs: []struct {
 			State             string `json:"state"`
 			CredentialRequest string `json:"credential_request"`
 			RemoteFix         string `json:"remote_fix"`
 		}{{State: "failed"}}}, "CEO supervising · 0 goblins working · 0 waiting on you"},
+		"a handed-off task": {launcherSnapshot{Tasks: []launcherTask{{ID: "cloud-task", Phase: "paused", CloudHandoff: &struct {
+			PullRequest string `json:"pull_request"`
+		}{PullRequest: "https://github.com/o/r/pull/12"}}, {ID: "paused-task", Phase: "paused"}}}, "CEO supervising · 0 goblins working · 0 waiting on you · in the cloud: cloud-task at https://github.com/o/r/pull/12"},
 		"a run the Overlord owes": {launcherSnapshot{Runs: []struct {
 			State             string `json:"state"`
 			CredentialRequest string `json:"credential_request"`

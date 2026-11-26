@@ -68,7 +68,7 @@ Each area names what it does on Windows, what does it on Linux, and the layer th
   It keeps the terminal and everything it starts off the performance cores left to the Overlord's own apps (`--leave-cores-for-apps`), with the mask of threads `internal/processor` makes from each core's efficiency class.
   `goblins attach` puts the console in virtual terminal input mode and sends win32-input-mode.
   The onboarding menu reads keys with `ReadConsoleInputW`.
-- **Linux:** a pseudo terminal from `openpty`, sized with `TIOCSWINSZ`, the harness in its own session (`setsid`) and process group.
+- **Linux:** a pseudo terminal opened from `/dev/ptmx` without cgo (`internal/pty`, which macOS shares), sized with `TIOCSWINSZ`, the harness in its own session (`setsid`) and process group.
   A session or process group stays in the cgroup it started in, and a systemd unit that stops ends everything in its cgroup, so each host, and the supervisor the launcher starts, starts in a transient user scope of its own (`systemd-run --user --scope`).
   A crash, restart or update of the supervisor then ends no host.
   Where no user manager answers, each starts where it is, a host marked `Contained`, as on Windows where the job forbids breaking away.

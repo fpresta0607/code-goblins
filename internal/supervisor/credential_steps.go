@@ -21,6 +21,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/remoteaccess"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -309,8 +310,9 @@ func (s *Service) afterCredentialClose(request CredentialRequest, by string) {
 
 // requestCredentialWindow records his press of a card's Take control, which
 // opens the card's link in the goblin's own browser and gives him control of
-// it on the board's screen of that browser (showCardScreen).
-func (s *Service) requestCredentialWindow(id, generation string) error {
+// it on the board's screen of that browser (showCardScreen). A take pressed
+// on his private board is recorded for the CEO as made from there.
+func (s *Service) requestCredentialWindow(id, generation string, isPrivateBoard bool) error {
 	s.credentialSaves.Lock()
 	defer s.credentialSaves.Unlock()
 	request, err := s.openCredential(id, generation)
@@ -334,6 +336,8 @@ func (s *Service) requestCredentialWindow(id, generation string) error {
 		reason := ""
 		if err != nil {
 			reason = "The goblin's browser could not open: " + oneLine(err.Error())
+		} else if isPrivateBoard {
+			s.tookFromPrivateBoard(request.Task)
 		}
 		if err := s.reportCredentialWindow(id, err == nil, reason); err != nil {
 			s.publish(fmt.Errorf("card %s: %w", id, err))
@@ -511,11 +515,14 @@ func (h *HTTP) reopenCredentialCard(w http.ResponseWriter, r *http.Request) {
 	}{input.ID}, err)
 }
 
-// openCredentialWindow takes his press of a card's window button, from the
-// board on this PC alone, since the window opens there.
+// openCredentialWindow takes his press of a card's Take control, from the
+// board on this PC or his private board, which he lets drive a goblin's
+// browser knowing the gate proves it his only by Tailscale's headers (CEO
+// decision 1028736).
 func (h *HTTP) openCredentialWindow(w http.ResponseWriter, r *http.Request) {
-	if offMachine(r, h.Host) != "" {
-		apiError(w, http.StatusForbidden, "Open the window from the board on this PC.")
+	isPrivateBoard := remoteaccess.Admitted(r)
+	if offMachine(r, h.Host) != "" && !isPrivateBoard {
+		apiError(w, http.StatusForbidden, "Take control from the board on this PC or your private board.")
 		return
 	}
 	var input struct {
@@ -526,7 +533,7 @@ func (h *HTTP) openCredentialWindow(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	err := h.Service.requestCredentialWindow(input.ID, input.Generation)
+	err := h.Service.requestCredentialWindow(input.ID, input.Generation, isPrivateBoard)
 	respondCredential(w, struct {
 		ID string `json:"id"`
 	}{input.ID}, err)

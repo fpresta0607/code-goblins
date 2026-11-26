@@ -131,8 +131,8 @@ test.describe("on the wide board", () => {
   // The Overlord, 2026-10-16: a paused goblin is on the bench to be resumed,
   // and a waiting one is live, on standby. One paused until another goblin
   // delivers reads so in Paused, and its panel resumes or stops it; one
-  // waiting on that goblin reads Waiting in In progress, and its panel pauses
-  // or stops it, with nothing to resume.
+  // waiting on that goblin reads Waiting in In progress, and its panel pauses,
+  // hands off or stops it, with nothing to resume.
   test("a goblin paused on another reads Paused and sits in Paused, and one waiting on it reads Waiting in In progress", async ({ page }) => {
     // Arrange
     const awaited = task("cg-merge", "working", { goblin_name: "Bernie", goblin_title: "Merge Maestro" });
@@ -157,7 +157,7 @@ test.describe("on the wide board", () => {
     await expect(section.locator(".card-title").getByText("waiting-on-task", { exact: true })).toHaveCount(0);
     await select(page, "waiting-on-task");
     const standingControls = panel(page).getByRole("group", { name: "Controls for waiting-on-task" });
-    await expect(standingControls.getByRole("button")).toHaveText(["Pause", "Stop"]);
+    await expect(standingControls.getByRole("button")).toHaveText(["Pause", "Hand off", "Stop"]);
     await expect(panel(page).getByRole("button", { name: "Resume waiting-on-task", exact: true })).toHaveCount(0);
   });
 

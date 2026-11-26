@@ -118,3 +118,20 @@ func TestItemsAreWhatTheBoardsPageCounts(t *testing.T) {
 		t.Errorf("Items = %+v, %v; want %+v", items, err, want)
 	}
 }
+
+// A handed-off goblin's cloud work waits on him, as the board's page lists
+// it, keyed by its task, pull request and head and when it was seen there,
+// until he leaves it; bringing it back takes it off the board.
+func TestCloudWorkWaitsOnHimUntilHeLeavesIt(t *testing.T) {
+	snapshot := `{"tasks":[{"id":"shop","title":"Open the shop; Claude Code","cloud_handoff":{"pull_request":"https://github.com/o/r/pull/9","cloud":[
+		{"pull_request":"https://github.com/o/r/pull/10","title":"Name the **bad** header","author":"o","head":"c0ffee","seen_at":"2026-11-25T19:00:00Z"},
+		{"pull_request":"https://github.com/o/r/pull/11","title":"Left","author":"o","head":"beef","seen_at":"2026-11-25T19:00:00Z","is_left":true}]}},
+		{"id":"blog","title":"Blog"}]}`
+
+	_, items, err := Items([]byte(snapshot))
+
+	want := []Item{{"cloud:shop:https://github.com/o/r/pull/10@c0ffee@2026-11-25T19:00:00Z", "Open the shop", "Open the shop has cloud work ready: Name the bad header", false, false}}
+	if err != nil || !slices.Equal(items, want) {
+		t.Errorf("Items = %+v, %v; want %+v", items, err, want)
+	}
+}

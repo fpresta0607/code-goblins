@@ -31,6 +31,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -39,6 +40,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/pipeline/pipelinetest"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -106,6 +108,10 @@ func TestNativeTerminalProgram(t *testing.T) {
 	// status is what Claude Code draws at the right of the row over its
 	// composer, its context gauge and notices, and turnRow its turn row.
 	status, turnRow := "", "✽ Pondering… (esc to interrupt)"
+	// hint is what Claude Code draws in its empty prompt line while no turn
+	// runs: after a turn that ended on an API error, its hint to resend the
+	// message under the error, as Claude Code 2.1.331 drew on 2026-11-24.
+	hint := ""
 	// said is the last line the harness took, which it shows in its
 	// conversation above the composer, as Claude Code does, never on the
 	// prompt line it empties for the turn.
@@ -114,6 +120,10 @@ func TestNativeTerminalProgram(t *testing.T) {
 	// runs, as a screen that turns to work without clearing its input does,
 	// such as one where Enter chose a dialog's option behind it.
 	keep := false
+	// redrawLate is how long each line taken stays drawn on the prompt line
+	// before the screen drawn for it wipes it, as a harness on a loaded
+	// machine draws late: none until a redraw after line names it.
+	redrawLate := time.Duration(0)
 	// A screen is drawn in one write, so a read never finds it half drawn. The
 	// turn's line reads as a turn to both Claude Code's and Codex's screens.
 	// The cursor then rests at the end of the prompt line, as a harness keeps
@@ -150,11 +160,16 @@ func TestNativeTerminalProgram(t *testing.T) {
 			prompt, column = len(rows)+1, 1+len([]rune(text))
 			rows = append(rows, rule, text, rule, "0.0%/1.0M (auto)")
 		default:
+			shown := text
+			if hint != "" && text == "" && !isWorking {
+				rows = append(rows, "● API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)")
+				shown = hint
+			}
 			if status != "" {
 				rows = append(rows, strings.Repeat(" ", 80-len([]rune(status)))+status)
 			}
 			prompt, column = len(rows)+1, 3+len([]rune(text))
-			rows = append(rows, rule, "❯ "+text, rule, mode)
+			rows = append(rows, rule, "❯ "+shown, rule, mode)
 			if footer != "" {
 				rows = append(rows, footer)
 			}
@@ -235,6 +250,11 @@ func TestNativeTerminalProgram(t *testing.T) {
 		case strings.HasPrefix(line, "status"):
 			status = strings.TrimSpace(strings.TrimPrefix(line, "status"))
 			drawComposer("", false)
+		case line == "api error":
+			// The turn ended on an API error, with the context gauge Claude
+			// Code draws once a session is long.
+			hint, status = "Resend your message to try again", "1% until auto-compact"
+			drawComposer("", false)
 		case strings.HasPrefix(line, "retry "):
 			// Claude Code 2.1.322's turn row while it waits to send a
 			// request that failed again.
@@ -307,14 +327,26 @@ func TestNativeTerminalProgram(t *testing.T) {
 				continue
 			}
 			fmt.Printf("size %dx%d\n", info.Window.Right-info.Window.Left+1, info.Window.Bottom-info.Window.Top+1)
+		case strings.HasPrefix(line, "redraw after "):
+			late, err := time.ParseDuration(strings.TrimPrefix(line, "redraw after "))
+			if err != nil {
+				record("redraw error: " + err.Error())
+				continue
+			}
+			redrawLate = late
+			drawComposer("", false)
 		case strings.HasPrefix(line, "start a tool for "):
 			// A harness starting a tool reads nothing meanwhile, as Claude
 			// Code read nothing for a second or more in the Overlord's
-			// terminal on 2026-10-09.
+			// terminal on 2026-10-09, and keeps its screen drawn, so keys typed
+			// meanwhile show on its prompt line only once it reads them.
 			busy, err := time.ParseDuration(strings.TrimPrefix(line, "start a tool for "))
 			if err != nil {
 				record("tool error: " + err.Error())
 				continue
+			}
+			if isShown {
+				drawComposer(shownText, isShownWorking)
 			}
 			record("starting a tool")
 			time.Sleep(busy)
@@ -330,6 +362,8 @@ func TestNativeTerminalProgram(t *testing.T) {
 			os.Exit(code)
 		default:
 			record(line)
+			hint = ""
+			time.Sleep(redrawLate)
 			if harness && keep {
 				drawComposer(line, true)
 			} else if harness {
@@ -1323,15 +1357,519 @@ func TestANativeViewKeepsATurnBetweenScreenReads(t *testing.T) {
 }
 
 func TestANativeViewRejectsAnInvalidSubmissionID(t *testing.T) {
-	for _, submission := range []string{"", strings.Repeat("x", 129)} {
-		t.Run(strconv.Itoa(len(submission)), func(t *testing.T) {
+	for _, control := range []string{"submit", "enter"} {
+		for _, submission := range []string{"", strings.Repeat("x", 129)} {
+			t.Run(control+"/"+strconv.Itoa(len(submission)), func(t *testing.T) {
+				h, server := nativeBoard(t, "direct")
+				hostTask(t, h)
+				v := openNativeView(t, server, viewQuery)
+				v.waitFor(t, "program ready")
+				v.send(t, websocket.MessageText, `{"type":"`+control+`","submission":"`+submission+`","text":"please run /ship"}`)
+				if closed := v.waitForClose(t); closed.Code != websocket.StatusUnsupportedData {
+					t.Fatalf("invalid submission closed with %d, want unsupported data", closed.Code)
+				}
+			})
+		}
+	}
+}
+
+// A message the view typed as keys takes its Enter from the relay, which
+// waits for the words to show on the terminal's screen, reads it again once
+// they settled and presses it only while the prompt line holds the message's
+// words alone, under no question, and tells the view
+// whether it did, and whether it typed keys since it took the message's
+// submission (#2848's review): pressed over words typed behind them it sends
+// those too, and pressed under a question it answers it.
+func TestTheRelayPressesATypedMessagesEnterOnlyWhileItsPromptLineHoldsItsWordsAlone(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		// before is typed ahead of the message, behind right behind its
+		// words, and enter names the submission whose Enter the view asks for.
+		before, behind, enter string
+		isPressed             bool
+	}{
+		{name: "its words alone", before: "harness\r", enter: "words", isPressed: true},
+		{name: "its words over a list under the prompt line", before: "harness\rmode   /ship    Ship the branch\r", enter: "words", isPressed: true},
+		{name: "words typed behind its own", before: "harness\r", behind: " and more", enter: "words"},
+		{name: "a question in the prompt line's place", before: "harness\rpermission\r", enter: "words"},
+		{name: "the Enter of a submission it never took", before: "harness\r", enter: "another"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
 			h, server := nativeBoard(t, "direct")
-			hostTask(t, h)
+			meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta.Harness = "claude"
+			if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			terminal := hostTask(t, h)
+			record, err := host.ReadRecord(h.Service.Store.Home.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
 			v := openNativeView(t, server, viewQuery)
 			v.waitFor(t, "program ready")
-			v.send(t, websocket.MessageText, `{"type":"submit","submission":"`+submission+`"}`)
-			if closed := v.waitForClose(t); closed.Code != websocket.StatusUnsupportedData {
-				t.Fatalf("invalid submission closed with %d, want unsupported data", closed.Code)
+			v.send(t, websocket.MessageBinary, test.before)
+			v.send(t, websocket.MessageText, `{"type":"submit","submission":"words"}`)
+			v.send(t, websocket.MessageBinary, "please run /ship"+test.behind)
+			for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
+				screen, err := host.ReadScreen(record)
+				if err == nil && strings.Contains(strings.Join(screen, "\n"), "please run /ship"+test.behind) {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("the terminal never showed the typed words; it shows %q, %v", screen, err)
+				}
+			}
+
+			// Act
+			v.send(t, websocket.MessageText, `{"type":"enter","submission":"`+test.enter+`","text":"please run /ship"}`)
+
+			// Assert
+			v.waitFor(t, fmt.Sprintf(`{"type":"entered","submission":%q,"pressed":%t,"typed":%t}`, test.enter, test.isPressed, test.enter == "words"))
+			var want []string
+			if test.isPressed {
+				want = []string{"please run /ship"}
+			}
+			if got := terminal.waitForLines(t, len(want)); !slices.Equal(got, want) {
+				t.Fatalf("the program took %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// A gate that takes the task while a typed message's Enter waits holds that
+// Enter, though the relay took the message's submission, so no Enter goes
+// into a branch the gate owns (#2848's review). The relay says whether it
+// typed the message's keys before the hold, which drops keys that come after
+// it: words it typed wait on the prompt line, and the box takes back words it
+// never typed.
+func TestTheRelayPressesNoTypedMessagesEnterOnceAGateHoldsTyping(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		// isTypedFirst is whether the message's keys reach the relay before
+		// the gate takes the task, or after it.
+		isTypedFirst bool
+	}{
+		{name: "a hold after its keys were typed", isTypedFirst: true},
+		{name: "a hold between its submission and its keys"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h, server := nativeBoard(t, "no-mistakes")
+			gitFixture(t, taskWorktree(t, h))
+			gate := &takingGate{}
+			h.Service.Options.Gate = gate
+			h.terminalTick = 10 * time.Millisecond
+			meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta.Harness = "claude"
+			if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			terminal := hostTask(t, h)
+			record, err := host.ReadRecord(h.Service.Store.Home.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			v := openNativeView(t, server, viewQuery)
+			v.waitFor(t, "program ready")
+			v.send(t, websocket.MessageBinary, "harness\r")
+			v.send(t, websocket.MessageText, `{"type":"submit","submission":"words"}`)
+			// The relay took the submission once its screens are bound to it.
+			v.waitFor(t, `"submission":"words"`)
+			if test.isTypedFirst {
+				v.send(t, websocket.MessageBinary, "please run /ship")
+				for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
+					screen, err := host.ReadScreen(record)
+					if err == nil && strings.Contains(strings.Join(screen, "\n"), "please run /ship") {
+						break
+					}
+					if time.Now().After(deadline) {
+						t.Fatalf("the terminal never showed the typed words; it shows %q, %v", screen, err)
+					}
+				}
+			}
+
+			// Act: the gate takes the task, and the view asks for the Enter.
+			gate.taken.Store(true)
+			v.waitFor(t, `{"type":"held","reason":"pipeline owns this task"}`)
+			if !test.isTypedFirst {
+				v.send(t, websocket.MessageBinary, "please run /ship")
+			}
+			v.send(t, websocket.MessageText, `{"type":"enter","submission":"words","text":"please run /ship"}`)
+
+			// Assert
+			v.waitFor(t, fmt.Sprintf(`{"type":"entered","submission":"words","pressed":false,"typed":%t}`, test.isTypedFirst))
+			if got := terminal.lines(t); len(got) != 0 {
+				t.Fatalf("the program took %q, want nothing", got)
+			}
+		})
+	}
+}
+
+// A typed message's Enter waits for its words to show on the prompt line, as
+// the board's own typed delivery waits for its words (sendNative): a Claude
+// Code that reads nothing while it starts a tool, as one does on a loaded
+// machine, shows them only seconds after the view asked, and a relay that
+// read its screen once as it was asked found no words and pressed nothing,
+// which left them unsent (#2848's review). The wait runs beside the view's
+// connection, which goes on meanwhile: a resize the view sends then reaches
+// the terminal before the Enter is answered.
+func TestTheRelayPressesATypedMessagesEnterOnceItsWordsShowLate(t *testing.T) {
+	// Arrange: Claude Code's composer, and a tool that reads nothing for 2 s.
+	h, server := nativeBoard(t, "direct")
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	terminal := hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+	v.send(t, websocket.MessageBinary, "harness\rstart a tool for 2s\r")
+	if lines := terminal.waitForLines(t, 1); !slices.Equal(lines, []string{"starting a tool"}) {
+		t.Fatalf("the program never started its tool; it recorded %q", lines)
+	}
+	v.send(t, websocket.MessageText, `{"type":"submit","submission":"words"}`)
+	v.send(t, websocket.MessageBinary, "please run /ship")
+
+	// Act: the view asks for the Enter as it types the words, and resizes the
+	// terminal while the Enter waits.
+	v.send(t, websocket.MessageText, `{"type":"enter","submission":"words","text":"please run /ship"}`)
+	v.send(t, websocket.MessageText, `{"type":"resize","cols":100,"rows":30}`)
+
+	// Assert
+	v.waitFor(t, `{"type":"entered","submission":"words"`)
+	v.mu.Lock()
+	seen := v.screen.String()
+	v.mu.Unlock()
+	entered := strings.Index(seen, `{"type":"entered"`)
+	if answer := seen[entered:]; !strings.HasPrefix(answer, `{"type":"entered","submission":"words","pressed":true,"typed":true}`) {
+		t.Fatalf("the relay answered %q, want the Enter pressed once the words showed", answer[:min(len(answer), 80)])
+	}
+	if resized := strings.Index(seen, `{"type":"size","cols":100,"rows":30}`); resized < 0 || resized > entered {
+		t.Fatal("the view's resize reached the terminal only once the Enter was answered, want it to while the Enter waits")
+	}
+	if got, want := terminal.waitForLines(t, 3), []string{"starting a tool", "started the tool", "please run /ship"}; !slices.Equal(got, want) {
+		t.Fatalf("the program took %q, want %q", got, want)
+	}
+}
+
+// A typed message whose words never show on the prompt line takes no Enter:
+// the relay waits for them at most nativeShown, as the board's own typed
+// delivery does, and then says it pressed none, so the box says they wait
+// unsent (#2848's review). The answer to an Enter refused once its keys were
+// typed waits for the words to show within that bound, and no longer.
+func TestTheRelayPressesNoTypedMessagesEnterWhoseWordsNeverShow(t *testing.T) {
+	// Arrange: the wait is cut to 1 s, and a tool reads nothing for 4 s.
+	previous := nativeShown
+	nativeShown = time.Second
+	t.Cleanup(func() { nativeShown = previous })
+	h, server := nativeBoard(t, "direct")
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	terminal := hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+	v.send(t, websocket.MessageBinary, "harness\rstart a tool for 4s\r")
+	if lines := terminal.waitForLines(t, 1); !slices.Equal(lines, []string{"starting a tool"}) {
+		t.Fatalf("the program never started its tool; it recorded %q", lines)
+	}
+	v.send(t, websocket.MessageText, `{"type":"submit","submission":"words"}`)
+	v.send(t, websocket.MessageBinary, "please run /ship")
+	asked := time.Now()
+
+	// Act
+	v.send(t, websocket.MessageText, `{"type":"enter","submission":"words","text":"please run /ship"}`)
+
+	// Assert
+	v.waitFor(t, `{"type":"entered","submission":"words","pressed":false,"typed":true}`)
+	if waited := time.Since(asked); waited < nativeShown {
+		t.Fatalf("the relay answered %s after it was asked, want it to wait %s for the words", waited, nativeShown)
+	}
+	if slices.Contains(terminal.lines(t), "started the tool") {
+		t.Fatal("the relay answered once the words could show, past its bound, want it answered as the bound ended")
+	}
+	if got, want := terminal.waitForLines(t, 2), []string{"starting a tool", "started the tool"}; !slices.Equal(got, want) {
+		t.Fatalf("the program took %q, want %q", got, want)
+	}
+}
+
+// The relay answers a typed message's Enter it pressed once the screen shows
+// the words gone from the prompt line, or once the wait for that ends, which
+// shares the bound of the wait for them to show: a harness that leaves them
+// there, as one whose Enter chose a dialog's option behind them does, holds
+// the board's deliveries to its terminal no longer (#2848's review).
+func TestTheRelayAnswersATypedMessagesEnterWhoseWordsStayOnThePromptLineOnceItsBoundEnds(t *testing.T) {
+	// Arrange: the bound is cut to 1 s, and the harness keeps each line it
+	// takes on its prompt line.
+	previous := nativeShown
+	nativeShown = time.Second
+	t.Cleanup(func() { nativeShown = previous })
+	h, server := nativeBoard(t, "direct")
+	h.Service.Options.CEO = &CEOConnection{State: h.Service.Store.Home.State}
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	terminal := hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+	v.send(t, websocket.MessageBinary, "harness\rkeep\r")
+	v.send(t, websocket.MessageText, `{"type":"submit","submission":"words"}`)
+	v.send(t, websocket.MessageBinary, "please run /ship")
+	asked := time.Now()
+
+	// Act
+	v.send(t, websocket.MessageText, `{"type":"enter","submission":"words","text":"please run /ship"}`)
+
+	// Assert
+	v.waitFor(t, `{"type":"entered","submission":"words","pressed":true,"typed":true}`)
+	if waited := time.Since(asked); waited < nativeShown {
+		t.Fatalf("the relay answered %s after it was asked, want it to wait %s for the words to leave the prompt line", waited, nativeShown)
+	}
+	if got, want := terminal.waitForLines(t, 1), []string{"please run /ship"}; !slices.Equal(got, want) {
+		t.Fatalf("the program took %q, want %q", got, want)
+	}
+	for deadline := time.Now().Add(30 * time.Second); h.Service.Options.CEO.isEnterAwaited("task-1"); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the board still holds its deliveries once the relay answered the Enter")
+		}
+	}
+}
+
+// A gate that takes the task while a typed message's Enter waits for its
+// words holds that Enter at once, though the words show on the prompt line
+// later, so no Enter goes into a branch the gate owns. The relay answers only
+// once the words show, since the keys it typed sit unread meanwhile and show
+// nothing there: a delivery the Enter held, released as the gate took the
+// task, typed behind them, and its own Enter sent both as one message
+// (#2848's review).
+func TestTheRelayPressesNoTypedMessagesEnterOnceAGateTakesTheTaskAndAnswersItOnceItsWordsShow(t *testing.T) {
+	// Arrange: a tool that reads nothing for 3 s, the message's keys typed and
+	// unread, its Enter asked for, and a notice for the goblin waiting for its
+	// answer.
+	h, server := nativeBoard(t, "no-mistakes")
+	gitFixture(t, taskWorktree(t, h))
+	gate := &takingGate{}
+	h.Service.Options.Gate = gate
+	h.Service.Options.CEO = &CEOConnection{State: h.Service.Store.Home.State}
+	h.terminalTick = 10 * time.Millisecond
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	terminal := hostTask(t, h)
+	record, err := host.ReadRecord(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+	v.send(t, websocket.MessageBinary, "harness\rstart a tool for 3s\r")
+	if lines := terminal.waitForLines(t, 1); !slices.Equal(lines, []string{"starting a tool"}) {
+		t.Fatalf("the program never started its tool; it recorded %q", lines)
+	}
+	v.send(t, websocket.MessageText, `{"type":"submit","submission":"words"}`)
+	v.send(t, websocket.MessageBinary, "please run /ship")
+	v.send(t, websocket.MessageText, `{"type":"enter","submission":"words","text":"please run /ship"}`)
+	// The relay typed the keys once it says they sit unread.
+	v.waitFor(t, `{"type":"unread","unread":true}`)
+	for deadline := time.Now().Add(30 * time.Second); !h.Service.Options.CEO.isEnterAwaited("task-1"); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the board never held its deliveries for the Enter")
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	told := make(chan error, 1)
+	go func() {
+		_, err := h.Service.Options.CEO.SendGoblin(ctx, meta.ID, goblinIdentity(meta), "and /review it")
+		told <- err
+	}()
+
+	// Act
+	gate.taken.Store(true)
+
+	// Assert: the Enter is refused, the notice finds the words on the prompt
+	// line once the tool ends and types nothing onto them, and the words take
+	// no Enter.
+	v.waitFor(t, `{"type":"entered","submission":"words","pressed":false,"typed":true}`)
+	if err := <-told; !errors.Is(err, spawn.ErrUnsentWords) {
+		t.Errorf("the notice returned %v, want it refused onto the words the refused Enter left", err)
+	}
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
+		screen, err := host.ReadScreen(record)
+		if err == nil && strings.Contains(strings.Join(screen, "\n"), "please run /ship") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the terminal never showed the typed words; it shows %q, %v", screen, err)
+		}
+	}
+	time.Sleep(2 * nativeSubmitSettle)
+	if got, want := terminal.lines(t), []string{"starting a tool", "started the tool"}; !slices.Equal(got, want) {
+		t.Fatalf("the program took %q, want %q", got, want)
+	}
+}
+
+// A submission the relay takes while it lets Claude Code settle typed words
+// it already shows ends the wait with no Enter, as one it takes before they
+// show does: just before it presses, it reads again whether typing is free
+// and the submission still the message's (#2848's review).
+func TestTheRelayPressesNoTypedMessagesEnterOnceItTakesAnotherSubmissionAsItsWordsSettle(t *testing.T) {
+	// Arrange: Claude Code's prompt line shows the message's words.
+	h, server := nativeBoard(t, "direct")
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	terminal := hostTask(t, h)
+	record, err := host.ReadRecord(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+	v.send(t, websocket.MessageBinary, "harness\r")
+	v.send(t, websocket.MessageText, `{"type":"submit","submission":"words"}`)
+	v.send(t, websocket.MessageBinary, "please run /ship")
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
+		screen, err := host.ReadScreen(record)
+		if err == nil && strings.Contains(strings.Join(screen, "\n"), "❯ please run /ship") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the prompt line never showed the typed words; the screen shows %q, %v", screen, err)
+		}
+	}
+
+	// Act: the view asks for the Enter, and the relay takes another
+	// submission within the settle.
+	v.send(t, websocket.MessageText, `{"type":"enter","submission":"words","text":"please run /ship"}`)
+	time.Sleep(nativeSubmitSettle / 3)
+	v.send(t, websocket.MessageText, `{"type":"submit","submission":"next"}`)
+
+	// Assert
+	v.waitFor(t, `{"type":"entered","submission":"words","pressed":false,"typed":true}`)
+	if lines := terminal.lines(t); len(lines) != 0 {
+		t.Fatalf("the program took %q, want nothing", lines)
+	}
+}
+
+// No board delivery types into a terminal while a view of it waits to press
+// the Enter of a message it typed as keys, as none types onto words its
+// prompt line holds: keys Claude Code has not read yet show nothing there,
+// and words typed behind them joined the message's, which one Enter then sent
+// as one message, or none did, though the box said they wait unsent (#2848's
+// review). A goblin's delivery waits for the relay's answer, which comes once
+// the screen shows the message's words gone from the prompt line, though the
+// harness draws that late, and is then typed as a message of its own; the
+// CEO's is queued, as one is while its input holds words.
+func TestNoBoardDeliveryTypesIntoATerminalWhileAViewWaitsToPressATypedMessagesEnter(t *testing.T) {
+	for name, test := range map[string]struct {
+		query, key string
+		// start makes the terminal's program Claude Code, and it records
+		// recorded lines meanwhile.
+		start    string
+		recorded int
+		deliver  func(*testing.T, context.Context, *HTTP) error
+		// refusal is how the delivery is refused while the Enter waits, or
+		// nil for one typed once the Enter is answered.
+		refusal error
+	}{
+		"a goblin's": {viewQuery, "task-1", "harness\rredraw after 1s", 0, func(t *testing.T, ctx context.Context, h *HTTP) error {
+			meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = h.Service.Options.CEO.SendGoblin(ctx, meta.ID, goblinIdentity(meta), "and /review it")
+			return err
+		}, nil},
+		"the CEO's": {ceoQuery, NativeCEOTerminal, "register", 1, func(t *testing.T, ctx context.Context, h *HTTP) error {
+			_, err := h.Service.Options.CEO.Send(ctx, registrationIdentity(t, h.Service.Store.Home.State), "and /review it")
+			return err
+		}, ErrDeferred},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange: a tool that reads nothing for 2 s, the message's keys
+			// typed and unread, and its Enter asked for.
+			h, server := nativeBoard(t, "direct")
+			stateDir := h.Service.Store.Home.State
+			h.Service.Options.CEO = &CEOConnection{State: stateDir}
+			meta, err := state.ReadTaskMeta(stateDir, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta.Harness = "claude"
+			if err := state.WriteTaskMeta(stateDir, meta); err != nil {
+				t.Fatal(err)
+			}
+			terminal := hostTerminal(t, stateDir, test.key)
+			v := openNativeView(t, server, test.query)
+			v.waitFor(t, "program ready")
+			v.send(t, websocket.MessageBinary, test.start+"\rstart a tool for 2s\r")
+			if lines := terminal.waitForLines(t, test.recorded+1); len(lines) != test.recorded+1 || lines[test.recorded] != "starting a tool" {
+				t.Fatalf("the program never started its tool; it recorded %q", lines)
+			}
+			v.send(t, websocket.MessageText, `{"type":"submit","submission":"words"}`)
+			v.send(t, websocket.MessageBinary, "please run /ship")
+			v.send(t, websocket.MessageText, `{"type":"enter","submission":"words","text":"please run /ship"}`)
+			v.waitFor(t, `{"type":"unread","unread":true}`)
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			// Act
+			err = test.deliver(t, ctx, h)
+
+			// Assert: the Enter goes over the words alone once the tool ends,
+			// and a delivery typed after it goes as a message of its own,
+			// after which the board holds nothing.
+			if test.refusal != nil && !errors.Is(err, test.refusal) {
+				t.Errorf("the delivery returned %v, want it refused as %v while the Enter waits", err, test.refusal)
+			}
+			if test.refusal == nil && err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
+				t.Errorf("the delivery returned %v, want it typed once the Enter was answered", err)
+			}
+			v.waitFor(t, `{"type":"entered","submission":"words","pressed":true,"typed":true}`)
+			want := []string{"starting a tool", "started the tool", "please run /ship"}
+			if test.refusal == nil {
+				want = append(want, goblinLine("and /review it"))
+			}
+			if got := terminal.waitForLines(t, test.recorded+len(want))[test.recorded:]; !slices.Equal(got, want) {
+				t.Fatalf("the program took %q, want %q", got, want)
+			}
+			for deadline := time.Now().Add(30 * time.Second); h.Service.Options.CEO.isEnterAwaited(test.key); time.Sleep(10 * time.Millisecond) {
+				if time.Now().After(deadline) {
+					t.Fatal("the board still holds its deliveries once the relay pressed the Enter")
+				}
 			}
 		})
 	}
@@ -2294,6 +2832,43 @@ func TestANativeTerminalClosesWhenItsGenerationIsReplaced(t *testing.T) {
 	// Assert: it closed with the replaced-session reason, not a hold.
 	if !strings.Contains(closed.Reason, "restarted or was replaced") {
 		t.Fatalf("the view closed with %q, want the replaced session named", closed.Reason)
+	}
+}
+
+// Claude Code 2.1.331 leaves a hint to resend his message in its empty prompt
+// line once a turn ends on an API error, which is nothing anyone typed: the
+// view is told the line holds no words, so Modern Chat types his next message
+// into it and submits it, where it held the message as one that would join
+// words never sent and had him switch to the classic view to type (#2862).
+func TestANativeViewTypesIntoAPromptLineShowingClaudesResendHint(t *testing.T) {
+	// Arrange: a goblin whose turn ended on an API error.
+	h, server := nativeBoard(t, "direct")
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	terminal := hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+	v.send(t, websocket.MessageBinary, "harness\r")
+	v.send(t, websocket.MessageBinary, "api error\r")
+	v.waitFor(t, "Resend your message to try again")
+
+	// Assert: the line reads as holding nothing.
+	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":false,"submission":"his","mode":"bypass permissions","status":{"gauge":"1% until auto-compact"}}`)
+
+	// Act: Modern Chat types his message into the terminal and submits it.
+	v.send(t, websocket.MessageText, `{"type":"submit","submission":"next"}`)
+	v.send(t, websocket.MessageBinary, "carry on from where you stopped\r")
+
+	// Assert
+	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":true,"submission":"next",`)
+	if lines := terminal.waitForLines(t, 1); !slices.Equal(lines, []string{"carry on from where you stopped"}) {
+		t.Fatalf("the harness took %q, want his message alone", lines)
 	}
 }
 

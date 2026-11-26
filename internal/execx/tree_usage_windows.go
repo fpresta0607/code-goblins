@@ -23,6 +23,10 @@ var openProcess = windows.OpenProcess
 // than it lists, as Windows does while a process exits.
 var jobProcessIDs = proc.JobProcessIDs
 
+// endJob ends a job's processes but its machine services, and a test makes
+// each end after the first slow, as on a loaded machine.
+var endJob = proc.EndJob
+
 var (
 	usageKernel           = windows.NewLazySystemDLL("kernel32.dll")
 	isProcessInUsageJob   = usageKernel.NewProc("IsProcessInJob")
@@ -309,16 +313,13 @@ func (t *Tree) endAndWait(ctx context.Context, shouldSpareServices bool) (TreeUs
 		return TreeUsage{}, nil, err
 	}
 	if shouldSpareServices {
-		for {
-			_, spared, err := proc.EndJob(ctx, t.job)
-			if err != nil {
-				return TreeUsage{}, nil, err
-			}
-			// With no service left to spare, the job must empty, as after a
-			// strict end.
-			if len(spared) == 0 {
-				break
-			}
+		_, spared, err := endJob(ctx, t.job)
+		if err != nil {
+			return TreeUsage{}, nil, err
+		}
+		// With no service left to spare, the job must empty, as after a
+		// strict end.
+		for len(spared) > 0 {
 			ids, unlisted, err := t.memberIDs()
 			if err != nil {
 				return TreeUsage{}, nil, err
@@ -362,6 +363,15 @@ func (t *Tree) endAndWait(ctx context.Context, shouldSpareServices bool) (TreeUs
 			case <-ctx.Done():
 				return TreeUsage{}, nil, fmt.Errorf("execx: the job's processes %v still run, and it counts %d more than it lists, beside the machine services its end spared: %w", running, unlisted, ctx.Err())
 			case <-time.After(50 * time.Millisecond):
+			}
+			// A process the job counts beyond its list is one whose end has
+			// begun (proc.JobProcessIDs), so only a listed one still running
+			// is ended again: each end reads the machine's processes, which on
+			// a loaded machine spent the whole deadline (issue 2111).
+			if len(running) > 0 {
+				if _, spared, err = endJob(ctx, t.job); err != nil {
+					return TreeUsage{}, nil, err
+				}
 			}
 		}
 	} else if err := windows.TerminateJobObject(t.job, 1); err != nil {

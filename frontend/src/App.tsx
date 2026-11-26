@@ -230,11 +230,15 @@ export function App() {
   // list.
   // A card is drawn again only when what it shows changed, so the handler
   // it is given stays the same between renders and calls the latest select.
-  const latestSelect = useRef<(next: Selection, source: HTMLElement) => void>(() => undefined);
+  const latestSelect = useRef<(next: Selection, source: HTMLElement, panel?: PanelView) => void>(() => undefined);
   const selectTask = useCallback((task: Task, source: HTMLElement) => latestSelect.current({ task: task.id }, source), []);
+  // A card's Browser active shows its goblin's panel on its Screen view, as
+  // the panel's switch and a chat's browser row do (#2930).
+  const openScreen = useCallback((task: Task, source: HTMLElement) => latestSelect.current({ task: task.id }, source, "screen"), []);
   const openTask = useCallback((next: Task) => latestSelect.current({ task: next.id }, pane.current || document.body), []);
-  const select = (next: Selection, source: HTMLElement) => {
+  const select = (next: Selection, source: HTMLElement, panel?: PanelView) => {
     returnFocus.current = source;
+    if (panel) setPanelView(panel);
     // An empty selection is the supervisor root drawn for the CEO.
     const session = snapshot?.sessions.find((session) => session.id === next.session);
     const ceo = !next.session && !next.task && !next.train || session?.role === "ceo";
@@ -617,12 +621,12 @@ export function App() {
       <main ref={canvas} className="canvas-region" aria-label={view} hidden={panelWide || fillsPhone}>
         {!snapshot || !cardStart ? <div className="empty-state" role="status"><h2>Connecting to the supervisor</h2><p>Loading tasks and native sessions.</p></div>
           : view === "Connectors" ? <ConnectorsPage snapshot={snapshot} onRepair={(key) => setCommandFocus({ key, at: Date.now() })} />
-          : view === "Board" ? <Board afkToggle={afkToggle} presentations={presentations} snapshot={snapshot} layout={boardLayout} selected={task?.id} selectedTrain={train?.id} now={now} freshNow={freshNow} onSelect={selectTask} onSelectTrain={(train, source) => select({ train: train.id }, source)} onOpenCeo={openCeo} onOpenCommand={() => setCommandFocus({ key: "", at: Date.now() })} onStartCeo={() => setFirstRunChoice("")} />
-            : <Suspense fallback={<p className="loading" role="status">Loading Orchestration…</p>}>{compact ? <Lineage onOpenCeo={openCeo} afkToggle={afkToggle} presentations={presentations} effects={effects} snapshot={snapshot} now={now} freshNow={freshNow} project="" selected={!child && selectedSession ? { session: selectedSession.id } : selected} onSelect={select} />
+          : view === "Board" ? <Board afkToggle={afkToggle} presentations={presentations} snapshot={snapshot} layout={boardLayout} selected={task?.id} selectedChild={child?.id} selectedTrain={train?.id} now={now} freshNow={freshNow} onSelect={selectTask} onOpenScreen={openScreen} onChild={(task, baby, source) => select(childSelection(task, baby), source)} onSelectTrain={(train, source) => select({ train: train.id }, source)} onOpenCeo={openCeo} onOpenCommand={() => setCommandFocus({ key: "", at: Date.now() })} onStartCeo={() => setFirstRunChoice("")} />
+            : <Suspense fallback={<p className="loading" role="status">Loading Orchestration…</p>}>{compact ? <Lineage onOpenCeo={openCeo} afkToggle={afkToggle} presentations={presentations} effects={effects} snapshot={snapshot} now={now} freshNow={freshNow} project="" selected={!child && selectedSession ? { session: selectedSession.id } : selected} onSelect={select} onOpenScreen={openScreen} />
               : <Orchestration afkToggle={afkToggle} presentations={presentations} effects={effects} snapshot={snapshot} now={now} freshNow={freshNow} connected={connected}
                 selected={child ? "child:" + child.id : selectedSession ? "session:" + selectedSession.id : selected?.task ? "task:" + selected.task : ""}
                 onSelect={(node, source) => select(node.session ? { session: node.session.id } : node.task ? { task: node.task.id } : {}, source)}
-                onChild={(task, baby, source) => select(childSelection(task, baby), source)} onOpenCeo={openCeo} />}</Suspense>}
+                onOpenScreen={openScreen} onChild={(task, baby, source) => select(childSelection(task, baby), source)} onOpenCeo={openCeo} />}</Suspense>}
       </main>
       {divided && <PaneDivider workspace={workspace} pane={pane} width={paneSize} onWidth={setPaneSize} onResizing={setResizing} onDone={(width) => store(PANE_WIDTH_KEY, String(width))} />}
       <aside ref={pane} className="context-pane" hidden={!paneShown} tabIndex={-1} aria-label={view === "Orchestration" ? "Goblin panel" : "Task review"}>

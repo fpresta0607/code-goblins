@@ -784,13 +784,30 @@ func (b *credentialBoard) windowBody() string {
 
 // Take control on a card is refused from another machine, and on a card
 // that offers none; TestStepCardTakeControlOpensItsLinkAndHandBackClosesItWithHisWords
-// takes it from this PC.
-func TestStepCardTakeControlOnlyFromThisPC(t *testing.T) {
+// takes it from this PC. His private board takes it too, recorded for the
+// CEO as made from there, by Tailscale's headers (CEO decision 1028736,
+// #2900).
+func TestStepCardTakeControlOnlyFromThisPCOrHisPrivateBoard(t *testing.T) {
+	t.Run("from his private board", func(t *testing.T) {
+		b := stepCard(t, func(r *CredentialRequest) { r.Window, r.Link = true, "https://example.com/login" })
+		b.service.screens = newFakeBrowsers(t, &fakeGoblinChrome{browser: newFakeBrowser()})
+		b.service.screens.notify = b.service.notify
+		code, body := postOnHisPhone(t, throughTheGate(t, b.service), "/api/credentials/window", b.windowBody(), nil)
+		b.service.credentialWork.Wait()
+		if code != http.StatusOK || b.stored().WindowState != "open" {
+			t.Fatalf("window = %d %s, state %q; want it taken", code, body, b.stored().WindowState)
+		}
+		pending, err := wake.Pending(b.service.Store.Home.State)
+		takes := slices.DeleteFunc(slices.Clone(pending), func(record wake.Record) bool { return !strings.HasPrefix(record.Detail, "screen: ") })
+		if err != nil || len(takes) != 1 || takes[0].Kind != "notify" || takes[0].Key != "task-1" || takes[0].Detail != "screen: the Overlord took control of its browser from his own private board (by Tailscale's headers, which a program on this PC can forge)" {
+			t.Fatalf("the CEO's queue = %+v, %v, want his take recorded as from his private board", pending, err)
+		}
+	})
 	t.Run("from another machine", func(t *testing.T) {
 		b := stepCard(t, func(r *CredentialRequest) { r.Window = true })
 		response := b.send(b.handler, "/api/credentials/window", b.windowBody(), func(r *http.Request) { r.RemoteAddr = "100.64.0.7:50000" })
-		if response.Code != http.StatusForbidden || b.stored().WindowState != "" {
-			t.Fatalf("window = %d, state %q; want it refused", response.Code, b.stored().WindowState)
+		if response.Code != http.StatusForbidden || b.stored().WindowState != "" || !strings.Contains(response.Body.String(), "Take control from the board on this PC or your private board.") {
+			t.Fatalf("window = %d %s, state %q; want it refused, saying where to take it", response.Code, response.Body.String(), b.stored().WindowState)
 		}
 	})
 	t.Run("on a card without a window", func(t *testing.T) {

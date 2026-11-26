@@ -617,24 +617,33 @@ for (const [stop, kept] of [["release outside the terminal", "live"], ["window b
 }
 
 // The desktop app's WebView2 grants the page every permission itself, so a
-// microphone it is refused was refused by Windows; a browser tab's was refused
-// by the browser. Each is stubbed with the refusals WebView2 and Windows give.
+// microphone it is refused was refused by Windows. A browser tab's refusal is
+// stubbed with what Chrome says of it and of the board's permission: denied
+// by the browser, its question closed unanswered, or kept from it by Windows.
 const WINDOWS_BLOCKED = "The microphone is blocked for Code Goblins by Windows. Turn on Microphone access and Let desktop apps access your microphone in Windows Settings > Privacy & security > Microphone, then hold Ctrl+Shift+Space again.";
-const BROWSER_BLOCKED = "The microphone is blocked for the board. Allow it in the browser's site settings, then hold Ctrl+Shift+Space again.";
-for (const [where, app, expected] of [["the desktop app", true, WINDOWS_BLOCKED], ["a browser", false, BROWSER_BLOCKED]] as const) {
-  for (const refusal of ["Permission denied", "Permission denied by system"]) {
-    test(`in ${where}, a microphone refused with "${refusal}" says where to allow it`, async ({ page }) => {
-      const { pane, posts } = await openPane(page, { app });
-      await page.evaluate((refusal) => {
-        navigator.mediaDevices.getUserMedia = async () => { throw new DOMException(refusal, "NotAllowedError"); };
-      }, refusal);
-      await holdShortcut(page, 0);
-      await expect(pane.getByRole("status")).toHaveText(expected);
-      await releaseShortcut(page);
-      await expect(page.locator("output")).toHaveText("");
-      expect(posts).toHaveLength(0);
-    });
-  }
+const BROWSER_BLOCKED = "The microphone is blocked for the board. To allow it, click the site icon at the left of the address bar, set Microphone to Allow, then hold Ctrl+Shift+Space again.";
+const BROWSER_UNANSWERED = "The browser's question about the microphone closed before it was answered. Hold Ctrl+Shift+Space again and choose Allow when it asks.";
+const BROWSER_KEPT_BY_WINDOWS = "Windows keeps the browser from the microphone. Turn on Microphone access and Let desktop apps access your microphone in Windows Settings > Privacy & security > Microphone, then hold Ctrl+Shift+Space again.";
+for (const [where, app, refusal, permission, expected] of [
+  ["the desktop app", true, "Permission denied", "granted", WINDOWS_BLOCKED],
+  ["the desktop app", true, "Permission denied by system", "granted", WINDOWS_BLOCKED],
+  ["a browser", false, "Permission denied", "denied", BROWSER_BLOCKED],
+  ["a browser", false, "Permission dismissed", "prompt", BROWSER_UNANSWERED],
+  ["a browser", false, "Permission denied by system", "granted", BROWSER_KEPT_BY_WINDOWS],
+] as const) {
+  test(`in ${where}, a microphone refused with "${refusal}" says what to do about it`, async ({ page }) => {
+    const { pane, posts } = await openPane(page, { app });
+    await page.evaluate(({ refusal, permission }) => {
+      navigator.mediaDevices.getUserMedia = async () => { throw new DOMException(refusal, "NotAllowedError"); };
+      const query = navigator.permissions.query.bind(navigator.permissions);
+      navigator.permissions.query = async (descriptor) => descriptor.name === "microphone" ? { name: "microphone", state: permission } as unknown as PermissionStatus : query(descriptor);
+    }, { refusal, permission });
+    await holdShortcut(page, 0);
+    await expect(pane.getByRole("status")).toHaveText(expected);
+    await releaseShortcut(page);
+    await expect(page.locator("output")).toHaveText("");
+    expect(posts).toHaveLength(0);
+  });
 }
 
 test("a page with no microphone to ask for, as the board reached over plain HTTP from another PC, says so and leaves the bubble idle", async ({ page }) => {

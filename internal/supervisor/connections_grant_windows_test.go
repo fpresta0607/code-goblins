@@ -26,8 +26,8 @@ import (
 
 // grantBoard is a supervisor whose task-1 is in project work, whose manifest
 // declares the services sample and other and whose .mcp.json defines docs,
-// with its credential store and its connection checks kept in the test, which
-// counts the checks.
+// with its goblin read from its task record by a fake that counts the reads
+// and shows what the record gives it.
 func grantBoard(t *testing.T) (*Service, string, *atomic.Int32) {
 	t.Helper()
 	t.Setenv(auth.StoreDirEnv, t.TempDir())
@@ -55,13 +55,22 @@ func grantBoard(t *testing.T) (*Service, string, *atomic.Int32) {
 		t.Fatal(err)
 	}
 	s := boardService(store)
-	checks := &atomic.Int32{}
-	s.connectionChecks = connections.NewCache(time.Minute, time.Second, func(context.Context, string) connections.Snapshot {
-		checks.Add(1)
-		return connections.Snapshot{Entries: []connections.Entry{}}
-	})
-	t.Cleanup(s.connectionChecks.Close)
-	return s, h.State, checks
+	reads := &atomic.Int32{}
+	snapshots := s.connectors()
+	t.Cleanup(snapshots.Close)
+	snapshots.ReadGoblin = func(meta state.TaskMeta, _ string, _ int64, _ connections.Goblin) (connections.Goblin, int64) {
+		reads.Add(1)
+		goblin := connections.Goblin{Task: meta.ID, Generation: meta.SpawnGen, Harness: meta.Harness, Project: auth.ProjectName(meta.Project)}
+		for _, name := range meta.Credentials {
+			goblin.Items = append(goblin.Items, connections.Item{ID: "service:" + name, Name: name, Status: connections.StatusSet, Grant: "revoke"})
+		}
+		for _, name := range meta.MCPServers {
+			goblin.Items = append(goblin.Items, connections.Item{ID: "mcp:" + name, Name: name, Status: connections.StatusSet, Grant: "revoke"})
+		}
+		return goblin, 0
+	}
+	snapshots.Transcript = func(state.TaskMeta) string { return "" }
+	return s, h.State, reads
 }
 
 // A connector's Connect gives the task the service or MCP server, and its
@@ -79,7 +88,7 @@ func TestAConnectorPressGivesAndTakesBackAServiceOrAnMCPServer(t *testing.T) {
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			s, stateDir, checks := grantBoard(t)
+			s, stateDir, reads := grantBoard(t)
 			asOverlordsBoard(s)
 			name := test.connection[strings.Index(test.connection, ":")+1:]
 
@@ -106,17 +115,26 @@ func TestAConnectorPressGivesAndTakesBackAServiceOrAnMCPServer(t *testing.T) {
 					t.Fatalf("wakes = %+v (%v), want the CEO told of the %s", pending, err, step.action)
 				}
 
-				// Act: the page reads the goblin once the press's check has ended.
-				waitForConnectionCheck(t, s.connectionChecks, "task-1\ng1")
-				before := checks.Load()
-				code, body = askTheBoard(t, s, "GET", "/api/connections?task=task-1&generation=g1", "", nil)
-
-				// Assert: the press's check answered for the record the press
-				// left, so the read shows it without checking the goblin again
-				// (#2394).
-				var read connections.Snapshot
-				if code != http.StatusOK || json.Unmarshal([]byte(body), &read) != nil || read.Checking || checks.Load() != before {
-					t.Fatalf("read after the %s = %d %s with %d more checks, want its result and no check", step.action, code, body, checks.Load()-before)
+				// Assert: the press's own answer shows the goblin as the record it
+				// left gives it, read once more for the press and not by the page's next
+				// read (#2394).
+				var answer struct {
+					Goblins []connections.Goblin `json:"goblins"`
+				}
+				if err := json.Unmarshal([]byte(body), &answer); err != nil || len(answer.Goblins) != 1 {
+					t.Fatalf("answer to the %s = %s (%v), want the goblin read again", step.action, body, err)
+				}
+				var shown []string
+				for _, item := range answer.Goblins[0].Items {
+					shown = append(shown, item.Name)
+				}
+				if !slices.Equal(shown, slices.Concat(meta.Credentials, meta.MCPServers)) {
+					t.Fatalf("the answer to the %s shows %v, want what the record names: %v and %v", step.action, shown, meta.Credentials, meta.MCPServers)
+				}
+				readsAfterPress := reads.Load()
+				askTheBoard(t, s, "GET", "/api/connectors", "", nil)
+				if reads.Load() != readsAfterPress {
+					t.Fatalf("a read after the %s read the goblin again", step.action)
 				}
 			}
 		})
@@ -300,6 +318,7 @@ func TestAConnectorGrantReportsOnlyANoticeThatDidNotReachTheGoblin(t *testing.T)
 			// Arrange
 			s, stateDir, _ := grantBoard(t)
 			asOverlordsBoard(s)
+			s.Options.CEO = &CEOConnection{State: stateDir}
 			liveNativeGoblin(t, stateDir, "task-1")
 			notices := deliverNotices(t, test.delivery)
 
@@ -318,5 +337,43 @@ func TestAConnectorGrantReportsOnlyANoticeThatDidNotReachTheGoblin(t *testing.T)
 				t.Fatalf("supervisor error = %q, want it reported: %v", lastError, test.isReportable)
 			}
 		})
+	}
+}
+
+// A connector's grant tells a goblin to re-source its credentials only once a
+// view of its terminal has answered the Enter of a message typed there as
+// keys, as every board delivery to a goblin waits for that answer: keys its
+// harness has not read yet show nothing on the prompt line, and the notice
+// typed behind them would join their words. Refused instead, the notice never
+// reached the goblin, since nothing sends it again (#2848's review).
+func TestAConnectorGrantTellsTheGoblinOnceAViewAnswersATypedMessagesEnter(t *testing.T) {
+	// Arrange
+	s, stateDir, _ := grantBoard(t)
+	asOverlordsBoard(s)
+	s.Options.CEO = &CEOConnection{State: stateDir}
+	liveNativeGoblin(t, stateDir, "task-1")
+	notices := deliverNotices(t, nil)
+	answered := s.Options.CEO.awaitEnter("task-1")
+
+	// Act: the grant, what it typed while the Enter waits, and the Enter's
+	// answer.
+	code, body := askTheBoard(t, s, "POST", "/api/connections/grant", `{"task":"task-1","generation":"g1","connection":"service:sample","action":"grant"}`, nil)
+	time.Sleep(300 * time.Millisecond)
+	held := slices.Clone(*notices)
+	answered()
+	s.credentialWork.Wait()
+
+	// Assert
+	if code != http.StatusOK || len(held) != 0 {
+		t.Fatalf("grant = %d %s, notices %q while the Enter waits, want the grant and none typed", code, body, held)
+	}
+	if len(*notices) != 1 || !strings.Contains((*notices)[0], "credentials refreshed: re-source") {
+		t.Fatalf("notices = %q once the Enter was answered, want the one re-source notice", *notices)
+	}
+	s.mu.Lock()
+	lastError := s.lastError
+	s.mu.Unlock()
+	if strings.Contains(lastError, "telling task-1 to load the credentials the Overlord granted") {
+		t.Fatalf("supervisor error = %q, want none for a notice that reached the goblin", lastError)
 	}
 }

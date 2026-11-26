@@ -12,7 +12,7 @@ const BROWSING = snapshot({}, { browser: true });
 // IN_USE is a goblin whose browser runs and which it sent a command a short
 // time ago (#2537).
 const IN_USE = snapshot({}, { browser: true, browser_in_use: true });
-const STATE = { type: "state", is_driven: false, can_drive: true, title: "Sign in", host: "shop.example.com", has_page: true };
+const STATE = { type: "state", is_driven: false, can_drive: true, title: "Sign in", host: "shop.example.com", has_page: true, can_go_back: false };
 
 interface ScreenRelay {
   // views counts the connections the board opened and closed those it
@@ -184,6 +184,40 @@ for (const { width, height, label } of [{ width: 1440, height: 1200, label: "des
       expect(await page.locator("body").ariaSnapshot()).not.toContain(typed);
       expect(logged.join("\n")).not.toContain(typed);
     });
+
+    test("while he drives, Back takes the page one entry back, and is unavailable while it has none or he does not drive", async ({ page }, testInfo) => {
+      // Arrange
+      const relay = await relayScreens(page);
+      await open(page, BROWSING);
+      await openScreen(page, relay);
+      relay.frame({ data: await aFrame(page, 640, 400), width: 1280, height: 800 });
+      const back = screen(page).getByRole("button", { name: "Back", exact: true });
+      await expect(screen(page).getByRole("button", { name: "Take control", exact: true })).toBeVisible();
+      await expect(back).toHaveCount(0);
+
+      // Act: he takes control of a page with no entry before, then follows a
+      // link on it.
+      await screen(page).getByRole("button", { name: "Take control", exact: true }).click();
+      await expect.poll(() => relay.said.some((message) => message.type === "take")).toBe(true);
+      relay.tell({ is_driven: true });
+      await expect(back).toBeDisabled();
+      relay.tell({ title: "Your account", can_go_back: true });
+      await expect(back).toBeEnabled();
+      await testInfo.attach(`back-${label}.png`, { body: await page.screenshot(), contentType: "image/png" });
+      await back.click();
+      await page.keyboard.press("Enter");
+
+      // Assert: the view asks for the entry before, names no page, and gives
+      // the screen the keyboard, so the Enter he presses next goes to the
+      // page and presses no second Back.
+      await expect.poll(() => relay.said.filter((message) => message.type === "key" && message.event === "keyDown").map((message) => message.key)).toEqual(["Enter"]);
+      expect(relay.said.filter((message) => message.type === "back")).toEqual([{ type: "back" }]);
+      await expect(screen(page).getByRole("application")).toBeFocused();
+      relay.tell({ title: "Sign in", can_go_back: false });
+      await expect(back).toBeDisabled();
+      relay.tell({ is_driven: false });
+      await expect(back).toHaveCount(0);
+    });
   });
 }
 
@@ -298,27 +332,30 @@ test("a Screen view whose browser closed gives way to the conversation and close
 
 test("a view on another machine watches the browser, can hand it back, and cannot take control", async ({ page }) => {
   // Arrange
-  const relay = await relayScreens(page, { ...STATE, can_drive: false, drive_note: "Take control from the board on this PC." });
+  const relay = await relayScreens(page, { ...STATE, can_drive: false, drive_note: "Take control from the board on this PC or your private board." });
   await open(page, BROWSING);
   await openScreen(page, relay);
 
   // Assert: no Take control, and why.
-  await expect(screen(page).getByText("Take control from the board on this PC.")).toBeVisible();
+  await expect(screen(page).getByText("Take control from the board on this PC or your private board.")).toBeVisible();
   await expect(screen(page).getByRole("button", { name: "Take control" })).toHaveCount(0);
 
   // Act: he drives it from the board on his PC.
-  relay.tell({ is_driven: true });
+  relay.tell({ is_driven: true, can_go_back: true });
 
-  // Assert: this view can hand it back, but sends nothing to the page.
+  // Assert: this view says where he drives it from, can hand it back, but
+  // sends nothing to the page.
+  await expect(screen(page).getByRole("status")).toHaveText(NAME + "'s browser is being driven from the board on your PC or your private board.");
   await expect(screen(page).getByRole("button", { name: "Hand back", exact: true })).toBeVisible();
   await expect(screen(page).getByRole("application")).toHaveCount(0);
+  await expect(screen(page).getByRole("button", { name: "Back", exact: true })).toHaveCount(0);
 });
 
-test("only a goblin whose browser runs offers its screen, and its card's Browser active opens it full size in a tab of its own", async ({ page, context }) => {
+test("only a goblin whose browser runs offers its screen, which its address shows full size in a tab of its own", async ({ page }) => {
   // Arrange
   const relay = await relayScreens(page);
   await open(page, IN_USE);
-  const opener = page.locator(".task-board .task-card-shell").filter({ hasText: NAME }).getByRole("button", { name: "Browser active: open " + NAME + "'s screen in a new tab" });
+  const opener = page.locator(".task-board .task-card-shell").filter({ hasText: NAME }).getByRole("button", { name: "Browser active: show " + NAME + "'s screen" });
   const otherShell = page.locator(".task-board .task-card-shell").filter({ hasText: OTHER.goblin_name });
   const clock = page.locator(".task-board .task-card-shell").filter({ hasText: NAME }).locator(".card-clock");
 
@@ -333,16 +370,10 @@ test("only a goblin whose browser runs offers its screen, and its card's Browser
   await card(page, OTHER.goblin_name).click();
   await expect(page.getByRole("group", { name: "Panel view", exact: true }).getByRole("button", { name: "Screen" })).toHaveCount(0);
 
-  // Act
-  const opened = context.waitForEvent("page");
-  await opener.click();
-  const tab = await opened;
+  // Act: the board's address of his screen, which other places may link to.
+  await page.goto("/?screen=" + GOBLIN.id);
 
-  // Assert: the tab is the board's address of his screen, which shows it.
-  const address = new URL(tab.url());
-  expect(address.pathname + address.search).toBe("/?screen=" + GOBLIN.id);
-  await tab.close();
-  await page.goto(address.pathname + address.search);
+  // Assert
   await expect(page.getByRole("heading", { level: 1, name: NAME + "'s browser" })).toBeVisible();
   await expect.poll(() => relay.views).toBe(1);
   relay.frame({ data: await aFrame(page, 1280, 800), width: 1280, height: 800 });
@@ -415,7 +446,7 @@ test("a card reads Browser active only while its goblin uses its browser, and it
   // Arrange
   await open(page, BROWSING);
   const shell = page.locator(".task-board .task-card-shell").filter({ hasText: NAME });
-  const opener = shell.getByRole("button", { name: "Browser active: open " + NAME + "'s screen in a new tab" });
+  const opener = shell.getByRole("button", { name: "Browser active: show " + NAME + "'s screen" });
   const screenButton = page.getByRole("group", { name: "Panel view", exact: true }).getByRole("button", { name: "Screen", exact: true });
   await card(page, NAME).click();
 

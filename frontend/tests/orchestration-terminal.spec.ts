@@ -183,7 +183,7 @@ test("Chat consumes and acknowledges a large native replay without mounting or r
   await field(page).press("Enter");
 
   // Assert
-  await expect.poll(() => relay.acknowledged.at(-1)).toBe(Buffer.byteLength("\x1b[?2004h" + output));
+  await expect.poll(() => relay.acknowledged.at(-1)?.bytes).toBe(Buffer.byteLength("\x1b[?2004h" + output));
   await expect.poll(() => relay.typed).toEqual([pasted("Continue after replay"), "\r"]);
   expect(relay.submissions).toHaveLength(1);
   expect(relay.resizes).toEqual([]);

@@ -149,6 +149,7 @@ func (s *Service) checkProgress(ctx context.Context, watched *fleetWakes, now ti
 	reads := len(pending)
 	gateSteps := map[string]fleettree.GateStep{}
 	waits := map[string][]string{}
+	atAPIError := map[string]bool{}
 	measured := map[string]bool{}
 	awaitedHelper := map[string]string{}
 	// A task id is a name in the state folder, so its file system's case rule
@@ -190,7 +191,7 @@ measuring:
 		}
 		reportedAt, report := ownReport(lines, spawnTime(meta.SpawnGen))
 		tree, isTreeRead := trees[meta.ID]
-		screen, records, busy, gateStep, waiting, missing := s.workEvidence(meta, tree, isTreeRead, now)
+		screen, isAtAPIError, records, busy, gateStep, waiting, missing := s.workEvidence(meta, tree, isTreeRead, now)
 		source := ""
 		if !isNew && head != prior.Head {
 			source = "commit"
@@ -238,6 +239,7 @@ measuring:
 		unread[meta.ID] = missing
 		gateSteps[meta.ID] = gateStep
 		waits[meta.ID] = waiting
+		atAPIError[meta.ID] = isAtAPIError
 		watched.Progress[meta.ID] = prior
 		measured[meta.ID] = true
 		standingAt, standing := standingReport(lines, spawnTime(meta.SpawnGen))
@@ -310,10 +312,12 @@ measuring:
 		// checks-passed. A declared wait carries one too when it names CI, a
 		// deploy, the Overlord or memory. A wait on a task, or on a bare target
 		// no record names, is judged by the goblin's own progress instead, so
-		// one that never moves still reports a stall.
+		// one that never moves still reports a stall. A turn that ended on an
+		// API error carries the monitor's wake naming the error, and the
+		// supervisor carries the goblin on (#2863).
 		kind := reportKind(prior.Report)
 		isParkedNotWaiting := monitor.IsParkedDecisionVerb(kind) && kind != "waiting"
-		isReportedElsewhere := monitor.IsTerminalVerb(kind) || isParkedNotWaiting || waitsOnWhatEndsItself(prior.Report)
+		isReportedElsewhere := monitor.IsTerminalVerb(kind) || isParkedNotWaiting || waitsOnWhatEndsItself(prior.Report) || atAPIError[id]
 		// Evidence a memory low left unread says nothing of the goblin.
 		isStarved := watched.MemoryLow && len(unread[id]) > 0
 		// A goblin waiting by design, on what resumes it when it ends, is
@@ -357,7 +361,8 @@ measuring:
 
 // workEvidence is what the goblin's terminal and harness show of its work,
 // read where the rest of the supervisor reads it: the digest of the output on
-// its screen from the monitor's last look at it, and from the board's last
+// its screen from the monitor's last look at it and whether that look found
+// its turn ended on an API error, and from the board's last
 // reading of its family tree the latest write its own records show (its
 // conversation, or a sub-agent, shell, monitor or gate step under it) and the
 // latest moment a job of its own processes started or used the processor, its
@@ -365,22 +370,22 @@ measuring:
 // (fleettree.Tree.Waits). A helper hanging under it is a goblin of its own,
 // whose progress its parent takes only while it waits on it. Evidence that
 // could not be read is left empty and named in missing.
-func (s *Service) workEvidence(meta state.TaskMeta, tree fleettree.Tree, isTreeRead bool, now time.Time) (screen string, records, busy time.Time, gate fleettree.GateStep, waits, missing []string) {
+func (s *Service) workEvidence(meta state.TaskMeta, tree fleettree.Tree, isTreeRead bool, now time.Time) (screen string, isAtAPIError bool, records, busy time.Time, gate fleettree.GateStep, waits, missing []string) {
 	observation, err := monitor.ReadObservation(s.Store.Home.State, meta.ID)
 	if err != nil || observation.EndpointVerdict != monitor.ProbePresent || observation.ScreenUnreadSince != nil ||
 		observation.Endpoint != (herdr.Target{Session: meta.HerdrSession, Pane: meta.HerdrPaneID}).String() ||
 		observation.LastObserved.Before(spawnTime(meta.SpawnGen)) || now.Sub(observation.LastObserved) > evidenceFresh || observation.LastObserved.After(now.Add(time.Minute)) {
 		missing = append(missing, "its screen, which the monitor has not read in the last two minutes")
 	} else {
-		screen = observation.OutputDigest
+		screen, isAtAPIError = observation.OutputDigest, observation.Reason == monitor.APIError
 	}
 	if !isTreeRead || tree.Generation != meta.SpawnGen || now.Sub(tree.FetchedAt) > evidenceFresh {
-		return screen, records, busy, gate, waits, append(missing, "its transcript and processes, which the board has not read in the last two minutes")
+		return screen, isAtAPIError, records, busy, gate, waits, append(missing, "its transcript and processes, which the board has not read in the last two minutes")
 	}
 	missing = append(missing, tree.Unread...)
 	tree.Children = slices.DeleteFunc(slices.Clone(tree.Children), func(child fleettree.Node) bool { return child.Kind == fleettree.KindHelper })
 	gate, _ = tree.Gate()
-	return screen, tree.ActivityAt(), tree.Busy(), gate, tree.Waits(), missing
+	return screen, isAtAPIError, tree.ActivityAt(), tree.Busy(), gate, tree.Waits(), missing
 }
 
 // ownReport is the goblin's latest report in lines, from the generation

@@ -556,3 +556,64 @@ func TestReadBacklogListsTheSectionsThatHoldNoOpenRowAsItsHistory(t *testing.T) 
 		t.Errorf("history = %+v, want %+v", got, want)
 	}
 }
+
+// The notes under a queued or parked row travel with the row, so a review of
+// held work reads why it waits; a done row carries none.
+func TestReadBacklogKeepsTheNoteLinesOfQueuedAndParkedRows(t *testing.T) {
+	h := snapshotHome(t)
+	if err := os.MkdirAll(h.Data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := `# Backlog
+
+## Queued
+- [ ] q1 - Ship the view (since 2026-09-26)
+  First note.
+
+    Second note, indented.
+- [ ] q2 - Set aside in place (hold-kind: parked)
+  Parked in place because the brief is stale.
+- [ ] q3 - Nothing to add
+
+## Parked
+- [ ] p1 - Parked by hand
+  Waiting for the Overlord's call.
+- [ ] p2 - Parked with no note
+
+## Done
+- [x] d1 - Shipped (merged 2026-09-26)
+  A note under a done row.
+`
+	if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	backlog, err := ReadBacklog(h)
+	if err != nil {
+		t.Fatalf("ReadBacklog: %v", err)
+	}
+
+	details := map[string]string{}
+	for _, rows := range [][]BacklogRow{backlog.Queued, backlog.Parked, backlog.Done} {
+		for _, row := range rows {
+			if row.Structured {
+				details[row.ID] = row.Detail
+			}
+		}
+	}
+	want := map[string]string{
+		"q1": "First note.\n\nSecond note, indented.",
+		"q2": "Parked in place because the brief is stale.",
+		"q3": "",
+		"p1": "Waiting for the Overlord's call.",
+		"p2": "",
+		"d1": "",
+	}
+	if !reflect.DeepEqual(details, want) {
+		t.Errorf("details = %q, want %q", details, want)
+	}
+	task, err := ReadQueuedTask(h, "q1")
+	if err != nil || task.Detail != want["q1"] {
+		t.Errorf("queued task q1 detail = %q, %v, want %q", task.Detail, err, want["q1"])
+	}
+}

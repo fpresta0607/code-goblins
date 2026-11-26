@@ -1,15 +1,16 @@
 import type { Snapshot, Task } from "./types.ts";
 
-// What the Overlord clicked on a task: a Start, Pause, Resume or Stop, and
-// the revision from which a snapshot shows it, null until the supervisor
-// answers. A snapshot carries the whole fleet and can take seconds to reach
-// the board, so the click shows on the task in the frame he clicks, as
+// What the Overlord clicked on a task: a Start, Pause, Hand off, Resume or
+// Stop, and the revision from which a snapshot shows it, null until the
+// supervisor answers. A snapshot carries the whole fleet and can take seconds
+// to reach the board, so the click shows on the task in the frame he clicks, as
 // Starting, Pausing, Resuming or Stopping, until a snapshot from that
-// revision on shows the task itself.
-export type TaskAction = "start" | "pause" | "resume" | "stop";
+// revision on shows the task itself. A Hand off pauses the goblin first, so
+// it reads Pausing.
+export type TaskAction = "start" | "pause" | "handoff" | "resume" | "stop";
 export interface TaskClick { action: TaskAction; revision: number | null }
 
-const PHASES = { pause: "pausing", resume: "resuming", stop: "stopping" } as const;
+const PHASES = { pause: "pausing", handoff: "pausing", resume: "resuming", stop: "stopping" } as const;
 
 // withClicks is the snapshot with each click still on its way shown on its
 // task, or the snapshot itself when none is.

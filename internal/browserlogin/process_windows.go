@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"slices"
 	"sync"
 	"syscall"
 	"time"
@@ -63,7 +64,10 @@ type job struct {
 
 // Start starts launch's Chrome and returns once its DevTools answer. It is
 // started suspended and put in a job of its own before it runs, so nothing
-// it starts escapes the job. A failed start closes its Chrome. If cleanup
+// it starts escapes the job. A failed start closes its Chrome, and one whose
+// DevTools did not answer says what the Chrome did while it was waited for
+// (describeStart); either ends its error with the end of what Chrome logged
+// while it started (startupLog). If cleanup
 // cannot be confirmed, it returns the owned Process alongside the error,
 // and the caller must retain that ownership and refuse profile reuse.
 func Start(ctx context.Context, launch Launch) (Process, error) {
@@ -91,6 +95,9 @@ func start(ctx context.Context, launch Launch, await func(context.Context, *devT
 	}
 	cmd := execx.Command(launch.Executable, launch.Arguments()...)
 	cmd.SysProcAttr.CreationFlags |= windows.CREATE_SUSPENDED
+	log := &startupLog{}
+	cmd.Args = slices.Insert(cmd.Args, 1, "--enable-logging=stderr")
+	cmd.Stderr = log
 	transport, closeChildren, err := debugHandles(cmd)
 	if err != nil {
 		windows.CloseHandle(held)
@@ -113,12 +120,19 @@ func start(ctx context.Context, launch Launch, await func(context.Context, *devT
 	process = Process{PID: cmd.Process.Pid, job: &job{handle: held, unassigned: cmd.Process, waited: waited, transport: transport}}
 	defer func() {
 		if failure == nil {
+			log.end()
 			return
 		}
-		if err := cleanup(process); err != nil {
-			failure = errors.Join(failure, err)
-		} else {
+		err := cleanup(process)
+		if err == nil {
+			// Once nothing of the Chrome runs, nothing holds its log open,
+			// so the log is whole once Wait has read it to its end.
 			process = Process{}
+			<-waited
+		}
+		failure = fmt.Errorf("%w; its log: %q", failure, log.end())
+		if err != nil {
+			failure = errors.Join(failure, err)
 		}
 	}()
 	handle, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE|windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(process.PID))
@@ -141,10 +155,11 @@ func start(ctx context.Context, launch Launch, await func(context.Context, *devT
 	if err := proc.Resume(process.PID); err != nil {
 		return process, err
 	}
+	resumed := time.Now()
 	ready, cancel := context.WithTimeout(ctx, devToolsWait)
 	defer cancel()
 	if err := await(ready, transport.pipe); err != nil {
-		return process, err
+		return process, fmt.Errorf("%w; %s", err, describeStart(process, transport.pipe, time.Since(resumed)))
 	}
 	if err := ctx.Err(); err != nil {
 		return process, err

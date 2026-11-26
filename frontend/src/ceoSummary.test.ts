@@ -84,3 +84,9 @@ test("the bar counts only the goblins at work, never one paused, pausing or resu
   const paused = ["paused", "paused", "paused", "paused", "pausing", "resuming"].map((phase, i) => task(phase + "-" + i, { phase }));
   assert.equal(ceoSummary(snapshot({ tasks: [...working, ...paused] })).line, "All quiet. 9 goblins at work.");
 });
+
+test("the bar never counts a goblin still waiting to come back after a restart", () => {
+  const back = task("back", { phase: "working" });
+  const waiting = task("waiting", { phase: "working", comeback: { id: "waiting", state: "waiting", reason: "" } });
+  assert.equal(ceoSummary(snapshot({ tasks: [back, waiting] })).line, "All quiet. 1 goblin at work.");
+});

@@ -253,16 +253,24 @@ const isStartFailed = (task: Task) => task.phase === "queued" && !!task.start_er
 const isMergedUnverified = (task: Task): boolean =>
   task.merged && !task.archived && (isAwaitingTest(task) || task.phase === "done" && !task.verified && !task.parent);
 
+// isAwaitingComeback says a goblin waits for the supervisor to bring it back
+// after a restart: it has no running session, so it is paused in all but name
+// (#2873). A pause, resume or stop of its own under way is its state instead.
+export const isAwaitingComeback = (task: Task): boolean =>
+  task.comeback?.state === "waiting" && !["pausing", "resuming", "stopping", "stopped"].includes(task.phase);
+
 // statusPhase is the phase a task's status is drawn in: the action's for one
 // that did not finish, started for one whose start is under way, merged for
 // one whose pull request merged while it lands, its pull request's test's
 // tone for one that waits on it, failed for a goblin that did not come back
-// or a start that failed, waiting for one in the heavy line and working for
-// one whose run left it. trains are the board's merge trains.
+// or a start that failed, paused for one waiting to come back, waiting for
+// one in the heavy line and working for one whose run left it. trains are the
+// board's merge trains.
 export function statusPhase(task: Task, trains: MergeTrain[] = []): string {
   const awaited = awaitedTest(task, trains);
   return actionFailed(task)?.phase || (task.starting ? "started" : isMergedUnverified(task) ? "merged" : awaited ? "pr-" + awaited.tone
-    : task.comeback?.state === "stopped" || isStartFailed(task) ? "failed" : isInLine(task) ? "waiting" : isPastLine(task) ? "working" : task.phase);
+    : task.comeback?.state === "stopped" || isStartFailed(task) ? "failed" : isAwaitingComeback(task) ? "paused"
+    : isInLine(task) ? "waiting" : isPastLine(task) ? "working" : task.phase);
 }
 
 // The status of a queued task that already finished, whose panel carries
@@ -287,7 +295,7 @@ export function nodeStatus(node: WorkflowNode, isWaitingOnYou = false, tasks: Ta
   if (node.task?.phase === "stopping" && !node.task.generation) return "Removing";
   if (node.task && ownsTaskSession(node.session, node.task) && isAwaitingTest(node.task)) return node.task.merged ? statusText("merged") : landingStatus(pullRequestTest(node.task, trains));
   if (node.task && ["paused", "pausing", "resuming", "stopping", "stopped"].includes(node.task.phase)) return statusText(node.task.phase);
-  if (node.task?.comeback?.state === "waiting") return "Comes back when memory frees";
+  if (node.task?.comeback?.state === "waiting") return "Paused: comes back when memory frees";
   if (node.task?.comeback?.state === "stopped") return "Did not come back after the restart";
   if (node.task?.archived) {
     // A finished task whose pull request GitHub no longer holds keeps its

@@ -1185,6 +1185,11 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .command-center-updates h3 { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .inbox-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .inbox-list li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg); box-shadow: var(--glass-shadow); }
+.inbox-list li.cloud-work-row { grid-template-columns: auto minmax(0, 1fr) auto auto auto; }
+@media (max-width: 560px) {
+  .inbox-list li.cloud-work-row { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .inbox-list li.cloud-work-row .labelled-button:first-of-type { grid-column: 2; justify-self: end; }
+}
 .inbox-list .goblin-avatar { width: 40px; height: 40px; }
 .inbox-text { display: grid; min-width: 0; overflow-wrap: anywhere; }
 .inbox-text strong { font-weight: 800; }
@@ -1578,6 +1583,8 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .lifecycle-details li { display: flex; align-items: flex-start; gap: 12px; overflow-wrap: anywhere; }
 .lifecycle-details li .icon { color: var(--mint); flex: none; }
 .lifecycle-details time { color: var(--muted); font-weight: 400; }
+.cloud-handoff .cloud-prompt { padding: 12px 14px; border: 1px solid var(--glass-border); border-radius: var(--radius); overflow-wrap: anywhere; user-select: all; }
+.cloud-handoff .labelled-button { justify-self: start; }
 .stop-task-dialog { width: min(480px, calc(100vw - 28px)); max-height: calc(100dvh - 28px); overflow: auto; padding: 28px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); color: #edf4f3; background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow-hover); text-align: center; }
 .stop-task-dialog::backdrop { background: #03050aba; backdrop-filter: blur(6px); }
 .stop-task-dialog > .goblin-avatar { margin: 0 auto 18px; width: 66px; height: 66px; }

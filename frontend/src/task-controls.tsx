@@ -15,6 +15,10 @@ import { isOnItsWay, recordClick } from "./use-task-clicks";
 // waits, Update restarts it onto it, on its own conversation, at the end of
 // its turn; pressed again before then it takes the press back. Update looks
 // like the other controls and shows only while an update waits.
+// Hand off sends a running goblin that is no helper to a cloud session
+// through goblins handoff, and Resume on a handed-off one goes on without the
+// cloud's work through goblins handoff cancel, which the supervisor runs for
+// it.
 // One click does it: the task's status says Pausing, Resuming or Stopping in
 // the frame he clicks, a Resume waits its turn on the supervisor rather than
 // being refused, and a click the supervisor refuses goes to the CEO, never
@@ -32,6 +36,7 @@ export function TaskControls({ task, snapshot, start }: { task: Task; snapshot: 
   const isResumeRetry = task.lifecycle?.action === "resume" && ["failed", "resuming"].includes(task.lifecycle.phase);
   const canResume = task.phase === "paused" || isResumeRetry;
   const canPause = !!task.generation && !canResume && !task.archived;
+  const canHandOff = canPause && !isQueued && !task.parent;
   const isUpdatePending = task.pending_engine?.when === "update";
   const canUpdate = isUpdatePending || !!task.harness_update && !canResume && !task.archived && !isQueued;
   const update = async () => {
@@ -40,7 +45,7 @@ export function TaskControls({ task, snapshot, start }: { task: Task; snapshot: 
       await request("/api/tasks/engine", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CEO-Token": snapshot.instance }, body: JSON.stringify({ task: task.id, generation: task.generation, when: isUpdatePending ? "cancel" : "update" }) });
     } catch (error: unknown) { reportToCeo("the harness update of " + task.id, message(error)); }
   };
-  const act = async (action: "pause" | "resume" | "stop") => {
+  const act = async (action: "pause" | "handoff" | "resume" | "stop") => {
     if (isChanging || isOnItsWay(task.id)) return;
     setConfirmation(null);
     const payload = JSON.stringify({ task: task.id, generation: task.generation, revision: task.queue_revision, action });
@@ -70,7 +75,8 @@ export function TaskControls({ task, snapshot, start }: { task: Task; snapshot: 
       {isWaiting && start && !queueBlock(task) && <button {...face("Start")} aria-disabled={!!start.blocked || isChanging} onClick={() => { if (!isChanging) start.onStart(); }}><Icon name="play" /><span>Start</span></button>}
       {canUpdate && <button className="labelled-button" aria-label={(isUpdatePending ? "Cancel the update of " : "Update ") + name} disabled={isChanging} onClick={() => void update()}><Icon name={isUpdatePending ? "clock" : "download"} /><span>{isUpdatePending ? "Cancel update" : "Update"}</span></button>}
       {canPause && <button {...face("Pause")} disabled={isChanging} onClick={() => void act("pause")}><Icon name="pause" /><span>Pause</span></button>}
-      {canResume && <button {...face("Resume")} aria-disabled={isChanging} onClick={() => { if (!isChanging) void act("resume"); }}><Icon name="play" /><span>Resume</span></button>}
+      {canHandOff && <button {...face("Hand off")} disabled={isChanging} onClick={() => void act("handoff")}><Icon name="cloud" /><span>Hand off</span></button>}
+      {canResume && <button {...face("Resume")} {...task.cloud_handoff ? { "data-tip": "Goes on without the cloud's work" } : {}} aria-disabled={isChanging} onClick={() => { if (!isChanging) void act("resume"); }}><Icon name="play" /><span>Resume</span></button>}
       <button {...face(end, " danger")} disabled={isChanging} onClick={() => setConfirmation({ generation: task.generation, revision: task.queue_revision })}><Icon name="trash" /><span>{end}</span></button>
     </div>
     {confirmation && <StopTaskDialog task={task} canPause={canPause} onPause={() => void act("pause")} onStop={() => void act("stop")} onClose={() => setConfirmation(null)} />}

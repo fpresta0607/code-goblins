@@ -5,8 +5,8 @@ import { TreeCount } from "./TreeCount";
 import { TreeChild } from "./TreeChild";
 
 // A goblin's running children in the lineage list, where the canvas lays
-// itself out at phone width: the count under its card, and once opened, each
-// child on a rail, which opens its panel.
+// itself out at phone width, and under its card on the board: the count under
+// its card, and once opened, each child on a rail, which opens its panel.
 export function TreeUnder({ goblin, tree, title, now, selected, onOpen }: { goblin: Task; tree: FleetTree; title: string; now: number; selected?: string; onOpen: (child: TreeNode, source: HTMLElement) => void }) {
   const [isOpen, setOpen] = useState(false);
   return <div className="tree-lineage">

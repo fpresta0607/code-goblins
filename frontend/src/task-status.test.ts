@@ -197,6 +197,42 @@ test("a paused goblin reads what resumes it, the same words on every surface", (
   assert.deepEqual(taskStatus(zane(snapshot), snapshot), { text: "Paused until memory frees", phase: "paused" });
 });
 
+// The Overlord, 2026-11-25, of three cards reading "Comes back when memory
+// frees" after a restart: "shouldnt that mean pasued??" A goblin the
+// supervisor has yet to bring back has no running session (#2873).
+test("a goblin waiting to come back after a restart reads paused with why, at the paused dot, unless an action of its own is its state", () => {
+  // Arrange
+  const waiting = { comeback: { id: "zane", state: "waiting", reason: "" } };
+  const reason = "Paused: comes back when memory frees";
+  const paused = { phase: "paused", lifecycle: { phase: "paused", action: "pause", at: "2026-11-25T01:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason: "overlord", until: "", at: "2026-11-25T01:00:00Z" } } };
+  const cases: [string, Record<string, unknown>, string, string][] = [
+    ["last at work", { phase: "working" }, reason, "paused"],
+    ["last idle", { phase: "idle" }, reason, "paused"],
+    ["with no evidence yet", { phase: "unknown", since: "2026-11-25T01:59:00Z" }, reason, "paused"],
+    ["last waiting its turn for memory", { phase: "waiting", waiting_on: "memory" }, reason, "paused"],
+    ["paused since the restart", paused, "Paused until you resume it", "paused"],
+    ["being paused", { phase: "pausing" }, "Pausing", "pausing"],
+    ["being resumed", { phase: "resuming" }, "Resuming", "resuming"],
+    ["being stopped", { phase: "stopping" }, "Stopping", "stopping"],
+  ];
+
+  for (const [name, fields, text, phase] of cases) {
+    const snapshot = parseSnapshot({ healthy: true, revision: 7, at: "2026-11-25T02:00:00Z", memory: memoryWith(9),
+      tasks: [{ id: "zane", title: "Train history", project: "code-goblins", generation: "s1", verified: false, ...waiting, ...fields }] });
+
+    // Act
+    const status = taskStatus(zane(snapshot), snapshot);
+
+    // Assert
+    assert.deepEqual(status, { text, phase }, name);
+  }
+});
+
+test("a goblin that did not come back after the restart reads so at the failed dot", () => {
+  const snapshot = board({ phase: "working", generation: "s1", comeback: { id: "zane", state: "stopped", reason: "codex is not on PATH" } });
+  assert.deepEqual(taskStatus(zane(snapshot), snapshot), { text: "Did not come back after the restart", phase: "failed" });
+});
+
 // The Overlord, 2026-11-02: "How is a goblin waiting on memory yet it's
 // still in progress?" A live goblin whose heavy step waited its turn in the
 // machine's line read Waiting on memory in In progress, and one the memory
@@ -308,3 +344,25 @@ test("a completed helper reports its parent handoff without claiming verificatio
   assert.equal(taskColumn(zane(snapshot)), "In progress", "unverified handoff work stays in progress");
   assert.equal(taskColumn(zane(ordinary)), "In progress");
 });
+
+// A goblin handed off to a cloud session, its packet out, reads In the cloud
+// and says what brings it back; one whose handoff stopped part-way, paused
+// for it with nothing published, reads its pause and that Resume brings it
+// back.
+for (const [name, cloud, text, details] of [
+  ["handed off", { pull_request: "https://github.com/o/r/pull/209", prompt: "Repository o/r.", cloud: [] }, "In the cloud", "It comes back when you bring back its cloud work from the Command Center, and Resume goes on without that work."],
+  ["stopped part-way", undefined, "Paused for a cloud handoff", "Its handoff did not finish, and Resume brings it back without one."],
+] as const) {
+  test(`a goblin whose handoff is ${name} says so`, () => {
+    // Arrange
+    const snapshot = board({ phase: "paused", generation: "s1", lifecycle: { phase: "paused", action: "pause", at: "2026-11-25T19:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason: "handoff", until: "", at: "2026-11-25T19:00:00Z" } }, ...cloud ? { cloud_handoff: cloud } : {} });
+
+    // Act
+    const status = taskStatus(zane(snapshot), snapshot);
+    const said = taskSummary(zane(snapshot), snapshot.tasks);
+
+    // Assert
+    assert.equal(status.text, text);
+    assert.deepEqual(said.details, [details]);
+  });
+}

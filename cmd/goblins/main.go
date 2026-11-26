@@ -76,7 +76,7 @@ commands:
   remote    on|status|off: private phone access to the board and CEO terminal over your Tailscale account
   host      run one goblin terminal in a process of its own; goblins starts it, not you
   attach    show a native terminal in this console, the CEO's unless one is named; --state <dir> names the fleet's state folder; Ctrl-] leaves it running
-  status    whether the supervisor runs: its board, what the fleet is doing and its pid; exits 1 when none runs
+  status    whether the supervisor runs: its board, what the fleet is doing, naming each task handed off to a cloud session with the pull request its packet is in, and its pid; exits 1 when none runs
   stop      ask the supervisor to stop and wait until it has; --force ends its process tree instead
   setup     as goblins setup: run the quick start again and choose the agent the CEO starts as
   resume    with no task named, as goblins resume: restart a running CEO in its terminal on its conversation, or bring a closed one back, then bring back every goblin whose terminal ended. goblins resume --harness <claude|codex|pi> starts fresh when the harness changes and remembers the choice. Run outside the CEO's own terminal. goblins resume <id> resumes a paused task
@@ -147,7 +147,9 @@ commands:
   goblins cleanup <id> [--force-archive] [--keep-issue-open <issue>... --reason "<why>"]   return a finished task's worktree, every extra worktree it recorded and its scratch folder, refusing while any of them holds uncommitted work and keeping work that is not on the default branch as a local archive tag, and refusing while an issue the task names is open or gone on GitHub unless --keep-issue-open <issue> --reason "<why>" keeps it open, which the task records
   goblins worktree add <id> <name> [--ref <commit>] [--project <name|path>] | remove <id> <name> [--project <name|path>]   give a task an extra worktree, <id>-<name>, beside its own in the home, of its own project or with --project of another, recorded on the task so cleanup removes it with the task, or return one early
   goblins backlog done <id>   close a retired delivered task's queued row, preserving its evidence and continuation under Done
+  goblins backlog review   say which queued rows, parked rows and paused tasks need a decision (done already, a step for the owner overtaken, work to fold, work gone stale), with evidence and a proposal for each; it reads only
   goblins pause <id> | resume <id> | kill <id>   pause, resume or stop a task while preserving its work
+  goblins handoff <id> [--wip] | handoff return <id> [--pr <url>] | handoff cancel <id>   hand a task to a cloud session through a screened packet in its pull request, bring the cloud's pull request back onto its branch and resume it, or resume it without that work
   goblins reap [--dry-run] [--apply] [--force <pid|task-id>]... [--json]   find orphaned harness processes, stale dev servers, worktrees, task records and status logs; --apply retires the worktrees, records and logs, and ending a process needs its pid named with --force
   goblins process-plan   what the janitor's process sweep, and a cleanup or a relaunch of each task, would end on this machine now, with the rule that decides each; it reads only and ends nothing
   goblins notify <id> --done --pr <url> [--lesson "<one line>" --cites "<stamp or words of a status line>"]... | --done --closed <issue-url> --decision <sequence> | --done --report <file> | --blocked "<question>" | --failed "<reason>" | --working "<what>" | --waiting-on <task-id|run-id|overlord|ci|deploy|memory> "<why>" [--lavish <html-file>] [--link <https-url>] [--run <command-file>]   a goblin reports its outcome straight into the wake queue, or what it is working on or waiting on; a wait on the Overlord leads with one sentence, puts values he must enter in a Markdown table on the lines after it with each value in backticks, which his card copies, and gives the one link his card opens with --link; --run names a .ps1 or .sh file holding a command he must run, which his card runs with one click in a terminal on the card, where he types into it
@@ -325,6 +327,9 @@ type commandRuntime struct {
 	// log a decision made under it; nil is the supervisor's pipe.
 	switchAFK func(h home.Home, on bool, asked string) error
 	logAFK    func(h home.Home, entry afk.Entry) error
+	// checkRunCommand checks with its shell a command the Overlord runs,
+	// for goblins afk log --run; nil is supervisor.CheckRunCommand.
+	checkRunCommand func(shell, command string) error
 	// logTrainLanding asks the supervisor to log a pull request a merge
 	// train landed while AFK mode is on; nil is the supervisor's pipe.
 	logTrainLanding func(h home.Home, trainID, url string) error
@@ -790,6 +795,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runTickets(args[1:], stdout, stderr, runtime)
 	case "issue":
 		return runIssue(args[1:], stdout, stderr, runtime)
+	case "handoff":
+		return runHandoff(args[1:], stdout, stderr, runtime)
 	case "brief":
 		return runBrief(args[1:], stdout, stderr, runtime)
 	case "pr":

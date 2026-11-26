@@ -28,7 +28,14 @@ export function PopupList({ label, options, pick, onChoose }: { label: string; o
     while (clipping && getComputedStyle(clipping).overflow === "visible") clipping = clipping.parentElement;
     const viewport = window.visualViewport;
     const measure = () => {
-      const top = Math.max(viewport?.offsetTop ?? 0, clipping?.getBoundingClientRect().top ?? 0);
+      // The top of what the screen shows, where rects count from: Chromium
+      // counts them from the layout viewport, which the visual viewport
+      // starts offsetTop below, and WebKit from the visual viewport itself,
+      // which an iPhone's keyboard pans down the page (#2849). Each counts
+      // the page's scroll the same way, so the visual viewport's top on the
+      // page less that scroll is its top in either.
+      const shown = viewport ? viewport.pageTop - window.scrollY : 0;
+      const top = Math.max(shown, clipping?.getBoundingClientRect().top ?? 0);
       element.style.setProperty("--popup-room", Math.max(0, Math.floor(box.getBoundingClientRect().top - top - 2 * POPUP_CLEARANCE_PX)) + "px");
     };
     measure();

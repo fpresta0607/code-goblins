@@ -35,6 +35,8 @@ func TestPauseConditionsRequireTheEvidenceThatClearsThem(t *testing.T) {
 		{reason: "restart", until: "2026-10-18T11:13:27.2056637Z", isValid: true},
 		{reason: "restart"},
 		{reason: "restart", until: "next boot"},
+		{reason: "handoff", isValid: true},
+		{reason: "handoff", until: "pr:https://github.com/owner/repo/pull/42"},
 		{reason: "unknown"},
 	} {
 		t.Run(testCase.reason+"/"+testCase.until, func(t *testing.T) {
@@ -73,5 +75,36 @@ func TestADependencyPauseSaysWhatItWaitsFor(t *testing.T) {
 				t.Errorf("Description() = %q, want %q", got, want)
 			}
 		})
+	}
+}
+
+// goblins pause refuses the handoff reason, which only goblins handoff
+// takes, so the reasons a mistyped pause is told of leave it out.
+func TestAnUnknownPauseReasonNamesOnlyTheReasonsGoblinsPauseTakes(t *testing.T) {
+	// Act
+	_, err := NewPauseCondition("memroy", "", time.Now())
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "restart") || strings.Contains(err.Error(), "handoff") {
+		t.Fatalf("unknown reason = %v, want the reasons goblins pause takes, without handoff", err)
+	}
+}
+
+// A handoff pause is not always a handed-off task: a helper paused with its
+// parent and a pause whose handoff was only the fallback carry the reason
+// too, so its description says only what it is.
+func TestAHandoffPauseDescriptionSaysOnlyThatItIsPausedForAHandoff(t *testing.T) {
+	// Arrange
+	condition, err := NewPauseCondition("handoff", "", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	got := condition.Description()
+
+	// Assert
+	if got != "Paused for a cloud handoff" {
+		t.Errorf("Description() = %q, want %q", got, "Paused for a cloud handoff")
 	}
 }

@@ -25,6 +25,11 @@ import (
 )
 
 func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Request, revision string) (state.Lifecycle, error) {
+	return runTaskLifecycle(ctx, h, defaultCommandRuntime(), request, revision)
+}
+
+// runTaskLifecycle runs request on its task through runtime.
+func runTaskLifecycle(ctx context.Context, h home.Home, runtime commandRuntime, request lifecycle.Request, revision string) (state.Lifecycle, error) {
 	meta, err := state.ReadTaskMeta(h.State, request.ID)
 	if errors.Is(err, os.ErrNotExist) && request.Action == "stop" {
 		return lifecycle.StopQueued(h, request, revision)
@@ -37,13 +42,22 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 	if request.Session, err = taskSession(h.State, meta); err != nil {
 		return state.Lifecycle{}, err
 	}
-	root, err := pipeline.DefaultRoot()
+	service, err := taskLifecycleService(h, meta, runtime, request.Reason)
 	if err != nil {
 		return state.Lifecycle{}, err
 	}
+	return service.Run(ctx, request)
+}
+
+// taskLifecycleService is the lifecycle that runs a request of reason on
+// meta's task through runtime.
+func taskLifecycleService(h home.Home, meta state.TaskMeta, runtime commandRuntime, reason string) (lifecycle.Service, error) {
+	root, err := pipeline.DefaultRoot()
+	if err != nil {
+		return lifecycle.Service{}, err
+	}
 	commands := gatedb.Runner{Next: execx.OSRunner{}}
 	gate := pipeline.Reader{Root: root, Commands: commands}
-	runtime := defaultCommandRuntime()
 	var resources lifecycle.Resources
 	admit := func() error {
 		return resumeAdmission(h, meta, supervisor.MachineMemory, fleettree.Processes, supervisor.MachineDisk, time.Now().UTC())
@@ -52,7 +66,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 		Helpers: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) ([]string, error) {
 			return reachHelpers(ctx, h, meta, record, runtime.taskLifecycle)
 		},
-		Prepare:  pauseInstruction(runtime, h),
+		Prepare:  pauseInstruction(runtime, h, reason),
 		Handoff:  lifecycle.HandoffWriter{StateDir: h.State, Commands: commands, GitHub: runtime.githubAPI, Owner: lifecycle.OwnerOf(h)}.Handoff,
 		Withdraw: pauseWithdrawal(runtime, h),
 		Stop: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) ([]string, error) {
@@ -137,7 +151,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			return supervisor.HandOverEndedNote(h.State, meta, prior, action)
 		},
 	}}
-	return service.Run(ctx, request)
+	return service, nil
 }
 
 // resumeAdmission says whether the machine has room to resume the paused task
@@ -251,10 +265,15 @@ func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, comman
 
 // pauseInstruction types the instruction to write its handoff file into the
 // goblin of a task being paused. A goblin in a turn takes it at its next tool
-// call, so the pause then waits for the handoff as for any delivered one.
-func pauseInstruction(runtime commandRuntime, h home.Home) func(context.Context, state.TaskMeta, string) error {
+// call, so the pause then waits for the handoff as for any delivered one. A
+// handoff pause asks for a handoff written for publication.
+func pauseInstruction(runtime commandRuntime, h home.Home, reason string) func(context.Context, state.TaskMeta, string) error {
 	return func(ctx context.Context, meta state.TaskMeta, handoff string) error {
-		if err := runtime.sendText(ctx, h, meta.ID, lifecycle.PauseInstruction(handoff)); !errors.Is(err, fleet.ErrQueuedForToolCall) {
+		instruction := lifecycle.PauseInstruction(handoff)
+		if reason == "handoff" {
+			instruction = lifecycle.HandoffPauseInstruction(handoff)
+		}
+		if err := runtime.sendText(ctx, h, meta.ID, instruction); !errors.Is(err, fleet.ErrQueuedForToolCall) {
 			return err
 		}
 		return nil

@@ -27,6 +27,10 @@ export interface Evaluation {
 }
 export interface Task extends Evaluation {
   lifecycle?: LifecycleStatus;
+  // cloud_handoff is a task handed off to a cloud session: the pull request
+  // its packet is in, the prompt a cloud session is given, and the cloud's
+  // pull requests into its branch.
+  cloud_handoff?: CloudHandoff;
   // teardown names the task's stopped processes, from this or an earlier
   // session, that Windows is still tearing down.
   teardown: string[];
@@ -271,6 +275,12 @@ export interface LifecycleStatus {
   kept_messages?: string[];
 }
 export interface PauseCondition { reason: string; until: string; at: string }
+// CloudSighting is one of the cloud's pull requests into a handed-off
+// task's branch at its newest head, with its commits and how its body begins
+// there: is_teammates says another account opened it, so Bring back is his
+// press, and is_left that he left it.
+export interface CloudSighting { pull_request: string; title: string; author: string; head: string; commits: number; body: string; is_teammates: boolean; seen_at: string; is_left: boolean }
+export interface CloudHandoff { pull_request: string; prompt: string; cloud: CloudSighting[] }
 // Wait is one thing a queued row waits for: kind is time, memory, pr or task,
 // target its words as the row wrote them, until the time and bytes the free
 // memory it waits for, and problem why the scheduler cannot read it.
@@ -628,8 +638,6 @@ export interface Run {
   id: string; identity: string; title: string; shell: string; admin: boolean; command: string; cwd: string;
   state: string; exit_code: number | null; output: string; reason: string;
   created_at: string; expires_at: string; ran_at: string; finished_at: string;
-  // connection_task and connection_generation name the goblin a connection repair belongs to.
-  connection_task: string; connection_generation: string;
   // credential_request names the credential request whose card opened this
   // terminal, and credential_names the names it stores.
   credential_request: string; credential_names: string[];
@@ -916,7 +924,6 @@ function itemLists(v: Record<string, unknown>) {
       return { id: string(r.id), identity: string(r.identity), title: string(r.title), shell: string(r.shell), admin: r.admin === undefined ? false : boolean(r.admin),
         command: string(r.command), cwd: string(r.cwd), state: string(r.state), exit_code: r.exit_code === undefined || r.exit_code === null ? null : number(r.exit_code),
         output: string(r.output), reason: string(r.reason), created_at: string(r.created_at), expires_at: string(r.expires_at), ran_at: string(r.ran_at), finished_at: string(r.finished_at),
-        connection_task: string(r.connection_task), connection_generation: string(r.connection_generation),
         credential_request: string(r.credential_request), credential_names: strings(r.credential_names), remote_fix: string(r.remote_fix),
         task: string(r.task), terminal: r.terminal === undefined ? false : boolean(r.terminal), ceo_unwoken: r.ceo_unwoken === undefined ? 0 : number(r.ceo_unwoken), ceo_stopped: r.ceo_stopped === undefined ? false : boolean(r.ceo_stopped),
         update: r.update == null ? null : (({ from, to, page, published, notes, signing, publisher, sum }) => ({ from: string(from), to: string(to), page: string(page), published: string(published),
@@ -1096,7 +1103,11 @@ export function parseSnapshot(value: unknown): Snapshot {
     tasks: array(v.tasks).map((value) => {
       const t = object(value);
       return {
-        lifecycle: t.lifecycle == null ? undefined : ((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_kept: boolean(record.validation_kept),
+        ...(t.cloud_handoff == null ? {} : { cloud_handoff: ((handed) => ({ pull_request: string(handed.pull_request), prompt: string(handed.prompt), cloud: array(handed.cloud).map((value) => {
+          const seen = object(value);
+          return { pull_request: string(seen.pull_request), title: string(seen.title), author: string(seen.author), head: string(seen.head), commits: number(seen.commits), body: string(seen.body), is_teammates: seen.is_teammates === undefined ? false : boolean(seen.is_teammates), seen_at: string(seen.seen_at), is_left: seen.is_left === undefined ? false : boolean(seen.is_left) };
+        }) }))(object(t.cloud_handoff)) }),
+        lifecycle: t.lifecycle == null ? undefined :((record) => ({ phase: string(record.phase), action: string(record.action), at: string(record.at), kept: strings(record.kept), stopped: strings(record.stopped), problems: strings(record.problems), handoff_saved: boolean(record.handoff_saved), validation_kept: boolean(record.validation_kept),
           ...(record.with_parent === undefined ? {} : { with_parent: boolean(record.with_parent) }),
           ...(record.kept_messages == null ? {} : { kept_messages: strings(record.kept_messages) }),
           ...(record.pause == null ? {} : { pause: ((pause) => ({ reason: string(pause.reason), until: string(pause.until), at: string(pause.at) }))(object(record.pause)) }) }))(object(t.lifecycle)),

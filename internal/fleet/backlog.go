@@ -118,6 +118,9 @@ type BacklogRow struct {
 	// row's task for, before it starts.
 	GoblinName  string `json:"goblin_name,omitempty"`
 	GoblinTitle string `json:"goblin_title,omitempty"`
+	// Detail is the trimmed continuation lines under a structured row of
+	// Queued or Parked, its notes, and is empty for any other row.
+	Detail string `json:"detail,omitempty"`
 }
 
 // IsCheckedOff says the row is a checkbox row marked done, as - [x] id - ...
@@ -209,30 +212,33 @@ func ReadBacklog(h home.Home) (BacklogRows, error) {
 			continue
 		}
 		row.Raw = line
+		end := index + 1
+		if row.Structured && (section == "queued" || section == "parked") {
+			for next := end; next < len(lines); next++ {
+				if strings.TrimSpace(lines[next]) == "" {
+					continue
+				}
+				if !continuesRow(lines[next]) {
+					break
+				}
+				end = next + 1
+			}
+			detail := make([]string, 0, end-index-1)
+			for _, line := range lines[index+1 : end] {
+				detail = append(detail, strings.TrimSpace(line))
+			}
+			row.Detail = strings.TrimSpace(strings.Join(detail, "\n"))
+		}
 		switch {
 		case section == "parked" || section == "queued" && strings.EqualFold(metadataValue(trimmed, "hold-kind"), "parked"):
 			result.Parked = append(result.Parked, row)
 		case section == "queued":
 			result.Queued = append(result.Queued, row)
 			if row.Structured {
-				end := index + 1
-				for next := end; next < len(lines); next++ {
-					if strings.TrimSpace(lines[next]) == "" {
-						continue
-					}
-					if !continuesRow(lines[next]) {
-						break
-					}
-					end = next + 1
-				}
-				detail := make([]string, 0, end-index-1)
-				for _, line := range lines[index+1 : end] {
-					detail = append(detail, strings.TrimSpace(line))
-				}
 				if _, exists := result.queuedTasks[row.ID]; exists {
 					result.duplicates[row.ID] = true
 				}
-				result.queuedTasks[row.ID] = QueuedTask{Row: row, Detail: strings.TrimSpace(strings.Join(detail, "\n")), Revision: fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(lines[index:end], "\n"))))}
+				result.queuedTasks[row.ID] = QueuedTask{Row: row, Detail: row.Detail, Revision: fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(lines[index:end], "\n"))))}
 			}
 		default:
 			result.Done = append(result.Done, row)

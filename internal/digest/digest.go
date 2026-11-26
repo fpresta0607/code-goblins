@@ -27,6 +27,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/handoff"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/janitor"
@@ -375,6 +376,9 @@ func briefFleet(current fleetSample, room int) ([]byte, bool) {
 	if current.orphans > 0 {
 		ew.printf("%d orphan status logs: goblins reap --json reads the full finding set.\n", current.orphans)
 	}
+	if len(current.handedOff) > 0 {
+		ew.printf("Handed off to a cloud session: %d (%s); goblins handoff return brings each back, and goblins handoff cancel resumes it without the cloud's work.\n", len(current.handedOff), strings.Join(current.handedOff, ", "))
+	}
 	if len(current.lines) == 0 {
 		ew.println("(no goblins in flight)")
 		return section.Bytes(), current.err == nil
@@ -394,10 +398,13 @@ func briefFleet(current fleetSample, room int) ([]byte, bool) {
 
 const startupStateBudget = 2 * time.Second
 
+// fleetSample is one line a goblin, and the goblins handed off to a cloud
+// session in their current session, each with its pull request.
 type fleetSample struct {
-	lines   []string
-	orphans int
-	err     error
+	lines     []string
+	handedOff []string
+	orphans   int
+	err       error
 }
 
 func sampleFleet(ctx context.Context, stateDir string, endpoint crewstate.Endpoint) fleetSample {
@@ -407,6 +414,11 @@ func sampleFleet(ctx context.Context, stateDir string, endpoint crewstate.Endpoi
 	current := fleetSample{orphans: len(scan.OrphanStatusIDs), err: err}
 	for _, id := range scan.MetaIDs {
 		current.lines = append(current.lines, fleetLine(ctx, stateDir, id, boundedEndpoint{source: endpoint}))
+		if meta, err := state.ReadTaskMeta(stateDir, id); err == nil {
+			if record, isHandedOff, err := handoff.HandedOff(stateDir, meta); err == nil && isHandedOff {
+				current.handedOff = append(current.handedOff, id+" at "+record.PullRequest)
+			}
+		}
 	}
 	return current
 }

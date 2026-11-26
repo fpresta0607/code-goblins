@@ -12,7 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -20,12 +20,15 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/connections"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/remoteaccess"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
+// connectionRequest is a press on a goblin's connector: the task and its
+// generation, the connection and what is asked of it.
 type connectionRequest struct {
 	Task              string `json:"task"`
 	Generation        string `json:"generation"`
@@ -35,69 +38,80 @@ type connectionRequest struct {
 	RequestGeneration string `json:"request_generation,omitempty"`
 }
 
-func (s *Service) connections() (*connections.Cache, *connections.Inspector) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.connectionInspector == nil {
-		s.connectionInspector = connections.NewInspector(s.Store.Home.Root, s.Store.Home.Data, s.Store.Home.State)
-	}
-	if s.connectionChecks == nil {
-		inspector := s.connectionInspector
-		s.connectionChecks = connections.NewCache(connectionResultLife, 45*time.Second, func(ctx context.Context, key string) connections.Snapshot {
-			task, generation, _ := strings.Cut(key, "\n")
-			meta, err := s.connectionTask(task, generation)
-			if err != nil {
-				return connections.Snapshot{Error: err.Error(), Entries: []connections.Entry{}}
-			}
-			if err := s.verifyWorkspace(ctx, meta); err != nil {
-				return connections.Snapshot{Error: err.Error(), Entries: []connections.Entry{}}
-			}
-			result := inspector.Check(ctx, meta)
-			current, err := s.connectionTask(task, generation)
-			if err != nil || !reflect.DeepEqual(current, meta) {
-				return connections.Snapshot{Error: "Task or grants changed during the check. Refresh connections.", Entries: []connections.Entry{}}
-			}
-			return result
-		})
-		checks, stateDir := s.connectionChecks, s.Store.Home.State
-		checks.Failed = func(err error) {
-			_ = s.boardErrors.report(stateDir, "keeping connection checks", err.Error(), time.Now())
-		}
-		if err := checks.Keep(filepath.Join(stateDir, connectionChecksFile)); err != nil {
-			checks.Failed(err)
-		}
-	}
-	return s.connectionChecks, s.connectionInspector
+// connectorRefreshRequest asks for one level to be checked again.
+type connectorRefreshRequest struct {
+	Level string `json:"level"`
+	Scope string `json:"scope"`
 }
 
-// connectionResultLife is how long a goblin's connection check stands before
-// the Connectors page's next read rechecks it, behind the result it shows.
-// Each check starts the goblin's harness, so a page that rechecked every
-// goblin a minute after its checks took minutes to settle on each open
-// (#2394). A grant, revoke or finished repair from the board, and Recheck,
-// check at once, a grant or revoke made with goblins auth at the next read,
-// and anything else, such as a sign-in that expired, within this time.
-const connectionResultLife = 10 * time.Minute
+// connectorFixRequest asks for a project's connection to be repaired.
+type connectorFixRequest struct {
+	Project    string `json:"project"`
+	Connection string `json:"connection"`
+	Action     string `json:"action"`
+}
 
-// connectionChecksFile keeps each goblin's last connection check in the
-// state folder, so the first open of the Connectors page after a restart of
-// the supervisor shows them at once (#2547).
+// connectorsFolder keeps the Connectors page's snapshots under the state
+// folder.
+const connectorsFolder = "connectors"
+
+// connectionChecksFile is what an earlier build kept each goblin's check in,
+// which nothing reads now.
 const connectionChecksFile = "connection-checks.json"
 
-// taskRecord is a task's record as a check of its connections reads it, so a
-// change to it, a grant or revoke made with goblins auth, rechecks the task.
-func taskRecord(meta state.TaskMeta) string {
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%#v", meta)))
-	return hex.EncodeToString(sum[:])
+// connectorsTick is how often the snapshots look for what changed.
+const connectorsTick = 15 * time.Second
+
+// connectors is the Connectors page's snapshots, made on first use.
+func (s *Service) connectors() *connections.Snapshots {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.connectionSnapshots == nil {
+		home := s.Store.Home
+		userHome, _ := os.UserHomeDir()
+		environment := connections.NewEnvironment(home.Root, userHome, home.Data, home.State, func() string { return os.Getenv(install.ProjectsRootVariable) })
+		snapshots := connections.NewSnapshots(environment, filepath.Join(home.State, connectorsFolder))
+		snapshots.Failed = func(err error) {
+			_ = s.boardErrors.report(home.State, "keeping connector snapshots", err.Error(), time.Now())
+		}
+		s.connectionSnapshots = snapshots
+	}
+	return s.connectionSnapshots
 }
 
-// notRunning is whether a goblin's lifecycle record leaves it not running. A
-// paused or stopped goblin's check could only fail, and said its runtime
-// changed (#2547), so it is not checked: the goblin is not running, and its
-// connections are checked again when it resumes.
-func (s *Service) notRunning(meta state.TaskMeta) bool {
-	record, err := s.lifecycle(meta.ID)
-	return err == nil && !record.LeavesRunning(s.Store.Home.State, meta)
+// startConnectors lets go of the file an earlier build kept and starts the
+// snapshots' watch, which ends with the service.
+func (s *Service) startConnectors(ctx context.Context) {
+	_ = fsx.Remove(filepath.Join(s.Store.Home.State, connectionChecksFile))
+	snapshots := s.connectors()
+	s.connectorWork.Add(1)
+	go func() {
+		defer s.connectorWork.Done()
+		snapshots.Watch(ctx, connectorsTick, s.runningTasks)
+	}()
+}
+
+// closeConnectors ends the snapshots' watch and background check.
+func (s *Service) closeConnectors() {
+	s.connectorWork.Wait()
+	s.mu.Lock()
+	snapshots := s.connectionSnapshots
+	s.mu.Unlock()
+	if snapshots != nil {
+		snapshots.Close()
+	}
+}
+
+// runningTasks are the goblins whose records say they run: a paused or stopped
+// one has no session to read until it resumes.
+func (s *Service) runningTasks() []state.TaskMeta {
+	var running []state.TaskMeta
+	for _, meta := range liveTasks(s.Store.Home.State) {
+		if record, err := s.lifecycle(meta.ID); err != nil || record.LeavesRunning(s.Store.Home.State, meta) {
+			running = append(running, meta)
+		}
+	}
+	return running
 }
 
 func (s *Service) connectionTask(task, generation string) (state.TaskMeta, error) {
@@ -108,86 +122,103 @@ func (s *Service) connectionTask(task, generation string) (state.TaskMeta, error
 	return meta, nil
 }
 
-func (h *HTTP) connectionResponse(w http.ResponseWriter, meta state.TaskMeta, refresh bool) {
-	checks, _ := h.Service.connections()
-	key := meta.ID + "\n" + meta.SpawnGen
-	var snapshot connections.Snapshot
-	if h.Service.notRunning(meta) {
-		snapshot = checks.Cached(key)
-		snapshot.NotRunning = true
-	} else {
-		snapshot = checks.Read(key, taskRecord(meta), refresh)
-	}
-	snapshot.Generation = meta.SpawnGen
-	logins := []browserLoginEntry{}
-	if h.Service.browsers != nil {
-		var err error
-		if logins, err = h.Service.browsers.projectLogins(auth.ProjectName(meta.Project)); err != nil {
-			apiError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-	}
-	respond(w, 200, struct {
-		connections.Snapshot
-		Instance      string              `json:"instance"`
-		BrowserLogins []browserLoginEntry `json:"browser_logins"`
-	}{snapshot, h.Service.Instance, logins})
+// connectorProject is a project of the page with the browser logins its
+// goblins use.
+type connectorProject struct {
+	connections.Project
+	BrowserLogins []browserLoginEntry `json:"browser_logins"`
 }
 
-func (h *HTTP) readConnections(w http.ResponseWriter, r *http.Request) {
-	meta, err := h.Service.connectionTask(r.URL.Query().Get("task"), r.URL.Query().Get("generation"))
-	if err != nil {
-		apiError(w, 409, err.Error())
-		return
+// connectorsResponse answers with the snapshots as they stand: nothing is
+// checked to answer it.
+func (h *HTTP) connectorsResponse(w http.ResponseWriter) {
+	view := h.Service.connectors().Read()
+	projects := make([]connectorProject, 0, len(view.Projects))
+	for _, project := range view.Projects {
+		logins := []browserLoginEntry{}
+		if h.Service.browsers != nil {
+			var err error
+			if logins, err = h.Service.browsers.projectLogins(project.Name); err != nil {
+				apiError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+		projects = append(projects, connectorProject{project, logins})
 	}
-	h.connectionResponse(w, meta, false)
+	respond(w, 200, struct {
+		Instance string               `json:"instance"`
+		Machine  connections.Level    `json:"machine"`
+		Projects []connectorProject   `json:"projects"`
+		Goblins  []connections.Goblin `json:"goblins"`
+	}{h.Service.Instance, view.Machine, projects, view.Goblins})
+}
+
+func (h *HTTP) readConnectors(w http.ResponseWriter, _ *http.Request) { h.connectorsResponse(w) }
+
+// decodeConnectorRequest reads one request body that names only the fields of
+// value, so a body that carries anything else, a credential's value among it,
+// is refused as it reads, whichever field it travels in.
+func decodeConnectorRequest(r *http.Request, value any) error {
+	decoder := json.NewDecoder(io.LimitReader(r.Body, 4097))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(value); err != nil {
+		return err
+	}
+	if err := decoder.Decode(new(json.RawMessage)); err != io.EOF {
+		return errors.New("more than one request")
+	}
+	return nil
 }
 
 func decodeConnection(r *http.Request) (connectionRequest, error) {
 	var input connectionRequest
-	decoder := json.NewDecoder(io.LimitReader(r.Body, 4097))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&input); err != nil {
-		return input, errors.New("Choose a connection from this goblin.")
-	}
-	if err := decoder.Decode(new(json.RawMessage)); err != io.EOF {
+	if err := decodeConnectorRequest(r, &input); err != nil {
 		return input, errors.New("Choose a connection from this goblin.")
 	}
 	return input, nil
 }
 
-func (h *HTTP) refreshConnections(w http.ResponseWriter, r *http.Request) {
-	input, err := decodeConnection(r)
-	if err != nil {
-		apiError(w, 400, err.Error())
+// refreshConnectors queues a recheck of the machine, one project or one goblin
+// and answers at once with the snapshots, which say it is being checked.
+func (h *HTTP) refreshConnectors(w http.ResponseWriter, r *http.Request) {
+	var input connectorRefreshRequest
+	if err := decodeConnectorRequest(r, &input); err != nil {
+		apiError(w, 400, "Choose the machine, a project or a goblin to recheck.")
 		return
 	}
-	meta, err := h.Service.connectionTask(input.Task, input.Generation)
-	if err != nil {
-		apiError(w, 409, err.Error())
+	if err := h.Service.connectors().Refresh(input.Level, input.Scope); err != nil {
+		code := http.StatusNotFound
+		if errors.Is(err, connections.ErrUnknownLevel) {
+			code = http.StatusBadRequest
+		}
+		apiError(w, code, err.Error())
 		return
 	}
-	h.connectionResponse(w, meta, true)
+	h.connectorsResponse(w)
 }
 
-func (h *HTTP) fixConnection(w http.ResponseWriter, r *http.Request) {
-	input, err := decodeConnection(r)
-	if err != nil {
-		apiError(w, 400, err.Error())
+// fixConnector makes the repair a project's connection offers: its sign-in
+// page, or a card in Command Center that stores a credential from the
+// clipboard or runs the service's login.
+func (h *HTTP) fixConnector(w http.ResponseWriter, r *http.Request) {
+	var input connectorFixRequest
+	if err := decodeConnectorRequest(r, &input); err != nil {
+		apiError(w, 400, "Choose a connection from this project.")
 		return
 	}
-	meta, err := h.Service.connectionTask(input.Task, input.Generation)
-	if err != nil {
-		apiError(w, 409, err.Error())
+	snapshots := h.Service.connectors()
+	projects := snapshots.Read().Projects
+	index := slices.IndexFunc(projects, func(project connections.Project) bool { return project.Name == input.Project })
+	if index < 0 {
+		apiError(w, 409, "This project is not listed. Refresh connections.")
 		return
 	}
-	checks, inspector := h.Service.connections()
-	snapshot := checks.Cached(meta.ID + "\n" + meta.SpawnGen)
-	if snapshot.Checking || snapshot.CheckedAt.IsZero() {
+	project := projects[index]
+	if project.Checking || project.CheckedAt.IsZero() {
 		apiError(w, 409, "Wait for the connection check to finish.")
 		return
 	}
-	plan, err := inspector.RepairPlan(meta, snapshot, input.Connection, input.Action)
+	plan, err := snapshots.Env.RepairPlan(project, input.Connection, input.Action)
 	if err != nil {
 		apiError(w, 409, err.Error())
 		return
@@ -196,13 +227,11 @@ func (h *HTTP) fixConnection(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, map[string]string{"url": plan.URL, "message": "Complete sign-in, then recheck the connection."})
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
-	defer cancel()
-	if err := h.Service.verifyWorkspace(ctx, meta); err != nil {
-		apiError(w, 409, err.Error())
+	if info, err := os.Stat(project.Path); err != nil || !info.IsDir() {
+		apiError(w, 409, "This project's checkout was not found.")
 		return
 	}
-	run, err := h.Service.connectionRun(meta, input, plan)
+	run, err := h.Service.connectionRun(project, input, plan)
 	if err != nil {
 		apiError(w, 409, err.Error())
 		return
@@ -222,7 +251,8 @@ var grantingBoard = boardAsker("Giving a goblin a connector is the Supreme Overl
 // only a board proven to be the Overlord's own, since a goblin can read the
 // token. The task's status names him, the CEO is told by a wake, and a running
 // terminal of the task is told to load a granted service's credentials, as goblins
-// auth grant tells it. The check that follows shows the card's new state.
+// auth grant tells it. The goblin is read again from its record, and the answer
+// is the page's snapshots, which show the goblin's new state.
 func (h *HTTP) grantConnection(w http.ResponseWriter, r *http.Request) {
 	asked := time.Now()
 	input, err := decodeConnection(r)
@@ -314,7 +344,7 @@ func (h *HTTP) grantConnection(w http.ResponseWriter, r *http.Request) {
 	} else if _, err := wake.PublishEpisode(stateDir); err != nil {
 		s.publish(err)
 	}
-	if item.Live && meta.Backend == "native" {
+	if item.Live && meta.Backend == "native" && s.Options.CEO != nil {
 		s.credentialWork.Add(1)
 		go func() {
 			defer s.credentialWork.Done()
@@ -325,27 +355,29 @@ func (h *HTTP) grantConnection(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			// A goblin in a turn has its harness hold the notice for its next
-			// tool call, so the notice still arrives (#2015).
-			if err := typeIntoGoblin(ctx, stateDir, meta, goblinLine("credentials refreshed: re-source "+item.Path), false, false, false); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
+			// tool call, so the notice still arrives (#2015). It goes as every
+			// board delivery does, so a message a view typed as keys holds it
+			// (CEOConnection.awaitEnter).
+			if _, err := s.Options.CEO.SendGoblin(ctx, meta.ID, goblinIdentity(meta), "credentials refreshed: re-source "+item.Path); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
 				s.publish(fmt.Errorf("telling %s to load the credentials the Overlord granted: %w", meta.ID, err))
 			}
 		}()
 	}
-	// The check answers for the record the change left, so the page's next
-	// read finds it current rather than check the goblin again.
+	// The goblin is read again from the record the change left, so the answer
+	// shows the grant, not the goblin as it was before it.
 	changed := meta
 	if current, err := s.connectionTask(meta.ID, meta.SpawnGen); err == nil {
 		changed = current
 	}
-	h.connectionResponse(w, changed, true)
+	s.connectors().ReadNow(changed)
+	h.connectorsResponse(w)
 }
 
-func (s *Service) connectionRun(meta state.TaskMeta, input connectionRequest, plan connections.Repair) (Run, error) {
+// connectionRun makes the card in Command Center that does a repair for a
+// project: the sign-in command of a service, or the store of what he copied.
+func (s *Service) connectionRun(project connections.Project, input connectorFixRequest, plan connections.Repair) (Run, error) {
 	s.runRequests.Lock()
 	defer s.runRequests.Unlock()
-	if _, err := s.connectionTask(meta.ID, meta.SpawnGen); err != nil {
-		return Run{}, err
-	}
 	executable, err := os.Executable()
 	if err != nil {
 		return Run{}, errors.New("Connection repair is unavailable.")
@@ -354,22 +386,18 @@ func (s *Service) connectionRun(meta state.TaskMeta, input connectionRequest, pl
 	command := "$ErrorActionPreference = 'Stop'\n$env:GOBLINS_HOME = " + quote(s.Store.Home.Root) + "\n$env:GOBLINS_STATE_OVERRIDE = " + quote(s.Store.Home.State) + "\n"
 	title := "Sign in to " + strings.TrimPrefix(input.Connection, "service:")
 	if plan.Credential != "" {
-		verb := "Store "
-		if strings.HasPrefix(input.Action, "replace:") {
-			verb = "Replace "
-		}
-		title = verb + plan.Credential + " from clipboard for " + filepath.Base(meta.Project)
-		command += "Get-Clipboard -Raw | & " + quote(executable) + " auth store --project " + quote(meta.Project) + " " + quote(plan.Credential) + "\nexit $LASTEXITCODE\n"
+		title = "Store " + plan.Credential + " from clipboard for " + project.Name
+		command += "Get-Clipboard -Raw | & " + quote(executable) + " auth store --project " + quote(project.Path) + " " + quote(plan.Credential) + "\nexit $LASTEXITCODE\n"
 	} else {
-		command += "& " + quote(executable) + " connection-repair " + quote(meta.ID) + " " + quote(meta.SpawnGen) + " " + quote(input.Connection) + " " + quote(input.Action) + "\nexit $LASTEXITCODE\n"
+		command += "& " + quote(executable) + " connection-repair " + quote(project.Path) + " " + quote(input.Connection) + " " + quote(input.Action) + "\nexit $LASTEXITCODE\n"
 	}
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return Run{}, errors.New("Connection repair is unavailable.")
 	}
-	identity := sha256.Sum256([]byte(s.Instance + "\n" + meta.ID + "\n" + meta.SpawnGen))
+	identity := sha256.Sum256([]byte(s.Instance + "\n" + project.Name + "\n" + project.Path))
 	now := time.Now().UTC()
-	return s.recordBoardRun(Run{ID: "connection-" + hex.EncodeToString(nonce[:]), Identity: hex.EncodeToString(identity[:]), Title: title, Shell: "powershell", Command: command, Cwd: meta.Worktree, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime), ConnectionTask: meta.ID, ConnectionGeneration: meta.SpawnGen})
+	return s.recordBoardRun(Run{ID: "connection-" + hex.EncodeToString(nonce[:]), Identity: hex.EncodeToString(identity[:]), Title: title, Shell: "powershell", Command: command, Cwd: project.Path, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime), ConnectionProject: project.Name})
 }
 
 // recordBoardRun records a run item the board made itself, with the script

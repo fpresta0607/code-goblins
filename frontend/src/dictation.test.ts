@@ -30,13 +30,13 @@ test("what was heard is typed as one line of plain words", () => {
 
 test("a refused microphone says where to allow it: Windows in the desktop app, the browser in a tab", () => {
   for (const name of ["NotAllowedError", "SecurityError"]) {
-    assert.match(microphoneProblem(name, true), /^The microphone is blocked for Code Goblins by Windows\. .*Windows Settings > Privacy & security > Microphone/);
-    assert.doesNotMatch(microphoneProblem(name, true), /browser/);
-    assert.equal(microphoneProblem(name, false), dictationProblem("not-allowed"));
+    assert.match(microphoneProblem(name, true, "denied"), /^The microphone is blocked for Code Goblins by Windows\. .*Windows Settings > Privacy & security > Microphone/);
+    assert.doesNotMatch(microphoneProblem(name, true, "denied"), /browser/);
+    assert.equal(microphoneProblem(name, false, "denied"), dictationProblem("not-allowed"));
   }
   for (const app of [true, false]) {
-    assert.match(microphoneProblem("NotFoundError", app), /No microphone/);
-    assert.match(microphoneProblem("AbortError", app), /could not be opened/);
+    assert.match(microphoneProblem("NotFoundError", app, "granted"), /No microphone/);
+    assert.match(microphoneProblem("AbortError", app, "granted"), /could not be opened/);
   }
   assert.equal(inDesktopApp(), false, "the unit tests run with no window");
 });
@@ -530,6 +530,35 @@ test("a microphone the browser refuses is explained and nothing listens", async 
   missing.mic.refuse("NotFoundError");
   await settle();
   assert.match(missing.problems.at(-1) || "", /No microphone/);
+});
+
+// The Overlord, 2026-11-25: "microphone not working in classic during that
+// reconnect or load saying not enabled in browser but it's not asking me".
+// A browser refuses the microphone as well when its question was closed
+// unanswered, or when Windows keeps the microphone from the browser, and only
+// a permission the browser itself denies is a block in its site settings.
+test("a refused microphone is called blocked only when the browser denies it, and says what to do otherwise", async () => {
+  for (const [permission, says] of [
+    ["denied", /^The microphone is blocked for the board\. To allow it, click the site icon at the left of the address bar, set Microphone to Allow/],
+    ["prompt", /^The browser's question about the microphone closed before it was answered\. Hold Ctrl\+Shift\+Space again and choose Allow/],
+    ["granted", /^Windows keeps the browser from the microphone\. Turn on Microphone access and Let desktop apps access your microphone in Windows Settings/],
+  ] as const) {
+    // Arrange: what the browser says of the page's microphone.
+    Object.defineProperty(navigator, "permissions", { configurable: true, value: { query: async ({ name }: { name: string }) => ({ name, state: permission }) } });
+    const { subject, mic, listening, problems } = listened();
+    try {
+      // Act
+      subject.start();
+      mic.refuse("NotAllowedError");
+      await settle();
+
+      // Assert
+      assert.deepEqual(listening, [true, false], permission);
+      assert.match(problems.at(-1) || "", says, permission);
+    } finally {
+      Reflect.deleteProperty(navigator, "permissions");
+    }
+  }
 });
 
 test("a recognizer that cannot take a track still dictates, without a level or a held microphone", async () => {

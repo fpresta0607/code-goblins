@@ -105,10 +105,16 @@ func runBriefReady(args []string, stdout, stderr io.Writer) (code int) {
 		manifest = projectcfg.Manifest{}
 	}
 	assessed := projectcfg.AssessDelivery(manifest, string(finalized))
-	if line := fleet.BriefDelivery(finalized)["mode"]; line != assessed.Mode {
+	line := fleet.BriefDelivery(finalized)["mode"]
+	authority, exceptionErr := projectcfg.ApprovedDeliveryException(h.Data, id, line, manifest)
+	isApproved := authority != "" && projectcfg.SelectDelivery(manifest, string(finalized), "", authority).Mode == line
+	if line != assessed.Mode && !isApproved {
 		outcome := "or keep " + line + " on purpose"
 		if line != "no-mistakes" {
-			outcome = "since spawn starts no-mistakes without a delivery exception"
+			outcome = "since spawn starts no-mistakes without a delivery exception, and its automatic start waits until the registered primary CEO approves one with goblins spawn --delivery-exception"
+		}
+		if exceptionErr != nil {
+			outcome += " (" + exceptionErr.Error() + ")"
 		}
 		fmt.Fprintf(stderr, "goblins brief ready: the brief's mode: line says %s, while the project's delivery posture (%s) and the brief's Delivery assessment select %s: %s. Change the line to %s, %s.\n", line, cmp.Or(assessed.Posture, "unset"), assessed.Mode, assessed.Reason, assessed.Mode, outcome)
 	}

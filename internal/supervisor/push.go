@@ -250,23 +250,12 @@ func (s *Service) pushNew(ctx context.Context, seen map[string]bool) (map[string
 	if !remote.Enabled {
 		return nil, s.forgetPushApps(func(webpush.Subscription) bool { return true })
 	}
-	// What waits is read from the store's memory, at once; the snapshot, which
-	// names the goblins that ask, is read only for something new to push, and
-	// what it holds is seen too, as what arrived while it was read is pushed
-	// now.
-	items, _ := s.Items()
-	data, err := json.Marshal(struct {
-		Questions      []Question          `json:"questions"`
-		Reviews        []Review            `json:"reviews"`
-		Runs           []Run               `json:"runs"`
-		Credentials    []CredentialRequest `json:"credentials"`
-		BrowserSignIns []BrowserSignIn     `json:"browser_signins"`
-		At             time.Time           `json:"at"`
-	}{items.Questions, items.Reviews, items.Runs, items.Credentials, items.BrowserSignIns, time.Now().UTC()})
-	if err != nil {
-		return seen, err
-	}
-	_, waits, err := waiting.Items(data)
+	// What waits is read as the desktop window's look reads it, from the
+	// store's memory at once and the cloud's work from the newest snapshot
+	// built; a snapshot of now, which names the goblins that ask, is read
+	// only for something new to push, and what it holds is seen too, as what
+	// arrived while it was read is pushed now.
+	_, waits, err := s.Waiting()
 	if err != nil {
 		return seen, err
 	}
@@ -280,6 +269,7 @@ func (s *Service) pushNew(ctx context.Context, seen map[string]bool) (map[string
 		return current, nil
 	}
 	snapshot, err := s.SnapshotSince(s.Revision())
+	var data []byte
 	if err == nil {
 		data, err = json.Marshal(snapshot)
 	}

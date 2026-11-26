@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -31,6 +32,7 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	forceDirty := flags.Bool("force-dirty", false, "switch even though the worktree has uncommitted changes")
 	restart := flags.Bool("restart", false, "start the goblin's own harness, model and effort again on its conversation, onto any update of its harness")
 	renamed := flags.Bool("renamed", false, "with --restart: start it again under goblins' names, as the supervisor does after its home moved to them")
+	isAfterAPIError := flags.Bool("after-api-error", false, "with --restart: start it again after its turn ended on an API error, as the supervisor does once the API answers and its terminal takes no typing")
 	inTerminal := flags.Bool("terminal", false, "start the goblin again on its conversation in a terminal, taking a goblin on stream-json pipes over; --restart hands it back")
 	if !parseFlags(flags, args[1:]) {
 		return 2
@@ -41,6 +43,10 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	}
 	if *inTerminal && (*restart || *harnessName != "" || *model != "" || *effort != "") {
 		fmt.Fprintln(stderr, "goblins switch: --terminal keeps the goblin's own harness, model and effort; leave out --restart, --harness, --model and --effort")
+		return 2
+	}
+	if *isAfterAPIError && (!*restart || *renamed) {
+		fmt.Fprintln(stderr, "goblins switch: --after-api-error goes with --restart, not --renamed or --terminal")
 		return 2
 	}
 	*restart = *restart || *inTerminal
@@ -71,6 +77,17 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	// A handed-off goblin's branch is the cloud session's to build on, and a
+	// switch relaunches a paused goblin outside its lifecycle.
+	record, err := state.ReadLifecycle(h.State, id)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if err == nil && record.Generation == meta.SpawnGen && record.IsHandedOff() {
+		fmt.Fprintln(stderr, "goblins switch: the task is handed off to a cloud session: goblins handoff return brings its work back and resumes it, and goblins handoff cancel resumes it without that work")
+		return 1
+	}
 	// The switch is pinned to the session the caller chose or, with none
 	// named, the one read here, so a task replaced in between is refused.
 	pinned := *generation
@@ -97,6 +114,9 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	if *renamed {
 		request.ResumeNote = renamedNote
 	}
+	if *isAfterAPIError {
+		request.ResumeNote = apiErrorRestartNote
+	}
 	if request.Harness == "" || string(request.Harness) == meta.Harness {
 		if request.ResumeSession, err = taskSession(h.State, meta); err != nil {
 			fmt.Fprintf(stderr, "switch: %v\n", err)
@@ -118,6 +138,10 @@ func runSwitch(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 // renamedNote is what a goblin restarted under goblins' names is told, the
 // one line it needs: the names it used before this update are gone.
 const renamedNote = "Code Goblins updated, and its command is now goblins and its settings begin GOBLINS_: the command and settings you used before are gone, so run goblins from here on. You were restarted under the new names at the end of your turn, on your own conversation, harness, model and effort."
+
+// apiErrorRestartNote is what a goblin the supervisor restarted after its
+// turn ended on an API error is told: who restarted it, and why.
+const apiErrorRestartNote = "The supervisor restarted you on your own conversation, harness, model and effort: your last turn ended on an API error, and once the API answered again your terminal took no typing. Carry on from where you stopped."
 
 // taskSession is the conversation the task's goblin of its current
 // generation is in: the one the board recorded or kept as its running

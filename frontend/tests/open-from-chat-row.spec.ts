@@ -17,7 +17,7 @@ const REPLY = { id: "reply-1", seq: 1, at, kind: "reply", blocks: [
 ] };
 const ROWS = { conversation: "fixture-conversation", more: false, messages: [{ id: "prompt-0", seq: 0, at, kind: "prompt", source: "overlord", text: "Check the sign-in page" }, REPLY] };
 const BROWSING = snapshot({}, { browser: true });
-const STATE = { type: "state", is_driven: false, can_drive: true, title: "Sign in", host: "shop.example.com", has_page: true };
+const STATE = { type: "state", is_driven: false, can_drive: true, title: "Sign in", host: "shop.example.com", has_page: true, can_go_back: false };
 
 const messages = (page: Page) => page.getByRole("log", { name: "Messages of " + NAME });
 const messagesRegion = (page: Page) => page.getByRole("region", { name: "Messages", exact: true });

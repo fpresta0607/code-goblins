@@ -12,5 +12,5 @@ const snapshot = parseSnapshot({ healthy: true, instance: "fixture", tasks: Arra
 })) });
 
 createRoot(document.getElementById("root")!).render(<main style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
-  <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenCeo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={Date.parse("2026-10-07T12:00:00Z")} freshNow={Date.parse("2026-10-07T12:00:00Z")} onSelect={() => {}} onChild={() => {}} />
+  <Orchestration afkToggle={RESTING_AFK_TOGGLE} onOpenScreen={() => {}} onOpenCeo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={Date.parse("2026-10-07T12:00:00Z")} freshNow={Date.parse("2026-10-07T12:00:00Z")} onSelect={() => {}} onChild={() => {}} />
 </main>);

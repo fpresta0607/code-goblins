@@ -49,6 +49,20 @@ const kernelThreadFlag = 0x00200000
 // readStatus reads pid's line of /proc. A process that is gone, or that has
 // exited and only waits for its parent to collect it, is fs.ErrNotExist.
 func readStatus(pid int) (status, error) {
+	read, err := readAnyStatus(pid)
+	if err != nil {
+		return status{}, err
+	}
+	if read.state == 'Z' || read.state == 'X' {
+		return status{}, fmt.Errorf("proc: process %d has exited: %w", pid, fs.ErrNotExist)
+	}
+	return read, nil
+}
+
+// readAnyStatus reads pid's line of /proc, even once it has exited and only
+// waits for its parent to collect it. A process that is gone is
+// fs.ErrNotExist.
+func readAnyStatus(pid int) (status, error) {
 	line, err := fsx.ReadKernelFile(fmt.Sprintf("/proc/%d/stat", pid))
 	if err != nil {
 		// A process that exits between the open and the read fails the read
@@ -61,9 +75,6 @@ func readStatus(pid int) (status, error) {
 	read, err := parseStatus(line)
 	if err != nil {
 		return status{}, fmt.Errorf("proc: read process %d: %w", pid, err)
-	}
-	if read.state == 'Z' || read.state == 'X' {
-		return status{}, fmt.Errorf("proc: process %d has exited: %w", pid, fs.ErrNotExist)
 	}
 	return read, nil
 }
@@ -227,6 +238,22 @@ func Lookup(pid int) (Entry, error) {
 		return Entry{}, err
 	}
 	return read.entry(pid, boot), nil
+}
+
+// ChildStartTime reads when pid, a child of this process that nothing has
+// waited for yet, started, even once it has exited: until it is waited for
+// it keeps its ID, so the start read is its own. A process that is gone is
+// fs.ErrNotExist.
+func ChildStartTime(pid int) (time.Time, error) {
+	read, err := readAnyStatus(pid)
+	if err != nil {
+		return time.Time{}, err
+	}
+	boot, err := bootTime()
+	if err != nil {
+		return time.Time{}, err
+	}
+	return read.entry(pid, boot).Start, nil
 }
 
 // maxListings is how many times Processes lists /proc again because a

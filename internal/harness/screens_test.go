@@ -1102,6 +1102,48 @@ func TestClaudesQueuedHintReadsEmptyWithoutMistakingADraft(t *testing.T) {
 	}
 }
 
+// Claude Code 2.1.331, live on 2026-11-24 when the network dropped: a turn
+// that ends on an API error leaves a hint in the empty prompt line under it,
+// one of the three its build holds for the error's kind, which is nothing
+// anyone typed. Read as words never sent, it had goblins send, goblins answer
+// and the board's modern view refuse to type into about 17 goblins (#2862).
+func TestClaudesAPIErrorHintsReadEmptyWithoutMistakingADraft(t *testing.T) {
+	rule := strings.Repeat("─", 120)
+	status := strings.Repeat(" ", 80) + "× Auto-update failed · Run claude doctor"
+	footer := "  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← 2 agents"
+	screens, _ := NativeScreens(Claude)
+	for name, test := range map[string]struct {
+		prompt string
+		empty  bool
+	}{
+		"resend hint":                 {"> Resend your message to try again", true},
+		"resend hint after its glyph": {"❯\u00a0Resend your message to try again", true},
+		"resend hint cut short":       {"> Resend your message to t…", true},
+		"once fixed hint":             {"> Once fixed, resend your message", true},
+		"rewind hint":                 {"> Run /rewind to go back", true},
+		"draft after the hint":        {"> Resend your message to try again now", false},
+		"draft that starts as it":     {"> Resend your message", false},
+		"draft that only ends as it":  {"> Please Resend your message to try again", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange: the screen a goblin's terminal ended on, captured in
+			// the supervisor's wake for it.
+			screen := []string{"● Reading the tests to place a red regression test.", "  Read 5 files, ran 5 shell commands", "", "● API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)", "", status, rule, test.prompt, rule, footer}
+
+			// Act
+			empty, holds := screens.ComposerEmpty(screen), screens.ComposerHoldsText(screen)
+
+			// Assert
+			if empty != test.empty || holds == test.empty {
+				t.Fatalf("ComposerEmpty = %v, ComposerHoldsText = %v; want empty %v", empty, holds, test.empty)
+			}
+			if test.empty && !screens.IsIdleAtEmptyComposer(screen) {
+				t.Fatal("IsIdleAtEmptyComposer = false, want the goblin idle at an empty prompt line")
+			}
+		})
+	}
+}
+
 // Claude Code 2.1.328, live on 2026-11-19: its prompt line holds a no-break
 // space after its glyph before the words typed on it, as its empty prompt line
 // does, so the board read a line that held only its own words as words it
@@ -1155,7 +1197,6 @@ func TestOnlyAnEmptyPromptLineThatShowsItsQueuesHintOffersTheQueueBack(t *testin
 		"Claude Code's bare prompt line": {Claude, "❯ ", false},
 		"Claude Code's draft":            {Claude, "❯ Press up to edit the file", false},
 		"Codex, which has no such key":   {Codex, "› Ask Codex to do anything", false},
-		"pi, which has no such key":      {Pi, "", false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -1168,6 +1209,84 @@ func TestOnlyAnEmptyPromptLineThatShowsItsQueuesHintOffersTheQueueBack(t *testin
 			// Assert
 			if offers != test.want {
 				t.Fatalf("OffersQueue = %v, want %v", offers, test.want)
+			}
+		})
+	}
+}
+
+// pi 1.4.0, live on 2026-11-18 (#2340): while lines wait in its queue it
+// draws each as "Steering: <line>" over a row "↳ Alt+Q to edit all queued
+// messages", above its editor and cut under "..." in a narrow terminal, and
+// Alt+Q puts every one of them back in the editor without ending the turn.
+// The board presses it only while that row is the last one above the empty
+// editor that is not blank.
+func TestPisQueueIsOfferedByTheHintOverItsEmptyEditor(t *testing.T) {
+	rule := strings.Repeat("─", 40)
+	for name, test := range map[string]struct {
+		above, editor []string
+		want          bool
+	}{
+		"its hint over its empty editor":     {[]string{" Steering: first queued line", " Steering: second queued line", " ↳ Alt+Q to edit all queued messages", ""}, []string{""}, true},
+		"its hint cut at 30 columns":         {[]string{" Steering: first queued line", " ↳ Alt+Q to edit all queue... ", ""}, []string{""}, true},
+		"no queue":                           {[]string{" word0 word1 word2", ""}, []string{""}, false},
+		"its hint over a draft of his":       {[]string{" Steering: first queued line", " ↳ Alt+Q to edit all queued messages", ""}, []string{"a draft of his"}, false},
+		"its words quoted higher up":         {[]string{" ↳ Alt+Q to edit all queued messages", " word0 word1 word2", ""}, []string{""}, false},
+		"a draft that starts as its hint":    {[]string{" ↳ Alt+Q to edit all of them", ""}, []string{""}, false},
+		"words that only end as its hint do": {[]string{" Now ↳ Alt+Q to edit all queued messages", ""}, []string{""}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			screens, _ := NativeScreens(Pi)
+			screen := slices.Concat([]string{" HOLD-TURN start", ""}, test.above, []string{"── ⠹ Working " + rule}, test.editor, []string{rule, `~\work\task`, "0.7%/200k (auto)                    fake-model"})
+
+			// Act
+			offers := screens.OffersQueue(screen)
+
+			// Assert
+			if offers != test.want {
+				t.Fatalf("OffersQueue = %v, want %v", offers, test.want)
+			}
+		})
+	}
+}
+
+// pi-tui 1.4.0's editor shows at most 30% of its terminal's rows, and no
+// fewer than five (Editor.render): 12 of a 40-row terminal and five of a
+// 10-row one. It wraps a line wider than its rules less the column its cursor
+// keeps, 79 of 80, between words, a CJK character two columns wide, and takes
+// a tab as four spaces (Editor.setText). pi's Alt+Q puts the lines its queue
+// holds there an empty row between each two, and the board reads back only
+// the rows that show, so it takes the queue back only where every one would
+// (#2340).
+func TestPisQueueFitsItsEditorOnlyWhereEveryRowAltQPutsThereShows(t *testing.T) {
+	short := []string{"queued line 1", "queued line 2", "queued line 3", "queued line 4", "queued line 5", "queued line 6", "queued line 7"}
+	for name, test := range map[string]struct {
+		rows   int
+		queued []string
+		want   bool
+	}{
+		"three short lines, in five rows":                        {40, short[:3], true},
+		"six short lines, in eleven rows":                        {40, short[:6], true},
+		"seven short lines, in thirteen rows":                    {40, short, false},
+		"three short lines, in the five a 10-row terminal shows": {10, short[:3], true},
+		"a line of 200 characters, in three rows":                {40, []string{strings.Repeat("word ", 40)}, true},
+		"a line of 1,200 characters, in sixteen rows":            {40, []string{strings.Repeat("word ", 240)}, false},
+		"five lines of 60 CJK characters, in fourteen rows":      {40, slices.Repeat([]string{strings.Repeat("漢", 60)}, 5), false},
+		"six lines a tab makes wider than a row, in 17 rows":     {40, slices.Repeat([]string{"\t" + strings.Repeat("x", 76)}, 6), false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			screens, _ := NativeScreens(Pi)
+			rule := strings.Repeat("─", 80)
+			screen := []string{" HOLD-TURN start", "", " Steering: queued line 1", " ↳ Alt+Q to edit all queued messages", "", "── ⠹ Working " + strings.Repeat("─", 67), "", rule, `~\work\task`, "0.7%/200k (auto)"}
+			screen = append(screen, make([]string, test.rows-len(screen))...)
+
+			// Act
+			fits := screens.QueueFits(screen, test.queued)
+
+			// Assert
+			if fits != test.want {
+				t.Fatalf("QueueFits = %v, want %v", fits, test.want)
 			}
 		})
 	}

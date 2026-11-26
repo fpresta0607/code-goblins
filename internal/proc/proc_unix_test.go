@@ -151,6 +151,56 @@ func TestAChildThatExitedReadsAsGoneBeforeItIsCollected(t *testing.T) {
 	}
 }
 
+// A child nothing has waited for keeps its ID once it exits, so its start
+// still reads as the start it had while it ran, until it is collected.
+func TestChildStartTimeReadsAChildThatExitedUntilItIsCollected(t *testing.T) {
+	// Arrange
+	child := exec.Command("sh", "-c", "read line")
+	stdin, err := child.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	isCollected := false
+	t.Cleanup(func() {
+		if !isCollected {
+			_ = child.Process.Kill()
+			_ = child.Wait()
+		}
+	})
+	running, isFound := StartTime(child.Process.Pid)
+	if !isFound {
+		t.Fatal("the running child's start could not be read")
+	}
+	if err := stdin.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		if _, err := Lookup(child.Process.Pid); errors.Is(err, fs.ErrNotExist) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the child did not exit within 30 seconds")
+		}
+	}
+
+	// Act
+	exited, exitedErr := ChildStartTime(child.Process.Pid)
+	_ = child.Wait()
+	isCollected = true
+	_, collectedErr := ChildStartTime(child.Process.Pid)
+
+	// Assert
+	if exitedErr != nil || !exited.Equal(running) {
+		t.Errorf("ChildStartTime of the exited child = %v, %v; want %v, the start it had while it ran", exited, exitedErr, running)
+	}
+	if !errors.Is(collectedErr, fs.ErrNotExist) {
+		t.Errorf("ChildStartTime of the collected child = %v, want fs.ErrNotExist", collectedErr)
+	}
+}
+
 func TestIdentifyReadsAChildsImageArgumentsDirectoryAndEnvironment(t *testing.T) {
 	// Arrange
 	dir, err := filepath.EvalSymlinks(t.TempDir())

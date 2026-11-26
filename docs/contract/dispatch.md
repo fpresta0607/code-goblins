@@ -157,12 +157,17 @@ The product does this by itself in every home, with no setting, and wakes you fo
   A row has no time of its own, so its brief stands for it: a brief written since the retirement is new work for that id and starts.
   Instead of starting a retired task's row, the scheduler wakes you once with a `stale_row:` notify keyed by the task.
   Queue new work under a new id.
+- **A start that duplicates work in flight is held.** Before the scheduler starts a queued task, it reads the issues the task names in its brief and its row, and holds the start when a paused or live task of the same project names one of them.
+  It wakes you once for that pair with a `start_held:` notify keyed by the queued task, which proposes folding the queued task into the other, and reads local files only.
+  A Start on the board and `goblins spawn` still start it by hand; only the scheduler's own start is held.
+  A start whose check cannot be read goes ahead unheld, and the board says why.
 - **The queue cleans itself.** When `goblins cleanup` (with or without `--force-archive`, and through `goblins reap --apply`) retires a task, its row moves from `## Queued` to `## Done` with its detail lines, in one write that keeps every other line as it was, whatever the task last reported, so nothing starts it again from its row.
   The row closes as `done` when the task delivered and as `retired` when it did not, and the supervisor moves any row a delivered task left behind.
   A local-only task opens no pull request, so it is delivered when a done line of its current run names its report, `data/<task>/report.md`, by its full path or its path in the home, and that report is there.
   [goblins notify --report](../commands/notify.md) keeps the report there and records that line.
   A task ruled finished with no pull request is delivered when a done line of its current run names the issue it closed, which [goblins notify --closed](../commands/notify.md) records from its answered decision.
-- **Work that cannot start wakes you again.** A start that failed is not retried by itself, and its card says why.
+- **Work that cannot start wakes you again.** A start that failed is not retried by itself, and its card says why, unless the network failed it, as `Could not resolve host` or `Failed to connect to github.com port 443` do.
+  The scheduler tries such a start again after a wait that doubles from one minute to at most thirty, its card and its `start failed:` notify say when, any other outcome ends the tries, and after ten failed tries it waits for a Start as any other failed start does.
   A brief changed during admission instead produces `start deferred: ...` and is reconsidered on the next scan with its final choices.
   Draft briefs remain held under the [brief readiness contract](../commands/brief.md), do not block ready work behind them and raise no idle-fleet wake.
   While work like that (a failed start or resume, or a row that needs you, such as one whose brief names no project) waits 30 minutes with memory free and nothing started, an `idle` wake keyed `fleet` names each task and why, and it comes again every 30 minutes that lasts.
@@ -178,6 +183,8 @@ Otherwise name the reason with `--reason`: `memory`, `allowance`, `overlord`, `d
 Use `--until <RFC3339 reset time>` for allowance, `task:<id>`, `pr:<GitHub PR URL>` or `date:<RFC3339 time>` for dependencies, and `<question id>` for a question.
 The Overlord's Restart PC pauses with `--reason restart --until <when this Windows sign-in began>`, a pause that clears in any later sign-in, so the scheduler resumes it once the PC has restarted; it is the supervisor's, never yours to take.
 `goblins pause` on a goblin that is already paused takes the new condition in place, so what resumes it can be changed; what its pause stopped and kept stays, and nothing is stopped again.
+A task [handed off](../commands/handoff.md) to a cloud session is the exception: while the handoff its goblin wrote for publication is out, its pause is taken over by no other pause, and a plain resume and `goblins switch` are refused, since only `goblins handoff return` or `cancel` ends a handoff; a handoff pause over a pause of another reason is refused too, since only a running goblin writes a handoff for publication.
+A handoff pause that left only the fallback handoff, or of an earlier session, published nothing and holds nothing.
 A pause ends the goblin's terminal first, so a busy goblin that misses its stopping point is still paused, with its session kept for its resume, even when the search for its other processes runs out of time; its record names that search as a problem.
 That search, and the sweep a cleanup and a relaunch make, run one priority class above normal for as long as they take and give it back after.
 They read every process on the machine in ten seconds, and at the priority of the work they end they wait their turn behind it: on a machine with six goblins building, one such reading took up to 3.9 seconds at normal priority and 0.02 above it, and a memory pause is taken when the machine is at its busiest.
@@ -276,6 +283,7 @@ A goblin waiting by design, on a sub-agent, background shell or monitor its harn
 A goblin whose no-mistakes run has a step at work is working while that step's round runs within the time nine in ten rounds of that step have taken on this machine, or within an hour for a step with none on record, whatever the step writes.
 Its run is the newest run of the branch its worktree has checked out, or the run it names as its wait with `goblins notify <id> --waiting-on <run-id>`, and a run still going is its own even when it started before a switch gave the goblin a new generation.
 A goblin quiet for 20 minutes whose run is itself stuck, its step running past that time or parked on an answer, draws one `gate_stuck` or `gate_parked` check wake naming the run and the step in place of `progress_stalled`.
+A goblin the monitor last read with its turn ended on an API error draws none: its `api_error` wake names the error and says whether the supervisor carries it on once the API answers again ([supervision](supervision.md)).
 While memory or commit reads under the memory floor, every read slows, so a goblin whose progress, screen or tree those reads could not reach is not raised and its timed-out read is no `supervisor_error`: its clock waits for a reading that can see it.
 Its screen output is the monitor's last look at the screen without the rows the harness redraws by itself (its spinner, its clock and its interrupt hint), and its transcript and processes are the board's last reading of its family tree, each counted only from a reading of the last two minutes, and the wake names what could not be read.
 A goblin whose latest report is a wait on its own [helper](dispatch.md#helper-goblins) takes the helper's progress as its own and draws no such wake while the helper is watched, since the helper's own check reports its stall; once the helper is paused, the goblin is checked as any other.

@@ -225,12 +225,12 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.recentDictations(w, r)
 	case r.URL.Path == "/api/dictations" && r.Method == "POST":
 		h.keepDictation(w, r)
-	case r.URL.Path == "/api/connections" && r.Method == "GET":
-		h.readConnections(w, r)
-	case r.URL.Path == "/api/connections/check" && r.Method == "POST":
-		h.refreshConnections(w, r)
-	case r.URL.Path == "/api/connections/fix" && r.Method == "POST":
-		h.fixConnection(w, r)
+	case r.URL.Path == "/api/connectors" && r.Method == "GET":
+		h.readConnectors(w, r)
+	case r.URL.Path == "/api/connectors/refresh" && r.Method == "POST":
+		h.refreshConnectors(w, r)
+	case r.URL.Path == "/api/connectors/fix" && r.Method == "POST":
+		h.fixConnector(w, r)
 	case r.URL.Path == "/api/connections/grant" && r.Method == "POST":
 		h.grantConnection(w, r)
 	case r.URL.Path == "/api/credentials/save" && r.Method == "POST":
@@ -281,6 +281,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.startTask(w, r)
 	case r.URL.Path == "/api/tasks/lifecycle" && r.Method == "POST":
 		h.lifecycleTask(w, r)
+	case r.URL.Path == "/api/tasks/cloud" && r.Method == "POST":
+		h.cloudWork(w, r)
 	case r.URL.Path == "/api/tasks/adjust" && r.Method == "POST":
 		h.adjustTask(w, r)
 	case r.URL.Path == "/api/tasks/engine" && r.Method == "POST":
@@ -637,13 +639,18 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// An Edit or a Cancel of a message its harness holds in its own queue
-	// takes it back out of that queue (#2332).
+	// takes it back out of that queue (#2332). A refusal that lasts for as
+	// long as that queue stays as it is says so (#2340).
 	if a.Kind == "message_withdraw" && a.Target != "" {
 		if withdrawn, isHeld, err := h.Service.takeBackHeld(a); isHeld {
 			h.Service.wakeActions()
 			h.Service.publish(nil)
 			if err != nil {
-				apiError(w, 409, err.Error())
+				var lasting lastingRefusal
+				respond(w, 409, struct {
+					Error     string `json:"error"`
+					IsLasting bool   `json:"is_lasting,omitempty"`
+				}{bounded(err.Error(), 1500), errors.As(err, &lasting)})
 				return
 			}
 			respond(w, 202, withdrawn)

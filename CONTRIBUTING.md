@@ -48,7 +48,8 @@ A test that fails in CI runs once more in its job (`tools/citest` for Go, Playwr
 A new package needs no change to `.github/workflows/go.yml`, because the `rest` job tests every package no other job names.
 A new job does: `JOBS` at the top of that file says what can change each job's result, the plan answers for each job, and `test` counts it, and the workflow's own tests fail until all three agree.
 A browser spec or a unit test of the board that reads a file outside `frontend` must have that file listed under the job's paths in `JOBS`, which `frontend/src/outside-reads.test.ts` checks.
-A new browser spec needs none either: Playwright deals the spec files out among the browser jobs, and one more number in that job's `shard` list is one more job when they grow slower than the slowest Go job.
+A new browser spec needs none either: `frontend/tests/browser-share.ts` deals the spec files out among the browser jobs by the seconds `frontend/tests/browser-durations.json` records, and one more number in that job's `shard` list is one more job when they grow slower than the slowest Go job.
+When the jobs' times drift apart, `node tests/browser-durations.ts <run-id>`, run in `frontend` on a go workflow run whose browser jobs all passed, rewrites that file from the run.
 
 `cmd/goblins/winres.json` is the Windows version resource and manifest every build of `goblins.exe` carries, through the `rsrc_windows_*.syso` files beside it.
 After changing it, regenerate them in `cmd/goblins` with `go run github.com/tc-hib/go-winres@v0.3.3 make --in winres.json --arch amd64,arm64` and commit them; CI fails when they differ, and a release stamps its own version into them.

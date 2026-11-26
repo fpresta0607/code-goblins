@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
@@ -23,14 +24,17 @@ func TestRunSwitchNeedsAHarnessModelOrEffort(t *testing.T) {
 		exit    int
 		refusal string
 	}{
-		"a model":               {[]string{"--model", "gpt-5"}, 0, ""},
-		"no options":            {nil, 2, "one of --harness, --model, --effort, --restart or --terminal is required"},
-		"--native":              {[]string{"--native"}, 2, "-native"},
-		"a restart with values": {[]string{"--restart", "--model", "gpt-5"}, 2, "--restart keeps the goblin's own harness, model and effort"},
-		"renamed alone":         {[]string{"--renamed"}, 2, "--renamed goes with --restart"},
-		"terminal with a model": {[]string{"--terminal", "--model", "gpt-5"}, 2, "--terminal keeps the goblin's own harness, model and effort"},
-		"terminal and restart":  {[]string{"--terminal", "--restart"}, 2, "--terminal keeps the goblin's own harness, model and effort"},
-		"terminal renamed":      {[]string{"--terminal", "--renamed"}, 2, "--renamed goes with --restart, not --terminal"},
+		"a model":                          {[]string{"--model", "gpt-5"}, 0, ""},
+		"no options":                       {nil, 2, "one of --harness, --model, --effort, --restart or --terminal is required"},
+		"--native":                         {[]string{"--native"}, 2, "-native"},
+		"a restart with values":            {[]string{"--restart", "--model", "gpt-5"}, 2, "--restart keeps the goblin's own harness, model and effort"},
+		"renamed alone":                    {[]string{"--renamed"}, 2, "--renamed goes with --restart"},
+		"terminal with a model":            {[]string{"--terminal", "--model", "gpt-5"}, 2, "--terminal keeps the goblin's own harness, model and effort"},
+		"terminal and restart":             {[]string{"--terminal", "--restart"}, 2, "--terminal keeps the goblin's own harness, model and effort"},
+		"terminal renamed":                 {[]string{"--terminal", "--renamed"}, 2, "--renamed goes with --restart, not --terminal"},
+		"after an API error alone":         {[]string{"--after-api-error"}, 2, "--after-api-error goes with --restart, not --renamed or --terminal"},
+		"after an API error, renamed":      {[]string{"--restart", "--renamed", "--after-api-error"}, 2, "--after-api-error goes with --restart, not --renamed or --terminal"},
+		"after an API error in a terminal": {[]string{"--terminal", "--after-api-error"}, 2, "--after-api-error goes with --restart, not --renamed or --terminal"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := testHome(t)
@@ -192,6 +196,36 @@ func TestRunSwitchRenamedRestartsTheGoblinTellingItTheNewNames(t *testing.T) {
 	}
 }
 
+// The supervisor restarts a goblin whose terminal took no typing once its
+// turn ended on an API error with --after-api-error, which tells the goblin
+// the supervisor restarted it, not the Overlord, and why (#2863).
+func TestRunSwitchAfterAPIErrorRestartsTheGoblinTellingItWhoAndWhy(t *testing.T) {
+	// Arrange
+	h := testHome(t)
+	if err := os.MkdirAll(h.State, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "g4", Harness: "claude", SpawnGen: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	deps := testCommandRuntimeForHome(h)
+	var got spawn.SwitchRequest
+	deps.switchTask = func(_ context.Context, _ home.Home, request spawn.SwitchRequest) (spawn.SwitchResult, error) {
+		got = request
+		return spawn.SwitchResult{Output: "restarted g4"}, nil
+	}
+	deps.speedHint = func(context.Context, string) string { return "" }
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := runWithRuntime([]string{"switch", "g4", "--generation", "s1", "--restart", "--after-api-error"}, &stdout, &stderr, deps)
+
+	// Assert
+	if exit != 0 || !got.Restart || got.InTerminal || got.Generation != "s1" || !strings.Contains(got.ResumeNote, "The supervisor restarted you") || !strings.Contains(got.ResumeNote, "API error") || strings.Contains(got.ResumeNote, "Overlord") {
+		t.Fatalf("restart after an API error = %d, %+v: %s", exit, got, stderr.String())
+	}
+}
+
 // --terminal takes a goblin on stream-json pipes over: it restarts the
 // goblin on its own conversation in a terminal, and tells it so.
 func TestRunSwitchTerminalRestartsTheGoblinOnItsConversationInATerminal(t *testing.T) {
@@ -242,5 +276,62 @@ func TestRunSwitchBindsABoardRequestToTheSelectedGeneration(t *testing.T) {
 
 	if exit != 0 || got.Generation != "s1" || !got.ForceDirty {
 		t.Fatalf("generation-bound switch = %d, %+v: %s", exit, got, stderr.String())
+	}
+}
+
+// A handed-off goblin's branch is the cloud session's to build on, so goblins
+// switch, which relaunches a paused goblin outside its lifecycle, refuses it
+// as a plain resume is refused; a pause whose handoff was only the fallback,
+// a helper paused with its parent and an earlier session's pause are not
+// handed off.
+func TestRunSwitchRefusesAHandedOffGoblin(t *testing.T) {
+	handoff := &state.PauseCondition{Reason: "handoff", At: time.Now().UTC()}
+	for _, test := range []struct {
+		name      string
+		record    state.Lifecycle
+		isRefused bool
+	}{
+		{name: "handed off", record: state.Lifecycle{Generation: "g1", Phase: "paused", Pause: handoff, Operation: "handoff-1", HandoffSaved: true}, isRefused: true},
+		{name: "only the fallback handoff", record: state.Lifecycle{Generation: "g1", Phase: "paused", Pause: handoff, Operation: "handoff-1", HandoffSaved: true, HandoffFallback: true}},
+		{name: "no handoff saved", record: state.Lifecycle{Generation: "g1", Phase: "paused", Pause: handoff, Operation: "handoff-1"}},
+		{name: "a helper paused with its parent", record: state.Lifecycle{Generation: "g1", Phase: "paused", Pause: handoff, Operation: state.HelperOperation("handoff-1", "g4"), HandoffSaved: true}},
+		{name: "an earlier session's handoff pause", record: state.Lifecycle{Generation: "g0", Phase: "paused", Pause: handoff, Operation: "handoff-1", HandoffSaved: true}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h := testHome(t)
+			if err := os.MkdirAll(h.State, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			deps := testCommandRuntimeForHome(h)
+			if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "g4", Harness: "codex", SpawnGen: "g1"}); err != nil {
+				t.Fatal(err)
+			}
+			test.record.ID, test.record.Action = "g4", "pause"
+			if err := state.WriteLifecycle(h.State, test.record); err != nil {
+				t.Fatal(err)
+			}
+			isSwitched := false
+			deps.switchTask = func(context.Context, home.Home, spawn.SwitchRequest) (spawn.SwitchResult, error) {
+				isSwitched = true
+				return spawn.SwitchResult{Output: "switched g4"}, nil
+			}
+			deps.speedHint = func(context.Context, string) string { return "" }
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runWithRuntime([]string{"switch", "g4", "--restart"}, &stdout, &stderr, deps)
+
+			// Assert
+			if test.isRefused {
+				if exit != 1 || isSwitched || !strings.Contains(stderr.String(), "goblins handoff return") {
+					t.Fatalf("exit %d, switched %v, stderr %q; want it refused naming goblins handoff return", exit, isSwitched, stderr.String())
+				}
+				return
+			}
+			if exit != 0 || !isSwitched {
+				t.Fatalf("exit %d, switched %v, stderr %q; want it switched", exit, isSwitched, stderr.String())
+			}
+		})
 	}
 }

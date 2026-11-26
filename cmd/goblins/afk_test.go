@@ -62,6 +62,10 @@ func afkRuntime(t *testing.T) (commandRuntime, home.Home) {
 			_, err := afk.Log(h.State, entry, time.Now())
 			return err
 		},
+		// A command the Overlord runs is taken as it is: its shell's check is
+		// internal/supervisor's to test, and a shell started here can sit
+		// past the check's wait on a busy machine, as on 2026-11-07 (#2142).
+		checkRunCommand: func(string, string) error { return nil },
 	}, h
 }
 

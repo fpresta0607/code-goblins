@@ -1,4 +1,4 @@
-import { doneCards, expect, recordDoneCards, servePages, test, type Page, type Route } from "./site";
+import { devices, doneCards, expect, recordDoneCards, servePages, test, type Page, type Route, type WebSocketRoute } from "./site";
 
 // The one card a goblin sends when its browser work reaches a step only the
 // Overlord can take: the exact page to open, or the goblin's own browser,
@@ -134,7 +134,7 @@ test("Take control opens the goblin's own browser at the page, whose screen the 
   const views: string[] = [];
   await page.routeWebSocket("**/api/screen?*", (socket) => {
     views.push(socket.url());
-    socket.send(JSON.stringify({ type: "state", is_driven: true, can_drive: true, title: "Sign in", host: "shop.example.com", has_page: true }));
+    socket.send(JSON.stringify({ type: "state", is_driven: true, can_drive: true, title: "Sign in", host: "shop.example.com", has_page: true, can_go_back: false }));
   });
   const card = await openCard(page, WINDOW);
   await expect(card.getByRole("list", { name: "What to do" }).getByRole("listitem").first()).toHaveText("Press Take control below");
@@ -161,6 +161,86 @@ test("Take control opens the goblin's own browser at the page, whose screen the 
   await expect.poll(() => views.length).toBe(1);
   expect(Object.fromEntries(new URL(views[0]).searchParams)).toEqual({ task: "shop-signup", generation: "1", token: "fixture-token" });
   await expect(card.getByRole("list", { name: "What to do" }).getByRole("link")).toHaveCount(0);
+});
+
+// He takes a sign-in step from his phone, on his private board, so a step
+// card's Take control drives the goblin's browser there as on the PC (CEO
+// decision 1028736), and a finger swiped up its screen scrolls the page down
+// as the wheel does, as he reads further down a sign-in page, and leaves the
+// board under it where it was, while a tap still clicks and a swipe never
+// does (#2900).
+test.describe("on his private board at phone width", () => {
+  const { viewport, userAgent, deviceScaleFactor, isMobile, hasTouch } = devices["Pixel 7"];
+  test.use({ viewport, userAgent, deviceScaleFactor, isMobile, hasTouch });
+
+  test("Take control drives the goblin's browser, and a swipe up its screen scrolls the page down while a tap still clicks", async ({ page }) => {
+    // Arrange
+    const board = "https://pc.example.ts.net:4311";
+    await servePages(page.context(), board);
+    const sent = await answer(page);
+    const views: WebSocketRoute[] = [];
+    const said: Record<string, unknown>[] = [];
+    await page.routeWebSocket("**/api/screen?*", (socket) => {
+      views.push(socket);
+      socket.onMessage((data) => { said.push(JSON.parse(String(data)) as Record<string, unknown>); });
+      socket.send(JSON.stringify({ type: "state", is_driven: true, can_drive: true, title: "Sign in", host: "shop.example.com", has_page: true, can_go_back: false }));
+    });
+    const card = await openCard(page, WINDOW, board);
+    const take = card.getByRole("button", { name: "Take control", exact: true });
+
+    // Act: he takes control, and the card shows the browser he drives.
+    await expect(take).toBeVisible();
+    await take.click();
+    await expect.poll(() => sent.length).toBe(1);
+    await setCard(page, WINDOW, { window_state: "open" });
+    await expect.poll(() => views.length).toBe(1);
+    const frame = await page.evaluate(() => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 1280;
+      canvas.height = 800;
+      const context = canvas.getContext("2d")!;
+      context.fillStyle = "#f4f1e8";
+      context.fillRect(0, 0, 1280, 800);
+      return canvas.toDataURL("image/jpeg").split(",")[1];
+    });
+    views[0].send(JSON.stringify({ type: "frame", data: frame, width: 1280, height: 800 }));
+    const screen = card.getByRole("application");
+    await expect(screen).toBeVisible();
+    await screen.scrollIntoViewIfNeeded();
+
+    // Act: one finger swipes up 40% of the screen's height.
+    const box = (await screen.boundingBox())!;
+    const x = box.x + box.width / 2, from = box.y + box.height * 0.7, to = box.y + box.height * 0.3;
+    const touch = await page.context().newCDPSession(page);
+    await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y: from }] });
+    for (let step = 1; step <= 10; step++) await touch.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y: from + (to - from) * step / 10 }] });
+    await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+
+    // Assert: the page is sent the wheel that scrolls 40% of its 800 pixels
+    // down, and no click, and the board under the screen did not move.
+    expect(sent[0]).toEqual({ path: "/api/credentials/window", token: "fixture-token", body: { id: WINDOW, generation: "c".repeat(32) } });
+    const scrolled = () => said.filter((message) => message.type === "mouse" && message.event === "mouseWheel").reduce((sum, message) => sum + Number(message.delta_y), 0);
+    await expect.poll(scrolled).toBeGreaterThan(300);
+    expect(scrolled()).toBeLessThan(340);
+    expect(said.filter((message) => message.event === "mousePressed")).toEqual([]);
+    expect((await screen.boundingBox())!.y).toBeCloseTo(box.y, 0);
+
+    // Act: one finger taps the screen a quarter of the way across, half way
+    // down.
+    await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: box.x + box.width / 4, y: box.y + box.height / 2 }] });
+    await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+
+    // Assert: the tap is the one click the page is sent, where it was drawn.
+    const clicks = () => said.filter((message) => message.event === "mousePressed" || message.event === "mouseReleased");
+    await expect.poll(() => clicks().length).toBe(2);
+    const [pressed, released] = clicks();
+    expect(pressed).toMatchObject({ event: "mousePressed", button: "left", click_count: 1 });
+    expect(released).toMatchObject({ event: "mouseReleased", button: "left", click_count: 1 });
+    for (const click of [pressed, released]) {
+      expect(click.x as number).toBeCloseTo(320, -1);
+      expect(click.y as number).toBeCloseTo(400, -1);
+    }
+  });
 });
 
 // The Overlord, 2026-10-21, of a plain field that refused a client ID: "this

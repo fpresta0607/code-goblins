@@ -24,7 +24,8 @@ const isStartingUp = (task: Task, snapshot: Snapshot) =>
 // need to be better synched across pane and panels and boards"). A Start or
 // Resume he clicked that waits for memory or disk has not begun and says
 // when it runs, a goblin reads Starting from its start until the supervisor
-// has evidence of what it does, and a paused goblin says what resumes it. A
+// has evidence of what it does, and a paused goblin says what resumes it, or
+// In the cloud once it is handed off to a cloud session with its packet out. A
 // goblin whose wait on the Overlord is in his Command Center reads as that
 // list's heading does.
 export function taskStatus(task: Task, snapshot: Snapshot): TaskStatus {
@@ -32,7 +33,7 @@ export function taskStatus(task: Task, snapshot: Snapshot): TaskStatus {
   const waits = turnStatus(task, snapshot.memory, snapshot.disk);
   if (waits) return { text: waits, phase: task.phase };
   if (phase === task.phase && isStartingUp(task, snapshot)) return { text: "Starting", phase: "started" };
-  if (phase === "paused") return { text: pauseStatus(task.lifecycle?.pause, snapshot.tasks, snapshot.ci_usual, pausedWithParent(task, snapshot.tasks)), phase };
+  if (phase === "paused" && task.phase === "paused") return { text: task.cloud_handoff ? "In the cloud" : pauseStatus(task.lifecycle?.pause, snapshot.tasks, snapshot.ci_usual, pausedWithParent(task, snapshot.tasks)), phase };
   const isWaitingOnYou = asksOverlord(snapshot, task.id) && hasItemWaitingOnHim(snapshot, task.id);
   return { text: nodeStatus({ id: task.id, title: task.title, task, relation: "" }, isWaitingOnYou, snapshot.tasks, trains), phase };
 }
