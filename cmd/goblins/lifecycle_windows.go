@@ -192,6 +192,27 @@ func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, comman
 		return choiceErr
 	}
 	hasChoice := choiceErr == nil && choice.Generation == meta.SpawnGen
+	// A resume falls back to the task's brief under the home exactly as a switch
+	// and a comeback do, so a task whose record names none still reaches its
+	// relaunch with a real path and the worker is not sent to a relative one.
+	briefPath := meta.Brief
+	if briefPath == "" && h.Data != "" {
+		briefPath = filepath.Join(h.Data, meta.ID, "brief.md")
+	}
+	// A recorded engine that can no longer run starts no terminal: the lane
+	// the table routes to instead becomes the resume's engine choice, so the
+	// relaunch's admission prices the harness that starts.
+	rerouted := ""
+	if !hasChoice {
+		lane, why, err := resumeLane(h, runtime, meta, briefPath)
+		if err != nil {
+			return err
+		}
+		if why != "" {
+			choice = state.EngineChoice{ID: meta.ID, Generation: meta.SpawnGen, Harness: lane.Harness, Model: lane.Model, Effort: lane.Effort, When: "resume"}
+			rerouted, hasChoice = why, true
+		}
+	}
 	var retained pipeline.InterruptedRun
 	if prior.GateRun != "" {
 		branch, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Name: "git", Args: []string{"symbolic-ref", "--short", "HEAD"}})
@@ -228,13 +249,6 @@ func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, comman
 	if pausedAt.IsZero() || time.Since(pausedAt) >= 24*time.Hour || pausedAt.After(time.Now()) {
 		session = ""
 	}
-	// A resume falls back to the task's brief under the home exactly as a switch
-	// and a comeback do, so a task whose record names none still reaches its
-	// relaunch with a real path and the worker is not sent to a relative one.
-	briefPath := meta.Brief
-	if briefPath == "" && h.Data != "" {
-		briefPath = filepath.Join(h.Data, meta.ID, "brief.md")
-	}
 	request := spawn.SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, BriefPath: briefPath, IsResume: true, ResumeSession: session, ResumeHandoff: handoff, ResumeNote: prior.ResumeNote, Admit: admit}
 	if retained.ID != "" {
 		told := "Your retained validation run " + retained.ID + " is " + retained.Status + ". Resuming your terminal starts no validation and returns no branch custody; inspect its supported source-bound continuation before requesting validation, and never replace this run or reset its spent allowance."
@@ -256,9 +270,26 @@ func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, comman
 			request.ResumeSession = ""
 		}
 	}
+	if rerouted != "" {
+		choice.Requested = time.Now().UTC()
+		if err := state.WriteEngineChoice(h.State, choice); err != nil {
+			return err
+		}
+	}
 	_, err := runtime.switchTask(ctx, h, request)
-	if err == nil && hasChoice {
-		return state.RemoveEngineChoice(h.State, meta.ID)
+	if err != nil {
+		if rerouted != "" {
+			if removeErr := state.RemoveEngineChoice(h.State, meta.ID); removeErr != nil {
+				return errors.Join(err, removeErr)
+			}
+		}
+		return err
+	}
+	if rerouted != "" {
+		err = state.AppendStatus(h.State, meta.ID, rerouted)
+	}
+	if hasChoice {
+		err = errors.Join(err, state.RemoveEngineChoice(h.State, meta.ID))
 	}
 	return err
 }

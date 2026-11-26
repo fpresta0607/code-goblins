@@ -165,7 +165,7 @@ func TestPiEngineCatalogReadsConfiguredModelAndModelSpecificReasoning(t *testing
 	writeFile(t, filepath.Join(root, ".pi", "agent", "models-store.json"), `{"provider":{"models":[{"id":"reasoning","name":"Reasoning model","reasoning":true},{"id":"plain","name":"Plain model","reasoning":false}]}}`)
 	writeFile(t, filepath.Join(root, ".pi", "agent", "settings.json"), `{"defaultProvider":"provider","defaultModel":"configured","defaultThinkingLevel":"high"}`)
 
-	models, err := readEngineModels(root, harness.Pi)
+	models, err := ReadEngineModels(root, harness.Pi)
 
 	if err != nil || len(models) != 3 {
 		t.Fatalf("pi catalog = %+v, %v", models, err)
