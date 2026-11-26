@@ -38,13 +38,16 @@ import { presentedPage } from "./activity";
 //
 // A card is given what it shows as plain values (cardFacts) and is drawn
 // again only when one of them changed, so a snapshot that changed another
-// goblin, or only the meters, leaves it as it is (#1599). While the goblin's
-// own browser runs or it presents a page, its Browser active is a button of
-// its own beside the card's, which opens what is active in a new tab.
-export const TaskCard = memo(function TaskCard({ task, status, phase, repository, page, selected, now, rank, nextText, nextTone, onSelect, buttonProps }: CardFacts & {
+// goblin, or only the meters, leaves it as it is (#1599). While the goblin
+// uses its own browser or presents a page, its Browser active is a button of
+// its own beside the card's, which opens what is active: onOpenScreen selects
+// the card on its panel's Screen view (#2930), and a presented page opens in
+// a new tab. A list of queued tasks, which run no browser, gives none.
+export const TaskCard = memo(function TaskCard({ task, status, phase, repository, page, selected, now, rank, nextText, nextTone, onSelect, onOpenScreen, buttonProps }: CardFacts & {
   task: Task; selected: boolean; now: number; rank?: string;
   nextText?: string; nextTone?: NextUp["tone"];
   onSelect: (task: Task, source: HTMLElement) => void;
+  onOpenScreen?: (task: Task, source: HTMLElement) => void;
   buttonProps?: Pick<ButtonHTMLAttributes<HTMLButtonElement>, "onPointerDown" | "onPointerMove" | "onPointerUp" | "onPointerCancel" | "onKeyDown" | "onKeyUp" | "aria-describedby">;
 }) {
   // A task with no goblin yet goes by its title, which shows in full in its
@@ -75,7 +78,7 @@ export const TaskCard = memo(function TaskCard({ task, status, phase, repository
     {task.project && <span className="card-repo">{task.project}{repositoryLink && <a className="card-repo-link" href={repositoryLink} target="_blank" rel="noreferrer" aria-label={"Open " + repository + " on GitHub"} data-tip={repository}><BrandGlyph brand="github" /></a>}</span>}
     <CardClock task={task} now={now} />
     <div className="card-icons">
-      <BrowserActive name={name} screen={task.browser_in_use ? task.id : ""} page={page} />
+      <BrowserActive name={name} page={page} onScreen={task.browser_in_use && onOpenScreen ? () => onOpenScreen(task, card.current!) : undefined} />
       {task.ticket && <TicketLink ticket={task.ticket} className="card-ticket" isIconOnly />}
       <CardPullRequest task={task} isIconOnly />
       <SameAreaAvatars overlaps={task.overlaps} />
