@@ -208,9 +208,9 @@ func lastWords(output string) string {
 	return ""
 }
 
-// checkHarnessUpdate serves POST /api/harness/update-check, the Retry on a
-// session's notice of a failed update: it starts the named harness's own
-// update check outside every session.
+// checkHarnessUpdate serves POST /api/harness/update-check, the board's Retry
+// update for a session's notice of a failed update: it starts the named
+// harness's own update check outside every session.
 func (h *HTTP) checkHarnessUpdate(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Harness string `json:"harness"`

@@ -443,6 +443,12 @@ export function App() {
   // keeps its controls and result.
   const terminalShown = showsPanel && !train && shownView === "terminal" && (!messagesSource || classicInPlace);
   const messagesShown = showsPanel && !train && shownView === "terminal" && !!messagesSource && !classicInPlace;
+  // The update the shown conversation's terminal says failed, by its prompt
+  // line, which the panel's header offers as Retry update until the install
+  // is the newest, as the box drew it before (#2956). The Terminal style
+  // leaves it to the terminal.
+  const updateNotice = messagesShown && !takesTyping && !snapshot?.update_checks[panelHarness]?.current ? live?.screen?.status?.notices.find((notice) => notice.check === "update") : undefined;
+  const failedUpdate = updateNotice && { harness: panelHarness, notice: updateNotice.text };
   // The conversation portals its one mounted composer to the shared footer.
   // The deck owns the box for a paused goblin without a conversation, and for
   // a CEO with no terminal, which a message starts.
@@ -637,7 +643,7 @@ export function App() {
           : <GoblinPanel key={selectionEpoch + ":" + (selectedSession?.id || task?.id || "ceo") + ":" + (task?.generation || "") + ":" + (child?.id || "")}
             task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} snapshot={snapshot} connected={connected} reviews={reviews}
             view={shownView} views={views} onView={setPanelView} shouldFocusScreen={!!screenAsked} maximized={panelWide} side={side} isBoardShown={view === "Board" && !panelWide && !fillsPhone} now={now} presentations={presentations} cardStart={cardStart} row={row} onAnswer={(key) => setCommandFocus({ key, at: Date.now() })}
-            onOpenTask={openTask} onConnectors={openConnectors} styleChoice={styleChoice} chatState={chatState} />)}
+            onOpenTask={openTask} onConnectors={openConnectors} styleChoice={styleChoice} chatState={chatState} failedUpdate={failedUpdate} />)}
         {/* The stage, the Messages view and the terminal deck in one box,
             beside the column the panel's task list is drawn into. */}
         <div className="panel-body" hidden={!terminalShown && !messagesShown}>
