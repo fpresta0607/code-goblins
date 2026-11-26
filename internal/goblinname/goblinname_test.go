@@ -430,6 +430,35 @@ func TestAssignGivesTheTitleTheBriefGivesAndAQueuedTaskKeepsItsName(t *testing.T
 
 // The examples of issue 2396, each told in the issue's words, with the title
 // it had before: each title now names the task's own subject.
+// A helper is named after its parent with its number as the board numbers
+// a goblin's baby goblins, Jr. and then II on, and its title is the one its
+// brief gives, or else its best subject's first, or the first generic one
+// when its work names none (#2959).
+func TestHelperIsNamedAfterItsParentWithItsNumberAndOneTitleForItsRole(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		n    int
+		work Work
+		want Pair
+	}{
+		{"the first helper", 1, Work{ID: "g1-h1", Title: "Round 1 builder"}, Pair{Name: "Grub Jr.", Title: "Builder Bender"}},
+		{"a later helper of the same role", 7, Work{ID: "g1-h7", Title: "Round 7 builder"}, Pair{Name: "Grub VII", Title: "Builder Bender"}},
+		{"a helper whose brief gives its title", 4, Work{ID: "g1-h4", Title: "Round 4 builder", GivenTitle: "Page Smith"}, Pair{Name: "Grub IV", Title: "Page Smith"}},
+		{"a helper whose work names no subject", 49, Work{ID: "g1-h49"}, Pair{Name: "Grub XLIX", Title: genericTitles[0]}},
+		{"a helper past ninety", 94, Work{ID: "g1-h94", Title: "Round 94 builder"}, Pair{Name: "Grub XCIV", Title: "Builder Bender"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			pair := Helper("Grub", test.n, test.work)
+
+			// Assert
+			if pair != test.want {
+				t.Errorf("Helper(Grub, %d) = %+v, want %+v", test.n, pair, test.want)
+			}
+		})
+	}
+}
+
 func TestAssignNamesTheTasksOwnSubjectForTheIssuesExamples(t *testing.T) {
 	cases := []struct {
 		before string

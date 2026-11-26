@@ -12,6 +12,10 @@
 // Estimate Elf. The subject is the word the task's title leans on most,
 // passing over one another live or queued goblin's title already names
 // while another fits.
+//
+// A helper goblin takes no name from the pool: it is named after its parent
+// with its helper number, as Jerry II, and its title passes over no other
+// goblin's, so it keeps one for its role.
 package goblinname
 
 import (
@@ -173,6 +177,42 @@ func Assign(stateDir string, work Work) (pair Pair, err error) {
 		return nil
 	})
 	return pair, err
+}
+
+// Helper is the pair of helper number n of the goblin called parent: its
+// parent's name with n as the board numbers a goblin's baby goblins, Jr. for
+// the first, then II, III and on, so a parent's builder reads as one goblin
+// round after round (#2959). Its title is the one its brief gives, or else
+// the first one its work's best subject takes, whatever other goblins hold,
+// so a parent's helpers of one role keep one title. It takes nothing from the
+// pool and adds nothing to the recent pairs.
+func Helper(parent string, n int, work Work) Pair {
+	title := work.GivenTitle
+	if title == "" {
+		title = genericTitles[0]
+		if subjects := subjectsOf(work); len(subjects) > 0 {
+			title = subjects[0].titles()[0]
+		}
+	}
+	return Pair{Name: parent + " " + ordinal(n), Title: title}
+}
+
+// ordinal is the word after its parent's name that helper n takes, as
+// frontend/src/fleet-tree.ts numbers baby goblins: Jr., then II, III and on.
+func ordinal(n int) string {
+	if n == 1 {
+		return "Jr."
+	}
+	var numeral strings.Builder
+	for _, step := range []struct {
+		value   int
+		letters string
+	}{{100, "C"}, {90, "XC"}, {50, "L"}, {40, "XL"}, {10, "X"}, {9, "IX"}, {5, "V"}, {4, "IV"}, {1, "I"}} {
+		for ; n >= step.value; n -= step.value {
+			numeral.WriteString(step.letters)
+		}
+	}
+	return numeral.String()
 }
 
 // Reserve gives each queued task without a pair one, by the rules Assign
