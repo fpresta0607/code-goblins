@@ -34,12 +34,13 @@ type hostConnection interface {
 }
 
 // terminal is what a host runs and serves its viewers: a Windows pseudo
-// console (conpty.Console). Read returns what its program wrote, and io.EOF
-// once that has all been read; Write types into its input. Screen reads its
-// screen as the system holds it, where the system holds one. Done is closed
-// once its program has exited, and ExitCode waits for that and returns the
-// program's exit code. Close ends the program and everything it started; the
-// host calls it once.
+// console (conpty.Console), or a Linux or macOS pseudo terminal
+// (emulatedTerminal). Read returns what its program wrote, and io.EOF once
+// that has all been read; Write types into its input. Screen reads its screen
+// as the system holds it, or as the host's emulator does where the system
+// holds none. Done is closed once its program has exited, and ExitCode waits
+// for that and returns the program's exit code. Close ends the program and
+// everything it started; the host calls it once.
 type terminal interface {
 	Read(p []byte) (int, error)
 	Write(p []byte) (int, error)
