@@ -138,6 +138,7 @@ test("a subagent row keeps its child presentation until the latest page is publi
   const talk = talkOf(page);
   const baby = talk.locator('[data-message="m999"] .message-baby');
   await expect(baby).toContainText("Original helper");
+  await expect(baby.locator(".baby-what > small > span")).toHaveText(["Explore", "Working"]);
   const opens = talk.locator('[data-message="m999"] button.message-baby');
   await expect(opens).toHaveCount(1);
   const place = await readNearEnd(talk, page);

@@ -306,10 +306,16 @@ test.describe("4. every sub-agent call in Modern Chat is linked to its baby gobl
       await expect(mapper).toContainText("Working");
       await expect(chat.getByRole("button", { name: /^Open .*Check the lineage list at phone width/ })).toContainText("Working");
       // A call whose sub-agent its goblin's tree no longer holds says what it
-      // did by its own words, never "Baby goblin", and opens nothing.
+      // did by its own words first, never "Baby goblin", with its kind of
+      // agent and its call's state under them, and opens nothing.
       const gone = chat.locator(".message-baby").nth(2);
-      await expect(gone).toContainText("Survey the old canvas");
+      await expect(gone).toHaveText(/^Survey the old canvas/);
       await expect(gone).not.toContainText("Baby goblin");
+      const subject = (await gone.getByText("Survey the old canvas", { exact: true }).boundingBox())!;
+      for (const repeated of ["Explore", "Done"]) {
+        const box = (await gone.getByText(repeated, { exact: true }).boundingBox())!;
+        expect(box.y, repeated).toBeGreaterThanOrEqual(subject.y + subject.height - 1);
+      }
       await expect(gone.getByRole("button")).toHaveCount(0);
       await mapper.click();
       await expectBabyPanel(page, MAPPING_TASK);
