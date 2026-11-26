@@ -152,7 +152,7 @@ The product does this by itself in every home, with no setting, and wakes you fo
   A hold `tasks-axi hold` put on a row, `(hold: <why>)` of any `hold-kind`, waits too, as `tasks-axi show` reports it held: until `tasks-axi unhold` clears it, or until its `(hold-until: YYYY-MM-DD)` date begins; its card reads **Held:** and the reason.
   A waiting card says what it waits for in place of Queued, such as **Waits for 12 GB free** or **Starts Oct 10, 7:00 PM**.
   Work that must not start until you decide belongs under `## Parked`.
-- **Finished work never starts again.** A queued task whose outcome says it delivered, whose last report in its status log, live or archived, was done, or whose pull request, or one of its branch, merged, is refused by the scheduler and by Start, and its card says **Already finished** in place of Start, with the evidence in the tooltip of that status in its panel.
+- **Finished work never starts again.** A queued task that delivered, whose last report in its status log, live or archived, was done, or whose pull request, or one of its branch, merged, is refused by the scheduler and by Start, and its card says **Already finished** in place of Start, with the evidence in the tooltip of that status in its panel.
   So is a task you retired, with `goblins cleanup` or `goblins kill`, after its row was queued, whatever its row still says.
   A row has no time of its own, so its brief stands for it: a brief written since the retirement is new work for that id and starts.
   Instead of starting a retired task's row, the scheduler wakes you once with a `stale_row:` notify keyed by the task.
@@ -167,7 +167,7 @@ The product does this by itself in every home, with no setting, and wakes you fo
   [goblins notify --report](../commands/notify.md) keeps the report there and records that line.
   A task ruled finished with no pull request is delivered when a done line of its current run names the issue it closed, which [goblins notify --closed](../commands/notify.md) records from its answered decision.
   A finite task that installed something and opens no pull request is delivered once you accept it with [goblins backlog accept](../commands/backlog.md#accepting-a-delivery), from its saved report and an installation receipt this machine bears out, before its cleanup or after it.
-  Its outcome still reads stopped, which is how it was retired, and no report, `## Done` row or cleanup delivers it by itself.
+  Its outcome still reads stopped, which is how it was retired, and no acceptance report, `## Done` row or cleanup delivers it by itself.
 - **Work that cannot start wakes you again.** A start that failed is not retried by itself, and its card says why, unless the network failed it, as `Could not resolve host` or `Failed to connect to github.com port 443` do.
   The scheduler tries such a start again after a wait that doubles from one minute to at most thirty, its card and its `start failed:` notify say when, any other outcome ends the tries, and after ten failed tries it waits for a Start as any other failed start does.
   A brief changed during admission instead produces `start deferred: ...` and is reconsidered on the next scan with its final choices.

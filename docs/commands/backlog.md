@@ -19,7 +19,7 @@ What it could not read, such as a repository GitHub would not answer for, is lis
 
 ## Accepting a delivery
 
-A task that installed something delivers no pull request, so cleanup retires it as stopped and every task that waits on it keeps waiting.
+A task that installed something, with no delivery of its own to report such as a pull request or a local-only task's kept report, is retired by cleanup as stopped, and every task that waits on it keeps waiting.
 `accept` records that one generation of it delivered, which is a fact of its own: it changes neither the task's record nor the outcome that says how it was retired.
 Only the registered primary CEO runs it, never a goblin, a helper or a gate agent.
 
