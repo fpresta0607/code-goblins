@@ -547,8 +547,9 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	}
 }
 
-// gateStepKind starts the kind busyOverAge gives a gate step active past the
-// budget, the one busy wake a pane showing work running does not hold back.
+// gateStepKind starts the kind busyOverAge gives a gate step stalled by its
+// own evidence, the one busy wake a pane showing work running does not hold
+// back.
 const gateStepKind = "gate step "
 
 // paneRunning returns the row of the pane's last rows that shows a tool, a
