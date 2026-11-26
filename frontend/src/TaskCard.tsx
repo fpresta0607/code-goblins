@@ -68,7 +68,7 @@ export const TaskCard = memo(function TaskCard({ task, status, phase, repository
     <Avatar persona={personaFor(task)} />
     <span className="card-copy"><span className="card-head">{nextText && <span className={"next-chip" + (nextTone ? " " + nextTone : "")}>{nextText}</span>}<strong className={"card-title" + (isNamed ? "" : " card-task-title")}>{name}</strong></span>
       {rank && <span className="sr-only">, {rank}</span>}
-      <span className={"plain-status phase-" + phase + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text" data-tip={task.gate_step && task.reason ? task.reason : undefined}>{status}</span></span>
+      <span className={"plain-status phase-" + phase + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text">{status}</span></span>
       {line && <span className="card-activity">{line}</span>}
     </span>
   </>;

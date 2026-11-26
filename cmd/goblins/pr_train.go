@@ -135,7 +135,9 @@ func runPRTrain(args []string, stdout, stderr io.Writer, commands execx.Runner, 
 		}
 		open := make([]train.PullRequest, 0, len(listed))
 		for _, pr := range listed {
-			open = append(open, pr.PullRequest())
+			pr := pr.PullRequest()
+			pr.LandsHeld = repository.LandsHeld
+			open = append(open, pr)
 		}
 		viewer, err := supervisor.GitHubAccount(ctx, runtime.githubAPI)
 		if err != nil {

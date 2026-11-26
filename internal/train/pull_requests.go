@@ -13,7 +13,7 @@ import (
 // pullRequestFields selects what Riders, a train and the supervisor read of a
 // pull request in GitHub's GraphQL API: the fields PullRequest holds, and the
 // check rollup of its head as gh's own query asks for it.
-const pullRequestFields = `number url title headRefName headRefOid baseRefName isDraft isCrossRepository mergeable reviewDecision author{login} labels(first:100){nodes{name}} commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){pageInfo{hasNextPage} nodes{__typename ...on CheckRun{id databaseId name status conclusion startedAt completedAt detailsUrl checkSuite{id databaseId app{databaseId} commit{oid} repository{nameWithOwner} workflowRun{id databaseId runAttempt event file{path repositoryName} workflow{id databaseId name}}}} ...on StatusContext{context state targetUrl createdAt}}}}}}}`
+const pullRequestFields = `number url title headRefName headRefOid baseRefName isDraft isCrossRepository mergeable reviewDecision author{login} labels(first:100){nodes{name}} timelineItems(itemTypes:[LABELED_EVENT],last:100){nodes{...on LabeledEvent{label{name}}}} commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){pageInfo{hasNextPage} nodes{__typename ...on CheckRun{id databaseId name status conclusion startedAt completedAt detailsUrl checkSuite{id databaseId app{databaseId} commit{oid} repository{nameWithOwner} workflowRun{id databaseId runAttempt event file{path repositoryName} workflow{id databaseId name}}}} ...on StatusContext{context state targetUrl createdAt}}}}}}}`
 
 const listPullRequestsQuery = `query($owner:String!,$name:String!,$base:String,$head:String){repository(owner:$owner,name:$name){pullRequests(states:OPEN,baseRefName:$base,headRefName:$head,first:100,orderBy:{field:CREATED_AT,direction:DESC}){nodes{` + pullRequestFields + `}}}}`
 
@@ -40,6 +40,11 @@ type GraphPullRequest struct {
 	Labels struct {
 		Nodes []Label `json:"nodes"`
 	} `json:"labels"`
+	// Labelled is the pull request's label history: each label put on it,
+	// the last 100 of them.
+	Labelled struct {
+		Nodes []labelEvent `json:"nodes"`
+	} `json:"timelineItems"`
 	Commits struct {
 		Nodes []struct {
 			Commit struct {
@@ -171,11 +176,19 @@ func (p GraphPullRequest) Checks() Checks {
 	return withoutDraftState(checks)
 }
 
-// PullRequest is the pull request as Riders reads it.
+// PullRequest is the pull request as Riders reads it. Whether its
+// repository's pull requests land held is the repository's to say, so
+// LandsHeld is left for the reader that knows the repository to set.
 func (p GraphPullRequest) PullRequest() PullRequest {
 	pr := PullRequest{Number: p.Number, URL: p.URL, Title: p.Title, HeadRefName: p.HeadRefName, HeadRefOid: p.HeadRefOid, BaseRefName: p.BaseRefName, IsDraft: p.IsDraft, IsCrossRepository: p.IsCrossRepository, Mergeable: p.Mergeable, ReviewDecision: p.ReviewDecision, Labels: p.Labels.Nodes, Checks: p.Checks(), IsCheckRollupIncomplete: !p.completeChecks()}
 	pr.Author.Login = p.Author.Login
+	pr.HasCarriedHold = isHeld(pr) || slices.ContainsFunc(p.Labelled.Nodes, func(event labelEvent) bool { return strings.EqualFold(event.Label.Name, HoldLabel) })
 	return pr
+}
+
+// labelEvent is one label put on a pull request.
+type labelEvent struct {
+	Label Label `json:"label"`
 }
 
 // ListPullRequests lists the first 100 open pull requests of repository,

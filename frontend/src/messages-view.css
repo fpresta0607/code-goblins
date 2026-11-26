@@ -100,15 +100,17 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 /* The fold's count is cut with an ellipsis where its pictures leave it no
    room, as a row's subject is. */
 .disclosure.message-call-group > summary .call-verb { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.message-baby { min-width: 0; border: 1px dashed var(--glass-border-hover); border-radius: 8px; font-size: .9375em; }
-/* A baby goblin's row says its name whole, wrapped onto more lines where the
-   panel is narrow, with the kind of agent quietly under it. Its state and,
-   when the row opens its terminal, its chevron keep their own width. */
+.message-baby { grid-template-columns: auto minmax(0, 1fr); min-width: 0; border: 1px dashed var(--glass-border-hover); border-radius: 8px; font-size: .9375em; }
+/* A baby goblin's row leads with its description, whole and wrapped across
+   the row's width where the panel is narrow, and puts what every row of a
+   round repeats, its name, the kind of agent and its state, on one quiet line
+   under it (#2957). When the row opens its terminal, its chevron keeps its
+   own width. */
 .baby-what { display: grid; min-width: 0; }
 .baby-what > strong { color: #dbe7ee; font-weight: 700; overflow-wrap: anywhere; }
-.baby-what > small { color: var(--muted); font-size: .8125em; }
+.baby-what > small { display: flex; flex-wrap: wrap; align-items: center; gap: 0 .75em; color: var(--muted); font-size: .8125em; }
 .message-baby .plain-status, .message-baby .call-end { flex: none; font-size: 1em; font-weight: 600; color: var(--muted); white-space: nowrap; }
-button.message-baby { grid-template-columns: auto minmax(0, 1fr) auto auto; width: 100%; min-height: 0; background: none; color: inherit; font: inherit; font-size: .9375em; text-align: left; cursor: pointer; }
+button.message-baby { grid-template-columns: auto minmax(0, 1fr) auto; width: 100%; min-height: 0; background: none; color: inherit; font: inherit; font-size: .9375em; text-align: left; cursor: pointer; }
 button.message-baby:hover { background: #ffffff08; }
 button.message-baby:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 /* The view a browser command's row opens, under what it printed, a target a

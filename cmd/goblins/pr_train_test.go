@@ -406,6 +406,38 @@ func TestPRTrainStartsNothingWithoutAGoblinsFinishedPullRequest(t *testing.T) {
 	}
 }
 
+// Issue 2724: in a project whose record says its pull requests land held,
+// goblins pr train takes none that never carried the hold label, however
+// green and however reported done, and says why.
+func TestPRTrainStartsNothingInAHeldProjectWhosePullRequestNeverCarriedHold(t *testing.T) {
+	// Arrange
+	forge := newTrainForge(t)
+	h := testHome(t)
+	records := filepath.Join(h.Data, "projects", filepath.Base(forge.project))
+	if err := os.MkdirAll(records, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(records, "project.json"), []byte(`{"project": "app", "delivery": {"pull_requests_land_held": true}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pr := forge.pull(21, "feat/a", "a.txt")
+	doneGoblin(t, h, "g21", forge.project, pr)
+	runtime := testCommandRuntimeForHome(h)
+	runtime.githubAPI = githubtest.Client(forge)
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	code := runPR("train", []string{forge.project}, &stdout, &stderr, forge, runtime)
+
+	// Assert
+	if code != 0 || !strings.Contains(stdout.String(), "stays off: #21 its project's pull requests land held and it never carried the hold label") || !strings.Contains(stdout.String(), "no train starts") {
+		t.Fatalf("goblins pr train = %d, stdout %s, stderr %s", code, stdout.String(), stderr.String())
+	}
+	if slices.ContainsFunc(forge.calls, func(call string) bool { return strings.HasPrefix(call, "gh pr create") }) {
+		t.Fatal("a train pull request was opened for a pull request that never carried hold")
+	}
+}
+
 func TestPRTrainRefusesAProjectWithoutAGitHubOrigin(t *testing.T) {
 	// Arrange
 	forge := newTrainForge(t)

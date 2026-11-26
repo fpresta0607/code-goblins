@@ -73,20 +73,28 @@ function ordinal(index: number): string {
 // first name and its helper number, Jr. or a roman numeral, as Grub VII.
 const NUMBERED_HELPER = /^\S+ (Jr\.|[IVXLC]+)$/;
 
-// babyName is what a goblin's baby goblin is called: its goblin's name, the
-// order they started in, Kip Jr., then Kip II, Kip III and on (finished
-// ones count, so a baby keeps its name as its siblings finish), and its own
-// description as it wrote it, as "Kip II - Map harness plumbing". A goblin
-// with no name yet leaves the description alone. A helper is a goblin of its
-// own and keeps its own name. A numbered helper's name ends in its number, so
-// its own baby goblins count in digits from 1, Grub VII 1, then Grub VII 2.
-export function babyName(goblin: Task, node: TreeNode): string {
-  if (node.kind === "helper") return node.label;
-  if (!goblin.goblin_name) return node.label;
+// babyShortName is a goblin's baby goblin's name without its description:
+// its goblin's name and the order they started in, Kip Jr., then Kip II,
+// Kip III and on (finished ones count, so a baby keeps its name as its
+// siblings finish). A numbered helper's name ends in its number, so its own
+// baby goblins count in digits from 1, Grub VII 1, then Grub VII 2. A goblin
+// with no name yet gives its babies none, and a helper, a goblin of its own,
+// has none of its goblin's.
+export function babyShortName(goblin: Task, node: TreeNode): string {
+  if (node.kind === "helper" || !goblin.goblin_name) return "";
   const order = (goblin.tree?.children || []).filter((child) => child.kind === "subagent")
     .sort((one, other) => one.started.localeCompare(other.started) || one.id.localeCompare(other.id));
   const index = Math.max(0, order.findIndex((child) => child.id === node.id));
-  return goblin.goblin_name + " " + (NUMBERED_HELPER.test(goblin.goblin_name) ? index + 1 : ordinal(index)) + " - " + node.label;
+  return goblin.goblin_name + " " + (NUMBERED_HELPER.test(goblin.goblin_name) ? index + 1 : ordinal(index));
+}
+
+// babyName is what a goblin's baby goblin is called: its short name and its
+// own description as it wrote it, as "Kip II - Map harness plumbing". A
+// goblin with no name yet leaves the description alone. A helper is a goblin
+// of its own and keeps its own name.
+export function babyName(goblin: Task, node: TreeNode): string {
+  const shortName = babyShortName(goblin, node);
+  return shortName ? shortName + " - " + node.label : node.label;
 }
 
 // babyTask is what a baby goblin was asked to do, which its tip and its

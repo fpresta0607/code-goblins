@@ -128,7 +128,7 @@ func (r *afkMergeRunner) merge(args ...string) (int, string, string) {
 	if r.host != "" {
 		pullRequest = "https://" + r.host + "/acme/api/pull/13"
 	}
-	exit := runPRMerge(append([]string{pullRequest}, args...), &stdout, &stderr, r, githubtest.Client(r), r.authority())
+	exit := runPRMerge(append([]string{pullRequest}, args...), &stdout, &stderr, r, githubtest.Client(r), r.authority(), "", "", "")
 	return exit, stdout.String(), stderr.String()
 }
 
@@ -255,7 +255,7 @@ func TestAMergeWhileAFKModeIsOffReadsAndLogsNothingMore(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 
 	// Act
-	exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch", "--verified", "ignored while off"}, &stdout, &stderr, runner, githubtest.Client(runner), nil)
+	exit := runPRMerge([]string{"https://github.com/o/r/pull/13", "--delete-branch", "--verified", "ignored while off"}, &stdout, &stderr, runner, githubtest.Client(runner), nil, "", "", "")
 
 	// Assert
 	if exit != 0 || !runner.ran("gh", "api", "--method", "DELETE") {
