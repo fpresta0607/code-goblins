@@ -220,10 +220,12 @@ for (const [label, width, isTouch] of [["the desktop", 1280, false], ["a phone",
 
       // Assert
       await expect(astra).toHaveAttribute("aria-expanded", "true");
+      await expect(flyout, "the efforts lie wholly on the pane's surface").toBeInViewport({ ratio: 1 });
       expect(await places(page), "the models stay where they were").toEqual(before);
-      const [list, out] = await Promise.all([pane.boundingBox(), flyout.boundingBox()]);
-      if (!list || !out) throw new Error("the list and its efforts are drawn");
+      const [list, out, surface] = await Promise.all([pane.boundingBox(), flyout.boundingBox(), box(page).locator(".engine-panes").boundingBox()]);
+      if (!list || !out || !surface) throw new Error("the pane, its list and its efforts are drawn");
       expect(out.height, "four efforts stand taller than two models").toBeGreaterThan(list.height);
+      expect(Math.abs(surface.y + surface.height - (list.y + list.height)), "the list's foot is the pane's foot").toBeLessThanOrEqual(1);
       expect(Math.abs(out.y + out.height - (list.y + list.height)), "the efforts end at the list's foot").toBeLessThanOrEqual(1);
       expect(list.x - (out.x + out.width), "no gap between the efforts and the models").toBeLessThanOrEqual(1);
       const joint = await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest(".engine-panes"), [(out.x + out.width + list.x) / 2, list.y + list.height - 12]);
