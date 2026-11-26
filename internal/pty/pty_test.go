@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -111,6 +112,35 @@ func TestATerminalCarriesInputToItsProgramAndItsOutputBackUntilTheEnd(t *testing
 	}
 }
 
+func TestReadEndsOnceTheProgramExitsWhileAHelperStillHoldsTheTerminal(t *testing.T) {
+	// Arrange: the helper ignores the hangup its session's leader sends it on
+	// exiting, and keeps the terminal open.
+	terminal, written := start(t, `trap '' HUP; sleep 600 & echo "helper $!"; exit 0`, 80, 24)
+
+	// Act
+	text, err := written.end(t)
+
+	// Assert
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("Read ended with %v, not io.EOF", err)
+	}
+	match := regexp.MustCompile(`helper (\d+)`).FindStringSubmatch(text)
+	if match == nil {
+		t.Fatalf("the program wrote %q, without its helper", text)
+	}
+	helper, err := strconv.Atoi(match[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := proc.Lookup(helper); err != nil {
+		t.Fatalf("the helper %d no longer runs (%v), so nothing held the terminal", helper, err)
+	}
+	if err := terminal.Close(); err != nil {
+		t.Fatal(err)
+	}
+	awaitGone(t, helper)
+}
+
 func TestATerminalTellsItsProgramItsSizeAndEachResize(t *testing.T) {
 	// Arrange
 	terminal, written := start(t, `stty size; read line; stty size`, 100, 30)
@@ -126,6 +156,38 @@ func TestATerminalTellsItsProgramItsSizeAndEachResize(t *testing.T) {
 
 	// Assert
 	written.await(t, `40 120`)
+}
+
+func TestAResizedTerminalStaysNonblocking(t *testing.T) {
+	// Arrange: a blocking file would wait out a read's deadline.
+	terminal, err := Start(Spec{Args: []string{"sh", "-c", "read line"}, Cols: 80, Rows: 24})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = terminal.Close() })
+	if err := terminal.Resize(120, 40); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	if err := terminal.ptmx.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	read := make(chan error, 1)
+	go func() {
+		_, err := terminal.ptmx.Read(make([]byte, 4096))
+		read <- err
+	}()
+
+	// Assert
+	select {
+	case err := <-read:
+		if !errors.Is(err, os.ErrDeadlineExceeded) {
+			t.Fatalf("a read of the idle terminal past its deadline gave %v, not os.ErrDeadlineExceeded", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("a read of the idle terminal still waits past its deadline, so its file turned blocking")
+	}
 }
 
 func TestTheProgramLeadsItsOwnSessionWithTheTerminalAsItsControllingTerminal(t *testing.T) {
@@ -173,24 +235,43 @@ func TestTheExitCodeIsTheProgramsOwnOr128AndTheSignalThatEndedIt(t *testing.T) {
 }
 
 func TestCloseEndsTheProgramAndWhatItStarted(t *testing.T) {
-	// Arrange
-	terminal, written := start(t, `sleep 600 & echo "helper $!"; wait`, 80, 24)
-	helper, err := strconv.Atoi(written.await(t, `helper (\d+)`)[1])
-	if err != nil {
-		t.Fatal(err)
-	}
+	for _, test := range []struct {
+		name   string
+		script string
+	}{
+		{"a helper it waits for", `sleep 600 & echo "helper $!"; wait`},
+		// env -i starts the helper with no mark and its parent exits, so only
+		// the session's group still finds it, and it ignores the hangup the
+		// program sends it as it ends.
+		{"a helper that cleared its environment and outlived its parent", `(trap '' HUP; env -i sleep 600 & echo "helper $!"); read line`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			terminal, written := start(t, test.script, 80, 24)
+			helper, err := strconv.Atoi(written.await(t, `helper (\d+)`)[1])
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	// Act
-	if err := terminal.Close(); err != nil {
-		t.Fatal(err)
-	}
+			// Act
+			if err := terminal.Close(); err != nil {
+				t.Fatal(err)
+			}
 
-	// Assert
-	select {
-	case <-terminal.Done():
-	default:
-		t.Fatal("Close returned before the program exited")
+			// Assert
+			select {
+			case <-terminal.Done():
+			default:
+				t.Fatal("Close returned before the program exited")
+			}
+			awaitGone(t, helper)
+		})
 	}
+}
+
+// awaitGone waits until helper no longer runs.
+func awaitGone(t *testing.T, helper int) {
+	t.Helper()
 	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(10 * time.Millisecond) {
 		if _, err := proc.Lookup(helper); errors.Is(err, fs.ErrNotExist) {
 			return
@@ -216,12 +297,33 @@ func TestATerminalRefusesASizeOutsideTwoTo1000Cells(t *testing.T) {
 	}
 }
 
-func TestStartRefusesAProgramItCannotFind(t *testing.T) {
+func TestStartRefusesAProgramItCannotFindAndKeepsNoDescriptor(t *testing.T) {
+	// Arrange: a first refusal opens what this process keeps for every file,
+	// the poller's descriptors, so the second shows only what it leaks.
+	spec := Spec{Args: []string{"/nonexistent/goblins-program"}, Cols: 80, Rows: 24}
+	if _, err := Start(spec); err == nil {
+		t.Fatal("Start ran a program that does not exist")
+	}
+	before := openDescriptors(t)
+
 	// Act
-	_, err := Start(Spec{Args: []string{"/nonexistent/goblins-program"}, Cols: 80, Rows: 24})
+	_, err := Start(spec)
 
 	// Assert
 	if !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("Start gave %v, not a missing program", err)
 	}
+	if after := openDescriptors(t); after != before {
+		t.Fatalf("%d descriptors were open before a refused Start and %d after", before, after)
+	}
+}
+
+// openDescriptors counts the files this process has open.
+func openDescriptors(t *testing.T) int {
+	t.Helper()
+	entries, err := os.ReadDir("/dev/fd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(entries)
 }

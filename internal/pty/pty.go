@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -35,6 +36,8 @@ type Spec struct {
 // leads a session of its own, whose controlling terminal is this one, and it
 // starts as a tree (execx.StartTree), so Close ends it and everything it
 // started but a machine service, as a pseudo console's job does on Windows.
+// Its output ends once the process has exited and what it wrote is read, as a
+// pseudo console's does, even while a helper still holds the terminal.
 type Terminal struct {
 	ptmx *os.File
 	tree *execx.Tree
@@ -70,16 +73,17 @@ func Start(spec Spec) (*Terminal, error) {
 		ptmx.Close()
 		return nil, fmt.Errorf("pty: open %s: %w", name, err)
 	}
-	// The process holds the terminal from here; once it and everything it
-	// starts have closed it, Read reaches the end of the output.
+	// The process holds the terminal from here, so once it and everything it
+	// starts have closed it, Linux reads the terminal as an input/output error.
 	defer tty.Close()
-	cmd := exec.Command(spec.Args[0], spec.Args[1:]...)
+	cmd := execx.Command(spec.Args[0], spec.Args[1:]...)
 	cmd.Dir = spec.Dir
 	cmd.Env = spec.Env
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = tty, tty, tty
 	// Setctty makes its standard input, the terminal, the controlling
 	// terminal of the session Setsid starts.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true}
+	cmd.SysProcAttr.Setsid = true
+	cmd.SysProcAttr.Setctty = true
 	tree, err := execx.StartTree(cmd)
 	if err != nil {
 		ptmx.Close()
@@ -90,11 +94,13 @@ func Start(spec Spec) (*Terminal, error) {
 	return terminal, nil
 }
 
-// wait records the process's exit code once it exits, and closes Done.
+// wait records the process's exit code once it exits, closes Done and wakes
+// a Read waiting for output, so it drains what is left.
 func (t *Terminal) wait(cmd *exec.Cmd) {
 	_ = cmd.Wait()
 	t.code = exitCode(cmd.ProcessState)
 	close(t.done)
+	_ = t.ptmx.SetReadDeadline(time.Now())
 }
 
 // exitCode is a process's exit status, or 128 and the signal that ended it,
@@ -112,15 +118,48 @@ func (t *Terminal) PID() int {
 }
 
 // Read reads what the process wrote to its terminal, escape sequences and
-// all. Once every process holding the terminal has closed it, Read returns
-// io.EOF.
+// all. Once the process has exited and what is buffered is read, or every
+// process holding the terminal has closed it, Read returns io.EOF, so a
+// helper that still holds the terminal does not hold its output open.
 func (t *Terminal) Read(p []byte) (int, error) {
+	select {
+	case <-t.done:
+		return t.drain(p)
+	default:
+	}
 	n, err := t.ptmx.Read(p)
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		return t.drain(p)
+	}
 	// Linux reads a terminal no process holds as an input/output error.
 	if errors.Is(err, syscall.EIO) {
 		return n, io.EOF
 	}
 	return n, err
+}
+
+// drain reads what is buffered once the process has exited, without waiting
+// for more, and returns io.EOF once nothing is left. Linux moves output still
+// on its way to the terminal into the buffer before it reports none.
+func (t *Terminal) drain(p []byte) (int, error) {
+	raw, err := t.ptmx.SyscallConn()
+	if err != nil {
+		return 0, err
+	}
+	var n int
+	var readErr error
+	if err := raw.Control(func(fd uintptr) {
+		n, readErr = unix.Read(int(fd), p)
+	}); err != nil {
+		return 0, err
+	}
+	if readErr != nil && !errors.Is(readErr, unix.EAGAIN) && !errors.Is(readErr, unix.EIO) {
+		return 0, readErr
+	}
+	if readErr != nil || n == 0 {
+		return 0, io.EOF
+	}
+	return n, nil
 }
 
 // Write types p into the terminal as the process's input.
@@ -155,7 +194,8 @@ func resize(ptmx *os.File, cols, rows int) error {
 }
 
 // Done is closed once the process has exited. Output it wrote can still be
-// buffered then, so the owner reads until Read returns io.EOF.
+// buffered then, so the owner reads until Read returns io.EOF, which it does
+// once that output is read, whatever helpers still run.
 func (t *Terminal) Done() <-chan struct{} {
 	return t.done
 }
