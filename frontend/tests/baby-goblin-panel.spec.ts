@@ -254,6 +254,7 @@ test("baby goblins are named after their goblin in the order they started, each 
   await expect(names("Grub - Tree Surgeon")).toHaveText(GRUB_BABIES);
   await expect(names("Kip - Echo Chaser")).toHaveText(["Kip Jr. - Trace the export"]);
   await expect(names("Moss - Pixel Wrangler"), "a helper goblin keeps its own name").toHaveText(["Moss Jr. - Measure the branches", "Moss II - Check the phone list", "Pip - Rail Fitter"]);
+  await expect(names("Kip VII - Export Tester"), "a numbered helper's own baby goblins count in digits").toHaveText(["Kip VII 1 - Time a large export"]);
 });
 
 test("working subagents open their panels and processes have no baby card", async ({ page }) => {

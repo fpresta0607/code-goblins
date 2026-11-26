@@ -415,13 +415,17 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		}
 	}
 	// The name is picked in the turn, so two goblins starting at once never
-	// share one.
+	// share one. A helper takes its named parent's name with its number,
+	// which no other goblin can hold.
 	brief, err := fsx.ReadFile(req.BriefPath)
 	if err != nil {
 		return Result{}, fmt.Errorf("spawn: read brief: %w", err)
 	}
-	goblin, err := goblinname.Assign(s.StateDir, goblinname.WorkOf(req.ID, req.Title, string(brief)))
-	if err != nil {
+	work := goblinname.WorkOf(req.ID, req.Title, string(brief))
+	var goblin goblinname.Pair
+	if n, isNumbered := state.HelperNumber(req.ID, req.Parent); isNumbered && helper.parent.GoblinName != "" {
+		goblin = goblinname.Helper(helper.parent.GoblinName, n, work)
+	} else if goblin, err = goblinname.Assign(s.StateDir, work); err != nil {
 		return Result{}, fmt.Errorf("spawn: %w", err)
 	}
 	if err := s.ensureProjectSeeded(ctx, project); err != nil {

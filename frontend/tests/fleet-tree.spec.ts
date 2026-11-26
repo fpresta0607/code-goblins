@@ -25,7 +25,7 @@ test("Arrange keeps a mixed fleet and its subagents visible beside the CEO panel
   await page.screenshot({ path: testInfo.outputPath("grid.png") });
 
   // Assert
-  await expect(page.locator(".flow-node")).toHaveCount(18);
+  await expect(page.locator(".flow-node")).toHaveCount(19);
   await expect(page.getByRole("list", { name: "What runs under Grub - Tree Surgeon" }).locator(".tree-child")).toHaveCount(3);
   await expect(page.locator(".tree-child").filter({ hasText: "Wait for checks" })).toHaveCount(0);
   expect(Number((await page.getByRole("status", { name: "Zoom" }).textContent())!.replace("%", ""))).toBeGreaterThan(25);
