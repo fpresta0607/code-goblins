@@ -4,6 +4,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -256,6 +257,46 @@ func TestAttachRefusesWhereItsOutputIsNoTerminal(t *testing.T) {
 	}
 	if want := `read line "hello", <nil>`; !strings.Contains(string(written), want) {
 		t.Errorf("goblins attach wrote %q, want %q after it refused", written, want)
+	}
+}
+
+// goblins attach for a native terminal whose host does not answer says so
+// before it changes its terminal's mode, so the message ends in a carriage
+// return and newline, and the terminal still reads echoed lines.
+func TestAttachSaysAHostThatDoesNotAnswerBeforeItsTerminalGoesRaw(t *testing.T) {
+	// Arrange
+	stateDir := t.TempDir()
+	socketFolder := t.TempDir()
+	if err := os.Chmod(socketFolder, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	record := host.Record{ID: "t1", Pipe: filepath.Join(socketFolder, "host.sock"), Token: "token", Version: host.Version, HostPID: os.Getpid()}
+	data, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(stateDir, "hosts"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "hosts", "t1.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	c := attachInConsole(t, stateDir, "t1")
+
+	// Assert
+	c.readsLinesAgain(t)
+	if code := c.ended(t); code != 1 {
+		t.Errorf("goblins attach exit code = %d, want 1 for a host that does not answer", code)
+	}
+	shown := c.shown()
+	said := strings.Index(shown, "does not answer")
+	if said < 0 {
+		t.Fatalf("the terminal shows %q, want the host said not to answer", shown)
+	}
+	if line := shown[said:]; !strings.Contains(line[:strings.Index(line, "\n")+1], "\r\n") {
+		t.Errorf("the terminal shows %q, want the message to end in a carriage return and newline", line)
 	}
 }
 
