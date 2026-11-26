@@ -220,6 +220,7 @@ Tasks lists backlog rows and briefs nothing has started: a `data/<id>/brief.md` 
 An existing delivered outcome keeps a stale Queued row out of Tasks and refuses Start, while its completed history remains available.
 After verifying delivery and returning the worktree with cleanup, the CEO runs `goblins backlog done <id>` to move its legacy bold or checkbox Queued row to canonical checked form under Done, retaining its entire continuation, delivery evidence and archived source.
 The command refuses live metadata, missing or unreadable delivery evidence, duplicate source rows and parked work, and repeating a completed closeout changes nothing.
+A delivery the CEO accepted with [`goblins backlog accept`](commands/backlog.md#accepting-a-delivery) is delivery evidence for its generation, while the task's completed history keeps the outcome cleanup wrote.
 Tasks and In progress are in priority order, top first, and every list of tasks the board shows follows it; Completed stays newest first, by when each piece of work finished: a stop when it stopped, delivered work when its goblin reported done, and a merged pull request no goblin reported when it merged.
 In progress never pages: every goblin's card is in the column at once, in priority order, and the board scrolls when they run past the screen, with the Paused group after the last of them.
 The browser draws only the In progress cards in or near the view, and each card out of it keeps the room it took when last drawn, so a long fleet costs a scroll no more than the cards it shows (#1599).

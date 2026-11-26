@@ -46,11 +46,15 @@ func closeQueuedTask(h home.Home, id string, isDeliveryRequired bool) (err error
 	if err != nil {
 		return err
 	}
-	ending := "retired"
-	if outcome.Phase == "done" {
-		ending = "done"
+	deliveredAt, isDelivered, err := state.DeliveredAt(h.State, id)
+	if err != nil {
+		return err
+	}
+	ending, endedAt := "retired", outcome.At
+	if isDelivered {
+		ending, endedAt = "done", deliveredAt
 	} else if isDeliveryRequired {
-		return errors.New("backlog completion requires a delivered task outcome")
+		return errors.New("backlog completion requires a delivered task outcome or an accepted delivery of its generation")
 	}
 	path := filepath.Join(h.Data, "backlog.md")
 	data, err := fsx.ReadFile(path)
@@ -114,7 +118,7 @@ func closeQueuedTask(h home.Home, id string, isDeliveryRequired bool) (err error
 		}
 		return ErrNotQueued
 	}
-	if outcome.At.IsZero() {
+	if endedAt.IsZero() {
 		return errors.New("completion outcome has no delivery time")
 	}
 	group := append([]string(nil), lines[start:end]...)
@@ -127,7 +131,7 @@ func closeQueuedTask(h home.Home, id string, isDeliveryRequired bool) (err error
 	if outcome.PR != "" && !strings.Contains(header, outcome.PR) {
 		header += " " + outcome.PR
 	}
-	header += " (" + ending + " " + outcome.At.UTC().Format("2006-01-02") + ")"
+	header += " (" + ending + " " + endedAt.UTC().Format("2006-01-02") + ")"
 	if strings.HasSuffix(group[0], "\n") {
 		header += newline
 	}
