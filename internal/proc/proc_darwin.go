@@ -18,6 +18,20 @@ const zombie = 5
 // that is gone, or that has exited and only waits for its parent to collect
 // it, is fs.ErrNotExist.
 func readProcess(pid int) (unix.KinfoProc, error) {
+	read, err := readAnyProcess(pid)
+	if err != nil {
+		return unix.KinfoProc{}, err
+	}
+	if read.Proc.P_stat == zombie {
+		return unix.KinfoProc{}, fmt.Errorf("proc: process %d has exited: %w", pid, fs.ErrNotExist)
+	}
+	return read, nil
+}
+
+// readAnyProcess reads what the kernel keeps of pid, even once it has exited
+// and only waits for its parent to collect it. A process that is gone is
+// fs.ErrNotExist.
+func readAnyProcess(pid int) (unix.KinfoProc, error) {
 	read, err := unix.SysctlKinfoProcSlice("kern.proc.pid", pid)
 	if err != nil {
 		return unix.KinfoProc{}, fmt.Errorf("proc: read process %d: %v", pid, err)
@@ -25,10 +39,19 @@ func readProcess(pid int) (unix.KinfoProc, error) {
 	if len(read) == 0 {
 		return unix.KinfoProc{}, fmt.Errorf("proc: read process %d: %w", pid, fs.ErrNotExist)
 	}
-	if read[0].Proc.P_stat == zombie {
-		return unix.KinfoProc{}, fmt.Errorf("proc: process %d has exited: %w", pid, fs.ErrNotExist)
-	}
 	return read[0], nil
+}
+
+// ChildStartTime reads when pid, a child of this process that nothing has
+// waited for yet, started, even once it has exited: until it is waited for
+// it keeps its ID, so the start read is its own. A process that is gone is
+// fs.ErrNotExist.
+func ChildStartTime(pid int) (time.Time, error) {
+	process, err := readAnyProcess(pid)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return entryOf(process).Start, nil
 }
 
 // entryOf is the entry of a process as the kernel keeps it. Its start is

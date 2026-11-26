@@ -1,6 +1,7 @@
 // Package host runs one goblin terminal in a process of its own, so the
 // terminal outlives the supervisor, every window and whatever started it, and
-// serves it over a named pipe only this Windows user can open.
+// serves it only to this user: over a named pipe on Windows, and over a Unix
+// socket in a folder only this user may enter on Linux and macOS.
 package host
 
 import (
