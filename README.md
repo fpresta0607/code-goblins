@@ -207,7 +207,7 @@ Turn it on from the CEO's controls, then review the recorded decisions when you 
 It does not grant the agent authority over steps reserved for you.
 The switch shows loading or refusal feedback when it cannot change state.
 Turning AFK off opens a report of what changed, decisions made for you and work still under way.
-Use **Change answer** to revise a decision, **Go through what needs you** to handle pending items, or **Open your last AFK report** in the CEO panel's header to reopen it.
+Use **Change answer** to revise a decision, **Go through what needs you** to handle pending items, or **Open your last AFK report** at the top of the CEO's Task view to reopen it.
 See the [AFK contract](docs/contract/afk.md) for authority, limits and the return report.
 
 ## How the pieces run
