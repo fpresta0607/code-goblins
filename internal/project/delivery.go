@@ -13,6 +13,10 @@ import (
 
 type DeliveryPolicy struct {
 	Posture string `json:"posture"`
+	// PullRequestsLandHeld says the project's pull requests land only on its
+	// owner's word: each must carry the hold label, and a merge train or
+	// goblins pr merge refuses one that never carried it, whoever opened it.
+	PullRequestsLandHeld bool `json:"pull_requests_land_held,omitempty"`
 }
 
 func (policy DeliveryPolicy) Validate() error {

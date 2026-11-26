@@ -59,7 +59,7 @@ func TrainRepository(ctx context.Context, runner execx.Runner, dataDir, checkout
 	if minutes := manifest.Trains.LoneRiderWaitMinutes; minutes > 0 {
 		wait = time.Duration(minutes) * time.Minute
 	}
-	return train.Repository{Slug: slug, Checkout: checkout, Base: base, LandsLoneRider: manifest.Trains.LandLoneRiderOnItsRun, LoneRiderWait: wait}, nil
+	return train.Repository{Slug: slug, Checkout: checkout, Base: base, LandsLoneRider: manifest.Trains.LandLoneRiderOnItsRun, LoneRiderWait: wait, LandsHeld: manifest.Delivery.PullRequestsLandHeld}, nil
 }
 
 // TrainGoblins reads the live goblins working in checkout and, for each, the
@@ -152,6 +152,13 @@ func (s *Service) runTrain(ctx context.Context, runner execx.Runner, github *git
 			return listErr
 		}
 		trains, listErr = train.List(stateDir)
+	}
+	// Whether the repository's pull requests land held is read here, from
+	// the project record the train itself reads, so a record that cannot be
+	// read starts no train rather than one that takes a pull request its
+	// owner never let land (issue 2724).
+	for i := range open {
+		open[i].LandsHeld = repository.LandsHeld
 	}
 	goblins := TrainGoblins(stateDir, repo)
 	if done := doneAndOpen(goblins, open); len(done) == 0 || len(done) < minimumRiders && !hasWaitedAlone(goblins, done[0], min(loneRiderWait, repository.LoneRiderWait)) {

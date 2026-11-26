@@ -243,6 +243,11 @@ PR health wakes leave alone a train's own pull request and the pull requests a r
 
 A pull request rides when it is into the default branch from this repository, opened by the account `gh` works as (a teammate's never rides, even one a goblin reported), its goblin's latest reports are `done` naming it, every check on its own head passed and at least one of them ran rather than being skipped, it is not a draft, wants no review, is not in conflict with the base, and carries no `hold` label.
 Label a pull request `hold` to keep it off every train: one only the Supreme Overlord's word merges (recovery, security, money paths) or one he said to wait on (`gh pr edit <n> --add-label hold`, after `gh label create hold` once per repository).
+A project whose every pull request waits on its owner's word declares it in its `project.json` with `"delivery": {"pull_requests_land_held": true}`.
+Its pull requests then land only once they carried `hold`: no train takes one, and `goblins pr merge` refuses one, whose labels and label history never held it, whoever opened it, and the reason names the `gh pr edit` that holds it.
+Taking the label off is the owner's word, and the pull request rides again.
+The gate opens a pull request with no label, so the declaration guards where a pull request lands rather than where it opens.
+`goblins pr merge` finds the record by the repository's name, which is the name of the project's checkout folder.
 A pull request a train found broken stays off trains until its head changes.
 
 **Firstmate attribution.**
