@@ -50,11 +50,19 @@ func loginsBoard(t *testing.T) (*fetchBoard, *HTTP) {
 			t.Fatal(err)
 		}
 	}
-	checks := connections.NewCache(time.Minute, time.Second, func(context.Context, string) connections.Snapshot {
-		return connections.Snapshot{Entries: []connections.Entry{}}
-	})
-	t.Cleanup(checks.Close)
-	b.service.connectionChecks = checks
+	// The project is listed by a snapshot the page's last run kept.
+	kept, err := json.Marshal(connections.Project{Name: "PrecisionDocs-AI", Path: meta.Project, Level: connections.Level{Items: []connections.Item{}, CheckedAt: time.Now().UTC()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	projects := filepath.Join(b.broker.state, connectorsFolder, "projects")
+	if err := os.MkdirAll(projects, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projects, "PrecisionDocs-AI.json"), kept, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { b.service.closeConnectors() })
 	return b, NewHTTP(b.service, credentialBoardHost, nil)
 }
 
@@ -74,10 +82,19 @@ func boardLogins(t *testing.T, handler *HTTP, method, path, body string, change 
 	handler.ServeHTTP(response, request)
 	var answer struct {
 		BrowserLogins []browserLoginEntry `json:"browser_logins"`
+		Projects      []struct {
+			Name          string              `json:"name"`
+			BrowserLogins []browserLoginEntry `json:"browser_logins"`
+		} `json:"projects"`
 	}
 	if response.Code == http.StatusOK {
 		if err := json.Unmarshal(response.Body.Bytes(), &answer); err != nil {
 			t.Fatal(err)
+		}
+	}
+	for _, project := range answer.Projects {
+		if project.Name == "PrecisionDocs-AI" {
+			return response.Code, project.BrowserLogins
 		}
 	}
 	return response.Code, answer.BrowserLogins
@@ -88,7 +105,7 @@ func TestAGoblinsConnectionsListTheLoginsItsProjectMayUse(t *testing.T) {
 	b, handler := loginsBoard(t)
 
 	// Act
-	code, logins := boardLogins(t, handler, http.MethodGet, "/api/connections?task=pd-keys&generation=g1", "", nil)
+	code, logins := boardLogins(t, handler, http.MethodGet, "/api/connectors", "", nil)
 
 	// Assert
 	if code != http.StatusOK || len(logins) != 2 {
@@ -104,7 +121,7 @@ func TestAGoblinsConnectionsListTheLoginsItsProjectMayUse(t *testing.T) {
 	if _, err := b.broker.attach(context.Background(), "pd-keys", "stripe"); err != nil {
 		t.Fatal(err)
 	}
-	if _, logins := boardLogins(t, handler, http.MethodGet, "/api/connections?task=pd-keys&generation=g1", "", nil); logins[0].IsInUse || !logins[1].IsInUse {
+	if _, logins := boardLogins(t, handler, http.MethodGet, "/api/connectors", "", nil); logins[0].IsInUse || !logins[1].IsInUse {
 		t.Fatalf("logins = %+v, want the shared login it names lent and shown in use", logins)
 	}
 }

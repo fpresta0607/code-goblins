@@ -77,7 +77,7 @@ Any command a goblin starts can read what its terminal carries and spend with it
   A change to the brief or to the manifest's defaults after the spawn changes nothing for a running task.
 - Which services a task carries is shown by name, never by value: in the Credentials column of `goblins fleet-view` (and `credentials` in its JSON), and under Workspace in the goblin's panel on the board.
   A task an older build started reads `all stored (older build)` until its next terminal.
-  On the board's Connectors page a service the task does not carry reads Not connected beside that goblin, with a Connect button that does what `goblins auth grant` does; it is not probed and offers nothing to store.
+  On the board's Connectors page a service the task does not carry reads Not given on that goblin's page, with a Connect button that does what `goblins auth grant` does; it is not probed for the goblin and offers nothing to store.
 - `goblins auth grant <id> <service>` is the one way a task comes by a service after its spawn, and it is yours to run.
   A goblin that needs one says so in a blocked report that names the service and why, and never asks for a value.
   The command is refused in a goblin's terminal and in a gate agent's.

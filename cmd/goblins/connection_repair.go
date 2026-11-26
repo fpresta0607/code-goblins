@@ -4,16 +4,19 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/connections"
 	"github.com/fpresta0607/code-goblins/internal/home"
-	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/project"
 )
 
 func runConnectionRepair(args []string, stdout, stderr io.Writer) int {
-	if len(args) != 4 {
-		fmt.Fprintln(stderr, "usage: goblins connection-repair <task> <generation> <connection> <action>")
+	if len(args) != 3 {
+		fmt.Fprintln(stderr, "usage: goblins connection-repair <project> <connection> <action>")
 		return 2
 	}
 	h, err := home.Resolve()
@@ -21,14 +24,19 @@ func runConnectionRepair(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "Connection home is unavailable.")
 		return 1
 	}
-	meta, err := state.ReadTaskMeta(h.State, args[0])
-	if err != nil || meta.SpawnGen != args[1] {
-		fmt.Fprintln(stderr, "Task changed. Refresh connections.")
+	path, err := project.Resolve(args[0], install.MachineProjectsRoot)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	if info, err := os.Stat(path); err != nil || !info.IsDir() {
+		fmt.Fprintln(stderr, "Project folder was not found.")
+		return 1
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	if err := connections.NewInspector(h.Root, h.Data, h.State).RepairConnection(ctx, meta, args[2], args[3]); err != nil {
+	environment := connections.NewEnvironment(h.Root, "", h.Data, h.State, nil)
+	if err := environment.RepairConnection(ctx, connections.Project{Name: auth.ProjectName(path), Path: path}, args[1], args[2]); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}

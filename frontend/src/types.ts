@@ -636,8 +636,6 @@ export interface Run {
   id: string; identity: string; title: string; shell: string; admin: boolean; command: string; cwd: string;
   state: string; exit_code: number | null; output: string; reason: string;
   created_at: string; expires_at: string; ran_at: string; finished_at: string;
-  // connection_task and connection_generation name the goblin a connection repair belongs to.
-  connection_task: string; connection_generation: string;
   // credential_request names the credential request whose card opened this
   // terminal, and credential_names the names it stores.
   credential_request: string; credential_names: string[];
@@ -924,7 +922,6 @@ function itemLists(v: Record<string, unknown>) {
       return { id: string(r.id), identity: string(r.identity), title: string(r.title), shell: string(r.shell), admin: r.admin === undefined ? false : boolean(r.admin),
         command: string(r.command), cwd: string(r.cwd), state: string(r.state), exit_code: r.exit_code === undefined || r.exit_code === null ? null : number(r.exit_code),
         output: string(r.output), reason: string(r.reason), created_at: string(r.created_at), expires_at: string(r.expires_at), ran_at: string(r.ran_at), finished_at: string(r.finished_at),
-        connection_task: string(r.connection_task), connection_generation: string(r.connection_generation),
         credential_request: string(r.credential_request), credential_names: strings(r.credential_names), remote_fix: string(r.remote_fix),
         task: string(r.task), terminal: r.terminal === undefined ? false : boolean(r.terminal), ceo_unwoken: r.ceo_unwoken === undefined ? 0 : number(r.ceo_unwoken), ceo_stopped: r.ceo_stopped === undefined ? false : boolean(r.ceo_stopped),
         update: r.update == null ? null : (({ from, to, page, published, notes, signing, publisher, sum }) => ({ from: string(from), to: string(to), page: string(page), published: string(published),

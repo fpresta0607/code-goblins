@@ -1,497 +1,439 @@
-import { CHECKED_AT, play, supervisorWith, type Supervisor } from "./connectors-supervisor";
-import { expect, test, type Locator, type Page } from "./site";
+import { bigFleet, fleet, minutesBefore, NOW, play, type Supervisor } from "./connectors-supervisor";
+import { expect, test, type Page } from "./site";
 
-// What the Connectors page asks the supervisor and when, and every repair
-// the panel it replaced offered (#2303): it reads every goblin at once,
-// each until its check ends, and then nothing; a repair's card, its sign-in
-// and its recheck; a check that failed; and a project's browser logins. The
+// What the Connectors page asks the supervisor and when, and what it does with
+// what he presses (#2902): it reads the saved snapshot once on open and sends
+// no post; searching asks nothing; a refresh shows Rechecking and then the new
+// time; a level past its life is Stale; a level being checked is read every
+// 2 s up to a limit; Connect, Disconnect and a repair post what he chose; a
+// project's browser logins are signed out of or forgotten only once asked; and
+// the first view of a fleet the size of today's draws in under a second. The
 // page stands alone here in the board's canvas, and the supervisor is played.
-const PROOF = "connection-proof", NAME = "Build review panel";
-const CONTEXT7 = { id: "mcp:context7", name: "Context7", kind: "mcp", status: "unauthorized", detail: "Sign-in required.", checked_at: CHECKED_AT, actions: ["login"] };
-const GITHUB = { id: "mcp:github", name: "GitHub", kind: "mcp", status: "probe_succeeded", scope: "separate_probe", source: "Codex", checked_at: CHECKED_AT };
+type Goblins = [string, string, string][];
 
-async function open(page: Page, supervisor: Supervisor, goblins = 1) {
+async function open(page: Page, supervisor: Supervisor, goblins?: Goblins) {
+  await page.clock.install({ time: Date.parse(NOW) });
   await play(page, supervisor);
-  await page.goto("/tests/fixtures/connectors-page.html?goblins=" + goblins);
+  await page.goto("/tests/fixtures/connectors-page.html" + (goblins ? "?goblins=" + encodeURIComponent(JSON.stringify(goblins)) : ""));
+  await expect(page.locator(".connector-tile").first()).toBeVisible();
 }
 
-// Opens a connector's own page from the list.
-async function openConnector(page: Page, name: string) {
-  await page.locator(".connector-row").getByRole("button", { name, exact: true }).click();
-  return page.getByRole("article", { name });
+const group = (title: string, page: Page) => page.getByRole("region", { name: title, exact: true });
+const tile = (page: Page, level: number) => page.getByRole("button", { name: new RegExp("^Level " + level) });
+const crumbs = (page: Page) => page.getByRole("navigation", { name: "Where you are" });
+const view = (page: Page, name: string) => page.getByRole("region", { name: name + " view", exact: true });
+
+// Opens a project from the home page.
+async function openProject(page: Page, name: string) {
+  await tile(page, 2).click();
+  await page.getByRole("button", { name, exact: true }).click();
+  await expect(crumbs(page).locator(".here")).toHaveText(name);
 }
 
-// #2394: every open rechecked each goblin, two at a time with the rest
-// waiting their turn, and the page said Checking connectors... for minutes
-// on each one. Reopened, it reads every goblin at once: each one's last
-// result shows at once with how old it is while its recheck runs behind it,
-// and then it asks nothing more.
-test("reopened, the page shows every goblin's last connectors at once with their age while their rechecks run, and then asks nothing more", async ({ page }) => {
-  // Arrange: six goblins, each with a server of its own, last checked twelve
-  // minutes ago but the fourth, checked twenty, and each rechecked now.
-  const checked = Date.parse(CHECKED_AT);
-  await page.clock.install({ time: checked + 12 * 60_000 });
-  const servers = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot"];
-  const ids = servers.map((_, at) => at ? PROOF + "-" + (at + 1) : PROOF);
-  const supervisor = supervisorWith(Object.fromEntries(ids.map((id, at) => [id, [{ ...GITHUB, id: "mcp:" + servers[at], name: servers[at] }]])));
-  supervisor.checking = Object.fromEntries(ids.map((id) => [id, true]));
-  supervisor.checkedAtByTask = { [ids[3]]: new Date(checked - 8 * 60_000).toISOString() };
-
-  // Act
-  await open(page, supervisor, ids.length);
-
-  // Assert: every goblin is read, its server listed, and the page says how
-  // old the oldest result is while it is rechecked, not that it is checking.
-  await expect(page.locator(".connector-row .connector-open")).toHaveText(["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot"]);
-  await expect(page.locator(".connectors-head [role=status]")).toHaveText("Checked 20 minutes ago, rechecking...");
-  expect(ids.filter((id) => !supervisor.reads[id])).toEqual([]);
-  await expect(page.getByRole("button", { name: "Recheck connectors" })).toBeDisabled();
-
-  // Act: every recheck ends.
-  supervisor.checking = {};
-  supervisor.checkedAt = new Date(checked + 12 * 60_000).toISOString();
-  supervisor.checkedAtByTask = {};
-
-  // Assert: the page says so, and a page left open asks nothing.
-  await expect.poll(async () => { await page.clock.runFor(2000); return page.locator(".connectors-head [role=status]").textContent(); }).toBe("Checked just now");
-  await expect(page.getByRole("button", { name: "Recheck connectors" })).toBeEnabled();
-  await expect(page.getByText("Checking connectors...", { exact: true })).toHaveCount(0);
-  const settled = { ...supervisor.reads };
-  await page.clock.runFor(5 * 60 * 1000);
-  expect(supervisor.reads).toEqual(settled);
-});
-
-test("a failing connector's repair opens its Command Center card, and the goblin is read again only when the repair ends", async ({ page }) => {
-  // Arrange
-  await page.clock.install();
-  const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  const supervisor = supervisorWith({ [PROOF]: [GITHUB, CONTEXT7] });
-  supervisor.repaired = { message: "Login card is ready in the Command Center.", run_id: "connections-login-fixture" };
-  await open(page, supervisor);
-  // The list's Sign in is a button that opens the connector's page, where
-  // the goblin that must sign in has its own Sign in beside its reason.
-  await page.locator(".connector-row").getByRole("button", { name: "Sign in to Context7", exact: true }).click();
-  const detail = page.getByRole("article", { name: "Context7" });
-  const goblin = detail.getByRole("listitem").filter({ hasText: NAME });
-  await expect(goblin.locator(".connector-use")).toHaveText("Sign-in required.");
-  await expect(goblin.locator(".connector-word")).toHaveCount(0);
-
-  // Act
-  await goblin.getByRole("button", { name: "Sign in to Context7 for " + NAME, exact: true }).click();
-
-  // Assert: the repair is asked of the supervisor for that goblin's connector.
-  await expect(page).toHaveTitle("run:connections-login-fixture");
-  expect(supervisor.posts).toEqual([{ path: "/api/connections/fix", token: "connections-proof", body: { task: PROOF, generation: "first", connection: "mcp:context7", action: "login" } }]);
-  await expect(page.locator(".connector-notice")).toContainText("Login card is ready in the Command Center.");
-  await expect(page.locator(".connector-notice").getByRole("button", { name: "Open repair card" })).toBeVisible();
-  await page.clock.runFor(5 * 60 * 1000);
-  await expect(goblin.locator(".connector-use")).toHaveText("Sign-in required.");
-  expect(supervisor.reads).toEqual({ [PROOF]: 1 });
-
-  // Act: the repair ends.
-  supervisor.entries[PROOF] = [GITHUB, { ...CONTEXT7, status: "connected", detail: "", actions: [] }];
-  await page.evaluate(() => (window as unknown as { finishRepair: (id: string) => void }).finishRepair("connections-login-fixture"));
-
-  // Assert
-  await expect(goblin.locator(".connector-word")).toHaveText("Verified");
-  await expect(goblin.getByRole("button")).toHaveCount(0);
-  expect(supervisor.reads).toEqual({ [PROOF]: 2 });
-  expect(errors).toEqual([]);
-});
-
-// The Overlord, 2026-11-11: only a failed check is amber, with no warning
-// mark, and only a sign-in the board can start is its green Sign in. A check
-// that found a sign-in expired, and a sign-in only a stored variable repairs,
-// each keep their word in amber in the list and beside the goblin, with the
-// check's reason and the repair it offers.
-for (const { name, entry, shown, word, reason, repair } of [
-  { name: "a check that found its sign-in expired", entry: { id: "mcp:linear", name: "Linear", kind: "mcp", status: "expired", detail: "Sign-in expired.", checked_at: CHECKED_AT }, shown: "Linear", word: "Expired", reason: "Sign-in expired.", repair: "" },
-  { name: "a sign-in only a stored variable repairs", entry: { id: "service:docs", name: "docs", kind: "service", status: "unauthorized", detail: "Sign-in required.", checked_at: CHECKED_AT, actions: ["store:DOCS_TOKEN"], grant: "revoke" }, shown: "Docs", word: "Sign in", reason: "Sign-in required.", repair: "Store DOCS_TOKEN from clipboard" },
-]) {
-  test(`${name} reads its word in amber with no warning mark, in the list and beside the goblin with its reason`, async ({ page }) => {
-    // Arrange
-    await open(page, supervisorWith({ [PROOF]: [GITHUB, entry] }));
-    const colour = (locator: Locator) => locator.evaluate((element) => getComputedStyle(element).color);
-    const amber = await page.evaluate(() => {
-      const probe = document.body.appendChild(document.createElement("span"));
-      probe.style.color = "var(--amber)";
-      const found = getComputedStyle(probe).color;
-      probe.remove();
-      return found;
-    });
-    const row = page.locator(".connector-row").filter({ has: page.getByRole("button", { name: shown, exact: true }) });
-
-    // Assert: the list says its word in amber, as no type is, and offers no Sign in.
-    await expect(row.locator(".connector-state.is-trouble")).toHaveText(word);
-    await expect(row.locator(".connector-status .icon")).toHaveCount(0);
-    await expect(row.locator(".connector-status button")).toHaveCount(0);
-    expect(await colour(row.locator(".connector-state"))).toBe(amber);
-    expect(await colour(row.locator(".connector-type"))).not.toBe(amber);
-
-    // Act
-    const detail = await openConnector(page, shown);
-
-    // Assert: beside the goblin, its word in amber with its reason, and only the repair it offers.
-    const goblin = detail.getByRole("listitem").filter({ hasText: NAME });
-    await expect(goblin.locator(".connector-use")).toHaveText(word + ". " + reason);
-    await expect(goblin.locator(".connector-use .icon")).toHaveCount(0);
-    expect(await colour(goblin.locator(".connector-word"))).toBe(amber);
-    await expect(goblin.getByRole("button", { name: "Sign in to " + shown + " for " + NAME, exact: true })).toHaveCount(0);
-    if (repair) await expect(goblin.getByRole("button", { name: repair + " for " + NAME, exact: true })).toBeVisible();
-    else await expect(goblin.locator(".connector-goblin-actions button")).toHaveCount(0);
-  });
+// Opens a goblin from the home page, through its project.
+async function openGoblin(page: Page, project: string, name: string) {
+  await openProject(page, project);
+  await page.getByRole("button", { name, exact: true }).click();
+  await expect(crumbs(page).locator(".here")).toHaveText(name);
 }
 
-// #2358: on a phone, Checking connectors... ran into the heading beside it,
-// which kept its place but not its words. Each says what the page is doing
-// on a line of its own under the heading, clear of the recheck button.
-for (const isFailing of [false, true]) {
-  test(`on a phone, ${isFailing ? "Check failed" : "Checking connectors..."} takes a line of its own, clear of the heading and the recheck button`, async ({ page }, testInfo) => {
-    // Arrange
-    await page.setViewportSize({ width: 390, height: 844 });
-    const supervisor = supervisorWith({ [PROOF]: [GITHUB] });
-    if (isFailing) supervisor.error = "Connection check timed out.";
-    else supervisor.unchecked = { [PROOF]: true };
+const ZEKE = "Zeke - Touch Wrangler", IVY = "Ivy - Window Painter";
 
-    // Act
-    await open(page, supervisor);
-    await expect(page.locator(".connectors-head [role=status]")).toHaveText(isFailing ? "Check failed" : "Checking connectors...");
-    await page.evaluate(() => document.fonts.ready);
-    await page.screenshot({ path: testInfo.outputPath(`connectors-status-390-${isFailing ? "failed" : "checking"}.png`), clip: { x: 0, y: 0, width: 390, height: 320 } });
+test("opening the page reads the saved snapshot once and posts nothing, and searching and moving between levels ask nothing more", async ({ page }) => {
+  // Arrange
+  const supervisor = fleet();
+  await open(page, supervisor);
+  expect(supervisor.requests).toEqual(["GET /api/connectors"]);
 
-    // Assert: the words of each part of the head, and the button, each in a
-    // place of its own.
-    const parts = await page.locator(".connectors-head").evaluate((head) => [...head.children].map((part) => {
-      const words = document.createRange();
-      words.selectNodeContents(part);
-      const box = part.tagName === "BUTTON" ? part.getBoundingClientRect() : words.getBoundingClientRect();
-      return { name: part.tagName, left: box.left, right: box.right, top: box.top, bottom: box.bottom, isWhole: part.scrollWidth <= part.clientWidth };
-    }));
-    const head = await page.locator(".connectors-head").boundingBox();
-    for (const [at, part] of parts.entries()) {
-      expect(part.isWhole, part.name + " shows whole").toBe(true);
-      expect(part.left >= head!.x - 0.5 && part.right <= head!.x + head!.width + 0.5, part.name + " stays in the head").toBe(true);
-      for (const other of parts.slice(at + 1)) {
-        const isApart = part.right <= other.left || other.right <= part.left || part.bottom <= other.top || other.bottom <= part.top;
-        expect(isApart, part.name + " and " + other.name + " do not overlap").toBe(true);
-      }
-    }
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), "the page does not scroll sideways").toBe(true);
-  });
-}
+  // Act: search every level, then move through the levels, and let a long time pass.
+  await page.getByRole("searchbox", { name: "Search connectors" }).fill("supabase");
+  await expect(page.getByText("5 matches, searched in the saved snapshot", { exact: false })).toBeVisible();
+  await page.getByRole("searchbox", { name: "Search connectors" }).fill("");
+  await tile(page, 1).click();
+  await crumbs(page).getByRole("button", { name: "Connectors", exact: true }).click();
+  await openGoblin(page, "acme", ZEKE);
+  await page.clock.runFor(10 * 60_000);
 
-// #2547, measured on the live board: 15 of 28 goblins' checks failed, 14 of
-// them paused goblins, each row saying only Not checked and the page Check
-// failed. A goblin whose harness is not running says why in its rows, and a
-// paused goblin, which the supervisor does not check, shows its last result
-// without a failed check and without its age being the page's.
-test("a check that could not run says why in its rows, and a paused goblin's last result shows without a failed check", async ({ page }) => {
-  // Arrange: one goblin whose harness exited, checked just now.
-  const checked = Date.parse(CHECKED_AT);
-  await page.clock.install({ time: checked + 60_000 });
-  const why = "The goblin's harness is not running, so its connections could not be checked.";
-  const exited = supervisorWith({ [PROOF]: [{ id: "mcp:delta", name: "delta", kind: "mcp", status: "unchecked", detail: "Not checked: " + why, checked_at: CHECKED_AT }] });
-  exited.error = why;
+  // Assert: one read, no post, no check started by any of it.
+  expect(supervisor.requests).toEqual(["GET /api/connectors"]);
+  expect(supervisor.posts).toEqual([]);
+});
+
+test("a refresh posts the level and shows Rechecking until its check ends, then the new time", async ({ page }) => {
+  // Arrange
+  const supervisor = fleet();
+  supervisor.view.machine.checked_at = minutesBefore(30);
+  for (const each of supervisor.view.machine.items) each.checked_at = minutesBefore(30);
+  await open(page, supervisor);
+  await tile(page, 1).click();
+  const cli = group("CLI tools", page);
+  await expect(cli.locator(".connector-state").first().locator("small").last()).toHaveText("checked 30 minutes ago");
 
   // Act
-  await open(page, exited);
+  await page.getByRole("button", { name: "Refresh this PC" }).click();
+
+  // Assert: the machine's rows say so while it is checked, and none can be refreshed again.
+  expect(supervisor.posts).toEqual([{ path: "/api/connectors/refresh", token: "connectors-proof", body: { level: "machine", scope: "" } }]);
+  await expect(cli.locator(".connector-state b")).toHaveText(["Rechecking...", "Rechecking...", "Rechecking..."]);
+  await expect(cli.locator(".connector-state").first().locator("small").last()).toHaveText("in the background");
+  await expect(page.getByRole("button", { name: "Refresh this PC" })).toBeDisabled();
+  await expect(cli.getByRole("button", { name: "Refresh gh" })).toBeDisabled();
+  await expect(page.getByRole("status").first()).toHaveText("Rechecking in the background...");
+
+  // Act: the check ends.
+  supervisor.settle("machine", "", minutesBefore(0));
+  await expect.poll(async () => { await page.clock.runFor(2000); return cli.locator(".connector-state b").first().textContent(); }).toBe("Verified");
 
   // Assert
-  const delta = page.locator(".connector-row").filter({ hasText: "Delta" });
-  await expect(delta.locator(".connector-state")).toHaveText("Not checked");
-  await expect(delta.locator(".connector-reason")).toHaveText(why);
-  await expect(page.locator(".connectors-head [role=status]")).toHaveText("Check failed");
-
-  // Arrange: a running goblin checked a minute ago, and a paused one whose
-  // last result is three days old.
-  const paused = supervisorWith({ [PROOF]: [GITHUB], [PROOF + "-2"]: [{ ...GITHUB, id: "mcp:echo", name: "echo" }] });
-  paused.checkedAtByTask = { [PROOF + "-2"]: new Date(checked - 3 * 86_400_000).toISOString() };
-  paused.notRunning = { [PROOF + "-2"]: true };
-
-  // Act
-  await page.unrouteAll({ behavior: "ignoreErrors" });
-  await open(page, paused, 2);
-
-  // Assert: both listed, verified, the page's age the running goblin's, and
-  // no failed check or reason.
-  await expect(page.locator(".connector-row .connector-open")).toHaveText(["Echo", "GitHub"]);
-  await expect(page.locator(".connector-row .connector-state")).toHaveText(["Verified", "Verified"]);
-  await expect(page.locator(".connectors-head [role=status]")).toHaveText("Checked 1 minute ago");
-  await expect(page.locator(".connector-reason")).toHaveCount(0);
-  expect(paused.reads).toEqual({ [PROOF]: 1, [PROOF + "-2"]: 1 });
+  await expect(cli.locator(".connector-state").first().locator("small").last()).toHaveText("checked just now");
+  await expect(page.getByRole("button", { name: "Refresh this PC" })).toBeEnabled();
+  expect(supervisor.posts).toHaveLength(1);
 });
 
-// A check that ran as its goblin paused found no harness and failed; the
-// goblin is not checked again until it resumes, so its failed result shows
-// as it was without the page saying Check failed.
-test("a paused goblin whose last check failed as it paused never has the page or its rows say Check failed", async ({ page }) => {
-  // Arrange: a running goblin checked a minute ago, and a paused one whose
-  // kept result failed for want of a harness.
-  const checked = Date.parse(CHECKED_AT);
-  await page.clock.install({ time: checked + 60_000 });
-  const why = "The goblin's harness is not running, so its connections could not be checked.";
-  const supervisor = supervisorWith({ [PROOF]: [GITHUB], [PROOF + "-2"]: [{ id: "mcp:delta", name: "delta", kind: "mcp", status: "unchecked", detail: "Not checked: " + why, checked_at: CHECKED_AT }] });
-  supervisor.errorByTask = { [PROOF + "-2"]: why };
-  supervisor.notRunning = { [PROOF + "-2"]: true };
-
-  // Act
-  await open(page, supervisor, 2);
-
-  // Assert: its row reads as it was, and nothing says Check failed.
-  const delta = page.locator(".connector-row").filter({ hasText: "Delta" });
-  await expect(delta.locator(".connector-state")).toHaveText("Not checked");
-  await expect(delta.locator(".connector-reason")).toHaveText(why);
-  await expect(page.locator(".connectors-head [role=status]")).toHaveText("Checked 1 minute ago");
-  await expect(page.getByText("Check failed")).toHaveCount(0);
-});
-
-// The Overlord, 2026-10-08: "everything error wise goes to cfo". A check that
-// timed out says so in two words where the page says what it is doing.
-test("a check that timed out says Check failed, without the supervisor's words and without an alert", async ({ page }) => {
+test("a row refreshes its own project, and a goblin's row has no refresh of its own", async ({ page }) => {
   // Arrange
-  const supervisor = supervisorWith({ [PROOF]: [] });
-  supervisor.error = "Connection check timed out.";
+  const supervisor = fleet();
+  await open(page, supervisor);
+  await openProject(page, "globex");
+
+  // Act
+  await group("Services", page).getByRole("button", { name: "Refresh Supabase" }).click();
+
+  // Assert
+  expect(supervisor.posts).toEqual([{ path: "/api/connectors/refresh", token: "connectors-proof", body: { level: "project", scope: "globex" } }]);
+  await expect(group("Services", page).locator(".connector-state b")).toHaveText("Rechecking...");
+
+  // Act: a goblin.
+  await crumbs(page).getByRole("button", { name: "Projects", exact: true }).click();
+  await page.getByRole("button", { name: "acme", exact: true }).click();
+  await page.getByRole("button", { name: ZEKE, exact: true }).click();
+
+  // Assert
+  await expect(group("Failed to load", page)).toBeVisible();
+  await expect(page.locator(".connector-row .connector-refresh")).toHaveCount(0);
+});
+
+// A check is trusted for its level's life: a project's for an hour, this PC's
+// and the account's for six, and a goblin is read from its record, so never.
+test("a level past its life is marked Stale, and one inside it or never trusted for a life is not", async ({ page }) => {
+  // Arrange
+  const supervisor = fleet();
+  const age = (level: { items: { checked_at?: unknown }[]; checked_at: string }, minutes: number) => { level.checked_at = minutesBefore(minutes); for (const each of level.items) each.checked_at = minutesBefore(minutes); };
+  age(supervisor.view.machine, 361);
+  age(supervisor.view.projects[0], 59);
+  age(supervisor.view.projects[1], 61);
+  age(supervisor.view.goblins[0], 100_000);
 
   // Act
   await open(page, supervisor);
+  await tile(page, 1).click();
 
-  // Assert
-  await expect(page.getByText("Check failed", { exact: true })).toBeVisible();
-  await expect(page.getByText("Connection check timed out.")).toHaveCount(0);
-  await expect(page.getByRole("alert")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Recheck connectors" })).toBeEnabled();
-});
-
-// #2547: only a check that could not run says why under a row. A timed-out
-// check marks each entry Unverified with the supervisor's words, which no row
-// repeats.
-test("a timed-out check's unverified rows carry no reason while the page says Check failed", async ({ page }) => {
-  // Arrange
-  const timedOut = { kind: "mcp", status: "unverified", detail: "Latest check timed out.", checked_at: CHECKED_AT };
-  const supervisor = supervisorWith({ [PROOF]: [{ ...timedOut, id: "mcp:delta", name: "delta" }, { ...timedOut, id: "mcp:echo", name: "echo" }] });
-  supervisor.error = "Connection check timed out.";
+  // Assert: this PC and the account, six hours and a minute old.
+  await expect(page.locator(".connector-row").filter({ has: page.locator(".connector-stale") })).toHaveCount(7);
 
   // Act
-  await open(page, supervisor);
+  await crumbs(page).getByRole("button", { name: "Connectors", exact: true }).click();
+  await tile(page, 2).click();
 
-  // Assert
-  await expect(page.locator(".connector-row .connector-state")).toHaveText(["Unverified", "Unverified"]);
-  await expect(page.locator(".connector-reason")).toHaveCount(0);
-  await expect(page.getByText("Latest check timed out.")).toHaveCount(0);
-  await expect(page.locator(".connectors-head [role=status]")).toHaveText("Check failed");
-});
-
-// #2547: a reason the inspector words as a fragment after Not checked reads as
-// a sentence under its row.
-test("a goblin whose credential store could not be opened says so as a sentence under its row", async ({ page }) => {
-  // Arrange
-  const supervisor = supervisorWith({ [PROOF]: [{ id: "mcp:delta", name: "delta", kind: "mcp", status: "unchecked", detail: "Not checked: the credential store could not be opened.", checked_at: CHECKED_AT }] });
+  // Assert: a project of 61 minutes is Stale, one of 59 is not.
+  await expect(page.locator(".connector-row").filter({ hasText: "globex" }).locator(".connector-stale")).toHaveText("Stale");
+  await expect(page.locator(".connector-row").filter({ hasText: "acme" }).locator(".connector-stale")).toHaveCount(0);
 
   // Act
-  await open(page, supervisor);
+  await crumbs(page).getByRole("button", { name: "Connectors", exact: true }).click();
+  await tile(page, 3).click();
 
-  // Assert
-  const delta = page.locator(".connector-row").filter({ hasText: "Delta" });
-  await expect(delta.locator(".connector-state")).toHaveText("Not checked");
-  await expect(delta.locator(".connector-reason")).toHaveText("The credential store could not be opened.");
+  // Assert: a goblin read long ago is never Stale.
+  await expect(page.locator(".connector-row")).toHaveCount(2);
+  await expect(page.locator(".connector-stale")).toHaveCount(0);
 });
 
-// A goblin whose last check failed keeps saying so while its recheck runs,
-// and says it is rechecking, since a recheck can take minutes (#2394).
-test("a check that failed says Check failed, rechecking... while its recheck runs, and Check failed once it ends failed again", async ({ page }) => {
+test("a goblin whose server failed to load shows it on the home page, in the goblins list and in its own view, and a goblin that records nothing says so", async ({ page }) => {
   // Arrange
-  await page.clock.install();
-  const supervisor = supervisorWith({ [PROOF]: [GITHUB] });
-  supervisor.error = "Connection check timed out.";
-  supervisor.checking = { [PROOF]: true };
-  const status = page.locator(".connectors-head [role=status]");
+  await open(page, fleet());
+
+  // Assert: home.
+  await expect(group("Needs a look", page).getByRole("button", { name: "Acme Docs, " + ZEKE + " in acme" })).toBeVisible();
 
   // Act
-  await open(page, supervisor);
+  await tile(page, 3).click();
+
+  // Assert: the list tells the goblin that failed from the one that did not.
+  const goblins = group("Goblins", page);
+  await expect(goblins.locator(".connector-open")).toHaveText([ZEKE, IVY]);
+  await expect(goblins.locator(".connector-state b")).toHaveText(["1 server failed to load", "As its project"]);
+  await expect(goblins.locator(".connector-state.is-trouble")).toHaveCount(1);
+
+  // Act
+  await goblins.getByRole("button", { name: ZEKE, exact: true }).click();
+
+  // Assert: its own view names the server and the reason, from its record.
+  const failed = group("Failed to load", page);
+  await expect(failed.locator(".connector-name strong")).toHaveText("Acme Docs");
+  await expect(failed.locator(".connector-state")).toContainText("Connection closed");
+  await expect(failed.locator(".connector-sub")).toHaveText("read from its session record");
+  await expect(failed.locator(".connector-state.is-trouble")).toHaveCount(1);
+
+  // Act
+  await crumbs(page).getByRole("button", { name: "Projects", exact: true }).click();
+  await page.getByRole("button", { name: "globex", exact: true }).click();
+  await page.getByRole("button", { name: IVY, exact: true }).click();
 
   // Assert
-  await expect(status).toHaveText("Check failed, rechecking...");
-  await expect(page.getByRole("button", { name: "Recheck connectors" })).toBeDisabled();
-
-  // Act: the recheck ends with the same error.
-  supervisor.checking = {};
-
-  // Assert
-  await expect.poll(async () => { await page.clock.runFor(2000); return status.textContent(); }).toBe("Check failed");
-  await expect(page.getByRole("button", { name: "Recheck connectors" })).toBeEnabled();
+  await expect(page.getByText("Codex does not record which servers loaded", { exact: false })).toBeVisible();
+  await expect(page.getByText("Nothing differs: it has what its project and this PC give every goblin.")).toBeVisible();
 });
 
-test("OAuth opens its sign-in, and a repair the supervisor refuses is said in a few words beside it", async ({ page, context }) => {
+test("Connect gives a goblin a service and Disconnect takes it back, each posting the grant and then reading the snapshot again", async ({ page }) => {
+  // Arrange
+  const supervisor = fleet();
+  await open(page, supervisor);
+  await openGoblin(page, "acme", ZEKE);
+  let release = () => {};
+  supervisor.held = new Promise<void>((resolve) => { release = resolve; });
+  const readsBefore = supervisor.reads;
+
+  // Act
+  await group("Not given", page).getByRole("button", { name: "Connect Supabase to " + ZEKE }).click();
+
+  // Assert: the grant waits on the supervisor, and nothing else can be pressed meanwhile.
+  await expect(group("Carries", page).getByRole("button", { name: "Disconnect GitHub from " + ZEKE })).toBeDisabled();
+  expect(supervisor.posts).toEqual([{ path: "/api/connections/grant", token: "connectors-proof", body: { task: "cg-touch", generation: "cg-touch-1", connection: "service:supabase", action: "grant" } }]);
+  release();
+  await expect(group("Carries", page).getByRole("button", { name: "Disconnect Supabase from " + ZEKE })).toBeEnabled();
+  await expect(group("Not given", page)).toHaveCount(0);
+  expect(supervisor.reads).toBe(readsBefore + 1);
+
+  // Act
+  await group("Carries", page).getByRole("button", { name: "Disconnect GitHub from " + ZEKE }).click();
+
+  // Assert
+  await expect(group("Not given", page).getByRole("button", { name: "Connect GitHub to " + ZEKE })).toBeVisible();
+  expect(supervisor.posts[1]).toEqual({ path: "/api/connections/grant", token: "connectors-proof", body: { task: "cg-touch", generation: "cg-touch-1", connection: "service:github", action: "revoke" } });
+});
+
+test("a Connect the supervisor refuses is said beside the page and leaves the service not given", async ({ page }) => {
+  // Arrange
+  const supervisor = fleet();
+  supervisor.refuses = "The goblin restarted.";
+  await open(page, supervisor);
+  await openGoblin(page, "acme", ZEKE);
+
+  // Act
+  await group("Not given", page).getByRole("button", { name: "Connect Supabase to " + ZEKE }).click();
+
+  // Assert
+  await expect(page.locator(".connectors-page > .notice")).toHaveText("The goblin restarted.");
+  await expect(group("Not given", page).getByRole("button", { name: "Connect Supabase to " + ZEKE })).toBeEnabled();
+});
+
+test("a fix posts the project, the connection and the action to the connectors endpoint, shows the repair notice, and reads the snapshot again when its run ends", async ({ page }) => {
+  // Arrange
+  const supervisor = fleet();
+  supervisor.repaired = { message: "Store card is ready in the Command Center.", run_id: "fix-run-1" };
+  await open(page, supervisor);
+  await openProject(page, "globex");
+  const readsBefore = supervisor.reads;
+
+  // Act
+  await page.getByRole("button", { name: "Store SUPABASE_KEY from clipboard" }).click();
+
+  // Assert
+  await expect(page).toHaveTitle("run:fix-run-1");
+  expect(supervisor.posts).toEqual([{ path: "/api/connectors/fix", token: "connectors-proof", body: { project: "globex", connection: "service:supabase", action: "store:SUPABASE_KEY" } }]);
+  const notice = page.locator(".connector-notice");
+  await expect(notice).toContainText("Store card is ready in the Command Center.");
+  await expect(notice.getByRole("button", { name: "Open repair card" })).toBeVisible();
+  await expect(notice.getByRole("link", { name: "Open sign-in" })).toHaveCount(0);
+  await page.evaluate(() => { document.title = ""; });
+  await notice.getByRole("button", { name: "Open repair card" }).click();
+  await expect(page).toHaveTitle("run:fix-run-1");
+  const afterFix = supervisor.reads;
+  expect(afterFix).toBe(readsBefore + 1);
+
+  // Act: the repair's run ends, which the board's snapshot says.
+  await page.evaluate(() => (window as unknown as { finishRepair: (id: string) => void }).finishRepair("fix-run-1"));
+
+  // Assert
+  await expect.poll(() => supervisor.reads).toBe(afterFix + 1);
+});
+
+test("a sign-in repair opens its page, a repair the supervisor refuses is said in a few words, and coming back rechecks that project once for each sign-in", async ({ page, context }) => {
   // Arrange
   await context.route("https://example.invalid/**", (route) => route.fulfill({ body: "Scratch sign-in", contentType: "text/html" }));
-  const supervisor = supervisorWith({ [PROOF]: [CONTEXT7] });
-  supervisor.refuses = "Task restarted. Refresh connections.";
+  const supervisor = fleet();
+  supervisor.refuses = "The project changed.";
   await open(page, supervisor);
-  const detail = await openConnector(page, "Context7");
-  const signIn = detail.getByRole("button", { name: "Sign in to Context7 for " + NAME, exact: true });
+  await openProject(page, "globex");
+  const signIn = page.getByRole("button", { name: "Sign in to Supabase" });
+  const rechecks = () => supervisor.posts.filter((post) => post.path === "/api/connectors/refresh");
+  const returnToBoard = () => page.evaluate(() => { window.dispatchEvent(new Event("focus")); window.dispatchEvent(new Event("focus")); });
 
-  // Act
+  // Act: refused.
   await signIn.click();
 
   // Assert
-  await expect(page.locator(".connectors-page > .notice")).toHaveText("Task restarted. Refresh connections.");
+  await expect(page.locator(".connectors-page > .notice")).toHaveText("The project changed.");
+  await returnToBoard();
+  expect(rechecks()).toEqual([]);
 
-  // Act
+  // Act: allowed, and the Overlord signs in and returns twice.
   supervisor.refuses = "";
-  supervisor.repaired = { url: "https://example.invalid/login", message: "Complete sign-in, then recheck the connection." };
+  supervisor.repaired = { url: "https://example.invalid/login", message: "Complete sign-in, then come back." };
   const opened = page.waitForEvent("popup");
   await signIn.click();
-
-  // Assert
   const popup = await opened;
   await expect(popup).toHaveURL("https://example.invalid/login");
-  await expect(page.getByRole("link", { name: "Open sign-in" })).toHaveAttribute("rel", "noreferrer");
   await popup.close();
+  await returnToBoard();
+
+  // Assert
+  await expect(page.getByRole("link", { name: "Open sign-in" })).toHaveAttribute("rel", "noreferrer");
+  await expect.poll(() => rechecks().length).toBe(1);
+  expect(rechecks()[0]).toEqual({ path: "/api/connectors/refresh", token: "connectors-proof", body: { level: "project", scope: "globex" } });
+  await returnToBoard();
+  expect(rechecks()).toHaveLength(1);
 });
 
-test("returning from a sign-in rechecks once for each sign-in", async ({ page, context }) => {
+test("a level being checked is read every 2 seconds until it ends, and then the page asks nothing more", async ({ page }) => {
   // Arrange
-  await context.route("https://example.invalid/**", (route) => route.fulfill({ body: "Scratch sign-in", contentType: "text/html" }));
-  const supervisor = supervisorWith({ [PROOF]: [CONTEXT7] });
-  supervisor.repaired = { url: "https://example.invalid/login", message: "Complete sign-in, then recheck the connection." };
-  const rechecks = () => supervisor.posts.filter((post) => post.path === "/api/connections/check").length;
-  const returnToBoard = () => page.evaluate(() => { window.dispatchEvent(new Event("focus")); window.dispatchEvent(new Event("focus")); });
+  const supervisor = fleet();
+  supervisor.view.projects[0].checking = true;
   await open(page, supervisor);
-  const detail = await openConnector(page, "Context7");
-  await returnToBoard();
+  await tile(page, 2).click();
+  await expect(page.locator(".connector-row").filter({ hasText: "acme" }).locator(".connector-state b")).toHaveText("Rechecking...");
 
-  // Act
-  const first = page.waitForEvent("popup");
-  await detail.getByRole("button", { name: "Sign in to Context7 for " + NAME, exact: true }).click();
-  await (await first).close();
-  await returnToBoard();
+  // Act: it is read again while it is checked.
+  await expect.poll(async () => { await page.clock.runFor(2000); return supervisor.reads; }).toBeGreaterThanOrEqual(3);
 
-  // Assert
-  await expect.poll(rechecks).toBe(1);
-  await expect(page.getByRole("button", { name: "Recheck connectors" })).toBeEnabled();
-
-  // Act
-  await returnToBoard();
-  await returnToBoard();
-  const second = page.waitForEvent("popup");
-  await page.getByRole("link", { name: "Open sign-in" }).click();
-  await (await second).close();
-  await returnToBoard();
+  // Act: the check ends.
+  supervisor.settle("project", "acme", minutesBefore(0));
+  await expect.poll(async () => { await page.clock.runFor(2000); return page.locator(".connector-row").filter({ hasText: "acme" }).locator(".connector-state b").textContent(); }).toBe("Checked");
 
   // Assert
-  await expect.poll(rechecks).toBe(2);
-  await expect(page.getByRole("button", { name: "Recheck connectors" })).toBeEnabled();
-  expect(rechecks()).toBe(2);
-  expect(supervisor.posts.filter((post) => post.path === "/api/connections/check").map((post) => post.token)).toEqual(["connections-proof", "connections-proof"]);
+  const settled = supervisor.reads;
+  await page.clock.runFor(10 * 60_000);
+  expect(supervisor.reads).toBe(settled);
 });
 
-test("Recheck has the supervisor check every goblin anew", async ({ page }) => {
+test("a check that never ends is read 30 more times and then left, and the page says it is still checking", async ({ page }) => {
   // Arrange
-  const supervisor = supervisorWith({ [PROOF]: [GITHUB], [PROOF + "-2"]: [GITHUB] });
-  await open(page, supervisor, 2);
-  await expect(page.getByRole("button", { name: "Recheck connectors" })).toBeEnabled();
-
-  // Act
-  await page.getByRole("button", { name: "Recheck connectors" }).click();
-
-  // Assert
-  await expect.poll(() => supervisor.posts).toEqual([
-    { path: "/api/connections/check", token: "connections-proof", body: { task: PROOF, generation: "first" } },
-    { path: "/api/connections/check", token: "connections-proof", body: { task: PROOF + "-2", generation: "first" } },
-  ]);
-  await expect(page.getByRole("button", { name: "Recheck connectors" })).toBeEnabled();
-});
-
-// The connections that could not be read are named to the CEO by goblin and
-// task: "a goblin's connections" told it nothing it could act on.
-test("connections that cannot be read are named to the CEO by goblin and task, once, and the page says the check failed", async ({ page }) => {
-  // Arrange
-  const supervisor = supervisorWith({});
-  supervisor.isUnreadable = true;
+  const supervisor = fleet();
+  supervisor.view.machine.checking = true;
 
   // Act
   await open(page, supervisor);
+  await expect.poll(async () => { await page.clock.runFor(2000); return supervisor.reads; }, { intervals: [50], timeout: 25_000 }).toBe(31);
 
   // Assert
-  await expect.poll(() => supervisor.reports.map((report) => report.where)).toEqual(["reading the connections of " + NAME + " (" + PROOF + ")"]);
-  await expect(page.getByText("Check failed", { exact: true })).toBeVisible();
-  await expect(page.getByRole("alert")).toHaveCount(0);
-  expect(supervisor.reads).toEqual({ [PROOF]: 1 });
+  await expect(page.getByRole("status").first()).toHaveText("Still checking.");
+  await page.clock.runFor(10 * 60_000);
+  expect(supervisor.reads).toBe(31);
+
+  // Act: reading again by hand reads once more, and the check has ended.
+  supervisor.view.machine.checking = false;
+  await page.getByRole("button", { name: "Read again" }).click();
+
+  // Assert
+  await expect.poll(() => supervisor.reads).toBe(32);
+  await expect(page.getByRole("status").first()).toHaveText(/^Saved snapshot, oldest check/);
 });
 
-const now = Date.parse("2026-10-13T20:00:00Z");
-const hoursAgo = (hours: number) => new Date(now - hours * 3_600_000).toISOString();
-const own = { id: "stripe-precisiondocs", provider: "Stripe", account: "PrecisionDocs", projects: ["code-goblins"], signed_in: true, signed_in_at: hoursAgo(2), used_at: hoursAgo(5 / 60), signs_out_after_fetch: false, in_use: false };
-const shared = { id: "stripe-siqstack", provider: "Stripe", account: "SIQstack", projects: ["SIQshift", "code-goblins"], signed_in: false, used_at: hoursAgo(72), signs_out_after_fetch: true, in_use: false };
+test("when the board's goblins change the snapshot is read again, and a snapshot that cannot be read is named to the CEO once and says so without an alert", async ({ page }) => {
+  // Arrange
+  const supervisor = fleet();
+  await open(page, supervisor);
+  expect(supervisor.reads).toBe(1);
+
+  // Act: every goblin restarts on a new session.
+  await page.evaluate(() => (window as unknown as { restartGoblins: () => void }).restartGoblins());
+
+  // Assert
+  await expect.poll(() => supervisor.reads).toBe(2);
+
+  // Arrange
+  const broken = fleet();
+  broken.isUnreadable = true;
+  const second = await page.context().newPage();
+  await play(second, broken);
+
+  // Act
+  await second.goto("/tests/fixtures/connectors-page.html");
+
+  // Assert
+  await expect(second.getByText("Connectors unavailable")).toBeVisible();
+  await expect.poll(() => broken.reports.map((report) => report.where)).toEqual(["reading the connectors"]);
+  await expect(second.getByRole("alert")).toHaveCount(0);
+  expect(broken.reads).toBe(1);
+});
+
+test("rows that open are buttons the keyboard reaches with Tab, and going back puts the focus on the row it came from", async ({ page }) => {
+  // Arrange
+  await open(page, fleet());
+  await tile(page, 2).focus();
+
+  // Act: Enter on a tile opens its level, and Tab reaches the first row.
+  await page.keyboard.press("Enter");
+  await expect(view(page, "Projects")).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "acme", exact: true })).toBeFocused();
+  await page.keyboard.press("Enter");
+
+  // Assert: the new view takes the focus, and its first stop is its refresh.
+  await expect(view(page, "acme")).toBeFocused();
+
+  // Act: back up by the breadcrumb with the keyboard.
+  await crumbs(page).getByRole("button", { name: "Projects", exact: true }).focus();
+  await page.keyboard.press("Enter");
+
+  // Assert
+  await expect(page.getByRole("button", { name: "acme", exact: true })).toBeFocused();
+});
+
+const own = { id: "stripe-acme", provider: "Stripe", account: "Acme", projects: ["acme"], signed_in: true, signed_in_at: minutesBefore(120), used_at: minutesBefore(5), signs_out_after_fetch: false, in_use: false };
+const shared = { id: "stripe-globex", provider: "Stripe", account: "Globex", projects: ["globex", "acme"], signed_in: false, used_at: minutesBefore(72 * 60), signs_out_after_fetch: true, in_use: false };
 
 for (const viewport of [{ width: 1280, height: 1400 }, { width: 390, height: 844 }]) {
-  test("the page lists a project's browser logins once, signs out of one and forgets another only once asked, at width " + viewport.width, async ({ page }, testInfo) => {
+  test("a project lists its browser logins, signs out of one and forgets another only once asked, at width " + viewport.width, async ({ page }, testInfo) => {
     // Arrange
     await page.setViewportSize(viewport);
-    await page.clock.install({ time: now });
-    const supervisor = supervisorWith({ [PROOF]: [], [PROOF + "-2"]: [] });
-    supervisor.logins = [own, shared];
-    await open(page, supervisor, 2);
-
-    // Act
-    await page.getByRole("group", { name: "Connectors shown" }).getByRole("button", { name: /^Browser logins/ }).click();
+    const supervisor = fleet();
+    supervisor.view.projects[0].browser_logins = [own, shared];
+    await open(page, supervisor);
+    await openProject(page, "acme");
 
     // Assert
     const list = page.getByRole("list", { name: "Browser logins" });
     await expect(list.getByRole("listitem")).toHaveCount(2);
-    const precision = list.getByRole("listitem").filter({ hasText: "Stripe · PrecisionDocs" });
-    const siqstack = list.getByRole("listitem").filter({ hasText: "Stripe · SIQstack" });
-    await expect(precision.locator(".connector-logo img")).toHaveAttribute("src", /^\/assets\/stripe-[\w-]{8}\.svg$/);
-    await expect(precision.getByText("Signed in", { exact: true })).toBeVisible();
-    await expect(precision.getByText("For code-goblins. You signed in 2 hours ago, last used 5 minutes ago.", { exact: true })).toBeVisible();
-    await expect(siqstack.getByText("Signed out", { exact: true })).toBeVisible();
-    await expect(siqstack.getByText("For SIQshift and code-goblins. It signs out after each fetch, so each fetch brings the sign-in card. Last used 3 days ago.", { exact: true })).toBeVisible();
-    await expect(siqstack.getByRole("button", { name: "Sign out of Stripe · SIQstack" })).toHaveCount(0);
+    const acme = list.getByRole("listitem").filter({ hasText: "Stripe · Acme" });
+    const globex = list.getByRole("listitem").filter({ hasText: "Stripe · Globex" });
+    await expect(acme.locator(".connector-logo img")).toHaveAttribute("src", /^\/assets\/stripe-[\w-]{8}\.svg$/);
+    await expect(acme.getByText("Signed in", { exact: true })).toBeVisible();
+    await expect(acme.getByText("For acme. You signed in 2 hours ago, last used 5 minutes ago.", { exact: true })).toBeVisible();
+    await expect(globex.getByText("Signed out", { exact: true })).toBeVisible();
+    await expect(globex.getByText("For globex and acme. It signs out after each fetch, so each fetch brings the sign-in card. Last used 3 days ago.", { exact: true })).toBeVisible();
+    await expect(globex.getByRole("button", { name: "Sign out of Stripe · Globex" })).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-    // Each login's name shows whole, so two logins of one provider are told
-    // apart at every width: its signed-in state goes below it when both do
-    // not fit on one line.
-    for (const name of ["Stripe · PrecisionDocs", "Stripe · SIQstack"]) {
-      const isWhole = await list.getByText(name, { exact: true }).evaluate((element) => element.scrollWidth <= element.clientWidth);
-      expect(isWhole, name + " shows whole").toBe(true);
-    }
     await page.screenshot({ path: testInfo.outputPath("browser-logins-" + viewport.width + ".png") });
 
     // Act
-    await precision.getByRole("button", { name: "Sign out of Stripe · PrecisionDocs" }).click();
+    await acme.getByRole("button", { name: "Sign out of Stripe · Acme" }).click();
 
-    // Assert
-    await expect(precision.getByText("Signed out", { exact: true })).toBeVisible();
-    expect(supervisor.posts).toEqual([{ path: "/api/browser-logins/sign-out", token: "connections-proof", body: { task: PROOF, generation: "first", login: "stripe-precisiondocs" } }]);
+    // Assert: it acts through the project's goblin.
+    await expect(acme.getByText("Signed out", { exact: true })).toBeVisible();
+    expect(supervisor.posts).toEqual([{ path: "/api/browser-logins/sign-out", token: "connectors-proof", body: { task: "cg-touch", generation: "cg-touch-1", login: "stripe-acme" } }]);
 
     // Act: Forget asks first, and Cancel leaves the login as it is.
-    const forget = siqstack.getByRole("button", { name: "Forget Stripe · SIQstack" });
+    const forget = globex.getByRole("button", { name: "Forget Stripe · Globex" });
     await forget.click();
     const dialog = page.getByRole("dialog", { name: "Forget this login?" });
 
-    // Assert: the question holds the keyboard, and Cancel hands it back.
-    await expect(dialog).toContainText("Stripe · SIQstack. Its browser profile is deleted, so the next fetch for SIQshift and code-goblins asks you to sign in again. Your Stripe account and its keys are not touched.");
-    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
-    expect(await dialog.evaluate((element) => element.matches(":modal"))).toBe(true);
-    await page.keyboard.press("Tab");
-    await expect(dialog.getByRole("button", { name: "Forget" })).toBeFocused();
-    await page.keyboard.press("Shift+Tab");
+    // Assert
+    await expect(dialog).toContainText("Stripe · Globex. Its browser profile is deleted, so the next fetch for globex and acme asks you to sign in again. Your Stripe account and its keys are not touched.");
     await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await expect(dialog).toHaveCount(0);
     await expect(forget).toBeFocused();
-    expect(supervisor.posts).toHaveLength(1);
-
-    // Act: Escape answers as Cancel does.
-    await forget.click();
-    await expect(dialog).toBeVisible();
-    await page.keyboard.press("Escape");
-
-    // Assert
-    await expect(dialog).toHaveCount(0);
-    await expect(forget).toBeFocused();
-    await expect(siqstack).toBeVisible();
     expect(supervisor.posts).toHaveLength(1);
 
     // Act
@@ -499,47 +441,86 @@ for (const viewport of [{ width: 1280, height: 1400 }, { width: 390, height: 844
     await page.getByRole("dialog", { name: "Forget this login?" }).getByRole("button", { name: "Forget" }).click();
 
     // Assert
-    await expect(siqstack).toHaveCount(0);
-    expect(supervisor.posts[1]).toEqual({ path: "/api/browser-logins/forget", token: "connections-proof", body: { task: PROOF, generation: "first", login: "stripe-siqstack" } });
+    await expect(globex).toHaveCount(0);
+    expect(supervisor.posts[1]).toEqual({ path: "/api/browser-logins/forget", token: "connectors-proof", body: { task: "cg-touch", generation: "cg-touch-1", login: "stripe-globex" } });
   });
 }
 
 test("the question to forget a login goes when the goblin it would act through restarts, and nothing is forgotten", async ({ page }) => {
   // Arrange
-  await page.clock.install({ time: now });
-  const supervisor = supervisorWith({ [PROOF]: [] });
-  supervisor.logins = [own];
+  const supervisor = fleet();
+  supervisor.view.projects[0].browser_logins = [own];
   await open(page, supervisor);
-  await page.getByRole("group", { name: "Connectors shown" }).getByRole("button", { name: /^Browser logins/ }).click();
-  await page.getByRole("button", { name: "Forget Stripe · PrecisionDocs" }).click();
+  await openProject(page, "acme");
+  await page.getByRole("button", { name: "Forget Stripe · Acme" }).click();
   const dialog = page.getByRole("dialog", { name: "Forget this login?" });
   await expect(dialog).toBeVisible();
-  const mounted = await dialog.elementHandle();
 
   // Act: the goblin restarts on a new session.
+  supervisor.view.goblins[0].generation = "cg-touch-2";
   await page.evaluate(() => (window as unknown as { restartGoblins: () => void }).restartGoblins());
 
-  // Assert: the question is gone for good, though the new session lists the login again.
+  // Assert
   await expect(dialog).toHaveCount(0);
-  expect(await mounted!.evaluate((element) => element.isConnected)).toBe(false);
-  await expect(page.getByRole("list", { name: "Browser logins" }).getByRole("listitem")).toHaveCount(1);
   await expect(page.locator("dialog:modal")).toHaveCount(0);
+  await expect(page.getByRole("list", { name: "Browser logins" }).getByRole("listitem")).toHaveCount(1);
   expect(supervisor.posts).toEqual([]);
 });
 
-test("a login whose browser is in use waits for it to close before it signs out or is forgotten", async ({ page }) => {
+test("a login whose browser is in use waits for it to close, and a project with no goblin running cannot act on its logins", async ({ page }) => {
   // Arrange
-  await page.clock.install({ time: now });
-  const supervisor = supervisorWith({ [PROOF]: [] });
-  supervisor.logins = [{ ...own, in_use: true }];
+  const supervisor = fleet();
+  supervisor.view.projects[0].browser_logins = [{ ...own, in_use: true }];
+  supervisor.view.projects.push({ name: "initech", path: "C:/work/initech", browser_logins: [own], items: [], checked_at: minutesBefore(4), checking: false });
   await open(page, supervisor);
 
   // Act
-  await page.getByRole("group", { name: "Connectors shown" }).getByRole("button", { name: /^Browser logins/ }).click();
+  await openProject(page, "acme");
 
   // Assert
   const login = page.getByRole("list", { name: "Browser logins" }).getByRole("listitem");
   await expect(login).toContainText("In use by a fetch, a goblin or a sign-in window");
-  await expect(login.getByRole("button", { name: "Sign out of Stripe · PrecisionDocs" })).toBeDisabled();
-  await expect(login.getByRole("button", { name: "Forget Stripe · PrecisionDocs" })).toBeDisabled();
+  await expect(login.getByRole("button", { name: "Sign out of Stripe · Acme" })).toBeDisabled();
+  await expect(login.getByRole("button", { name: "Forget Stripe · Acme" })).toBeDisabled();
+
+  // Act
+  await crumbs(page).getByRole("button", { name: "Projects", exact: true }).click();
+  await page.getByRole("button", { name: "initech", exact: true }).click();
+
+  // Assert
+  await expect(page.getByText("Sign out and Forget need a goblin running in this project.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Forget Stripe · Acme" })).toBeDisabled();
+});
+
+// The Overlord's page was slow because it checked every goblin on open. The
+// first view of a fleet the size of today's, 22 goblins in 22 projects and
+// about 400 items, draws from the saved snapshot in under a second, measured
+// in the page from the start of the navigation to the first row on screen.
+test("the first view of a snapshot the size of today's fleet draws its first row in under a second from the start of the navigation", async ({ page }, testInfo) => {
+  // Arrange
+  const supervisor = bigFleet();
+  const items = supervisor.view.machine.items.length + supervisor.view.projects.reduce((sum, project) => sum + project.items.length, 0) + supervisor.view.goblins.reduce((sum, goblin) => sum + goblin.items.length, 0);
+  expect(supervisor.view.goblins).toHaveLength(22);
+  expect(supervisor.view.projects).toHaveLength(22);
+  expect(items).toBeGreaterThanOrEqual(400);
+  await play(page, supervisor);
+  await page.addInitScript(() => {
+    new MutationObserver((_, observer) => {
+      if (!document.querySelector(".connector-row")) return;
+      (window as unknown as { firstRowAt: number }).firstRowAt = performance.now();
+      observer.disconnect();
+    }).observe(document, { childList: true, subtree: true });
+  });
+  const goblins: Goblins = supervisor.view.goblins.map((goblin, at) => [goblin.task, "Goblin " + (at + 1), "Fleet Member"]);
+
+  // Act
+  await page.goto("/tests/fixtures/connectors-page.html?goblins=" + encodeURIComponent(JSON.stringify(goblins)));
+  await expect(page.locator(".connector-row").first()).toBeVisible();
+  const firstRowAt = await page.evaluate(() => (window as unknown as { firstRowAt: number }).firstRowAt);
+
+  // Assert
+  console.log(`first view: ${firstRowAt.toFixed(0)} ms from the start of the navigation to the first row, for ${items} items`);
+  testInfo.annotations.push({ type: "first view", description: `${firstRowAt.toFixed(0)} ms for ${items} items` });
+  expect(firstRowAt).toBeLessThan(1000);
+  expect(supervisor.requests).toEqual(["GET /api/connectors"]);
 });
