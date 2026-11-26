@@ -1,11 +1,15 @@
 /* Modern Chat's one pane for a session's settings: it opens above the box's
    row, right-aligned with it, on the surface every popup of the chat wears
    (popup.css), and scrolls inside itself past a third of the window. A
-   model's efforts come out in a flyout off the pane's left side, beside that
-   model's row, never moving the list; the pane and the flyout share the
-   box's width, so both fit on a phone. */
-.engine-panes { --pane-width: min(13rem, 56cqw); position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 3; width: var(--pane-width); }
-.engine-pane { display: grid; gap: 2px; max-height: min(24rem, 50dvh); padding: 6px; overflow: auto; overscroll-behavior: contain; }
+   model's efforts come out on the same surface, in a column at the list's
+   left level with that model's row, never moving the list, and scroll with
+   it, as one scroll holds both (the Overlord, 2026-11-24: "make model
+   selector ui more conencted rather than two seperate paenls"); the list
+   and its efforts share the box's width, so both fit on a phone. */
+.engine-panes { --pane-width: min(13rem, 56cqw); --efforts-width: min(9rem, calc(100cqw - var(--pane-width) - 16px)); position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 3; display: flex; flex-direction: row-reverse; align-items: flex-start; width: var(--pane-width); max-height: min(24rem, 50dvh); overflow: auto; overscroll-behavior: contain; }
+.engine-panes.has-efforts { width: calc(var(--pane-width) + var(--efforts-width)); }
+.engine-pane { display: grid; flex: 1 1 0; gap: 2px; min-width: 0; padding: 6px; }
+.engine-panes.has-efforts > .engine-pane { border-left: 1px solid var(--glass-border); }
 .engine-pane:focus-visible { outline: none; }
 .engine-pane-title { display: flex; align-items: center; gap: 8px; margin: 2px 6px 6px; color: var(--muted); font-size: .75rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
 .engine-pane-title .mark { width: 16px; height: 16px; border: 0; border-radius: 0; background: none; box-shadow: none; }
@@ -17,7 +21,7 @@
 .engine-choice[aria-checked="true"] { background: var(--glass-bg-hover); }
 .engine-choice > .icon { grid-column: 2; width: 16px; height: 16px; color: var(--mint); }
 .engine-choice-label { min-width: 0; overflow: hidden; font-size: .875rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.engine-flyout { position: absolute; right: calc(100% + 4px); display: grid; gap: 2px; width: min(9rem, calc(100cqw - var(--pane-width) - 16px)); padding: 6px; }
+.engine-flyout { display: grid; flex: none; gap: 2px; width: var(--efforts-width); padding: 6px; }
 /* The permission mode, under a rule at the pane's foot: one choice per mode
    the harness cycles, each in its own colour, the one it runs filled. */
 .engine-modes { display: grid; margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--glass-border); }

@@ -13,9 +13,11 @@ import "./engine-pane.css";
 // little screen and one little modal"). It lists what the session's harness
 // really offers, from the catalog the board read ahead (useEngineCatalog), so
 // it opens at once: the model the session runs at the top, checked, then the
-// others, each with its efforts in a flyout off its side, each in its level's
-// colour, that comes out from the model he points at, focuses or taps (2026-10-
-// 28: "a horizontal model stems off the side of the hovered or clicked model");
+// others, each with its efforts in a column off its side on the pane's own
+// surface, each in its level's colour, that comes out from the model he points
+// at, focuses or taps (2026-10-28: "a horizontal model stems off the side of
+// the hovered or clicked model") and scrolls with the list (2026-11-24: "make
+// model selector ui more conencted rather than two seperate paenls");
 // and, while the session's terminal names one, its permission mode, each in
 // a colour of its own. A pick goes to onPick with the model and the effort it
 // sets, and a mode to onMode; a press outside the pane and its control closes
@@ -59,12 +61,12 @@ export function EnginePane({ setting, harness, model, effort, mode, control, onP
     shouldFocusEffort.current = setting === "effort" && hasEfforts;
     (pane.current?.querySelector<HTMLElement>("[role=menuitemradio]") ?? pane.current)?.focus({ preventScroll: true });
   }, [isListed, hasEfforts, setting]);
-  // The flyout sits beside its model's row, kept above the pane's foot so it
-  // never covers the box.
+  // The efforts sit level with their model's row, but never past the list's
+  // foot, in the scroll that holds the list, so they move with it.
   const place = () => {
-    const out = flyoutPane.current, row = flyout && pane.current?.querySelector<HTMLElement>(`[data-model="${CSS.escape(flyout)}"]`), around = panes.current;
-    if (!out || !row || !around) return;
-    out.style.top = Math.min(row.getBoundingClientRect().top - around.getBoundingClientRect().top, around.clientHeight - out.offsetHeight) + "px";
+    const out = flyoutPane.current, list = pane.current, row = flyout && list?.querySelector<HTMLElement>(`[data-model="${CSS.escape(flyout)}"]`);
+    if (!out || !list || !row) return;
+    out.style.marginTop = Math.max(0, Math.min(row.getBoundingClientRect().top - list.getBoundingClientRect().top, list.offsetHeight - out.offsetHeight)) + "px";
   };
   useLayoutEffect(() => {
     place();
@@ -100,8 +102,8 @@ export function EnginePane({ setting, harness, model, effort, mode, control, onP
     {isChosen && <Icon name="check" />}
   </button>;
   const modes = MODES.some((each) => each.mode === mode) ? MODES : [];
-  return <div ref={panes} className="engine-panes" onKeyDown={keys}>
-    <div ref={pane} className="popup-surface engine-pane" role="menu" aria-label="Model" tabIndex={-1} onScroll={place}>
+  return <div ref={panes} className={"popup-surface engine-panes" + (shown ? " has-efforts" : "")} onKeyDown={keys}>
+    <div ref={pane} className="engine-pane" role="menu" aria-label="Model" tabIndex={-1}>
       <p className="engine-pane-title"><HarnessMark harness={harness} />Model</p>
       {catalogError ? <button type="button" className="labelled-button engine-pane-retry" onClick={reload}><Icon name="refresh" />Retry</button>
         : !catalog ? <p className="engine-pane-note" role="status">Reading the session's models…</p>
@@ -130,7 +132,7 @@ export function EnginePane({ setting, harness, model, effort, mode, control, onP
         </div>
       </div>}
     </div>
-    {shown && <div ref={flyoutPane} className="popup-surface engine-flyout" role="menu" aria-label="Effort">
+    {shown && <div ref={flyoutPane} className="engine-flyout" role="menu" aria-label="Effort">
       <p className="engine-pane-title">Effort</p>
       {effortsInOrder(shown.efforts).map((level) => choice(level, level, shown === running && level === effort, effortTone(level),
         () => onPick(shown === running ? { effort: level } : { model: shown, effort: level })))}
