@@ -29,8 +29,9 @@ export function EngineSelector({ task, instance }: { task: Task; instance: strin
   const isAutomaticHarness = isQueued && !choice.harness, isAutomaticModel = isQueued && !choice.model, isAutomaticEffort = isQueued && !choice.effort;
   const unavailable = harness?.reason || (isAutomaticHarness ? "" : !harness ? "Harness " + harnessName(choice.harness) + " is unavailable" : isAutomaticModel ? "" : !model ? "Model " + choice.model + " is unavailable" : !isAutomaticEffort && choice.effort !== "default" && !model.efforts.includes(choice.effort) ? "Effort " + choice.effort + " is unavailable for " + model.name : "");
   const isDisabled = isSending || task.starting || task.switching || !isQueued && !isPaused && task.backend !== "native";
-  // A working goblin restarts at once, as the CEO does: on its own engine
-  // when nothing was changed, and switched onto the one shown otherwise.
+  // A working goblin restarts at once, as the CEO does: on its own harness,
+  // model and effort while its harness is unchanged, and on another harness
+  // switched at once onto that harness's first model at its default effort.
   const send = async (when: "" | "now" | "restart" | "cancel") => {
     if (isSending) return;
     setSending(true); setOutcome(""); showFeedback("");
@@ -54,7 +55,7 @@ export function EngineSelector({ task, instance }: { task: Task; instance: strin
         <div className="engine-fields">
           <label htmlFor={label + "-harness"}>Harness<span className="engine-harness"><ConnectorMark mark={harnessMark(choice.harness)} label={isAutomaticHarness ? "Automatic" : harnessName(choice.harness)} /><select id={label + "-harness"} aria-label="Harness" value={choice.harness} disabled={isDisabled} onChange={(event) => {
             const next = catalog.data?.find((item) => item.id === event.target.value), first = next?.models[0];
-            setDraft(isQueued ? { ...choice, harness: event.target.value } : { harness: event.target.value, model: first?.id || "default", effort: first?.default_effort && first.efforts.includes(first.default_effort) ? first.default_effort : "default" }); setOutcome("");
+            setDraft(isQueued ? { ...choice, harness: event.target.value } : !isPaused && event.target.value === current.harness ? null : { harness: event.target.value, model: first?.id || "default", effort: first?.default_effort && first.efforts.includes(first.default_effort) ? first.default_effort : "default" }); setOutcome("");
           }}>{isQueued && <option value="">Automatic</option>}{!harness && !isAutomaticHarness && <option value={choice.harness} disabled>{harnessName(choice.harness)} (unavailable)</option>}{catalog.data.map((item) => <option key={item.id} value={item.id} disabled={!!item.reason}>{item.name}{item.reason ? " - " + item.reason : ""}</option>)}</select></span></label>
           {(isQueued || isPaused) && <label htmlFor={label + "-model"}>Model<select id={label + "-model"} value={choice.model} disabled={isDisabled || !!harness?.reason || !harness && (!isQueued || !choice.model)} onChange={(event) => {
             const next = harness?.models.find((item) => item.id === event.target.value);

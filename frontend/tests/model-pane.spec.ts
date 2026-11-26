@@ -22,6 +22,13 @@ const CATALOG = { harnesses: [{ id: "claude", name: "Claude Code", models: [
 // MANY offers more models than the pane shows at once, so its list scrolls.
 const MANY = { harnesses: [{ ...CATALOG.harnesses[0], models: [...CATALOG.harnesses[0].models, ...["Fable 5.2", "Opus 5", "Sonnet 5", "Haiku 5", "Opus 4.8", "Sonnet 4.8", "Haiku 4.8", "Opus 4.6", "Sonnet 4.6"]
   .map((name) => ({ id: "claude-" + name.toLowerCase().replace(/[ .]/g, "-"), name, efforts: ["low", "medium", "high"], default_effort: "medium" }))] }] };
+// CODEX is Codex's catalog as session-controls.spec.ts has it: two models of
+// four efforts each. A Codex terminal names no mode, so the pane has no Mode
+// row and its list of models is shorter than a model's efforts.
+const CODEX = { harnesses: [{ id: "codex", name: "Codex", models: [
+  { id: "gpt-6-astra", name: "GPT-6-Astra", efforts: ["low", "medium", "high", "xhigh"], default_effort: "medium" },
+  { id: "gpt-6.1-sol", name: "GPT-6.1-Sol", efforts: ["low", "medium", "high", "xhigh"], default_effort: "low" },
+] }] };
 const USAGE = { input_tokens: 1200, output_tokens: 80, context_tokens: 2400, context_window: 100000 };
 // What the goblin's task record names, which the box reads.
 const RECORD = { model: "claude-opus-5-5", effort: "xhigh" };
@@ -31,9 +38,10 @@ const BACK_TAB = "\x1b[Z";
 // footer naming mode.
 const idle = (mode = "bypass permissions") => ({ type: "screen", asking: false, open: false, working: false, mode });
 
-// setUp opens the goblin's box with the harness idle, running what record
-// says, and catalog answered, counting the catalog's reads.
-async function setUp(page: Page, record = RECORD, catalog = CATALOG) {
+// setUp opens the goblin's box with the harness idle, its footer naming mode,
+// running what record says, and catalog answered, counting the catalog's
+// reads.
+async function setUp(page: Page, record: { harness?: string; model: string; effort: string } = RECORD, catalog = CATALOG, mode?: string) {
   const relay = await open(page, snapshot({}, { phase: "settled", ...record }), "", { ...PAGE, usage: USAGE });
   const reads: number[] = [];
   await page.route("**/api/engines", (route) => {
@@ -41,7 +49,7 @@ async function setUp(page: Page, record = RECORD, catalog = CATALOG) {
     return route.fulfill({ json: catalog });
   });
   await openGoblin(page);
-  relay.say(idle());
+  relay.say(idle(mode));
   const control = box(page).getByRole("button", { name: "Change model", exact: true });
   await expect(control).toBeEnabled();
   return { relay, reads, control, pane: box(page).getByRole("menu", { name: "Model", exact: true }), flyout: box(page).getByRole("menu", { name: "Effort", exact: true }) };
@@ -193,6 +201,33 @@ for (const [label, width, isTouch] of [["the desktop", 1280, false], ["a phone",
       expect(Math.abs(out.y - moved.y), "level with its model's row").toBeLessThanOrEqual(1);
       const isShownAbove = await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest("[role=menu][aria-label=Effort]"), [out.x + out.width / 2, surface.y - 8]);
       expect(isShownAbove, "no effort shows above the list's top edge").toBe(false);
+    });
+
+    test("a model's efforts taller than the list end at the list's foot, and the list does not move", async ({ page }) => {
+      // Arrange: a Codex session running its second model, whose efforts are
+      // out as the pane opens, and a terminal that names no mode.
+      const { control, pane, flyout } = await setUp(page, { harness: "codex", model: "gpt-6.1-sol", effort: "low" }, CODEX, "");
+      if (isTouch) await control.tap();
+      else await control.click();
+      await expect(flyout.getByRole("menuitemradio")).toHaveCount(4);
+      await expect(pane.getByRole("group", { name: "Mode", exact: true })).toHaveCount(0);
+      const before = await places(page);
+      const astra = pane.getByRole("menuitemradio", { name: "GPT-6 Astra", exact: true });
+
+      // Act
+      if (isTouch) await astra.tap();
+      else await astra.hover();
+
+      // Assert
+      await expect(astra).toHaveAttribute("aria-expanded", "true");
+      expect(await places(page), "the models stay where they were").toEqual(before);
+      const [list, out] = await Promise.all([pane.boundingBox(), flyout.boundingBox()]);
+      if (!list || !out) throw new Error("the list and its efforts are drawn");
+      expect(out.height, "four efforts stand taller than two models").toBeGreaterThan(list.height);
+      expect(Math.abs(out.y + out.height - (list.y + list.height)), "the efforts end at the list's foot").toBeLessThanOrEqual(1);
+      expect(list.x - (out.x + out.width), "no gap between the efforts and the models").toBeLessThanOrEqual(1);
+      const joint = await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest(".engine-panes"), [(out.x + out.width + list.x) / 2, list.y + list.height - 12]);
+      expect(joint, "the pane's own surface where they meet, not the chat behind it").toBe(true);
     });
   });
 }

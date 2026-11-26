@@ -5,10 +5,14 @@
    left level with that model's row, never moving the list, and scroll with
    it, as one scroll holds both (the Overlord, 2026-11-24: "make model
    selector ui more conencted rather than two seperate paenls"); the list
-   and its efforts share the box's width, so both fit on a phone. */
+   and its efforts share the box's width, so both fit on a phone. The list
+   keeps to the pane's foot, so efforts taller than it run from the pane's
+   top down to the list's foot, with the spare surface above the list; its
+   top margin, not its alignment, keeps it there, so a list taller than the
+   pane takes none and still scrolls from its top. */
 .engine-panes { --pane-width: min(13rem, 56cqw); --efforts-width: min(9rem, calc(100cqw - var(--pane-width) - 16px)); position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 3; display: flex; flex-direction: row-reverse; align-items: flex-start; width: var(--pane-width); max-height: min(24rem, 50dvh); overflow: auto; overscroll-behavior: contain; }
 .engine-panes.has-efforts { width: calc(var(--pane-width) + var(--efforts-width)); }
-.engine-pane { display: grid; flex: 1 1 0; gap: 2px; min-width: 0; padding: 6px; }
+.engine-pane { display: grid; flex: 1 1 0; gap: 2px; min-width: 0; margin-top: auto; padding: 6px; }
 .engine-panes.has-efforts > .engine-pane { border-left: 1px solid var(--glass-border); }
 .engine-pane:focus-visible { outline: none; }
 .engine-pane-title { display: flex; align-items: center; gap: 8px; margin: 2px 6px 6px; color: var(--muted); font-size: .75rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }

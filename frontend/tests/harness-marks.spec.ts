@@ -82,5 +82,6 @@ for (const ceo of CEO_ENGINES) {
     await expect(details).not.toContainText("Opus 5.5");
     await expect(harness.getByRole("button", { name: "Harness: " + claude.name })).toBeVisible();
     await expect(harness.getByRole("combobox")).toHaveCount(0);
+    for (const shown of ["Fable 5.2", "claude-fable-5-2", "Pending", "could not be applied"]) await expect(harness, "no model and no record state").not.toContainText(shown);
   });
 }

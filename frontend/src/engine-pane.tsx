@@ -62,7 +62,9 @@ export function EnginePane({ setting, harness, model, effort, mode, control, onP
     (pane.current?.querySelector<HTMLElement>("[role=menuitemradio]") ?? pane.current)?.focus({ preventScroll: true });
   }, [isListed, hasEfforts, setting]);
   // The efforts sit level with their model's row, but never past the list's
-  // foot, in the scroll that holds the list, so they move with it.
+  // foot, in the scroll that holds the list, so they move with it; efforts
+  // taller than the list start at the pane's top and end at the list's foot,
+  // as the list keeps to the pane's foot (engine-pane.css).
   const place = () => {
     const out = flyoutPane.current, list = pane.current, row = flyout && list?.querySelector<HTMLElement>(`[data-model="${CSS.escape(flyout)}"]`);
     if (!out || !list || !row) return;

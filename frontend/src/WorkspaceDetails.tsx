@@ -34,8 +34,9 @@ export function WorkspaceDetails({ task, node, snapshot, connected, onConnectors
   const resource = useResource(!queued && !unlinked && !isArchived ? path : null, parse);
   const details = resource.data;
   const harness = details ? harnessName(child ? node.harness : details.harness) : "";
-  // A task's own session and the CEO's show their one record in the selector
-  // below; a child session names the model it reported of itself.
+  // A task's own session and the CEO's name no model here, as their box's
+  // model button shows it; a child session names the model it reported of
+  // itself.
   const model = details && child ? sessionModel(node, task) : "";
   const provider = modelMark(model);
   const isCeo = !task && !node;

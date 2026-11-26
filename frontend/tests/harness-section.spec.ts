@@ -158,6 +158,23 @@ test("an active goblin's Harness holds its harness and Restart and no model or e
   expect(posts[1]).toEqual({ path: "/api/tasks/engine", body: { task: "engine-task", generation: "s1", revision: "q1", harness: "claude", model: "claude-model", effort: "xhigh", when: "now" } });
 });
 
+test("an active goblin's harness chosen away and back again restarts it on its own harness, model and effort", async ({ page }) => {
+  // Arrange
+  const posts = await open(page, [task("working")]);
+  await openTask(page);
+  await harness(page).locator("> summary").click();
+  const engine = harness(page).getByRole("group", { name: "Task engine", exact: true });
+  const select = engine.getByRole("combobox", { name: "Harness", exact: true });
+  await select.selectOption("claude");
+  await select.selectOption("codex");
+
+  // Act
+  await engine.getByRole("button", { name: /^Restart/ }).click();
+
+  // Assert
+  await expect.poll(() => posts).toEqual([{ path: "/api/tasks/engine", body: { task: "engine-task", generation: "s1", revision: "q1", harness: "codex", model: "current-model", effort: "xhigh", when: "restart" } }]);
+});
+
 test("the CEO's Harness holds Restart and its harness, and no model or effort of its own", async ({ page }) => {
   // Arrange: a CEO whose engine record names its model and effort.
   const posts = await open(page, [], { ceo_engine: { harness: "codex", model: "next-model", effort: "low", pending: false, problem: "", waiting: "" } });
