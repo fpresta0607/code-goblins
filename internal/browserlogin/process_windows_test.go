@@ -3,6 +3,7 @@ package browserlogin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/bits"
 	"net"
@@ -27,8 +28,16 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
+// isFirstStartTimed says startChrome has timed the first Chrome this test
+// binary started. In the chrome CI job that is the job's first Chrome, the
+// one start that has run out of its minute there while every other started
+// in under a second (#2135).
+var isFirstStartTimed atomic.Bool
+
 // startChrome starts a headless Chrome on a fresh profile and ends it with
-// the test.
+// the test. The first one it starts adds its start time, or its failure, to
+// the file GOBLINS_CHROME_TIMINGS_FILE names, as
+// TestChromeStartCookieAndExitTimes adds the times of the Chromes it times.
 func startChrome(t *testing.T, hosts []string) (Process, string) {
 	t.Helper()
 	executable, err := Executable()
@@ -38,7 +47,22 @@ func startChrome(t *testing.T, hosts []string) (Process, string) {
 	profile := t.TempDir()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
+	began := time.Now()
 	process, err := Start(ctx, Launch{Executable: executable, Profile: profile, Hosts: hosts, Headless: true})
+	if path := os.Getenv("GOBLINS_CHROME_TIMINGS_FILE"); path != "" && isFirstStartTimed.CompareAndSwap(false, true) {
+		line := fmt.Sprintf("first chrome, in %s: start %s\n", t.Name(), time.Since(began).Round(time.Millisecond))
+		if err != nil {
+			line = fmt.Sprintf("first chrome, in %s: no start after %s: %v\n", t.Name(), time.Since(began).Round(time.Millisecond), err)
+		}
+		record, recordErr := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+		if recordErr == nil {
+			_, recordErr = record.WriteString(line)
+			recordErr = errors.Join(recordErr, record.Close())
+		}
+		if recordErr != nil {
+			t.Errorf("record the first chrome's start: %v", recordErr)
+		}
+	}
 	if process.PID != 0 {
 		t.Cleanup(func() {
 			if err := End(context.Background(), process); err != nil {
