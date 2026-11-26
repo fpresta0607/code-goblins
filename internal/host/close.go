@@ -1,3 +1,5 @@
+//go:build windows || linux || darwin
+
 package host
 
 import (
@@ -5,13 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"slices"
 	"time"
 
-	"golang.org/x/sys/windows"
-
 	"github.com/fpresta0607/code-goblins/internal/awake"
-	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 // Close ends the native terminal or stream session whose host launched is,
@@ -93,47 +91,3 @@ var closeEndWait = 30 * time.Second
 // closeTerminal sends the close request; a test stands in for it to fail the
 // request the way a host already closing its pipe does.
 var closeTerminal = (*Client).CloseTerminal
-
-// pipeClosing reports whether err is a write to a pipe whose host end is
-// closed or closing: ERROR_NO_DATA ("The pipe is being closed."),
-// ERROR_BROKEN_PIPE or ERROR_PIPE_NOT_CONNECTED.
-func pipeClosing(err error) bool {
-	return errors.Is(err, windows.ERROR_NO_DATA) || errors.Is(err, windows.ERROR_BROKEN_PIPE) || errors.Is(err, windows.ERROR_PIPE_NOT_CONNECTED)
-}
-
-// Running reports whether the host record names may still run: only a
-// process Windows shows as ended, or as never started, does not, and neither
-// does one that started after the host recorded itself, which reuses the pid
-// of a host that ended without removing its record. A process this user may
-// not open, as a system service's is, is judged by the start the machine's
-// process list gives, which needs no handle: a host's pid such a process took
-// after a restart once read as the host for good (issue #1206).
-func Running(record Record) bool {
-	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(record.HostPID))
-	if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
-		return false
-	}
-	if err == nil {
-		defer windows.CloseHandle(handle)
-		var code uint32
-		if err := windows.GetExitCodeProcess(handle, &code); err == nil && code != stillActive {
-			return false
-		}
-	}
-	started, known := proc.StartTime(record.HostPID)
-	if !known {
-		processes, err := proc.Processes()
-		if err != nil {
-			return true
-		}
-		index := slices.IndexFunc(processes, func(process proc.Entry) bool { return process.PID == record.HostPID })
-		if index < 0 {
-			return false
-		}
-		started = processes[index].Start
-	}
-	return !started.After(record.Started)
-}
-
-// stillActive is the exit code Windows reports for a process that runs.
-const stillActive = 259

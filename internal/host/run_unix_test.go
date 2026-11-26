@@ -4,13 +4,17 @@ package host
 
 import (
 	"errors"
+	"fmt"
+	"io"
 	"io/fs"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -429,5 +433,30 @@ func TestAUnixHostRefusesAStreamSession(t *testing.T) {
 	// Assert
 	if !errors.Is(err, errors.ErrUnsupported) {
 		t.Fatalf("a stream session gave %v, not unsupported", err)
+	}
+}
+
+func TestPipeClosingReadsAUnixSocketWhoseHostEndCloses(t *testing.T) {
+	tests := []struct {
+		name        string
+		err         error
+		isReadClose bool
+	}{
+		{name: "broken pipe", err: &net.OpError{Op: "write", Net: "unix", Err: os.NewSyscallError("write", syscall.EPIPE)}, isReadClose: true},
+		{name: "reset", err: fmt.Errorf("host: send: %w", syscall.ECONNRESET), isReadClose: true},
+		{name: "not connected", err: syscall.ENOTCONN, isReadClose: true},
+		{name: "end of input", err: io.EOF, isReadClose: false},
+		{name: "refused", err: syscall.ECONNREFUSED, isReadClose: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			isClosing := pipeClosing(test.err)
+
+			// Assert
+			if isClosing != test.isReadClose {
+				t.Fatalf("pipeClosing(%v) = %t, want %t", test.err, isClosing, test.isReadClose)
+			}
+		})
 	}
 }
