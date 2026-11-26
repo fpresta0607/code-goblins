@@ -30,10 +30,6 @@ const powershellParse = `$errors = $null; $script = [System.Management.Automatio
 // at PowerShell's prompt for the value, as the install card for main-6b7e7bc9
 // did on 2026-10-18. The shell parses the command and runs none of it.
 func CheckRunCommand(shell, command string) error {
-	return checkRunCommand(shell, command, runSyntaxWait)
-}
-
-func checkRunCommand(shell, command string, wait time.Duration) error {
 	exists := func(path string) bool {
 		info, err := os.Stat(path)
 		return err == nil && !info.IsDir()
@@ -42,6 +38,11 @@ func checkRunCommand(shell, command string, wait time.Duration) error {
 	if err != nil {
 		return err
 	}
+	return checkRunCommand(program, shell, command, runSyntaxWait)
+}
+
+// checkRunCommand has program, the shell's own program, parse command.
+func checkRunCommand(program, shell, command string, wait time.Duration) error {
 	dir, err := os.MkdirTemp("", "goblins-run-syntax-")
 	if err != nil {
 		return err

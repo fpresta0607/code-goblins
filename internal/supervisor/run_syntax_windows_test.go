@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/standin"
 )
 
 // repairHome is the command of run item repair-home-v0.5.3, 2026-10-07: its
@@ -104,8 +105,17 @@ func TestARunCommandItsShellParsesIsTaken(t *testing.T) {
 // ended it, and the check said "exit status 1", the exit of a command that
 // does not parse.
 func TestARunCommandItsShellDoesNotAnswerInTimeIsRefusedAsUnchecked(t *testing.T) {
+	// Arrange
+	program, err := runShellPath("powershell", exec.LookPath, func(path string) bool {
+		info, err := os.Stat(path)
+		return err == nil && !info.IsDir()
+	}, os.Getenv("SystemRoot"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// Act
-	err := checkRunCommand("powershell", repairHome, time.Millisecond)
+	err = checkRunCommand(program, "powershell", repairHome, time.Millisecond)
 
 	// Assert
 	if err == nil || !strings.Contains(err.Error(), "powershell did not answer within 1ms") || strings.Contains(err.Error(), "exit status") {
@@ -120,20 +130,10 @@ func TestARunCommandItsShellDoesNotAnswerInTimeIsRefusedAsUnchecked(t *testing.T
 // it did not answer.
 func TestAShellThatSitsOutTheWaitIsRefusedWithWhatItDidInThatTime(t *testing.T) {
 	// Arrange
-	program, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	system := t.TempDir()
-	shellDir := filepath.Join(system, "System32", "WindowsPowerShell", "v1.0")
-	if err := os.MkdirAll(shellDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	copyExecutable(t, program, filepath.Join(shellDir, "powershell.exe"))
-	t.Setenv("SystemRoot", system)
+	program := neverAnswers(t)
 
 	// Act
-	err = checkRunCommand("powershell", repairHome, time.Second)
+	err := checkRunCommand(program, "powershell", repairHome, time.Second)
 
 	// Assert
 	said := regexp.MustCompile(`^powershell did not answer within 1s \(in that time it used \S+ of processor time, [1-9]\d* page faults and \d+ bytes read in \d+ reads\), so the command was not checked: try again$`)
@@ -147,30 +147,31 @@ func TestAShellThatSitsOutTheWaitIsRefusedWithWhatItDidInThatTime(t *testing.T) 
 // the wait is refused only as one that did not answer.
 func TestAGitBashThatSitsOutTheWaitIsRefusedWithoutWhatItsLauncherDid(t *testing.T) {
 	// Arrange
-	program, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	git := t.TempDir()
-	for _, dir := range []string{filepath.Join(git, "cmd"), filepath.Join(git, "bin")} {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	copyExecutable(t, program, filepath.Join(git, "bin", "bash.exe"))
-	if err := os.WriteFile(filepath.Join(git, "cmd", "git.exe"), nil, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", filepath.Join(git, "cmd")+string(os.PathListSeparator)+os.Getenv("PATH"))
+	program := neverAnswers(t)
 
 	// Act
-	err = checkRunCommand("bash", "cd /c/dev && echo ready\n", time.Second)
+	err := checkRunCommand(program, "bash", "cd /c/dev && echo ready\n", time.Second)
 
 	// Assert
 	want := "bash did not answer within 1s, so the command was not checked: try again"
 	if err == nil || err.Error() != want {
 		t.Fatalf("checkRunCommand(a Git Bash that never answers) = %v, want %q", err, want)
 	}
+}
+
+// neverAnswers puts the stand-in program where a test names it as a shell,
+// and has it hold whatever it is asked until it is ended.
+func neverAnswers(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	standin.RemoveAtCleanup(t, dir)
+	program := filepath.Join(dir, "never-answers.exe")
+	standin.Put(t, program)
+	for _, pair := range standin.Env("", standin.Rule{Any: true, Hold: true}) {
+		name, value, _ := strings.Cut(pair, "=")
+		t.Setenv(name, value)
+	}
+	return program
 }
 
 func TestABashRunCommandItCannotParseIsRefused(t *testing.T) {

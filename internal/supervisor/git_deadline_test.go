@@ -51,12 +51,6 @@ func TestMain(m *testing.M) {
 		time.Sleep(time.Minute)
 		os.Exit(0)
 	}
-	// A test's stand-in Windows PowerShell or Git Bash never answers, as
-	// CI's PowerShell sat past the run syntax check's wait.
-	if name := filepath.Base(os.Args[0]); strings.EqualFold(name, "powershell.exe") || strings.EqualFold(name, "bash.exe") {
-		time.Sleep(time.Minute)
-		os.Exit(0)
-	}
 	if stateDir := os.Getenv(lockHolderVariable); stateDir != "" {
 		os.Exit(holdWatcherLock(stateDir, os.Getenv(lockHolderModeVariable)))
 	}
