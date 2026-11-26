@@ -284,6 +284,24 @@ func awaitGone(t *testing.T, helper int) {
 	}
 }
 
+// A program that exits at once still has when it started, which the host's
+// record keeps, since it is read before anything waits for the program.
+func TestAProgramThatExitsAtOnceStillHasItsStart(t *testing.T) {
+	// Arrange
+	before := time.Now().Add(-time.Minute)
+
+	// Act
+	terminal, written := start(t, `exit 0`, 80, 24)
+	_, _ = written.end(t)
+	<-terminal.Done()
+
+	// Assert
+	started := terminal.StartTime()
+	if started.Before(before) || started.After(time.Now().Add(time.Minute)) {
+		t.Fatalf("the program started at %v, not within a minute of now", started)
+	}
+}
+
 func TestATerminalRefusesASizeOutsideTwoTo1000Cells(t *testing.T) {
 	// Arrange
 	terminal, _ := start(t, `read line`, 80, 24)

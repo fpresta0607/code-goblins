@@ -8,26 +8,21 @@ import (
 	"time"
 )
 
-// errNotPorted is what every host call returns on this system: a native
-// terminal runs in a Windows pseudo console, and the terminal for other
-// systems is still to be written.
-var errNotPorted = fmt.Errorf("host: native terminals are not ported to this system yet: %w", errors.ErrUnsupported)
+// errLaunchNotPorted is what launching or closing a host returns on this
+// system: a host started off Windows does not yet leave its launcher, and
+// nothing reads whether it still runs.
+var errLaunchNotPorted = fmt.Errorf("host: launching and closing a native terminal's host is not ported to this system yet: %w", errors.ErrUnsupported)
 
-// Run refuses, since no host runs on this system yet.
-func Run(stateDir string, spec Spec) error { return errNotPorted }
-
-// Launch refuses, since no host runs on this system yet.
+// Launch refuses, since no host is launched on this system yet.
 func Launch(stateDir string, command, env []string, spec Spec) (Record, error) {
-	return Record{}, errNotPorted
+	return Record{}, errLaunchNotPorted
 }
 
-// Close refuses, since no host runs on this system yet.
+// Close refuses, since no host is launched on this system yet.
 func Close(stateDir string, launched Record, answerWait time.Duration) error {
-	return errNotPorted
+	return errLaunchNotPorted
 }
 
-// Running reports no host running, since none runs on this system yet.
+// Running reports no host running, since no host is launched on this system
+// yet.
 func Running(record Record) bool { return false }
-
-// dialPipe refuses, since no host runs on this system yet.
-func dialPipe(name string, hostPID int) (hostConnection, error) { return nil, errNotPorted }

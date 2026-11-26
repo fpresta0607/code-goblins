@@ -17,6 +17,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 // Spec is one process to run in a pseudo terminal.
@@ -39,11 +40,12 @@ type Spec struct {
 // Its output ends once the process has exited and what it wrote is read, as a
 // pseudo console's does, even while a helper still holds the terminal.
 type Terminal struct {
-	ptmx *os.File
-	tree *execx.Tree
-	pid  int
-	done chan struct{}
-	code uint32
+	ptmx  *os.File
+	tree  *execx.Tree
+	pid   int
+	start time.Time
+	done  chan struct{}
+	code  uint32
 }
 
 // Start runs spec.Args in a new pseudo terminal of spec.Cols by spec.Rows.
@@ -90,7 +92,16 @@ func Start(spec Spec) (*Terminal, error) {
 		ptmx.Close()
 		return nil, fmt.Errorf("pty: start %s: %w", spec.Args[0], err)
 	}
-	terminal := &Terminal{ptmx: ptmx, tree: tree, pid: cmd.Process.Pid, done: make(chan struct{})}
+	// Nothing has waited for the process yet, so even one that has exited
+	// still has its start to read.
+	start, isRead := proc.StartTime(cmd.Process.Pid)
+	if !isRead {
+		_, _ = tree.End()
+		_ = cmd.Wait()
+		ptmx.Close()
+		return nil, fmt.Errorf("pty: read when %s started", spec.Args[0])
+	}
+	terminal := &Terminal{ptmx: ptmx, tree: tree, pid: cmd.Process.Pid, start: start, done: make(chan struct{})}
 	go terminal.wait(cmd)
 	return terminal, nil
 }
@@ -117,6 +128,12 @@ func exitCode(state *os.ProcessState) uint32 {
 // PID is the process the terminal was started with.
 func (t *Terminal) PID() int {
 	return t.pid
+}
+
+// StartTime is when the process started (proc.StartTime), read before
+// anything waited for it, so a process that exits at once still has one.
+func (t *Terminal) StartTime() time.Time {
+	return t.start
 }
 
 // Read reads what the process wrote to its terminal, escape sequences and
