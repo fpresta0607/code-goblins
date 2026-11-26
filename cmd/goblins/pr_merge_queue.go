@@ -12,14 +12,17 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/githubapi"
+	"github.com/fpresta0607/code-goblins/internal/train"
 )
 
 // mergeQueueQuery asks GitHub whether a pull request's base requires a merge
 // queue and whether the pull request is in it. GitHub answers for a queue a
-// ruleset requires and for one classic branch protection requires alike.
+// ruleset requires and for one classic branch protection requires alike. It
+// also reads the pull request's labels and their history, for whether it ever
+// carried the hold label.
 const mergeQueueQuery = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
-    pullRequest(number: $number) { isMergeQueueEnabled isInMergeQueue }
+    pullRequest(number: $number) { isMergeQueueEnabled isInMergeQueue labels(first:100){nodes{name}} timelineItems(itemTypes:[LABELED_EVENT],last:100){nodes{...on LabeledEvent{label{name}}}} }
   }
 }`
 
@@ -31,6 +34,8 @@ type mergeQueue struct {
 	IsRequired bool
 	// IsQueued says the pull request is in the queue already.
 	IsQueued bool
+	// HasCarriedHold says the pull request carries the hold label or once did.
+	HasCarriedHold bool
 }
 
 // readMergeQueue reads whether pullRequest's base requires a merge queue. An
@@ -57,6 +62,7 @@ func readMergeQueue(ctx context.Context, pullRequest string, commands execx.Runn
 				PullRequest *struct {
 					IsMergeQueueEnabled bool `json:"isMergeQueueEnabled"`
 					IsInMergeQueue      bool `json:"isInMergeQueue"`
+					train.GraphPullRequest
 				} `json:"pullRequest"`
 			} `json:"repository"`
 		} `json:"data"`
@@ -76,5 +82,5 @@ func readMergeQueue(ctx context.Context, pullRequest string, commands execx.Runn
 	if found == nil {
 		return mergeQueue{}, errors.New("GitHub did not find " + pullRequest + " to say whether its base requires a merge queue")
 	}
-	return mergeQueue{IsRequired: found.IsMergeQueueEnabled, IsQueued: found.IsInMergeQueue}, nil
+	return mergeQueue{IsRequired: found.IsMergeQueueEnabled, IsQueued: found.IsInMergeQueue, HasCarriedHold: found.PullRequest().HasCarriedHold}, nil
 }

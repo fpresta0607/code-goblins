@@ -27,6 +27,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/handoff"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/janitor"
+	"github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 	"github.com/fpresta0607/code-goblins/internal/train"
@@ -943,6 +944,12 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 		pollRunner := githubPollRunner{commands: runner, hold: hold}
 		handedOff := handedOffGoblins(s.Store.Home.State, mine)
 		listed, pullsUnreadable, pullsErr := pollPullRequests(ctx, runner, github, slug, s.Store.Home.State, w, repo, mine, handedOff, owners, now)
+		// A record that cannot be read starts no train, which runTrain
+		// reports; here it only words why a pull request waits.
+		manifest, _, _ := project.LoadForCheckout(s.Store.Home.Data, repo)
+		for i := range listed {
+			listed[i].LandsHeld = manifest.Delivery.PullRequestsLandHeld
+		}
 		if listed != nil {
 			w.recordKeptOff(mine, listed)
 			errs = errors.Join(errs, s.sightCloudWork(ctx, github, w, repo, mine, handedOff, listed, owners, now))
