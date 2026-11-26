@@ -55,7 +55,7 @@ type TaskMeta struct {
 	// --title, else its backlog row's, or the one goblins title wrote since;
 	// empty when it had none.
 	Title string
-	// GoblinName and GoblinTitle are the fun first name and title the goblin
+	// GoblinName and GoblinTitle are the fun name and title the goblin
 	// was given at spawn, such as Jerry and Code Designer, which the board,
 	// the merge train and the CEO call it by.
 	GoblinName  string

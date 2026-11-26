@@ -2712,7 +2712,7 @@ The page shows the file by its content, never its name: a PNG, JPEG, GIF or WebP
 An unchanged redelivery under the same ID changes nothing and opens no second page, and other content under that ID is refused.
 The board serves no copy of the file: its card is the page's card.
 A question's card offers Open review only for its asker's most recent live review page, from the same goblin session or the same CEO registration, so it never opens another task's page or one a replaced asker left behind; page links read Open review, never Lavish.
-Each History row is one line, the goblin's first name and the item cut short to fit, with its time and a chevron that opens it.
+Each History row is one line, the goblin's name and the item cut short to fit, with its time and a chevron that opens it.
 An open row keeps the full name, time and chevron on that line and shows the whole text and how it ended across the row below, each address in its text, how it ended and its reason a link.
 A step card whose values are stored opens to its page and steps and each input by its label, Already stored for a secret and Already sent to its asker for a plain value, with no value shown and nothing that stores, replaces or deletes one, since its pencil has nothing to change.
 Its **Something else?** opens the same window as the open card's and queues a `message` action to the card's goblin, or to the CEO for a card of no task or one whose goblin has ended, which names the card, and the ended goblin's task, and says its values are stored, and the row says Sent to whoever it went to.

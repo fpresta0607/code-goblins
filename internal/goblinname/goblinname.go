@@ -38,7 +38,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// Pair is a goblin's first name and title.
+// Pair is a goblin's name and title.
 type Pair struct {
 	Name  string `json:"name"`
 	Title string `json:"title"`
