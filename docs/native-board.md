@@ -1841,7 +1841,7 @@ A message still waiting in the queue opens its pictures among its own.
 `frontend/tests/chat-pictures.spec.ts` checks these at a desktop's and a phone's width, and `frontend/tests/iphone-chat-pictures.spec.ts` by touch in WebKit at an iPhone 15's size.
 A call that started a sub-agent is its baby goblin's row, never folded (#2932).
 While its goblin's tree holds that sub-agent, the whole row is one button named Open and the baby goblin's name as the canvas names it: it shows the baby goblin's head, its own description first, whole and wrapped across the row's width, and under it on one quiet line what every row of a round repeats, its name without the description, such as Grub II, its kind of agent and its own state, which a sub-agent started in the background keeps after its call came back at once, then a chevron, and it opens the same panel the canvas opens.
-The rows of one round begin alike, so the description leads and nothing beside it narrows it (#2957, `frontend/tests/baby-goblin-cleanup.spec.ts`).
+The rows of one round begin alike, so the description leads (#2957, `frontend/tests/baby-goblin-cleanup.spec.ts`).
 A call whose sub-agent the tree no longer holds, or holds not yet, goes by its own description, with its kind of agent and its call's state under it, and opens nothing, so no row reads Baby goblin.
 A compaction is folded to its summary, an interrupt is a plain Interrupted row, and a background task's notice is a quiet line.
 Each prompt he sent keeps a small row under it with Copy, which copies its words as written, and when it was sent; the row stays hidden until he taps the message or points at it where there is a pointer, and closes when he taps away.
