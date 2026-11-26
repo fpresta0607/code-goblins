@@ -295,3 +295,33 @@ for (const phase of ["paused", "resuming"] as const) {
     await expect(header(page).locator("#panel-title")).toHaveText(NAME);
   });
 }
+
+test("a goblin's header never draws Retry update as it goes from pausing to paused, though its terminal said its update failed", async ({ page }) => {
+  // Arrange
+  const relay = await open(page);
+  await openGoblin(page);
+  await expect.poll(() => relay.views).toBeGreaterThan(0);
+  relay.say({ ...idle, status: STATUS });
+  await expect(retryOf(page)).toBeVisible();
+  await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2 }, { phase: "pausing" }));
+  await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeHidden();
+  await expect(retryOf(page)).toHaveCount(0);
+  await page.evaluate(() => {
+    const added: string[] = [];
+    Object.assign(window, { retryUpdatesAdded: added });
+    const retry = 'button[aria-label="Retry the Claude Code update"]';
+    new MutationObserver((records) => {
+      for (const node of records.flatMap((record) => [...record.addedNodes])) {
+        if (node instanceof Element && (node.matches(retry) || node.querySelector(retry))) added.push(node.textContent ?? "");
+      }
+    }).observe(document.body, { subtree: true, childList: true });
+  });
+
+  // Act
+  await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 3 }, { phase: "paused" }));
+
+  // Assert
+  await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
+  await expect(retryOf(page)).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as { retryUpdatesAdded: string[] }).retryUpdatesAdded), "Retry update added on the way to paused").toEqual([]);
+});
