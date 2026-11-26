@@ -4,11 +4,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/standin"
 )
 
 // repairHome is the command of run item repair-home-v0.5.3, 2026-10-07: its
@@ -103,13 +105,73 @@ func TestARunCommandItsShellParsesIsTaken(t *testing.T) {
 // ended it, and the check said "exit status 1", the exit of a command that
 // does not parse.
 func TestARunCommandItsShellDoesNotAnswerInTimeIsRefusedAsUnchecked(t *testing.T) {
+	// Arrange
+	program, err := runShellPath("powershell", exec.LookPath, func(path string) bool {
+		info, err := os.Stat(path)
+		return err == nil && !info.IsDir()
+	}, os.Getenv("SystemRoot"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// Act
-	err := checkRunCommand("powershell", repairHome, time.Millisecond)
+	err = checkRunCommand(program, "powershell", repairHome, time.Millisecond)
 
 	// Assert
 	if err == nil || !strings.Contains(err.Error(), "powershell did not answer within 1ms") || strings.Contains(err.Error(), "exit status") {
 		t.Fatalf("checkRunCommand(a shell given 1ms) = %v, want it refused because the shell did not answer in time", err)
 	}
+}
+
+// A shell that sits out the whole wait is refused with what it did in that
+// time, so the next stall says whether the shell worked slowly, as from a
+// cold disk, or sat blocked: CI's powershell.exe sat past the 30 s wait on
+// 2026-10-14 (#866) and 2026-11-07 (#2142), and each refusal said only that
+// it did not answer.
+func TestAShellThatSitsOutTheWaitIsRefusedWithWhatItDidInThatTime(t *testing.T) {
+	// Arrange
+	program := neverAnswers(t)
+
+	// Act
+	err := checkRunCommand(program, "powershell", repairHome, time.Second)
+
+	// Assert
+	said := regexp.MustCompile(`^powershell did not answer within 1s \(in that time it used \S+ of processor time, [1-9]\d* page faults and \d+ bytes read in \d+ reads\), so the command was not checked: try again$`)
+	if err == nil || !said.MatchString(err.Error()) {
+		t.Fatalf("checkRunCommand(a shell that never answers) = %v, want it refused with the processor time, page faults and reads of the shell", err)
+	}
+}
+
+// Git's bin\bash.exe only starts the bash that parses and waits for it, so
+// what it did in the wait says nothing of the parse: a Git Bash that sits out
+// the wait is refused only as one that did not answer.
+func TestAGitBashThatSitsOutTheWaitIsRefusedWithoutWhatItsLauncherDid(t *testing.T) {
+	// Arrange
+	program := neverAnswers(t)
+
+	// Act
+	err := checkRunCommand(program, "bash", "cd /c/dev && echo ready\n", time.Second)
+
+	// Assert
+	want := "bash did not answer within 1s, so the command was not checked: try again"
+	if err == nil || err.Error() != want {
+		t.Fatalf("checkRunCommand(a Git Bash that never answers) = %v, want %q", err, want)
+	}
+}
+
+// neverAnswers puts the stand-in program where a test names it as a shell,
+// and has it hold whatever it is asked until it is ended.
+func neverAnswers(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	standin.RemoveAtCleanup(t, dir)
+	program := filepath.Join(dir, "never-answers.exe")
+	standin.Put(t, program)
+	for _, pair := range standin.Env("", standin.Rule{Any: true, Hold: true}) {
+		name, value, _ := strings.Cut(pair, "=")
+		t.Setenv(name, value)
+	}
+	return program
 }
 
 func TestABashRunCommandItCannotParseIsRefused(t *testing.T) {

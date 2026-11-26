@@ -30,10 +30,6 @@ const powershellParse = `$errors = $null; $script = [System.Management.Automatio
 // at PowerShell's prompt for the value, as the install card for main-6b7e7bc9
 // did on 2026-10-18. The shell parses the command and runs none of it.
 func CheckRunCommand(shell, command string) error {
-	return checkRunCommand(shell, command, runSyntaxWait)
-}
-
-func checkRunCommand(shell, command string, wait time.Duration) error {
 	exists := func(path string) bool {
 		info, err := os.Stat(path)
 		return err == nil && !info.IsDir()
@@ -42,6 +38,11 @@ func checkRunCommand(shell, command string, wait time.Duration) error {
 	if err != nil {
 		return err
 	}
+	return checkRunCommand(program, shell, command, runSyntaxWait)
+}
+
+// checkRunCommand has program, the shell's own program, parse command.
+func checkRunCommand(program, shell, command string, wait time.Duration) error {
 	dir, err := os.MkdirTemp("", "goblins-run-syntax-")
 	if err != nil {
 		return err
@@ -61,6 +62,19 @@ func checkRunCommand(shell, command string, wait time.Duration) error {
 		check = execx.CommandContext(ctx, program, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", powershellParse)
 		check.Env = append(os.Environ(), "GOBLINS_RUN_SYNTAX="+path)
 	}
+	// What a PowerShell did in the wait is read as the wait ends it, before
+	// it is killed: on 2026-10-14 and 2026-11-07 a CI runner's powershell.exe
+	// sat past the whole wait, and a parse it starts takes 0.3 s on a desktop,
+	// so the refusal says whether it worked slowly, as from a cold disk, or
+	// sat blocked. Git's bin\bash.exe only starts the bash that parses and
+	// waits for it, so what it did says nothing of the parse.
+	var use string
+	check.Cancel = func() error {
+		if shell != "bash" {
+			use = shellUse(check.Process)
+		}
+		return check.Process.Kill()
+	}
 	output, err := check.CombinedOutput()
 	var exit *exec.ExitError
 	switch {
@@ -70,7 +84,10 @@ func checkRunCommand(shell, command string, wait time.Duration) error {
 		// The context's end of the shell reads as exit status 1, the exit
 		// of a command that does not parse, so a shell cut off is named as
 		// one that did not answer.
-		return fmt.Errorf("%s did not answer within %s, so the command was not checked: try again", shell, wait)
+		if use != "" {
+			use = " (" + use + ")"
+		}
+		return fmt.Errorf("%s did not answer within %s%s, so the command was not checked: try again", shell, wait, use)
 	case errors.As(err, &exit) && exit.ExitCode() == 3 && shell != "bash":
 		named := strings.TrimPrefix(strings.TrimSpace(string(output)), "mandatory ")
 		return fmt.Errorf("the command's param block makes %s mandatory, and Run starts it with no arguments, so it would stop at a prompt for the value: put each value in the command itself", bounded(named, 300))

@@ -327,6 +327,9 @@ type commandRuntime struct {
 	// log a decision made under it; nil is the supervisor's pipe.
 	switchAFK func(h home.Home, on bool, asked string) error
 	logAFK    func(h home.Home, entry afk.Entry) error
+	// checkRunCommand checks with its shell a command the Overlord runs,
+	// for goblins afk log --run; nil is supervisor.CheckRunCommand.
+	checkRunCommand func(shell, command string) error
 	// logTrainLanding asks the supervisor to log a pull request a merge
 	// train landed while AFK mode is on; nil is the supervisor's pipe.
 	logTrainLanding func(h home.Home, trainID, url string) error

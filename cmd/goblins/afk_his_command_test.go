@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -21,6 +22,8 @@ func TestAFKLogSendsACommandTheOverlordRunsWithItsShell(t *testing.T) {
 			runtime, _ := afkRuntime(t)
 			var sent afk.Entry
 			runtime.logAFK = func(_ home.Home, entry afk.Entry) error { sent = entry; return nil }
+			var checked []string
+			runtime.checkRunCommand = func(shell, command string) error { checked = append(checked, shell, command); return nil }
 			file := filepath.Join(t.TempDir(), tc.file)
 			if err := os.WriteFile(file, []byte("gh auth refresh -h github.com -s user\n"), 0o600); err != nil {
 				t.Fatal(err)
@@ -33,7 +36,34 @@ func TestAFKLogSendsACommandTheOverlordRunsWithItsShell(t *testing.T) {
 			if exit != 0 || sent.Kind != afk.KindHis || sent.Shell != tc.shell || sent.Command != "gh auth refresh -h github.com -s user\n" {
 				t.Errorf("exit=%d stderr=%q sent=%+v, want his step with its command and the %s shell", exit, stderr, sent, tc.shell)
 			}
+			if !slices.Equal(checked, []string{tc.shell, "gh auth refresh -h github.com -s user\n"}) {
+				t.Errorf("checked %q, want the command checked once with the %s shell", checked, tc.shell)
+			}
 		})
+	}
+}
+
+// A command its shell refuses, as one that does not parse or one whose shell
+// did not answer in time, is refused with what the check said, and nothing
+// is logged.
+func TestAFKLogRefusesACommandItsShellsCheckRefuses(t *testing.T) {
+	// Arrange
+	runtime, _ := afkRuntime(t)
+	sent := 0
+	runtime.logAFK = func(home.Home, afk.Entry) error { sent++; return nil }
+	refusal := "powershell did not answer within 30s, so the command was not checked: try again"
+	runtime.checkRunCommand = func(string, string) error { return errors.New(refusal) }
+	file := filepath.Join(t.TempDir(), "refresh.ps1")
+	if err := os.WriteFile(file, []byte("gh auth refresh\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	exit, _, stderr := afkCommand(runtime, "log", "--kind", "his", "--what", "Let the fleet read what GitHub bills", "--evidence", "his own sign-in", "--run", file)
+
+	// Assert
+	if exit != 2 || sent != 0 || !strings.Contains(stderr, file+": "+refusal) {
+		t.Errorf("exit=%d sent=%d stderr=%q, want it refused with the check's words before anything is logged", exit, sent, stderr)
 	}
 }
 
