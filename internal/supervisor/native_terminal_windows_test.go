@@ -39,6 +39,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/pipeline/pipelinetest"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -1648,6 +1649,132 @@ func TestTheRelayPressesNoTypedMessagesEnterOnceAGateTakesTheTaskWhileItWaits(t 
 	time.Sleep(2 * nativeSubmitSettle)
 	if got, want := terminal.lines(t), []string{"starting a tool", "started the tool"}; !slices.Equal(got, want) {
 		t.Fatalf("the program took %q, want %q", got, want)
+	}
+}
+
+// A submission the relay takes while it lets Claude Code settle typed words
+// it already shows ends the wait with no Enter, as one it takes before they
+// show does: just before it presses, it reads again whether typing is free
+// and the submission still the message's (#2848's review).
+func TestTheRelayPressesNoTypedMessagesEnterOnceItTakesAnotherSubmissionAsItsWordsSettle(t *testing.T) {
+	// Arrange: Claude Code's prompt line shows the message's words.
+	h, server := nativeBoard(t, "direct")
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	terminal := hostTask(t, h)
+	record, err := host.ReadRecord(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+	v.send(t, websocket.MessageBinary, "harness\r")
+	v.send(t, websocket.MessageText, `{"type":"submit","submission":"words"}`)
+	v.send(t, websocket.MessageBinary, "please run /ship")
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
+		screen, err := host.ReadScreen(record)
+		if err == nil && strings.Contains(strings.Join(screen, "\n"), "❯ please run /ship") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the prompt line never showed the typed words; the screen shows %q, %v", screen, err)
+		}
+	}
+
+	// Act: the view asks for the Enter, and the relay takes another
+	// submission within the settle.
+	v.send(t, websocket.MessageText, `{"type":"enter","submission":"words","text":"please run /ship"}`)
+	time.Sleep(nativeSubmitSettle / 3)
+	v.send(t, websocket.MessageText, `{"type":"submit","submission":"next"}`)
+
+	// Assert
+	v.waitFor(t, `{"type":"entered","submission":"words","pressed":false,"typed":true}`)
+	if lines := terminal.lines(t); len(lines) != 0 {
+		t.Fatalf("the program took %q, want nothing", lines)
+	}
+}
+
+// No board delivery types into a terminal while a view of it waits to press
+// the Enter of a message it typed as keys, as none types onto words its
+// prompt line holds: keys Claude Code has not read yet show nothing there,
+// and words typed behind them joined the message's, which one Enter then sent
+// as one message, or none did, though the box said they wait unsent (#2848's
+// review).
+func TestNoBoardDeliveryTypesIntoATerminalWhileAViewWaitsToPressATypedMessagesEnter(t *testing.T) {
+	for name, test := range map[string]struct {
+		query, key string
+		// start makes the terminal's program Claude Code, and it records
+		// recorded lines meanwhile.
+		start    string
+		recorded int
+		deliver  func(*testing.T, context.Context, *HTTP) error
+		refusal  error
+	}{
+		"a goblin's": {viewQuery, "task-1", "harness", 0, func(t *testing.T, ctx context.Context, h *HTTP) error {
+			meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = h.Service.Options.CEO.SendGoblin(ctx, meta.ID, goblinIdentity(meta), "and /review it")
+			return err
+		}, spawn.ErrUnsentWords},
+		"the CEO's": {ceoQuery, NativeCEOTerminal, "register", 1, func(t *testing.T, ctx context.Context, h *HTTP) error {
+			_, err := h.Service.Options.CEO.Send(ctx, registrationIdentity(t, h.Service.Store.Home.State), "and /review it")
+			return err
+		}, ErrDeferred},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange: a tool that reads nothing for 2 s, the message's keys
+			// typed and unread, and its Enter asked for.
+			h, server := nativeBoard(t, "direct")
+			stateDir := h.Service.Store.Home.State
+			h.Service.Options.CEO = &CEOConnection{State: stateDir}
+			meta, err := state.ReadTaskMeta(stateDir, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta.Harness = "claude"
+			if err := state.WriteTaskMeta(stateDir, meta); err != nil {
+				t.Fatal(err)
+			}
+			terminal := hostTerminal(t, stateDir, test.key)
+			v := openNativeView(t, server, test.query)
+			v.waitFor(t, "program ready")
+			v.send(t, websocket.MessageBinary, test.start+"\rstart a tool for 2s\r")
+			if lines := terminal.waitForLines(t, test.recorded+1); len(lines) != test.recorded+1 || lines[test.recorded] != "starting a tool" {
+				t.Fatalf("the program never started its tool; it recorded %q", lines)
+			}
+			v.send(t, websocket.MessageText, `{"type":"submit","submission":"words"}`)
+			v.send(t, websocket.MessageBinary, "please run /ship")
+			v.send(t, websocket.MessageText, `{"type":"enter","submission":"words","text":"please run /ship"}`)
+			v.waitFor(t, `{"type":"unread","unread":true}`)
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			// Act
+			err = test.deliver(t, ctx, h)
+
+			// Assert: nothing was typed, and the Enter goes over the words
+			// alone once the tool ends, after which the board holds nothing.
+			if !errors.Is(err, test.refusal) {
+				t.Errorf("the delivery returned %v, want it refused as %v while the Enter waits", err, test.refusal)
+			}
+			v.waitFor(t, `{"type":"entered","submission":"words","pressed":true,"typed":true}`)
+			if got, want := terminal.waitForLines(t, test.recorded+3)[test.recorded:], []string{"starting a tool", "started the tool", "please run /ship"}; !slices.Equal(got, want) {
+				t.Fatalf("the program took %q, want %q", got, want)
+			}
+			for deadline := time.Now().Add(time.Second); h.Service.Options.CEO.isEnterAwaited(test.key); time.Sleep(10 * time.Millisecond) {
+				if time.Now().After(deadline) {
+					t.Fatal("the board still holds its deliveries once the relay pressed the Enter")
+				}
+			}
+		})
 	}
 }
 

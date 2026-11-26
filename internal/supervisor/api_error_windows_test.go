@@ -202,6 +202,36 @@ func TestAGoblinAtWorkInItsTerminalIsNotRestartedAfterAnAPIError(t *testing.T) {
 	}
 }
 
+// A goblin whose terminal a view waits to press a typed message's Enter in has
+// someone at work there too, whose keys it may not have read yet, so no note
+// is typed behind them, and it is carried on once the Enter is answered and
+// its screen still shows the error (#2848's review).
+func TestAGoblinWhoseTypedMessagesEnterAViewAwaitsIsCarriedOnOnlyOnceItIsAnswered(t *testing.T) {
+	// Arrange
+	board := newAPIErrorBoard(t, "claude", "opus", claudeAtAPIError)
+	board.service.Options.CEO = &CEOConnection{State: board.service.Store.Home.State}
+	answered := board.service.Options.CEO.awaitEnter(board.meta.ID)
+	now := time.Now()
+
+	// Act
+	board.service.carryOnAfterAPIErrors(t.Context(), now)
+
+	// Assert
+	if len(board.typed) != 0 || len(board.spawner.recorded()) != 0 {
+		t.Fatalf("typed %q, spawned %q; want nothing while the Enter waits", board.typed, board.spawner.recorded())
+	}
+
+	// Act: the relay answers the Enter.
+	answered()
+	board.service.carryOnAfterAPIErrors(t.Context(), now.Add(apiErrorCarryOnEvery))
+
+	// Assert
+	want := []string{"goblin holds true, now false, his false: " + goblinLine(apiErrorNote)}
+	if !slices.Equal(board.typed, want) || len(board.spawner.recorded()) != 0 {
+		t.Errorf("typed %q, spawned %q; want %q and no restart", board.typed, board.spawner.recorded(), want)
+	}
+}
+
 // Nothing carries on a goblin at an ordinary prompt, nor one whose harness
 // gave up on a refusal routing names, as a rate limit, which the watcher
 // routes, nor one on an API the supervisor does not know, as a pi model that

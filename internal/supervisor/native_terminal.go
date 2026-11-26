@@ -628,14 +628,21 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 			if control.Type == "enter" {
 				// The Enter waits beside the view's input, so its
 				// acknowledgements and resizes go on meanwhile. Its keys came
-				// before it, so whether the relay typed them is known now.
+				// before it, so whether the relay typed them is known now. No
+				// board delivery types into the terminal while it waits
+				// (CEOConnection.awaitEnter).
 				relay.mu.Lock()
 				isTaken := control.Submission == relay.submission
 				relay.mu.Unlock()
 				submission, text, isTyped := control.Submission, control.Text, isTaken && isSubmissionTyped
+				answered := func() {}
+				if ceo := h.Service.Options.CEO; ceo != nil {
+					answered = ceo.awaitEnter(binding.key)
+				}
 				entering.Add(1)
 				go func() {
 					defer entering.Done()
+					defer answered()
 					isPressed := isTaken && pressTyped(submission, text)
 					if isPressed && terminal.Input([]byte("\r")) != nil {
 						_ = view.Close(websocket.StatusGoingAway, "Input outcome is unknown. Inspect the terminal before typing again.")

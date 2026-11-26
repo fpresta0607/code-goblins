@@ -463,6 +463,46 @@ for (const [how, screen] of [
   });
 }
 
+// The view he left keeps its connection only until the relay answers, and one
+// the relay closes first, as the board's restart does, ends the wait with no
+// box drawn: once he is back, the box says the words wait unsent, gives the
+// model back and types his next message. Still waiting, it queued every
+// message through the board and kept the model's button disabled until the
+// page reloaded (#2848's review).
+test("a typed message whose view he left is closed before its Enter is answered says its words wait unsent once he is back, and the box types his next one", async ({ page }) => {
+  // Arrange: he leaves for another goblin while the Enter waits.
+  const relay = await typeSkill(page);
+  const posts: string[] = [];
+  await page.route("**/api/actions", (route) => {
+    posts.push((route.request().postDataJSON() as { text?: string }).text ?? "");
+    return route.fulfill({ status: 202, json: { status: "queued" } });
+  });
+  await card(page, "Ivy - Window Painter").click();
+  await expect(page.locator("#panel-title")).toHaveText("Ivy - Window Painter");
+
+  // Act: the relay closes the view he left, and he comes back.
+  relay.drop();
+  await card(page, NAME).click();
+  await expect(page.locator("#panel-title")).toHaveText(NAME);
+
+  // Assert
+  await expect(box(page).getByRole("alert")).toHaveText(WORDS_WAIT_UNSENT);
+
+  // Act: the prompt line shows no words, and he sends another message.
+  relay.say({ ...shows(false, 13), submission: "his" });
+  await expect.poll(async () => {
+    await page.clock.runFor(50);
+    return box(page).getByRole("status", { name: "Terminal status" }).allTextContents();
+  }).toEqual(["13% context used"]);
+  await expect(box(page).getByRole("button", { name: "Change model", exact: true })).toBeEnabled();
+  await field(page).fill("then run /review");
+  await send(page).click();
+
+  // Assert
+  await expect.poll(() => relay.typed.at(-1)).toBe("then run /review");
+  expect(posts).toEqual([]);
+});
+
 // A view a reconnect replaced keeps its connection in the same way, and the
 // box hears what became of its Enter, though another view is the terminal's
 // now.

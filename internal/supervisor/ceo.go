@@ -71,6 +71,10 @@ type CEOConnection struct {
 	// typing lets one writer at a time read and type into the CEO's native
 	// terminal, so a typed wake and a board send never share its composer.
 	typing sync.Mutex
+	// enters counts, by the terminal's key, the messages its views typed as
+	// keys and wait to press the Enter of, and entersMu guards it.
+	enters   map[string]int
+	entersMu sync.Mutex
 	// skipped is the newest untyped wake and why, as last recorded in
 	// ceoWakeSkipsFile, so each is recorded once.
 	skipped string
@@ -524,6 +528,36 @@ func (c *CEOConnection) SendNotice(ctx context.Context, identity, text string) (
 	return c.sendNative(ctx, identity, stampedForCEO(text), false, false)
 }
 
+// awaitEnter records that a view of the terminal key names waits to press the
+// Enter of a message it typed as keys, until the func it returns is called.
+// No board delivery types into that terminal meanwhile: keys its harness has
+// not read yet show nothing on its prompt line, and words typed behind them
+// would join the message's, as words the line shows would (#2848's review).
+func (c *CEOConnection) awaitEnter(key string) func() {
+	c.entersMu.Lock()
+	defer c.entersMu.Unlock()
+	if c.enters == nil {
+		c.enters = map[string]int{}
+	}
+	c.enters[key]++
+	return func() {
+		c.entersMu.Lock()
+		defer c.entersMu.Unlock()
+		c.enters[key]--
+		if c.enters[key] == 0 {
+			delete(c.enters, key)
+		}
+	}
+}
+
+// isEnterAwaited says whether a view of the terminal key names waits to press
+// the Enter of a message it typed as keys.
+func (c *CEOConnection) isEnterAwaited(key string) bool {
+	c.entersMu.Lock()
+	defer c.entersMu.Unlock()
+	return c.enters[key] > 0
+}
+
 // nativeSubmitSettle lets a harness take typed text before its submit key:
 // the CEO's, and one a native view typed a message into (nativeTerminal).
 const nativeSubmitSettle = 300 * time.Millisecond
@@ -619,6 +653,11 @@ func (c *CEOConnection) sendNative(ctx context.Context, identity, line string, s
 	}
 	c.typing.Lock()
 	defer c.typing.Unlock()
+	// A message a view typed as keys holds the CEO's input until its Enter is
+	// pressed or refused, as words the input shows do (awaitEnter).
+	if c.isEnterAwaited(primary.Host) {
+		return Evaluation{Reason: "The CEO's input is not empty and ready. Your answer is queued; nothing was sent."}, ErrDeferred
+	}
 	delivery, err := host.DialDelivery(record)
 	if errors.Is(err, host.ErrNoDelivery) {
 		return Evaluation{}, fmt.Errorf("%w: %v; start the CEO again so its terminal can confirm what the board sends", ErrRejected, err)

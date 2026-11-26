@@ -268,6 +268,11 @@ func (c *CEOConnection) sendGoblin(ctx context.Context, taskID, identity, text s
 	if meta.Backend != "native" {
 		return Evaluation{}, fmt.Errorf("%w: the goblin's task was recorded in Herdr by an older build, which this build cannot reach; nothing was sent", ErrRejected)
 	}
+	// A message a view typed as keys holds the prompt line until its Enter is
+	// pressed or refused, as words the line shows do (awaitEnter).
+	if c.isEnterAwaited(meta.ID) {
+		return Evaluation{}, fmt.Errorf("%w: %w: a view of its terminal waits to press the Enter of a message typed there", fleet.ErrNotTyped, spawn.ErrUnsentWords)
+	}
 	if err := typeIntoGoblin(ctx, c.State, meta, goblinLine(text), holds, sendsNow, his); err != nil {
 		return Evaluation{}, err
 	}

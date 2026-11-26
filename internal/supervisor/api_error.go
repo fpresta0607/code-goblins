@@ -54,10 +54,11 @@ func (s *Service) keepCarryingOnAfterAPIErrors(ctx context.Context, every time.D
 // API answering again: it types the goblin a note, held for a turn, and
 // restarts it in place when its terminal takes no typing. A goblin whose
 // prompt line holds words never sent, or whose harness shows a screen of its
-// own, is someone's at work there and is left to the CEO's api_error wake. An
-// error routing names as a provider's refusal, such as a rate limit, is the
-// watcher's to route, and a goblin carried on within apiErrorCarryOnGap
-// waits.
+// own, is someone's at work there and is left to the CEO's api_error wake, and
+// one whose terminal a view waits to press a typed message's Enter in is left
+// until that Enter is answered (CEOConnection.awaitEnter). An error routing
+// names as a provider's refusal, such as a rate limit, is the watcher's to
+// route, and a goblin carried on within apiErrorCarryOnGap waits.
 func (s *Service) carryOnAfterAPIErrors(ctx context.Context, now time.Time) {
 	stateDir := s.Store.Home.State
 	answers := map[string]error{}
@@ -97,6 +98,9 @@ func (s *Service) carryOnAfterAPIErrors(ctx context.Context, now time.Time) {
 			answers[origin] = answer
 		}
 		if answer != nil {
+			continue
+		}
+		if s.Options.CEO != nil && s.Options.CEO.isEnterAwaited(meta.ID) {
 			continue
 		}
 		if s.apiErrorCarried == nil {
