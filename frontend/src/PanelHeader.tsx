@@ -16,6 +16,7 @@ import { OPEN_AFK_REPORT } from "./afk";
 import { PanelRow, type PanelControl } from "./panel-row";
 import { CeoUpdate } from "./ceo-update";
 import { RestartPcButton } from "./restart-pc-button";
+import { UpdateCheckButton } from "./update-check-button";
 import { finishedEvidence, goblinName, taskSummary } from "./task-words";
 import { RawDetails } from "./raw-details";
 import { taskStatus } from "./task-status";
@@ -38,11 +39,13 @@ import vscodeLogo from "/assets/vscode.svg";
 // row's end, then row, the panel's controls with Close or Back. The CEO's rare
 // states take a line of their own under the row, at its end, only while one
 // shows: Restart PC while the kernel's pools are past their line and Update
-// while an update of the CEO's harness waits, so the row keeps its room. So
-// does why the Chat view's conversation is stale or its stream cannot be kept
-// (chatState), and a dropped connection is a quiet dot on the picture, which
-// takes no room, so nothing moves while it reconnects (2026-10-28): neither
-// is ever a notice over the conversation (#2438).
+// while an update of the CEO's harness waits, so the row keeps its room.
+// Retry update takes that line too, the CEO's or a goblin's, while the
+// conversation's terminal says its harness's update failed (failedUpdate,
+// #2956). So does why the Chat view's conversation is stale or its stream
+// cannot be kept (chatState), and a dropped connection is a quiet dot on the
+// picture, which takes no room, so nothing moves while it reconnects
+// (2026-10-28): neither is ever a notice over the conversation (#2438).
 // While the Chat view shows a conversation both styles can draw, the picture,
 // the CEO's and every goblin's, opens the choice of chat style, styleChoice,
 // with the style shown chosen (PanelStyleMenu); Close or Back goes back to
@@ -55,7 +58,7 @@ import vscodeLogo from "/assets/vscode.svg";
 // and the words that sentence leaves out behind Details, where a failure links
 // to the task's log, the task's buttons, and on the CEO's panel the last AFK
 // report and what a press of Update waits for.
-export function PanelHeader({ task, node, snapshot, isDetails = false, switcher, row, styleChoice, chatState, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; isDetails?: boolean; switcher?: ReactNode; row?: { controls: PanelControl[]; corner: ReactNode; notice?: ReactNode }; styleChoice?: StyleChoice; chatState?: ChatState; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
+export function PanelHeader({ task, node, snapshot, isDetails = false, switcher, row, styleChoice, chatState, failedUpdate, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; isDetails?: boolean; switcher?: ReactNode; row?: { controls: PanelControl[]; corner: ReactNode; notice?: ReactNode }; styleChoice?: StyleChoice; chatState?: ChatState; failedUpdate?: { harness: string; notice: string }; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
   const [opening, setOpening] = useState(false);
   const [feedback, showFeedback] = useClickFeedback();
   const ceo = !task && !node;
@@ -133,6 +136,7 @@ export function PanelHeader({ task, node, snapshot, isDetails = false, switcher,
     {ceo && snapshot.ceo_update?.pending && <Notice tone="warning" icon="clock">Restarts onto the {harnessName(snapshot.ceo_update.harness)} update when its turn ends.</Notice>}
   </div>;
   const picture = <Avatar persona={ceo ? "ceo" : personaFor(task, node)} small />;
+  const updateCheck = failedUpdate && <UpdateCheckButton snapshot={snapshot} harness={failedUpdate.harness} notice={failedUpdate.notice} />;
   return <>
     <header className={"panel-header one-row" + (ceo ? " is-ceo" : "")}>
       <div className={"panel-identity" + (chatState?.isReconnecting ? " is-reconnecting" : "")}>
@@ -143,10 +147,11 @@ export function PanelHeader({ task, node, snapshot, isDetails = false, switcher,
       {switcher}
       {row && <PanelRow {...row} isShared />}
     </header>
-    {ceo && <div className="ceo-header-line">
+    {ceo ? <div className="ceo-header-line">
       <RestartPcButton snapshot={snapshot} />
       <CeoUpdate snapshot={snapshot} />
-    </div>}
+      {updateCheck}
+    </div> : updateCheck && <div className="panel-header-line">{updateCheck}</div>}
     {chatState?.trouble && <p className="panel-chat-state" role="status">{chatState.trouble}</p>}
   </>;
 }

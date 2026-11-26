@@ -11,7 +11,11 @@
 .harness-update:disabled { opacity: .7; }
 @media (prefers-reduced-motion: reduce) { .harness-update { transition: none; } }
 /* Restart PC wears the same pill in amber, the colour of a meter past its
-   mark, and its question lists what the restart does in order. */
-.harness-update.pc-restart { border-color: var(--amber); box-shadow: 0 0 14px #f3c5782a; }
-.harness-update.pc-restart .icon { color: var(--amber); }
+   mark, and its question lists what the restart does in order. Retry update
+   wears it in the amber of the terminal's notice of a failed update, with
+   that notice and how its last check ended on a quiet row of their own under
+   the line's pills, at its end (#2956). */
+.harness-update:is(.pc-restart, .update-check) { border-color: var(--amber); box-shadow: 0 0 14px #f3c5782a; }
+.harness-update:is(.pc-restart, .update-check) .icon { color: var(--amber); }
+.update-check-said { flex-basis: 100%; margin: 0; color: var(--muted); font-size: .8125rem; text-align: right; overflow-wrap: anywhere; }
 .restart-pc-steps { margin: 14px 0 0; padding-left: 1.4em; text-align: left; line-height: 1.55; }

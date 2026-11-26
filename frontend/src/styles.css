@@ -525,7 +525,7 @@ button:focus:not(:focus-visible), summary:focus:not(:focus-visible), [tabindex]:
    below, so it never widens the row or pushes the conversation down. In a
    panel it is no wider than the panel's room, so the panel's edge never
    cuts it. */
-.window-feedback, .afk-header > .notice, .ceo-header-line > .notice { position: absolute; top: calc(100% + 6px); right: 0; z-index: 4; width: max-content; max-width: min(360px, 80vw, calc(100cqi - 16px)); }
+.window-feedback, .afk-header > .notice, :is(.ceo-header-line, .panel-header-line) > .notice { position: absolute; top: calc(100% + 6px); right: 0; z-index: 4; width: max-content; max-width: min(360px, 80vw, calc(100cqi - 16px)); }
 .dev-drive-setting { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 16px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 .dev-drive-setting > button { flex: none; white-space: nowrap; }
 .dev-drive-setting > p, .dev-drive-setting > .notice { flex: 1 0 100%; margin: 0; }
@@ -1497,11 +1497,11 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 }
 .fills-phone .panel-header.one-row { padding: 4px 6px; }
 /* The CEO's rare states, Restart PC and Update, take a line of their own under
-   its header's row, at the row's end, and the line takes no room while
-   neither shows. */
-.ceo-header-line { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: 0 8px; }
-.ceo-header-line:has(> :is(button, .muted)) { padding-block: 6px; }
-.fills-phone .ceo-header-line { margin-inline: 6px; }
+   its header's row, at the row's end, and so does Retry update, on the CEO's
+   panel or a goblin's (#2956). The line takes no room while none shows. */
+:is(.ceo-header-line, .panel-header-line) { position: relative; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; margin: 0 8px; }
+:is(.ceo-header-line, .panel-header-line):has(> :is(button, .muted)) { padding-block: 6px; }
+.fills-phone :is(.ceo-header-line, .panel-header-line) { margin-inline: 6px; }
 /* Why the conversation drawn is stale is one quiet line under the row, as the
    CEO's rare states are, in muted words after a warning dot, never a notice
    over the conversation (#2438). A dropped connection is a quiet warning dot
@@ -1521,7 +1521,7 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
    as every control of a panel keeps from the next. */
 .panel-view-switch { display: flex; flex: none; align-self: center; gap: 8px; padding: 0; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--field-bg); }
 .goblin-panel > .panel-top { order: 0; }
-.goblin-panel > :is(.panel-header, .ceo-header-line, .panel-chat-state) { order: 1; }
+.goblin-panel > :is(.panel-header, .ceo-header-line, .panel-header-line, .panel-chat-state) { order: 1; }
 .goblin-panel > .panel-task { order: 3; }
 .panel-view-switch > button { display: inline-grid; place-items: center; width: 44px; min-height: 44px; padding: 0; border-color: transparent; border-radius: 999px; background: transparent; color: var(--muted); }
 .panel-view-switch .icon { width: 17px; height: 17px; }

@@ -89,8 +89,10 @@ func TestCleanupSaysWhatBecomesOfARowItCannotMove(t *testing.T) {
 	const backlog = "## Queued\n- **g1** - Ship it\n- **g1** - Ship it twice\n"
 	for _, testCase := range []struct {
 		name, status, want string
+		isAccepted         bool
 	}{
 		{name: "delivered", status: "2026-10-07T10:00:00Z done: PR https://github.com/owner/project/pull/42\n", want: "the supervisor moves it to ## Done once it can"},
+		{name: "accepted before cleanup", isAccepted: true, want: "the supervisor moves it to ## Done once it can"},
 		{name: "not delivered", want: "the scheduler does not start it again and wakes you about the row"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -103,6 +105,18 @@ func TestCleanupSaysWhatBecomesOfARowItCannotMove(t *testing.T) {
 			}
 			if testCase.status != "" {
 				if err := os.WriteFile(filepath.Join(fixture.stateDir, "g1.status"), []byte(testCase.status), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if testCase.isAccepted {
+				fixture.meta.SpawnGen = "s1"
+				if err := state.WriteTaskMeta(fixture.stateDir, fixture.meta); err != nil {
+					t.Fatal(err)
+				}
+				digest := strings.Repeat("d", 64)
+				at := time.Date(2026, 11, 26, 9, 0, 0, 0, time.UTC)
+				accepted := state.AcceptedDelivery{Receipt: state.InstallationReceipt{Task: "g1", Generation: "s1", Image: state.InstalledImage{Path: filepath.Join(data, "g1", "tool.exe"), SHA256: digest}, Daemon: state.InstalledDaemon{PID: 7, Started: at}}, Report: filepath.Join(data, "g1", "report.md"), ReportSHA256: digest, AcceptedBy: "registered-ceo", At: at}
+				if err := state.WriteAcceptedDelivery(fixture.stateDir, accepted); err != nil {
 					t.Fatal(err)
 				}
 			}

@@ -43,14 +43,15 @@ export type PanelView = "terminal" | "task" | "screen";
 // draws them only otherwise, and under no heading of that column (#1598). A
 // goblin's baby goblin (child) has the same panel, with its name and its task
 // above its terminal, which is all it shows.
-export function GoblinPanel({ task, node, child, snapshot, connected, reviews, view, views, onView, shouldFocusScreen, maximized, side, isBoardShown, now, presentations, cardStart, onAnswer, onOpenTask, onConnectors, row, styleChoice, chatState }: {
+export function GoblinPanel({ task, node, child, snapshot, connected, reviews, view, views, onView, shouldFocusScreen, maximized, side, isBoardShown, now, presentations, cardStart, onAnswer, onOpenTask, onConnectors, row, styleChoice, chatState, failedUpdate }: {
   task?: Task; node?: Session; child?: TreeNode; snapshot: Snapshot; connected: boolean; reviews: ReviewControls;
   view: PanelView; views: PanelView[]; onView: (view: PanelView) => void; shouldFocusScreen: boolean; maximized: boolean; side: HTMLElement | null; isBoardShown: boolean;
   now: number; presentations: BoardActivity[]; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onConnectors: () => void;
   // row is the top row's controls, corner button and notice (see PanelRow),
-  // styleChoice the chat style its picture offers and chatState what keeps its
-  // conversation from being the session's own now (see PanelHeader).
-  cardStart: CardStarter; row: { controls: PanelControl[]; corner: ReactNode; notice?: ReactNode }; styleChoice?: StyleChoice; chatState: ChatState;
+  // styleChoice the chat style its picture offers, chatState what keeps its
+  // conversation from being the session's own now and failedUpdate the update
+  // its terminal says failed (see PanelHeader).
+  cardStart: CardStarter; row: { controls: PanelControl[]; corner: ReactNode; notice?: ReactNode }; styleChoice?: StyleChoice; chatState: ChatState; failedUpdate?: { harness: string; notice: string };
 }) {
   const owner = !!task && ownsTaskSession(node, task);
   // A failure's Open the log opens the Activity section and brings it into view.
@@ -91,7 +92,7 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, v
     {createPortal(taskList, taskHost)}
   </>;
   return <section className={"goblin-panel" + ((child ? task : view === "terminal") ? " showing-terminal" : "")} aria-labelledby="panel-title">
-    {child && task ? <><PanelRow {...row} /><BabyHeader goblin={task} child={child} now={now} /></> : <PanelHeader task={task} node={node} snapshot={snapshot} row={row} switcher={<PanelViewSwitch view={view} views={maximized ? views.filter((each) => each !== "task") : views} onView={onView} />} onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} styleChoice={styleChoice} chatState={chatState} />}
+    {child && task ? <><PanelRow {...row} /><BabyHeader goblin={task} child={child} now={now} /></> : <PanelHeader task={task} node={node} snapshot={snapshot} row={row} switcher={<PanelViewSwitch view={view} views={maximized ? views.filter((each) => each !== "task") : views} onView={onView} />} onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} styleChoice={styleChoice} chatState={chatState} failedUpdate={failedUpdate} />}
     {list}
     {task?.browser && view === "screen" && <div className="panel-screen">
       <ScreenView key={task.generation} task={task.id} generation={task.generation} name={goblinName(task)} instance={snapshot.instance} connected={connected} shouldFocus={shouldFocusScreen} />

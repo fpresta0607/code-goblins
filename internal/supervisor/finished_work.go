@@ -20,10 +20,10 @@ import (
 
 // finishedWork is what says a queued task already finished, for a pass over
 // the queue: the archived status logs, listed once on the first need, and the
-// fleet's history. A task whose outcome says it delivered is not queued at
-// all (fleet.ReadQueuedTask); this reads everything else that says so. On
-// 2026-10-07 the CEO had left 24 finished rows under Queued, each with its
-// brief on disk, which the scheduler would have started again.
+// fleet's history. A task that delivered (state.DeliveredAt) is not queued at
+// all (fleet.ReadQueuedTask); this reads everything else that says it
+// finished. On 2026-10-07 the CEO had left 24 finished rows under Queued,
+// each with its brief on disk, which the scheduler would have started again.
 type finishedWork struct {
 	home     home.Home
 	history  []Task
@@ -184,11 +184,11 @@ func tellRetiredRows(stateDir string, retired map[string]state.Outcome) error {
 	return problems
 }
 
-// closeDeliveredRows moves each task under ## Queued whose outcome says it
-// delivered to ## Done, as cleanup does when it retires one: for a task an
-// older build retired, or one whose cleanup met the backlog's lock. A task
-// live again keeps its row, and a lock held by a start in flight is left for
-// the next pass.
+// closeDeliveredRows moves each task under ## Queued that delivered
+// (state.DeliveredAt) to ## Done, as cleanup does when it retires one: for a
+// task an older build retired, or one whose cleanup met the backlog's lock. A
+// task live again keeps its row, and a lock held by a start in flight is left
+// for the next pass.
 func (s *Service) closeDeliveredRows() error {
 	backlog, err := fleet.ReadBacklog(s.Store.Home)
 	if err != nil {
@@ -199,7 +199,10 @@ func (s *Service) closeDeliveredRows() error {
 		if !row.Structured || state.ValidTaskID(row.ID) != nil {
 			continue
 		}
-		if outcome, err := state.ReadOutcome(s.Store.Home.State, row.ID); err != nil || outcome.Phase != "done" {
+		if _, isDelivered, err := state.DeliveredAt(s.Store.Home.State, row.ID); err != nil {
+			problems = errors.Join(problems, fmt.Errorf("move %s's backlog row to ## Done: %w", row.ID, err))
+			continue
+		} else if !isDelivered {
 			continue
 		}
 		if _, err := os.Stat(state.TaskMetaPath(s.Store.Home.State, row.ID)); err == nil {

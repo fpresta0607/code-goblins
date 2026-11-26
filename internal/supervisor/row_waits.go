@@ -38,7 +38,7 @@ func (s *Service) rowReading(now time.Time, memory *Memory) rowReading {
 // rowWaits is what a queued row still waits for at reading: each blocker on
 // it that has not cleared. A time clears once it passes, free memory once the
 // reading has that much memory and commit free, or with no memory read, a
-// task once its outcome says it delivered, a pull request once it merged,
+// task once it delivered (state.DeliveredAt), a pull request once it merged,
 // and a hold once its date begins, never by itself without one.
 // A blocker the scheduler cannot read never clears and says why, and so does
 // one that can never clear, which would otherwise hold its row unseen: a
@@ -69,12 +69,14 @@ func rowWaits(h home.Home, backlog fleet.BacklogRows, row fleet.BacklogRow, read
 				blocker.Problem = "PR #" + path.Base(blocker.Target) + " closed without merging"
 			}
 		case blocker.Kind == "task":
-			switch awaitedTask(h, backlog, blocker.Target) {
-			case "done":
+			switch standing, err := awaitedTask(h, backlog, blocker.Target); {
+			case err != nil:
+				blocker.Problem = "The delivery of " + blocker.Target + " cannot be read: " + err.Error()
+			case standing == "done":
 				continue
-			case "stopped":
+			case standing == "stopped":
 				blocker.Problem = blocker.Target + " stopped without delivering"
-			case "":
+			case standing == "":
 				blocker.Problem = `No task is named "` + blocker.Target + `"`
 			}
 		}
@@ -83,22 +85,30 @@ func rowWaits(h home.Home, backlog fleet.BacklogRows, row fleet.BacklogRow, read
 	return waits
 }
 
-// awaitedTask is where the task id stands for a row that waits on it: its
-// outcome's phase, done or stopped, else "known" for a task the home knows by
-// a row in the backlog, a brief or a live record, else "" for none.
-func awaitedTask(h home.Home, backlog fleet.BacklogRows, id string) string {
+// awaitedTask is where the task id stands for a row that waits on it: done
+// once it delivered, else its outcome's phase, stopped, else "known" for a
+// task the home knows by a row in the backlog, a brief or a live record, else
+// "" for none. Delivery evidence that cannot be read is an error.
+func awaitedTask(h home.Home, backlog fleet.BacklogRows, id string) (string, error) {
+	_, isDelivered, err := state.DeliveredAt(h.State, id)
+	if err != nil {
+		return "", err
+	}
+	if isDelivered {
+		return "done", nil
+	}
 	if outcome, err := state.ReadOutcome(h.State, id); err == nil {
-		return outcome.Phase
+		return outcome.Phase, nil
 	}
 	if backlog.Lists(id) {
-		return "known"
+		return "known", nil
 	}
 	for _, file := range []string{filepath.Join(h.Data, id, "brief.md"), filepath.Join(h.State, id+".meta")} {
 		if _, err := os.Stat(file); err == nil {
-			return "known"
+			return "known", nil
 		}
 	}
-	return ""
+	return "", nil
 }
 
 // waitRefusal is why a row with waits does not start: the first wait the

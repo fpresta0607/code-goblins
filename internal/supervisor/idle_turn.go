@@ -158,8 +158,8 @@ func startableQueued(h home.Home, finished *finishedWork, reading rowReading) []
 
 // pauseClearedHere says whether a pause has cleared as far as this machine
 // sees without asking GitHub, the board or a run of memory readings: an
-// allowance or a date once it passed, a task once its outcome says it
-// delivered. Every other pause has not, as far as this reading goes.
+// allowance or a date once it passed, a task once it delivered
+// (state.DeliveredAt). Every other pause has not, as far as this reading goes.
 func pauseClearedHere(stateDir string, condition state.PauseCondition, now time.Time) (bool, error) {
 	switch condition.Reason {
 	case "allowance":
@@ -172,11 +172,8 @@ func pauseClearedHere(stateDir string, condition state.PauseCondition, now time.
 			at, err := time.Parse(time.RFC3339, target)
 			return err == nil && !now.Before(at), err
 		case "task":
-			outcome, err := state.ReadOutcome(stateDir, target)
-			if errors.Is(err, os.ErrNotExist) {
-				return false, nil
-			}
-			return err == nil && outcome.Phase == "done", err
+			_, isDelivered, err := state.DeliveredAt(stateDir, target)
+			return isDelivered, err
 		}
 	}
 	return false, nil

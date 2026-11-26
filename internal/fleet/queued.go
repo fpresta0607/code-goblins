@@ -284,16 +284,10 @@ func (backlog BacklogRows) ReadQueuedTask(h home.Home, id string) (QueuedTask, e
 	if err := state.ValidTaskID(id); err != nil {
 		return QueuedTask{}, err
 	}
-	if _, err := os.Stat(filepath.Join(h.State, "outcomes", id+".json")); err == nil {
-		outcome, err := state.ReadOutcome(h.State, id)
-		if err != nil {
-			return QueuedTask{}, err
-		}
-		if outcome.Phase == "done" {
-			return QueuedTask{}, ErrNotQueued
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
+	if _, isDelivered, err := state.DeliveredAt(h.State, id); err != nil {
 		return QueuedTask{}, err
+	} else if isDelivered {
+		return QueuedTask{}, ErrNotQueued
 	}
 	if backlog.duplicates[id] {
 		return QueuedTask{}, fmt.Errorf("backlog queues %s twice", id)
