@@ -338,6 +338,11 @@ type fakeForge struct {
 	// attemptJobs are the jobs of a run's attempts, by attempt, where they
 	// differ from jobs, the jobs of its latest attempt.
 	attemptJobs map[int]string
+	// pullDetails are pull requests as GitHub's REST API gives one, by
+	// number, where a test gives one, "refuse" for one GitHub fails to
+	// read, and pullDetailReads how often each was read.
+	pullDetails     map[string]string
+	pullDetailReads map[string]int
 }
 
 // forgeRefusal is how the forge's GitHub refuses a read: with status and
@@ -426,6 +431,8 @@ func requestedRepository(path, query string, variables map[string]any) string {
 
 // actionsRun matches the path of one workflow run, and of its jobs.
 var actionsRun = regexp.MustCompile(`^repos/[^/]+/[^/]+/actions/runs/[0-9]+(/jobs)?$`)
+
+var pullRequestPath = regexp.MustCompile(`^repos/[^/]+/[^/]+/pulls/[0-9]+$`)
 
 // attemptJobs matches the path of the jobs of one attempt of a workflow run.
 var attemptJobs = regexp.MustCompile(`^repos/[^/]+/[^/]+/actions/runs/[0-9]+/attempts/([0-9]+)/jobs$`)
@@ -520,6 +527,17 @@ func (f *fakeForge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			return map[string]any{"data": map[string]any{"repository": map[string]any{"ref": comparisons}}}, nil
 		}, f.pulls)
+	case pullRequestPath.MatchString(path) && f.pullDetails[path[strings.LastIndex(path, "/")+1:]] != "":
+		number := path[strings.LastIndex(path, "/")+1:]
+		if f.pullDetailReads == nil {
+			f.pullDetailReads = map[string]int{}
+		}
+		f.pullDetailReads[number]++
+		if f.pullDetails[number] == "refuse" {
+			githubtest.Refuse(w, http.StatusBadGateway, "Server Error")
+			return
+		}
+		_, _ = w.Write([]byte(f.pullDetails[number]))
 	case path == "user":
 		// The account the token is of owns the repository the fixtures'
 		// pull requests are in, github.com/o/r, unless a test names another.

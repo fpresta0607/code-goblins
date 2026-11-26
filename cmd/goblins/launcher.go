@@ -96,11 +96,9 @@ func removeBoardRecord(stateDir string, pid int) {
 
 // launcherSnapshot is the part of the board's snapshot the status line reads.
 type launcherSnapshot struct {
-	Registration string `json:"registration"`
-	Tasks        []struct {
-		Phase string `json:"phase"`
-	} `json:"tasks"`
-	Questions []struct {
+	Registration string         `json:"registration"`
+	Tasks        []launcherTask `json:"tasks"`
+	Questions    []struct {
 		Status string `json:"status"`
 		Page   string `json:"page"`
 	} `json:"questions"`
@@ -113,6 +111,17 @@ type launcherSnapshot struct {
 		CredentialRequest string `json:"credential_request"`
 		RemoteFix         string `json:"remote_fix"`
 	} `json:"runs"`
+}
+
+// launcherTask is the part of a snapshot's task the status line reads: its
+// phase, and for a task handed off to a cloud session, the pull request its
+// packet is in.
+type launcherTask struct {
+	ID           string `json:"id"`
+	Phase        string `json:"phase"`
+	CloudHandoff *struct {
+		PullRequest string `json:"pull_request"`
+	} `json:"cloud_handoff"`
 }
 
 // launcherStartTimeout bounds the wait for a supervisor goblins started,
@@ -386,16 +395,21 @@ func anotherSupervisorStarting(stateDir string) bool {
 // running, where a question its goblin asked about its own open review page
 // is that page's one item, a page he sent a revision on waits on its
 // goblin's next version, not on him, and a terminal a credential card or the
-// Remote access setting opened shows there, not as an item.
+// Remote access setting opened shows there, not as an item. It names the
+// tasks handed off to a cloud session, each with its pull request.
 func statusLine(snapshot launcherSnapshot) string {
 	ceo := "CEO supervising"
 	if snapshot.Registration != "" {
 		ceo = "CEO not connected"
 	}
 	working := 0
+	var handedOff []string
 	for _, task := range snapshot.Tasks {
 		if task.Phase == "working" {
 			working++
+		}
+		if task.CloudHandoff != nil {
+			handedOff = append(handedOff, task.ID+" at "+task.CloudHandoff.PullRequest)
 		}
 	}
 	waiting := 0
@@ -418,7 +432,11 @@ func statusLine(snapshot launcherSnapshot) string {
 	if working == 1 {
 		goblins = "goblin"
 	}
-	return fmt.Sprintf("%s · %d %s working · %d waiting on you", ceo, working, goblins, waiting)
+	line := fmt.Sprintf("%s · %d %s working · %d waiting on you", ceo, working, goblins, waiting)
+	if len(handedOff) > 0 {
+		line += " · in the cloud: " + strings.Join(handedOff, ", ")
+	}
+	return line
 }
 
 // logTail returns the last lines of a log, or says there is none.

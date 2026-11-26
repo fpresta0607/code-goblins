@@ -182,11 +182,11 @@ test("removing a queued task says Removing while it goes", async ({ page }) => {
   await expect(panel(page).locator(".panel-status")).toHaveText("Removing");
 });
 
-test("a running task keeps Pause and Stop, and a paused one Resume and Stop, in the same row", async ({ page }) => {
+test("a running task keeps Pause, Hand off and Stop, and a paused one Resume and Stop, in the same row", async ({ page }) => {
   await open(page);
   await select(page, "working-one");
   const working = panel(page).getByRole("group", { name: "Controls for working-one" });
-  expect(await names(working)).toEqual(["Pause", "Stop"]);
+  expect(await names(working)).toEqual(["Pause", "Hand off", "Stop"]);
   await inOneRow(working);
   expect(await clearance(page)).toBeGreaterThanOrEqual(16);
   await working.getByRole("button", { name: "Stop working-one" }).click();

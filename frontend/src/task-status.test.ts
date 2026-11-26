@@ -344,3 +344,25 @@ test("a completed helper reports its parent handoff without claiming verificatio
   assert.equal(taskColumn(zane(snapshot)), "In progress", "unverified handoff work stays in progress");
   assert.equal(taskColumn(zane(ordinary)), "In progress");
 });
+
+// A goblin handed off to a cloud session, its packet out, reads In the cloud
+// and says what brings it back; one whose handoff stopped part-way, paused
+// for it with nothing published, reads its pause and that Resume brings it
+// back.
+for (const [name, cloud, text, details] of [
+  ["handed off", { pull_request: "https://github.com/o/r/pull/209", prompt: "Repository o/r.", cloud: [] }, "In the cloud", "It comes back when you bring back its cloud work from the Command Center, and Resume goes on without that work."],
+  ["stopped part-way", undefined, "Paused for a cloud handoff", "Its handoff did not finish, and Resume brings it back without one."],
+] as const) {
+  test(`a goblin whose handoff is ${name} says so`, () => {
+    // Arrange
+    const snapshot = board({ phase: "paused", generation: "s1", lifecycle: { phase: "paused", action: "pause", at: "2026-11-25T19:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_kept: false, pause: { reason: "handoff", until: "", at: "2026-11-25T19:00:00Z" } }, ...cloud ? { cloud_handoff: cloud } : {} });
+
+    // Act
+    const status = taskStatus(zane(snapshot), snapshot);
+    const said = taskSummary(zane(snapshot), snapshot.tasks);
+
+    // Assert
+    assert.equal(status.text, text);
+    assert.deepEqual(said.details, [details]);
+  });
+}

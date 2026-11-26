@@ -25,6 +25,7 @@ for (const [action, id, status] of [
   ["start", "queued-one", "Starting"],
   ["resume", "paused-one", "Resuming"],
   ["pause", "working-one", "Pausing"],
+  ["handoff", "working-one", "Pausing"],
   ["stop", "working-one", "Stopping"],
 ] as const) {
   test(`a ${action} shows on its card at once and until a snapshot of it arrives`, () => {

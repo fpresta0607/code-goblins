@@ -76,7 +76,7 @@ commands:
   remote    on|status|off: private phone access to the board and CEO terminal over your Tailscale account
   host      run one goblin terminal in a process of its own; goblins starts it, not you
   attach    show a native terminal in this console, the CEO's unless one is named; --state <dir> names the fleet's state folder; Ctrl-] leaves it running
-  status    whether the supervisor runs: its board, what the fleet is doing and its pid; exits 1 when none runs
+  status    whether the supervisor runs: its board, what the fleet is doing, naming each task handed off to a cloud session with the pull request its packet is in, and its pid; exits 1 when none runs
   stop      ask the supervisor to stop and wait until it has; --force ends its process tree instead
   setup     as goblins setup: run the quick start again and choose the agent the CEO starts as
   resume    with no task named, as goblins resume: restart a running CEO in its terminal on its conversation, or bring a closed one back, then bring back every goblin whose terminal ended. goblins resume --harness <claude|codex|pi> starts fresh when the harness changes and remembers the choice. Run outside the CEO's own terminal. goblins resume <id> resumes a paused task

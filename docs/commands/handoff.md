@@ -14,8 +14,14 @@ A goblin that wrote no handoff of its own publishes nothing either, and the task
 Each step is recorded in `state/handoffs/<id>.json`, so a failure part-way leaves the task paused and a second `handoff` goes on from the step that failed.
 It prints the prompt to paste into a cloud session, and the record as JSON.
 
+On the board, **Hand off** on a running goblin's panel, one that is no helper, runs `goblins handoff` for it without `--wip`, and its task reads Pausing until the handoff ends; a refusal or a failure reaches the CEO.
+A handed-off task's card reads **In the cloud**, and its panel links the pull request its packet is in and shows the prompt with **Copy prompt**; one whose handoff stopped part-way reads Paused for a cloud handoff.
+Its **Resume** runs `goblins handoff cancel` whenever its pause holds the handoff its goblin wrote for publication, handed off or stopped part-way, since `goblins resume` refuses that pause, and so goes on without the cloud's work; a pause that left only the fallback handoff resumes with `goblins resume`.
+`goblins status` names each handed-off task with that pull request, and the CEO's digest counts them under FLEET.
+
 While the task is handed off, the supervisor watches its branch at every pull request poll.
-Each open pull request into the branch from the same repository, other than the one the packet is in, is recorded in the handoff record at its head, and raises one **Cloud work ready** item in the Command Center, waiting on the Overlord, which names the goblin, the pull request, its title, its head, and a teammate's author.
+Each open pull request into the branch from the same repository, other than the one the packet is in, is recorded in the handoff record at its head, and raises one **Cloud work ready** item in the Command Center, waiting on the Overlord, which names the goblin, the pull request, its title, its head, its commits, how its body begins, which says what the cloud session ran, and a teammate's author.
+The watch reads a pull request's commits and body only at a head it has not seen, and one whose read fails is raised at a later poll, its failure reaching the CEO once it failed three polls in a row.
 It alerts as every item waiting on him does: on the board, in the desktop window, and on his phone once a snapshot that shows it is built, as a board open anywhere builds one at each change.
 A head that moves raises the item again, and the pull requests of a handed-off task, its own and the cloud's into its branch, raise no `pr_health` wake.
 **Leave it** closes the item until its head moves, and takes back the Overlord's press on that pull request or a Bring back on it still waiting its turn.

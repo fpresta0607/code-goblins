@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"context"
 	"net/http"
 	"slices"
 	"strings"
@@ -25,7 +26,7 @@ const (
 func handOff(t *testing.T, h home.Home, meta state.TaskMeta, branch, packetIn string, seen ...handoff.CloudSighting) {
 	t.Helper()
 	at := time.Date(2026, 11, 25, 19, 0, 0, 0, time.UTC)
-	if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "handoff-1", Action: "pause", Phase: "paused", Pause: &state.PauseCondition{Reason: "handoff", At: at}}); err != nil {
+	if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "handoff-1", Action: "pause", Phase: "paused", Pause: &state.PauseCondition{Reason: "handoff", At: at}, HandoffSaved: true}); err != nil {
 		t.Fatal(err)
 	}
 	if err := handoff.WriteRecord(h.State, handoff.Record{Task: meta.ID, Started: at, Steps: []string{handoff.StepPause, handoff.StepPush, handoff.StepPullRequest, handoff.StepPacket}, Branch: branch, PullRequest: packetIn, Head: "ed99ac3f00", HandedOff: &at, Cloud: seen}); err != nil {
@@ -36,7 +37,7 @@ func handOff(t *testing.T, h home.Home, meta state.TaskMeta, branch, packetIn st
 // While a task is in the cloud, its pull request and the cloud's into its
 // branch raise no pr_health wake, while one of the same repository into
 // main still does, and the cloud's is seen for the Command Center at its
-// head.
+// head, with its commits and how its body begins, read once at that head.
 func TestAHandedOffTasksPullRequestsRaiseNoHealthWakeAndTheCloudsIsSeen(t *testing.T) {
 	// Arrange
 	s, h := fleetService(t)
@@ -53,6 +54,7 @@ func TestAHandedOffTasksPullRequestsRaiseNoHealthWakeAndTheCloudsIsSeen(t *testi
 	cloud := `{"number":210,"url":"` + cloudPullRequest + `","title":"Name the bad header","headRefName":"claude/cloud-work","baseRefName":"feat/wakes","author":{"login":"o"},"headRefOid":"` + cloudHead + `","mergeable":"CONFLICTING","statusCheckRollup":[]}`
 	intoMain := `{"number":211,"url":"https://github.com/o/r/pull/211","title":"Fix the footer","headRefName":"feat/footer","baseRefName":"main","author":{"login":"teammate"},"headRefOid":"f00df00df00df00df00df00df00df00df00df00d","mergeable":"CONFLICTING","statusCheckRollup":[]}`
 	forge.pulls = strings.TrimSuffix(rollupWith("ed99ac3f00", "CONFLICTING", scanPassedRun), "]") + "," + cloud + "," + intoMain + "]"
+	forge.pullDetails = map[string]string{"210": `{"commits":3,"body":"Ran go test ./internal/handoff:\n passed."}`}
 	s.Options.CI = forge
 	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 10, 7, 3, 48, 0, 0, time.UTC)
@@ -67,8 +69,63 @@ func TestAHandedOffTasksPullRequestsRaiseNoHealthWakeAndTheCloudsIsSeen(t *testi
 		t.Fatalf("pr_health wakes = %+v, want one, for the pull request into main alone, while the task is in the cloud", health)
 	}
 	record, err := handoff.ReadRecord(h.State, meta.ID)
-	if err != nil || len(record.Cloud) != 1 || record.Cloud[0].PullRequest != cloudPullRequest || record.Cloud[0].Head != cloudHead || record.Cloud[0].IsTeammates {
-		t.Fatalf("record = %+v (%v), want the cloud's pull request seen at its head", record.Cloud, err)
+	if err != nil || len(record.Cloud) != 1 || record.Cloud[0].PullRequest != cloudPullRequest || record.Cloud[0].Head != cloudHead || record.Cloud[0].IsTeammates || record.Cloud[0].Commits != 3 || record.Cloud[0].Body != "Ran go test ./internal/handoff: passed." {
+		t.Fatalf("record = %+v (%v), want the cloud's pull request seen at its head with its commits and body", record.Cloud, err)
+	}
+	if reads := forge.pullDetailReads["210"]; reads != 1 {
+		t.Fatalf("the cloud's pull request was read %d times over three polls, want once, at its new head", reads)
+	}
+}
+
+// A cloud pull request whose commits and body cannot be read is not sighted
+// until they can be, so no item names it without them, and its failure is
+// told as the watch's other failed reads are, once it failed failingPasses
+// polls in a row.
+func TestACloudPullRequestIsSightedOnceItsCommitsAndBodyAreRead(t *testing.T) {
+	// Arrange
+	s, h := fleetService(t)
+	project := t.TempDir()
+	runsWorkflows(t, project)
+	liveGoblin(t, h, "cg-wakes", project)
+	meta, err := state.ReadTaskMeta(h.State, "cg-wakes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handOff(t, h, meta, "feat/wakes", "https://github.com/o/r/pull/209")
+	forge := forgeFor(project, "cg-wakes")
+	forge.branch, forge.runs = "feat/wakes", "[]"
+	cloud := `{"number":210,"url":"` + cloudPullRequest + `","title":"Name the bad header","headRefName":"claude/cloud-work","baseRefName":"feat/wakes","author":{"login":"o"},"headRefOid":"` + cloudHead + `","mergeable":"CONFLICTING","statusCheckRollup":[]}`
+	forge.pulls = strings.TrimSuffix(rollupWith("ed99ac3f00", "CONFLICTING", scanPassedRun), "]") + "," + cloud + "]"
+	forge.pullDetails = map[string]string{"210": "refuse"}
+	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
+	now := time.Date(2026, 10, 7, 3, 48, 0, 0, time.UTC)
+
+	// Act
+	var unread []handoff.CloudSighting
+	for poll := 0; poll < failingPasses; poll++ {
+		now = now.Add(ciPollEvery)
+		err = s.checkFleet(context.Background(), now)
+		record, readErr := handoff.ReadRecord(h.State, meta.ID)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		unread = append(unread, record.Cloud...)
+	}
+	toldErr := err
+	forge.mu.Lock()
+	forge.pullDetails["210"] = `{"commits":2,"body":"Passed."}`
+	forge.mu.Unlock()
+	now = now.Add(ciPollEvery)
+	readErr := s.checkFleet(context.Background(), now)
+
+	// Assert
+	if len(unread) != 0 || toldErr == nil || !strings.Contains(toldErr.Error(), cloudPullRequest) {
+		t.Fatalf("while unread, sighted %+v and told %v, want nothing sighted and the read's failure told", unread, toldErr)
+	}
+	record, err := handoff.ReadRecord(h.State, meta.ID)
+	if readErr != nil || err != nil || len(record.Cloud) != 1 || record.Cloud[0].Commits != 2 || record.Cloud[0].Body != "Passed." {
+		t.Fatalf("once read: %v, record %+v (%v), want the cloud's pull request sighted with its commits and body", readErr, record.Cloud, err)
 	}
 }
 
@@ -314,6 +371,82 @@ func TestTheSnapshotCarriesAHandedOffTasksCloudWork(t *testing.T) {
 	if index < 0 || snapshot.Tasks[index].CloudHandoff == nil || snapshot.Tasks[index].CloudHandoff.PullRequest != "https://github.com/o/r/pull/209" || !slices.Equal(snapshot.Tasks[index].CloudHandoff.Cloud, []handoff.CloudSighting{seen}) {
 		t.Fatalf("tasks = %+v, want the handed-off task carrying its cloud work", snapshot.Tasks)
 	}
+	if got, want := snapshot.Tasks[index].CloudHandoff.Prompt, handoff.Prompt("o/r", "https://github.com/o/r/pull/209"); got != want {
+		t.Fatalf("prompt = %q, want the one goblins handoff prints, %q", got, want)
+	}
+}
+
+// The card's Hand off runs goblins handoff, and its task reads Pausing until
+// that ends; its Resume on a handed-off task runs goblins handoff cancel,
+// which resumes it without the cloud's work, as it does for one whose
+// handoff stopped after the goblin wrote its handoff, which goblins resume
+// refuses too, while a Resume of a task paused for anything else, or whose
+// handoff pause left only the fallback handoff, still runs goblins resume.
+func TestTheCardsHandOffAndResumeGoThroughGoblinsHandoff(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		pause  string
+		action string
+		want   []string
+	}{
+		{name: "hand off a working goblin", action: "handoff", want: []string{"handoff", "task"}},
+		{name: "resume a handed-off goblin", pause: "handoff", action: "resume", want: []string{"handoff", "cancel", "task"}},
+		{name: "resume a goblin whose handoff stopped after its pause", pause: "handoff-stopped", action: "resume", want: []string{"handoff", "cancel", "task"}},
+		{name: "resume a goblin whose handoff pause left the fallback", pause: "handoff-fallback", action: "resume", want: []string{"resume", "task"}},
+		{name: "resume a goblin the Overlord paused", pause: "overlord", action: "resume", want: []string{"resume", "task"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			spawner := &spawnRecorder{release: make(chan struct{})}
+			handler, h := startBoard(t, 5*gigabyte, spawner)
+			meta := state.TaskMeta{ID: "task", Title: "Do work", SpawnGen: "generation-1", Project: h.Root, Worktree: h.Root, Backend: "native"}
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			switch test.pause {
+			case "handoff":
+				handOff(t, h, meta, "feat/parser", "https://github.com/o/r/pull/209")
+			case "handoff-stopped", "handoff-fallback", "overlord":
+				record := state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Phase: "paused", Pause: &state.PauseCondition{Reason: "handoff", At: time.Now()}, HandoffSaved: true, HandoffFallback: test.pause == "handoff-fallback"}
+				if test.pause == "overlord" {
+					record.Pause.Reason = "overlord"
+				}
+				if err := state.WriteLifecycle(h.State, record); err != nil {
+					t.Fatal(err)
+				}
+				if err := handoff.WriteRecord(h.State, handoff.Record{Task: meta.ID, Started: time.Now(), Steps: []string{handoff.StepPause}}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			s := handler.Service
+
+			// Act
+			response := taskControlRequest(handler, "/api/tasks/lifecycle", map[string]string{"task": meta.ID, "generation": meta.SpawnGen, "operation": "click-1", "action": test.action})
+			deadline := time.Now().Add(time.Minute)
+			for response.Code == 202 && len(spawner.recorded()) == 0 && time.Now().Before(deadline) {
+				time.Sleep(10 * time.Millisecond)
+			}
+			during, err := s.Snapshot()
+			close(spawner.release)
+			waitForChange(t, handler, meta.ID)
+
+			// Assert
+			if response.Code != 202 || err != nil {
+				t.Fatalf("%s = %d %s (%v), want 202", test.action, response.Code, response.Body, err)
+			}
+			calls := spawner.recorded()
+			if len(calls) != 1 || len(calls[0]) < len(test.want) || !slices.Equal(calls[0][:len(test.want)], test.want) {
+				t.Fatalf("calls %v, want one that starts %v", calls, test.want)
+			}
+			if test.action == "handoff" && len(calls[0]) != len(test.want) {
+				t.Fatalf("calls %v, want goblins handoff with nothing more", calls)
+			}
+			want := map[string]string{"handoff": "pausing", "resume": "resuming"}[test.action]
+			if index := slices.IndexFunc(during.Tasks, func(task Task) bool { return task.ID == meta.ID }); index < 0 || during.Tasks[index].Phase != want {
+				t.Fatalf("tasks while it ran = %+v, want %s %s", during.Tasks, meta.ID, want)
+			}
+		})
+	}
 }
 
 func waitForChange(t *testing.T, handler *HTTP, task string) {
@@ -348,14 +481,16 @@ func TestTheCloudWatchsFailedAccountReadsEndWithItsWatch(t *testing.T) {
 			// Arrange
 			s, _ := fleetService(t)
 			now := time.Date(2026, 11, 25, 19, 0, 0, 0, time.UTC)
-			w := &fleetWakes{Repos: map[string]time.Time{"o/r": now}, Failing: map[string]int{"cloud viewer:o/r": failingPasses - 1}}
+			w := &fleetWakes{Repos: map[string]time.Time{"o/r": now}, Failing: map[string]int{"cloud viewer:o/r": failingPasses - 1, "cloud pull request:o/r": failingPasses - 1}}
 
 			// Act
 			end(s, w, now)
 
 			// Assert
-			if count, isCounted := w.Failing["cloud viewer:o/r"]; isCounted {
-				t.Fatalf("the failed account reads still count %d, want none", count)
+			for _, read := range []string{"cloud viewer:o/r", "cloud pull request:o/r"} {
+				if count, isCounted := w.Failing[read]; isCounted {
+					t.Fatalf("the failed %s reads still count %d, want none", read, count)
+				}
 			}
 		})
 	}

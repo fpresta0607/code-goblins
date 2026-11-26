@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path"
 	"slices"
 	"time"
 
@@ -16,11 +17,13 @@ import (
 )
 
 // CloudHandoff is a handed-off task as its card and the Command Center see
-// it: the pull request its packet is in, and the cloud's pull requests into
-// its branch, each a Cloud work ready item until it is left or its head
-// moves.
+// it: the pull request its packet is in, the prompt goblins handoff prints
+// for a cloud session, which the card offers to copy, and the cloud's pull
+// requests into its branch, each a Cloud work ready item until it is left or
+// its head moves.
 type CloudHandoff struct {
 	PullRequest string                  `json:"pull_request"`
+	Prompt      string                  `json:"prompt"`
 	Cloud       []handoff.CloudSighting `json:"cloud"`
 }
 
@@ -56,9 +59,13 @@ func isHandedOffWork(handedOff map[string]handoff.Record, goblin string, pr ghPu
 // one is new or moved. With the account gh works as unread, it sights none,
 // so none is told as a teammate's against no account, and that read fails
 // as the train's does, once it failed failingPasses polls of repo in a row.
+// A cloud pull request at a head the record has not seen is sighted with
+// its commits and how its body begins, read then, and a goblin whose read
+// fails is sighted at a later poll, its failure told the same way.
 func (s *Service) sightCloudWork(ctx context.Context, github *githubapi.Client, w *fleetWakes, repo string, goblins []ciGoblin, handedOff map[string]handoff.Record, listed []train.PullRequest, owners *fleetOwners, now time.Time) error {
 	if len(handedOff) == 0 {
 		delete(w.Failing, "cloud viewer:"+repo)
+		delete(w.Failing, "cloud pull request:"+repo)
 		return nil
 	}
 	account, err := owners.account(ctx, github)
@@ -70,20 +77,50 @@ func (s *Service) sightCloudWork(ctx context.Context, github *githubapi.Client, 
 	for _, pr := range listed {
 		open = append(open, handoff.OpenPullRequest{URL: pr.URL, Title: pr.Title, Base: pr.BaseRefName, Head: pr.HeadRefOid, Author: pr.Author.Login, IsCrossRepository: pr.IsCrossRepository})
 	}
-	var errs error
+	var errs, readErrs error
 	isNew := false
 	for _, goblin := range goblins {
-		if _, isHandedOff := handedOff[goblin.id]; !isHandedOff {
+		record, isHandedOff := handedOff[goblin.id]
+		if !isHandedOff {
 			continue
 		}
-		sighted, err := handoff.Sight(s.Store.Home.State, goblin.meta, open, account, now)
+		described, err := describeCloudWork(ctx, github, record, open)
+		if err != nil {
+			readErrs = errors.Join(readErrs, err)
+			continue
+		}
+		sighted, err := handoff.Sight(s.Store.Home.State, goblin.meta, described, account, now)
 		isNew = isNew || sighted
 		errs = errors.Join(errs, err)
 	}
 	if isNew {
 		s.notify()
 	}
-	return errs
+	return errors.Join(errs, w.failing("cloud pull request:"+repo, readErrs))
+}
+
+// describeCloudWork is open with the commits and body of each of the
+// cloud's pull requests into record's branch it has not seen at its head.
+func describeCloudWork(ctx context.Context, github *githubapi.Client, record handoff.Record, open []handoff.OpenPullRequest) ([]handoff.OpenPullRequest, error) {
+	described := slices.Clone(open)
+	for index, pr := range described {
+		if !record.IsUnseen(pr) {
+			continue
+		}
+		owner, name := pullRequestRepository(pr.URL)
+		var read struct {
+			Commits int    `json:"commits"`
+			Body    string `json:"body"`
+		}
+		ctx, cancel := context.WithTimeout(ctx, ghCallTimeout)
+		err := github.Get(ctx, "repos/"+owner+"/"+name+"/pulls/"+path.Base(pr.URL), &read)
+		cancel()
+		if err != nil {
+			return nil, fmt.Errorf("cloud work: read the commits and body of %s: %w", pr.URL, err)
+		}
+		described[index].Commits, described[index].Body = read.Commits, read.Body
+	}
+	return described, nil
 }
 
 // cloudWorkRequest is Bring back or Leave it pressed on a Cloud work ready

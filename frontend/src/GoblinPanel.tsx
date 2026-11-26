@@ -10,6 +10,7 @@ import { QueuedTasks } from "./QueuedTasks";
 import type { CardStarter } from "./useStart";
 import { queuedTasks } from "./workflow";
 import { TaskControls } from "./task-controls";
+import { CloudHandoffDetails } from "./cloud-handoff-details";
 import { LifecycleDetails } from "./lifecycle-details";
 import { PanelRow, type PanelControl } from "./panel-row";
 import { BabyHeader } from "./baby-header";
@@ -73,6 +74,7 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, v
     {task && <div className="panel-content lifecycle-panel">
       <TaskControls task={task} snapshot={snapshot} start={cardStart(task)} />
       <LifecycleDetails task={task} />
+      <CloudHandoffDetails task={task} />
     </div>}
     {!task?.archived && owner ? <TaskView task={task} snapshot={snapshot} connected={connected} reviews={reviews} log={{ open: isLogOpen, onOpenChange: setLogOpen }} now={now} onConnectors={onConnectors} /> : <div className="panel-content">
       {!task && !node && snapshot.ceo_conversation_left && <p className="ceo-conversation-left">{linkedText(snapshot.ceo_conversation_left)}</p>}
