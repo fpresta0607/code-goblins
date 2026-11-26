@@ -24,6 +24,10 @@ func TestSightRecordsEachPullRequestIntoTheBranchAtItsNewestHead(t *testing.T) {
 	}{
 		{name: "a new pull request into the branch", open: []OpenPullRequest{cloudInto(testBranch, cloud, "head-1", testAccount)}, wantNew: true,
 			wantCloud: []CloudSighting{{PullRequest: cloud, Title: "Name the bad header", Author: testAccount, Head: "head-1", SeenAt: at}}},
+		{name: "a new pull request names its commits and how its body begins", open: []OpenPullRequest{{URL: cloud, Title: "Name the bad header", Base: testBranch, Head: "head-1", Author: testAccount, Commits: 3, Body: "## What I ran\n\n- `go test ./internal/handoff`:  passed\n- the Windows tests:\tnot run here"}}, wantNew: true,
+			wantCloud: []CloudSighting{{PullRequest: cloud, Title: "Name the bad header", Author: testAccount, Head: "head-1", Commits: 3, Body: "## What I ran - `go test ./internal/handoff`: passed - the Windows tests: not run here", SeenAt: at}}},
+		{name: "a pull request seen at its head keeps what it said then", before: []CloudSighting{{PullRequest: cloud, Title: "Name the bad header", Author: testAccount, Head: "head-1", Commits: 3, Body: "It passed."}}, open: []OpenPullRequest{cloudInto(testBranch, cloud, "head-1", testAccount)},
+			wantCloud: []CloudSighting{{PullRequest: cloud, Title: "Name the bad header", Author: testAccount, Head: "head-1", Commits: 3, Body: "It passed."}}},
 		{name: "a teammate's pull request", open: []OpenPullRequest{cloudInto(testBranch, cloud, "head-1", "teammate")}, wantNew: true,
 			wantCloud: []CloudSighting{{PullRequest: cloud, Title: "Name the bad header", Author: "teammate", Head: "head-1", IsTeammates: true, SeenAt: at}}},
 		{name: "the same head left alone stays left", before: []CloudSighting{{PullRequest: cloud, Title: "Name the bad header", Author: testAccount, Head: "head-1", IsLeft: true}}, open: []OpenPullRequest{cloudInto(testBranch, cloud, "head-1", testAccount)},
@@ -59,6 +63,56 @@ func TestSightRecordsEachPullRequestIntoTheBranchAtItsNewestHead(t *testing.T) {
 				t.Fatalf("Sight = %v, %v; record %+v (%v); want new %v and %+v", isNew, err, sighted.Cloud, readErr, test.wantNew, test.wantCloud)
 			}
 		})
+	}
+}
+
+// The watch reads a cloud pull request's commits and body only at a head
+// it has not seen it at, into the branch of the handoff, so a poll asks
+// GitHub nothing more of one it already saw.
+func TestOnlyACloudPullRequestAtANewHeadIsUnseen(t *testing.T) {
+	// Arrange
+	const cloud = "https://github.com/" + testRepository + "/pull/7"
+	_, record := handedOff(t)
+	record.Cloud = []CloudSighting{{PullRequest: cloud, Head: "head-1"}}
+	for _, test := range []struct {
+		name     string
+		pr       OpenPullRequest
+		isUnseen bool
+	}{
+		{"at the head it was seen at", cloudInto(testBranch, cloud, "head-1", testAccount), false},
+		{"at a new head", cloudInto(testBranch, cloud, "head-2", testAccount), true},
+		{"a new pull request", cloudInto(testBranch, cloud+"0", "head-1", testAccount), true},
+		{"into another branch", cloudInto("main", cloud+"0", "head-1", testAccount), false},
+		{"from a fork", OpenPullRequest{URL: cloud + "0", Base: testBranch, Head: "head-1", IsCrossRepository: true}, false},
+		{"the one the packet is in", cloudInto(testBranch, record.PullRequest, "head-1", testAccount), false},
+	} {
+		// Act
+		isUnseen := record.IsUnseen(test.pr)
+
+		// Assert
+		if isUnseen != test.isUnseen {
+			t.Errorf("%s: IsUnseen = %v, want %v", test.name, isUnseen, test.isUnseen)
+		}
+	}
+}
+
+// What a sighting keeps of a body is its words on one line, cut short at
+// 280 characters, so a long body never fills the Command Center.
+func TestASightingKeepsTheStartOfItsBodyOnOneLine(t *testing.T) {
+	for _, test := range []struct {
+		name, body, want string
+	}{
+		{"an empty body", " \n\t", ""},
+		{"lines and runs of space", "Ran:\r\n  go test  \n\nPassed.", "Ran: go test Passed."},
+		{"a long body", strings.Repeat("é", 300), strings.Repeat("é", 280) + "..."},
+	} {
+		// Act
+		got := excerpt(test.body)
+
+		// Assert
+		if got != test.want {
+			t.Errorf("%s: excerpt = %q, want %q", test.name, got, test.want)
+		}
 	}
 }
 

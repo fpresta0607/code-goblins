@@ -177,6 +177,7 @@ function resumes(pause: PauseCondition | undefined, tasks: Task[], parent?: Task
     case "memory": return byItself + "once 5 GB of memory is free.";
     case "allowance": return byItself + "when the allowance resets " + atOrOn(pause.until) + ".";
     case "restart": return byItself + "after the PC restarts.";
+    case "handoff": return "Its handoff did not finish, and Resume brings it back without one.";
     case "question": return byItself + "when you answer its question.";
     case "ci": return byItself + "when its CI run finishes.";
     case "deploy": return byItself + "when its deploy finishes.";
@@ -198,13 +199,16 @@ function resumes(pause: PauseCondition | undefined, tasks: Task[], parent?: Task
 // stopped never reads like a live one waiting its turn for the machine
 // (#1924). A CI or deploy pause names how long the repository's runs usually
 // take. A pause on a goblin names the goblin alone, as Paused until Benny
-// delivers, without its title (the CEO's decision 1008011, 2026-10-17).
+// delivers, without its title (the CEO's decision 1008011, 2026-10-17). A
+// handoff pause reads as one only while nothing is published: once its
+// packet is out the goblin reads In the cloud (see taskStatus).
 export function pauseStatus(pause: PauseCondition | undefined, tasks: Task[], usual: CIUsual[], parent?: Task): string {
   const [kind, target] = pause?.until.split(/:(.*)/s) || [];
   switch (pause?.reason) {
     case "memory": return "Paused until memory frees";
     case "allowance": return "Paused until the allowance resets";
     case "restart": return "Paused until after the restart";
+    case "handoff": return "Paused for a cloud handoff";
     case "overlord": return parent ? "Paused until " + (parent.goblin_name || goblinName(parent)) + " resumes" : "Paused until you resume it";
     case "question": return "Paused until you answer";
     case "ci": case "deploy": {
@@ -328,7 +332,7 @@ function summaryOf(task: Task, tasks: Task[]): Summary {
   // doing"). What its pause could not do is the CEO's to hear, in the
   // pause's own report, and never the panel's to show.
   if (task.phase === "paused") {
-    const waits = resumes(record?.pause, tasks, pausedWithParent(task, tasks));
+    const waits = task.cloud_handoff ? "It comes back when you bring back its cloud work from the Command Center, and Resume goes on without that work." : resumes(record?.pause, tasks, pausedWithParent(task, tasks));
     const report = reportSaid(task.last_report || "");
     const description = join(report.sentence, waits, teardown);
     return { sentence: "", details: description ? [description] : [], isFailure: false, isPlain: true, ...linksOf(report) };

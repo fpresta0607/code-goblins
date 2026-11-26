@@ -20,6 +20,10 @@ type CloudSighting struct {
 	Title       string `json:"title"`
 	Author      string `json:"author"`
 	Head        string `json:"head"`
+	// Commits is how many commits it holds at Head, and Body how its body
+	// begins there, on one line, which says what the cloud session ran.
+	Commits int    `json:"commits,omitempty"`
+	Body    string `json:"body,omitempty"`
 	// IsTeammates says its author is not the account gh works as, so only
 	// the Overlord's press brings it back.
 	IsTeammates bool      `json:"is_teammates,omitempty"`
@@ -38,10 +42,37 @@ type Press struct {
 }
 
 // OpenPullRequest is an open pull request of the task's repository as the
-// supervisor's watch lists it.
+// supervisor's watch lists it, with its commits and body, which the watch
+// reads only for one the record has not seen at its head.
 type OpenPullRequest struct {
 	URL, Title, Base, Head, Author string
 	IsCrossRepository              bool
+	Commits                        int
+	Body                           string
+}
+
+// bodyRunes is how much of a cloud pull request's body a sighting keeps.
+const bodyRunes = 280
+
+// isCloud says pr is one of the cloud's into the handoff's branch: from the
+// same repository and not the one the packet is in.
+func (record Record) isCloud(pr OpenPullRequest) bool {
+	return pr.Base == record.Branch && !pr.IsCrossRepository && pr.URL != record.PullRequest
+}
+
+// IsUnseen says pr is one of the cloud's the record has not seen at its
+// head, whose commits and body the watch reads before it sights it.
+func (record Record) IsUnseen(pr OpenPullRequest) bool {
+	return record.isCloud(pr) && !slices.ContainsFunc(record.Cloud, func(seen CloudSighting) bool { return seen.PullRequest == pr.URL && seen.Head == pr.Head })
+}
+
+// excerpt is how body begins, its words on one line, cut at bodyRunes.
+func excerpt(body string) string {
+	words := []rune(strings.Join(strings.Fields(body), " "))
+	if len(words) <= bodyRunes {
+		return string(words)
+	}
+	return string(words[:bodyRunes]) + "..."
 }
 
 // HandedOff reads the handoff record of the task meta names and says
@@ -84,7 +115,7 @@ func sight(stateDir string, meta state.TaskMeta, open []OpenPullRequest, account
 	var sightings []CloudSighting
 	isNew := false
 	for _, pr := range open {
-		if pr.Base != record.Branch || pr.IsCrossRepository || pr.URL == record.PullRequest {
+		if !record.isCloud(pr) {
 			continue
 		}
 		index := slices.IndexFunc(record.Cloud, func(seen CloudSighting) bool { return seen.PullRequest == pr.URL && seen.Head == pr.Head })
@@ -93,7 +124,7 @@ func sight(stateDir string, meta state.TaskMeta, open []OpenPullRequest, account
 			continue
 		}
 		isNew = true
-		sightings = append(sightings, CloudSighting{PullRequest: pr.URL, Title: pr.Title, Author: pr.Author, Head: pr.Head, IsTeammates: !strings.EqualFold(pr.Author, account), SeenAt: now.UTC()})
+		sightings = append(sightings, CloudSighting{PullRequest: pr.URL, Title: pr.Title, Author: pr.Author, Head: pr.Head, Commits: pr.Commits, Body: excerpt(pr.Body), IsTeammates: !strings.EqualFold(pr.Author, account), SeenAt: now.UTC()})
 	}
 	if slices.Equal(sightings, record.Cloud) {
 		return false, nil

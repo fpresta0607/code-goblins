@@ -12,8 +12,9 @@ async function openItsRow(page: Page) {
 }
 
 // A handed-off goblin's cloud work waits on him as one Command Center item,
-// naming the goblin, the pull request and its head, and for a teammate's that
-// Bring back is his press; a pull request he left is not there.
+// naming the goblin, the pull request, its head and commits and what its
+// body says it ran, and for a teammate's that Bring back is his press; a
+// pull request he left is not there.
 test("cloud work ready names the goblin, the pull request and its head", async ({ page }) => {
   // Act
   const row = await openItsRow(page);
@@ -21,7 +22,8 @@ test("cloud work ready names the goblin, the pull request and its head", async (
   // Assert
   await expect(row.locator("strong")).toHaveText("Cloud work ready for Parse headers");
   await expect(row.getByRole("link")).toHaveAttribute("href", CLOUD);
-  await expect(row.getByRole("link")).toHaveText("Name the bad header, at c0ffee0, opened by teammate, not by you: Bring back is your press");
+  await expect(row.getByRole("link")).toHaveText("Name the bad header, at c0ffee0, 3 commits, opened by teammate, not by you: Bring back is your press");
+  await expect(row).toContainText("Its body says: Ran go test ./internal/handoff: passed. Could not run the Windows tests.");
   await expect(row.getByRole("button", { name: "Bring back " + CLOUD + " onto Parse headers" })).toBeVisible();
   await expect(row.getByRole("button", { name: "Leave " + CLOUD })).toBeVisible();
 });

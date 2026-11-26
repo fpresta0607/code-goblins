@@ -2283,7 +2283,8 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			if record.Phase == "paused" && record.Pause != nil && record.Pause.Reason == "handoff" {
 				if meta, err := s.taskMeta(task.ID); err == nil {
 					if handed, isHandedOff, err := handoff.HandedOff(s.Store.Home.State, meta); err == nil && isHandedOff {
-						task.CloudHandoff = &CloudHandoff{PullRequest: handed.PullRequest, Cloud: handed.Cloud}
+						owner, name := pullRequestRepository(handed.PullRequest)
+						task.CloudHandoff = &CloudHandoff{PullRequest: handed.PullRequest, Prompt: handoff.Prompt(owner+"/"+name, handed.PullRequest), Cloud: handed.Cloud}
 					}
 				}
 			}
@@ -2336,7 +2337,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 				prior := engineFrom[task.ID]
 				task.Harness, task.Model, task.Effort = prior.Harness, prior.Model, prior.Effort
 			} else {
-				task.Phase = map[string]string{"pause": "pausing", "resume": "resuming", "stop": "stopping"}[action]
+				task.Phase = map[string]string{"pause": "pausing", "handoff": "pausing", "resume": "resuming", "stop": "stopping"}[action]
 			}
 		}
 	}
