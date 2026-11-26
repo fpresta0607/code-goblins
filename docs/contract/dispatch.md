@@ -106,6 +106,9 @@ Without the line, the title names the subject of the work in the task's own word
 The subject is the word the task's title leans on most, the last word of a phrase counting most, so "cost estimate" is about an estimate; a label before a colon, words in brackets and the id count less, the project the id names never counts, and the brief's Task section is read only when the title and id give no word.
 A subject word another live or queued goblin's title already names is passed over while the task names another, so two goblins on different work read apart on the board.
 A task that gives no word a title can use gets a generic title, such as Code Designer.
+A helper goblin, `<parent>-h<n>`, is named after its parent with its number as the board numbers a goblin's baby goblins, Jerry Jr. for h1, then Jerry II and on, so a parent's builder reads as one goblin round after round (the Overlord, 2026-11-26: "Why do goblins names keep changing?"; #2959).
+Its title is the one its brief gives, or else the first its work's subject takes, whatever other goblins hold, so a parent's helpers of one role keep one title.
+A helper takes nothing from the pool and adds nothing to the last 300; one whose id is not `<parent>-h<n>`, or whose parent has no name, is named as any other goblin.
 `goblins spawn` prints the pair on a `goblin:` line, the task's record keeps it, and the supervisor gives one to any live goblin that has none, the pair it was queued with where it has one.
 The board, the merge train and the orchestration canvas show the name, title and harness icon in place of the task id, a queued task's card included, and the task sits in the panel and the hover tooltip.
 `goblins fleet-view` names each goblin as `Name - Title (id)`, and the wake queue and a merge train's pull request as `Name (id)`.

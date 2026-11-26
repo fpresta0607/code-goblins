@@ -2,6 +2,7 @@ package spawn
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/goblinname"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -158,6 +161,82 @@ func TestSpawnRefusesASecondHelperUnderTheSpawnLockBeforeAnyMutation(t *testing.
 	}
 	if _, statErr := os.Stat(state.TaskMetaPath(f.stateDir, "g1-h2")); !errors.Is(statErr, os.ErrNotExist) {
 		t.Errorf("the refused helper's record: stat = %v, want none", statErr)
+	}
+}
+
+// A goblin's helpers are named after it with their numbers, as its baby
+// goblins are, Grub Jr. for g1-h1 and Grub VII for g1-h7, and keep one title
+// for their role round after round, though another goblin holds it. Each
+// took a name and a title of its own before, so one builder read as a new
+// goblin every round (#2959). A helper whose id has no number, a top-level
+// goblin started after them and a helper of a goblin with no name yet still
+// take a name from the pool, and only their pairs join the recent ones.
+func TestSpawnNamesAHelperAfterItsParentWithItsNumberAndKeepsOneTitleForItsRole(t *testing.T) {
+	// Arrange: goblin g1, called Grub, at work on a branch; each start's
+	// build is refused, so nothing starts and its record is retired.
+	f := newFixture(t)
+	project, parentWorktree := parentRepository(t)
+	gitIn(t, project, "remote", "add", "origin", project)
+	writeParent(t, f.stateDir, state.TaskMeta{ID: "g1", Project: project, Worktree: parentWorktree, GoblinName: "Grub", GoblinTitle: "Review Runner"})
+	writeParent(t, f.stateDir, state.TaskMeta{ID: "o1", Project: project, Worktree: parentWorktree, GoblinName: "Olaf", GoblinTitle: "Builder Bender"})
+	unnamedWorktree := filepath.Join(filepath.Dir(parentWorktree), "g3")
+	gitIn(t, project, "worktree", "add", "-q", "-b", "feat/y", unnamedWorktree)
+	writeParent(t, f.stateDir, state.TaskMeta{ID: "g3", Project: project, Worktree: unnamedWorktree})
+	f.service.Commands = execx.OSRunner{}
+	f.service.Worktrees.Git, f.service.Worktrees.Commands = nil, execx.OSRunner{}
+	f.service.Harness.Adapters[harness.Claude] = fixtureAdapter{events: &f.events, specs: &f.specs, buildErr: errors.New("nothing starts in this test")}
+	helperBrief := filepath.Join(t.TempDir(), "helper.md")
+	writeFile(t, helperBrief, helperOfferBrief)
+	start := func(id, parent, title string) state.TaskMeta {
+		t.Helper()
+		request := f.request
+		request.ID, request.Parent, request.Project, request.Title = id, parent, project, title
+		if parent != "" {
+			request.Mode, request.BriefPath = "local-only", helperBrief
+		}
+		result, err := f.service.Spawn(context.Background(), request)
+		if err == nil || !strings.Contains(err.Error(), "nothing starts in this test") {
+			t.Fatalf("Spawn %s = %v, want the build refusal", id, err)
+		}
+		return result.Meta
+	}
+
+	// Act: its first helper builds round 1, its seventh round 7 and a helper
+	// whose id has no number reviews them, then a goblin of its own builds
+	// another page, and goblin g3, with no name yet, starts a helper.
+	first := start("g1-h1", "g1", "Round 1 builder")
+	seventh := start("g1-h7", "g1", "Round 7 builder")
+	unnumbered := start("g1-review", "g1", "Review the rounds")
+	topLevel := start("g2", "", "Round 8 builder")
+	unnamedParents := start("g3-h1", "g3", "Round 9 builder")
+
+	// Assert
+	if first.GoblinName != "Grub Jr." || seventh.GoblinName != "Grub VII" {
+		t.Errorf("helpers named %q and %q, want Grub Jr. and Grub VII", first.GoblinName, seventh.GoblinName)
+	}
+	if first.GoblinTitle != "Builder Bender" || seventh.GoblinTitle != first.GoblinTitle {
+		t.Errorf("helpers titled %q and %q, want Builder Bender for both", first.GoblinTitle, seventh.GoblinTitle)
+	}
+	var pooledPairs []goblinname.Pair
+	for _, pooled := range []state.TaskMeta{unnumbered, topLevel, unnamedParents} {
+		if name := pooled.GoblinName; name == "" || strings.Contains(name, " ") {
+			t.Errorf("%s named %q, want a first name of the pool's", pooled.ID, name)
+		}
+		pooledPairs = append(pooledPairs, goblinname.Pair{Name: pooled.GoblinName, Title: pooled.GoblinTitle})
+	}
+	if topLevel.GoblinTitle == "Builder Bender" {
+		t.Errorf("a top-level goblin titled %q, want one clear of the title a live goblin holds", topLevel.GoblinTitle)
+	}
+	data, err := os.ReadFile(filepath.Join(f.stateDir, ".goblin-names.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var recent []goblinname.Pair
+	if err := json.Unmarshal(data, &recent); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(recent, pooledPairs) {
+		t.Errorf("recent pairs = %v, want those of the goblins named from the pool, %v, and no numbered helper's", recent, pooledPairs)
 	}
 }
 
