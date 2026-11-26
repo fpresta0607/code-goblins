@@ -210,6 +210,10 @@ type commandRuntime struct {
 	measureRun func(context.Context, home.Home, state.TaskMeta, string, string) (measure.Record, error)
 	speedHint  func(context.Context, string) string
 	quota      func(context.Context) (quota.Report, string)
+	// harnessModels reads the model catalog a harness keeps for its
+	// signed-in account, for a resume to check its recorded model against;
+	// nil reads none.
+	harnessModels func(harness.Kind) ([]supervisor.EngineModel, error)
 	// keySpend reads the spend the OpenRouter key of one Pi credential source
 	// reports at the provider, for the board's dial.
 	keySpend     func(context.Context, openrouter.Source) openrouter.Reading
@@ -547,6 +551,13 @@ func defaultCommandRuntime() commandRuntime {
 		measureRun:    measureRun,
 		speedHint: func(ctx context.Context, name string) string {
 			return telemetry.SpeedHint(ctx, gatedb.Runner{Next: execx.OSRunner{}}, name)
+		},
+		harnessModels: func(kind harness.Kind) ([]supervisor.EngineModel, error) {
+			root, err := os.UserHomeDir()
+			if err != nil {
+				return nil, err
+			}
+			return supervisor.ReadEngineModels(root, kind)
 		},
 		quota:        quota.Reader{Commands: execx.OSRunner{}}.Read,
 		actionsSpend: actionsbilling.Reader{GitHub: github}.Read,

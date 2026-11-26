@@ -192,6 +192,32 @@ func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, comman
 		return choiceErr
 	}
 	hasChoice := choiceErr == nil && choice.Generation == meta.SpawnGen
+	// A resume falls back to the task's brief under the home exactly as a switch
+	// and a comeback do, so a task whose record names none still reaches its
+	// relaunch with a real path and the worker is not sent to a relative one.
+	briefPath := meta.Brief
+	if briefPath == "" && h.Data != "" {
+		briefPath = filepath.Join(h.Data, meta.ID, "brief.md")
+	}
+	// A recorded engine that can no longer run starts no terminal: the lane
+	// the table routes to instead becomes the resume's engine choice, so the
+	// relaunch's admission prices the harness that starts.
+	if !hasChoice {
+		lane, rerouted, err := resumeLane(h, runtime, meta, briefPath)
+		if err != nil {
+			return err
+		}
+		if rerouted != "" {
+			choice = state.EngineChoice{ID: meta.ID, Generation: meta.SpawnGen, Harness: lane.Harness, Model: lane.Model, Effort: lane.Effort, When: "resume", Requested: time.Now().UTC()}
+			if err := state.WriteEngineChoice(h.State, choice); err != nil {
+				return err
+			}
+			if err := state.AppendStatus(h.State, meta.ID, rerouted); err != nil {
+				return err
+			}
+			hasChoice = true
+		}
+	}
 	var retained pipeline.InterruptedRun
 	if prior.GateRun != "" {
 		branch, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Name: "git", Args: []string{"symbolic-ref", "--short", "HEAD"}})
@@ -227,13 +253,6 @@ func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, comman
 	}
 	if pausedAt.IsZero() || time.Since(pausedAt) >= 24*time.Hour || pausedAt.After(time.Now()) {
 		session = ""
-	}
-	// A resume falls back to the task's brief under the home exactly as a switch
-	// and a comeback do, so a task whose record names none still reaches its
-	// relaunch with a real path and the worker is not sent to a relative one.
-	briefPath := meta.Brief
-	if briefPath == "" && h.Data != "" {
-		briefPath = filepath.Join(h.Data, meta.ID, "brief.md")
 	}
 	request := spawn.SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, BriefPath: briefPath, IsResume: true, ResumeSession: session, ResumeHandoff: handoff, ResumeNote: prior.ResumeNote, Admit: admit}
 	if retained.ID != "" {

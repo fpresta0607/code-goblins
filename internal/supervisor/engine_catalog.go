@@ -64,7 +64,7 @@ func (s *Service) engineCatalog(ctx context.Context, runner execx.Runner) (Engin
 			item.Reason = "Sign in to " + item.Name
 		}
 		if item.Reason == "" {
-			item.Models, err = readEngineModels(root, kind)
+			item.Models, err = ReadEngineModels(root, kind)
 			if err != nil {
 				item.Reason = "Model catalog could not be read: " + err.Error()
 			}
@@ -125,7 +125,9 @@ func (s *Service) engineCatalog(ctx context.Context, runner execx.Runner) (Engin
 	return catalog, nil
 }
 
-func readEngineModels(root string, kind harness.Kind) ([]EngineModel, error) {
+// ReadEngineModels is the model catalog harness kind keeps under the user
+// home root: the models its own provider offers the signed-in account.
+func ReadEngineModels(root string, kind harness.Kind) ([]EngineModel, error) {
 	models := []EngineModel{}
 	path := map[harness.Kind]string{harness.Claude: ".claude.json", harness.Codex: ".codex/models_cache.json", harness.Pi: ".pi/agent/models-store.json"}[kind]
 	data, err := fsx.ReadFile(filepath.Join(root, filepath.FromSlash(path)))

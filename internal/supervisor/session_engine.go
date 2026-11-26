@@ -44,7 +44,7 @@ func (s *Service) runningEngine(kind string, engine fleettree.Engine, started ti
 	case engine.ModelAt.After(started):
 		model = engine.Model
 		if model == "" && engine.ModelName != "" {
-			models, _ := readEngineModels(s.Options.Tree.Home, harness.Kind(kind))
+			models, _ := ReadEngineModels(s.Options.Tree.Home, harness.Kind(kind))
 			for _, listed := range models {
 				if listed.ID == engine.ModelName || strings.EqualFold(listed.Name, engine.ModelName) {
 					model = listed.ID
