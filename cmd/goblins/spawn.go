@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -146,7 +147,26 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		if readErr != nil {
 			manifest = projectcfg.Manifest{}
 		}
-		selected := projectcfg.SelectDelivery(manifest, string(briefText), *mode, *deliveryException)
+		// An exception reaches the selection only as the one kept for the
+		// task, which the registered primary CEO approved at goblins brief or
+		// here, so an automatic and an explicit start select the same mode.
+		requested := cmp.Or(*mode, fleet.BriefDelivery(briefText)["mode"])
+		if *deliveryException != "" {
+			approvedBy, err := primaryApproval(h.State)
+			if err != nil {
+				fmt.Fprintf(stderr, "goblins spawn: --delivery-exception is honoured only from the registered primary CEO: %v\n", err)
+				return 1
+			}
+			if err := projectcfg.RecordDeliveryException(h.Data, args[0], requested, *deliveryException, approvedBy, manifest); err != nil {
+				fmt.Fprintln(stderr, err)
+				return 1
+			}
+		}
+		authority, err := projectcfg.ApprovedDeliveryException(h.Data, args[0], requested, manifest)
+		if err != nil {
+			fmt.Fprintf(stderr, "goblins spawn: %v, so it approves nothing\n", err)
+		}
+		selected := projectcfg.SelectDelivery(manifest, string(briefText), *mode, authority)
 		if *mode != "" && selected.Mode != *mode {
 			fmt.Fprintf(stderr, "goblins spawn: --mode %s was not selected: %s\n", *mode, selected.Reason)
 		}
