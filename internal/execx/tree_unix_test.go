@@ -348,24 +348,50 @@ func TestATreeStartedInsideAnotherStaysInBoth(t *testing.T) {
 	awaitGone(t, helper)
 }
 
-// A process that starts a session of its own and drops the tree's mark, as a
-// launched host does, leaves the tree at once: it is no member and the
-// tree's end spares it while its parent, a member, still runs. One that
-// starts a session of its own but keeps the mark stays a member and ends
-// with the tree.
-func TestAChildInASessionOfItsOwnLeavesTheTreeOnlyWhenItDropsTheMark(t *testing.T) {
+// launchUnderTree starts this test binary, running test, as a tree's only
+// process: a launcher that starts this binary again as a child, in a session
+// of its own when isOwnSession and with the tree's mark only when
+// shouldKeepMark, and keeps running. It returns the tree, the launcher, and
+// the child's pid, which the child writes once it is ready
+// (playSessionRole), and ends the child when the test ends.
+func launchUnderTree(t *testing.T, test string, isOwnSession, shouldKeepMark bool) (*Tree, *exec.Cmd, int) {
+	t.Helper()
+	started := filepath.Join(t.TempDir(), "child.pid")
+	launcher := Command(os.Args[0], "-test.run=^"+test+"$")
+	launcher.Env = append(os.Environ(), "EXECX_TEST_SESSION_LAUNCHER="+started)
+	if isOwnSession {
+		launcher.Env = append(launcher.Env, "EXECX_TEST_OWN_SESSION=1")
+	}
+	if shouldKeepMark {
+		launcher.Env = append(launcher.Env, "EXECX_TEST_KEEP_MARK=1")
+	}
+	tree, err := StartTree(launcher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = tree.End(); _ = launcher.Wait() })
+	awaitWritten(t, started)
+	endHelper(t, started)
+	written, err := os.ReadFile(started)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := strconv.Atoi(string(written))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tree, launcher, child
+}
+
+// playSessionRole plays the launcher or the child launchUnderTree started
+// this binary as, if it did, and exits: the child calls ready before it
+// writes its pid.
+func playSessionRole(ready func() error) {
 	if started := os.Getenv("EXECX_TEST_SESSION_CHILD"); started != "" {
-		env := os.Environ()
-		if os.Getenv("EXECX_TEST_KEEP_MARK") == "" {
-			env = slices.DeleteFunc(env, func(entry string) bool { return strings.HasPrefix(entry, TreeVariable+"=") })
-		}
-		child := exec.Command("sleep", "600")
-		child.Env = env
-		child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-		if err := child.Start(); err != nil {
+		if err := ready(); err != nil {
 			os.Exit(7)
 		}
-		if err := os.WriteFile(started+".tmp", []byte(strconv.Itoa(child.Process.Pid)), 0o600); err != nil {
+		if err := os.WriteFile(started+".tmp", []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
 			os.Exit(7)
 		}
 		if err := os.Rename(started+".tmp", started); err != nil {
@@ -374,58 +400,73 @@ func TestAChildInASessionOfItsOwnLeavesTheTreeOnlyWhenItDropsTheMark(t *testing.
 		time.Sleep(10 * time.Minute)
 		os.Exit(9)
 	}
+	started := os.Getenv("EXECX_TEST_SESSION_LAUNCHER")
+	if started == "" {
+		return
+	}
+	env := slices.DeleteFunc(os.Environ(), func(entry string) bool {
+		return strings.HasPrefix(entry, "EXECX_TEST_SESSION_LAUNCHER=") ||
+			os.Getenv("EXECX_TEST_KEEP_MARK") == "" && strings.HasPrefix(entry, TreeVariable+"=")
+	})
+	child := exec.Command(os.Args[0], os.Args[1:]...)
+	child.Env = append(env, "EXECX_TEST_SESSION_CHILD="+started)
+	child.SysProcAttr = &syscall.SysProcAttr{Setsid: os.Getenv("EXECX_TEST_OWN_SESSION") != ""}
+	if err := child.Start(); err != nil {
+		os.Exit(7)
+	}
+	time.Sleep(10 * time.Minute)
+	os.Exit(9)
+}
+
+// assertEndedWithTree reads the tree's members and ends it while its
+// launcher still runs, and checks that the launcher is a member and ended,
+// and that child is one and ended only when isTreeMember.
+func assertEndedWithTree(t *testing.T, tree *Tree, launcher *exec.Cmd, child int, isTreeMember bool) {
+	t.Helper()
+	// Act
+	members, membersErr := tree.Members()
+	ended, endErr := tree.End()
+
+	// Assert
+	if membersErr != nil || endErr != nil {
+		t.Fatal(membersErr, endErr)
+	}
+	if !isAmong(members, launcher.Process.Pid) || !isAmong(ended, launcher.Process.Pid) {
+		t.Fatalf("the tree lists %v and ended %v, without its running launcher %d", members, ended, launcher.Process.Pid)
+	}
+	awaitGone(t, launcher.Process.Pid)
+	if isAmong(members, child) != isTreeMember || isAmong(ended, child) != isTreeMember {
+		t.Fatalf("the tree lists %v and ended %v; want the child %d among them %t", members, ended, child, isTreeMember)
+	}
+	if isTreeMember {
+		awaitGone(t, child)
+	} else if _, err := proc.Lookup(child); err != nil {
+		t.Fatalf("the child that left the tree no longer runs after the tree's end: %v", err)
+	}
+}
+
+// A process that starts a session of its own and drops the tree's mark, as a
+// launched host does, leaves the tree at once: it is no member and the
+// tree's end spares it while its parent, a member, still runs. One that
+// starts a session of its own but keeps the mark, or that drops the mark but
+// stays in its parent's session, stays a member and ends with the tree.
+func TestAChildInASessionOfItsOwnLeavesTheTreeOnlyWhenItDropsTheMark(t *testing.T) {
+	playSessionRole(func() error { return nil })
 	for _, test := range []struct {
 		name           string
+		isOwnSession   bool
 		shouldKeepMark bool
 		isTreeMember   bool
 	}{
-		{"dropping the mark", false, false},
-		{"keeping the mark", true, true},
+		{"a session of its own, dropping the mark", true, false, false},
+		{"a session of its own, keeping the mark", true, true, true},
+		{"its parent's session, dropping the mark", false, false, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			started := filepath.Join(t.TempDir(), "child.pid")
-			launcher := Command(os.Args[0], "-test.run=^TestAChildInASessionOfItsOwnLeavesTheTreeOnlyWhenItDropsTheMark$")
-			launcher.Env = append(os.Environ(), "EXECX_TEST_SESSION_CHILD="+started)
-			if test.shouldKeepMark {
-				launcher.Env = append(launcher.Env, "EXECX_TEST_KEEP_MARK=1")
-			}
-			tree, err := StartTree(launcher)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _, _ = tree.End(); _ = launcher.Wait() })
-			awaitWritten(t, started)
-			endHelper(t, started)
-			written, err := os.ReadFile(started)
-			if err != nil {
-				t.Fatal(err)
-			}
-			child, err := strconv.Atoi(string(written))
-			if err != nil {
-				t.Fatal(err)
-			}
+			tree, launcher, child := launchUnderTree(t, "TestAChildInASessionOfItsOwnLeavesTheTreeOnlyWhenItDropsTheMark", test.isOwnSession, test.shouldKeepMark)
 
-			// Act
-			members, membersErr := tree.Members()
-			ended, endErr := tree.End()
-
-			// Assert
-			if membersErr != nil || endErr != nil {
-				t.Fatal(membersErr, endErr)
-			}
-			if !isAmong(members, launcher.Process.Pid) || !isAmong(ended, launcher.Process.Pid) {
-				t.Fatalf("the tree lists %v and ended %v, without its running launcher %d", members, ended, launcher.Process.Pid)
-			}
-			awaitGone(t, launcher.Process.Pid)
-			if isAmong(members, child) != test.isTreeMember || isAmong(ended, child) != test.isTreeMember {
-				t.Fatalf("the tree lists %v and ended %v; want the child %d among them %t", members, ended, child, test.isTreeMember)
-			}
-			if test.isTreeMember {
-				awaitGone(t, child)
-			} else if _, err := proc.Lookup(child); err != nil {
-				t.Fatalf("the child that left the tree no longer runs after the tree's end: %v", err)
-			}
+			assertEndedWithTree(t, tree, launcher, child, test.isTreeMember)
 		})
 	}
 }
