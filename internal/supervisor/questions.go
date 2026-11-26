@@ -261,6 +261,14 @@ func (c *CEOConnection) SendGoblinHis(ctx context.Context, taskID, identity, tex
 // in a turn, where it has a key for that. One from him keeps his mark on the
 // terminal the harness's next screen is bound to.
 func (c *CEOConnection) sendGoblin(ctx context.Context, taskID, identity, text string, holds, sendsNow, his bool) (Evaluation, error) {
+	// A message a view typed as keys holds the prompt line until the relay
+	// answers its Enter, as words the line shows do (awaitEnter). The delivery
+	// waits for that answer within ctx, since a notice refused for it is never
+	// sent again, and only then reads the task, which may have restarted
+	// meanwhile.
+	if c.awaitEntersAnswered(ctx, taskID) != nil {
+		return Evaluation{}, fmt.Errorf("%w: %w: a view of its terminal waits to press the Enter of a message typed there", fleet.ErrNotTyped, spawn.ErrUnsentWords)
+	}
 	meta, err := state.ReadTaskMeta(c.State, taskID)
 	if err != nil || goblinIdentity(meta) != identity {
 		return Evaluation{}, fmt.Errorf("%w: the goblin's task restarted or ended; nothing was sent", ErrRejected)

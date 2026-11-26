@@ -9,7 +9,7 @@ import { TerminalTextSheet } from "./terminal-text-sheet";
 import { TerminalTouchTools } from "./terminal-touch-tools";
 import { isDetachedHold } from "./terminalInput";
 import { closedReason, ended, reconnects, type ScreenState, storedFontSize, storeFontSize } from "./terminalStream";
-import { offerLink } from "./terminal-link";
+import { clearTyped, offerLink, recordTyped } from "./terminal-link";
 import { TerminalView } from "./terminalView";
 import { useDictation } from "./useDictation";
 import { VoiceBubble } from "./VoiceBubble";
@@ -117,6 +117,15 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
     const params = new URLSearchParams(query);
     params.set("token", instance);
     url.search = params.toString();
+    // showScreen makes state the terminal's screen, which ends the claim of a
+    // message typed as keys on the prompt line once it shows that line
+    // without words. A screen's binding cannot tell: the host keeps it
+    // through his own input after the message, and binds a view a reconnect
+    // opens to his input, never to the message (#2848's review).
+    const showScreen = (state: ScreenState | null) => {
+      setScreen(state);
+      if (link && state && !state.hasDraft) clearTyped(link);
+    };
     const view: TerminalView = new TerminalView(container, url, storedFontSize(), {
       ready: () => {
         if (!isActive) return;
@@ -136,7 +145,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
         setUnread(view.unread);
         setHeldWhy(view.held);
         setStream(view.stream);
-        setScreen(view.screen);
+        showScreen(view.screen);
         setUnsent(false);
         setReconnecting(false);
         setClosedWhy("");
@@ -176,7 +185,11 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
       held: (reason) => { if (current.current === view || !current.current) setHeldWhy(reason); },
       stream: () => { if (current.current === view || !current.current) setStream(true); },
       unsent: () => { if (current.current === view) setUnsent(true); },
-      screen: (state) => { if (current.current === view) setScreen(state); },
+      screen: (state) => { if (current.current === view) showScreen(state); },
+      // Any of this terminal's views tells, since one a reconnect replaced,
+      // or one he left for another goblin, goes on with an Enter that waited
+      // once disposed.
+      typed: (words, state) => { if (link) recordTyped(link, { words, state }); },
       history: () => { if (current.current === view) onHistoryValue.current?.(); },
     });
     staged.current = view;
@@ -189,7 +202,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
       // A view that is on screen stays until its replacement is whole.
       if (current.current !== view) view.dispose();
     };
-  }, [query, instance, visible, attempt, dictate, showFeedback]);
+  }, [query, instance, visible, attempt, dictate, showFeedback, link]);
   useEffect(() => () => { current.current?.dispose(); current.current = null; }, []);
   useEffect(() => {
     if (!link) return;
@@ -197,7 +210,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
       phase, isReconnecting: reconnecting || !visible, isDictating: dictation.listening, isUnread, held: heldWhy, screen, isStream,
       stopDictation: dictation.stop,
       feedback: feedback || dictation.note,
-      send: (text) => phase === "live" && !reconnecting && visible ? current.current?.submit(text) ?? null : null,
+      send: (text, isTyped) => phase === "live" && !reconnecting && visible ? current.current?.submit(text, isTyped) ?? null : null,
       paste: (text) => phase === "live" && !reconnecting && visible && !heldWhy ? current.current?.paste(text) ?? false : false,
       escape: () => !!current.current?.escape(),
       control: (keys) => phase === "live" && !reconnecting && visible ? current.current?.control(keys) ?? false : false,

@@ -116,6 +116,99 @@ test("a long list scrolls inside its card and the keyboard keeps the pick in vie
   await expect(last).toBeInViewport();
 });
 
+// The Overlord, 2026-11-24, on his iPhone (#2849): "on mobile when slash
+// command type adn keybaord appear s the slash list becoms cut instead of
+// staying flex and fitted to screen movement with keybaord shift". Safari
+// keeps the box above its keyboard by panning the visual viewport down the
+// page, and WebKit counts every element's rect and the page's scroll from the
+// visual viewport (LocalFrameView::documentToClientOffset), while the
+// viewport's offsetTop counts from the layout viewport, as Chromium counts
+// all three. The keyboard here is Safari's as WebKit reports it.
+test.describe("on an iPhone", () => {
+  test.use({ viewport: { width: 393, height: 659 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
+  // An iPhone 15's keyboard with its suggestion bar, and how far Safari pans
+  // the page to keep the box in sight above it.
+  const KEYBOARD_PX = 336;
+  const PAN_PX = 300;
+
+  const keyboard = (page: Page, height: number, pan: number) => page.evaluate(([height, pan]) => (window as unknown as { fixtureKeyboard: (height: number, pan: number) => void }).fixtureKeyboard(height, pan), [height, pan]);
+
+  // fitted is where the list stands in what the screen shows, which starts at
+  // 0 where WebKit counts from, against the panel above it and the box below.
+  const fitted = (page: Page) => list(page).evaluate((element) => {
+    const card = element.getBoundingClientRect();
+    const first = element.querySelector("[role=option]")!.getBoundingClientRect();
+    const input = element.parentElement!.querySelector(".composer-input")!.getBoundingClientRect();
+    const panel = element.closest(".context-pane")!.getBoundingClientRect();
+    return { top: card.top, bottom: card.bottom, height: card.height, firstBottom: first.bottom, inputTop: input.top, inputBottom: input.bottom, panelTop: panel.top, shownBottom: window.visualViewport!.height, scrolls: element.scrollHeight > element.clientHeight };
+  });
+
+  // expectFitted checks the list stands whole on screen above the box, as
+  // tall as the room up to the panel's top or as its 22rem, its first option
+  // whole, and scrolls inside itself.
+  async function expectFitted(page: Page) {
+    const at = await fitted(page);
+    expect(at.top).toBeGreaterThanOrEqual(0);
+    expect(at.bottom).toBeLessThanOrEqual(at.inputTop);
+    expect(at.inputBottom).toBeLessThanOrEqual(at.shownBottom);
+    expect(at.firstBottom).toBeLessThanOrEqual(at.bottom);
+    expect(at.top - at.panelTop <= 13 || at.height >= 351, `the list takes the room above the box: ${JSON.stringify(at)}`).toBe(true);
+    expect(at.scrolls).toBe(true);
+  }
+
+  test("with the keyboard up, the list fits the room above the box, scrolls inside itself and follows the keyboard as it closes and opens", async ({ page }) => {
+    // Arrange
+    await page.addInitScript(() => {
+      const real = window.visualViewport!;
+      let keyboard = 0, pan = 0;
+      const viewport = new EventTarget();
+      Object.defineProperties(viewport, {
+        width: { get: () => real.width }, height: { get: () => real.height - keyboard },
+        offsetTop: { get: () => pan }, offsetLeft: { get: () => 0 }, pageTop: { get: () => pan }, pageLeft: { get: () => 0 }, scale: { get: () => 1 },
+      });
+      Object.defineProperty(window, "visualViewport", { value: viewport, configurable: true });
+      Object.defineProperty(window, "scrollY", { get: () => pan, configurable: true });
+      const rect = Element.prototype.getBoundingClientRect;
+      Element.prototype.getBoundingClientRect = function () {
+        const box = rect.call(this);
+        return new DOMRect(box.x, box.y - pan, box.width, box.height);
+      };
+      Object.assign(window, {
+        fixtureKeyboard: (height: number, offset: number) => {
+          keyboard = height;
+          pan = offset;
+          viewport.dispatchEvent(new Event("resize"));
+          viewport.dispatchEvent(new Event("scroll"));
+        },
+      });
+    });
+    await open(page, snapshot({}, { harness: "claude" }));
+    await page.route("**/api/commands**", (route) => route.fulfill({ json: { commands: ANSWERS.claude } }));
+    await openGoblin(page);
+    await field(page).tap();
+    await keyboard(page, KEYBOARD_PX, PAN_PX);
+
+    // Act
+    await field(page).fill("/");
+
+    // Assert
+    await expect(list(page).locator(".popup-option-label")).toHaveText(ANSWERS.claude.map((each) => each.sigil + each.name));
+    await expectFitted(page);
+
+    // Act
+    await keyboard(page, 0, 0);
+
+    // Assert
+    await expectFitted(page);
+
+    // Act
+    await keyboard(page, KEYBOARD_PX, PAN_PX);
+
+    // Assert
+    await expectFitted(page);
+  });
+});
+
 // The Overlord, 2026-11-11 (#2372): "cant type / commands into modern chat
 // like terminal". A harness's own list runs the command it has picked on
 // Enter, so the box's list does too: it only wrote the name into the box, and

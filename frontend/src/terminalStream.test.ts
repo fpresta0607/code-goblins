@@ -1,6 +1,6 @@
 import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { ackDue, ACK_STEP, closedReason, DEFAULT_FONT_SIZE, ended, type FitEvent, followFontSize, fontSizeFor, INPUT_MESSAGE, inputMessages, isWebKit, MAX_FONT_SIZE, MIN_FONT_SIZE, nextFit, panelFit, parseHeld, parseHistory, parseScreen, parseSize, parseStream, parseUnread, PHONE_FONT_SIZE, reconnects, storedFontSize, storeFontSize, usableSize } from "./terminalStream.ts";
+import { ackDue, ACK_STEP, closedReason, DEFAULT_FONT_SIZE, ended, type FitEvent, followFontSize, fontSizeFor, INPUT_MESSAGE, inputMessages, isWebKit, MAX_FONT_SIZE, MIN_FONT_SIZE, nextFit, panelFit, parseEntered, parseHeld, parseHistory, parseScreen, parseSize, parseStream, parseUnread, PHONE_FONT_SIZE, reconnects, storedFontSize, storeFontSize, usableSize } from "./terminalStream.ts";
 import { SMALL_SCREEN } from "./small-screen.ts";
 import { parseSnapshot } from "./types.ts";
 
@@ -76,6 +76,13 @@ test("the relay says when key presses sit unread in a busy program's input and w
   assert.equal(parseUnread('{"type":"unread","unread":true}'), true);
   assert.equal(parseUnread('{"type":"unread","unread":false}'), false);
   for (const text of ['{"type":"unread"}', '{"type":"unread","unread":1}', '{"type":"unread","unread":"true"}', '{"type":"size","cols":100,"rows":30}', '{"type":"history","bytes":0}', "null", "nope"]) assert.equal(parseUnread(text), null, text);
+});
+
+test("the relay says whether it pressed the Enter of a message typed as keys, and whether it typed them, by its submission", () => {
+  for (const [isPressed, isTyped] of [[true, true], [false, true], [false, false]]) {
+    assert.deepEqual(parseEntered(JSON.stringify({ type: "entered", submission: "his-id", pressed: isPressed, typed: isTyped })), { submission: "his-id", isPressed, isTyped });
+  }
+  for (const text of ['{"type":"entered","submission":"his-id","pressed":true}', '{"type":"entered","submission":"his-id","typed":true}', '{"type":"entered","pressed":true,"typed":true}', '{"type":"entered","submission":1,"pressed":true,"typed":true}', '{"type":"entered","submission":"his-id","pressed":"true","typed":true}', '{"type":"entered","submission":"his-id","pressed":false,"typed":"false"}', '{"type":"held","reason":""}', "null", "nope"]) assert.equal(parseEntered(text), null, text);
 });
 
 test("the relay says why typing is held while the screen stays live, and when it is free", () => {

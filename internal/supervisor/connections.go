@@ -344,7 +344,7 @@ func (h *HTTP) grantConnection(w http.ResponseWriter, r *http.Request) {
 	} else if _, err := wake.PublishEpisode(stateDir); err != nil {
 		s.publish(err)
 	}
-	if item.Live && meta.Backend == "native" {
+	if item.Live && meta.Backend == "native" && s.Options.CEO != nil {
 		s.credentialWork.Add(1)
 		go func() {
 			defer s.credentialWork.Done()
@@ -355,8 +355,10 @@ func (h *HTTP) grantConnection(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			// A goblin in a turn has its harness hold the notice for its next
-			// tool call, so the notice still arrives (#2015).
-			if err := typeIntoGoblin(ctx, stateDir, meta, goblinLine("credentials refreshed: re-source "+item.Path), false, false, false); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
+			// tool call, so the notice still arrives (#2015). It goes as every
+			// board delivery does, so a message a view typed as keys holds it
+			// (CEOConnection.awaitEnter).
+			if _, err := s.Options.CEO.SendGoblin(ctx, meta.ID, goblinIdentity(meta), "credentials refreshed: re-source "+item.Path); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
 				s.publish(fmt.Errorf("telling %s to load the credentials the Overlord granted: %w", meta.ID, err))
 			}
 		}()
