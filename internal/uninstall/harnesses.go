@@ -13,6 +13,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harnessmap"
 	"github.com/fpresta0607/code-goblins/internal/install"
@@ -191,10 +192,10 @@ func slug(folder string) string {
 	}, filepath.Clean(folder))
 }
 
-// piSlug is a folder as pi names its sessions' folder: the path with its
-// separators and colon as dashes, between two dashes on each side.
+// piSlug is a folder as pi names its sessions' folder
+// (fleettree.PiSessionFolder).
 func piSlug(folder string) string {
-	return "--" + strings.NewReplacer(`\`, "-", "/", "-", ":", "-").Replace(filepath.Clean(folder)) + "--"
+	return fleettree.PiSessionFolder(filepath.Clean(folder))
 }
 
 // conversations are the agents' records of the conversations held in the
