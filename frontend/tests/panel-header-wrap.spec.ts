@@ -170,11 +170,11 @@ test("a long name wraps whole in the header and shows with its task id in the Ta
 });
 
 // The Overlord, 2026-11-04: a long goblin name was cut in its header. The
-// longest a goblin is called, by the catalog's longest first name and title
-// (internal/goblinname/catalog.go) or by its whole task title where it has no
-// name, wraps in a taller header at a phone's width and at the desktop's,
-// never cut and never under the selector or the controls, which keep their
-// 44 px targets beside it.
+// longest name in the pool with the longest title
+// (internal/goblinname/catalog.go), or a goblin's whole task title where it
+// has no name, wraps in a taller header at a phone's width and at the
+// desktop's, never cut and never under the selector or the controls, which
+// keep their 44 px targets beside it.
 const LONGEST = [
   ["the longest name and title", { goblin_name: "Wendell", goblin_title: "Variable Wrangler" }, "Wendell - Variable Wrangler"],
   ["the longest task title", { goblin_name: "", goblin_title: "", title: "Announce the PrecisionDocs connector changes inside the app with a What's new that looks great" },
