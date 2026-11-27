@@ -49,7 +49,7 @@ test("opening the page reads the saved snapshot once and posts nothing, and sear
 
   // Act: search every level, then move through the levels, and let a long time pass.
   await page.getByRole("searchbox", { name: "Search connectors" }).fill("supabase");
-  await expect(page.getByText("5 matches, searched in the saved snapshot", { exact: false })).toBeVisible();
+  await expect(page.getByText("6 matches, searched in the saved snapshot", { exact: false })).toBeVisible();
   await page.getByRole("searchbox", { name: "Search connectors" }).fill("");
   await thisPc(page).click();
   await crumbs(page).getByRole("button", { name: "Connectors", exact: true }).click();
@@ -176,6 +176,7 @@ test("a goblin whose server failed to load shows it in Needs a look, on the tree
   await expect(page.getByText("Codex does not record which servers loaded", { exact: false })).toBeVisible();
   await expect(group("Its session", page).getByText("Its session has recorded no servers yet.", { exact: true })).toBeVisible();
   await expect(group("Granted from globex", page).getByText("It is given none of them.", { exact: true })).toBeVisible();
+  await expect(group("Servers from globex", page)).toHaveCount(0);
 });
 
 const granted = (page: Page) => group("Granted from acme", page);
@@ -208,6 +209,30 @@ test("Connect gives a goblin a service and Disconnect takes it back, each postin
   // Assert
   await expect(await unfold(page, "GitHub")).toBeVisible();
   expect(supervisor.posts[1]).toEqual({ path: "/api/connections/grant", token: "connectors-proof", body: { task: "cg-touch", generation: "cg-touch-1", connection: "service:github", action: "revoke" } });
+});
+
+test("Connect gives a goblin its project's MCP server in a part of its own, apart from the services", async ({ page }) => {
+  // Arrange
+  const supervisor = fleet();
+  await open(page, supervisor);
+  await openGoblin(page, "acme", ZEKE);
+  const servers = group("Servers from acme", page);
+
+  // Assert: the server is not counted with the services, and waits folded in its own part.
+  await expect(granted(page).locator(".connector-chip")).toHaveText("1 of 2");
+  await expect(servers.locator(".connector-where-head")).toContainText("Servers from acme.mcp.json0 of 1");
+  await expect(servers.getByText("It is given none of them.", { exact: true })).toBeVisible();
+
+  // Act
+  await servers.getByText("1 server of acme it is not given", { exact: true }).click();
+  await servers.getByRole("button", { name: "Connect Supabase to " + ZEKE }).click();
+
+  // Assert
+  await expect(servers.locator(".connector-chip")).toHaveText("1 of 1");
+  await expect(servers.locator(":scope > .connector-rows").getByRole("button", { name: "Disconnect Supabase from " + ZEKE })).toBeEnabled();
+  await expect(servers.locator("details")).toHaveCount(0);
+  await expect(granted(page).locator(".connector-chip")).toHaveText("1 of 2");
+  expect(supervisor.posts).toEqual([{ path: "/api/connections/grant", token: "connectors-proof", body: { task: "cg-touch", generation: "cg-touch-1", connection: "mcp:supabase", action: "grant" } }]);
 });
 
 test("a Connect the supervisor refuses is said beside the page and leaves the service not given", async ({ page }) => {

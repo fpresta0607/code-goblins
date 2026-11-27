@@ -172,12 +172,15 @@ for (const width of [1440, 390]) {
 
     // Assert: it sits under its project, and reads from the widest scope down.
     await expect(crumbs(main).locator("button, .here")).toHaveText(["Connectors", "Projects", "acme", ZEKE]);
-    await expect(main.locator(".connector-where")).toHaveCount(3);
+    await expect(main.locator(".connector-where")).toHaveCount(4);
     await expect(group(main, "From this PC")).toContainText("Every goblin gets these: 3 tools, 1 harness sign-in, 1 credential and 1 built-in.");
     const granted = group(main, "Granted from acme");
     await expect(granted.locator(".connector-chip")).toHaveText("1 of 2");
     await expect(granted.getByRole("button", { name: "Disconnect GitHub from " + ZEKE })).toBeVisible();
     await expect(granted.getByRole("button", { name: "Connect Supabase to " + ZEKE })).toHaveCount(0);
+    const servers = group(main, "Servers from acme");
+    await expect(servers.locator(".connector-where-head")).toContainText("Servers from acme.mcp.json0 of 1");
+    await expect(servers.locator("summary")).toHaveText("1 server of acme it is not given");
     const session = group(main, "Its session");
     await expect(session.locator(".connector-chip")).toHaveText("1 failed");
     await expect(session.locator(".connector-state b")).toHaveText(["Failed to load", "Loaded"]);
@@ -263,11 +266,11 @@ for (const width of [1440, 390]) {
 
     // Assert: the account's connector, and each project's service and server, under their levels.
     await expect(crumbs(main).locator(".here")).toHaveText("Search: every level");
-    await expect(main.locator(".connector-group > h4")).toHaveText(["Account1", "Project3", "Goblin1"]);
+    await expect(main.locator(".connector-group > h4")).toHaveText(["Account1", "Project3", "Goblin2"]);
     const projects = group(main, "Project");
     await expect(projects.locator(".connector-sub")).toHaveText(["acme · Supabase project …k3tv", "acme · Supabase project …k3tv", "globex · Supabase project …q7wk"]);
     await expect(projects.getByRole("button", { name: "Supabase, globex" })).toBeVisible();
-    await expect(main.getByText("5 matches, searched in the saved snapshot: nothing was checked to answer it.")).toBeVisible();
+    await expect(main.getByText("6 matches, searched in the saved snapshot: nothing was checked to answer it.")).toBeVisible();
     await expectFits(page, main);
     await page.screenshot({ path: testInfo.outputPath(`connectors-search-${width}.png`) });
 
@@ -275,7 +278,7 @@ for (const width of [1440, 390]) {
     await search.fill("acme");
 
     // Assert
-    await expect(main.locator(".connector-group > h4")).toHaveText(["This PC1", "Project3", "Goblin4"]);
+    await expect(main.locator(".connector-group > h4")).toHaveText(["This PC1", "Project3", "Goblin5"]);
 
     // Act: a result opens its place, and the search ends.
     await projects.getByRole("button", { name: "Supabase, acme" }).first().click();
