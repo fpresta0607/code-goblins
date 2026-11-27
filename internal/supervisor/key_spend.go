@@ -175,10 +175,15 @@ func attributeKeySpend(reading openrouter.Reading, session keySpendSession) (boo
 // machine's user environment, and the profile that environment names.
 func (s *Service) keySpendPlanFor(ceo ceoState, snapshot Snapshot) keySpendPlan {
 	var plan keySpendPlan
-	userEnv := s.userEnvironment()
+	// The user's environment is read only once a Pi session needs it: on
+	// Linux reading it runs a login shell.
+	var userEnv map[string]string
 	defaultDir := piProfileDefault()
 	seen := map[string]bool{}
 	bind := func(id, model string, since time.Time, project string) {
+		if userEnv == nil {
+			userEnv = s.userEnvironment()
+		}
 		dir, profile, env := s.keySpendProfile(project, userEnv, defaultDir)
 		provider := harness.ModelProvider(model)
 		if provider == "" {
