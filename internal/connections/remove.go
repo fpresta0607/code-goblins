@@ -137,6 +137,10 @@ const (
 	// ServerProject is a server every goblin of its project gets from the
 	// project's .mcp.json.
 	ServerProject = "project"
+	// ServerRevoked is a server of the project's .mcp.json that needs a grant
+	// the goblin's task record no longer gives it, so it leaves at the
+	// goblin's next start.
+	ServerRevoked = "revoked"
 	// ServerElsewhere is a server Code Goblins does not declare for it, such
 	// as one of the Claude settings or account.
 	ServerElsewhere = "elsewhere"
@@ -159,6 +163,8 @@ func GoblinServerSource(meta state.TaskMeta, server string) (string, error) {
 		return "", err
 	case slices.Contains(held, server) && slices.Contains(meta.MCPServers, server):
 		return ServerGranted, nil
+	case slices.Contains(held, server):
+		return ServerRevoked, nil
 	case slices.Contains(kept, server):
 		return ServerProject, nil
 	}

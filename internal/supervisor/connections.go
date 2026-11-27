@@ -320,13 +320,17 @@ func (h *HTTP) removeConnector(w http.ResponseWriter, r *http.Request) {
 		case source == connections.ServerProject:
 			apiError(w, 409, name+" comes to every goblin of "+project+" from its .mcp.json, a file of its repository: change it there through a pull request.")
 			return
+		case source == connections.ServerRevoked:
+			apiError(w, 409, "This goblin's task record no longer gives it "+name+", so it leaves at the goblin's next start. Nothing was removed.")
+			return
 		case source != connections.ServerGranted:
 			apiError(w, 409, "Code Goblins does not give "+name+" to this goblin: it comes from your Claude settings or account, so change it there.")
 			return
 		}
 		stateDir := s.Store.Home.State
 		refresher := spawn.AuthRefresher{StateDir: stateDir, DataDir: s.Store.Home.Data, Panes: spawn.NativeLiveness{StateDir: stateDir}, By: "the Overlord from " + from, Generation: meta.SpawnGen, Project: project}
-		if _, err := refresher.RevokeMCP(meta.ID, []string{name}); err != nil && !spawn.ChangeStands(err) {
+		_, err = refresher.RevokeMCP(meta.ID, []string{name})
+		if err != nil && !spawn.ChangeStands(err) {
 			apiError(w, 409, err.Error())
 			return
 		}
@@ -335,6 +339,9 @@ func (h *HTTP) removeConnector(w http.ResponseWriter, r *http.Request) {
 			snapshots.ReadNow(current)
 		}
 		told = "connections: the Overlord removed " + name + " from " + meta.ID + "'s task record, from its next start, from " + from
+		if err != nil {
+			told += ", but " + err.Error()
+		}
 	default:
 		apiError(w, 409, "Code Goblins does not declare this item, so Remove cannot take it away: change it where it lives.")
 		return

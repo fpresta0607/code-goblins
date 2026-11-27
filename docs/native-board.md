@@ -1575,6 +1575,7 @@ What Remove does depends on what the item is, and it edits only the one declarat
 - A project's MCP server is declared in the project's own `.mcp.json`, a file of its repository, so Remove refuses it and says to change it there through a pull request.
 - A goblin's server that failed to load, or was still starting, is taken out of the goblin's task record, as Disconnect does, from its next start, and its failure leaves the list; its worktree and every other connection stay.
   A server every goblin of the project gets from the project's `.mcp.json`, and one from the user's Claude settings or account, is refused with where it comes from.
+  A server of the project's `.mcp.json` whose grant its task record no longer holds is refused, since it already leaves at the goblin's next start.
   To undo it, Connect gives it back.
 - Anything else, which Code Goblins does not declare, such as a command line tool, a harness sign-in, an account connector, a server of the user's own Claude or Codex configuration or the crawler, says where it lives, offers only Close and posts nothing.
 

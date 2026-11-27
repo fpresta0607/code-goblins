@@ -125,10 +125,17 @@ func without(ids []string, gone string) []string {
 // out of the page at once, and tells the CEO: a project's service out of its
 // auth.json, kept word for word beside it; a credential of this PC out of its
 // user environment, its value kept in the vault first; and a server a goblin's
-// task record gives it out of that record.
+// task record gives it out of that record, one still starting as well as one
+// that failed, and a change that stands is told with what failed after it.
 func TestRemoveTakesTheItemOutOfWhereItIsDeclaredAndThePage(t *testing.T) {
+	heldTakenBack := func(t *testing.T, s *Service, _, _ string) {
+		if meta, err := state.ReadTaskMeta(s.Store.Home.State, "task-1"); err != nil || len(meta.MCPServers) != 0 {
+			t.Fatalf("task record gives %v (%v), want held taken back", meta.MCPServers, err)
+		}
+	}
 	cases := []struct {
 		name, body, gone, told string
+		arrange                func(t *testing.T, s *Service)
 		changed                func(t *testing.T, s *Service, manifestPath, userEnv string)
 	}{
 		{
@@ -162,12 +169,27 @@ func TestRemoveTakesTheItemOutOfWhereItIsDeclaredAndThePage(t *testing.T) {
 		},
 		{
 			name: "goblin's server", gone: "failed:held", told: "the Overlord removed held from task-1's task record",
+			body:    `{"level":"goblin","project":"acme","task":"task-1","generation":"g1","connection":"failed:held"}`,
+			changed: heldTakenBack,
+		},
+		{
+			name: "goblin's server still starting", gone: "pending:held", told: "the Overlord removed held from task-1's task record",
+			body:    `{"level":"goblin","project":"acme","task":"task-1","generation":"g1","connection":"pending:held"}`,
+			changed: heldTakenBack,
+		},
+		{
+			name: "goblin's server whose status log fails", gone: "failed:held", told: ", but spawn: the record of task-1 changed as asked, but no record of the change reached its status log",
 			body: `{"level":"goblin","project":"acme","task":"task-1","generation":"g1","connection":"failed:held"}`,
-			changed: func(t *testing.T, s *Service, _, _ string) {
-				if meta, err := state.ReadTaskMeta(s.Store.Home.State, "task-1"); err != nil || len(meta.MCPServers) != 0 {
-					t.Fatalf("task record gives %v (%v), want held taken back", meta.MCPServers, err)
+			arrange: func(t *testing.T, s *Service) {
+				statusLog := state.StatusPath(s.Store.Home.State, "task-1")
+				if err := os.RemoveAll(statusLog); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.MkdirAll(statusLog, 0o700); err != nil {
+					t.Fatal(err)
 				}
 			},
+			changed: heldTakenBack,
 		},
 	}
 	for _, test := range cases {
@@ -175,6 +197,9 @@ func TestRemoveTakesTheItemOutOfWhereItIsDeclaredAndThePage(t *testing.T) {
 			// Arrange
 			s, manifestPath, userEnv := removeBoard(t)
 			asOverlordsBoard(s)
+			if test.arrange != nil {
+				test.arrange(t, s)
+			}
 
 			// Act
 			code, body := askTheBoard(t, s, "POST", "/api/connectors/remove", test.body, nil)
@@ -201,13 +226,14 @@ func TestRemoveTakesTheItemOutOfWhereItIsDeclaredAndThePage(t *testing.T) {
 // his own, a body with another field, a project the page does not list, a
 // service the manifest no longer declares, an MCP server of the project's
 // repository, a credential whose name the vault holds another value under, a
-// goblin that restarted, a server every goblin of the project gets, one of his
-// Claude account, and an item Code Goblins does not declare.
+// goblin that restarted, a server every goblin of the project gets, one whose
+// grant the record no longer holds, one of his Claude account, a project
+// .mcp.json that does not parse, and an item Code Goblins does not declare.
 func TestRemoveRefusesAndChangesNothing(t *testing.T) {
 	cases := []struct {
-		name, body, vault, want string
-		isHisBoard              bool
-		code                    int
+		name, body, vault, mcpConfig, want string
+		isHisBoard, isRevoked              bool
+		code                               int
 	}{
 		{name: "not his board", body: `{"level":"project","project":"acme","connection":"service:keyed"}`, want: "Remove it in the Code Goblins window", code: http.StatusForbidden},
 		{name: "another field", body: `{"level":"project","project":"acme","connection":"service:keyed","value":"x"}`, want: "Choose a connector to remove.", isHisBoard: true, code: http.StatusBadRequest},
@@ -218,6 +244,8 @@ func TestRemoveRefusesAndChangesNothing(t *testing.T) {
 		{name: "credential not listed", body: `{"level":"pc","connection":"credential:OTHER_API_KEY"}`, want: "OTHER_API_KEY is not listed", isHisBoard: true, code: http.StatusConflict},
 		{name: "goblin restarted", body: `{"level":"goblin","task":"task-1","generation":"g0","connection":"failed:held"}`, want: "Task restarted", isHisBoard: true, code: http.StatusConflict},
 		{name: "server of the project", body: `{"level":"goblin","task":"task-1","generation":"g1","connection":"failed:docs"}`, want: "docs comes to every goblin of", isHisBoard: true, code: http.StatusConflict},
+		{name: "grant no longer in the record", body: `{"level":"goblin","task":"task-1","generation":"g1","connection":"failed:held"}`, isRevoked: true, want: "task record no longer gives it held, so it leaves at the goblin's next start", isHisBoard: true, code: http.StatusConflict},
+		{name: "project's .mcp.json unreadable", body: `{"level":"goblin","task":"task-1","generation":"g1","connection":"failed:held"}`, mcpConfig: `{"mcpServers":`, want: ".mcp.json could not be read, so nothing was removed", isHisBoard: true, code: http.StatusConflict},
 		{name: "server of his account", body: `{"level":"goblin","task":"task-1","generation":"g1","connection":"failed:claude.ai Gmail"}`, want: "comes from your Claude settings or account", isHisBoard: true, code: http.StatusConflict},
 		{name: "item not declared by Code Goblins", body: `{"level":"pc","connection":"cli:gh"}`, want: "Code Goblins does not declare this item", isHisBoard: true, code: http.StatusConflict},
 	}
@@ -234,6 +262,23 @@ func TestRemoveRefusesAndChangesNothing(t *testing.T) {
 			}
 			if test.vault != "" {
 				if err := vault.Set(auth.Shared("ACME_API_KEY"), test.vault); err != nil {
+					t.Fatal(err)
+				}
+			}
+			meta, err := state.ReadTaskMeta(s.Store.Home.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			granted := []string{"held"}
+			if test.isRevoked {
+				granted = nil
+				meta.MCPServers = nil
+				if err := state.WriteTaskMeta(s.Store.Home.State, meta); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if test.mcpConfig != "" {
+				if err := os.WriteFile(filepath.Join(meta.Project, ".mcp.json"), []byte(test.mcpConfig), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -257,8 +302,8 @@ func TestRemoveRefusesAndChangesNothing(t *testing.T) {
 			if value, _, err := vault.Get(auth.Shared("ACME_API_KEY")); err != nil || value != test.vault {
 				t.Fatalf("the vault's value changed (%v)", err)
 			}
-			if meta, err := state.ReadTaskMeta(s.Store.Home.State, "task-1"); err != nil || !slices.Equal(meta.MCPServers, []string{"held"}) {
-				t.Fatalf("task record gives %v (%v), want it unchanged", meta.MCPServers, err)
+			if meta, err := state.ReadTaskMeta(s.Store.Home.State, "task-1"); err != nil || !slices.Equal(meta.MCPServers, granted) {
+				t.Fatalf("task record gives %v (%v), want %v unchanged", meta.MCPServers, err, granted)
 			}
 			if ids := listedIDs(s); !slices.Equal(ids, allListed) {
 				t.Fatalf("listed = %v, want all kept", ids)

@@ -1,4 +1,4 @@
-import { ConnectorNeedsLook } from "./connector-needs-look";
+import { ConnectorNeedsLook, NEEDS_LOOK_FOCUS } from "./connector-needs-look";
 import { levelSummary, needsLook, countWords } from "./connector-rows";
 import { ConnectorTile } from "./connector-tile";
 import type { ConnectorViewProps } from "./connector-view-props";
@@ -16,6 +16,6 @@ export function ConnectorHome({ snapshot, rows, now, actions, onOpen }: Connecto
     </div>
     {attention.length > 0
       ? <ConnectorNeedsLook why="Only what failed or is out of place, from every level." rows={attention} now={now} actions={actions} onOpen={onOpen} />
-      : <p className="connector-empty">Nothing needs a look.</p>}
+      : <p id={NEEDS_LOOK_FOCUS} className="connector-empty" tabIndex={-1}>Nothing needs a look.</p>}
   </>;
 }

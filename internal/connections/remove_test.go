@@ -210,17 +210,26 @@ func TestRemoveUserCredentialRefusesAndKeepsTheVariable(t *testing.T) {
 
 // A server a goblin's session named is the goblin's to give back only when its
 // task record gives it by name: one every goblin of the project gets is the
-// project's, and one the project does not declare comes from elsewhere.
+// project's, one that needs a grant the record no longer gives is revoked, and
+// one the project does not declare comes from elsewhere.
 func TestGoblinServerSourceSaysWhereAServerComesFrom(t *testing.T) {
 	// Arrange
 	e := newTestEnvironment(t)
 	checkout := e.checkout(t, "acme")
 	writeFile(t, filepath.Join(checkout, ".mcp.json"), `{"mcpServers":{"docs":{"command":"npx"},"held":{"command":"npx","env":{"HELD_MODE":"literal"}}}}`)
-	cases := []struct{ server, want string }{{"held", ServerGranted}, {"docs", ServerProject}, {"claude.ai Gmail", ServerElsewhere}}
+	cases := []struct {
+		name, server, want string
+		granted            []string
+	}{
+		{name: "granted", server: "held", granted: []string{"held"}, want: ServerGranted},
+		{name: "grant revoked", server: "held", want: ServerRevoked},
+		{name: "project's", server: "docs", granted: []string{"held"}, want: ServerProject},
+		{name: "elsewhere", server: "claude.ai Gmail", granted: []string{"held"}, want: ServerElsewhere},
+	}
 	for _, test := range cases {
-		t.Run(test.server, func(t *testing.T) {
+		t.Run(test.name, func(t *testing.T) {
 			// Act
-			source, err := GoblinServerSource(state.TaskMeta{ID: "task-1", Project: checkout, MCPServers: []string{"held"}}, test.server)
+			source, err := GoblinServerSource(state.TaskMeta{ID: "task-1", Project: checkout, MCPServers: test.granted}, test.server)
 
 			// Assert
 			if err != nil || source != test.want {

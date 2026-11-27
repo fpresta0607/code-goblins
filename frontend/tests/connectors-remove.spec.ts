@@ -1,4 +1,4 @@
-import { fleet, NOW, play, type Supervisor } from "./connectors-supervisor";
+import { fleet, item, NOW, play, type Supervisor } from "./connectors-supervisor";
 import { expect, test, type Page } from "./site";
 
 // Remove on a card of Needs a look (#3002): it asks first, naming what will
@@ -51,15 +51,52 @@ test("Remove of a goblin's server posts its goblin and generation, and the item 
   // Act
   await attention(page).getByRole("button", { name: "Remove Acme Docs, Zeke - Touch Wrangler in acme" }).click();
   const confirm = page.getByRole("dialog", { name: "Remove Acme Docs?" });
-  await expect(confirm).toContainText("Takes Acme Docs out of the task record of Zeke - Touch Wrangler in acme");
+  await expect(confirm).toContainText("Takes acme-docs out of the task record of Zeke - Touch Wrangler in acme");
+  await confirm.getByRole("button", { name: "Remove", exact: true }).click();
+
+  // Assert: focus lands on the list's heading, since the card it came from is gone.
+  await expect(confirm).toBeHidden();
+  await expect(names(page)).toHaveText(["gcloud", "ACME_API_KEY", "Supabase"]);
+  await expect(attention(page).getByRole("heading", { name: /^Needs a look/ })).toBeFocused();
+  expect(supervisor.posts.map((post) => [post.path, post.token, post.body])).toEqual([
+    ["/api/connectors/remove", "connectors-proof", { level: "goblin", project: "acme", task: "cg-touch", generation: "cg-touch-1", connection: "failed:acme-docs" }],
+  ]);
+});
+
+test("Remove of a goblin's server still starting names its task record and posts the pending item", async ({ page }) => {
+  // Arrange
+  const supervisor = fleet();
+  supervisor.view.goblins[0].items.push(item("goblin", "loaded", "mcp", "acme-wiki", "not_checked", { id: "pending:acme-wiki", source: "its session record" }));
+  await open(page, supervisor);
+
+  // Act
+  await attention(page).getByRole("button", { name: "Remove Acme Wiki, Zeke - Touch Wrangler in acme" }).click();
+  const confirm = page.getByRole("dialog", { name: "Remove Acme Wiki?" });
+  await expect(confirm).toContainText("Takes acme-wiki out of the task record of Zeke - Touch Wrangler in acme");
   await confirm.getByRole("button", { name: "Remove", exact: true }).click();
 
   // Assert
   await expect(confirm).toBeHidden();
-  await expect(names(page)).toHaveText(["gcloud", "ACME_API_KEY", "Supabase"]);
-  expect(supervisor.posts.map((post) => [post.path, post.token, post.body])).toEqual([
-    ["/api/connectors/remove", "connectors-proof", { level: "goblin", project: "acme", task: "cg-touch", generation: "cg-touch-1", connection: "failed:acme-docs" }],
+  await expect(names(page)).toHaveText(ALL);
+  expect(supervisor.posts.map((post) => [post.path, post.body])).toEqual([
+    ["/api/connectors/remove", { level: "goblin", project: "acme", task: "cg-touch", generation: "cg-touch-1", connection: "pending:acme-wiki" }],
   ]);
+});
+
+test("a removal that empties Needs a look moves focus to the line that says so", async ({ page }) => {
+  // Arrange: Acme Docs is the only item in trouble.
+  const supervisor = fleet();
+  supervisor.view.machine.items = supervisor.view.machine.items.filter((each) => each.status !== "not_checked" && each.status !== "everywhere");
+  supervisor.view.projects = supervisor.view.projects.filter((project) => project.name !== "globex");
+  await open(page, supervisor);
+
+  // Act
+  await attention(page).getByRole("button", { name: "Remove Acme Docs, Zeke - Touch Wrangler in acme" }).click();
+  await page.getByRole("dialog", { name: "Remove Acme Docs?" }).getByRole("button", { name: "Remove", exact: true }).click();
+
+  // Assert
+  await expect(attention(page)).toBeHidden();
+  await expect(page.getByText("Nothing needs a look.")).toBeFocused();
 });
 
 test("a Remove the supervisor refuses says why in the question, with nothing changed, and the card stays", async ({ page }) => {

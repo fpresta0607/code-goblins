@@ -160,7 +160,7 @@ for (const width of [1440, 390]) {
     // Act: remove the project's missing service, confirming what it changes.
     await attention.getByRole("button", { name: "Remove Supabase, globex" }).click();
     const confirm = page.getByRole("dialog", { name: "Remove Supabase?" });
-    await expect(confirm).toContainText("Takes the service Supabase out of globex's auth.json");
+    await expect(confirm).toContainText("Takes the service supabase out of globex's auth.json");
     await page.screenshot({ path: testInfo.outputPath(`connectors-remove-${width}.png`) });
     await confirm.getByRole("button", { name: "Remove", exact: true }).click();
 
