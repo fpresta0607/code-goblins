@@ -607,9 +607,10 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 	// A queued message's Send now asks for it where it waits, and is never
 	// queued as a delivery of its own.
 	if a.Kind == "message_now" {
+		queued := h.queueRecord(r.Context())
 		// One its harness holds in its own queue goes by that harness's
 		// send-now key (#2332).
-		if isHeld, err := h.Service.sendHeldNow(a.Target, a.TaskID, h.queueRecord(r.Context())); isHeld {
+		if isHeld, err := h.Service.sendHeldNow(a.Target, a.TaskID, queued); isHeld {
 			if err != nil {
 				apiError(w, 409, err.Error())
 				return
@@ -620,15 +621,17 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 		}
 		// A command goes ahead of what its session's harness holds in its
 		// queue, or says why it cannot (#2759).
-		isSent, err := h.Service.sendCommandFirst(r.Context(), a.Target, a.TaskID)
+		isSent, err := h.Service.sendCommandFirst(r.Context(), a.Target, a.TaskID, queued)
 		if err != nil {
 			h.Service.wakeActions()
 			h.Service.publish(nil)
 			apiError(w, 409, err.Error())
 			return
 		}
+		// One the board holds is typed into its session's queue and sent now,
+		// unless a command ahead of it there would run alone (#2341).
 		if !isSent {
-			if _, err := h.Service.Store.SendQueuedMessageNow(a.Target, a.TaskID); err != nil {
+			if err := h.Service.sendQueuedNow(a.Target, a.TaskID, queued); err != nil {
 				apiError(w, 409, err.Error())
 				return
 			}
