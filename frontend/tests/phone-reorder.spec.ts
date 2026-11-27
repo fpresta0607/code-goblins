@@ -15,6 +15,8 @@ const LISTS = [
 ];
 // Longer than a finger rests on a card before the card lifts.
 const PAST_LIFT = 600;
+// Longer than the browser takes to make a click of a finger's tap.
+const PAST_TAP = 600;
 
 test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 
@@ -122,6 +124,31 @@ test("a finger that moves at once on a card scrolls the page and lifts no card, 
   // Assert
   expect(posted).toEqual([]);
   expect(await ranked(column)).toEqual(ids);
+  await finger.detach();
+});
+
+test("a card a finger lifted and let go in place opens nothing and keeps its place", async ({ page }) => {
+  // Arrange
+  const ids = LISTS[0].tasks.map((item) => item.id);
+  const { column, posted } = await open(page, "In progress");
+  const last = card(column, ids[3]);
+  const from = await centre(last.locator(".card-title"));
+  expect(await cardAt(page, from)).toBe(ids[3]);
+  const finger = await fingerOn(page);
+
+  // Act: the finger rests on the card's name until the card lifts, then lets
+  // go where it is.
+  await finger.down(from);
+  await expect(last).toHaveClass(/dragging/);
+  await finger.up();
+  await page.waitForTimeout(PAST_TAP);
+
+  // Assert
+  await expect(column.locator(".task-cards.ranked")).toBeVisible();
+  await expect(last).not.toHaveClass(/dragging/);
+  await expect(last.locator(".task-card")).toHaveAttribute("aria-pressed", "false");
+  expect(await ranked(column)).toEqual(ids);
+  expect(posted).toEqual([]);
   await finger.detach();
 });
 

@@ -57,17 +57,25 @@ export function useSortable(ids: string[], onOrder: (order: string[], moved: str
   // Ends a drag in progress; a list that goes away mid-drag ends its drag.
   const release = useRef<(() => void) | null>(null);
   useEffect(() => () => release.current?.(), []);
-  // A lifted card holds the page still under the finger that carries it. Only
-  // a listener in place before the finger comes down can stop the page
-  // scrolling, so the list keeps one for as long as it is shown.
+  // A lifted card holds the page still under the finger that carries it, and
+  // the finger that drops it makes no click at all, so a card let go in place
+  // opens nothing. Only a listener in place before the finger comes down can
+  // stop the page scrolling, so the list keeps both for as long as it is shown.
   useEffect(() => {
     const list = listRef.current;
     if (!list) return;
     const hold = (event: TouchEvent) => {
       if (drag.current?.moved && event.cancelable) event.preventDefault();
     };
+    const stopTap = (event: TouchEvent) => {
+      if (dropped.current && event.cancelable) event.preventDefault();
+    };
     list.addEventListener("touchmove", hold, { passive: false });
-    return () => list.removeEventListener("touchmove", hold);
+    list.addEventListener("touchend", stopTap, { passive: false });
+    return () => {
+      list.removeEventListener("touchmove", hold);
+      list.removeEventListener("touchend", stopTap);
+    };
   }, [listRef]);
 
   // The dragged card follows the pointer from wherever the list lays it out
@@ -225,7 +233,8 @@ export function useSortable(ids: string[], onOrder: (order: string[], moved: str
       const from = node.style.transform;
       node.style.transform = "";
       if (!matchMedia("(prefers-reduced-motion: reduce)").matches) node.animate([{ transform: from }, { transform: "none" }], { duration: 180, easing: "cubic-bezier(.2,.8,.2,1)" });
-      // The click that ends a drag does not open the card.
+      // The click that ends a drag does not open the card, and a finger that
+      // drops a card makes no click at all.
       dropped.current = true;
       setTimeout(() => { dropped.current = false; });
       const final = shown.current;
