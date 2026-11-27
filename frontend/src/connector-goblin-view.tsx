@@ -10,13 +10,13 @@ import { ConnectorWhere } from "./connector-where";
 // One goblin, read from its own session record, from the widest scope down
 // (#3010): what this PC gives every goblin, the services of its project it is
 // granted, each with Disconnect, and those it is not, folded, each with
-// Connect, and the servers its own session loaded, failed to load or is
-// starting. A goblin whose session does not say what it loaded says so.
+// Connect, the same for its project's MCP servers when it declares any, and
+// the servers its own session loaded, failed to load or is starting. A goblin whose session does not say what it loaded says so.
 export function ConnectorGoblinView({ snapshot, rows, now, actions, nameOf, task }: ConnectorViewProps & { task: string }) {
   const goblin = snapshot.goblins.find((each) => each.task === task);
   if (!goblin) return <p className="connector-empty">This goblin is not running.</p>;
   const name = nameOf(task);
-  const { granted, notGiven, session } = goblinScope(rows, task);
+  const { granted, notGiven, servers, serversNotGiven, session } = goblinScope(rows, task);
   const pc = pcScope(snapshot);
   const failed = session.filter((row) => row.group === "failed").length;
   const where = { now, actions, goblinName: name };
@@ -31,6 +31,9 @@ export function ConnectorGoblinView({ snapshot, rows, now, actions, nameOf, task
     <ConnectorWhere {...where} tone="local" title={"Granted from " + goblin.project} count={granted.length + " of " + (granted.length + notGiven.length)}
       why="Services of the project's auth.json its task record gives it." rows={granted} empty="It is given none of them."
       fold={{ title: countWords(notGiven.length, "service") + " of " + goblin.project + " it is not given", rows: notGiven }} />
+    {servers.length + serversNotGiven.length > 0 && <ConnectorWhere {...where} tone="local" title={"Servers from " + goblin.project} file=".mcp.json"
+      count={servers.length + " of " + (servers.length + serversNotGiven.length)} why="MCP servers of the project's .mcp.json its task record gives it." rows={servers} empty="It is given none of them."
+      fold={{ title: countWords(serversNotGiven.length, "server") + " of " + goblin.project + " it is not given", rows: serversNotGiven }} />}
     <ConnectorWhere {...where} tone="goblin" title="Its session" count={failed + " failed"}
       why="Servers its session loaded, failed or is still starting, from its own record." rows={session} empty="Its session has recorded no servers yet." />
   </>;

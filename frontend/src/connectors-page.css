@@ -45,9 +45,10 @@
 .connector-node > span { display: inline-flex; align-items: center; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
 .connector-node small, .connector-leaf small { color: var(--muted); font-size: 1rem; font-weight: 400; }
 .connector-node[aria-current] { border-color: var(--accent-green); background: color-mix(in srgb, var(--accent-green) 6%, transparent); }
-.connector-node.is-look { padding: 10px 14px; border-color: color-mix(in srgb, var(--amber) 45%, transparent); background: color-mix(in srgb, var(--amber) 6%, transparent); font-weight: 700; }
+.connector-node.is-look { padding: 10px 14px; font-weight: 700; }
+.connector-node.is-look.is-trouble { border-color: color-mix(in srgb, var(--amber) 45%, transparent); background: color-mix(in srgb, var(--amber) 6%, transparent); }
 .connector-node.is-look[aria-current] { border-color: var(--accent-green); }
-.connector-node.is-look b { color: var(--amber); }
+.connector-node.is-look.is-trouble b { color: var(--amber); }
 .connector-node.is-more { color: var(--muted); }
 .connector-tree-list, .connector-tree-goblins { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; min-width: 0; }
 .connector-tree-goblins { margin: 0 0 4px 14px; padding-left: 10px; border-left: 1px solid var(--border); }
@@ -178,7 +179,7 @@
   .connectors-split { grid-template-columns: minmax(0, 1fr); }
   .connectors-split[data-shows="tree"] > .connectors-split-place, .connectors-split[data-shows="place"] > .connectors-split-tree { display: none; }
   .connectors-split[data-shows="tree"] .connector-node[aria-current] { border-color: transparent; background: none; }
-  .connectors-split[data-shows="tree"] .connector-node.is-look[aria-current] { border-color: color-mix(in srgb, var(--amber) 45%, transparent); background: color-mix(in srgb, var(--amber) 6%, transparent); }
+  .connectors-split[data-shows="tree"] .connector-node.is-look.is-trouble[aria-current] { border-color: color-mix(in srgb, var(--amber) 45%, transparent); background: color-mix(in srgb, var(--amber) 6%, transparent); }
 }
 
 /* A narrow canvas, a phone's or one beside a wide panel, and a narrow place:

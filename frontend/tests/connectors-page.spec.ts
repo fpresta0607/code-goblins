@@ -200,10 +200,11 @@ for (const width of [1440, 390]) {
     await expect(crumbs(main).locator(".here")).toHaveText("acme");
     await expect(group(main, "Goblins").getByRole("button", { name: ZEKE, exact: true })).toBeFocused();
 
-    // Act
+    // Act: down to the goblin again, then up two steps at once.
+    await group(main, "Goblins").getByRole("button", { name: ZEKE, exact: true }).click();
     await crumbs(main).getByRole("button", { name: "Projects", exact: true }).click();
 
-    // Assert
+    // Assert: the way back lands on the project it went down through.
     await expect(group(main, "Every project").getByRole("button", { name: "acme", exact: true })).toBeFocused();
     expect(supervisor.posts).toEqual([]);
 

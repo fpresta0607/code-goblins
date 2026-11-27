@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { ConnectorRow } from "./connector-row";
 import type { Place } from "./connector-place";
 import type { ConnectorRow as Row } from "./connector-rows";
@@ -8,9 +7,9 @@ import type { ConnectorActions } from "./use-connectors";
 
 // One place a scope's connectors come from (#3010): where it is, how many it
 // holds, who shares it, its rows, and the rows past the first few folded.
-export function ConnectorWhere({ tone, title, file = "", count, why, rows = [], empty = "", fold, now, actions, goblinName = "", onOpen, children }: {
+export function ConnectorWhere({ tone, title, file = "", count, why, rows = [], empty = "", fold, now, actions, goblinName = "", onOpen }: {
   tone: ConnectorTagTone; title: string; file?: string; count: string; why: string; rows?: Row[]; empty?: string; fold?: { title: string; rows: Row[] };
-  now: number; actions: ConnectorActions; goblinName?: string; onOpen?: (place: Place) => void; children?: ReactNode;
+  now: number; actions: ConnectorActions; goblinName?: string; onOpen?: (place: Place) => void;
 }) {
   const list = (each: Row[]) => <ul className="connector-rows">
     {each.map((row) => <ConnectorRow key={row.key} row={row} now={now} goblinName={goblinName} actions={actions} onOpen={onOpen} />)}
@@ -23,6 +22,5 @@ export function ConnectorWhere({ tone, title, file = "", count, why, rows = [], 
     </div>
     {rows.length > 0 ? list(rows) : empty && <p className="connector-empty">{empty}</p>}
     {fold && fold.rows.length > 0 && <Disclosure kind="connector-fold" title={fold.title}>{list(fold.rows)}</Disclosure>}
-    {children}
   </section>;
 }

@@ -48,21 +48,24 @@ export function ConnectorsPage({ snapshot, onRepair }: { snapshot: Snapshot; onR
   const rows = useMemo(() => view ? allRows(view, (task) => names.get(task) ?? task) : [], [view, names]);
   // Going back up lands on the row the way down was taken from, in the tree
   // or the view, whichever it was taken in, and going down or across lands on
-  // the view, so the keyboard is never left on what went away.
+  // the view, so the keyboard is never left on what went away. The tree is the
+  // home, so what it opens was opened from the home.
   const region = useRef<HTMLElement>(null);
   const tree = useRef<HTMLDivElement>(null);
-  const [waysDown, setWaysDown] = useState<Record<string, "tree" | "view">>({});
+  const [waysDown, setWaysDown] = useState<Record<string, { from: string; pane: "tree" | "view" }>>({});
   const [arrival, setArrival] = useState<string>();
-  const go = (next: Place, from: "tree" | "view" = "view") => {
-    const isUp = crumbs.slice(0, -1).some((crumb) => placeKey(crumb.place) === placeKey(next));
-    if (!isUp) setWaysDown((ways) => ({ ...ways, [placeKey(next)]: from }));
-    setArrival(isUp ? placeKey(place) : "");
+  const go = (next: Place, pane: "tree" | "view" = "view") => {
+    const path = crumbs.map((crumb) => placeKey(crumb.place));
+    const upTo = path.indexOf(placeKey(next));
+    const isUp = upTo >= 0 && upTo < path.length - 1;
+    if (!isUp) setWaysDown((ways) => ({ ...ways, [placeKey(next)]: { from: placeKey(pane === "tree" ? HOME : place), pane } }));
+    setArrival(isUp ? path.slice(upTo + 1).reverse().find((key) => waysDown[key]?.from === placeKey(next)) ?? "" : "");
     setSearch("");
     setPlace(next);
   };
   useEffect(() => {
     if (arrival === undefined) return;
-    const parts = waysDown[arrival] === "tree" ? [tree.current, region.current] : [region.current, tree.current];
+    const parts = waysDown[arrival]?.pane === "tree" ? [tree.current, region.current] : [region.current, tree.current];
     const shown = parts.flatMap((part) => [...part?.querySelectorAll<HTMLElement>("[data-place]") ?? []]);
     const from = arrival ? shown.find((row) => row.dataset.place === arrival && row.getClientRects().length > 0) : undefined;
     (from?.querySelector<HTMLElement>(".connector-open") ?? from ?? region.current)?.focus();

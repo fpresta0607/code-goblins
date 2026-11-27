@@ -1,4 +1,4 @@
-import { bigFleet, fleet, minutesBefore, NOW, play, type Supervisor } from "./connectors-supervisor";
+import { bigFleet, fleet, item, level, minutesBefore, NOW, play, supervisorWith, type Json, type ProjectJson, type Supervisor } from "./connectors-supervisor";
 import { expect, test, type Page } from "./site";
 
 // What the Connectors page asks the supervisor and when, and what it does with
@@ -489,6 +489,81 @@ test("a login whose browser is in use waits for it to close, and a project with 
   // Assert
   await expect(page.getByText("Sign out and Forget need a goblin running in this project.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Forget Stripe · Acme" })).toBeDisabled();
+});
+
+// busy, whose nine private services include two missing, and late, each with
+// a goblin, listed after four projects without one.
+function crowd(): Supervisor {
+  const project = (name: string, items: Json[] = []): ProjectJson => ({ name, path: "C:/work/" + name, browser_logins: [], ...level(items) });
+  const goblin = (task: string, name: string) => ({ task, generation: task + "-1", project: name, harness: "claude", is_confirmed: true, ...level([]) });
+  const services = Array.from({ length: 9 }, (_, at) => item("project", "service", "service", "service-" + (at + 1), at + 1 === 3 || at + 1 === 8 ? "missing" : "set"));
+  return supervisorWith({
+    machine: level([item("pc", "cli", "cli", "gh", "verified")]),
+    projects: [project("alpha"), project("beta"), project("gamma"), project("delta"), project("busy", services), project("late")],
+    goblins: [goblin("g-busy", "busy"), goblin("g-late", "late")],
+  });
+}
+const CROWD: Goblins = [["g-busy", "Bram", "Busy Bee"], ["g-late", "Lark", "Late Riser"]];
+
+// The board's amber, as text and as the faint fill of a node that needs a look.
+const amberOf = (page: Page) => page.evaluate(() => {
+  const probe = document.createElement("i");
+  probe.style.color = "var(--amber)";
+  probe.style.backgroundColor = "color-mix(in srgb, var(--amber) 6%, transparent)";
+  document.body.append(probe);
+  const { color, backgroundColor } = getComputedStyle(probe);
+  probe.remove();
+  return { color, background: backgroundColor };
+});
+
+test("a project lists the services that need a look first and folds the quiet ones past six, which unfold, and the tree's Needs a look is amber", async ({ page }) => {
+  // Arrange
+  await open(page, crowd(), CROWD);
+  const look = tree(page).getByRole("button", { name: "Needs a look, 2" });
+  const amber = await amberOf(page);
+
+  // Assert: something needs a look, so the tree says so in amber.
+  await expect(look.locator("b")).toHaveCSS("color", amber.color);
+  await expect(look).toHaveCSS("background-color", amber.background);
+
+  // Act
+  await openProject(page, "busy");
+
+  // Assert: the two missing first, then four quiet ones, and the other three folded.
+  const kept = group("Private to this PC", page);
+  await expect(kept.locator(".connector-where-head")).toContainText("Private to this PCauth.json9 services");
+  await expect(kept.locator(".connector-name strong")).toHaveText(["Service 3", "Service 8", "Service 1", "Service 2", "Service 4", "Service 5"]);
+  await expect(kept.locator(".connector-state b")).toHaveText(["Missing", "Missing", "Set", "Set", "Set", "Set"]);
+
+  // Act
+  await kept.getByText("3 more services, none needs a look", { exact: true }).click();
+
+  // Assert
+  await expect(kept.locator(".connector-name strong")).toHaveText(["Service 3", "Service 8", "Service 1", "Service 2", "Service 4", "Service 5", "Service 6", "Service 7", "Service 9"]);
+});
+
+test("the tree lists the projects with a goblin first and four in all, one line for the rest opens the Projects page, and a Needs a look of nothing is not amber", async ({ page }) => {
+  // Arrange
+  const supervisor = crowd();
+  for (const each of supervisor.view.projects[4].items) each.status = "set";
+  await open(page, supervisor, CROWD);
+  const look = tree(page).getByRole("button", { name: "Needs a look, 0" });
+  const amber = await amberOf(page);
+
+  // Assert: nothing needs a look, so nothing on it is amber.
+  await expect(look.locator("b")).not.toHaveCSS("color", amber.color);
+  await expect(look).not.toHaveCSS("background-color", amber.background);
+  await expect(tree(page).locator(".connector-tree-list > li > .connector-node")).toHaveText([
+    "busy9 private", "late0 private", "alpha0 private", "beta0 private", "2 more projects, those with a goblin first",
+  ]);
+
+  // Act
+  await tree(page).getByRole("button", { name: "2 more projects, those with a goblin first", exact: true }).click();
+
+  // Assert
+  await expect(crumbs(page).locator(".here")).toHaveText("Projects");
+  await expect(view(page, "Projects")).toBeFocused();
+  await expect(group("Every project", page).locator(".connector-open")).toHaveText(["busy", "late", "alpha", "beta", "gamma", "delta"]);
 });
 
 // The Overlord's page was slow because it checked every goblin on open. The

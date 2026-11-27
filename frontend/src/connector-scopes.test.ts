@@ -31,7 +31,10 @@ const snapshot = () => parseConnectorSnapshot({
   ],
   goblins: [
     goblin("t-1", "acme", [item("goblin", "carried", "service", "service-1", "set", { grant: "revoke" }), item("goblin", "carried", "service", "supabase", "set", { grant: "revoke" }), item("goblin", "not_given", "service", "service-2", "not_given", { grant: "grant" }), item("goblin", "loaded", "mcp", "search", "verified"), item("goblin", "failed", "mcp", "docs", "failed")]),
-    goblin("t-2", "acme", [item("goblin", "carried", "service", "service-1", "set", { grant: "revoke" })]),
+    goblin("t-2", "acme", [
+      item("goblin", "carried", "service", "service-1", "set", { grant: "revoke" }), item("goblin", "carried", "mcp", "supabase", "set", { grant: "revoke" }),
+      item("goblin", "not_given", "mcp", "docs", "not_given", { grant: "grant" }),
+    ]),
     goblin("t-3", "globex", []),
   ],
 });
@@ -114,12 +117,30 @@ test("a goblin's page parts what it is granted, what it is not and what its sess
   const rows = allRows(snapshot(), nameOf);
 
   // Act
-  const { granted, notGiven, session } = goblinScope(rows, "t-1");
+  const { granted, notGiven, servers, serversNotGiven, session } = goblinScope(rows, "t-1");
 
   // Assert
   assert.deepEqual(granted.map((row) => [row.name, row.grant]), [["Service 1", "revoke"], ["Supabase", "revoke"]]);
   assert.deepEqual(notGiven.map((row) => [row.name, row.grant]), [["Service 2", "grant"]]);
+  assert.deepEqual([servers, serversNotGiven], [[], []]);
   assert.deepEqual(session.map((row) => [row.name, row.word]), [["Docs", "Failed to load"], ["Search", "Loaded"]]);
+});
+
+test("a goblin given its project's MCP server of a service's name lists it apart from the services, and is not counted or named as carrying the service", () => {
+  // Arrange
+  const view = snapshot();
+  const rows = allRows(view, nameOf);
+
+  // Act
+  const { granted, notGiven, servers, serversNotGiven } = goblinScope(rows, "t-2");
+  const ivy = treeProjects(view, nameOf).shown[0].goblins[1];
+  const supabase = projectScope(view, rows, "acme", nameOf).folded.find((row) => row.name === "Supabase");
+
+  // Assert
+  assert.deepEqual([granted.map((row) => row.name), notGiven.map((row) => row.name)], [["Service 1"], []]);
+  assert.deepEqual([servers.map((row) => [row.name, row.grant]), serversNotGiven.map((row) => [row.name, row.grant])], [[["Supabase", "revoke"]], [["Docs", "grant"]]]);
+  assert.deepEqual([ivy.name, ivy.carries], ["Ivy", 1]);
+  assert.equal(supabase?.about, "Zeke carries it · also a server above");
 });
 
 for (const [names, words] of [[[], "no goblin carries it"], [["Zeke"], "Zeke carries it"], [["Zeke", "Ivy", "Fern"], "Zeke, Ivy, Fern carry it"]] as const) {

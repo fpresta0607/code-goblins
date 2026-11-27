@@ -1568,7 +1568,8 @@ A project's page puts the MCP servers its repository declares in `.mcp.json`, sh
 Each part lists what needs a look first, and the private services past the first six that need no look are folded.
 Each service says which of the project's goblins carry it, and a name declared in both parts says so in each.
 One line says what this PC gives every goblin, the same for every project.
-A goblin's page reads from the widest scope down: what this PC gives every goblin, the services of its project it is granted, each with Disconnect, and those it is not, folded, each with Connect, and the servers its own session loaded, failed to load or is still starting, failures first.
+A goblin's page reads from the widest scope down: what this PC gives every goblin, the services of its project it is granted, each with Disconnect, and those it is not, folded, each with Connect, the same for the MCP servers of its project's `.mcp.json` when the project declares any, and the servers its own session loaded, failed to load or is still starting, failures first.
+The tree's Needs a look is amber only while something needs a look.
 Needs a look shows each item as a card, two to a line where the page is wide and one on a phone, every card with the same parts in the same places whatever its level and kind (`frontend/src/connector-look-card.tsx`, #3002).
 A card holds its logo, its name and where it is from, and its scope's tag; its status in a word with the reason; where it is read from and when it was checked; the credential names it declares, when it declares any; and one row of actions at its foot: Sign in or CLI sign-in, Store a key, which opens the list of variables to store from the clipboard, Refresh, and Remove last.
 Remove asks first, naming exactly what it will change, and Cancel, the default, changes nothing.

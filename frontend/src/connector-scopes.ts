@@ -42,7 +42,7 @@ export function treeProjects(snapshot: ConnectorSnapshot, nameOf: (task: string)
       name: project.name, isTroubled: troubledCount(project) > 0,
       about: isUnchecked(project) ? "not checked yet" : count("service") + " private" + (servers ? " · " + servers + " in repo" : ""),
       goblins: goblinsOf(snapshot, project.name).map((goblin) => ({
-        task: goblin.task, name: nameOf(goblin.task), carries: goblin.items.filter((item) => item.group === "carried").length, isTroubled: troubledCount(goblin) > 0,
+        task: goblin.task, name: nameOf(goblin.task), carries: goblin.items.filter((item) => item.group === "carried" && item.kind === "service").length, isTroubled: troubledCount(goblin) > 0,
       })),
     };
   });
@@ -70,7 +70,7 @@ export function projectScope(snapshot: ConnectorSnapshot, rows: ConnectorRow[], 
   const servers = own.filter((row) => row.group === "mcp"), services = own.filter((row) => row.group === "service");
   const isIn = (list: ConnectorRow[], row: ConnectorRow) => list.some((other) => other.logoName.toLowerCase() === row.logoName.toLowerCase());
   const goblins = goblinsOf(snapshot, name);
-  const carriers = (row: ConnectorRow) => goblins.filter((goblin) => goblin.items.some((item) => item.group === "carried" && item.name === row.logoName)).map((goblin) => nameOf(goblin.task));
+  const carriers = (row: ConnectorRow) => goblins.filter((goblin) => goblin.items.some((item) => item.group === "carried" && item.id === row.connection)).map((goblin) => nameOf(goblin.task));
   const listed = troubleFirst(services).map((row) => withAbout(row, [carriersWords(carriers(row)), isIn(servers, row) ? "also a server above" : ""]));
   const shown = Math.max(SHOWN_SERVICES, services.filter(isTrouble).length);
   return {
@@ -79,13 +79,17 @@ export function projectScope(snapshot: ConnectorSnapshot, rows: ConnectorRow[], 
   };
 }
 
-// A goblin's rows from the widest scope down: the project's services it is
-// given and those it is not, and what its own session loaded, failed to load
-// or is starting, trouble first.
-export function goblinScope(rows: ConnectorRow[], task: string): { granted: ConnectorRow[]; notGiven: ConnectorRow[]; session: ConnectorRow[] } {
+// A goblin's rows from the widest scope down: the services of its project's
+// auth.json it is given and those it is not, the servers of its project's
+// .mcp.json it is given and those it is not, and what its own session loaded,
+// failed to load or is starting, trouble first.
+export function goblinScope(rows: ConnectorRow[], task: string): {
+  granted: ConnectorRow[]; notGiven: ConnectorRow[]; servers: ConnectorRow[]; serversNotGiven: ConnectorRow[]; session: ConnectorRow[];
+} {
   const own = rows.filter((row) => row.level === "goblin" && row.task === task);
+  const of = (group: string, kind: string) => own.filter((row) => row.group === group && row.kind === kind);
   return {
-    granted: own.filter((row) => row.group === "carried"), notGiven: own.filter((row) => row.group === "not_given"),
+    granted: of("carried", "service"), notGiven: of("not_given", "service"), servers: of("carried", "mcp"), serversNotGiven: of("not_given", "mcp"),
     session: troubleFirst(own.filter((row) => row.group !== "carried" && row.group !== "not_given")),
   };
 }

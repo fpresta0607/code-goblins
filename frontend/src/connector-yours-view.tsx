@@ -1,8 +1,8 @@
 import { ago } from "./browser-logins";
 import { ConnectorGroup } from "./connector-group";
 import { ConnectorLevelHead } from "./connector-level-head";
-import { groupByGroup, YOURS_GROUPS } from "./connector-rows";
-import { hasChecked } from "./connector-status";
+import { groupByGroup } from "./connector-rows";
+import { hasChecked, YOURS_GROUPS } from "./connector-status";
 import { ConnectorTitle } from "./connector-title";
 import type { ConnectorViewProps } from "./connector-view-props";
 

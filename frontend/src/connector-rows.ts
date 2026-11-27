@@ -16,6 +16,7 @@ export interface ConnectorRow {
   level: ConnectorLevel;
   scope: ConnectorScope;
   group: string;
+  kind: string;
   name: string;
   // The name a logo is found by, empty for a project or a goblin.
   logoName: string;
@@ -57,9 +58,8 @@ const GROUP_WHY: Record<string, string> = {
   mcp: "From the project's .mcp.json, with what each points at.",
 };
 
-// The groups of This PC and of Your Claude and Codex, in the order each is read in.
+// The groups of This PC, in the order its page reads them.
 export const PC_GROUPS = ["cli", "harness", "environment", "built_in"];
-export const YOURS_GROUPS = ["account_connector", "user_config"];
 
 const LEVEL_ORDER: ConnectorLevel[] = ["pc", "account", "project", "goblin"];
 
@@ -78,7 +78,7 @@ function itemRow(item: ConnectorItem, context: RowContext): ConnectorRow {
   const name = SHOWN_AS_CONNECTOR.has(item.kind) ? connectorName(item.name) : item.name;
   const word = statusWord(item);
   return {
-    key: [item.level, context.task || context.project, item.id].join("|"), level: item.level, scope: scopeOf(item), group: item.group, name, logoName: item.name,
+    key: [item.level, context.task || context.project, item.id].join("|"), level: item.level, scope: scopeOf(item), group: item.group, kind: item.kind, name, logoName: item.name,
     origin: context.origin, target: item.target, about: item.source ? "read from " + item.source : "", word, tone: statusTone(item.status), detail: item.detail,
     checkedAt: hasChecked(item.checkedAt) ? item.checkedAt : context.level.checkedAt, isChecking: context.level.isChecking,
     credentials: item.credentials, tools: item.tools, actions: item.actions, grant: item.grant, connection: item.id, project: context.project, task: context.task,
@@ -123,7 +123,7 @@ export function groupByGroup(rows: ConnectorRow[], known: string[]): { group: st
 function placeRow(level: ConnectorLevel, fields: { key: string; name: string; about: string; place: Place; result: ConnectorLevelResult; refresh?: RefreshTarget; troubled: number; quietWord: string }): ConnectorRow {
   const { result, troubled } = fields;
   return {
-    key: fields.key, level, scope: scopeOf({ level, group: "" }), group: "", name: fields.name, logoName: "", origin: "", target: "", about: fields.about,
+    key: fields.key, level, scope: scopeOf({ level, group: "" }), group: "", kind: "", name: fields.name, logoName: "", origin: "", target: "", about: fields.about,
     word: !hasChecked(result.checkedAt) ? "Not checked yet" : troubled ? troubled + " to look at" : fields.quietWord,
     tone: troubled ? "trouble" : "quiet", detail: result.error, checkedAt: result.checkedAt, isChecking: result.isChecking,
     credentials: [], tools: [], actions: [], grant: "", connection: "", project: "", task: "", refresh: fields.refresh, place: fields.place,

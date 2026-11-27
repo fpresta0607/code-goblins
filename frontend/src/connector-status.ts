@@ -25,12 +25,13 @@ export type ConnectorScope = "global" | "local" | "goblin" | "yours";
 
 export const SCOPE_WORDS: Record<ConnectorScope, string> = { global: "Global", local: "Local", goblin: "Goblin", yours: "Yours only" };
 
-const YOURS_GROUPS = new Set(["account_connector", "user_config"]);
+// The groups of Your Claude and Codex, in the order its page reads them.
+export const YOURS_GROUPS = ["account_connector", "user_config"];
 
 export function scopeOf(item: { level: ConnectorLevel; group: string }): ConnectorScope {
   if (item.level === "project") return "local";
   if (item.level === "goblin") return "goblin";
-  return YOURS_GROUPS.has(item.group) ? "yours" : "global";
+  return YOURS_GROUPS.includes(item.group) ? "yours" : "global";
 }
 
 // How long a level's check is trusted before the supervisor rechecks it and

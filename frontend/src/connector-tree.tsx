@@ -21,7 +21,7 @@ export function ConnectorTree({ snapshot, rows, nameOf, place, onOpen }: {
   });
   const trouble = (isTroubled: boolean) => isTroubled ? ", needs a look" : "";
   return <nav className="connector-tree" aria-label="Where connectors live">
-    <button className="connector-node is-look" {...node({ kind: "look" }, "Needs a look, " + attention)}>Needs a look<b>{attention}</b></button>
+    <button className={"connector-node is-look" + (attention > 0 ? " is-trouble" : "")} {...node({ kind: "look" }, "Needs a look, " + attention)}>Needs a look<b>{attention}</b></button>
     <div className="connector-scope">
       <div className="connector-scope-head"><ConnectorTag tone="global" text="Global" /><button className="connector-node" {...node({ kind: "pc" }, "This PC")}>This PC</button></div>
       <p className="connector-why">Every goblin on this PC gets these, with no grant.</p>
