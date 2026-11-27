@@ -1,10 +1,12 @@
-// Where the Connectors page is: its home, one of its levels, or one project or
-// goblin of them.
+// Where the Connectors page is: its home, Needs a look, one of its scopes, or
+// one project or goblin of them (#3010). The home is the tree; where the page
+// is wide it shows Needs a look beside it.
 export type Place =
   | { kind: "home" }
+  | { kind: "look" }
   | { kind: "pc" }
+  | { kind: "yours" }
   | { kind: "projects" }
-  | { kind: "goblins" }
   | { kind: "project"; project: string }
   | { kind: "goblin"; task: string };
 
@@ -22,9 +24,10 @@ export function crumbsTo(place: Place, goblin: { name: string; project: string }
   const home: Crumb = { label: "Connectors", place: HOME };
   switch (place.kind) {
     case "home": return [home];
-    case "pc": return [home, { label: "This PC and its accounts", place }];
+    case "look": return [home, { label: "Needs a look", place }];
+    case "pc": return [home, { label: "This PC", place }];
+    case "yours": return [home, { label: "Your Claude and Codex", place }];
     case "projects": return [home, { label: "Projects", place }];
-    case "goblins": return [home, { label: "Goblins", place }];
     case "project": return [home, { label: "Projects", place: { kind: "projects" } }, { label: place.project, place }];
     case "goblin": return [home, { label: "Projects", place: { kind: "projects" } }, { label: goblin.project, place: { kind: "project", project: goblin.project } }, { label: goblin.name, place }];
   }

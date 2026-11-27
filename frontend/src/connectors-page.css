@@ -1,9 +1,10 @@
-/* The Connectors page (#2303, #2902), from the board's own tokens: one glass
-   sheet in the canvas holding a drill-down of three levels, each row saying
-   which level it comes from. Nothing on it moves by itself. The canvas is the
-   container its narrow layout answers to, so it holds beside an open panel and
-   on a phone. */
-.connectors-page { display: grid; align-content: start; gap: 18px; box-sizing: border-box; width: min(100% - 32px, 960px); margin: 24px auto; padding: 28px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); font-size: 1rem; }
+/* The Connectors page (#2303, #2902, #3010), from the board's own tokens: one
+   glass sheet in the canvas holding the tree of where connectors live and the
+   place it opens, each row saying which scope it lives in. Nothing on it moves
+   by itself. The canvas is the container the split answers to, so it holds
+   beside an open panel and on a phone, and the place beside the tree is the
+   container its rows answer to. */
+.connectors-page { display: grid; align-content: start; gap: 18px; box-sizing: border-box; width: min(100% - 32px, 1440px); margin: 24px auto; padding: 28px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow); font-size: 1rem; }
 .connectors-page > .notice { justify-self: start; }
 .connectors-head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; min-width: 0; min-height: 44px; }
 .connectors-head > h2 { min-width: 0; margin: 0 auto 0 0; }
@@ -17,6 +18,8 @@
 .connector-crumbs button { padding: 4px 10px; border: 1px solid transparent; border-radius: 999px; background: none; color: var(--muted); }
 .connector-crumbs button:hover { color: #edf4f3; border-color: var(--glass-border); }
 .connector-crumbs .here { color: #edf4f3; font-weight: 700; overflow-wrap: anywhere; }
+.connectors-split { display: grid; grid-template-columns: 380px minmax(0, 1fr); align-items: start; gap: 22px; min-width: 0; }
+.connectors-split-place { display: grid; align-content: start; gap: 18px; min-width: 0; container-type: inline-size; }
 .connector-view { display: grid; align-content: start; gap: 18px; min-width: 0; }
 .connector-view:focus { outline: none; }
 .connector-empty { margin: 0; color: var(--muted); }
@@ -28,19 +31,58 @@
 .connector-refresh-level .icon { width: 18px; height: 18px; }
 .connector-refresh-level:disabled { opacity: .55; }
 
-/* The home page's three tiles, one for each level. */
-.connector-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 12px; min-width: 0; }
-.connector-tile { display: grid; justify-items: start; align-content: start; gap: 6px; min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--ghost-bg); color: inherit; text-align: left; }
-.connector-tile:hover { border-color: var(--glass-border-hover); }
-.connector-tile strong { font-size: 1.0625rem; }
-.connector-tile > span:last-child { color: var(--muted); overflow-wrap: anywhere; }
+/* The tree of where connectors live (#3010), the widest scope first, and a
+   scope's tag, the same colour on the tree, a scope's page, its rows and its
+   cards. Only trouble is amber: the dot of a project or goblin that needs a
+   look, and Needs a look's count. */
+.connector-tree { display: grid; gap: 14px; min-width: 0; }
+.connector-scope { display: grid; gap: 6px; min-width: 0; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--ghost-bg); }
+.connector-scope.is-yours { opacity: .85; }
+.connector-scope-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
+.connector-scope-head .connector-node { flex: 1; font-weight: 700; font-size: 1.0625rem; }
+.connector-node { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 10px; width: 100%; min-width: 0; min-height: 0; padding: 7px 10px; border: 1px solid transparent; border-radius: 8px; background: none; color: inherit; text-align: left; }
+.connector-node:hover { border-color: var(--glass-border); }
+.connector-node > span { display: inline-flex; align-items: center; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+.connector-node small, .connector-leaf small { color: var(--muted); font-size: 1rem; font-weight: 400; }
+.connector-node[aria-current] { border-color: var(--accent-green); background: color-mix(in srgb, var(--accent-green) 6%, transparent); }
+.connector-node.is-look { padding: 10px 14px; font-weight: 700; }
+.connector-node.is-look.is-trouble { border-color: color-mix(in srgb, var(--amber) 45%, transparent); background: color-mix(in srgb, var(--amber) 6%, transparent); }
+.connector-node.is-look[aria-current] { border-color: var(--accent-green); }
+.connector-node.is-look.is-trouble b { color: var(--amber); }
+.connector-node.is-more { color: var(--muted); }
+.connector-tree-list, .connector-tree-goblins { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; min-width: 0; }
+.connector-tree-goblins { margin: 0 0 4px 14px; padding-left: 10px; border-left: 1px solid var(--border); }
+.connector-leaf { display: flex; justify-content: space-between; gap: 10px; padding: 4px 10px; color: #c5d3df; }
+.connector-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--amber); }
+.connector-tag { justify-self: start; padding: 2px 10px; border: 1px solid currentColor; border-radius: 999px; color: var(--muted); font-size: 1rem; font-style: normal; font-weight: 400; white-space: nowrap; }
+.connector-tag.is-global { color: var(--blue); }
+.connector-tag.is-local { color: var(--mint); }
+.connector-tag.is-goblin { color: var(--purple); }
+.connector-tag.is-repo { color: var(--mint); }
+.connector-tag.is-private, .connector-tag.is-yours { border-color: var(--glass-border-hover); color: #c5d3df; }
+
+/* A scope's page: its title, and each place its connectors come from with
+   how many it holds and who shares it, the rows past the first few folded. */
+.connector-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; min-width: 0; }
+.connector-title h3 { margin: 0; font-size: 1.375rem; overflow-wrap: anywhere; }
+.connector-title-about { color: var(--muted); overflow-wrap: anywhere; }
+.connector-where { display: grid; gap: 10px; min-width: 0; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--ghost-bg); }
+.connector-where-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 14px; }
+.connector-where-head h4 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; margin: 0; font-size: 1.0625rem; }
+.connector-where-head h4 .connector-tag { white-space: normal; overflow-wrap: anywhere; }
+.connector-where-head code { font-family: var(--font-mono); font-size: 1rem; }
+.connector-where-head .connector-why { grid-column: 1 / -1; }
+.connector-chip { padding: 0 10px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); white-space: nowrap; }
+.connector-fold > summary { padding: 10px 12px; border: 1px dashed var(--border); border-radius: 8px; color: var(--muted); font-family: var(--font-body); font-size: 1rem; }
+.connector-fold > .disclosure-content { padding-top: 8px; }
+.connector-where .connector-rows { border: 0; background: none; }
 
 /* A group of rows. Only verified is green and only trouble is amber; every
    other state is quiet. A row that opens is a button on its name, which
    stretches over the whole row. */
 .connector-group { display: grid; gap: 8px; min-width: 0; }
-.connector-group > h3 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin: 6px 0 0; font-size: 1.0625rem; }
-.connector-group > h3 small { color: var(--muted); font-size: 1rem; font-weight: 400; }
+.connector-group > :is(h3, h4) { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin: 6px 0 0; font-size: 1.0625rem; }
+.connector-group > :is(h3, h4) small { color: var(--muted); font-size: 1rem; font-weight: 400; }
 .connector-why { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
 .connector-rows, .connector-logins { display: grid; margin: 0; padding: 0; list-style: none; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--ghost-bg); }
 .connector-row { position: relative; display: grid; grid-template-columns: minmax(10rem, 1fr) minmax(0, 7rem) minmax(0, 11rem) auto; align-items: center; gap: 4px 14px; min-width: 0; padding: 11px 14px; border-top: 1px solid var(--border); }
@@ -54,11 +96,6 @@
 .connector-open:focus-visible { outline: none; }
 .connector-row:has(.connector-open:focus-visible) { outline: var(--focus-ring); outline-offset: -3px; border-radius: var(--radius); }
 .connector-sub { color: var(--muted); overflow-wrap: anywhere; }
-.connector-level { justify-self: start; padding: 2px 10px; border: 1px solid var(--glass-border); border-radius: 999px; color: var(--muted); white-space: nowrap; }
-.connector-level.is-pc { border-color: color-mix(in srgb, var(--blue) 60%, transparent); color: var(--blue); }
-.connector-level.is-account { border-color: color-mix(in srgb, var(--purple) 60%, transparent); color: var(--purple); }
-.connector-level.is-project { border-color: color-mix(in srgb, var(--mint) 60%, transparent); color: var(--mint); }
-.connector-level.is-goblin { border-color: color-mix(in srgb, var(--amber) 50%, transparent); color: #edf4f3; }
 .connector-state { display: grid; justify-items: start; gap: 2px; min-width: 0; color: var(--muted); }
 .connector-state b { display: inline-flex; align-items: center; gap: 6px; color: #edf4f3; }
 .connector-state .icon { flex: none; width: 18px; height: 18px; }
@@ -92,7 +129,7 @@
 .look-card-title { display: grid; flex: 1; gap: 2px; min-width: 0; }
 .look-card-title .connector-open { overflow-wrap: anywhere; }
 .look-card-origin { color: var(--muted); overflow-wrap: anywhere; }
-.look-card-head .connector-level { flex: none; }
+.look-card-head .connector-tag { flex: none; }
 .look-card-state { display: grid; gap: 2px; margin: 0; overflow-wrap: anywhere; }
 .look-card-state b { color: var(--amber); }
 .look-card-state span { color: #c5d3df; }
@@ -136,13 +173,24 @@
 .forget-login-choices .icon { width: 18px; height: 18px; }
 .forget-login-confirm { background: var(--amber); border-color: var(--amber); color: #2b1d02; font-weight: 700; }
 
-/* A narrow canvas, a phone's or one beside a wide panel: the level goes beside
-   the name, and the state and the buttons take a line each. */
+/* A canvas too narrow for the tree beside its place: the tree is the home,
+   and each place opens alone, with its breadcrumb back. */
+@container (max-width: 899px) {
+  .connectors-split { grid-template-columns: minmax(0, 1fr); }
+  .connectors-split[data-shows="tree"] > .connectors-split-place, .connectors-split[data-shows="place"] > .connectors-split-tree { display: none; }
+  .connectors-split[data-shows="tree"] .connector-node[aria-current] { border-color: transparent; background: none; }
+  .connectors-split[data-shows="tree"] .connector-node.is-look.is-trouble[aria-current] { border-color: color-mix(in srgb, var(--amber) 45%, transparent); background: color-mix(in srgb, var(--amber) 6%, transparent); }
+}
+
+/* A narrow canvas, a phone's or one beside a wide panel, and a narrow place:
+   the scope goes beside the name, and the state and the buttons take a line
+   each. */
 @container (max-width: 640px) {
   .connectors-page { width: calc(100% - 16px); margin: 8px auto; padding: 18px 14px; }
   .connectors-search { flex: 1 1 100%; max-width: none; }
   .connector-row { grid-template-columns: minmax(0, 1fr) auto; padding: 12px; }
-  .connector-row > .connector-level { grid-column: 2; grid-row: 1; }
+  .connector-row > .connector-tag { grid-column: 2; grid-row: 1; }
+  .connector-where { padding: 12px; }
   .connector-row > .connector-state { grid-column: 1 / -1; }
   .connector-row > .connector-actions { grid-column: 1 / -1; justify-content: flex-start; }
 }
