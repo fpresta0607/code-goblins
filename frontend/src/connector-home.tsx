@@ -1,4 +1,4 @@
-import { ConnectorGroup } from "./connector-group";
+import { ConnectorNeedsLook, NEEDS_LOOK_FOCUS } from "./connector-needs-look";
 import { levelSummary, needsLook, countWords } from "./connector-rows";
 import { ConnectorTile } from "./connector-tile";
 import type { ConnectorViewProps } from "./connector-view-props";
@@ -15,7 +15,7 @@ export function ConnectorHome({ snapshot, rows, now, actions, onOpen }: Connecto
       <ConnectorTile level="goblin" step="Level 3" title={countWords(snapshot.goblins.length, "goblin")} about={summary.goblins} place={{ kind: "goblins" }} onOpen={onOpen} />
     </div>
     {attention.length > 0
-      ? <ConnectorGroup title="Needs a look" why="Only what failed or is out of place, from every level." rows={attention} now={now} actions={actions} showsOrigin onOpen={onOpen} />
-      : <p className="connector-empty">Nothing needs a look.</p>}
+      ? <ConnectorNeedsLook why="Only what failed or is out of place, from every level." rows={attention} now={now} actions={actions} onOpen={onOpen} />
+      : <p id={NEEDS_LOOK_FOCUS} className="connector-empty" tabIndex={-1}>Nothing needs a look.</p>}
   </>;
 }

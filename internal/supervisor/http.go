@@ -231,6 +231,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.refreshConnectors(w, r)
 	case r.URL.Path == "/api/connectors/fix" && r.Method == "POST":
 		h.fixConnector(w, r)
+	case r.URL.Path == "/api/connectors/remove" && r.Method == "POST":
+		h.removeConnector(w, r)
 	case r.URL.Path == "/api/connections/grant" && r.Method == "POST":
 		h.grantConnection(w, r)
 	case r.URL.Path == "/api/credentials/save" && r.Method == "POST":

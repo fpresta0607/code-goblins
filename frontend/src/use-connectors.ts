@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { message, reportToCeo, request } from "./api";
 import { useClickFeedback } from "./click-feedback";
 import { isAnyChecking, parseConnectorSnapshot, type ConnectorSnapshot } from "./connector-snapshot";
-import type { RefreshTarget } from "./connector-rows";
+import type { ConnectorRow, RefreshTarget } from "./connector-rows";
 import { object, string, type Run, type Task } from "./types";
 
 // What a repair he started answered: its words, the Command Center card of
@@ -24,6 +24,9 @@ export interface ConnectorActions {
   grant: (task: string, connection: string, isGiving: boolean) => void;
   endLogin: (project: string, login: string, action: "sign-out" | "forget") => void;
   expectSignIn: (project: string) => void;
+  // Remove takes one item of Needs a look out of where it is declared, and
+  // rejects with the supervisor's reason when it refuses.
+  remove: (row: ConnectorRow) => Promise<void>;
 }
 
 // useConnectors reads the Connectors page's one snapshot, GET /api/connectors,
@@ -110,6 +113,13 @@ export function useConnectors(tasks: Task[], runs: Run[], instance: string, onRe
     await post("/api/browser-logins/" + action, { task: goblin.task, generation: goblin.generation, login });
     readAgain();
   });
+  // A goblin's item is removed from the session it was read from, so one that
+  // restarted since is refused rather than changed. The answer is the
+  // snapshot the removal left, shown at once.
+  const remove = async (row: ConnectorRow) => {
+    const generation = row.task ? view?.goblins.find((goblin) => goblin.task === row.task)?.generation ?? "" : "";
+    setView(parseConnectorSnapshot(await post("/api/connectors/remove", { level: row.level, project: row.project, task: row.task, generation, connection: row.connection })));
+  };
   useEffect(() => {
     const returned = () => {
       const project = signInProject.current;
@@ -123,7 +133,7 @@ export function useConnectors(tasks: Task[], runs: Run[], instance: string, onRe
   const actions: ConnectorActions = {
     isBusy, refresh: (target) => void refresh(target), fix: (project, connection, action) => void fix(project, connection, action),
     grant: (task, connection, isGiving) => void grant(task, connection, isGiving), endLogin: (project, login, action) => void endLogin(project, login, action),
-    expectSignIn: (project) => { signInProject.current = project; },
+    expectSignIn: (project) => { signInProject.current = project; }, remove,
   };
   return { view, isUnreadable, isCapped, feedback, repair, actions, readAgain };
 }

@@ -51,6 +51,17 @@ type connectorFixRequest struct {
 	Action     string `json:"action"`
 }
 
+// connectorRemoveRequest asks for one item of Needs a look to be taken out of
+// where it is declared: its level, the project or the goblin it is of with the
+// goblin's generation, and the item.
+type connectorRemoveRequest struct {
+	Level      string `json:"level"`
+	Project    string `json:"project"`
+	Task       string `json:"task"`
+	Generation string `json:"generation"`
+	Connection string `json:"connection"`
+}
+
 // connectorsFolder keeps the Connectors page's snapshots under the state
 // folder.
 const connectorsFolder = "connectors"
@@ -238,6 +249,109 @@ func (h *HTTP) fixConnector(w http.ResponseWriter, r *http.Request) {
 	}
 	h.Service.notify()
 	respond(w, 200, map[string]string{"run_id": run.ID, "message": "Your repair is ready in Command Center. Run it there to continue."})
+}
+
+// removingBoard asks for a connector's Remove, which changes what goblins carry,
+// so it is the Overlord's from a board of his own, as Connect is.
+var removingBoard = boardAsker("Removing a connector is the Supreme Overlord's", ": he presses Remove on a board of his own", "Remove it in the Code Goblins window, or ask the CEO.", reopenTheWindow+"remove it there.")
+
+// removeConnector takes one item of the Connectors page out of where it is
+// declared (#3002): a project's service out of its auth.json, kept word for
+// word beside it; a credential of this PC out of its user environment, its
+// value kept in the vault first; and a server a goblin's task record gives it
+// out of that record. An item Code Goblins does not declare, or one declared in a
+// project's repository, is refused with where it lives, and a refusal changes
+// nothing. The item leaves the snapshot at once and the CEO is told; the
+// answer is the page's snapshots.
+func (h *HTTP) removeConnector(w http.ResponseWriter, r *http.Request) {
+	asked := time.Now()
+	var input connectorRemoveRequest
+	if err := decodeConnectorRequest(r, &input); err != nil {
+		apiError(w, 400, "Choose a connector to remove.")
+		return
+	}
+	s := h.Service
+	from, err := s.overlordsBoard(r, h.Host, asked, removingBoard)
+	if err != nil {
+		h.refuse(w, http.StatusForbidden, "connections", "A press of a connector's Remove on a board was refused", "", err)
+		return
+	}
+	snapshots := s.connectors()
+	kind, name, _ := strings.Cut(input.Connection, ":")
+	var told string
+	switch {
+	case input.Level == connections.LevelProject && kind == "service":
+		if !slices.ContainsFunc(snapshots.Read().Projects, func(project connections.Project) bool { return project.Name == input.Project }) {
+			apiError(w, 409, "This project is not listed. Refresh connections.")
+			return
+		}
+		if err := snapshots.Env.RemoveService(input.Project, name, time.Now()); err != nil {
+			apiError(w, 409, err.Error())
+			return
+		}
+		snapshots.Forget(connections.RefreshProject, input.Project, input.Connection)
+		told = "connections: the Overlord removed the service " + name + " from " + input.Project + "'s auth.json, kept in " + connections.RemovedFileName + " beside it, from " + from
+	case input.Level == connections.LevelProject && kind == "mcp":
+		apiError(w, 409, name+" is declared in "+input.Project+"'s .mcp.json, a file of its repository: change it there through a pull request.")
+		return
+	case input.Level == connections.LevelPC && kind == "credential":
+		if !slices.ContainsFunc(snapshots.Read().Machine.Items, func(item connections.Item) bool { return item.ID == input.Connection }) {
+			apiError(w, 409, name+" is not listed. Refresh connections.")
+			return
+		}
+		if err := snapshots.Env.RemoveUserCredential(name); err != nil {
+			apiError(w, 409, err.Error())
+			return
+		}
+		snapshots.Forget(connections.RefreshMachine, "", input.Connection)
+		told = "connections: the Overlord removed " + name + " from this PC's user environment, its value kept in the vault's shared scope, from " + from
+	case input.Level == connections.LevelGoblin && (kind == "failed" || kind == "pending"):
+		meta, err := s.connectionTask(input.Task, input.Generation)
+		if err != nil {
+			apiError(w, 409, err.Error())
+			return
+		}
+		project := auth.ProjectName(meta.Project)
+		source, err := connections.GoblinServerSource(meta, name)
+		switch {
+		case err != nil:
+			apiError(w, 409, project+"'s .mcp.json could not be read, so nothing was removed.")
+			return
+		case source == connections.ServerProject:
+			apiError(w, 409, name+" comes to every goblin of "+project+" from its .mcp.json, a file of its repository: change it there through a pull request.")
+			return
+		case source == connections.ServerRevoked:
+			apiError(w, 409, "This goblin's task record no longer gives it "+name+", so it leaves at the goblin's next start. Nothing was removed.")
+			return
+		case source != connections.ServerGranted:
+			apiError(w, 409, "Code Goblins does not give "+name+" to this goblin: it comes from your Claude settings or account, so change it there.")
+			return
+		}
+		stateDir := s.Store.Home.State
+		refresher := spawn.AuthRefresher{StateDir: stateDir, DataDir: s.Store.Home.Data, Panes: spawn.NativeLiveness{StateDir: stateDir}, By: "the Overlord from " + from, Generation: meta.SpawnGen, Project: project}
+		_, err = refresher.RevokeMCP(meta.ID, []string{name})
+		if err != nil && !spawn.ChangeStands(err) {
+			apiError(w, 409, err.Error())
+			return
+		}
+		snapshots.Forget(connections.RefreshGoblin, meta.ID, input.Connection)
+		if current, err := s.connectionTask(meta.ID, meta.SpawnGen); err == nil {
+			snapshots.ReadNow(current)
+		}
+		told = "connections: the Overlord removed " + name + " from " + meta.ID + "'s task record, from its next start, from " + from
+		if err != nil {
+			told += ", but " + err.Error()
+		}
+	default:
+		apiError(w, 409, "Code Goblins does not declare this item, so Remove cannot take it away: change it where it lives.")
+		return
+	}
+	if _, err := wake.Append(s.Store.Home.State, "notify", "connectors", told); err != nil {
+		s.publish(err)
+	} else if _, err := wake.PublishEpisode(s.Store.Home.State); err != nil {
+		s.publish(err)
+	}
+	h.connectorsResponse(w)
 }
 
 // grantingBoard asks for a connector's Connect or Disconnect: giving a goblin
