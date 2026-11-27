@@ -350,15 +350,15 @@ func commandAhead(id, task string, queued []fleettree.WaitingPrompt) error {
 // into now, as queued reads that queue in its record, where Claude Code's key
 // would run that command alone and leave the message queued: the press names
 // that command, and the message waits on the board as it did (commandAhead,
-// #2341). The mark an earlier Send now of it left (IsSentNow), where a try put
-// that one off, is taken back then, so the worker's next try types it with no
-// send-now key, its words and reason as they were. One that reads Not sent
-// goes back in the queue then, not sent now, with Send now again, as
-// sendCommandFirst puts back a command that reads Not sent: nothing else
-// would type it, while the press says its session takes it. That queue is
-// read only while the board holds the message, queued or reading Not sent,
-// so a press on one the board let go says where it went, and a second Send
-// now of one already sent now is the same ask again.
+// #2341). The mark an earlier Send now of it left (IsSentNow) is taken back
+// then, so the worker's next try types it with no send-now key, its words and
+// reason as they were. One that reads Not sent goes back in the queue then,
+// not sent now, with Send now again, as sendCommandFirst puts back a command
+// that reads Not sent: nothing else would type it, while the press says its
+// session takes it. That queue is read only while the board holds the
+// message, queued or reading Not sent, so a press on one the board let go
+// says where it went, and a second Send now of one already sent now is the
+// same ask again.
 func (s *Service) sendQueuedNow(id, task string, queued func(Awaiting) []fleettree.WaitingPrompt) error {
 	s.Store.mu.Lock()
 	isBoardHeld := slices.ContainsFunc(s.Store.db.Actions, func(a Action) bool {
