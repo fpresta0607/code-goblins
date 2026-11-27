@@ -3,6 +3,7 @@ package supervisor
 import (
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
 )
@@ -53,8 +54,20 @@ func (s *Store) namedWaiting(task string, waiting []fleettree.WaitingPrompt) []f
 	return named
 }
 
-// sameWords says two texts hold the same words, however a harness wrapped or
-// trimmed them.
+// sameWords says two texts hold the same words a reader sees, as
+// monitor.TextDigest reads them: every character that is neither space nor
+// graphic left out, since a harness may drop one that draws nothing, as Claude
+// Code drops a word joiner from a pasted line it records (#1915), and the
+// words compared one space apart, however a harness wrapped or trimmed them.
 func sameWords(one, other string) bool {
-	return strings.Join(strings.Fields(one), " ") == strings.Join(strings.Fields(other), " ")
+	seen := func(text string) string {
+		drawn := strings.Map(func(r rune) rune {
+			if unicode.IsSpace(r) || unicode.IsGraphic(r) {
+				return r
+			}
+			return -1
+		}, text)
+		return strings.Join(strings.Fields(drawn), " ")
+	}
+	return seen(one) == seen(other)
 }

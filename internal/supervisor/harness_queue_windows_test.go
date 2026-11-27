@@ -5,15 +5,18 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
@@ -752,6 +755,485 @@ func TestCancelOfHisWordsBesideAnAnswerInClaudeCodesQueueIsRefusedForAsLongAsItL
 	}
 	if input := terminal.lines(t); slices.ContainsFunc(input, func(line string) bool { return strings.HasPrefix(line, "took back ") || line == "cleared" }) {
 		t.Errorf("terminal input = %q; want no key pressed", input)
+	}
+}
+
+// writeQueueRecord writes, at conversation, the record Claude Code keeps of a
+// session whose queue holds lines, oldest first, each as it records one
+// queued during a turn.
+func writeQueueRecord(t *testing.T, conversation string, lines ...string) {
+	t.Helper()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	entries := make([]map[string]any, len(lines))
+	for i, line := range lines {
+		entries[i] = map[string]any{"type": "queue-operation", "operation": "enqueue", "timestamp": now, "content": line}
+	}
+	writeRecord(t, conversation, entries...)
+}
+
+// refusalOf reads the reason a refused press gives, and whether it says it
+// lasts for as long as its queue stays as it is.
+func refusalOf(t *testing.T, response *httptest.ResponseRecorder) (string, bool) {
+	t.Helper()
+	var refusal struct {
+		Error     string `json:"error"`
+		IsLasting bool   `json:"is_lasting"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &refusal); err != nil {
+		t.Fatalf("the press answered %d %s, which is no refusal: %v", response.Code, response.Body, err)
+	}
+	return refusal.Error, refusal.IsLasting
+}
+
+// #2341: Claude Code gives its queue back only whole, so a line in it that
+// the board did not type came onto the prompt line with the board's lines
+// and stayed there unsent, and the board's messages read unconfirmed. Cancel,
+// which Edit sends too, first reads that queue in the session's record, the
+// record the board reads that session's waiting lines from. A line there that
+// no board message typed, as one typed in the terminal, refuses the press,
+// naming the line, for as long as the queue stays as it is. A notice the
+// supervisor told the CEO in its turn, and a message goblins send typed into
+// a goblin's, refuse it too, each named as what it is whether or not the
+// record shows it yet. No key goes, and a record that shows only the board's
+// lines has them taken back as before, his words among them though the record
+// shows them without a character that draws nothing (#1915).
+func TestCancelPressesNoKeyWhileTheQueueHoldsALineTheBoardDidNotType(t *testing.T) {
+	for _, test := range []struct {
+		name                 string
+		isGoblin             bool
+		words                string
+		inTerminal, inRecord string
+		hasNotice, hasSend   bool
+		wantSays             string
+	}{
+		{name: "a line typed in the CEO's terminal", inTerminal: "check the logs too", wantSays: `The CEO's queue also holds "check the logs too", which the board did not type, so this message cannot be taken back alone.`},
+		{name: "a line typed in a goblin's terminal", isGoblin: true, inTerminal: "check the logs too", wantSays: `task-1's queue also holds "check the logs too", which the board did not type, so this message cannot be taken back alone.`},
+		{name: "a notice the supervisor told the CEO", hasNotice: true, inRecord: "Overlord: Run item r1 (build) finished with exit code 0.", wantSays: "The CEO's queue also holds a notice the supervisor told it, so this message cannot be taken back alone."},
+		{name: "a message goblins send typed into a goblin's turn", isGoblin: true, hasSend: true, inRecord: "CEO: merge main first", wantSays: "task-1's queue also holds a message goblins send typed there, so this message cannot be taken back alone."},
+		{name: "only the board's lines in the CEO's queue"},
+		{name: "only the board's lines in a goblin's queue", isGoblin: true},
+		// The console draws a word joiner over the letter before it, so the
+		// board could not read back words that hold one; a soft hyphen draws
+		// nothing too, and keeps a cell of its own.
+		{name: "only his words in the CEO's queue, recorded without a character that draws nothing", words: "first wo\u00adrds"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			words := cmp.Or(test.words, "first words")
+			store, service, terminal, task, typed := heldQueue(t, test.isGoblin, "claude-busy", words)
+			userHome := os.Getenv("USERPROFILE")
+			service.Options.Tree = &fleettree.Reader{Home: userHome}
+			// The record holds the line the board's delivery types, which for a
+			// goblin is his words behind the board's stamp.
+			conversation, lines := filepath.Join(ceoConversationFile(userHome, store.Home.Root), "session-1.jsonl"), []string{"first words"}
+			if test.isGoblin {
+				meta, err := state.ReadTaskMeta(store.Home.State, task)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := state.WriteConversation(store.Home.State, state.Conversation{ID: task, Generation: meta.SpawnGen, Harness: "claude", Session: "goblin-session", ProvedAt: time.Now().UTC()}); err != nil {
+					t.Fatal(err)
+				}
+				conversation, lines = filepath.Join(ceoConversationFile(userHome, meta.Worktree), "goblin-session.jsonl"), []string{goblinLine(fromOverlord("first words"))}
+			}
+			if test.inTerminal != "" {
+				terminal.typeLine(t, test.inTerminal)
+				terminal.waitForLines(t, 3)
+				promptLineEmpties(t, terminal, "claude")
+				lines = append(lines, test.inTerminal)
+			}
+			if test.inRecord != "" {
+				lines = append(lines, test.inRecord)
+			}
+			writeQueueRecord(t, conversation, lines...)
+			now := time.Now().UTC()
+			store.mu.Lock()
+			if test.hasNotice {
+				store.db.HeldNotices = []Awaiting{{Host: "ceo", Harness: "claude", Since: now, QuietSince: now, Digest: monitor.TextDigest("Overlord: Run item r1 (build) finished with exit code 0."), IsHeld: true}}
+			}
+			if test.hasSend {
+				store.db.QueuedSends = []BoardActivity{{ID: "send-1", Kind: "send", TaskID: task, Target: task, State: "queued", At: now}}
+			}
+			saved := store.save()
+			store.mu.Unlock()
+			if saved != nil {
+				t.Fatal(saved)
+			}
+
+			// Act
+			cancel := pressOnQueued(service, "message_withdraw", task, "m1", words)
+			input := terminal.lines(t)
+
+			// Assert
+			if test.wantSays == "" {
+				if cancel.Code != 202 || slices.ContainsFunc(store.Snapshot().Actions, func(a Action) bool { return a.ID == "m1" }) || !slices.Contains(input, "took back "+typed(words)) || !slices.Contains(input, "cleared") {
+					t.Errorf("Cancel = %d %s, terminal input = %q; want the message taken back out of its queue and off the board", cancel.Code, cancel.Body, input)
+				}
+				return
+			}
+			if says, isLasting := refusalOf(t, cancel); cancel.Code != 409 || !strings.HasPrefix(says, test.wantSays) || !isLasting {
+				t.Errorf("Cancel = %d %s; want it refused for as long as the queue stays as it is, saying %q", cancel.Code, cancel.Body, test.wantSays)
+			}
+			if actions := store.Snapshot().Actions; !slices.ContainsFunc(actions, func(a Action) bool { return a.ID == "m1" && isHarnessHeld(a) }) {
+				t.Errorf("after the press, actions = %+v; want m1 still held in the turn's queue", actions)
+			}
+			if slices.ContainsFunc(input, func(line string) bool { return strings.HasPrefix(line, "took back ") || line == "cleared" }) {
+				t.Errorf("terminal input = %q; want no key pressed", input)
+			}
+		})
+	}
+}
+
+// The board reads a session's queue only in the conversation that session
+// writes now (#2341). A CEO that moved to another conversation the board could
+// not record leaves the record naming the one it left, whose queue can still
+// show lines that wait in no queue now. Cancel reads no queue there, and takes
+// his message back out of the CEO's queue as before.
+func TestCancelReadsNoQueueInAConversationTheCEOLeft(t *testing.T) {
+	// Arrange
+	store, service, terminal, task, typed := heldQueue(t, false, "claude-busy", "first words")
+	userHome := os.Getenv("USERPROFILE")
+	primary, _, err := readPrimary(store.Home.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The CEO's harness records itself in another conversation now, which the
+	// board cannot record, since a folder stands where it would write it.
+	service.Options.Tree = &fleettree.Reader{Home: userHome, Processes: func() ([]fleettree.Process, error) {
+		return []fleettree.Process{{PID: primary.Process.PID, Exe: `C:\tools\claude.exe`, Created: 1, Started: primary.Process.Start}}, nil
+	}}
+	writeFile(t, filepath.Join(userHome, ".claude", "sessions", fmt.Sprintf("%d.json", primary.Process.PID)), fmt.Sprintf(`{"pid":%d,"sessionId":"live-session","procStart":"1"}`, primary.Process.PID))
+	folder := ceoConversationFile(userHome, store.Home.Root)
+	writeQueueRecord(t, filepath.Join(folder, "live-session.jsonl"))
+	writeQueueRecord(t, filepath.Join(folder, "session-1.jsonl"), "first words", "check the logs too")
+	if err := os.Remove(ceoConversationPath(store.Home.State)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(ceoConversationPath(store.Home.State), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	locate, err := NewHTTP(service, "board.local", nil).messagesLocator(context.Background(), map[string][]string{"ceo": {"ceo"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if left, err := locate(); err != nil || filepath.Base(left.Path) != "session-1.jsonl" || left.Stale == "" {
+		t.Fatalf("the CEO's conversation = %+v, %v; want the one it left, read as stale", left, err)
+	}
+
+	// Act
+	cancel := pressOnQueued(service, "message_withdraw", task, "m1", "first words")
+	input := terminal.lines(t)
+
+	// Assert
+	if cancel.Code != 202 || slices.ContainsFunc(store.Snapshot().Actions, func(a Action) bool { return a.ID == "m1" }) || !slices.Contains(input, "took back "+typed("first words")) || !slices.Contains(input, "cleared") {
+		t.Errorf("Cancel = %d %s, terminal input = %q; want the message taken back out of its queue and off the board", cancel.Code, cancel.Body, input)
+	}
+}
+
+// #2341: Claude Code's send-now key takes a slash command at the head of its
+// queue alone, as a turn of its own, and leaves the lines behind it queued.
+// So his message behind a command typed in the CEO's terminal stayed Queued
+// after Send now, reading that it was sent now. Send now first reads that
+// queue in the session's record: behind a command that no board message typed
+// it presses nothing and names the command ahead, as it does while the record
+// shows that command and not yet his message, and behind words typed in the
+// terminal, or ahead of such a command, it presses the key, which takes his
+// message and any words ahead of it together.
+func TestSendNowBehindACommandTypedInTheTerminalPressesNoKeyAndSaysWhatIsAhead(t *testing.T) {
+	for _, test := range []struct {
+		name, before, after string
+		recorded            []string
+		wantSays            string
+	}{
+		{name: "a command", before: "/compact", recorded: []string{"/compact", "stop and rebase"}, wantSays: `"/compact", a command the board did not type, waits ahead of this message in the CEO's queue, and its send-now key would run that command alone, so no key was pressed.`},
+		{name: "a command its record shows before it shows his message", before: "/compact", recorded: []string{"/compact"}, wantSays: `"/compact", a command the board did not type, waits ahead of this message in the CEO's queue, and its send-now key would run that command alone, so no key was pressed.`},
+		{name: "words", before: "check the logs too", recorded: []string{"check the logs too", "stop and rebase"}},
+		{name: "a command behind his message", after: "/compact", recorded: []string{"stop and rebase", "/compact"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			userHome := useConversations(t)
+			store, home := testStore(t)
+			terminal := nativeCEOComposer(t, home.State, "claude-busy")
+			service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: home.State}, Tree: &fleettree.Reader{Home: userHome}}}
+			if test.before != "" {
+				terminal.typeLine(t, test.before)
+				terminal.waitForLines(t, 2)
+				promptLineEmpties(t, terminal, "claude")
+			}
+			if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: "stop and rebase"}); err != nil {
+				t.Fatal(err)
+			}
+			pastUndoWindow(t, store)
+			tryNext(t, store, service, terminal, "claude")
+			if held := actionOf(store, "m1"); !isHarnessHeld(held) {
+				t.Fatalf("his message = %+v; want it held in the turn's queue", held)
+			}
+			if test.after != "" {
+				terminal.typeLine(t, test.after)
+				terminal.waitForLines(t, 3)
+				promptLineEmpties(t, terminal, "claude")
+			}
+			writeQueueRecord(t, filepath.Join(ceoConversationFile(userHome, home.Root), "session-1.jsonl"), test.recorded...)
+
+			// Act
+			pressed := sendNow(service, "", "m1")
+			after := actionOf(store, "m1")
+
+			// Assert
+			if test.wantSays == "" {
+				if input := terminal.waitForLines(t, 4); pressed.Code != 202 || !slices.Contains(input, "sent now") || after.Message != sentNowInTurn {
+					t.Errorf("Send now = %d %s, terminal input = %q, his message = %+v; want the send-now key pressed and the message to say so", pressed.Code, pressed.Body, input, after)
+				}
+				return
+			}
+			if says, _ := refusalOf(t, pressed); pressed.Code != 409 || !strings.HasPrefix(says, test.wantSays) {
+				t.Errorf("Send now = %d %s; want it refused, saying %q", pressed.Code, pressed.Body, test.wantSays)
+			}
+			if !isHarnessHeld(after) || after.Message != heldByCEO {
+				t.Errorf("his message after the press = %+v; want it still held in the CEO's queue, reading %q", after, heldByCEO)
+			}
+			if input := terminal.lines(t); slices.Contains(input, "sent now") {
+				t.Errorf("terminal input = %q; want no key pressed", input)
+			}
+		})
+	}
+}
+
+// #2341, of his message the board still holds, as in its undo window: Send
+// now types it into the CEO's turn and presses Claude Code's send-now key over
+// it, which runs a command typed in the terminal ahead of it alone, as a turn
+// of its own, and leaves his message queued. So Send now first reads the queue
+// of the terminal the board would type it into, in that session's record:
+// behind a command that no board message typed it types nothing, presses no
+// key and names the command, and his message waits on the board as it did,
+// sent now no longer where a try put off an earlier Send now of it, so the
+// board's next try types it with no send-now key, while behind words typed in
+// the terminal it goes on as before. A goblin's is read in the record of its
+// current generation.
+func TestSendNowOnHisMessageTheBoardStillHoldsPressesNoKeyBehindACommandTypedInTheTerminal(t *testing.T) {
+	for _, test := range []struct {
+		name, inTerminal, wantSays string
+		isGoblin, isSentNow        bool
+	}{
+		{name: "a command", inTerminal: "/compact", wantSays: `"/compact", a command the board did not type, waits ahead of this message in the CEO's queue, and its send-now key would run that command alone, so no key was pressed. It takes this message at its next tool call, or as its turn ends.`},
+		{name: "a command, an earlier Send now of it put off by a try", inTerminal: "/compact", isSentNow: true, wantSays: `"/compact", a command the board did not type, waits ahead of this message in the CEO's queue, and its send-now key would run that command alone, so no key was pressed. It takes this message at its next tool call, or as its turn ends.`},
+		{name: "a command in a goblin's queue", inTerminal: "/compact", isGoblin: true, wantSays: `"/compact", a command the board did not type, waits ahead of this message in task-1's queue, and its send-now key would run that command alone, so no key was pressed. It takes this message at its next tool call, or as its turn ends.`},
+		{name: "words", inTerminal: "check the logs too"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			userHome := useConversations(t)
+			store, home := testStore(t)
+			service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: home.State}, Tree: &fleettree.Reader{Home: userHome}}}
+			task, generation, conversation := "", "", filepath.Join(ceoConversationFile(userHome, home.Root), "session-1.jsonl")
+			if test.isGoblin {
+				meta := makeNative(t, home.State, "task-1")
+				meta.Harness = "claude"
+				if err := state.WriteTaskMeta(home.State, meta); err != nil {
+					t.Fatal(err)
+				}
+				if err := state.WriteConversation(home.State, state.Conversation{ID: meta.ID, Generation: meta.SpawnGen, Harness: "claude", Session: "goblin-session", ProvedAt: time.Now().UTC()}); err != nil {
+					t.Fatal(err)
+				}
+				task, generation, conversation = meta.ID, meta.SpawnGen, filepath.Join(ceoConversationFile(userHome, meta.Worktree), "goblin-session.jsonl")
+			}
+			terminal := nativeComposer(t, home.State, cmp.Or(task, "ceo"), "claude-busy")
+			terminal.typeLine(t, test.inTerminal)
+			terminal.waitForLines(t, 2)
+			promptLineEmpties(t, terminal, "claude")
+			writeQueueRecord(t, conversation, test.inTerminal)
+			if _, err := store.Queue(Action{ID: "m1", Kind: "message", TaskID: task, Generation: generation, Text: "stop and rebase"}); err != nil {
+				t.Fatal(err)
+			}
+			if test.isSentNow {
+				// As a try leaves it that his Send now reached while his draft
+				// held the CEO's prompt line.
+				store.mu.Lock()
+				sent := &store.db.Actions[slices.IndexFunc(store.db.Actions, func(a Action) bool { return a.ID == "m1" })]
+				sent.IsSentNow, sent.CanSendNow, sent.SendNowWhy, sent.Message = true, false, "Its terminal is not ready to take it yet.", "The CEO's input is not empty and ready. Your answer is queued; nothing was sent."
+				saved := store.save()
+				store.mu.Unlock()
+				if saved != nil {
+					t.Fatal(saved)
+				}
+			}
+			queued := actionOf(store, "m1")
+
+			// Act
+			pressed := sendNow(service, task, "m1")
+			// The board's next try of his words to the CEO, which wait out their
+			// undo window unless they are sent now. His words to a goblin wait
+			// for no such window, and its next try types them into its turn.
+			var tried error
+			if !test.isGoblin {
+				tried = store.ProcessOne(context.Background(), service.execute)
+			}
+			after := actionOf(store, "m1")
+
+			// Assert
+			if test.wantSays == "" {
+				if input := terminal.waitForLines(t, 4); pressed.Code != 202 || tried != nil || !slices.Equal(input[1:], []string{"queued check the logs too", "queued stop and rebase", "sent now"}) || after.Message != sentNowInTurn {
+					t.Errorf("Send now = %d %s, its try = %v, terminal input = %q, his message = %+v; want it typed into the turn and the send-now key pressed", pressed.Code, pressed.Body, tried, input, after)
+				}
+				return
+			}
+			if says, _ := refusalOf(t, pressed); pressed.Code != 409 || says != test.wantSays {
+				t.Errorf("Send now = %d %s; want it refused, saying %q", pressed.Code, pressed.Body, test.wantSays)
+			}
+			if after.Status != "queued" || after.IsSentNow || after.CanSendNow != queued.CanSendNow || after.SendNowWhy != queued.SendNowWhy || after.Message != queued.Message {
+				t.Errorf("his message after the press = %+v; want it waiting on the board as it did, not sent now, %+v", after, queued)
+			}
+			if input := terminal.lines(t); !slices.Equal(input[1:], []string{"queued /compact"}) {
+				t.Errorf("terminal input = %q; want nothing typed and no key pressed", input)
+			}
+		})
+	}
+}
+
+// #2341, of his message the board let go: Send now reads the queue of the
+// terminal the board would type it into only while the board holds it, queued
+// or reading Not sent. A press that reaches the supervisor after the board let
+// the message go, as from a second screen, says where it went, as it does with
+// no command in that queue, and a second Send now of one already sent now is
+// no error, even once it has gone on its way. One that reads Not sent is still
+// the board's, so behind a command typed in the CEO's terminal its press names
+// that command, and it goes back in the queue, not sent now, with Send now
+// again: nothing else would type it, while the press says the CEO takes it at
+// its next tool call, or as its turn ends. None of them types anything or
+// presses a key.
+func TestSendNowReadsTheQueueAheadOfHisMessageOnlyWhileTheBoardHoldsIt(t *testing.T) {
+	for _, test := range []struct {
+		name, status, message, wantSays string
+		isSentNow, isQueuedAgain        bool
+	}{
+		{name: "one the CEO already took", status: "succeeded", wantSays: "The CEO already took it."},
+		{name: "one sent now that the CEO took since", status: "succeeded", isSentNow: true},
+		{name: "one that reads Not sent", status: "failed", message: "Not sent. It waited in the queue of the CEO's terminal, which ended or started again before taking it.", isQueuedAgain: true, wantSays: `"/compact", a command the board did not type, waits ahead of this message in the CEO's queue, and its send-now key would run that command alone, so no key was pressed. It takes this message at its next tool call, or as its turn ends.`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			userHome := useConversations(t)
+			store, home := testStore(t)
+			service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: home.State}, Tree: &fleettree.Reader{Home: userHome}}}
+			terminal := nativeCEOComposer(t, home.State, "claude-busy")
+			terminal.typeLine(t, "/compact")
+			terminal.waitForLines(t, 2)
+			promptLineEmpties(t, terminal, "claude")
+			writeQueueRecord(t, filepath.Join(ceoConversationFile(userHome, home.Root), "session-1.jsonl"), "/compact")
+			if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: "stop and rebase"}); err != nil {
+				t.Fatal(err)
+			}
+			store.mu.Lock()
+			left := &store.db.Actions[slices.IndexFunc(store.db.Actions, func(a Action) bool { return a.ID == "m1" })]
+			// As the try that ended it left it, with no Send now.
+			left.Status, left.Message, left.IsSentNow, left.CanSendNow = test.status, test.message, test.isSentNow, false
+			saved := store.save()
+			store.mu.Unlock()
+			if saved != nil {
+				t.Fatal(saved)
+			}
+			before := actionOf(store, "m1")
+
+			// Act
+			pressed := sendNow(service, "", "m1")
+			after := actionOf(store, "m1")
+
+			// Assert
+			if test.wantSays == "" {
+				if pressed.Code != 202 {
+					t.Errorf("Send now = %d %s; want the same ask again, no error", pressed.Code, pressed.Body)
+				}
+			} else if says, _ := refusalOf(t, pressed); pressed.Code != 409 || says != test.wantSays {
+				t.Errorf("Send now = %d %s; want it refused, saying %q", pressed.Code, pressed.Body, test.wantSays)
+			}
+			want := before
+			if test.isQueuedAgain {
+				want.Status, want.Message, want.CanSendNow = "queued", "", true
+			}
+			if after.Status != want.Status || after.IsSentNow != want.IsSentNow || after.Message != want.Message || after.CanSendNow != want.CanSendNow {
+				t.Errorf("his message after the press = %+v; want %+v", after, want)
+			}
+			if input := terminal.lines(t); !slices.Equal(input[1:], []string{"queued /compact"}) {
+				t.Errorf("terminal input = %q; want nothing typed and no key pressed", input)
+			}
+		})
+	}
+}
+
+// #2341: Claude Code gives its queue back only whole, and its send-now key
+// takes that queue from its head, so a command he sends now cannot go ahead of
+// a line there that no board message typed, as one typed in the terminal: Up
+// would bring that line back onto the prompt line with his words, where none
+// of them could be taken back alone, and with none of his words there the key
+// would take that line first. Send now on such a command first reads that
+// queue in the session's record, presses nothing, and names that line, with
+// his words in that queue or with none. A goblin's is read in the record of
+// its current generation.
+func TestSendNowOnACommandPressesNoKeyWhileTheQueueHoldsALineTheBoardDidNotType(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		isGoblin bool
+		words    []string
+		wantSays string
+	}{
+		{name: "beside his words in the CEO's queue", words: []string{"first words"}, wantSays: `The CEO's queue also holds "check the logs too", which the board did not type, so this command cannot go ahead of it. A command runs when its turn ends.`},
+		{name: "alone in the CEO's queue", wantSays: `The CEO's queue also holds "check the logs too", which the board did not type, so this command cannot go ahead of it. A command runs when its turn ends.`},
+		{name: "alone in a goblin's queue", isGoblin: true, wantSays: `task-1's queue also holds "check the logs too", which the board did not type, so this command cannot go ahead of it. A command runs when its turn ends.`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			store, service, terminal, task, _ := heldQueue(t, test.isGoblin, "claude-busy", test.words...)
+			userHome := os.Getenv("USERPROFILE")
+			service.Options.Tree = &fleettree.Reader{Home: userHome}
+			generation, conversation := "", filepath.Join(ceoConversationFile(userHome, store.Home.Root), "session-1.jsonl")
+			if test.isGoblin {
+				meta, err := state.ReadTaskMeta(store.Home.State, task)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := state.WriteConversation(store.Home.State, state.Conversation{ID: task, Generation: meta.SpawnGen, Harness: "claude", Session: "goblin-session", ProvedAt: time.Now().UTC()}); err != nil {
+					t.Fatal(err)
+				}
+				generation, conversation = meta.SpawnGen, filepath.Join(ceoConversationFile(userHome, meta.Worktree), "goblin-session.jsonl")
+			}
+			terminal.typeLine(t, "check the logs too")
+			terminal.waitForLines(t, len(test.words)+2)
+			promptLineEmpties(t, terminal, "claude")
+			writeQueueRecord(t, conversation, append(test.words, "check the logs too")...)
+			// Its try left the command on the board with Send now, as a try
+			// does where Claude Code's send-now chord reaches the turn.
+			now := time.Now().UTC()
+			store.mu.Lock()
+			store.db.Actions = append(store.db.Actions, Action{ID: "m2", Kind: "message", TaskID: task, Generation: generation, Text: "/compact", Status: "queued", CanSendNow: true, Message: "Queued. " + commandWaits + " " + commandSendsNow, CreatedAt: now, UpdatedAt: now})
+			saved := store.save()
+			store.mu.Unlock()
+			if saved != nil {
+				t.Fatal(saved)
+			}
+
+			// Act
+			pressed := sendNow(service, task, "m2")
+			command := actionOf(store, "m2")
+
+			// Assert
+			if says, _ := refusalOf(t, pressed); pressed.Code != 409 || says != test.wantSays {
+				t.Errorf("Send now = %d %s; want it refused, saying %q", pressed.Code, pressed.Body, test.wantSays)
+			}
+			if command.Status != "queued" || command.IsSentNow {
+				t.Errorf("the command after the press = %+v; want it still on the board, not sent now", command)
+			}
+			for i := range test.words {
+				if words := actionOf(store, fmt.Sprintf("m%d", i+1)); !isHarnessHeld(words) {
+					t.Errorf("his words after the press = %+v; want them still in the turn's queue", words)
+				}
+			}
+			if input := terminal.lines(t); slices.ContainsFunc(input, func(line string) bool {
+				return strings.HasPrefix(line, "took back ") || line == "cleared" || line == "sent now" || line == "queued /compact"
+			}) {
+				t.Errorf("terminal input = %q; want no key pressed", input)
+			}
+		})
 	}
 }
 
