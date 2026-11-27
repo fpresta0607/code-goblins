@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"sync"
 	"testing"
 	"time"
@@ -105,7 +104,7 @@ func TestAStopRequestNamingASuccessorHandsItTheWatcherLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	successor := exec.Command("ping", "-n", "30", "127.0.0.1")
+	successor := lastingProgram(30)
 	if err := successor.Start(); err != nil {
 		t.Fatal(err)
 	}
