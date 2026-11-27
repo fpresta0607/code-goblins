@@ -2,10 +2,10 @@ import { CEO_DOOR, expect, openChat, openItem, openTaskList, test, type Locator,
 import { caret, nativeMarkers } from "./caret";
 import { at, field, GOBLIN, open, openGoblin, snapshot, typed } from "./session-board";
 
-const CATALOG = { harnesses: [{ id: "claude", name: "Claude Code", models: [
-  { id: GOBLIN.model, name: "Current model", efforts: ["xhigh"], default_effort: "xhigh" },
-  { id: "next-model", name: "Next model", efforts: ["high"], default_effort: "high" },
-] }] };
+const CATALOG = { harnesses: [
+  { id: "claude", name: "Claude Code", models: [{ id: GOBLIN.model, name: "Current model", efforts: ["xhigh"], default_effort: "xhigh" }] },
+  { id: "codex", name: "Codex", models: [{ id: "codex-model", name: "Codex model", efforts: ["high"], default_effort: "high" }] },
+] };
 
 async function expectDisclosure(page: Page, selector: string, isOpen: boolean) {
   const disclosure = page.locator(selector);
@@ -135,7 +135,7 @@ for (const who of ["goblin", "CEO"]) {
     await expectDisclosure(page, "details.harness", false);
     await harness.locator("> summary").click();
     await expectDisclosure(page, "details.harness", true);
-    if (who === "goblin") await harness.getByRole("combobox", { name: "Model", exact: true }).selectOption("next-model");
+    if (who === "goblin") await harness.getByRole("combobox", { name: "Harness", exact: true }).selectOption("codex");
     else {
       await harness.getByRole("button", { name: "Harness: Claude Code" }).click();
       await page.getByRole("menuitemradio", { name: "Codex", exact: true }).click();
@@ -147,7 +147,7 @@ for (const who of ["goblin", "CEO"]) {
     await task.click();
     await expect(page.locator(".goblin-panel > .panel-task")).toBeVisible();
     await expectDisclosure(page, "details.harness", true);
-    if (who === "goblin") await expect(harness.getByRole("combobox", { name: "Model", exact: true })).toHaveValue("next-model");
+    if (who === "goblin") await expect(harness.getByRole("combobox", { name: "Harness", exact: true })).toHaveValue("codex");
     else await expect(harness.getByRole("button", { name: "Harness: Codex" })).toBeVisible();
     expect(posts).toEqual([]);
   });
@@ -166,8 +166,8 @@ for (const width of [800, 1000]) {
       await resizePanel(page, width);
       const harness = page.locator("details.harness");
       await harness.locator("> summary").click();
-      const model = harness.getByRole("combobox", { name: "Model", exact: true });
-      await model.selectOption("next-model");
+      const harnessChoice = harness.getByRole("combobox", { name: "Harness", exact: true });
+      await harnessChoice.selectOption("codex");
       const trigger = page.locator(".task-controls").getByRole("button", { name: /^Stop / });
       await trigger.click();
       const dialog = page.getByRole("dialog", { name: "Stop this task?", exact: true });
@@ -186,7 +186,7 @@ for (const width of [800, 1000]) {
       await expect(dialog).toHaveCount(0);
       await expect(trigger).toBeFocused();
       await openTaskList(page);
-      await expect(model).toHaveValue("next-model");
+      await expect(harnessChoice).toHaveValue("codex");
       await openChat(page);
       await expect(field(page)).toHaveValue("Keep my message draft");
       expect(posts).toEqual([]);

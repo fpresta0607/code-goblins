@@ -8,8 +8,9 @@ import { openTaskList } from "./site";
 // the modern chat, that it is using the right icon"), and the row under the
 // message shows the session's own model. The panel's header draws no mark:
 // its row keeps the session's name, and a goblin's Task view names the
-// harness, the model and the effort in words (#1987), the CEO's in its Harness
-// section (#2438). The supervisor is played by tests/session-board.ts.
+// harness, the model and the effort in words (#1987), and the CEO's its
+// harness alone, in its Harness section (#2438, #2846). The supervisor is
+// played by tests/session-board.ts.
 
 const SESSIONS = [
   { harness: "claude", name: "Claude Code", model: "claude-opus-5-5", shown: "Opus 5.5" },
@@ -44,24 +45,25 @@ for (const session of SESSIONS) {
   });
 }
 
-// The CEO's panel has no task, and its Task view names its engine in its
-// Harness section alone, so its details name no harness, model or effort
-// (#2438). That section holds the CEO's engine record, the one record of
-// them, as the box's model button shows them (model-effort.spec.ts), pending,
-// refused or before it exists. What the CEO's session reported of itself as it
-// started is no second record, and is never shown.
+// The CEO's panel has no task, and its Task view names its harness in its
+// Harness section alone, beside Restart, so its details name no harness,
+// model or effort (#2438), and nothing in it names a model or an effort
+// (#2846): the box's model button shows them from the CEO's engine record
+// (model-effort.spec.ts), pending, refused or before it exists. What the
+// CEO's session reported of itself as it started is no second record, and is
+// never shown.
 const CEO_ENGINES = [
-  { why: "no saved engine", engine: undefined, model: "", effort: "" },
-  { why: "an applied engine", engine: { pending: false, problem: "" }, model: "claude-fable-5-2", effort: "high" },
-  { why: "a pending engine", engine: { pending: true, problem: "" }, model: "claude-fable-5-2", effort: "high" },
-  { why: "an engine that could not be applied", engine: { pending: false, problem: "The selection could not be applied: the CEO is busy" }, model: "claude-fable-5-2", effort: "high" },
+  { why: "no saved engine", engine: undefined },
+  { why: "an applied engine", engine: { pending: false, problem: "" } },
+  { why: "a pending engine", engine: { pending: true, problem: "" } },
+  { why: "an engine that could not be applied", engine: { pending: false, problem: "The selection could not be applied: the CEO is busy" } },
 ] as const;
 const CATALOG = { harnesses: [{ id: "claude", name: "Claude Code", models: [
   { id: "claude-opus-5-5", name: "Opus 5.5", efforts: ["high", "xhigh"], default_effort: "xhigh" },
   { id: "claude-fable-5-2", name: "Fable 5.2", efforts: ["high", "xhigh"], default_effort: "high" },
 ] }] };
 for (const ceo of CEO_ENGINES) {
-  test(`the CEO's Task view with ${ceo.why} names no harness in its details, and its Harness section holds what its engine record says`, async ({ page }) => {
+  test(`the CEO's Task view with ${ceo.why} names no harness in its details, and its Harness section names its harness alone`, async ({ page }) => {
     // Arrange: a CEO whose session reported Opus 5.5 as it started.
     const [claude] = SESSIONS;
     await open(page, snapshot({ sessions: [{ id: "ceo-1", harness: claude.harness, role: "ceo", model: claude.model }], ...(ceo.engine && { ceo_engine: { harness: claude.harness, model: "claude-fable-5-2", effort: "high", waiting: "", ...ceo.engine } }) }));
@@ -78,9 +80,8 @@ for (const ceo of CEO_ENGINES) {
     await expect(page.locator(".goblin-panel > .panel-header .mark")).toHaveCount(0);
     await expect(details).not.toContainText("Claude Code");
     await expect(details).not.toContainText("Opus 5.5");
-    const engine = harness.getByRole("group", { name: "CEO engine" });
-    await expect(engine.getByRole("combobox", { name: "Harness" })).toHaveValue(claude.harness);
-    await expect(engine.getByRole("combobox", { name: "Model" })).toHaveValue(ceo.model);
-    await expect(engine.getByRole("combobox", { name: "Effort" })).toHaveValue(ceo.effort);
+    await expect(harness.getByRole("button", { name: "Harness: " + claude.name })).toBeVisible();
+    await expect(harness.getByRole("combobox")).toHaveCount(0);
+    for (const shown of ["Fable 5.2", "claude-fable-5-2", "Pending", "could not be applied"]) await expect(harness, "no model and no record state").not.toContainText(shown);
   });
 }
