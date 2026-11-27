@@ -82,6 +82,39 @@
 .connector-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; min-width: 0; padding: 12px 14px; border: 1px solid var(--glass-border); border-radius: var(--radius); background: var(--field-bg); }
 .connector-notice p { flex: 1 1 14rem; min-width: 0; overflow-wrap: anywhere; }
 
+/* Needs a look's cards (#3002): each the same parts in the same places, its
+   actions in one row at its foot, two to a line where the page is wide. */
+.look-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 24rem), 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; min-width: 0; }
+.look-card { position: relative; display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--ghost-bg); }
+.look-card:hover { border-color: var(--glass-border-hover); }
+.look-card:has(.connector-open:focus-visible) { outline: var(--focus-ring); outline-offset: -3px; }
+.look-card-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.look-card-title { display: grid; flex: 1; gap: 2px; min-width: 0; }
+.look-card-title .connector-open { overflow-wrap: anywhere; }
+.look-card-origin { color: var(--muted); overflow-wrap: anywhere; }
+.look-card-head .connector-level { flex: none; }
+.look-card-state { display: grid; gap: 2px; margin: 0; overflow-wrap: anywhere; }
+.look-card-state b { color: var(--amber); }
+.look-card-state span { color: #c5d3df; }
+.look-card-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+.look-card-vars { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; color: var(--muted); }
+.look-card-vars li { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; padding: 2px 10px; border: 1px solid var(--border); border-radius: 999px; }
+.look-card-vars code { font-family: var(--font-mono); overflow-wrap: anywhere; }
+.look-card-vars li.is-missing { border-color: color-mix(in srgb, var(--amber) 45%, transparent); color: var(--amber); }
+.look-card-actions { position: relative; z-index: 1; display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border); }
+.look-card-actions button, .look-card-store > summary { padding: 4px 12px; border-radius: 999px; font-weight: 700; }
+.look-card-store { min-width: 0; }
+.look-card-store > summary { display: inline-flex; border: 1px solid var(--glass-border); cursor: pointer; list-style: none; }
+.look-card-store > summary::-webkit-details-marker { display: none; }
+.look-card-store ul { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; padding: 0; list-style: none; }
+.look-card-store ul button { font-family: var(--font-mono); font-weight: 500; overflow-wrap: anywhere; }
+.look-card-end { display: flex; gap: 8px; margin-left: auto; }
+.look-card-remove { display: inline-flex; align-items: center; gap: 6px; }
+.look-card-remove .icon { width: 18px; height: 18px; }
+.look-card-remove:hover:not(:disabled) { border-color: var(--amber); color: var(--amber); }
+.remove-connector-origin { margin: -6px 0 14px; color: var(--muted); }
+.remove-connector-error { color: var(--amber); }
+
 /* A browser login's row, and the dialog that asks before one is forgotten. */
 .browser-login { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; min-width: 0; padding: 12px 14px; border-top: 1px solid var(--border); }
 .browser-login-copy { display: grid; flex: 1 1 14rem; gap: 2px; min-width: 0; }

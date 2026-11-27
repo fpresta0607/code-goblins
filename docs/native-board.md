@@ -1559,6 +1559,25 @@ The CEO receives one digest line in the notify wake queue, never a prompt, for e
 Completed outcomes record the last harness, model and effort, while older outcomes without those fields say Engine not recorded.
 Connectors, the header's third view, shows what the fleet can reach on three levels, drilled into from a home page: this PC and its accounts, each project, and each goblin (`frontend/src/connectors-page.tsx`, `internal/connections`, #2902).
 The home page has one tile for each level and Needs a look, which lists every item of any level whose status is a trouble.
+Needs a look shows each item as a card, two to a line where the page is wide and one on a phone, every card with the same parts in the same places whatever its level and kind (`frontend/src/connector-look-card.tsx`, #3002).
+A card holds its logo, its name and where it is from, and its level; its status in a word with the reason; where it is read from and when it was checked; the credential names it declares, when it declares any; and one row of actions at its foot: Sign in or CLI sign-in, Store a key, which opens the list of variables to store from the clipboard, Refresh, and Remove last.
+Remove asks first, naming exactly what it will change, and Cancel, the default, changes nothing.
+A removal that lands takes the item out of the list at once; a refusal is said in full in the same question, and nothing changes.
+What Remove does depends on what the item is, and it edits only the one declaration it names:
+
+- A credential of this PC's user environment (Everywhere) is deleted from the user environment (`HKCU\Environment`), so every program started from then on no longer gets it: terminals, goblins and any other program that reads it, such as a server in the user's Claude settings.
+  Programs already running keep it until they restart.
+  Its value is first kept in the credential vault's shared scope under its own name and read back, so it is never left stored nowhere; a vault that already holds another value under that name refuses the removal.
+  To undo it, a project declares the name in its auth manifest and its goblins get it from the vault, or the user sets the variable again.
+- A project's service is taken out of the project's auth manifest, `data/projects/<project>/auth.json` in the Code Goblins home; the project's repository is not touched.
+  The credentials stored for it stay in the vault, and its entry is first added, word for word and with the time, to `auth.removed.json` beside the manifest.
+  To undo it, the entry is moved back.
+- A project's MCP server is declared in the project's own `.mcp.json`, a file of its repository, so Remove refuses it and says to change it there through a pull request.
+- A goblin's server that failed to load, or was still starting, is taken out of the goblin's task record, as Disconnect does, from its next start, and its failure leaves the list; its worktree and every other connection stay.
+  A server every goblin of the project gets from the project's `.mcp.json`, and one from the user's Claude settings or account, is refused with where it comes from.
+  To undo it, Connect gives it back.
+- Anything else, which Code Goblins does not declare, such as a command line tool, a harness sign-in, an account connector, a server of the user's own Claude or Codex configuration or the crawler, says where it lives, offers only Close and posts nothing.
+
 Search covers the whole snapshot in the browser, groups its results by level and opens each result at its place; services of different projects that share a name show their project and what each points at.
 Every row says its level, its status in a word and when it was checked, Stale when its check is older than its level's life, and Rechecking while its level is being checked again.
 Only Verified is green; Missing, Unauthorized, Expired, Wrong target, Unreachable, Failed and Everywhere are amber; every other status is quiet.
@@ -1619,6 +1638,9 @@ A finished repair card checks its project again.
 Past the token and origin checks it takes only a board proven to be the Overlord's own, as AFK mode's switch does, since any program on the PC can read the token.
 The task's status credits his board, the CEO gets a notify wake, a live native goblin is told to load a granted service's credentials, and the goblin is read again from the record the change left and answered with the snapshots.
 A stored token does not change an already running native process's environment, so a goblin keeps its Missing state until it receives it.
+`POST /api/connectors/remove` takes a `level`, a `project`, a `task`, its spawn `generation` and a `connection` and nothing else, and does what Remove does above.
+Past the token and origin checks it takes only a board proven to be the Overlord's own, as Connect does.
+A removal takes the item out of its level's snapshot at once, tells the CEO with a notify wake that credits his board and names no value, and answers with the snapshots; a refusal is 409 with its reason and changes nothing.
 Credential values, full process environments, dotenv, auth scripts, MCP commands, headers and the fields of the user's own configuration are never read into, kept in or returned by any of it.
 
 ### A session read as messages

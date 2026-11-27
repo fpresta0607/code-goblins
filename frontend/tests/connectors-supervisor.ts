@@ -61,7 +61,7 @@ export async function play(page: Page, supervisor: Supervisor): Promise<void> {
   await page.route("**/api/**", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
-    const body = request.method() === "POST" ? request.postDataJSON() as { level?: string; scope?: string; task?: string; project?: string; login?: string; connection?: string; action?: string } : undefined;
+    const body = request.method() === "POST" ? request.postDataJSON() as { level?: string; scope?: string; task?: string; project?: string; login?: string; connection?: string; action?: string; generation?: string } : undefined;
     if (path === "/api/ceo/report") {
       supervisor.reports.push(body as unknown as { where: string; text: string });
       return route.fulfill({ status: 202, json: { reported: true } });
@@ -78,6 +78,13 @@ export async function play(page: Page, supervisor: Supervisor): Promise<void> {
       return route.fulfill({ json: supervisor.view });
     }
     if (path === "/api/connectors/fix") return supervisor.refuses ? refused() : route.fulfill({ json: supervisor.repaired });
+    if (path === "/api/connectors/remove") {
+      if (supervisor.refuses) return refused();
+      const { view } = supervisor;
+      const found = body?.task ? view.goblins.find((goblin) => goblin.task === body.task) : body?.project ? view.projects.find((project) => project.name === body.project) : view.machine;
+      if (found) found.items = found.items.filter((each) => each.id !== body?.connection);
+      return route.fulfill({ json: view });
+    }
     if (path === "/api/connections/grant") {
       await supervisor.held;
       if (supervisor.refuses) return refused();
@@ -138,7 +145,7 @@ export function fleet(): Supervisor {
     goblins: [
       {
         task: "cg-touch", generation: "cg-touch-1", project: "acme", harness: "claude", is_confirmed: true, ...level([
-          item("goblin", "failed", "mcp", "acme-docs", "failed", { detail: "Connection closed", source: "its session record" }),
+          item("goblin", "failed", "mcp", "acme-docs", "failed", { id: "failed:acme-docs", detail: "Connection closed", source: "its session record" }),
           item("goblin", "loaded", "mcp", "acme-search", "verified", { tools: ["search_pages", "read_page"], source: "its session record" }),
           item("goblin", "carried", "service", "github", "set", { grant: "revoke" }),
           item("goblin", "not_given", "service", "supabase", "not_given", { grant: "grant", detail: "The CEO gives it with goblins auth grant cg-touch supabase." }),

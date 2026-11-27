@@ -153,7 +153,7 @@ test("a goblin whose server failed to load shows it on the home page, in the gob
   await open(page, fleet());
 
   // Assert: home.
-  await expect(group("Needs a look", page).getByRole("button", { name: "Acme Docs, " + ZEKE + " in acme" })).toBeVisible();
+  await expect(group("Needs a look", page).getByRole("button", { name: "Acme Docs, " + ZEKE + " in acme", exact: true })).toBeVisible();
 
   // Act
   await tile(page, 3).click();
@@ -506,7 +506,7 @@ test("the first view of a snapshot the size of today's fleet draws its first row
   await play(page, supervisor);
   await page.addInitScript(() => {
     new MutationObserver((_, observer) => {
-      if (!document.querySelector(".connector-row")) return;
+      if (!document.querySelector(".look-card")) return;
       (window as unknown as { firstRowAt: number }).firstRowAt = performance.now();
       observer.disconnect();
     }).observe(document, { childList: true, subtree: true });
@@ -515,7 +515,7 @@ test("the first view of a snapshot the size of today's fleet draws its first row
 
   // Act
   await page.goto("/tests/fixtures/connectors-page.html?goblins=" + encodeURIComponent(JSON.stringify(goblins)));
-  await expect(page.locator(".connector-row").first()).toBeVisible();
+  await expect(page.locator(".look-card").first()).toBeVisible();
   const firstRowAt = await page.evaluate(() => (window as unknown as { firstRowAt: number }).firstRowAt);
 
   // Assert
