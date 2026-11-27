@@ -350,6 +350,7 @@ It differs where Linux reads `/proc` and `/sys`, and where the Linux layers call
   Background priority (`PRIO_DARWIN_BG`) runs it on the efficiency cores of Apple silicon, but it also gives the lowest scheduling priority and throttles disk and network, which the Windows thread mask and Linux affinity do not.
   Spawn always passes `--leave-cores-for-apps`, so every goblin's work would be throttled.
   Layer 5 measures background priority against the utility class (`QOS_CLASS_UTILITY`) on the macOS runner, chooses from those numbers, and states the choice and its cost in its pull request.
+  It chose the utility class on 2026-11-27: on the runner, background priority made a cold build 6.4 times as long and the utility class 1.2 times, and the runner, a virtual machine with one kind of core, shows the cost of each, not where it runs.
 - No systemd: each host starts in a session of its own, and the supervisor runs as a launchd agent with `AbandonProcessGroup`, so an update of the supervisor ends no host.
 - The socket's peer comes from `LOCAL_PEERPID` instead of `SO_PEERCRED`, and the sockets take the user's 0700 folder under `/tmp`, since the 104-byte `sun_path` leaves no room under `$TMPDIR`.
 - Folder watching uses `kqueue`, memory and processor readings use the Mach host calls, the creation time comes from `stat`'s birth time and the disk priority from `setiopolicy_np`.

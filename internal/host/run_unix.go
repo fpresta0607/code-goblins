@@ -48,7 +48,8 @@ func Run(stateDir string, spec Spec) error {
 	if err != nil {
 		return err
 	}
-	started, err := pty.Start(pty.Spec{Args: spec.Args, Dir: spec.Dir, Env: terminalEnvironment(spec.ID, hex.EncodeToString(proof[:])), Cols: spec.Cols, Rows: spec.Rows, Processors: terminalProcessors(spec)})
+	args, processors := terminalStart(spec)
+	started, err := pty.Start(pty.Spec{Args: args, Dir: spec.Dir, Env: terminalEnvironment(spec.ID, hex.EncodeToString(proof[:])), Cols: spec.Cols, Rows: spec.Rows, Processors: processors})
 	if err != nil {
 		return err
 	}
