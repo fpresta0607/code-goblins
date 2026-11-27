@@ -6,6 +6,8 @@ import { expect, holdStream, test, type Locator, type Page } from "./site";
 // still moves by mouse, by a finger on its number and by Alt with an arrow.
 const since = "2026-10-08T18:00:00Z";
 const WORKING = Array.from({ length: 4 }, (_, index) => ({ id: "working-" + (index + 1), title: "working-" + (index + 1), project: "code-goblins", phase: "working", verified: false, generation: "g" + (index + 1), since, harness: "codex" }));
+// Longer than a finger rests on a card before the card lifts.
+const PAST_LIFT = 600;
 
 interface Posted { path: string; body: Record<string, unknown> }
 
@@ -75,6 +77,29 @@ test("a card's number stays in sight while the pointer is on it and while it is 
   expect(await ranked(progress)).toEqual(order);
   await expect(third).not.toHaveClass(/dragging/);
   await shows(third, 1);
+});
+
+// Only a finger lifts a card it rests on (#2390): a mouse held still on a
+// card picks up nothing, so its click opens the card.
+test("a mouse held still on a card lifts no card, and its release opens the card", async ({ page }) => {
+  // Arrange
+  const { progress } = await open(page);
+  const second = card(progress, "working-2");
+  const from = await centre(second.locator(".card-title"));
+
+  // Act
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.waitForTimeout(PAST_LIFT);
+
+  // Assert
+  await expect(second).not.toHaveClass(/dragging/);
+
+  // Act
+  await page.mouse.up();
+
+  // Assert
+  await expect(second.locator(".task-card")).toHaveAttribute("aria-pressed", "true");
 });
 
 test("a focused card's number stays in sight, and Alt with an arrow moves the card and its number", async ({ page }) => {

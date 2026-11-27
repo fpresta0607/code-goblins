@@ -1350,7 +1350,8 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 /* Tasks and In progress are in priority order, top first: each card's
    number is its place and stays in sight on hover, on focus and in a drag, and
    a dragged card lifts while the others slide aside. A finger drags by the
-   number. */
+   number, or by the rest of the card once it has rested there and the card
+   has lifted. */
 .task-cards.ranked { position: relative; }
 .task-cards.sorting { user-select: none; }
 .ranked-item { position: relative; min-width: 0; }
@@ -1368,7 +1369,12 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .rank { position: absolute; z-index: 1; left: 13px; top: 22px; width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid var(--glass-border); border-radius: 8px; background: var(--field-bg); color: #c4d4df; font-size: 1rem; font-weight: 800; font-variant-numeric: tabular-nums; pointer-events: none; }
 /* A card rises over the others on hover and focus, and its number over it. */
 .ranked-item:hover .rank, .ranked-item:focus-within .rank { z-index: 4; }
-@media (any-pointer: coarse) { .rank { pointer-events: auto; touch-action: none; } }
+/* A finger held on a card lifts it, so a long press there selects no text
+   and opens no callout of the phone's own. */
+@media (any-pointer: coarse) {
+  .rank { pointer-events: auto; touch-action: none; }
+  .ranked-item { -webkit-touch-callout: none; user-select: none; }
+}
 .ranked-item.dragging .task-card-shell { transform: scale(1.02) rotate(-.6deg); border-color: var(--mint); box-shadow: 0 18px 40px #000a, 0 0 0 2px var(--mint); }
 .ranked-item.dragging .rank { border-color: var(--mint); }
 @media (prefers-reduced-motion: reduce) { .ranked-item.dragging .task-card-shell { transform: none; } }
