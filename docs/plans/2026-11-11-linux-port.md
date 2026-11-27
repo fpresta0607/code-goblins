@@ -346,11 +346,11 @@ It differs where Linux reads `/proc` and `/sys`, and where the Linux layers call
 - No `PR_SET_CHILD_SUBREAPER`: a child whose parent exits passes to launchd, so its parent chain no longer leads back to the fleet.
   `internal/execx` and the gate's executor mark each tree they start with an environment marker, and a tree is found by that marker, read through `kern.procargs2`, which M1 ports, by its process group and by its parent chain.
   Linux finds a tree the same way, so the code is written once.
-- No `sched_setaffinity`: the terminal is kept off the performance cores by its priority, and the cores' kinds come from `sysctl hw.perflevel*`.
+- No `sched_setaffinity`: a terminal told to leave cores for apps runs clamped to the utility class, and keeping it off the performance cores stays open until a real Apple silicon Mac measures where each class runs, and the cores' kinds come from `sysctl hw.perflevel*`.
   Background priority (`PRIO_DARWIN_BG`) runs it on the efficiency cores of Apple silicon, but it also gives the lowest scheduling priority and throttles disk and network, which the Windows thread mask and Linux affinity do not.
   Spawn always passes `--leave-cores-for-apps`, so every goblin's work would be throttled.
   Layer 5 measures background priority against the utility class (`QOS_CLASS_UTILITY`) on the macOS runner, chooses from those numbers, and states the choice and its cost in its pull request.
-  It chose the utility class on 2026-11-27: on the runner, background priority made a cold build 6.4 times as long and the utility class 1.2 times, and the runner, a virtual machine with one kind of core, shows the cost of each, not where it runs.
+  It chose the utility class on 2026-11-27: on the runner, a virtual machine with one kind of core, background priority made a cold build 6.4 times as long and the utility class about 1.2 times, the utility class gave a foreground load no measured gain, and neither run shows where work runs.
 - No systemd: each host starts in a session of its own, and the supervisor runs as a launchd agent with `AbandonProcessGroup`, so an update of the supervisor ends no host.
 - The socket's peer comes from `LOCAL_PEERPID` instead of `SO_PEERCRED`, and the sockets take the user's 0700 folder under `/tmp`, since the 104-byte `sun_path` leaves no room under `$TMPDIR`.
 - Folder watching uses `kqueue`, memory and processor readings use the Mach host calls, the creation time comes from `stat`'s birth time and the disk priority from `setiopolicy_np`.
