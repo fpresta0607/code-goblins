@@ -294,7 +294,8 @@ func primaryHome(t *testing.T, h home.Home) {
 // which runs until the test ends.
 func holdHomeElsewhere(t *testing.T, stateDir string) {
 	t.Helper()
-	other := execx.Command("ping", "-n", "30", "127.0.0.1")
+	program := lastingProgram(30)
+	other := execx.Command(program.Args[0], program.Args[1:]...)
 	if err := other.Start(); err != nil {
 		t.Fatal(err)
 	}

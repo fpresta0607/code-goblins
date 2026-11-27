@@ -96,8 +96,8 @@ func TestLinuxExceptReadsTheLinuxJobsListFromThisRepositorysWorkflow(t *testing.
 	except := LinuxExcept(string(workflow))
 
 	// Assert
-	if !slices.Contains(except, "./cmd/goblins") || !slices.Contains(except, "./internal/supervisor") || slices.Contains(except, "./internal/handoff") {
-		t.Fatalf("except = %v, want ./cmd/goblins and ./internal/supervisor, and never ./internal/handoff, whose tests run on Linux", except)
+	if !slices.Contains(except, "./cmd/goblins") || !slices.Contains(except, "./internal/watch") || slices.Contains(except, "./internal/supervisor") || slices.Contains(except, "./internal/handoff") {
+		t.Fatalf("except = %v, want ./cmd/goblins and ./internal/watch, and never ./internal/supervisor or ./internal/handoff, whose tests run on Linux", except)
 	}
 }
 

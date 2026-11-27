@@ -289,6 +289,40 @@ func TestKeySpendIsNotClaimedForASessionThatStartedBeforeTheCredential(t *testin
 	}
 }
 
+// The user's environment is read only for a live Pi session's credential: on
+// Linux reading it runs a login shell, which a snapshot of a fleet with no Pi
+// session at work started each time it was built.
+func TestKeySpendReadsTheUserEnvironmentOnlyForALivePiSession(t *testing.T) {
+	now := time.Now().UTC()
+	for _, test := range []struct {
+		name  string
+		tasks []Task
+		want  int32
+	}{
+		{name: "no live task", want: 0},
+		{name: "a live goblin of another harness", tasks: []Task{{ID: "claude-goblin", Harness: "claude", Since: scheduleStarts, Runtime: RuntimeEvidence{State: "busy", At: now}}}, want: 0},
+		{name: "a live Pi goblin", tasks: []Task{livePiTask("pi-goblin", "openrouter/deepseek/deepseek-v4.1-flash", scheduleStarts)}, want: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			var reads atomic.Int32
+			read := userEnvironment(piProfile(t, "fixture-openrouter-key-one", writtenAt))
+			service := &Service{Options: Options{UserEnvironment: func() ([]string, error) {
+				reads.Add(1)
+				return read()
+			}}}
+
+			// Act
+			service.keySpendUsage(ceoState{}, piSnapshot(now, test.tasks...))
+
+			// Assert
+			if got := reads.Load(); got != test.want {
+				t.Errorf("the user environment was read %d times, want %d", got, test.want)
+			}
+		})
+	}
+}
+
 // The dials' timer reads each source the last snapshot found, keeps a reading
 // for the credential it was made with, drops a source no session uses any
 // more, and never reads while a board's snapshot is built.
@@ -451,9 +485,11 @@ func TestKeySpendReadsPisProviderAndProfileRules(t *testing.T) {
 			t.Errorf("ModelProvider(%q) = %q, want %q", test.model, got, test.provider)
 		}
 	}
+	root := t.TempDir()
+	agent := filepath.Join(root, "someone", ".pi", "agent")
 	for _, test := range []struct{ dir, defaultDir, profile string }{
-		{`C:\Users\someone\.pi\agent`, `C:\Users\someone\.pi\agent`, "default"},
-		{`C:\work\pi-profiles\work`, `C:\Users\someone\.pi\agent`, "work"},
+		{agent, agent, "default"},
+		{filepath.Join(root, "work", "pi-profiles", "work"), agent, "work"},
 		{"", "", ""},
 	} {
 		if got := keySpendProfileName(test.dir, test.defaultDir); got != test.profile {

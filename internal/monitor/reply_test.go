@@ -177,7 +177,7 @@ func piTurnMessage(role, stopReason string, content ...map[string]any) map[strin
 
 // piFolder is the folder pi 0.85 keeps the sessions of worktree in.
 func piFolder(home, worktree string) string {
-	return filepath.Join(home, ".pi", "agent", "sessions", "--"+strings.NewReplacer(`\`, "-", "/", "-", ":", "-").Replace(worktree)+"--")
+	return filepath.Join(home, ".pi", "agent", "sessions", fleettree.PiSessionFolder(worktree))
 }
 
 // A pi goblin's last reply is the text of the assistant message that ended its

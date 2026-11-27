@@ -89,6 +89,23 @@ func TestSessionTranscriptFindsEachHarnessTranscript(t *testing.T) {
 	}
 }
 
+// Pi names a Linux folder's sessions folder without its leading slash, as
+// sessions pi wrote under WSL Ubuntu on 2026-11-26 show: /home/x is
+// --home-x--, where a plain replacement made ---home-x-- and no Linux
+// goblin's conversation was ever found.
+func TestPiSessionFolderIsTheFolderPiNamesForADirectory(t *testing.T) {
+	for _, test := range []struct{ dir, want string }{
+		{`C:\dev\x`, "--C--dev-x--"},
+		{"/home/someone/work", "--home-someone-work--"},
+		{"/", "----"},
+		{`\\server\share`, "---server-share--"},
+	} {
+		if got := PiSessionFolder(test.dir); got != test.want {
+			t.Errorf("PiSessionFolder(%q) = %q, want %q", test.dir, got, test.want)
+		}
+	}
+}
+
 // A Codex session's rollout is the one whose name carries its whole id: a
 // newer rollout of a session whose id ends with it is another conversation
 // (#1901).

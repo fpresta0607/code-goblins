@@ -134,7 +134,7 @@ func TestMessagesReadAPiCEOAndRefuseAnotherHarness(t *testing.T) {
 	userHome := t.TempDir()
 	// The CEO runs in the fleet's home, so pi keeps its sessions in the folder
 	// pi names for that home.
-	folder := filepath.Join(userHome, ".pi", "agent", "sessions", "--"+strings.NewReplacer(`\`, "-", "/", "-", ":", "-").Replace(h.Root)+"--")
+	folder := filepath.Join(userHome, ".pi", "agent", "sessions", fleettree.PiSessionFolder(h.Root))
 	if err := os.MkdirAll(folder, 0o755); err != nil {
 		t.Fatal(err)
 	}

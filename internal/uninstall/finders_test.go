@@ -182,6 +182,34 @@ func TestConversationRecordsAreTheHomesAndNamedByWhoseTheyAre(t *testing.T) {
 	}
 }
 
+// pi's record of the CEO's conversations is the folder pi names for the home:
+// the home without its one leading separator, as sessions pi wrote under WSL
+// Ubuntu show, where a plain replacement made ---home-x--.
+func TestPisRecordOfTheCEOsConversationsIsTheFolderPiNamesForTheHome(t *testing.T) {
+	for _, test := range []struct{ root, folder string }{
+		{"/home/x", "--home-x--"},
+		{`C:\x`, "--C--x--"},
+	} {
+		t.Run(test.folder, func(t *testing.T) {
+			// Arrange
+			m := testMachine(t)
+			m.Home = home.Home{Root: test.root}
+			write(t, filepath.Join(m.Install.HarnessDirs["pi"], "sessions", test.folder, "s.jsonl"), "{}")
+
+			// Act
+			items, err := m.conversations()
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := whats(items); len(items) != 1 || items[0].What != "pi's record of the CEO's conversations" {
+				t.Errorf("found\n%s\nwant pi's record of the CEO's conversations", got)
+			}
+		})
+	}
+}
+
 // The person's own folder outside the home carries the goblin's name, as a
 // machine's temporary folder may: macOS named one /var/folders/q2/...g1dc...
 // (#2626).

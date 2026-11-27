@@ -206,7 +206,7 @@ func TestEachWaitOnTheCEOWakesItAndNoWaitByDesignDoes(t *testing.T) {
 				recordLifecycle(t, h, "pause", cmp.Or(test.phase, "paused"), test.pause)
 			}
 			if test.isHosted {
-				terminal, err := json.Marshal(host.Record{ID: waitingGoblin, HostPID: os.Getpid(), Started: time.Now(), Pipe: "fixture", Token: "fixture"})
+				terminal, err := json.Marshal(host.Record{ID: waitingGoblin, HostPID: os.Getpid(), HostInstance: thisHostInstance(t), Started: time.Now(), Pipe: "fixture", Token: "fixture"})
 				if err != nil {
 					t.Fatal(err)
 				}

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -1099,7 +1100,7 @@ func TestDoneOnAStepCardClosesTheWaitOpenedForIt(t *testing.T) {
 			for _, r := range []Review{
 				wait("waiting-task-1-7", "task-1", time.Second, ""),
 				wait("waiting-task-1-3", "task-1", -time.Minute, ""),
-				wait("waiting-task-1-8", "task-1", time.Second, `C:\work\.lavish\plan.html`),
+				wait("waiting-task-1-8", "task-1", time.Second, filepath.Join(t.TempDir(), ".lavish", "plan.html")),
 				wait("waiting-task-2-9", "task-2", time.Second, ""),
 			} {
 				if err := b.service.Store.acceptReview(r); err != nil {

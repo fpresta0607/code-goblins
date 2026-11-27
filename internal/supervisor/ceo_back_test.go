@@ -64,14 +64,15 @@ func ceoBackBoard(t *testing.T) (*Service, home.Home, *ceoBackRecorder) {
 }
 
 // registerCEO records the home's CEO as registered in native terminal ceo as
-// process pid, started at started.
-func registerCEO(t *testing.T, h home.Home, pid int, started time.Time) {
+// process pid, started at started, running as instance where the system
+// reads one (lock.Info.Instance).
+func registerCEO(t *testing.T, h home.Home, pid int, started time.Time, instance string) {
 	t.Helper()
 	hostname, err := os.Hostname()
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(primaryRegistration{Host: NativeCEOTerminal, Agent: "claude", Process: lock.Info{PID: pid, OwnerPID: pid, Start: started, Hostname: hostname}})
+	data, err := json.Marshal(primaryRegistration{Host: NativeCEOTerminal, Agent: "claude", Process: lock.Info{PID: pid, OwnerPID: pid, Start: started, Hostname: hostname, Instance: instance}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +131,7 @@ func TestACEOWhoseTerminalEndedUnaskedComesBackToldWhy(t *testing.T) {
 					return `C:\fixture\claude.exe`, testCase.installed, nil
 				}
 			}
-			registerCEO(t, h, 999999, registered)
+			registerCEO(t, h, 999999, registered, "")
 			if testCase.isEnded {
 				ceoEnded(t, h, testCase.pid, testCase.started, testCase.started.Add(time.Hour), testCase.code, false)
 			}
@@ -167,7 +168,7 @@ func TestACEOThatWasStoppedStaysStopped(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			// Arrange
 			service, h, recorder := ceoBackBoard(t)
-			registerCEO(t, h, 999999, testCase.started)
+			registerCEO(t, h, 999999, testCase.started, "")
 			ceoEnded(t, h, 999999, testCase.started, testCase.started.Add(time.Hour), testCase.code, testCase.isClosed)
 
 			// Act
@@ -192,7 +193,7 @@ func TestEachEndOfTheCEOBringsItBackOnce(t *testing.T) {
 	service, h, recorder := ceoBackBoard(t)
 	recorder.err = errors.New("claude is not on PATH")
 	started := thisSignIn.Add(time.Hour)
-	registerCEO(t, h, 999999, started)
+	registerCEO(t, h, 999999, started, "")
 	ceoEnded(t, h, 999999, started, started.Add(time.Hour), 1, false)
 
 	// Act
@@ -219,7 +220,7 @@ func TestAnEndWhileAnotherStartHoldsTheLaunchLockIsLeftToThatStart(t *testing.T)
 	// Arrange
 	service, h, recorder := ceoBackBoard(t)
 	started := thisSignIn.Add(time.Hour)
-	registerCEO(t, h, 999999, started)
+	registerCEO(t, h, 999999, started, "")
 	ceoEnded(t, h, 999999, started, started.Add(time.Hour), 1, false)
 	if _, err := lock.AcquireExclusiveNamed(h.State, CEOLaunchLock); err != nil {
 		t.Fatal(err)
@@ -264,7 +265,7 @@ func TestACEOThatEndsThreeTimesInARowIsNotBroughtBackAgain(t *testing.T) {
 	// Arrange
 	service, h, recorder := ceoBackBoard(t)
 	registered := thisSignIn.Add(time.Hour)
-	registerCEO(t, h, 999999, registered)
+	registerCEO(t, h, 999999, registered, "")
 	// The first end is of a CEO that ran for hours; each after it, of the
 	// one brought back a minute after the end before, ended within a minute
 	// of its start.
@@ -306,7 +307,7 @@ func TestACEOThatEndsThreeTimesInARowIsNotBroughtBackAgain(t *testing.T) {
 	if !isAlive {
 		t.Fatal("this test's own process has no start time")
 	}
-	registerCEO(t, h, os.Getpid(), started)
+	registerCEO(t, h, os.Getpid(), started, thisHostInstance(t))
 	if err := service.bringEndedCEOBack(t.Context(), registered.Add(7*time.Hour)); err != nil {
 		t.Fatalf("bringEndedCEOBack: %v", err)
 	}
@@ -336,7 +337,7 @@ func TestAnEndAfterTheCEOHeldStartsTheCountAgain(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			// Arrange
 			service, h, recorder := ceoBackBoard(t)
-			registerCEO(t, h, 999999, registered)
+			registerCEO(t, h, 999999, registered, "")
 
 			// Act
 			for i, end := range testCase.ends {
@@ -375,7 +376,7 @@ func TestACEOThatDidNotComeBackIsLeftForTheOverlordToReopen(t *testing.T) {
 			service, h, recorder := ceoBackBoard(t)
 			recorder.err = errors.New("claude is not on PATH")
 			started := thisSignIn.Add(time.Hour)
-			registerCEO(t, h, 999999, started)
+			registerCEO(t, h, 999999, started, "")
 			if testCase.isEnded {
 				ceoEnded(t, h, 999999, started, started.Add(time.Hour), 1, false)
 			}
@@ -410,7 +411,7 @@ func TestACEOThatEndsWhileItComesBackIsOneMoreEndInTheRow(t *testing.T) {
 	service, h, recorder := ceoBackBoard(t)
 	recorder.err = errors.New("its native terminal ended during startup")
 	registered := thisSignIn.Add(time.Hour)
-	registerCEO(t, h, 999999, registered)
+	registerCEO(t, h, 999999, registered, "")
 	ceoEnded(t, h, 999999, registered, registered.Add(time.Hour), 1, false)
 	look := registered.Add(time.Hour + ceoBackEvery)
 	pid := 999999

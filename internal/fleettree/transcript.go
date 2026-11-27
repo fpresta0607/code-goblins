@@ -63,16 +63,26 @@ func HeldTranscript(home, harness, dir, session string) string {
 }
 
 // piFolderCharacters are the characters pi 0.85 writes as a hyphen in the
-// folder it keeps a working folder's sessions in, which it wraps in two
-// hyphens: C:\dev\x is --C--dev-x--.
+// folder it keeps a working folder's sessions in (PiSessionFolder).
 var piFolderCharacters = strings.NewReplacer(`\`, "-", "/", "-", ":", "-")
+
+// PiSessionFolder is the folder pi 0.85 keeps the sessions held in dir in,
+// under its sessions folder: dir without one leading separator, with each
+// separator and colon as a hyphen, between two hyphens. C:\dev\x is
+// --C--dev-x-- and /home/x is --home-x--.
+func PiSessionFolder(dir string) string {
+	if strings.HasPrefix(dir, "/") || strings.HasPrefix(dir, `\`) {
+		dir = dir[1:]
+	}
+	return "--" + piFolderCharacters.Replace(dir) + "--"
+}
 
 // PiSessions is every session pi keeps under home for the folder dir.
 func PiSessions(home, dir string) []string {
 	if home == "" || !filepath.IsAbs(dir) {
 		return nil
 	}
-	matches, _ := filepath.Glob(filepath.Join(home, ".pi", "agent", "sessions", "--"+piFolderCharacters.Replace(dir)+"--", "*.jsonl"))
+	matches, _ := filepath.Glob(filepath.Join(home, ".pi", "agent", "sessions", PiSessionFolder(dir), "*.jsonl"))
 	return matches
 }
 

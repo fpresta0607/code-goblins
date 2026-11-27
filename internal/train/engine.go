@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -118,7 +119,14 @@ func (e Engine) Start(ctx context.Context, repo Repository, riders []Car) (Train
 		return running, fmt.Errorf("%w: %s (%s)", ErrRunning, running.ID, running.PR)
 	}
 	now := e.Now().UTC()
+	// A train is named by the second it started, and one started in a second
+	// a recorded train of the repository is named by takes the next free one,
+	// so it never takes that train's record or branch.
 	stamp := now.Format("20060102-150405")
+	for named := now; slices.ContainsFunc(trains, func(other Train) bool { return other.ID == filepath.Base(repo.Slug)+"-"+stamp }); {
+		named = named.Add(time.Second)
+		stamp = named.Format("20060102-150405")
+	}
 	t := Train{
 		ID:             filepath.Base(repo.Slug) + "-" + stamp,
 		Repository:     repo.Slug,

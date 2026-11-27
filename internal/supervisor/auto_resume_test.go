@@ -46,7 +46,7 @@ func TestAllowanceFloorRequestsPauseWithTheResetCondition(t *testing.T) {
 			if err := state.WriteTaskMeta(h.State, meta); err != nil {
 				t.Fatal(err)
 			}
-			data, err := json.Marshal(host.Record{ID: meta.ID, HostPID: os.Getpid(), Started: now.Add(time.Second), Pipe: "fixture", Token: "fixture"})
+			data, err := json.Marshal(host.Record{ID: meta.ID, HostPID: os.Getpid(), HostInstance: thisHostInstance(t), Started: now.Add(time.Second), Pipe: "fixture", Token: "fixture"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -90,7 +90,7 @@ func TestFailedAllowancePauseIsHeldOnlyForItsGenerationAndReset(t *testing.T) {
 			if err := state.WriteTaskMeta(h.State, meta); err != nil {
 				t.Fatal(err)
 			}
-			data, err := json.Marshal(host.Record{ID: meta.ID, HostPID: os.Getpid(), Started: now.Add(time.Second), Pipe: "fixture", Token: "fixture"})
+			data, err := json.Marshal(host.Record{ID: meta.ID, HostPID: os.Getpid(), HostInstance: thisHostInstance(t), Started: now.Add(time.Second), Pipe: "fixture", Token: "fixture"})
 			if err != nil {
 				t.Fatal(err)
 			}

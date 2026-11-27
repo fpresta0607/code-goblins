@@ -3,7 +3,6 @@ package fleettree
 import (
 	"context"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -23,7 +22,7 @@ func TestRunningSessionIsTheConversationTheRunningHarnessRecords(t *testing.T) {
 	day := filepath.Join(home, ".codex", "sessions", "2026", "10", "07")
 	writeLines(t, filepath.Join(day, "rollout-2026-10-07T15-00-00-root.jsonl"), at.Add(-time.Minute), sessionMeta("root", worktree, "", "", "", at.Add(-time.Hour)))
 	writeLines(t, filepath.Join(day, "rollout-2026-10-07T15-10-00-c1.jsonl"), at, sessionMeta("c1", worktree, "root", "/root/review", "Tesla", at.Add(-30*time.Minute)))
-	piSessions := filepath.Join(home, ".pi", "agent", "sessions", "--"+strings.NewReplacer(`\`, "-", "/", "-", ":", "-").Replace(worktree)+"--")
+	piSessions := filepath.Join(home, ".pi", "agent", "sessions", PiSessionFolder(worktree))
 	writeLines(t, filepath.Join(piSessions, "2026-10-07T14-00-00-000Z_01a1-older.jsonl"), at.Add(-time.Hour), object{"type": "session"})
 	writeLines(t, filepath.Join(piSessions, "2026-10-07T15-00-00-000Z_01a1-newest.jsonl"), at, object{"type": "session"})
 	claude := Process{PID: 4242, ParentPID: 1, Exe: "claude.exe", Created: 134357962423340710, Started: filetime(134357962423340710)}
@@ -64,7 +63,7 @@ func TestRunningSessionIsTheConversationTheRunningHarnessRecords(t *testing.T) {
 // and whose last write is not its activity.
 func TestAPiGoblinsConversationIsNeverOneAnEarlierPiWrote(t *testing.T) {
 	home, worktree := t.TempDir(), t.TempDir()
-	newest := filepath.Join(home, ".pi", "agent", "sessions", "--"+strings.NewReplacer(`\`, "-", "/", "-", ":", "-").Replace(worktree)+"--", "2026-10-07T15-00-00-000Z_01a1-newest.jsonl")
+	newest := filepath.Join(home, ".pi", "agent", "sessions", PiSessionFolder(worktree), "2026-10-07T15-00-00-000Z_01a1-newest.jsonl")
 	writeLines(t, newest, at, object{"type": "session"})
 	for name, test := range map[string]struct {
 		started time.Time
