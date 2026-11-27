@@ -244,11 +244,11 @@ func (s *Service) sendHeldNow(id, task string, queued func(Awaiting) []fleettree
 }
 
 // lastingRefusal is a take-back refused for as long as its queue stays as it
-// is: one no key gives back, one that also holds an answer the board typed,
-// and one taller than the editor it would come back into. The board's Up then
-// passes that queue to bring back what he sent before, where it asks again
-// after a refusal that passes, as of a prompt line that holds his draft
-// (#2340).
+// is: one no key gives back, one that also holds an answer the board typed or
+// a line no board message typed (unrecordedLine), and one taller than the
+// editor it would come back into. The board's Up then passes that queue to
+// bring back what he sent before, where it asks again after a refusal that
+// passes, as of a prompt line that holds his draft (#2340).
 type lastingRefusal struct{ error }
 
 // takeBackHeld takes the message withdraw names back out of the queue of the
