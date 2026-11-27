@@ -350,11 +350,23 @@ func commandAhead(id, task string, queued []fleettree.WaitingPrompt) error {
 // into now, as queued reads that queue in its record, where Claude Code's key
 // would run that command alone and leave the message queued: the press names
 // that command, and the message waits on the board as it did (commandAhead,
-// #2341).
+// #2341). The mark an earlier Send now of it left (IsSentNow), where a try put
+// that one off, is taken back then, so the worker's next try types it with no
+// send-now key, its words and reason as they were.
 func (s *Service) sendQueuedNow(id, task string, queued func(Awaiting) []fleettree.WaitingPrompt) error {
 	if session, screens := s.sessionNow(task); screens.SendNowRunsCommand {
 		if err := commandAhead(id, task, queued(session)); err != nil {
-			return err
+			var saveErr error
+			s.Store.mu.Lock()
+			if at := slices.IndexFunc(s.Store.db.Actions, func(a Action) bool {
+				return a.ID == id && a.TaskID == task && a.Kind == "message" && a.Status == "queued" && a.IsSentNow
+			}); at >= 0 {
+				s.Store.db.Actions[at].IsSentNow, s.Store.db.Actions[at].UpdatedAt = false, time.Now().UTC()
+				saveErr = s.Store.save()
+			}
+			s.Store.mu.Unlock()
+			s.notify()
+			return errors.Join(err, saveErr)
 		}
 	}
 	_, err := s.Store.SendQueuedMessageNow(id, task)
