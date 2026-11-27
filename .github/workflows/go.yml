@@ -812,10 +812,13 @@ jobs:
           # clamp (taskpolicy -c utility) and background priority (taskpolicy -b).
           # bash 3.2, as every Mac has.
           set -u
+          set +e
 
           work="${RUNNER_TEMP:-/tmp}/priority-measure"
           rm -rf "$work"
           mkdir -p "$work"
+          trap 'rm -f "$work/running"' EXIT
+          trap 'exit 1' INT TERM
 
           echo "== the runner's cores"
           sw_vers
@@ -826,11 +829,16 @@ jobs:
 
           # seconds runs a command and prints its wall time in seconds, to 0.01.
           seconds() {
-            local start end
+            local start end status
             start=$(perl -MTime::HiRes=time -e 'printf "%.3f", time')
             "$@" >/dev/null 2>&1
+            status=$?
             end=$(perl -MTime::HiRes=time -e 'printf "%.3f", time')
-            perl -e "printf '%.2f', $end - $start"
+            if [ "$status" -ne 0 ]; then
+              printf 'failed(%s)' "$status"
+            else
+              perl -e "printf '%.2f', $end - $start"
+            fi
           }
 
           # A fixed amount of processor work: hashing 1 GiB of zeros.
@@ -881,26 +889,25 @@ jobs:
           echo
           echo "== a foreground hash with no policy, beside one hash per core under each policy (seconds, three runs)"
           cores=$(sysctl -n hw.ncpu)
+          running="$work/running"
           for policy in idle none utility background; do
             runs=""
             for run in 1 2 3; do
               pids=""
               if [ "$policy" != idle ]; then
                 prefix=$(policy_prefix "$policy")
+                touch "$running"
                 i=0
                 while [ "$i" -lt "$cores" ]; do
-                  $prefix bash -c 'while :; do hash_work; done' >/dev/null 2>&1 &
+                  $prefix bash -c 'while [ -e "$1" ]; do hash_work; done' loop "$running" >/dev/null 2>&1 &
                   pids="$pids $!"
                   i=$((i + 1))
                 done
                 sleep 1
               fi
               runs="$runs $(seconds bash -c hash_work)"
-              for pid in $pids; do
-                pkill -P "$pid" 2>/dev/null
-                kill "$pid" 2>/dev/null
-              done
-              wait 2>/dev/null
+              rm -f "$running"
+              wait $pids
             done
             echo "foreground beside $policy:$runs"
           done
