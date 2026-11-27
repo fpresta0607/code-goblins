@@ -9,7 +9,7 @@ export function ConnectorGroup({ title, why = "", rows, now, actions, showsOrigi
   title: string; why?: string; rows: Row[]; now: number; actions: ConnectorActions; showsOrigin?: boolean; goblinName?: string; onOpen?: (place: Place) => void;
 }) {
   return <section className="connector-group" aria-label={title}>
-    <h3>{title}<small>{rows.length}</small></h3>
+    <h4>{title}<small>{rows.length}</small></h4>
     {why && <p className="connector-why">{why}</p>}
     <ul className="connector-rows">
       {rows.map((row) => <ConnectorRow key={row.key} row={row} now={now} showsOrigin={showsOrigin} goblinName={goblinName} actions={actions} onOpen={onOpen} />)}

@@ -15,17 +15,19 @@ async function open(page: Page, supervisor: Supervisor, goblins?: Goblins) {
   await page.clock.install({ time: Date.parse(NOW) });
   await play(page, supervisor);
   await page.goto("/tests/fixtures/connectors-page.html" + (goblins ? "?goblins=" + encodeURIComponent(JSON.stringify(goblins)) : ""));
-  await expect(page.locator(".connector-tile").first()).toBeVisible();
+  await expect(tree(page)).toBeVisible();
 }
 
 const group = (title: string, page: Page) => page.getByRole("region", { name: title, exact: true });
-const tile = (page: Page, level: number) => page.getByRole("button", { name: new RegExp("^Level " + level) });
+const tree = (page: Page) => page.getByRole("navigation", { name: "Where connectors live" });
+const thisPc = (page: Page) => tree(page).getByRole("button", { name: "This PC", exact: true });
+const projects = (page: Page) => tree(page).getByRole("button", { name: /^Projects, / });
 const crumbs = (page: Page) => page.getByRole("navigation", { name: "Where you are" });
 const view = (page: Page, name: string) => page.getByRole("region", { name: name + " view", exact: true });
 
-// Opens a project from the home page.
+// Opens a project from the home page, through the Projects page.
 async function openProject(page: Page, name: string) {
-  await tile(page, 2).click();
+  await projects(page).click();
   await page.getByRole("button", { name, exact: true }).click();
   await expect(crumbs(page).locator(".here")).toHaveText(name);
 }
@@ -49,7 +51,7 @@ test("opening the page reads the saved snapshot once and posts nothing, and sear
   await page.getByRole("searchbox", { name: "Search connectors" }).fill("supabase");
   await expect(page.getByText("5 matches, searched in the saved snapshot", { exact: false })).toBeVisible();
   await page.getByRole("searchbox", { name: "Search connectors" }).fill("");
-  await tile(page, 1).click();
+  await thisPc(page).click();
   await crumbs(page).getByRole("button", { name: "Connectors", exact: true }).click();
   await openGoblin(page, "acme", ZEKE);
   await page.clock.runFor(10 * 60_000);
@@ -65,8 +67,8 @@ test("a refresh posts the level and shows Rechecking until its check ends, then 
   supervisor.view.machine.checked_at = minutesBefore(30);
   for (const each of supervisor.view.machine.items) each.checked_at = minutesBefore(30);
   await open(page, supervisor);
-  await tile(page, 1).click();
-  const cli = group("CLI tools", page);
+  await thisPc(page).click();
+  const cli = group("Command-line tools", page);
   await expect(cli.locator(".connector-state").first().locator("small").last()).toHaveText("checked 30 minutes ago");
 
   // Act
@@ -97,11 +99,11 @@ test("a row refreshes its own project, and a goblin's row has no refresh of its 
   await openProject(page, "globex");
 
   // Act
-  await group("Services", page).getByRole("button", { name: "Refresh Supabase" }).click();
+  await group("Private to this PC", page).getByRole("button", { name: "Refresh Supabase" }).click();
 
   // Assert
   expect(supervisor.posts).toEqual([{ path: "/api/connectors/refresh", token: "connectors-proof", body: { level: "project", scope: "globex" } }]);
-  await expect(group("Services", page).locator(".connector-state b")).toHaveText("Rechecking...");
+  await expect(group("Private to this PC", page).locator(".connector-state b")).toHaveText("Rechecking...");
 
   // Act: a goblin.
   await crumbs(page).getByRole("button", { name: "Projects", exact: true }).click();
@@ -109,7 +111,7 @@ test("a row refreshes its own project, and a goblin's row has no refresh of its 
   await page.getByRole("button", { name: ZEKE, exact: true }).click();
 
   // Assert
-  await expect(group("Failed to load", page)).toBeVisible();
+  await expect(group("Its session", page)).toBeVisible();
   await expect(page.locator(".connector-row .connector-refresh")).toHaveCount(0);
 });
 
@@ -126,63 +128,58 @@ test("a level past its life is marked Stale, and one inside it or never trusted 
 
   // Act
   await open(page, supervisor);
-  await tile(page, 1).click();
+  await thisPc(page).click();
 
-  // Assert: this PC and the account, six hours and a minute old.
-  await expect(page.locator(".connector-row").filter({ has: page.locator(".connector-stale") })).toHaveCount(7);
+  // Assert: this PC and your own Claude, six hours and a minute old.
+  await expect(page.locator(".connector-row").filter({ has: page.locator(".connector-stale") })).toHaveCount(6);
+  await tree(page).getByRole("button", { name: /^Your Claude and Codex/ }).click();
+  await expect(page.locator(".connector-row").filter({ has: page.locator(".connector-stale") })).toHaveCount(1);
 
   // Act
-  await crumbs(page).getByRole("button", { name: "Connectors", exact: true }).click();
-  await tile(page, 2).click();
+  await projects(page).click();
 
   // Assert: a project of 61 minutes is Stale, one of 59 is not.
   await expect(page.locator(".connector-row").filter({ hasText: "globex" }).locator(".connector-stale")).toHaveText("Stale");
   await expect(page.locator(".connector-row").filter({ hasText: "acme" }).locator(".connector-stale")).toHaveCount(0);
 
   // Act
-  await crumbs(page).getByRole("button", { name: "Connectors", exact: true }).click();
-  await tile(page, 3).click();
+  await tree(page).getByRole("button", { name: ZEKE + ", carries 1, needs a look" }).click();
 
   // Assert: a goblin read long ago is never Stale.
-  await expect(page.locator(".connector-row")).toHaveCount(2);
+  await expect(page.locator(".connector-row")).toHaveCount(3);
   await expect(page.locator(".connector-stale")).toHaveCount(0);
 });
 
-test("a goblin whose server failed to load shows it on the home page, in the goblins list and in its own view, and a goblin that records nothing says so", async ({ page }) => {
+test("a goblin whose server failed to load shows it in Needs a look, on the tree and in its own view, and a goblin that records nothing says so", async ({ page }) => {
   // Arrange
   await open(page, fleet());
 
-  // Assert: home.
+  // Assert: Needs a look, and the tree tells the goblin that failed from the one that did not.
   await expect(group("Needs a look", page).getByRole("button", { name: "Acme Docs, " + ZEKE + " in acme", exact: true })).toBeVisible();
+  await expect(tree(page).locator(".connector-tree-goblins .connector-node")).toHaveText(["Goblin" + ZEKE + "carries 1", "Goblin" + IVY + "carries 0"]);
+  await expect(tree(page).locator(".connector-tree-goblins .connector-dot")).toHaveCount(1);
 
   // Act
-  await tile(page, 3).click();
+  await tree(page).getByRole("button", { name: ZEKE + ", carries 1, needs a look" }).click();
 
-  // Assert: the list tells the goblin that failed from the one that did not.
-  const goblins = group("Goblins", page);
-  await expect(goblins.locator(".connector-open")).toHaveText([ZEKE, IVY]);
-  await expect(goblins.locator(".connector-state b")).toHaveText(["1 server failed to load", "As its project"]);
-  await expect(goblins.locator(".connector-state.is-trouble")).toHaveCount(1);
-
-  // Act
-  await goblins.getByRole("button", { name: ZEKE, exact: true }).click();
-
-  // Assert: its own view names the server and the reason, from its record.
-  const failed = group("Failed to load", page);
-  await expect(failed.locator(".connector-name strong")).toHaveText("Acme Docs");
-  await expect(failed.locator(".connector-state")).toContainText("Connection closed");
-  await expect(failed.locator(".connector-sub")).toHaveText("read from its session record");
-  await expect(failed.locator(".connector-state.is-trouble")).toHaveCount(1);
+  // Assert: its own view names the server and the reason, from its record, first in its session.
+  const session = group("Its session", page);
+  await expect(session.locator(".connector-name strong")).toHaveText(["Acme Docs", "Acme Search"]);
+  await expect(session.locator(".connector-state").first()).toContainText("Connection closed");
+  await expect(session.locator(".connector-sub").first()).toHaveText("read from its session record");
+  await expect(session.locator(".connector-state.is-trouble")).toHaveCount(1);
 
   // Act
-  await crumbs(page).getByRole("button", { name: "Projects", exact: true }).click();
-  await page.getByRole("button", { name: "globex", exact: true }).click();
-  await page.getByRole("button", { name: IVY, exact: true }).click();
+  await tree(page).getByRole("button", { name: IVY + ", carries 0" }).click();
 
   // Assert
   await expect(page.getByText("Codex does not record which servers loaded", { exact: false })).toBeVisible();
-  await expect(page.getByText("Nothing differs: it has what its project and this PC give every goblin.")).toBeVisible();
+  await expect(group("Its session", page).getByText("Its session has recorded no servers yet.", { exact: true })).toBeVisible();
+  await expect(group("Granted from globex", page).getByText("It is given none of them.", { exact: true })).toBeVisible();
 });
+
+const granted = (page: Page) => group("Granted from acme", page);
+const unfold = (page: Page, service: string) => granted(page).getByText("1 service of acme it is not given", { exact: true }).click().then(() => granted(page).getByRole("button", { name: "Connect " + service + " to " + ZEKE }));
 
 test("Connect gives a goblin a service and Disconnect takes it back, each posting the grant and then reading the snapshot again", async ({ page }) => {
   // Arrange
@@ -194,21 +191,22 @@ test("Connect gives a goblin a service and Disconnect takes it back, each postin
   const readsBefore = supervisor.reads;
 
   // Act
-  await group("Not given", page).getByRole("button", { name: "Connect Supabase to " + ZEKE }).click();
+  await (await unfold(page, "Supabase")).click();
 
   // Assert: the grant waits on the supervisor, and nothing else can be pressed meanwhile.
-  await expect(group("Carries", page).getByRole("button", { name: "Disconnect GitHub from " + ZEKE })).toBeDisabled();
+  await expect(granted(page).getByRole("button", { name: "Disconnect GitHub from " + ZEKE })).toBeDisabled();
   expect(supervisor.posts).toEqual([{ path: "/api/connections/grant", token: "connectors-proof", body: { task: "cg-touch", generation: "cg-touch-1", connection: "service:supabase", action: "grant" } }]);
   release();
-  await expect(group("Carries", page).getByRole("button", { name: "Disconnect Supabase from " + ZEKE })).toBeEnabled();
-  await expect(group("Not given", page)).toHaveCount(0);
+  await expect(granted(page).getByRole("button", { name: "Disconnect Supabase from " + ZEKE })).toBeEnabled();
+  await expect(granted(page).locator(".connector-chip")).toHaveText("2 of 2");
+  await expect(granted(page).locator("details")).toHaveCount(0);
   expect(supervisor.reads).toBe(readsBefore + 1);
 
   // Act
-  await group("Carries", page).getByRole("button", { name: "Disconnect GitHub from " + ZEKE }).click();
+  await granted(page).getByRole("button", { name: "Disconnect GitHub from " + ZEKE }).click();
 
   // Assert
-  await expect(group("Not given", page).getByRole("button", { name: "Connect GitHub to " + ZEKE })).toBeVisible();
+  await expect(await unfold(page, "GitHub")).toBeVisible();
   expect(supervisor.posts[1]).toEqual({ path: "/api/connections/grant", token: "connectors-proof", body: { task: "cg-touch", generation: "cg-touch-1", connection: "service:github", action: "revoke" } });
 });
 
@@ -218,13 +216,14 @@ test("a Connect the supervisor refuses is said beside the page and leaves the se
   supervisor.refuses = "The goblin restarted.";
   await open(page, supervisor);
   await openGoblin(page, "acme", ZEKE);
+  const connect = await unfold(page, "Supabase");
 
   // Act
-  await group("Not given", page).getByRole("button", { name: "Connect Supabase to " + ZEKE }).click();
+  await connect.click();
 
   // Assert
   await expect(page.locator(".connectors-page > .notice")).toHaveText("The goblin restarted.");
-  await expect(group("Not given", page).getByRole("button", { name: "Connect Supabase to " + ZEKE })).toBeEnabled();
+  await expect(connect).toBeEnabled();
 });
 
 test("a fix posts the project, the connection and the action to the connectors endpoint, shows the repair notice, and reads the snapshot again when its run ends", async ({ page }) => {
@@ -300,7 +299,7 @@ test("a level being checked is read every 2 seconds until it ends, and then the 
   const supervisor = fleet();
   supervisor.view.projects[0].checking = true;
   await open(page, supervisor);
-  await tile(page, 2).click();
+  await projects(page).click();
   await expect(page.locator(".connector-row").filter({ hasText: "acme" }).locator(".connector-state b")).toHaveText("Rechecking...");
 
   // Act: it is read again while it is checked.
@@ -370,16 +369,16 @@ test("when the board's goblins change the snapshot is read again, and a snapshot
 test("rows that open are buttons the keyboard reaches with Tab, and going back puts the focus on the row it came from", async ({ page }) => {
   // Arrange
   await open(page, fleet());
-  await tile(page, 2).focus();
+  await projects(page).focus();
 
-  // Act: Enter on a tile opens its level, and Tab reaches the first row.
+  // Act: Enter on a scope of the tree opens it, and Tab reaches the first row.
   await page.keyboard.press("Enter");
   await expect(view(page, "Projects")).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(page.getByRole("button", { name: "acme", exact: true })).toBeFocused();
   await page.keyboard.press("Enter");
 
-  // Assert: the new view takes the focus, and its first stop is its refresh.
+  // Assert: the new view takes the focus.
   await expect(view(page, "acme")).toBeFocused();
 
   // Act: back up by the breadcrumb with the keyboard.

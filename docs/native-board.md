@@ -1557,10 +1557,20 @@ pi writes a session's file only when its first reply ends and exits on a `--sess
 The panel keeps its live values while the switch runs, then shows the resulting session and any failure reason.
 The CEO receives one digest line in the notify wake queue, never a prompt, for each saved queued or Resume choice, each switch that completed or failed, and each pending choice removed because its session changed or its selection became unavailable.
 Completed outcomes record the last harness, model and effort, while older outcomes without those fields say Engine not recorded.
-Connectors, the header's third view, shows what the fleet can reach on three levels, drilled into from a home page: this PC and its accounts, each project, and each goblin (`frontend/src/connectors-page.tsx`, `internal/connections`, #2902).
-The home page has one tile for each level and Needs a look, which lists every item of any level whose status is a trouble.
+Connectors, the header's third view, shows what the fleet can reach as a tree of where each connector lives, the widest scope first (`frontend/src/connectors-page.tsx`, `frontend/src/connector-tree.tsx`, `internal/connections`, #2902, #3010).
+The tree holds Needs a look, which lists every item of any scope whose status is a trouble, then four scopes, each with one tag colour wherever it shows: on the tree, on a scope's page, on its rows and on Needs a look's cards.
+This PC, tagged Global, is what every goblin on this PC gets with no grant: its command line tools, its harness sign-ins, the credential names of its user environment and what is built in to every goblin.
+Projects, tagged Local, lists each project, one git repository, with what it keeps private and what its repository declares, and the goblins running in it under it, tagged Goblin, each with how many services it carries; a project or goblin with something to look at has an amber dot.
+The tree lists every project with a goblin running, and at least four, those with a goblin first; the rest are one line that opens the Projects page.
+Your Claude and Codex, tagged Yours only, is last: the connectors of the user's Claude account and the servers of his Claude and Codex user config, which the user's own sessions load and goblins start without.
+Where the page is wide the tree stays at its left and the place it opens shows beside it, Needs a look at the home; on a phone the tree is the home and each place opens as its own page with its breadcrumb back.
+A project's page puts the MCP servers its repository declares in `.mcp.json`, shared with everyone who clones it and changed through a pull request, apart from the services Code Goblins keeps private to this PC in its auth manifest, whose values stay in the vault.
+Each part lists what needs a look first, and the private services past the first six that need no look are folded.
+Each service says which of the project's goblins carry it, and a name declared in both parts says so in each.
+One line says what this PC gives every goblin, the same for every project.
+A goblin's page reads from the widest scope down: what this PC gives every goblin, the services of its project it is granted, each with Disconnect, and those it is not, folded, each with Connect, and the servers its own session loaded, failed to load or is still starting, failures first.
 Needs a look shows each item as a card, two to a line where the page is wide and one on a phone, every card with the same parts in the same places whatever its level and kind (`frontend/src/connector-look-card.tsx`, #3002).
-A card holds its logo, its name and where it is from, and its level; its status in a word with the reason; where it is read from and when it was checked; the credential names it declares, when it declares any; and one row of actions at its foot: Sign in or CLI sign-in, Store a key, which opens the list of variables to store from the clipboard, Refresh, and Remove last.
+A card holds its logo, its name and where it is from, and its scope's tag; its status in a word with the reason; where it is read from and when it was checked; the credential names it declares, when it declares any; and one row of actions at its foot: Sign in or CLI sign-in, Store a key, which opens the list of variables to store from the clipboard, Refresh, and Remove last.
 Remove asks first, naming exactly what it will change, and Cancel, the default, changes nothing.
 A removal that lands takes the item out of the list at once; a refusal is said in full in the same question, and nothing changes.
 What Remove does depends on what the item is, and it edits only the one declaration it names:
@@ -1580,11 +1590,11 @@ What Remove does depends on what the item is, and it edits only the one declarat
 - Anything else, which Code Goblins does not declare, such as a command line tool, a harness sign-in, an account connector, a server of the user's own Claude or Codex configuration or the crawler, says where it lives, offers only Close and posts nothing.
 
 Search covers the whole snapshot in the browser, groups its results by level and opens each result at its place; services of different projects that share a name show their project and what each points at.
-Every row says its level, its status in a word and when it was checked, Stale when its check is older than its level's life, and Rechecking while its level is being checked again.
+Every row says its scope, its status in a word and when it was checked, Stale when its check is older than its level's life, and Rechecking while its level is being checked again.
 Only Verified is green; Missing, Unauthorized, Expired, Wrong target, Unreachable, Failed and Everywhere are amber; every other status is quiet.
 
-The three levels read different facts, each from where it is true.
-This PC and its accounts is checked once for the machine, however many projects and goblins there are.
+The supervisor checks three levels, each reading different facts from where they are true.
+The machine, which holds This PC and Your Claude and Codex, is checked once, however many projects and goblins there are.
 It holds the command line tools the projects' auth manifests name, the harnesses, the connectors the user's own accounts hold, the MCP servers of the user's own Claude and Codex configuration, the credential-like names in the user environment, and the connectors every goblin carries, such as the [crawler](crawler.md).
 A tool with a sign-in status command (`gh auth status`, `vercel whoami`, `flyctl auth whoami`, `railway whoami`, `claude auth status`, `codex login status`) is Verified or Unauthorized by that command's exit code alone, with 20 seconds to answer; what the command prints is never read.
 A tool without one is Set when it is installed and Missing when it is not, and no process starts to say so.
@@ -1608,7 +1618,6 @@ The latest line's failed and pending lists replace the earlier ones, and a failu
 The record is read from the byte offset the last read ended at, whole lines only, with the servers already read carried forward, so a long session costs only what it appended.
 A record shorter than the offset was replaced, and is read again from the start.
 A goblin whose session has not recorded its servers yet, or whose harness does not record them, says so in its note instead of listing servers.
-It shows only what differs from its project and this PC.
 
 The snapshots are kept in memory and in files under `state/connectors`: `machine.json`, `projects/<name>.json` and `goblins/<task>.json`, each written whole in one step and holding names, states and times and never a value.
 A restart reads them back, shows them at once and rechecks only what is old or changed.

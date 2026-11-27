@@ -2,13 +2,14 @@ import { ConnectorLogo } from "./connector-logo";
 import { toolWords } from "./connector-names";
 import { placeKey, type Place } from "./connector-place";
 import type { ConnectorRow as Row } from "./connector-rows";
-import { checkedWords, isStale, LEVEL_WORDS, repairLabel, repairWords } from "./connector-status";
+import { checkedWords, isStale, repairLabel, repairWords, SCOPE_WORDS } from "./connector-status";
+import { ConnectorTag } from "./connector-tag";
 import { Disclosure } from "./Disclosure";
 import { Icon } from "./Icon";
 import type { ConnectorActions } from "./use-connectors";
 
 // One row of the Connectors page, laid out the same whichever level it comes
-// from: its logo and name, the level it is of, its status in a word with the
+// from: its logo and name, the scope it lives in, its status in a word with the
 // reason and when it was checked, and what he can do to it. Only verified is
 // green and only trouble is amber. A row that opens a place is a button on its
 // name, which the whole row answers to, so the keyboard reaches it with Tab.
@@ -32,7 +33,7 @@ export function ConnectorRow({ row, now, showsOrigin = false, goblinName = "", a
         {sub && <span className="connector-sub">{sub}</span>}
       </div>
     </div>
-    <span className={"connector-level is-" + row.level}>{LEVEL_WORDS[row.level]}</span>
+    <ConnectorTag tone={row.scope} text={SCOPE_WORDS[row.scope]} />
     <div className={"connector-state is-" + tone}>
       <b>{tone === "verified" && <Icon name="check" />}{row.isChecking ? "Rechecking..." : row.word}</b>
       {!row.isChecking && row.detail && <small>{row.detail}</small>}

@@ -154,14 +154,14 @@ See the [handoff command reference](docs/commands/handoff.md).
 
 ### Connectors
 
-**Connectors** in the header shows what the fleet can reach, on three levels: this PC and its accounts, each project, and each goblin's session.
-**Needs a look** gathers only what failed or is out of place, from every level, with the action that fixes it where there is one.
-Search looks through every level, and the page shows names and states, never a secret's value.
+**Connectors** in the header shows what the fleet can reach as a tree of where each connector lives, the widest scope first: this PC, which every goblin gets, each project, one git repository, with the goblins running in it under it, and your own Claude and Codex, which goblins start without.
+**Needs a look** gathers only what failed or is out of place, from every scope, with the action that fixes it where there is one.
+Search looks through every scope, and the page shows names and states, never a secret's value.
 
 <p align="center">
-  <img src="docs/images/connectors.webp" alt="Example Connectors page with its three levels and two cards under Needs a look, a missing project key and an unreachable MCP server, each with its actions and Remove at its foot" width="1000" />
+  <img src="docs/images/connectors.webp" alt="Example Connectors page with its tree of scopes, this PC, the projects with their goblins and your own Claude and Codex, beside the cards of Needs a look" width="1000" />
   <br />
-  <sub>Example workspace: check what each level can reach before a goblin needs it.</sub>
+  <sub>Example workspace: see where each connector lives and who gets it before a goblin needs it.</sub>
 </p>
 
 ### Review and annotate

@@ -16,6 +16,23 @@ export function statusTone(status: string): ConnectorTone {
 
 export const LEVEL_WORDS: Record<ConnectorLevel, string> = { pc: "This PC", account: "Account", project: "Project", goblin: "Goblin" };
 
+// Where a connector lives, which says who gets it (#3010): Global, on this PC,
+// every goblin gets with no grant, the harness sign-ins included; Local, a
+// project's, its goblins get when granted; Goblin, what one goblin's session
+// holds; and Yours only, the connectors and servers of the Overlord's own
+// Claude and Codex sessions, which goblins start without.
+export type ConnectorScope = "global" | "local" | "goblin" | "yours";
+
+export const SCOPE_WORDS: Record<ConnectorScope, string> = { global: "Global", local: "Local", goblin: "Goblin", yours: "Yours only" };
+
+const YOURS_GROUPS = new Set(["account_connector", "user_config"]);
+
+export function scopeOf(item: { level: ConnectorLevel; group: string }): ConnectorScope {
+  if (item.level === "project") return "local";
+  if (item.level === "goblin") return "goblin";
+  return YOURS_GROUPS.has(item.group) ? "yours" : "global";
+}
+
 // How long a level's check is trusted before the supervisor rechecks it and
 // the page marks it Stale. A goblin is read from its record, so it never is.
 const HOUR_MS = 60 * 60_000;

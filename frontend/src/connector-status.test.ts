@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { crumbsTo } from "./connector-place.ts";
-import { checkedWords, hasChecked, isStale, repairLabel, repairWords, statusTone, statusWord } from "./connector-status.ts";
+import { checkedWords, hasChecked, isStale, repairLabel, repairWords, scopeOf, statusTone, statusWord } from "./connector-status.ts";
 
 const NOW = Date.parse("2026-11-25T12:00:00Z");
 const minutesAgo = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
@@ -91,5 +91,16 @@ test("a goblin sits under its project, which sits under Projects, in the breadcr
   assert.deepEqual(goblinCrumbs, ["Connectors", "Projects", "acme", "Zeke - Touch Wrangler"]);
   assert.deepEqual(projectCrumbs, ["Connectors", "Projects", "acme"]);
   assert.deepEqual(homeCrumbs, ["Connectors"]);
-  assert.deepEqual(crumbsTo({ kind: "pc" }, goblin).map((crumb) => crumb.label), ["Connectors", "This PC and its accounts"]);
+  for (const [kind, label] of [["look", "Needs a look"], ["pc", "This PC"], ["yours", "Your Claude and Codex"], ["projects", "Projects"]] as const) {
+    assert.deepEqual(crumbsTo({ kind }, goblin).map((crumb) => crumb.label), ["Connectors", label]);
+  }
 });
+
+for (const [level, group, scope] of [
+  ["pc", "cli", "global"], ["pc", "environment", "global"], ["pc", "built_in", "global"], ["account", "harness", "global"],
+  ["account", "account_connector", "yours"], ["account", "user_config", "yours"], ["project", "service", "local"], ["project", "mcp", "local"], ["goblin", "carried", "goblin"],
+] as const) {
+  test(`an item of the ${level} level in ${group} lives in the ${scope} scope`, () => {
+    assert.equal(scopeOf({ level, group }), scope);
+  });
+}
