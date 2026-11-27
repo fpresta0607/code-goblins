@@ -7,6 +7,10 @@ import (
 	"testing"
 )
 
+// testUserHomeVariable is the variable this system keeps the user's home in,
+// named apart from the product's userHomeVariable.
+const testUserHomeVariable = "USERPROFILE"
+
 // putScriptShim puts a script named name in dir that does nothing, as the
 // .cmd shims npm installs on Windows are found on PATH.
 func putScriptShim(t *testing.T, dir, name string) {

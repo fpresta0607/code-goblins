@@ -326,8 +326,9 @@ func environmentValue(env []string, name string) string {
 // as the CEO, as a native goblin's is: the program this process's PATH finds,
 // started by its path (spawn.NativeProgram), with codex and pi, which install
 // as npm script shims, run through cmd /c on Windows. There Claude Code must
-// be its native build, claude.exe; elsewhere the system runs a script as
-// itself, so any claude PATH finds starts.
+// be its native build, claude.exe. On Linux the system runs a script by its
+// #! line, so any claude PATH finds starts by its path; other systems refuse a
+// script in spawn.NativeProgram.
 func nativeCEOProgram(harness string, args ...string) ([]string, error) {
 	if harness == "claude" && runtime.GOOS == "windows" {
 		path, err := exec.LookPath(harness)

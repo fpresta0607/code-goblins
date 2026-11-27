@@ -411,7 +411,7 @@ func TestAgentDetectorAsksInTheEnvironmentItIsGiven(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange
-			env := []string{userHomeVariable() + "=" + userHome, "GOBLINS_HOME=" + filepath.Join(userHome, "CodeGoblins")}
+			env := []string{testUserHomeVariable + "=" + userHome, "GOBLINS_HOME=" + filepath.Join(userHome, "CodeGoblins")}
 			if c.piDirectory != "" {
 				env = append(env, "PI_CODING_AGENT_DIR="+c.piDirectory)
 			}
