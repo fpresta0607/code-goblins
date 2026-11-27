@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -107,9 +108,13 @@ func TestATaskDiffBaseCutOffByItsDeadlineSaysSo(t *testing.T) {
 			t.Fatal(err)
 		}
 		bin := t.TempDir()
-		copyExecutable(t, program, filepath.Join(bin, "git.exe"))
+		standIn := filepath.Join(bin, "git")
+		if runtime.GOOS == "windows" {
+			standIn += ".exe"
+		}
+		copyExecutable(t, program, standIn)
 		t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-		if found, err := exec.LookPath("git"); err != nil || !strings.EqualFold(found, filepath.Join(bin, "git.exe")) {
+		if found, err := exec.LookPath("git"); err != nil || !strings.EqualFold(found, standIn) {
 			t.Fatalf("git resolves to %q, %v; want the stand-in", found, err)
 		}
 		during, cancel := context.WithTimeout(context.Background(), time.Second) // stall-accepted: the test means this context to run out while the stand-in git never answers.
@@ -154,9 +159,13 @@ func TestARetainedBaseCutOffByItsDeadlineSaysSo(t *testing.T) {
 			t.Fatal(err)
 		}
 		bin := t.TempDir()
-		copyExecutable(t, program, filepath.Join(bin, "git.exe"))
+		standIn := filepath.Join(bin, "git")
+		if runtime.GOOS == "windows" {
+			standIn += ".exe"
+		}
+		copyExecutable(t, program, standIn)
 		t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-		if found, err := exec.LookPath("git"); err != nil || !strings.EqualFold(found, filepath.Join(bin, "git.exe")) {
+		if found, err := exec.LookPath("git"); err != nil || !strings.EqualFold(found, standIn) {
 			t.Fatalf("git resolves to %q, %v; want the stand-in", found, err)
 		}
 		during, cancel := context.WithTimeout(context.Background(), time.Second) // stall-accepted: the test means this context to run out while the stand-in git never answers.

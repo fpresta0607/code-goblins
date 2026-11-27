@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -45,7 +46,7 @@ func runningCEOHarness(t *testing.T, stateDir, userHome, fleetHome string) strin
 			self = process
 		}
 	}
-	record, err := json.Marshal(host.Record{ID: "ceo", Pipe: `\\.\pipe\code-goblins-host-ceo`, Token: "token", Version: host.Version, HostPID: os.Getpid(), ChildPID: os.Getpid(), ChildStart: self.Started, Started: self.Started})
+	record, err := json.Marshal(host.Record{ID: "ceo", Pipe: `\\.\pipe\code-goblins-host-ceo`, Token: "token", Version: host.Version, HostPID: os.Getpid(), HostInstance: thisHostInstance(t), ChildPID: os.Getpid(), ChildStart: self.Started, Started: self.Started})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -303,23 +304,29 @@ func TestARecoveryCycleKeepsTheCEOOnTheLiveConversation(t *testing.T) {
 // following another session of the same harness, as one process stands for
 // several on a machine where a test's goblin shares the CEO's process.
 func TestAConnectedSessionsConversationIsItsOwnFolder(t *testing.T) {
+	// The folder each harness keeps the conversations held in dir in, as
+	// Claude Code and pi name it on this system.
+	dir, claudeFolder, piFolder := `C:\work`, "C--work", "--C--work--"
+	if runtime.GOOS != "windows" {
+		dir, claudeFolder, piFolder = "/work", "-work", "--work--"
+	}
 	for name, tc := range map[string]struct {
 		harness string
 		dir     string
 		session string
 		want    bool
 	}{
-		"claude in its own folder":       {"claude", `C:\work`, "session-1", true},
-		"claude in another folder":       {"claude", `C:\work`, "session-2", false},
-		"pi in its own folder":           {"pi", `C:\work`, "pi-1", true},
-		"pi in another folder":           {"pi", `C:\work`, "pi-2", false},
-		"codex names its own folder":     {"codex", `C:\work`, "rollout-1", true},
-		"a harness that keeps no record": {"grok", `C:\work`, "session-1", false},
+		"claude in its own folder":       {"claude", dir, "session-1", true},
+		"claude in another folder":       {"claude", dir, "session-2", false},
+		"pi in its own folder":           {"pi", dir, "pi-1", true},
+		"pi in another folder":           {"pi", dir, "pi-2", false},
+		"codex names its own folder":     {"codex", dir, "rollout-1", true},
+		"a harness that keeps no record": {"grok", dir, "session-1", false},
 	} {
 		// Arrange
 		home := t.TempDir()
-		writeFile(t, filepath.Join(home, ".claude", "projects", "C--work", "session-1.jsonl"), "{}\n")
-		writeFile(t, filepath.Join(home, ".pi", "agent", "sessions", "--C--work--", "2026-10-06T21-30-00-000Z_pi-1.jsonl"), "{}\n")
+		writeFile(t, filepath.Join(home, ".claude", "projects", claudeFolder, "session-1.jsonl"), "{}\n")
+		writeFile(t, filepath.Join(home, ".pi", "agent", "sessions", piFolder, "2026-10-06T21-30-00-000Z_pi-1.jsonl"), "{}\n")
 		// Act
 		got := fleettree.HoldsTranscript(home, tc.harness, tc.dir, tc.session)
 

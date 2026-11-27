@@ -69,7 +69,7 @@ func TestOrderQueuedSavesTheBacklogOrderTheCEODispatchesIn(t *testing.T) {
 	// Arrange
 	handler, h := orderBoard(t)
 	writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n- **first** - First (repo: code-goblins)\n  detail: kept with its row\n- **second** - Second (repo: code-goblins)\n")
-	writeFile(t, filepath.Join(h.Data, "briefed", "brief.md"), "# Brief briefed\n\n## Project\n\nC:\\dev\\PrecisionDocs-AI\n\n## Task\n\nDo it.\n")
+	writeFile(t, filepath.Join(h.Data, "briefed", "brief.md"), "# Brief briefed\n\n## Project\n\n"+filepath.Join(t.TempDir(), "harbor")+"\n\n## Task\n\nDo it.\n")
 
 	// Act
 	response := postOrder(handler, `{"list":"queued","order":["briefed","second","first"]}`, "http://board.local", orderToken)
@@ -82,7 +82,7 @@ func TestOrderQueuedSavesTheBacklogOrderTheCEODispatchesIn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := string(data), "## Queued\n- [ ] briefed - briefed (repo: PrecisionDocs-AI)\n- **second** - Second (repo: code-goblins)\n- **first** - First (repo: code-goblins)\n  detail: kept with its row\n"; got != want {
+	if got, want := string(data), "## Queued\n- [ ] briefed - briefed (repo: harbor)\n- **second** - Second (repo: code-goblins)\n- **first** - First (repo: code-goblins)\n  detail: kept with its row\n"; got != want {
 		t.Fatalf("backlog.md = %q, want %q", got, want)
 	}
 	if got := snapshotIDs(t, handler, queued); !reflect.DeepEqual(got, []string{"briefed", "second", "first"}) {
@@ -237,14 +237,15 @@ func TestOrderRefusesBadRequests(t *testing.T) {
 }
 
 func TestQueuedBriefNamesItsProject(t *testing.T) {
+	projects := t.TempDir()
 	cases := []struct {
 		name    string
 		project string
 		want    string
 	}{
-		{"windows path", `C:\dev\code-goblins`, "code-goblins"},
-		{"path with a space", `C:\dev\Bob Upwork`, "Bob Upwork"},
-		{"path with a note", `C:\dev\code-goblins (the ceo fleet orchestrator, Go)`, "code-goblins"},
+		{"absolute path", filepath.Join(projects, "code-goblins"), "code-goblins"},
+		{"path with a space", filepath.Join(projects, "Bob Upwork"), "Bob Upwork"},
+		{"path with a note", filepath.Join(projects, "code-goblins") + " (the ceo fleet orchestrator, Go)", "code-goblins"},
 		{"relative path with a note", "projects/clock-in (Clock-In: pnpm monorepo - apps/desktop (Tauri/Rust), packages/{shared,database})", "clock-in"},
 	}
 	for _, tc := range cases {
