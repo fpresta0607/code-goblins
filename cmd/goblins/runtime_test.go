@@ -15,15 +15,19 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/runtime"
 )
 
-func runtimeInventory() runtime.Inventory {
+// runtimeInventory is a machine whose project is in projects, where task
+// live runs a container and a server task dead left still listens.
+func runtimeInventory(projects string) runtime.Inventory {
+	project := filepath.Join(projects, "proj")
+	live := filepath.Join(project, ".worktrees", "gb-live")
 	return runtime.Inventory{
-		Tasks:   []runtime.Task{{ID: "live", Project: `C:\dev\proj`, Worktree: `C:\dev\proj\.worktrees\gb-live`}},
+		Tasks:   []runtime.Task{{ID: "live", Project: project, Worktree: live}},
 		Retired: map[string]bool{"dead": true},
 		Containers: []runtime.Container{
-			{Name: "bench-db", State: "running", Stack: "gb-live", WorkDir: `C:\dev\proj\.worktrees\gb-live`},
+			{Name: "bench-db", State: "running", Stack: "gb-live", WorkDir: live},
 		},
 		Listeners: []runtime.Listener{
-			{Port: 3000, PID: 42, Process: "node.exe", WorkDir: `C:\dev\proj\.worktrees\gb-dead`},
+			{Port: 3000, PID: 42, Process: "node.exe", WorkDir: filepath.Join(project, ".worktrees", "gb-dead")},
 		},
 		Present: map[string]bool{},
 	}
@@ -32,6 +36,7 @@ func runtimeInventory() runtime.Inventory {
 func TestRunRuntimeRendersJSONAndMarkdownFromOneInventory(t *testing.T) {
 	homeRoot := t.TempDir()
 	t.Setenv("GOBLINS_HOME", homeRoot)
+	projects := t.TempDir()
 	deps := defaultCommandRuntime()
 	calls := 0
 	deps.localRuntime = func(_ context.Context, h home.Home) (runtime.Inventory, error) {
@@ -39,7 +44,7 @@ func TestRunRuntimeRendersJSONAndMarkdownFromOneInventory(t *testing.T) {
 		if h.Root != homeRoot {
 			t.Errorf("home = %+v, want GOBLINS_HOME %q", h, homeRoot)
 		}
-		return runtimeInventory(), nil
+		return runtimeInventory(projects), nil
 	}
 
 	var jsonOut, jsonErr bytes.Buffer

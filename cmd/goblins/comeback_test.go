@@ -112,6 +112,7 @@ func TestTheComebackResumesAPiCEOOnItsOwnSession(t *testing.T) {
 			f := newSessionFixture(t)
 			userHome := t.TempDir()
 			t.Setenv("USERPROFILE", userHome)
+			t.Setenv("HOME", userHome)
 			if tc.isSessionWritten {
 				writePiSession(t, userHome, "a1b2c3d4-session")
 			}

@@ -182,8 +182,11 @@ func TestANativeCEOLeavesUnsetWhatTheSupervisorDoesNotSet(t *testing.T) {
 // while Codex would bill credits, as the rig's own codex does.
 func TestANativeCEOKeepsTheCodexGuardItsLauncherRunsUnder(t *testing.T) {
 	// Arrange
-	userEnv := []string{`Path=C:\bin`, "USERS_OWN_SETTING=kept"}
-	launcherEnv := []string{`Path=C:\launcher`, `goblins_codex_guard=C:\fleet\state\codex-guard\g1;C:\fleet\state\codex-guard\g1`}
+	guard := filepath.FromSlash("/fleet/state/codex-guard/g1")
+	bin := filepath.FromSlash("/bin")
+	separator := string(os.PathListSeparator)
+	userEnv := []string{"Path=" + bin, "USERS_OWN_SETTING=kept"}
+	launcherEnv := []string{"Path=" + filepath.FromSlash("/launcher"), "goblins_codex_guard=" + guard + separator + guard}
 
 	// Act
 	got := nativeCEOEnvironment(userEnv, launcherEnv, home.Home{Root: `C:\scratch`, State: `C:\scratch\state`}, "")
@@ -191,7 +194,7 @@ func TestANativeCEOKeepsTheCodexGuardItsLauncherRunsUnder(t *testing.T) {
 	// Assert
 	want := []string{
 		"USERS_OWN_SETTING=kept", `GOBLINS_HOME=C:\scratch`, `GOBLINS_STATE_OVERRIDE=C:\scratch\state`,
-		`GOBLINS_CODEX_GUARD=C:\fleet\state\codex-guard\g1`, `PATH=C:\fleet\state\codex-guard\g1;C:\bin`, "CHROME_DEVTOOLS_AXI_SESSION=ceo", "LAVISH_AXI_HOST=127.0.0.1",
+		"GOBLINS_CODEX_GUARD=" + guard, "PATH=" + guard + separator + bin, "CHROME_DEVTOOLS_AXI_SESSION=ceo", "LAVISH_AXI_HOST=127.0.0.1",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("nativeCEOEnvironment =\n%q\nwant\n%q", got, want)
@@ -202,23 +205,3 @@ func TestANativeCEOKeepsTheCodexGuardItsLauncherRunsUnder(t *testing.T) {
 // native terminal, writes its arguments to, one a line, in its working
 // directory.
 const fakeClaudeArguments = "claude-arguments.txt"
-
-// A native terminal starts its program itself, with no shell to run a script
-// shim, so a claude found only as a script is refused before any host starts.
-func TestANativeCEOIsNotStartedFromAScriptShim(t *testing.T) {
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "claude.cmd"), []byte("@echo off\r\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin)
-	stateDir := t.TempDir()
-
-	err := startNativeCEO(home.Home{Root: filepath.Dir(stateDir), State: stateDir}, t.TempDir(), "claude", nil, "")
-
-	if err == nil || !strings.Contains(err.Error(), "not a program a native terminal can start") {
-		t.Fatalf("startNativeCEO error = %v, want the script shim refused", err)
-	}
-	if _, err := os.Stat(filepath.Join(stateDir, "hosts")); !os.IsNotExist(err) {
-		t.Errorf("hosts directory stat = %v, want no host started", err)
-	}
-}

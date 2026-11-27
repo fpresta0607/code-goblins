@@ -969,15 +969,19 @@ func TestFleetIsolationGuardRejectsTheInheritedFleet(t *testing.T) {
 	}
 
 	for _, c := range []struct {
-		name string
-		env  []string
+		name           string
+		env            []string
+		isCaseSpelling bool
 	}{
-		{"no fleet variables at all", []string{"PATH=x"}},
-		{"GOBLINS_HOME inherited from the pane", []string{"GOBLINS_HOME=" + fleet}},
-		{"GOBLINS_STATE_OVERRIDE inherited from the pane", []string{"GOBLINS_HOME=" + t.TempDir(), "GOBLINS_STATE_OVERRIDE=" + fleetState}},
-		{"the same path in a different spelling", []string{"GOBLINS_HOME=" + strings.ToLower(fleet)}},
+		{"no fleet variables at all", []string{"PATH=x"}, false},
+		{"GOBLINS_HOME inherited from the pane", []string{"GOBLINS_HOME=" + fleet}, false},
+		{"GOBLINS_STATE_OVERRIDE inherited from the pane", []string{"GOBLINS_HOME=" + t.TempDir(), "GOBLINS_STATE_OVERRIDE=" + fleetState}, false},
+		{"the same path in a different spelling", []string{"GOBLINS_HOME=" + strings.ToLower(fleet)}, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			if c.isCaseSpelling && !fsx.FoldsCase(fleet) {
+				t.Skip("this file system tells paths that differ only in case apart")
+			}
 			if err := fleetIsolationError(c.env, fleet, fleetState); err == nil {
 				t.Fatalf("env %v accepted; want a refusal so the child cannot reach the running fleet", c.env)
 			}

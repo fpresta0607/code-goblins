@@ -678,3 +678,23 @@ func TestAttachRefusesAStreamSessionAndNamesTakeOverAndPeek(t *testing.T) {
 		t.Errorf("the stream session after the refusal: %v; want it still running", err)
 	}
 }
+
+// A native terminal starts its program itself, with no shell to run a script
+// shim, so a claude found only as a script is refused before any host starts.
+func TestANativeCEOIsNotStartedFromAScriptShim(t *testing.T) {
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "claude.cmd"), []byte("@echo off\r\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	stateDir := t.TempDir()
+
+	err := startNativeCEO(home.Home{Root: filepath.Dir(stateDir), State: stateDir}, t.TempDir(), "claude", nil, "")
+
+	if err == nil || !strings.Contains(err.Error(), "not a program a native terminal can start") {
+		t.Fatalf("startNativeCEO error = %v, want the script shim refused", err)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "hosts")); !os.IsNotExist(err) {
+		t.Errorf("hosts directory stat = %v, want no host started", err)
+	}
+}

@@ -82,7 +82,7 @@ func TestEverySealHoldsASandboxTasksShellToItsHostRule(t *testing.T) {
 			return filepath.ToSlash(filepath.Join(meta.Scratch, "goblins.exe")) + " notify x --working y"
 		}, refusal: "the container can write it"},
 		{name: "git by a path with backslashes, which Bash takes off", commandOf: func(meta state.TaskMeta) string {
-			return filepath.Join(meta.Scratch, "git.exe") + " status"
+			return strings.ReplaceAll(filepath.ToSlash(filepath.Join(meta.Scratch, "git.exe")), "/", `\`) + " status"
 		}, refusal: "a backslash outside quotes"},
 		{
 			name: "host git while the container made a repository deep in the worktree", command: "git status",
@@ -262,7 +262,8 @@ func holdSandboxRun(t *testing.T, meta state.TaskMeta, name string, isRunning bo
 		t.Cleanup(func() { _ = lock.ReleaseExclusiveNamed(runs, name) })
 		return
 	}
-	ended := exec.Command("cmd.exe", "/c", "exit 0")
+	shell := shellCommand("exit 0", "exit 0")
+	ended := exec.Command(shell[0], shell[1:]...)
 	if err := ended.Run(); err != nil {
 		t.Fatal(err)
 	}

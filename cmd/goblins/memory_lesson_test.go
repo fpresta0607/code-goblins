@@ -20,7 +20,7 @@ func lessonHome(t *testing.T) (home.Home, commandRuntime) {
 	t.Helper()
 	h := testHome(t)
 	for name, content := range map[string]string{
-		"harbor-saves.meta":   "project=C:\\dev\\harbor\ntitle=Harbor saves\ngoblin_name=Ivy\n",
+		"harbor-saves.meta":   "project=" + filepath.Join(t.TempDir(), "harbor") + "\ntitle=Harbor saves\ngoblin_name=Ivy\n",
 		"harbor-saves.status": "2026-11-09T09:00:00Z working: gate run 01ABC failed on the cache test\n2026-11-09T10:00:00Z working: the cache test needs the port free; fixed\n2026-11-09T11:00:00Z working: gate run 01ABD passed\n",
 	} {
 		if err := os.MkdirAll(h.State, 0o755); err != nil {

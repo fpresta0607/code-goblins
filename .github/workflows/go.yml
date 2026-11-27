@@ -633,7 +633,6 @@ jobs:
           # hooks without PowerShell and the gate's shell, 8 the installer
           # and the updater, and 9 dictation.
           EXCEPT: >-
-            ./cmd/goblins
             ./internal/cleanup
             ./internal/connections
             ./internal/digest
@@ -657,7 +656,8 @@ jobs:
           # deletes its group as it lands.
           SKIP: |
             # Layer 6, watching and readings: the browser sign-in, the memory
-            # readings and the process listing.
+            # readings, the process listing and what it reads of a process, and
+            # when a folder was made.
             TestABoardHearsACEORecordGoStaleWhileItsSessionStands
             TestABrowserIsLentOnTheProjectsOwnLoginHeadlessAndReachingOnlyItsProvidersHosts
             TestACEOsRecordThatNamesAConversationItNeverWroteIsReported
@@ -675,6 +675,7 @@ jobs:
             TestAFetchRefusesWhatItMustNotReadAndStoresNothing
             TestAFetchStoresTheRequestsKeysInTheVaultAndAnswersOnlyTheirNames
             TestAFetchThatStoppedAfterHisSignInSaysWhyOnTheCard
+            TestAGateRunNamesItsOwnerDespiteTheInheritedTask
             TestAGoblinWithNoBrowserSealCanStillFetch
             TestAGoblinsConnectionsListTheLoginsItsProjectMayUse
             TestALoginCannotBeLentAgainWhenItsBrowserDidNotClose
@@ -712,7 +713,9 @@ jobs:
             TestGivingABrowserBackClosesItAndRecordsTheLoginUsed
             TestNamingAnotherProjectsAccountReachesItsLoginOnlyOnceThatProjectNamesIt
             TestNoTaskBorrowsALoginWhileAFetchDrivesIt
+            TestNotifyDoneNamesWhatTheGoblinLeftRunning
             TestProjectsNamingOneAccountShareItsLoginAndOthersKeepTheirOwn
+            TestServeDispatchReadsWhichGoblinsHoldATurn
             TestSignOutAndForgetAreRefusedWhereTheyMustNotAct
             TestSignOutEndsTheSessionAndKeepsTheLoginWhileForgetDropsIt
             TestTheBoardsDevToolsRouteAnswersOnlyTheOwnersProcesses
@@ -724,12 +727,47 @@ jobs:
             TestTheSameTaskAskingAgainKeepsItsBrowserAndRenewsItsLease
             TestTheSweepClosesABrowserPastItsLeaseOrWhoseTaskLeft
             TestTheSweepKeepsABrowserInUseAndForgetsOneAStoppedSupervisorLeft
-            # Layer 7, end to end: folders opened with xdg-open, and the shell
-            # without Windows PowerShell.
+            TestVerifyNamesWhatACommandLeftRunning
+            TestVerifyRecordsEachCommandAsAMeasuredExecution
+            # Layer 7, end to end: folders opened with xdg-open, the shell without
+            # Windows PowerShell, and a goblin's gate runs, sandbox and cleanup.
+            TestACleanupOfAPausedGoblinHandsItsKeptMessagesToTheCEO
+            TestAKillOfAPausedGoblinHandsItsKeptMessagesToTheCEOOnce
+            TestASandboxRunThatLeftItsContainerLeavesNoEarlierWalkTrusted
+            TestCleanupChecksTheIssuesItsTaskNamesAndKillDoesNot
+            TestCleanupReadsTheTaskBranchsGateRunBeforeRetiringIt
+            TestGateTestStepOfASandboxTaskRunsInItsContainer
+            TestGateTurnDetachKeepsItsLowPriority
+            TestGateTurnDetachKeepsItsWait
+            TestGateTurnDetachStartsTheRunHiddenWithItsPidAndLog
+            TestGateTurnExecutionLimitEndsAStalledCommand
+            TestGateTurnRunsASandboxTasksTestStepInItsContainer
+            TestHostCommandsTrustTheWalkASandboxRunEndedWith
+            TestKillStillArchivesThroughItsOwnCleanup
+            TestNotifyCarriesACommandForTheOverlordToRun
             TestOpenCardPathOpensAPathNamedInAnotherCase
             TestOpenCardPathOpensFileExplorerAtAPathTheCardNames
             TestOpenCardPathRefusesANamedPathThatCannotOpen
+            TestRunRequestCommandRefusesBeforeRecordingAnything
             TestRunShellPathFindsExactlyTheNamedShell
+            TestSandboxRunRunsTheCommandInItsContainerAndRemovesIt
+            # Layer 8, the installer and the updater: install, uninstall, the
+            # home's move and doctor's checks of what install puts in place.
+            TestHomeMoveDryRunChangesNothingAndApplyMakesItsPlan
+            TestInstallFromACheckoutAndFromTheDesktopInstallerMakeTheSameHome
+            TestInstallKeepsTheAnswerToTheDevDriveOffer
+            TestInstallSetsUpTheCrawlerAndGoesOnWithoutIt
+            TestInstallStopsACrawlerSetupThatStallsAndGoesOnWithoutIt
+            TestRunDoctorFixSaysWhenNoHarnessIsBehind
+            TestRunDoctorIsHealthyWithoutHerdrOrKimi
+            TestRunDoctorNamesAChromeDevtoolsAxiThatIsNotTheForkRelease
+            TestRunDoctorNamesEachHarnessVersionBesideTheNewest
+            TestRunDoctorNamesMissingCommandCenterRulesAndStaysHealthy
+            TestRunDoctorReportsAMissingWingetAndStaysHealthy
+            TestRunDoctorReportsPresentationUnavailableAndStaysHealthy
+            TestUninstallChangesNothingUnlessThePersonSaysYes
+            TestUninstallRefusesToRunInACodeGoblinsTerminal
+            TestUninstallRemovesTheHomeAndKeepsTheFleetData
           GOBLINS_HOME: ${{ runner.temp }}/ceo-go-tests
           GOBLINS_STATE_OVERRIDE: ${{ runner.temp }}/ceo-go-tests/state
       - name: Keep the record of each test that failed once

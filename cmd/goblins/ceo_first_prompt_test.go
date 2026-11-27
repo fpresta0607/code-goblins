@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -108,7 +109,11 @@ func harnessHelpOnPath(t *testing.T, agent, help string) {
 	t.Helper()
 	bin := t.TempDir()
 	standin.RemoveAtCleanup(t, bin)
-	standin.Put(t, filepath.Join(bin, agent+".exe"))
+	program := agent
+	if runtime.GOOS == "windows" {
+		program += ".exe"
+	}
+	standin.Put(t, filepath.Join(bin, program))
 	t.Setenv("PATH", bin)
 	for _, variable := range standin.Env("", standin.Rule{Args: "--help", Stdout: help}) {
 		name, value, _ := strings.Cut(variable, "=")

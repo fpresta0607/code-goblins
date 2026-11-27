@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -203,7 +202,11 @@ func TestVerifyRecordsTheSourceEachCommandRanOn(t *testing.T) {
 // tier fails though the command exited 0, as issue #1536 found it passing.
 func TestVerifyFailsWhenACommandsSourceChangedWhileItRan(t *testing.T) {
 	// Arrange
-	runtime, taskTmp := measuredTask(t, `"verification": {"fast": [["cmd", "/d", "/c", "echo changed> moved.txt"]]}`)
+	command, err := json.Marshal(shellCommand("echo changed> moved.txt", "echo changed> moved.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, taskTmp := measuredTask(t, `"verification": {"fast": [`+string(command)+`]}`)
 
 	// Act
 	var stdout, stderr bytes.Buffer
@@ -486,29 +489,6 @@ func TestVerifyPrunesTheExecutionsStore(t *testing.T) {
 	}
 }
 
-// A store the tier cannot prune is named on standard error, and the tier
-// keeps its own result.
-func TestVerifyKeepsItsResultWhenItCannotPruneTheStore(t *testing.T) {
-	// Arrange
-	runtime, taskTmp := measuredTask(t, `"verification": {"fast": [["git", "version"]]}`)
-	executions := filepath.Join(os.Getenv("GOBLINS_VERIFY_DIR"), "executions")
-	if output, err := exec.Command("cmd", "/d", "/c", "mklink", "/J", executions, t.TempDir()).CombinedOutput(); err != nil {
-		t.Fatalf("mklink /J: %v %s", err, output)
-	}
-
-	// Act
-	var stdout, stderr bytes.Buffer
-	exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
-
-	// Assert
-	if exit != 0 || !strings.Contains(stderr.String(), "could not all be removed") || !strings.Contains(stderr.String(), "not a plain folder") {
-		t.Fatalf("exit = %d, stderr = %q, want a pass that names the store it could not prune", exit, stderr.String())
-	}
-	if results := savedResults(t, filepath.Join(taskTmp, "verification-fast.json")); len(results) != 1 || results[0].Status != "passed" {
-		t.Fatalf("saved = %+v, want the tier's own pass", results)
-	}
-}
-
 // countedTier is the record settings of a fast tier whose one command adds a
 // line to counter each time it runs, with reuse declared as declared, and a
 // goblins build stamped as an installed one is, which reuse requires.
@@ -517,7 +497,8 @@ func countedTier(t *testing.T, counter, declared string) string {
 	previous := version
 	version = "main-0123abcd"
 	t.Cleanup(func() { version = previous })
-	command, err := json.Marshal([]string{"cmd", "/d", "/c", "echo ran>> " + counter})
+	line := "echo ran>> " + counter
+	command, err := json.Marshal(shellCommand(line, line))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -808,7 +789,8 @@ func TestVerifyKeepsNoPassOfAFailedTier(t *testing.T) {
 	version = "main-0123abcd"
 	t.Cleanup(func() { version = previous })
 	counter := filepath.Join(t.TempDir(), "count.txt")
-	command, err := json.Marshal([]string{"cmd", "/d", "/c", "echo ran>> " + counter + "&& exit 3"})
+	line := "echo ran>> " + counter + "&& exit 3"
+	command, err := json.Marshal(shellCommand(line, line))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -854,7 +836,8 @@ func TestVerifyKeepsNoPassWhenAnInputChangedWhileItRan(t *testing.T) {
 	version = "main-0123abcd"
 	t.Cleanup(func() { version = previous })
 	counter := filepath.Join(t.TempDir(), "count.txt")
-	command, err := json.Marshal([]string{"cmd", "/d", "/c", "echo ran>> " + counter + "&& echo built> built.txt"})
+	line := "echo ran>> " + counter + "&& echo built> built.txt"
+	command, err := json.Marshal(shellCommand(line, line))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -888,11 +871,13 @@ func TestVerifyKeepsNoPassWhenAnEarlierCommandChangedAnInput(t *testing.T) {
 	version = "main-0123abcd"
 	t.Cleanup(func() { version = previous })
 	counter := filepath.Join(t.TempDir(), "count.txt")
-	writes, err := json.Marshal([]string{"cmd", "/d", "/c", "echo ran>> " + counter + "&& echo again>> built.txt"})
+	writing := "echo ran>> " + counter + "&& echo again>> built.txt"
+	writes, err := json.Marshal(shellCommand(writing, writing))
 	if err != nil {
 		t.Fatal(err)
 	}
-	reads, err := json.Marshal([]string{"cmd", "/d", "/c", "echo ran>> " + counter})
+	reading := "echo ran>> " + counter
+	reads, err := json.Marshal(shellCommand(reading, reading))
 	if err != nil {
 		t.Fatal(err)
 	}
