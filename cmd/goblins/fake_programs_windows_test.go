@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -51,4 +52,10 @@ func lavishAxiOnPath(t *testing.T, argsFile string, delaySeconds int, output ...
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+filepath.Join(os.Getenv("SystemRoot"), "System32"))
+}
+
+// lastingProgram is a program that runs for about that many seconds and does
+// nothing else, for a test that needs a live process other than itself.
+func lastingProgram(seconds int) *exec.Cmd {
+	return exec.Command("ping", "-n", strconv.Itoa(seconds), "127.0.0.1")
 }

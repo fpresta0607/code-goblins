@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -32,7 +31,7 @@ func registerHome(t *testing.T) home.Home {
 // must never take over the board's delivery target.
 func TestSessionStartNeverRegistersAReadOnlySession(t *testing.T) {
 	h := registerHome(t)
-	other := exec.Command("ping", "-n", "30", "127.0.0.1")
+	other := lastingProgram(30)
 	if err := other.Start(); err != nil {
 		t.Fatal(err)
 	}

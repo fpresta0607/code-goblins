@@ -10,7 +10,6 @@ import (
 	"maps"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -2288,7 +2287,7 @@ func registeredPrimary(t *testing.T, h home.Home, caller string) {
 		registered, err = lock.Acquire(h.State)
 		t.Cleanup(func() { _ = lock.Release(h.State) })
 	} else {
-		other := exec.Command("ping", "-n", "30", "127.0.0.1")
+		other := lastingProgram(30)
 		if err := other.Start(); err != nil {
 			t.Fatal(err)
 		}
