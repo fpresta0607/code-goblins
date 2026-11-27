@@ -352,9 +352,17 @@ func commandAhead(id, task string, queued []fleettree.WaitingPrompt) error {
 // that command, and the message waits on the board as it did (commandAhead,
 // #2341). The mark an earlier Send now of it left (IsSentNow), where a try put
 // that one off, is taken back then, so the worker's next try types it with no
-// send-now key, its words and reason as they were.
+// send-now key, its words and reason as they were. That queue is read only
+// while the board holds the message, queued or reading Not sent, so a press
+// on one the board let go says where it went, and a second Send now of one
+// already sent now is the same ask again.
 func (s *Service) sendQueuedNow(id, task string, queued func(Awaiting) []fleettree.WaitingPrompt) error {
-	if session, screens := s.sessionNow(task); screens.SendNowRunsCommand {
+	s.Store.mu.Lock()
+	isBoardHeld := slices.ContainsFunc(s.Store.db.Actions, func(a Action) bool {
+		return a.ID == id && a.TaskID == task && a.Kind == "message" && (a.Status == "queued" || isNotSent(a))
+	})
+	s.Store.mu.Unlock()
+	if session, screens := s.sessionNow(task); isBoardHeld && screens.SendNowRunsCommand {
 		if err := commandAhead(id, task, queued(session)); err != nil {
 			var saveErr error
 			s.Store.mu.Lock()

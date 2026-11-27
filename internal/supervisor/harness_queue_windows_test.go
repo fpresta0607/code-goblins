@@ -1091,6 +1091,68 @@ func TestSendNowOnHisMessageTheBoardStillHoldsPressesNoKeyBehindACommandTypedInT
 	}
 }
 
+// #2341, of his message the board let go: Send now reads the queue of the
+// terminal the board would type it into only while the board holds it, queued
+// or reading Not sent. A press that reaches the supervisor after the board let
+// the message go, as from a second screen, says where it went, as it does with
+// no command in that queue, and a second Send now of one already sent now is
+// no error, even once it has gone on its way. One that reads Not sent is still
+// the board's, so behind a command typed in the CEO's terminal its press names
+// that command. None of them types anything or presses a key.
+func TestSendNowReadsTheQueueAheadOfHisMessageOnlyWhileTheBoardHoldsIt(t *testing.T) {
+	for _, test := range []struct {
+		name, status, message, wantSays string
+		isSentNow                       bool
+	}{
+		{name: "one the CEO already took", status: "succeeded", wantSays: "The CEO already took it."},
+		{name: "one sent now that the CEO took since", status: "succeeded", isSentNow: true},
+		{name: "one that reads Not sent", status: "failed", message: "Not sent. It waited in the queue of the CEO's terminal, which ended or started again before taking it.", wantSays: `"/compact", a command the board did not type, waits ahead of this message in the CEO's queue, and its send-now key would run that command alone, so no key was pressed. It takes this message at its next tool call, or as its turn ends.`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			userHome := useConversations(t)
+			store, home := testStore(t)
+			service := &Service{Store: store, Instance: "instance-1", Options: Options{CEO: &CEOConnection{State: home.State}, Tree: &fleettree.Reader{Home: userHome}}}
+			terminal := nativeCEOComposer(t, home.State, "claude-busy")
+			terminal.typeLine(t, "/compact")
+			terminal.waitForLines(t, 2)
+			promptLineEmpties(t, terminal, "claude")
+			writeQueueRecord(t, filepath.Join(ceoConversationFile(userHome, home.Root), "session-1.jsonl"), "/compact")
+			if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: "stop and rebase"}); err != nil {
+				t.Fatal(err)
+			}
+			store.mu.Lock()
+			left := &store.db.Actions[slices.IndexFunc(store.db.Actions, func(a Action) bool { return a.ID == "m1" })]
+			left.Status, left.Message, left.IsSentNow = test.status, test.message, test.isSentNow
+			saved := store.save()
+			store.mu.Unlock()
+			if saved != nil {
+				t.Fatal(saved)
+			}
+			before := actionOf(store, "m1")
+
+			// Act
+			pressed := sendNow(service, "", "m1")
+			after := actionOf(store, "m1")
+
+			// Assert
+			if test.wantSays == "" {
+				if pressed.Code != 202 {
+					t.Errorf("Send now = %d %s; want the same ask again, no error", pressed.Code, pressed.Body)
+				}
+			} else if says, _ := refusalOf(t, pressed); pressed.Code != 409 || says != test.wantSays {
+				t.Errorf("Send now = %d %s; want it refused, saying %q", pressed.Code, pressed.Body, test.wantSays)
+			}
+			if after.Status != before.Status || after.IsSentNow != before.IsSentNow || after.Message != before.Message {
+				t.Errorf("his message after the press = %+v; want it as it was, %+v", after, before)
+			}
+			if input := terminal.lines(t); !slices.Equal(input[1:], []string{"queued /compact"}) {
+				t.Errorf("terminal input = %q; want nothing typed and no key pressed", input)
+			}
+		})
+	}
+}
+
 // #2341: Claude Code gives its queue back only whole, and its send-now key
 // takes that queue from its head, so a command he sends now cannot go ahead of
 // a line there that no board message typed, as one typed in the terminal: Up
