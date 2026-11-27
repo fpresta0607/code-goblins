@@ -31,6 +31,30 @@ async function open(page: Page, supervisor: Supervisor, width: number): Promise<
   return main;
 }
 
+// Every card of Needs a look has the same parts in the same order, its
+// actions last in one row at its foot with Remove last, and cards side by side
+// share their top and their height.
+async function expectSameCards(attention: Locator) {
+  const parts = await attention.locator(".look-card").evaluateAll((cards) => cards.map((card) => {
+    const children = [...card.children].map((child) => child.className).filter((name) => name !== "look-card-vars");
+    const actions = card.querySelector(".look-card-actions")!, last = actions.querySelector(".look-card-end > :last-child")!;
+    const box = card.getBoundingClientRect(), foot = actions.getBoundingClientRect(), remove = last.getBoundingClientRect();
+    return {
+      children, last: last.textContent, isAtFoot: box.bottom - foot.bottom < 20, isRightmost: foot.right - remove.right < 2,
+      top: Math.round(box.top), height: Math.round(box.height),
+    };
+  }));
+  for (const card of parts) {
+    expect(card.children).toEqual(["look-card-head", "look-card-state", "look-card-facts", "look-card-actions"]);
+    expect(card.last).toBe("Remove");
+    expect(card.isAtFoot && card.isRightmost, "the actions sit at the card's foot with Remove at its right").toBe(true);
+  }
+  for (const [index, card] of parts.entries()) {
+    const beside = parts.find((other, at) => at !== index && other.top === card.top);
+    if (beside) expect(beside.height, "cards side by side are the same height").toBe(card.height);
+  }
+}
+
 const group = (main: Locator, title: string) => main.getByRole("region", { name: title, exact: true });
 const crumbs = (main: Locator) => main.getByRole("navigation", { name: "Where you are" });
 
@@ -57,9 +81,11 @@ for (const width of [1440, 390]) {
     const attention = group(main, "Needs a look");
     await expect(attention.locator(".connector-open")).toHaveText(["gcloud", "ACME_API_KEY", "Supabase", "Acme Docs"]);
     await expect(attention.locator(".connector-level")).toHaveText(["This PC", "This PC", "Project", "Goblin"]);
-    await expect(attention.locator(".connector-state b")).toHaveText(["Not checked", "Every goblin has it", "Missing", "Failed to load"]);
+    await expect(attention.locator(".look-card-state b")).toHaveText(["Not checked", "Every goblin has it", "Missing", "Failed to load"]);
+    await expectSameCards(attention);
     await expectFits(page, main);
     await page.screenshot({ path: testInfo.outputPath(`connectors-home-${width}.png`) });
+
 
     // Act: this PC and its accounts.
     await main.getByRole("button", { name: /^Level 1/ }).click();
@@ -127,6 +153,21 @@ for (const width of [1440, 390]) {
     // Assert
     await expect(main.getByRole("button", { name: "acme", exact: true })).toBeFocused();
     expect(supervisor.posts).toEqual([]);
+
+    // Act: home again by the breadcrumb.
+    await crumbs(main).getByRole("button", { name: "Connectors", exact: true }).click();
+
+    // Act: remove the project's missing service, confirming what it changes.
+    await attention.getByRole("button", { name: "Remove Supabase, globex" }).click();
+    const confirm = page.getByRole("dialog", { name: "Remove Supabase?" });
+    await expect(confirm).toContainText("Takes the service supabase out of globex's auth.json");
+    await page.screenshot({ path: testInfo.outputPath(`connectors-remove-${width}.png`) });
+    await confirm.getByRole("button", { name: "Remove", exact: true }).click();
+
+    // Assert: the one service is removed and leaves the list, the rest stay.
+    await expect(confirm).toBeHidden();
+    await expect(attention.locator(".connector-open")).toHaveText(["gcloud", "ACME_API_KEY", "Acme Docs"]);
+    expect(supervisor.posts.map((post) => [post.path, post.token, post.body])).toEqual([["/api/connectors/remove", "fixture", { level: "project", project: "globex", task: "", generation: "", connection: "service:supabase" }]]);
   });
 
   test(`a search finds items at every level, grouped by level, same-named items of two projects apart with their project and target, and each result opens its place, at ${width}px`, async ({ page }, testInfo) => {

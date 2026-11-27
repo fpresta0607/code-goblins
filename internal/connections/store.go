@@ -166,6 +166,42 @@ func (s *Snapshots) Refresh(level, scope string) error {
 // asks after a grant or a revoke changed what its record gives it.
 func (s *Snapshots) ReadNow(meta state.TaskMeta) { s.readGoblin(meta, true) }
 
+// Forget takes one item out of a level's snapshot at once, as Remove does once
+// it took the item out of where it is declared, so the page stops listing it
+// before the level is checked again. scope is a project's name or a goblin's
+// task, empty for the machine.
+func (s *Snapshots) Forget(level, scope, id string) {
+	isItem := func(item Item) bool { return item.ID == id }
+	s.mu.Lock()
+	var name string
+	var kept any
+	switch level {
+	case RefreshMachine:
+		s.machine.Items = slices.DeleteFunc(slices.Clone(s.machine.Items), isItem)
+		saved := s.machine
+		saved.Checking = false
+		name, kept = machineFile, saved
+	case RefreshProject:
+		if project, isListed := s.projects[scope]; isListed {
+			project.Items = slices.DeleteFunc(slices.Clone(project.Items), isItem)
+			s.projects[scope] = project
+			project.Checking = false
+			name, kept = projectFile(scope), project
+		}
+	case RefreshGoblin:
+		if goblin, isListed := s.goblins[scope]; isListed {
+			goblin.Items = slices.DeleteFunc(slices.Clone(goblin.Items), isItem)
+			s.goblins[scope] = goblin
+			goblin.Checking = false
+			name, kept = goblinPath(scope), goblin
+		}
+	}
+	s.mu.Unlock()
+	if name != "" {
+		s.save(name, kept)
+	}
+}
+
 // enqueue puts a job last in the queue unless it waits there already, marks its
 // level Checking and starts the worker if none runs.
 func (s *Snapshots) enqueue(next job) {

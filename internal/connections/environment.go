@@ -6,6 +6,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/installbase"
 )
 
 // Environment is where the checks look: the CEO home, the user's home, the
@@ -28,6 +29,9 @@ type Environment struct {
 	// UserEnvNames lists the names of the variables of this PC's user
 	// environment, never a value.
 	UserEnvNames func() ([]string, error)
+	// UserEnv is this PC's user environment, which Remove deletes a
+	// credential's variable from.
+	UserEnv installbase.EnvStore
 }
 
 // NewEnvironment is the environment of a real machine.
@@ -35,6 +39,7 @@ func NewEnvironment(homeRoot, userHome, dataDir, stateDir string, projectsRoot f
 	return Environment{
 		HomeRoot: homeRoot, UserHome: userHome, DataDir: dataDir, StateDir: stateDir, ProjectsRoot: projectsRoot,
 		Runner: execx.OSRunner{}, OpenStore: auth.OpenStore, LookPath: exec.LookPath, UserEnvNames: userEnvironmentNames,
+		UserEnv: installbase.NewEnvStore(execx.OSRunner{}),
 	}
 }
 
