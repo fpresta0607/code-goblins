@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "./site";
-import { at, box, field, GOBLIN, open, openGoblin, PAGE, pasted, snapshot, typed } from "./session-board";
+import { at, box, field, GOBLIN, NAME, open, openGoblin, PAGE, pasted, snapshot, typed } from "./session-board";
 
 // The Overlord, 2026-10-26: "I can't see cued messages. There should be a way
 // to see what messages are cue in the chat pane" and "Does this seem to be a
@@ -665,6 +665,54 @@ test("an Edit the supervisor refuses is said over the box and not reported to th
   await expect(field(page)).toHaveValue("");
   await expect.poll(() => reports).toEqual([lost]);
 });
+
+// A Send from the box that the supervisor refuses, as it refused a message to
+// the CEO longer than the 24 KiB the board takes in one go, is said over the
+// box with his words kept, and the CEO is not woken for it, since the
+// supervisor answered: the wake it raised read "board: a message to CEO:"
+// and the refusal, as though those were his words (#2397). One that never
+// reached the supervisor is the board's own failure, which the CEO hears of
+// as a send that failed.
+for (const who of ["CEO", "goblin"] as const) {
+  test(`a Send from the ${who}'s box that the supervisor refuses is said over the box with his words kept and not reported to the CEO, while one that never reached it is`, async ({ page }) => {
+    // Arrange
+    const REFUSED = "It is longer than the 24 KiB the board takes in one go.";
+    const brief = "Build the harbor cache in three steps, each with its own test. ".repeat(480);
+    const name = who === "CEO" ? "CEO" : NAME;
+    const relay = await open(page);
+    const reports: { where: string; text: string }[] = [];
+    await page.route("**/api/ceo/report", (route) => {
+      const report = route.request().postDataJSON() as { where: string; text: string };
+      if (report.where.includes("message to " + name)) reports.push(report);
+      return route.fulfill({ status: 202, json: { reported: true } });
+    });
+    let isAnswered = true;
+    await page.route("**/api/actions", (route) => isAnswered ? route.fulfill({ status: 413, json: { error: REFUSED } }) : route.abort("connectionrefused"));
+    if (who === "CEO") await page.keyboard.press("Control+Alt+1");
+    else await openGoblin(page);
+    await expect(page.locator("#panel-title")).toHaveText(name);
+    await expect.poll(() => relay.views).toBeGreaterThan(0);
+    relay.say({ type: "screen", asking: false, open: false, working: true });
+    await expect(box(page, name).getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+    const refusal = box(page, name).getByRole("alert");
+
+    // Act: one Send the supervisor refuses, then one that never reaches it.
+    await field(page, name).fill(brief);
+    await field(page, name).press("Enter");
+    await expect(refusal).toHaveText("Not sent. " + REFUSED);
+    await expect(field(page, name)).toHaveValue(brief);
+    isAnswered = false;
+    await field(page, name).press("Enter");
+    await expect(refusal).not.toHaveText("Not sent. " + REFUSED);
+    await expect(refusal).toHaveText(/^Not sent\. ./);
+    const lost = (await refusal.textContent() ?? "").replace(/^Not sent\. /, "");
+
+    // Assert
+    expect(lost).toBeTruthy();
+    await expect(field(page, name)).toHaveValue(brief);
+    await expect.poll(() => reports).toEqual([{ where: "sending a message to " + name, text: lost }]);
+  });
+}
 
 // The Overlord, 2026-10-28: "send now should be an option with all queued
 // messages". One that cannot go now says why when pressed, and asks nothing.

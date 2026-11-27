@@ -590,7 +590,11 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onSend, mo
       setDraft((prior) => prior || written);
       setAttached((prior) => prior.length ? prior : kept);
       setUnsent("Not sent. " + message(error));
-      reportToCeo("a message to " + name, message(error));
+      // A Send the supervisor answered is refused for a reason he reads over
+      // the box, his words kept there; only one that never had its answer is
+      // the board's own failure, which the CEO hears of as a send, never in
+      // words that read as his message (#2397).
+      if (!(error instanceof Error && error.cause !== undefined)) reportToCeo("sending a message to " + name, message(error));
     } finally {
       setSending(false);
       if (hadKeyboard) setSendsEnded((count) => count + 1);
