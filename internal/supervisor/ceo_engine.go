@@ -226,13 +226,13 @@ func engineValue(value string) bool {
 
 // NoteCEOEngineOverridden records that the CEO started as started rather than
 // as the harness its saved selection names, which a start with an explicit
-// harness does and which the board reports beside the selection, and keeps
-// started as the harness a later start that names none runs, so a harness
-// Update or goblins resume brings the CEO back on its own conversation. The
-// selection stays saved until the CEO that started names the engine it runs,
-// which the record then holds in its place (keepCEOEngine), so a CEO started
-// as the selection's own harness before then runs it. Nothing is written
-// when it already names started or when no selection is saved.
+// harness does, and keeps started as the harness a later start that names
+// none runs, so a harness Update or goblins resume brings the CEO back on its
+// own conversation. The selection stays saved until the CEO that started
+// names the engine it runs, which the record then holds in its place
+// (keepCEOEngine), so a CEO started as the selection's own harness before
+// then runs it. Nothing is written when it already names started or when no
+// selection is saved.
 func NoteCEOEngineOverridden(stateDir, started string) error {
 	choice, err := ReadCEOEngine(stateDir)
 	if err != nil {
