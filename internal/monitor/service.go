@@ -450,8 +450,8 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		// nothing underneath is actually moving. A pane that shows work
 		// running is evidence that something is, so it holds back every wake
 		// but the gate's own until nothing has moved for twice the budget: a
-		// gate step active past the budget is the gate's evidence of a wedge,
-		// whatever the pane shows.
+		// gate step stalled by its own evidence is the gate's evidence of a
+		// wedge, whatever the pane shows.
 		if observation.BusySince != nil && now.Sub(*observation.BusySince) >= s.busyTurnMax() {
 			if kind, detail := s.busyOverAge(ctx, meta, sample, &observation, now); kind != "" {
 				if running, ok := paneRunning(sample); ok && !strings.HasPrefix(kind, gateStepKind) {
@@ -547,8 +547,9 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	}
 }
 
-// gateStepKind starts the kind busyOverAge gives a gate step active past the
-// budget, the one busy wake a pane showing work running does not hold back.
+// gateStepKind starts the kind busyOverAge gives a gate step stalled by its
+// own evidence, the one busy wake a pane showing work running does not hold
+// back.
 const gateStepKind = "gate step "
 
 // paneRunning returns the row of the pane's last rows that shows a tool, a
@@ -609,10 +610,10 @@ func (s Service) staleObservation(observation Observation, reason Reason, linger
 }
 
 // busyOverAge decides whether a goblin that has read working past the budget
-// is genuinely wedged. A gate step that has itself been active past the
-// budget is the wedge, and a ci step on a repo with no workflows is named as
-// such, because that shape cannot complete without an abort; a gate step
-// inside the budget is movement. Otherwise the turn's age alone proves
+// is genuinely wedged. An active gate step decides by its own evidence (see
+// gateStepStalled), and a ci step on a repo with no workflows active past the
+// budget is named as a wedge, because that shape cannot complete without an
+// abort. Otherwise the turn's age alone proves
 // nothing - a long refactor and a shell that will never return look the same
 // from the pane - so the goblin's own progress evidence decides: it is wedged
 // only once neither its transcript nor its own processes have moved for the
@@ -633,18 +634,20 @@ func (s Service) busyOverAge(ctx context.Context, meta state.TaskMeta, sample En
 			gateDetail = "gate probe failed: " + err.Error()
 		case !gate.Active:
 			gateDetail = "no active gate run"
-		case gate.ActiveFor < s.busyTurnMax():
-			// The gate is moving between steps even though the pane is busy.
-			return "", ""
-		default:
-			detail := "gate step " + gate.Step + " active for " + gate.ActiveFor.Round(time.Minute).String()
+		case gate.Step == "ci" && gate.NoCI:
+			if gate.ActiveFor < s.busyTurnMax() {
+				return "", ""
+			}
+			detail := "gate step ci active for " + gate.ActiveFor.Round(time.Minute).String()
 			if gate.LastActivity != "" {
 				detail += " (last: " + gate.LastActivity + ")"
 			}
-			if gate.Step == "ci" && gate.NoCI {
-				detail += "; repo has no .github/workflows so this step can never complete - run: no-mistakes axi abort"
+			return gateStepKind + gate.Step, detail + "; repo has no .github/workflows so this step can never complete - run: no-mistakes axi abort"
+		default:
+			if detail, isStalled := s.gateStepStalled(gate, meta.Harness, now); isStalled {
+				return gateStepKind + gate.Step, detail
 			}
-			return gateStepKind + gate.Step, detail
+			return "", ""
 		}
 	}
 	if s.Progress == nil {
@@ -671,6 +674,51 @@ func (s Service) busyOverAge(ctx context.Context, meta state.TaskMeta, sample En
 		detail += " and no processes of its own running"
 	}
 	return "no progress", detail + "; inspect the shell"
+}
+
+// gateStepStalled decides whether an active gate step has stalled by the
+// gate's own evidence, never by the goblin's log, which a gate leaves quiet
+// for the whole of a step it prints only once the step ends (#2165). The step
+// is moving while its current round is inside its allowance: the time nine in
+// ten of its rounds on the task's harness took on this machine, or the busy
+// budget when none is on record. Past that it is moving while it showed
+// progress of its own within the busy budget: its agent producing output, or
+// the heavy line moving for its run. A stalled
+// step's detail names what was read and what could not be.
+func (s Service) gateStepStalled(gate GateSample, harness string, now time.Time) (string, bool) {
+	round := gate.RoundFor
+	if round == 0 {
+		round = gate.ActiveFor
+	}
+	allowance := s.busyTurnMax()
+	allowanceWords := "the default " + allowance.String() + ", as no round of it on " + harness + " was read from this machine's record"
+	if gate.IsMeasured {
+		allowance = gate.Allowance
+		allowanceWords = "the " + allowance.String() + " nine in ten of its rounds on " + harness + " took on this machine"
+	}
+	if round < allowance {
+		return "", false
+	}
+	quiet := round
+	if !gate.MovedAt.IsZero() && now.Sub(gate.MovedAt) < quiet {
+		quiet = now.Sub(gate.MovedAt)
+	}
+	if quiet < s.busyTurnMax() {
+		return "", false
+	}
+	detail := "gate step " + gate.Step + " round active for " + round.Round(time.Minute).String() + ", past " + allowanceWords + ", and nothing of it has moved for " + quiet.Round(time.Minute).String()
+	if gate.LastActivity != "" {
+		detail += "; last activity: " + gate.LastActivity
+	}
+	if gate.Line != "" {
+		detail += "; " + gate.Line
+	} else if gate.IsLineRead {
+		detail += "; its run stands nowhere in the heavy line"
+	}
+	if len(gate.Unread) > 0 {
+		detail += "; not read: " + strings.Join(gate.Unread, ", ")
+	}
+	return detail, true
 }
 
 // noProgressFor says how long a goblin has shown none of the evidence that its

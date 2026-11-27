@@ -356,6 +356,42 @@ INSERT INTO step_results VALUES('now','test','running',1000,1000,NULL),('cut','l
 	}
 }
 
+// How long a step's round usually runs is read per harness, since a pi
+// review has run here for nearly two hours while a Claude one takes minutes,
+// and from every recorded round, fix rounds included (#2165).
+func TestUsualRoundTimesIsWhatNineInTenRoundsOfAStepOnAHarnessTook(t *testing.T) {
+	// Arrange: ten review rounds of 1 to 10 minutes on Claude, one of them a
+	// fix round of the same step, so nine of the ten took 9 minutes or less;
+	// two review rounds on kimi, recorded as acp:kimi, of which only one in
+	// two took 2 minutes or less, so nine in ten took the longer 4; a pi
+	// review of 116 minutes; and a run whose agents ran on none, which has no
+	// harness to measure it by.
+	sql := `CREATE TABLE step_results(id TEXT,run_id TEXT,step_name TEXT);
+CREATE TABLE step_rounds(step_result_id TEXT,round INTEGER,duration_ms INTEGER);
+CREATE TABLE agent_invocations(run_id TEXT,step_name TEXT,agent TEXT);`
+	for minutes := 1; minutes <= 9; minutes++ {
+		sql += fmt.Sprintf("INSERT INTO step_results VALUES('s%d','c%d','review');INSERT INTO step_rounds VALUES('s%d',1,%d);INSERT INTO agent_invocations VALUES('c%d','review','claude');", minutes, minutes, minutes, minutes*60000, minutes)
+	}
+	sql += `INSERT INTO step_rounds VALUES('s9',2,600000);
+INSERT INTO step_results VALUES('k1','k','review');INSERT INTO step_rounds VALUES('k1',1,120000),('k1',2,240000);INSERT INTO agent_invocations VALUES('k','review','acp:kimi');
+INSERT INTO step_results VALUES('p1','p','review'),('p2','p','test');INSERT INTO step_rounds VALUES('p1',1,6960000),('p2',1,0);INSERT INTO agent_invocations VALUES('p','review','pi');
+INSERT INTO step_results VALUES('n1','n','test');INSERT INTO step_rounds VALUES('n1',1,60000);`
+	reader := stepDatabase(t, sql)
+
+	// Act
+	usual, err := reader.UsualRoundTimes(context.Background())
+
+	// Assert
+	want := map[StepHarness]time.Duration{
+		{Step: "review", Harness: "claude"}: 9 * time.Minute,
+		{Step: "review", Harness: "kimi"}:   4 * time.Minute,
+		{Step: "review", Harness: "pi"}:     116 * time.Minute,
+	}
+	if err != nil || fmt.Sprint(usual) != fmt.Sprint(want) {
+		t.Fatalf("UsualRoundTimes = %v, %v; want %v", usual, err, want)
+	}
+}
+
 // A custody check that did not finish says nothing about custody, so it is
 // never reported as a hold: a probe that gave up before no-mistakes answered
 // must not read as the gate owning the branch, while a real refusal still is.
