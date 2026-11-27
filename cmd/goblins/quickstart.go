@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -313,10 +314,19 @@ func quickstartDetector() onboarding.Detector {
 	return agentDetector(os.Environ(), execx.OSRunner{})
 }
 
+// userHomeVariable names the variable that holds the user's home folder in
+// an environment on this system.
+func userHomeVariable() string {
+	if runtime.GOOS == "windows" {
+		return "USERPROFILE"
+	}
+	return "HOME"
+}
+
 // agentDetector reads how ready each agent is for a process started with
 // env: PATH, each agent's own status command run with env by runner, pi's
 // settings in the agent folder env names, and whether Claude Code's native
-// build is in the home env names.
+// build is in the home env names (userHomeVariable).
 func agentDetector(env []string, runner execx.Runner) onboarding.Detector {
 	value := func(name string) string {
 		for _, entry := range env {
@@ -327,7 +337,7 @@ func agentDetector(env []string, runner execx.Runner) onboarding.Detector {
 		return ""
 	}
 	directory, claudeDirectory := value("PI_CODING_AGENT_DIR"), ""
-	if userHome := value("USERPROFILE"); userHome != "" {
+	if userHome := value(userHomeVariable()); userHome != "" {
 		if directory == "" {
 			directory = filepath.Join(userHome, ".pi", "agent")
 		}

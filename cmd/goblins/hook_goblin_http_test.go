@@ -75,7 +75,7 @@ func shellCallBody(t *testing.T, command string) string {
 
 func toolCallBody(t *testing.T, call, output string) string {
 	t.Helper()
-	data, err := json.Marshal(map[string]any{"session_id": "s1", "hook_event_name": "PostToolUse", "cwd": `C:\work`, "tool_name": "Read", "tool_use_id": call, "tool_response": map[string]any{"file": map[string]string{"content": output}}})
+	data, err := json.Marshal(map[string]any{"session_id": "s1", "hook_event_name": "PostToolUse", "cwd": t.TempDir(), "tool_name": "Read", "tool_use_id": call, "tool_response": map[string]any{"file": map[string]string{"content": output}}})
 	if err != nil {
 		t.Fatal(err)
 	}

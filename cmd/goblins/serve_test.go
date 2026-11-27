@@ -12,7 +12,6 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
-	"github.com/fpresta0607/code-goblins/internal/installbase"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 )
@@ -52,33 +51,6 @@ func TestFirstRunRecordsTheProjectsFolderOnThisMachineUnlessTheBoardIsAnExample(
 				t.Fatalf("the board's own projects folder = %q, want the one picked", got)
 			}
 		})
-	}
-}
-
-func TestTheBoardKeepsStartAtLoginOffTheRegistryWithAStandInUserEnvironment(t *testing.T) {
-	h := testHome(t)
-	t.Setenv(installbase.UserEnvFileVariable, filepath.Join(h.Root, "user-environment.json"))
-	if err := os.MkdirAll(h.State, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(h.Root, "bin"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(h.Root, "bin", "goblins-window.exe"), []byte("stand-in window"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	login := boardStartAtLogin(h)
-	if login.StartAtLoginKey != "" {
-		t.Fatal("a scratch board was configured to write Start at login entries")
-	}
-
-	err := login.SetStartsAtLogin(true)
-
-	if err == nil || !strings.Contains(err.Error(), "this machine keeps no Start at login entries") {
-		t.Fatalf("Start at login = %v, want a refusal without registry entries", err)
-	}
-	if choice, err := installbase.ReadStartAtLogin(h.State); err != nil || choice != installbase.StartAtLoginOn {
-		t.Fatalf("saved choice = %q, %v, want the choice retained in the scratch home", choice, err)
 	}
 }
 

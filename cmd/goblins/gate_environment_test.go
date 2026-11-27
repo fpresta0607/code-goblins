@@ -53,14 +53,17 @@ func TestGateTurnBindsTheVerifiedEnvironmentWithoutReplacingTheConfiguredCommand
 			t.Setenv("UV_NO_SYNC", "0")
 			t.Setenv("UNCHANGED_DAEMON_SETTING", "daemon-sentinel")
 			turnLine(t)
-			command := `echo %UV_PROJECT_ENVIRONMENT%^|%UV_PYTHON%^|%UV_NO_SYNC%^|%UV_OFFLINE%^|%UV_PYTHON_DOWNLOADS%^|%UNCHANGED_DAEMON_SETTING% & exit /b ` + code
+			command := shellCommand(
+				`echo %UV_PROJECT_ENVIRONMENT%^|%UV_PYTHON%^|%UV_NO_SYNC%^|%UV_OFFLINE%^|%UV_PYTHON_DOWNLOADS%^|%UNCHANGED_DAEMON_SETTING% & exit /b `+code,
+				`echo "$UV_PROJECT_ENVIRONMENT|$UV_PYTHON|$UV_NO_SYNC|$UV_OFFLINE|$UV_PYTHON_DOWNLOADS|$UNCHANGED_DAEMON_SETTING"; exit `+code,
+			)
 			var stdout, stderr lockedBuffer
 
 			// Act
-			exit := gateTurn(turnRuntime(), &stdout, &stderr, "--gate-run", "run", "--test-comparison-sha", comparison, "--", "cmd.exe", "/d", "/c", command)
+			exit := gateTurn(turnRuntime(), &stdout, &stderr, append([]string{"--gate-run", "run", "--test-comparison-sha", comparison, "--"}, command...)...)
 
 			// Assert
-			want := environment + "|" + filepath.Join(environment, "Scripts", "python.exe") + "|1|1|never|daemon-sentinel"
+			want := environment + "|" + venvPython(environment) + "|1|1|never|daemon-sentinel"
 			if (code == "0" && exit != 0) || (code == "7" && exit != 7) || strings.TrimSpace(stdout.String()) != want || withoutTurnProgress(stderr.String()) != "" {
 				t.Fatalf("exit=%d stdout=%q stderr=%q; want configured exit %s and %q", exit, stdout.String(), stderr.String(), code, want)
 			}
@@ -112,7 +115,7 @@ func TestGateTurnUsesNativeComparisonInsteadOfThePreviousPush(t *testing.T) {
 				var stdout, stderr lockedBuffer
 
 				// Act
-				exit := gateTurn(turnRuntime(), &stdout, &stderr, "--gate-run", "run", "--test-comparison-sha", comparison, "--", "cmd.exe", "/d", "/c", "echo %UV_PROJECT_ENVIRONMENT% & exit /b 7")
+				exit := gateTurn(turnRuntime(), &stdout, &stderr, append([]string{"--gate-run", "run", "--test-comparison-sha", comparison, "--"}, shellCommand("echo %UV_PROJECT_ENVIRONMENT% & exit /b 7", `echo "$UV_PROJECT_ENVIRONMENT"; exit 7`)...)...)
 
 				// Assert
 				if exit != 7 || strings.TrimSpace(stdout.String()) != environment || withoutTurnProgress(stderr.String()) != "" {
@@ -141,7 +144,7 @@ func gateEnvironmentFixture(t *testing.T) (string, string) {
 		t.Fatal(err)
 	}
 	environment := filepath.Join(owner, ".venv")
-	python := filepath.Join(environment, "Scripts", "python.exe")
+	python := venvPython(environment)
 	if err := os.MkdirAll(filepath.Dir(python), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +218,7 @@ func TestGateTurnBindsOnlyTheVerifiedRunAndItsExactBaseClone(t *testing.T) {
 				t.Chdir(managed)
 			}
 			turnLine(t)
-			args := []string{"--gate-run", runID, "--test-comparison-sha", comparison, "--", "cmd.exe", "/d", "/c", "echo %UV_PROJECT_ENVIRONMENT%"}
+			args := append([]string{"--gate-run", runID, "--test-comparison-sha", comparison, "--"}, shellCommand("echo %UV_PROJECT_ENVIRONMENT%", `echo "$UV_PROJECT_ENVIRONMENT"`)...)
 			if scenario == "unbound wrapper" {
 				args = args[4:]
 			}
@@ -264,7 +267,7 @@ func TestGateTurnLeavesAnUnconfiguredProjectsEnvironmentAndOwnershipAlone(t *tes
 			var stdout, stderr lockedBuffer
 
 			// Act
-			exit := gateTurn(turnRuntime(), &stdout, &stderr, "--gate-run", "run", "--test-comparison-sha", comparison, "--", "cmd.exe", "/d", "/c", "echo %UV_PROJECT_ENVIRONMENT%^|%ARBITRARY_DAEMON_SETTING%")
+			exit := gateTurn(turnRuntime(), &stdout, &stderr, append([]string{"--gate-run", "run", "--test-comparison-sha", comparison, "--"}, shellCommand("echo %UV_PROJECT_ENVIRONMENT%^|%ARBITRARY_DAEMON_SETTING%", `echo "$UV_PROJECT_ENVIRONMENT|$ARBITRARY_DAEMON_SETTING"`)...)...)
 
 			// Assert
 			if exit != 0 || strings.TrimSpace(stdout.String()) != "existing-daemon-setting|unchanged" || withoutTurnProgress(stderr.String()) != "" {

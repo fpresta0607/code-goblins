@@ -10,7 +10,6 @@ import (
 	"maps"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -1164,9 +1163,7 @@ func TestPipelineMigrationRacingSwitchPreservesBothUpdates(t *testing.T) {
 	if err := os.MkdirAll(stub, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(stub, "codex.cmd"), []byte("@exit /b 1\r\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	putScriptShim(t, stub, "codex")
 	t.Setenv("PATH", stub+string(os.PathListSeparator)+os.Getenv("PATH"))
 	switchRunner := &pipelineSwitchRunner{statusReady: make(chan struct{}), statusRelease: make(chan struct{})}
 	// No host command is given, so the switch publishes the new harness and
@@ -2290,7 +2287,7 @@ func registeredPrimary(t *testing.T, h home.Home, caller string) {
 		registered, err = lock.Acquire(h.State)
 		t.Cleanup(func() { _ = lock.Release(h.State) })
 	} else {
-		other := exec.Command("ping", "-n", "30", "127.0.0.1")
+		other := lastingProgram(30)
 		if err := other.Start(); err != nil {
 			t.Fatal(err)
 		}

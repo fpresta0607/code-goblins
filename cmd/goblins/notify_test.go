@@ -254,7 +254,9 @@ func TestNotifyTargetsStateOverrideWithoutCEOHome(t *testing.T) {
 	t.Setenv("GOBLINS_HOME", "")
 	t.Setenv("GOBLINS_STATE_OVERRIDE", stateDir)
 	// With no GOBLINS_HOME the home is the per-user one, here the test's own.
-	t.Setenv("LOCALAPPDATA", t.TempDir())
+	userData := t.TempDir()
+	t.Setenv("LOCALAPPDATA", userData)
+	t.Setenv("XDG_DATA_HOME", userData)
 	t.Chdir(worktree)
 
 	var stdout, stderr bytes.Buffer
@@ -846,12 +848,7 @@ func TestNotifyWorkingAndWaitingOnWakeOnlyForTheOverlord(t *testing.T) {
 // a fixed address.
 func fakeLavish(t *testing.T) {
 	t.Helper()
-	bin := t.TempDir()
-	script := "@echo off\r\necho session:\r\necho   url: \"http://127.0.0.1:4387/session/f26e\"\r\necho   status: opened\r\n"
-	if err := os.WriteFile(filepath.Join(bin, "lavish-axi.cmd"), []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+filepath.Join(os.Getenv("SystemRoot"), "System32"))
+	lavishAxiOnPath(t, "", 0, "session:", `  url: "http://127.0.0.1:4387/session/f26e"`, "  status: opened")
 }
 
 // A wait on the Overlord can name the Lavish page he answers on: the page is
@@ -946,7 +943,10 @@ func TestNotifyPageWaitIsTheCEOsDecisionWhileAFKModeIsOn(t *testing.T) {
 				want = "blocked: approve the mockups (page http://127.0.0.1:4387/session/f26e) options: Build it as shown (Recommended) | Change it"
 			}
 			lines, err := state.TailStatus(stateDir, "g1", 1)
-			if _, event := state.SplitStatus(lines[0]); err != nil || event != want {
+			if err != nil || len(lines) != 1 {
+				t.Fatalf("status = %q %v (exit %d, stderr %q), want %q", lines, err, exit, stderr.String(), want)
+			}
+			if _, event := state.SplitStatus(lines[0]); event != want {
 				t.Fatalf("status = %q %v, want %q", lines, err, want)
 			}
 			if records, err := wake.Pending(stateDir); err != nil || len(records) != 1 || records[0].Detail != want {

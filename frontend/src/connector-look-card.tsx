@@ -1,12 +1,13 @@
 import { ConnectorLogo } from "./connector-logo";
 import { placeKey, type Place } from "./connector-place";
 import type { ConnectorRow } from "./connector-rows";
-import { checkedWords, isStale, LEVEL_WORDS, repairLabel, repairWords } from "./connector-status";
+import { checkedWords, isStale, LEVEL_WORDS, repairLabel, repairWords, SCOPE_WORDS } from "./connector-status";
+import { ConnectorTag } from "./connector-tag";
 import { Icon } from "./Icon";
 import type { ConnectorActions } from "./use-connectors";
 
 // One card of Needs a look (#3002), the same parts in the same places whatever
-// its level and kind: its logo, its name and where it is from, and its level;
+// its level and kind: its logo, its name and where it is from, and its scope;
 // its status in a word with the reason; where it is declared and when it was
 // checked; the credential names it declares, when it declares any; and every
 // action in one row at its foot, Remove last. The name opens its place.
@@ -26,7 +27,7 @@ export function ConnectorLookCard({ row, now, actions, onOpen, onRemove }: {
         <button type="button" className="connector-open" aria-label={row.name + ", " + origin} onClick={() => onOpen(row.place)}>{row.name}</button>
         <span className="look-card-origin">{origin}</span>
       </div>
-      <span className={"connector-level is-" + row.level}>{LEVEL_WORDS[row.level]}</span>
+      <ConnectorTag tone={row.scope} text={SCOPE_WORDS[row.scope]} />
     </div>
     <p className="look-card-state"><b>{row.isChecking ? "Rechecking..." : row.word}</b>{!row.isChecking && row.detail && <span>{row.detail}</span>}</p>
     <p className="look-card-facts">

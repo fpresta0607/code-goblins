@@ -115,7 +115,7 @@ export async function play(page: Page, supervisor: Supervisor): Promise<void> {
 // acme, checked a few minutes ago, whose supabase points at one Supabase
 // project; globex, checked an hour and a half ago, whose supabase points at
 // another and is missing a variable; and a goblin in each, Zeke's server
-// failed to load.
+// failed to load and acme's supabase server not given to it.
 export function fleet(): Supervisor {
   const acme: ProjectJson = {
     name: "acme", path: "C:/work/acme", browser_logins: [],
@@ -149,6 +149,7 @@ export function fleet(): Supervisor {
           item("goblin", "loaded", "mcp", "acme-search", "verified", { tools: ["search_pages", "read_page"], source: "its session record" }),
           item("goblin", "carried", "service", "github", "set", { grant: "revoke" }),
           item("goblin", "not_given", "service", "supabase", "not_given", { grant: "grant", detail: "The CEO gives it with goblins auth grant cg-touch supabase." }),
+          item("goblin", "not_given", "mcp", "supabase", "not_given", { grant: "grant", detail: "The CEO gives it with goblins auth grant cg-touch --mcp supabase." }),
         ], 30),
       },
       { task: "cg-other", generation: "cg-other-1", project: "globex", harness: "codex", is_confirmed: false, note: "Codex does not record which servers loaded: it has the Codex user config's servers on the Account level.", ...level([], 30) },

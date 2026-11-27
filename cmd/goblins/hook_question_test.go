@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -24,6 +23,10 @@ func registerCEO(t *testing.T, homeDir string, pid int) {
 		t.Fatalf("start time of pid %d is unreadable: %v", pid, err)
 	}
 	start := entries[0].Start
+	instance, err := lock.InstanceOf(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
 	hostname, err := os.Hostname()
 	if err != nil {
 		t.Fatal(err)
@@ -34,7 +37,7 @@ func registerCEO(t *testing.T, homeDir string, pid int) {
 		"tab":       "w1:t0",
 		"agent":     "claude",
 		"terminal":  "term_1",
-		"process":   lock.Info{PID: pid, OwnerPID: pid, Start: start, Hostname: hostname, Acquired: time.Now().UTC()},
+		"process":   lock.Info{PID: pid, OwnerPID: pid, Start: start, Instance: instance, Hostname: hostname, Acquired: time.Now().UTC()},
 	}
 	data, err := json.Marshal(record)
 	if err != nil {
@@ -87,7 +90,7 @@ func TestRunHookPretoolSubagentLetsOtherSessionsAskNatively(t *testing.T) {
 	}{
 		{"no CEO is registered", func(*testing.T, string) {}},
 		{"another session is the registered CEO", func(t *testing.T, homeDir string) {
-			other := exec.Command("ping", "-n", "30", "127.0.0.1")
+			other := lastingProgram(30)
 			if err := other.Start(); err != nil {
 				t.Fatal(err)
 			}

@@ -22,6 +22,7 @@ func TestRunSpawnPassesValidatedRequestAndEnvironment(t *testing.T) {
 	deps.quota = nil        // no quota-axi call from a unit test; the check has its own tests
 	deps.repoActivity = nil // no git or GitHub read from a unit test; the overlap check has its own tests
 	brief := briefFile(t)
+	project := filepath.Join(t.TempDir(), "project")
 	policyPath := filepath.Join(homeRoot, "data", "projects", "project", "project.json")
 	if err := os.MkdirAll(filepath.Dir(policyPath), 0o700); err != nil {
 		t.Fatal(err)
@@ -43,7 +44,7 @@ func TestRunSpawnPassesValidatedRequestAndEnvironment(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	exit := runWithRuntime([]string{
 		"spawn", "g1",
-		"--project", `C:\project`,
+		"--project", project,
 		"--brief", brief,
 		"--harness", "codex",
 		"--mode", "direct-PR",
@@ -57,7 +58,7 @@ func TestRunSpawnPassesValidatedRequestAndEnvironment(t *testing.T) {
 	if gotHome.Root != homeRoot || gotHome.State != filepath.Join(homeRoot, "state") {
 		t.Errorf("home = %+v, want GOBLINS_HOME %q", gotHome, homeRoot)
 	}
-	if gotRequest.ID != "g1" || gotRequest.Project != `C:\project` || gotRequest.BriefPath != brief || gotRequest.Kind != "ship" || gotRequest.Mode != "direct-PR" || !gotRequest.Yolo || string(gotRequest.Harness) != "codex" || gotRequest.Model != "gpt-5" || gotRequest.Effort != "high" {
+	if gotRequest.ID != "g1" || gotRequest.Project != project || gotRequest.BriefPath != brief || gotRequest.Kind != "ship" || gotRequest.Mode != "direct-PR" || !gotRequest.Yolo || string(gotRequest.Harness) != "codex" || gotRequest.Model != "gpt-5" || gotRequest.Effort != "high" {
 		t.Errorf("request = %+v, want parsed spawn request", gotRequest)
 	}
 	if stdout.String() != "spawned g1\n"+explicitRouteLine || stderr.Len() != 0 {

@@ -1,9 +1,10 @@
 import { fleet, NOW, play, type Supervisor } from "./connectors-supervisor";
 import { expect, holdStream, openTaskList, taskList, test, type Locator, type Page } from "./site";
 
-// The Connectors page as a drill-down (#2902): This PC and its accounts, then
-// each project, then each goblin, each row saying which level it is of, and a
-// search over every level. One page in the board, reached from its top bar,
+// The Connectors page as a tree of where connectors live (#3010, after the
+// drill-down of #2902): This PC, then each project with its goblins under it,
+// then your own Claude and Codex, each row tagged with its scope, and a search
+// over every level. One page in the board, reached from its top bar,
 // whose supervisor is played here.
 const goblin = (id: string, name: string, title: string, project: string) => ({
   id, title: "A made-up task of " + name, goblin_name: name, goblin_title: title, project, phase: "working", verified: false,
@@ -27,9 +28,11 @@ async function open(page: Page, supervisor: Supervisor, width: number): Promise<
   await page.getByRole("group", { name: "Workspace view" }).getByRole("button", { name: "Connectors", exact: true }).click();
   const main = page.getByRole("main", { name: "Connectors" });
   await expect(main.getByRole("heading", { name: "Connectors", exact: true })).toBeVisible();
-  await expect(main.getByRole("region", { name: "Connectors view" })).toBeVisible();
+  await expect(tree(main)).toBeVisible();
   return main;
 }
+
+const tree = (main: Locator) => main.getByRole("navigation", { name: "Where connectors live" });
 
 // Every card of Needs a look has the same parts in the same order, its
 // actions last in one row at its foot with Remove last, and cards side by side
@@ -71,91 +74,146 @@ async function expectFits(page: Page, main: Locator) {
 }
 
 for (const width of [1440, 390]) {
-  test(`the page drills down from this PC to a project to a goblin and back up by its breadcrumb, each row saying its level, at ${width}px`, async ({ page }, testInfo) => {
+  test(`the page's tree goes from this PC to a project to a goblin, each row tagged with its scope, and back up by its breadcrumb, at ${width}px`, async ({ page }, testInfo) => {
     // Arrange
     const supervisor = fleet();
     const main = await open(page, supervisor, width);
-
-    // Assert: home holds a tile for each level and what needs a look from every level.
-    await expect(main.locator(".connector-tile strong")).toHaveText(["This PC and its accounts", "2 projects", "2 goblins"]);
+    const isWide = width === 1440;
     const attention = group(main, "Needs a look");
-    await expect(attention.locator(".connector-open")).toHaveText(["gcloud", "ACME_API_KEY", "Supabase", "Acme Docs"]);
-    await expect(attention.locator(".connector-level")).toHaveText(["This PC", "This PC", "Project", "Goblin"]);
-    await expect(attention.locator(".look-card-state b")).toHaveText(["Not checked", "Every goblin has it", "Missing", "Failed to load"]);
-    await expectSameCards(attention);
+
+    // Assert: the tree holds every scope, the widest first, each project with its goblins under it.
+    await expect(tree(main).getByRole("button", { name: "Needs a look, 4" })).toBeVisible();
+    await expect(tree(main).locator(".connector-leaf")).toHaveText(["Command-line tools3", "Harness sign-ins1", "User environment credentials1", "Built in to every goblin1"]);
+    await expect(tree(main).locator(".connector-tag")).toHaveText(["Global", "Local", "Goblin", "Goblin", "Yours only"]);
+    await expect(tree(main).locator(".connector-tree-list > li > .connector-node")).toHaveText(["acme2 private · 1 in repo", "globex1 private"]);
+    await expect(tree(main).getByRole("button", { name: "globex, 1 private, needs a look" })).toBeVisible();
+    await expect(tree(main).getByRole("button", { name: ZEKE + ", carries 1, needs a look" })).toBeVisible();
+    await expect(tree(main).getByRole("button", { name: "Ivy - Window Painter, carries 0" })).toBeVisible();
+    await expect(tree(main).getByRole("button", { name: "Your Claude and Codex, 1" })).toBeVisible();
+
+    // Assert: where the page is wide Needs a look shows beside the tree; on a phone the tree is the home alone.
+    if (isWide) await expect(attention).toBeVisible();
+    else await expect(attention).toBeHidden();
     await expectFits(page, main);
     await page.screenshot({ path: testInfo.outputPath(`connectors-home-${width}.png`) });
 
+    // Act: Needs a look.
+    await tree(main).getByRole("button", { name: "Needs a look, 4" }).click();
 
-    // Act: this PC and its accounts.
-    await main.getByRole("button", { name: /^Level 1/ }).click();
+    // Assert: what needs a look from every scope, each card tagged with its scope.
+    if (isWide) await expect(tree(main).getByRole("button", { name: "Needs a look, 4" })).toHaveAttribute("aria-current", "location");
+    await expect(attention.locator(".connector-open")).toHaveText(["gcloud", "ACME_API_KEY", "Supabase", "Acme Docs"]);
+    await expect(attention.locator(".connector-tag")).toHaveText(["Global", "Global", "Local", "Goblin"]);
+    await expect(attention.locator(".look-card-state b")).toHaveText(["Not checked", "Every goblin has it", "Missing", "Failed to load"]);
+    if (isWide) await expect(tree(main)).toBeVisible();
+    else await expect(tree(main)).toBeHidden();
+    await expectSameCards(attention);
+    await expectFits(page, main);
+    await page.screenshot({ path: testInfo.outputPath(`connectors-look-${width}.png`) });
 
-    // Assert: its groups, each row of the PC or the Account level.
-    await expect(crumbs(main).locator(".here")).toHaveText("This PC and its accounts");
-    await expect(main.locator(".connector-group > h3")).toHaveText(["CLI tools3", "This PC's environment1", "Built in to every goblin1", "Harness accounts1", "Comes with your Claude account1"]);
-    await expect(group(main, "CLI tools").locator(".connector-name strong")).toHaveText(["gh", "vercel", "gcloud"]);
-    await expect(group(main, "CLI tools").locator(".connector-state b")).toHaveText(["Verified", "Installed", "Not checked"]);
-    await expect(group(main, "Harness accounts").locator(".connector-level")).toHaveText("Account");
-    await expect(group(main, "Comes with your Claude account").locator(".connector-state b")).toHaveText("Not given");
+    // Act: back to the home by the breadcrumb, then this PC.
+    await crumbs(main).getByRole("button", { name: "Connectors", exact: true }).click();
+    await tree(main).getByRole("button", { name: "This PC", exact: true }).click();
+
+    // Assert: what every goblin gets, the harness sign-ins with it, each row Global.
+    await expect(crumbs(main).locator(".here")).toHaveText("This PC");
+    await expect(main.locator(".connector-title")).toContainText("This PCGlobal");
+    await expect(main.locator(".connector-group > h4")).toHaveText(["Command-line tools3", "Harness sign-ins1", "User environment credentials1", "Built in to every goblin1"]);
+    await expect(group(main, "Command-line tools").locator(".connector-name strong")).toHaveText(["gh", "vercel", "gcloud"]);
+    await expect(group(main, "Command-line tools").locator(".connector-state b")).toHaveText(["Verified", "Installed", "Not checked"]);
+    await expect(group(main, "Harness sign-ins").locator(".connector-tag")).toHaveText("Global");
     await expectFits(page, main);
     await page.screenshot({ path: testInfo.outputPath(`connectors-pc-${width}.png`) });
 
-    // Act: back to the home by the breadcrumb, then the projects.
+    // Act: back by the breadcrumb, which lands on the way down, then your own Claude and Codex.
     await crumbs(main).getByRole("button", { name: "Connectors", exact: true }).click();
-    await expect(main.getByRole("button", { name: /^Level 1/ })).toBeFocused();
-    await main.getByRole("button", { name: /^Level 2/ }).click();
+    await expect(tree(main).getByRole("button", { name: "This PC", exact: true })).toBeFocused();
+    await tree(main).getByRole("button", { name: "Your Claude and Codex, 1" }).click();
 
-    // Assert: each project once, the busiest first, with how much it holds.
-    await expect(group(main, "Projects").locator(".connector-open")).toHaveText(["acme", "globex"]);
-    await expect(group(main, "Projects").locator(".connector-sub")).toHaveText(["2 services · 1 MCP server · 1 goblin", "1 service · 1 goblin"]);
-    await expect(group(main, "Projects").locator(".connector-stale")).toHaveCount(1);
+    // Assert: what only your own sessions load.
+    await expect(crumbs(main).locator(".here")).toHaveText("Your Claude and Codex");
+    await expect(group(main, "Comes with your Claude account").locator(".connector-state b")).toHaveText("Not given");
+    await expect(group(main, "Comes with your Claude account").locator(".connector-tag")).toHaveText("Yours only");
+
+    // Act: the projects.
+    await crumbs(main).getByRole("button", { name: "Connectors", exact: true }).click();
+    await tree(main).getByRole("button", { name: "Projects, 2, one git repository each" }).click();
+
+    // Assert: each project once, those with a goblin first, with how much it holds.
+    await expect(group(main, "Every project").locator(".connector-open")).toHaveText(["acme", "globex"]);
+    await expect(group(main, "Every project").locator(".connector-sub")).toHaveText(["2 services · 1 MCP server · 1 goblin", "1 service · 1 goblin"]);
+    await expect(group(main, "Every project").locator(".connector-stale")).toHaveCount(1);
 
     // Act: a project.
-    await main.getByRole("button", { name: "acme", exact: true }).click();
+    await group(main, "Every project").getByRole("button", { name: "acme", exact: true }).click();
 
-    // Assert: its services with their credential names and what each points at, its MCP servers and its goblins.
+    // Assert: its repository's servers apart from what it keeps private to this PC, each saying who carries it.
     await expect(crumbs(main).locator(".here")).toHaveText("acme");
-    const services = group(main, "Services");
-    await expect(services.locator(".connector-name strong")).toHaveText(["GitHub", "Supabase"]);
-    await expect(services.locator(".connector-state b")).toHaveText(["Verified", "Set"]);
-    await expect(services.locator(".connector-sub").nth(1)).toContainText("Supabase project …k3tv");
-    await expect(services.getByRole("list", { name: "Credential names of Supabase" }).locator("li")).toHaveText(["SUPABASE_URLset", "SUPABASE_SERVICE_KEYnot set"]);
-    await expect(group(main, "MCP servers").locator(".connector-state b")).toHaveText("Not given");
+    await expect(main.locator(".connector-title")).toHaveText("acmeLocalC:/work/acme · one git repository");
+    const repository = group(main, "In the repository");
+    await expect(repository.locator(".connector-where-head")).toContainText("In the repository.mcp.json1 server");
+    await expect(repository.locator(".connector-state b")).toHaveText("Not given");
+    await expect(repository.locator(".connector-sub")).toHaveText("Supabase project …k3tv · also a service below");
+    const kept = group(main, "Private to this PC");
+    await expect(kept.locator(".connector-where-head")).toContainText("Private to this PCauth.json2 services");
+    await expect(kept.locator(".connector-name strong")).toHaveText(["GitHub", "Supabase"]);
+    await expect(kept.locator(".connector-state b")).toHaveText(["Verified", "Set"]);
+    await expect(kept.locator(".connector-sub")).toHaveText(["read from its probe · " + ZEKE + " carries it", "Supabase project …k3tv · no goblin carries it · also a server above"]);
+    await expect(kept.getByRole("list", { name: "Credential names of Supabase" }).locator("li")).toHaveText(["SUPABASE_URLset", "SUPABASE_SERVICE_KEYnot set"]);
+    await expect(kept.locator(".connector-tag").last()).toHaveText("Local");
+    await expect(group(main, "From this PC")).toContainText("3 tools, 1 harness sign-in, 1 credential and 1 built-in, the same for every project.");
     await expect(group(main, "Goblins").locator(".connector-open")).toHaveText(ZEKE);
+    if (isWide) await expect(tree(main).getByRole("button", { name: "acme, 2 private · 1 in repo" })).toHaveAttribute("aria-current", "location");
     await expectFits(page, main);
     await page.screenshot({ path: testInfo.outputPath(`connectors-project-${width}.png`) });
 
     // Act: a goblin.
-    await main.getByRole("button", { name: ZEKE, exact: true }).click();
+    await group(main, "Goblins").getByRole("button", { name: ZEKE, exact: true }).click();
 
-    // Assert: it sits under its project, and shows only what differs.
+    // Assert: it sits under its project, and reads from the widest scope down.
     await expect(crumbs(main).locator("button, .here")).toHaveText(["Connectors", "Projects", "acme", ZEKE]);
-    await expect(group(main, "Failed to load").locator(".connector-state")).toContainText("Connection closed");
-    await expect(group(main, "Loaded by its session").locator(".connector-state b")).toHaveText("Loaded");
-    await expect(group(main, "Loaded by its session").locator("summary")).toHaveText("Tools2");
-    await expect(group(main, "Carries").getByRole("button", { name: "Disconnect GitHub from " + ZEKE })).toBeVisible();
-    await expect(group(main, "Not given").getByRole("button", { name: "Connect Supabase to " + ZEKE })).toBeVisible();
+    await expect(main.locator(".connector-where")).toHaveCount(4);
+    await expect(group(main, "From this PC")).toContainText("Every goblin gets these: 3 tools, 1 harness sign-in, 1 credential and 1 built-in.");
+    const granted = group(main, "Granted from acme");
+    await expect(granted.locator(".connector-chip")).toHaveText("1 of 2");
+    await expect(granted.getByRole("button", { name: "Disconnect GitHub from " + ZEKE })).toBeVisible();
+    await expect(granted.getByRole("button", { name: "Connect Supabase to " + ZEKE })).toHaveCount(0);
+    const servers = group(main, "Servers from acme");
+    await expect(servers.locator(".connector-where-head")).toContainText("Servers from acme.mcp.json0 of 1");
+    await expect(servers.locator("summary")).toHaveText("1 server of acme it is not given");
+    const session = group(main, "Its session");
+    await expect(session.locator(".connector-chip")).toHaveText("1 failed");
+    await expect(session.locator(".connector-state b")).toHaveText(["Failed to load", "Loaded"]);
+    await expect(session.locator(".connector-state").first()).toContainText("Connection closed");
+    await expect(session.locator("summary")).toHaveText("Tools2");
     await expect(main.locator(".connector-row .connector-refresh")).toHaveCount(0);
-    await expect(main.locator("details.connector-same")).not.toHaveAttribute("open", "");
     await expectFits(page, main);
     await page.screenshot({ path: testInfo.outputPath(`connectors-goblin-${width}.png`) });
+
+    // Act: the services it is not given unfold.
+    await granted.getByText("1 service of acme it is not given", { exact: true }).click();
+
+    // Assert
+    await expect(granted.getByRole("button", { name: "Connect Supabase to " + ZEKE })).toBeVisible();
 
     // Act: back up by the breadcrumb, a step at a time.
     await crumbs(main).getByRole("button", { name: "acme", exact: true }).click();
 
     // Assert: the way back lands on the row it came down by.
     await expect(crumbs(main).locator(".here")).toHaveText("acme");
-    await expect(main.getByRole("button", { name: ZEKE, exact: true })).toBeFocused();
+    await expect(group(main, "Goblins").getByRole("button", { name: ZEKE, exact: true })).toBeFocused();
 
-    // Act
+    // Act: down to the goblin again, then up two steps at once.
+    await group(main, "Goblins").getByRole("button", { name: ZEKE, exact: true }).click();
     await crumbs(main).getByRole("button", { name: "Projects", exact: true }).click();
 
-    // Assert
-    await expect(main.getByRole("button", { name: "acme", exact: true })).toBeFocused();
+    // Assert: the way back lands on the project it went down through.
+    await expect(group(main, "Every project").getByRole("button", { name: "acme", exact: true })).toBeFocused();
     expect(supervisor.posts).toEqual([]);
 
-    // Act: home again by the breadcrumb.
+    // Act: Needs a look again, from the tree.
     await crumbs(main).getByRole("button", { name: "Connectors", exact: true }).click();
+    await tree(main).getByRole("button", { name: "Needs a look, 4" }).click();
 
     // Act: remove the project's missing service, confirming what it changes.
     await attention.getByRole("button", { name: "Remove Supabase, globex" }).click();
@@ -164,10 +222,36 @@ for (const width of [1440, 390]) {
     await page.screenshot({ path: testInfo.outputPath(`connectors-remove-${width}.png`) });
     await confirm.getByRole("button", { name: "Remove", exact: true }).click();
 
-    // Assert: the one service is removed and leaves the list, the rest stay.
+    // Assert: the one service is removed and leaves the list and the tree's count, the rest stay.
     await expect(confirm).toBeHidden();
     await expect(attention.locator(".connector-open")).toHaveText(["gcloud", "ACME_API_KEY", "Acme Docs"]);
+    if (isWide) await expect(tree(main).getByRole("button", { name: "Needs a look, 3" })).toBeVisible();
     expect(supervisor.posts.map((post) => [post.path, post.token, post.body])).toEqual([["/api/connectors/remove", "fixture", { level: "project", project: "globex", task: "", generation: "", connection: "service:supabase" }]]);
+  });
+
+  test(`a goblin opens straight from the tree, which marks it, and the way back lands on it, at ${width}px`, async ({ page }) => {
+    // Arrange
+    const main = await open(page, fleet(), width);
+
+    // Act
+    await tree(main).getByRole("button", { name: "Ivy - Window Painter, carries 0" }).click();
+
+    // Assert: the goblin's view takes the focus.
+    await expect(crumbs(main).locator(".here")).toHaveText("Ivy - Window Painter");
+    await expect(main.getByRole("region", { name: "Ivy - Window Painter view" })).toBeFocused();
+    if (width === 1440) await expect(tree(main).getByRole("button", { name: "Ivy - Window Painter, carries 0" })).toHaveAttribute("aria-current", "location");
+    else await expect(tree(main)).toBeHidden();
+
+    // Act: across to another project from the tree, where the page is wide, then home by the breadcrumb.
+    if (width === 1440) {
+      await tree(main).getByRole("button", { name: "acme, 2 private · 1 in repo" }).click();
+      await expect(main.getByRole("region", { name: "acme view" })).toBeFocused();
+      await tree(main).getByRole("button", { name: "Ivy - Window Painter, carries 0" }).click();
+    }
+    await crumbs(main).getByRole("button", { name: "Connectors", exact: true }).click();
+
+    // Assert: the way back lands on the goblin it went down by.
+    await expect(tree(main).getByRole("button", { name: "Ivy - Window Painter, carries 0" })).toBeFocused();
   });
 
   test(`a search finds items at every level, grouped by level, same-named items of two projects apart with their project and target, and each result opens its place, at ${width}px`, async ({ page }, testInfo) => {
@@ -182,11 +266,11 @@ for (const width of [1440, 390]) {
 
     // Assert: the account's connector, and each project's service and server, under their levels.
     await expect(crumbs(main).locator(".here")).toHaveText("Search: every level");
-    await expect(main.locator(".connector-group > h3")).toHaveText(["Account1", "Project3", "Goblin1"]);
+    await expect(main.locator(".connector-group > h4")).toHaveText(["Account1", "Project3", "Goblin2"]);
     const projects = group(main, "Project");
     await expect(projects.locator(".connector-sub")).toHaveText(["acme · Supabase project …k3tv", "acme · Supabase project …k3tv", "globex · Supabase project …q7wk"]);
     await expect(projects.getByRole("button", { name: "Supabase, globex" })).toBeVisible();
-    await expect(main.getByText("5 matches, searched in the saved snapshot: nothing was checked to answer it.")).toBeVisible();
+    await expect(main.getByText("6 matches, searched in the saved snapshot: nothing was checked to answer it.")).toBeVisible();
     await expectFits(page, main);
     await page.screenshot({ path: testInfo.outputPath(`connectors-search-${width}.png`) });
 
@@ -194,7 +278,7 @@ for (const width of [1440, 390]) {
     await search.fill("acme");
 
     // Assert
-    await expect(main.locator(".connector-group > h3")).toHaveText(["This PC1", "Project3", "Goblin4"]);
+    await expect(main.locator(".connector-group > h4")).toHaveText(["This PC1", "Project3", "Goblin5"]);
 
     // Act: a result opens its place, and the search ends.
     await projects.getByRole("button", { name: "Supabase, acme" }).first().click();
@@ -236,7 +320,7 @@ for (const width of [1440, 390]) {
 
     // Assert: the page shows, beside the panel or in its place on a phone.
     const main = page.getByRole("main", { name: "Connectors" });
-    await expect(main.locator(".connector-tile").first()).toBeVisible();
+    await expect(tree(main)).toBeVisible();
     await expect(page.getByRole("group", { name: "Workspace view" }).getByRole("button", { name: "Connectors", exact: true })).toHaveAttribute("aria-pressed", "true");
     if (width === 1440) await expect(page.locator("aside.context-pane")).toBeVisible();
     else await expect(page.locator("aside.context-pane")).toBeHidden();
@@ -251,7 +335,7 @@ for (const width of [1440, 390]) {
 
       // Assert
       await expect(page.locator("aside.context-pane")).toBeVisible();
-      await expect(main.locator(".connector-tile").first()).toBeVisible();
+      await expect(tree(main)).toBeVisible();
     }
   });
 }
@@ -299,10 +383,9 @@ test("with no goblin running the page still shows this PC and every project from
   // Act
   await page.getByRole("group", { name: "Workspace view" }).getByRole("button", { name: "Connectors", exact: true }).click();
   const main = page.getByRole("main", { name: "Connectors" });
-  await main.getByRole("button", { name: /^Level 2/ }).click();
-  await main.getByRole("button", { name: "acme", exact: true }).click();
+  await tree(main).getByRole("button", { name: "acme, 2 private · 1 in repo" }).click();
 
   // Assert
   await expect(main.getByText("No goblin is running in this project.", { exact: true })).toBeVisible();
-  await expect(main.getByRole("region", { name: "Services" })).toBeVisible();
+  await expect(main.getByRole("region", { name: "Private to this PC" })).toBeVisible();
 });

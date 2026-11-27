@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { allRows, goblinRows, groupByGroup, groupByLevel, levelSummary, needsLook, oldestCheck, projectRows, searchRows } from "./connector-rows.ts";
+import { allRows, goblinRows, groupByGroup, groupByLevel, needsLook, oldestCheck, projectRows, searchRows } from "./connector-rows.ts";
 import { isAnyChecking, parseConnectorSnapshot } from "./connector-snapshot.ts";
 
 const AT = "2026-11-25T10:00:00Z";
@@ -107,15 +107,31 @@ test("Needs a look holds the items in trouble from every level, a check that did
   assert.deepEqual(trouble, [["pc", "gcloud", "Not checked"], ["pc", "ACME_API_KEY", "Every goblin has it"], ["project", "Supabase", "Missing"], ["goblin", "Acme Docs", "Failed to load"]]);
 });
 
-test("a level's rows are grouped in the order that level is read in", () => {
+test("rows are grouped in the order given, any group it does not name last", () => {
   // Arrange
   const rows = allRows(snapshot(), nameOf).filter((row) => row.level === "goblin");
 
   // Act
-  const groups = groupByGroup(rows, "goblin").map((group) => [group.title, group.rows.length]);
+  const groups = groupByGroup(rows, ["loaded", "failed"]).map((group) => [group.title, group.rows.length]);
 
   // Assert
-  assert.deepEqual(groups, [["Failed to load", 1], ["Loaded by its session", 1], ["Carries", 1]]);
+  assert.deepEqual(groups, [["Loaded by its session", 1], ["Failed to load", 1], ["Carries", 1]]);
+});
+
+test("every row says the scope it lives in: this PC's and the harness's Global, your own Claude's Yours only, a project's Local and a goblin's Goblin", () => {
+  // Arrange
+  const view = snapshot();
+  view.machine.items.push({ ...view.machine.items[0], id: "harness:claude", level: "account", group: "harness", kind: "harness", name: "claude" });
+
+  // Act
+  const scopes = allRows(view, nameOf).map((row) => [row.name, row.scope]);
+
+  // Assert
+  assert.deepEqual(scopes, [
+    ["gh", "global"], ["gcloud", "global"], ["ACME_API_KEY", "global"], ["Supabase", "yours"], ["claude", "global"],
+    ["Supabase", "local"], ["Supabase", "local"], ["Supabase", "local"],
+    ["Acme Docs", "goblin"], ["GitHub", "goblin"], ["Acme Search", "goblin"],
+  ]);
 });
 
 test("the projects and goblins lists say how much each holds, what needs a look and whether it was checked", () => {
@@ -136,19 +152,6 @@ test("the projects and goblins lists say how much each holds, what needs a look 
     ["Zeke - Touch Wrangler", "acme · claude", "1 server failed to load", "trouble"],
     ["Ivy - Window Painter", "globex · codex · not confirmed by its session", "As its project", "quiet"],
   ]);
-});
-
-test("the home tiles count what each level holds and what needs a look", () => {
-  // Arrange
-  const view = snapshot();
-
-  // Act
-  const summary = levelSummary(view);
-
-  // Assert
-  assert.equal(summary.pc, "2 CLI tools, 0 harness accounts, 1 account connector, 0 user-config servers · 2 to look at");
-  assert.equal(summary.projects, "Services and MCP servers, each checked once per project · 1 to look at");
-  assert.equal(summary.goblins, "What each session loaded · 1 server failed to load");
 });
 
 test("the snapshot says whether any level is being checked and when its oldest check ended", () => {

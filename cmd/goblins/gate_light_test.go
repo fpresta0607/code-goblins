@@ -163,7 +163,7 @@ func TestGateTestStepOfAProjectWhoseRecordDeclaresALightTestRunsBesideTheLine(t 
 			var stdout, stderr lockedBuffer
 
 			// Act
-			exit := gateTurn(turnRuntime(), &stdout, &stderr, "--gate-run", "run", "--test-comparison-sha", comparison, "--wait", "3s", "--", "cmd.exe", "/d", "/c", "echo %GOBLINS_TEST_EVIDENCE%")
+			exit := gateTurn(turnRuntime(), &stdout, &stderr, append([]string{"--gate-run", "run", "--test-comparison-sha", comparison, "--wait", "3s", "--"}, shellCommand("echo %GOBLINS_TEST_EVIDENCE%", `echo "$GOBLINS_TEST_EVIDENCE"`)...)...)
 
 			// Assert
 			if exit != row.exit || row.evidence != "" && strings.TrimSpace(stdout.String()) != row.evidence {
@@ -331,7 +331,7 @@ func TestGateTestStepOfALightProjectWithATestEnvironmentIsToldItsTestEvidence(t 
 	var stdout, stderr lockedBuffer
 
 	// Act
-	exit := gateTurn(turnRuntime(), &stdout, &stderr, "--gate-run", "run", "--test-comparison-sha", comparison, "--", "cmd.exe", "/d", "/c", "echo %GOBLINS_TEST_EVIDENCE%^|%UV_NO_SYNC%")
+	exit := gateTurn(turnRuntime(), &stdout, &stderr, append([]string{"--gate-run", "run", "--test-comparison-sha", comparison, "--"}, shellCommand("echo %GOBLINS_TEST_EVIDENCE%^|%UV_NO_SYNC%", `echo "$GOBLINS_TEST_EVIDENCE|$UV_NO_SYNC"`)...)...)
 
 	// Assert
 	if exit != 0 || strings.TrimSpace(stdout.String()) != "hosted-ci|1" {
