@@ -11,10 +11,10 @@ import "slices"
 // command's and everything it starts keeps the clamp. The clamp gives it a
 // lower scheduling priority than a default program's and keeps it off no
 // core. On the macOS runner on 2026-11-27, a virtual machine with one kind of
-// core, it made a cold build about 1.2 times as long (11.0 s against 9.2 s)
-// and gave a foreground load beside it no measured gain, while background
-// priority made the build 6.4 times as long (58.7 s) and throttles disk and
-// network (#2535).
+// core whose jobs already run at the utility class's priority, background
+// priority made a cold build 6.4 times as long (58.7 s against 9.2 s) and
+// throttles disk and network; the utility class's cost against a default
+// program is unmeasured there (#2535).
 func terminalStart(spec Spec) ([]string, uintptr) {
 	if !spec.ShouldLeaveCoresForApps {
 		return spec.Args, 0
