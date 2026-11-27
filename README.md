@@ -159,7 +159,7 @@ See the [handoff command reference](docs/commands/handoff.md).
 Search looks through every level, and the page shows names and states, never a secret's value.
 
 <p align="center">
-  <img src="docs/images/connectors.webp" alt="Example Connectors page with its three levels and one missing project key under Needs a look, with a button to store it from the clipboard" width="1000" />
+  <img src="docs/images/connectors.webp" alt="Example Connectors page with its three levels and two cards under Needs a look, a missing project key and an unreachable MCP server, each with its actions and Remove at its foot" width="1000" />
   <br />
   <sub>Example workspace: check what each level can reach before a goblin needs it.</sub>
 </p>
