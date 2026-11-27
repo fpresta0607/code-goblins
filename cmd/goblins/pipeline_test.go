@@ -1164,9 +1164,7 @@ func TestPipelineMigrationRacingSwitchPreservesBothUpdates(t *testing.T) {
 	if err := os.MkdirAll(stub, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(stub, "codex.cmd"), []byte("@exit /b 1\r\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	putScriptShim(t, stub, "codex")
 	t.Setenv("PATH", stub+string(os.PathListSeparator)+os.Getenv("PATH"))
 	switchRunner := &pipelineSwitchRunner{statusReady: make(chan struct{}), statusRelease: make(chan struct{})}
 	// No host command is given, so the switch publishes the new harness and

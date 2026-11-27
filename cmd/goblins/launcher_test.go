@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/onboarding"
@@ -612,7 +613,13 @@ func TestGoblinsWaitsForItsOwnSupervisorHoldingTheAddress(t *testing.T) {
 		if err := writeBoardRecord(h.State, boardRecord{PID: fakeBoardPID, URL: board}); err != nil {
 			t.Fatal(err)
 		}
-		return nil, boardAddressTaken{address: "127.0.0.1:4310", cause: errors.New("bind: in use"), pid: fakeBoardPID, home: strings.ToUpper(h.Root)}
+		// Where the file system folds case, the holder names the home in
+		// other letters, which is still this home.
+		holderHome := h.Root
+		if fsx.FoldsCase(h.Root) {
+			holderHome = strings.ToUpper(h.Root)
+		}
+		return nil, boardAddressTaken{address: "127.0.0.1:4310", cause: errors.New("bind: in use"), pid: fakeBoardPID, home: holderHome}
 	})
 
 	// Act

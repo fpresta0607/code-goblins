@@ -85,3 +85,24 @@ func TestAGateTaskRejectsUnboundRunAndOwnerEvidence(t *testing.T) {
 		})
 	}
 }
+
+// A gate home whose worktrees\<repo> is a junction to a folder elsewhere, as
+// one moved to a Dev Drive is, reads its run from its own state database,
+// not from one beside the junction's target.
+func TestAGateRunBehindAJunctionNamesItsOwner(t *testing.T) {
+	// Arrange
+	elsewhere := t.TempDir()
+	project, gateRoot, worktree := gateTaskFixtureThrough(t, filepath.Join(elsewhere, "worktrees", "repo"), "cg-example")
+	if err := state.WriteTaskMeta(filepath.Join(os.Getenv("GOBLINS_HOME"), "state"), state.TaskMeta{ID: "cg-example", Project: project, Worktree: filepath.Join(project, ".worktrees", "gb-cg-example")}); err != nil {
+		t.Fatal(err)
+	}
+	writeGateSource(t, gateRoot, project, worktree, "feature")
+
+	// Act
+	task, err := gateTask(worktree, standIn())
+
+	// Assert
+	if task != "cg-example" || err != nil {
+		t.Fatalf("task=%q, err=%v; want cg-example from the gate home's own state database", task, err)
+	}
+}

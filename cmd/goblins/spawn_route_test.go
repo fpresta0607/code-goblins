@@ -578,9 +578,10 @@ func TestRunSpawnProjectManifestOverridesTheFleetTable(t *testing.T) {
 	}
 	got := captureSpawn(&deps, "spawned g14")
 	brief := briefWith(t, "Add a dark-mode toggle to the settings page.")
+	project := filepath.Join(t.TempDir(), "project")
 
 	var stdout, stderr bytes.Buffer
-	if exit := runWithRuntime([]string{"spawn", "g14", "--project", `C:\project`, "--brief", brief}, &stdout, &stderr, deps); exit != 0 {
+	if exit := runWithRuntime([]string{"spawn", "g14", "--project", project, "--brief", brief}, &stdout, &stderr, deps); exit != 0 {
 		t.Fatalf("exit = %d; stderr=%s", exit, stderr.String())
 	}
 	if string(got.Harness) != "pi" || got.Model != "open-model" || got.Effort != "low" {

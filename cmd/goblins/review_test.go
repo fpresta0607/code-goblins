@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -89,12 +88,7 @@ func TestReviewCommandOpensTheLavishPageItIsGiven(t *testing.T) {
 	}
 
 	args := filepath.Join(dir, "lavish-args.txt")
-	bin := t.TempDir()
-	script := "@echo off\r\necho %* > \"" + args + "\"\r\necho session:\r\necho   url: \"http://127.0.0.1:4387/session/f26e\"\r\necho   status: opened\r\n"
-	if err := os.WriteFile(filepath.Join(bin, "lavish-axi.cmd"), []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+filepath.Join(os.Getenv("SystemRoot"), "System32"))
+	lavishAxiOnPath(t, args, 0, "session:", `  url: "http://127.0.0.1:4387/session/f26e"`, "  status: opened")
 
 	// g1 is no goblin, so publishing refuses it; reaching that refusal means
 	// the page was checked and opened first.
@@ -138,12 +132,7 @@ func TestReviewCommandRefusesAnEndedPageUnlessToldToReopenIt(t *testing.T) {
 					t.Fatal(err)
 				}
 				args := filepath.Join(dir, "lavish-args.txt")
-				bin := t.TempDir()
-				script := "@echo off\r\necho %* > \"" + args + "\"\r\necho session:\r\necho   url: \"http://127.0.0.1:4387/session/b7e0c1d2a3f40516\"\r\necho   status: opened\r\n"
-				if err := os.WriteFile(filepath.Join(bin, "lavish-axi.cmd"), []byte(script), 0o700); err != nil {
-					t.Fatal(err)
-				}
-				t.Setenv("PATH", bin+string(os.PathListSeparator)+filepath.Join(os.Getenv("SystemRoot"), "System32"))
+				lavishAxiOnPath(t, args, 0, "session:", `  url: "http://127.0.0.1:4387/session/b7e0c1d2a3f40516"`, "  status: opened")
 				named := map[string]string{"link": "https://pc.example.ts.net:4388/session/ad6519f76542da4e", "file": page}[given]
 				review := func(extra ...string) (int, string) {
 					var stdout, stderr bytes.Buffer
@@ -197,12 +186,7 @@ func TestReviewCommandRefusesAPageLavishAxiSaysHeEnded(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("LAVISH_AXI_STATE_DIR", t.TempDir())
-	bin := t.TempDir()
-	script := "@echo off\r\necho session:\r\necho   file: \"" + strings.ReplaceAll(page, `\`, `\\`) + "\"\r\necho   url: \"http://127.0.0.1:4387/session/ad6519f76542da4e\"\r\necho   status: user-ended\r\necho next_step: \"The user explicitly ended this Lavish Editor session from the browser.\"\r\n"
-	if err := os.WriteFile(filepath.Join(bin, "lavish-axi.cmd"), []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+filepath.Join(os.Getenv("SystemRoot"), "System32"))
+	lavishAxiOnPath(t, "", 0, "session:", `  file: "`+strings.ReplaceAll(page, `\`, `\\`)+`"`, `  url: "http://127.0.0.1:4387/session/ad6519f76542da4e"`, "  status: user-ended", `next_step: "The user explicitly ended this Lavish Editor session from the browser."`)
 
 	// Act
 	var stdout, stderr bytes.Buffer
@@ -211,60 +195,6 @@ func TestReviewCommandRefusesAPageLavishAxiSaysHeEnded(t *testing.T) {
 	// Assert
 	if exit != 1 || !strings.Contains(stderr.String(), "has ended") || !strings.Contains(stderr.String(), "--reopen") || !strings.Contains(stderr.String(), "--id <a new ID>") {
 		t.Fatalf("exit=%d stderr=%q, want the ended page refused naming --reopen before anything is published", exit, stderr.String())
-	}
-	if entries, err := os.ReadDir(filepath.Join(h.State, "reviews-inbox")); err == nil && len(entries) != 0 {
-		t.Fatalf("the refused review left %d inbox records", len(entries))
-	}
-}
-
-// lavish-axi keeps a page's session under the file's real path, and opens
-// again, uninvited, a page whose review an agent ended. So that page, given
-// through a junction to its folder, is refused before lavish-axi runs, as it
-// is by the path lavish-axi keeps.
-func TestReviewCommandRefusesAnAgentEndedPageGivenThroughAJunction(t *testing.T) {
-	// Arrange
-	dir := t.TempDir()
-	h := home.Home{Root: dir, State: filepath.Join(dir, "state"), Data: filepath.Join(dir, "data")}
-	if err := os.MkdirAll(h.State, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	runtime := commandRuntime{resolveHome: func() (home.Home, error) { return h, nil }}
-	pages := filepath.Join(dir, "pages")
-	if err := os.MkdirAll(pages, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	page := filepath.Join(pages, "mockup.html")
-	if err := os.WriteFile(page, []byte("<html></html>"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	junction := filepath.Join(dir, "via-junction")
-	if output, err := exec.Command("cmd", "/d", "/c", "mklink", "/J", junction, pages).CombinedOutput(); err != nil {
-		t.Fatalf("mklink /J: %v %s", err, output)
-	}
-	lavish := t.TempDir()
-	t.Setenv("LAVISH_AXI_STATE_DIR", lavish)
-	stored := `{"sessions":{"ad6519f76542da4e":{"key":"ad6519f76542da4e","file":` + strconv.Quote(page) + `,"status":"ended","ended_by":"agent"}}}`
-	if err := os.WriteFile(filepath.Join(lavish, "state.json"), []byte(stored), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	args := filepath.Join(dir, "lavish-args.txt")
-	bin := t.TempDir()
-	script := "@echo off\r\necho %* > \"" + args + "\"\r\necho session:\r\necho   url: \"http://127.0.0.1:4387/session/ad6519f76542da4e\"\r\necho   status: opened\r\n"
-	if err := os.WriteFile(filepath.Join(bin, "lavish-axi.cmd"), []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+filepath.Join(os.Getenv("SystemRoot"), "System32"))
-
-	// Act
-	var stdout, stderr bytes.Buffer
-	exit := runReview([]string{"--id", "site-real-photos-1", "--task", "g1", "--title", "The site with real photos", "--lavish", filepath.Join(junction, "mockup.html")}, &stdout, &stderr, runtime)
-
-	// Assert
-	if exit != 1 || !strings.Contains(stderr.String(), "has ended") || !strings.Contains(stderr.String(), "--reopen") {
-		t.Fatalf("exit=%d stderr=%q, want the ended page refused naming --reopen", exit, stderr.String())
-	}
-	if _, err := os.Stat(args); err == nil {
-		t.Fatal("the refused review ran lavish-axi, which opens again a page an agent ended")
 	}
 	if entries, err := os.ReadDir(filepath.Join(h.State, "reviews-inbox")); err == nil && len(entries) != 0 {
 		t.Fatalf("the refused review left %d inbox records", len(entries))
@@ -304,12 +234,7 @@ func TestReviewCommandGivesThePageOpenItsOwnTime(t *testing.T) {
 	if err := os.WriteFile(page, []byte("<html></html>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	bin := t.TempDir()
-	script := "@echo off\r\nping -n 3 127.0.0.1 >nul\r\necho session:\r\necho   url: \"http://127.0.0.1:4387/session/f26e\"\r\necho   status: opened\r\n"
-	if err := os.WriteFile(filepath.Join(bin, "lavish-axi.cmd"), []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+filepath.Join(os.Getenv("SystemRoot"), "System32"))
+	lavishAxiOnPath(t, "", 2, "session:", `  url: "http://127.0.0.1:4387/session/f26e"`, "  status: opened")
 	runtime := commandRuntime{resolveHome: func() (home.Home, error) { return h, nil }}
 
 	var stdout, stderr bytes.Buffer

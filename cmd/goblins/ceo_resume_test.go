@@ -492,6 +492,7 @@ func TestAPiCEOComesBackOnItsOwnSessionOncePiHasWrittenIt(t *testing.T) {
 			f.agent = "pi"
 			userHome := t.TempDir()
 			t.Setenv("USERPROFILE", userHome)
+			t.Setenv("HOME", userHome)
 			if c.isSessionWritten {
 				writePiSession(t, userHome, "a1b2c3d4-session")
 			}

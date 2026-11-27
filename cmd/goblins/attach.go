@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -324,10 +325,11 @@ func environmentValue(env []string, name string) string {
 // nativeCEOProgram is the command line a native terminal starts harness with
 // as the CEO, as a native goblin's is: the program this process's PATH finds,
 // started by its path (spawn.NativeProgram), with codex and pi, which install
-// as npm script shims, run through cmd /c. Claude Code must be its native
-// build, claude.exe.
+// as npm script shims, run through cmd /c on Windows. There Claude Code must
+// be its native build, claude.exe; elsewhere the system runs a script as
+// itself, so any claude PATH finds starts.
 func nativeCEOProgram(harness string, args ...string) ([]string, error) {
-	if harness == "claude" {
+	if harness == "claude" && runtime.GOOS == "windows" {
 		path, err := exec.LookPath(harness)
 		if err != nil {
 			return nil, fmt.Errorf("%s is not on PATH: %w", harness, err)
