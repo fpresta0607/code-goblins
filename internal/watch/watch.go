@@ -23,6 +23,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/gatedb"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
@@ -197,7 +198,7 @@ func ConfigFromEnv(h home.Home) Config {
 			Herdr:  monitor.NewHerdrProber(&herdr.Client{Commands: execx.OSRunner{}, Session: session, Sockets: sockets}),
 			Native: monitor.NativeProber{StateDir: h.State},
 		},
-		Gate:         &monitor.RecentGateProber{Probe: monitor.ExecGateProber{}},
+		Gate:         &monitor.RecentGateProber{Probe: monitor.ExecGateProber{Commands: gatedb.Runner{Next: execx.OSRunner{}}, Line: verify.MachineLine}},
 		Progress:     transcripts,
 		Replies:      transcripts,
 		Polls:        monitor.ProcessPolls{StateDir: h.State, WorktreeRoots: h.WorktreeRoots()},

@@ -11,7 +11,10 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/pipeline/pipelinetest"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
 // A status call that exits but leaves a process holding its output pipe held
@@ -70,6 +73,52 @@ func TestExecGateProberAsksTheGateHomeTheUserNames(t *testing.T) {
 	}
 	if got, err := os.ReadFile(said); err != nil || string(got) != moved {
 		t.Errorf("the status call ran on NM_HOME %q (%v), want %s", got, err, moved)
+	}
+}
+
+// The prober reads a step's run and round from the status call, the heavy
+// line for that run, and the step's rounds on the task's own harness from the
+// database in the gate home the status call ran on (#2165).
+func TestExecGateProberReadsTheStepsEvidenceOnTheTasksHarness(t *testing.T) {
+	for harness, wantAllowance := range map[string]time.Duration{
+		"pi":     116 * time.Minute,
+		"claude": 10 * time.Minute,
+	} {
+		t.Run(harness, func(t *testing.T) {
+			// Arrange: a review 1h40m into its round whose agent has been
+			// thinking for 40 minutes, while its run holds a turn of the
+			// heavy line within budget.
+			fixture := newPollFixture(t)
+			fixture.standIn("no-mistakes.exe")
+			gateHome := fixture.dir("gate")
+			writeReviewRounds(t, gateHome)
+			pidFile := filepath.Join(fixture.root, "child.pid")
+			t.Setenv("PATH", fixture.bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+			t.Setenv("NM_HOME", gateHome)
+			t.Setenv("GOBLINS_POLL_STANDIN", "gate")
+			t.Setenv("GOBLINS_GATE_CHILD_PID", pidFile)
+			t.Setenv("GOBLINS_GATE_STATUS", "run:\n  id: \"01M7RUN\"\n  status: running\n  active_steps[1]{step,status,active_for,round_active_for,last_activity,agent_pid,round}:\n    review,running,1h40m,1h40m,\"quiet 40m0s ago: "+harness+" thinking\",\"48204\",starting\n")
+			now := time.Date(2026, 11, 7, 21, 0, 0, 0, time.UTC)
+			prober := ExecGateProber{
+				Commands: pipelinetest.FixtureCommands{Runner: execx.OSRunner{}},
+				Line: func() ([]verify.Standing, []verify.Standing, error) {
+					return []verify.Standing{{Who: `code-goblins at 514b8830, fast level, in C:\gate\worktrees\repo\01M7RUN`, Since: now.Add(-time.Hour), Budget: 90 * time.Minute}}, nil, nil
+				},
+				Now: func() time.Time { return now },
+			}
+
+			// Act
+			sample, err := prober.InspectGate(context.Background(), state.TaskMeta{Worktree: fixture.dir("work"), Harness: harness})
+			leftRunning(t, pidFile)
+
+			// Assert
+			if err != nil && !sample.Active {
+				t.Fatalf("InspectGate = %+v, %v; want the status it printed read", sample, err)
+			}
+			if sample.RunID != "01M7RUN" || sample.RoundFor != 100*time.Minute || !sample.IsMeasured || sample.Allowance != wantAllowance || !sample.MovedAt.Equal(now) || !sample.IsLineRead {
+				t.Fatalf("sample = %+v, want run 01M7RUN in a 1h40m round moved now by the heavy line, allowed %v on %s", sample, wantAllowance, harness)
+			}
+		})
 	}
 }
 
