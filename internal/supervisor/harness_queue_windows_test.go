@@ -1098,15 +1098,18 @@ func TestSendNowOnHisMessageTheBoardStillHoldsPressesNoKeyBehindACommandTypedInT
 // no command in that queue, and a second Send now of one already sent now is
 // no error, even once it has gone on its way. One that reads Not sent is still
 // the board's, so behind a command typed in the CEO's terminal its press names
-// that command. None of them types anything or presses a key.
+// that command, and it goes back in the queue, not sent now, with Send now
+// again: nothing else would type it, while the press says the CEO takes it at
+// its next tool call, or as its turn ends. None of them types anything or
+// presses a key.
 func TestSendNowReadsTheQueueAheadOfHisMessageOnlyWhileTheBoardHoldsIt(t *testing.T) {
 	for _, test := range []struct {
 		name, status, message, wantSays string
-		isSentNow                       bool
+		isSentNow, isQueuedAgain        bool
 	}{
 		{name: "one the CEO already took", status: "succeeded", wantSays: "The CEO already took it."},
 		{name: "one sent now that the CEO took since", status: "succeeded", isSentNow: true},
-		{name: "one that reads Not sent", status: "failed", message: "Not sent. It waited in the queue of the CEO's terminal, which ended or started again before taking it.", wantSays: `"/compact", a command the board did not type, waits ahead of this message in the CEO's queue, and its send-now key would run that command alone, so no key was pressed. It takes this message at its next tool call, or as its turn ends.`},
+		{name: "one that reads Not sent", status: "failed", message: "Not sent. It waited in the queue of the CEO's terminal, which ended or started again before taking it.", isQueuedAgain: true, wantSays: `"/compact", a command the board did not type, waits ahead of this message in the CEO's queue, and its send-now key would run that command alone, so no key was pressed. It takes this message at its next tool call, or as its turn ends.`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -1123,7 +1126,8 @@ func TestSendNowReadsTheQueueAheadOfHisMessageOnlyWhileTheBoardHoldsIt(t *testin
 			}
 			store.mu.Lock()
 			left := &store.db.Actions[slices.IndexFunc(store.db.Actions, func(a Action) bool { return a.ID == "m1" })]
-			left.Status, left.Message, left.IsSentNow = test.status, test.message, test.isSentNow
+			// As the try that ended it left it, with no Send now.
+			left.Status, left.Message, left.IsSentNow, left.CanSendNow = test.status, test.message, test.isSentNow, false
 			saved := store.save()
 			store.mu.Unlock()
 			if saved != nil {
@@ -1143,8 +1147,12 @@ func TestSendNowReadsTheQueueAheadOfHisMessageOnlyWhileTheBoardHoldsIt(t *testin
 			} else if says, _ := refusalOf(t, pressed); pressed.Code != 409 || says != test.wantSays {
 				t.Errorf("Send now = %d %s; want it refused, saying %q", pressed.Code, pressed.Body, test.wantSays)
 			}
-			if after.Status != before.Status || after.IsSentNow != before.IsSentNow || after.Message != before.Message {
-				t.Errorf("his message after the press = %+v; want it as it was, %+v", after, before)
+			want := before
+			if test.isQueuedAgain {
+				want.Status, want.Message, want.CanSendNow = "queued", "", true
+			}
+			if after.Status != want.Status || after.IsSentNow != want.IsSentNow || after.Message != want.Message || after.CanSendNow != want.CanSendNow {
+				t.Errorf("his message after the press = %+v; want %+v", after, want)
 			}
 			if input := terminal.lines(t); !slices.Equal(input[1:], []string{"queued /compact"}) {
 				t.Errorf("terminal input = %q; want nothing typed and no key pressed", input)

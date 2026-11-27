@@ -352,10 +352,13 @@ func commandAhead(id, task string, queued []fleettree.WaitingPrompt) error {
 // that command, and the message waits on the board as it did (commandAhead,
 // #2341). The mark an earlier Send now of it left (IsSentNow), where a try put
 // that one off, is taken back then, so the worker's next try types it with no
-// send-now key, its words and reason as they were. That queue is read only
-// while the board holds the message, queued or reading Not sent, so a press
-// on one the board let go says where it went, and a second Send now of one
-// already sent now is the same ask again.
+// send-now key, its words and reason as they were. One that reads Not sent
+// goes back in the queue then, not sent now, with Send now again, as
+// sendCommandFirst puts back a command that reads Not sent: nothing else
+// would type it, while the press says its session takes it. That queue is
+// read only while the board holds the message, queued or reading Not sent,
+// so a press on one the board let go says where it went, and a second Send
+// now of one already sent now is the same ask again.
 func (s *Service) sendQueuedNow(id, task string, queued func(Awaiting) []fleettree.WaitingPrompt) error {
 	s.Store.mu.Lock()
 	isBoardHeld := slices.ContainsFunc(s.Store.db.Actions, func(a Action) bool {
@@ -367,9 +370,13 @@ func (s *Service) sendQueuedNow(id, task string, queued func(Awaiting) []fleettr
 			var saveErr error
 			s.Store.mu.Lock()
 			if at := slices.IndexFunc(s.Store.db.Actions, func(a Action) bool {
-				return a.ID == id && a.TaskID == task && a.Kind == "message" && a.Status == "queued" && a.IsSentNow
+				return a.ID == id && a.TaskID == task && (isNotSent(a) || (a.Kind == "message" && a.Status == "queued" && a.IsSentNow))
 			}); at >= 0 {
-				s.Store.db.Actions[at].IsSentNow, s.Store.db.Actions[at].UpdatedAt = false, time.Now().UTC()
+				a := &s.Store.db.Actions[at]
+				if isNotSent(*a) {
+					a.Status, a.Message, a.CanSendNow, a.SendNowWhy, a.Awaiting, a.LeftTyped = "queued", "", true, "", nil, nil
+				}
+				a.IsSentNow, a.UpdatedAt = false, time.Now().UTC()
 				saveErr = s.Store.save()
 			}
 			s.Store.mu.Unlock()
