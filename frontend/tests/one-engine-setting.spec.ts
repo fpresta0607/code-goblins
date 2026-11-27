@@ -4,8 +4,8 @@ import { box, GOBLIN, NAME, open, openGoblin, PAGE, pasted, snapshot, typed } fr
 // A session has one record of its model and effort, a goblin's task record
 // and the CEO's engine record, and every view of the session shows that
 // record and nothing else: the tip of its card's harness mark, the model's
-// button in Modern Chat's box and the panel's Task view, a goblin's in the
-// line under its name and the CEO's in its Harness section (#2438) (the
+// button in Modern Chat's box and a goblin's Task view, in the line under its
+// name (#2438), where the CEO's names its harness alone (#2846) (the
 // Overlord, 2026-11-10: "The board tooltips are not in sync with
 // the model selected. Make sure model selected is in sync across terminal,
 // modern chat and in board. It all should be one standard setting,
@@ -110,7 +110,7 @@ test("a goblin switched to another harness and model shows them in every view, w
   await expect((await openTaskList(page)).getByText("Codex · GPT-6 Astra · medium", { exact: true })).toBeVisible();
 });
 
-test("the CEO's card, box and Task view show its engine record, and a model set in its terminal with no reload", async ({ page }, testInfo) => {
+test("the CEO's card and box show its engine record, and a model set in its terminal with no reload", async ({ page }, testInfo) => {
   // Arrange
   await open(page, snapshot({ ceo_engine: engine("claude", "claude-opus-5-5", "high") }), "", { ...PAGE, usage: USAGE });
   await page.route("**/api/engines", (route) => route.fulfill({ json: CATALOG }));
@@ -127,9 +127,4 @@ test("the CEO's card, box and Task view show its engine record, and a model set 
   await page.screenshot({ path: testInfo.outputPath("ceo-model.png") });
   const details = await openTaskList(page);
   await expect(details, "the CEO's details name no engine (#2438)").not.toContainText("Claude Code");
-  const harness = page.locator(".goblin-panel > .panel-task details.harness");
-  await harness.locator("> summary").click();
-  const selection = harness.getByRole("group", { name: "CEO engine" });
-  await expect(selection.getByRole("combobox", { name: "Model" })).toHaveValue("claude-fable-5-2");
-  await expect(selection.getByRole("combobox", { name: "Effort" })).toHaveValue("xhigh");
 });
