@@ -4,14 +4,16 @@ import { dropIndex, edgeScroll, moveTo, stepped } from "./priority";
 interface Point { x: number; y: number }
 // origin is where the list was on the screen when the drag began.
 interface Drag { id: string; node: HTMLElement; start: Point; startAt: Point; origin: Point; pointer: Point; moved: boolean }
-// A paged list's pager, and carry, which turns the page under a dragged card
-// and answers with the place the card takes on it, or null when there is no
-// such page.
-export interface PageTurn { pager: RefObject<HTMLElement | null>; carry: (step: -1 | 1) => number | null }
+// A paged list's pager; carry, which turns the page under a dragged card and
+// answers with the place the card takes on it, or null when there is no such
+// page; and stopSwipe, which ends a finger's swipe once it picks up a card.
+export interface PageTurn { pager: RefObject<HTMLElement | null>; carry: (step: -1 | 1) => number | null; stopSwipe: () => void }
 
 // How long a dragged card rests on a page arrow before the page turns, and
 // before it turns again.
 const ARROW_HOLD = 600;
+// How long a finger rests on a card before the card lifts to be dragged.
+const LIFT_HOLD = 300;
 const ITEMS = ":scope > [data-sort-id]";
 const same = (a: string[], b: string[]) => a.length === b.length && a.every((id, index) => b[index] === id);
 // Where the list lays a card out, apart from any transform on it.
@@ -34,13 +36,14 @@ function edgesOf(scroller: Element): { top: number; bottom: number } {
 // A list whose cards the Overlord orders by dragging, or with Alt and an
 // arrow key on a focused card. While a card is dragged the others make room
 // and slide to their new places; onOrder gets the order it was dropped in.
-// A mouse or pen drags a card from anywhere on it, and a finger from its rank,
-// so a finger on the rest of the card still scrolls the page. A card reaches
-// any place in its list: held at the top or bottom edge of what scrolls the
-// list, it waits while the list scrolls under it, and held over a page arrow
-// it turns the page and goes with it. A list shown a page at a time renders
-// its cards from offset on, and a drag places a card among them; listRef is
-// the list the cards are the children of.
+// A mouse or pen drags a card from anywhere on it. A finger drags it from its
+// rank at once, and from anywhere else on it once it has rested there until
+// the card lifts, so a finger that moves sooner still scrolls the page. A card
+// reaches any place in its list: held at the top or bottom edge of what
+// scrolls the list, it waits while the list scrolls under it, and held over a
+// page arrow it turns the page and goes with it. A list shown a page at a
+// time renders its cards from offset on, and a drag places a card among them;
+// listRef is the list the cards are the children of.
 export function useSortable(ids: string[], onOrder: (order: string[], moved: string) => void, offset: number, listRef: RefObject<HTMLDivElement | null>, pages: PageTurn) {
   const [preview, setPreview] = useState<string[] | null>(null);
   const order = preview ?? ids;
@@ -54,6 +57,18 @@ export function useSortable(ids: string[], onOrder: (order: string[], moved: str
   // Ends a drag in progress; a list that goes away mid-drag ends its drag.
   const release = useRef<(() => void) | null>(null);
   useEffect(() => () => release.current?.(), []);
+  // A lifted card holds the page still under the finger that carries it. Only
+  // a listener in place before the finger comes down can stop the page
+  // scrolling, so the list keeps one for as long as it is shown.
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const hold = (event: TouchEvent) => {
+      if (drag.current?.moved && event.cancelable) event.preventDefault();
+    };
+    list.addEventListener("touchmove", hold, { passive: false });
+    return () => list.removeEventListener("touchmove", hold);
+  }, [listRef]);
 
   // The dragged card follows the pointer from wherever the list lays it out
   // and wherever the list has scrolled to.
@@ -94,7 +109,9 @@ export function useSortable(ids: string[], onOrder: (order: string[], moved: str
     const target = event.target as HTMLElement;
     const control = target.closest("a, button, input, textarea");
     if (!list || event.button !== 0 || shown.current.length < 2 || control && !control.classList.contains("task-card")) return;
-    if (event.pointerType === "touch" && !target.closest(".rank")) return;
+    // A finger lifts a card it rests on, and picks one up at once by moving
+    // from its rank; from anywhere else, a finger that moves first scrolls.
+    const isFinger = event.pointerType === "touch", isOnRank = !!target.closest(".rank");
     const node = event.currentTarget;
     const id = node.dataset.sortId || "";
     const start = { x: event.clientX, y: event.clientY };
@@ -102,7 +119,17 @@ export function useSortable(ids: string[], onOrder: (order: string[], moved: str
     const dragged: Drag = { id, node, start, startAt: at(node), origin: { x: origin.left, y: origin.top }, pointer: start, moved: false };
     drag.current = dragged;
     const scroller = scrollerOf(list);
-    let scrolling = 0, turning = 0, held: -1 | 0 | 1 = 0;
+    let scrolling = 0, turning = 0, lifting = 0, held: -1 | 0 | 1 = 0;
+    // Picks the card up: it follows the pointer from here, and a finger that
+    // carries it swipes no page.
+    const lift = () => {
+      clearTimeout(lifting);
+      dragged.moved = true;
+      node.classList.add("dragging");
+      list.classList.add("sorting");
+      live.current.pages.stopSwipe();
+      place();
+    };
     // Puts the card among the others where the pointer holds it.
     const settle = () => {
       const others = [...list.querySelectorAll<HTMLElement>(ITEMS)].filter((other) => other !== node);
@@ -155,9 +182,11 @@ export function useSortable(ids: string[], onOrder: (order: string[], moved: str
       dragged.pointer = { x: next.clientX, y: next.clientY };
       if (!dragged.moved) {
         if (Math.hypot(next.clientX - start.x, next.clientY - start.y) < 5) return;
-        dragged.moved = true;
-        node.classList.add("dragging");
-        list.classList.add("sorting");
+        if (isFinger && !isOnRank) {
+          cancel();
+          return;
+        }
+        lift();
       }
       next.preventDefault();
       settle();
@@ -171,6 +200,7 @@ export function useSortable(ids: string[], onOrder: (order: string[], moved: str
       window.removeEventListener("pointercancel", cancel);
       cancelAnimationFrame(scrolling);
       clearTimeout(turning);
+      clearTimeout(lifting);
       release.current = null;
     };
     // A gesture the browser or system cancels puts the card back.
@@ -206,6 +236,7 @@ export function useSortable(ids: string[], onOrder: (order: string[], moved: str
     window.addEventListener("pointerup", up);
     window.addEventListener("pointercancel", cancel);
     release.current = cancel;
+    if (isFinger) lifting = window.setTimeout(lift, LIFT_HOLD);
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
