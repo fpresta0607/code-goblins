@@ -212,7 +212,7 @@ func ReadCEOEngine(stateDir string) (CEOEngine, error) {
 	}
 	harnesses := []string{"claude", "codex", "pi"}
 	if !slices.Contains(harnesses, choice.Harness) || !engineValue(choice.Model) || choice.Effort != "default" && !engineValue(choice.Effort) || (choice.Overridden != "" && !slices.Contains(harnesses, choice.Overridden)) {
-		return CEOEngine{}, fmt.Errorf("the CEO's selected engine in %s names no harness, model and effort the fleet can start: choose the CEO's engine again on the board, or delete it", path)
+		return CEOEngine{}, fmt.Errorf("the CEO's selected engine in %s names no harness, model and effort the fleet can start: delete it", path)
 	}
 	return choice, nil
 }
