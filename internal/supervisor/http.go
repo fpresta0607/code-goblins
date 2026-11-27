@@ -609,7 +609,7 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 	if a.Kind == "message_now" {
 		// One its harness holds in its own queue goes by that harness's
 		// send-now key (#2332).
-		if isHeld, err := h.Service.sendHeldNow(a.Target, a.TaskID); isHeld {
+		if isHeld, err := h.Service.sendHeldNow(a.Target, a.TaskID, h.queueRecord(r.Context())); isHeld {
 			if err != nil {
 				apiError(w, 409, err.Error())
 				return
@@ -642,7 +642,7 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 	// takes it back out of that queue (#2332). A refusal that lasts for as
 	// long as that queue stays as it is says so (#2340).
 	if a.Kind == "message_withdraw" && a.Target != "" {
-		if withdrawn, isHeld, err := h.Service.takeBackHeld(a); isHeld {
+		if withdrawn, isHeld, err := h.Service.takeBackHeld(a, h.queueRecord(r.Context())); isHeld {
 			h.Service.wakeActions()
 			h.Service.publish(nil)
 			if err != nil {

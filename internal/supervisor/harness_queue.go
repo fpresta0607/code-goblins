@@ -3,9 +3,12 @@ package supervisor
 import (
 	"context"
 	"errors"
+	"net/url"
 	"slices"
+	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
@@ -182,14 +185,18 @@ func (s *Store) sentHeldNow(id, task string) error {
 // to a turn under way over an empty prompt line that, where its harness says
 // so, still offers its queue: a harness that is taking the message, or has,
 // is left alone, since the key would then interrupt the turn that reads it.
-func (s *Service) sendHeldNow(id, task string) (bool, error) {
+// Nor does Claude Code's key go while a command that no board message typed
+// waits ahead of the message, as queued reads that queue in its session's
+// record (#2341): that key runs such a command alone, as a turn of its own,
+// and leaves the lines behind it queued.
+func (s *Service) sendHeldNow(id, task string, queued func(Awaiting) []fleettree.WaitingPrompt) (bool, error) {
 	held := s.Store.heldWith(id, task)
 	at := slices.IndexFunc(held, func(a Action) bool { return a.ID == id })
 	if at < 0 {
 		return false, nil
 	}
 	waiting := *held[at].Awaiting
-	_, subject := whoHolds(task)
+	who, subject := whoHolds(task)
 	record, screens, isLive := s.deliveryTerminal(waiting)
 	switch {
 	case !isLive:
@@ -219,6 +226,11 @@ func (s *Service) sendHeldNow(id, task string) (bool, error) {
 	case screens.Queued != nil && !screens.OffersQueue(rows):
 		return true, nil
 	}
+	if screens.SendNowRunsCommand {
+		if command := commandAhead(id, queued(waiting)); command != "" {
+			return true, errors.New(command + ", a command the board did not type, waits ahead of this message in " + who + "'s queue, and its send-now key would run that command alone, so no key was pressed. It takes this message at its next tool call, or as its turn ends.")
+		}
+	}
 	client, err := host.Dial(record)
 	if err != nil {
 		return true, errors.New(subject + "'s terminal does not answer, so its send-now key was not pressed.")
@@ -247,8 +259,11 @@ type lastingRefusal struct{ error }
 // and his press can land before the board's next look at its session's
 // record, so the board looks first: that message then reads delivered on
 // every board, the press says its session took it, and no key goes to a
-// session for a queue it no longer holds (#1915).
-func (s *Service) takeBackHeld(withdraw Action) (Action, bool, error) {
+// session for a queue it no longer holds (#1915). Nor does one go to a queue
+// that also holds a line the board did not type, as queued reads it in its
+// session's record, which its key would give back with the board's lines
+// (unrecordedLine, #2341).
+func (s *Service) takeBackHeld(withdraw Action, queued func(Awaiting) []fleettree.WaitingPrompt) (Action, bool, error) {
 	if len(s.Store.heldWith(withdraw.Target, withdraw.TaskID)) > 0 {
 		if err := s.Store.settleDeliveries(time.Now().UTC(), s.lookAtTerminal); err != nil {
 			return Action{}, true, err
@@ -276,11 +291,88 @@ func (s *Service) takeBackHeld(withdraw Action) (Action, bool, error) {
 		s.Options.CEO.typing.Lock()
 		defer s.Options.CEO.typing.Unlock()
 	}
+	if line := s.unrecordedLine(withdraw.TaskID, queued(first)); line != "" {
+		return Action{}, true, lastingRefusal{errors.New(subject + "'s queue also holds " + line + ", so this message cannot be taken back alone. It takes it at its next tool call, or as its turn ends.")}
+	}
 	if err := s.takeQueueBack(held, withdraw.TaskID, record, screens); err != nil {
 		return Action{}, true, err
 	}
 	withdrawn, err := s.Store.withdrawTakenBack(withdraw, held)
 	return withdrawn, true, err
+}
+
+// unrecordedLine names a line in the queue of the harness of task's session
+// that no board message typed: the first line in queued, that queue as its
+// session's record shows it, that names no board message (namedWaiting), as
+// one typed in its terminal, or else a notice told to the CEO or a message
+// goblins send typed into a goblin's turn, which that record may not show yet
+// (holdsUnrecorded). It is empty when the queue holds none.
+func (s *Service) unrecordedLine(task string, queued []fleettree.WaitingPrompt) string {
+	if at := slices.IndexFunc(queued, func(prompt fleettree.WaitingPrompt) bool { return !prompt.IsSending && prompt.Action == "" }); at >= 0 {
+		return quotedLine(queued[at].Text) + ", which the board did not type"
+	}
+	switch {
+	case !s.Store.holdsUnrecorded(task):
+		return ""
+	case task == "":
+		return "a notice the supervisor told it"
+	}
+	return "a message goblins send typed there"
+}
+
+// commandAhead returns, quoted, a slash command that waits ahead of message id
+// in queued, a harness's queue as its session's record shows it, and that no
+// board message typed; empty when none does. Every line of a queue whose
+// record does not show the message yet is ahead of it.
+func commandAhead(id string, queued []fleettree.WaitingPrompt) string {
+	ahead := queued
+	if at := slices.IndexFunc(queued, func(prompt fleettree.WaitingPrompt) bool { return prompt.Action == id }); at >= 0 {
+		ahead = queued[:at]
+	}
+	for _, prompt := range ahead {
+		if command, isCommand := fleettree.TypedCommand(prompt.Text); isCommand && !prompt.IsSending && prompt.Action == "" {
+			return quotedLine(command)
+		}
+	}
+	return ""
+}
+
+// quotedLine is a line of a queue as a press names it: in quotes, on one line,
+// and cut short past 80 bytes.
+func quotedLine(text string) string {
+	return `"` + bounded(strings.Join(strings.Fields(text), " "), 80) + `"`
+}
+
+// queueRecord reads the queue of the harness of the session a delivery went
+// into as the record the board reads that session's messages from shows it
+// (messagesLocator): each line waiting there, named with the board message
+// that typed it, if any (namedWaiting). Claude Code records its queue there
+// and Codex and pi do not, so theirs reads empty, as does one whose record
+// cannot be read or is not the conversation the session writes now: a press
+// on a message in that queue then goes on as its screen allows.
+func (h *HTTP) queueRecord(ctx context.Context) func(Awaiting) []fleettree.WaitingPrompt {
+	return func(typed Awaiting) []fleettree.WaitingPrompt {
+		if h.Service.Options.Tree == nil {
+			return nil
+		}
+		query := url.Values{"ceo": {typed.Host}}
+		if typed.Task != "" {
+			query = url.Values{"task": {typed.Task}, "generation": {typed.Generation}}
+		}
+		locate, err := h.messagesLocator(ctx, query)
+		if err != nil {
+			return nil
+		}
+		session, err := locate()
+		if err != nil || session.Path == "" || session.Stale != "" {
+			return nil
+		}
+		page, _, err := h.messagePage(session.Path, -1, typed.Task)
+		if err != nil {
+			return nil
+		}
+		return page.Waiting
+	}
 }
 
 // takeQueueBack takes held, every delivery the board typed into the queue of
