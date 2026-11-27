@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type PointerEvent, type ReactNode, type RefObject } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { Task } from "./types";
 import { message, request } from "./api";
 import { object } from "./types";
@@ -72,18 +72,12 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
       fit.show(fitKey(moved, before));
     }
   };
-  const { order, onPointerDown, onKeyDown, onClickCapture } = useSortable(listed.map((task) => task.id), (next, moved) => void save(next, moved), fit.start, listRef, { pager: pagerRef, carry: fit.carry });
+  const { order, onPointerDown, onKeyDown, onClickCapture } = useSortable(listed.map((task) => task.id), (next, moved) => void save(next, moved), fit.start, listRef, { pager: pagerRef, carry: fit.carry, stopSwipe: fit.onPointerCancel });
   const shown = order.map((id) => listed.find((task) => task.id === id)).filter((task): task is Task => !!task);
   const isNumbered = list !== "paused";
   const rank = (index: number) => isNumbered && <span className="rank" aria-hidden="true">{index + 1}</span>;
-  // A finger on a card's rank drags the card, so only a swipe elsewhere turns
-  // the page.
-  const onFramePointerDown = (event: PointerEvent<HTMLDivElement>) => {
-    if ((event.target as HTMLElement).closest(".rank")) fit.onPointerCancel();
-    else fit.onPointerDown(event);
-  };
   return <>
-    <div ref={frameRef} className="fit-list" onPointerDown={onFramePointerDown} onPointerUp={fit.onPointerUp} onPointerCancel={fit.onPointerCancel}>
+    <div ref={frameRef} className="fit-list" onPointerDown={fit.onPointerDown} onPointerUp={fit.onPointerUp} onPointerCancel={fit.onPointerCancel}>
       <div ref={listRef} className={"task-cards ranked" + (isNumbered ? " numbered" : "") + (list === "progress" ? " unpaged" : "")}>
         {shown.slice(fit.start, fit.end).map((task, at) => { const index = fit.start + at; return <div key={task.id} className="ranked-item" data-sort-id={task.id} data-fit-key={fitKey(task.id, index)} onPointerDown={onPointerDown} onKeyDown={onKeyDown} onClickCapture={onClickCapture}>
           {rank(index)}
