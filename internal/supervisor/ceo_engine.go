@@ -212,7 +212,7 @@ func ReadCEOEngine(stateDir string) (CEOEngine, error) {
 	}
 	harnesses := []string{"claude", "codex", "pi"}
 	if !slices.Contains(harnesses, choice.Harness) || !engineValue(choice.Model) || choice.Effort != "default" && !engineValue(choice.Effort) || (choice.Overridden != "" && !slices.Contains(harnesses, choice.Overridden)) {
-		return CEOEngine{}, fmt.Errorf("the CEO's selected engine in %s names no harness, model and effort the fleet can start: choose the CEO's engine again on the board, or delete it", path)
+		return CEOEngine{}, fmt.Errorf("the CEO's selected engine in %s names no harness, model and effort the fleet can start: delete it", path)
 	}
 	return choice, nil
 }
@@ -226,13 +226,13 @@ func engineValue(value string) bool {
 
 // NoteCEOEngineOverridden records that the CEO started as started rather than
 // as the harness its saved selection names, which a start with an explicit
-// harness does and which the board reports beside the selection, and keeps
-// started as the harness a later start that names none runs, so a harness
-// Update or goblins resume brings the CEO back on its own conversation. The
-// selection stays saved until the CEO that started names the engine it runs,
-// which the record then holds in its place (keepCEOEngine), so a CEO started
-// as the selection's own harness before then runs it. Nothing is written
-// when it already names started or when no selection is saved.
+// harness does, and keeps started as the harness a later start that names
+// none runs, so a harness Update or goblins resume brings the CEO back on its
+// own conversation. The selection stays saved until the CEO that started
+// names the engine it runs, which the record then holds in its place
+// (keepCEOEngine), so a CEO started as the selection's own harness before
+// then runs it. Nothing is written when it already names started or when no
+// selection is saved.
 func NoteCEOEngineOverridden(stateDir, started string) error {
 	choice, err := ReadCEOEngine(stateDir)
 	if err != nil {
