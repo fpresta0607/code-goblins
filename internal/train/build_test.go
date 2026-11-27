@@ -177,6 +177,42 @@ func TestStartWithEveryRiderInConflictStopsWithoutCI(t *testing.T) {
 	}
 }
 
+// A train named by the second it started took the record and the branch of
+// one started earlier in that second: on Linux a train that stopped at once
+// and the next train started within one second, and the stopped train's
+// record was gone.
+func TestATrainStartedInTheSecondAnotherStartedKeepsBothRecords(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	s := newScratch(t)
+	gh := newFakeGitHub(s)
+	clash := gh.open(41, "feat/clash", s.branch("feat/clash", "README.md", "clash\n"))
+	s.advanceMain("README.md", "moved\n")
+	clashing, _ := Riders([]PullRequest{clash}, "main", fleetAccount, goblinsFor(clash), nil)
+	engine := s.engine(gh)
+	stopped, err := engine.Start(context.Background(), s.repository(), clashing)
+	if err != nil || stopped.State != StateStopped {
+		t.Fatalf("first train = %+v, %v, want stopped at once", stopped, err)
+	}
+	clean := gh.open(42, "feat/clean", s.branch("feat/clean", "clean.txt", "clean\n"))
+	riders, _ := Riders([]PullRequest{clean}, "main", fleetAccount, goblinsFor(clean), nil)
+
+	// Act
+	started, err := engine.Start(context.Background(), s.repository(), riders)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if started.ID == stopped.ID || started.Branch == stopped.Branch {
+		t.Fatalf("second train %s on %s, want a name apart from the first's %s on %s", started.ID, started.Branch, stopped.ID, stopped.Branch)
+	}
+	trains, err := List(s.state)
+	if err != nil || len(trains) != 2 {
+		t.Fatalf("trains = %+v, %v, want the stopped train and the started one", trains, err)
+	}
+}
+
 func TestNewPullRequestGetsItsCIWindowAfterPublicationRecovery(t *testing.T) {
 	for _, isCreationAcknowledgementLost := range []bool{false, true} {
 		t.Run(map[bool]string{false: "creation succeeds", true: "creation acknowledgement lost"}[isCreationAcknowledgementLost], func(t *testing.T) {

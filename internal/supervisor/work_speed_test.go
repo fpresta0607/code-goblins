@@ -390,7 +390,7 @@ func newToolCallGoblin(t *testing.T, now time.Time) *toolCallGoblin {
 	service, h := fleetService(t)
 	liveGoblin(t, h, "slow-task", h.Root)
 	launched := now.Add(-time.Hour)
-	data, err := json.Marshal(host.Record{ID: "slow-task", HostPID: os.Getpid(), ChildPID: 100, ChildStart: launched, Started: launched, Pipe: "fixture", Token: "fixture"})
+	data, err := json.Marshal(host.Record{ID: "slow-task", HostPID: os.Getpid(), HostInstance: thisHostInstance(t), ChildPID: 100, ChildStart: launched, Started: launched, Pipe: "fixture", Token: "fixture"})
 	if err != nil {
 		t.Fatal(err)
 	}

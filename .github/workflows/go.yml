@@ -620,11 +620,12 @@ jobs:
         run: |
           except=$(go list $EXCEPT)
           packages=$(go list ./... | grep -vxF "$except")
+          skip="^($(grep -v '^#' <<< "$SKIP" | paste -sd '|'))\$"
           # tools/citest runs go test -count=1 on the packages, and runs a
           # test that failed once more, by its name, as the go jobs do.
           citest="$RUNNER_TEMP/citest"
           go build -o "$citest" ./tools/citest
-          "$citest" -job linux -record "$RUNNER_TEMP/failed-once.jsonl" -timeout 20m $packages
+          "$citest" -job linux -record "$RUNNER_TEMP/failed-once.jsonl" "-skip=$skip" -timeout 20m $packages
         env:
           # The packages whose tests wait on a later layer of the port: 3
           # brings process trees, file replacements and the home, 4
@@ -648,10 +649,87 @@ jobs:
             ./internal/pipeline
             ./internal/sandbox
             ./internal/startwatch
-            ./internal/supervisor
             ./internal/update
             ./internal/voice
             ./internal/watch
+          # The tests of a package off EXCEPT that still wait on a later
+          # layer, by name, one group a layer: each layer's pull request
+          # deletes its group as it lands.
+          SKIP: |
+            # Layer 6, watching and readings: the browser sign-in, the memory
+            # readings and the process listing.
+            TestABoardHearsACEORecordGoStaleWhileItsSessionStands
+            TestABrowserIsLentOnTheProjectsOwnLoginHeadlessAndReachingOnlyItsProvidersHosts
+            TestACEOsRecordThatNamesAConversationItNeverWroteIsReported
+            TestACardFetchMeetingASignInLeavesHisSignInCardToSaySo
+            TestACardFetchThatStoppedSaysWhyOnTheCard
+            TestAFetchCarriesOnByItselfOnceHeSignsIn
+            TestAFetchCarriesOnOnceASignInWindowAsSlowToGoAsOnThisMachineIsGone
+            TestAFetchCarryingOnAfterHisSignInShowsOnTheCardAsRunning
+            TestAFetchInTheGoblinsOwnBrowserLiftsItsSealWhenTheReadFails
+            TestAFetchInTheGoblinsOwnBrowserSealsItOnlyWhileItReads
+            TestAFetchLeavesNamesTheRecipeDoesNotReadOrTheVaultHoldsForTheCard
+            TestAFetchMeetingASignInPageFilesHisCardAndClosesItsBrowser
+            TestAFetchMeetingASignInPageRecordsItsLoginSignedOut
+            TestAFetchReadsOnTheAccountTheProjectNames
+            TestAFetchRefusesWhatItMustNotReadAndStoresNothing
+            TestAFetchStoresTheRequestsKeysInTheVaultAndAnswersOnlyTheirNames
+            TestAFetchThatStoppedAfterHisSignInSaysWhyOnTheCard
+            TestAGoblinWithNoBrowserSealCanStillFetch
+            TestAGoblinsConnectionsListTheLoginsItsProjectMayUse
+            TestALoginCannotBeLentAgainWhenItsBrowserDidNotClose
+            TestALoginLentToOneTaskIsRefusedToAnotherUntilItIsGivenBack
+            TestALoginThatSignsOutAfterEachFetchEndsTheSessionOnceAnUnconfirmedCloseIsGone
+            TestALoginThatSignsOutAfterEachFetchEndsTheSessionWhenTheLentBrowserItReadInCloses
+            TestALoginThatSignsOutAfterEachFetchKeepsNoSession
+            TestALoginWhoseBrowserIsStillClosingIsLentOnlyOnceItIsGone
+            TestALoginWhoseChromeExitedIsClosedBeforeItIsLentAgain
+            TestALoginWhoseCloseWasUnconfirmedIsLentAgainOnceItsChromeIsGone
+            TestARecoveryCycleKeepsTheCEOOnTheLiveConversation
+            TestAStoppingBrokerEndsItsProcessesEvenWhenTheRegistryCannotBeRead
+            TestAStoppingSupervisorClosesItsBrowsersAndLendsNoMore
+            TestBrowserAttachRequiresItsDeclaredServicesEffectiveGrant
+            TestBrowserFailedRegistrySaveRetainsFailedCleanupOwnership
+            TestBrowserFailedStartupRetainsAnUnclosedReturnedProcess
+            TestBrowserLaunchCannotLendAfterCancellationRevocationOrTaskReplacement
+            TestBrowserRevocationStopsRenewalAndSweepClosesButReleaseStillWorks
+            TestBrowserShutdownReportsUnconfirmedCleanupAndRetainsOwnership
+            TestBrowserSignInClickBoundsTheWindowLifetime
+            TestBrowserSignInDoesNotOpenTwiceAfterAStartupSaveFailure
+            TestBrowserSignInFailedStartupKeepsItsUnclosedWindowFenced
+            TestBrowserSignInLookThatRunsOutOfTimeLeavesTheWindowOpen
+            TestBrowserSignInOpenRequiresALocalCurrentClick
+            TestBrowserSignInPageFailureClosesItsWindowWithoutPublishingPageText
+            TestBrowserSignInRespectsAnotherTasksBrowserAndCard
+            TestBrowserSignInRevokedGrantRefusesTheClickAndClosesAnOpenWindow
+            TestBrowserSignInSuccessfulCloseSurvivesACardSaveFailure
+            TestBrowserSignInWindowCanBeRetriedAfterItCloses
+            TestBrowserSignInWindowEndsWhenItsTaskIsReplaced
+            TestBrowserSignInWindowOpensOnlyForLocalClickAndCompletes
+            TestBrowserSignInWindowStartingWhileItsTaskChangesIsNotKept
+            TestBrowserSignInWindowWhoseCloseFailsStaysFencedAndIsReportedOnce
+            TestEachProjectGetsALoginOfItsOwn
+            TestGivingABrowserBackClosesItAndRecordsTheLoginUsed
+            TestNamingAnotherProjectsAccountReachesItsLoginOnlyOnceThatProjectNamesIt
+            TestNoTaskBorrowsALoginWhileAFetchDrivesIt
+            TestProjectsNamingOneAccountShareItsLoginAndOthersKeepTheirOwn
+            TestSignOutAndForgetAreRefusedWhereTheyMustNotAct
+            TestSignOutEndsTheSessionAndKeepsTheLoginWhileForgetDropsIt
+            TestTheBoardsDevToolsRouteAnswersOnlyTheOwnersProcesses
+            TestTheCEOsConversationRecordFollowsTheLiveSession
+            TestTheCardsFetchStoresTheKeysOnHisClickOnThisPC
+            TestTheHeavyLineReadsOnlyTheSlotsHoldersAsItsHolders
+            TestTheMachinesHeavyLineIsReadFromItsAdmissionStore
+            TestTheMachinesHeavyLineWeighsTheDockerOfTheRunAtItsHead
+            TestTheSameTaskAskingAgainKeepsItsBrowserAndRenewsItsLease
+            TestTheSweepClosesABrowserPastItsLeaseOrWhoseTaskLeft
+            TestTheSweepKeepsABrowserInUseAndForgetsOneAStoppedSupervisorLeft
+            # Layer 7, end to end: folders opened with xdg-open, and the shell
+            # without Windows PowerShell.
+            TestOpenCardPathOpensAPathNamedInAnotherCase
+            TestOpenCardPathOpensFileExplorerAtAPathTheCardNames
+            TestOpenCardPathRefusesANamedPathThatCannotOpen
+            TestRunShellPathFindsExactlyTheNamedShell
           GOBLINS_HOME: ${{ runner.temp }}/ceo-go-tests
           GOBLINS_STATE_OVERRIDE: ${{ runner.temp }}/ceo-go-tests/state
       - name: Keep the record of each test that failed once

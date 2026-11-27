@@ -29,7 +29,7 @@ func hostedGoblin(t *testing.T, h home.Home, id string, started time.Time) state
 	if err := state.WriteTaskMeta(h.State, meta); err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(host.Record{ID: id, HostPID: os.Getpid(), Started: started, Pipe: "fixture", Token: "fixture"})
+	data, err := json.Marshal(host.Record{ID: id, HostPID: os.Getpid(), HostInstance: thisHostInstance(t), Started: started, Pipe: "fixture", Token: "fixture"})
 	if err != nil {
 		t.Fatal(err)
 	}

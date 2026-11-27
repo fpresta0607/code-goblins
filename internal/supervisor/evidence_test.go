@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/githubtest"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -475,8 +476,8 @@ func TestCompletedColumnSkipsARecordWrittenBeforeTheWindow(t *testing.T) {
 func TestMergedPullRequestsJoinTheTaskThatReportedThem(t *testing.T) {
 	at := time.Date(2026, 9, 23, 16, 0, 0, 0, time.UTC)
 	history := withMergedPRs([]Task{{ID: "finished:a", Title: "a", Archived: true, Evaluation: Evaluation{Phase: "done", PR: "https://example/pr/1", At: at}}}, []MergedPR{
-		{PR: "https://example/pr/1", Branch: "fix/a", Project: `C:\dev\code-goblins`, At: at.Unix()},
-		{PR: "https://example/pr/2", Branch: "fix/b", Project: `C:\dev\code-goblins`, At: at.Add(time.Hour).Unix()},
+		{PR: "https://example/pr/1", Branch: "fix/a", Project: filepath.Join(t.TempDir(), "code-goblins"), At: at.Unix()},
+		{PR: "https://example/pr/2", Branch: "fix/b", Project: filepath.Join(t.TempDir(), "code-goblins"), At: at.Add(time.Hour).Unix()},
 	})
 	if len(history) != 2 || history[0].ID != "merged:https://example/pr/2" || history[0].Branch != "fix/b" || history[0].Title == "fix/b" || history[0].Project != "code-goblins" || !history[0].Merged {
 		t.Fatalf("history = %+v, want the unclaimed merge first as its own entry", history)
@@ -525,6 +526,12 @@ func TestQueuedBriefsAskTheDiskOnlyAboutFoldersNothingStarted(t *testing.T) {
 	// ID with a dot.
 	dir := t.TempDir()
 	h := home.Home{Root: dir, State: filepath.Join(dir, "state"), Data: filepath.Join(dir, "data")}
+	// The running task's record is spelled in another case where the file
+	// system ignores case, which the listing must equate with its folder.
+	liveMeta := "live.meta"
+	if fsx.FoldsCase(dir) {
+		liveMeta = "Live.meta"
+	}
 	for _, path := range []string{
 		filepath.Join(h.Data, "queued", "brief.md"),
 		filepath.Join(h.Data, "notes-only", "report.md"),
@@ -532,7 +539,7 @@ func TestQueuedBriefsAskTheDiskOnlyAboutFoldersNothingStarted(t *testing.T) {
 		filepath.Join(h.Data, "cleaned", "brief.md"),
 		filepath.Join(h.Data, "archived", "brief.md"),
 		filepath.Join(h.Data, "fix.v2", "brief.md"),
-		filepath.Join(h.State, "Live.meta"),
+		filepath.Join(h.State, liveMeta),
 		filepath.Join(h.State, "cleaned.status"),
 		filepath.Join(h.State, state.ArchiveDirName, "archived.20260920T000000Z", "handoff.md"),
 		filepath.Join(h.State, state.ArchiveDirName, "fix.v2.status.20260920T000000Z"),
